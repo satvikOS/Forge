@@ -131,28 +131,30 @@ function isValidEdgeList(out) {
 }
 
 /**
- * Project a body to a 2D outline. Always returns a result with .edges
- * (never throws — kernel failures degrade to a synthetic outline so the
- * sheet renders).
+ * Project a body to a 2D outline. Returns kernel result with .edges, or
+ * an empty edge list + .error when the native projection cannot run
+ * (Forge-143 no-fallback policy — empty drawing is honest, fake shapes
+ * are not).
  *
  * @param {number|null} handle  forge-kernel shape handle (or null)
  * @param {string}      direction  one of DIRECTION_PRESETS
- * @returns {{edges:Array, source:'kernel'|'fallback'}}
+ * @returns {{edges:Array, source:'kernel'|'error', error?:string}}
  */
 export function projectShapeSafe(handle, direction) {
   if (!isDirection(direction)) direction = 'iso';
   const k = kernelDrawings();
-  if (k && typeof handle === 'number') {
-    try {
-      const out = k.projectShape(handle, direction);
-      if (isValidEdgeList(out)) return { ...out, source: 'kernel' };
-    } catch (err) {
-      if (typeof console !== 'undefined') {
-        console.warn('[forge.v4.drawings] projectShape threw:', err.message);
-      }
-    }
+  if (!k) return { edges: [], source: 'error',
+                   error: 'forge.drawings is not loaded — install the native addon' };
+  if (typeof handle !== 'number')
+    return { edges: [], source: 'error', error: 'No body handle supplied to projectShape' };
+  try {
+    const out = k.projectShape(handle, direction);
+    if (isValidEdgeList(out)) return { ...out, source: 'kernel' };
+    return { edges: [], source: 'error', error: 'kernel.projectShape returned no edges' };
+  } catch (err) {
+    return { edges: [], source: 'error',
+             error: `kernel.projectShape: ${err.message}` };
   }
-  return { ...fallbackShape(direction), source: 'fallback' };
 }
 
 /**
@@ -162,19 +164,20 @@ export function projectShapeSafe(handle, direction) {
 export function projectSectionSafe(handle, direction, sectionPlane, hatchSpec) {
   if (!isDirection(direction)) direction = 'front';
   const k = kernelDrawings();
-  if (k && typeof handle === 'number') {
-    try {
-      const out = k.projectSection(handle, direction, sectionPlane || {
-        origin: [0, 0, 0], normal: [0, 0, 1],
-      }, hatchSpec || { angle: 45, spacing: 4, thickness: 0.4 });
-      if (isValidEdgeList(out)) return { ...out, source: 'kernel' };
-    } catch (err) {
-      if (typeof console !== 'undefined') {
-        console.warn('[forge.v4.drawings] projectSection threw:', err.message);
-      }
-    }
+  if (!k) return { edges: [], source: 'error',
+                   error: 'forge.drawings is not loaded — install the native addon' };
+  if (typeof handle !== 'number')
+    return { edges: [], source: 'error', error: 'No body handle supplied to projectSection' };
+  try {
+    const out = k.projectSection(handle, direction, sectionPlane || {
+      origin: [0, 0, 0], normal: [0, 0, 1],
+    }, hatchSpec || { angle: 45, spacing: 4, thickness: 0.4 });
+    if (isValidEdgeList(out)) return { ...out, source: 'kernel' };
+    return { edges: [], source: 'error', error: 'kernel.projectSection returned no edges' };
+  } catch (err) {
+    return { edges: [], source: 'error',
+             error: `kernel.projectSection: ${err.message}` };
   }
-  return { ...fallbackShape('section'), source: 'fallback' };
 }
 
 /**
@@ -183,27 +186,20 @@ export function projectSectionSafe(handle, direction, sectionPlane, hatchSpec) {
 export function projectDetailSafe(handle, direction, focusCircle, scale) {
   if (!isDirection(direction)) direction = 'front';
   const k = kernelDrawings();
-  if (k && typeof handle === 'number') {
-    try {
-      const out = k.projectDetail(handle, direction, focusCircle || {
-        cx: 0, cy: 0, r: 20,
-      }, scale ?? 2);
-      if (isValidEdgeList(out)) return { ...out, source: 'kernel', scale: scale ?? 2 };
-    } catch (err) {
-      if (typeof console !== 'undefined') {
-        console.warn('[forge.v4.drawings] projectDetail threw:', err.message);
-      }
-    }
+  if (!k) return { edges: [], source: 'error',
+                   error: 'forge.drawings is not loaded — install the native addon' };
+  if (typeof handle !== 'number')
+    return { edges: [], source: 'error', error: 'No body handle supplied to projectDetail' };
+  try {
+    const out = k.projectDetail(handle, direction, focusCircle || {
+      cx: 0, cy: 0, r: 20,
+    }, scale ?? 2);
+    if (isValidEdgeList(out)) return { ...out, source: 'kernel', scale: scale ?? 2 };
+    return { edges: [], source: 'error', error: 'kernel.projectDetail returned no edges' };
+  } catch (err) {
+    return { edges: [], source: 'error',
+             error: `kernel.projectDetail: ${err.message}` };
   }
-  // Synthetic detail: take the front fallback and crop to the focusCircle.
-  const base = fallbackShape(direction);
-  const c = focusCircle || { cx: 0, cy: 0, r: 20 };
-  const s = scale ?? 2;
-  const edges = base.edges.map((e) => ({
-    ...e,
-    points: e.points.map(([x, y]) => [(x - c.cx) * s, (y - c.cy) * s]),
-  }));
-  return { edges, scale: s, source: 'fallback' };
 }
 
 /**

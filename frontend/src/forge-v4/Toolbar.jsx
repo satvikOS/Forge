@@ -3,7 +3,7 @@
 // category. Pinned set comes from the user's role (welcome screen),
 // but every tool stays reachable via the cmd bar.
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Icon } from './icons/Icon.jsx';
 import { Tooltip } from './Tooltip.jsx';
 
@@ -162,12 +162,27 @@ const SPEC = {
 };
 
 export function Toolbar({ workbenchId, activeTool, onInvoke }) {
-  const groups = SPEC[workbenchId] || SPEC.mech;
+  // Forge-137 — re-render when role changes so the role-aware SPEC takes
+  // effect. The transformer lives on window so this file does not have a
+  // hard dependency on RoleSwitcher (it works whether the host mounted
+  // or not).
+  const [roleRev, setRoleRev] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const bump = () => setRoleRev((n) => n + 1);
+    window.addEventListener('forge:role-applied', bump);
+    return () => window.removeEventListener('forge:role-applied', bump);
+  }, []);
+  const apply = (typeof window !== 'undefined' && typeof window.__forgeRoleApply === 'function')
+    ? window.__forgeRoleApply : null;
+  const effective = apply ? apply(SPEC) : SPEC;
+  const groups = (effective[workbenchId] || SPEC[workbenchId] || SPEC.mech);
   return (
     <div className="forge-toolbar"
          role="toolbar"
          aria-label={`${workbenchId} tools`}
-         data-testid="forge-toolbar">
+         data-testid="forge-toolbar"
+         data-role-rev={roleRev}>
       {groups.map((g) => (
         <div key={g.label} className="forge-toolbar-group">
           <span className="forge-toolbar-group-label">{g.label}</span>

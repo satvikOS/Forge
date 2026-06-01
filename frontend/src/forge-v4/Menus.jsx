@@ -87,6 +87,12 @@ export const MENU_SPEC = {
       { id: 'tools.settings',  label: 'Settings…',          icon: 'misc.settings', shortcut: '⌘,' },
       { id: 'tools.shortcuts', label: 'Customize Shortcuts…', icon: 'misc.kbd' },
       { id: 'tools.search',    label: 'Command Search…',    icon: 'misc.search',   shortcut: '⌘K' },
+      // Forge-139 — universal command palette (Cmd+K alias).
+      { id: 'tools.commandPalette', label: 'Command Palette…', icon: 'misc.search', shortcut: '⌘K' },
+      // Forge-135 — path-traced offline render.
+      { id: 'tools.pathTracer', label: 'Render Room…',       icon: 'view.shaded' },
+      // Forge-137 — role + ribbon customiser.
+      { id: 'tools.ribbon',     label: 'Customise Ribbons…', icon: 'misc.settings' },
       SEP,
       { id: 'tools.library',   label: 'Standard Parts Library…', icon: 'misc.search' },
       { id: 'tools.equations', label: 'Equation Manager…', icon: 'measure.distance', shortcut: '⌘E' },
@@ -110,6 +116,7 @@ export const MENU_SPEC = {
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
       SEP,
       { id: 'tools.bom',          label: 'Bill of Materials…',   icon: 'measure.mass' },
+      { id: 'tools.pdm',          label: 'Product Data Management…', icon: 'misc.settings' },
       { id: 'tools.configurations', label: 'Configurations…',    icon: 'misc.settings' },
       { id: 'tools.skeleton',     label: 'Master Skeleton…',     icon: 'sketch.line' },
       { id: 'tools.scenarios',    label: 'Scenario Runner…',     icon: 'wb.sim' },
@@ -121,6 +128,11 @@ export const MENU_SPEC = {
       { id: 'tools.walkthrough',  label: 'Walk-through…',        icon: 'archie.send' },
       { id: 'view.perfHud',       label: 'Performance HUD',      icon: 'misc.kbd', shortcut: '⌘⇧P' },
       { id: 'view.record',        label: 'Record viewport…',     icon: 'archie.spark' },
+      SEP,
+      // Forge-134 — Plugin Manager entry. Routed by ForgeShellV4 to
+      // window.__forgeOpenPluginManager(true), which the
+      // PluginManagerPanelHost subscribes once mounted from App.jsx.
+      { id: 'tools.plugins',      label: 'Plugin Manager…',      icon: 'misc.settings' },
     ],
   },
   help: {
@@ -136,9 +148,44 @@ export const MENU_SPEC = {
 
 export const MENU_KEYS = ['file', 'edit', 'view', 'tools', 'help'];
 
+// Forge-134 — subscribe to plugin-contributed menu items so MenuBar
+// re-renders when Forge.menu.addItem() / addMenu() fire. We read from
+// window.Forge._internals so we don't introduce a circular import with
+// forgeAPI.js (Menus.jsx is imported by it).
+function usePluginMenuExtras() {
+  const [snapshot, setSnapshot] = useState(() => ({
+    extras: {},
+    custom: [],
+  }));
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const read = () => {
+      const Forge = window.Forge;
+      if (!Forge?._internals) return;
+      setSnapshot({
+        extras: Forge._internals.menuExtras(),
+        custom: Forge._internals.customMenus(),
+      });
+    };
+    read();
+    const onExtras = () => read();
+    const onApi = () => read();
+    window.addEventListener('forge:menu-extras-changed', onExtras);
+    window.addEventListener('forge:api-ready', onApi);
+    window.addEventListener('forge:plugins-changed', onExtras);
+    return () => {
+      window.removeEventListener('forge:menu-extras-changed', onExtras);
+      window.removeEventListener('forge:api-ready', onApi);
+      window.removeEventListener('forge:plugins-changed', onExtras);
+    };
+  }, []);
+  return snapshot;
+}
+
 export function MenuBar({ onAction }) {
   const [openId, setOpenId] = useState(null);
   const containerRef = useRef(null);
+  const { extras, custom } = usePluginMenuExtras();
 
   useEffect(() => {
     if (!openId) return;
@@ -156,14 +203,54 @@ export function MenuBar({ onAction }) {
     };
   }, [openId]);
 
+  // Resolve effective dropdown items per menu = built-in items + plugin
+  // contributions (separated by a divider when both exist).
+  function effectiveItems(menuId) {
+    const builtIn = MENU_SPEC[menuId]?.items || [];
+    const extra = extras[menuId] || [];
+    if (!extra.length) return builtIn;
+    return [...builtIn, SEP, ...extra.map((e) => ({
+      id: `plugin:${menuId}:${e.id}`,
+      label: e.label,
+      icon: e.icon,
+      _plugin: true,
+      _menuId: menuId,
+      _itemId: e.id,
+    }))];
+  }
+
+  function dispatchItem(it) {
+    if (it._plugin && typeof window !== 'undefined' && window.Forge) {
+      // Route plugin menu items through Forge.menu.dispatch — the plugin
+      // registered an action callback that fires here.
+      window.Forge.menu.dispatch(it._menuId, it._itemId);
+    } else {
+      onAction?.(it.id);
+    }
+  }
+
+  const customKeys = custom.map((m) => m.id);
+
   return (
     <nav ref={containerRef}
          className="forge-topbar-menus"
          aria-label="Application menu"
          data-testid="forge-menus">
-      {MENU_KEYS.map((id) => {
-        const spec = MENU_SPEC[id];
+      {[...MENU_KEYS, ...customKeys].map((id) => {
+        const customSpec = custom.find((m) => m.id === id);
+        const spec = customSpec || MENU_SPEC[id];
+        if (!spec) return null;
         const isOpen = openId === id;
+        const items = customSpec
+          ? customSpec.items.map((e) => ({
+              id: `plugin:${id}:${e.id}`,
+              label: e.label,
+              icon: e.icon,
+              _plugin: true,
+              _menuId: id,
+              _itemId: e.id,
+            }))
+          : effectiveItems(id);
         return (
           <div key={id} style={{ position: 'relative' }}>
             <button
@@ -194,7 +281,7 @@ export function MenuBar({ onAction }) {
                     boxShadow: '0 16px 48px rgba(0,0,0,0.55)',
                     zIndex: 1200,
                   }}>
-                {spec.items.map((it, i) => it.divider ? (
+                {items.map((it, i) => it.divider ? (
                   <li key={`sep-${i}`} role="separator"
                       style={{
                         height: 1,
@@ -204,7 +291,9 @@ export function MenuBar({ onAction }) {
                 ) : (
                   <li key={it.id} role="menuitem">
                     <button type="button"
-                            onClick={() => { onAction?.(it.id); setOpenId(null); }}
+                            data-menu-item={it._plugin ? `${it._menuId}.${it._itemId}` : it.id}
+                            data-plugin={it._plugin ? 'true' : 'false'}
+                            onClick={() => { dispatchItem(it); setOpenId(null); }}
                             style={{
                               display: 'flex',
                               alignItems: 'center',

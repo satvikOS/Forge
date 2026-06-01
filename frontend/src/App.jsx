@@ -17,6 +17,7 @@ import { SectionControlHost } from './forge-v4/SectionControl.jsx';
 import { AssemblyTreePanelHost } from './forge-v4/AssemblyTreePanel.jsx';
 import { AssemblyPanelHost } from './forge-v4/AssemblyPanel.jsx';
 import { BomPanelHost } from './forge-v4/BomPanel.jsx';
+import { PdmPanelHost } from './forge-v4/PdmPanel.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -25,6 +26,23 @@ import SnapStatusChip from './forge-v4/SnapStatusChip.jsx';
 import { ConvergenceChartHost } from './forge-v4/ConvergenceChart.jsx';
 import { SkeletonPanelHost } from './forge-v4/SkeletonPanel.jsx';
 import { SheetMetalWorkbenchHost } from './forge-v4/SheetMetalWorkbench.jsx';
+import { PluginManagerPanelHost } from './forge-v4/PluginManagerPanel.jsx';
+import { installForgeAPI } from './forge-v4/forgeAPI.js';
+// Forge-135 / 137 / 139 — render room + role switcher + ribbon
+// customiser + universal command palette.
+import { PathTracedRenderHost } from './forge-v4/PathTracedRender.jsx';
+import { RoleSwitcherHost } from './forge-v4/RoleSwitcher.jsx';
+import { RibbonCustomiserHost } from './forge-v4/RibbonCustomiser.jsx';
+import { CommandPaletteHost } from './forge-v4/CommandPalette.jsx';
+
+// Forge-134 — install the public plugin API surface as `window.Forge`
+// at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
+// calls installForgeAPI again on mount (idempotent), but doing it up here
+// means modules that probe `window.Forge` synchronously during the first
+// render (e.g. Menus.jsx's usePluginMenuExtras) find the surface ready.
+if (typeof window !== 'undefined') {
+  installForgeAPI();
+}
 
 // Forge-65: v4 shell is the only entry. App.jsx is one line — no hash
 // routes, no legacy fallback. Per user mandate: "Full rewrite of
@@ -52,6 +70,7 @@ function App() {
       <AssemblyTreePanelHost />
       <AssemblyPanelHost />
       <BomPanelHost />
+      <PdmPanelHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />
@@ -63,6 +82,11 @@ function App() {
       <ConvergenceChartHost />
       <SkeletonPanelHost />
       <SheetMetalWorkbenchHost />
+      <PluginManagerPanelHost />
+      <PathTracedRenderHost />
+      <RoleSwitcherHost />
+      <RibbonCustomiserHost />
+      <CommandPaletteHost />
     </ViewportEnvironmentProvider>
   );
 }

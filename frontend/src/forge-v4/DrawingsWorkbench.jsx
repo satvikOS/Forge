@@ -59,6 +59,13 @@ import {
   RevisionTable, RevisionCloudLayer, RevisionTableInspector,
   useRevisions, useClouds, addCloud, addRevision,
 } from './RevisionTable.jsx';
+import {
+  TITLE_BLOCK_TEMPLATES, TITLE_BLOCK_STANDARDS,
+  DEFAULT_TITLE_BLOCK_ID, getTemplate as getTitleBlockTemplate,
+} from './titleBlockTemplates.js';
+import {
+  DIM_STYLES, DIM_STYLE_STANDARDS, DEFAULT_DIM_STYLE_ID, getDimStyle,
+} from './dimStyleLibrary.js';
 
 const SHEET_W = 297;     // mm, A4 landscape
 const SHEET_H = 210;
@@ -468,6 +475,8 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
   }, [bodies]);
 
   // ── Forge-130 — view drag with auto-alignment snapping ──────────
+  // dragGuides is the list of dashed indigo centre-lines the sheet draws
+  // while the user is dragging a view; it updates on every mouse move.
   const [dragGuides, setDragGuides] = useState([]);
   const moveView = useCallback((id, delta) => {
     setViews((arr) => {
@@ -480,6 +489,17 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
       };
       // Try to snap to centre lines of other views
       const resolved = resolveDrop(proposed, arr, { draggedId: id });
+      // Surface live guide-lines for the snap.
+      const centre = {
+        cx: proposed.x + proposed.w / 2,
+        cy: proposed.y + proposed.h / 2,
+      };
+      setDragGuides(alignmentGuides(
+        centre,
+        arr.filter((v) => v.id !== id),
+        DEFAULT_SNAP_TOLERANCE_MM,
+        SHEET_W, SHEET_H,
+      ));
       const next = arr.map((v) => v.id === id ? {
         ...v,
         x: resolved.x, y: resolved.y,
@@ -495,16 +515,12 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
     });
   }, []);
 
-  const previewAlignment = useCallback((id, proposed) => {
-    setDragGuides(alignmentGuides(
-      { cx: proposed.x + proposed.w / 2, cy: proposed.y + proposed.h / 2 },
-      views.filter((v) => v.id !== id),
-      DEFAULT_SNAP_TOLERANCE_MM,
-      SHEET_W, SHEET_H,
-    ));
-  }, [views]);
-
-  const clearAlignmentPreview = useCallback(() => setDragGuides([]), []);
+  // Clear guides on mouse-up.
+  useEffect(() => {
+    const onUp = () => setDragGuides([]);
+    window.addEventListener('mouseup', onUp);
+    return () => window.removeEventListener('mouseup', onUp);
+  }, []);
 
   const removeView = useCallback((id) => {
     setViews((arr) => arr.filter((v) => v.id !== id));
@@ -1547,7 +1563,10 @@ function DrawingsInspector({
       </InspectorSection>
 
       <InspectorSection title="Title block">
+        <TitleBlockTemplatePicker data={titleBlock}
+                                  onChange={setTitleBlock} />
         <TitleBlockEditor data={titleBlock} onChange={setTitleBlock} />
+        <DimStylePicker data={titleBlock} onChange={setTitleBlock} />
       </InspectorSection>
 
       <InspectorSection title={`Dimensions · ${dimensions.length}`}>
@@ -1910,6 +1929,97 @@ function Field({ label, children }) {
       }}>{label}</span>
       {children}
     </label>
+  );
+}
+
+// ────────────────────────── Forge-136 pickers ────────────────────────
+//
+// TitleBlockTemplatePicker: dropdown of all 12 standard templates. On
+// selection it stores the templateId on the titleBlock so the rest of
+// the workbench can read the paper size + layout to redraw the sheet.
+// DimStylePicker: dropdown of the 6 dim styles keyed onto the same
+// title-block state record. Together they're the Forge-136 contract.
+
+function TitleBlockTemplatePicker({ data, onChange }) {
+  const currentId = data.templateId || DEFAULT_TITLE_BLOCK_ID;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
+                  marginBottom: 8 }}
+         data-testid="forge-drawings-tb-template-picker">
+      <Field label="Template">
+        <select value={currentId}
+                data-tb-field="templateId"
+                onChange={(e) => {
+                  const tpl = getTitleBlockTemplate(e.target.value);
+                  if (!tpl) return;
+                  onChange({
+                    ...data,
+                    templateId: tpl.id,
+                    paperSize: tpl.paper,
+                    borders:   tpl.borders,
+                    layout:    tpl.titleBlock,
+                    std:       tpl.std,
+                    dimStyleId: tpl.dimStyleId,
+                  });
+                }}
+                style={selectStyle}>
+          {TITLE_BLOCK_STANDARDS.map((std) => (
+            <optgroup key={std} label={std}>
+              {TITLE_BLOCK_TEMPLATES.filter((t) => t.std === std).map((t) => (
+                <option key={t.id} value={t.id}>{t.label}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </Field>
+      <div data-testid="forge-drawings-tb-meta"
+           data-tb-template-id={currentId}
+           data-tb-paper-w={(getTitleBlockTemplate(currentId)?.paper?.w ?? 0).toFixed(2)}
+           data-tb-paper-h={(getTitleBlockTemplate(currentId)?.paper?.h ?? 0).toFixed(2)}
+           style={{ fontFamily: 'var(--forge-mono)', fontSize: 10,
+                    color: 'var(--forge-ink-mute)' }}>
+        {(() => {
+          const tpl = getTitleBlockTemplate(currentId);
+          if (!tpl) return null;
+          return `${tpl.paper.w.toFixed(1)} × ${tpl.paper.h.toFixed(1)} mm · ` +
+            `${tpl.std} · block ${tpl.titleBlock.w} × ${tpl.titleBlock.h} mm`;
+        })()}
+      </div>
+    </div>
+  );
+}
+
+function DimStylePicker({ data, onChange }) {
+  const currentId = data.dimStyleId || DEFAULT_DIM_STYLE_ID;
+  const style = getDimStyle(currentId);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6,
+                  marginTop: 8 }}
+         data-testid="forge-drawings-dim-style-picker">
+      <Field label="Dim style">
+        <select value={currentId}
+                data-tb-field="dimStyleId"
+                onChange={(e) => onChange({ ...data, dimStyleId: e.target.value })}
+                style={selectStyle}>
+          {DIM_STYLE_STANDARDS.map((std) => (
+            <optgroup key={std} label={std}>
+              {DIM_STYLES.filter((s) => s.std === std).map((s) => (
+                <option key={s.id} value={s.id}>{s.label}</option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </Field>
+      <div data-testid="forge-drawings-dim-style-meta"
+           data-dim-arrow={style.arrow.style}
+           data-dim-text-h={style.text.height}
+           data-dim-decimals={style.text.decimals}
+           data-dim-tol-mode={style.tolerance.displayMode}
+           style={{ fontFamily: 'var(--forge-mono)', fontSize: 10,
+                    color: 'var(--forge-ink-mute)' }}>
+        arrow {style.arrow.style} · text {style.text.height} mm · tol {style.tolerance.displayMode}
+      </div>
+    </div>
   );
 }
 

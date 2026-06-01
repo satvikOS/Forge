@@ -13,6 +13,35 @@ export function FeatureTree({ nodes, activeId, onPick, onReorder,
   const [overId, setOverId] = useState(null);
   const [renaming, setRenaming] = useState(null);
   const [ctxMenu, setCtxMenu] = useState(null);
+  // Forge-139 — Cmd+F focuses an inline filter input that hides
+  // non-matching nodes (case-insensitive substring on label / id /
+  // icon). Empty filter shows every node.
+  const [filter, setFilter] = useState('');
+  const filterRef = useRef(null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onKey = (e) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (meta && e.key.toLowerCase() === 'f') {
+        // Only steal Cmd+F when the feature tree is actually mounted +
+        // visible. We rely on the input being focusable; if there's no
+        // ref yet we let the browser handle it.
+        if (filterRef.current) {
+          e.preventDefault();
+          filterRef.current.focus();
+          filterRef.current.select?.();
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  const filterTerm = filter.trim().toLowerCase();
+  const visibleNodes = (nodes || []).filter((n) => {
+    if (!filterTerm) return true;
+    const hay = `${(n.label || '').toLowerCase()} ${(n.id || '').toLowerCase()} ${(n.icon || '').toLowerCase()}`;
+    return hay.includes(filterTerm);
+  });
 
   const onDragStart = (id) => (e) => {
     setDragId(id);
@@ -44,19 +73,43 @@ export function FeatureTree({ nodes, activeId, onPick, onReorder,
     };
   }, [ctxMenu]);
 
+  const filterInput = (
+    <input ref={filterRef}
+           value={filter}
+           onChange={(e) => setFilter(e.target.value)}
+           onKeyDown={(e) => { if (e.key === 'Escape') { setFilter(''); e.currentTarget.blur(); } }}
+           placeholder="Filter features… (⌘F)"
+           data-testid="forge-feature-tree-filter"
+           style={{
+             width: '100%', margin: '2px 0 6px',
+             background: 'var(--forge-canvas)',
+             color: 'var(--forge-ink)',
+             border: '1px solid var(--forge-rail-edge)',
+             borderRadius: 3,
+             font: 'inherit', fontSize: 11,
+             padding: '4px 6px',
+           }} />
+  );
+
   if (!nodes || nodes.length === 0) {
     return (
-      <div style={{ color: 'var(--forge-ink-mute)', fontStyle: 'italic',
-                    padding: 4 }}>
-        No features yet. Start a sketch or run an op.
-      </div>
+      <>
+        {filterInput}
+        <div style={{ color: 'var(--forge-ink-mute)', fontStyle: 'italic',
+                      padding: 4 }}>
+          No features yet. Start a sketch or run an op.
+        </div>
+      </>
     );
   }
   return (
     <>
+      {filterInput}
       <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}
-          data-testid="forge-feature-tree">
-        {nodes.map((n) => {
+          data-testid="forge-feature-tree"
+          data-feature-filter={filterTerm}
+          data-feature-visible-count={visibleNodes.length}>
+        {visibleNodes.map((n) => {
           const isActive = n.id === activeId;
           const isOver = n.id === overId;
           return (

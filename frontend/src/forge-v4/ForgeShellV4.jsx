@@ -178,6 +178,16 @@ export function ForgeShellV4() {
     };
     window.__forgeAppendBody = (b) => setBodies((arr) => [...arr, b]);
     window.__forgeReplaceFeatureTree = (next) => setFeatureTree(Array.isArray(next) ? next : []);
+    // Forge-139 — palette-driven feature selection bridge.
+    window.__forgeSelectFeature = (id) => setActiveFeatureId(id);
+    // Forge-134 — workbench + fit hooks used by window.Forge.workbench.switchTo
+    // and Forge.viewport.fit. Both shadow the same setters the menu / HUT
+    // dispatch already use; we expose them as window hooks so plugin code
+    // can drive the shell without poking React state directly.
+    window.__forgeSetActiveWb = (id) => {
+      if (typeof id === 'string') { setActiveWb(id); setActiveTool(null); }
+    };
+    window.__forgeFit = () => setCenterToken((n) => n + 1);
     // Forge-127 — fire a workbench-changed event so panel hosts (sheet
     // metal, weldments) can self-show without polling.
     try {
@@ -247,6 +257,18 @@ export function ForgeShellV4() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+
+  // Forge-139 — CommandPalette dispatches menu actions through a custom
+  // event so it does not need a direct prop wire-up to the shell.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onMenuEvent = (e) => {
+      const id = e?.detail?.id;
+      if (typeof id === 'string') handleMenuAction(id);
+    };
+    window.addEventListener('forge:menu-action', onMenuEvent);
+    return () => window.removeEventListener('forge:menu-action', onMenuEvent);
+  });
 
   function pushThread(m) {
     setThread((t) => [...t, { id: `m-${t.length}`, ts: Date.now(), ...m }]);
@@ -678,6 +700,15 @@ export function ForgeShellV4() {
         return;
       case 'tools.search':
         cmdRef.current?.focus(); return;
+      case 'tools.commandPalette':
+        // Forge-139 — open the universal command palette overlay.
+        window.__forgeOpenCommandPalette?.(true); return;
+      case 'tools.pathTracer':
+        // Forge-135 — open the path-traced Render Room.
+        window.__forgeOpenPathTracer?.(true); return;
+      case 'tools.ribbon':
+        // Forge-137 — open the ribbon customiser.
+        window.__forgeOpenRibbonCustomiser?.(true); return;
       case 'tools.library':
         setLibraryOpen(true); return;
       case 'tools.configurations':
@@ -720,6 +751,9 @@ export function ForgeShellV4() {
         window.__forgeBodies = bodies;
         window.__forgeOpenBom?.(true);
         return;
+      case 'tools.pdm':
+        window.__forgeOpenPdm?.(true);
+        return;
       case 'tools.scenarios':
         window.__forgeBodies = bodies;
         window.__forgeSelection = selection;
@@ -748,6 +782,10 @@ export function ForgeShellV4() {
         // mounts; this case is a passthrough so the menu action and the
         // direct window hook share one entry point.
         window.__forgeOpenStressTest?.(true); return;
+      case 'tools.plugins':
+        // Forge-134 — Plugin Manager. PluginManagerPanelHost (mounted in
+        // App.jsx) registers __forgeOpenPluginManager on mount.
+        window.__forgeOpenPluginManager?.(true); return;
       case 'help.docs':
         setHelpOpen(true); return;
       case 'help.shortcuts':
