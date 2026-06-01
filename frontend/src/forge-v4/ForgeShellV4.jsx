@@ -27,6 +27,7 @@ import { HelpDrawer } from './HelpDrawer.jsx';
 import { EquationManager } from './EquationManager.jsx';
 import { TopologyInspector } from './TopologyInspector.jsx';
 import { PreviewPanels } from './PreviewPanels.jsx';
+import { UpdateBanner } from './UpdateBanner.jsx';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -417,6 +418,7 @@ export function ForgeShellV4() {
                   onToggleDock={() => setDockOpen((v) => !v)}
                   onSubmit={(text) => runArchie(text)} />
       <ToastHost />
+      <UpdateBanner />
       <HelpDrawer open={helpOpen}
                   onClose={() => setHelpOpen(false)}
                   activeTool={activeTool}

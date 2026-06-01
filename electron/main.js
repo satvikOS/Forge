@@ -49,6 +49,18 @@ function initAutoUpdater() {
   });
   autoUpdater.on('error', (err) => console.error('[updater] error:', err == null ? 'unknown' : (err.stack || err).toString()));
 
+  // Renderer-driven controls: quitAndInstall + manual re-check.
+  const { ipcMain } = require('electron');
+  ipcMain.on('updater:quitAndInstall', () => {
+    try { autoUpdater.quitAndInstall(); }
+    catch (err) { console.error('[updater] quitAndInstall failed:', err.message); }
+  });
+  ipcMain.on('updater:check', () => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error('[updater] manual check failed:', err.message);
+    });
+  });
+
   // Fires the check + native "update ready" notification.
   autoUpdater.checkForUpdatesAndNotify().catch((err) => {
     console.error('[updater] checkForUpdatesAndNotify failed:', err.message);

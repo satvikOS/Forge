@@ -6,10 +6,22 @@
 // `contextBridge`. The renderer sees `window.forge.kernel.makeBox(...)` etc.
 // — pure functions, no Node objects leak across the bridge.
 
-const { contextBridge } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+
+// Forge-77 — auto-update IPC bridge.
+// main.js sends update:available / update:progress / update:downloaded.
+// The renderer subscribes via window.forge.updater.onEvent(cb).
+const updateListeners = new Set();
+['update:available', 'update:progress', 'update:downloaded'].forEach((ch) => {
+  ipcRenderer.on(ch, (_event, payload) => {
+    for (const cb of updateListeners) {
+      try { cb({ kind: ch.replace('update:', ''), ...payload }); } catch {}
+    }
+  });
+});
 
 // ---------------------------------------------------------- locate addon
 // In dev, the addon lives at `forge-kernel/build/Release/forge-kernel.node`.
@@ -417,6 +429,16 @@ const forgeApi = {
         return { ok: false, error: err.message };
       }
     },
+  },
+
+  // Forge-77 — Auto-update bridge. Renderer subscribes to update events.
+  updater: {
+    onEvent: (cb) => {
+      updateListeners.add(cb);
+      return () => updateListeners.delete(cb);
+    },
+    quitAndInstall: () => ipcRenderer.send('updater:quitAndInstall'),
+    check: () => ipcRenderer.send('updater:check'),
   },
 
   // weldments authoring (Forge-24) — structural members, end caps, gussets,
