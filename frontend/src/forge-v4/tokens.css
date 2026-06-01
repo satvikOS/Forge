@@ -414,26 +414,28 @@ html, body, #root {
   border-bottom: 1px solid var(--forge-rail-edge);
   display: flex;
   align-items: center;
-  padding: 0 8px;
-  gap: 1px;
+  padding: 0 var(--forge-space-3);
+  gap: var(--forge-space-2);
   overflow-x: auto;
 }
 .forge-toolbar-group {
   display: flex;
   align-items: center;
-  gap: 1px;
-  padding: 0 6px;
+  gap: 3px;
+  padding: 0 var(--forge-space-3);
   border-right: 1px solid var(--forge-rail-edge);
   height: 100%;
 }
 .forge-toolbar-group:last-child { border-right: none; }
 .forge-toolbar-group-label {
-  font-size: 9px;
+  font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  font-weight: 500;
   color: var(--forge-ink-mute);
-  margin-right: 6px;
+  margin: 0 var(--forge-space-2) 0 0;
   user-select: none;
+  min-width: 42px;
 }
 .forge-tool {
   width: var(--forge-tool-size);
@@ -470,7 +472,7 @@ html, body, #root {
 }
 :root[data-forge-theme="light"] .forge-viewport {
   background:
-    radial-gradient(ellipse at 50% 35%, #f6f7f9 0%, var(--forge-canvas) 70%);
+    radial-gradient(ellipse at 50% 35%, #ffffff 0%, #ebecee 70%);
 }
 
 /* ============ Tool param dock (left side, when tool active) ============ */
@@ -759,9 +761,9 @@ html, body, #root {
   border-bottom: 1px solid var(--forge-rail-edge);
   display: flex;
   align-items: center;
-  padding: 0 12px;
-  gap: 16px;
-  font-size: 10px;
+  padding: 0 var(--forge-space-4);
+  gap: var(--forge-space-5);
+  font-size: 11px;
   color: var(--forge-ink-mute);
   font-family: var(--forge-mono);
 }

@@ -29,6 +29,7 @@ function ViewportFallback() {
 export function Viewport({ steps = [], selection, onSelect,
                            viewName = 'iso', displayState = 'shaded',
                            activeWb = 'mech',
+                           theme = 'dark',
                            gizmoMode = null,           // 'translate'|'rotate'|'scale'|null
                            onGizmoChange = null }) {
   const [bundle, setBundle] = useState(null);
@@ -56,6 +57,7 @@ export function Viewport({ steps = [], selection, onSelect,
           <ViewportScene bundle={bundle} steps={steps}
                          selection={selection} onSelect={onSelect}
                          viewName={viewName} displayState={displayState}
+                         theme={theme}
                          gizmoMode={gizmoMode} onGizmoChange={onGizmoChange} />
         </Suspense>
       ) : <ViewportFallback />}
@@ -66,7 +68,7 @@ export function Viewport({ steps = [], selection, onSelect,
 }
 
 function ViewportScene({ bundle, steps, selection, onSelect,
-                         viewName, displayState,
+                         viewName, displayState, theme,
                          gizmoMode, onGizmoChange }) {
   const { Canvas, useFrame } = bundle.r3f;
   const { OrbitControls, Grid, TransformControls, GizmoHelper, GizmoViewport } = bundle.drei;
@@ -85,13 +87,13 @@ function ViewportScene({ bundle, steps, selection, onSelect,
       style={{ width: '100%', height: '100%' }}
       data-testid="forge-v4-canvas"
     >
-      <color attach="background" args={getBgColor(displayState)} />
-      <ambientLight intensity={0.45} />
+      <color attach="background" args={getBgColor(displayState, theme)} />
+      <ambientLight intensity={theme === 'light' ? 0.7 : 0.45} />
       <directionalLight position={[20, 30, 20]} intensity={0.9} />
       <directionalLight position={[-15, -10, -20]} intensity={0.25} />
       <Grid args={[200, 200]}
-            cellColor="#2a2f3d"
-            sectionColor="#3a4253"
+            cellColor={theme === 'light' ? '#bdc1c8' : '#2a2f3d'}
+            sectionColor={theme === 'light' ? '#8d929b' : '#3a4253'}
             sectionSize={10}
             position={[0, -5, 0]}
             fadeDistance={140}
@@ -116,7 +118,7 @@ function ViewportScene({ bundle, steps, selection, onSelect,
                      minDistance={5} maxDistance={300}
                      enabled={!gizmoBusy} />
       {GizmoHelper && GizmoViewport && (
-        <GizmoHelper alignment="bottom-right" margin={[88, 88]}>
+        <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
           <GizmoViewport axisColors={['#e26a6a', '#5cc88f', '#4aa0e1']}
                          labelColor="#ebecef" />
         </GizmoHelper>
@@ -136,8 +138,13 @@ function cameraFor(viewName) {
     default:       return [40, 25, 40];   // iso
   }
 }
-function getBgColor(state) {
-  if (state === 'wireframe') return [0.0, 0.0, 0.0];
+function getBgColor(state, theme) {
+  if (theme === 'light') {
+    if (state === 'wireframe') return [1.0, 1.0, 1.0];
+    return [0.92, 0.93, 0.95];   // greyish off-white viewport
+  }
+  if (theme === 'contrast') return [0, 0, 0];
+  if (state === 'wireframe') return [0, 0, 0];
   return [0.04, 0.05, 0.07];
 }
 
@@ -220,72 +227,10 @@ function SceneMeshes({ THREE, steps, selection, onSelect, displayState, selected
   );
 }
 
-function ViewportHUD({ viewName, displayState, selection, steps, activeWb }) {
-  const wbLabel = {
-    mech: 'Part', drawing: 'Draft', sheet: 'Sheet Metal',
-    weld: 'Weldments', mold: 'Mold Tools',
-    sim: 'Simulation', mfg: 'Manufacturing',
-  }[activeWb] || activeWb;
-  return (
-    <>
-      <div style={{
-        position: 'absolute', top: 10, left: 12,
-        font: '10px var(--forge-mono)', color: 'var(--forge-ink-2)',
-        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)',
-        padding: '4px 9px', borderRadius: 4,
-        border: '1px solid var(--forge-rail-edge)',
-      }}>{wbLabel} · {viewName} · {displayState}</div>
-      <div style={{
-        position: 'absolute', bottom: 10, left: 12,
-        display: 'flex', gap: 10,
-        font: '10px var(--forge-mono)',
-        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)',
-        padding: '4px 9px', borderRadius: 4,
-        border: '1px solid var(--forge-rail-edge)',
-      }}>
-        <span style={{ color: 'var(--forge-ink)' }}>▶ X</span>
-        <span style={{ color: 'var(--forge-ink-2)' }}>▲ Y</span>
-        <span style={{ color: 'var(--forge-ink-mute)' }}>● Z</span>
-      </div>
-      <div style={{
-        position: 'absolute', bottom: 10, right: 12,
-        font: '10px var(--forge-mono)', color: 'var(--forge-ink-2)',
-        background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)',
-        padding: '4px 9px', borderRadius: 4,
-        border: '1px solid var(--forge-rail-edge)',
-      }}>
-        <span style={{
-          display: 'inline-block', width: 40, height: 2,
-          background: 'var(--forge-ink-2)', margin: '0 6px 2px',
-          verticalAlign: 'middle',
-        }} />10 mm
-      </div>
-      {selection?.kind === 'body' && (selection.ids?.length ?? 0) > 0 && (
-        <div style={{
-          position: 'absolute', top: 10, right: 12,
-          font: 'inherit', color: 'var(--forge-ink)',
-          background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(3px)',
-          padding: '6px 10px', borderRadius: 4,
-          border: '1px solid var(--forge-accent-rim)',
-          borderLeft: '3px solid var(--forge-accent)',
-          fontSize: 11,
-          minWidth: 160,
-        }}>
-          <div style={{
-            color: 'var(--forge-accent)', fontSize: 9,
-            textTransform: 'uppercase', letterSpacing: '0.06em',
-            fontWeight: 600, marginBottom: 4,
-          }}>Selected · {selection.kind}</div>
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'auto 1fr',
-            gap: '2px 12px', fontFamily: 'var(--forge-mono)', fontSize: 11,
-          }}>
-            <span style={{ color: 'var(--forge-ink-mute)' }}>id</span><span>#{selection.ids[0]}</span>
-            <span style={{ color: 'var(--forge-ink-mute)' }}>steps</span><span>{steps?.length || 0}</span>
-            <span style={{ color: 'var(--forge-ink-mute)' }}>state</span><span>{displayState}</span>
-          </div>
-        </div>
-      )}
-    </>
-  );
+function ViewportHUD() {
+  // Forge-79 — viewport is now bare. Status (wb · view · displayState)
+  // lives in the bottom status bar, axes triad is provided by the drei
+  // GizmoHelper, and the scale bar / selection HUD were redundant with
+  // the right Properties panel + bottom status. Less is more.
+  return null;
 }
