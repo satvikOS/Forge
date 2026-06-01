@@ -40,7 +40,34 @@ import { startJob, updateJob, finishJob } from './progressBus.js';
  * @param {number}   [opts.estMs]   — rough estimate for pct interpolation
  * @returns {*} whatever fn() returned (with a `_cancelled: true` field if cancelled)
  */
-function withProgress(label, fn, { estMs = 2000 } = {}) {
+// Forge-122 — phase-aware solver progress.
+//
+// Real FEA solvers walk these phases:
+//   mesh (10%) → assemble (30%) → factorize (50%) → solve (70%) → postprocess (95%)
+//
+// For non-linear / dynamic / contact solvers that return an iterations or
+// stepResiduals array, we extract the residual log from the result + broadcast
+// it via window.dispatchEvent('forge:fea-residual', { jobId, residuals, label }).
+// FeaResultViewer's Convergence tab listens to that event and plots it.
+//
+// The kernel today is synchronous + can't stream per-iteration callbacks, so
+// the per-phase progress is wall-clock interpolation INSIDE each phase. The
+// phase BOUNDARIES are real — driven by solver type, not interpolation.
+const FEA_PHASES = [
+  { id: 'mesh',        label: 'Mesh',         to: 10 },
+  { id: 'assemble',    label: 'Assemble K',   to: 30 },
+  { id: 'factorize',   label: 'Factorize',    to: 50 },
+  { id: 'solve',       label: 'Solve',        to: 70 },
+  { id: 'postprocess', label: 'Post-process', to: 95 },
+];
+
+function publishResidual(jobId, label, residuals) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('forge:fea-residual',
+    { detail: { jobId, label, residuals } }));
+}
+
+function withProgress(label, fn, { estMs = 2000, phases = FEA_PHASES } = {}) {
   const ac = (typeof AbortController === 'function') ? new AbortController() : null;
   let cancelled = false;
   const job = startJob({
@@ -51,28 +78,42 @@ function withProgress(label, fn, { estMs = 2000 } = {}) {
       if (ac) { try { ac.abort(); } catch { /* ignore */ } }
     },
   });
-  // Fake stepper — runs only if setInterval is available.
+  // Phase-aware stepper: walk through phases with timed allocation, broadcast
+  // the current phase name in the progress message.
   let stepHandle = null;
   if (typeof setInterval === 'function') {
     const startedAt = Date.now();
+    let phaseIdx = 0;
+    let phaseFrom = 0;
+    const phaseDur = estMs / phases.length;
     stepHandle = setInterval(() => {
       if (cancelled) return;
       const elapsed = Date.now() - startedAt;
-      const pct = Math.min(90, (elapsed / estMs) * 90);
+      const which = Math.min(phases.length - 1, Math.floor(elapsed / phaseDur));
+      if (which !== phaseIdx) {
+        phaseFrom = phases[phaseIdx].to;
+        phaseIdx = which;
+      }
+      const inPhase = (elapsed % phaseDur) / phaseDur;
+      const phase = phases[phaseIdx];
+      const pct = Math.min(phase.to,
+        phaseFrom + (phase.to - phaseFrom) * inPhase);
       const eta_s = estMs > elapsed ? (estMs - elapsed) / 1000 : null;
-      updateJob(job.id, { pct, eta_s, message: 'Solving' });
+      updateJob(job.id, { pct, eta_s, message: `Phase: ${phase.label}` });
     }, 100);
   }
   const stop = (result) => {
     if (stepHandle != null) clearInterval(stepHandle);
     if (cancelled) {
-      // Job was cancelled by the user before / during the call. We
-      // still publish a finish event so the UI can clean the row up,
-      // but tag the result so the caller knows.
       finishJob(job.id, { result: { cancelled: true } });
       return { ...(result || {}), _cancelled: true };
     }
     updateJob(job.id, { pct: 100, message: 'Done' });
+    // Forge-122 — broadcast residual stream from solver result when present.
+    const residuals = extractResiduals(result);
+    if (residuals && residuals.length) {
+      publishResidual(job.id, label, residuals);
+    }
     finishJob(job.id, { result });
     return result;
   };
@@ -91,6 +132,36 @@ function withProgress(label, fn, { estMs = 2000 } = {}) {
     finishJob(job.id, { result: { error: err && err.message ? err.message : String(err) } });
     throw err;
   }
+}
+
+// Pull a residual log out of the solver result if the kernel left one. Native
+// non-linear / dynamic / contact solvers often expose any of:
+//   result.iterations       [{ residual, step }]
+//   result.stepResiduals    [number]
+//   result.modes            [{ residual }]   (modal solver convergence)
+//   result.timeline         [{ resNorm }]    (dynamic step residuals)
+function extractResiduals(r) {
+  if (!r || typeof r !== 'object') return null;
+  if (Array.isArray(r.iterations) && r.iterations.length) {
+    return r.iterations.map((it, i) => ({
+      step: it.step ?? i,
+      residual: it.residual ?? it.resNorm ?? it.rho ?? 0,
+    }));
+  }
+  if (Array.isArray(r.stepResiduals) && r.stepResiduals.length) {
+    return r.stepResiduals.map((v, i) => ({ step: i, residual: v }));
+  }
+  if (Array.isArray(r.modes) && r.modes.length) {
+    return r.modes.map((m, i) => ({
+      step: i, residual: m.residual ?? m.freq ?? 0,
+    }));
+  }
+  if (Array.isArray(r.timeline) && r.timeline.length) {
+    return r.timeline.map((t, i) => ({
+      step: t.step ?? i, residual: t.resNorm ?? t.residual ?? 0,
+    }));
+  }
+  return null;
 }
 
 function _bodyTag(study) {

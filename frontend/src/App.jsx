@@ -7,6 +7,7 @@ import { ManufacturingWorkbenchHost } from './forge-v4/ManufacturingWorkbench.js
 import { StandardPartsLibraryHost } from './forge-v4/StandardPartsLibrary.jsx';
 import { ProjectBundlePanelHost } from './forge-v4/ProjectBundlePanel.jsx';
 import { ProjectFilePanelHost } from './forge-v4/ProjectFilePanel.jsx';
+import { IfcExportPanelHost } from './forge-v4/IfcExportPanel.jsx';
 import { ViewportEnvironmentProvider } from './forge-v4/ViewportEnvironment.jsx';
 import { PerfStatsHUD } from './forge-v4/PerfStatsHUD.jsx';
 import { HoverTooltip } from './forge-v4/HoverTooltip.jsx';
@@ -18,6 +19,8 @@ import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
 import { ProgressStripPortal } from './forge-v4/ProgressStrip.jsx';
 import SnapStatusChip from './forge-v4/SnapStatusChip.jsx';
+import { ConvergenceChartHost } from './forge-v4/ConvergenceChart.jsx';
+import { SkeletonPanelHost } from './forge-v4/SkeletonPanel.jsx';
 
 // Forge-65: v4 shell is the only entry. App.jsx is one line — no hash
 // routes, no legacy fallback. Per user mandate: "Full rewrite of
@@ -39,6 +42,7 @@ function App() {
       <StandardPartsLibraryHost />
       <ProjectBundlePanelHost />
       <ProjectFilePanelHost />
+      <IfcExportPanelHost />
       <AssemblyTreePanelHost />
       <BomPanelHost />
       <ScenarioRunnerHost />
@@ -49,6 +53,8 @@ function App() {
       <StressTestPanelHost />
       <ProgressStripPortal />
       <SnapStatusChip />
+      <ConvergenceChartHost />
+      <SkeletonPanelHost />
     </ViewportEnvironmentProvider>
   );
 }

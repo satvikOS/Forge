@@ -74,9 +74,12 @@ export function ForgeShellV4() {
   // Forge-98 — history-aware regen. Takes a feature tree and re-dispatches
   // every node's tool through kernelDispatch in topological order, returning
   // a fresh bodies array. Used after the user edits a feature mid-tree.
+  // Forge-123 — also passes the live skeleton through ctx so any
+  // `{ skelRef }` params get resolved against the current master refs.
   function regenerate(tree) {
     let prevBody = null;
     const next = [];
+    const skel = (typeof window !== 'undefined') ? window.__forgeSkeleton : null;
     for (const f of tree) {
       if (!f.params || !f.icon) continue;
       const toolId = f.toolId || guessToolFromIcon(f.icon);
@@ -85,6 +88,7 @@ export function ForgeShellV4() {
         lastBody: prevBody?.kind === 'native' ? prevBody.handle : null,
         selectedBodies: prevBody?.kind === 'native' ? [prevBody.handle] : null,
         currentSketch: currentSketch?.kernel ?? null,
+        skeleton: skel,
       };
       const r = dispatchTool(toolId, f.params, ctx);
       if (r.kind === 'native') {
@@ -137,6 +141,18 @@ export function ForgeShellV4() {
     window.addEventListener('forge:section-update', onSection);
     return () => window.removeEventListener('forge:section-update', onSection);
   }, []);
+  // Forge-123 — subscribe to master-skeleton edits. Any change rebuilds
+  // every feature whose params reference a skeleton entity. We re-read
+  // featureTree from the latest setBodies closure so the regen sees
+  // tree edits committed in the same tick.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onSkel = () => {
+      setBodies((_) => regenerate(featureTree));
+    };
+    window.addEventListener('forge:skeleton-update', onSkel);
+    return () => window.removeEventListener('forge:skeleton-update', onSkel);
+  }, [featureTree, currentSketch]);
   // Forge-95 — snapshot every feature-tree change to the history log.
   useEffect(() => { if (featureTree.length) pushHistory(featureTree); }, [featureTree]);
 
@@ -688,6 +704,9 @@ export function ForgeShellV4() {
       case 'view.perfHud':
         window.__forgePerfHUD?.(true);
         return;
+      case 'tools.convergence':
+        window.__forgeOpenConvergence?.(true);
+        return;
       case 'view.record':
         window.dispatchEvent(new CustomEvent('forge:capture-start',
           { detail: { filename: 'forge-session' } }));
@@ -697,6 +716,8 @@ export function ForgeShellV4() {
         setEquationsOpen(true); return;
       case 'tools.topology':
         setTopologyOpen(true); return;
+      case 'tools.skeleton':
+        window.__forgeOpenSkeleton?.(true); return;
       case 'help.docs':
         setHelpOpen(true); return;
       case 'help.shortcuts':

@@ -11,8 +11,47 @@
 // viewport. This is what unblocks the "I clicked Extrude but nothing
 // happened" problem.
 
+import { resolveRef as resolveSkelEntity } from './skeleton.js';
+
 const MM = (v, d) => (typeof v === 'number' && Number.isFinite(v)) ? v : d;
 const VEC3 = (v, d = [0,0,0]) => (Array.isArray(v) && v.length === 3) ? v : d;
+
+/**
+ * Forge-123 — replace every `{ skelRef: 'Name' }` (or
+ * `{ skelRef: { kind, name } }`) embedded anywhere in `params` with the
+ * resolved skeleton value. Returns a NEW params object; the input is
+ * never mutated. Refs that fail to resolve are left as-is (so the user
+ * doesn't lose the link when they rename and re-create an entity).
+ */
+export function resolveSkeletonRefs(params, skeleton) {
+  if (!skeleton || params == null) return params;
+  return resolveWalk(params, skeleton);
+}
+
+function resolveWalk(node, skeleton) {
+  if (node == null) return node;
+  if (Array.isArray(node)) return node.map((v) => resolveWalk(v, skeleton));
+  if (typeof node !== 'object') return node;
+  // Direct skelRef holder: replace the node entirely with the resolved
+  // value. (We keep any sibling keys for axes/planes that carry both
+  // a skelRef AND override fields, though no current schema does this.)
+  if ('skelRef' in node) {
+    const resolved = resolveSkelEntity(skeleton, node.skelRef);
+    if (resolved != null) {
+      // If this object had ONLY skelRef, return the resolved value.
+      const otherKeys = Object.keys(node).filter((k) => k !== 'skelRef');
+      if (otherKeys.length === 0) return resolved;
+      // Otherwise merge: skeleton value overlays, but other params win.
+      const merged = (Array.isArray(resolved) || typeof resolved !== 'object')
+        ? { value: resolved } : { ...resolved };
+      for (const k of otherKeys) merged[k] = resolveWalk(node[k], skeleton);
+      return merged;
+    }
+  }
+  const out = {};
+  for (const k of Object.keys(node)) out[k] = resolveWalk(node[k], skeleton);
+  return out;
+}
 
 function kernelReady() {
   return typeof window !== 'undefined' && window.forge &&
@@ -327,7 +366,13 @@ function syntheticSpec(toolId, p) {
  * @returns {{ok:boolean, kind:'native'|'synthetic'|'noop', handle?:number, spec?:object, error?:string}}
  */
 export function dispatchTool(toolId, params, ctx = {}) {
-  const p = params || {};
+  // Forge-123 — if the caller supplied a skeleton context, resolve every
+  // { skelRef } embedded in params BEFORE we hand them to the kernel.
+  // This is what lets downstream features depend on named master refs;
+  // edit P_TEST → next regenerate() reads the new coord here.
+  const p = ctx?.skeleton
+    ? (resolveSkeletonRefs(params || {}, ctx.skeleton) || {})
+    : (params || {});
   if (kernelReady()) {
     const handle = callNative(toolId, p, ctx);
     if (typeof handle === 'number') {
