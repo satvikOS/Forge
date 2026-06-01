@@ -332,11 +332,8 @@ export function ForgeShellV4() {
         <HeadsUpToolbar activeDisplay={displayState}
                         activeGizmo={gizmoMode}
                         onAction={(id) => handleMenuAction(id)} />
-        <NavSphere activeView={viewName}
-                   onSelectView={(v) => {
-                     setViewName(v);
-                     showToast({ kind: 'info', text: `View → ${v}`, ttl: 1500 });
-                   }} />
+        {/* Forge-79b: NavSphere removed per user request — redundant
+            with named-view shortcuts (1-7) + drei GizmoHelper. */}
         <SketchStateBadge visible={sketchActive}
                           state="under" nConstraints={0} nDof={4} />
         <RollbackBar features={featureTree}

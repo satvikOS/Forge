@@ -1,5 +1,6 @@
-// Forge-65 — right panel (feature tree top, properties bottom).
-// Collapsible to a 32 px rail.
+// Forge-65/79b — right panel. Feature Tree (top) + Properties (bottom).
+// Single collapse toggle at the very top; clear visual separation
+// between sections (background contrast + section icon).
 
 import React from 'react';
 import { Icon } from './icons/Icon.jsx';
@@ -14,10 +15,18 @@ export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
              data-testid="forge-right">
         <button type="button"
                 onClick={onToggle}
-                className="forge-tool"
                 aria-label="Expand right panel"
-                style={{ margin: 6 }}>
-          <Icon name="misc.expand_r" size={16} />
+                style={{
+                  margin: '8px auto',
+                  width: 28, height: 28,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'transparent',
+                  border: '1px solid var(--forge-rail-edge)',
+                  borderRadius: 3,
+                  color: 'var(--forge-ink-2)',
+                  cursor: 'pointer',
+                }}>
+          <Icon name="misc.expand_r" size={14} />
         </button>
       </aside>
     );
@@ -26,15 +35,33 @@ export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
     <aside className="forge-right" data-collapsed="false"
            aria-label="Feature tree and properties"
            data-testid="forge-right">
+      <header style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '8px 12px',
+        borderBottom: '1px solid var(--forge-rail-edge)',
+        background: 'var(--forge-canvas)',
+        fontSize: 11, fontWeight: 600,
+        color: 'var(--forge-ink)',
+        letterSpacing: '0.02em',
+      }}>
+        <span>Inspector</span>
+        <span style={{ flex: 1 }} />
+        <button type="button" onClick={onToggle}
+                aria-label="Collapse right panel"
+                style={{
+                  width: 20, height: 20,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: 'transparent', border: 'none',
+                  color: 'var(--forge-ink-mute)', cursor: 'pointer',
+                }}>
+          <Icon name="misc.collapse_r" size={12} />
+        </button>
+      </header>
+
       <section className="forge-right-section">
         <header className="forge-right-section-header">
-          <span>Feature Tree</span>
-          <button type="button" onClick={onToggle}
-                  className="forge-tool"
-                  aria-label="Collapse right panel"
-                  style={{ width: 20, height: 20 }}>
-            <Icon name="misc.collapse_r" size={14} />
-          </button>
+          <Icon name="solid.fillet" size={11} />
+          <span>Feature Tree · {(featureTree || []).length}</span>
         </header>
         <div className="forge-right-section-body">
           <FeatureTree nodes={featureTree}
@@ -46,25 +73,52 @@ export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
                        onRename={onRenameFeature} />
         </div>
       </section>
+
       <section className="forge-right-section">
-        <header className="forge-right-section-header">Properties</header>
+        <header className="forge-right-section-header">
+          <Icon name="select.body" size={11} />
+          <span>Properties</span>
+        </header>
         <div className="forge-right-section-body">
           {selection?.kind === 'none' || !selection ? (
-            <div style={{ color: 'var(--forge-ink-mute)', fontStyle: 'italic' }}>
+            <div style={{ color: 'var(--forge-ink-mute)', fontStyle: 'italic',
+                          padding: '4px 0' }}>
               Select something in the viewport.
             </div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px 12px' }}>
-              <span style={{ color: 'var(--forge-ink-mute)' }}>Kind</span>
-              <span>{selection.kind}</span>
-              <span style={{ color: 'var(--forge-ink-mute)' }}>Count</span>
-              <span>{selection.ids?.length ?? 0}</span>
-              <span style={{ color: 'var(--forge-ink-mute)' }}>First id</span>
-              <span style={{ fontFamily: 'var(--forge-mono)' }}>{selection.ids?.[0] ?? '-'}</span>
-            </div>
+            <PropertyList selection={selection} />
           )}
         </div>
       </section>
     </aside>
+  );
+}
+
+function PropertyList({ selection }) {
+  const rows = [
+    { label: 'Kind',     value: selection.kind },
+    { label: 'Count',    value: String(selection.ids?.length ?? 0) },
+    { label: 'First id', value: '#' + (selection.ids?.[0] ?? '-') },
+  ];
+  return (
+    <ul style={{ listStyle: 'none', margin: 0, padding: 0,
+                 display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {rows.map((r) => (
+        <li key={r.label}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '80px 1fr',
+              alignItems: 'baseline',
+              gap: 8,
+              padding: '3px 0',
+            }}>
+          <span style={{ color: 'var(--forge-ink-mute)', fontSize: 10,
+                         textTransform: 'uppercase',
+                         letterSpacing: '0.04em' }}>{r.label}</span>
+          <span style={{ fontFamily: 'var(--forge-mono)', fontSize: 11,
+                         color: 'var(--forge-ink)' }}>{r.value}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
