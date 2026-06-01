@@ -112,6 +112,7 @@ export function HelpDrawer({ open, onClose, activeTool, activeWb }) {
                   role="tab"
                   aria-selected={tab === t.id}
                   className="forge-help-tab"
+                  data-help-tab={t.id}
                   data-active={String(tab === t.id)}
                   onClick={() => setTab(t.id)}>
             {t.label}
