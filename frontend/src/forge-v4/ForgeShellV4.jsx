@@ -803,6 +803,11 @@ export function ForgeShellV4() {
       case 'tools.surfacing':
         window.__forgeOpenSurfacing?.(true);
         return;
+      // Forge-166 — Thread Designer (ISO/UNC/UNF/NPT thread cutter).
+      // Manual click opens the panel; it does NOT post to Archie's thread.
+      case 'tools.threads':
+        window.__forgeOpenThreadDesigner?.(true);
+        return;
       case 'tools.draft':
         // Forge-149 — open Draft (2D drafting) workbench. The
         // DraftWorkbenchHost mounted in App.jsx registers
@@ -815,6 +820,13 @@ export function ForgeShellV4() {
       case 'tools.cam':
       case 'workbench.mfg':
         window.__forgeOpenCam?.({ bodies });
+        return;
+      // Forge-163 — 3D-printing slicer. Manual menu click opens the
+      // panel directly; it does NOT post to Archie's thread.
+      // SlicerWorkbenchHost (App.jsx) registers __forgeOpenSlicer.
+      case 'tools.slicer':
+        window.__forgeBodies = bodies;
+        window.__forgeOpenSlicer?.({ theme });
         return;
       // Forge-152 — Industrial robot workbench. Manual menu click
       // opens the panel directly; it does NOT post to Archie's thread.
@@ -836,6 +848,24 @@ export function ForgeShellV4() {
       case 'tools.archSite':
         window.__forgeOpenSiteHierarchy?.(true);
         return;
+      // Forge-169 — Process P&ID schematic editor (ISA-5.1-2009).
+      // Manual menu click opens the panel directly; PidEditorHost
+      // (mounted in App.jsx) registers __forgeOpenPid on mount.
+      case 'tools.pid':
+        window.__forgeOpenPid?.({ theme });
+        return;
+      // Forge-161 — Reverse Engineering workbench (scan-to-CAD).
+      // ReverseEngWorkbenchHost (in App.jsx) registers
+      // __forgeOpenReverse on mount.
+      case 'tools.reverse':
+        window.__forgeOpenReverse?.({ theme });
+        return;
+      // Forge-162 — Inspection / FAI workbench.
+      // InspectionWorkbenchHost (in App.jsx) registers
+      // __forgeOpenInspect on mount.
+      case 'tools.inspect':
+        window.__forgeOpenInspect?.({ theme });
+        return;
       case 'tools.mesh':
       case 'workbench.mesh':
         // Forge-151 — Mesh workbench. Publishes the active bodies so
@@ -843,6 +873,15 @@ export function ForgeShellV4() {
         // body to tessellate.
         window.__forgeBodies = bodies;
         window.__forgeOpenMesh?.({ theme });
+        return;
+      case 'tools.lattice':
+      case 'workbench.lattice':
+        // Forge-165 — Lattice / metamaterial workbench. Real TPMS
+        // implicit surfaces + Lorensen-Cline marching cubes + strut
+        // truss topologies + Gibson-Ashby effective-modulus estimator.
+        // Manual menu click does NOT post to Archie's thread.
+        window.__forgeBodies = bodies;
+        window.__forgeOpenLattice?.({ theme });
         return;
       case 'tools.bundle':
       case 'file.exportBundle':
@@ -882,6 +921,19 @@ export function ForgeShellV4() {
       case 'tools.ship':
         window.__forgeOpenShipWorkbench?.(true);
         return;
+      case 'tools.generative':
+        window.__forgeOpenGenerativeDesign?.(true);
+        return;
+      // Forge-167 — Spring Designer (Wahl/Goodman/ASTM). Host registers
+      // window.__forgeOpenSpringDesigner on mount.
+      case 'tools.spring':
+        window.__forgeOpenSpringDesigner?.(true);
+        return;
+      // Forge-168 — Wiring Harness designer. Host registers
+      // window.__forgeOpenHarness on mount.
+      case 'tools.harness':
+        window.__forgeOpenHarness?.(true);
+        return;
       case 'view.record':
         window.dispatchEvent(new CustomEvent('forge:capture-start',
           { detail: { filename: 'forge-session' } }));
@@ -893,6 +945,10 @@ export function ForgeShellV4() {
         // Forge-153 — parametric spreadsheet workbench. The host
         // mounted in App.jsx registers __forgeOpenSpreadsheet on mount.
         window.__forgeOpenSpreadsheet?.(true); return;
+      case 'tools.csg':
+        // Forge-160 — OpenSCAD-style CSG scripting workbench. The host
+        // mounted in App.jsx registers __forgeOpenCsg on mount.
+        window.__forgeOpenCsg?.(true); return;
       case 'tools.topology':
         setTopologyOpen(true); return;
       case 'tools.skeleton':

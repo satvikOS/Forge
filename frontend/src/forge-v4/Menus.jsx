@@ -102,6 +102,8 @@ export const MENU_SPEC = {
       { id: 'tools.selectionMode', label: 'Selection Mode (Body / Face / Edge / Vertex)', icon: 'select.body' },
       { id: 'tools.equations', label: 'Equation Manager…', icon: 'measure.distance', shortcut: '⌘E' },
       { id: 'tools.spreadsheet', label: 'Spreadsheet…',     icon: 'archie.formula' },
+      // Forge-160 — OpenSCAD-style CSG scripting workbench.
+      { id: 'tools.csg',         label: 'CSG Scripting…',   icon: 'archie.formula' },
       { id: 'tools.topology',  label: 'Topology Inspector…', icon: 'select.body', shortcut: '⌘I' },
       { id: 'tools.measure',   label: 'Measure',            icon: 'measure.distance' },
       SEP,
@@ -120,11 +122,14 @@ export const MENU_SPEC = {
       { id: 'tools.directEdit', label: 'Direct Edit…',     icon: 'sketch.rect' },
       { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
+      // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
+      { id: 'tools.threads',    label: 'Thread Designer…',  icon: 'sketch.spline' },
       // Forge-149 — Draft workbench (FreeCAD Draft parity).
       { id: 'tools.draft',      label: 'Draft (2D)…',       icon: 'sketch.line' },
       SEP,
       { id: 'tools.demoProject',  label: 'Build sample bracket…', icon: 'archie.spark' },
       { id: 'tools.ship',          label: 'Ship · naval architecture…', icon: 'wb.mfg' },
+      { id: 'tools.generative',    label: 'Generative Design…', icon: 'wb.sim' },
       { id: 'tools.bom',          label: 'Bill of Materials…',   icon: 'measure.mass' },
       { id: 'tools.pdm',          label: 'Product Data Management…', icon: 'misc.settings' },
       { id: 'tools.configurations', label: 'Configurations…',    icon: 'misc.settings' },
@@ -134,13 +139,29 @@ export const MENU_SPEC = {
       { id: 'tools.weldments',    label: 'Weldments…',           icon: 'wb.weldments' },
       // Forge-151 — Mesh workbench (polygonal mesh tools).
       { id: 'tools.mesh',         label: 'Mesh…',                icon: 'select.body' },
+      // Forge-165 — Lattice / metamaterial workbench (TPMS implicit
+      // surfaces + strut truss topologies + Gibson-Ashby estimator).
+      { id: 'tools.lattice',      label: 'Lattice / Metamaterial…', icon: 'select.body' },
       { id: 'tools.cam',          label: 'CAM (Manufacturing)…', icon: 'wb.mfg' },
+      // Forge-163 — 3D-printing slicer (real Marlin G-code emitter).
+      { id: 'tools.slicer',       label: 'Slicer (3D printing)…', icon: 'wb.mfg' },
       // Forge-152 — Industrial robot workbench (KUKA KR6, ABB IRB1200,
       // FANUC LR Mate). FK/IK with real DH tables + post-processors.
       { id: 'tools.robot',        label: 'Robot (6-axis)…',      icon: 'wb.robot' },
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       { id: 'tools.arch',         label: 'Arch / BIM…',          icon: 'wb.arch' },
       { id: 'tools.archSite',     label: 'Arch · Project tree…', icon: 'wb.drawing' },
+      SEP,
+      // Forge-167 — Spring designer (Wahl / Goodman / ASTM materials).
+      { id: 'tools.spring',       label: 'Spring Designer…',     icon: 'sketch.spline' },
+      // Forge-168 — Wiring harness designer (Catmull-Rom + bend radius).
+      { id: 'tools.harness',      label: 'Wiring Harness…',      icon: 'sketch.spline' },
+      // Forge-169 — Process P&ID schematic editor (ISA-5.1-2009).
+      { id: 'tools.pid',          label: 'P&ID Schematic…',      icon: 'wb.mfg' },
+      // Forge-161 — Reverse engineering (scan-to-CAD: PLY/PCD/XYZ/E57).
+      { id: 'tools.reverse',      label: 'Reverse Engineering…', icon: 'select.body' },
+      // Forge-162 — First Article Inspection (FAI) heatmap + AS9102 PDF.
+      { id: 'tools.inspect',      label: 'Inspection / FAI…',    icon: 'measure.distance' },
       SEP,
       { id: 'tools.explode',      label: 'Exploded view…',       icon: 'misc.expand_r' },
       { id: 'tools.walkthrough',  label: 'Walk-through…',        icon: 'archie.send' },

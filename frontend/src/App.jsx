@@ -28,6 +28,7 @@ import { SkeletonPanelHost } from './forge-v4/SkeletonPanel.jsx';
 import { ActionWheelHost } from './forge-v4/ActionWheel.jsx';
 import { DemoProjectHost } from './forge-v4/DemoProject.jsx';
 import { ShipWorkbenchHost } from './forge-v4/ShipWorkbench.jsx';
+import { GenerativeDesignPanelHost } from './forge-v4/GenerativeDesignPanel.jsx';
 import { SheetMetalWorkbenchHost } from './forge-v4/SheetMetalWorkbench.jsx';
 import { PluginManagerPanelHost } from './forge-v4/PluginManagerPanel.jsx';
 import { installForgeAPI } from './forge-v4/forgeAPI.js';
@@ -43,6 +44,10 @@ import { DraftWorkbenchHost } from './forge-v4/DraftWorkbench.jsx';
 import { SpreadsheetWorkbenchHost } from './forge-v4/SpreadsheetWorkbench.jsx';
 // Forge-151 — Mesh workbench (polygonal mesh tools).
 import { MeshWorkbenchHost } from './forge-v4/MeshWorkbench.jsx';
+// Forge-163 — Slicer workbench (3D-printing Marlin G-code emitter).
+import { SlicerWorkbenchHost } from './forge-v4/SlicerWorkbench.jsx';
+// Forge-165 — Lattice / metamaterial workbench (TPMS + strut + Gibson-Ashby).
+import { LatticeWorkbenchHost } from './forge-v4/LatticeWorkbench.jsx';
 // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
 import { ArchWorkbenchHost } from './forge-v4/ArchWorkbench.jsx';
 import { SiteHierarchyHost } from './forge-v4/SiteHierarchy.jsx';
@@ -52,6 +57,20 @@ import { RobotWorkbenchHost } from './forge-v4/RobotWorkbench.jsx';
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
 import { SelectionHighlightHost } from './forge-v4/SelectionHighlight.jsx';
+// Forge-166 — ISO/UNC/UNF/NPT thread designer (real helical sweep).
+import { ThreadDesignerPanelHost } from './forge-v4/ThreadDesignerPanel.jsx';
+// Forge-160 — OpenSCAD-style CSG scripting workbench.
+import { CsgScriptingWorkbenchHost } from './forge-v4/CsgScriptingWorkbench.jsx';
+// Forge-167 — Spring Designer (Wahl / Goodman / ASTM materials).
+import { SpringDesignerPanelHost } from './forge-v4/SpringDesignerPanel.jsx';
+// Forge-168 — Wiring Harness workbench (Catmull-Rom + bend radius).
+import { HarnessWorkbenchHost } from './forge-v4/HarnessWorkbench.jsx';
+// Forge-169 — Process P&ID schematic editor (ISA-5.1-2009).
+import { PidEditorHost } from './forge-v4/pidEditor.jsx';
+// Forge-161 — Reverse Engineering workbench (PLY / PCD / XYZ / E57).
+import { ReverseEngWorkbenchHost } from './forge-v4/ReverseEngWorkbench.jsx';
+// Forge-162 — Inspection / FAI workbench (CMM heatmap + AS9102 PDF).
+import { InspectionWorkbenchHost } from './forge-v4/InspectionWorkbench.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -103,6 +122,7 @@ function App() {
       <ActionWheelHost />
       <DemoProjectHost />
       <ShipWorkbenchHost />
+      <GenerativeDesignPanelHost />
       <SheetMetalWorkbenchHost />
       <PluginManagerPanelHost />
       <PathTracedRenderHost />
@@ -112,11 +132,20 @@ function App() {
       <DraftWorkbenchHost />
       <SpreadsheetWorkbenchHost />
       <MeshWorkbenchHost />
+      <SlicerWorkbenchHost />
+      <LatticeWorkbenchHost />
       <ArchWorkbenchHost />
       <SiteHierarchyHost />
       <RobotWorkbenchHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
+      <ThreadDesignerPanelHost />
+      <CsgScriptingWorkbenchHost />
+      <SpringDesignerPanelHost />
+      <HarnessWorkbenchHost />
+      <PidEditorHost />
+      <ReverseEngWorkbenchHost />
+      <InspectionWorkbenchHost />
     </ViewportEnvironmentProvider>
   );
 }
