@@ -522,6 +522,65 @@ export function ForgeShellV4() {
         window.__forgeBodies = bodies;
         window.__forgeOpenIfcExport?.(true);
         return;
+      case 'file.exportAp242': {
+        // Forge-156 — AP242 STEP + semantic PMI write. Bundle every native
+        // body's tessellation + every PMI annotation into a real STEP21
+        // file with FILE_SCHEMA(('AP242_MANAGED_MODEL_BASED_3D_ENGINEERING')).
+        (async () => {
+          try {
+            const { buildAP242 } = await import('./ap242Export.js');
+            const { listAnnotations } = await import('./pmiAnnotations.js');
+            const fp = await window.forge?.dialog?.saveFile?.({
+              title: 'Export AP242 STEP + PMI',
+              defaultPath: 'forge.step',
+              filters: [{ name: 'AP242 STEP', extensions: ['step', 'stp'] }],
+            });
+            if (!fp) return;
+            // Tessellate every native body.
+            const tessBodies = [];
+            for (const b of bodies) {
+              if (b.kind === 'native' && typeof b.handle === 'number' &&
+                  window.forge?.tessellate) {
+                try {
+                  const m = window.forge.tessellate(b.handle, 0.2, 0.6);
+                  const vertices = [];
+                  for (let i = 0; i < m.positions.length; i += 3) {
+                    vertices.push([m.positions[i], m.positions[i+1], m.positions[i+2]]);
+                  }
+                  const faces = [];
+                  if (m.indices) {
+                    for (let i = 0; i < m.indices.length; i += 3) {
+                      faces.push([m.indices[i], m.indices[i+1], m.indices[i+2]]);
+                    }
+                  }
+                  tessBodies.push({ id: b.id, name: b.name || b.id, vertices, faces });
+                } catch (err) {
+                  console.warn('[forge.v4.ap242] tessellate failed:', err.message);
+                }
+              }
+            }
+            const text = buildAP242({
+              projectName: 'Forge Project',
+              bodies: tessBodies,
+              pmiAnnotations: listAnnotations(),
+              units: 'mm',
+            });
+            const bytes = new TextEncoder().encode(text);
+            const r = await window.forge?.dialog?.writeBlob?.(fp, bytes);
+            if (r?.ok) {
+              showToast({ kind: 'ok',
+                text: `AP242 STEP+PMI exported · ${r.bytes} bytes · ${fp}`,
+                ttl: 3500 });
+            } else {
+              showToast({ kind: 'err',
+                text: `AP242 write failed: ${r?.error || 'unknown'}`, ttl: 3000 });
+            }
+          } catch (err) {
+            showToast({ kind: 'err', text: `AP242 export: ${err.message}`, ttl: 3000 });
+          }
+        })();
+        return;
+      }
       case 'edit.copy':
         if (selection?.ids?.length) {
           stored.set('clipboard', selection);
@@ -774,6 +833,9 @@ export function ForgeShellV4() {
         return;
       case 'tools.demoProject':
         window.__forgeOpenDemoProject?.(true);
+        return;
+      case 'tools.ship':
+        window.__forgeOpenShipWorkbench?.(true);
         return;
       case 'view.record':
         window.dispatchEvent(new CustomEvent('forge:capture-start',

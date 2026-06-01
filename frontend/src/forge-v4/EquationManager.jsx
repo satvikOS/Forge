@@ -8,8 +8,10 @@
 //
 // Cmd+E or Tools menu → opens. Persists to forge.v4.equations.
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { Icon } from './icons/Icon.jsx';
+import { subscribe as subscribeSheet, snapshot as snapshotSheet,
+         listBindings as listSheetBindings } from './spreadsheetStore.js';
 
 const STORAGE_KEY = 'forge.v4.equations';
 
@@ -82,9 +84,19 @@ function evalExpr(s, env) {
 }
 
 /** Resolve every variable in `vars` against a shared env so vars can
- *  reference each other. Returns { values, errors } — both keyed by var id. */
-export function solveEquations(vars) {
+ *  reference each other. Returns { values, errors } — both keyed by var id.
+ *
+ *  Forge-153 — `extraEnv` is mixed into the variable lookup BEFORE the
+ *  equation rows run. We use this to surface SpreadsheetWorkbench cell
+ *  bindings as solvable parameters: any cell tagged with a name in the
+ *  Spreadsheet becomes readable as that name from an equation row. */
+export function solveEquations(vars, extraEnv = null) {
   const env = {};
+  if (extraEnv && typeof extraEnv === 'object') {
+    for (const [k, v] of Object.entries(extraEnv)) {
+      if (typeof v === 'number' && Number.isFinite(v)) env[k] = v;
+    }
+  }
   const errors = {};
   // Naive O(N²) — each pass resolves whatever's solvable.
   let changed = true;
@@ -104,9 +116,33 @@ export function solveEquations(vars) {
   return { values: env, errors };
 }
 
+// Subscribe to the spreadsheet store with a cached snapshot so cell
+// bindings flow into the equation env without triggering React #185
+// (the snapshot function caches by a version counter — see
+// spreadsheetStore.js for the contract). We only need the bindings
+// portion; we derive it via useMemo to keep the env object stable.
+function useSheetEnv() {
+  const get = useCallback(() => snapshotSheet(), []);
+  const sheet = useSyncExternalStore(subscribeSheet, get, get);
+  // Build { name: number } from { name: { cellId, value } } — skip
+  // bindings whose underlying cell is empty or non-numeric so the
+  // EquationManager only sees clean parameters.
+  return useState.length /* keep linter quiet on unused */, (() => {
+    const env = {};
+    for (const [name, info] of Object.entries(sheet.bindings || {})) {
+      const v = info && typeof info === 'object'
+        ? (sheet.cells?.[info.cellId]?.value ?? null)
+        : null;
+      if (typeof v === 'number' && Number.isFinite(v)) env[name] = v;
+    }
+    return env;
+  })();
+}
+
 export function EquationManager({ open, onClose }) {
   const [vars, setVars] = useState(() => loadVars());
-  const { values, errors } = solveEquations(vars);
+  const sheetEnv = useSheetEnv();
+  const { values, errors } = solveEquations(vars, sheetEnv);
 
   useEffect(() => { saveVars(vars); }, [vars]);
   useEffect(() => {

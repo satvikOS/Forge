@@ -27,6 +27,7 @@ import { ConvergenceChartHost } from './forge-v4/ConvergenceChart.jsx';
 import { SkeletonPanelHost } from './forge-v4/SkeletonPanel.jsx';
 import { ActionWheelHost } from './forge-v4/ActionWheel.jsx';
 import { DemoProjectHost } from './forge-v4/DemoProject.jsx';
+import { ShipWorkbenchHost } from './forge-v4/ShipWorkbench.jsx';
 import { SheetMetalWorkbenchHost } from './forge-v4/SheetMetalWorkbench.jsx';
 import { PluginManagerPanelHost } from './forge-v4/PluginManagerPanel.jsx';
 import { installForgeAPI } from './forge-v4/forgeAPI.js';
@@ -86,6 +87,7 @@ function App() {
       <SkeletonPanelHost />
       <ActionWheelHost />
       <DemoProjectHost />
+      <ShipWorkbenchHost />
       <SheetMetalWorkbenchHost />
       <PluginManagerPanelHost />
       <PathTracedRenderHost />
