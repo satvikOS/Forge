@@ -144,8 +144,13 @@ function saveLS(state) {
 
 let _state = loadLS();
 const _subs = new Set();
+let _cachedSnap = null;
+let _cachedSnapVersion = -1;
+let _version = 0;
+function _bumpVersion() { _version++; _cachedSnap = null; }
 
 function notify() {
+  _bumpVersion();
   for (const s of _subs) {
     try { s(); } catch { /* keep going */ }
   }
@@ -552,17 +557,21 @@ export function subscribe(cb) {
 
 /**
  * Convenience: snapshot every list as a single object. Useful for
- * React's useSyncExternalStore — but each call returns a fresh object
- * so identity-comparison is meaningful only on the underlying lists.
+ * React's useSyncExternalStore — MUST return the same reference when
+ * nothing has changed, otherwise React enters an infinite re-render
+ * loop (see Forge-143 bisect that found this caused React #185).
  */
 export function snapshot() {
-  return {
+  if (_cachedSnap && _cachedSnapVersion === _version) return _cachedSnap;
+  _cachedSnap = {
     items:   listItems(),
     revs:    listRevs(),
     ecns:    listEcns(),
     boms:    listBoms(),
     history: listHistory(),
   };
+  _cachedSnapVersion = _version;
+  return _cachedSnap;
 }
 
 // ── test / dev helpers ───────────────────────────────────────────────

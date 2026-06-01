@@ -42,7 +42,8 @@ import { CommandPaletteHost } from './forge-v4/CommandPalette.jsx';
 // means modules that probe `window.Forge` synchronously during the first
 // render (e.g. Menus.jsx's usePluginMenuExtras) find the surface ready.
 if (typeof window !== 'undefined') {
-  installForgeAPI();
+  try { installForgeAPI(); }
+  catch (err) { console.warn('[forge.app] installForgeAPI failed:', err.message); }
 }
 
 // Forge-65: v4 shell is the only entry. App.jsx is one line — no hash

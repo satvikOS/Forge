@@ -188,13 +188,19 @@ export function ForgeShellV4() {
       if (typeof id === 'string') { setActiveWb(id); setActiveTool(null); }
     };
     window.__forgeFit = () => setCenterToken((n) => n + 1);
-    // Forge-127 — fire a workbench-changed event so panel hosts (sheet
-    // metal, weldments) can self-show without polling.
+  }, [bodies, featureTree, selection, activeWb, theme]);
+
+  // Forge-143 — workbench-changed event fires ONLY when activeWb actually
+  // changes (previously this was in the bodies-publish effect, which fired
+  // every state change → wb-changed dispatched on every confirm → host
+  // mount re-render → React #185 infinite-update loop).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
     try {
       window.dispatchEvent(new CustomEvent('forge:wb-changed',
                                            { detail: { wb: activeWb } }));
     } catch {}
-  }, [bodies, featureTree, selection, activeWb, theme]);
+  }, [activeWb]);
 
   // Cmd+K → focus cmd bar; Cmd+/ toggle dock; Cmd+T cycle theme.
   useEffect(() => {

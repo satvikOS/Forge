@@ -24,11 +24,11 @@ export function isDirection(d) {
   return DIRECTION_PRESETS.includes(d);
 }
 
-const FALLBACK_BBOX = { w: 80, h: 60, d: 40 };       // mm — generic box
-
-// Returns { edges:[{points:[[x,y],…], visible:boolean}], hatches?:[…] }
-// — same shape the renderer expects from the kernel.
-function fallbackShape(direction) {
+// Forge-143 — removed: FALLBACK_BBOX + fallbackShape. The dispatch no
+// longer fabricates outlines when the native projection fails; it
+// returns { edges:[], source:'error', error }. Kept the dead function
+// signature here only as a reminder of where it lived.
+function _removed_fallbackShape_(direction) {
   const { w, h, d } = FALLBACK_BBOX;
   switch (direction) {
     case 'front':
@@ -208,35 +208,20 @@ export function projectDetailSafe(handle, direction, focusCircle, scale) {
 export function projectBrokenSafe(handle, direction, breakRegion) {
   if (!isDirection(direction)) direction = 'front';
   const k = kernelDrawings();
-  if (k && typeof handle === 'number') {
-    try {
-      const out = k.projectBroken(handle, direction, breakRegion || {
-        axis: 'x', from: -10, to: 10,
-      });
-      if (isValidEdgeList(out)) return { ...out, source: 'kernel' };
-    } catch (err) {
-      if (typeof console !== 'undefined') {
-        console.warn('[forge.v4.drawings] projectBroken threw:', err.message);
-      }
-    }
+  if (!k) return { edges: [], source: 'error',
+                   error: 'forge.drawings is not loaded — install the native addon' };
+  if (typeof handle !== 'number')
+    return { edges: [], source: 'error', error: 'No body handle supplied to projectBroken' };
+  try {
+    const out = k.projectBroken(handle, direction, breakRegion || {
+      axis: 'x', from: -10, to: 10,
+    });
+    if (isValidEdgeList(out)) return { ...out, source: 'kernel' };
+    return { edges: [], source: 'error', error: 'kernel.projectBroken returned no edges' };
+  } catch (err) {
+    return { edges: [], source: 'error',
+             error: `kernel.projectBroken: ${err.message}` };
   }
-  // Synthetic broken: front fallback with a zig-zag in the middle.
-  const base = fallbackShape(direction);
-  const reg = breakRegion || { axis: 'x', from: -10, to: 10 };
-  const zig = [];
-  const yA = -20, yB = 20;
-  const mid = (reg.from + reg.to) / 2;
-  for (let y = yA; y <= yB; y += 4) {
-    zig.push([mid + ((y / 4) % 2 ? 3 : -3), y]);
-  }
-  return {
-    ...base,
-    edges: [
-      ...base.edges,
-      { points: zig, visible: true, broken: true },
-    ],
-    source: 'fallback',
-  };
 }
 
 /**

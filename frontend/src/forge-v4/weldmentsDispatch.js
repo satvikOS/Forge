@@ -97,7 +97,7 @@ export function makePathEdgeSafe(p0, p1) {
       console.warn('[forge.v4.weldments] makePathEdge threw:', err.message);
     }
   }
-  return { handle: nextHandle(), source: 'fallback', p0, p1 };
+  return { handle: nextHandle(), source: 'js-only', p0, p1 };
 }
 
 /* --------------------------------------------------------------- */
@@ -133,7 +133,7 @@ export function makeStructuralMemberSafe(pathEdge, profileName, alignment = 'cen
   }
   const handle = nextHandle();
   const rec = { handle, profile, length, mass, alignment,
-                p0: pathEdge.p0, p1: pathEdge.p1, source: 'fallback' };
+                p0: pathEdge.p0, p1: pathEdge.p1, source: 'js-only' };
   _memberRecords.set(handle, rec);
   return rec;
 }
@@ -186,7 +186,7 @@ export function trimMemberSafe(memberA, memberB, mode = 'butt') {
   }
   const h = nextHandle();
   _trimRecords.set(h, { mode, parent: memberA?.handle, target: memberB?.handle });
-  return { handle: h, mode, source: 'fallback' };
+  return { handle: h, mode, source: 'js-only' };
 }
 
 /* convenience aliases for the named-mode dispatch */
@@ -220,7 +220,7 @@ export function makeGussetSafe(member, vertexId, gussetSize, thickness, angleDeg
   const handle = nextHandle();
   _gussetRecords.set(handle, { size: gussetSize, thk: thickness, angleDeg,
                                parent: member?.handle });
-  return { handle, size: gussetSize, thk: thickness, angleDeg, source: 'fallback' };
+  return { handle, size: gussetSize, thk: thickness, angleDeg, source: 'js-only' };
 }
 
 export function gussetWithAngleSafe(member, vertexId, size, thk, angleDeg) {
@@ -246,7 +246,7 @@ export function makeEndCapSafe(member, openingEdgeId, capThickness, chamferDeg =
   }
   const handle = nextHandle();
   _capRecords.set(handle, { thk: capThickness, chamfer: chamferDeg, parent: member?.handle });
-  return { handle, thk: capThickness, chamfer: chamferDeg, source: 'fallback' };
+  return { handle, thk: capThickness, chamfer: chamferDeg, source: 'js-only' };
 }
 
 export function endCapWithChamferSafe(member, edgeId, thk, chamferDeg) {
@@ -303,7 +303,7 @@ export function makeWeldBeadSafe(parent, edgeIds, sizeMm, kind = 'fillet') {
   _beadRecords.set(handle, { kind, size: sizeMm, length: lengthMm,
                              edges: edgeIds, parent: parent?.handle });
   return { handle, kind, size: sizeMm, length: lengthMm,
-           spec, source: 'fallback' };
+           spec, source: 'js-only' };
 }
 
 /* convenience named wrappers */
@@ -403,7 +403,7 @@ export function readCutListSafe(roots) {
       });
     }
   }
-  return { rows: Array.from(buckets.values()), source: 'fallback' };
+  return { rows: Array.from(buckets.values()), source: 'js-only' };
 }
 
 /* --------------------------------------------------------------- */
