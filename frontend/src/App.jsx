@@ -62,6 +62,7 @@ function App() {
       <SnapStatusChip />
       <ConvergenceChartHost />
       <SkeletonPanelHost />
+      <SheetMetalWorkbenchHost />
     </ViewportEnvironmentProvider>
   );
 }

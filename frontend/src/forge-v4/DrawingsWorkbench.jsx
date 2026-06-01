@@ -675,9 +675,15 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
             activeViewId={activeViewId}
             onActivate={setActiveViewId}
             onDropBody={dropBodyOnView}
+            onMoveView={moveView}
+            alignmentGuides={dragGuides}
             ink={sheetInk}
             dimensions={dimensions}
             annotations={annotations}
+            ordinates={ordinates}
+            datumTargets={datumTargets}
+            clouds={clouds}
+            cloudDraft={cloudDraft}
             balloons={tool === 'balloon' || activeView?.showBalloons
               ? bomRows
               : []}
@@ -707,7 +713,21 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
                                 precision={2} mode="aligned"
                                 tolerance={DEFAULT_TOLERANCE} />
             )}
+            ordinatePreview={(viewId) => (
+              <OrdinatePreview tool={ord} viewId={viewId} />
+            )}
           />
+
+          {/* Forge-130 — revision table block, bottom-right corner */}
+          {showRevisionTable && revisions.length > 0 && (
+            <RevisionTable
+              revisions={revisions}
+              x={SHEET_W - 100 - 4}
+              y={SHEET_H - (showTitleBlock ? TITLE_BLOCK_H : 0) - 28 - 4}
+              w={100} h={28}
+              ink={sheetInk}
+            />
+          )}
 
           {showTitleBlock && (
             <TitleBlock
@@ -757,6 +777,20 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
             )}
           </div>
         )}
+
+        {/* Forge-130 — datum target picker (opens on first click with the
+            datumTarget tool active). */}
+        {pendingDatumTarget && (
+          <div data-testid="forge-datum-target-picker-overlay"
+               style={{
+                 position: 'absolute', top: 56, left: 12, zIndex: 21,
+               }}>
+            <DatumTargetPicker
+              onCommit={(t) => commitDatumTarget(t)}
+              onCancel={() => setPendingDatumTarget(null)}
+            />
+          </div>
+        )}
       </div>
 
       <DrawingsInspector
@@ -788,6 +822,19 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
         }}
         annotations={annotations}
         onRemoveAnnotation={(id) => removeAnnotation(id)}
+        datumTargets={datumTargets}
+        onRemoveDatumTarget={(id) =>
+          setDatumTargets((arr) => arr.filter((t) => t.id !== id))}
+        ordinates={ordinates}
+        ordinateAxis={ordinateAxis}
+        onChangeOrdinateAxis={setOrdinateAxis}
+        onClearOrdinates={() => setOrdinates([])}
+        revisions={revisions}
+        clouds={clouds}
+        onAddRevisionRow={() => addRevision({
+          description: 'Updated per ECN',
+          ecn: `ECN-${1000 + revisions.length}`,
+        })}
       />
     </div>
   );
@@ -979,38 +1026,55 @@ function ViewGrid({
   views, projections, cols, sheetW, sheetH,
   activeViewId, onActivate, onDropBody, ink,
   dimensions, balloons, balloonPositionsByView, annotations,
-  onSheetClick, onSheetMove, dimPreview,
+  ordinates, datumTargets, clouds, cloudDraft,
+  onSheetClick, onSheetMove, dimPreview, ordinatePreview,
+  alignmentGuides, onMoveView,
 }) {
   const margin = 8;
-  const innerW = sheetW - margin * 2;
-  const innerH = sheetH - margin * 2;
-  const rows = Math.max(1, Math.ceil(views.length / cols));
-  const cellW = innerW / cols;
-  const cellH = innerH / rows;
   return (
     <g data-testid="forge-drawings-view-grid">
-      {views.map((v, i) => {
-        const r = Math.floor(i / cols);
-        const c = i % cols;
-        const x = margin + c * cellW;
-        const y = margin + r * cellH;
+      {/* Alignment guide overlay shown during drag */}
+      {(alignmentGuides || []).map((g, i) => (
+        <line key={`ag-${i}`}
+              data-testid="forge-alignment-guide"
+              data-align-axis={g.axis}
+              x1={g.x1} y1={g.y1} x2={g.x2} y2={g.y2}
+              stroke="var(--forge-accent, #6cd0e8)"
+              strokeWidth={0.4}
+              strokeDasharray="2 1.5"
+              strokeOpacity={0.85} />
+      ))}
+      {views.map((v) => {
+        // Forge-130 — use per-view absolute rect (alignment-driven). Fall
+        // back to a margin-anchored cell when an old view record from
+        // localStorage is missing the rect fields.
+        const x = Number.isFinite(v.x) ? v.x : margin;
+        const y = Number.isFinite(v.y) ? v.y : margin;
+        const w = Number.isFinite(v.w) ? v.w : 130;
+        const h = Number.isFinite(v.h) ? v.h : 80;
         return (
           <DrawingViewCell
             key={v.id}
             view={v}
             projection={projections.get(v.id)}
-            x={x} y={y} w={cellW} h={cellH}
+            x={x} y={y} w={w} h={h}
             ink={ink}
             active={v.id === activeViewId}
             onActivate={() => onActivate(v.id)}
             onDropBody={(bodyId) => onDropBody(v.id, bodyId)}
+            onMove={onMoveView}
             dimensions={dimensions}
             balloons={balloons}
             balloonPositions={balloonPositionsByView.get(v.id)}
             annotations={annotations}
+            ordinates={ordinates}
+            datumTargets={datumTargets}
+            clouds={clouds}
+            cloudDraft={cloudDraft}
             onSheetClick={(pt) => onSheetClick?.(v.id, pt)}
             onSheetMove={(pt) => onSheetMove?.(v.id, pt)}
             dimPreview={dimPreview ? dimPreview(v.id) : null}
+            ordinatePreview={ordinatePreview ? ordinatePreview(v.id) : null}
           />
         );
       })}
@@ -1021,7 +1085,8 @@ function ViewGrid({
 function DrawingViewCell({
   view, projection, x, y, w, h, ink, active, onActivate, onDropBody,
   dimensions, balloons, balloonPositions, annotations,
-  onSheetClick, onSheetMove, dimPreview,
+  ordinates, datumTargets, clouds, cloudDraft,
+  onSheetClick, onSheetMove, dimPreview, ordinatePreview, onMove,
 }) {
   const cellRef = useRef(null);
   const proj = projection || { edges: [], bounds: edgeBounds([]) };
@@ -1037,10 +1102,44 @@ function DrawingViewCell({
   const oy = cy - ((b.minY + b.maxY) / 2) * s;
   const toSheet = (pt) => [ox + pt[0] * s, oy + pt[1] * s];
 
+  // Forge-130 — a unique clip-path id per view so multiple views with
+  // crops don't share the same clip mask.
+  const clipId = `clip-${view.id}`;
+
   // hit-test the sheet coords back to view coords for tools
   const sheetToView = useCallback((sx, sy) => {
     return [(sx - ox) / s, (sy - oy) / s];
   }, [ox, oy, s]);
+
+  // ── Forge-130 — drag handle (small grip in corner for view repositioning)
+  const dragStart = useRef(null);
+  const onGripDown = (e) => {
+    e.stopPropagation();
+    const startX = e.clientX, startY = e.clientY;
+    dragStart.current = { startX, startY, baseX: x, baseY: y };
+    const onMoveDoc = (ev) => {
+      if (!dragStart.current || !onMove) return;
+      const sx2 = (ev.clientX - dragStart.current.startX);
+      const sy2 = (ev.clientY - dragStart.current.startY);
+      // map screen px → svg mm: leverage the cell's own ownerSVGElement
+      const svg = cellRef.current?.ownerSVGElement;
+      if (!svg) return;
+      const ctm = svg.getScreenCTM();
+      if (!ctm) return;
+      const dxMm = sx2 / ctm.a;
+      const dyMm = sy2 / ctm.d;
+      onMove(view.id, { dx: dxMm, dy: dyMm });
+      dragStart.current.startX = ev.clientX;
+      dragStart.current.startY = ev.clientY;
+    };
+    const onUp = () => {
+      dragStart.current = null;
+      window.removeEventListener('mousemove', onMoveDoc);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMoveDoc);
+    window.addEventListener('mouseup', onUp);
+  };
 
   // event listeners — we attach to the rect element so clicks anywhere
   // in the cell map back to view coords
@@ -1073,7 +1172,17 @@ function DrawingViewCell({
        data-view-id={view.id}
        data-view-direction={view.direction}
        data-view-kind={view.kind}
-       data-view-active={String(active)}>
+       data-view-active={String(active)}
+       data-view-aligned={String(isAligned(view))}
+       data-view-parent={view.parentId || ''}>
+      {/* clip-path declarations — used by crop / partial / half / broken section */}
+      {proj.clip && (
+        <defs>
+          <clipPath id={clipId}>
+            {clipShape(proj.clip, toSheet)}
+          </clipPath>
+        </defs>
+      )}
       {/* hit-rect (filled invisibly so all clicks inside the cell hit it) */}
       <rect ref={cellRef}
             x={x} y={y} width={w} height={h}
@@ -1087,8 +1196,20 @@ function DrawingViewCell({
             onDrop={handleDrop}
             style={{ cursor: 'crosshair' }} />
 
+      {/* drag grip — top-left of the cell, used to move the view */}
+      <g data-testid="forge-view-grip"
+         data-grip-for={view.id}
+         onMouseDown={onGripDown}
+         style={{ cursor: 'move' }}>
+        <rect x={x + 0.5} y={y + 0.5} width={5} height={5}
+              fill="var(--forge-accent-mute, rgba(108,208,232,0.4))"
+              stroke="var(--forge-accent, #6cd0e8)" strokeWidth={0.3} />
+        <text x={x + 3} y={y + 4.4} textAnchor="middle"
+              fontSize={3} fill={ink}>·</text>
+      </g>
+
       {/* label corner */}
-      <text x={x + 3} y={y + 5}
+      <text x={x + 7} y={y + 5}
             fontFamily="var(--forge-mono)" fontSize={3}
             fill={ink}>
         {view.direction.toUpperCase()} · {view.kind}
@@ -1101,23 +1222,31 @@ function DrawingViewCell({
         </text>
       )}
 
-      {/* projected edges */}
-      <g data-edges={proj.edges.length}>
+      {/* projected edges (clipped if this view defines a clip mask) */}
+      <g data-edges={proj.edges.length}
+         clipPath={proj.clip ? `url(#${clipId})` : undefined}>
         {proj.edges.map((e, i) => {
           if (!e.visible && view.hiddenLines === false) return null;
           const pts = (e.points || []).map(toSheet)
                                        .map(([px, py]) => `${px},${py}`)
                                        .join(' ');
+          const isAlt = !!e.alternate;
           return (
             <polyline key={i}
+                      data-edge-alternate={isAlt ? 'true' : undefined}
                       points={pts}
                       fill="none"
                       stroke={ink}
+                      strokeOpacity={isAlt ? 0.45 : 1}
                       strokeWidth={e.visible ? 0.5 : 0.3}
-                      strokeDasharray={e.visible ? '0' : '1.5 1'} />
+                      strokeDasharray={
+                        isAlt
+                          ? '2.5 1.5 0.5 1.5'    // chain-dash for alternate
+                          : (e.visible ? '0' : '1.5 1')
+                      } />
           );
         })}
-        {/* hatches on section views */}
+        {/* hatches on section views (half-section masks to only one side) */}
         {(proj.hatches || []).map((hk, i) => (
           <polyline key={`h-${i}`}
                     points={(hk.points || []).map(toSheet)
@@ -1130,10 +1259,39 @@ function DrawingViewCell({
         ))}
       </g>
 
+      {/* clip-mask outline — render the clip boundary as a dashed line so
+          the user can see where the crop / partial / half-section is. */}
+      {proj.clip && (
+        <g data-testid="forge-clip-outline"
+           data-clip-kind={proj.clip.kind}>
+          <ClipOutline clip={proj.clip} toSheet={toSheet} ink={ink} />
+        </g>
+      )}
+
       {/* dimensions belonging to this view */}
       <g transform={`translate(${ox} ${oy}) scale(${s})`}>
         <DimensionLayer dimensions={dimensions} viewId={view.id} />
         {dimPreview}
+        {/* Forge-130 — ordinate dimensions */}
+        <OrdinateLayer stacks={ordinates} viewId={view.id} ink={ink} />
+        {ordinatePreview}
+        {/* Forge-130 — datum targets */}
+        <DatumTargetLayer targets={datumTargets} viewId={view.id} ink={ink} />
+        {/* Forge-130 — revision clouds */}
+        <RevisionCloudLayer clouds={clouds} viewId={view.id} ink={ink} />
+        {/* cloud draft (in-progress polygon) */}
+        {cloudDraft && cloudDraft.viewId === view.id && cloudDraft.points.length > 0 && (
+          <g data-testid="forge-cloud-draft"
+             data-cloud-draft-points={cloudDraft.points.length}>
+            <polyline
+              points={cloudDraft.points.map(p => `${p[0]},${p[1]}`).join(' ')}
+              fill="none" stroke="red" strokeOpacity={0.7}
+              strokeWidth={0.4} strokeDasharray="0.6 0.4" />
+            {cloudDraft.points.map((p, i) => (
+              <circle key={i} cx={p[0]} cy={p[1]} r={0.6} fill="red" />
+            ))}
+          </g>
+        )}
       </g>
 
       {/* balloons */}
@@ -1194,6 +1352,79 @@ function DrawingViewCell({
   );
 }
 
+/** Forge-130 — render the clip-path mask geometry. The clip kind drives
+ *  which SVG shape the clip is built from. Coordinates are sheet-space. */
+function clipShape(clip, toSheet) {
+  if (!clip) return null;
+  if (clip.kind === 'rect') {
+    const [x0, y0] = toSheet([clip.x, clip.y]);
+    const [x1, y1] = toSheet([clip.x + clip.w, clip.y + clip.h]);
+    return (<rect x={Math.min(x0, x1)} y={Math.min(y0, y1)}
+                  width={Math.abs(x1 - x0)} height={Math.abs(y1 - y0)} />);
+  }
+  if (clip.kind === 'sketch' || clip.kind === 'irregular') {
+    const pts = clip.boundary.map(toSheet)
+                             .map(([px, py]) => `${px},${py}`)
+                             .join(' ');
+    return <polygon points={pts} />;
+  }
+  if (clip.kind === 'half') {
+    // half-clip — render an infinite rectangle on one side of the centre.
+    const cl = clip.centreLine || { kind: 'vertical', x: 0 };
+    if (cl.kind === 'vertical') {
+      const [cx0] = toSheet([cl.x, 0]);
+      return <rect x={cx0} y={-1e4} width={1e5} height={2e4} />;
+    }
+    const [, cy0] = toSheet([0, cl.y]);
+    return <rect x={-1e4} y={cy0} width={2e4} height={1e5} />;
+  }
+  return null;
+}
+
+/** Render the clip boundary as a dashed line so the user sees the
+ *  effective crop region. */
+function ClipOutline({ clip, toSheet, ink }) {
+  if (!clip) return null;
+  if (clip.kind === 'rect') {
+    const [x0, y0] = toSheet([clip.x, clip.y]);
+    const [x1, y1] = toSheet([clip.x + clip.w, clip.y + clip.h]);
+    return (
+      <rect x={Math.min(x0, x1)} y={Math.min(y0, y1)}
+            width={Math.abs(x1 - x0)} height={Math.abs(y1 - y0)}
+            fill="none" stroke={ink} strokeWidth={0.3}
+            strokeDasharray="1.5 1" />
+    );
+  }
+  if (clip.kind === 'sketch' || clip.kind === 'irregular') {
+    const pts = clip.boundary.map(toSheet)
+                             .map(([px, py]) => `${px},${py}`)
+                             .join(' ');
+    return (
+      <polygon points={pts}
+               fill="none" stroke={ink} strokeWidth={0.3}
+               strokeDasharray="1.5 1" />
+    );
+  }
+  if (clip.kind === 'half') {
+    const cl = clip.centreLine || { kind: 'vertical', x: 0 };
+    if (cl.kind === 'vertical') {
+      const [cx0] = toSheet([cl.x, 0]);
+      return (
+        <line x1={cx0} y1={-1e4} x2={cx0} y2={1e4}
+              stroke={ink} strokeWidth={0.3}
+              strokeDasharray="6 1 1 1" />
+      );
+    }
+    const [, cy0] = toSheet([0, cl.y]);
+    return (
+      <line x1={-1e4} y1={cy0} x2={1e4} y2={cy0}
+            stroke={ink} strokeWidth={0.3}
+            strokeDasharray="6 1 1 1" />
+    );
+  }
+  return null;
+}
+
 // ─────────────────────────────────────────────────────── Title block
 
 function TitleBlock({ data, ink, x, y, w, h }) {
@@ -1247,6 +1478,9 @@ function DrawingsInspector({
   bomRows, onMaterialChange, onRemoveBomRow,
   dimensions, onClearDimensions, onUpdateDimensionTolerance,
   annotations, onRemoveAnnotation,
+  datumTargets, onRemoveDatumTarget,
+  ordinates, ordinateAxis, onChangeOrdinateAxis, onClearOrdinates,
+  revisions, clouds,
 }) {
   return (
     <aside
@@ -1403,6 +1637,70 @@ function DrawingsInspector({
         </ul>
       </InspectorSection>
 
+      <InspectorSection title={`Datum targets · ${datumTargets?.length || 0}`}>
+        {(!datumTargets || datumTargets.length === 0) && (
+          <div style={{ color: 'var(--forge-ink-mute)', fontStyle: 'italic',
+                        fontSize: 11 }}>
+            No datum targets. Use the Datum target tool to add per
+            ASME Y14.5 §4.24.
+          </div>
+        )}
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0,
+                     fontFamily: 'var(--forge-mono)', fontSize: 10,
+                     color: 'var(--forge-ink-2)' }}>
+          {(datumTargets || []).map((t) => (
+            <li key={t.id} data-dt-list-id={t.id}
+                data-dt-list-form={t.form}
+                data-dt-list-label={`${t.datum}${t.targetNo}`}
+                style={{ display: 'flex', alignItems: 'center', gap: 4,
+                         padding: '2px 0' }}>
+              <span style={{ flex: 1 }}>
+                {t.form.toUpperCase()} · {t.datum}{t.targetNo}
+                {t.size ? ` · ${t.size}` : ''}
+              </span>
+              <button type="button"
+                      aria-label="Remove datum target"
+                      onClick={() => onRemoveDatumTarget?.(t.id)}
+                      style={{
+                        background: 'transparent', border: 'none',
+                        color: 'var(--forge-ink-mute)', cursor: 'pointer',
+                      }}>×</button>
+            </li>
+          ))}
+        </ul>
+      </InspectorSection>
+
+      <InspectorSection title={`Ordinate stacks · ${ordinates?.length || 0}`}>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 6 }}>
+          <select value={ordinateAxis}
+                  data-prop="ordinateAxis"
+                  onChange={(e) => onChangeOrdinateAxis?.(e.target.value)}
+                  style={selectStyle}>
+            <option value={ORDINATE_AXIS.horizontal}>horizontal (X)</option>
+            <option value={ORDINATE_AXIS.vertical}>vertical (Y)</option>
+          </select>
+          {(ordinates?.length || 0) > 0 && (
+            <button type="button"
+                    data-testid="forge-clear-ordinates"
+                    onClick={onClearOrdinates}
+                    style={{
+                      background: 'var(--forge-surface)',
+                      border: '1px solid var(--forge-rail-edge)',
+                      color: 'var(--forge-ink-2)',
+                      padding: '3px 8px', fontSize: 11,
+                      borderRadius: 3, cursor: 'pointer',
+                    }}>Clear</button>
+          )}
+        </div>
+        <div style={{ color: 'var(--forge-ink-mute)', fontSize: 10 }}>
+          Click to place origin then each feature; press Enter to finish.
+        </div>
+      </InspectorSection>
+
+      <InspectorSection title={`Revisions · ${revisions?.length || 0} · clouds · ${clouds?.length || 0}`}>
+        <RevisionTableInspector />
+      </InspectorSection>
+
       <InspectorSection title="Bill of Materials">
         <BomTable
           rows={bomRows}
@@ -1480,7 +1778,8 @@ function ViewProperties({ view, projection, bodies, onUpdate }) {
           show
         </label>
       </Field>
-      {view.kind === 'section' && (
+      {(view.kind === 'section' || view.kind === 'brokenSection' ||
+        view.kind === 'partialSection' || view.kind === 'halfSection') && (
         <>
           <Field label="Hatch angle (°)">
             <input type="number" step={1}
@@ -1502,6 +1801,68 @@ function ViewProperties({ view, projection, bodies, onUpdate }) {
           </Field>
         </>
       )}
+      {view.kind === 'crop' && (
+        <>
+          <Field label="Crop X / Y / W / H">
+            <div style={{ display: 'flex', gap: 4 }}>
+              {['x','y','w','h'].map((k) => (
+                <input key={k} type="number" step={1}
+                       value={view.cropRect?.[k] ?? 0}
+                       data-prop={`cropRect.${k}`}
+                       onChange={(e) => onUpdate({
+                         cropRect: { ...view.cropRect, [k]: parseFloat(e.target.value) || 0 },
+                       })}
+                       style={{ ...inputStyle, width: 48 }} />
+              ))}
+            </div>
+          </Field>
+        </>
+      )}
+      {view.kind === 'auxiliary' && (
+        <Field label="Aux axis (x,y,z)">
+          <input type="text"
+                 value={(view.auxAxis || []).join(',')}
+                 data-prop="auxAxis"
+                 onChange={(e) => {
+                   const parts = e.target.value.split(',').map(parseFloat);
+                   onUpdate({ auxAxis: parts });
+                 }}
+                 style={inputStyle} />
+        </Field>
+      )}
+      {view.kind === 'halfSection' && (
+        <Field label="Centre line">
+          <select value={view.centreLine?.kind || 'vertical'}
+                  data-prop="centreLine.kind"
+                  onChange={(e) => onUpdate({
+                    centreLine: { ...view.centreLine, kind: e.target.value },
+                  })}
+                  style={selectStyle}>
+            <option value="vertical">vertical</option>
+            <option value="horizontal">horizontal</option>
+          </select>
+        </Field>
+      )}
+      {view.kind === 'alternate' && (
+        <Field label="Alt opacity">
+          <input type="number" step={0.05} min={0.05} max={1}
+                 value={view.altOpacity ?? 0.45}
+                 data-prop="altOpacity"
+                 onChange={(e) => onUpdate({ altOpacity: parseFloat(e.target.value) || 0.45 })}
+                 style={inputStyle} />
+        </Field>
+      )}
+      {/* Forge-130 — alignment readout */}
+      <div data-testid="forge-view-alignment-state"
+           data-view-aligned={String(isAligned(view))}
+           style={{
+             marginTop: 4,
+             fontFamily: 'var(--forge-mono)',
+             fontSize: 10,
+             color: 'var(--forge-ink-mute)',
+           }}>
+        align: {describeAlignment(view)}
+      </div>
       <div style={{
         marginTop: 4,
         fontFamily: 'var(--forge-mono)',

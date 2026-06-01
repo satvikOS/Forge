@@ -457,9 +457,8 @@ export const TOOL_SCHEMAS = {
       options: ['Closed','Open','Tear-drop','Rolled'], default: 'Closed' },
     { id: 'length', label: 'Length',   type: 'number', default: 3, unit: 'mm', min: 0.01 },
   ]},
-  'sheet.unfold':  { title: 'Unfold Bend', fields: [
-    { id: 'bend', label: 'Bend feature', type: 'ref' },
-  ]},
+  // (sheet.unfold is defined above in the new schema set; legacy
+  // duplicate removed to avoid the JS object literal overriding it.)
   'sheet.pattern': { title: 'Flat Pattern', fields: [
     { id: 'body',         label: 'Sheet body', type: 'ref' },
     { id: 'fixedFace',    label: 'Fixed face', type: 'ref' },

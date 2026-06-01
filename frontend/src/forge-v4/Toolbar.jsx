@@ -82,14 +82,43 @@ const SPEC = {
       { id: 'io.pdf',           label: 'Title',   icon: 'io.pdf' },
     ]},
   ],
+  // Forge-127 — Sheet Metal toolbar: six groups, CATIA SMD layout.
   sheet: [
-    { label: 'Sheet Metal', tools: [
-      { id: 'sheet.flange',  label: 'Flange',  icon: 'wb.sheet' },
-      { id: 'sheet.bend',    label: 'Bend',    icon: 'solid.draft' },
-      { id: 'sheet.hem',     label: 'Hem',     icon: 'solid.fillet' },
-      { id: 'sheet.miter',   label: 'Miter',   icon: 'solid.chamfer' },
-      { id: 'sheet.unfold',  label: 'Unfold',  icon: 'solid.thicken' },
-      { id: 'sheet.pattern', label: 'Flat',    icon: 'pattern.linear' },
+    { label: 'Base', tools: [
+      { id: 'sheet.baseFlange', label: 'Base Flange', icon: 'wb.sheet', hint: 'B' },
+    ]},
+    { label: 'Flange', tools: [
+      { id: 'sheet.edgeFlange',       label: 'Edge',        icon: 'wb.sheet' },
+      { id: 'sheet.edgeFlangeRelief', label: 'Edge+Relief', icon: 'wb.sheet' },
+      { id: 'sheet.miterFlange',      label: 'Miter',       icon: 'solid.chamfer' },
+      { id: 'sheet.miterFlangeChain', label: 'Miter Chain', icon: 'solid.chamfer' },
+      { id: 'sheet.loftedFlange',     label: 'Lofted',      icon: 'solid.loft' },
+      { id: 'sheet.sweptFlange',      label: 'Swept',       icon: 'solid.sweep' },
+    ]},
+    { label: 'Bend', tools: [
+      { id: 'sheet.sketchedBend', label: 'Sketched', icon: 'solid.draft' },
+      { id: 'sheet.jog',          label: 'Jog',      icon: 'solid.draft' },
+      { id: 'sheet.jogRelief',    label: 'Jog Relief', icon: 'solid.draft' },
+    ]},
+    { label: 'Forming', tools: [
+      { id: 'sheet.louver',      label: 'Louver',    icon: 'pattern.linear' },
+      { id: 'sheet.lance',       label: 'Lance',     icon: 'sketch.line' },
+      { id: 'sheet.ribForm',     label: 'Rib',       icon: 'solid.rib' },
+      { id: 'sheet.dimple',      label: 'Dimple',    icon: 'sketch.circle' },
+      { id: 'sheet.drawnCutout', label: 'Drawn',     icon: 'bool.cut' },
+      { id: 'sheet.crossBreak',  label: 'X-Break',   icon: 'pattern.mirror' },
+    ]},
+    { label: 'Corner', tools: [
+      { id: 'sheet.hemClosed',    label: 'Hem Closed', icon: 'solid.fillet' },
+      { id: 'sheet.hemOpen',      label: 'Hem Open',   icon: 'solid.fillet' },
+      { id: 'sheet.hemRolled',    label: 'Hem Rolled', icon: 'solid.fillet' },
+      { id: 'sheet.hemTeardrop',  label: 'Hem Tear',   icon: 'solid.fillet' },
+      { id: 'sheet.closedCorner', label: 'Closed Corner', icon: 'solid.shell' },
+      { id: 'sheet.cornerRelief', label: 'Corner Relief', icon: 'sketch.constrain' },
+    ]},
+    { label: 'Flat', tools: [
+      { id: 'sheet.unfold',      label: 'Unfold', icon: 'solid.draft' },
+      { id: 'sheet.flatPattern', label: 'Flat',   icon: 'pattern.linear' },
     ]},
   ],
   weld: [

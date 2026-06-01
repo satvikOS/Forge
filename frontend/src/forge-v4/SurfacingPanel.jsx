@@ -36,7 +36,6 @@ import {
 import {
   SURFACING_V4_OPS,
   SURFACING_V4_GROUPS,
-  SURFACING_V4_BY_ID,
   dispatchAnalysis,
 } from './surfacingDispatch.js';
 

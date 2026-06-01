@@ -29,6 +29,7 @@ import { TopologyInspector } from './TopologyInspector.jsx';
 import { PreviewPanels } from './PreviewPanels.jsx';
 import { UpdateBanner } from './UpdateBanner.jsx';
 import { dispatchTool } from './kernelDispatch.js';
+import { dispatchSheet, SHEET_OPS } from './sheetMetalDispatch.js';
 import * as Sketch from './sketchSession.js';
 import { massProps, distance, angle, meshArea, meshBounds, detectInterference } from './measureDispatch.js';
 import { ConfigurationsPanel, pushHistory } from './ConfigurationsPanel.jsx';
@@ -177,6 +178,12 @@ export function ForgeShellV4() {
     };
     window.__forgeAppendBody = (b) => setBodies((arr) => [...arr, b]);
     window.__forgeReplaceFeatureTree = (next) => setFeatureTree(Array.isArray(next) ? next : []);
+    // Forge-127 — fire a workbench-changed event so panel hosts (sheet
+    // metal, weldments) can self-show without polling.
+    try {
+      window.dispatchEvent(new CustomEvent('forge:wb-changed',
+                                           { detail: { wb: activeWb } }));
+    } catch {}
   }, [bodies, featureTree, selection, activeWb, theme]);
 
   // Cmd+K → focus cmd bar; Cmd+/ toggle dock; Cmd+T cycle theme.
@@ -473,6 +480,18 @@ export function ForgeShellV4() {
       case 'file.exportPdf':
         showToast({ kind: 'info',
           text: 'PDF export available from the Drawings workbench (Forge-90)', ttl: 2500 });
+        return;
+      case 'file.openProject':
+        window.__forgeOpenProjectFile?.('open');
+        return;
+      case 'file.saveProject':
+        window.__forgeBodies = bodies;
+        window.__forgeFeatureTree = featureTree;
+        window.__forgeOpenProjectFile?.('save');
+        return;
+      case 'file.exportIfc':
+        window.__forgeBodies = bodies;
+        window.__forgeOpenIfcExport?.(true);
         return;
       case 'edit.copy':
         if (selection?.ids?.length) {
@@ -1002,7 +1021,29 @@ export function ForgeShellV4() {
                            selectedBodies: selHandles?.length ? selHandles : null,
                            currentSketch: currentSketch?.kernel ?? null,
                          };
-                         const r = dispatchTool(tool, params, ctx);
+                         // Forge-127 — sheet.* tools route through the
+                         // dedicated sheet-metal dispatcher so each op picks
+                         // up material/K-factor defaults and composes the
+                         // forming tools out of real boolean ops.
+                         let r;
+                         if (typeof tool === 'string' && tool.startsWith('sheet.') && SHEET_OPS[tool]) {
+                           // Seed `shape` from the most recent native sheet body
+                           // when the user hasn't picked one explicitly.
+                           const seeded = { ...params };
+                           if (seeded.shape == null && lastNative) {
+                             seeded.shape = lastNative.handle;
+                           }
+                           const sr = dispatchSheet(tool, seeded);
+                           if (sr.ok === false) {
+                             r = { ok: false, error: sr.message || 'sheet-op-failed' };
+                           } else if (sr.kind === 'native') {
+                             r = { ok: true, kind: 'native', handle: sr.handle };
+                           } else {
+                             r = { ok: true, kind: 'noop' };
+                           }
+                         } else {
+                           r = dispatchTool(tool, params, ctx);
+                         }
                          const beforeSnap = { bodies, featureTree };
                          const nextFeat = [...featureTree, {
                            id: nextId,
