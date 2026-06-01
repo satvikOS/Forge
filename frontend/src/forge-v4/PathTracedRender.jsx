@@ -112,15 +112,18 @@ function detectWebGL2Compute() {
 
 // ─────────────────────────── env map builder ─────────────────────────
 
-function buildEnvTexture(presetId) {
+function buildEnvTexture(presetId, renderer) {
   const p = ENV_PRESETS[presetId] || ENV_PRESETS.studio;
   const tex = new GradientEquirectTexture(1024);
   tex.topColor.copy(p.top);
   tex.bottomColor.copy(p.bottom);
   tex.exponent = p.exponent;
   tex.update();
+  if (!renderer) {
+    return { tex, intensity: p.intensity };
+  }
   // Soft-blur for a more diffuse light contribution.
-  const blur = new BlurredEnvMapGenerator(makeOfflineRenderer().renderer);
+  const blur = new BlurredEnvMapGenerator(renderer);
   const blurred = blur.generate(tex, 0.12);
   blur.dispose();
   return { tex: blurred, intensity: p.intensity };
@@ -231,7 +234,7 @@ export async function runPathTracedRender({
   const scene = harvestScene();
   const camera = frameCameraForScene(scene, res.w / res.h);
 
-  const env = buildEnvTexture(envPresetId);
+  const env = buildEnvTexture(envPresetId, renderer);
   scene.environment = env.tex;
   scene.background  = env.tex;
 
