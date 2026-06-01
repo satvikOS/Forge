@@ -5,7 +5,13 @@ import { HealPanelHost } from './forge-v4/HealPanel.jsx';
 import { SurfacingPanelHost } from './forge-v4/SurfacingPanel.jsx';
 import { ManufacturingWorkbenchHost } from './forge-v4/ManufacturingWorkbench.jsx';
 import { StandardPartsLibraryHost } from './forge-v4/StandardPartsLibrary.jsx';
+import { ProjectBundlePanelHost } from './forge-v4/ProjectBundlePanel.jsx';
 import { ViewportEnvironmentProvider } from './forge-v4/ViewportEnvironment.jsx';
+import { PerfStatsHUD } from './forge-v4/PerfStatsHUD.jsx';
+import { AssemblyTreePanelHost } from './forge-v4/AssemblyTreePanel.jsx';
+import { BomPanelHost } from './forge-v4/BomPanel.jsx';
+import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
+import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 
 // Forge-65: v4 shell is the only entry. App.jsx is one line — no hash
 // routes, no legacy fallback. Per user mandate: "Full rewrite of
@@ -25,6 +31,12 @@ function App() {
       <SurfacingPanelHost />
       <ManufacturingWorkbenchHost />
       <StandardPartsLibraryHost />
+      <ProjectBundlePanelHost />
+      <AssemblyTreePanelHost />
+      <BomPanelHost />
+      <ScenarioRunnerHost />
+      <VideoCaptureHUD />
+      <PerfStatsHUD />
     </ViewportEnvironmentProvider>
   );
 }

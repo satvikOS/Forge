@@ -16,7 +16,7 @@
 //     html2canvas + jsPDF when present, with an SVG-blob fallback that
 //     always works.
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { Icon } from './icons/Icon.jsx';
 import {
   projectShapeSafe, projectSectionSafe, projectDetailSafe,
@@ -24,10 +24,21 @@ import {
 } from './drawingsDispatch.js';
 import {
   useDimensionTool, DimensionLayer, DimensionPreview,
+  DEFAULT_TOLERANCE, formatTolerance, setDimensionTolerance,
 } from './DimensionTool.jsx';
 import {
   buildBom, defaultBalloonPositions, BomTable, BalloonLayer,
 } from './BomBalloons.jsx';
+import { FcfGlyph, FcfWithLeader, FcfPicker, makeFcf } from './GdtFcf.jsx';
+import {
+  SurfaceFinishGlyph, SurfaceFinishWithLeader, SurfaceFinishPicker,
+  makeSurfaceFinish,
+} from './SurfaceFinish.jsx';
+import { WeldGlyph, WeldWithLeader, WeldPicker, makeWeld } from './WeldSymbol.jsx';
+import {
+  listAnnotations, addAnnotation, removeAnnotation, subscribe as pmiSubscribe,
+  exportStepWithPmi,
+} from './pmiAnnotations.js';
 
 const SHEET_W = 297;     // mm, A4 landscape
 const SHEET_H = 210;
@@ -90,7 +101,7 @@ function ensureDefaultGrid(bodies) {
 export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
   const [views, setViews] = useState(() => ensureDefaultGrid(bodies));
   const [activeViewId, setActiveViewId] = useState(() => views[0]?.id || null);
-  const [tool, setTool] = useState(null);      // 'dimension' | 'balloon' | ...
+  const [tool, setTool] = useState(null);      // 'dimension' | 'balloon' | 'gdt' | 'finish' | 'weld'
   const [titleBlock, setTitleBlock] = useState({
     ...DEFAULT_TITLE,
     date: isoToday(),
@@ -101,6 +112,19 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
   const [balloonPositionsState, setBalloonPositionsState] = useState({});
   const [exportNote, setExportNote] = useState(null);
   const sheetRef = useRef(null);
+
+  // ── PMI state (Forge-109) ─────────────────────────────────────────
+  // Subscribe to the pmiAnnotations registry so we re-render whenever
+  // the user commits a new FCF / surface-finish / weld.
+  const annotations = useSyncExternalStore(
+    pmiSubscribe,
+    listAnnotations,
+    listAnnotations,
+  );
+  // Pending placement: when the user clicks the sheet with a PMI tool
+  // active we stash { kind, viewId, anchor, frame } and open the
+  // matching picker.
+  const [pendingPmi, setPendingPmi] = useState(null);
 
   // ── re-seed grid when the project body set changes from empty → not-empty
   const prevBodyCountRef = useRef(bodies.length);
@@ -153,8 +177,46 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
     active: tool === 'dimension',
     units: titleBlock.units,
     precision: 2,
+    tolerance: DEFAULT_TOLERANCE,
     onCommit: (d) => setDimensions((arr) => [...arr, d]),
   });
+
+  // ── PMI click — records anchor & opens picker ────────────────────
+  const startPmiPlacement = useCallback((viewId, pt) => {
+    if (!tool || !['gdt', 'finish', 'weld'].includes(tool)) return;
+    const v = views.find((vv) => vv.id === viewId) || null;
+    const proj = projections.get(viewId);
+    const bounds = proj?.bounds;
+    // Offset the symbol frame above-right of the anchor; this is the
+    // initial position — the user can drag it later via the inspector.
+    const frame = bounds
+      ? [pt[0] + bounds.w * 0.18, pt[1] - bounds.h * 0.22]
+      : [pt[0] + 16, pt[1] - 14];
+    setPendingPmi({
+      kind: tool,
+      viewId,
+      bodyId: v?.bodyId || null,
+      handle: v?.handle ?? null,
+      anchor: [pt[0], pt[1]],
+      frame,
+    });
+  }, [tool, views, projections]);
+
+  const commitPmi = useCallback((payload) => {
+    if (!pendingPmi) return;
+    addAnnotation({
+      kind: pendingPmi.kind,
+      viewId: pendingPmi.viewId,
+      bodyId: pendingPmi.bodyId,
+      handle: pendingPmi.handle,
+      anchor: pendingPmi.anchor,
+      frame: pendingPmi.frame,
+      payload,
+    });
+    setPendingPmi(null);
+  }, [pendingPmi]);
+
+  const cancelPmi = useCallback(() => setPendingPmi(null), []);
 
   const balloonPositionsByView = useMemo(() => {
     const m = new Map();
@@ -299,6 +361,16 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
         onToggleTitleBlock={() => setShowTitleBlock((v) => !v)}
         onExportPdf={exportPdf}
         onExportSvg={exportSvg}
+        onExportStepPmi={async () => {
+          const result = await exportStepWithPmi({
+            handle:   activeView?.handle ?? null,
+            filepath: ((titleBlock.project || 'sheet')
+                        .replace(/[^a-z0-9-_]/gi, '_')) + '.step',
+          });
+          setExportNote(result.ok
+            ? `STEP+PMI exported · ${result.count} notes`
+            : `STEP+PMI · ${result.error}`);
+        }}
       />
 
       <div
@@ -341,18 +413,23 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
             onDropBody={dropBodyOnView}
             ink={sheetInk}
             dimensions={dimensions}
+            annotations={annotations}
             balloons={tool === 'balloon' || activeView?.showBalloons
               ? bomRows
               : []}
             balloonPositionsByView={balloonPositionsByView}
             onSheetClick={(viewId, pt) => {
               if (tool === 'dimension') dim.recordClick(pt, viewId);
+              else if (tool && ['gdt', 'finish', 'weld'].includes(tool)) {
+                startPmiPlacement(viewId, pt);
+              }
             }}
             onSheetMove={(viewId, pt) => dim.moveHover(pt, viewId)}
             dimPreview={(viewId) => (
               <DimensionPreview pendingA={dim.pendingA} hover={dim.hover}
                                 viewId={viewId} units={titleBlock.units}
-                                precision={2} mode="aligned" />
+                                precision={2} mode="aligned"
+                                tolerance={DEFAULT_TOLERANCE} />
             )}
           />
 
@@ -381,6 +458,29 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
             {exportNote}
           </div>
         )}
+
+        {/* PMI picker overlay — pops over the sheet when the user clicks
+            a feature with one of the PMI tools active. */}
+        {pendingPmi && (
+          <div data-testid="forge-pmi-picker-overlay"
+               data-pmi-kind={pendingPmi.kind}
+               style={{
+                 position: 'absolute', top: 56, left: 12, zIndex: 20,
+               }}>
+            {pendingPmi.kind === 'gdt' && (
+              <FcfPicker onCommit={(payload) => commitPmi(payload)}
+                         onCancel={cancelPmi} />
+            )}
+            {pendingPmi.kind === 'finish' && (
+              <SurfaceFinishPicker onCommit={(payload) => commitPmi(payload)}
+                                   onCancel={cancelPmi} />
+            )}
+            {pendingPmi.kind === 'weld' && (
+              <WeldPicker onCommit={(payload) => commitPmi(payload)}
+                          onCancel={cancelPmi} />
+            )}
+          </div>
+        )}
       </div>
 
       <DrawingsInspector
@@ -406,6 +506,12 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
         }}
         dimensions={dimensions}
         onClearDimensions={() => setDimensions([])}
+        onUpdateDimensionTolerance={(dimId, tol) => {
+          setDimensions((arr) => arr.map((d) =>
+            d.id === dimId ? setDimensionTolerance(d, tol) : d));
+        }}
+        annotations={annotations}
+        onRemoveAnnotation={(id) => removeAnnotation(id)}
       />
     </div>
   );
@@ -440,7 +546,7 @@ function ToolButton({ id, icon, label, active, onClick, tip }) {
 
 function DrawingsToolbar({
   tool, onTool, onAddView, onAddSection, onAddDetail, onAddBroken,
-  onToggleTitleBlock, onExportPdf, onExportSvg,
+  onToggleTitleBlock, onExportPdf, onExportSvg, onExportStepPmi,
 }) {
   const [addOpen, setAddOpen] = useState(false);
   return (
@@ -506,6 +612,20 @@ function DrawingsToolbar({
       <ToolButton id="drawings.balloon" icon="measure.mass" label="Balloon"
                   active={tool === 'balloon'}
                   onClick={() => onTool(tool === 'balloon' ? null : 'balloon')} />
+      <div style={{ width: 1, height: 18, background: 'var(--forge-rail-edge)', margin: '0 6px' }} />
+      <ToolButton id="drawings.gdt" icon="measure.distance" label="GD&T"
+                  active={tool === 'gdt'}
+                  tip="Add Feature Control Frame (ASME Y14.5)"
+                  onClick={() => onTool(tool === 'gdt' ? null : 'gdt')} />
+      <ToolButton id="drawings.finish" icon="measure.distance" label="Finish"
+                  active={tool === 'finish'}
+                  tip="Add surface-finish callout (ISO 1302)"
+                  onClick={() => onTool(tool === 'finish' ? null : 'finish')} />
+      <ToolButton id="drawings.weld" icon="wb.weldments" label="Weld"
+                  active={tool === 'weld'}
+                  tip="Add welding symbol (AWS A2.4)"
+                  onClick={() => onTool(tool === 'weld' ? null : 'weld')} />
+      <div style={{ width: 1, height: 18, background: 'var(--forge-rail-edge)', margin: '0 6px' }} />
       <ToolButton id="drawings.titleBlock" icon="wb.drawing" label="Title block"
                   onClick={onToggleTitleBlock}
                   tip="Toggle title-block visibility" />
@@ -514,6 +634,9 @@ function DrawingsToolbar({
                   onClick={onExportSvg} tip="Export as SVG" />
       <ToolButton id="drawings.exportPdf" icon="io.pdf" label="PDF"
                   onClick={onExportPdf} tip="Export as PDF" />
+      <ToolButton id="drawings.exportStepPmi" icon="io.step" label="STEP+PMI"
+                  onClick={onExportStepPmi}
+                  tip="Export STEP AP242 with PMI annotations" />
     </div>
   );
 }
@@ -523,7 +646,7 @@ function DrawingsToolbar({
 function ViewGrid({
   views, projections, cols, sheetW, sheetH,
   activeViewId, onActivate, onDropBody, ink,
-  dimensions, balloons, balloonPositionsByView,
+  dimensions, balloons, balloonPositionsByView, annotations,
   onSheetClick, onSheetMove, dimPreview,
 }) {
   const margin = 8;
@@ -552,6 +675,7 @@ function ViewGrid({
             dimensions={dimensions}
             balloons={balloons}
             balloonPositions={balloonPositionsByView.get(v.id)}
+            annotations={annotations}
             onSheetClick={(pt) => onSheetClick?.(v.id, pt)}
             onSheetMove={(pt) => onSheetMove?.(v.id, pt)}
             dimPreview={dimPreview ? dimPreview(v.id) : null}
@@ -564,7 +688,7 @@ function ViewGrid({
 
 function DrawingViewCell({
   view, projection, x, y, w, h, ink, active, onActivate, onDropBody,
-  dimensions, balloons, balloonPositions,
+  dimensions, balloons, balloonPositions, annotations,
   onSheetClick, onSheetMove, dimPreview,
 }) {
   const cellRef = useRef(null);
@@ -691,6 +815,49 @@ function DrawingViewCell({
           />
         </g>
       )}
+
+      {/* PMI annotations (GD&T, surface finish, weld) belonging to this view */}
+      {Array.isArray(annotations) && annotations.length > 0 && (
+        <g transform={`translate(${ox} ${oy}) scale(${s})`}
+           data-pmi-layer="true"
+           data-pmi-view={view.id}>
+          {annotations
+            .filter((a) => a.viewId === view.id)
+            .map((a) => {
+              if (a.kind === 'gdt') {
+                return (
+                  <FcfWithLeader key={a.id}
+                    fcf={a.payload}
+                    anchor={a.anchor}
+                    frame={a.frame}
+                    ink={ink}
+                    dataKey={a.id} />
+                );
+              }
+              if (a.kind === 'finish') {
+                return (
+                  <SurfaceFinishWithLeader key={a.id}
+                    finish={a.payload}
+                    anchor={a.anchor}
+                    frame={a.frame}
+                    ink={ink}
+                    dataKey={a.id} />
+                );
+              }
+              if (a.kind === 'weld') {
+                return (
+                  <WeldWithLeader key={a.id}
+                    weld={a.payload}
+                    anchor={a.anchor}
+                    frame={a.frame}
+                    ink={ink}
+                    dataKey={a.id} />
+                );
+              }
+              return null;
+            })}
+        </g>
+      )}
     </g>
   );
 }
@@ -746,7 +913,8 @@ function DrawingsInspector({
   bodies, views, activeView, activeProjection, onUpdateView,
   onRemoveView, onActivateView, titleBlock, setTitleBlock,
   bomRows, onMaterialChange, onRemoveBomRow,
-  dimensions, onClearDimensions,
+  dimensions, onClearDimensions, onUpdateDimensionTolerance,
+  annotations, onRemoveAnnotation,
 }) {
   return (
     <aside
@@ -838,8 +1006,66 @@ function DrawingsInspector({
           {dimensions.map((d) => (
             <li key={d.id}
                 data-dim-list-id={d.id}
-                style={{ padding: '2px 0' }}>
-              {d.kind} · {d.value.toFixed(2)} {d.unit}
+                data-dim-list-tolerance={formatTolerance(d.tolerance)}
+                style={{ display: 'flex', flexDirection: 'column',
+                         gap: 2, padding: '4px 0',
+                         borderBottom: '1px solid var(--forge-rail-edge)' }}>
+              <span>{d.kind} · {d.value.toFixed(2)} {d.unit}
+                    {d.tolerance ? `  ${formatTolerance(d.tolerance)}` : ''}</span>
+              <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                <span style={{ fontSize: 9, color: 'var(--forge-ink-mute)' }}>tol</span>
+                <input type="number" step="0.001" min="0"
+                       value={d.tolerance?.plus ?? 0.1}
+                       data-dim-tol-plus={d.id}
+                       onChange={(e) => onUpdateDimensionTolerance?.(d.id, {
+                         plus:  parseFloat(e.target.value) || 0,
+                         minus: d.tolerance?.minus ?? 0.1,
+                       })}
+                       style={{ ...inputStyle, width: 56,
+                                padding: '2px 4px' }} />
+                <span>/</span>
+                <input type="number" step="0.001" min="0"
+                       value={d.tolerance?.minus ?? 0.1}
+                       data-dim-tol-minus={d.id}
+                       onChange={(e) => onUpdateDimensionTolerance?.(d.id, {
+                         plus:  d.tolerance?.plus ?? 0.1,
+                         minus: parseFloat(e.target.value) || 0,
+                       })}
+                       style={{ ...inputStyle, width: 56,
+                                padding: '2px 4px' }} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      </InspectorSection>
+
+      <InspectorSection title={`PMI · ${annotations?.length ?? 0}`}>
+        {(!annotations || annotations.length === 0) && (
+          <div style={{ color: 'var(--forge-ink-mute)', fontStyle: 'italic',
+                        fontSize: 11 }}>
+            No PMI annotations. Use the toolbar to add GD&T, surface
+            finish, or weld symbols.
+          </div>
+        )}
+        <ul style={{ listStyle: 'none', margin: 0, padding: 0,
+                     fontFamily: 'var(--forge-mono)', fontSize: 10,
+                     color: 'var(--forge-ink-2)' }}>
+          {(annotations || []).map((a) => (
+            <li key={a.id}
+                data-pmi-list-id={a.id}
+                data-pmi-list-kind={a.kind}
+                style={{ display: 'flex', alignItems: 'center', gap: 4,
+                         padding: '2px 0' }}>
+              <span style={{ flex: 1 }}>
+                {a.kind.toUpperCase()} · {summarisePmi(a)}
+              </span>
+              <button type="button"
+                      aria-label={`Remove ${a.kind} annotation`}
+                      onClick={() => onRemoveAnnotation?.(a.id)}
+                      style={{
+                        background: 'transparent', border: 'none',
+                        color: 'var(--forge-ink-mute)', cursor: 'pointer',
+                      }}>×</button>
             </li>
           ))}
         </ul>
@@ -1013,6 +1239,22 @@ function svgPoint(svg, evt) {
   } catch (err) {
     return null;
   }
+}
+
+function summarisePmi(a) {
+  if (!a) return '';
+  const p = a.payload || {};
+  if (a.kind === 'gdt') {
+    const datums = (p.datums || []).map((d) => d.ref).join('');
+    return `${p.characteristic} ${p.tolerance}${datums ? ' | ' + datums : ''}`;
+  }
+  if (a.kind === 'finish') {
+    return `${p.param} ${p.value} µm${p.lay ? ' ' + p.lay : ''}`;
+  }
+  if (a.kind === 'weld') {
+    return `${p.type} ${p.size}${p.process ? ' ' + p.process : ''}`;
+  }
+  return '';
 }
 
 export default DrawingsWorkbench;

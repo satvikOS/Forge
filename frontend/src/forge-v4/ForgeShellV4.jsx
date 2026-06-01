@@ -233,6 +233,23 @@ export function ForgeShellV4() {
                 ev.response?.ok === false ? '✗ ' + (ev.response.error || 'err')
                                           : '✓'}`,
             });
+            // Forge-107 — if the tool response carries a kernel handle, surface
+            // it as a body so Archie-driven geometry actually appears in the
+            // viewport (same path manual confirms use).
+            const h = ev.response?.handle ?? ev.response?.shape ??
+                      ev.response?.result?.handle ?? null;
+            if (typeof h === 'number') {
+              const nextId = `archie-${Date.now().toString(36)}`;
+              setBodies((b) => [...b, {
+                id: nextId, kind: 'native', handle: h,
+                toolId: ev.call.name, params: ev.call.arguments,
+                name: `Archie · ${ev.call.name}`,
+              }]);
+              setFeatureTree((t) => [...t, {
+                id: nextId, label: `Archie · ${ev.call.name}`,
+                icon: 'archie.spark', params: ev.call.arguments,
+              }]);
+            }
           }
         },
       });
@@ -605,6 +622,33 @@ export function ForgeShellV4() {
       case 'tools.cam':
       case 'workbench.mfg':
         window.__forgeOpenCam?.({ bodies });
+        return;
+      case 'tools.bundle':
+      case 'file.exportBundle':
+        // Publish current scene state for the bundle panel to read.
+        window.__forgeBodies = bodies;
+        window.__forgeFeatureTree = featureTree;
+        window.__forgeOpenProjectBundle?.(true);
+        return;
+      case 'tools.assemblyTree':
+        window.__forgeOpenAssemblyTree?.(true);
+        return;
+      case 'tools.bom':
+        window.__forgeBodies = bodies;
+        window.__forgeOpenBom?.(true);
+        return;
+      case 'tools.scenarios':
+        window.__forgeBodies = bodies;
+        window.__forgeSelection = selection;
+        window.__forgeOpenScenarioRunner?.(true);
+        return;
+      case 'view.perfHud':
+        window.__forgePerfHUD?.(true);
+        return;
+      case 'view.record':
+        window.dispatchEvent(new CustomEvent('forge:capture-start',
+          { detail: { filename: 'forge-session' } }));
+        showToast({ kind: 'ok', text: 'Recording started · click stop on HUD', ttl: 2200 });
         return;
       case 'tools.equations':
         setEquationsOpen(true); return;

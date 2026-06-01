@@ -19,6 +19,7 @@
     "@vitejs/plugin-react": "^5.1.0",
     "axios": "^1.13.2",
     "cesium": "^1.136.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.562.0",
     "manifold-3d": "^3.4.1",
     "opencascade.js": "2.0.0-beta.b5ff984",

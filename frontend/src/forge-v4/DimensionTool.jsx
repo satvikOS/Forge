@@ -1,21 +1,38 @@
 // Forge-90 — dimension tool for the drawings workbench.
+// Forge-109 — tolerance support: each dimension carries a { plus, minus }
+//             tolerance shown as a superscript pair on the dim text.
 //
 // Click two points on a drawing view → places a dimension entity:
 //   { id, kind:'linear'|'aligned'|'angular',
 //     a:[x,y], b:[x,y], offset:number,
 //     value:number, unit:string, precision:number,
+//     tolerance:{ plus:0.1, minus:0.1 },   // Forge-109
 //     viewId, hidden?:boolean }
 //
 // The hook exposes:
-//   useDimensionTool({ active, onCommit, units, precision })
+//   useDimensionTool({ active, onCommit, units, precision, tolerance })
 //     → { phase, hover, pendingA, recordClick, cancel,
 //         renderPreview(viewBox, scale) }
 //
 // And the standalone DimensionLayer renders an array of dimensions as
-// SVG (extension lines + arrow heads + value text), used both by the
-// preview and by the persisted dimensions on each sheet.
+// SVG (extension lines + arrow heads + value text + tolerance super-
+// script), used both by the preview and by the persisted dimensions on
+// each sheet.
 
 import React, { useCallback, useState } from 'react';
+
+// Default tolerance applied to every fresh dimension. ±0.1 mm per
+// Forge-109; the user can override in the inspector.
+export const DEFAULT_TOLERANCE = Object.freeze({ plus: 0.1, minus: 0.1 });
+
+export function formatTolerance(tol) {
+  if (!tol) return '';
+  const p = Number(tol.plus  ?? 0);
+  const m = Number(tol.minus ?? 0);
+  if (!p && !m) return '';
+  if (p === m) return `±${p}`;
+  return `+${p}/−${m}`;
+}
 
 const UNIT_FACTORS = {
   mm: 1,
@@ -55,7 +72,10 @@ export function computeProjectedDistance(a, b, mode) {
  * @param {number}  opts.precision  decimal places
  * @param {function} opts.onCommit  (dim) => void — fires on the 2nd click
  */
-export function useDimensionTool({ active, units = 'mm', precision = 2, onCommit, mode = 'aligned' }) {
+export function useDimensionTool({
+  active, units = 'mm', precision = 2, onCommit, mode = 'aligned',
+  tolerance = DEFAULT_TOLERANCE,
+}) {
   const [pendingA, setPendingA] = useState(null);
   const [hover, setHover] = useState(null);
 
@@ -82,12 +102,15 @@ export function useDimensionTool({ active, units = 'mm', precision = 2, onCommit
       value,
       unit: units,
       precision,
+      tolerance: tolerance
+        ? { plus: tolerance.plus ?? 0.1, minus: tolerance.minus ?? 0.1 }
+        : { ...DEFAULT_TOLERANCE },
     };
     setPendingA(null);
     setHover(null);
     onCommit?.(dim);
     return { phase: 'placed', dim };
-  }, [active, pendingA, mode, units, precision, onCommit]);
+  }, [active, pendingA, mode, units, precision, onCommit, tolerance]);
 
   const moveHover = useCallback((pt, viewId) => {
     if (!active) return;
@@ -107,7 +130,7 @@ export function useDimensionTool({ active, units = 'mm', precision = 2, onCommit
  * Render the dimension preview for the active drag — only shows when a
  * first point has been clicked and a hover is available.
  */
-export function DimensionPreview({ pendingA, hover, viewId, units, precision, mode }) {
+export function DimensionPreview({ pendingA, hover, viewId, units, precision, mode, tolerance }) {
   if (!pendingA || pendingA.viewId !== viewId) return null;
   if (!hover || hover.viewId !== viewId) return null;
   const a = pendingA.pt, b = hover.pt;
@@ -116,6 +139,7 @@ export function DimensionPreview({ pendingA, hover, viewId, units, precision, mo
     <g data-dim-preview="true" pointerEvents="none">
       <DimensionGlyph dim={{
         a, b, kind: mode, offset: 10, value, unit: units, precision,
+        tolerance: tolerance || DEFAULT_TOLERANCE,
       }} preview />
     </g>
   );
@@ -167,8 +191,10 @@ function DimensionGlyph({ dim, preview }) {
     return `${cx},${cy} ${cx + arrow * Math.cos(a1)},${cy + arrow * Math.sin(a1)} ${cx + arrow * Math.cos(a2)},${cy + arrow * Math.sin(a2)}`;
   };
   const label = formatDimensionValue(dim.value, dim.unit, dim.precision);
+  const tolLabel = formatTolerance(dim.tolerance);
   return (
-    <g data-dim-id={dim.id || 'preview'} data-dim-kind={kind}>
+    <g data-dim-id={dim.id || 'preview'} data-dim-kind={kind}
+       data-dim-tolerance={tolLabel || ''}>
       {/* extension lines from geometry pts to dim line */}
       <line x1={a[0]} y1={a[1]} x2={aDim[0]} y2={aDim[1]}
             stroke={stroke} strokeWidth={sw * 0.7} strokeDasharray="1 0.8" />
@@ -180,12 +206,19 @@ function DimensionGlyph({ dim, preview }) {
       {/* arrowheads */}
       <polygon points={ah(aDim[0], aDim[1], Math.PI)} fill={stroke} />
       <polygon points={ah(bDim[0], bDim[1], 0)} fill={stroke} />
-      {/* value text */}
+      {/* value text + superscript tolerance */}
       <text x={midX} y={midY - 1} textAnchor="middle"
             fontFamily="var(--forge-mono)" fontSize={3.2}
             fill={stroke}
             data-dim-value={label}>
         {label}
+        {tolLabel && (
+          <tspan dx={0.6} dy={-1.4}
+                 fontSize={1.9}
+                 data-dim-tolerance-text={tolLabel}>
+            {tolLabel}
+          </tspan>
+        )}
       </text>
     </g>
   );
@@ -201,5 +234,18 @@ export function reformatDimension(dim, units, precision) {
     ...dim,
     unit: units,
     precision,
+  };
+}
+
+/**
+ * Update tolerance on an existing dimension. Used by the inspector.
+ */
+export function setDimensionTolerance(dim, tol) {
+  return {
+    ...dim,
+    tolerance: {
+      plus:  tol?.plus  ?? DEFAULT_TOLERANCE.plus,
+      minus: tol?.minus ?? DEFAULT_TOLERANCE.minus,
+    },
   };
 }

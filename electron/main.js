@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 // File I/O dialog plumbing (Forge-87): renderer calls the bridge in preload,
 // preload sends a request to main, main shows the native dialog and returns
@@ -20,6 +21,39 @@ ipcMain.handle('io:saveDialog', async (_evt, opts) => {
     filters: opts.filters || [],
   });
   return r.canceled ? null : r.filePath;
+});
+
+// Forge-103 — project-bundle ZIP exporter blob writer.
+//
+// Renderer builds the ZIP entirely in memory with JSZip, then ships the
+// bytes here for atomic write. We accept either a base64 string or a
+// raw Uint8Array (Electron's structured-clone marshals both as Buffer
+// in the main process). Returns { ok, bytes, path } so the renderer can
+// report exact size in a toast.
+ipcMain.handle('io:writeBlob', async (_evt, { filepath, base64, bytes }) => {
+  try {
+    if (!filepath || typeof filepath !== 'string') {
+      throw new Error('io:writeBlob: filepath required');
+    }
+    let buf;
+    if (base64 != null) {
+      buf = Buffer.from(String(base64), 'base64');
+    } else if (bytes != null) {
+      // Uint8Array → Buffer (zero-copy when possible).
+      buf = Buffer.from(bytes.buffer ? bytes.buffer : bytes,
+                        bytes.byteOffset || 0,
+                        bytes.byteLength != null ? bytes.byteLength : bytes.length);
+    } else {
+      throw new Error('io:writeBlob: base64 or bytes required');
+    }
+    // Make sure the parent directory exists.
+    const dir = path.dirname(filepath);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(filepath, buf);
+    return { ok: true, path: filepath, bytes: buf.length };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
 });
 
 // electron-updater drives auto-update against the GitHub Releases the CI

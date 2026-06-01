@@ -444,9 +444,26 @@ const forgeApi = {
   // Forge-87 — native file dialog bridge for STEP/IGES/STL/BREP I/O.
   // Renderer asks main to show a system file picker, gets a path back, then
   // the renderer calls `forge.io.importStep(path)` against that path.
+  //
+  // Forge-103 — `writeBlob(filepath, uint8array)` lets the renderer ship
+  // arbitrary bytes (e.g. a JSZip-built project bundle) to disk via the
+  // same main-process file system the export dialog returns paths into.
+  // The Uint8Array is base64-encoded here in preload so it survives the
+  // contextBridge serialization boundary intact.
   dialog: {
     openFile: (opts) => ipcRenderer.invoke('io:openDialog', opts || {}),
     saveFile: (opts) => ipcRenderer.invoke('io:saveDialog', opts || {}),
+    writeBlob: (filepath, uint8array) => {
+      // Convert Uint8Array → base64 string. We can't pass the typed array
+      // straight through contextBridge because some Electron versions clone
+      // it lossily; base64 is small, safe, and round-trips cleanly.
+      const bytes = uint8array instanceof Uint8Array
+        ? uint8array
+        : new Uint8Array(uint8array || []);
+      // Buffer is available in preload (Node side of the bridge).
+      const base64 = Buffer.from(bytes).toString('base64');
+      return ipcRenderer.invoke('io:writeBlob', { filepath, base64 });
+    },
   },
 
   // weldments authoring (Forge-24) — structural members, end caps, gussets,
@@ -473,6 +490,13 @@ if (kernel) {
     dialog: {
       openFile: (opts) => ipcRenderer.invoke('io:openDialog', opts || {}),
       saveFile: (opts) => ipcRenderer.invoke('io:saveDialog', opts || {}),
+      writeBlob: (filepath, uint8array) => {
+        const bytes = uint8array instanceof Uint8Array
+          ? uint8array
+          : new Uint8Array(uint8array || []);
+        const base64 = Buffer.from(bytes).toString('base64');
+        return ipcRenderer.invoke('io:writeBlob', { filepath, base64 });
+      },
     },
   });
 }
