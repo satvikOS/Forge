@@ -775,6 +775,78 @@ html, body, #root {
   padding: 0;
 }
 
+/* ============ Help drawer (right slide-in) ============ */
+.forge-help {
+  position: fixed;
+  top: calc(var(--forge-topbar-h) + var(--forge-qat-h));
+  right: 0;
+  width: 360px;
+  max-width: 96vw;
+  height: calc(100vh - var(--forge-topbar-h) - var(--forge-qat-h) - var(--forge-cmdbar-h));
+  background: var(--forge-canvas-3);
+  border-left: 1px solid var(--forge-rail-edge);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column;
+  z-index: 1300;
+}
+.forge-help-header {
+  display: flex; align-items: center; gap: var(--forge-space-2);
+  padding: var(--forge-space-3) var(--forge-space-4);
+  border-bottom: 1px solid var(--forge-rail-edge);
+  background: var(--forge-canvas);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--forge-ink);
+  flex-shrink: 0;
+}
+.forge-help-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  border-bottom: 1px solid var(--forge-rail-edge);
+  background: var(--forge-canvas);
+  flex-shrink: 0;
+}
+.forge-help-tab {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--forge-ink-2);
+  font: inherit; font-size: 11px;
+  padding: var(--forge-space-2) var(--forge-space-3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  transition: color var(--forge-motion-fast), border-color var(--forge-motion-fast);
+}
+.forge-help-tab:hover { color: var(--forge-ink); }
+.forge-help-tab[data-active="true"] {
+  color: var(--forge-ink);
+  border-bottom-color: var(--forge-accent);
+}
+.forge-help-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--forge-space-4);
+  font-size: 12px;
+  color: var(--forge-ink-2);
+  line-height: 1.5;
+}
+
+/* ============ Topology Inspector (right drawer) ============ */
+.forge-topology {
+  position: fixed;
+  top: calc(var(--forge-topbar-h) + var(--forge-qat-h));
+  right: 0;
+  width: 340px;
+  max-width: 96vw;
+  height: calc(100vh - var(--forge-topbar-h) - var(--forge-qat-h) - var(--forge-cmdbar-h));
+  background: var(--forge-canvas-3);
+  border-left: 1px solid var(--forge-rail-edge);
+  box-shadow: -12px 0 32px rgba(0, 0, 0, 0.45);
+  display: flex; flex-direction: column;
+  z-index: 1280;
+}
+
 /* ============ Right panel ============ */
 .forge-right {
   background: var(--forge-canvas-2);
