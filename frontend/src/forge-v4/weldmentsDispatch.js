@@ -42,6 +42,55 @@ export function kernelReady() {
   return kernelWeldments() !== null;
 }
 
+/**
+ * Forge-144 — single dispatch entry the shell uses for weld.* tools.
+ * Returns { ok, kind:'native'|'noop'|'kernel-offline', handle?, error? }.
+ */
+export function dispatchWeld(toolId, params = {}) {
+  if (!kernelReady()) {
+    return { ok: false, kind: 'kernel-offline',
+             error: 'forge.weldments not loaded — install the native addon' };
+  }
+  try {
+    if (toolId === 'weld.member') {
+      const pe = makePathEdgeSafe(params.p0 || [0,0,0], params.p1 || [100,0,0]);
+      const m  = makeStructuralMemberSafe(pe, params.profile || 'IPE_80',
+                                          params.alignment || 'centroid');
+      if (m.source === 'kernel' && typeof m.handle === 'number')
+        return { ok: true, kind: 'native', handle: m.handle };
+      return { ok: false, error: 'weld.member: kernel did not allocate handle' };
+    }
+    if (toolId === 'weld.endcap' || toolId === 'weld.endCap') {
+      const r = makeEndCapSafe(params.member, params.openingEdgeId || 0,
+                               params.capThickness || 5, params.chamferDeg || 0,
+                               params.offsetMm || 0);
+      if (r.source === 'kernel' && typeof r.handle === 'number')
+        return { ok: true, kind: 'native', handle: r.handle };
+      return { ok: false, error: 'weld.endCap: kernel did not allocate handle' };
+    }
+    if (toolId === 'weld.gusset') {
+      const r = makeGussetSafe(params.member, params.vertexId || 0,
+                               params.size || 30, params.thickness || 5,
+                               params.angleDeg || 90);
+      if (r.source === 'kernel' && typeof r.handle === 'number')
+        return { ok: true, kind: 'native', handle: r.handle };
+      return { ok: false, error: 'weld.gusset: kernel did not allocate handle' };
+    }
+    if (toolId === 'weld.trim') {
+      const r = trimMemberSafe(params.a, params.b, params.mode || 'butt');
+      if (r.source === 'kernel' && typeof r.handle === 'number')
+        return { ok: true, kind: 'native', handle: r.handle };
+      return { ok: false, error: 'weld.trim: kernel did not allocate handle' };
+    }
+    if (toolId === 'weld.cutlist') {
+      return { ok: true, kind: 'noop' };   // cut list rendered by CutListPanel
+    }
+    return { ok: false, error: `weld dispatcher: unknown tool ${toolId}` };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
 /* --------------------------------------------------------------- */
 /*  handle bookkeeping                                             */
 /* --------------------------------------------------------------- */

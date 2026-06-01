@@ -26,6 +26,7 @@ import SnapStatusChip from './forge-v4/SnapStatusChip.jsx';
 import { ConvergenceChartHost } from './forge-v4/ConvergenceChart.jsx';
 import { SkeletonPanelHost } from './forge-v4/SkeletonPanel.jsx';
 import { ActionWheelHost } from './forge-v4/ActionWheel.jsx';
+import { DemoProjectHost } from './forge-v4/DemoProject.jsx';
 import { SheetMetalWorkbenchHost } from './forge-v4/SheetMetalWorkbench.jsx';
 import { PluginManagerPanelHost } from './forge-v4/PluginManagerPanel.jsx';
 import { installForgeAPI } from './forge-v4/forgeAPI.js';
@@ -84,6 +85,7 @@ function App() {
       <ConvergenceChartHost />
       <SkeletonPanelHost />
       <ActionWheelHost />
+      <DemoProjectHost />
       <SheetMetalWorkbenchHost />
       <PluginManagerPanelHost />
       <PathTracedRenderHost />

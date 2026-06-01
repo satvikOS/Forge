@@ -115,6 +115,7 @@ export const MENU_SPEC = {
       { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
       SEP,
+      { id: 'tools.demoProject',  label: 'Build sample bracket…', icon: 'archie.spark' },
       { id: 'tools.bom',          label: 'Bill of Materials…',   icon: 'measure.mass' },
       { id: 'tools.pdm',          label: 'Product Data Management…', icon: 'misc.settings' },
       { id: 'tools.configurations', label: 'Configurations…',    icon: 'misc.settings' },

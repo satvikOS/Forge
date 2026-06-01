@@ -30,6 +30,7 @@ import { PreviewPanels } from './PreviewPanels.jsx';
 import { UpdateBanner } from './UpdateBanner.jsx';
 import { dispatchTool } from './kernelDispatch.js';
 import { dispatchSheet, SHEET_OPS } from './sheetMetalDispatch.js';
+import { dispatchWeld } from './weldmentsDispatch.js';
 import * as Sketch from './sketchSession.js';
 import { massProps, distance, angle, meshArea, meshBounds, detectInterference } from './measureDispatch.js';
 import { ConfigurationsPanel, pushHistory } from './ConfigurationsPanel.jsx';
@@ -771,6 +772,9 @@ export function ForgeShellV4() {
       case 'tools.convergence':
         window.__forgeOpenConvergence?.(true);
         return;
+      case 'tools.demoProject':
+        window.__forgeOpenDemoProject?.(true);
+        return;
       case 'view.record':
         window.dispatchEvent(new CustomEvent('forge:capture-start',
           { detail: { filename: 'forge-session' } }));
@@ -1082,6 +1086,16 @@ export function ForgeShellV4() {
                              r = { ok: false, error: sr.message || 'sheet-op-failed' };
                            } else if (sr.kind === 'native') {
                              r = { ok: true, kind: 'native', handle: sr.handle };
+                           } else {
+                             r = { ok: true, kind: 'noop' };
+                           }
+                         } else if (typeof tool === 'string' && tool.startsWith('weld.')) {
+                           // Forge-144 — route weldments to the discipline dispatch.
+                           const wr = dispatchWeld(tool, params);
+                           if (wr.ok === false) {
+                             r = { ok: false, error: wr.error || 'weld-op-failed' };
+                           } else if (wr.kind === 'native') {
+                             r = { ok: true, kind: 'native', handle: wr.handle };
                            } else {
                              r = { ok: true, kind: 'noop' };
                            }
