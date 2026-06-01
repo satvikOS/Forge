@@ -36,10 +36,12 @@ test.describe('Forge v4 — exhaustive live headed verification', () => {
 
   test('01 initial mount + uniform spacing', async () => {
     await shot(page, '01-initial');
+    // NavSphere removed in Forge-79b per user request — only the 11
+    // core zones remain.
     const ids = ['forge-app', 'forge-topbar', 'forge-menus', 'forge-qat',
                  'forge-wb-rail', 'forge-toolbar', 'forge-viewport',
                  'forge-right', 'forge-statusbar', 'forge-cmdbar',
-                 'forge-hut', 'forge-navsphere'];
+                 'forge-hut'];
     for (const id of ids) {
       const count = await page.locator(`[data-testid="${id}"]`).count();
       expect(count, `testid "${id}"`).toBeGreaterThan(0);
@@ -87,12 +89,12 @@ test.describe('Forge v4 — exhaustive live headed verification', () => {
     await shot(page, '05-hut-with-gizmo');
   });
 
-  test('06 NavSphere face chips + 7 view chips', async () => {
-    for (const chip of ['Iso','F','Bk','T','Bt','R','L']) {
-      expect(await page.locator(`[data-testid="forge-navsphere"] [aria-label="${chip}"]`).count())
-        .toBeGreaterThan(0);
+  test('06 view shortcuts via keyboard (NavSphere removed Forge-79b)', async () => {
+    for (const k of ['1','2','3','4']) {
+      await page.keyboard.press(k);
+      await page.waitForTimeout(150);
     }
-    await shot(page, '06-navsphere');
+    await shot(page, '06-views-cycled');
   });
 
   test('07 transform gizmo (T / R / Y keys)', async () => {
@@ -207,9 +209,9 @@ test.describe('Forge v4 — exhaustive live headed verification', () => {
     await page.waitForTimeout(600);
     expect(await page.locator('[data-testid="forge-help"]').count()).toBe(1);
     await shot(page, '17a-help-quickstart');
-    // Cycle tabs
-    for (const tab of ['Active Tool', 'Shortcuts', 'About']) {
-      await page.locator('[role="tab"]').filter({ hasText: tab }).click();
+    // Cycle tabs via stable data-help-tab attribute
+    for (const tabId of ['tool', 'shortcuts', 'about']) {
+      await page.click(`[data-help-tab="${tabId}"]`);
       await page.waitForTimeout(300);
     }
     await shot(page, '17b-help-about');
@@ -236,43 +238,33 @@ test.describe('Forge v4 — exhaustive live headed verification', () => {
   });
 
   test('20 preview panels — Drawing', async () => {
-    await page.click('[data-menu="view"]');
-    await page.waitForTimeout(300);
-    await page.locator('[role="menuitem"]').filter({ hasText: 'preview' }).first().click();
-    await page.waitForTimeout(500);
+    // Use the Cmd+P shortcut as the safe path (menu locator was flaky on Mac).
+    await page.keyboard.press('Meta+p');
+    await page.waitForTimeout(700);
+    if (await page.locator('[data-testid="forge-preview"]').count() === 0) {
+      // Fallback: menu path
+      await page.click('[data-menu="view"]');
+      await page.waitForTimeout(400);
+      await page.evaluate(() => {
+        const btn = [...document.querySelectorAll('[role="menuitem"] button')]
+          .find(b => b.textContent.toLowerCase().includes('preview'));
+        btn?.click();
+      });
+      await page.waitForTimeout(500);
+    }
     expect(await page.locator('[data-testid="forge-preview"]').count()).toBe(1);
     await shot(page, '20-preview-drawing');
   });
 
-  test('21 preview Section', async () => {
-    await page.click('[data-tab-id="section"]');
-    await page.waitForTimeout(300);
-    await shot(page, '21-preview-section');
-  });
-
-  test('22 preview Slicer', async () => {
-    await page.click('[data-tab-id="slicer"]');
-    await page.waitForTimeout(300);
-    await shot(page, '22-preview-slicer');
-  });
-
-  test('23 preview Mfg', async () => {
-    await page.click('[data-tab-id="mfg"]');
-    await page.waitForTimeout(300);
-    await shot(page, '23-preview-mfg');
-  });
-
-  test('24 preview Cost', async () => {
-    await page.click('[data-tab-id="cost"]');
-    await page.waitForTimeout(300);
-    await shot(page, '24-preview-cost');
-  });
-
-  test('25 preview DFM', async () => {
-    await page.click('[data-tab-id="dfm"]');
-    await page.waitForTimeout(300);
-    await shot(page, '25-preview-dfm');
-  });
+  for (const t of ['section','slicer','mfg','cost','dfm']) {
+    test(`2X preview ${t}`, async () => {
+      const sel = `[data-tab-id="${t}"]`;
+      await page.waitForSelector(sel, { timeout: 5000 });
+      await page.click(sel);
+      await page.waitForTimeout(300);
+      await shot(page, `2X-preview-${t}`);
+    });
+  }
 
   test('26 update banner (Forge-77)', async () => {
     // Simulate downloaded state via the global emitter pattern.
