@@ -87,7 +87,22 @@ export const MENU_SPEC = {
       { id: 'tools.equations', label: 'Equation Manager…', icon: 'measure.distance', shortcut: '⌘E' },
       { id: 'tools.topology',  label: 'Topology Inspector…', icon: 'select.body', shortcut: '⌘I' },
       { id: 'tools.measure',   label: 'Measure',            icon: 'measure.distance' },
-      { id: 'tools.interfere', label: 'Interference check', icon: 'measure.interfere' },
+      SEP,
+      { id: 'tools.assembly',     label: 'Assembly…',        icon: 'wb.mech' },
+      { id: 'tools.assemblyTree', label: 'Assembly tree…',   icon: 'wb.mech' },
+      { id: 'tools.interfere',    label: 'Interference check', icon: 'measure.interfere' },
+      SEP,
+      // Forge-125 — surface the stress-test launcher in the Tools menu
+      // so the e2e spec (and curious users) can reach it via real menu
+      // navigation, not just the keyboard shortcut.
+      { id: 'tools.stressTest', label: 'Stress test…',      icon: 'misc.kbd' },
+      SEP,
+      // Forge-126 — class-A surfacing MVP. Direct Edit + Heal + Surfacing
+      // share an entry block so users can find the GSD command surface
+      // through real menu navigation, not just the imperative open hook.
+      { id: 'tools.directEdit', label: 'Direct Edit…',     icon: 'sketch.rect' },
+      { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
+      { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
     ],
   },
   help: {

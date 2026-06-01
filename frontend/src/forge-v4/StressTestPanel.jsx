@@ -37,6 +37,7 @@ import {
   generateBolts20k,
   generateBrackets5k,
   generateMixedScene,
+  generate100k,
 } from './stressScenes.js';
 
 /* =====================================================================
@@ -186,6 +187,14 @@ const SCENES = [
     expectedCalls: 1,
     make: generateBrackets5k,
   },
+  // Forge-125 — 100k spherical cloud + LOD streaming smoke test.
+  {
+    id: 'cloud100k',
+    label: 'Load 100k cloud',
+    sub:   'Fibonacci sphere · LOD streaming · radius 800mm',
+    expectedCalls: 1,
+    make: generate100k,
+  },
 ];
 
 export function StressTestPanel({ open, onClose, bodies, onLoadScene, onClear }) {
@@ -193,6 +202,26 @@ export function StressTestPanel({ open, onClose, bodies, onLoadScene, onClear })
   // estimateDrawCalls just hashes by instanceTag — no per-body iteration
   // beyond a single Set add.
   const liveCalls = useMemo(() => estimateDrawCalls(bodies), [bodies]);
+  // Forge-125 — live LOD streaming readout. Polls the scheduler's
+  // metrics() at 4Hz so the panel reflects what the perf HUD shows.
+  // Tagged with a stable test id so the e2e spec can assert "LOD
+  // streaming kicked in" by waiting for high+med+low > 0.
+  const [lod, setLod] = React.useState(null);
+  React.useEffect(() => {
+    if (!open) return undefined;
+    let raf = 0;
+    let last = 0;
+    function tick(t) {
+      if (t - last >= 250) {
+        try { setLod(window.__forgeLodMetrics?.() || null); }
+        catch { /* noop */ }
+        last = t;
+      }
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [open]);
   if (!open) return null;
   return (
     <aside
@@ -251,6 +280,30 @@ export function StressTestPanel({ open, onClose, bodies, onLoadScene, onClear })
           (typeof window !== 'undefined' && window.__forgeStressView) || 'iso'
         }</span>
       </div>
+      {lod && lod.total > 0 && (
+        <div style={statsRowStyle} data-testid="forge-stress-lod">
+          LOD streaming:
+          <br />
+          <span style={{ color:'#7ec97e' }}>High {lod.high.toLocaleString()}</span>
+          {' · '}
+          <span style={{ color:'#e8c66c' }}>Med {lod.med.toLocaleString()}</span>
+          {' · '}
+          <span style={{ color:'#9aa3ad' }}>Low {lod.low.toLocaleString()}</span>
+          <br />
+          <span style={{ color:'#6b7380' }}>
+            hidden {lod.hidden.toLocaleString()} ·
+            pool {lod.poolBusy}/{lod.poolCap}
+            {lod.queueDepth > 0 ? ` · q${lod.queueDepth}` : ''}
+            {lod.fallback ? ' · synth' : ''}
+          </span>
+          {(lod.high > 0 || lod.med > 0 || lod.low > 0) && (
+            <div data-testid="forge-stress-lod-active"
+                 style={{ color:'#6cd0e8', marginTop: 4 }}>
+              streaming active
+            </div>
+          )}
+        </div>
+      )}
     </aside>
   );
 }

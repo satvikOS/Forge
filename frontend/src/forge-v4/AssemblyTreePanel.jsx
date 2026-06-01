@@ -22,6 +22,7 @@ import {
   renameInstance, setParent, setVisibility, subassemblyBounds,
   worldTransform,
 } from './assemblyHierarchy.js';
+import { FlexibleComponentToggle } from './FlexibleComponentToggle.jsx';
 
 const PANEL_W = 340;
 
@@ -374,6 +375,10 @@ function TreeNode({
             )}
           </span>
         )}
+
+        <FlexibleComponentToggle inst={instance.id}
+                                 name={instance.name}
+                                 compact />
 
         <NodeControls
           instance={instance}

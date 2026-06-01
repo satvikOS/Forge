@@ -218,25 +218,30 @@ function callNative(toolId, p, ctx) {
         return null;
       }
       case 'bool.split':
-        return null;       // no kernel op — falls through to synthetic
-      // ----- sheet metal -----
-      case 'sheet.flange':
-      case 'sheet.bend':
+        // No native bool.split in OCCT bindings — route via cut + cut pair
+        // when callers provide both bodies. Otherwise honest error.
+        return null;
+      // ----- sheet metal: routes through sheetMetalDispatch (real native sheetMetal.*) -----
+      case 'sheet.baseFlange':
+      case 'sheet.edgeFlange':
+      case 'sheet.miterFlange':
       case 'sheet.hem':
+      case 'sheet.sketchedBend':
+      case 'sheet.jog':
+      case 'sheet.closedCorner':
+      case 'sheet.cornerRelief':
       case 'sheet.unfold':
-      case 'sheet.pattern': {
-        if (f.makeBox) return f.makeBox(MM(p.length, 40), MM(p.width, 20), MM(p.thickness, 1.5));
-        return null;
-      }
-      // ----- weldments -----
+      case 'sheet.flatPattern':
+        return null;     // handled by sheetMetalDispatch — shell routes there
+      // ----- weldments: routes through weldmentsDispatch -----
       case 'weld.member':
-      case 'weld.endcap':
+      case 'weld.endCap':
       case 'weld.gusset':
-      case 'weld.bead': {
-        if (f.makeBox) return f.makeBox(MM(p.length, 50), MM(p.h, 5), MM(p.w, 5));
-        return null;
-      }
-      // ----- mold / sim / mfg / measure / view / sketch: no native body -----
+      case 'weld.bead':
+      case 'weld.trim':
+      case 'weld.cutList':
+        return null;     // handled by weldmentsDispatch — shell routes there
+      // ----- mold / sim / mfg / measure / view / sketch: no native body produced here -----
       default:
         return null;
     }
@@ -246,11 +251,24 @@ function callNative(toolId, p, ctx) {
   }
 }
 
-// Synthetic THREE.BufferGeometry path — runs in the renderer without any
-// native dependency. Returns a geometry spec the viewport can mount as a
-// mesh. Keeps geometry small (mm units, scaled to dominate the viewer's
-// perception — single-digit-mm bodies look like dust at iso 40,25,40).
-function syntheticSpec(toolId, p) {
+// Tools that legitimately don't produce a body — sketches, measurements,
+// view changes, post-processors, etc. Used to give the user the right
+// toast when a tool fires without geometry.
+const NO_BODY_TOOLS = new Set([
+  'sketch.new', 'sketch.line', 'sketch.rect', 'sketch.circle', 'sketch.arc',
+  'sketch.polygon', 'sketch.spline', 'sketch.dim', 'sketch.constrain', 'sketch.finish',
+  'measure.distance', 'measure.angle', 'measure.area', 'measure.mass', 'measure.interfere',
+  'view.iso', 'view.front', 'view.back', 'view.top', 'view.bottom', 'view.right', 'view.left',
+  'view.section', 'view.zoomFit', 'view.shaded', 'view.wireframe', 'view.normalTo',
+  'mfg.post',
+]);
+
+// Removed — Forge-143 (no-fallback policy):
+//   - syntheticSpec() / buildSyntheticGeometry() that produced THREE primitives
+//     when the kernel couldn't satisfy a tool. Bodies now appear ONLY when the
+//     native kernel returns a handle. Tools without kernel coverage produce a
+//     real "kernel does not implement this op" error instead of a fake box.
+function _removedSyntheticPath_(toolId, p) {
   const op = (id) => ({ id, params: p });
   switch (toolId) {
     case 'solid.extrude':
@@ -368,22 +386,30 @@ function syntheticSpec(toolId, p) {
 export function dispatchTool(toolId, params, ctx = {}) {
   // Forge-123 — if the caller supplied a skeleton context, resolve every
   // { skelRef } embedded in params BEFORE we hand them to the kernel.
-  // This is what lets downstream features depend on named master refs;
-  // edit P_TEST → next regenerate() reads the new coord here.
   const p = ctx?.skeleton
     ? (resolveSkeletonRefs(params || {}, ctx.skeleton) || {})
     : (params || {});
-  if (kernelReady()) {
-    const handle = callNative(toolId, p, ctx);
-    if (typeof handle === 'number') {
-      return { ok: true, kind: 'native', handle, toolId, params: p };
-    }
+  if (!kernelReady()) {
+    return { ok: false, kind: 'kernel-offline', toolId, params: p,
+             error: 'forge-kernel.node is not loaded — install the native addon to use this tool' };
   }
-  const spec = syntheticSpec(toolId, p);
-  if (spec) {
-    return { ok: true, kind: 'synthetic', spec, toolId, params: p };
+  // Tools that are handled by a discipline-specific dispatch module — the
+  // shell routes them there before calling us. If we get one here, return
+  // a clear error so the caller knows to route correctly.
+  if (toolId.startsWith('sheet.') || toolId.startsWith('weld.') ||
+      toolId.startsWith('sim.') || toolId.startsWith('mfg.')) {
+    return { ok: false, kind: 'wrong-dispatcher', toolId, params: p,
+             error: `Tool ${toolId} is dispatched by its discipline module (sheet/weld/sim/cam), not kernelDispatch` };
   }
-  return { ok: true, kind: 'noop', toolId, params: p };
+  const handle = callNative(toolId, p, ctx);
+  if (typeof handle === 'number') {
+    return { ok: true, kind: 'native', handle, toolId, params: p };
+  }
+  if (NO_BODY_TOOLS.has(toolId)) {
+    return { ok: true, kind: 'noop', toolId, params: p };
+  }
+  return { ok: false, kind: 'kernel-unsupported', toolId, params: p,
+           error: `Native OCCT kernel has no implementation for ${toolId}` };
 }
 
 /**

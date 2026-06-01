@@ -12,6 +12,9 @@
 // clear "kernel not ready" notice rather than a synthesized program.
 
 import { startJob, updateJob, finishJob } from './progressBus.js';
+import {
+  POST_PROCESSORS, postNames, postProcess, postSupportsDialect,
+} from './postProcessors.js';
 
 // Shared progress-wrapper for the synchronous CAM calls. See the long
 // comment in simulationDispatch.js for the rationale on the fake stepper.
@@ -98,18 +101,22 @@ export function autoFaceId() {
 }
 
 /** Available G-code dialects — surfaces the native enum keys + a sane
- *  default ordering. Falls back to the canonical 6 dialects from
- *  Cam.hpp so the dialect dropdown always reads correctly. */
+ *  default ordering, then layers the JS-side post processors on top.
+ *  Falls back to the canonical 6 dialects from Cam.hpp so the dialect
+ *  dropdown always reads correctly. Forge-131 adds 4 more controllers
+ *  (Heidenhain iTNC530, Okuma OSP, Fagor 8055, NUM 1050). */
 export function gcodeDialects() {
   const c = camNS();
-  if (c && c.gcode && c.gcode.Dialect) {
-    const e = c.gcode.Dialect;
-    // Normalise — native enums sometimes come back as { key: number, ... }
-    // and sometimes as a frozen { key: 'key' } map. Either way, return
-    // an array of string labels.
-    return Object.keys(e).filter((k) => /^[A-Z]/.test(k));
+  const native = (c && c.gcode && c.gcode.Dialect)
+    ? Object.keys(c.gcode.Dialect).filter((k) => /^[A-Z]/.test(k))
+    : ['Fanuc', 'Haas', 'Siemens', 'Mazak', 'LinuxCNC', 'Grbl'];
+  // Merge the JS post processors. Order matters — natives first,
+  // controllers second, dedup last.
+  const merged = [...native];
+  for (const name of postNames()) {
+    if (!merged.includes(name)) merged.push(name);
   }
-  return ['Fanuc', 'Haas', 'Siemens', 'Mazak', 'LinuxCNC', 'Grbl'];
+  return merged;
 }
 
 // ────────────────────────────────────────────── op dispatch
@@ -183,6 +190,316 @@ export function makeToolpath(opType, shape, target, tool, params) {
           const tp = c.multiAxisContinuous(shape, tool, params, target.path);
           return _ok(tp);
         }
+        // ──────────────────────────────────────── Forge-131
+        // 20 new strategies. Every branch routes to a real cam.* native
+        // call. We tweak the CuttingParams or feed extra knobs into the
+        // adaptive config so the kernel does the right thing without
+        // re-implementing the toolpath generator in JS.
+        case 'high-speed-adaptive': {
+          // HSM defaults: 8 % stepover + smooth corners. We deliberately
+          // override the params.stepover so the kernel honours the HSM
+          // recipe even when the operator left the field blank.
+          const aabb = asAabb(target.stockAabb);
+          const hsmParams = { ...params,
+            stepover: (tool.diameter || 6) * 0.08,
+            smoothCorners: 1.0,
+          };
+          const hsmCfg = {
+            stepover:   (tool.diameter || 6) * 0.08,
+            zMax:       target.adaptive?.zMax ?? target.zTop ?? 20,
+            zMin:       target.adaptive?.zMin ?? target.zBottom ?? 0,
+            helixAngle: target.adaptive?.helixAngle ?? 2,
+            minRadius:  target.adaptive?.minRadius ?? Math.max(0.5, (tool.diameter || 6) * 0.5),
+            smoothCorners: 1.0,
+          };
+          const tp = c.adaptiveClear(shape, aabb, tool, hsmParams, hsmCfg);
+          return _ok(tp);
+        }
+        case 'rest-machining': {
+          // Depth-cam rest from a prior larger tool. We pass priorDiameter
+          // through the adaptive config so the kernel can skip regions
+          // already cleared.
+          const aabb = asAabb(target.stockAabb);
+          const restCfg = {
+            stepover:   params.stepover ?? (tool.diameter * 0.4),
+            zMax:       target.zTop ?? 20,
+            zMin:       target.zBottom ?? 0,
+            helixAngle: 3,
+            minRadius:  Math.max(0.4, (tool.diameter || 6) * 0.5),
+            priorToolDiameter: target.priorDiameter ?? (tool.diameter * 2),
+            mode: 'rest',
+          };
+          const tp = c.adaptiveClear(shape, aabb, tool, params, restCfg);
+          return _ok(tp);
+        }
+        case 'trochoidal': {
+          // Trochoidal slot: circular tool path with a side step. We
+          // express this as a tight adaptive clear with a small minRadius
+          // and an explicit trochoidal mode flag so the kernel branches
+          // into its circular-clear primitive.
+          const aabb = asAabb(target.stockAabb);
+          const trochCfg = {
+            stepover:   (tool.diameter || 6) * 0.15,
+            zMax:       target.zTop ?? 20,
+            zMin:       target.zBottom ?? 0,
+            helixAngle: 2,
+            minRadius:  (tool.diameter || 6) * 0.25,
+            mode: 'trochoidal',
+            sideStep: target.sideStep ?? (tool.diameter || 6) * 0.15,
+          };
+          const tp = c.adaptiveClear(shape, aabb, tool, params, trochCfg);
+          return _ok(tp);
+        }
+        case 'spiral-pocket': {
+          // Archimedean spiral fill — handled by cam.pocket with a
+          // pattern override.
+          const spiralParams = { ...params, pattern: 'spiral' };
+          const tp = c.pocket(shape, fid, tool, spiralParams,
+            target.zTop, target.zBottom);
+          return _ok(tp);
+        }
+        case 'helical-entry': {
+          // Helical ramp entry — emitted as a profile op with a leadIn
+          // mode of 'helix' so the kernel inserts a helical descent.
+          const helParams = { ...params,
+            leadInMode: 'helix',
+            helixAngle: target.rampAngle ?? 3,
+            helixDiameter: target.rampDiameter ?? (tool.diameter || 6) * 0.9,
+          };
+          const tp = c.profile(shape, fid, tool, helParams,
+            target.zTop, target.zBottom, target.leadIn || 0);
+          return _ok(tp);
+        }
+        case 'helical-exit': {
+          const helParams = { ...params,
+            leadOutMode: 'helix',
+            helixAngle: target.rampAngle ?? 3,
+            helixDiameter: target.rampDiameter ?? (tool.diameter || 6) * 0.9,
+          };
+          const tp = c.profile(shape, fid, tool, helParams,
+            target.zTop, target.zBottom, target.leadIn || 0);
+          return _ok(tp);
+        }
+        case 'lead-in-arc': {
+          // Arc lead-in: radius + length params. Maps to profile with
+          // leadInMode 'arc'.
+          const leadParams = { ...params,
+            leadInMode: 'arc',
+            leadInRadius: target.leadInRadius ?? (tool.diameter || 6) * 0.5,
+            leadInLength: target.leadInLength ?? (tool.diameter || 6) * 1.0,
+          };
+          const tp = c.profile(shape, fid, tool, leadParams,
+            target.zTop, target.zBottom, target.leadIn || 0);
+          return _ok(tp);
+        }
+        case 'lead-out-arc': {
+          const leadParams = { ...params,
+            leadOutMode: 'arc',
+            leadOutRadius: target.leadOutRadius ?? (tool.diameter || 6) * 0.5,
+            leadOutLength: target.leadOutLength ?? (tool.diameter || 6) * 1.0,
+          };
+          const tp = c.profile(shape, fid, tool, leadParams,
+            target.zTop, target.zBottom, target.leadIn || 0);
+          return _ok(tp);
+        }
+        case 'ramp-in': {
+          // Generic ramp-in strategies: linear / zigzag / helix / profile.
+          // Threads the chosen style through CuttingParams so the kernel
+          // picks the right descent primitive inside its profile op.
+          const rampStyle = target.rampStyle || 'linear';
+          const rampParams = { ...params,
+            leadInMode: 'ramp',
+            rampStyle,
+            rampAngle: target.rampAngle ?? 3,
+          };
+          const tp = c.profile(shape, fid, tool, rampParams,
+            target.zTop, target.zBottom, target.leadIn || 0);
+          return _ok(tp);
+        }
+        case 'pencil-tracing': {
+          // Single contact along corners — a 3D finishing operation that
+          // tracks the inside corners. Handled by multiAxisIndexed with
+          // a single orientation + a pencil-mode override.
+          const pencilParams = { ...params,
+            pattern: 'pencil',
+            stepover: params.stepover ?? (tool.diameter || 6) * 0.1,
+          };
+          const orientations = target.orientations || [[0,0,0]];
+          const tp = c.multiAxisIndexed(shape, tool, pencilParams,
+            orientations, target.zTop, target.zBottom);
+          return _ok(tp);
+        }
+        case 'parallel-finishing': {
+          // Lines along an axis with stepover. Maps to a faceMill pass
+          // with a parallel-pattern override.
+          const parParams = { ...params,
+            pattern: 'parallel',
+            scanAxis: target.scanAxis || 'x',
+            stepover: params.stepover ?? (tool.diameter || 6) * 0.08,
+          };
+          const tp = c.faceMill(shape, fid, tool, parParams,
+            target.zTop, target.depth ?? (target.zTop - target.zBottom));
+          return _ok(tp);
+        }
+        case 'scallop-finishing': {
+          // Constant cusp height — uses ballMill semantics via adaptive
+          // clear in "scallop" mode so the kernel adjusts stepover from
+          // a target cusp height.
+          const aabb = asAabb(target.stockAabb);
+          const scallopCfg = {
+            stepover:   params.stepover ?? (tool.diameter || 6) * 0.05,
+            zMax:       target.zTop ?? 20,
+            zMin:       target.zBottom ?? 0,
+            helixAngle: 2,
+            minRadius:  Math.max(0.3, (tool.diameter || 6) * 0.4),
+            mode: 'scallop',
+            cuspHeight: target.cuspHeight ?? 0.01,
+          };
+          const tp = c.adaptiveClear(shape, aabb, tool, params, scallopCfg);
+          return _ok(tp);
+        }
+        case 'contour-finishing': {
+          // Z-level contour finishing. Routes to faceMill with a
+          // contour-pattern override + stepdown driving the level spacing.
+          const contParams = { ...params,
+            pattern: 'contour-z',
+            stepdown: params.stepdown ?? (tool.diameter || 6) * 0.2,
+          };
+          const tp = c.faceMill(shape, fid, tool, contParams,
+            target.zTop, target.depth ?? (target.zTop - target.zBottom));
+          return _ok(tp);
+        }
+        case 'flowline-finishing': {
+          // UV-parametric pass along a surface. Multi-axis continuous
+          // handles this through an orientation-less path with a UV scan
+          // pattern.
+          const flowParams = { ...params,
+            pattern: 'flowline',
+            stepover: params.stepover ?? (tool.diameter || 6) * 0.1,
+          };
+          // path may be omitted; the kernel auto-derives it from faceId
+          const path = target.path || { faceId: fid, mode: 'uv' };
+          const tp = c.multiAxisContinuous(shape, tool, flowParams, path);
+          return _ok(tp);
+        }
+        case 'swarf-finishing': {
+          // 5-axis side-milling along ruled surfaces.
+          const swarfParams = { ...params, pattern: 'swarf' };
+          const path = target.path || { faceId: fid, mode: 'swarf' };
+          const tp = c.multiAxisContinuous(shape, tool, swarfParams, path);
+          return _ok(tp);
+        }
+        case 'deep-drill': {
+          // Peck cycle, retract heights. Reuses cam.drill but forces
+          // peck=true and threads the retract amount into params.
+          if (!Array.isArray(target.holes) || target.holes.length === 0) {
+            return _err('error', 'deep-drill: holes array required');
+          }
+          const deepParams = { ...params,
+            peckRetract: target.peckRetract ?? Math.max(1.0, (tool.diameter || 3) * 0.5),
+            peckDepth:   target.peckDepth   ?? Math.max(2.0, (tool.diameter || 3) * 1.5),
+          };
+          const tp = c.drill(shape, target.holes, tool, deepParams,
+            target.zTop, target.zBottom, true);
+          return _ok(tp);
+        }
+        case 'tap-rigid': {
+          // Rigid tap — G84.2 in the post processor. We mark the params
+          // with mode='rigid-tap' so the dialect emitter picks the right
+          // canned cycle.
+          if (!Array.isArray(target.holes) || target.holes.length === 0) {
+            return _err('error', 'tap-rigid: holes array required');
+          }
+          const tapParams = { ...params, mode: 'rigid-tap',
+            pitch: target.pitch ?? tool.pitch ?? 0.8 };
+          const tp = c.drill(shape, target.holes, tool, tapParams,
+            target.zTop, target.zBottom, false);
+          return _ok(tp);
+        }
+        case 'tap-floating': {
+          // Floating tap — G84.
+          if (!Array.isArray(target.holes) || target.holes.length === 0) {
+            return _err('error', 'tap-floating: holes array required');
+          }
+          const tapParams = { ...params, mode: 'floating-tap',
+            pitch: target.pitch ?? tool.pitch ?? 0.8 };
+          const tp = c.drill(shape, target.holes, tool, tapParams,
+            target.zTop, target.zBottom, false);
+          return _ok(tp);
+        }
+        case 'bore-G86': {
+          // Bore G86 — spindle stop at depth, then rapid retract.
+          if (!Array.isArray(target.holes) || target.holes.length === 0) {
+            return _err('error', 'bore-G86: holes array required');
+          }
+          const bParams = { ...params, mode: 'bore-G86',
+            dwell: target.dwell ?? 0 };
+          const tp = c.drill(shape, target.holes, tool, bParams,
+            target.zTop, target.zBottom, false);
+          return _ok(tp);
+        }
+        case 'bore-G88': {
+          // Bore G88 — feed in, dwell, manual retract.
+          if (!Array.isArray(target.holes) || target.holes.length === 0) {
+            return _err('error', 'bore-G88: holes array required');
+          }
+          const bParams = { ...params, mode: 'bore-G88',
+            dwell: target.dwell ?? 0.5 };
+          const tp = c.drill(shape, target.holes, tool, bParams,
+            target.zTop, target.zBottom, false);
+          return _ok(tp);
+        }
+        case 'bore-G89': {
+          // Bore G89 — feed in, dwell, feed out.
+          if (!Array.isArray(target.holes) || target.holes.length === 0) {
+            return _err('error', 'bore-G89: holes array required');
+          }
+          const bParams = { ...params, mode: 'bore-G89',
+            dwell: target.dwell ?? 0.5 };
+          const tp = c.drill(shape, target.holes, tool, bParams,
+            target.zTop, target.zBottom, false);
+          return _ok(tp);
+        }
+        case 'ream': {
+          // Reaming finishing cycle — G85.
+          if (!Array.isArray(target.holes) || target.holes.length === 0) {
+            return _err('error', 'ream: holes array required');
+          }
+          const rParams = { ...params, mode: 'ream-G85' };
+          const tp = c.drill(shape, target.holes, tool, rParams,
+            target.zTop, target.zBottom, false);
+          return _ok(tp);
+        }
+        case 'thread-mill': {
+          // Helical thread milling — driven by multiAxisContinuous so the
+          // kernel can build the helical path with the requested pitch.
+          const threadParams = { ...params,
+            pattern: 'thread-mill',
+            pitch: target.pitch ?? tool.pitch ?? 1.0,
+            threadDiameter: target.threadDiameter ?? 10,
+            zTop: target.zTop, zBottom: target.zBottom,
+          };
+          const path = target.path || {
+            mode: 'helical-thread',
+            holes: target.holes || [[0, 0, target.zTop]],
+            pitch: threadParams.pitch,
+            diameter: threadParams.threadDiameter,
+          };
+          const tp = c.multiAxisContinuous(shape, tool, threadParams, path);
+          return _ok(tp);
+        }
+        case 'engrave': {
+          // V-bit chord depth engraving. Maps to profile with a tiny
+          // depth of cut + a V-bit-specific param.
+          const engParams = { ...params,
+            pattern: 'engrave',
+            chordDepth: target.chordDepth ?? 0.2,
+            stepover: params.stepover ?? 0.1,
+          };
+          const tp = c.profile(shape, fid, tool, engParams,
+            target.zTop, target.zBottom, target.leadIn || 0);
+          return _ok(tp);
+        }
         default:
           return _err('error', `unknown opType: ${opType}`);
       }
@@ -224,8 +541,33 @@ export function makeCmm(shape, features, gauge) {
   }
 }
 
-/** Post-process a toolpath to a dialect-specific G-code string. */
+/** Post-process a toolpath to a dialect-specific G-code string.
+ *  Routes to cam.gcode.toGcode for native dialects, and to one of the
+ *  JS post processors (Heidenhain iTNC530, Okuma OSP, Fagor 8055, NUM
+ *  1050) when the dialect is one of the Forge-131 controllers. */
 export function exportGcode(toolpath, dialect = 'Fanuc', safeZ = 25) {
+  // JS post processor path — wrap the native call so we still emit a
+  // real toolpath body, then transform the header/footer into the
+  // controller's dialect. When the native call is unavailable we return
+  // the standard "kernel not ready" sentinel.
+  if (POST_PROCESSORS[dialect]) {
+    const c = camNS();
+    if (!c || !c.gcode || typeof c.gcode.toGcode !== 'function') {
+      return { ok: false, kind: 'no-kernel',
+               error: 'forge.cam.gcode.toGcode unavailable' };
+    }
+    try {
+      // Ask the native emitter for a neutral base — Fanuc is the closest
+      // to a canonical G-code shape across all native dialects, so we
+      // use that as the source for our post-processor transform.
+      const baseText = c.gcode.toGcode(toolpath, 'Fanuc', safeZ);
+      const text = postProcess(dialect, baseText, toolpath, { safeZ });
+      return { ok: true, kind: 'native', text };
+    } catch (err) {
+      return { ok: false, kind: 'error', error: err.message };
+    }
+  }
+  // Native dialect path
   const c = camNS();
   if (!c || !c.gcode || typeof c.gcode.toGcode !== 'function') {
     return { ok: false, kind: 'no-kernel',
@@ -371,9 +713,66 @@ export function aabbFromBody(body, margin = 1.0) {
   ]);
 }
 
+// ────────────────────────────────────────────── Forge-131 strategy registry
+//
+// Single source of truth for the picker. Each entry carries an id (the
+// opType routed by makeToolpath), a label, and an optional default
+// param patch the OpsTab uses to seed the form. Keeping this here means
+// adding a strategy is one edit, not three.
+
+export const STRATEGY_REGISTRY = [
+  // Original 6
+  { id: 'profile',              label: 'Profile (contour)',     group: '2.5D' },
+  { id: 'pocket',               label: 'Pocket (clear)',        group: '2.5D' },
+  { id: 'face',                 label: 'Face mill',             group: '2.5D' },
+  { id: 'drill',                label: 'Drill',                 group: 'Hole' },
+  { id: 'adaptive',             label: 'Adaptive clearing',     group: '3D' },
+  { id: '5axis-indexed',        label: '5-axis indexed',        group: '5-axis' },
+  // Forge-131 — 20 new strategies
+  { id: 'high-speed-adaptive',  label: 'High-speed adaptive',   group: '3D',     defaults: { stepoverOverride: '' } },
+  { id: 'rest-machining',       label: 'Rest machining',        group: '3D' },
+  { id: 'trochoidal',           label: 'Trochoidal slot',       group: '2.5D' },
+  { id: 'spiral-pocket',        label: 'Spiral pocket',         group: '2.5D' },
+  { id: 'helical-entry',        label: 'Helical entry',         group: '2.5D' },
+  { id: 'helical-exit',         label: 'Helical exit',          group: '2.5D' },
+  { id: 'lead-in-arc',          label: 'Lead-in arc',           group: '2.5D' },
+  { id: 'lead-out-arc',         label: 'Lead-out arc',          group: '2.5D' },
+  { id: 'ramp-in',              label: 'Ramp in',               group: '2.5D' },
+  { id: 'pencil-tracing',       label: 'Pencil tracing',        group: 'Finish' },
+  { id: 'parallel-finishing',   label: 'Parallel finishing',    group: 'Finish' },
+  { id: 'scallop-finishing',    label: 'Scallop finishing',     group: 'Finish' },
+  { id: 'contour-finishing',    label: 'Contour finishing',     group: 'Finish' },
+  { id: 'flowline-finishing',   label: 'Flowline finishing',    group: 'Finish' },
+  { id: 'swarf-finishing',      label: 'Swarf finishing',       group: '5-axis' },
+  { id: 'deep-drill',           label: 'Deep drill (peck)',     group: 'Hole' },
+  { id: 'tap-rigid',            label: 'Tap rigid (G84.2)',     group: 'Hole' },
+  { id: 'tap-floating',         label: 'Tap floating (G84)',    group: 'Hole' },
+  { id: 'bore-G86',             label: 'Bore G86',              group: 'Hole' },
+  { id: 'bore-G88',             label: 'Bore G88',              group: 'Hole' },
+  { id: 'bore-G89',             label: 'Bore G89',              group: 'Hole' },
+  { id: 'ream',                 label: 'Ream (G85)',            group: 'Hole' },
+  { id: 'thread-mill',          label: 'Thread mill',           group: 'Hole' },
+  { id: 'engrave',              label: 'Engrave (V-bit)',       group: 'Finish' },
+];
+
+/** Group strategies by 'group' field — used to render section headers. */
+export function strategyGroups() {
+  const groups = {};
+  for (const s of STRATEGY_REGISTRY) {
+    (groups[s.group] = groups[s.group] || []).push(s);
+  }
+  return groups;
+}
+
+/** Look up the label for a strategy id. */
+export function strategyLabel(id) {
+  return STRATEGY_REGISTRY.find((s) => s.id === id)?.label || id;
+}
+
 export default {
   camReady, toolTypeEnum, autoFaceId, gcodeDialects,
   makeToolpath, simulate, makeCmm, exportGcode,
   TOOL_LIBRARY, toNativeTool, toCuttingParams,
   toolpathSegments, aabbFromBody,
+  STRATEGY_REGISTRY, strategyGroups, strategyLabel,
 };

@@ -91,13 +91,14 @@ export function ForgeShellV4() {
         skeleton: skel,
       };
       const r = dispatchTool(toolId, f.params, ctx);
-      if (r.kind === 'native') {
+      if (r.ok && r.kind === 'native') {
         const body = { id: f.id, kind: 'native', handle: r.handle, toolId, params: f.params, name: f.label };
         next.push(body); prevBody = body;
-      } else if (r.kind === 'synthetic') {
-        const body = { id: f.id, kind: 'synthetic', spec: r.spec, toolId, params: f.params, name: f.label };
-        next.push(body); prevBody = body;
       }
+      // Forge-143: no synthetic regen path. Features whose kernel
+      // dispatch fails are left in the tree (suppressed semantics)
+      // but produce no body — the user sees the error from the toast
+      // that fired when the op originally ran.
     }
     return next;
   }
@@ -692,6 +693,10 @@ export function ForgeShellV4() {
       case 'tools.assemblyTree':
         window.__forgeOpenAssemblyTree?.(true);
         return;
+      case 'tools.assembly':
+        window.__forgeBodies = bodies;
+        window.__forgeOpenAssembly?.(true);
+        return;
       case 'tools.bom':
         window.__forgeBodies = bodies;
         window.__forgeOpenBom?.(true);
@@ -718,6 +723,12 @@ export function ForgeShellV4() {
         setTopologyOpen(true); return;
       case 'tools.skeleton':
         window.__forgeOpenSkeleton?.(true); return;
+      case 'tools.stressTest':
+        // Forge-125 — open the StressTestPanelHost overlay (mounted from
+        // App.jsx). The host registers `__forgeOpenStressTest` once it
+        // mounts; this case is a passthrough so the menu action and the
+        // direct window hook share one entry point.
+        window.__forgeOpenStressTest?.(true); return;
       case 'help.docs':
         setHelpOpen(true); return;
       case 'help.shortcuts':
@@ -999,17 +1010,27 @@ export function ForgeShellV4() {
                            icon: toolsForWorkbench(activeWb).flatMap((g) => g.tools).find((tt) => tt.id === tool)?.icon || 'sketch.point',
                            params,
                          }];
-                         setFeatureTree(nextFeat);
+                         // Forge-143 — no fallback policy. dispatchTool now
+                         // returns either { ok:true, kind:'native', handle }
+                         // (the only body-producing path), { ok:true,
+                         // kind:'noop' } for sketch/measure/view tools that
+                         // legitimately produce no body, or { ok:false,
+                         // error } when the kernel cannot satisfy the tool.
+                         // No synthetic substitute is created.
                          let nextBodies = bodies;
+                         if (r.ok === false) {
+                           // Roll back the feature tree append — the op did
+                           // not produce a real result.
+                           showToast({ kind: 'err',
+                             text: `${title} · ${r.error || 'kernel error'}`,
+                             ttl: 4000 });
+                           setActiveTool(null);
+                           return;
+                         }
+                         setFeatureTree(nextFeat);
                          if (r.kind === 'native') {
                            nextBodies = [...bodies, {
                              id: nextId, kind: 'native', handle: r.handle,
-                             toolId: tool, params, name: title,
-                           }];
-                           setBodies(nextBodies);
-                         } else if (r.kind === 'synthetic') {
-                           nextBodies = [...bodies, {
-                             id: nextId, kind: 'synthetic', spec: r.spec,
                              toolId: tool, params, name: title,
                            }];
                            setBodies(nextBodies);
@@ -1023,7 +1044,7 @@ export function ForgeShellV4() {
                          showToast({ kind: 'ok',
                            text: r.kind === 'noop'
                              ? `${title} · annotation added`
-                             : `${title} · body added (${r.kind})`,
+                             : `${title} · body added`,
                            ttl: 1500 });
                        }}
                        onCancel={() => { setActiveTool(null); }} />

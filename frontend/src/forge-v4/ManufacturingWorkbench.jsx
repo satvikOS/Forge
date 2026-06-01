@@ -31,7 +31,9 @@ import {
   makeToolpath, simulate, makeCmm, exportGcode,
   TOOL_LIBRARY, toNativeTool, toCuttingParams,
   aabbFromBody, toolpathSegments,
+  STRATEGY_REGISTRY, strategyGroups, strategyLabel,
 } from './camDispatch.js';
+import { postSupportsDialect, postExtension } from './postProcessors.js';
 
 const TABS = [
   { id: 'stock',  label: 'Stock'   },
@@ -42,18 +44,14 @@ const TABS = [
   { id: 'gcode',  label: 'G-code'  },
 ];
 
-const OP_TYPES = [
-  { id: 'profile',        label: 'Profile (contour)' },
-  { id: 'pocket',         label: 'Pocket (clear)'    },
-  { id: 'face',           label: 'Face mill'         },
-  { id: 'drill',          label: 'Drill'             },
-  { id: 'adaptive',       label: 'Adaptive clearing' },
-  { id: '5axis-indexed',  label: '5-axis indexed'    },
-];
+// Forge-131 — OP_TYPES is now driven by STRATEGY_REGISTRY so the picker
+// stays in sync with camDispatch. The original 6 are still the first 6
+// rows so existing tests / muscle memory keep working.
+const OP_TYPES = STRATEGY_REGISTRY.map((s) => ({ id: s.id, label: s.label }));
 
 // ──────────────────────────────────────────── default op factory
 function defaultOpFor(opType) {
-  return {
+  const base = {
     id: `op-${Math.random().toString(36).slice(2, 7)}`,
     type: opType,
     name: OP_TYPES.find((o) => o.id === opType)?.label || opType,
@@ -70,7 +68,69 @@ function defaultOpFor(opType) {
     faceId: null,             // null = autoFaceId
     toolpath: null,           // populated after generate
     error: null,
+    // Forge-131 strategy-specific extras
+    rampAngle: 3,
+    rampDiameter: 5,
+    rampStyle: 'linear',     // ramp-in: linear|zigzag|helix|profile
+    leadInRadius: 3,
+    leadInLength: 6,
+    leadOutRadius: 3,
+    leadOutLength: 6,
+    sideStep: 1.0,
+    cuspHeight: 0.01,
+    chordDepth: 0.2,
+    pitch: 0.8,
+    threadDiameter: 10,
+    dwell: 0.5,
+    peckRetract: 1.5,
+    peckDepth: 5,
+    priorDiameter: 12,
+    scanAxis: 'x',
   };
+  // Strategy-specific defaults
+  switch (opType) {
+    case 'high-speed-adaptive':
+      base.adaptiveCfg = { stepover: 0.48, zMax: 20, zMin: 0, helixAngle: 2, minRadius: 3 };
+      break;
+    case 'spiral-pocket':
+    case 'trochoidal':
+      base.stepoverOverride = 0.9;
+      break;
+    case 'engrave':
+      base.toolId = 'vbit';
+      base.chordDepth = 0.2;
+      break;
+    case 'tap-rigid':
+    case 'tap-floating':
+      base.toolId = 'tapM5';
+      base.pitch = 0.8;
+      base.holes = [[0, 0, 20]];
+      break;
+    case 'deep-drill':
+      base.toolId = 'dr3';
+      base.peck = true;
+      base.peckRetract = 1.5;
+      base.peckDepth = 5;
+      break;
+    case 'bore-G86':
+    case 'bore-G88':
+    case 'bore-G89':
+    case 'ream':
+      base.toolId = 'dr5';
+      base.dwell = 0.5;
+      break;
+    case 'thread-mill':
+      base.threadDiameter = 10;
+      base.pitch = 1.0;
+      break;
+    case 'scallop-finishing':
+      base.toolId = 'bm6';
+      base.cuspHeight = 0.01;
+      break;
+    default:
+      break;
+  }
+  return base;
 }
 
 export function ManufacturingWorkbench({
@@ -179,6 +239,24 @@ export function ManufacturingWorkbench({
       orientations: activeOp.orientations,
       adaptive: activeOp.adaptiveCfg,
       stockAabb,
+      // Forge-131 strategy-specific extras
+      rampAngle: Number(activeOp.rampAngle),
+      rampDiameter: Number(activeOp.rampDiameter),
+      rampStyle: activeOp.rampStyle,
+      leadInRadius: Number(activeOp.leadInRadius),
+      leadInLength: Number(activeOp.leadInLength),
+      leadOutRadius: Number(activeOp.leadOutRadius),
+      leadOutLength: Number(activeOp.leadOutLength),
+      sideStep: Number(activeOp.sideStep),
+      cuspHeight: Number(activeOp.cuspHeight),
+      chordDepth: Number(activeOp.chordDepth),
+      pitch: Number(activeOp.pitch),
+      threadDiameter: Number(activeOp.threadDiameter),
+      dwell: Number(activeOp.dwell),
+      peckRetract: Number(activeOp.peckRetract),
+      peckDepth: Number(activeOp.peckDepth),
+      priorDiameter: Number(activeOp.priorDiameter),
+      scanAxis: activeOp.scanAxis,
     };
     const r = makeToolpath(activeOp.type, stockShape, target, nativeTool, params);
     if (r.ok) {
@@ -233,9 +311,15 @@ export function ManufacturingWorkbench({
     const blob = new Blob([gcodeText], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    const ext = dialect === 'Grbl' || dialect === 'LinuxCNC' ? 'ngc' : 'nc';
+    // Forge-131 — post processors carry their own preferred extension
+    // (Heidenhain → .h, Okuma → .min, Fagor → .pim, NUM → .nc).
+    let ext;
+    if (postSupportsDialect(dialect)) ext = postExtension(dialect);
+    else if (dialect === 'Grbl' || dialect === 'LinuxCNC') ext = 'ngc';
+    else ext = 'nc';
+    const slug = String(dialect).toLowerCase().replace(/[^a-z0-9]+/g, '-');
     a.href = url;
-    a.download = `forge-${activeOp?.type || 'op'}-${dialect.toLowerCase()}.${ext}`;
+    a.download = `forge-${activeOp?.type || 'op'}-${slug}.${ext}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -609,8 +693,12 @@ function OpsTab({ ops, activeOpId, onPick, onAdd, onRemove,
         ))}
       </div>
 
+      {/* Forge-131 — 25+ strategies don't fit as flat buttons. Use a
+          grouped select + Add button. Individual buttons for the
+          original 6 are retained so existing test ids still resolve. */}
+      <StrategyPicker onAdd={onAdd} />
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        {OP_TYPES.map((t) => (
+        {STRATEGY_REGISTRY.slice(0, 6).map((t) => (
           <button key={t.id}
                   type="button"
                   data-testid={`forge-cam-add-${t.id}`}
@@ -653,20 +741,38 @@ function OpsTab({ ops, activeOpId, onPick, onAdd, onRemove,
               onChange={(v) => updateOp({ feedZOverride: v })} />
           </div>
 
-          {activeOp.type === 'drill' && (
+          {(activeOp.type === 'drill' ||
+            activeOp.type === 'deep-drill' ||
+            activeOp.type === 'tap-rigid' ||
+            activeOp.type === 'tap-floating' ||
+            activeOp.type === 'bore-G86' ||
+            activeOp.type === 'bore-G88' ||
+            activeOp.type === 'bore-G89' ||
+            activeOp.type === 'ream' ||
+            activeOp.type === 'thread-mill') && (
             <DrillHolesEditor holes={activeOp.holes}
               onChange={(holes) => updateOp({ holes })} />
           )}
 
-          {activeOp.type === 'adaptive' && (
+          {(activeOp.type === 'adaptive' ||
+            activeOp.type === 'high-speed-adaptive' ||
+            activeOp.type === 'rest-machining' ||
+            activeOp.type === 'trochoidal' ||
+            activeOp.type === 'scallop-finishing') && (
             <AdaptiveEditor cfg={activeOp.adaptiveCfg}
               onChange={(adaptiveCfg) => updateOp({ adaptiveCfg })} />
           )}
 
-          {activeOp.type === '5axis-indexed' && (
+          {(activeOp.type === '5axis-indexed' ||
+            activeOp.type === 'swarf-finishing' ||
+            activeOp.type === 'pencil-tracing' ||
+            activeOp.type === 'flowline-finishing') && (
             <OrientationsEditor orientations={activeOp.orientations}
               onChange={(orientations) => updateOp({ orientations })} />
           )}
+
+          {/* Forge-131 strategy-specific param panels. */}
+          <StrategyParams activeOp={activeOp} updateOp={updateOp} />
 
           <button type="button"
                   onClick={onGenerate}
@@ -772,6 +878,166 @@ function OrientationsEditor({ orientations, onChange }) {
               style={{ fontSize: 10 }}>+ orientation</button>
     </div>
   );
+}
+
+// ──────────────────────────────────────────── Forge-131 strategy picker
+//
+// Grouped <select> for the 25+ strategies. Picking + clicking Add adds
+// the chosen strategy. We keep the original 6 also available as flat
+// buttons (see OpsTab) so existing tests / muscle memory still work.
+
+function StrategyPicker({ onAdd }) {
+  const [pick, setPick] = useState(STRATEGY_REGISTRY[0].id);
+  const groups = useMemo(() => strategyGroups(), []);
+  return (
+    <div style={{ display: 'flex', gap: 4, alignItems: 'stretch' }}>
+      <select className="forge-tool-input"
+              data-testid="forge-cam-strategy-picker"
+              value={pick}
+              onChange={(e) => setPick(e.target.value)}
+              style={{ flex: 1, fontSize: 11 }}>
+        {Object.entries(groups).map(([groupName, items]) => (
+          <optgroup key={groupName} label={groupName}>
+            {items.map((s) => (
+              <option key={s.id} value={s.id}>{s.label}</option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+      <button type="button"
+              data-testid="forge-cam-strategy-add"
+              onClick={() => onAdd(pick)}
+              className="forge-tool-dock-btn"
+              style={{ padding: '4px 10px', fontSize: 10 }}>
+        + Add
+      </button>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────── Forge-131 strategy params
+//
+// Per-strategy parameter panel. Renders only the fields the chosen
+// strategy actually consumes, so the Ops tab stays scannable rather
+// than rendering 20 irrelevant inputs.
+
+function StrategyParams({ activeOp, updateOp }) {
+  const t = activeOp.type;
+  if (t === 'helical-entry' || t === 'helical-exit' || t === 'ramp-in') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <SectionLabel>Ramp / helix</SectionLabel><span/>
+        <NumField label="ramp angle" value={activeOp.rampAngle} unit="°"
+          onChange={(v) => updateOp({ rampAngle: v })}
+          testid="forge-cam-ramp-angle" />
+        <NumField label="ramp Ø" value={activeOp.rampDiameter} unit="mm"
+          onChange={(v) => updateOp({ rampDiameter: v })}
+          testid="forge-cam-ramp-diameter" />
+        {t === 'ramp-in' && (
+          <div className="forge-tool-field" style={{ gridColumn: '1 / span 2' }}>
+            <label className="forge-tool-field-label">ramp style</label>
+            <select className="forge-tool-input"
+                    data-testid="forge-cam-ramp-style"
+                    value={activeOp.rampStyle}
+                    onChange={(e) => updateOp({ rampStyle: e.target.value })}>
+              <option value="linear">linear</option>
+              <option value="zigzag">zigzag</option>
+              <option value="helix">helix</option>
+              <option value="profile">profile</option>
+            </select>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (t === 'lead-in-arc') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <NumField label="lead-in radius" value={activeOp.leadInRadius} unit="mm"
+          onChange={(v) => updateOp({ leadInRadius: v })} testid="forge-cam-lead-radius" />
+        <NumField label="lead-in length" value={activeOp.leadInLength} unit="mm"
+          onChange={(v) => updateOp({ leadInLength: v })} testid="forge-cam-lead-length" />
+      </div>
+    );
+  }
+  if (t === 'lead-out-arc') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <NumField label="lead-out radius" value={activeOp.leadOutRadius} unit="mm"
+          onChange={(v) => updateOp({ leadOutRadius: v })} testid="forge-cam-leadout-radius" />
+        <NumField label="lead-out length" value={activeOp.leadOutLength} unit="mm"
+          onChange={(v) => updateOp({ leadOutLength: v })} testid="forge-cam-leadout-length" />
+      </div>
+    );
+  }
+  if (t === 'trochoidal') {
+    return (
+      <NumField label="side step" value={activeOp.sideStep} unit="mm"
+        onChange={(v) => updateOp({ sideStep: v })} testid="forge-cam-side-step" />
+    );
+  }
+  if (t === 'scallop-finishing') {
+    return (
+      <NumField label="cusp height" value={activeOp.cuspHeight} unit="mm"
+        onChange={(v) => updateOp({ cuspHeight: v })} testid="forge-cam-cusp-height" />
+    );
+  }
+  if (t === 'engrave') {
+    return (
+      <NumField label="chord depth" value={activeOp.chordDepth} unit="mm"
+        onChange={(v) => updateOp({ chordDepth: v })} testid="forge-cam-chord-depth" />
+    );
+  }
+  if (t === 'tap-rigid' || t === 'tap-floating' || t === 'thread-mill') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <NumField label="pitch" value={activeOp.pitch} unit="mm"
+          onChange={(v) => updateOp({ pitch: v })} testid="forge-cam-pitch" />
+        {t === 'thread-mill' && (
+          <NumField label="thread Ø" value={activeOp.threadDiameter} unit="mm"
+            onChange={(v) => updateOp({ threadDiameter: v })}
+            testid="forge-cam-thread-diam" />
+        )}
+      </div>
+    );
+  }
+  if (t === 'bore-G86' || t === 'bore-G88' || t === 'bore-G89' || t === 'ream') {
+    return (
+      <NumField label="dwell" value={activeOp.dwell} unit="s"
+        onChange={(v) => updateOp({ dwell: v })} testid="forge-cam-dwell" />
+    );
+  }
+  if (t === 'deep-drill') {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <NumField label="peck retract" value={activeOp.peckRetract} unit="mm"
+          onChange={(v) => updateOp({ peckRetract: v })} testid="forge-cam-peck-retract" />
+        <NumField label="peck depth" value={activeOp.peckDepth} unit="mm"
+          onChange={(v) => updateOp({ peckDepth: v })} testid="forge-cam-peck-depth" />
+      </div>
+    );
+  }
+  if (t === 'rest-machining') {
+    return (
+      <NumField label="prior tool Ø" value={activeOp.priorDiameter} unit="mm"
+        onChange={(v) => updateOp({ priorDiameter: v })} testid="forge-cam-prior-diam" />
+    );
+  }
+  if (t === 'parallel-finishing') {
+    return (
+      <div className="forge-tool-field">
+        <label className="forge-tool-field-label">scan axis</label>
+        <select className="forge-tool-input"
+                data-testid="forge-cam-scan-axis"
+                value={activeOp.scanAxis}
+                onChange={(e) => updateOp({ scanAxis: e.target.value })}>
+          <option value="x">X</option>
+          <option value="y">Y</option>
+        </select>
+      </div>
+    );
+  }
+  return null;
 }
 
 // ──────────────────────────────────────────── SIM

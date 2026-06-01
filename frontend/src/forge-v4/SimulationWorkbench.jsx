@@ -31,6 +31,10 @@ import {
   pinFace, distributeForceFace, rollerFace,
 } from './simulationDispatch.js';
 import { FeaResultViewer } from './FeaResultViewer.jsx';
+import { TopologyResultViewer } from './TopologyResultViewer.jsx';
+import { runTopologyOptimisation, TOPOLOGY_DEFAULTS } from './topologyOptimisation.js';
+import { runCrackPropagation, CRACK_DEFAULTS } from './crackPropagation.js';
+import { runAdaptiveRefinement, ADAPTIVE_DEFAULTS } from './adaptiveMesh.js';
 
 // ---------------------------------------------------------- materials
 //
@@ -52,6 +56,7 @@ export const STUDY_TYPES = Object.freeze([
   'Static', 'Modal', 'Dynamic', 'Thermal',
   'Buckling', 'Nonlinear', 'Contact', 'Plastic',
   'Fatigue', 'CFD',
+  'Topology Optimisation', 'Crack Propagation', 'Adaptive Refinement',
 ]);
 
 const LOAD_KINDS = ['Force', 'Pressure', 'BodyForce'];
@@ -158,6 +163,36 @@ export function SimulationWorkbench({ activeBodyHandle = null,
     meanStressCorrection: 'goodman',
   });
 
+  // Forge-132 — advanced study cfgs
+  const [topoCfg, setTopoCfg] = useState({
+    volumeFraction: 0.30,
+    penalty:        TOPOLOGY_DEFAULTS.penalty,
+    filterRadius:   TOPOLOGY_DEFAULTS.filterRadius,
+    maxIters:       TOPOLOGY_DEFAULTS.maxIters,
+    symmetry:       null,
+    drawDirection:  null,
+  });
+  const [crackCfg, setCrackCfg] = useState({
+    tip:           [0, 0, 0],
+    direction:     [1, 0, 0],
+    initialLength: 0.005,
+    growthIncrement: CRACK_DEFAULTS.growthIncrement,
+    maxSteps:      CRACK_DEFAULTS.maxSteps,
+    KIC:           CRACK_DEFAULTS.KIC,
+    planeStress:   false,
+  });
+  const [adaptCfg, setAdaptCfg] = useState({
+    initialSizeMm:   3,
+    errorTolerance:  ADAPTIVE_DEFAULTS.errorTolerance,
+    refineFraction:  ADAPTIVE_DEFAULTS.refineFraction,
+    refineRatio:     ADAPTIVE_DEFAULTS.refineRatio,
+    maxIters:        ADAPTIVE_DEFAULTS.maxIters,
+  });
+  // Forge-132 — advanced result panes
+  const [topoResult,  setTopoResult]  = useState(null);
+  const [crackResult, setCrackResult] = useState(null);
+  const [adaptResult, setAdaptResult] = useState(null);
+
   // solve / results
   const [solveError, setSolveError] = useState(null);
   const [solving, setSolving]       = useState(false);
@@ -204,7 +239,9 @@ export function SimulationWorkbench({ activeBodyHandle = null,
     setSolveError(null);
     setSolveLog([]);
     setResult(null);
-    if (!meshObj && type !== 'CFD') {
+    // Adaptive refinement re-meshes inside the loop, so it can start
+    // without a pre-built mesh.
+    if (!meshObj && type !== 'CFD' && type !== 'Adaptive Refinement') {
       setSolveError('Mesh the body first.');
       return;
     }
@@ -280,6 +317,83 @@ export function SimulationWorkbench({ activeBodyHandle = null,
           r = solveCFD({ velocityInlet: [0.1, 0, 0], pressureOutlet: 0,
                          viscosity: 1e-3, density: 1000 });
           break;
+        case 'Topology Optimisation': {
+          setTopoResult(null);
+          r = runTopologyOptimisation({
+            mesh: meshObj, material: mat,
+            loads: nodal, pressureLoads: pressures, bcs: constraints,
+            opts: {
+              volumeFraction: topoCfg.volumeFraction,
+              penalty:        topoCfg.penalty,
+              filterRadius:   topoCfg.filterRadius,
+              maxIters:       topoCfg.maxIters,
+              symmetry:       topoCfg.symmetry,
+              drawDirection:  topoCfg.drawDirection,
+            },
+          });
+          if (r && !r.error) {
+            setTopoResult(r);
+            setSolveLog((r.iterations || []).map((it, i) => ({
+              step: i, residual: it.compliance,
+            })));
+          }
+          break;
+        }
+        case 'Crack Propagation': {
+          setCrackResult(null);
+          r = runCrackPropagation({
+            mesh: meshObj, material: mat,
+            loads: nodal, pressureLoads: pressures, bcs: constraints,
+            crackTip:       crackCfg.tip,
+            crackDirection: crackCfg.direction,
+            crackLength:    crackCfg.initialLength,
+            opts: {
+              growthIncrement: crackCfg.growthIncrement,
+              maxSteps:        crackCfg.maxSteps,
+              KIC:             crackCfg.KIC,
+              planeStress:     crackCfg.planeStress,
+            },
+          });
+          if (r && !r.error) {
+            setCrackResult(r);
+            setSolveLog((r.steps || []).map((s, i) => ({
+              step: i, residual: s.K_I || 0,
+            })));
+          }
+          break;
+        }
+        case 'Adaptive Refinement': {
+          setAdaptResult(null);
+          if (typeof activeBodyHandle !== 'number') {
+            r = { error: 'Adaptive refinement needs a kernel bodyHandle.' };
+            break;
+          }
+          r = runAdaptiveRefinement({
+            bodyHandle:    activeBodyHandle,
+            material:      mat,
+            initialSizeMm: adaptCfg.initialSizeMm,
+            loads:         nodal,
+            pressureLoads: pressures,
+            bcs:           constraints,
+            buildLoads: (m) => loadsToNodalForces(loads, m).nodal,
+            buildBcs:   (m) => bcsToNodalConstraints(bcs, m),
+            opts: {
+              errorTolerance: adaptCfg.errorTolerance,
+              refineFraction: adaptCfg.refineFraction,
+              refineRatio:    adaptCfg.refineRatio,
+              maxIters:       adaptCfg.maxIters,
+            },
+          });
+          if (r && !r.error) {
+            setAdaptResult(r);
+            // Use the final mesh for downstream visualisation.
+            if (r.finalMesh) setMeshObj(r.finalMesh);
+            setSolveLog((r.cycles || []).map((c, i) => ({
+              step: i, residual: c.relativeError ?? 0,
+            })));
+          }
+          break;
+        }
         default:
           r = { error: `Unknown study type "${type}"` };
       }
@@ -523,12 +637,124 @@ export function SimulationWorkbench({ activeBodyHandle = null,
           </Section>
         )}
 
+        {/* Forge-132 advanced study param panels */}
+        {type === 'Topology Optimisation' && (
+          <Section id="topo-params" title="Topology (SIMP)">
+            <NumField label={`Volume fraction — ${topoCfg.volumeFraction.toFixed(2)}`}
+                      value={topoCfg.volumeFraction}
+                      min={0.1} max={0.9} step={0.05}
+                      onChange={(v) => setTopoCfg((c) => ({ ...c, volumeFraction: Math.max(0.1, Math.min(0.9, v)) }))}
+                      testId="forge-topo-vf" />
+            <NumField label={`Penalty exponent — ${topoCfg.penalty.toFixed(2)}`}
+                      value={topoCfg.penalty}
+                      min={1} max={6} step={0.1}
+                      onChange={(v) => setTopoCfg((c) => ({ ...c, penalty: Math.max(1, v) }))}
+                      testId="forge-topo-penalty" />
+            <NumField label="Filter radius (× h)"
+                      value={topoCfg.filterRadius}
+                      min={0.5} max={5} step={0.1}
+                      onChange={(v) => setTopoCfg((c) => ({ ...c, filterRadius: Math.max(0.1, v) }))}
+                      testId="forge-topo-filter" />
+            <NumField label="Max iterations"
+                      value={topoCfg.maxIters}
+                      min={1} max={200} step={1}
+                      onChange={(v) => setTopoCfg((c) => ({ ...c, maxIters: Math.max(1, v | 0) }))}
+                      testId="forge-topo-iters" />
+            <Field label="Symmetry plane">
+              <select className="forge-tool-input"
+                      data-testid="forge-topo-sym"
+                      value={topoCfg.symmetry || ''}
+                      onChange={(e) => setTopoCfg((c) => ({ ...c, symmetry: e.target.value || null }))}>
+                <option value="">none</option>
+                <option value="x">about X</option>
+                <option value="y">about Y</option>
+                <option value="z">about Z</option>
+              </select>
+            </Field>
+            <Field label="Casting draw direction">
+              <select className="forge-tool-input"
+                      data-testid="forge-topo-draw"
+                      value={topoCfg.drawDirection ? topoCfg.drawDirection.join(',') : ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setTopoCfg((c) => ({ ...c,
+                          drawDirection: v ? v.split(',').map(parseFloat) : null }));
+                      }}>
+                <option value="">none</option>
+                <option value="1,0,0">+X</option>
+                <option value="0,1,0">+Y</option>
+                <option value="0,0,1">+Z</option>
+                <option value="-1,0,0">−X</option>
+                <option value="0,-1,0">−Y</option>
+                <option value="0,0,-1">−Z</option>
+              </select>
+            </Field>
+          </Section>
+        )}
+        {type === 'Crack Propagation' && (
+          <Section id="crack-params" title="Crack (XFEM)">
+            <Vec3Field label="Tip" units="m" value={crackCfg.tip} step={0.001}
+                       onChange={(v) => setCrackCfg((c) => ({ ...c, tip: v }))} />
+            <Vec3Field label="Direction" units="unit" value={crackCfg.direction} step={0.1}
+                       onChange={(v) => setCrackCfg((c) => ({ ...c, direction: v }))} />
+            <NumField label="Initial length (m)" value={crackCfg.initialLength}
+                      min={1e-6} step={1e-4}
+                      onChange={(v) => setCrackCfg((c) => ({ ...c, initialLength: v }))}
+                      testId="forge-crack-len" />
+            <NumField label="Δa per step (m)" value={crackCfg.growthIncrement}
+                      min={1e-6} step={1e-4}
+                      onChange={(v) => setCrackCfg((c) => ({ ...c, growthIncrement: v }))}
+                      testId="forge-crack-da" />
+            <NumField label="Max steps" value={crackCfg.maxSteps}
+                      min={1} max={500} step={1}
+                      onChange={(v) => setCrackCfg((c) => ({ ...c, maxSteps: Math.max(1, v | 0) }))}
+                      testId="forge-crack-steps" />
+            <NumField label="K_IC (Pa·√m)" value={crackCfg.KIC} min={0} step={1e7}
+                      onChange={(v) => setCrackCfg((c) => ({ ...c, KIC: Math.max(0, v) }))} />
+            <Field label="Plane assumption">
+              <select className="forge-tool-input"
+                      value={crackCfg.planeStress ? 'stress' : 'strain'}
+                      onChange={(e) => setCrackCfg((c) => ({ ...c, planeStress: e.target.value === 'stress' }))}>
+                <option value="strain">plane strain</option>
+                <option value="stress">plane stress</option>
+              </select>
+            </Field>
+          </Section>
+        )}
+        {type === 'Adaptive Refinement' && (
+          <Section id="adapt-params" title="h-Adaptive">
+            <NumField label="Initial h (mm)" value={adaptCfg.initialSizeMm}
+                      min={0.5} max={20} step={0.5}
+                      onChange={(v) => setAdaptCfg((c) => ({ ...c, initialSizeMm: Math.max(0.5, v) }))}
+                      testId="forge-adapt-h" />
+            <NumField label={`Error tolerance — ${(adaptCfg.errorTolerance*100).toFixed(1)}%`}
+                      value={adaptCfg.errorTolerance}
+                      min={0.001} max={0.5} step={0.005}
+                      onChange={(v) => setAdaptCfg((c) => ({ ...c, errorTolerance: Math.max(0.001, v) }))}
+                      testId="forge-adapt-tol" />
+            <NumField label={`Refine fraction — ${(adaptCfg.refineFraction*100).toFixed(0)}%`}
+                      value={adaptCfg.refineFraction}
+                      min={0.05} max={0.9} step={0.05}
+                      onChange={(v) => setAdaptCfg((c) => ({ ...c, refineFraction: Math.max(0.05, Math.min(0.9, v)) }))}
+                      testId="forge-adapt-frac" />
+            <NumField label={`h shrink ratio — ${adaptCfg.refineRatio.toFixed(2)}`}
+                      value={adaptCfg.refineRatio}
+                      min={0.3} max={0.99} step={0.05}
+                      onChange={(v) => setAdaptCfg((c) => ({ ...c, refineRatio: Math.max(0.3, Math.min(0.99, v)) }))}
+                      testId="forge-adapt-ratio" />
+            <NumField label="Max iterations" value={adaptCfg.maxIters}
+                      min={1} max={20} step={1}
+                      onChange={(v) => setAdaptCfg((c) => ({ ...c, maxIters: Math.max(1, v | 0) }))}
+                      testId="forge-adapt-iters" />
+          </Section>
+        )}
+
         {/* 7. Solve */}
         <Section id="solve" title="Solve">
           <button type="button"
                   data-testid="forge-sim-solve"
                   onClick={solve}
-                  disabled={solving || (!meshObj && type !== 'CFD')}
+                  disabled={solving || (!meshObj && type !== 'CFD' && type !== 'Adaptive Refinement')}
                   className="forge-tool-dock-btn"
                   data-kind="confirm"
                   style={{ width: '100%', height: 36, fontSize: 13 }}>
@@ -573,7 +799,17 @@ export function SimulationWorkbench({ activeBodyHandle = null,
           </div>
           <div className="forge-sim-result-viewer"
                data-testid="forge-sim-result-viewer-wrap">
-            {result && meshObj
+            {type === 'Topology Optimisation' && topoResult ? (
+              <TopologyResultViewer mesh={meshObj}
+                                    density={topoResult.density}
+                                    compliance={topoResult.compliance}
+                                    iterations={topoResult.iterations}
+                                    initialThreshold={0.3} />
+            ) : type === 'Crack Propagation' && crackResult ? (
+              <CrackResultSummary result={crackResult} />
+            ) : type === 'Adaptive Refinement' && adaptResult ? (
+              <AdaptiveResultSummary result={adaptResult} />
+            ) : result && meshObj
               ? <FeaResultViewer result={result} mesh={meshObj}
                                  resultTab={resultTab}
                                  playing={resultTab === 'Modes' || type === 'Dynamic'}
@@ -583,8 +819,12 @@ export function SimulationWorkbench({ activeBodyHandle = null,
                      style={{ height: 220,
                               display: 'flex', alignItems: 'center',
                               justifyContent: 'center' }}>
-                  {result ? 'mesh missing for visualisation'
-                          : 'Solve a study to see results.'}
+                  {(type === 'Topology Optimisation' ||
+                    type === 'Crack Propagation' ||
+                    type === 'Adaptive Refinement') && !isKernelReady()
+                    ? 'kernel required'
+                    : result ? 'mesh missing for visualisation'
+                             : 'Solve a study to see results.'}
                 </div>
               )}
           </div>
@@ -762,6 +1002,89 @@ function ConvergencePlot({ log }) {
         <text x={4} y={H - 4} fontSize="9" fill="var(--forge-ink-mute)"
               fontFamily="var(--forge-mono)">{yMin.toFixed(1)}</text>
       </svg>
+    </div>
+  );
+}
+
+function CrackResultSummary({ result }) {
+  const steps = Array.isArray(result.steps) ? result.steps : [];
+  return (
+    <div data-testid="forge-crack-result"
+         style={{ height: '100%', overflow: 'auto',
+                  padding: 10, fontFamily: 'var(--forge-mono)',
+                  fontSize: 10, color: 'var(--forge-ink-2)' }}>
+      <div style={{ textTransform: 'uppercase', letterSpacing: '0.06em',
+                     color: 'var(--forge-ink-mute)', marginBottom: 6 }}>
+        crack steps ({steps.length})
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+        <thead>
+          <tr style={{ color: 'var(--forge-ink-mute)' }}>
+            <th style={{ textAlign: 'left' }}>n</th>
+            <th>K_I</th>
+            <th>K_II</th>
+            <th>K_III</th>
+            <th>J</th>
+            <th>tip</th>
+          </tr>
+        </thead>
+        <tbody>
+          {steps.map((s, i) => (
+            <tr key={i} data-testid={`forge-crack-step-${i}`}>
+              <td>{i}</td>
+              <td>{(s.K_I || 0).toExponential(2)}</td>
+              <td>{(s.K_II || 0).toExponential(2)}</td>
+              <td>{(s.K_III || 0).toExponential(2)}</td>
+              <td>{(s.J || 0).toExponential(2)}</td>
+              <td>[{s.tip.map((v) => v.toFixed(4)).join(', ')}]</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {result.finalTip && (
+        <div data-testid="forge-crack-final" style={{ marginTop: 8 }}>
+          final tip [{result.finalTip.map((v) => v.toFixed(4)).join(', ')}]
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AdaptiveResultSummary({ result }) {
+  const cycles = Array.isArray(result.cycles) ? result.cycles : [];
+  return (
+    <div data-testid="forge-adapt-result"
+         style={{ height: '100%', overflow: 'auto',
+                  padding: 10, fontFamily: 'var(--forge-mono)',
+                  fontSize: 10, color: 'var(--forge-ink-2)' }}>
+      <div style={{ textTransform: 'uppercase', letterSpacing: '0.06em',
+                     color: 'var(--forge-ink-mute)', marginBottom: 6 }}>
+        adaptive cycles ({cycles.length}) — {result.converged ? 'converged' : 'iters hit'}
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+        <thead>
+          <tr style={{ color: 'var(--forge-ink-mute)' }}>
+            <th style={{ textAlign: 'left' }}>n</th>
+            <th>h (mm)</th>
+            <th>nodes</th>
+            <th>elem</th>
+            <th>‖η‖</th>
+            <th>rel err</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cycles.map((c, i) => (
+            <tr key={i} data-testid={`forge-adapt-cycle-${i}`}>
+              <td>{i}</td>
+              <td>{(c.elemSizeMm || 0).toFixed(2)}</td>
+              <td>{c.nNode}</td>
+              <td>{c.nElem}</td>
+              <td>{c.etaGlobal != null ? c.etaGlobal.toExponential(2) : '—'}</td>
+              <td>{c.relativeError != null ? (c.relativeError * 100).toFixed(2) + '%' : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

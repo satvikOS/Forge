@@ -16,10 +16,12 @@
 // All manipulation goes through `assemblyDispatch.js` so the kernel is
 // guarded. Manual clicks never write to the Archie thread.
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './icons/Icon.jsx';
 import {
-  MATE_KINDS, mateKindEnum,
+  MATE_KINDS, MATE_CATEGORIES, NATIVE_MATE_KINDS, JS_MATE_KINDS,
+  paramSchemaFor, isJsMateKind, mateKindEnum,
   addMate as dispAddMate,
   removeMate as dispRemoveMate,
   setMateActive as dispSetMateActive,
@@ -27,6 +29,7 @@ import {
   solveAndCollect, detectInterference, runMotion,
   isKernelReady,
 } from './assemblyDispatch.js';
+import { FlexibleComponentToggle, FlexibleComponentSection } from './FlexibleComponentToggle.jsx';
 
 const SECTION_HEAD = {
   margin: '0 0 6px',
@@ -81,6 +84,20 @@ const MATE_ICON = {
   Tangent:       'sketch.arc',
   Concentric:    'sketch.circle',
   Fixed:         'sketch.point',
+  // Mechanical
+  Gear:          'wb.mech',
+  Cam:           'wb.mech',
+  Belt:          'wb.mech',
+  Chain:         'wb.mech',
+  RackPinion:    'wb.mech',
+  LinearCoupler: 'measure.distance',
+  Screw:         'wb.mech',
+  // Limits + advanced
+  LimitAngular:  'measure.angle',
+  LimitLinear:   'measure.distance',
+  Width:         'measure.distance',
+  Profile:       'sketch.arc',
+  Slot:          'sketch.line',
 };
 
 function panelStyle() {
@@ -156,6 +173,8 @@ export function AssemblyPanel({
         a: spec.a,
         b: spec.b,
         value: spec.value ?? 0,
+        params: spec.params || {},
+        jsSide: !!r.jsSide,
         active: true,
       }]);
       const sr = solveAndCollect([...mates, { id: r.mateId, ...spec, active: true }]);
@@ -163,13 +182,16 @@ export function AssemblyPanel({
       if (sr.ok && onSolveResult) onSolveResult(sr);
     } else {
       // Even in kernel-not-ready mode we still want the UI to reflect
-      // the user's intent so the test asserts the mate-list row.
+      // the user's intent so the test asserts the mate-list row. For
+      // JS-side mates the dispatch always succeeds, so this only fires
+      // for native kinds when the kernel is offline.
       setMates((prev) => [...prev, {
         id: `pending-${prev.length}`,
         kind: spec.kind,
         a: spec.a,
         b: spec.b,
         value: spec.value ?? 0,
+        params: spec.params || {},
         active: true,
         pending: true,
         error: r.error,
@@ -237,6 +259,8 @@ export function AssemblyPanel({
           onSelect={onSelect}
           onToggleFix={(inst, on) => { dispSetFixed(inst, on); }}
         />
+
+        <FlexibleComponentSection bodies={bodies} />
 
         <MateList
           mates={mates}
@@ -455,6 +479,7 @@ function AddMateStepper({ bodies, selection, onSelect, onApply }) {
   const [b, setB] = useState(null);
   const [kind, setKind] = useState('Coincident');
   const [value, setValue] = useState('');
+  const [params, setParams] = useState({});
   const [pickMode, setPickMode] = useState(null); // 'a' | 'b' | null
 
   // When a single body is selected in the viewport and we're in pick
@@ -469,11 +494,44 @@ function AddMateStepper({ bodies, selection, onSelect, onApply }) {
     setPickMode(null);
   }, [selection, pickMode]);
 
-  const canApply = a && b && a.inst !== b.inst;
+  // Reset the params bag whenever the kind changes — populate with the
+  // schema defaults so the user immediately sees sensible numbers.
+  useEffect(() => {
+    const schema = paramSchemaFor(kind);
+    const next = {};
+    for (const p of schema) if (p.default !== undefined) next[p.key] = p.default;
+    setParams(next);
+  }, [kind]);
+
+  const schema = paramSchemaFor(kind);
+  const missingRequired = schema.some((p) => {
+    if (!p.required) return false;
+    const v = params[p.key];
+    if (p.unit === 'vec3') return !Array.isArray(v) || v.length !== 3;
+    return v === undefined || v === '' || Number.isNaN(+v);
+  });
+  const canApply = a && b && a.inst !== b.inst && !missingRequired;
 
   function applyMate() {
     if (!canApply) return;
-    onApply({ kind, a, b, value: parseFloat(value) || 0 });
+    // Coerce string-typed numeric params to numbers; pass vec3 arrays
+    // through.
+    const finalParams = {};
+    for (const p of schema) {
+      if (p.unit === 'vec3') {
+        finalParams[p.key] = Array.isArray(params[p.key])
+          ? params[p.key].map((v) => +v || 0)
+          : (p.default || [0, 0, 0]);
+      } else {
+        finalParams[p.key] = params[p.key] === undefined
+          ? (p.default ?? 0) : +params[p.key];
+      }
+    }
+    onApply({
+      kind, a, b,
+      value: parseFloat(value) || 0,
+      params: finalParams,
+    });
     setA(null); setB(null); setValue('');
   }
 
@@ -499,21 +557,38 @@ function AddMateStepper({ bodies, selection, onSelect, onApply }) {
             onChooseBody={(inst) => setB({ inst, token: 0 })}
             testid="forge-assembly-pick-b" />
 
-      {/* Kind */}
+      {/* Categorised kind picker */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <label style={{ fontSize: 10, color: 'var(--forge-ink-mute)',
                         textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Kind
+          Kind ({MATE_KINDS.length} total)
         </label>
         <select value={kind}
                 onChange={(e) => setKind(e.target.value)}
                 data-testid="forge-assembly-kind"
                 style={{ ...INPUT }}>
-          {MATE_KINDS.map((k) => <option key={k} value={k}>{k}</option>)}
+          {MATE_CATEGORIES.map((cat) => (
+            <optgroup key={cat.id} label={cat.label}>
+              {cat.kinds.map((k) => (
+                <option key={k} value={k}>
+                  {k}{isJsMateKind(k) ? ' (js)' : ''}
+                </option>
+              ))}
+            </optgroup>
+          ))}
         </select>
       </div>
 
-      {/* Optional value */}
+      {/* Per-kind params form */}
+      <ParamsForm
+        kind={kind}
+        schema={schema}
+        params={params}
+        setParams={setParams} />
+
+      {/* Optional generic "value" — kept visible for the eight native
+          kinds. Mechanical / advanced / limit kinds prefer their per-
+          kind params form (above) instead. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
         <label style={{ fontSize: 10, color: 'var(--forge-ink-mute)',
                         textTransform: 'uppercase', letterSpacing: '0.06em' }}>
@@ -522,7 +597,7 @@ function AddMateStepper({ bodies, selection, onSelect, onApply }) {
         <input type="number"
                value={value}
                step="0.1"
-               placeholder={kind === 'Angle' ? 'angle in radians' : 'distance in mm'}
+               placeholder={kind === 'Angle' ? 'angle in degrees' : 'offset in mm'}
                onChange={(e) => setValue(e.target.value)}
                data-testid="forge-assembly-value"
                style={INPUT} />
@@ -540,6 +615,77 @@ function AddMateStepper({ bodies, selection, onSelect, onApply }) {
         Apply mate
       </button>
     </section>
+  );
+}
+
+function ParamsForm({ kind, schema, params, setParams }) {
+  if (!schema || !schema.length) {
+    return (
+      <div style={{ fontSize: 10, color: 'var(--forge-ink-mute)',
+                    fontStyle: 'italic' }}
+            data-testid="forge-assembly-params-empty">
+        No extra parameters for {kind}.
+      </div>
+    );
+  }
+  return (
+    <div data-testid="forge-assembly-params"
+         data-mate-kind={kind}
+         style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      {schema.map((p) => {
+        if (p.unit === 'vec3') {
+          const arr = Array.isArray(params[p.key])
+            ? params[p.key]
+            : (p.default || [0, 0, 0]);
+          return (
+            <div key={p.key}
+                 style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <label style={{ fontSize: 10, color: 'var(--forge-ink-mute)',
+                              textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {p.label}{p.required ? ' *' : ''}
+              </label>
+              <div style={{ display: 'flex', gap: 3 }}>
+                {['x', 'y', 'z'].map((ax, i) => (
+                  <input key={ax}
+                         type="number"
+                         step="0.1"
+                         value={arr[i] ?? 0}
+                         aria-label={`${p.label} ${ax}`}
+                         data-testid={`forge-assembly-param-${p.key}-${ax}`}
+                         onChange={(e) => {
+                           const next = [...arr];
+                           next[i] = +e.target.value || 0;
+                           setParams({ ...params, [p.key]: next });
+                         }}
+                         style={{ ...INPUT, textAlign: 'center' }} />
+                ))}
+              </div>
+            </div>
+          );
+        }
+        return (
+          <div key={p.key}
+               style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+            <label style={{ fontSize: 10, color: 'var(--forge-ink-mute)',
+                            textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              {p.label}{p.required ? ' *' : ''}{' '}
+              <span style={{ color: 'var(--forge-ink-mute)',
+                             fontFamily: 'var(--forge-mono)',
+                             fontSize: 9 }}>
+                {p.unit}
+              </span>
+            </label>
+            <input type="number"
+                   step={p.unit === 'count' ? '1' : '0.1'}
+                   value={params[p.key] ?? ''}
+                   onChange={(e) => setParams({ ...params,
+                                                [p.key]: e.target.value })}
+                   data-testid={`forge-assembly-param-${p.key}`}
+                   style={INPUT} />
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -866,3 +1012,60 @@ function MotionStudy({ mates, bodies }) {
     </section>
   );
 }
+
+// ────────────────────────────────────────────────────────────────────
+// Forge-129 — Auto-mounting host. App.jsx mounts <AssemblyPanelHost />
+// once. The shell wires the Tools > Assembly menu action by calling
+// window.__forgeOpenAssembly(true). Manual UI clicks never write to the
+// Archie thread.
+
+export function AssemblyPanelHost() {
+  const [open, setOpen] = useState(false);
+  const [bodies, setBodies] = useState(() =>
+    (typeof window !== 'undefined' && Array.isArray(window.__forgeBodies))
+      ? window.__forgeBodies
+      : [
+          // Fallback synthetic instances so the panel is useful even
+          // before any feature has been extruded.
+          { inst: 1, name: 'Bracket', handle: 1 },
+          { inst: 2, name: 'Plate',   handle: 2 },
+          { inst: 3, name: 'Pin',     handle: 3 },
+        ]);
+  const [selection, setSelection] = useState(null);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    if (mounted.current) return undefined;
+    mounted.current = true;
+    if (typeof window === 'undefined') return undefined;
+    window.__forgeOpenAssembly = (v) => {
+      if (Array.isArray(window.__forgeBodies) && window.__forgeBodies.length) {
+        setBodies(window.__forgeBodies);
+      }
+      setOpen(v === undefined ? true : !!v);
+    };
+    window.__forgeCloseAssembly = () => setOpen(false);
+    return () => {
+      try { delete window.__forgeOpenAssembly; } catch {}
+      try { delete window.__forgeCloseAssembly; } catch {}
+    };
+  }, []);
+
+  if (typeof document === 'undefined') return null;
+  if (!open) return null;
+
+  // Portal — sit above the shell zones so the panel works even when
+  // ForgeShellV4 hasn't been told about it.
+  return createPortal(
+    <AssemblyPanel
+      open={open}
+      onClose={() => setOpen(false)}
+      bodies={bodies}
+      selection={selection}
+      onSelect={setSelection}
+      onSolveResult={(r) => { window.__lastSolve = r; }} />,
+    document.body,
+  );
+}
+
+export default AssemblyPanel;

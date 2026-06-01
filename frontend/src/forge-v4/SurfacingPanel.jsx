@@ -33,13 +33,19 @@ import {
   isForgeReady,
   PANEL_EVENT,
 } from './directHealSurfDispatch.js';
+import {
+  SURFACING_V4_OPS,
+  SURFACING_V4_GROUPS,
+  SURFACING_V4_BY_ID,
+  dispatchAnalysis,
+} from './surfacingDispatch.js';
 
 const panelStyle = {
   position: 'fixed',
   right: 0,
   top: 'calc(var(--forge-topbar-h) + var(--forge-qat-h))',
   bottom: 0,
-  width: 360,
+  width: 420,
   background: 'var(--forge-canvas-2)',
   borderLeft: '1px solid var(--forge-edge, var(--forge-rail-edge))',
   padding: 'var(--forge-space-3)',
@@ -51,6 +57,14 @@ const panelStyle = {
   font: 'inherit',
   fontSize: 12,
   overflow: 'hidden',
+};
+
+// Group icon mapping for the four CATIA-GSD categories.
+const GROUP_ICON = {
+  'Curve Tools':   'sketch.spline',
+  'Surface Tools': 'sketch.rect',
+  'Operations':   'sketch.trim',
+  'Analysis':     'sketch.constrain',
 };
 
 const headerStyle = {
@@ -89,6 +103,14 @@ function defaultValuesFor(signature) {
 
 function buildArgs(signature, values) {
   return signature.map((f) => values[f.id]);
+}
+
+// V4 ops take a single params object; their fn signature is fn(params).
+// Build that object straight from the form values keyed by id.
+function buildParamsObject(signature, values) {
+  const o = {};
+  for (const f of signature) o[f.id] = values[f.id];
+  return o;
 }
 
 function readViewportSelection() {
@@ -307,8 +329,10 @@ function OpDialog({ op, onClose, onResult, selection }) {
       onClose();
       return;
     }
-    const args = buildArgs(op.signature, values);
-    const r = op.fn(...args);
+    // V4 ops take a single params object; legacy ops take positional args.
+    const r = op.v4
+      ? op.fn(buildParamsObject(op.signature, values))
+      : op.fn(...buildArgs(op.signature, values));
     let extra = null;
     if (op.id === 'classAAnalyse' && r.ok) {
       const ok = applyClassAShading(values.face, classAMode, r.result);
@@ -318,6 +342,13 @@ function OpDialog({ op, onClose, onResult, selection }) {
                     text: 'Class-A shading hook unavailable — report only',
                     ttl: 2500 });
       }
+    }
+    // V4 analysis ops broadcast their result so SurfaceAnalysisOverlay
+    // can visualise it. The overlay listens to forge:surface-analysis.
+    if (op.v4 && op.group === 'Analysis' && r.ok) {
+      dispatchAnalysis({ kind: r.result?.kind || op.id, op: op.id,
+                          face: values.face ?? values.faceA, result: r.result });
+      extra = `analysis:${r.result?.kind || op.id}`;
     }
     onResult({
       ts: Date.now(),
@@ -508,12 +539,97 @@ function ContinuityReport({ report }) {
   );
 }
 
+// ────────── category tab strip ──────────
+// CATIA GSD-style four-tab navigation. Each tab is a section header in
+// the scrolling op tree. The active tab is the section auto-expanded;
+// clicking a different tab collapses the others. Mono-accent only.
+function CategoryTabs({ tabs, active, onPick }) {
+  return (
+    <div role="tablist"
+         data-testid="forge-surfacing-tabs"
+         style={{ display: 'grid',
+                  gridTemplateColumns: `repeat(${tabs.length}, 1fr)`,
+                  gap: 2,
+                  paddingBottom: 'var(--forge-space-2)',
+                  borderBottom: '1px solid var(--forge-rail-edge)' }}>
+      {tabs.map((t) => {
+        const isOn = t === active;
+        return (
+          <button key={t}
+                  type="button"
+                  role="tab"
+                  aria-selected={isOn ? 'true' : 'false'}
+                  data-testid={`forge-surfacing-tab-${t.toLowerCase().replace(/\s+/g, '-')}`}
+                  data-active={String(isOn)}
+                  onClick={() => onPick(t)}
+                  style={{ background: isOn ? 'var(--forge-accent-mute)' : 'transparent',
+                           border: isOn ? '1px solid var(--forge-accent)' : '1px solid var(--forge-rail-edge)',
+                           borderRadius: 'var(--forge-radius)',
+                           color: 'var(--forge-ink)',
+                           font: 'inherit',
+                           fontSize: 10.5,
+                           padding: '6px 4px',
+                           cursor: 'pointer',
+                           textAlign: 'center',
+                           letterSpacing: '0.02em' }}>
+            <Icon name={GROUP_ICON[t] || 'sketch.spline'} size={12} />
+            <div style={{ marginTop: 2 }}>{t}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// One op row.
+function OpRow({ op, onPick }) {
+  return (
+    <button type="button"
+            data-testid={`forge-surfacing-op-${op.id}`}
+            data-surfacing-op={op.id}
+            data-surfacing-group={op.group || 'Legacy'}
+            onClick={() => onPick(op)}
+            style={opBtnStyle}
+            onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--forge-surface-2)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--forge-surface)'; }}>
+      <Icon name={GROUP_ICON[op.group] || 'sketch.spline'} size={14} />
+      <span style={{ flex: 1 }}>{op.label}</span>
+      <span style={{ fontFamily: 'var(--forge-mono)', fontSize: 10,
+                     color: 'var(--forge-ink-mute)' }}>
+        {op.kernel ? `surf.${op.kernel}` : `surfacing.${op.id}`}
+      </span>
+    </button>
+  );
+}
+
+// Convert the legacy SURFACING_OPS into the unified shape so they slot
+// into the "Operations" tab — buildPatch, trim, sew, refine, eval,
+// intersect, projectPoint, classAAnalyse.
+function legacyOpsAsV4() {
+  return SURFACING_OPS.map((op) => ({
+    ...op,
+    v4: false,
+    group: 'Operations',
+    kernel: op.id,
+  }));
+}
+
+// Build the unified catalogue. V4 ops are flagged v4:true so the dialog
+// knows to call op.fn(params) instead of op.fn(...args).
+function buildCatalogue() {
+  const v4 = SURFACING_V4_OPS.map((op) => ({ ...op, v4: true }));
+  const legacy = legacyOpsAsV4();
+  return [...v4, ...legacy];
+}
+
 // ────────── panel itself ──────────
 export function SurfacingPanel({ open, onClose }) {
   const [activeOp, setActiveOp] = useState(null);
   const [log, setLog] = useState([]);
   const [continuity, setContinuity] = useState(null);
+  const [activeTab, setActiveTab] = useState('Curve Tools');
   const selection = useMemo(() => readViewportSelection(), [open, activeOp]);
+  const catalogue = useMemo(() => buildCatalogue(), []);
 
   useEffect(() => {
     if (!open) return;
@@ -535,6 +651,8 @@ export function SurfacingPanel({ open, onClose }) {
   }, []);
 
   if (!open) return null;
+  const tabs = [...SURFACING_V4_GROUPS, 'Operations'];
+  const visibleOps = catalogue.filter((op) => op.group === activeTab);
   return (
     <aside role="region"
            aria-label="Surfacing"
@@ -542,7 +660,7 @@ export function SurfacingPanel({ open, onClose }) {
            style={panelStyle}>
       <header style={headerStyle}>
         <Icon name="sketch.spline" size={14} />
-        <span style={{ flex: 1 }}>Surfacing · NURBS</span>
+        <span style={{ flex: 1 }}>Surfacing · Class-A · GSD</span>
         <button type="button" onClick={onClose} aria-label="Close panel"
                 data-testid="forge-surfacing-close"
                 style={{ background: 'transparent', border: 'none',
@@ -552,28 +670,28 @@ export function SurfacingPanel({ open, onClose }) {
         </button>
       </header>
       <div style={{ fontSize: 11, color: 'var(--forge-ink-mute)' }}>
-        Build, trim, sew, refine and analyse NURBS patches. Class-A
-        analyse switches the renderer into zebra-stripe or curvature
-        shading.
+        {activeTab === 'Analysis'
+          ? 'Class-A diagnostics: porcupine, reflection lines, isoclines, draft analysis. Result feeds the viewport overlay.'
+          : activeTab === 'Curve Tools'
+          ? 'Generative curves: lines, planes, helices, conics, projected and parallel curves.'
+          : activeTab === 'Surface Tools'
+          ? 'Patch generators: extract, extrude, sweep, fill, blend, multi-section, offset, gap-close, untrim, extrapolate.'
+          : 'Build, trim, sew, refine and analyse NURBS patches. Class-A analyse switches the renderer into zebra-stripe or curvature shading.'}
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 4,
-                    overflowY: 'auto' }}>
-        {SURFACING_OPS.map((op) => (
-          <button key={op.id}
-                  type="button"
-                  data-testid={`forge-surfacing-op-${op.id}`}
-                  data-surfacing-op={op.id}
-                  onClick={() => setActiveOp(op)}
-                  style={opBtnStyle}
-                  onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--forge-surface-2)'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--forge-surface)'; }}>
-            <Icon name="sketch.spline" size={14} />
-            <span style={{ flex: 1 }}>{op.label}</span>
-            <span style={{ fontFamily: 'var(--forge-mono)', fontSize: 10,
-                           color: 'var(--forge-ink-mute)' }}>
-              surfacing.{op.id}
-            </span>
-          </button>
+
+      <CategoryTabs tabs={tabs} active={activeTab} onPick={setActiveTab} />
+
+      <div data-testid={`forge-surfacing-section-${activeTab.toLowerCase().replace(/\s+/g, '-')}`}
+           style={{ display: 'flex', flexDirection: 'column', gap: 4,
+                    overflowY: 'auto', flex: 1 }}>
+        {visibleOps.length === 0 && (
+          <div style={{ fontSize: 11, color: 'var(--forge-ink-mute)',
+                        padding: 'var(--forge-space-2)' }}>
+            No ops in this category.
+          </div>
+        )}
+        {visibleOps.map((op) => (
+          <OpRow key={op.id} op={op} onPick={setActiveOp} />
         ))}
       </div>
 

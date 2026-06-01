@@ -225,7 +225,215 @@ export const TOOL_SCHEMAS = {
     { id: 'scale',  label: 'Scale',         type: 'enum',
       options: ['1:1','1:2','1:5'], default: '1:1' },
   ]},
-  // ----- SHEET METAL workbench -----
+  // ----- SHEET METAL workbench (Forge-127 — CATIA SMD-style) -----
+  //
+  // Fifteen schemas covering Base / Flange / Bend / Forming / Corner /
+  // Flat. Defaults mirror the kFactorTable.js baselines (Steel CR4,
+  // K=0.44 at R/T=1). Every dialog drives the same dispatchSheet()
+  // routing — see SheetMetalWorkbench.jsx.
+
+  // ── Base ──────────────────────────────────────────────────────
+  'sheet.baseFlange': { title: 'Base Flange', fields: [
+    { id: 'width',     label: 'Width',     type: 'number', default: 100, unit: 'mm', min: 0.1 },
+    { id: 'height',    label: 'Height',    type: 'number', default: 60,  unit: 'mm', min: 0.1 },
+    { id: 'material',  label: 'Material',  type: 'enum',
+      options: ['steel-cr4','steel-hr','aluminium-5052','aluminium-6061',
+                'stainless-304','stainless-316','copper-c110','brass-c26','galvanised'],
+      default: 'steel-cr4' },
+    { id: 'thickness', label: 'Thickness', type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+    { id: 'k',         label: 'K-factor (auto if blank)', type: 'number', default: 0.44, min: 0, max: 0.5, step: 0.01 },
+  ]},
+
+  // ── Flange ────────────────────────────────────────────────────
+  'sheet.edgeFlange': { title: 'Edge Flange', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeId',    label: 'Edge ID',     type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'length',    label: 'Flange length', type: 'number', default: 25, unit: 'mm', min: 0.1 },
+    { id: 'angleDeg',  label: 'Angle',       type: 'number', default: 90, unit: '°' },
+    { id: 'relief',    label: 'Relief',      type: 'enum',
+      options: ['rect','obround','tear','none'], default: 'rect' },
+    { id: 'material',  label: 'Material',    type: 'enum',
+      options: ['steel-cr4','steel-hr','aluminium-5052','aluminium-6061',
+                'stainless-304','stainless-316','copper-c110','brass-c26','galvanised'],
+      default: 'steel-cr4' },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+    { id: 'k',         label: 'K-factor',    type: 'number', default: 0.44, min: 0, max: 0.5, step: 0.01 },
+  ]},
+  'sheet.edgeFlangeRelief': { title: 'Edge Flange + Relief', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeId',    label: 'Edge ID',     type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'length',    label: 'Length',      type: 'number', default: 25, unit: 'mm', min: 0.1 },
+    { id: 'angleDeg',  label: 'Angle',       type: 'number', default: 90, unit: '°' },
+    { id: 'relief',    label: 'Relief shape', type: 'enum',
+      options: ['rect','obround','tear'], default: 'rect' },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.miterFlange': { title: 'Miter Flange', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeIds',   label: 'Edge IDs (comma)', type: 'text', default: '0' },
+    { id: 'length',    label: 'Length',      type: 'number', default: 25, unit: 'mm', min: 0.1 },
+    { id: 'angleDeg',  label: 'Angle',       type: 'number', default: 90, unit: '°' },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.miterFlangeChain': { title: 'Miter Flange Chain', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeIds',   label: 'Edge IDs (comma)', type: 'text', default: '0,1,2,3' },
+    { id: 'length',    label: 'Length',      type: 'number', default: 25, unit: 'mm', min: 0.1 },
+    { id: 'angleDeg',  label: 'Angle',       type: 'number', default: 90, unit: '°' },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.loftedFlange': { title: 'Lofted Flange', fields: [
+    { id: 'w0',        label: 'Bottom width', type: 'number', default: 40, unit: 'mm', min: 0.1 },
+    { id: 'h0',        label: 'Bottom height', type: 'number', default: 20, unit: 'mm', min: 0.1 },
+    { id: 'w1',        label: 'Top width',    type: 'number', default: 60, unit: 'mm', min: 0.1 },
+    { id: 'h1',        label: 'Top height',   type: 'number', default: 30, unit: 'mm', min: 0.1 },
+    { id: 'length',    label: 'Loft height',  type: 'number', default: 30, unit: 'mm', min: 0.1 },
+    { id: 'thickness', label: 'Thickness',    type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius',  type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.sweptFlange': { title: 'Swept Flange', fields: [
+    { id: 'profile',   label: 'Profile wire', type: 'ref' },
+    { id: 'path',      label: 'Sweep path',   type: 'ref' },
+    { id: 'thickness', label: 'Thickness',    type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius',  type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+
+  // ── Bend ──────────────────────────────────────────────────────
+  'sheet.sketchedBend': { title: 'Sketched Bend', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'lineHandle',label: 'Sketch line', type: 'ref' },
+    { id: 'angleDeg',  label: 'Bend angle',  type: 'number', default: 90, unit: '°' },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+  ]},
+  'sheet.jog': { title: 'Jog', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeId',    label: 'Edge ID',     type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'jogHeight', label: 'Jog height',  type: 'number', default: 8, unit: 'mm', min: 0.01 },
+    { id: 'angleDeg',  label: 'Angle',       type: 'number', default: 90, unit: '°' },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.jogRelief': { title: 'Jog Relief', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeId',    label: 'Edge ID',     type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'jogHeight', label: 'Jog height',  type: 'number', default: 8, unit: 'mm', min: 0.01 },
+    { id: 'angleDeg',  label: 'Angle',       type: 'number', default: 90, unit: '°' },
+    { id: 'reliefMode',label: 'Relief shape', type: 'enum',
+      options: ['circular','oval','rectangular'], default: 'circular' },
+    { id: 'reliefSize',label: 'Relief size', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+
+  // ── Forming (composed from boolean cut/fuse of stamp tools) ──
+  'sheet.louver': { title: 'Louver', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'position',  label: 'Centre',      type: 'vec3', default: [0, 0, 0], unit: 'mm' },
+    { id: 'length',    label: 'Length',      type: 'number', default: 30, unit: 'mm', min: 0.1 },
+    { id: 'width',     label: 'Width',       type: 'number', default: 6, unit: 'mm', min: 0.05 },
+    { id: 'depth',     label: 'Depth',       type: 'number', default: 3.5, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+  ]},
+  'sheet.lance': { title: 'Lance', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'length',    label: 'Length',      type: 'number', default: 25, unit: 'mm', min: 0.1 },
+    { id: 'width',     label: 'Slit width',  type: 'number', default: 0.5, unit: 'mm', min: 0.05 },
+    { id: 'depth',     label: 'Depth',       type: 'number', default: 2, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+  ]},
+  'sheet.ribForm': { title: 'Rib Form', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'length',    label: 'Rib length',  type: 'number', default: 60, unit: 'mm', min: 0.1 },
+    { id: 'width',     label: 'Rib width',   type: 'number', default: 4, unit: 'mm', min: 0.05 },
+    { id: 'height',    label: 'Rib height',  type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+  ]},
+  'sheet.dimple': { title: 'Dimple', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'diameter',  label: 'Diameter',    type: 'number', default: 8, unit: 'mm', min: 0.05 },
+    { id: 'height',    label: 'Height',      type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+  ]},
+  'sheet.drawnCutout': { title: 'Drawn Cutout', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'diameter',  label: 'Cut diameter', type: 'number', default: 10, unit: 'mm', min: 0.05 },
+    { id: 'depth',     label: 'Lip depth',   type: 'number', default: 2, unit: 'mm', min: 0.01 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+  ]},
+  'sheet.crossBreak': { title: 'Cross Break', fields: [
+    { id: 'shape',       label: 'Sheet body',   type: 'ref' },
+    { id: 'panelLength', label: 'Panel length', type: 'number', default: 100, unit: 'mm', min: 0.1 },
+    { id: 'panelWidth',  label: 'Panel width',  type: 'number', default: 60,  unit: 'mm', min: 0.1 },
+    { id: 'height',      label: 'Rib height',   type: 'number', default: 1.0, unit: 'mm', min: 0.01 },
+    { id: 'thickness',   label: 'Thickness',    type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+  ]},
+
+  // ── Corner ────────────────────────────────────────────────────
+  'sheet.hemClosed': { title: 'Hem (Closed)', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeId',    label: 'Edge ID',     type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'length',    label: 'Hem length',  type: 'number', default: 3, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.hemOpen':     { title: 'Hem (Open)', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeId',    label: 'Edge ID',     type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'length',    label: 'Hem length',  type: 'number', default: 3, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.hemRolled':   { title: 'Hem (Rolled)', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeId',    label: 'Edge ID',     type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'length',    label: 'Hem length',  type: 'number', default: 4, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 2.0, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.hemTeardrop': { title: 'Hem (Teardrop)', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'edgeId',    label: 'Edge ID',     type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'length',    label: 'Hem length',  type: 'number', default: 3.5, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.closedCorner': { title: 'Closed Corner', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'vertexId',  label: 'Vertex ID',   type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'gap',       label: 'Gap',         type: 'number', default: 0.1, unit: 'mm', min: 0 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+  ]},
+  'sheet.cornerRelief': { title: 'Corner Relief', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'vertexId',  label: 'Vertex ID',   type: 'number', default: 0, step: 1, min: 0 },
+    { id: 'reliefMode',label: 'Mode',        type: 'enum',
+      options: ['circular','oval','rectangular'], default: 'circular' },
+    { id: 'sizeMm',    label: 'Size',        type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+  ]},
+
+  // ── Flat ──────────────────────────────────────────────────────
+  'sheet.unfold': { title: 'Unfold Bend', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+    { id: 'k',         label: 'K-factor',    type: 'number', default: 0.44, min: 0, max: 0.5, step: 0.01 },
+  ]},
+  'sheet.flatPattern': { title: 'Flat Pattern', fields: [
+    { id: 'shape',     label: 'Sheet body',  type: 'ref' },
+    { id: 'thickness', label: 'Thickness',   type: 'number', default: 1.5, unit: 'mm', min: 0.05 },
+    { id: 'bendRadius',label: 'Bend radius', type: 'number', default: 1.5, unit: 'mm', min: 0.01 },
+    { id: 'k',         label: 'K-factor',    type: 'number', default: 0.44, min: 0, max: 0.5, step: 0.01 },
+  ]},
+
+  // ----- Legacy SHEET METAL entries (kept for back-compat with shell) -----
   'sheet.flange':  { title: 'Edge Flange', fields: [
     { id: 'edge',     label: 'Edge to flange', type: 'ref' },
     { id: 'length',   label: 'Length',         type: 'number', default: 25, unit: 'mm', min: 0.01 },

@@ -10,8 +10,20 @@
 //     window.forge.tessellate when available
 //   - HUD overlays: view name + axes triad + scale bar + selection
 //     read-out
+//
+// Forge-125: SceneMeshes now ticks the LOD scheduler each frame
+// (lodScheduler.js). Bodies whose required level changed get queued
+// for re-tessellation through the kernel's `tessellateAsync` /
+// `tessellateLOD` API; the InstancedGroup uses the scheduler's
+// per-body decisions to skip frustum-culled bodies and hide them by
+// collapsing their instance matrix to a zero scale.
 
 import React, { Suspense, useEffect, useRef, useState } from 'react';
+import {
+  tick as lodTick,
+  setOnLevelChange as lodSetOnLevelChange,
+  SYNTH_SEGMENTS,
+} from './lodScheduler.js';
 
 function ViewportFallback() {
   return (
@@ -118,7 +130,7 @@ function ViewportScene({ bundle, steps, selection, onSelect,
             infiniteGrid />
       <OriginAxes Line={Line} Html={Html} labelInk={labelInk} />
       {sketchOverlay && <SketchOverlay Line={Line} overlay={sketchOverlay} ink={labelInk} />}
-      <SceneMeshes THREE={THREE} steps={steps}
+      <SceneMeshes THREE={THREE} bundle={bundle} steps={steps}
                    selection={selection} onSelect={onSelect}
                    displayState={displayState}
                    selectedRef={selectedRef} />
@@ -263,11 +275,21 @@ function SketchOverlay({ Line, overlay, ink }) {
 // PerfStatsHUD + Archie can read perf counters.
 function RendererPublisher({ bundle }) {
   const { useThree } = bundle.r3f;
-  const { gl } = useThree();
+  const { gl, camera, scene } = useThree();
   React.useEffect(() => {
-    if (typeof window !== 'undefined') window.__forgeRenderer = gl;
-    return () => { if (typeof window !== 'undefined' && window.__forgeRenderer === gl) window.__forgeRenderer = null; };
-  }, [gl]);
+    if (typeof window === 'undefined') return;
+    window.__forgeRenderer = gl;
+    // Forge-126 — SurfaceAnalysisOverlay projects analysis output into
+    // screen space using the active camera. Expose it alongside the
+    // renderer so the overlay doesn't have to instantiate its own.
+    window.__forgeCamera = camera;
+    window.__forgeScene  = scene;
+    return () => {
+      if (window.__forgeRenderer === gl) window.__forgeRenderer = null;
+      if (window.__forgeCamera === camera) window.__forgeCamera = null;
+      if (window.__forgeScene === scene) window.__forgeScene = null;
+    };
+  }, [gl, camera, scene]);
   return null;
 }
 
@@ -336,7 +358,14 @@ function getBgColor(state, theme) {
 // (toolId · spec) key are batched into a single THREE.InstancedMesh so the
 // viewport stays at 60fps even with thousands of M8-bolts-like instances.
 // Unique bodies render as individual meshes (so selection still works).
-function SceneMeshes({ THREE, steps, selection, onSelect, displayState, selectedRef }) {
+//
+// Forge-125 — LOD streaming. The scene maintains *three* synthetic
+// geometries per InstancedGroup (Low/Med/High segments). At runtime we
+// pick the variant whose level the lodScheduler picked, then route the
+// instance matrices into matching draw groups. Frustum-culled bodies get
+// a zero-scale instance matrix so they cost a single matrix multiply
+// each but don't rasterize any pixels.
+function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, selectedRef }) {
   const [meshes, setMeshes] = React.useState([]);
   React.useEffect(() => {
     let cancelled = false;
@@ -345,6 +374,11 @@ function SceneMeshes({ THREE, steps, selection, onSelect, displayState, selected
       const next = [];
       for (const s of (steps || [])) {
         let g = null;
+        // Forge-125: we keep three LOD variants for *synthetic* bodies
+        // (the bulk of the 100k stress scene). Native handles get a
+        // single geometry up-front and re-tessellate via the scheduler
+        // through window.forge.tessellateLOD.
+        const lodGeoms = { 0: null, 1: null, 2: null };
         if (s.kind === 'native' && typeof s.handle === 'number' &&
             typeof window !== 'undefined' && window.forge?.tessellate) {
           try {
@@ -358,12 +392,22 @@ function SceneMeshes({ THREE, steps, selection, onSelect, displayState, selected
           }
         }
         if (!g && s.kind === 'synthetic' && s.spec) {
+          // Build the High (segments=32) variant as the default geometry
+          // so a body without scheduler data still renders cleanly.
           g = buildSyntheticGeometry(s.spec, THREE);
+          // And pre-build Low / Med variants so the LOD swap is a
+          // pointer change, not a tessellation hit on the main thread.
+          for (const lvl of [0, 1, 2]) {
+            const segSpec = withSegments(s.spec, SYNTH_SEGMENTS[lvl]);
+            lodGeoms[lvl] = buildSyntheticGeometry(segSpec, THREE);
+            lodGeoms[lvl]?.computeBoundingSphere?.();
+          }
         }
         if (g) {
           g.computeBoundingSphere?.();
           next.push({ id: s.id, key: s.id, geometry: g, body: s,
-                      instanceKey: instanceKeyFor(s) });
+                      instanceKey: instanceKeyFor(s),
+                      lodGeoms });
         }
       }
       if (!cancelled) setMeshes(next);
@@ -388,6 +432,7 @@ function SceneMeshes({ THREE, steps, selection, onSelect, displayState, selected
 
   return (
     <group>
+      <LodSchedulerTicker bundle={bundle} THREE={THREE} bodies={steps || []} />
       {Array.from(groups.entries()).map(([key, members]) => {
         if (members.length === 1) {
           const m = members[0];
@@ -429,6 +474,18 @@ function SceneMeshes({ THREE, steps, selection, onSelect, displayState, selected
   );
 }
 
+// Forge-125 — synthetic spec helper. Returns a copy with the segment
+// count overridden so buildSyntheticGeometry produces a Low/Med/High
+// variant of cylinder / sphere / torus / cone primitives. Boxes ignore
+// segments which is fine — their visual is the same at every LOD.
+function withSegments(spec, segs) {
+  if (!spec) return spec;
+  if (spec.kind === 'cylinder' || spec.kind === 'cone') {
+    return { ...spec, segments: segs };
+  }
+  return spec;
+}
+
 // Build a key that groups bodies sharing a geometry source. Native handles
 // are unique per OCCT body, so they don't instance unless we tag them with
 // a shared instanceTag; synthetic specs key by their kind + dimensions.
@@ -440,13 +497,43 @@ function instanceKeyFor(body) {
   return `uniq:${body.id}`;
 }
 
+// Forge-125 — ticks the LOD scheduler each animation frame. Lives inside
+// the Canvas so it can pull camera + frustum from useThree, and stays
+// outside of InstancedGroup so the scheduler runs once per frame, not
+// once per draw group.
+function LodSchedulerTicker({ bundle, THREE, bodies }) {
+  const { useFrame, useThree } = bundle.r3f;
+  const { camera, size } = useThree();
+  const frustum = React.useRef(new THREE.Frustum());
+  const matrix = React.useRef(new THREE.Matrix4());
+  useFrame(() => {
+    if (!bodies || bodies.length === 0) return;
+    camera.updateMatrixWorld();
+    matrix.current.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum.current.setFromProjectionMatrix(matrix.current);
+    lodTick({
+      camera, bodies, frustum: frustum.current, THREE,
+      screenH: size?.height ?? 1000,
+      fovRad: (camera.fov || 45) * Math.PI / 180,
+    });
+  });
+  return null;
+}
+
 function InstancedGroup({ THREE, members, displayState, onSelect, selection }) {
   // All members share geometry — use the first.
   const geom = members[0].geometry;
   const ref = React.useRef();
+  const tmpMat = React.useRef(new THREE.Matrix4());
+  const ZERO_SCALE = React.useRef(new THREE.Matrix4().makeScale(0, 0, 0));
+  const HIDE_POS = React.useRef(new THREE.Vector3(0, -1e6, 0));  // safely off-screen
+
+  // Initial placement — full visibility, identity scale. The frame-by-
+  // frame LOD ticker (LodSchedulerTicker) updates these matrices each
+  // frame for bodies that are culled.
   React.useEffect(() => {
     if (!ref.current) return;
-    const m = new THREE.Matrix4();
+    const m = tmpMat.current;
     members.forEach((mb, i) => {
       // Per-body position priority:
       //   1. body.xform  — explicit translation set by the producer
@@ -459,6 +546,80 @@ function InstancedGroup({ THREE, members, displayState, onSelect, selection }) {
       ref.current.setMatrixAt(i, m);
     });
     ref.current.instanceMatrix.needsUpdate = true;
+  }, [THREE, members]);
+
+  // Forge-125 — per-frame frustum cull. Bodies the scheduler tagged as
+  // hidden get their instance matrix collapsed to a zero scale → no
+  // raster cost, no shadow contribution, but the slot index stays
+  // stable for selection. We read the latest decision snapshot from
+  // window.__forgeLodDecisions (set by lodScheduler.tick) once per
+  // frame, batching the matrix mutations into one needsUpdate.
+  React.useEffect(() => {
+    let raf = 0;
+    let prevHidden = new Uint8Array(members.length);
+    function tick() {
+      if (!ref.current) {
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      let dirty = false;
+      const decisions = (typeof window !== 'undefined') ? window.__forgeLodDecisions : null;
+      for (let i = 0; i < members.length; i++) {
+        const mb = members[i];
+        const d = decisions?.get?.(mb.body.id);
+        const hide = d ? d.hidden : false;
+        if (hide && !prevHidden[i]) {
+          ref.current.setMatrixAt(i, ZERO_SCALE.current);
+          prevHidden[i] = 1; dirty = true;
+        } else if (!hide && prevHidden[i]) {
+          const xform = mb.body.xform || mb.body.spec?.cells?.[0] || { x: 0, y: 0, z: 0 };
+          tmpMat.current.makeTranslation(xform.x || 0, xform.y || 0, xform.z || 0);
+          ref.current.setMatrixAt(i, tmpMat.current);
+          prevHidden[i] = 0; dirty = true;
+        }
+      }
+      if (dirty) ref.current.instanceMatrix.needsUpdate = true;
+      raf = requestAnimationFrame(tick);
+    }
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [THREE, members]);
+
+  // Forge-125 — when the scheduler upgrades a body's LOD to High and
+  // the kernel returns a new mesh, swap the InstancedMesh's geometry.
+  // Since every member of an InstancedGroup shares geometry by design,
+  // we swap *all* members up to the highest-required level present.
+  React.useEffect(() => {
+    if (!ref.current) return;
+    function handleLevelChange(bodyId, level, mesh) {
+      if (!ref.current) return;
+      // Find the slot.
+      const idx = members.findIndex((m) => m.body.id === bodyId);
+      if (idx < 0) return;
+      // Prefer cached synthetic-LOD geometry; only fall back to a
+      // kernel mesh swap when native bodies stream in.
+      const cached = members[idx].lodGeoms?.[level];
+      if (cached && ref.current.geometry !== cached) {
+        ref.current.geometry = cached;
+      } else if (mesh && mesh.positions) {
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
+        if (mesh.normals) g.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
+        if (mesh.indices) g.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
+        g.computeBoundingSphere?.();
+        ref.current.geometry = g;
+      }
+    }
+    // Compose with any previously-registered listener: the lodScheduler
+    // only carries one listener so we wrap it.
+    const prev = (typeof window !== 'undefined') ? window.__forgeLodPrevListener : null;
+    const composed = (id, lvl, m) => {
+      try { prev?.(id, lvl, m); } catch { /* noop */ }
+      handleLevelChange(id, lvl, m);
+    };
+    if (typeof window !== 'undefined') window.__forgeLodPrevListener = composed;
+    lodSetOnLevelChange(composed);
+    return () => { /* keep the listener so other groups still receive */ };
   }, [THREE, members]);
 
   return (

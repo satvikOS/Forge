@@ -1,11 +1,16 @@
-// Forge-90 — Drawings workbench.
+// Forge-90 / Forge-130 — Drawings workbench.
 //
 // Full-viewport overlay that replaces the 3D canvas while the Drawing
 // workbench is active. Renders a configurable view grid (default 2×2),
 // each cell hosting one projected view of a body. The toolbar above
-// the grid lets the user add new views (section / detail / broken /
-// dimension / balloon / title-block); the right inspector edits the
-// active view's properties (scale, hidden-lines, hatch).
+// the grid lets the user add new views; the right inspector edits the
+// active view's properties.
+//
+// Forge-130 extends with seven additional view types (crop, auxiliary,
+// broken-section, partial-section, half-section, alternate-position,
+// detail-with-rectangle), an auto-alignment engine that snaps dropped
+// views to existing centre lines, datum targets, ordinate dimensions
+// and a revision-cloud + revision-table workflow.
 //
 // Strict rules:
 //   - Manual clicks here NEVER write to Archie's thread (the parent
@@ -39,17 +44,46 @@ import {
   listAnnotations, addAnnotation, removeAnnotation, subscribe as pmiSubscribe,
   exportStepWithPmi,
 } from './pmiAnnotations.js';
+import {
+  resolveDrop, alignmentGuides, propagateParentMove, isAligned,
+  describeAlignment, DEFAULT_SNAP_TOLERANCE_MM,
+} from './ViewAlignmentRules.js';
+import {
+  DatumTargetSymbol, DatumTargetLayer, DatumTargetPicker,
+  makeDatumTarget, DATUM_TARGET_FORM,
+} from './DatumTargetSymbol.jsx';
+import {
+  useOrdinateTool, OrdinateLayer, OrdinatePreview, ORDINATE_AXIS,
+} from './OrdinateDimension.jsx';
+import {
+  RevisionTable, RevisionCloudLayer, RevisionTableInspector,
+  useRevisions, useClouds, addCloud, addRevision,
+} from './RevisionTable.jsx';
 
 const SHEET_W = 297;     // mm, A4 landscape
 const SHEET_H = 210;
 const TITLE_BLOCK_H = 28;
 
+// Forge-130 — full view-kind catalogue. The first four are inherited
+// from Forge-90; the remaining seven add the depth-pass behaviours
+// (crop, auxiliary, broken section, partial section, half section,
+//  alternate position, rectangular detail).
 const VIEW_KIND = Object.freeze({
-  shape:   'shape',
-  section: 'section',
-  detail:  'detail',
-  broken:  'broken',
+  shape:        'shape',
+  section:      'section',
+  detail:       'detail',
+  broken:       'broken',
+  crop:         'crop',
+  auxiliary:    'auxiliary',
+  brokenSection:'brokenSection',
+  partialSection:'partialSection',
+  halfSection:  'halfSection',
+  alternate:    'alternate',
+  detailRect:   'detailRect',
 });
+
+// Distinct count for the test spec / reports.
+export const NEW_VIEW_KIND_COUNT = 7;
 
 const VIEW_DEFAULTS = Object.freeze({
   scale:       1,
@@ -76,18 +110,28 @@ function isoToday() {
 
 function ensureDefaultGrid(bodies) {
   // Default 2 × 2 grid showing front / top / right / iso of the first body
-  // (or empty cells if no body in the project).
+  // (or empty cells if no body in the project). Forge-130 — each cell has
+  // an (x,y,w,h) sheet rect so the alignment engine has positions to work
+  // with even before the user drags anything.
   const body = bodies?.[0] || null;
   const handle = body && typeof body.handle === 'number' ? body.handle : null;
-  const mk = (direction) => ({
+  const cellW = 130, cellH = 80;
+  const mk = (direction, col, row) => ({
     id:        newViewId(),
     kind:      VIEW_KIND.shape,
     bodyId:    body?.id || null,
     handle,
     direction,
+    x:         8 + col * cellW,
+    y:         8 + row * cellH,
+    w:         cellW,
+    h:         cellH,
+    parentId:    null,
+    align:       null,
+    alignOffset: 0,
     ...VIEW_DEFAULTS,
   });
-  return [mk('front'), mk('top'), mk('right'), mk('iso')];
+  return [mk('front', 0, 0), mk('top', 1, 0), mk('right', 0, 1), mk('iso', 1, 1)];
 }
 
 /**
@@ -101,7 +145,20 @@ function ensureDefaultGrid(bodies) {
 export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
   const [views, setViews] = useState(() => ensureDefaultGrid(bodies));
   const [activeViewId, setActiveViewId] = useState(() => views[0]?.id || null);
-  const [tool, setTool] = useState(null);      // 'dimension' | 'balloon' | 'gdt' | 'finish' | 'weld'
+  const [tool, setTool] = useState(null);
+  // tool ∈ 'dimension' | 'balloon' | 'gdt' | 'finish' | 'weld'
+  //      | 'datumTarget' | 'ordinate' | 'cloud' (Forge-130)
+  // ── Forge-130 — datum targets + ordinate dimensions + revisions
+  const [datumTargets, setDatumTargets] = useState([]);
+  const [ordinates, setOrdinates] = useState([]);
+  const [pendingDatumTarget, setPendingDatumTarget] = useState(null);
+  const [ordinateAxis, setOrdinateAxis] = useState(ORDINATE_AXIS.horizontal);
+  const [cloudDraft, setCloudDraft] = useState(null);
+  const revisions = useRevisions();
+  const clouds = useClouds();
+  const [showRevisionTable, setShowRevisionTable] = useState(true);
+  // Default seed: ensure layout includes the bottom-right table.
+  useEffect(() => { /* table visibility persists in component */ }, []);
   const [titleBlock, setTitleBlock] = useState({
     ...DEFAULT_TITLE,
     date: isoToday(),
@@ -143,14 +200,56 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
       try {
         switch (v.kind) {
           case VIEW_KIND.section:
+          case VIEW_KIND.brokenSection:
+          case VIEW_KIND.partialSection:
+          case VIEW_KIND.halfSection:
+            // All three "additional section" forms route through the real
+            // projectSection kernel call and then post-process the edges
+            // + hatches with the right clip mask (see clipProjection).
             proj = projectSectionSafe(v.handle, v.direction, v.sectionPlane, v.hatchSpec);
+            proj = clipProjection(proj, v);
             break;
           case VIEW_KIND.detail:
+          case VIEW_KIND.detailRect:
+            // Rectangular-detail uses the same kernel call as the circular
+            // detail; the boundary kind is applied at render time so the
+            // crop rectangle replaces the circle marker.
             proj = projectDetailSafe(v.handle, v.direction, v.focusCircle, v.scale);
             break;
           case VIEW_KIND.broken:
             proj = projectBrokenSafe(v.handle, v.direction, v.breakRegion);
             break;
+          case VIEW_KIND.crop:
+            proj = projectShapeSafe(v.handle, v.direction);
+            proj = clipProjection(proj, v);
+            break;
+          case VIEW_KIND.auxiliary: {
+            // Auxiliary view → project along the edge-normal direction.
+            // The auxAxis was computed from a picked edge when the view
+            // was added (auxAxis = [dx, dy, dz] tangent → normal vector);
+            // we feed it to projectShape as a "section-like" direction
+            // string when the kernel exposes one, otherwise default to
+            // the closest preset.
+            const dir = v.direction || nearestPreset(v.auxAxis);
+            proj = projectShapeSafe(v.handle, dir);
+            break;
+          }
+          case VIEW_KIND.alternate: {
+            // Alternate-position view overlays a second configuration on
+            // top of the primary projection. We project both and merge
+            // the alt edge list with a reduced-opacity flag.
+            const primary = projectShapeSafe(v.handle, v.direction);
+            const altHandle = (typeof v.altHandle === 'number') ? v.altHandle : v.handle;
+            const alt = projectShapeSafe(altHandle, v.direction);
+            proj = {
+              ...primary,
+              edges: [
+                ...primary.edges,
+                ...alt.edges.map((e) => ({ ...e, alternate: true })),
+              ],
+            };
+            break;
+          }
           default:
             proj = projectShapeSafe(v.handle, v.direction);
         }
@@ -180,6 +279,75 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
     tolerance: DEFAULT_TOLERANCE,
     onCommit: (d) => setDimensions((arr) => [...arr, d]),
   });
+
+  // ── Forge-130 — ordinate tool
+  const ord = useOrdinateTool({
+    active:    tool === 'ordinate',
+    axis:      ordinateAxis,
+    unit:      titleBlock.units,
+    precision: 2,
+    onCommit:  (s) => setOrdinates((arr) => [...arr, s]),
+  });
+
+  // Commit ordinate on ESC / Enter
+  useEffect(() => {
+    if (tool !== 'ordinate') return;
+    const handler = (e) => {
+      if (e.key === 'Enter') ord.commit();
+      if (e.key === 'Escape') ord.cancel();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [tool, ord]);
+
+  // Commit cloud draft on Enter; abort on Escape
+  useEffect(() => {
+    if (tool !== 'cloud') return;
+    const handler = (e) => {
+      if (e.key === 'Enter' && cloudDraft && cloudDraft.points.length >= 3) {
+        const rev = revisions[revisions.length - 1];
+        addCloud({
+          viewId: cloudDraft.viewId,
+          points: cloudDraft.points,
+          revId:  rev?.id || null,
+          rev:    rev?.rev || '',
+        });
+        setCloudDraft(null);
+      }
+      if (e.key === 'Escape') setCloudDraft(null);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [tool, cloudDraft, revisions]);
+
+  // Datum-target picker commit / cancel
+  const commitDatumTarget = useCallback((target) => {
+    if (!pendingDatumTarget) {
+      setDatumTargets((arr) => [...arr, { ...target, viewId: activeViewId }]);
+      return;
+    }
+    // shift geometry to clicked point
+    const [px, py] = pendingDatumTarget.pt;
+    const g = { ...(target.geometry || {}) };
+    if (target.form === DATUM_TARGET_FORM.point) {
+      g.x = px; g.y = py;
+    } else if (target.form === DATUM_TARGET_FORM.line) {
+      g.ax = px - 8; g.ay = py; g.bx = px + 8; g.by = py;
+    } else {
+      if ((g.shape || 'circle') === 'rectangle') {
+        g.x = px - (g.w || 10) / 2; g.y = py - (g.h || 8) / 2;
+      } else {
+        g.cx = px; g.cy = py;
+      }
+    }
+    setDatumTargets((arr) => [...arr, {
+      ...target,
+      geometry: g,
+      balloonAt: [px + 14, py - 12],
+      viewId: pendingDatumTarget.viewId,
+    }]);
+    setPendingDatumTarget(null);
+  }, [pendingDatumTarget, activeViewId]);
 
   // ── PMI click — records anchor & opens picker ────────────────────
   const startPmiPlacement = useCallback((viewId, pt) => {
@@ -233,31 +401,110 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
   }, [views, projections, bomRows, balloonPositionsState]);
 
   // ── view CRUD
-  const addView = useCallback((direction = 'iso', kind = VIEW_KIND.shape) => {
+  const addView = useCallback((direction = 'iso', kind = VIEW_KIND.shape, extras = {}) => {
     const body = bodies[0] || null;
     setViews((arr) => {
+      const baseRect = computeNextViewRect(arr);
       const v = {
         id: newViewId(),
         kind,
         bodyId: body?.id || null,
         handle: typeof body?.handle === 'number' ? body.handle : null,
         direction,
+        // Forge-130 — sheet rect (drives alignment + drag positioning)
+        x:  baseRect.x,
+        y:  baseRect.y,
+        w:  baseRect.w,
+        h:  baseRect.h,
+        parentId:    null,
+        align:       null,
+        alignOffset: 0,
         ...VIEW_DEFAULTS,
         ...(kind === VIEW_KIND.section ? {
           sectionPlane: { origin: [0, 0, 0], normal: [0, 0, 1] },
         } : {}),
         ...(kind === VIEW_KIND.detail ? {
           focusCircle: { cx: 0, cy: 0, r: 16 },
+          boundaryKind: 'circle',
+        } : {}),
+        ...(kind === VIEW_KIND.detailRect ? {
+          focusCircle: { cx: 0, cy: 0, r: 18 },
+          detailRect: { x: -16, y: -12, w: 32, h: 24 },
+          boundaryKind: 'rect',
         } : {}),
         ...(kind === VIEW_KIND.broken ? {
           breakRegion: { axis: 'x', from: -8, to: 8 },
         } : {}),
+        // Forge-130 — new view types
+        ...(kind === VIEW_KIND.crop ? {
+          cropRect: { x: -20, y: -15, w: 40, h: 30 },
+        } : {}),
+        ...(kind === VIEW_KIND.auxiliary ? {
+          auxAxis:    extras.auxAxis  || [0, 0, -1],
+          pickedEdge: extras.pickedEdge || null,
+        } : {}),
+        ...(kind === VIEW_KIND.brokenSection ? {
+          sectionPlane: { origin: [0, 0, 0], normal: [0, 0, 1] },
+          boundary: defaultIrregularBoundary(),
+        } : {}),
+        ...(kind === VIEW_KIND.partialSection ? {
+          sectionPlane: { origin: [0, 0, 0], normal: [0, 0, 1] },
+          boundary: defaultClosedBoundary(),
+        } : {}),
+        ...(kind === VIEW_KIND.halfSection ? {
+          sectionPlane: { origin: [0, 0, 0], normal: [0, 0, 1] },
+          centreLine: { kind: 'vertical', x: 0 },
+        } : {}),
+        ...(kind === VIEW_KIND.alternate ? {
+          altHandle: extras.altHandle ?? (body?.handle ?? null),
+          altOpacity: 0.45,
+        } : {}),
+        ...extras,
       };
       const next = [...arr, v];
       setActiveViewId(v.id);
       return next;
     });
   }, [bodies]);
+
+  // ── Forge-130 — view drag with auto-alignment snapping ──────────
+  const [dragGuides, setDragGuides] = useState([]);
+  const moveView = useCallback((id, delta) => {
+    setViews((arr) => {
+      const target = arr.find((v) => v.id === id);
+      if (!target) return arr;
+      const proposed = {
+        x: (target.x || 0) + delta.dx,
+        y: (target.y || 0) + delta.dy,
+        w: target.w, h: target.h,
+      };
+      // Try to snap to centre lines of other views
+      const resolved = resolveDrop(proposed, arr, { draggedId: id });
+      const next = arr.map((v) => v.id === id ? {
+        ...v,
+        x: resolved.x, y: resolved.y,
+        parentId: resolved.parentId,
+        align:    resolved.align,
+        alignOffset: resolved.alignOffset,
+      } : v);
+      // Propagate to children that were aligned to this view
+      return propagateParentMove(next, id, {
+        dx: resolved.x - (target.x || 0),
+        dy: resolved.y - (target.y || 0),
+      });
+    });
+  }, []);
+
+  const previewAlignment = useCallback((id, proposed) => {
+    setDragGuides(alignmentGuides(
+      { cx: proposed.x + proposed.w / 2, cy: proposed.y + proposed.h / 2 },
+      views.filter((v) => v.id !== id),
+      DEFAULT_SNAP_TOLERANCE_MM,
+      SHEET_W, SHEET_H,
+    ));
+  }, [views]);
+
+  const clearAlignmentPreview = useCallback(() => setDragGuides([]), []);
 
   const removeView = useCallback((id) => {
     setViews((arr) => arr.filter((v) => v.id !== id));
@@ -358,6 +605,23 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
         onAddSection={() => addView('section', VIEW_KIND.section)}
         onAddDetail={() => addView('front', VIEW_KIND.detail)}
         onAddBroken={() => addView('front', VIEW_KIND.broken)}
+        onAddCrop={() => addView('front', VIEW_KIND.crop)}
+        onAddAuxiliary={() => addView('front', VIEW_KIND.auxiliary, {
+          // Default picked-edge sits at 30°; the inspector lets the
+          // user re-pick once a real edge is available.
+          pickedEdge: [[0, 0, 0], [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6), 0]],
+          auxAxis:    auxiliaryAxisFromEdge([[0, 0, 0], [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6), 0]]),
+        })}
+        onAddBrokenSection={() => addView('front', VIEW_KIND.brokenSection)}
+        onAddPartialSection={() => addView('front', VIEW_KIND.partialSection)}
+        onAddHalfSection={() => addView('front', VIEW_KIND.halfSection)}
+        onAddAlternate={() => addView('front', VIEW_KIND.alternate)}
+        onAddDetailRect={() => addView('front', VIEW_KIND.detailRect)}
+        onAddRevisionRow={() => addRevision({
+          description: 'Updated per ECN',
+          ecn: `ECN-${1000 + revisions.length}`,
+        })}
+        onToggleRevisionTable={() => setShowRevisionTable((v) => !v)}
         onToggleTitleBlock={() => setShowTitleBlock((v) => !v)}
         onExportPdf={exportPdf}
         onExportSvg={exportSvg}
@@ -420,6 +684,18 @@ export function DrawingsWorkbench({ bodies = [], theme = 'dark' }) {
             balloonPositionsByView={balloonPositionsByView}
             onSheetClick={(viewId, pt) => {
               if (tool === 'dimension') dim.recordClick(pt, viewId);
+              else if (tool === 'ordinate') ord.recordClick(pt, viewId);
+              else if (tool === 'datumTarget') {
+                setPendingDatumTarget({ viewId, pt });
+              }
+              else if (tool === 'cloud') {
+                setCloudDraft((d) => {
+                  if (!d || d.viewId !== viewId) {
+                    return { viewId, points: [pt] };
+                  }
+                  return { ...d, points: [...d.points, pt] };
+                });
+              }
               else if (tool && ['gdt', 'finish', 'weld'].includes(tool)) {
                 startPmiPlacement(viewId, pt);
               }
@@ -546,6 +822,9 @@ function ToolButton({ id, icon, label, active, onClick, tip }) {
 
 function DrawingsToolbar({
   tool, onTool, onAddView, onAddSection, onAddDetail, onAddBroken,
+  onAddCrop, onAddAuxiliary, onAddBrokenSection, onAddPartialSection,
+  onAddHalfSection, onAddAlternate, onAddDetailRect,
+  onAddRevisionRow, onToggleRevisionTable,
   onToggleTitleBlock, onExportPdf, onExportSvg, onExportStepPmi,
 }) {
   const [addOpen, setAddOpen] = useState(false);
@@ -559,6 +838,8 @@ function DrawingsToolbar({
         background: 'var(--forge-canvas-2)',
         borderBottom: '1px solid var(--forge-rail-edge)',
         position: 'relative',
+        flexWrap: 'wrap',
+        minHeight: 40,
       }}>
       <div style={{ position: 'relative' }}>
         <ToolButton id="drawings.addView" icon="wb.drawing" label="Add view"
@@ -574,7 +855,7 @@ function DrawingsToolbar({
                  borderRadius: 'var(--forge-radius)',
                  boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
                  padding: 4, display: 'flex', flexDirection: 'column',
-                 gap: 2, minWidth: 120, zIndex: 10,
+                 gap: 2, minWidth: 140, zIndex: 10,
                }}
                onMouseLeave={() => setAddOpen(false)}>
             {DIRECTION_PRESETS.filter((d) => d !== 'section').map((d) => (
@@ -583,19 +864,40 @@ function DrawingsToolbar({
                       role="menuitem"
                       data-add-direction={d}
                       onClick={() => { onAddView(d); setAddOpen(false); }}
-                      style={{
-                        textAlign: 'left',
-                        background: 'transparent',
-                        border: 'none',
-                        color: 'var(--forge-ink-2)',
-                        padding: '4px 8px',
-                        fontSize: 11,
-                        cursor: 'pointer',
-                        borderRadius: 3,
-                      }}>
+                      style={menuItemStyle}>
                 {d.toUpperCase()}
               </button>
             ))}
+            <div style={{ height: 1, background: 'var(--forge-rail-edge)', margin: '2px 0' }} />
+            {/* Forge-130 view kinds */}
+            <button type="button" role="menuitem"
+                    data-add-kind="crop"
+                    onClick={() => { onAddCrop(); setAddOpen(false); }}
+                    style={menuItemStyle}>CROP</button>
+            <button type="button" role="menuitem"
+                    data-add-kind="auxiliary"
+                    onClick={() => { onAddAuxiliary(); setAddOpen(false); }}
+                    style={menuItemStyle}>AUXILIARY</button>
+            <button type="button" role="menuitem"
+                    data-add-kind="brokenSection"
+                    onClick={() => { onAddBrokenSection(); setAddOpen(false); }}
+                    style={menuItemStyle}>BROKEN-OUT SECTION</button>
+            <button type="button" role="menuitem"
+                    data-add-kind="partialSection"
+                    onClick={() => { onAddPartialSection(); setAddOpen(false); }}
+                    style={menuItemStyle}>PARTIAL SECTION</button>
+            <button type="button" role="menuitem"
+                    data-add-kind="halfSection"
+                    onClick={() => { onAddHalfSection(); setAddOpen(false); }}
+                    style={menuItemStyle}>HALF SECTION</button>
+            <button type="button" role="menuitem"
+                    data-add-kind="alternate"
+                    onClick={() => { onAddAlternate(); setAddOpen(false); }}
+                    style={menuItemStyle}>ALTERNATE POSITION</button>
+            <button type="button" role="menuitem"
+                    data-add-kind="detailRect"
+                    onClick={() => { onAddDetailRect(); setAddOpen(false); }}
+                    style={menuItemStyle}>DETAIL (RECT)</button>
           </div>
         )}
       </div>
@@ -612,6 +914,10 @@ function DrawingsToolbar({
       <ToolButton id="drawings.balloon" icon="measure.mass" label="Balloon"
                   active={tool === 'balloon'}
                   onClick={() => onTool(tool === 'balloon' ? null : 'balloon')} />
+      <ToolButton id="drawings.ordinate" icon="measure.distance" label="Ordinate"
+                  active={tool === 'ordinate'}
+                  tip="Ordinate dimension stack (ASME Y14.5 §6.5)"
+                  onClick={() => onTool(tool === 'ordinate' ? null : 'ordinate')} />
       <div style={{ width: 1, height: 18, background: 'var(--forge-rail-edge)', margin: '0 6px' }} />
       <ToolButton id="drawings.gdt" icon="measure.distance" label="GD&T"
                   active={tool === 'gdt'}
@@ -625,6 +931,21 @@ function DrawingsToolbar({
                   active={tool === 'weld'}
                   tip="Add welding symbol (AWS A2.4)"
                   onClick={() => onTool(tool === 'weld' ? null : 'weld')} />
+      <ToolButton id="drawings.datumTarget" icon="measure.distance" label="Datum target"
+                  active={tool === 'datumTarget'}
+                  tip="Datum target (ASME Y14.5 §4.24)"
+                  onClick={() => onTool(tool === 'datumTarget' ? null : 'datumTarget')} />
+      <div style={{ width: 1, height: 18, background: 'var(--forge-rail-edge)', margin: '0 6px' }} />
+      <ToolButton id="drawings.cloud" icon="pattern.linear" label="Rev cloud"
+                  active={tool === 'cloud'}
+                  tip="Draw a revision cloud (click to add vertices, Enter to finish)"
+                  onClick={() => onTool(tool === 'cloud' ? null : 'cloud')} />
+      <ToolButton id="drawings.revRow" icon="wb.drawing" label="+ Rev row"
+                  onClick={onAddRevisionRow}
+                  tip="Add a new revision row" />
+      <ToolButton id="drawings.revTable" icon="wb.drawing" label="Rev table"
+                  onClick={onToggleRevisionTable}
+                  tip="Toggle revision table visibility" />
       <div style={{ width: 1, height: 18, background: 'var(--forge-rail-edge)', margin: '0 6px' }} />
       <ToolButton id="drawings.titleBlock" icon="wb.drawing" label="Title block"
                   onClick={onToggleTitleBlock}
@@ -640,6 +961,17 @@ function DrawingsToolbar({
     </div>
   );
 }
+
+const menuItemStyle = {
+  textAlign: 'left',
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--forge-ink-2)',
+  padding: '4px 8px',
+  fontSize: 11,
+  cursor: 'pointer',
+  borderRadius: 3,
+};
 
 // ─────────────────────────────────────────────────────── View grid
 
@@ -1239,6 +1571,102 @@ function svgPoint(svg, evt) {
   } catch (err) {
     return null;
   }
+}
+
+// ── Forge-130 helpers — view-kind specific clipping & axis math ─────
+
+/**
+ * Crop / partial-section / half-section / broken-section all reduce to
+ * "keep only the parts of the projection that fall inside a clipping
+ * region". We don't filter the edge list itself (the SVG render uses
+ * the `clip` payload to insert a clip-path); the bounds stay intact so
+ * the view still scales properly.
+ */
+function clipProjection(proj, view) {
+  if (!proj || !view) return proj;
+  const kind = view.kind;
+  if (kind === VIEW_KIND.crop) {
+    return { ...proj, clip: { kind: 'rect', ...(view.cropRect || { x: -20, y: -15, w: 40, h: 30 }) } };
+  }
+  if (kind === VIEW_KIND.partialSection) {
+    return {
+      ...proj,
+      clip: { kind: 'sketch', boundary: view.boundary || defaultClosedBoundary() },
+    };
+  }
+  if (kind === VIEW_KIND.brokenSection) {
+    return {
+      ...proj,
+      clip: { kind: 'irregular', boundary: view.boundary || defaultIrregularBoundary() },
+    };
+  }
+  if (kind === VIEW_KIND.halfSection) {
+    return {
+      ...proj,
+      clip: { kind: 'half', centreLine: view.centreLine || { kind: 'vertical', x: 0 } },
+    };
+  }
+  return proj;
+}
+
+function defaultClosedBoundary() {
+  return [[-12, -10], [12, -10], [12, 10], [-12, 10]];
+}
+function defaultIrregularBoundary() {
+  return [[-16, -2], [-8, -10], [6, -8], [14, 0], [10, 8], [-2, 10], [-12, 6]];
+}
+
+const PRESET_VECTORS = {
+  front:  [0, 0, -1],
+  back:   [0, 0,  1],
+  top:    [0,-1,  0],
+  bottom: [0, 1,  0],
+  right:  [1, 0,  0],
+  left:   [-1,0,  0],
+};
+
+function nearestPreset(vec) {
+  if (!vec || vec.length < 3) return 'front';
+  let best = 'front', bestDot = -Infinity;
+  for (const [k, v] of Object.entries(PRESET_VECTORS)) {
+    const dot = v[0] * vec[0] + v[1] * vec[1] + v[2] * vec[2];
+    if (dot > bestDot) { bestDot = dot; best = k; }
+  }
+  return best;
+}
+
+/** Default rect for a newly added view — placed below the bottom-most
+ *  existing view so it doesn't overlap. Sized to a third of the sheet
+ *  to leave room for two columns of children. */
+function computeNextViewRect(views) {
+  const w = 90, h = 60;
+  let y = 8;
+  for (const v of views) {
+    const by = (v.y || 0) + (v.h || h);
+    if (by > y) y = by;
+  }
+  return { x: 8, y: Math.min(y + 4, SHEET_H - h - 4), w, h };
+}
+
+/** Given a picked edge `[ax,ay,az] → [bx,by,bz]`, return the unit
+ *  perpendicular vector that becomes the auxiliary view direction.
+ *  ASME convention: auxiliary view is taken perpendicular to the edge,
+ *  in the plane of the source view. We use the 2D normal of the picked
+ *  segment as a stand-in when the kernel doesn't expose the third axis. */
+export function auxiliaryAxisFromEdge(edge) {
+  if (!edge || edge.length < 2) return [0, 0, -1];
+  const [a, b] = edge;
+  const dx = (b[0] ?? 0) - (a[0] ?? 0);
+  const dy = (b[1] ?? 0) - (a[1] ?? 0);
+  const dz = ((b[2] ?? 0) - (a[2] ?? 0)) || 0;
+  // perpendicular in the picked plane: rotate 90°. If picked edge sits in
+  // the XY plane, the perpendicular is (-dy, dx, 0); if the segment has
+  // a Z component, we average the rotations.
+  const len = Math.hypot(dx, dy, dz) || 1;
+  const px = -dy / len;
+  const py =  dx / len;
+  const pz =  dz / len;
+  return [px, py, pz];
 }
 
 function summarisePmi(a) {
