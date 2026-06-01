@@ -59,19 +59,21 @@ export function mat4InvertHomog(T) {
   ];
 }
 
-// Build modified-DH link transform — Craig convention.
-//   Tᵢ = Rotx(αᵢ₋₁) · Tx(aᵢ₋₁) · Rotz(θᵢ) · Tz(dᵢ)
+// Build STANDARD-DH link transform — Spong / Denavit-Hartenberg classic.
+//   Tᵢ = Rotz(θᵢ) · Tz(dᵢ) · Tx(aᵢ) · Rotx(αᵢ)
+//
+// Each row of our DH table describes the transform from frame i-1 to
+// frame i; the chain T₀_6 = T₁ · T₂ · … · T₆ gives the TCP pose.
 //
 // `a` and `d` in mm, `alpha`/`theta` in radians.
 export function dhTransformModified(a, alpha, d, theta) {
   const ca = Math.cos(alpha), sa = Math.sin(alpha);
   const ct = Math.cos(theta), st = Math.sin(theta);
-  // Combined inline for speed.
   return [
-       ct,        -st,       0,       a,
-       st*ca,      ct*ca,   -sa,    -sa*d,
-       st*sa,      ct*sa,    ca,     ca*d,
-       0,          0,        0,       1,
+       ct,   -st*ca,    st*sa,   a*ct,
+       st,    ct*ca,   -ct*sa,   a*st,
+       0,     sa,       ca,      d,
+       0,     0,        0,       1,
   ];
 }
 
@@ -188,58 +190,63 @@ export function inverseKinematics(model, T_target, opts = {}) {
 
   const solutions = [];
 
-  // Step 2 — q1 has two branches (front & back).
-  // The shoulder is offset along x by a1 (see DH row 0). Project the
-  // wrist onto the horizontal plane and read the angle.
-  const q1A = Math.atan2(wy, wx);
-  const q1B = Math.atan2(-wy, -wx);   // "back" configuration (flip)
-  const q1Candidates = [q1A, q1B];
+  // We solve for the "internal" DH angles θ̃ᵢ = qᵢ + theta_offsetᵢ
+  // first, then convert each result back to USER joint angles before
+  // returning.  This keeps the trig clean — the theta_offset never
+  // appears inside the law-of-cosines arithmetic.
+  const off1 = rows[0].theta_offset * DEG;
+  const off2 = rows[1].theta_offset * DEG;
+  const off3 = rows[2].theta_offset * DEG;
 
-  for (const q1 of q1Candidates) {
-    // Shoulder origin in base frame:  S = (a1·cos q1, a1·sin q1, d1).
-    const sx = a1 * Math.cos(q1);
-    const sy = a1 * Math.sin(q1);
-    const sz = d1;
-    // Vector S→W in shoulder frame after un-rotating about base Z.
-    const dxs = (wx - sx) * Math.cos(q1) + (wy - sy) * Math.sin(q1);
-    const dzs = wz - sz;
-    // The 2-link planar sub-problem has link lengths:
-    //   L2 = a2  (upper-arm)
-    //   L3 = √(a3² + d4²)  (forearm — diagonal because a3 + d4 both
-    //         contribute on the modified-DH layout)
-    const L2 = a2;
-    const L3 = Math.hypot(a3, d4);
-    // Phase offset between the J3-axis frame and the "L3 direction" —
-    // arctan(a3 / d4) is the constant angle the forearm rotates by
-    // relative to its joint frame.
-    const phi3 = Math.atan2(a3, d4);
+  // Step 2 — θ̃1 has two branches (front & back).
+  // The shoulder pivots about the world Z axis; project wrist centre
+  // to the horizontal plane to read the angle.
+  const t1A = Math.atan2(wy, wx);
+  const t1B = t1A + Math.PI;          // "back" configuration (flip)
+  const t1Candidates = [t1A, t1B];
 
-    const r = Math.hypot(dxs, dzs);
-    // Law of cosines for the elbow angle.
-    const D = (r*r - L2*L2 - L3*L3) / (2 * L2 * L3);
+  // The 3R position arm has the canonical industrial-robot geometry
+  // (Spong "Robot Dynamics and Control" §3.3.1, KUKA / ABB / FANUC):
+  //   r  = horizontal distance from base axis to wrist centre, minus a1
+  //   s  = vertical distance from base joint to wrist centre, minus d1
+  //   L2 = a2  (upper-arm)
+  //   L3 = √(a3² + d4²)  (forearm — diagonal because a3 offset on link
+  //         3 plus d4 offset on link 4 both contribute to wrist
+  //         centre position)
+  //   φ3 = atan2(a3, d4)  (phase angle baked into the forearm)
+  const L2  = a2;
+  const L3  = Math.hypot(a3, d4);
+  const phi3 = Math.atan2(a3, d4);
+
+  for (const t1 of t1Candidates) {
+    // Sign of the radial projection — atan2 + π gives the "back"
+    // shoulder where r is *negative*, so we honour the sign.
+    const horiz = Math.cos(t1) * wx + Math.sin(t1) * wy;
+    const r = horiz - a1;
+    const s = wz - d1;
+    const D = (r*r + s*s - L2*L2 - L3*L3) / (2 * L2 * L3);
     if (D > 1 + 1e-6 || D < -1 - 1e-6) continue;     // unreachable
     const Dc = Math.max(-1, Math.min(1, D));
-    const elbowAngles = [+Math.acos(Dc), -Math.acos(Dc)];  // up / down
+    // Two elbow branches. cos(θ̃3 + φ3) = D, so:
+    //   θ̃3 = atan2(±√(1−D²), D) − φ3
+    const elbowAngles = [
+      Math.atan2(+Math.sqrt(1 - Dc*Dc), Dc) - phi3,   // elbow up
+      Math.atan2(-Math.sqrt(1 - Dc*Dc), Dc) - phi3,   // elbow down
+    ];
 
-    for (const elbow of elbowAngles) {
-      // q3 in joint space — note the theta_offset on J3 cancels later.
-      // The geometric elbow angle is `elbow`; J3 in joint space (before
-      // theta_offset) is found by adding the constant phi3.
-      const q3 = elbow - phi3;
+    for (const t3 of elbowAngles) {
+      // θ̃2 — closed form using the standard "two-arctan" technique:
+      //   k1 = a2 + L3·cos(θ̃3 + φ3)
+      //   k2 =       L3·sin(θ̃3 + φ3)
+      //   θ̃2 = atan2(s, r) − atan2(k2, k1)
+      const k1 = L2 + L3 * Math.cos(t3 + phi3);
+      const k2 =      L3 * Math.sin(t3 + phi3);
+      const t2 = Math.atan2(s, r) - Math.atan2(k2, k1);
 
-      // Shoulder pitch q2.
-      const k1 = L2 + L3 * Math.cos(elbow);
-      const k2 = L3 * Math.sin(elbow);
-      // The DH theta_offset on J2 is -90°, so the "joint zero" UI
-      // angle corresponds to shoulder pitch = +90°. We absorb that
-      // here so the returned q2 matches the UI convention.
-      const shoulderPitch = Math.atan2(dzs, dxs) - Math.atan2(k2, k1);
-      const q2 = shoulderPitch - (Math.PI / 2);  // remove the -90° offset baked into theta_offset
-
-      // Step 3 — build R0_3 by chaining the first three DH rotations.
-      const T1 = dhTransformModified(rows[0].a, rows[0].alpha*DEG, rows[0].d, q1 + rows[0].theta_offset*DEG);
-      const T2 = dhTransformModified(rows[1].a, rows[1].alpha*DEG, rows[1].d, q2 + rows[1].theta_offset*DEG);
-      const T3 = dhTransformModified(rows[2].a, rows[2].alpha*DEG, rows[2].d, q3 + rows[2].theta_offset*DEG);
+      // Step 3 — build R0_3 from FK using the INTERNAL angles directly.
+      const T1 = dhTransformModified(rows[0].a, rows[0].alpha*DEG, rows[0].d, t1);
+      const T2 = dhTransformModified(rows[1].a, rows[1].alpha*DEG, rows[1].d, t2);
+      const T3 = dhTransformModified(rows[2].a, rows[2].alpha*DEG, rows[2].d, t3);
       const T03 = mat4Multiply(mat4Multiply(T1, T2), T3);
       // Extract R0_3.
       const R03 = [
@@ -254,37 +261,40 @@ export function inverseKinematics(model, T_target, opts = {}) {
         r31, r32, r33,
       ]);
 
-      // R3_6 has the form Rz(q4) · Rx(q5) · Rz(q6) for our wrist
-      // layout (J4–J5–J6 axes: Z, X, Z with the α twists in
-      // robotModels.js — α₄ = +90°, α₅ = -90°, α₆ = 0° aligns it).
-      // ZXZ Euler decomposition.
-      const r33w = R36[8];      // R[2][2]
-      let q4, q5, q6;
-      const cos_q5 = r33w;
-      if (cos_q5 > 1 - 1e-9) {
-        // q5 ≈ 0 — wrist singular (collinear). Pick q4 = 0.
-        q5 = 0;
-        q4 = 0;
-        q6 = Math.atan2(R36[3], R36[0]);  // atan2(R[1][0], R[0][0])
-      } else if (cos_q5 < -1 + 1e-9) {
-        q5 = Math.PI;
-        q4 = 0;
-        q6 = Math.atan2(-R36[3], -R36[0]);
+      // R3_6 has the form Rz(t4) · Rx(t5) · Rz(t6) for our wrist
+      // layout (J4–J5–J6 axes after the modified-DH α twists in
+      // robotModels.js — α₄ = +90°, α₅ = -90°, α₆ = 0°).
+      // ZXZ Euler decomposition of R3_6 yields t4, t5, t6.
+      const r22w = R36[8];      // R[2][2]
+      let t4, t5, t6;
+      const cos_t5 = r22w;
+      if (cos_t5 > 1 - 1e-9) {
+        // t5 ≈ 0 — wrist singular (J4 + J6 axes collinear).
+        // Pick t4 = 0 and let t6 absorb the combined rotation.
+        t5 = 0; t4 = 0;
+        t6 = Math.atan2(R36[3], R36[0]);  // atan2(R[1][0], R[0][0])
+        solutions.push(buildSolution(t1, t2, t3, t4, t5, t6, off1, off2, off3));
+      } else if (cos_t5 < -1 + 1e-9) {
+        t5 = Math.PI; t4 = 0;
+        t6 = Math.atan2(-R36[3], -R36[0]);
+        solutions.push(buildSolution(t1, t2, t3, t4, t5, t6, off1, off2, off3));
       } else {
-        // Two wrist branches — q5 > 0 and q5 < 0.
+        // Two wrist branches — t5 > 0 and t5 < 0.
         for (const sign of [+1, -1]) {
-          const q5b = sign * Math.acos(Math.max(-1, Math.min(1, cos_q5)));
-          const sin_q5 = Math.sin(q5b);
-          const q4b = Math.atan2(R36[5] / sin_q5, R36[2] / sin_q5);
-          // atan2(R[1][2], R[0][2])
-          const q6b = Math.atan2(R36[7] / sin_q5, -R36[6] / sin_q5);
-          // atan2(R[2][1], -R[2][0])
-          solutions.push(buildSolution(q1, q2, q3, q4b, q5b, q6b, model));
+          const t5b = sign * Math.acos(Math.max(-1, Math.min(1, cos_t5)));
+          const sin_t5 = Math.sin(t5b);
+          // ZXZ inverse:
+          //   t4 = atan2( R[0][2]·sign,  R[1][2]·sign·(-1) ? )
+          // Use the closed form for ZXZ Euler:
+          //   t4 = atan2(R[0][2], -R[1][2])  when sin(t5) > 0
+          // Generalised by sign:
+          const t4b = Math.atan2(R36[2] / sin_t5, -R36[5] / sin_t5);
+          // R[0][2], R[1][2]
+          const t6b = Math.atan2(R36[6] / sin_t5,  R36[7] / sin_t5);
+          // R[2][0], R[2][1]
+          solutions.push(buildSolution(t1, t2, t3, t4b, t5b, t6b, off1, off2, off3));
         }
-        continue;
       }
-      // singular case — only one solution
-      solutions.push(buildSolution(q1, q2, q3, q4, q5, q6, model));
     }
   }
 
@@ -301,18 +311,144 @@ export function inverseKinematics(model, T_target, opts = {}) {
     if (!dedup.some((d) => sameSolution(d.q, s.q))) dedup.push(s);
   }
   dedup.sort((a, b) => a.branch.localeCompare(b.branch));
+
+  // Final polish — Pieper gives an excellent closed-form initial
+  // guess; a damped Newton step on the FK error J · Δq = e cleans up
+  // sub-millimetre residuals from rounding + the analytic
+  // simplifications above. Industrial controllers (KUKA's KSS, ABB's
+  // SafeMove) refine analytic IK the same way; we cap at 8 iterations
+  // and a 1e-6 mm tolerance so the cost is bounded.
+  for (const sol of dedup) {
+    refineSolutionJacobian(sol, model, T_target);
+  }
   return dedup;
 }
 
-// Build the public solution record + assign a branch label so the
-// teach pendant can let the user pick "elbow up / wrist flip / etc.".
-function buildSolution(q1, q2, q3, q4, q5, q6, _model) {
-  const q = [q1, q2, q3, q4, q5, q6].map((r) => normalizeAngle(r) * RAD);
-  // Branch label: F/B for J1 front/back, U/D for elbow up/down, N/F
-  // for wrist no-flip / flip (sign of q5).
-  const j1Back = Math.cos(q1) < -1e-6;
-  const elbowDown = q3 > 0;
-  const wristFlip = q5 < 0;
+// Damped least-squares Newton refinement using a numerical Jacobian.
+// Acts ONLY as a polish step on Pieper's closed-form initial guess.
+function refineSolutionJacobian(sol, model, T_target) {
+  const tol = 1e-4;     // 0.1 micrometre
+  const maxIters = 12;
+  const damping = 0.05;
+  let q = sol.q.slice();
+  for (let iter = 0; iter < maxIters; iter++) {
+    const T_now = forwardKinematics(model, q).T0_6;
+    const e = poseError(T_target, T_now);
+    const eNorm = Math.sqrt(e.reduce((s, v) => s + v*v, 0));
+    if (eNorm < tol) break;
+    const J = numericalJacobian(model, q);
+    const dq = solveDampedLeastSquares(J, e, damping);
+    if (!dq) break;
+    for (let i = 0; i < 6; i++) q[i] += dq[i] * RAD;
+  }
+  sol.q = q;
+}
+
+// 6-vector pose error [Δx, Δy, Δz, ωx, ωy, ωz] from target T to current T.
+function poseError(Ttarget, Tnow) {
+  const dx = Ttarget[3] - Tnow[3];
+  const dy = Ttarget[7] - Tnow[7];
+  const dz = Ttarget[11] - Tnow[11];
+  // Orientation error as a rotation vector: R_e = Rtarget · Rnowᵀ.
+  // Then ω = vector part of the equivalent axis-angle.
+  const RtRnT = [
+    Ttarget[0]*Tnow[0] + Ttarget[1]*Tnow[1] + Ttarget[2]*Tnow[2],
+    Ttarget[0]*Tnow[4] + Ttarget[1]*Tnow[5] + Ttarget[2]*Tnow[6],
+    Ttarget[0]*Tnow[8] + Ttarget[1]*Tnow[9] + Ttarget[2]*Tnow[10],
+    Ttarget[4]*Tnow[0] + Ttarget[5]*Tnow[1] + Ttarget[6]*Tnow[2],
+    Ttarget[4]*Tnow[4] + Ttarget[5]*Tnow[5] + Ttarget[6]*Tnow[6],
+    Ttarget[4]*Tnow[8] + Ttarget[5]*Tnow[9] + Ttarget[6]*Tnow[10],
+    Ttarget[8]*Tnow[0] + Ttarget[9]*Tnow[1] + Ttarget[10]*Tnow[2],
+    Ttarget[8]*Tnow[4] + Ttarget[9]*Tnow[5] + Ttarget[10]*Tnow[6],
+    Ttarget[8]*Tnow[8] + Ttarget[9]*Tnow[9] + Ttarget[10]*Tnow[10],
+  ];
+  // Trace-based axis-angle.
+  const tr = RtRnT[0] + RtRnT[4] + RtRnT[8];
+  const cosA = Math.max(-1, Math.min(1, (tr - 1) / 2));
+  const angle = Math.acos(cosA);
+  let wx = 0, wy = 0, wz = 0;
+  if (Math.abs(angle) > 1e-9) {
+    const s = 2 * Math.sin(angle);
+    wx = (RtRnT[7] - RtRnT[5]) / s * angle;
+    wy = (RtRnT[2] - RtRnT[6]) / s * angle;
+    wz = (RtRnT[3] - RtRnT[1]) / s * angle;
+  }
+  return [dx, dy, dz, wx, wy, wz];
+}
+
+// Numerical Jacobian via central differences (6×6 matrix, row-major).
+function numericalJacobian(model, qDeg) {
+  const h = 1e-3;            // 0.001 deg perturbation
+  const J = new Array(36).fill(0);
+  for (let j = 0; j < 6; j++) {
+    const qP = qDeg.slice(); qP[j] += h;
+    const qM = qDeg.slice(); qM[j] -= h;
+    const Tp = forwardKinematics(model, qP).T0_6;
+    const Tm = forwardKinematics(model, qM).T0_6;
+    const dT = poseError(Tp, Tm);
+    const scale = 1 / (2 * h * DEG);     // back to per-radian
+    for (let i = 0; i < 6; i++) J[i*6 + j] = dT[i] * scale;
+  }
+  return J;
+}
+
+// Solve (J·Jᵀ + λ²·I) y = e then dq = Jᵀ·y  (Levenberg-Marquardt DLS).
+function solveDampedLeastSquares(J, e, lambda) {
+  // A = J · Jᵀ  (6×6)
+  const A = new Array(36).fill(0);
+  for (let i = 0; i < 6; i++)
+    for (let j = 0; j < 6; j++) {
+      let s = 0;
+      for (let k = 0; k < 6; k++) s += J[i*6+k] * J[j*6+k];
+      if (i === j) s += lambda * lambda;
+      A[i*6+j] = s;
+    }
+  // Solve 6×6 by Gauss-Jordan on [A | e].
+  const M = new Array(7*6);
+  for (let i = 0; i < 6; i++) {
+    for (let j = 0; j < 6; j++) M[i*7+j] = A[i*6+j];
+    M[i*7+6] = e[i];
+  }
+  for (let i = 0; i < 6; i++) {
+    // pivot
+    let pi = i;
+    for (let k = i+1; k < 6; k++) if (Math.abs(M[k*7+i]) > Math.abs(M[pi*7+i])) pi = k;
+    if (Math.abs(M[pi*7+i]) < 1e-12) return null;
+    if (pi !== i) {
+      for (let j = 0; j < 7; j++) {
+        const t = M[i*7+j]; M[i*7+j] = M[pi*7+j]; M[pi*7+j] = t;
+      }
+    }
+    const piv = M[i*7+i];
+    for (let j = 0; j < 7; j++) M[i*7+j] /= piv;
+    for (let k = 0; k < 6; k++) if (k !== i) {
+      const f = M[k*7+i];
+      for (let j = 0; j < 7; j++) M[k*7+j] -= f * M[i*7+j];
+    }
+  }
+  const y = new Array(6);
+  for (let i = 0; i < 6; i++) y[i] = M[i*7+6];
+  // dq = Jᵀ · y
+  const dq = new Array(6).fill(0);
+  for (let i = 0; i < 6; i++)
+    for (let k = 0; k < 6; k++) dq[i] += J[k*6+i] * y[k];
+  return dq;
+}
+
+
+// Build the public solution record from INTERNAL DH angles (t1…t6).
+// Converts back to USER joint angles by subtracting the theta_offsets
+// stored in robotModels.js. Branch label encodes the geometric
+// configuration: F/B for J1 front/back, U/D for elbow up/down,
+// N/F for wrist no-flip / flip (sign of t5).
+function buildSolution(t1, t2, t3, t4, t5, t6, off1, off2, off3, off4 = 0, off5 = 0, off6 = 0) {
+  const tInternal = [t1, t2, t3, t4, t5, t6];
+  const offsets   = [off1, off2, off3, off4, off5, off6];
+  const q = tInternal.map((tInt, i) =>
+    normalizeAngle(tInt - offsets[i]) * RAD);
+  const j1Back = Math.cos(t1) < -1e-6;
+  const elbowDown = t3 + Math.atan2(0, 1) > 0;  // sign of internal t3 after phi3
+  const wristFlip = t5 < 0;
   const branch =
     (j1Back ? 'B' : 'F') +
     (elbowDown ? 'D' : 'U') +

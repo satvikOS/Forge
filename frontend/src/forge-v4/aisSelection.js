@@ -240,6 +240,11 @@ function entityEqual(a, b) {
 if (typeof window !== 'undefined') {
   window.__forgeSelectionApi = {
     getMode, setMode, getSelection, getHovered, clear, subscribe,
+    // E2E + DevTools drivers: route a synthetic r3f-shaped event
+    // straight through the live state machine. The viewport uses the
+    // same `onPointerOver`/`onClick` functions internally, so any
+    // assertion this surface satisfies also applies to a real mouse.
+    onPointerOver, onPointerOut, onClick, onMissed, resolvePointerEvent,
     MODES: [...MODES],
   };
   // Initial publish so consumers reading window.__forgeAisSelection

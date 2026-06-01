@@ -24,6 +24,15 @@ import {
   setOnLevelChange as lodSetOnLevelChange,
   SYNTH_SEGMENTS,
 } from './lodScheduler.js';
+// Forge-158 — drive the AIS-style selection layer from r3f pointer
+// events. The module is module-state + side-effects only (no React),
+// so this import is safe to evaluate at module load.
+import {
+  onPointerOver as aisOnPointerOver,
+  onPointerOut as aisOnPointerOut,
+  onClick      as aisOnClick,
+  onMissed     as aisOnMissed,
+} from './aisSelection.js';
 
 function ViewportFallback() {
   return (
@@ -113,6 +122,7 @@ function ViewportScene({ bundle, steps, selection, onSelect,
       camera={{ position: cameraFor(viewName), fov: 45, near: 0.1, far: 5000 }}
       gl={{ antialias: true, alpha: false, localClippingEnabled: true }}
       onCreated={({ gl }) => { gl.clippingPlanes = clippingPlanes; gl.localClippingEnabled = true; }}
+      onPointerMissed={() => aisOnMissed()}
       style={{ width: '100%', height: '100%' }}
       data-testid="forge-v4-canvas"
     >
@@ -440,18 +450,28 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
           return (
             <mesh key={m.key}
                   geometry={m.geometry}
-                  ref={(el) => { if (selectedRef) selectedRef.current = el; }}
+                  ref={(el) => {
+                    if (!el) return;
+                    if (selectedRef) selectedRef.current = el;
+                    // Forge-158 — tag the mesh with the source body so
+                    // aisSelection.resolvePointerEvent can recover bodyId
+                    // from r3f's hit.object.userData.
+                    el.userData = el.userData || {};
+                    el.userData.body = m.body;
+                    el.userData.forgeBody = m.body;
+                    el.userData.bodyId = m.body?.handle ?? m.id;
+                  }}
                   onPointerOver={(e) => {
                     e.stopPropagation();
-                    if (typeof window !== 'undefined') window.__forgeHovered = m.body;
+                    aisOnPointerOver(e);
                   }}
                   onPointerOut={(e) => {
                     e.stopPropagation();
-                    if (typeof window !== 'undefined' && window.__forgeHovered === m.body)
-                      window.__forgeHovered = null;
+                    aisOnPointerOut(e);
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
+                    aisOnClick(e);
                     onSelect?.({ kind: 'body', ids: [m.body?.handle ?? m.id] });
                   }}>
               {displayState === 'wireframe'

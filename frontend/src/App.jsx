@@ -48,6 +48,10 @@ import { ArchWorkbenchHost } from './forge-v4/ArchWorkbench.jsx';
 import { SiteHierarchyHost } from './forge-v4/SiteHierarchy.jsx';
 // Forge-152 — Industrial 6-axis robot workbench (KUKA / ABB / FANUC).
 import { RobotWorkbenchHost } from './forge-v4/RobotWorkbench.jsx';
+// Forge-154 — engineering material catalogue picker.
+import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
+// Forge-158 — AIS-style subshape selection highlight overlay.
+import { SelectionHighlightHost } from './forge-v4/SelectionHighlight.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -111,6 +115,8 @@ function App() {
       <ArchWorkbenchHost />
       <SiteHierarchyHost />
       <RobotWorkbenchHost />
+      <MaterialPickerHost />
+      <SelectionHighlightHost />
     </ViewportEnvironmentProvider>
   );
 }
