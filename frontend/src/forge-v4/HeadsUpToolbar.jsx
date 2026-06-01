@@ -9,18 +9,19 @@ import { Icon } from './icons/Icon.jsx';
 import { Tooltip } from './Tooltip.jsx';
 
 const HUT_TOOLS = [
-  { id: 'view.zoomFit',    label: 'Zoom fit',     icon: 'view.zoom_fit', hint: 'F' },
-  { id: 'view.iso',        label: 'Iso',          icon: 'view.iso',      hint: '1' },
+  { id: 'view.center',     label: 'Centre on origin', icon: 'view.home',     hint: 'H' },
+  { id: 'view.zoomFit',    label: 'Zoom fit',         icon: 'view.zoom_fit', hint: 'F' },
+  { id: 'view.iso',        label: 'Iso',              icon: 'view.iso',      hint: '1' },
   { sep: true, id: 's1' },
-  { id: 'view.shaded',     label: 'Shaded',       icon: 'view.shaded' },
-  { id: 'view.wireframe',  label: 'Wireframe',    icon: 'view.wireframe' },
-  { id: 'view.section',    label: 'Section',      icon: 'view.section' },
+  { id: 'view.shaded',     label: 'Shaded',           icon: 'view.shaded' },
+  { id: 'view.wireframe',  label: 'Wireframe',        icon: 'view.wireframe' },
+  { id: 'view.section',    label: 'Section',          icon: 'view.section' },
   { sep: true, id: 's2' },
-  { id: 'gizmo.translate', label: 'Move (T)',     icon: 'sketch.line',     hint: 'T' },
-  { id: 'gizmo.rotate',    label: 'Rotate (R)',   icon: 'edit.redo',       hint: 'R' },
-  { id: 'gizmo.scale',     label: 'Scale (Y)',    icon: 'misc.expand_r',   hint: 'Y' },
+  { id: 'gizmo.translate', label: 'Move (T)',         icon: 'gizmo.translate', hint: 'T' },
+  { id: 'gizmo.rotate',    label: 'Rotate (R)',       icon: 'gizmo.rotate',    hint: 'R' },
+  { id: 'gizmo.scale',     label: 'Scale (Y)',        icon: 'gizmo.scale',     hint: 'Y' },
   { sep: true, id: 's3' },
-  { id: 'view.normalTo',   label: 'Normal to',    icon: 'misc.expand_r' },
+  { id: 'view.normalTo',   label: 'Normal to face',   icon: 'view.normalTo' },
 ];
 
 export function HeadsUpToolbar({ activeDisplay = 'shaded', activeGizmo = null, onAction }) {

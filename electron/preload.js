@@ -441,6 +441,14 @@ const forgeApi = {
     check: () => ipcRenderer.send('updater:check'),
   },
 
+  // Forge-87 — native file dialog bridge for STEP/IGES/STL/BREP I/O.
+  // Renderer asks main to show a system file picker, gets a path back, then
+  // the renderer calls `forge.io.importStep(path)` against that path.
+  dialog: {
+    openFile: (opts) => ipcRenderer.invoke('io:openDialog', opts || {}),
+    saveFile: (opts) => ipcRenderer.invoke('io:saveDialog', opts || {}),
+  },
+
   // weldments authoring (Forge-24) — structural members, end caps, gussets,
   // weld beads, member trims, BOM cut list.
   weldments: kernel && kernel.weldments ? {
@@ -462,5 +470,9 @@ if (kernel) {
   contextBridge.exposeInMainWorld('forge', {
     isReady: () => false,
     loadError: () => loadError,
+    dialog: {
+      openFile: (opts) => ipcRenderer.invoke('io:openDialog', opts || {}),
+      saveFile: (opts) => ipcRenderer.invoke('io:saveDialog', opts || {}),
+    },
   });
 }

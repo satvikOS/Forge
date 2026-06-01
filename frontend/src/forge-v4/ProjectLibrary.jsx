@@ -46,10 +46,10 @@ const LIB = {
   },
   springs: {
     label: 'Springs',
-    icon: 'misc.expand_r',
+    icon: 'pattern.spring',
     items: [
-      { id: 'comp-12x60',  label: 'Compression Ø12 × 60', icon: 'misc.expand_r', spec: { kind: 'spring', shape: 'compression', d: 12, length: 60 } },
-      { id: 'ext-10x40',   label: 'Extension Ø10 × 40',   icon: 'misc.expand_r', spec: { kind: 'spring', shape: 'extension', d: 10, length: 40 } },
+      { id: 'comp-12x60',  label: 'Compression Ø12 × 60', icon: 'pattern.spring', spec: { kind: 'spring', shape: 'compression', d: 12, length: 60 } },
+      { id: 'ext-10x40',   label: 'Extension Ø10 × 40',   icon: 'pattern.spring', spec: { kind: 'spring', shape: 'extension', d: 10, length: 40 } },
     ],
   },
   pipe: {

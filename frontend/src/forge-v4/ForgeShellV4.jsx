@@ -28,6 +28,11 @@ import { EquationManager } from './EquationManager.jsx';
 import { TopologyInspector } from './TopologyInspector.jsx';
 import { PreviewPanels } from './PreviewPanels.jsx';
 import { UpdateBanner } from './UpdateBanner.jsx';
+import { dispatchTool } from './kernelDispatch.js';
+import * as Sketch from './sketchSession.js';
+import { massProps, distance, angle, meshArea, meshBounds, detectInterference } from './measureDispatch.js';
+import { ConfigurationsPanel, pushHistory } from './ConfigurationsPanel.jsx';
+import { ExplodedView, WalkthroughPanel } from './ExplodedViewController.jsx';
 
 const STORAGE = 'forge.v4';
 const stored = {
@@ -53,6 +58,49 @@ export function ForgeShellV4() {
   const [running, setRunning]         = useState(false);
   const [featureTree, setFeatureTree] = useState([]);
   const [activeFeatureId, setActiveFeatureId] = useState(null);
+  // Forge-83 — body registry. Each entry is { id, kind:'native'|'synthetic',
+  // handle?, spec?, params, toolId, name }. SceneMeshes turns these into
+  // THREE meshes either via window.forge.tessellate or via the synthetic
+  // geometry builder.
+  const [bodies, setBodies] = useState([]);
+  // Forge-85 — currentSketch state (a live sketcher session) and a counter
+  // bumped on every entity add so viewport overlays re-render. When null,
+  // sketch.* tools no-op with a toast asking the user to start a sketch first.
+  const [currentSketch, setCurrentSketch] = useState(null);
+  const [sketchRev, setSketchRev] = useState(0);
+  const bumpSketch = () => setSketchRev((n) => n + 1);
+
+  // Forge-98 — history-aware regen. Takes a feature tree and re-dispatches
+  // every node's tool through kernelDispatch in topological order, returning
+  // a fresh bodies array. Used after the user edits a feature mid-tree.
+  function regenerate(tree) {
+    let prevBody = null;
+    const next = [];
+    for (const f of tree) {
+      if (!f.params || !f.icon) continue;
+      const toolId = f.toolId || guessToolFromIcon(f.icon);
+      if (!toolId) continue;
+      const ctx = {
+        lastBody: prevBody?.kind === 'native' ? prevBody.handle : null,
+        selectedBodies: prevBody?.kind === 'native' ? [prevBody.handle] : null,
+        currentSketch: currentSketch?.kernel ?? null,
+      };
+      const r = dispatchTool(toolId, f.params, ctx);
+      if (r.kind === 'native') {
+        const body = { id: f.id, kind: 'native', handle: r.handle, toolId, params: f.params, name: f.label };
+        next.push(body); prevBody = body;
+      } else if (r.kind === 'synthetic') {
+        const body = { id: f.id, kind: 'synthetic', spec: r.spec, toolId, params: f.params, name: f.label };
+        next.push(body); prevBody = body;
+      }
+    }
+    return next;
+  }
+  function guessToolFromIcon(icon) {
+    // Many feature nodes don't store their toolId; infer from the icon name.
+    if (typeof icon !== 'string') return null;
+    return icon.includes('.') ? icon : null;
+  }
   const [viewName, setViewName] = useState('iso');
   const [displayState, setDisplayState] = useState('shaded');
   const [gizmoMode, setGizmoMode] = useState(null);
@@ -63,6 +111,11 @@ export function ForgeShellV4() {
   const [equationsOpen, setEquationsOpen] = useState(false);
   const [topologyOpen, setTopologyOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [centerToken, setCenterToken] = useState(0);
+  const [configsOpen, setConfigsOpen] = useState(false);
+  const [explodeOpen, setExplodeOpen] = useState(false);
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false);
+  const [explodeOffsets, setExplodeOffsets] = useState({});
   const [previewTab, setPreviewTab] = useState(() => stored.get('previewTab', 'drawing'));
   useEffect(() => { stored.set('previewTab', previewTab); }, [previewTab]);
   const cmdRef = useRef(null);
@@ -75,6 +128,8 @@ export function ForgeShellV4() {
     stored.set('theme', theme);
   }, [theme]);
   useEffect(() => { stored.set('wb', activeWb); }, [activeWb]);
+  // Forge-95 — snapshot every feature-tree change to the history log.
+  useEffect(() => { if (featureTree.length) pushHistory(featureTree); }, [featureTree]);
 
   // Cmd+K → focus cmd bar; Cmd+/ toggle dock; Cmd+T cycle theme.
   useEffect(() => {
@@ -112,6 +167,10 @@ export function ForgeShellV4() {
         setGizmoMode((m) => m === 'scale' ? null : 'scale');
       } else if (meta && e.key.toLowerCase() === 'p') {
         e.preventDefault(); setPreviewOpen((v) => !v);
+      } else if (!meta && e.key.toLowerCase() === 'h' &&
+                 document.activeElement?.tagName !== 'INPUT' &&
+                 document.activeElement?.tagName !== 'TEXTAREA') {
+        setCenterToken((n) => n + 1);
       } else if (!meta && e.key === 'Escape') {
         setActiveTool(null);
         setBodyCtxMenu(null);
@@ -215,6 +274,7 @@ export function ForgeShellV4() {
         return;
       case 'file.new':
         setFeatureTree([]); setActiveFeatureId(null);
+        setBodies([]);
         setSelection({ kind: 'none', ids: [] });
         showToast({ kind: 'ok', text: 'New project · all features cleared', ttl: 1500 });
         return;
@@ -252,16 +312,94 @@ export function ForgeShellV4() {
         return;
       case 'file.importStep': case 'file.importIges':
       case 'file.importBrep': case 'file.importStl':
-        showToast({ kind: 'info',
-          text: `${id.replace('file.import', 'Import ').toUpperCase()} via window.forge.io (requires native kernel build)`,
-          ttl: 2500 });
+      case 'file.importJt':   case 'file.importParasolid': {
+        const ext = id.replace('file.import', '').toLowerCase();
+        const filters = {
+          step: [{ name: 'STEP', extensions: ['step','stp'] }],
+          iges: [{ name: 'IGES', extensions: ['iges','igs'] }],
+          brep: [{ name: 'BREP', extensions: ['brep','brp'] }],
+          stl:  [{ name: 'STL',  extensions: ['stl'] }],
+          jt:   [{ name: 'JT',   extensions: ['jt'] }],
+          parasolid: [{ name: 'Parasolid', extensions: ['x_t','x_b'] }],
+        }[ext];
+        (async () => {
+          try {
+            const fp = await window.forge?.dialog?.openFile?.({
+              title: `Import ${ext.toUpperCase()}`, filters });
+            if (!fp) return;
+            const io = window.forge?.io;
+            if (!io) {
+              showToast({ kind: 'err', text: 'I/O bridge not loaded', ttl: 2000 });
+              return;
+            }
+            const fn = {
+              step: io.importStep, iges: io.importIges, brep: io.importBrep,
+              stl: io.importStl, jt: io.importJt, parasolid: io.importParasolid,
+            }[ext];
+            const h = fn(fp);
+            const nextId = `imp-${bodies.length}`;
+            setBodies((b) => [...b, {
+              id: nextId, kind: 'native', handle: h,
+              toolId: id, params: { path: fp }, name: `Imported ${ext.toUpperCase()}`,
+            }]);
+            setFeatureTree((t) => [...t, {
+              id: nextId, label: `Import ${ext.toUpperCase()} ${bodies.length + 1}`,
+              icon: `io.${ext === 'parasolid' ? 'brep' : (ext === 'jt' ? 'step' : ext)}`,
+              params: { path: fp },
+            }]);
+            showToast({ kind: 'ok',
+              text: `${ext.toUpperCase()} imported · handle ${h}`, ttl: 1800 });
+          } catch (err) {
+            showToast({ kind: 'err', text: `Import failed: ${err.message}`, ttl: 2500 });
+          }
+        })();
         return;
+      }
       case 'file.exportStep': case 'file.exportIges':
-      case 'file.exportStl':  case 'file.exportBrep':
+      case 'file.exportStl':  case 'file.exportBrep': {
+        const ext = id.replace('file.export', '').toLowerCase();
+        const filters = {
+          step: [{ name: 'STEP', extensions: ['step'] }],
+          iges: [{ name: 'IGES', extensions: ['iges'] }],
+          stl:  [{ name: 'STL',  extensions: ['stl'] }],
+          brep: [{ name: 'BREP', extensions: ['brep'] }],
+        }[ext];
+        const lastBody = bodies.length ? bodies[bodies.length - 1] : null;
+        if (!lastBody || lastBody.kind !== 'native') {
+          showToast({ kind: 'warn',
+            text: 'Export requires at least one kernel body — none in scene', ttl: 2200 });
+          return;
+        }
+        (async () => {
+          try {
+            const fp = await window.forge?.dialog?.saveFile?.({
+              title: `Export ${ext.toUpperCase()}`,
+              defaultPath: `forge.${ext}`, filters });
+            if (!fp) return;
+            const io = window.forge?.io;
+            if (!io) {
+              showToast({ kind: 'err', text: 'I/O bridge not loaded', ttl: 2000 });
+              return;
+            }
+            const fn = {
+              step: io.exportStep, iges: () => { throw new Error('IGES export pending kernel'); },
+              stl: io.exportStl, brep: io.exportBrep,
+            }[ext];
+            const r = (ext === 'stl') ? fn(lastBody.handle, fp, 0.1, 0.5, false) : fn(lastBody.handle, fp);
+            showToast({ kind: 'ok',
+              text: `${ext.toUpperCase()} exported · ${fp}`, ttl: 2200 });
+            if (r === false) {
+              showToast({ kind: 'warn', text: `Export returned false — check kernel logs`, ttl: 2200 });
+            }
+          } catch (err) {
+            showToast({ kind: 'err', text: `Export failed: ${err.message}`, ttl: 2500 });
+          }
+        })();
+        return;
+      }
       case 'file.exportPdf':
         showToast({ kind: 'info',
-          text: `${id.replace('file.export', 'Export ').toUpperCase()} via window.forge.io (requires native kernel build)`,
-          ttl: 2500 });
+          text: 'PDF export available from the Drawings workbench (Forge-90)', ttl: 2500 });
         return;
       case 'edit.copy':
         if (selection?.ids?.length) {
@@ -313,13 +451,85 @@ export function ForgeShellV4() {
         showToast({ kind: 'info', text: 'Filter · Bodies', ttl: 1200 });
         return;
       case 'tools.measure':
-        setActiveTool('measure.distance');
-        showToast({ kind: 'info', text: 'Measure: click two entities in viewport', ttl: 2000 });
+      case 'measure.mass': {
+        // Compute real mass props for the last body (or selected body if a
+        // native handle is in selection). No placeholder values — when there
+        // is no native body, we tell the user.
+        const target = selection?.kind === 'body' && selection.ids?.length
+          ? bodies.find((b) => b.handle === selection.ids[0])
+          : bodies.findLast?.((b) => b.kind === 'native') || null;
+        if (!target || target.kind !== 'native') {
+          showToast({ kind: 'warn',
+            text: 'Mass props require a kernel body — none selected', ttl: 2200 });
+          return;
+        }
+        const r = massProps(target.handle);
+        if (!r.ok) {
+          showToast({ kind: 'err', text: r.error, ttl: 2500 });
+          return;
+        }
+        showToast({ kind: 'ok',
+          text: `Mass ${r.mass_g.toFixed(2)} g · V ${r.volume_mm3.toFixed(0)} mm³ · A ${r.surface_mm2.toFixed(0)} mm² · CG (${r.centroid.map((v) => v.toFixed(1)).join(', ')})`,
+          ttl: 4500 });
         return;
+      }
+      case 'measure.distance': {
+        if (!Array.isArray(selection?.ids) || selection.ids.length < 2) {
+          showToast({ kind: 'info',
+            text: 'Distance: select 2 bodies (Cmd-click in feature tree)', ttl: 2400 });
+          setActiveTool('measure.distance');
+          return;
+        }
+        const [a, b] = selection.ids.map((id) => bodies.find((x) => x.handle === id || x.id === id));
+        if (!a || !b) {
+          showToast({ kind: 'warn', text: 'Pick valid bodies first', ttl: 2000 });
+          return;
+        }
+        const ca = a.kind === 'native' ? massProps(a.handle)?.centroid : [0, 0, 0];
+        const cb = b.kind === 'native' ? massProps(b.handle)?.centroid : [0, 0, 0];
+        const d = distance(ca, cb);
+        showToast({ kind: 'ok',
+          text: `Distance ${d.toFixed(3)} mm (centroid-to-centroid)`, ttl: 3500 });
+        return;
+      }
+      case 'measure.area': {
+        const target = selection?.kind === 'body' && selection.ids?.length
+          ? bodies.find((b) => b.handle === selection.ids[0])
+          : bodies.findLast?.((b) => b.kind === 'native') || null;
+        if (!target || target.kind !== 'native') {
+          showToast({ kind: 'warn', text: 'Area: select a body first', ttl: 2200 });
+          return;
+        }
+        const r = massProps(target.handle);
+        showToast({ kind: 'ok',
+          text: r.ok ? `Surface area ${r.surface_mm2.toFixed(2)} mm²` : `Area: ${r.error}`,
+          ttl: 3500 });
+        return;
+      }
+      case 'measure.angle': {
+        showToast({ kind: 'info',
+          text: 'Angle measurement: pick two faces or edges in viewport (Forge-88b)',
+          ttl: 2200 });
+        setActiveTool('measure.angle');
+        return;
+      }
       case 'tools.interfere':
-        setActiveTool('measure.interfere');
-        showToast({ kind: 'info', text: 'Interference: pick body A and B', ttl: 2000 });
+      case 'measure.interfere': {
+        const handles = bodies.filter((b) => b.kind === 'native').map((b) => b.handle);
+        if (handles.length < 2) {
+          showToast({ kind: 'warn', text: 'Interference: requires ≥ 2 kernel bodies', ttl: 2200 });
+          return;
+        }
+        const r = detectInterference(handles, 0.01);
+        if (!r.ok) {
+          showToast({ kind: 'err', text: r.error, ttl: 2500 });
+          return;
+        }
+        const n = (r.pairs || []).length;
+        showToast({ kind: n ? 'warn' : 'ok',
+          text: `Interference scan · ${n} colliding pair(s)`, ttl: 3000 });
         return;
+      }
       case 'tools.shortcuts':
         setHelpOpen(true);
         showToast({ kind: 'info', text: 'See Shortcuts tab', ttl: 1500 });
@@ -349,16 +559,21 @@ export function ForgeShellV4() {
         showToast({ kind: 'info', text: 'Gizmo · Scale', ttl: 1200 });
         return;
       case 'view.zoomFit':
-        pushThread({ role: 'archie', text: 'Zoom-fit dispatched (OrbitControls reset to default).' });
+        setCenterToken((n) => n + 1);
+        showToast({ kind: 'info', text: 'Zoom fit · re-centred on origin', ttl: 1200 });
+        return;
+      case 'view.center':
+        setCenterToken((n) => n + 1);
+        showToast({ kind: 'info', text: 'Camera centred on origin (0,0,0)', ttl: 1200 });
         return;
       case 'edit.undo':
         setFeatureTree((t) => t.slice(0, -1));
-        pushThread({ role: 'archie', text: 'Undo.' });
+        showToast({ kind: 'info', text: 'Undo · last feature removed', ttl: 1200 });
         return;
       case 'edit.selectNone':
         setSelection({ kind: 'none', ids: [] }); return;
       case 'file.settings': case 'tools.settings':
-        pushThread({ role: 'archie', text: 'Settings overlay opens in Forge-69.' });
+        showToast({ kind: 'info', text: 'Settings panel (Forge-90)', ttl: 1500 });
         return;
       case 'file.quit':
         if (typeof window !== 'undefined' && window.forge && window.forge.app?.quit) {
@@ -369,6 +584,28 @@ export function ForgeShellV4() {
         cmdRef.current?.focus(); return;
       case 'tools.library':
         setLibraryOpen(true); return;
+      case 'tools.configurations':
+        setConfigsOpen(true); return;
+      case 'tools.explode':
+        setExplodeOpen(true); return;
+      case 'tools.walkthrough':
+        setWalkthroughOpen(true); return;
+      case 'tools.directEdit':
+        window.__forgeOpenDirectEdit?.(true);
+        return;
+      case 'tools.heal':
+        window.__forgeOpenHeal?.(true);
+        return;
+      case 'tools.surfacing':
+        window.__forgeOpenSurfacing?.(true);
+        return;
+      case 'tools.standardParts':
+        window.__forgeOpenStandardParts?.(true);
+        return;
+      case 'tools.cam':
+      case 'workbench.mfg':
+        window.__forgeOpenCam?.({ bodies });
+        return;
       case 'tools.equations':
         setEquationsOpen(true); return;
       case 'tools.topology':
@@ -377,21 +614,38 @@ export function ForgeShellV4() {
         setHelpOpen(true); return;
       case 'help.shortcuts':
         setHelpOpen(true); return;
-      case 'sketch.new':
+      case 'sketch.new': {
+        const next = Sketch.openSession('XY');
+        setCurrentSketch(next);
         setSketchActive(true);
         setActiveTool('sketch.new');
+        showToast({ kind: 'ok',
+          text: `Sketch opened on ${next.plane} plane (kernel handle ${next.kernel ?? 'n/a'})`,
+          ttl: 1500 });
         return;
-      case 'sketch.finish':
+      }
+      case 'sketch.finish': {
+        if (currentSketch) {
+          const status = Sketch.solveSession(currentSketch);
+          showToast({
+            kind: status === 'solved' ? 'ok' : 'warn',
+            text: `Sketch ${status} · ${currentSketch.edges.length} entities · ${currentSketch.constraints.length} constraints · DOF ${Sketch.dof(currentSketch)}`,
+            ttl: 2200,
+          });
+        }
         setSketchActive(false);
-        showToast({ kind: 'ok', text: 'Sketch finished', ttl: 1500 });
         return;
+      }
       case 'help.about':
-        pushThread({ role: 'archie', text: 'Forge v0.4.0 — Archie-first parametric MCAD on OCCT. Built by satvikOS. Original visual IP — no infringement on CATIA / NX / SolidWorks / Creo / AutoCAD.' });
-        setDockOpen(true);
+        showToast({ kind: 'info',
+          text: 'Forge v0.4.0 — Archie-first parametric MCAD. Built by satvikOS.',
+          ttl: 4000 });
         return;
       default:
-        pushThread({ role: 'archie', text: `${id} (wired in a follow-up).` });
-        setDockOpen(true);
+        // Manual UI clicks NEVER post to Archie's thread. Archie's console
+        // is the only entry point to Archie. Unwired tools fail silently
+        // with a small toast so the user sees we received the click.
+        showToast({ kind: 'warn', text: `${id} · not wired yet`, ttl: 1500 });
     }
   }
 
@@ -423,13 +677,17 @@ export function ForgeShellV4() {
              e.preventDefault();
              setBodyCtxMenu({ x: e.clientX, y: e.clientY });
            }}>
-        <Viewport steps={[]}
+        <Viewport steps={bodies}
                   selection={selection}
                   onSelect={setSelection}
                   viewName={viewName}
                   displayState={displayState}
                   activeWb={activeWb}
+                  theme={theme}
                   gizmoMode={gizmoMode}
+                  centerToken={centerToken}
+                  sketchOverlay={currentSketch && sketchRev >= 0
+                    ? Sketch.entityWorldGeometry(currentSketch) : null}
                   onGizmoChange={(obj) => {
                     if (obj) showToast({ kind: 'info',
                       text: `${gizmoMode}: x=${obj.position.x.toFixed(1)} y=${obj.position.y.toFixed(1)} z=${obj.position.z.toFixed(1)}`,
@@ -502,11 +760,21 @@ export function ForgeShellV4() {
                          });
                        }}
                        onToggleSuppress={(id) => {
-                         setFeatureTree((arr) => arr.map((n) =>
-                           n.id === id ? { ...n, suppressed: !n.suppressed } : n));
+                         setFeatureTree((arr) => {
+                           const next = arr.map((n) =>
+                             n.id === id ? { ...n, suppressed: !n.suppressed } : n);
+                           // Forge-98 — regen downstream bodies, dropping suppressed ones.
+                           const live = next.filter((n) => !n.suppressed);
+                           setBodies(regenerate(live));
+                           return next;
+                         });
                        }}
                        onDeleteFeature={(id) => {
-                         setFeatureTree((arr) => arr.filter((n) => n.id !== id));
+                         setFeatureTree((arr) => {
+                           const next = arr.filter((n) => n.id !== id);
+                           setBodies(regenerate(next));
+                           return next;
+                         });
                          if (activeFeatureId === id) setActiveFeatureId(null);
                        }}
                        onRenameFeature={(id, label) => {
@@ -532,20 +800,113 @@ export function ForgeShellV4() {
                          onClose={() => setTopologyOpen(false)}
                          selection={selection}
                          onSelect={setSelection} />
+      <ExplodedView open={explodeOpen}
+                    onClose={() => setExplodeOpen(false)}
+                    bodies={bodies}
+                    onExplodeChange={setExplodeOffsets} />
+      <WalkthroughPanel open={walkthroughOpen}
+                        onClose={() => setWalkthroughOpen(false)}
+                        onPlayFrame={({ pos, target }) => {
+                          // re-centre camera on next centerToken bump path
+                          window.__forgeWalk = { pos, target };
+                        }} />
+      <ConfigurationsPanel open={configsOpen}
+                           onClose={() => setConfigsOpen(false)}
+                           featureTree={featureTree}
+                           onApply={(nextTree) => {
+                             setFeatureTree(nextTree);
+                             setBodies(regenerate(nextTree.filter((n) => !n.suppressed)));
+                           }} />
       <ToolParamDialog activeTool={activeTool}
                        selection={selection}
                        onConfirm={(tool, params) => {
                          const nextId = `f-${featureTree.length}`;
+                         const title = schemaFor(tool)?.title || tool;
+                         // Forge-85 — sketch.* tools route to the active session,
+                         // not the body dispatch. Tools mutate `currentSketch` and
+                         // append a feature node so the user sees their entity in
+                         // the tree, but produce no body.
+                         if (tool.startsWith('sketch.') && currentSketch) {
+                           if (tool === 'sketch.line')
+                             Sketch.addLine(currentSketch, params.p0?.[0] ?? 0, params.p0?.[1] ?? 0,
+                                            params.p1?.[0] ?? 10, params.p1?.[1] ?? 0);
+                           else if (tool === 'sketch.rect')
+                             Sketch.addRect(currentSketch, params.center?.[0] ?? 0, params.center?.[1] ?? 0,
+                                            params.width ?? 20, params.height ?? 20);
+                           else if (tool === 'sketch.circle')
+                             Sketch.addCircle(currentSketch, params.center?.[0] ?? 0, params.center?.[1] ?? 0,
+                                              params.radius ?? 10);
+                           else if (tool === 'sketch.arc')
+                             Sketch.addArc(currentSketch, params.center?.[0] ?? 0, params.center?.[1] ?? 0,
+                                           (params.center?.[0] ?? 0) + (params.radius ?? 10), params.center?.[1] ?? 0,
+                                           params.center?.[0] ?? 0, (params.center?.[1] ?? 0) + (params.radius ?? 10));
+                           else if (tool === 'sketch.polygon')
+                             Sketch.addPolygon(currentSketch, params.center?.[0] ?? 0, params.center?.[1] ?? 0,
+                                               params.sides ?? 6, params.radius ?? 10);
+                           else if (tool === 'sketch.dim')
+                             Sketch.addConstraint(currentSketch, 'Distance', [], params.value ?? 10);
+                           else if (tool === 'sketch.constrain')
+                             Sketch.addConstraint(currentSketch, params.kind ?? 'Coincident', [], null);
+                           bumpSketch();
+                           setFeatureTree((t) => [...t, {
+                             id: nextId, label: `${title} ${featureTree.length + 1}`,
+                             icon: toolsForWorkbench(activeWb).flatMap((g) => g.tools).find((tt) => tt.id === tool)?.icon || 'sketch.point',
+                             params,
+                           }]);
+                           setActiveFeatureId(nextId);
+                           setActiveTool(null);
+                           showToast({ kind: 'ok',
+                             text: `${title} · ${currentSketch.edges.length} entities · DOF ${Sketch.dof(currentSketch)}`,
+                             ttl: 1500 });
+                           return;
+                         }
+                         if (tool.startsWith('sketch.') && !currentSketch) {
+                           showToast({ kind: 'warn',
+                             text: 'Open a sketch first (Sketch · New)',
+                             ttl: 1800 });
+                           setActiveTool(null);
+                           return;
+                         }
+                         // Resolve selection IDs → actual kernel handles so
+                         // selection-aware ops (fillet/chamfer/bool) receive
+                         // real OCCT handles rather than bookkeeping ids.
+                         const selHandles = selection?.kind === 'body'
+                           ? (selection.ids || []).map((id) => {
+                               const b = bodies.find((x) => x.handle === id || x.id === id);
+                               return b && b.kind === 'native' ? b.handle : null;
+                             }).filter((h) => typeof h === 'number')
+                           : null;
+                         const lastNative = [...bodies].reverse().find((b) => b.kind === 'native');
+                         const ctx = {
+                           lastBody: lastNative ? lastNative.handle : null,
+                           selectedBodies: selHandles?.length ? selHandles : null,
+                           currentSketch: currentSketch?.kernel ?? null,
+                         };
+                         const r = dispatchTool(tool, params, ctx);
                          setFeatureTree((t) => [...t, {
                            id: nextId,
-                           label: (schemaFor(tool)?.title || tool) + ' ' + (featureTree.length + 1),
+                           label: `${title} ${featureTree.length + 1}`,
                            icon: toolsForWorkbench(activeWb).flatMap((g) => g.tools).find((tt) => tt.id === tool)?.icon || 'sketch.point',
                            params,
                          }]);
+                         if (r.kind === 'native') {
+                           setBodies((b) => [...b, {
+                             id: nextId, kind: 'native', handle: r.handle,
+                             toolId: tool, params, name: title,
+                           }]);
+                         } else if (r.kind === 'synthetic') {
+                           setBodies((b) => [...b, {
+                             id: nextId, kind: 'synthetic', spec: r.spec,
+                             toolId: tool, params, name: title,
+                           }]);
+                         }
                          setActiveFeatureId(nextId);
                          setActiveTool(null);
                          showToast({ kind: 'ok',
-                           text: `${schemaFor(tool)?.title || tool} applied`, ttl: 1500 });
+                           text: r.kind === 'noop'
+                             ? `${title} · annotation added`
+                             : `${title} · body added (${r.kind})`,
+                           ttl: 1500 });
                        }}
                        onCancel={() => { setActiveTool(null); }} />
     </div>

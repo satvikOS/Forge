@@ -17,7 +17,7 @@ function itemsFor(selection) {
       { divider: true },
       { id: 'pattern',    label: 'Pattern…',        icon: 'pattern.linear' },
       { id: 'mirror',     label: 'Mirror…',         icon: 'pattern.mirror' },
-      { id: 'transform',  label: 'Transform…',      icon: 'sketch.line' },
+      { id: 'transform',  label: 'Transform…',      icon: 'gizmo.transform' },
       { divider: true },
       { id: 'appearance', label: 'Appearance…',     icon: 'misc.theme' },
       { id: 'material',   label: 'Material…',       icon: 'measure.mass' },
@@ -34,7 +34,7 @@ function itemsFor(selection) {
       { id: 'delete',     label: 'Delete face & heal', icon: 'edit.delete' },
       { divider: true },
       { id: 'sketch',     label: 'Sketch on face',  icon: 'sketch.rect' },
-      { id: 'normalTo',   label: 'Normal to',       icon: 'misc.expand_r' },
+      { id: 'normalTo',   label: 'Normal to',       icon: 'view.normalTo' },
     ];
   }
   if (selection?.kind === 'edge') {

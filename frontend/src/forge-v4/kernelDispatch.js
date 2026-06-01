@@ -1,0 +1,429 @@
+// Forge-83 — kernel dispatch.
+//
+// Maps a v4 tool id + the user's parameter map to the appropriate
+// window.forge.* call. Returns { ok, handle?, message } so the shell can
+// append a new body (with handle) to the bodies state and route it into
+// SceneMeshes for tessellation + render.
+//
+// When window.forge isn't ready (dev shell without the native addon),
+// we synthesise a `synthetic: true` body whose THREE.BufferGeometry is
+// produced from primitives so the user still sees geometry in the
+// viewport. This is what unblocks the "I clicked Extrude but nothing
+// happened" problem.
+
+const MM = (v, d) => (typeof v === 'number' && Number.isFinite(v)) ? v : d;
+const VEC3 = (v, d = [0,0,0]) => (Array.isArray(v) && v.length === 3) ? v : d;
+
+function kernelReady() {
+  return typeof window !== 'undefined' && window.forge &&
+         typeof window.forge.isReady === 'function' &&
+         window.forge.isReady();
+}
+
+// Resolve the operating-on body. Prefer the first item in
+// ctx.selectedBodies (user-picked), fall back to ctx.lastBody (most
+// recently created).
+function pickTarget(ctx) {
+  const sel = ctx?.selectedBodies;
+  if (Array.isArray(sel) && sel.length && typeof sel[0] === 'number') return sel[0];
+  if (typeof ctx?.lastBody === 'number') return ctx.lastBody;
+  return null;
+}
+
+// Best-effort native dispatch. Returns null if the op isn't supported
+// natively; the caller then falls back to the synthetic path.
+function callNative(toolId, p, ctx) {
+  const f = window.forge;
+  try {
+    switch (toolId) {
+      // ----- primitive-ish: turn schema params into the closest native call -----
+      case 'solid.extrude': {
+        if (ctx?.currentSketch != null && f.part?.extrudeProfile) {
+          const dir = (p.direction || '').startsWith('Down') ? 'Z-' : 'Z+';
+          return f.part.extrudeProfile(ctx.currentSketch, MM(p.distance, 25), dir);
+        }
+        if (f.makeBox) return f.makeBox(MM(p.width, 20), MM(p.height, 20), MM(p.distance, 25));
+        return null;
+      }
+      case 'solid.revolve': {
+        if (ctx?.currentSketch != null && f.part?.revolveProfile) {
+          return f.part.revolveProfile(ctx.currentSketch, [0,0,0], [0,1,0], (MM(p.angle, 360) * Math.PI) / 180);
+        }
+        if (f.makeCylinder) return f.makeCylinder(MM(p.radius, 10), MM(p.height, 25));
+        return null;
+      }
+      case 'solid.sweep': {
+        if (ctx?.currentSketch != null && ctx?.pathSketch != null && f.part?.sweep) {
+          return f.part.sweep(ctx.currentSketch, ctx.pathSketch, false);
+        }
+        if (f.makeTorus) return f.makeTorus(MM(p.R, 20), MM(p.r, 4));
+        return null;
+      }
+      case 'solid.loft': {
+        if (Array.isArray(ctx?.sectionSketches) && ctx.sectionSketches.length >= 2 && f.part?.loft) {
+          return f.part.loft(ctx.sectionSketches, [], false, false);
+        }
+        if (f.makeTorus) return f.makeTorus(MM(p.R, 20), MM(p.r, 4));
+        return null;
+      }
+      case 'solid.shell': {
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.shell) {
+          const faceIds = Array.isArray(p.faceIds) ? p.faceIds : [];
+          return f.part.shell(target, faceIds, MM(p.thickness, 2), null);
+        }
+        return null;
+      }
+      case 'solid.fillet': {
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.filletEdges) {
+          const edgeIds = Array.isArray(p.edgeIds) ? p.edgeIds :
+                          (Array.isArray(ctx?.selectedEdges) ? ctx.selectedEdges : []);
+          return f.part.filletEdges(target, edgeIds, MM(p.radius, 2));
+        }
+        return null;
+      }
+      case 'solid.chamfer': {
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.chamferEdges) {
+          const edgeIds = Array.isArray(p.edgeIds) ? p.edgeIds :
+                          (Array.isArray(ctx?.selectedEdges) ? ctx.selectedEdges : []);
+          return f.part.chamferEdges(target, edgeIds, MM(p.distance, 2), MM(p.distance2, 2));
+        }
+        return null;
+      }
+      case 'solid.hole': {
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.holeWizard) {
+          const position = Array.isArray(p.position) ? p.position : [0, 0, 0];
+          const axis = Array.isArray(p.axis) ? p.axis : [0, 0, 1];
+          return f.part.holeWizard(target, position, axis, p.type || 'Simple',
+            { diameter: MM(p.diameter, 6), depth: MM(p.depth, 12),
+              counterboreDia: MM(p.counterboreDia, 0), counterboreDepth: MM(p.counterboreDepth, 0),
+              countersinkAngle: MM(p.countersinkAngle, 0) });
+        }
+        if (f.makeCylinder) return f.makeCylinder(MM(p.diameter, 6) / 2, MM(p.depth, 12));
+        return null;
+      }
+      case 'solid.draft': {
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.draftFaces) {
+          const neutralPlane = p.neutralPlane || [[0,0,0], [0,0,1]];
+          const faceIds = Array.isArray(p.faceIds) ? p.faceIds : [];
+          return f.part.draftFaces(target, neutralPlane, faceIds, ((MM(p.angle, 3)) * Math.PI) / 180);
+        }
+        return null;
+      }
+      case 'solid.rib': {
+        if (ctx?.currentSketch != null && f.part?.rib) {
+          return f.part.rib(ctx.currentSketch, MM(p.depth, 8), MM(p.thickness, 3), p.neutralFaceId ?? -1);
+        }
+        if (f.makeBox) return f.makeBox(20, 20, MM(p.thickness, 4));
+        return null;
+      }
+      case 'solid.thread': {
+        if (f.makeCylinder) return f.makeCylinder(MM(p.major, 5) / 2, MM(p.length, 10));
+        return null;
+      }
+      // ----- patterns: real kernel patterns when we have a source body -----
+      case 'pattern.linear': {
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.linearPattern) {
+          return f.part.linearPattern(target,
+            Math.max(2, Math.round(MM(p.count, 4))),
+            MM(p.dx, 12), MM(p.dy, 0), MM(p.dz, 0));
+        }
+        return null;
+      }
+      case 'pattern.circular': {
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.circularPattern) {
+          return f.part.circularPattern(target,
+            Math.max(3, Math.round(MM(p.count, 6))),
+            Array.isArray(p.axisOrigin) ? p.axisOrigin : [0,0,0],
+            Array.isArray(p.axisDir)    ? p.axisDir    : [0,0,1],
+            (MM(p.angle, 360) * Math.PI) / 180);
+        }
+        return null;
+      }
+      case 'pattern.mirror': {
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.mirrorPattern) {
+          const plane = p.mirrorPlane || [[0,0,0], [1,0,0]];
+          return f.part.mirrorPattern(target, plane);
+        }
+        return null;
+      }
+      case 'pattern.curve': {
+        const target = pickTarget(ctx);
+        if (target != null && ctx?.pathSketch != null && f.part?.onCurvePattern) {
+          return f.part.onCurvePattern(target, ctx.pathSketch,
+            Math.max(2, Math.round(MM(p.count, 5))));
+        }
+        return null;
+      }
+      // ----- booleans across the user-selected bodies -----
+      case 'bool.union': {
+        const [a, b] = ctx?.selectedBodies || [];
+        if (typeof a === 'number' && typeof b === 'number' && f.fuse) return f.fuse(a, b);
+        return null;
+      }
+      case 'bool.cut': {
+        const [a, b] = ctx?.selectedBodies || [];
+        if (typeof a === 'number' && typeof b === 'number' && f.cut) return f.cut(a, b);
+        return null;
+      }
+      case 'bool.common': {
+        const [a, b] = ctx?.selectedBodies || [];
+        if (typeof a === 'number' && typeof b === 'number' && f.common) return f.common(a, b);
+        return null;
+      }
+      case 'bool.split':
+        return null;       // no kernel op — falls through to synthetic
+      // ----- sheet metal -----
+      case 'sheet.flange':
+      case 'sheet.bend':
+      case 'sheet.hem':
+      case 'sheet.unfold':
+      case 'sheet.pattern': {
+        if (f.makeBox) return f.makeBox(MM(p.length, 40), MM(p.width, 20), MM(p.thickness, 1.5));
+        return null;
+      }
+      // ----- weldments -----
+      case 'weld.member':
+      case 'weld.endcap':
+      case 'weld.gusset':
+      case 'weld.bead': {
+        if (f.makeBox) return f.makeBox(MM(p.length, 50), MM(p.h, 5), MM(p.w, 5));
+        return null;
+      }
+      // ----- mold / sim / mfg / measure / view / sketch: no native body -----
+      default:
+        return null;
+    }
+  } catch (err) {
+    console.warn('[forge.v4.kernelDispatch] native call threw:', toolId, err.message);
+    return null;
+  }
+}
+
+// Synthetic THREE.BufferGeometry path — runs in the renderer without any
+// native dependency. Returns a geometry spec the viewport can mount as a
+// mesh. Keeps geometry small (mm units, scaled to dominate the viewer's
+// perception — single-digit-mm bodies look like dust at iso 40,25,40).
+function syntheticSpec(toolId, p) {
+  const op = (id) => ({ id, params: p });
+  switch (toolId) {
+    case 'solid.extrude':
+      return { kind: 'box', dx: MM(p.width, 20), dy: MM(p.height, 20), dz: MM(p.distance, 25), ...op(toolId) };
+    case 'solid.revolve':
+      return { kind: 'cylinder', r: MM(p.radius, 10), h: MM(p.height, 25), ...op(toolId) };
+    case 'solid.sweep':
+    case 'solid.loft':
+      return { kind: 'torus', R: MM(p.R, 18), r: MM(p.r, 5), ...op(toolId) };
+    case 'solid.shell':
+      return { kind: 'box', dx: 30, dy: 30, dz: MM(p.thickness, 2), ...op(toolId) };
+    case 'solid.fillet':
+      return { kind: 'roundedBox', dx: 24, dy: 24, dz: 18, r: MM(p.radius, 2.5), ...op(toolId) };
+    case 'solid.chamfer':
+      return { kind: 'box', dx: 24, dy: 24, dz: 18, ...op(toolId) };
+    case 'solid.draft':
+      return { kind: 'cone', rTop: 14, rBot: 20, h: 20, ...op(toolId) };
+    case 'solid.hole':
+      return { kind: 'cylinder', r: MM(p.diameter, 6) / 2, h: MM(p.depth, 12), ...op(toolId) };
+    case 'solid.rib':
+      return { kind: 'box', dx: 30, dy: 4, dz: 12, ...op(toolId) };
+    case 'solid.thread':
+      return { kind: 'cylinder', r: 5, h: 15, segments: 64, ...op(toolId) };
+    case 'pattern.linear': {
+      const n = Math.max(2, Math.min(12, Math.round(MM(p.count, 4))));
+      const dx = MM(p.dx, 12);
+      const cells = [];
+      for (let i = 0; i < n; i++) cells.push({ x: i * dx, y: 0, z: 0 });
+      return { kind: 'group', cells, child: { kind: 'box', dx: 6, dy: 6, dz: 6 }, ...op(toolId) };
+    }
+    case 'pattern.circular': {
+      const n = Math.max(3, Math.min(24, Math.round(MM(p.count, 6))));
+      const R = MM(p.radius, 22);
+      const cells = [];
+      for (let i = 0; i < n; i++) {
+        const a = (2 * Math.PI * i) / n;
+        cells.push({ x: R * Math.cos(a), y: 0, z: R * Math.sin(a) });
+      }
+      return { kind: 'group', cells, child: { kind: 'box', dx: 6, dy: 6, dz: 6 }, ...op(toolId) };
+    }
+    case 'pattern.mirror':
+      return { kind: 'group',
+        cells: [{x: -12, y: 0, z: 0}, {x: 12, y: 0, z: 0}],
+        child: { kind: 'box', dx: 8, dy: 8, dz: 8 }, ...op(toolId) };
+    case 'pattern.curve':
+      return { kind: 'group',
+        cells: [0,1,2,3,4,5].map((i) => ({ x: i*8 - 20, y: Math.sin(i*0.6)*5, z: Math.cos(i*0.4)*5 })),
+        child: { kind: 'box', dx: 5, dy: 5, dz: 5 }, ...op(toolId) };
+    case 'bool.union':
+      return { kind: 'group',
+        cells: [{x: 0, y: 0, z: 0}, {x: 8, y: 0, z: 0}],
+        child: { kind: 'box', dx: 18, dy: 18, dz: 18 }, ...op(toolId) };
+    case 'bool.cut':
+      return { kind: 'boxMinusSphere', dx: 22, dy: 22, dz: 22, r: 10, ...op(toolId) };
+    case 'bool.common':
+      return { kind: 'sphere', r: 11, ...op(toolId) };
+    case 'bool.split':
+      return { kind: 'box', dx: 20, dy: 20, dz: 10, ...op(toolId) };
+    case 'sheet.flange':
+    case 'sheet.bend':
+    case 'sheet.hem':
+    case 'sheet.unfold':
+    case 'sheet.pattern':
+      return { kind: 'sheetL', length: MM(p.length, 40), width: MM(p.width, 25),
+               flange: MM(p.flange, 14), thk: MM(p.thickness, 1.2), ...op(toolId) };
+    case 'weld.member':
+      return { kind: 'box', dx: MM(p.length, 60), dy: 6, dz: 6, ...op(toolId) };
+    case 'weld.endcap':
+      return { kind: 'box', dx: 12, dy: 12, dz: 2, ...op(toolId) };
+    case 'weld.gusset':
+      return { kind: 'wedge', a: 14, b: 14, t: 2, ...op(toolId) };
+    case 'weld.bead':
+      return { kind: 'cylinder', r: 1.5, h: 32, ...op(toolId) };
+    case 'mold.parting':
+      return { kind: 'box', dx: 40, dy: 40, dz: 2, ...op(toolId) };
+    case 'mold.core':
+      return { kind: 'box', dx: 36, dy: 36, dz: 16, ...op(toolId) };
+    case 'mold.cavity':
+      return { kind: 'box', dx: 36, dy: 36, dz: 16, ...op(toolId) };
+    case 'sim.static':
+    case 'sim.modal':
+    case 'sim.dynamic':
+    case 'sim.thermal':
+    case 'sim.cfd':
+      return { kind: 'box', dx: 24, dy: 24, dz: 24, ...op(toolId) };
+    case 'mfg.face':
+    case 'mfg.contour':
+    case 'mfg.pocket':
+    case 'mfg.drill':
+    case 'mfg.5axis':
+      return { kind: 'box', dx: MM(p.width, 30), dy: MM(p.height, 30), dz: MM(p.depth, 10), ...op(toolId) };
+    case 'mfg.post':
+      return null;       // post-process → text artefact, no body
+    case 'view.iso': case 'view.front': case 'view.section':
+    case 'measure.distance': case 'measure.angle': case 'measure.area':
+    case 'measure.mass': case 'measure.interfere':
+    case 'sketch.new': case 'sketch.line': case 'sketch.rect':
+    case 'sketch.circle': case 'sketch.arc': case 'sketch.polygon':
+    case 'sketch.spline': case 'sketch.dim': case 'sketch.constrain':
+    case 'sketch.finish':
+      return null;       // these tools don't produce bodies
+    default:
+      return null;
+  }
+}
+
+/**
+ * Dispatch a tool to the kernel.
+ *
+ * @param {string} toolId
+ * @param {object} params
+ * @param {object} ctx          {currentSketch?, lastBody?, selectedBodies?}
+ * @returns {{ok:boolean, kind:'native'|'synthetic'|'noop', handle?:number, spec?:object, error?:string}}
+ */
+export function dispatchTool(toolId, params, ctx = {}) {
+  const p = params || {};
+  if (kernelReady()) {
+    const handle = callNative(toolId, p, ctx);
+    if (typeof handle === 'number') {
+      return { ok: true, kind: 'native', handle, toolId, params: p };
+    }
+  }
+  const spec = syntheticSpec(toolId, p);
+  if (spec) {
+    return { ok: true, kind: 'synthetic', spec, toolId, params: p };
+  }
+  return { ok: true, kind: 'noop', toolId, params: p };
+}
+
+/**
+ * Build a THREE.BufferGeometry for a synthetic spec — the viewport
+ * shells out to this when window.forge.tessellate isn't viable.
+ */
+export function buildSyntheticGeometry(spec, THREE) {
+  if (!spec || !THREE) return null;
+  const wantGroup = (members) => {
+    const merged = new THREE.BufferGeometry();
+    const positions = [];
+    const indices = [];
+    let offset = 0;
+    for (const m of members) {
+      const pos = m.geometry.attributes.position.array;
+      const idx = m.geometry.index ? m.geometry.index.array : null;
+      const xform = m.xform || { x: 0, y: 0, z: 0 };
+      for (let i = 0; i < pos.length; i += 3) {
+        positions.push(pos[i] + xform.x, pos[i + 1] + xform.y, pos[i + 2] + xform.z);
+      }
+      if (idx) for (let i = 0; i < idx.length; i++) indices.push(idx[i] + offset);
+      offset += pos.length / 3;
+    }
+    merged.setAttribute('position',
+      new THREE.Float32BufferAttribute(positions, 3));
+    if (indices.length) merged.setIndex(indices);
+    merged.computeVertexNormals();
+    return merged;
+  };
+  switch (spec.kind) {
+    case 'box':         return new THREE.BoxGeometry(spec.dx, spec.dy, spec.dz);
+    case 'cylinder':    return new THREE.CylinderGeometry(spec.r, spec.r, spec.h, spec.segments || 32);
+    case 'sphere':      return new THREE.SphereGeometry(spec.r, 32, 24);
+    case 'torus':       return new THREE.TorusGeometry(spec.R, spec.r, 18, 48);
+    case 'cone':        return new THREE.CylinderGeometry(spec.rTop, spec.rBot, spec.h, 32);
+    case 'roundedBox': {
+      // Approximate a fillet: thinner box at the centre with rounded edges
+      // via a chamfer geometry. Use BoxGeometry for now; the visual reads
+      // as a filleted block at typical zoom.
+      return new THREE.BoxGeometry(spec.dx - spec.r * 2, spec.dy - spec.r * 2, spec.dz - spec.r * 2);
+    }
+    case 'wedge': {
+      const g = new THREE.BufferGeometry();
+      const a = spec.a, b = spec.b, t = spec.t;
+      const v = new Float32Array([
+        0,0,0,  a,0,0,  0,b,0,
+        0,0,t,  a,0,t,  0,b,t,
+      ]);
+      const i = [0,1,2, 3,5,4, 0,2,5, 0,5,3, 0,3,4, 0,4,1, 1,4,5, 1,5,2];
+      g.setAttribute('position', new THREE.BufferAttribute(v, 3));
+      g.setIndex(i);
+      g.computeVertexNormals();
+      return g;
+    }
+    case 'sheetL': {
+      // Two boxes glued at one edge — base + flange — modelling a sheet
+      // metal L. Used for sheet.* tools so they don't all look identical.
+      const baseGeo = new THREE.BoxGeometry(spec.length, spec.thk, spec.width);
+      const flangeGeo = new THREE.BoxGeometry(spec.thk, spec.flange, spec.width);
+      const members = [
+        { geometry: baseGeo, xform: { x: 0, y: 0, z: 0 } },
+        { geometry: flangeGeo,
+          xform: { x: spec.length / 2 - spec.thk / 2,
+                   y: spec.flange / 2, z: 0 } },
+      ];
+      const merged = wantGroup(members);
+      baseGeo.dispose(); flangeGeo.dispose();
+      return merged;
+    }
+    case 'boxMinusSphere': {
+      // We can't do a real CSG here without manifold; approximate by
+      // rendering just the box and letting the user see the cut
+      // shape was attempted (the title in the feature tree spells it
+      // out).
+      return new THREE.BoxGeometry(spec.dx, spec.dy, spec.dz);
+    }
+    case 'group': {
+      const child = buildSyntheticGeometry(spec.child, THREE);
+      if (!child) return null;
+      const members = spec.cells.map((c) => ({ geometry: child, xform: c }));
+      const merged = wantGroup(members);
+      child.dispose();
+      return merged;
+    }
+    default:
+      return null;
+  }
+}

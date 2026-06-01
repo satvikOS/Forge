@@ -201,6 +201,27 @@ const PATHS = {
   'misc.eye':       (<><path d="M2 8c2 -3 4 -4 6 -4s4 1 6 4c-2 3 -4 4 -6 4s-4 -1 -6 -4Z" /><circle cx="8" cy="8" r="1.6" /></>),
   'misc.eye_off':   (<><path d="M2 8c1 -1.5 2 -2.5 3.5 -3M14 8c-2 3 -4 4 -6 4M3 3l10 10" /></>),
   'misc.theme':     (<><circle cx="8" cy="8" r="5" /><path d="M8 3a5 5 0 0 0 0 10" fill="currentColor" stroke="none" /></>),
+
+  // ──────────────── gizmo (3D viewport tools — dedicated to avoid icon collisions) ────────────────
+  'gizmo.translate':(<><path d="M8 2v12M2 8h12M5 5l-3 3 3 3M11 5l3 3 -3 3M5 11l3 3 3 -3M5 5l3 -3 3 3" /></>),
+  'gizmo.rotate':   (<><path d="M3 8a5 5 0 0 1 10 0 5 5 0 0 1 -10 0z" /><path d="M11 3l2 3 -3 1" /></>),
+  'gizmo.scale':    (<><path d="M3 13L13 3" /><path d="M3 9V13h4M13 7V3h-4" /></>),
+  'gizmo.transform':(<><rect x="4" y="4" width="8" height="8" /><circle cx="4" cy="4" r="1" /><circle cx="12" cy="4" r="1" /><circle cx="4" cy="12" r="1" /><circle cx="12" cy="12" r="1" /></>),
+
+  // ──────────────── view (additional — home / back / top / right / normal-to dedicated) ────────────────
+  'view.home':      (<><path d="M2 8l6 -5 6 5" /><path d="M4 8v5h8V8" /></>),
+  'view.back':      (<><path d="M3 5l5 -3 5 3v6l-5 3 -5 -3V5z" opacity="0.4" /><path d="M3 5l5 3 5 -3M8 8v6" /></>),
+  'view.top':       (<><path d="M2 8l6 -4 6 4 -6 4 -6 -4z" /><path d="M8 4v8" opacity="0.4" /></>),
+  'view.bottom':    (<><path d="M2 8l6 -4 6 4 -6 4 -6 -4z" opacity="0.4" /><path d="M8 8v4M2 8l6 4 6 -4" /></>),
+  'view.right':     (<><path d="M3 3l5 3v8l-5 -3z" /><path d="M8 6l5 -3v8l-5 3" opacity="0.4" /></>),
+  'view.left':      (<><path d="M8 6l5 -3v8l-5 3" /><path d="M3 3l5 3v8l-5 -3z" opacity="0.4" /></>),
+  'view.normalTo':  (<><path d="M2 12l5 -8 5 5 2 -2" /><circle cx="7" cy="4" r="1.3" /></>),
+
+  // ──────────────── formula / cost / weld-bead / spring — dedicated glyphs ────────────────
+  'archie.formula': (<><path d="M11 3h-3a2 2 0 0 0 -2 2v6a2 2 0 0 1 -2 2" /><path d="M3 8h6" /></>),
+  'measure.cost':   (<><path d="M11 4H7a2 2 0 0 0 0 4h2a2 2 0 0 1 0 4H5" /><path d="M8 2v2M8 12v2" /></>),
+  'weld.bead':      (<><path d="M2 8q1.5 -2 3 0 t3 0 t3 0 t3 0" /><path d="M2 11h12" opacity="0.4" /></>),
+  'pattern.spring': (<><path d="M3 12c0 -3 2 -3 2 -6 0 -3 2 -3 2 0 0 3 2 3 2 6 0 3 2 3 2 0" /></>),
 };
 
 export const ICON_NAMES = Object.keys(PATHS);

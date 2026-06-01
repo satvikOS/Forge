@@ -154,7 +154,7 @@ export function EquationManager({ open, onClose }) {
           background: 'var(--forge-canvas)',
           borderRadius: 'var(--forge-radius-lg) var(--forge-radius-lg) 0 0',
         }}>
-          <Icon name="measure.distance" size={14} />
+          <Icon name="archie.formula" size={14} />
           <h2 style={{ margin: 0, fontSize: 13 }}>Equation Manager</h2>
           <span style={{ flex: 1 }} />
           <button type="button" onClick={onClose} aria-label="Close"

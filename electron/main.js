@@ -1,5 +1,26 @@
-const { app, BrowserWindow, Menu, shell } = require('electron');
+const { app, BrowserWindow, Menu, shell, dialog, ipcMain } = require('electron');
 const path = require('path');
+
+// File I/O dialog plumbing (Forge-87): renderer calls the bridge in preload,
+// preload sends a request to main, main shows the native dialog and returns
+// the chosen path. The actual STEP/IGES/STL/BREP import then runs in the
+// renderer via window.forge.io.* against the chosen path.
+ipcMain.handle('io:openDialog', async (_evt, opts) => {
+  const r = await dialog.showOpenDialog({
+    title: opts.title || 'Open',
+    filters: opts.filters || [],
+    properties: ['openFile'],
+  });
+  return r.canceled ? null : r.filePaths[0];
+});
+ipcMain.handle('io:saveDialog', async (_evt, opts) => {
+  const r = await dialog.showSaveDialog({
+    title: opts.title || 'Save',
+    defaultPath: opts.defaultPath || 'untitled',
+    filters: opts.filters || [],
+  });
+  return r.canceled ? null : r.filePath;
+});
 
 // electron-updater drives auto-update against the GitHub Releases the CI
 // workflow publishes. Loaded lazily/guarded so a dev run without the dep
