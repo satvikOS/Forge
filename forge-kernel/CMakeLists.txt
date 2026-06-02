@@ -131,6 +131,7 @@ add_library(forge_kernel SHARED
     src/MoldFlow.cpp
     src/Acoustics.cpp
     src/WeldingFea.cpp
+    src/GltfExport.cpp
     ${PLANEGCS_SRC}
 )
 

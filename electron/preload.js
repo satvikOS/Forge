@@ -311,6 +311,12 @@ const forgeApi = {
       kernel.welding.simulateWeld(mesh, mat, src, totalTimeSec, snapshotCount ?? 4),
   } : null,
 
+  // gltf (Forge-178) — glTF 2.0 binary export (.glb) for web publishing.
+  gltf: kernel && kernel.gltf ? {
+    exportGlb: (bodies, filepath, options) =>
+      kernel.gltf.exportGlb(bodies, filepath, options ?? {}),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {
