@@ -94,6 +94,8 @@ export const WORKBENCHES = [
   { id: 'boltjoint',    icon: 'wb.part',      label: 'Bolt' },
   // Forge-215 — Column buckling analysis.
   { id: 'buckling',     icon: 'wb.sim',       label: 'Buckle' },
+  // Forge-219 — Material properties database.
+  { id: 'materialdb',   icon: 'wb.part',      label: 'Materials' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

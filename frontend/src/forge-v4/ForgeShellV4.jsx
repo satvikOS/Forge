@@ -1078,6 +1078,12 @@ export function ForgeShellV4() {
         setActiveWb('buckling');
         window.__forgeOpenBucklingWorkbench?.();
         return;
+      // Forge-219 — Material properties database.
+      case 'tools.materialdb':
+      case 'workbench.materialdb':
+        setActiveWb('materialdb');
+        window.__forgeOpenMaterialWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
