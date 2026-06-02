@@ -77,6 +77,8 @@ import { ToleranceStackWorkbenchHost } from './forge-v4/ToleranceStackWorkbench.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
 import { DragDropImportHost } from './forge-v4/DragDropImport.jsx';
+// Forge-189 — Onboarding tutorial (guided tooltips).
+import { OnboardingTourHost } from './forge-v4/OnboardingTour.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -173,6 +175,7 @@ function App() {
       <ToleranceStackWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
+      <OnboardingTourHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />
