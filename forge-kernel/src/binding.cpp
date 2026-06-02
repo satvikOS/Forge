@@ -82,6 +82,7 @@
 #include "forge/PumpHead.hpp"
 #include "forge/Refrigeration.hpp"
 #include "forge/FanBlower.hpp"
+#include "forge/SteelColumn.hpp"
 
 #include <array>
 
@@ -7066,6 +7067,35 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("fan", fbNs);
+
+    // -------- Steel column (Forge-232) ---------------------------------
+    auto scNs = Napi::Object::New(env);
+    scNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::steelcol::Inputs in{};
+          in.effectiveLengthK  = o.Get("effectiveLengthK" ).As<Napi::Number>().DoubleValue();
+          in.unbracedLength    = o.Get("unbracedLength"   ).As<Napi::Number>().DoubleValue();
+          in.radiusOfGyration  = o.Get("radiusOfGyration" ).As<Napi::Number>().DoubleValue();
+          in.area              = o.Get("area"             ).As<Napi::Number>().DoubleValue();
+          in.youngsModulus     = o.Get("youngsModulus"    ).As<Napi::Number>().DoubleValue();
+          in.yieldStress       = o.Get("yieldStress"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::steelcol::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("slenderness",         Napi::Number::New(env2, r.slenderness));
+          out.Set("slendernessLimit",    Napi::Number::New(env2, r.slendernessLimit));
+          out.Set("eulerStress",         Napi::Number::New(env2, r.eulerStress));
+          out.Set("criticalStress",      Napi::Number::New(env2, r.criticalStress));
+          out.Set("nominalStrength",     Napi::Number::New(env2, r.nominalStrength));
+          out.Set("designStrengthLRFD",  Napi::Number::New(env2, r.designStrengthLRFD));
+          out.Set("allowableStrengthASD",Napi::Number::New(env2, r.allowableStrengthASD));
+          out.Set("inelasticRegime",     Napi::Boolean::New(env2, r.inelasticRegime));
+          return out;
+        });
+      }));
+    exports.Set("steelcol", scNs);
 
     return exports;
 }

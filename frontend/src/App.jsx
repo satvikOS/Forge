@@ -157,6 +157,8 @@ import { PumpHeadWorkbenchHost } from './forge-v4/PumpHeadWorkbench.jsx';
 import { RefrigerationWorkbenchHost } from './forge-v4/RefrigerationWorkbench.jsx';
 // Forge-231 — Fan / blower workbench.
 import { FanBlowerWorkbenchHost } from './forge-v4/FanBlowerWorkbench.jsx';
+// Forge-232 — Steel column workbench.
+import { SteelColumnWorkbenchHost } from './forge-v4/SteelColumnWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -301,6 +303,7 @@ function App() {
       <PumpHeadWorkbenchHost />
       <RefrigerationWorkbenchHost />
       <FanBlowerWorkbenchHost />
+      <SteelColumnWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

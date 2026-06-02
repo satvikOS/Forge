@@ -509,6 +509,11 @@ const forgeApi = {
     scaleByAffinity: (input) => kernel.fan.scaleByAffinity(input),
   } : null,
 
+  // steelcol (Forge-232) — AISC 360 §E3 compression member check.
+  steelcol: kernel && kernel.steelcol ? {
+    analyse: (input) => kernel.steelcol.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
