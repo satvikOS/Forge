@@ -79,6 +79,7 @@
 #include "forge/Bearing.hpp"
 #include "forge/VBelt.hpp"
 #include "forge/PressureVessel.hpp"
+#include "forge/PumpHead.hpp"
 
 #include <array>
 
@@ -6924,6 +6925,57 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pvessel", pvNs);
+
+    // -------- Pump head / pipe flow (Forge-229) ------------------------
+    auto phNs = Napi::Object::New(env);
+    phNs.Set("reynoldsNumber", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          return Napi::Number::New(env2, forge::pumphead::reynoldsNumber(
+              info[0].As<Napi::Number>().DoubleValue(),
+              info[1].As<Napi::Number>().DoubleValue(),
+              info[2].As<Napi::Number>().DoubleValue(),
+              info[3].As<Napi::Number>().DoubleValue()));
+        });
+      }));
+    phNs.Set("frictionFactor", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          return Napi::Number::New(env2, forge::pumphead::frictionFactor(
+              info[0].As<Napi::Number>().DoubleValue(),
+              info[1].As<Napi::Number>().DoubleValue(),
+              info[2].As<Napi::Number>().DoubleValue()));
+        });
+      }));
+    phNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pumphead::Inputs in{};
+          in.flowRate         = o.Get("flowRate"        ).As<Napi::Number>().DoubleValue();
+          in.diameter         = o.Get("diameter"        ).As<Napi::Number>().DoubleValue();
+          in.pipeLength       = o.Get("pipeLength"      ).As<Napi::Number>().DoubleValue();
+          in.roughness        = o.Get("roughness"       ).As<Napi::Number>().DoubleValue();
+          in.density          = o.Get("density"         ).As<Napi::Number>().DoubleValue();
+          in.dynamicViscosity = o.Get("dynamicViscosity").As<Napi::Number>().DoubleValue();
+          in.staticHead       = o.Get("staticHead"      ).As<Napi::Number>().DoubleValue();
+          in.pumpEfficiency   = o.Get("pumpEfficiency"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::pumphead::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("meanVelocity",   Napi::Number::New(env2, r.meanVelocity));
+          out.Set("reynolds",       Napi::Number::New(env2, r.reynolds));
+          out.Set("frictionFactor", Napi::Number::New(env2, r.frictionFactor));
+          out.Set("frictionHead",   Napi::Number::New(env2, r.frictionHead));
+          out.Set("totalHead",      Napi::Number::New(env2, r.totalHead));
+          out.Set("hydraulicPower", Napi::Number::New(env2, r.hydraulicPower));
+          out.Set("shaftPower",     Napi::Number::New(env2, r.shaftPower));
+          return out;
+        });
+      }));
+    exports.Set("pumphead", phNs);
 
     return exports;
 }

@@ -120,6 +120,8 @@ export const WORKBENCHES = [
   { id: 'vbelt',        icon: 'wb.part',      label: 'V-belt' },
   // Forge-228 — Pressure vessel.
   { id: 'pvessel',      icon: 'wb.part',      label: 'PVessel' },
+  // Forge-229 — Pump head / pipe flow.
+  { id: 'pumphead',     icon: 'wb.sim',       label: 'Pump' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

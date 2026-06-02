@@ -489,6 +489,13 @@ const forgeApi = {
     requiredThickness: (input) => kernel.pvessel.requiredThickness(input),
   } : null,
 
+  // pumphead (Forge-229) — Darcy-Weisbach pipe flow + pump sizing.
+  pumphead: kernel && kernel.pumphead ? {
+    reynoldsNumber: (V, D, rho, mu) => kernel.pumphead.reynoldsNumber(V, D, rho, mu),
+    frictionFactor: (Re, D, eps)    => kernel.pumphead.frictionFactor(Re, D, eps),
+    analyse:        (input)         => kernel.pumphead.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

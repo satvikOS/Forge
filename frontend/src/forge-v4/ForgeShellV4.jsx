@@ -1156,6 +1156,12 @@ export function ForgeShellV4() {
         setActiveWb('pvessel');
         window.__forgeOpenPVesselWorkbench?.();
         return;
+      // Forge-229 — Pump head / pipe flow.
+      case 'tools.pumphead':
+      case 'workbench.pumphead':
+        setActiveWb('pumphead');
+        window.__forgeOpenPumpHeadWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
