@@ -139,6 +139,7 @@ add_library(forge_kernel SHARED
     src/Ductwork.cpp
     src/Variants.cpp
     src/Psychrometric.cpp
+    src/Circuit.cpp
     ${PLANEGCS_SRC}
 )
 

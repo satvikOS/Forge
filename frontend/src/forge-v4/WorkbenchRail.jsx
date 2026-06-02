@@ -50,6 +50,8 @@ export const WORKBENCHES = [
   { id: 'variants', icon: 'wb.sim',      label: 'Variants' },
   // Forge-192 — HVAC psychrometric chart.
   { id: 'psychro',  icon: 'wb.arch',     label: 'Psychro' },
+  // Forge-190 — Electrical schematic + MNA DC/AC.
+  { id: 'circuit',  icon: 'wb.sim',      label: 'Circuit' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

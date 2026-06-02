@@ -50,6 +50,7 @@
 #include "forge/Ductwork.hpp"
 #include "forge/Variants.hpp"
 #include "forge/Psychrometric.hpp"
+#include "forge/Circuit.hpp"
 
 #include <array>
 
@@ -5088,6 +5089,79 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("psychro", psyNs);
+
+    // -------- Electrical circuit analysis (Forge-190) ------------------
+    auto cirNs = Napi::Object::New(env);
+    auto readDcInputs = [](Napi::Env e, Napi::Object o) {
+        forge::circuit::DCInputs in{};
+        in.nodeCount = o.Get("nodeCount").As<Napi::Number>().Uint32Value();
+        auto arr = o.Get("comps").As<Napi::Array>();
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto co = arr.Get(i).As<Napi::Object>();
+            forge::circuit::Component c{};
+            c.kind = static_cast<forge::circuit::Kind>(
+                static_cast<std::uint8_t>(co.Get("kind").As<Napi::Number>().Int32Value()));
+            c.name  = co.Has("name") && co.Get("name").IsString()
+                ? co.Get("name").As<Napi::String>().Utf8Value() : "";
+            c.nA    = co.Get("nA").As<Napi::Number>().Uint32Value();
+            c.nB    = co.Get("nB").As<Napi::Number>().Uint32Value();
+            c.value = co.Get("value").As<Napi::Number>().DoubleValue();
+            in.comps.push_back(std::move(c));
+        }
+        (void)e;
+        return in;
+    };
+    cirNs.Set("dcAnalysis", Napi::Function::New(env,
+      [readDcInputs](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = readDcInputs(env2, info[0].As<Napi::Object>());
+          auto r = forge::circuit::dcAnalysis(in);
+          auto out = Napi::Object::New(env2);
+          auto nv = Napi::Float64Array::New(env2, r.nodeVoltages.size());
+          std::memcpy(nv.Data(), r.nodeVoltages.data(),
+                      r.nodeVoltages.size() * sizeof(double));
+          out.Set("nodeVoltages", nv);
+          auto ic = Napi::Float64Array::New(env2, r.vSourceCurrents.size());
+          if (!r.vSourceCurrents.empty()) {
+            std::memcpy(ic.Data(), r.vSourceCurrents.data(),
+                        r.vSourceCurrents.size() * sizeof(double));
+          }
+          out.Set("vSourceCurrents", ic);
+          return out;
+        });
+      }));
+    cirNs.Set("acAnalysis", Napi::Function::New(env,
+      [readDcInputs](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = readDcInputs(env2, info[0].As<Napi::Object>());
+          auto fArr = info[1].As<Napi::Float64Array>();
+          std::vector<double> freqs(fArr.Data(), fArr.Data() + fArr.ElementLength());
+          auto r = forge::circuit::acAnalysis(in, freqs);
+          auto out = Napi::Object::New(env2);
+          auto fa = Napi::Float64Array::New(env2, r.frequencies.size());
+          std::memcpy(fa.Data(), r.frequencies.data(),
+                      r.frequencies.size() * sizeof(double));
+          out.Set("frequencies", fa);
+          auto va = Napi::Array::New(env2, r.nodeVoltages.size());
+          for (size_t i = 0; i < r.nodeVoltages.size(); ++i) {
+            auto magArr = Napi::Float64Array::New(env2, r.nodeVoltages[i].size());
+            auto phaseArr = Napi::Float64Array::New(env2, r.nodeVoltages[i].size());
+            for (size_t k = 0; k < r.nodeVoltages[i].size(); ++k) {
+              magArr.Data()[k]   = std::abs(r.nodeVoltages[i][k]);
+              phaseArr.Data()[k] = std::arg(r.nodeVoltages[i][k]);
+            }
+            auto pair = Napi::Object::New(env2);
+            pair.Set("magnitude", magArr);
+            pair.Set("phase",     phaseArr);
+            va.Set((uint32_t)i, pair);
+          }
+          out.Set("nodeVoltages", va);
+          return out;
+        });
+      }));
+    exports.Set("circuit", cirNs);
 
     return exports;
 }

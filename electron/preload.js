@@ -361,6 +361,12 @@ const forgeApi = {
     stateFromTwo:         (mask, a, b, pAtm)   => kernel.psychro.stateFromTwo(mask, a, b, pAtm),
   } : null,
 
+  // circuit (Forge-190) — linear circuit DC + AC analysis (MNA).
+  circuit: kernel && kernel.circuit ? {
+    dcAnalysis: (spec)         => kernel.circuit.dcAnalysis(spec),
+    acAnalysis: (spec, freqs)  => kernel.circuit.acAnalysis(spec, freqs),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

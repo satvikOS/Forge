@@ -79,6 +79,8 @@ import { DuctworkWorkbenchHost } from './forge-v4/DuctworkWorkbench.jsx';
 import { VariantExplorerWorkbenchHost } from './forge-v4/VariantExplorerWorkbench.jsx';
 // Forge-192 — HVAC psychrometric chart.
 import { PsychrometricWorkbenchHost } from './forge-v4/PsychrometricWorkbench.jsx';
+// Forge-190 — Electrical schematic + MNA.
+import { CircuitWorkbenchHost } from './forge-v4/CircuitWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -184,6 +186,7 @@ function App() {
       <DuctworkWorkbenchHost />
       <VariantExplorerWorkbenchHost />
       <PsychrometricWorkbenchHost />
+      <CircuitWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

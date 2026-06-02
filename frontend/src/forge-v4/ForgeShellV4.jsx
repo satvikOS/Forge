@@ -946,6 +946,12 @@ export function ForgeShellV4() {
         setActiveWb('psychro');
         window.__forgeOpenPsychrometricWorkbench?.();
         return;
+      // Forge-190 — Electrical schematic + MNA.
+      case 'tools.circuit':
+      case 'workbench.circuit':
+        setActiveWb('circuit');
+        window.__forgeOpenCircuitWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
