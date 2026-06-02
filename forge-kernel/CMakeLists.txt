@@ -156,6 +156,7 @@ add_library(forge_kernel SHARED
     src/Fatigue.cpp
     src/BoltJoint.cpp
     src/Buckling.cpp
+    src/BeamDeflection.cpp
     ${PLANEGCS_SRC}
 )
 

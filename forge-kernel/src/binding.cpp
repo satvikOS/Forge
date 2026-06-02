@@ -67,6 +67,7 @@
 #include "forge/Fatigue.hpp"
 #include "forge/BoltJoint.hpp"
 #include "forge/Buckling.hpp"
+#include "forge/BeamDeflection.hpp"
 
 #include <array>
 
@@ -6426,6 +6427,30 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("buckling", bkNs);
+
+    // -------- Beam deflection (Forge-216) ------------------------------
+    auto beamNs = Napi::Object::New(env);
+    beamNs.Set("solve", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::beam::Inputs in{};
+          in.config        = forge::beam::configFromString(
+              o.Get("config").As<Napi::String>().Utf8Value());
+          in.length        = o.Get("length"       ).As<Napi::Number>().DoubleValue();
+          in.load          = o.Get("load"         ).As<Napi::Number>().DoubleValue();
+          in.youngsModulus = o.Get("youngsModulus").As<Napi::Number>().DoubleValue();
+          in.secondMomentI = o.Get("secondMomentI").As<Napi::Number>().DoubleValue();
+          auto r = forge::beam::solve(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("deflectionMax", Napi::Number::New(env2, r.deflectionMax));
+          out.Set("slopeMax",      Napi::Number::New(env2, r.slopeMax));
+          out.Set("momentMax",     Napi::Number::New(env2, r.momentMax));
+          return out;
+        });
+      }));
+    exports.Set("beam", beamNs);
 
     return exports;
 }

@@ -418,6 +418,11 @@ const forgeApi = {
     analyse:             (input)       => kernel.buckling.analyse(input),
   } : null,
 
+  // beam (Forge-216) — closed-form deflection / slope / moment.
+  beam: kernel && kernel.beam ? {
+    solve: (input) => kernel.beam.solve(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -96,6 +96,8 @@ export const WORKBENCHES = [
   { id: 'buckling',     icon: 'wb.sim',       label: 'Buckle' },
   // Forge-219 — Material properties database.
   { id: 'materialdb',   icon: 'wb.part',      label: 'Materials' },
+  // Forge-216 — Beam deflection calculator.
+  { id: 'beam',         icon: 'wb.sim',       label: 'Beam' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

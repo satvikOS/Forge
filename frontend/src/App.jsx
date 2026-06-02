@@ -127,6 +127,8 @@ import { BoltJointWorkbenchHost } from './forge-v4/BoltJointWorkbench.jsx';
 import { BucklingWorkbenchHost } from './forge-v4/BucklingWorkbench.jsx';
 // Forge-219 — Material properties database workbench.
 import { MaterialDatabaseWorkbenchHost } from './forge-v4/MaterialDatabaseWorkbench.jsx';
+// Forge-216 — Beam deflection workbench.
+import { BeamDeflectionWorkbenchHost } from './forge-v4/BeamDeflectionWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -256,6 +258,7 @@ function App() {
       <BoltJointWorkbenchHost />
       <BucklingWorkbenchHost />
       <MaterialDatabaseWorkbenchHost />
+      <BeamDeflectionWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />
