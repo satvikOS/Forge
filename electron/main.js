@@ -145,6 +145,59 @@ ipcMain.handle('io:transcodeWebmToMp4', async (_evt, { srcPath } = {}) => {
   }
 });
 
+// Forge-195 — Multi-window: spawn a secondary BrowserWindow loading the
+// same renderer with an optional initial workbench so the user can dock
+// drawings in one window + 3D model in another. State coordination
+// happens through the renderer's localStorage broadcast (no main-process
+// shared state to maintain).
+const secondaryWindows = new Map();
+ipcMain.handle('win:newWindow', async (_evt, opts = {}) => {
+  try {
+    const id = `win-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const win = new BrowserWindow({
+      width: opts.width  || 1200,
+      height: opts.height || 900,
+      x: opts.x, y: opts.y,
+      title: opts.title || 'ArchDisc Forge — secondary',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        webgl: true,
+        preload: path.join(__dirname, 'preload.js'),
+        sandbox: false,
+      },
+      backgroundColor: '#0a0e14',
+      show: false,
+    });
+    const isDev = process.argv.includes('--dev');
+    const hash = opts.initialWb ? `#wb=${encodeURIComponent(opts.initialWb)}` : '';
+    if (isDev) {
+      win.loadURL('http://localhost:3000/' + hash);
+    } else {
+      const filePath = path.join(__dirname, '..', 'frontend', 'dist', 'index.html');
+      win.loadFile(filePath, { hash: hash.slice(1) });
+    }
+    win.once('ready-to-show', () => win.show());
+    win.on('closed', () => secondaryWindows.delete(id));
+    secondaryWindows.set(id, win);
+    return { ok: true, id };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+ipcMain.handle('win:listWindows', async () => {
+  return {
+    ids: Array.from(secondaryWindows.keys()),
+    count: secondaryWindows.size,
+  };
+});
+ipcMain.handle('win:closeWindow', async (_evt, { id } = {}) => {
+  const w = id ? secondaryWindows.get(id) : null;
+  if (!w) return { ok: false, error: 'window not found' };
+  try { w.close(); } catch {}
+  return { ok: true };
+});
+
 // electron-updater drives auto-update against the GitHub Releases the CI
 // workflow publishes. Loaded lazily/guarded so a dev run without the dep
 // installed still works.

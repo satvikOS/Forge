@@ -87,6 +87,8 @@ import { TerrainWorkbenchHost } from './forge-v4/TerrainWorkbench.jsx';
 import { NurbsFitWorkbenchHost } from './forge-v4/NurbsFitWorkbench.jsx';
 // Forge-193 — Time-series log viewer (FEA / CFD / acoustics).
 import { TimeSeriesViewerWorkbenchHost } from './forge-v4/TimeSeriesViewerWorkbench.jsx';
+// Forge-195 — Multi-window helper (new-window button + hash hydration).
+import { MultiWindowHost } from './forge-v4/MultiWindow.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -196,6 +198,7 @@ function App() {
       <TerrainWorkbenchHost />
       <NurbsFitWorkbenchHost />
       <TimeSeriesViewerWorkbenchHost />
+      <MultiWindowHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

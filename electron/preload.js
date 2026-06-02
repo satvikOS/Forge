@@ -594,6 +594,16 @@ const forgeApi = {
       ipcRenderer.invoke('io:transcodeWebmToMp4', { srcPath }),
   },
 
+  // Forge-195 — Multi-window. The renderer can ask the main process to
+  // spawn a new BrowserWindow with the same renderer + an optional
+  // initial workbench (encoded in URL hash so the new renderer's
+  // OnboardingTour / WorkbenchRail can read it on mount).
+  win: {
+    newWindow:    (opts)   => ipcRenderer.invoke('win:newWindow', opts || {}),
+    listWindows:  ()       => ipcRenderer.invoke('win:listWindows'),
+    closeWindow:  (id)     => ipcRenderer.invoke('win:closeWindow', { id }),
+  },
+
   // weldments authoring (Forge-24) — structural members, end caps, gussets,
   // weld beads, member trims, BOM cut list.
   weldments: kernel && kernel.weldments ? {
