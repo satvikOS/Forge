@@ -88,6 +88,7 @@
 #include "forge/BoltedConnection.hpp"
 #include "forge/FilletWeld.hpp"
 #include "forge/RcBeam.hpp"
+#include "forge/BearingCapacity.hpp"
 
 #include <array>
 
@@ -7316,6 +7317,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("rcbeam", rcNs);
+
+    // -------- Soil bearing capacity (Forge-239) -------------------------
+    auto bgNs = Napi::Object::New(env);
+    bgNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::bearingcap::Input in{};
+          in.shape            = forge::bearingcap::shapeFromString(
+              o.Get("shape").As<Napi::String>().Utf8Value().c_str());
+          in.widthM           = o.Get("widthM"          ).As<Napi::Number>().DoubleValue();
+          in.depthM           = o.Get("depthM"          ).As<Napi::Number>().DoubleValue();
+          in.cohesionPa       = o.Get("cohesionPa"      ).As<Napi::Number>().DoubleValue();
+          in.surchargeKnPerM3 = o.Get("surchargeKnPerM3").As<Napi::Number>().DoubleValue();
+          in.frictionAngleDeg = o.Get("frictionAngleDeg").As<Napi::Number>().DoubleValue();
+          in.factorOfSafety   = o.Get("factorOfSafety"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::bearingcap::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Nq",                 Napi::Number::New(env2, r.Nq));
+          out.Set("Nc",                 Napi::Number::New(env2, r.Nc));
+          out.Set("Ngamma",             Napi::Number::New(env2, r.Ngamma));
+          out.Set("shapeFactorC",       Napi::Number::New(env2, r.shapeFactorC));
+          out.Set("shapeFactorQ",       Napi::Number::New(env2, r.shapeFactorQ));
+          out.Set("shapeFactorGamma",   Napi::Number::New(env2, r.shapeFactorGamma));
+          out.Set("depthFactorC",       Napi::Number::New(env2, r.depthFactorC));
+          out.Set("depthFactorQ",       Napi::Number::New(env2, r.depthFactorQ));
+          out.Set("depthFactorGamma",   Napi::Number::New(env2, r.depthFactorGamma));
+          out.Set("surchargePa",        Napi::Number::New(env2, r.surchargePa));
+          out.Set("ultimateBearingPa",  Napi::Number::New(env2, r.ultimateBearingPa));
+          out.Set("allowableBearingPa", Napi::Number::New(env2, r.allowableBearingPa));
+          return out;
+        });
+      }));
+    exports.Set("bearingcap", bgNs);
 
     return exports;
 }

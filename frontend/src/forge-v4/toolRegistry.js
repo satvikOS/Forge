@@ -201,6 +201,12 @@ export const CALCULATOR_TREE = [
           { id: 'geotech',  label: 'Slope stability (Bishop)…', slice: 'Forge-176' },
         ],
       },
+      {
+        label: 'Foundations',
+        items: [
+          { id: 'bearingcap', label: 'Bearing capacity (Terzaghi + Meyerhof)…', slice: 'Forge-239' },
+        ],
+      },
     ],
   },
   {

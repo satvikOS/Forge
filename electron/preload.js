@@ -543,6 +543,11 @@ const forgeApi = {
     analyse: (input) => kernel.rcbeam.analyse(input),
   } : null,
 
+  // bearingcap (Forge-239) — Terzaghi + Meyerhof soil bearing capacity.
+  bearingcap: kernel && kernel.bearingcap ? {
+    analyse: (input) => kernel.bearingcap.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

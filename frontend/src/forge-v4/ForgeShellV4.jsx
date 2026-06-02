@@ -1210,6 +1210,12 @@ export function ForgeShellV4() {
         setActiveWb('rcbeam');
         window.__forgeOpenRcBeamWorkbench?.();
         return;
+      // Forge-239 — Soil bearing capacity (Terzaghi + Meyerhof).
+      case 'tools.bearingcap':
+      case 'workbench.bearingcap':
+        setActiveWb('bearingcap');
+        window.__forgeOpenBearingCapWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
