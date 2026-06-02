@@ -78,6 +78,8 @@ export const WORKBENCHES = [
   { id: 'frame',        icon: 'wb.sim',       label: 'Truss' },
   // Forge-206 — Pipe routing.
   { id: 'piperoute',    icon: 'wb.part',      label: 'Route' },
+  // Forge-207 — DXF round-trip.
+  { id: 'dxf',          icon: 'archie.thread', label: 'DXF' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

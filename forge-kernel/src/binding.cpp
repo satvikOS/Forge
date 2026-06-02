@@ -60,6 +60,7 @@
 #include "forge/StdParts.hpp"
 #include "forge/FrameTruss.hpp"
 #include "forge/PipeRoute.hpp"
+#include "forge/Dxf.hpp"
 
 #include <array>
 
@@ -5895,6 +5896,87 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("piperoute", prNs);
+
+    // -------- DXF round-trip (Forge-207) -------------------------------
+    auto dxNs = Napi::Object::New(env);
+    auto packEntities = [](Napi::Env e, const std::vector<forge::dxf::Entity>& es) -> Napi::Array {
+        auto arr = Napi::Array::New(e, es.size());
+        for (std::size_t i = 0; i < es.size(); ++i) {
+            const auto& en = es[i];
+            auto eo = Napi::Object::New(e);
+            const char* t = "line";
+            switch (en.type) {
+                case forge::dxf::EntityType::Line:       t = "line"; break;
+                case forge::dxf::EntityType::Circle:     t = "circle"; break;
+                case forge::dxf::EntityType::Arc:        t = "arc"; break;
+                case forge::dxf::EntityType::LwPolyline: t = "lwpolyline"; break;
+            }
+            eo.Set("type",  Napi::String::New(e, t));
+            eo.Set("layer", Napi::String::New(e, en.layer));
+            eo.Set("x0",    Napi::Number::New(e, en.x0));
+            eo.Set("y0",    Napi::Number::New(e, en.y0));
+            eo.Set("x1",    Napi::Number::New(e, en.x1));
+            eo.Set("y1",    Napi::Number::New(e, en.y1));
+            eo.Set("radius",        Napi::Number::New(e, en.radius));
+            eo.Set("startAngleDeg", Napi::Number::New(e, en.startAngleDeg));
+            eo.Set("endAngleDeg",   Napi::Number::New(e, en.endAngleDeg));
+            eo.Set("closed",        Napi::Boolean::New(e, en.closed));
+            auto vs = Napi::Float64Array::New(e, en.vertices.size());
+            if (!en.vertices.empty())
+                std::memcpy(vs.Data(), en.vertices.data(),
+                            en.vertices.size() * sizeof(double));
+            eo.Set("vertices", vs);
+            arr.Set(static_cast<std::uint32_t>(i), eo);
+        }
+        return arr;
+    };
+    dxNs.Set("parse", Napi::Function::New(env,
+      [packEntities](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const std::string text = info[0].As<Napi::String>().Utf8Value();
+          auto doc = forge::dxf::parse(text);
+          auto out = Napi::Object::New(env2);
+          out.Set("entities", packEntities(env2, doc.entities));
+          return out;
+        });
+      }));
+    dxNs.Set("write", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          auto ents = o.Get("entities").As<Napi::Array>();
+          forge::dxf::Document doc;
+          doc.entities.reserve(ents.Length());
+          for (std::uint32_t i = 0; i < ents.Length(); ++i) {
+            auto eo = ents.Get(i).As<Napi::Object>();
+            forge::dxf::Entity en{};
+            const auto t = eo.Get("type").As<Napi::String>().Utf8Value();
+            if      (t == "line")        en.type = forge::dxf::EntityType::Line;
+            else if (t == "circle")      en.type = forge::dxf::EntityType::Circle;
+            else if (t == "arc")         en.type = forge::dxf::EntityType::Arc;
+            else if (t == "lwpolyline")  en.type = forge::dxf::EntityType::LwPolyline;
+            else throw Napi::TypeError::New(env2, "unknown entity type");
+            if (eo.Has("layer"))  en.layer  = eo.Get("layer").As<Napi::String>().Utf8Value();
+            if (eo.Has("x0"))     en.x0     = eo.Get("x0").As<Napi::Number>().DoubleValue();
+            if (eo.Has("y0"))     en.y0     = eo.Get("y0").As<Napi::Number>().DoubleValue();
+            if (eo.Has("x1"))     en.x1     = eo.Get("x1").As<Napi::Number>().DoubleValue();
+            if (eo.Has("y1"))     en.y1     = eo.Get("y1").As<Napi::Number>().DoubleValue();
+            if (eo.Has("radius")) en.radius = eo.Get("radius").As<Napi::Number>().DoubleValue();
+            if (eo.Has("startAngleDeg")) en.startAngleDeg = eo.Get("startAngleDeg").As<Napi::Number>().DoubleValue();
+            if (eo.Has("endAngleDeg"))   en.endAngleDeg   = eo.Get("endAngleDeg"  ).As<Napi::Number>().DoubleValue();
+            if (eo.Has("closed"))   en.closed = eo.Get("closed").As<Napi::Boolean>().Value();
+            if (eo.Has("vertices") && eo.Get("vertices").IsTypedArray()) {
+              auto vs = eo.Get("vertices").As<Napi::Float64Array>();
+              en.vertices.assign(vs.Data(), vs.Data() + vs.ElementLength());
+            }
+            doc.entities.push_back(std::move(en));
+          }
+          return Napi::String::New(env2, forge::dxf::write(doc));
+        });
+      }));
+    exports.Set("dxf", dxNs);
 
     return exports;
 }

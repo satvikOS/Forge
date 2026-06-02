@@ -149,6 +149,7 @@ add_library(forge_kernel SHARED
     src/StdParts.cpp
     src/FrameTruss.cpp
     src/PipeRoute.cpp
+    src/Dxf.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -371,6 +371,12 @@ const forgeApi = {
     route: (input) => kernel.piperoute.route(input),
   } : null,
 
+  // dxf (Forge-207) — AutoCAD DXF round-trip.
+  dxf: kernel && kernel.dxf ? {
+    parse: (text) => kernel.dxf.parse(text),
+    write: (doc)  => kernel.dxf.write(doc),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

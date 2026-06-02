@@ -1030,6 +1030,12 @@ export function ForgeShellV4() {
         setActiveWb('piperoute');
         window.__forgeOpenPipeRouteWorkbench?.();
         return;
+      // Forge-207 — DXF round-trip.
+      case 'tools.dxf':
+      case 'workbench.dxf':
+        setActiveWb('dxf');
+        window.__forgeOpenDxfWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
