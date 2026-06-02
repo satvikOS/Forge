@@ -108,6 +108,8 @@ export const WORKBENCHES = [
   { id: 'polysec',      icon: 'wb.sketch',    label: 'Section' },
   // Forge-221 — Spur gear pair.
   { id: 'gearpair',     icon: 'wb.part',      label: 'Gear' },
+  // Forge-222 — Hydraulic cylinder.
+  { id: 'hydcyl',       icon: 'wb.part',      label: 'HydCyl' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

@@ -73,6 +73,7 @@
 #include "forge/Mohr.hpp"
 #include "forge/PolygonSection.hpp"
 #include "forge/GearPair.hpp"
+#include "forge/HydraulicCylinder.hpp"
 
 #include <array>
 
@@ -6688,6 +6689,40 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("gearpair", gpNs);
+
+    // -------- Hydraulic cylinder (Forge-222) ---------------------------
+    auto hcNs = Napi::Object::New(env);
+    hcNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hydcyl::Inputs in{};
+          in.bore         = o.Get("bore"        ).As<Napi::Number>().DoubleValue();
+          in.rodDiameter  = o.Get("rodDiameter" ).As<Napi::Number>().DoubleValue();
+          in.pressure     = o.Get("pressure"    ).As<Napi::Number>().DoubleValue();
+          in.flowRate     = o.Get("flowRate"    ).As<Napi::Number>().DoubleValue();
+          in.strokeLength = o.Get("strokeLength").As<Napi::Number>().DoubleValue();
+          in.rodE         = o.Get("rodE"        ).As<Napi::Number>().DoubleValue();
+          in.bucklingK    = o.Has("bucklingK")
+              ? o.Get("bucklingK").As<Napi::Number>().DoubleValue() : 1.0;
+          auto r = forge::hydcyl::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("pistonArea",           Napi::Number::New(env2, r.pistonArea));
+          out.Set("rodArea",              Napi::Number::New(env2, r.rodArea));
+          out.Set("annulusArea",          Napi::Number::New(env2, r.annulusArea));
+          out.Set("extendForce",          Napi::Number::New(env2, r.extendForce));
+          out.Set("retractForce",         Napi::Number::New(env2, r.retractForce));
+          out.Set("extendSpeed",          Napi::Number::New(env2, r.extendSpeed));
+          out.Set("retractSpeed",         Napi::Number::New(env2, r.retractSpeed));
+          out.Set("volumePerCycle",       Napi::Number::New(env2, r.volumePerCycle));
+          out.Set("rodMomentI",           Napi::Number::New(env2, r.rodMomentI));
+          out.Set("rodEulerCriticalLoad", Napi::Number::New(env2, r.rodEulerCriticalLoad));
+          out.Set("bucklingSafetyFactor", Napi::Number::New(env2, r.bucklingSafetyFactor));
+          return out;
+        });
+      }));
+    exports.Set("hydcyl", hcNs);
 
     return exports;
 }

@@ -162,6 +162,7 @@ add_library(forge_kernel SHARED
     src/Mohr.cpp
     src/PolygonSection.cpp
     src/GearPair.cpp
+    src/HydraulicCylinder.cpp
     ${PLANEGCS_SRC}
 )
 

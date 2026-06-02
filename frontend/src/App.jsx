@@ -139,6 +139,8 @@ import { MohrsCircleWorkbenchHost } from './forge-v4/MohrsCircleWorkbench.jsx';
 import { PolygonSectionWorkbenchHost } from './forge-v4/PolygonSectionWorkbench.jsx';
 // Forge-221 — Spur gear pair workbench.
 import { GearPairWorkbenchHost } from './forge-v4/GearPairWorkbench.jsx';
+// Forge-222 — Hydraulic cylinder sizing workbench.
+import { HydraulicCylinderWorkbenchHost } from './forge-v4/HydraulicCylinderWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -274,6 +276,7 @@ function App() {
       <MohrsCircleWorkbenchHost />
       <PolygonSectionWorkbenchHost />
       <GearPairWorkbenchHost />
+      <HydraulicCylinderWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />
