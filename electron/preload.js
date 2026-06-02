@@ -305,6 +305,12 @@ const forgeApi = {
     simulate: (cfg) => kernel.acoustics.simulate(cfg),
   } : null,
 
+  // welding (Forge-174) — Goldak heat source + thermo-mechanical FEA.
+  welding: kernel && kernel.welding ? {
+    simulateWeld: (mesh, mat, src, totalTimeSec, snapshotCount) =>
+      kernel.welding.simulateWeld(mesh, mat, src, totalTimeSec, snapshotCount ?? 4),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

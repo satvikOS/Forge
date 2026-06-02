@@ -875,6 +875,12 @@ export function ForgeShellV4() {
         setActiveWb('acoustics');
         window.__forgeOpenAcousticsWorkbench?.();
         return;
+      // Forge-174 — Welding distortion FEA (Goldak + thermo-mechanical).
+      case 'tools.welddist':
+      case 'workbench.welddist':
+        setActiveWb('welddist');
+        window.__forgeOpenWeldingDistortionWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

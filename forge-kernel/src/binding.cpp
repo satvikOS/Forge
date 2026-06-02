@@ -41,6 +41,7 @@
 #include "forge/Casting.hpp"
 #include "forge/MoldFlow.hpp"
 #include "forge/Acoustics.hpp"
+#include "forge/WeldingFea.hpp"
 
 #include <array>
 
@@ -4481,6 +4482,75 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("acoustics", acoustics);
+
+    // -------- Welding distortion (Forge-174) ---------------------------
+    auto welding = Napi::Object::New(env);
+    welding.Set("simulateWeld", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 4) {
+            throw Napi::TypeError::New(env2,
+              "forge.welding.simulateWeld(mesh, mat, src, totalTimeSec, snapshotCount)");
+          }
+          auto mObj = info[0].As<Napi::Object>();
+          forge::welding::TetMesh mesh{};
+          auto na = mObj.Get("nodes").As<Napi::Float64Array>();
+          mesh.nodes.assign(na.Data(), na.Data() + na.ElementLength());
+          auto ta = mObj.Get("tets").As<Napi::Uint32Array>();
+          mesh.tets.assign(ta.Data(), ta.Data() + ta.ElementLength());
+          auto fa = mObj.Get("fixedDof").As<Napi::Uint8Array>();
+          mesh.fixedDof.assign(fa.Data(), fa.Data() + fa.ElementLength());
+
+          auto matObj = info[1].As<Napi::Object>();
+          forge::welding::Material mat{};
+          mat.rho     = matObj.Get("rho"    ).As<Napi::Number>().DoubleValue();
+          mat.cp      = matObj.Get("cp"     ).As<Napi::Number>().DoubleValue();
+          mat.k       = matObj.Get("k"      ).As<Napi::Number>().DoubleValue();
+          mat.alpha   = matObj.Get("alpha"  ).As<Napi::Number>().DoubleValue();
+          mat.E       = matObj.Get("E"      ).As<Napi::Number>().DoubleValue();
+          mat.nu      = matObj.Get("nu"     ).As<Napi::Number>().DoubleValue();
+          mat.sigmaY0 = matObj.Get("sigmaY0").As<Napi::Number>().DoubleValue();
+          mat.Etan    = matObj.Get("Etan"   ).As<Napi::Number>().DoubleValue();
+          mat.Tref    = matObj.Get("Tref"   ).As<Napi::Number>().DoubleValue();
+
+          auto srcObj = info[2].As<Napi::Object>();
+          forge::welding::GoldakSource src{};
+          src.power = srcObj.Get("power").As<Napi::Number>().DoubleValue();
+          src.a     = srcObj.Get("a"    ).As<Napi::Number>().DoubleValue();
+          src.b     = srcObj.Get("b"    ).As<Napi::Number>().DoubleValue();
+          src.cf    = srcObj.Get("cf"   ).As<Napi::Number>().DoubleValue();
+          src.cr    = srcObj.Get("cr"   ).As<Napi::Number>().DoubleValue();
+          src.ff    = srcObj.Get("ff"   ).As<Napi::Number>().DoubleValue();
+          src.fr    = srcObj.Get("fr"   ).As<Napi::Number>().DoubleValue();
+          src.speed = srcObj.Get("speed").As<Napi::Number>().DoubleValue();
+          auto pa = srcObj.Get("pathXYZ").As<Napi::Float64Array>();
+          src.pathXYZ.assign(pa.Data(), pa.Data() + pa.ElementLength());
+
+          const double tt = info[3].As<Napi::Number>().DoubleValue();
+          const int sc = (info.Length() > 4 && info[4].IsNumber())
+                          ? info[4].As<Napi::Number>().Int32Value() : 4;
+          auto r = forge::welding::simulateWeld(mesh, mat, src, tt, sc);
+
+          auto out = Napi::Object::New(env2);
+          auto cpyF64 = [&](const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env2, v.size());
+            if (!v.empty()) std::memcpy(a.Data(), v.data(), v.size() * sizeof(double));
+            return a;
+          };
+          out.Set("displacement",     cpyF64(r.displacement));
+          out.Set("plasticStrain",    cpyF64(r.plasticStrain));
+          out.Set("misesStressPa",    cpyF64(r.misesStressPa));
+          out.Set("peakHazTempK",     cpyF64(r.peakHazTempK));
+          out.Set("maxDisplacementMm",Napi::Number::New(env2, r.maxDisplacementMm));
+          out.Set("maxMisesPa",       Napi::Number::New(env2, r.maxMisesPa));
+          out.Set("maxTempK",         Napi::Number::New(env2, r.maxTempK));
+          out.Set("snapshotsTaken",   Napi::Number::New(env2, r.snapshotsTaken));
+          out.Set("thermalStepsTaken",Napi::Number::New(env2, r.thermalStepsTaken));
+          return out;
+        });
+      }));
+    exports.Set("welding", welding);
 
     return exports;
 }

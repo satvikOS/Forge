@@ -34,6 +34,8 @@ export const WORKBENCHES = [
   { id: 'moldflow', icon: 'wb.mold',     label: 'MoldFlow' },
   // Forge-175 — Acoustic room simulator (image-source method).
   { id: 'acoustics',icon: 'wb.sim',      label: 'Acoust' },
+  // Forge-174 — Welding distortion FEA (Goldak + thermo-mechanical).
+  { id: 'welddist', icon: 'wb.weldments',label: 'WeldFEA' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
