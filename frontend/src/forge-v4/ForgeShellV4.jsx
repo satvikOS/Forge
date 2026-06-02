@@ -836,6 +836,14 @@ export function ForgeShellV4() {
       case 'workbench.robot':
         window.__forgeOpenRobot?.({ theme });
         return;
+      // Forge-171 — Aerospace airfoil & wing designer (NACA + Selig + loft).
+      // AerospaceWorkbenchHost (in App.jsx) registers
+      // __forgeOpenAerospaceWorkbench on mount.
+      case 'tools.aero':
+      case 'workbench.aero':
+        setActiveWb('aero');
+        window.__forgeOpenAerospaceWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

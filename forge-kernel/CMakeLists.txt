@@ -125,6 +125,7 @@ add_library(forge_kernel SHARED
     src/SheetMetal.cpp
     src/Weldments.cpp
     src/Nurbs.cpp
+    src/Airfoil.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -36,6 +36,7 @@
 #include "forge/Weldments.hpp"
 #include "forge/Nurbs.hpp"
 #include "forge/LineageRegistry.hpp"
+#include "forge/Airfoil.hpp"
 
 #include <array>
 
@@ -3483,6 +3484,196 @@ Napi::Array vec3ToArr(Napi::Env env, const std::array<double, 3>& v) {
 
 } // namespace surf_bind
 
+// ============================================================ Airfoil (Forge-171)
+//
+// JS surface — under `forge.airfoil`:
+//   naca4(code, nPts)           → Profile { source, points: Float64Array[2N] }
+//   naca5(code, nPts)           → Profile
+//   parseSelig(text)            → Profile
+//   resampleCosine(profile, nPts)→ Profile
+//   profileToFace(profile, chordMm)             → ShapeHandle (uint32)
+//   loftWing(stations, capTips) → ShapeHandle
+//   trapezoidalWing(spec)       → ShapeHandle
+//   planformMetrics(spec)       → { areaMm2, aspectRatio, meanAeroChordMm,
+//                                    rootChordMm, tipChordMm, halfSpanMm }
+//
+// Profiles round-trip as { source: string, points: Float64Array }; points
+// are interleaved x0,y0,x1,y1,…,xN,yN of length 2N — first and last entries
+// repeat for closure.
+namespace airfoil_bind {
+
+inline forge::airfoil::Profile readProfile(Napi::Env env, Napi::Value v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.airfoil: profile must be an object");
+    }
+    auto o = v.As<Napi::Object>();
+    if (!o.Has("points") || !o.Get("points").IsTypedArray()) {
+        throw Napi::TypeError::New(env, "forge.airfoil: profile.points must be a Float64Array");
+    }
+    auto arr = o.Get("points").As<Napi::Float64Array>();
+    if (arr.ElementLength() % 2 != 0) {
+        throw Napi::TypeError::New(env, "forge.airfoil: profile.points length must be even");
+    }
+    forge::airfoil::Profile p;
+    const std::size_t n = arr.ElementLength() / 2;
+    p.points.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        p.points[i].x = arr.Data()[2 * i + 0];
+        p.points[i].y = arr.Data()[2 * i + 1];
+    }
+    if (o.Has("source") && o.Get("source").IsString()) {
+        p.source = o.Get("source").As<Napi::String>().Utf8Value();
+    }
+    return p;
+}
+
+inline Napi::Object writeProfile(Napi::Env env, const forge::airfoil::Profile& p) {
+    auto o = Napi::Object::New(env);
+    auto arr = Napi::Float64Array::New(env, p.points.size() * 2);
+    for (std::size_t i = 0; i < p.points.size(); ++i) {
+        arr.Data()[2 * i + 0] = p.points[i].x;
+        arr.Data()[2 * i + 1] = p.points[i].y;
+    }
+    o.Set("points", arr);
+    o.Set("source", Napi::String::New(env, p.source));
+    return o;
+}
+
+inline forge::airfoil::WingStation readStation(Napi::Env env, Napi::Value v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.airfoil.loftWing: station must be object");
+    }
+    auto o = v.As<Napi::Object>();
+    forge::airfoil::WingStation st;
+    st.profile  = readProfile(env, o.Get("profile"));
+    st.chordMm  = o.Get("chordMm" ).As<Napi::Number>().DoubleValue();
+    st.yMm      = o.Get("yMm"     ).As<Napi::Number>().DoubleValue();
+    st.twistDeg = o.Has("twistDeg") ? o.Get("twistDeg").As<Napi::Number>().DoubleValue() : 0.0;
+    st.sweepMm  = o.Has("sweepMm" ) ? o.Get("sweepMm" ).As<Napi::Number>().DoubleValue() : 0.0;
+    st.zMm      = o.Has("zMm"     ) ? o.Get("zMm"     ).As<Napi::Number>().DoubleValue() : 0.0;
+    return st;
+}
+
+inline forge::airfoil::TrapezoidalWingSpec readTrapSpec(Napi::Env env, Napi::Value v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.airfoil.trapezoidalWing: spec must be object");
+    }
+    auto o = v.As<Napi::Object>();
+    forge::airfoil::TrapezoidalWingSpec s;
+    s.rootProfile = readProfile(env, o.Get("rootProfile"));
+    if (o.Has("tipProfile") && o.Get("tipProfile").IsObject()) {
+        s.tipProfile = readProfile(env, o.Get("tipProfile"));
+    }
+    s.rootChordMm = o.Get("rootChordMm").As<Napi::Number>().DoubleValue();
+    s.taperRatio  = o.Get("taperRatio" ).As<Napi::Number>().DoubleValue();
+    s.halfSpanMm  = o.Get("halfSpanMm" ).As<Napi::Number>().DoubleValue();
+    s.sweepDeg    = o.Has("sweepDeg"   ) ? o.Get("sweepDeg"   ).As<Napi::Number>().DoubleValue() : 0.0;
+    s.dihedralDeg = o.Has("dihedralDeg") ? o.Get("dihedralDeg").As<Napi::Number>().DoubleValue() : 0.0;
+    s.twistDeg    = o.Has("twistDeg"   ) ? o.Get("twistDeg"   ).As<Napi::Number>().DoubleValue() : 0.0;
+    s.spanStations= o.Has("spanStations") ? o.Get("spanStations").As<Napi::Number>().Int32Value() : 2;
+    return s;
+}
+
+} // namespace airfoil_bind
+
+Napi::Value AirfoilNaca4(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1 || !info[0].IsString()) {
+            throw Napi::TypeError::New(env, "forge.airfoil.naca4: code must be string");
+        }
+        auto code = info[0].As<Napi::String>().Utf8Value();
+        std::size_t n = (info.Length() > 1 && info[1].IsNumber())
+            ? info[1].As<Napi::Number>().Uint32Value() : 160;
+        return airfoil_bind::writeProfile(env, forge::airfoil::naca4(code, n));
+    });
+}
+
+Napi::Value AirfoilNaca5(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1 || !info[0].IsString()) {
+            throw Napi::TypeError::New(env, "forge.airfoil.naca5: code must be string");
+        }
+        auto code = info[0].As<Napi::String>().Utf8Value();
+        std::size_t n = (info.Length() > 1 && info[1].IsNumber())
+            ? info[1].As<Napi::Number>().Uint32Value() : 160;
+        return airfoil_bind::writeProfile(env, forge::airfoil::naca5(code, n));
+    });
+}
+
+Napi::Value AirfoilParseSelig(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1 || !info[0].IsString()) {
+            throw Napi::TypeError::New(env, "forge.airfoil.parseSelig: text must be string");
+        }
+        auto text = info[0].As<Napi::String>().Utf8Value();
+        return airfoil_bind::writeProfile(env, forge::airfoil::parseSelig(text));
+    });
+}
+
+Napi::Value AirfoilResample(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto p = airfoil_bind::readProfile(env, info[0]);
+        std::size_t n = (info.Length() > 1 && info[1].IsNumber())
+            ? info[1].As<Napi::Number>().Uint32Value() : 160;
+        return airfoil_bind::writeProfile(env, forge::airfoil::resampleCosine(p, n));
+    });
+}
+
+Napi::Value AirfoilProfileToFace(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto p = airfoil_bind::readProfile(env, info[0]);
+        double chord = requireNumber(info, 1, "chordMm");
+        return Napi::Number::New(env, forge::airfoil::profileToFace(p, chord));
+    });
+}
+
+Napi::Value AirfoilLoftWing(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsArray()) {
+            throw Napi::TypeError::New(env, "forge.airfoil.loftWing: stations must be array");
+        }
+        auto arr = info[0].As<Napi::Array>();
+        std::vector<forge::airfoil::WingStation> stations;
+        stations.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            stations.push_back(airfoil_bind::readStation(env, arr.Get(i)));
+        }
+        bool capTips = (info.Length() > 1 && info[1].IsBoolean())
+            ? info[1].As<Napi::Boolean>().Value() : true;
+        return Napi::Number::New(env, forge::airfoil::loftWing(stations, capTips));
+    });
+}
+
+Napi::Value AirfoilTrapezoidalWing(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto spec = airfoil_bind::readTrapSpec(env, info[0]);
+        return Napi::Number::New(env, forge::airfoil::trapezoidalWing(spec));
+    });
+}
+
+Napi::Value AirfoilPlanformMetrics(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto spec = airfoil_bind::readTrapSpec(env, info[0]);
+        auto m = forge::airfoil::planformMetrics(spec);
+        auto o = Napi::Object::New(env);
+        o.Set("areaMm2",          Napi::Number::New(env, m.areaMm2));
+        o.Set("aspectRatio",      Napi::Number::New(env, m.aspectRatio));
+        o.Set("meanAeroChordMm",  Napi::Number::New(env, m.meanAeroChordMm));
+        o.Set("rootChordMm",      Napi::Number::New(env, m.rootChordMm));
+        o.Set("tipChordMm",       Napi::Number::New(env, m.tipChordMm));
+        o.Set("halfSpanMm",       Napi::Number::New(env, m.halfSpanMm));
+        return o;
+    });
+}
+
 Napi::Value SurfBuildPatch(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto env = info.Env();
@@ -3954,6 +4145,18 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     weldments.Set("trimMember",       Napi::Function::New(env, WdTrimMember));
     weldments.Set("cutList",          Napi::Function::New(env, WdCutList));
     exports.Set("weldments", weldments);
+
+    // -------- Airfoil (Forge-171) ---------------------------------------
+    auto airfoil = Napi::Object::New(env);
+    airfoil.Set("naca4",            Napi::Function::New(env, AirfoilNaca4));
+    airfoil.Set("naca5",            Napi::Function::New(env, AirfoilNaca5));
+    airfoil.Set("parseSelig",       Napi::Function::New(env, AirfoilParseSelig));
+    airfoil.Set("resampleCosine",   Napi::Function::New(env, AirfoilResample));
+    airfoil.Set("profileToFace",    Napi::Function::New(env, AirfoilProfileToFace));
+    airfoil.Set("loftWing",         Napi::Function::New(env, AirfoilLoftWing));
+    airfoil.Set("trapezoidalWing",  Napi::Function::New(env, AirfoilTrapezoidalWing));
+    airfoil.Set("planformMetrics",  Napi::Function::New(env, AirfoilPlanformMetrics));
+    exports.Set("airfoil", airfoil);
 
     return exports;
 }

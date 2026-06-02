@@ -167,8 +167,19 @@ viewport dominates. Old rows below are re-evaluated against v3.
 | macOS arm64 build green                     | ✅      | Forge-20 |
 | Windows + Linux builds green                | ✅      | every push |
 | Headless E2E self-verification              | ✅      | Forge-29 — 12 screenshots / push |
+| Headed multi-camera e2e per workbench       | ✅      | Forge-171 — 5+ camera angles per slice; aero workbench is the first to follow the new standard |
 | Forge-kernel.node bundled in installer      | ☐      | needs workflow scope; follow-up |
 | OCCT dylibs bundled in macOS .app           | ☐      | follow-up |
+
+## 11. Discipline workbenches
+
+Specialised workbenches that go beyond the §1-9 generic-MCAD surface and ship
+domain physics + parametric geometry in-kernel. Each row points at the native
+`forge::<ns>` module that powers it.
+
+| Capability                                                     | Status | Notes |
+|----------------------------------------------------------------|--------|-------|
+| Aerospace airfoil + trapezoidal wing loft                      | ✅      | Forge-171 — `forge::airfoil` (NACA 4/5-digit, Selig DAT parser, OCCT `BRepOffsetAPI_ThruSections` wing loft with twist + sweep + dihedral + taper, planform metrics) |
 
 ## Approval rule
 

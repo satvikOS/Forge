@@ -284,6 +284,19 @@ const forgeApi = {
     solveSteadyNS: (cfg) => kernel.cfd.solveSteadyNS(cfg),
   } : null,
 
+  // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
+  // trapezoidal wing loft via OCCT ThruSections.
+  airfoil: kernel && kernel.airfoil ? {
+    naca4:            (code, nPts)        => kernel.airfoil.naca4(code, nPts ?? 160),
+    naca5:            (code, nPts)        => kernel.airfoil.naca5(code, nPts ?? 160),
+    parseSelig:       (text)              => kernel.airfoil.parseSelig(text),
+    resampleCosine:   (profile, nPts)     => kernel.airfoil.resampleCosine(profile, nPts ?? 160),
+    profileToFace:    (profile, chordMm)  => kernel.airfoil.profileToFace(profile, chordMm),
+    loftWing:         (stations, capTips) => kernel.airfoil.loftWing(stations, capTips !== false),
+    trapezoidalWing:  (spec)              => kernel.airfoil.trapezoidalWing(spec),
+    planformMetrics:  (spec)              => kernel.airfoil.planformMetrics(spec),
+  } : null,
+
   // file I/O (Forge-21) — STEP / BREP / STL import + export. All
   // operations take absolute filesystem paths; renderer code calls
   // these from the file menu after the OS file dialog returns a path.

@@ -24,6 +24,8 @@ export const WORKBENCHES = [
   { id: 'mesh',     icon: 'select.body', label: 'Mesh' },
   // Forge-152 — Industrial 6-axis robot workbench (KUKA / ABB / FANUC).
   { id: 'robot',    icon: 'wb.robot',    label: 'Robot' },
+  // Forge-171 — Aerospace airfoil + wing designer (NACA / Selig / loft).
+  { id: 'aero',     icon: 'wb.sim',      label: 'Aero' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

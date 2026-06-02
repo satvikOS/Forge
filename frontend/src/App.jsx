@@ -53,6 +53,8 @@ import { ArchWorkbenchHost } from './forge-v4/ArchWorkbench.jsx';
 import { SiteHierarchyHost } from './forge-v4/SiteHierarchy.jsx';
 // Forge-152 — Industrial 6-axis robot workbench (KUKA / ABB / FANUC).
 import { RobotWorkbenchHost } from './forge-v4/RobotWorkbench.jsx';
+// Forge-171 — Aerospace airfoil & wing designer (NACA / Selig / loft).
+import { AerospaceWorkbenchHost } from './forge-v4/AerospaceWorkbench.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -137,6 +139,7 @@ function App() {
       <ArchWorkbenchHost />
       <SiteHierarchyHost />
       <RobotWorkbenchHost />
+      <AerospaceWorkbenchHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />
