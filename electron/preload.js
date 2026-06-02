@@ -428,6 +428,13 @@ const forgeApi = {
     design: (input) => kernel.spring.design(input),
   } : null,
 
+  // hxc (Forge-218) — heat exchanger LMTD + sizing + ε-NTU.
+  hxc: kernel && kernel.hxc ? {
+    lmtd:          (input) => kernel.hxc.lmtd(input),
+    requiredArea:  (input) => kernel.hxc.requiredArea(input),
+    effectiveness: (input) => kernel.hxc.effectiveness(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

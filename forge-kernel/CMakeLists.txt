@@ -158,6 +158,7 @@ add_library(forge_kernel SHARED
     src/Buckling.cpp
     src/BeamDeflection.cpp
     src/Spring.cpp
+    src/HeatExchanger.cpp
     ${PLANEGCS_SRC}
 )
 

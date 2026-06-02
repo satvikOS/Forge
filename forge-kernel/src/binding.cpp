@@ -69,6 +69,7 @@
 #include "forge/Buckling.hpp"
 #include "forge/BeamDeflection.hpp"
 #include "forge/Spring.hpp"
+#include "forge/HeatExchanger.hpp"
 
 #include <array>
 
@@ -6479,6 +6480,57 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("spring", spgNs);
+
+    // -------- Heat exchanger (Forge-218) -------------------------------
+    auto hxNs = Napi::Object::New(env);
+    hxNs.Set("lmtd", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hxc::LmtdInputs in{};
+          in.thIn  = o.Get("thIn" ).As<Napi::Number>().DoubleValue();
+          in.thOut = o.Get("thOut").As<Napi::Number>().DoubleValue();
+          in.tcIn  = o.Get("tcIn" ).As<Napi::Number>().DoubleValue();
+          in.tcOut = o.Get("tcOut").As<Napi::Number>().DoubleValue();
+          in.flow  = forge::hxc::flowFromString(
+              o.Get("flow").As<Napi::String>().Utf8Value());
+          auto r = forge::hxc::lmtd(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("dT1", Napi::Number::New(env2, r.dT1));
+          out.Set("dT2", Napi::Number::New(env2, r.dT2));
+          out.Set("lmtd",Napi::Number::New(env2, r.lmtd));
+          return out;
+        });
+      }));
+    hxNs.Set("requiredArea", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hxc::AreaInputs in{};
+          in.Q    = o.Get("Q"   ).As<Napi::Number>().DoubleValue();
+          in.U    = o.Get("U"   ).As<Napi::Number>().DoubleValue();
+          in.lmtd = o.Get("lmtd").As<Napi::Number>().DoubleValue();
+          in.F    = o.Has("F") ? o.Get("F").As<Napi::Number>().DoubleValue() : 1.0;
+          return Napi::Number::New(env2, forge::hxc::requiredArea(in));
+        });
+      }));
+    hxNs.Set("effectiveness", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hxc::NtuInputs in{};
+          in.UA   = o.Get("UA"  ).As<Napi::Number>().DoubleValue();
+          in.cMin = o.Get("cMin").As<Napi::Number>().DoubleValue();
+          in.cMax = o.Get("cMax").As<Napi::Number>().DoubleValue();
+          in.flow = forge::hxc::flowFromString(
+              o.Get("flow").As<Napi::String>().Utf8Value());
+          return Napi::Number::New(env2, forge::hxc::effectiveness(in));
+        });
+      }));
+    exports.Set("hxc", hxNs);
 
     return exports;
 }

@@ -131,6 +131,8 @@ import { MaterialDatabaseWorkbenchHost } from './forge-v4/MaterialDatabaseWorkbe
 import { BeamDeflectionWorkbenchHost } from './forge-v4/BeamDeflectionWorkbench.jsx';
 // Forge-217 — Compression spring design workbench.
 import { SpringDesignWorkbenchHost } from './forge-v4/SpringDesignWorkbench.jsx';
+// Forge-218 — Heat exchanger LMTD workbench.
+import { HeatExchangerWorkbenchHost } from './forge-v4/HeatExchangerWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -262,6 +264,7 @@ function App() {
       <MaterialDatabaseWorkbenchHost />
       <BeamDeflectionWorkbenchHost />
       <SpringDesignWorkbenchHost />
+      <HeatExchangerWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />
