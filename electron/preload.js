@@ -367,6 +367,12 @@ const forgeApi = {
     acAnalysis: (spec, freqs)  => kernel.circuit.acAnalysis(spec, freqs),
   } : null,
 
+  // terrain (Forge-191) — Delaunay triangulation + cut/fill volume.
+  terrain: kernel && kernel.terrain ? {
+    delaunay:        (spec) => kernel.terrain.delaunay(spec),
+    cutFillVsPlane:  (spec) => kernel.terrain.cutFillVsPlane(spec),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

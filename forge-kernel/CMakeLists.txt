@@ -140,6 +140,7 @@ add_library(forge_kernel SHARED
     src/Variants.cpp
     src/Psychrometric.cpp
     src/Circuit.cpp
+    src/Terrain.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -51,6 +51,7 @@
 #include "forge/Variants.hpp"
 #include "forge/Psychrometric.hpp"
 #include "forge/Circuit.hpp"
+#include "forge/Terrain.hpp"
 
 #include <array>
 
@@ -5162,6 +5163,52 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("circuit", cirNs);
+
+    // -------- Terrain (Forge-191) --------------------------------------
+    auto terNs = Napi::Object::New(env);
+    terNs.Set("delaunay", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          forge::terrain::DelaunayInputs in{};
+          auto obj = info[0].As<Napi::Object>();
+          auto p = obj.Get("points").As<Napi::Float64Array>();
+          in.points.assign(p.Data(), p.Data() + p.ElementLength());
+          auto r = forge::terrain::triangulate(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("n", Napi::Number::New(env2, r.n));
+          auto t = Napi::Uint32Array::New(env2, r.triangles.size());
+          if (!r.triangles.empty()) {
+            std::memcpy(t.Data(), r.triangles.data(),
+                        r.triangles.size() * sizeof(uint32_t));
+          }
+          out.Set("triangles", t);
+          return out;
+        });
+      }));
+    terNs.Set("cutFillVsPlane", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::terrain::CutFillInputs in{};
+          auto p = o.Get("points").As<Napi::Float64Array>();
+          in.points.assign(p.Data(), p.Data() + p.ElementLength());
+          auto t = o.Get("triangles").As<Napi::Uint32Array>();
+          in.triangles.assign(t.Data(), t.Data() + t.ElementLength());
+          in.a = o.Get("a").As<Napi::Number>().DoubleValue();
+          in.b = o.Get("b").As<Napi::Number>().DoubleValue();
+          in.c = o.Get("c").As<Napi::Number>().DoubleValue();
+          auto r = forge::terrain::cutFillVsPlane(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cutVolume",  Napi::Number::New(env2, r.cutVolume));
+          out.Set("fillVolume", Napi::Number::New(env2, r.fillVolume));
+          out.Set("netVolume",  Napi::Number::New(env2, r.netVolume));
+          out.Set("tinArea",    Napi::Number::New(env2, r.tinArea));
+          return out;
+        });
+      }));
+    exports.Set("terrain", terNs);
 
     return exports;
 }

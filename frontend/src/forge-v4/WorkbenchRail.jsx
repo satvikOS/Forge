@@ -52,6 +52,8 @@ export const WORKBENCHES = [
   { id: 'psychro',  icon: 'wb.arch',     label: 'Psychro' },
   // Forge-190 — Electrical schematic + MNA DC/AC.
   { id: 'circuit',  icon: 'wb.sim',      label: 'Circuit' },
+  // Forge-191 — Civil terrain (Delaunay + cut/fill).
+  { id: 'terrain',  icon: 'wb.arch',     label: 'Terrain' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

@@ -952,6 +952,12 @@ export function ForgeShellV4() {
         setActiveWb('circuit');
         window.__forgeOpenCircuitWorkbench?.();
         return;
+      // Forge-191 — Civil terrain (Delaunay + cut/fill).
+      case 'tools.terrain':
+      case 'workbench.terrain':
+        setActiveWb('terrain');
+        window.__forgeOpenTerrainWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
