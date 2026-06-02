@@ -1072,6 +1072,12 @@ export function ForgeShellV4() {
         setActiveWb('boltjoint');
         window.__forgeOpenBoltJointWorkbench?.();
         return;
+      // Forge-215 — Column buckling.
+      case 'tools.buckling':
+      case 'workbench.buckling':
+        setActiveWb('buckling');
+        window.__forgeOpenBucklingWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

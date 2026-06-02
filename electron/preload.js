@@ -410,6 +410,14 @@ const forgeApi = {
     metricBolt:     (code)  => kernel.boltjoint.metricBolt(code),
   } : null,
 
+  // buckling (Forge-215) — Euler + Johnson column analysis.
+  buckling: kernel && kernel.buckling ? {
+    sectionRectangle:    (b, h)        => kernel.buckling.sectionRectangle(b, h),
+    sectionSolidCircle:  (d)           => kernel.buckling.sectionSolidCircle(d),
+    sectionHollowCircle: (dOut, dIn)   => kernel.buckling.sectionHollowCircle(dOut, dIn),
+    analyse:             (input)       => kernel.buckling.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

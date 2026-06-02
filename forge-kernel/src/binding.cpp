@@ -66,6 +66,7 @@
 #include "forge/ThermalNetwork.hpp"
 #include "forge/Fatigue.hpp"
 #include "forge/BoltJoint.hpp"
+#include "forge/Buckling.hpp"
 
 #include <array>
 
@@ -6353,6 +6354,78 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("boltjoint", bjNs);
+
+    // -------- Buckling (Forge-215) -------------------------------------
+    auto bkNs = Napi::Object::New(env);
+    auto readEnds = [](Napi::Value v) -> forge::buckling::EndCondition {
+        const auto s = v.As<Napi::String>().Utf8Value();
+        if (s == "fixed-fixed")  return forge::buckling::EndCondition::FixedFixed;
+        if (s == "fixed-free")   return forge::buckling::EndCondition::FixedFree;
+        if (s == "fixed-pinned") return forge::buckling::EndCondition::FixedPinned;
+        return forge::buckling::EndCondition::PinnedPinned;
+    };
+    bkNs.Set("sectionRectangle", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto s = forge::buckling::sectionRectangle(
+            info[0].As<Napi::Number>().DoubleValue(),
+            info[1].As<Napi::Number>().DoubleValue());
+          auto out = Napi::Object::New(env2);
+          out.Set("area",          Napi::Number::New(env2, s.area));
+          out.Set("secondMomentI", Napi::Number::New(env2, s.secondMomentI));
+          return out;
+        });
+      }));
+    bkNs.Set("sectionSolidCircle", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto s = forge::buckling::sectionSolidCircle(
+            info[0].As<Napi::Number>().DoubleValue());
+          auto out = Napi::Object::New(env2);
+          out.Set("area",          Napi::Number::New(env2, s.area));
+          out.Set("secondMomentI", Napi::Number::New(env2, s.secondMomentI));
+          return out;
+        });
+      }));
+    bkNs.Set("sectionHollowCircle", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto s = forge::buckling::sectionHollowCircle(
+            info[0].As<Napi::Number>().DoubleValue(),
+            info[1].As<Napi::Number>().DoubleValue());
+          auto out = Napi::Object::New(env2);
+          out.Set("area",          Napi::Number::New(env2, s.area));
+          out.Set("secondMomentI", Napi::Number::New(env2, s.secondMomentI));
+          return out;
+        });
+      }));
+    bkNs.Set("analyse", Napi::Function::New(env,
+      [readEnds](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::buckling::Inputs in{};
+          in.area          = o.Get("area"         ).As<Napi::Number>().DoubleValue();
+          in.secondMomentI = o.Get("secondMomentI").As<Napi::Number>().DoubleValue();
+          in.length        = o.Get("length"       ).As<Napi::Number>().DoubleValue();
+          in.youngsModulus = o.Get("youngsModulus").As<Napi::Number>().DoubleValue();
+          in.yieldStrength = o.Get("yieldStrength").As<Napi::Number>().DoubleValue();
+          in.ends          = readEnds(o.Get("ends"));
+          auto r = forge::buckling::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("slenderness",           Napi::Number::New(env2, r.slenderness));
+          out.Set("slendernessTransition", Napi::Number::New(env2, r.slendernessTransition));
+          out.Set("criticalLoad",          Napi::Number::New(env2, r.criticalLoad));
+          out.Set("allowableLoad",         Napi::Number::New(env2, r.allowableLoad));
+          out.Set("radiusOfGyration",      Napi::Number::New(env2, r.radiusOfGyration));
+          out.Set("mode",                  Napi::String::New(env2, r.mode));
+          return out;
+        });
+      }));
+    exports.Set("buckling", bkNs);
 
     return exports;
 }

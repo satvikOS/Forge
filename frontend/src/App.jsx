@@ -123,6 +123,8 @@ import { ThermalNetworkWorkbenchHost } from './forge-v4/ThermalNetworkWorkbench.
 import { FatigueLifeWorkbenchHost } from './forge-v4/FatigueLifeWorkbench.jsx';
 // Forge-214 — Bolt joint preload + MoS workbench.
 import { BoltJointWorkbenchHost } from './forge-v4/BoltJointWorkbench.jsx';
+// Forge-215 — Column buckling workbench.
+import { BucklingWorkbenchHost } from './forge-v4/BucklingWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -250,6 +252,7 @@ function App() {
       <ThermalNetworkWorkbenchHost />
       <FatigueLifeWorkbenchHost />
       <BoltJointWorkbenchHost />
+      <BucklingWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

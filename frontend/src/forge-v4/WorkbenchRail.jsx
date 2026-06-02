@@ -92,6 +92,8 @@ export const WORKBENCHES = [
   { id: 'fatigue',      icon: 'wb.sim',       label: 'Fatigue' },
   // Forge-214 — Bolt joint MoS calculator.
   { id: 'boltjoint',    icon: 'wb.part',      label: 'Bolt' },
+  // Forge-215 — Column buckling analysis.
+  { id: 'buckling',     icon: 'wb.sim',       label: 'Buckle' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
