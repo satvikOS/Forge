@@ -330,6 +330,13 @@ const forgeApi = {
     decimate:         (mesh, target) => kernel.meshrepair.decimate(mesh, target),
   } : null,
 
+  // sheetmetal (Forge-201) — flat-pattern unfold + bend allowance.
+  sheetmetal: kernel && kernel.sheetmetal ? {
+    kFactor:     (material, ratioRoT) => kernel.sheetmetal.kFactor(material, ratioRoT),
+    computeBend: (input) => kernel.sheetmetal.computeBend(input),
+    unfoldChain: (input) => kernel.sheetmetal.unfoldChain(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -66,6 +66,8 @@ export const WORKBENCHES = [
   { id: 'gltf-publish', icon: 'wb.sketch', label: 'Publish' },
   // Forge-200 — Mesh repair toolkit.
   { id: 'meshrepair',   icon: 'wb.sim',    label: 'Repair' },
+  // Forge-201 — Sheet metal flat-pattern.
+  { id: 'sheetmetal-unfold', icon: 'wb.sketch', label: 'Unfold' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

@@ -97,6 +97,8 @@ import { WebhookWorkbenchHost } from './forge-v4/WebhookWorkbench.jsx';
 import { GltfPublishWorkbenchHost } from './forge-v4/GltfPublishWorkbench.jsx';
 // Forge-200 — Mesh repair toolkit workbench.
 import { MeshRepairWorkbenchHost } from './forge-v4/MeshRepairWorkbench.jsx';
+// Forge-201 — Sheet metal flat-pattern unfold workbench.
+import { SheetMetalUnfoldWorkbenchHost } from './forge-v4/SheetMetalUnfoldWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -211,6 +213,7 @@ function App() {
       <WebhookWorkbenchHost />
       <GltfPublishWorkbenchHost />
       <MeshRepairWorkbenchHost />
+      <SheetMetalUnfoldWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

@@ -54,6 +54,7 @@
 #include "forge/Terrain.hpp"
 #include "forge/NurbsFit.hpp"
 #include "forge/MeshRepair.hpp"
+#include "forge/SheetMetalFlatPattern.hpp"
 
 #include <array>
 
@@ -5396,6 +5397,100 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("meshrepair", mrNs);
+
+    // -------- Sheet metal flat-pattern (Forge-201) ---------------------
+    auto smNs = Napi::Object::New(env);
+
+    auto readMaterial = [](Napi::Value v) -> forge::sheetmetal::Material {
+        using M = forge::sheetmetal::Material;
+        if (!v.IsString()) return M::MildSteel;
+        const auto s = v.As<Napi::String>().Utf8Value();
+        if (s == "aluminium" || s == "aluminum") return M::Aluminium;
+        if (s == "mild-steel"     || s == "steel")     return M::MildSteel;
+        if (s == "stainless-steel"|| s == "stainless") return M::StainlessSteel;
+        if (s == "copper")    return M::Copper;
+        if (s == "brass")     return M::Brass;
+        if (s == "galvanised" || s == "galvanized") return M::Galvanised;
+        return M::MildSteel;
+    };
+
+    smNs.Set("kFactor", Napi::Function::New(env,
+      [readMaterial](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const auto mat = readMaterial(info[0]);
+          const double ratio = info[1].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::sheetmetal::kFactor(mat, ratio));
+        });
+      }));
+    smNs.Set("computeBend", Napi::Function::New(env,
+      [readMaterial](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          const double a = o.Get("angleDeg").As<Napi::Number>().DoubleValue();
+          const double r = o.Get("innerRadius").As<Napi::Number>().DoubleValue();
+          const double t = o.Get("thickness").As<Napi::Number>().DoubleValue();
+          const double k = o.Has("kOverride") ? o.Get("kOverride").As<Napi::Number>().DoubleValue() : 0.0;
+          auto mat = o.Has("material") ? readMaterial(o.Get("material"))
+                                       : forge::sheetmetal::Material::MildSteel;
+          auto br = forge::sheetmetal::computeBend(a, r, t, k, mat);
+          auto out = Napi::Object::New(env2);
+          out.Set("bendAllowance", Napi::Number::New(env2, br.bendAllowance));
+          out.Set("bendDeduction", Napi::Number::New(env2, br.bendDeduction));
+          out.Set("neutralRadius", Napi::Number::New(env2, br.neutralRadius));
+          out.Set("effectiveK",    Napi::Number::New(env2, br.effectiveK));
+          return out;
+        });
+      }));
+    smNs.Set("unfoldChain", Napi::Function::New(env,
+      [readMaterial](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::sheetmetal::UnfoldInputs in{};
+          auto fl = o.Get("flangeLengths").As<Napi::Array>();
+          in.flangeLengths.reserve(fl.Length());
+          for (std::uint32_t i = 0; i < fl.Length(); ++i)
+            in.flangeLengths.push_back(fl.Get(i).As<Napi::Number>().DoubleValue());
+          auto bn = o.Get("bends").As<Napi::Array>();
+          in.bends.reserve(bn.Length());
+          for (std::uint32_t i = 0; i < bn.Length(); ++i) {
+            auto bo = bn.Get(i).As<Napi::Object>();
+            forge::sheetmetal::BendSpec b{};
+            b.angleDeg    = bo.Get("angleDeg"   ).As<Napi::Number>().DoubleValue();
+            b.innerRadius = bo.Get("innerRadius").As<Napi::Number>().DoubleValue();
+            b.kOverride   = bo.Has("kOverride")
+                ? bo.Get("kOverride").As<Napi::Number>().DoubleValue() : 0.0;
+            in.bends.push_back(b);
+          }
+          in.thickness = o.Get("thickness").As<Napi::Number>().DoubleValue();
+          in.width     = o.Get("width"    ).As<Napi::Number>().DoubleValue();
+          in.material  = o.Has("material") ? readMaterial(o.Get("material"))
+                                           : forge::sheetmetal::Material::MildSteel;
+          auto r = forge::sheetmetal::unfoldChain(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("developedLength", Napi::Number::New(env2, r.developedLength));
+          out.Set("sheetArea",       Napi::Number::New(env2, r.sheetArea));
+          auto pb = Napi::Array::New(env2, r.perBend.size());
+          for (std::size_t i = 0; i < r.perBend.size(); ++i) {
+            auto eo = Napi::Object::New(env2);
+            eo.Set("bendAllowance", Napi::Number::New(env2, r.perBend[i].bendAllowance));
+            eo.Set("bendDeduction", Napi::Number::New(env2, r.perBend[i].bendDeduction));
+            eo.Set("neutralRadius", Napi::Number::New(env2, r.perBend[i].neutralRadius));
+            eo.Set("effectiveK",    Napi::Number::New(env2, r.perBend[i].effectiveK));
+            pb.Set(static_cast<std::uint32_t>(i), eo);
+          }
+          out.Set("perBend", pb);
+          auto fs = Napi::Array::New(env2, r.flangeStartX.size());
+          for (std::size_t i = 0; i < r.flangeStartX.size(); ++i)
+            fs.Set(static_cast<std::uint32_t>(i),
+                   Napi::Number::New(env2, r.flangeStartX[i]));
+          out.Set("flangeStartX", fs);
+          return out;
+        });
+      }));
+    exports.Set("sheetmetal", smNs);
 
     return exports;
 }

@@ -994,6 +994,12 @@ export function ForgeShellV4() {
         setActiveWb('meshrepair');
         window.__forgeOpenMeshRepairWorkbench?.();
         return;
+      // Forge-201 — Sheet metal flat-pattern unfold.
+      case 'tools.sheetmetal-unfold':
+      case 'workbench.sheetmetal-unfold':
+        setActiveWb('sheetmetal-unfold');
+        window.__forgeOpenSheetMetalUnfoldWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

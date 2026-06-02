@@ -143,6 +143,7 @@ add_library(forge_kernel SHARED
     src/Terrain.cpp
     src/NurbsFit.cpp
     src/MeshRepair.cpp
+    src/SheetMetalFlatPattern.cpp
     ${PLANEGCS_SRC}
 )
 
