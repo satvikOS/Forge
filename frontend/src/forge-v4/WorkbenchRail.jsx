@@ -114,6 +114,8 @@ export const WORKBENCHES = [
   { id: 'windload',     icon: 'wb.sim',       label: 'Wind' },
   // Forge-225 — Snow load (ASCE 7).
   { id: 'snowload',     icon: 'wb.sim',       label: 'Snow' },
+  // Forge-226 — Bearing L10 life.
+  { id: 'bearing',      icon: 'wb.part',      label: 'Bearing' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

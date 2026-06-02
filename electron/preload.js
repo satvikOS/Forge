@@ -470,6 +470,11 @@ const forgeApi = {
     analyse: (input) => kernel.snowload.analyse(input),
   } : null,
 
+  // bearing (Forge-226) — ISO 281 L10 fatigue life.
+  bearing: kernel && kernel.bearing ? {
+    analyse: (input) => kernel.bearing.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

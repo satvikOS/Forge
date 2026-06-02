@@ -76,6 +76,7 @@
 #include "forge/HydraulicCylinder.hpp"
 #include "forge/WindLoad.hpp"
 #include "forge/SnowLoad.hpp"
+#include "forge/Bearing.hpp"
 
 #include <array>
 
@@ -6795,6 +6796,38 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("snowload", slNs);
+
+    // -------- Bearing L10 life (Forge-226) -----------------------------
+    auto brNs = Napi::Object::New(env);
+    brNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::bearing::Inputs in{};
+          in.C    = o.Get("C" ).As<Napi::Number>().DoubleValue();
+          in.Fr   = o.Get("Fr").As<Napi::Number>().DoubleValue();
+          in.Fa   = o.Has("Fa") ? o.Get("Fa").As<Napi::Number>().DoubleValue() : 0.0;
+          in.X    = o.Has("X")  ? o.Get("X" ).As<Napi::Number>().DoubleValue() : 1.0;
+          in.Y    = o.Has("Y")  ? o.Get("Y" ).As<Napi::Number>().DoubleValue() : 0.0;
+          in.kind = forge::bearing::kindFromString(
+              o.Get("kind").As<Napi::String>().Utf8Value());
+          in.reliabilityPercent =
+              o.Has("reliabilityPercent")
+              ? o.Get("reliabilityPercent").As<Napi::Number>().DoubleValue() : 90.0;
+          in.rpm = o.Has("rpm") ? o.Get("rpm").As<Napi::Number>().DoubleValue() : 0.0;
+          auto r = forge::bearing::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("equivalentLoad",    Napi::Number::New(env2, r.equivalentLoad));
+          out.Set("L10MegaRev",        Napi::Number::New(env2, r.L10MegaRev));
+          out.Set("L10Hours",          Napi::Number::New(env2, r.L10Hours));
+          out.Set("LnaMegaRev",        Napi::Number::New(env2, r.LnaMegaRev));
+          out.Set("LnaHours",          Napi::Number::New(env2, r.LnaHours));
+          out.Set("reliabilityFactor", Napi::Number::New(env2, r.reliabilityFactor));
+          return out;
+        });
+      }));
+    exports.Set("bearing", brNs);
 
     return exports;
 }

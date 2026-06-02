@@ -1138,6 +1138,12 @@ export function ForgeShellV4() {
         setActiveWb('snowload');
         window.__forgeOpenSnowLoadWorkbench?.();
         return;
+      // Forge-226 — Bearing L10 life.
+      case 'tools.bearing':
+      case 'workbench.bearing':
+        setActiveWb('bearing');
+        window.__forgeOpenBearingWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
