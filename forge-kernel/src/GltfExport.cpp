@@ -306,4 +306,228 @@ ExportSummary writeGlb(const std::vector<ExportBody>& bodies,
     return S;
 }
 
+// ----------------------- Forge-198 streaming variant -----------------------
+//
+// One body at a time: tessellate → write to a temp BIN file → release the
+// mesh memory. After the per-body pass, assemble the JSON skeleton + paste
+// the temp BIN into the final .glb. Peak in-memory bytes are tracked so
+// the caller can verify the streaming actually kept the working set small.
+StreamingSummary writeGlbStream(const std::vector<ExportBody>& bodies,
+                                const std::string& filepath,
+                                const ExportOptions& options) {
+    if (bodies.empty()) {
+        throw std::invalid_argument("forge.gltf: no bodies to export");
+    }
+    if (filepath.empty()) {
+        throw std::invalid_argument("forge.gltf: filepath required");
+    }
+
+    const std::string binPath = filepath + ".bin.tmp";
+    std::ofstream binOut(binPath, std::ios::binary | std::ios::trunc);
+    if (!binOut) throw std::runtime_error("forge.gltf: cannot open " + binPath);
+
+    struct AccessorSpec {
+        std::uint32_t bufferView;
+        std::uint32_t componentType;
+        std::uint32_t count;
+        std::string   type;
+        bool          hasBounds;
+        float         vmin[3];
+        float         vmax[3];
+    };
+    struct BufferViewSpec {
+        std::uint32_t byteOffset;
+        std::uint32_t byteLength;
+        std::uint32_t target;
+    };
+    std::vector<AccessorSpec> accessors;
+    std::vector<BufferViewSpec> bufferViews;
+
+    StreamingSummary S{};
+    S.bodiesWritten = static_cast<std::uint32_t>(bodies.size());
+    S.verticesTotal = 0;
+    S.trianglesTotal = 0;
+    S.fileSizeBytes = 0;
+    S.peakBytesInMemory = 0;
+
+    std::uint32_t cursor = 0;
+    auto writePad = [&](std::uint32_t want) {
+        while (cursor % 4 != 0) {
+            const char zero = 0;
+            binOut.write(&zero, 1);
+            ++cursor;
+        }
+        (void)want;
+    };
+
+    // True streaming: meshes built and written one at a time.
+    std::vector<bool> bodyHasNormals(bodies.size(), false);
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        MeshArrays m = tessellateForGltf(
+            bodies[i].handle, options.deflection, options.angularDeflection,
+            options.computeNormals);
+        const std::uint64_t bytesNow =
+            m.positions.size() * sizeof(float)
+          + m.normals.size()   * sizeof(float)
+          + m.indices.size()   * sizeof(std::uint32_t);
+        if (bytesNow > S.peakBytesInMemory) S.peakBytesInMemory = bytesNow;
+
+        const std::uint32_t vCount = static_cast<std::uint32_t>(m.positions.size() / 3);
+        const std::uint32_t iCount = static_cast<std::uint32_t>(m.indices.size());
+        S.verticesTotal  += vCount;
+        S.trianglesTotal += iCount / 3;
+
+        // positions
+        const std::uint32_t posOffset = cursor;
+        const std::uint32_t posLen = vCount * 12;
+        binOut.write(reinterpret_cast<const char*>(m.positions.data()), posLen);
+        cursor += posLen;
+        bufferViews.push_back({ posOffset, posLen, TARGET_ARRAY_BUFFER });
+        AccessorSpec aPos{};
+        aPos.bufferView = static_cast<std::uint32_t>(bufferViews.size() - 1);
+        aPos.componentType = COMPONENT_FLOAT;
+        aPos.count = vCount;
+        aPos.type = "VEC3";
+        aPos.hasBounds = vCount > 0;
+        std::memcpy(aPos.vmin, m.bboxMin, sizeof(aPos.vmin));
+        std::memcpy(aPos.vmax, m.bboxMax, sizeof(aPos.vmax));
+        accessors.push_back(aPos);
+        writePad(0);
+
+        bool hasN = !m.normals.empty();
+        bodyHasNormals[i] = hasN;
+        if (hasN) {
+            const std::uint32_t off = cursor;
+            const std::uint32_t len = vCount * 12;
+            binOut.write(reinterpret_cast<const char*>(m.normals.data()), len);
+            cursor += len;
+            bufferViews.push_back({ off, len, TARGET_ARRAY_BUFFER });
+            AccessorSpec aN{};
+            aN.bufferView = static_cast<std::uint32_t>(bufferViews.size() - 1);
+            aN.componentType = COMPONENT_FLOAT;
+            aN.count = vCount;
+            aN.type = "VEC3";
+            aN.hasBounds = false;
+            accessors.push_back(aN);
+            writePad(0);
+        }
+
+        // indices
+        const std::uint32_t idxOffset = cursor;
+        const std::uint32_t idxLen = iCount * 4;
+        binOut.write(reinterpret_cast<const char*>(m.indices.data()), idxLen);
+        cursor += idxLen;
+        bufferViews.push_back({ idxOffset, idxLen, TARGET_ELEMENT_ARRAY_BUFFER });
+        AccessorSpec aI{};
+        aI.bufferView = static_cast<std::uint32_t>(bufferViews.size() - 1);
+        aI.componentType = COMPONENT_UINT32;
+        aI.count = iCount;
+        aI.type = "SCALAR";
+        aI.hasBounds = false;
+        accessors.push_back(aI);
+        writePad(0);
+
+        // Mesh memory drops here (m goes out of scope at next iteration).
+    }
+    binOut.close();
+
+    // Build JSON.
+    std::ostringstream json;
+    json.precision(8);
+    json << "{\"asset\":{\"version\":\"2.0\",\"generator\":\""
+         << options.generator << "\"}"
+         << ",\"scene\":0,\"scenes\":[{\"nodes\":[";
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        if (i) json << ',';
+        json << i;
+    }
+    json << "]}],\"nodes\":[";
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        if (i) json << ',';
+        json << "{\"mesh\":" << i << ",\"name\":\"" << bodies[i].name << "\"}";
+    }
+    json << "],\"meshes\":[";
+    std::size_t accBase = 0;
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        if (i) json << ',';
+        const bool hasN = bodyHasNormals[i];
+        const std::size_t accPos = accBase;
+        const std::size_t accNorm = hasN ? accBase + 1 : 0;
+        const std::size_t accIdx = accBase + (hasN ? 2 : 1);
+        json << "{\"primitives\":[{\"attributes\":{\"POSITION\":" << accPos;
+        if (hasN) json << ",\"NORMAL\":" << accNorm;
+        json << "},\"indices\":" << accIdx << ",\"material\":" << i << "}]}";
+        accBase += (hasN ? 3 : 2);
+    }
+    json << "],\"materials\":[";
+    for (std::size_t i = 0; i < bodies.size(); ++i) {
+        if (i) json << ',';
+        const auto& b = bodies[i];
+        json << "{\"name\":\"" << b.name << "_mat\""
+             << ",\"pbrMetallicRoughness\":{"
+             << "\"baseColorFactor\":" << fmtVec4(b.baseColorR, b.baseColorG, b.baseColorB, b.baseColorA)
+             << ",\"metallicFactor\":"  << b.metallicFactor
+             << ",\"roughnessFactor\":" << b.roughnessFactor
+             << "}}";
+    }
+    json << "],\"accessors\":[";
+    for (std::size_t i = 0; i < accessors.size(); ++i) {
+        const auto& a = accessors[i];
+        if (i) json << ',';
+        json << "{\"bufferView\":" << a.bufferView
+             << ",\"componentType\":" << a.componentType
+             << ",\"count\":" << a.count
+             << ",\"type\":\"" << a.type << "\"";
+        if (a.hasBounds) json << ",\"min\":" << fmtVec3(a.vmin)
+                              << ",\"max\":" << fmtVec3(a.vmax);
+        json << "}";
+    }
+    json << "],\"bufferViews\":[";
+    for (std::size_t i = 0; i < bufferViews.size(); ++i) {
+        const auto& v = bufferViews[i];
+        if (i) json << ',';
+        json << "{\"buffer\":0,\"byteOffset\":" << v.byteOffset
+             << ",\"byteLength\":" << v.byteLength
+             << ",\"target\":" << v.target << "}";
+    }
+    json << "],\"buffers\":[{\"byteLength\":" << cursor << "}]}";
+
+    std::string jsonStr = json.str();
+    while (jsonStr.size() % 4 != 0) jsonStr.push_back(' ');
+
+    // Assemble final .glb: header + JSON + BIN.
+    const std::uint32_t jsonLen = static_cast<std::uint32_t>(jsonStr.size());
+    const std::uint32_t binLen  = cursor;
+    const std::uint32_t totalLen = 12 + 8 + jsonLen + 8 + binLen;
+    std::ofstream f(filepath, std::ios::binary | std::ios::trunc);
+    if (!f) throw std::runtime_error("forge.gltf: cannot open " + filepath);
+    auto wU32 = [&](std::uint32_t v) {
+        f.write(reinterpret_cast<const char*>(&v), 4);
+    };
+    wU32(GLB_MAGIC);
+    wU32(GLB_VERSION);
+    wU32(totalLen);
+    wU32(jsonLen);
+    wU32(JSON_CHUNK_TYPE);
+    f.write(jsonStr.data(), jsonStr.size());
+    wU32(binLen);
+    wU32(BIN_CHUNK_TYPE);
+    // Stream temp BIN into the final file.
+    std::ifstream binIn(binPath, std::ios::binary);
+    if (!binIn) throw std::runtime_error("forge.gltf: cannot reopen temp BIN");
+    constexpr std::size_t COPY_BUF = 1 << 16;
+    std::vector<char> buf(COPY_BUF);
+    while (binIn) {
+        binIn.read(buf.data(), buf.size());
+        const std::streamsize got = binIn.gcount();
+        if (got > 0) f.write(buf.data(), got);
+    }
+    binIn.close();
+    f.close();
+    std::remove(binPath.c_str());
+
+    S.fileSizeBytes = totalLen;
+    return S;
+}
+
 }} // namespace forge::gltf

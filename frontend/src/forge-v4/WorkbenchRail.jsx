@@ -62,6 +62,8 @@ export const WORKBENCHES = [
   { id: 'a11y',     icon: 'misc.kbd',    label: 'A11y' },
   // Forge-197 — Webhook receiver (embedded HTTP listener).
   { id: 'webhook',  icon: 'archie.thread', label: 'Hook' },
+  // Forge-198 — Streaming glTF publish.
+  { id: 'gltf-publish', icon: 'wb.sketch', label: 'Publish' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

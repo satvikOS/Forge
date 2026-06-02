@@ -982,6 +982,12 @@ export function ForgeShellV4() {
         setActiveWb('webhook');
         window.__forgeOpenWebhookWorkbench?.();
         return;
+      // Forge-198 — Streaming glTF publish.
+      case 'tools.gltf-publish':
+      case 'workbench.gltf-publish':
+        setActiveWb('gltf-publish');
+        window.__forgeOpenGltfPublishWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

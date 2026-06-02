@@ -93,6 +93,8 @@ import { MultiWindowHost } from './forge-v4/MultiWindow.jsx';
 import { A11yAuditWorkbenchHost } from './forge-v4/A11yAudit.jsx';
 // Forge-197 — Webhook receiver workbench.
 import { WebhookWorkbenchHost } from './forge-v4/WebhookWorkbench.jsx';
+// Forge-198 — Streaming glTF publish workbench.
+import { GltfPublishWorkbenchHost } from './forge-v4/GltfPublishWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -205,6 +207,7 @@ function App() {
       <MultiWindowHost />
       <A11yAuditWorkbenchHost />
       <WebhookWorkbenchHost />
+      <GltfPublishWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

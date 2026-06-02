@@ -4617,6 +4617,60 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
           return out;
         });
       }));
+    // Forge-198 — streaming variant
+    gltfNs.Set("exportGlbStream", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 2) {
+            throw Napi::TypeError::New(env2,
+              "forge.gltf.exportGlbStream(bodies, filepath, options?)");
+          }
+          if (!info[0].IsArray()) {
+            throw Napi::TypeError::New(env2, "bodies must be an array");
+          }
+          auto arr = info[0].As<Napi::Array>();
+          std::vector<forge::gltf::ExportBody> bodies;
+          bodies.reserve(arr.Length());
+          for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto bo = arr.Get(i).As<Napi::Object>();
+            forge::gltf::ExportBody b;
+            b.handle = bo.Get("handle").As<Napi::Number>().Uint32Value();
+            b.name   = bo.Has("name") && bo.Get("name").IsString()
+                       ? bo.Get("name").As<Napi::String>().Utf8Value()
+                       : ("body_" + std::to_string(i));
+            if (bo.Has("baseColor") && bo.Get("baseColor").IsArray()) {
+              auto c = bo.Get("baseColor").As<Napi::Array>();
+              if (c.Length() >= 1) b.baseColorR = c.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+              if (c.Length() >= 2) b.baseColorG = c.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+              if (c.Length() >= 3) b.baseColorB = c.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+              if (c.Length() >= 4) b.baseColorA = c.Get(uint32_t(3)).As<Napi::Number>().DoubleValue();
+            }
+            if (bo.Has("metallic"))  b.metallicFactor  = bo.Get("metallic" ).As<Napi::Number>().DoubleValue();
+            if (bo.Has("roughness")) b.roughnessFactor = bo.Get("roughness").As<Napi::Number>().DoubleValue();
+            bodies.push_back(std::move(b));
+          }
+          const std::string filepath = info[1].As<Napi::String>().Utf8Value();
+          forge::gltf::ExportOptions opts;
+          if (info.Length() > 2 && info[2].IsObject()) {
+            auto o = info[2].As<Napi::Object>();
+            if (o.Has("deflection"))         opts.deflection         = o.Get("deflection").As<Napi::Number>().DoubleValue();
+            if (o.Has("angularDeflection"))  opts.angularDeflection  = o.Get("angularDeflection").As<Napi::Number>().DoubleValue();
+            if (o.Has("computeNormals"))     opts.computeNormals     = o.Get("computeNormals").As<Napi::Boolean>().Value();
+            if (o.Has("generator") && o.Get("generator").IsString())
+              opts.generator = o.Get("generator").As<Napi::String>().Utf8Value();
+          }
+          auto s = forge::gltf::writeGlbStream(bodies, filepath, opts);
+          auto out = Napi::Object::New(env2);
+          out.Set("bodiesWritten",     Napi::Number::New(env2, s.bodiesWritten));
+          out.Set("verticesTotal",     Napi::Number::New(env2, s.verticesTotal));
+          out.Set("trianglesTotal",    Napi::Number::New(env2, s.trianglesTotal));
+          out.Set("fileSizeBytes",     Napi::Number::New(env2, static_cast<double>(s.fileSizeBytes)));
+          out.Set("peakBytesInMemory", Napi::Number::New(env2, static_cast<double>(s.peakBytesInMemory)));
+          out.Set("filepath",          Napi::String::New(env2, filepath));
+          return out;
+        });
+      }));
     exports.Set("gltf", gltfNs);
 
     // -------- Cost estimation (Forge-179) ------------------------------

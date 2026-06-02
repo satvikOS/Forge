@@ -312,9 +312,12 @@ const forgeApi = {
   } : null,
 
   // gltf (Forge-178) — glTF 2.0 binary export (.glb) for web publishing.
+  // Forge-198 — streaming variant that tessellates one body at a time.
   gltf: kernel && kernel.gltf ? {
     exportGlb: (bodies, filepath, options) =>
       kernel.gltf.exportGlb(bodies, filepath, options ?? {}),
+    exportGlbStream: (bodies, filepath, options) =>
+      kernel.gltf.exportGlbStream(bodies, filepath, options ?? {}),
   } : null,
 
   // cost (Forge-179) — material × machining × labour cost engine.

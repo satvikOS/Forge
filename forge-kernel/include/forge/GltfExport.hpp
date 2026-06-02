@@ -52,4 +52,23 @@ ExportSummary writeGlb(const std::vector<ExportBody>& bodies,
                        const std::string& filepath,
                        const ExportOptions& options);
 
+// Forge-198 — streaming variant.
+//
+// Tessellates one body at a time and writes its geometry to a temporary
+// BIN file before composing the final .glb (header + JSON + BIN). Peak
+// memory stays at one body's worth of triangles regardless of the
+// input scene size — the previous one-shot writer accumulated every
+// body's positions/normals/indices in RAM before emitting the file.
+//
+// Output is byte-identical to writeGlb() for the same inputs (same
+// JSON layout, same accessor / bufferView ordering). The summary adds
+// peakBytesInMemory to record the maximum per-body buffer size.
+struct StreamingSummary : public ExportSummary {
+    std::uint64_t peakBytesInMemory;
+};
+
+StreamingSummary writeGlbStream(const std::vector<ExportBody>& bodies,
+                                const std::string& filepath,
+                                const ExportOptions& options);
+
 }} // namespace forge::gltf
