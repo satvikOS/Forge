@@ -182,6 +182,7 @@ domain physics + parametric geometry in-kernel. Each row points at the native
 | Aerospace airfoil + trapezoidal wing loft                      | ✅      | Forge-171 — `forge::airfoil` (NACA 4/5-digit, Selig DAT parser, OCCT `BRepOffsetAPI_ThruSections` wing loft with twist + sweep + dihedral + taper, planform metrics) |
 | Geotechnical slope stability (Bishop + Janbu)                  | ✅      | Forge-176 — `forge::geotech` (limit-equilibrium circular-search; Bishop iterative + Janbu corrected; multi-layer soils + optional water table; smoke verifies textbook FoS ≈ 1.3 for 1H:1V c-φ slope and monotone behaviour vs cohesion + water table) |
 | Casting solidification (enthalpy FDM)                          | ✅      | Forge-173 — `forge::casting` (enthalpy method with phase change, mushy-zone latent heat, Newton-convection BC, Niyama porosity criterion; 5 alloy presets; smoke verifies wall-cells solidify before centre + monotone vs h_wall) |
+| Injection mould flow (Hele-Shaw + Cross-WLF)                   | ✅      | Forge-172 — `forge::mold` (finite-volume pressure solve on triangle dual mesh via Eigen SparseLU, Cross-WLF non-Newtonian viscosity η(γ̇,T), weld-line + air-trap detection; 5 polymer presets; smoke verifies mass conservation < 2 %, inner-to-outer monotone fill, halving Q doubles t_fill) |
 
 ## Approval rule
 

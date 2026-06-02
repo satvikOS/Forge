@@ -59,6 +59,8 @@ import { AerospaceWorkbenchHost } from './forge-v4/AerospaceWorkbench.jsx';
 import { GeotechWorkbenchHost } from './forge-v4/GeotechWorkbench.jsx';
 // Forge-173 — Casting solidification (enthalpy FDM).
 import { CastingWorkbenchHost } from './forge-v4/CastingWorkbench.jsx';
+// Forge-172 — Injection mould flow (Hele-Shaw + Cross-WLF).
+import { MoldFlowWorkbenchHost } from './forge-v4/MoldFlowWorkbench.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -146,6 +148,7 @@ function App() {
       <AerospaceWorkbenchHost />
       <GeotechWorkbenchHost />
       <CastingWorkbenchHost />
+      <MoldFlowWorkbenchHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />

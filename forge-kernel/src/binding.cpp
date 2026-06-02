@@ -39,6 +39,7 @@
 #include "forge/Airfoil.hpp"
 #include "forge/SlopeStability.hpp"
 #include "forge/Casting.hpp"
+#include "forge/MoldFlow.hpp"
 
 #include <array>
 
@@ -4332,6 +4333,74 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("casting", casting);
+
+    // -------- Mold flow (Forge-172) -------------------------------------
+    auto mold = Napi::Object::New(env);
+    mold.Set("heleShawFill", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 5) {
+            throw Napi::TypeError::New(env2,
+              "forge.mold.heleShawFill(mesh, gate, mat, moldTempK, maxTimeSec, maxSteps)");
+          }
+          auto m = info[0].As<Napi::Object>();
+          forge::mold::MeshShell mesh{};
+          auto vArr = m.Get("vertices").As<Napi::Float64Array>();
+          mesh.vertices.assign(vArr.Data(), vArr.Data() + vArr.ElementLength());
+          auto tArr = m.Get("triangles").As<Napi::Uint32Array>();
+          mesh.triangles.assign(tArr.Data(), tArr.Data() + tArr.ElementLength());
+          auto hArr = m.Get("thickness").As<Napi::Float64Array>();
+          mesh.thickness.assign(hArr.Data(), hArr.Data() + hArr.ElementLength());
+
+          auto gObj = info[1].As<Napi::Object>();
+          forge::mold::InjectionGate gate{};
+          gate.x           = gObj.Get("x").As<Napi::Number>().DoubleValue();
+          gate.y           = gObj.Get("y").As<Napi::Number>().DoubleValue();
+          gate.z           = gObj.Has("z") ? gObj.Get("z").As<Napi::Number>().DoubleValue() : 0.0;
+          gate.flowRateM3s = gObj.Get("flowRateM3s").As<Napi::Number>().DoubleValue();
+          gate.meltTempK   = gObj.Get("meltTempK").As<Napi::Number>().DoubleValue();
+
+          auto cObj = info[2].As<Napi::Object>();
+          forge::mold::CrossWLF mat{};
+          mat.n        = cObj.Get("n"      ).As<Napi::Number>().DoubleValue();
+          mat.tauStar  = cObj.Get("tauStar").As<Napi::Number>().DoubleValue();
+          mat.D1       = cObj.Get("D1"     ).As<Napi::Number>().DoubleValue();
+          mat.A1       = cObj.Get("A1"     ).As<Napi::Number>().DoubleValue();
+          mat.A2       = cObj.Get("A2"     ).As<Napi::Number>().DoubleValue();
+          mat.Tg       = cObj.Get("Tg"     ).As<Napi::Number>().DoubleValue();
+
+          const double moldT     = info[3].As<Napi::Number>().DoubleValue();
+          const double maxT      = info[4].As<Napi::Number>().DoubleValue();
+          const int    maxSteps  = (info.Length() > 5 && info[5].IsNumber())
+                                   ? info[5].As<Napi::Number>().Int32Value() : 200;
+
+          auto r = forge::mold::heleShawFill(mesh, gate, mat, moldT, maxT, maxSteps);
+
+          auto out = Napi::Object::New(env2);
+          auto cpyF64 = [&](const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env2, v.size());
+            std::memcpy(a.Data(), v.data(), v.size() * sizeof(double));
+            return a;
+          };
+          auto cpyU32 = [&](const std::vector<uint32_t>& v) {
+            auto a = Napi::Uint32Array::New(env2, v.size());
+            std::memcpy(a.Data(), v.data(), v.size() * sizeof(uint32_t));
+            return a;
+          };
+          out.Set("fillTimeSec",        cpyF64(r.fillTimeSec));
+          out.Set("peakPressurePa",     cpyF64(r.peakPressurePa));
+          out.Set("filledFraction",     cpyF64(r.filledFraction));
+          out.Set("weldLineTriangles",  cpyU32(r.weldLineTriangles));
+          out.Set("airTrapTriangles",   cpyU32(r.airTrapTriangles));
+          out.Set("totalFillTimeSec",   Napi::Number::New(env2, r.totalFillTimeSec));
+          out.Set("maxPressurePa",      Napi::Number::New(env2, r.maxPressurePa));
+          out.Set("stepsTaken",         Napi::Number::New(env2, r.stepsTaken));
+          out.Set("converged",          Napi::Boolean::New(env2, r.converged));
+          return out;
+        });
+      }));
+    exports.Set("mold", mold);
 
     return exports;
 }

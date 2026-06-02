@@ -30,6 +30,8 @@ export const WORKBENCHES = [
   { id: 'geotech',  icon: 'wb.arch',     label: 'Geotech' },
   // Forge-173 — Casting solidification (enthalpy FDM).
   { id: 'casting',  icon: 'wb.sim',      label: 'Cast' },
+  // Forge-172 — Injection mould flow (Hele-Shaw + Cross-WLF).
+  { id: 'moldflow', icon: 'wb.mold',     label: 'MoldFlow' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

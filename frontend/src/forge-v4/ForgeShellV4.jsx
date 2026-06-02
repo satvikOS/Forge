@@ -863,6 +863,12 @@ export function ForgeShellV4() {
         setActiveWb('casting');
         window.__forgeOpenCastingWorkbench?.();
         return;
+      // Forge-172 — Injection mould flow (Hele-Shaw + Cross-WLF).
+      case 'tools.moldflow':
+      case 'workbench.moldflow':
+        setActiveWb('moldflow');
+        window.__forgeOpenMoldFlowWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

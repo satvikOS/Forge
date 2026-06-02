@@ -294,6 +294,12 @@ const forgeApi = {
     solidify: (cfg) => kernel.casting.solidify(cfg),
   } : null,
 
+  // mold (Forge-172) — injection-mould flow (Hele-Shaw + Cross-WLF).
+  mold: kernel && kernel.mold ? {
+    heleShawFill: (mesh, gate, mat, moldT, maxT, maxSteps) =>
+      kernel.mold.heleShawFill(mesh, gate, mat, moldT, maxT, maxSteps ?? 500),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {
