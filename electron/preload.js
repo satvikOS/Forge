@@ -521,6 +521,12 @@ const forgeApi = {
     baseShear:                    (Cs, W)  => kernel.seismic.baseShear(Cs, W),
   } : null,
 
+  // shaft (Forge-235) — combined bending + torsion (ASME B106 / Shigley).
+  shaft: kernel && kernel.shaft ? {
+    analyseStatic:  (input) => kernel.shaft.analyseStatic(input),
+    analyseFatigue: (input) => kernel.shaft.analyseFatigue(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

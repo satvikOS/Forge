@@ -84,6 +84,7 @@
 #include "forge/FanBlower.hpp"
 #include "forge/SteelColumn.hpp"
 #include "forge/SeismicLoad.hpp"
+#include "forge/Shaft.hpp"
 
 #include <array>
 
@@ -7142,6 +7143,51 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("seismic", seNs);
+
+    // -------- Shaft design (Forge-235) ----------------------------------
+    auto shNs = Napi::Object::New(env);
+    shNs.Set("analyseStatic", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::shaft::StaticInput in{};
+          in.diameterM       = o.Get("diameterM"      ).As<Napi::Number>().DoubleValue();
+          in.bendingMomentNm = o.Get("bendingMomentNm").As<Napi::Number>().DoubleValue();
+          in.torqueNm        = o.Get("torqueNm"       ).As<Napi::Number>().DoubleValue();
+          in.yieldMPa        = o.Get("yieldMPa"       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::shaft::analyseStatic(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("bendingStressMPa",  Napi::Number::New(env2, r.bendingStressMPa));
+          out.Set("shearStressMPa",    Napi::Number::New(env2, r.shearStressMPa));
+          out.Set("vonMisesStressMPa", Napi::Number::New(env2, r.vonMisesStressMPa));
+          out.Set("safetyFactor",      Napi::Number::New(env2, r.safetyFactor));
+          return out;
+        });
+      }));
+    shNs.Set("analyseFatigue", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::shaft::FatigueInput in{};
+          in.diameterM       = o.Get("diameterM"      ).As<Napi::Number>().DoubleValue();
+          in.bendingMomentNm = o.Get("bendingMomentNm").As<Napi::Number>().DoubleValue();
+          in.torqueNm        = o.Get("torqueNm"       ).As<Napi::Number>().DoubleValue();
+          in.ultimateMPa     = o.Get("ultimateMPa"    ).As<Napi::Number>().DoubleValue();
+          in.marinFactor     = o.Get("marinFactor"    ).As<Napi::Number>().DoubleValue();
+          in.kfBending       = o.Get("kfBending"      ).As<Napi::Number>().DoubleValue();
+          in.kfsTorsion      = o.Get("kfsTorsion"     ).As<Napi::Number>().DoubleValue();
+          auto r = forge::shaft::analyseFatigue(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("enduranceLimitMPa", Napi::Number::New(env2, r.enduranceLimitMPa));
+          out.Set("alternatingMPa",    Napi::Number::New(env2, r.alternatingMPa));
+          out.Set("meanMPa",           Napi::Number::New(env2, r.meanMPa));
+          out.Set("safetyFactor",      Napi::Number::New(env2, r.safetyFactor));
+          return out;
+        });
+      }));
+    exports.Set("shaft", shNs);
 
     return exports;
 }

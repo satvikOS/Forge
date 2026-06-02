@@ -89,6 +89,12 @@ export const CALCULATOR_TREE = [
         ],
       },
       {
+        label: 'Shafts & axles',
+        items: [
+          { id: 'shaft',     label: 'Shaft (bending + torsion, ASME B106 / Shigley)…', slice: 'Forge-235' },
+        ],
+      },
+      {
         label: 'Actuators & vessels',
         items: [
           { id: 'hydcyl',    label: 'Hydraulic cylinder…', slice: 'Forge-222' },

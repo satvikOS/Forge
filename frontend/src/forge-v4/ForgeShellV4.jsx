@@ -1186,6 +1186,12 @@ export function ForgeShellV4() {
         setActiveWb('seismic');
         window.__forgeOpenSeismicWorkbench?.();
         return;
+      // Forge-235 — Shaft (combined bending + torsion).
+      case 'tools.shaft':
+      case 'workbench.shaft':
+        setActiveWb('shaft');
+        window.__forgeOpenShaftWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
