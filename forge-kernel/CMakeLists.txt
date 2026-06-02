@@ -145,6 +145,7 @@ add_library(forge_kernel SHARED
     src/MeshRepair.cpp
     src/SheetMetalFlatPattern.cpp
     src/PointCloud.cpp
+    src/PathTrace.cpp
     ${PLANEGCS_SRC}
 )
 

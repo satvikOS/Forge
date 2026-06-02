@@ -345,6 +345,11 @@ const forgeApi = {
     voxelMesh:       (points, leaf) => kernel.pointcloud.voxelMesh(points, leaf),
   } : null,
 
+  // pathtrace (Forge-203) — CPU path tracer preview.
+  pathtrace: kernel && kernel.pathtrace ? {
+    render: (input) => kernel.pathtrace.render(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

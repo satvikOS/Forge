@@ -70,6 +70,8 @@ export const WORKBENCHES = [
   { id: 'sheetmetal-unfold', icon: 'wb.sketch', label: 'Unfold' },
   // Forge-202 — Point cloud / reverse engineering.
   { id: 'pointcloud',   icon: 'archie.spark', label: 'Scan' },
+  // Forge-203 — CPU path tracer preview.
+  { id: 'pathtrace',    icon: 'wb.sim',       label: 'Render' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

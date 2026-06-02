@@ -1006,6 +1006,12 @@ export function ForgeShellV4() {
         setActiveWb('pointcloud');
         window.__forgeOpenPointCloudWorkbench?.();
         return;
+      // Forge-203 — Path tracer preview.
+      case 'tools.pathtrace':
+      case 'workbench.pathtrace':
+        setActiveWb('pathtrace');
+        window.__forgeOpenPathTraceWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

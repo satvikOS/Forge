@@ -101,6 +101,8 @@ import { MeshRepairWorkbenchHost } from './forge-v4/MeshRepairWorkbench.jsx';
 import { SheetMetalUnfoldWorkbenchHost } from './forge-v4/SheetMetalUnfoldWorkbench.jsx';
 // Forge-202 — Point cloud / reverse engineering workbench.
 import { PointCloudWorkbenchHost } from './forge-v4/PointCloudWorkbench.jsx';
+// Forge-203 — CPU path tracer preview workbench.
+import { PathTracePreviewWorkbenchHost } from './forge-v4/PathTracePreviewWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -217,6 +219,7 @@ function App() {
       <MeshRepairWorkbenchHost />
       <SheetMetalUnfoldWorkbenchHost />
       <PointCloudWorkbenchHost />
+      <PathTracePreviewWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

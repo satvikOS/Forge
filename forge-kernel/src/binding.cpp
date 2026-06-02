@@ -56,6 +56,7 @@
 #include "forge/MeshRepair.hpp"
 #include "forge/SheetMetalFlatPattern.hpp"
 #include "forge/PointCloud.hpp"
+#include "forge/PathTrace.hpp"
 
 #include <array>
 
@@ -5577,6 +5578,89 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pointcloud", pcNs);
+
+    // -------- Path tracer preview (Forge-203) --------------------------
+    auto ptNs = Napi::Object::New(env);
+    ptNs.Set("render", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+
+          forge::pathtrace::RenderInputs in{};
+          auto meshO = o.Get("mesh").As<Napi::Object>();
+          auto pos = meshO.Get("positions").As<Napi::Float32Array>();
+          auto idx = meshO.Get("indices").As<Napi::Uint32Array>();
+          in.mesh.positions.assign(pos.Data(), pos.Data() + pos.ElementLength());
+          in.mesh.indices.assign(idx.Data(), idx.Data() + idx.ElementLength());
+          if (meshO.Has("normals") && meshO.Get("normals").IsTypedArray()) {
+            auto nrm = meshO.Get("normals").As<Napi::Float32Array>();
+            in.mesh.normals.assign(nrm.Data(), nrm.Data() + nrm.ElementLength());
+          }
+          if (meshO.Has("materialIds") && meshO.Get("materialIds").IsTypedArray()) {
+            auto m = meshO.Get("materialIds").As<Napi::Uint32Array>();
+            in.mesh.materialIds.assign(m.Data(), m.Data() + m.ElementLength());
+          }
+          if (meshO.Has("materials") && meshO.Get("materials").IsArray()) {
+            auto matsArr = meshO.Get("materials").As<Napi::Array>();
+            in.mesh.materials.reserve(matsArr.Length());
+            for (std::uint32_t i = 0; i < matsArr.Length(); ++i) {
+              auto mo = matsArr.Get(i).As<Napi::Object>();
+              forge::pathtrace::Material m{};
+              auto a = mo.Get("albedo").As<Napi::Array>();
+              m.albedo[0] = a.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+              m.albedo[1] = a.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+              m.albedo[2] = a.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+              if (mo.Has("emission")) {
+                auto e = mo.Get("emission").As<Napi::Array>();
+                m.emission[0] = e.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+                m.emission[1] = e.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+                m.emission[2] = e.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+              }
+              in.mesh.materials.push_back(m);
+            }
+          }
+          auto readVec3 = [&](Napi::Value v, double dst[3]) {
+            auto a = v.As<Napi::Array>();
+            dst[0] = a.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+            dst[1] = a.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+            dst[2] = a.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+          };
+          auto camO = o.Get("camera").As<Napi::Object>();
+          readVec3(camO.Get("position"), in.camera.position);
+          readVec3(camO.Get("lookAt"),   in.camera.lookAt);
+          readVec3(camO.Get("up"),       in.camera.up);
+          in.camera.fovYDegrees = camO.Get("fovYDegrees").As<Napi::Number>().DoubleValue();
+          auto sunO = o.Get("sun").As<Napi::Object>();
+          readVec3(sunO.Get("direction"), in.sun.direction);
+          readVec3(sunO.Get("colour"),    in.sun.colour);
+          readVec3(o.Get("ambient"),    in.ambient);
+          readVec3(o.Get("background"), in.background);
+          in.width      = o.Get("width" ).As<Napi::Number>().Uint32Value();
+          in.height     = o.Get("height").As<Napi::Number>().Uint32Value();
+          in.aoSamples  = o.Has("aoSamples")
+              ? o.Get("aoSamples").As<Napi::Number>().Uint32Value() : 8u;
+          in.aoStrength = o.Has("aoStrength")
+              ? o.Get("aoStrength").As<Napi::Number>().DoubleValue() : 0.7;
+          in.aoMaxDistance = o.Has("aoMaxDistance")
+              ? o.Get("aoMaxDistance").As<Napi::Number>().DoubleValue() : 1e6;
+          in.randomSeed = o.Has("randomSeed")
+              ? static_cast<unsigned long>(o.Get("randomSeed").As<Napi::Number>().Int64Value()) : 0ul;
+
+          auto r = forge::pathtrace::render(in);
+          auto out = Napi::Object::New(env2);
+          auto rgb = Napi::Float32Array::New(env2, r.rgb.size());
+          if (!r.rgb.empty())
+            std::memcpy(rgb.Data(), r.rgb.data(), r.rgb.size() * sizeof(float));
+          out.Set("rgb",        rgb);
+          out.Set("width",      Napi::Number::New(env2, r.width));
+          out.Set("height",     Napi::Number::New(env2, r.height));
+          out.Set("rayCount",   Napi::Number::New(env2, static_cast<double>(r.rayCount)));
+          out.Set("elapsedSec", Napi::Number::New(env2, r.elapsedSec));
+          return out;
+        });
+      }));
+    exports.Set("pathtrace", ptNs);
 
     return exports;
 }
