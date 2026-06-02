@@ -148,6 +148,7 @@ add_library(forge_kernel SHARED
     src/PathTrace.cpp
     src/StdParts.cpp
     src/FrameTruss.cpp
+    src/PipeRoute.cpp
     ${PLANEGCS_SRC}
 )
 

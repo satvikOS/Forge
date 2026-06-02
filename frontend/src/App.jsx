@@ -107,6 +107,8 @@ import { PathTracePreviewWorkbenchHost } from './forge-v4/PathTracePreviewWorkbe
 import { StdPartsLibraryWorkbenchHost } from './forge-v4/StdPartsLibraryWorkbench.jsx';
 // Forge-205 — Frame / truss FEA workbench.
 import { FrameTrussWorkbenchHost } from './forge-v4/FrameTrussWorkbench.jsx';
+// Forge-206 — Pipe routing workbench.
+import { PipeRouteWorkbenchHost } from './forge-v4/PipeRouteWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -226,6 +228,7 @@ function App() {
       <PathTracePreviewWorkbenchHost />
       <StdPartsLibraryWorkbenchHost />
       <FrameTrussWorkbenchHost />
+      <PipeRouteWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

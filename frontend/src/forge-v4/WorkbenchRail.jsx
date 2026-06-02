@@ -76,6 +76,8 @@ export const WORKBENCHES = [
   { id: 'stdparts',     icon: 'wb.part',      label: 'Parts' },
   // Forge-205 — Frame / truss FEA.
   { id: 'frame',        icon: 'wb.sim',       label: 'Truss' },
+  // Forge-206 — Pipe routing.
+  { id: 'piperoute',    icon: 'wb.part',      label: 'Route' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

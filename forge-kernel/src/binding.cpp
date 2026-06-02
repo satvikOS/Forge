@@ -59,6 +59,7 @@
 #include "forge/PathTrace.hpp"
 #include "forge/StdParts.hpp"
 #include "forge/FrameTruss.hpp"
+#include "forge/PipeRoute.hpp"
 
 #include <array>
 
@@ -5839,6 +5840,61 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("frame", frNs);
+
+    // -------- Pipe routing (Forge-206) ---------------------------------
+    auto prNs = Napi::Object::New(env);
+    prNs.Set("route", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::piperoute::Inputs in{};
+          auto readPort = [&](Napi::Object po, forge::piperoute::Port& p) {
+            auto pos = po.Get("position").As<Napi::Array>();
+            auto dir = po.Get("direction").As<Napi::Array>();
+            for (int c = 0; c < 3; ++c) {
+              p.position[c]  = pos.Get(uint32_t(c)).As<Napi::Number>().DoubleValue();
+              p.direction[c] = dir.Get(uint32_t(c)).As<Napi::Number>().DoubleValue();
+            }
+          };
+          readPort(o.Get("start").As<Napi::Object>(), in.start);
+          readPort(o.Get("end"  ).As<Napi::Object>(), in.end);
+          if (o.Has("obstacles") && o.Get("obstacles").IsArray()) {
+            auto arr = o.Get("obstacles").As<Napi::Array>();
+            in.obstacles.reserve(arr.Length());
+            for (std::uint32_t i = 0; i < arr.Length(); ++i) {
+              auto bo = arr.Get(i).As<Napi::Object>();
+              forge::piperoute::AABB b{};
+              auto mn = bo.Get("min").As<Napi::Array>();
+              auto mx = bo.Get("max").As<Napi::Array>();
+              for (int c = 0; c < 3; ++c) {
+                b.min[c] = mn.Get(uint32_t(c)).As<Napi::Number>().DoubleValue();
+                b.max[c] = mx.Get(uint32_t(c)).As<Napi::Number>().DoubleValue();
+              }
+              in.obstacles.push_back(b);
+            }
+          }
+          in.gridSpacing   = o.Get("gridSpacing"  ).As<Napi::Number>().DoubleValue();
+          in.elbowPenalty  = o.Has("elbowPenalty")
+              ? o.Get("elbowPenalty").As<Napi::Number>().DoubleValue() : in.gridSpacing;
+          in.bbMargin      = o.Has("bbMargin")
+              ? o.Get("bbMargin").As<Napi::Number>().DoubleValue() : in.gridSpacing * 4;
+          in.maxIterations = o.Has("maxIterations")
+              ? o.Get("maxIterations").As<Napi::Number>().Uint32Value() : 200000u;
+          auto r = forge::piperoute::route(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("found",          Napi::Boolean::New(env2, r.found));
+          out.Set("totalLength",    Napi::Number::New(env2, r.totalLength));
+          out.Set("elbowCount",     Napi::Number::New(env2, r.elbowCount));
+          out.Set("iterationsUsed", Napi::Number::New(env2, r.iterationsUsed));
+          auto pl = Napi::Float64Array::New(env2, r.polyline.size());
+          if (!r.polyline.empty())
+            std::memcpy(pl.Data(), r.polyline.data(), r.polyline.size() * sizeof(double));
+          out.Set("polyline", pl);
+          return out;
+        });
+      }));
+    exports.Set("piperoute", prNs);
 
     return exports;
 }

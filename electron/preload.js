@@ -366,6 +366,11 @@ const forgeApi = {
     solve: (input) => kernel.frame.solve(input),
   } : null,
 
+  // piperoute (Forge-206) — A* axis-aligned pipe router.
+  piperoute: kernel && kernel.piperoute ? {
+    route: (input) => kernel.piperoute.route(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

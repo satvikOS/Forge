@@ -1024,6 +1024,12 @@ export function ForgeShellV4() {
         setActiveWb('frame');
         window.__forgeOpenFrameWorkbench?.();
         return;
+      // Forge-206 — Pipe routing.
+      case 'tools.piperoute':
+      case 'workbench.piperoute':
+        setActiveWb('piperoute');
+        window.__forgeOpenPipeRouteWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
