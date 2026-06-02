@@ -88,6 +88,8 @@ export const WORKBENCHES = [
   { id: 'modal',        icon: 'wb.sim',       label: 'Modal' },
   // Forge-211 — Thermal network FEA.
   { id: 'thermal',      icon: 'wb.sim',       label: 'Heat' },
+  // Forge-212 — Fatigue life calculator.
+  { id: 'fatigue',      icon: 'wb.sim',       label: 'Fatigue' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

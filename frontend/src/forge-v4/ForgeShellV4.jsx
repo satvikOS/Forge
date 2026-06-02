@@ -1060,6 +1060,12 @@ export function ForgeShellV4() {
         setActiveWb('thermal');
         window.__forgeOpenThermalWorkbench?.();
         return;
+      // Forge-212 — Fatigue life calculator.
+      case 'tools.fatigue':
+      case 'workbench.fatigue':
+        setActiveWb('fatigue');
+        window.__forgeOpenFatigueWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

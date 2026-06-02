@@ -119,6 +119,8 @@ import { AnimationTimelineWorkbenchHost } from './forge-v4/AnimationTimelineWork
 import { ModalAnalysisWorkbenchHost } from './forge-v4/ModalAnalysisWorkbench.jsx';
 // Forge-211 — Thermal network workbench.
 import { ThermalNetworkWorkbenchHost } from './forge-v4/ThermalNetworkWorkbench.jsx';
+// Forge-212 — Fatigue life workbench.
+import { FatigueLifeWorkbenchHost } from './forge-v4/FatigueLifeWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -244,6 +246,7 @@ function App() {
       <AnimationTimelineWorkbenchHost />
       <ModalAnalysisWorkbenchHost />
       <ThermalNetworkWorkbenchHost />
+      <FatigueLifeWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

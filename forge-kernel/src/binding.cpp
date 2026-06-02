@@ -64,6 +64,7 @@
 #include "forge/SketchDof.hpp"
 #include "forge/Animation.hpp"
 #include "forge/ThermalNetwork.hpp"
+#include "forge/Fatigue.hpp"
 
 #include <array>
 
@@ -6219,6 +6220,67 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("thermal", tnNs);
+
+    // -------- Fatigue calculator (Forge-212) ---------------------------
+    auto faNs = Napi::Object::New(env);
+    faNs.Set("materialDefaults", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const std::string n = info[0].As<Napi::String>().Utf8Value();
+          auto m = forge::fatigue::materialDefaults(n);
+          auto out = Napi::Object::New(env2);
+          out.Set("sigmaFCoef", Napi::Number::New(env2, m.sigmaFCoef));
+          out.Set("bExponent",  Napi::Number::New(env2, m.bExponent));
+          return out;
+        });
+      }));
+    faNs.Set("cyclesToFailure", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const double sa = info[0].As<Napi::Number>().DoubleValue();
+          const double sf = info[1].As<Napi::Number>().DoubleValue();
+          const double b  = info[2].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::fatigue::cyclesToFailure(sa, sf, b));
+        });
+      }));
+    faNs.Set("cumulativeDamage", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::fatigue::Material mat{};
+          auto mo = o.Get("material").As<Napi::Object>();
+          mat.sigmaFCoef = mo.Get("sigmaFCoef").As<Napi::Number>().DoubleValue();
+          mat.bExponent  = mo.Get("bExponent" ).As<Napi::Number>().DoubleValue();
+          std::vector<forge::fatigue::LoadBlock> blocks;
+          auto ba = o.Get("blocks").As<Napi::Array>();
+          blocks.reserve(ba.Length());
+          for (std::uint32_t i = 0; i < ba.Length(); ++i) {
+            auto bo = ba.Get(i).As<Napi::Object>();
+            forge::fatigue::LoadBlock bk{};
+            bk.stressAmplitudeMPa = bo.Get("stressAmplitudeMPa").As<Napi::Number>().DoubleValue();
+            bk.appliedCycles      = bo.Get("appliedCycles"     ).As<Napi::Number>().DoubleValue();
+            blocks.push_back(bk);
+          }
+          auto r = forge::fatigue::cumulativeDamage(blocks, mat);
+          auto out = Napi::Object::New(env2);
+          auto perBlock = Napi::Array::New(env2, r.perBlock.size());
+          for (std::size_t i = 0; i < r.perBlock.size(); ++i) {
+            auto eo = Napi::Object::New(env2);
+            eo.Set("cyclesToFailure",    Napi::Number::New(env2, r.perBlock[i].cyclesToFailure));
+            eo.Set("damageContribution", Napi::Number::New(env2, r.perBlock[i].damageContribution));
+            perBlock.Set(static_cast<std::uint32_t>(i), eo);
+          }
+          out.Set("perBlock",        perBlock);
+          out.Set("totalDamage",     Napi::Number::New(env2, r.totalDamage));
+          out.Set("failed",          Napi::Boolean::New(env2, r.failed));
+          out.Set("cyclesRemaining", Napi::Number::New(env2, r.cyclesRemaining));
+          return out;
+        });
+      }));
+    exports.Set("fatigue", faNs);
 
     return exports;
 }

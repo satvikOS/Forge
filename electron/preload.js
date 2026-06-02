@@ -395,6 +395,13 @@ const forgeApi = {
     solve: (input) => kernel.thermal.solve(input),
   } : null,
 
+  // fatigue (Forge-212) — S-N fatigue life calculator.
+  fatigue: kernel && kernel.fatigue ? {
+    materialDefaults: (name) => kernel.fatigue.materialDefaults(name),
+    cyclesToFailure:  (sigmaA, sigmaF, b) => kernel.fatigue.cyclesToFailure(sigmaA, sigmaF, b),
+    cumulativeDamage: (input) => kernel.fatigue.cumulativeDamage(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -153,6 +153,7 @@ add_library(forge_kernel SHARED
     src/SketchDof.cpp
     src/Animation.cpp
     src/ThermalNetwork.cpp
+    src/Fatigue.cpp
     ${PLANEGCS_SRC}
 )
 
