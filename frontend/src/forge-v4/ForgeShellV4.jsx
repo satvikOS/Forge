@@ -928,6 +928,12 @@ export function ForgeShellV4() {
         setActiveWb('tolerance');
         window.__forgeOpenToleranceWorkbench?.();
         return;
+      // Forge-186 — HVAC ductwork.
+      case 'tools.duct':
+      case 'workbench.duct':
+        setActiveWb('duct');
+        window.__forgeOpenDuctworkWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

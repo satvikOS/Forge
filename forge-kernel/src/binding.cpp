@@ -47,6 +47,7 @@
 #include "forge/CarbonLca.hpp"
 #include "forge/SunPath.hpp"
 #include "forge/Tolerance.hpp"
+#include "forge/Ductwork.hpp"
 
 #include <array>
 
@@ -4906,6 +4907,73 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("tolerance", tolNs);
+
+    // -------- HVAC ductwork (Forge-186) --------------------------------
+    auto ductNs = Napi::Object::New(env);
+    ductNs.Set("compute", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::duct::DuctInputs in{};
+          in.flowRateM3s = o.Get("flowRateM3s").As<Napi::Number>().DoubleValue();
+          auto a = o.Get("air").As<Napi::Object>();
+          in.air.rhoKgM3   = a.Get("rhoKgM3").As<Napi::Number>().DoubleValue();
+          in.air.nuM2s     = a.Get("nuM2s").As<Napi::Number>().DoubleValue();
+          in.air.epsilonMm = a.Get("epsilonMm").As<Napi::Number>().DoubleValue();
+          auto rt = o.Get("route").As<Napi::Array>();
+          for (uint32_t i = 0; i < rt.Length(); ++i) {
+            auto so = rt.Get(i).As<Napi::Object>();
+            forge::duct::Segment s{};
+            s.kind = static_cast<forge::duct::SegKind>(
+                static_cast<std::uint8_t>(so.Get("kind").As<Napi::Number>().Int32Value()));
+            s.diameterMm = so.Has("diameterMm") ? so.Get("diameterMm").As<Napi::Number>().DoubleValue() : 0;
+            s.widthMm    = so.Has("widthMm"   ) ? so.Get("widthMm"   ).As<Napi::Number>().DoubleValue() : 0;
+            s.heightMm   = so.Has("heightMm"  ) ? so.Get("heightMm"  ).As<Napi::Number>().DoubleValue() : 0;
+            s.lengthM    = so.Has("lengthM"   ) ? so.Get("lengthM"   ).As<Napi::Number>().DoubleValue() : 0;
+            s.rOverD     = so.Has("rOverD"    ) ? so.Get("rOverD"    ).As<Napi::Number>().DoubleValue() : 1.0;
+            in.route.push_back(s);
+          }
+          auto r = forge::duct::compute(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("totalDropPa",   Napi::Number::New(env2, r.totalDropPa));
+          out.Set("maxVelocityMs", Napi::Number::New(env2, r.maxVelocityMs));
+          out.Set("totalLengthM",  Napi::Number::New(env2, r.totalLengthM));
+          auto sa = Napi::Array::New(env2, r.segments.size());
+          for (size_t i = 0; i < r.segments.size(); ++i) {
+            auto seg = Napi::Object::New(env2);
+            seg.Set("kind",                Napi::Number::New(env2, static_cast<int>(r.segments[i].kind)));
+            seg.Set("hydraulicDiameterMm", Napi::Number::New(env2, r.segments[i].hydraulicDiameterMm));
+            seg.Set("areaMm2",             Napi::Number::New(env2, r.segments[i].areaMm2));
+            seg.Set("velocityMs",          Napi::Number::New(env2, r.segments[i].velocityMs));
+            seg.Set("reynolds",            Napi::Number::New(env2, r.segments[i].reynolds));
+            seg.Set("frictionFactor",      Napi::Number::New(env2, r.segments[i].frictionFactor));
+            seg.Set("lossCoefficientK",    Napi::Number::New(env2, r.segments[i].lossCoefficientK));
+            seg.Set("frictionDropPa",      Napi::Number::New(env2, r.segments[i].frictionDropPa));
+            seg.Set("fittingDropPa",       Napi::Number::New(env2, r.segments[i].fittingDropPa));
+            seg.Set("totalDropPa",         Napi::Number::New(env2, r.segments[i].totalDropPa));
+            seg.Set("lengthM",             Napi::Number::New(env2, r.segments[i].lengthM));
+            sa.Set((uint32_t)i, seg);
+          }
+          out.Set("segments", sa);
+          return out;
+        });
+      }));
+    ductNs.Set("sizeRoundForFriction", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const double Q   = info[0].As<Napi::Number>().DoubleValue();
+          const double tgt = info[1].As<Napi::Number>().DoubleValue();
+          auto a = info[2].As<Napi::Object>();
+          forge::duct::DuctAir air{};
+          air.rhoKgM3   = a.Get("rhoKgM3").As<Napi::Number>().DoubleValue();
+          air.nuM2s     = a.Get("nuM2s").As<Napi::Number>().DoubleValue();
+          air.epsilonMm = a.Get("epsilonMm").As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::duct::sizeRoundForFriction(Q, tgt, air));
+        });
+      }));
+    exports.Set("duct", ductNs);
 
     return exports;
 }

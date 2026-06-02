@@ -340,6 +340,12 @@ const forgeApi = {
     compute: (cfg) => kernel.tolerance.compute(cfg),
   } : null,
 
+  // duct (Forge-186) — HVAC ductwork sizing + pressure-drop.
+  duct: kernel && kernel.duct ? {
+    compute:               (cfg) => kernel.duct.compute(cfg),
+    sizeRoundForFriction:  (Q, tgt, air) => kernel.duct.sizeRoundForFriction(Q, tgt, air),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

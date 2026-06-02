@@ -44,6 +44,8 @@ export const WORKBENCHES = [
   { id: 'sunpath',  icon: 'wb.arch',     label: 'SunPath' },
   // Forge-185 — Tolerance stack-up (worst-case + RSS + Monte-Carlo).
   { id: 'tolerance',icon: 'wb.mfg',      label: 'Stackup' },
+  // Forge-186 — HVAC ductwork (ASHRAE sizing + pressure drop).
+  { id: 'duct',     icon: 'wb.arch',     label: 'Ductwork' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
