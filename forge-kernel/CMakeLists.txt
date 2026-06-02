@@ -160,6 +160,7 @@ add_library(forge_kernel SHARED
     src/Spring.cpp
     src/HeatExchanger.cpp
     src/Mohr.cpp
+    src/PolygonSection.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -442,6 +442,11 @@ const forgeApi = {
     principal3D:   (input)        => kernel.mohr.principal3D(input),
   } : null,
 
+  // polysec (Forge-224) — polygon centroid + area moments.
+  polysec: kernel && kernel.polysec ? {
+    analyse: (input) => kernel.polysec.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

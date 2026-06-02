@@ -71,6 +71,7 @@
 #include "forge/Spring.hpp"
 #include "forge/HeatExchanger.hpp"
 #include "forge/Mohr.hpp"
+#include "forge/PolygonSection.hpp"
 
 #include <array>
 
@@ -6590,6 +6591,51 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("mohr", mhNs);
+
+    // -------- Polygon centroid + area moment (Forge-224) ---------------
+    auto psNs = Napi::Object::New(env);
+    auto readLoop = [](Napi::Array a) -> std::vector<forge::polysec::Vec2> {
+        std::vector<forge::polysec::Vec2> out;
+        out.reserve(a.Length());
+        for (std::uint32_t i = 0; i < a.Length(); ++i) {
+            auto o = a.Get(i).As<Napi::Array>();
+            forge::polysec::Vec2 v{};
+            v.x = o.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+            v.y = o.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+            out.push_back(v);
+        }
+        return out;
+    };
+    psNs.Set("analyse", Napi::Function::New(env,
+      [readLoop](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::polysec::Inputs in{};
+          in.outer = readLoop(o.Get("outer").As<Napi::Array>());
+          if (o.Has("holes") && o.Get("holes").IsArray()) {
+            auto hs = o.Get("holes").As<Napi::Array>();
+            in.holes.reserve(hs.Length());
+            for (std::uint32_t i = 0; i < hs.Length(); ++i) {
+              in.holes.push_back(readLoop(hs.Get(i).As<Napi::Array>()));
+            }
+          }
+          auto r = forge::polysec::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("area",              Napi::Number::New(env2, r.area));
+          auto c = Napi::Object::New(env2);
+          c.Set("x", Napi::Number::New(env2, r.centroid.x));
+          c.Set("y", Napi::Number::New(env2, r.centroid.y));
+          out.Set("centroid",          c);
+          out.Set("IxxCentroid",       Napi::Number::New(env2, r.IxxCentroid));
+          out.Set("IyyCentroid",       Napi::Number::New(env2, r.IyyCentroid));
+          out.Set("IxyCentroid",       Napi::Number::New(env2, r.IxyCentroid));
+          out.Set("radiusOfGyrationX", Napi::Number::New(env2, r.radiusOfGyrationX));
+          out.Set("radiusOfGyrationY", Napi::Number::New(env2, r.radiusOfGyrationY));
+          return out;
+        });
+      }));
+    exports.Set("polysec", psNs);
 
     return exports;
 }

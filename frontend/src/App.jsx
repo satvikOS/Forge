@@ -135,6 +135,8 @@ import { SpringDesignWorkbenchHost } from './forge-v4/SpringDesignWorkbench.jsx'
 import { HeatExchangerWorkbenchHost } from './forge-v4/HeatExchangerWorkbench.jsx';
 // Forge-220 — Mohr's circle workbench.
 import { MohrsCircleWorkbenchHost } from './forge-v4/MohrsCircleWorkbench.jsx';
+// Forge-224 — Polygon section workbench.
+import { PolygonSectionWorkbenchHost } from './forge-v4/PolygonSectionWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -268,6 +270,7 @@ function App() {
       <SpringDesignWorkbenchHost />
       <HeatExchangerWorkbenchHost />
       <MohrsCircleWorkbenchHost />
+      <PolygonSectionWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

@@ -104,6 +104,8 @@ export const WORKBENCHES = [
   { id: 'hxc',          icon: 'wb.sim',       label: 'HX' },
   // Forge-220 — Mohr's circle.
   { id: 'mohr',         icon: 'wb.sim',       label: 'Mohr' },
+  // Forge-224 — Polygon section properties.
+  { id: 'polysec',      icon: 'wb.sketch',    label: 'Section' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
