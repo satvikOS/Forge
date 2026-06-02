@@ -964,6 +964,12 @@ export function ForgeShellV4() {
         setActiveWb('nurbsfit');
         window.__forgeOpenNurbsFitWorkbench?.();
         return;
+      // Forge-193 — Time-series log viewer (FEA / CFD / acoustics).
+      case 'tools.tsviewer':
+      case 'workbench.tsviewer':
+        setActiveWb('tsviewer');
+        window.__forgeOpenTimeSeriesViewerWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
