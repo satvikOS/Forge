@@ -86,6 +86,8 @@ export const WORKBENCHES = [
   { id: 'animation',    icon: 'archie.spark', label: 'Anim' },
   // Forge-210 — Modal / vibration analysis.
   { id: 'modal',        icon: 'wb.sim',       label: 'Modal' },
+  // Forge-211 — Thermal network FEA.
+  { id: 'thermal',      icon: 'wb.sim',       label: 'Heat' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

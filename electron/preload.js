@@ -390,6 +390,11 @@ const forgeApi = {
     sampleRange: (tracks, t0, t1, n) => kernel.animation.sampleRange(tracks, t0, t1, n),
   } : null,
 
+  // thermal (Forge-211) — steady-state thermal network solver.
+  thermal: kernel && kernel.thermal ? {
+    solve: (input) => kernel.thermal.solve(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

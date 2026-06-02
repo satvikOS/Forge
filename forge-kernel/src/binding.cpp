@@ -63,6 +63,7 @@
 #include "forge/Dxf.hpp"
 #include "forge/SketchDof.hpp"
 #include "forge/Animation.hpp"
+#include "forge/ThermalNetwork.hpp"
 
 #include <array>
 
@@ -6163,6 +6164,61 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("animation", anNs);
+
+    // -------- Thermal network (Forge-211) ------------------------------
+    auto tnNs = Napi::Object::New(env);
+    tnNs.Set("solve", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::thermalnetwork::Inputs in{};
+          auto ns = o.Get("nodes").As<Napi::Array>();
+          in.nodes.reserve(ns.Length());
+          for (std::uint32_t i = 0; i < ns.Length(); ++i) {
+            auto no = ns.Get(i).As<Napi::Object>();
+            forge::thermalnetwork::Node n{};
+            n.fixed = no.Has("fixed") && no.Get("fixed").As<Napi::Boolean>().Value();
+            n.prescribedTemperature = no.Has("prescribedTemperature")
+                ? no.Get("prescribedTemperature").As<Napi::Number>().DoubleValue() : 0.0;
+            in.nodes.push_back(n);
+          }
+          auto es = o.Get("edges").As<Napi::Array>();
+          in.edges.reserve(es.Length());
+          for (std::uint32_t i = 0; i < es.Length(); ++i) {
+            auto eo = es.Get(i).As<Napi::Object>();
+            forge::thermalnetwork::Edge e{};
+            e.a           = eo.Get("a").As<Napi::Number>().Uint32Value();
+            e.b           = eo.Get("b").As<Napi::Number>().Uint32Value();
+            e.conductance = eo.Get("conductance").As<Napi::Number>().DoubleValue();
+            in.edges.push_back(e);
+          }
+          if (o.Has("sources") && o.Get("sources").IsArray()) {
+            auto ss = o.Get("sources").As<Napi::Array>();
+            in.sources.reserve(ss.Length());
+            for (std::uint32_t i = 0; i < ss.Length(); ++i) {
+              auto so = ss.Get(i).As<Napi::Object>();
+              forge::thermalnetwork::Source s{};
+              s.node     = so.Get("node").As<Napi::Number>().Uint32Value();
+              s.heatFlux = so.Get("heatFlux").As<Napi::Number>().DoubleValue();
+              in.sources.push_back(s);
+            }
+          }
+          auto r = forge::thermalnetwork::solve(in);
+          auto out = Napi::Object::New(env2);
+          auto packF64 = [&](const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env2, v.size());
+            if (!v.empty()) std::memcpy(a.Data(), v.data(), v.size() * sizeof(double));
+            return a;
+          };
+          out.Set("temperatures", packF64(r.temperatures));
+          out.Set("reactions",    packF64(r.reactions));
+          out.Set("edgeFluxes",   packF64(r.edgeFluxes));
+          out.Set("singular",     Napi::Boolean::New(env2, r.singular));
+          return out;
+        });
+      }));
+    exports.Set("thermal", tnNs);
 
     return exports;
 }

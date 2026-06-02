@@ -1054,6 +1054,12 @@ export function ForgeShellV4() {
         setActiveWb('modal');
         window.__forgeOpenModalWorkbench?.();
         return;
+      // Forge-211 — Thermal network FEA.
+      case 'tools.thermal':
+      case 'workbench.thermal':
+        setActiveWb('thermal');
+        window.__forgeOpenThermalWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
