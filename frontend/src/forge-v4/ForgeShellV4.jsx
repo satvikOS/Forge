@@ -1150,6 +1150,12 @@ export function ForgeShellV4() {
         setActiveWb('vbelt');
         window.__forgeOpenVBeltWorkbench?.();
         return;
+      // Forge-228 — Pressure vessel.
+      case 'tools.pvessel':
+      case 'workbench.pvessel':
+        setActiveWb('pvessel');
+        window.__forgeOpenPVesselWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

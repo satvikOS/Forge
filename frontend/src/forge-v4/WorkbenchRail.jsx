@@ -118,6 +118,8 @@ export const WORKBENCHES = [
   { id: 'bearing',      icon: 'wb.part',      label: 'Bearing' },
   // Forge-227 — V-belt drive.
   { id: 'vbelt',        icon: 'wb.part',      label: 'V-belt' },
+  // Forge-228 — Pressure vessel.
+  { id: 'pvessel',      icon: 'wb.part',      label: 'PVessel' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

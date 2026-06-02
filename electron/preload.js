@@ -483,6 +483,12 @@ const forgeApi = {
     analyse:              (input)      => kernel.vbelt.analyse(input),
   } : null,
 
+  // pvessel (Forge-228) — ASME VIII Div 1 pressure vessel.
+  pvessel: kernel && kernel.pvessel ? {
+    stress:            (input) => kernel.pvessel.stress(input),
+    requiredThickness: (input) => kernel.pvessel.requiredThickness(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

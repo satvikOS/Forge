@@ -78,6 +78,7 @@
 #include "forge/SnowLoad.hpp"
 #include "forge/Bearing.hpp"
 #include "forge/VBelt.hpp"
+#include "forge/PressureVessel.hpp"
 
 #include <array>
 
@@ -6886,6 +6887,43 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("vbelt", vbNs);
+
+    // -------- Pressure vessel (Forge-228) ------------------------------
+    auto pvNs = Napi::Object::New(env);
+    pvNs.Set("stress", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pvessel::StressInputs in{};
+          in.pressure      = o.Get("pressure"     ).As<Napi::Number>().DoubleValue();
+          in.diameter      = o.Get("diameter"     ).As<Napi::Number>().DoubleValue();
+          in.wallThickness = o.Get("wallThickness").As<Napi::Number>().DoubleValue();
+          in.geometry      = forge::pvessel::geometryFromString(
+              o.Get("geometry").As<Napi::String>().Utf8Value());
+          auto r = forge::pvessel::stress(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("hoopStress",         Napi::Number::New(env2, r.hoopStress));
+          out.Set("longitudinalStress", Napi::Number::New(env2, r.longitudinalStress));
+          return out;
+        });
+      }));
+    pvNs.Set("requiredThickness", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pvessel::ThicknessInputs in{};
+          in.pressure        = o.Get("pressure"       ).As<Napi::Number>().DoubleValue();
+          in.insideRadius    = o.Get("insideRadius"   ).As<Napi::Number>().DoubleValue();
+          in.allowableStress = o.Get("allowableStress").As<Napi::Number>().DoubleValue();
+          in.jointEfficiency = o.Get("jointEfficiency").As<Napi::Number>().DoubleValue();
+          in.geometry        = forge::pvessel::geometryFromString(
+              o.Get("geometry").As<Napi::String>().Utf8Value());
+          return Napi::Number::New(env2, forge::pvessel::requiredThickness(in));
+        });
+      }));
+    exports.Set("pvessel", pvNs);
 
     return exports;
 }
