@@ -69,6 +69,8 @@ import { WeldingDistortionWorkbenchHost } from './forge-v4/WeldingDistortionWork
 import { CostWorkbenchHost } from './forge-v4/CostWorkbench.jsx';
 // Forge-180 — Carbon-footprint LCA (cradle-to-gate).
 import { CarbonLcaWorkbenchHost } from './forge-v4/CarbonLcaWorkbench.jsx';
+// Forge-181 — Sun-path + daylight (NOAA SPA).
+import { SunPathWorkbenchHost } from './forge-v4/SunPathWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -165,6 +167,7 @@ function App() {
       <WeldingDistortionWorkbenchHost />
       <CostWorkbenchHost />
       <CarbonLcaWorkbenchHost />
+      <SunPathWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <MaterialPickerHost />

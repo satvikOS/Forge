@@ -45,6 +45,7 @@
 #include "forge/GltfExport.hpp"
 #include "forge/CostEstimation.hpp"
 #include "forge/CarbonLca.hpp"
+#include "forge/SunPath.hpp"
 
 #include <array>
 
@@ -4775,6 +4776,82 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("carbon", carbonNs);
+
+    // -------- Sun-path / daylight (Forge-181) --------------------------
+    auto sunNs = Napi::Object::New(env);
+    auto writeSolarPos = [](Napi::Env e, const forge::sun::SolarPosition& s) {
+        auto o = Napi::Object::New(e);
+        o.Set("altitudeDeg",      Napi::Number::New(e, s.altitudeDeg));
+        o.Set("azimuthDeg",       Napi::Number::New(e, s.azimuthDeg));
+        o.Set("zenithDeg",        Napi::Number::New(e, s.zenithDeg));
+        o.Set("declinationDeg",   Napi::Number::New(e, s.declinationDeg));
+        o.Set("eqOfTimeMin",      Napi::Number::New(e, s.eqOfTimeMin));
+        o.Set("sunriseLocalHour", Napi::Number::New(e, s.sunriseLocalHour));
+        o.Set("sunsetLocalHour",  Napi::Number::New(e, s.sunsetLocalHour));
+        o.Set("daylightHours",    Napi::Number::New(e, s.daylightHours));
+        o.Set("sunUp",            Napi::Boolean::New(e, s.sunUp));
+        return o;
+    };
+    sunNs.Set("compute", Napi::Function::New(env,
+      [writeSolarPos](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          const int year     = o.Get("year").As<Napi::Number>().Int32Value();
+          const int dayOfYear= o.Get("dayOfYear").As<Napi::Number>().Int32Value();
+          const double hour  = o.Get("localHour").As<Napi::Number>().DoubleValue();
+          const double lat   = o.Get("latitudeDeg").As<Napi::Number>().DoubleValue();
+          const double lon   = o.Get("longitudeDeg").As<Napi::Number>().DoubleValue();
+          const double tz    = o.Get("tzOffsetHours").As<Napi::Number>().DoubleValue();
+          auto s = forge::sun::compute(year, dayOfYear, hour, lat, lon, tz);
+          return writeSolarPos(env2, s);
+        });
+      }));
+    sunNs.Set("sweepHourly", Napi::Function::New(env,
+      [writeSolarPos](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          const int year      = o.Get("year").As<Napi::Number>().Int32Value();
+          const int dayOfYear = o.Get("dayOfYear").As<Napi::Number>().Int32Value();
+          const double lat    = o.Get("latitudeDeg").As<Napi::Number>().DoubleValue();
+          const double lon    = o.Get("longitudeDeg").As<Napi::Number>().DoubleValue();
+          const double tz     = o.Get("tzOffsetHours").As<Napi::Number>().DoubleValue();
+          auto samples = forge::sun::sweepHourly(year, dayOfYear, lat, lon, tz);
+          auto arr = Napi::Array::New(env2, samples.size());
+          for (size_t i = 0; i < samples.size(); ++i) {
+            auto s = Napi::Object::New(env2);
+            s.Set("localHour", Napi::Number::New(env2, samples[i].localHour));
+            s.Set("pos", writeSolarPos(env2, samples[i].pos));
+            arr.Set((uint32_t)i, s);
+          }
+          return arr;
+        });
+      }));
+    sunNs.Set("annualNoon", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          const int year    = o.Get("year").As<Napi::Number>().Int32Value();
+          const double lat  = o.Get("latitudeDeg").As<Napi::Number>().DoubleValue();
+          const double lon  = o.Get("longitudeDeg").As<Napi::Number>().DoubleValue();
+          const double tz   = o.Get("tzOffsetHours").As<Napi::Number>().DoubleValue();
+          auto noons = forge::sun::annualNoon(year, lat, lon, tz);
+          auto arr = Napi::Array::New(env2, noons.size());
+          for (size_t i = 0; i < noons.size(); ++i) {
+            auto s = Napi::Object::New(env2);
+            s.Set("monthOneBased",  Napi::Number::New(env2, noons[i].monthOneBased));
+            s.Set("dayOfYear",      Napi::Number::New(env2, noons[i].dayOfYear));
+            s.Set("altitudeDeg",    Napi::Number::New(env2, noons[i].altitudeDeg));
+            s.Set("azimuthDeg",     Napi::Number::New(env2, noons[i].azimuthDeg));
+            s.Set("daylightHours",  Napi::Number::New(env2, noons[i].daylightHours));
+            arr.Set((uint32_t)i, s);
+          }
+          return arr;
+        });
+      }));
+    exports.Set("sun", sunNs);
 
     return exports;
 }

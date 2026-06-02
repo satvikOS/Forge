@@ -328,6 +328,13 @@ const forgeApi = {
     computeLca: (inputs) => kernel.carbon.computeLca(inputs),
   } : null,
 
+  // sun (Forge-181) — solar position + daylight (NOAA SPA Spencer/Iqbal).
+  sun: kernel && kernel.sun ? {
+    compute:     (cfg) => kernel.sun.compute(cfg),
+    sweepHourly: (cfg) => kernel.sun.sweepHourly(cfg),
+    annualNoon:  (cfg) => kernel.sun.annualNoon(cfg),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

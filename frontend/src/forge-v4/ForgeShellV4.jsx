@@ -916,6 +916,12 @@ export function ForgeShellV4() {
         setActiveWb('carbon');
         window.__forgeOpenCarbonLcaWorkbench?.();
         return;
+      // Forge-181 — Sun-path + daylight (NOAA SPA).
+      case 'tools.sunpath':
+      case 'workbench.sunpath':
+        setActiveWb('sunpath');
+        window.__forgeOpenSunPathWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

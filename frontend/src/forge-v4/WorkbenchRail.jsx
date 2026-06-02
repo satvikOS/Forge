@@ -40,6 +40,8 @@ export const WORKBENCHES = [
   { id: 'cost',     icon: 'wb.mfg',      label: 'Cost' },
   // Forge-180 — Carbon-footprint LCA (cradle-to-gate).
   { id: 'carbon',   icon: 'wb.sim',      label: 'Carbon' },
+  // Forge-181 — Sun-path + daylight analysis (NOAA SPA).
+  { id: 'sunpath',  icon: 'wb.arch',     label: 'SunPath' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
