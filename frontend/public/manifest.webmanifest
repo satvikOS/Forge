@@ -1,0 +1,13 @@
+{
+  "name": "ArchDisc Forge",
+  "short_name": "Forge",
+  "description": "Archie-first parametric MCAD on OCCT — native B-rep kernel, discipline workbenches, end-to-end CAD/CAM/CAE workflow.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0a0e14",
+  "theme_color": "#d97a3b",
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "any", "type": "image/x-icon" }
+  ]
+}

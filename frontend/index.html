@@ -4,10 +4,27 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#d97a3b" />
     <title>Forge — Parametric CAD</title>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <!-- Forge-199 — service worker for offline mode (PWA / web variant).
+         Electron loads the same bundle from file:// and skips
+         registration because workers don't register on file URLs. -->
+    <script>
+      if ('serviceWorker' in navigator
+          && window.location.protocol !== 'file:'
+          && !window.location.search.includes('forge-sw-disable')) {
+        navigator.serviceWorker.register('/sw.js').then(
+          () => { window.__forgeSwRegistered = true; },
+          function (err) { console.warn('[forge] sw register failed:', err); }
+        );
+      } else {
+        window.__forgeSwSkipped = true;
+      }
+    </script>
   </body>
 </html>
