@@ -180,6 +180,7 @@ add_library(forge_kernel SHARED
     src/BearingCapacity.cpp
     src/RetainingWall.cpp
     src/PileCapacity.cpp
+    src/OpenChannel.cpp
     ${PLANEGCS_SRC}
 )
 

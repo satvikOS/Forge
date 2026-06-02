@@ -91,6 +91,7 @@
 #include "forge/BearingCapacity.hpp"
 #include "forge/RetainingWall.hpp"
 #include "forge/PileCapacity.hpp"
+#include "forge/OpenChannel.hpp"
 
 #include <array>
 
@@ -7450,6 +7451,91 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pilecap", plNs);
+
+    // -------- Open channel flow (Forge-242) -----------------------------
+    auto ocNs = Napi::Object::New(env);
+    auto readGeom = [](const Napi::Object& o) {
+      forge::openchannel::GeomInput g{};
+      g.bottomWidthM = o.Get("bottomWidthM").As<Napi::Number>().DoubleValue();
+      g.sideSlopeM   = o.Get("sideSlopeM"  ).As<Napi::Number>().DoubleValue();
+      return g;
+    };
+    ocNs.Set("sectionAtDepth", Napi::Function::New(env,
+      [readGeom](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          auto g = readGeom(o.Get("geom").As<Napi::Object>());
+          const double y = o.Get("depthM").As<Napi::Number>().DoubleValue();
+          auto r = forge::openchannel::sectionAtDepth(g, y);
+          auto out = Napi::Object::New(env2);
+          out.Set("area",             Napi::Number::New(env2, r.area));
+          out.Set("wetPerim",         Napi::Number::New(env2, r.wetPerim));
+          out.Set("hydraulicRadius",  Napi::Number::New(env2, r.hydraulicRadius));
+          out.Set("topWidth",         Napi::Number::New(env2, r.topWidth));
+          return out;
+        });
+      }));
+    ocNs.Set("manningDischarge", Napi::Function::New(env,
+      [readGeom](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::openchannel::UniformInput u{};
+          u.geom      = readGeom(o.Get("geom").As<Napi::Object>());
+          u.manningN  = o.Get("manningN").As<Napi::Number>().DoubleValue();
+          u.slope     = o.Get("slope"   ).As<Napi::Number>().DoubleValue();
+          u.depthM    = o.Get("depthM"  ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::openchannel::manningDischarge(u));
+        });
+      }));
+    ocNs.Set("normalDepth", Napi::Function::New(env,
+      [readGeom](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::openchannel::NormalDepthInput in{};
+          in.geom            = readGeom(o.Get("geom").As<Napi::Object>());
+          in.manningN        = o.Get("manningN"       ).As<Napi::Number>().DoubleValue();
+          in.slope           = o.Get("slope"          ).As<Napi::Number>().DoubleValue();
+          in.targetDischarge = o.Get("targetDischarge").As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::openchannel::normalDepth(in));
+        });
+      }));
+    ocNs.Set("criticalDepth", Napi::Function::New(env,
+      [readGeom](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::openchannel::CriticalDepthInput in{};
+          in.geom        = readGeom(o.Get("geom").As<Napi::Object>());
+          in.dischargeQ  = o.Get("dischargeQ").As<Napi::Number>().DoubleValue();
+          in.gravityG    = o.Get("gravityG"  ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::openchannel::criticalDepth(in));
+        });
+      }));
+    ocNs.Set("flowRegime", Napi::Function::New(env,
+      [readGeom](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::openchannel::FlowRegimeInput in{};
+          in.geom       = readGeom(o.Get("geom").As<Napi::Object>());
+          in.depthM     = o.Get("depthM"    ).As<Napi::Number>().DoubleValue();
+          in.dischargeQ = o.Get("dischargeQ").As<Napi::Number>().DoubleValue();
+          in.gravityG   = o.Get("gravityG"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::openchannel::flowRegime(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("area",           Napi::Number::New(env2, r.area));
+          out.Set("topWidth",       Napi::Number::New(env2, r.topWidth));
+          out.Set("hydraulicDepth", Napi::Number::New(env2, r.hydraulicDepth));
+          out.Set("velocity",       Napi::Number::New(env2, r.velocity));
+          out.Set("froude",         Napi::Number::New(env2, r.froude));
+          out.Set("regime",         Napi::Number::New(env2, r.regime));
+          return out;
+        });
+      }));
+    exports.Set("openchannel", ocNs);
 
     return exports;
 }

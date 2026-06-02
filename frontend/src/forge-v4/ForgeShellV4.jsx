@@ -1228,6 +1228,12 @@ export function ForgeShellV4() {
         setActiveWb('pilecap');
         window.__forgeOpenPileCapWorkbench?.();
         return;
+      // Forge-242 — Open channel (Manning + critical depth).
+      case 'tools.openchan':
+      case 'workbench.openchan':
+        setActiveWb('openchan');
+        window.__forgeOpenOpenChanWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

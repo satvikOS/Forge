@@ -558,6 +558,15 @@ const forgeApi = {
     analyse: (input) => kernel.pilecap.analyse(input),
   } : null,
 
+  // openchannel (Forge-242) — Manning normal + critical depth + Froude.
+  openchannel: kernel && kernel.openchannel ? {
+    sectionAtDepth:    (input) => kernel.openchannel.sectionAtDepth(input),
+    manningDischarge:  (input) => kernel.openchannel.manningDischarge(input),
+    normalDepth:       (input) => kernel.openchannel.normalDepth(input),
+    criticalDepth:     (input) => kernel.openchannel.criticalDepth(input),
+    flowRegime:        (input) => kernel.openchannel.flowRegime(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

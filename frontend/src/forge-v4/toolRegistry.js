@@ -137,6 +137,12 @@ export const CALCULATOR_TREE = [
           { id: 'hxc',       label: 'Heat exchanger LMTD…', slice: 'Forge-218' },
         ],
       },
+      {
+        label: 'Open channel',
+        items: [
+          { id: 'openchan',  label: 'Open channel (Manning + critical depth)…', slice: 'Forge-242' },
+        ],
+      },
     ],
   },
   {
