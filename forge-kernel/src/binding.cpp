@@ -46,6 +46,7 @@
 #include "forge/CostEstimation.hpp"
 #include "forge/CarbonLca.hpp"
 #include "forge/SunPath.hpp"
+#include "forge/Tolerance.hpp"
 
 #include <array>
 
@@ -4852,6 +4853,59 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("sun", sunNs);
+
+    // -------- Tolerance stack-up (Forge-185) ---------------------------
+    auto tolNs = Napi::Object::New(env);
+    tolNs.Set("compute", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 1 || !info[0].IsObject()) {
+            throw Napi::TypeError::New(env2, "forge.tolerance.compute: cfg required");
+          }
+          auto o = info[0].As<Napi::Object>();
+          forge::tolerance::StackInputs in{};
+          auto chain = o.Get("chain").As<Napi::Array>();
+          for (uint32_t i = 0; i < chain.Length(); ++i) {
+            auto co = chain.Get(i).As<Napi::Object>();
+            forge::tolerance::Dimension d{};
+            d.name     = co.Get("name").As<Napi::String>().Utf8Value();
+            d.nominal  = co.Get("nominal").As<Napi::Number>().DoubleValue();
+            d.tolPlus  = co.Get("tolPlus").As<Napi::Number>().DoubleValue();
+            d.tolMinus = co.Get("tolMinus").As<Napi::Number>().DoubleValue();
+            const int distInt = co.Has("dist")
+                ? co.Get("dist").As<Napi::Number>().Int32Value() : 0;
+            d.dist = static_cast<forge::tolerance::Distribution>(
+                static_cast<std::uint8_t>(distInt));
+            in.chain.push_back(std::move(d));
+          }
+          in.USL        = o.Get("USL").As<Napi::Number>().DoubleValue();
+          in.LSL        = o.Get("LSL").As<Napi::Number>().DoubleValue();
+          in.mcSamples  = o.Has("mcSamples")
+              ? o.Get("mcSamples").As<Napi::Number>().Int32Value() : 10000;
+          in.randomSeed = o.Has("randomSeed")
+              ? static_cast<unsigned long>(o.Get("randomSeed").As<Napi::Number>().Int64Value()) : 42ul;
+          auto r = forge::tolerance::compute(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("worstCaseNominal", Napi::Number::New(env2, r.worstCaseNominal));
+          out.Set("worstCaseHigh",    Napi::Number::New(env2, r.worstCaseHigh));
+          out.Set("worstCaseLow",     Napi::Number::New(env2, r.worstCaseLow));
+          out.Set("rssMu",            Napi::Number::New(env2, r.rssMu));
+          out.Set("rssSigma",         Napi::Number::New(env2, r.rssSigma));
+          out.Set("rssCp",            Napi::Number::New(env2, r.rssCp));
+          out.Set("rssCpk",           Napi::Number::New(env2, r.rssCpk));
+          out.Set("mcMu",             Napi::Number::New(env2, r.mcMu));
+          out.Set("mcSigma",          Napi::Number::New(env2, r.mcSigma));
+          out.Set("mcP05",            Napi::Number::New(env2, r.mcP05));
+          out.Set("mcP50",            Napi::Number::New(env2, r.mcP50));
+          out.Set("mcP95",            Napi::Number::New(env2, r.mcP95));
+          out.Set("mcCp",             Napi::Number::New(env2, r.mcCp));
+          out.Set("mcCpk",            Napi::Number::New(env2, r.mcCpk));
+          out.Set("mcYieldPct",       Napi::Number::New(env2, r.mcYieldPct));
+          return out;
+        });
+      }));
+    exports.Set("tolerance", tolNs);
 
     return exports;
 }

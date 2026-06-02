@@ -71,6 +71,8 @@ import { CostWorkbenchHost } from './forge-v4/CostWorkbench.jsx';
 import { CarbonLcaWorkbenchHost } from './forge-v4/CarbonLcaWorkbench.jsx';
 // Forge-181 — Sun-path + daylight (NOAA SPA).
 import { SunPathWorkbenchHost } from './forge-v4/SunPathWorkbench.jsx';
+// Forge-185 — Tolerance stack-up (worst-case + RSS + Monte-Carlo).
+import { ToleranceStackWorkbenchHost } from './forge-v4/ToleranceStackWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -168,6 +170,7 @@ function App() {
       <CostWorkbenchHost />
       <CarbonLcaWorkbenchHost />
       <SunPathWorkbenchHost />
+      <ToleranceStackWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <MaterialPickerHost />

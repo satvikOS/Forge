@@ -335,6 +335,11 @@ const forgeApi = {
     annualNoon:  (cfg) => kernel.sun.annualNoon(cfg),
   } : null,
 
+  // tolerance (Forge-185) — 1D stack-up worst-case + RSS + Monte-Carlo.
+  tolerance: kernel && kernel.tolerance ? {
+    compute: (cfg) => kernel.tolerance.compute(cfg),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

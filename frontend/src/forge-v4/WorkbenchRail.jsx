@@ -42,6 +42,8 @@ export const WORKBENCHES = [
   { id: 'carbon',   icon: 'wb.sim',      label: 'Carbon' },
   // Forge-181 — Sun-path + daylight analysis (NOAA SPA).
   { id: 'sunpath',  icon: 'wb.arch',     label: 'SunPath' },
+  // Forge-185 — Tolerance stack-up (worst-case + RSS + Monte-Carlo).
+  { id: 'tolerance',icon: 'wb.mfg',      label: 'Stackup' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

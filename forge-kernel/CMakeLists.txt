@@ -135,6 +135,7 @@ add_library(forge_kernel SHARED
     src/CostEstimation.cpp
     src/CarbonLca.cpp
     src/SunPath.cpp
+    src/Tolerance.cpp
     ${PLANEGCS_SRC}
 )
 
