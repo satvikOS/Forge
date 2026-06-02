@@ -503,6 +503,12 @@ const forgeApi = {
     compressorPower:  (Q, cop)       => kernel.refrig.compressorPower(Q, cop),
   } : null,
 
+  // fan (Forge-231) — centrifugal fan / blower sizing + affinity laws.
+  fan: kernel && kernel.fan ? {
+    analyse:         (input) => kernel.fan.analyse(input),
+    scaleByAffinity: (input) => kernel.fan.scaleByAffinity(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

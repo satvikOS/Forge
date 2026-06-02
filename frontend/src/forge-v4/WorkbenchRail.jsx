@@ -124,6 +124,8 @@ export const WORKBENCHES = [
   { id: 'pumphead',     icon: 'wb.sim',       label: 'Pump' },
   // Forge-230 — Refrigeration COP.
   { id: 'refrig',       icon: 'wb.sim',       label: 'Refrig' },
+  // Forge-231 — Fan / blower sizing.
+  { id: 'fan',          icon: 'wb.sim',       label: 'Fan' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

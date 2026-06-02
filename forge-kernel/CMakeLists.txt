@@ -170,6 +170,7 @@ add_library(forge_kernel SHARED
     src/PressureVessel.cpp
     src/PumpHead.cpp
     src/Refrigeration.cpp
+    src/FanBlower.cpp
     ${PLANEGCS_SRC}
 )
 

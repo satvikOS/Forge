@@ -1168,6 +1168,12 @@ export function ForgeShellV4() {
         setActiveWb('refrig');
         window.__forgeOpenRefrigWorkbench?.();
         return;
+      // Forge-231 — Fan / blower sizing.
+      case 'tools.fan':
+      case 'workbench.fan':
+        setActiveWb('fan');
+        window.__forgeOpenFanWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

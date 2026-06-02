@@ -81,6 +81,7 @@
 #include "forge/PressureVessel.hpp"
 #include "forge/PumpHead.hpp"
 #include "forge/Refrigeration.hpp"
+#include "forge/FanBlower.hpp"
 
 #include <array>
 
@@ -7019,6 +7020,52 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("refrig", rfNs);
+
+    // -------- Fan / blower (Forge-231) ---------------------------------
+    auto fbNs = Napi::Object::New(env);
+    fbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::fanblower::SizeInputs in{};
+          in.flowRate       = o.Get("flowRate"      ).As<Napi::Number>().DoubleValue();
+          in.deltaPStatic   = o.Get("deltaPStatic"  ).As<Napi::Number>().DoubleValue();
+          in.density        = o.Get("density"       ).As<Napi::Number>().DoubleValue();
+          in.outletArea     = o.Get("outletArea"    ).As<Napi::Number>().DoubleValue();
+          in.fanEfficiency  = o.Get("fanEfficiency" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::fanblower::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("velocityOutlet",   Napi::Number::New(env2, r.velocityOutlet));
+          out.Set("velocityPressure", Napi::Number::New(env2, r.velocityPressure));
+          out.Set("totalPressure",    Napi::Number::New(env2, r.totalPressure));
+          out.Set("hydraulicPower",   Napi::Number::New(env2, r.hydraulicPower));
+          out.Set("shaftPower",       Napi::Number::New(env2, r.shaftPower));
+          return out;
+        });
+      }));
+    fbNs.Set("scaleByAffinity", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::fanblower::AffinityInputs in{};
+          in.Q1   = o.Get("Q1"  ).As<Napi::Number>().DoubleValue();
+          in.dP1  = o.Get("dP1" ).As<Napi::Number>().DoubleValue();
+          in.P1   = o.Get("P1"  ).As<Napi::Number>().DoubleValue();
+          in.N1   = o.Get("N1"  ).As<Napi::Number>().DoubleValue();
+          in.rho1 = o.Get("rho1").As<Napi::Number>().DoubleValue();
+          in.N2   = o.Get("N2"  ).As<Napi::Number>().DoubleValue();
+          in.rho2 = o.Get("rho2").As<Napi::Number>().DoubleValue();
+          auto r = forge::fanblower::scaleByAffinity(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Q2",  Napi::Number::New(env2, r.Q2));
+          out.Set("dP2", Napi::Number::New(env2, r.dP2));
+          out.Set("P2",  Napi::Number::New(env2, r.P2));
+          return out;
+        });
+      }));
+    exports.Set("fan", fbNs);
 
     return exports;
 }
