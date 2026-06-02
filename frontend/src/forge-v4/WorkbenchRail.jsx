@@ -68,6 +68,8 @@ export const WORKBENCHES = [
   { id: 'meshrepair',   icon: 'wb.sim',    label: 'Repair' },
   // Forge-201 — Sheet metal flat-pattern.
   { id: 'sheetmetal-unfold', icon: 'wb.sketch', label: 'Unfold' },
+  // Forge-202 — Point cloud / reverse engineering.
+  { id: 'pointcloud',   icon: 'archie.spark', label: 'Scan' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

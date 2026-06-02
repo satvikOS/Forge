@@ -144,6 +144,7 @@ add_library(forge_kernel SHARED
     src/NurbsFit.cpp
     src/MeshRepair.cpp
     src/SheetMetalFlatPattern.cpp
+    src/PointCloud.cpp
     ${PLANEGCS_SRC}
 )
 

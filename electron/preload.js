@@ -337,6 +337,14 @@ const forgeApi = {
     unfoldChain: (input) => kernel.sheetmetal.unfoldChain(input),
   } : null,
 
+  // pointcloud (Forge-202) — scan-data utilities.
+  pointcloud: kernel && kernel.pointcloud ? {
+    stats:           (points) => kernel.pointcloud.stats(points),
+    voxelDownsample: (points, leaf) => kernel.pointcloud.voxelDownsample(points, leaf),
+    estimateNormals: (points, k, viewpoint) => kernel.pointcloud.estimateNormals(points, k, viewpoint),
+    voxelMesh:       (points, leaf) => kernel.pointcloud.voxelMesh(points, leaf),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

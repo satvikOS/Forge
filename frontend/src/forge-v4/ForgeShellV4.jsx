@@ -1000,6 +1000,12 @@ export function ForgeShellV4() {
         setActiveWb('sheetmetal-unfold');
         window.__forgeOpenSheetMetalUnfoldWorkbench?.();
         return;
+      // Forge-202 — Point cloud / reverse engineering.
+      case 'tools.pointcloud':
+      case 'workbench.pointcloud':
+        setActiveWb('pointcloud');
+        window.__forgeOpenPointCloudWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

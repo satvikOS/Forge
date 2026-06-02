@@ -55,6 +55,7 @@
 #include "forge/NurbsFit.hpp"
 #include "forge/MeshRepair.hpp"
 #include "forge/SheetMetalFlatPattern.hpp"
+#include "forge/PointCloud.hpp"
 
 #include <array>
 
@@ -5491,6 +5492,91 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("sheetmetal", smNs);
+
+    // -------- Point cloud (Forge-202) ----------------------------------
+    auto pcNs = Napi::Object::New(env);
+
+    auto readPoints = [](Napi::Value v) -> std::vector<float> {
+        auto arr = v.As<Napi::Float32Array>();
+        return std::vector<float>(arr.Data(), arr.Data() + arr.ElementLength());
+    };
+    auto packFloats = [](Napi::Env e, const std::vector<float>& v) -> Napi::Float32Array {
+        auto out = Napi::Float32Array::New(e, v.size());
+        if (!v.empty()) std::memcpy(out.Data(), v.data(), v.size() * sizeof(float));
+        return out;
+    };
+
+    pcNs.Set("stats", Napi::Function::New(env,
+      [readPoints](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto pts = readPoints(info[0]);
+          auto s = forge::pointcloud::stats(pts);
+          auto out = Napi::Object::New(env2);
+          out.Set("pointCount", Napi::Number::New(env2, s.pointCount));
+          auto bbMin = Napi::Float32Array::New(env2, 3);
+          auto bbMax = Napi::Float32Array::New(env2, 3);
+          auto cen   = Napi::Float32Array::New(env2, 3);
+          for (int c = 0; c < 3; ++c) {
+            bbMin.Data()[c] = s.bboxMin[c];
+            bbMax.Data()[c] = s.bboxMax[c];
+            cen.Data()[c]   = s.centroid[c];
+          }
+          out.Set("bboxMin",  bbMin);
+          out.Set("bboxMax",  bbMax);
+          out.Set("centroid", cen);
+          out.Set("density",  Napi::Number::New(env2, s.density));
+          return out;
+        });
+      }));
+    pcNs.Set("voxelDownsample", Napi::Function::New(env,
+      [readPoints, packFloats](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto pts = readPoints(info[0]);
+          const double leaf = info[1].As<Napi::Number>().DoubleValue();
+          return packFloats(env2, forge::pointcloud::voxelDownsample(pts, leaf));
+        });
+      }));
+    pcNs.Set("estimateNormals", Napi::Function::New(env,
+      [readPoints, packFloats](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto pts = readPoints(info[0]);
+          const std::uint32_t k = info.Length() > 1 && info[1].IsNumber()
+              ? info[1].As<Napi::Number>().Uint32Value() : 8u;
+          double vp[3] = { 0, 0, 1e6 };
+          if (info.Length() > 2 && info[2].IsArray()) {
+            auto a = info[2].As<Napi::Array>();
+            if (a.Length() >= 3) {
+              vp[0] = a.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+              vp[1] = a.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+              vp[2] = a.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+            }
+          }
+          return packFloats(env2, forge::pointcloud::estimateNormals(pts, k, vp));
+        });
+      }));
+    pcNs.Set("voxelMesh", Napi::Function::New(env,
+      [readPoints](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto pts = readPoints(info[0]);
+          const double leaf = info[1].As<Napi::Number>().DoubleValue();
+          auto m = forge::pointcloud::voxelMesh(pts, leaf);
+          auto out = Napi::Object::New(env2);
+          auto pos = Napi::Float32Array::New(env2, m.positions.size());
+          if (!m.positions.empty())
+            std::memcpy(pos.Data(), m.positions.data(), m.positions.size() * sizeof(float));
+          auto idx = Napi::Uint32Array::New(env2, m.indices.size());
+          if (!m.indices.empty())
+            std::memcpy(idx.Data(), m.indices.data(), m.indices.size() * sizeof(std::uint32_t));
+          out.Set("positions", pos);
+          out.Set("indices",   idx);
+          return out;
+        });
+      }));
+    exports.Set("pointcloud", pcNs);
 
     return exports;
 }
