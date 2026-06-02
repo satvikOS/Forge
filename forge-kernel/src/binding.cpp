@@ -62,6 +62,7 @@
 #include "forge/PipeRoute.hpp"
 #include "forge/Dxf.hpp"
 #include "forge/SketchDof.hpp"
+#include "forge/Animation.hpp"
 
 #include <array>
 
@@ -6026,6 +6027,89 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("sketchdof", sdNs);
+
+    // -------- Animation timeline (Forge-209) ---------------------------
+    auto anNs = Napi::Object::New(env);
+    auto readTracks = [](Napi::Env e, Napi::Array arr) -> forge::animation::Inputs {
+      forge::animation::Inputs in{};
+      in.tracks.reserve(arr.Length());
+      for (std::uint32_t i = 0; i < arr.Length(); ++i) {
+        auto to = arr.Get(i).As<Napi::Object>();
+        forge::animation::Track t{};
+        t.name = to.Get("name").As<Napi::String>().Utf8Value();
+        const auto interp = to.Has("interpolation")
+            ? to.Get("interpolation").As<Napi::String>().Utf8Value() : "linear";
+        t.interpolation = (interp == "cubic")
+            ? forge::animation::Interpolation::CubicHermite
+            : forge::animation::Interpolation::Linear;
+        auto ks = to.Get("keys").As<Napi::Array>();
+        t.keys.reserve(ks.Length());
+        for (std::uint32_t j = 0; j < ks.Length(); ++j) {
+          auto ko = ks.Get(j).As<Napi::Object>();
+          forge::animation::Keyframe k{};
+          k.time = ko.Get("time").As<Napi::Number>().DoubleValue();
+          auto va = ko.Get("value").As<Napi::Array>();
+          k.value[0] = va.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+          k.value[1] = va.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+          k.value[2] = va.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+          t.keys.push_back(k);
+        }
+        in.tracks.push_back(std::move(t));
+      }
+      (void)e;
+      return in;
+    };
+    auto packSamples = [](Napi::Env e, const std::vector<forge::animation::Sample>& s) -> Napi::Array {
+      auto a = Napi::Array::New(e, s.size());
+      for (std::size_t i = 0; i < s.size(); ++i) {
+        auto o = Napi::Object::New(e);
+        o.Set("name", Napi::String::New(e, s[i].name));
+        auto v = Napi::Float64Array::New(e, 3);
+        v.Data()[0] = s[i].value[0];
+        v.Data()[1] = s[i].value[1];
+        v.Data()[2] = s[i].value[2];
+        o.Set("value", v);
+        a.Set(static_cast<std::uint32_t>(i), o);
+      }
+      return a;
+    };
+    anNs.Set("duration", Napi::Function::New(env,
+      [readTracks](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = readTracks(env2, info[0].As<Napi::Array>());
+          return Napi::Number::New(env2, forge::animation::duration(in));
+        });
+      }));
+    anNs.Set("evaluateAll", Napi::Function::New(env,
+      [readTracks, packSamples](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = readTracks(env2, info[0].As<Napi::Array>());
+          const double t = info[1].As<Napi::Number>().DoubleValue();
+          return packSamples(env2, forge::animation::evaluateAll(in, t));
+        });
+      }));
+    anNs.Set("sampleRange", Napi::Function::New(env,
+      [readTracks, packSamples](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = readTracks(env2, info[0].As<Napi::Array>());
+          const double t0 = info[1].As<Napi::Number>().DoubleValue();
+          const double t1 = info[2].As<Napi::Number>().DoubleValue();
+          const std::uint32_t n = info[3].As<Napi::Number>().Uint32Value();
+          auto frames = forge::animation::sampleRange(in, t0, t1, n);
+          auto out = Napi::Array::New(env2, frames.size());
+          for (std::size_t i = 0; i < frames.size(); ++i) {
+            auto fo = Napi::Object::New(env2);
+            fo.Set("time",  Napi::Number::New(env2, frames[i].time));
+            fo.Set("values", packSamples(env2, frames[i].values));
+            out.Set(static_cast<std::uint32_t>(i), fo);
+          }
+          return out;
+        });
+      }));
+    exports.Set("animation", anNs);
 
     return exports;
 }

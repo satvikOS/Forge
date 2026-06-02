@@ -1042,6 +1042,12 @@ export function ForgeShellV4() {
         setActiveWb('sketchdof');
         window.__forgeOpenSketchDofWorkbench?.();
         return;
+      // Forge-209 — Animation timeline.
+      case 'tools.animation':
+      case 'workbench.animation':
+        setActiveWb('animation');
+        window.__forgeOpenAnimationWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

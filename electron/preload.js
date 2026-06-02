@@ -382,6 +382,13 @@ const forgeApi = {
     audit: (input) => kernel.sketchdof.audit(input),
   } : null,
 
+  // animation (Forge-209) — keyframe animation evaluator.
+  animation: kernel && kernel.animation ? {
+    duration:    (tracks) => kernel.animation.duration(tracks),
+    evaluateAll: (tracks, time) => kernel.animation.evaluateAll(tracks, time),
+    sampleRange: (tracks, t0, t1, n) => kernel.animation.sampleRange(tracks, t0, t1, n),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -151,6 +151,7 @@ add_library(forge_kernel SHARED
     src/PipeRoute.cpp
     src/Dxf.cpp
     src/SketchDof.cpp
+    src/Animation.cpp
     ${PLANEGCS_SRC}
 )
 

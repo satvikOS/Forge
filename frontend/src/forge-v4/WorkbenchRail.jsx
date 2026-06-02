@@ -82,6 +82,8 @@ export const WORKBENCHES = [
   { id: 'dxf',          icon: 'archie.thread', label: 'DXF' },
   // Forge-208 — Sketch DOF audit.
   { id: 'sketchdof',    icon: 'misc.kbd',     label: 'DOF' },
+  // Forge-209 — Animation timeline.
+  { id: 'animation',    icon: 'archie.spark', label: 'Anim' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
