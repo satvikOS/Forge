@@ -514,6 +514,13 @@ const forgeApi = {
     analyse: (input) => kernel.steelcol.analyse(input),
   } : null,
 
+  // seismic (Forge-234) — ASCE 7 §12.8 equivalent lateral force.
+  seismic: kernel && kernel.seismic ? {
+    approximateFundamentalPeriod: (sys, h) => kernel.seismic.approximateFundamentalPeriod(sys, h),
+    seismicResponseCoefficient:   (input)  => kernel.seismic.seismicResponseCoefficient(input),
+    baseShear:                    (Cs, W)  => kernel.seismic.baseShear(Cs, W),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

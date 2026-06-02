@@ -172,6 +172,7 @@ add_library(forge_kernel SHARED
     src/Refrigeration.cpp
     src/FanBlower.cpp
     src/SteelColumn.cpp
+    src/SeismicLoad.cpp
     ${PLANEGCS_SRC}
 )
 

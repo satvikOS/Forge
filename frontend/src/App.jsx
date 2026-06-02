@@ -159,6 +159,8 @@ import { RefrigerationWorkbenchHost } from './forge-v4/RefrigerationWorkbench.js
 import { FanBlowerWorkbenchHost } from './forge-v4/FanBlowerWorkbench.jsx';
 // Forge-232 — Steel column workbench.
 import { SteelColumnWorkbenchHost } from './forge-v4/SteelColumnWorkbench.jsx';
+// Forge-234 — Seismic load (ASCE 7) workbench.
+import { SeismicLoadWorkbenchHost } from './forge-v4/SeismicLoadWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -306,6 +308,7 @@ function App() {
       <RefrigerationWorkbenchHost />
       <FanBlowerWorkbenchHost />
       <SteelColumnWorkbenchHost />
+      <SeismicLoadWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

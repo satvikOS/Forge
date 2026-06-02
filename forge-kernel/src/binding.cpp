@@ -83,6 +83,7 @@
 #include "forge/Refrigeration.hpp"
 #include "forge/FanBlower.hpp"
 #include "forge/SteelColumn.hpp"
+#include "forge/SeismicLoad.hpp"
 
 #include <array>
 
@@ -7096,6 +7097,51 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("steelcol", scNs);
+
+    // -------- Seismic load (Forge-234) ---------------------------------
+    auto seNs = Napi::Object::New(env);
+    seNs.Set("approximateFundamentalPeriod", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const auto sys = forge::seismic::systemFromString(
+              info[0].As<Napi::String>().Utf8Value());
+          const double h = info[1].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2,
+              forge::seismic::approximateFundamentalPeriod(sys, h));
+        });
+      }));
+    seNs.Set("seismicResponseCoefficient", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::seismic::CsInputs in{};
+          in.SDS = o.Get("SDS").As<Napi::Number>().DoubleValue();
+          in.SD1 = o.Get("SD1").As<Napi::Number>().DoubleValue();
+          in.T   = o.Get("T"  ).As<Napi::Number>().DoubleValue();
+          in.TL  = o.Get("TL" ).As<Napi::Number>().DoubleValue();
+          in.R   = o.Get("R"  ).As<Napi::Number>().DoubleValue();
+          in.Ie  = o.Get("Ie" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::seismic::seismicResponseCoefficient(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("CsBasic",     Napi::Number::New(env2, r.CsBasic));
+          out.Set("CsMax",       Napi::Number::New(env2, r.CsMax));
+          out.Set("CsMin",       Napi::Number::New(env2, r.CsMin));
+          out.Set("CsGoverning", Napi::Number::New(env2, r.CsGoverning));
+          return out;
+        });
+      }));
+    seNs.Set("baseShear", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          return Napi::Number::New(env2, forge::seismic::baseShear(
+              info[0].As<Napi::Number>().DoubleValue(),
+              info[1].As<Napi::Number>().DoubleValue()));
+        });
+      }));
+    exports.Set("seismic", seNs);
 
     return exports;
 }

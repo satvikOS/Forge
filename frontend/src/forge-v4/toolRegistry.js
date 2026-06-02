@@ -44,6 +44,7 @@ export const CALCULATOR_TREE = [
         items: [
           { id: 'windload',  label: 'Wind load (ASCE 7)…',  slice: 'Forge-223' },
           { id: 'snowload',  label: 'Snow load (ASCE 7)…',  slice: 'Forge-225' },
+          { id: 'seismic',   label: 'Seismic load (ASCE 7 §12.8 ELF)…', slice: 'Forge-234' },
           { id: 'steelcol',  label: 'Steel column (AISC 360 §E3)…', slice: 'Forge-232' },
         ],
       },

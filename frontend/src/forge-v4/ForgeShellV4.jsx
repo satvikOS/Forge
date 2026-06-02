@@ -1180,6 +1180,12 @@ export function ForgeShellV4() {
         setActiveWb('steelcol');
         window.__forgeOpenSteelColWorkbench?.();
         return;
+      // Forge-234 — Seismic load (ASCE 7 §12.8 ELF).
+      case 'tools.seismic':
+      case 'workbench.seismic':
+        setActiveWb('seismic');
+        window.__forgeOpenSeismicWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
