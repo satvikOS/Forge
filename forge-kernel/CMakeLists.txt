@@ -129,6 +129,7 @@ add_library(forge_kernel SHARED
     src/SlopeStability.cpp
     src/Casting.cpp
     src/MoldFlow.cpp
+    src/Acoustics.cpp
     ${PLANEGCS_SRC}
 )
 

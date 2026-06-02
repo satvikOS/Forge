@@ -40,6 +40,7 @@
 #include "forge/SlopeStability.hpp"
 #include "forge/Casting.hpp"
 #include "forge/MoldFlow.hpp"
+#include "forge/Acoustics.hpp"
 
 #include <array>
 
@@ -4401,6 +4402,85 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("mold", mold);
+
+    // -------- Acoustics (Forge-175) -------------------------------------
+    auto acoustics = Napi::Object::New(env);
+    acoustics.Set("simulate", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 1 || !info[0].IsObject()) {
+            throw Napi::TypeError::New(env2, "forge.acoustics.simulate: cfg required");
+          }
+          auto o = info[0].As<Napi::Object>();
+          forge::acoustics::AcousticConfig cfg{};
+          auto room = o.Get("room").As<Napi::Object>();
+          cfg.room.Lx = room.Get("Lx").As<Napi::Number>().DoubleValue();
+          cfg.room.Ly = room.Get("Ly").As<Napi::Number>().DoubleValue();
+          cfg.room.Lz = room.Get("Lz").As<Napi::Number>().DoubleValue();
+          auto wallsArr = room.Get("walls").As<Napi::Array>();
+          for (uint32_t w = 0; w < 6 && w < wallsArr.Length(); ++w) {
+            auto wb = wallsArr.Get(w).As<Napi::Float64Array>();
+            for (std::size_t b = 0; b < forge::acoustics::NUM_BANDS && b < wb.ElementLength(); ++b) {
+              cfg.room.walls[w][b] = wb.Data()[b];
+            }
+          }
+          auto airArr = room.Get("airAtten").As<Napi::Float64Array>();
+          for (std::size_t b = 0; b < forge::acoustics::NUM_BANDS && b < airArr.ElementLength(); ++b) {
+            cfg.room.airAtten[b] = airArr.Data()[b];
+          }
+          cfg.sourceX = o.Get("sourceX").As<Napi::Number>().DoubleValue();
+          cfg.sourceY = o.Get("sourceY").As<Napi::Number>().DoubleValue();
+          cfg.sourceZ = o.Get("sourceZ").As<Napi::Number>().DoubleValue();
+          cfg.recvX   = o.Get("recvX"  ).As<Napi::Number>().DoubleValue();
+          cfg.recvY   = o.Get("recvY"  ).As<Napi::Number>().DoubleValue();
+          cfg.recvZ   = o.Get("recvZ"  ).As<Napi::Number>().DoubleValue();
+          cfg.maxOrder       = o.Get("maxOrder").As<Napi::Number>().Int32Value();
+          cfg.speedOfSound   = o.Has("speedOfSound") ? o.Get("speedOfSound").As<Napi::Number>().DoubleValue() : 343.0;
+          cfg.sampleRateHz   = o.Has("sampleRateHz") ? o.Get("sampleRateHz").As<Napi::Number>().DoubleValue() : 48000.0;
+          cfg.irLengthSec    = o.Get("irLengthSec").As<Napi::Number>().DoubleValue();
+          cfg.sourcePowerW   = o.Has("sourcePowerW") ? o.Get("sourcePowerW").As<Napi::Number>().DoubleValue() : 1e-3;
+          cfg.randomSeed     = o.Has("randomSeed") ? static_cast<unsigned long>(o.Get("randomSeed").As<Napi::Number>().Int64Value()) : 1ul;
+
+          auto r = forge::acoustics::simulate(cfg);
+
+          auto out = Napi::Object::New(env2);
+          out.Set("sampleRateHz", Napi::Number::New(env2, r.sampleRateHz));
+          out.Set("samples",       Napi::Number::New(env2, r.samples));
+          out.Set("imageSourcesEvaluated", Napi::Number::New(env2, r.imageSourcesEvaluated));
+          out.Set("sabineRt60Mid", Napi::Number::New(env2, r.sabineRt60Mid));
+          out.Set("edcStrideSamples", Napi::Number::New(env2, r.edcStrideSamples));
+
+          auto cpyF64 = [&](const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env2, v.size());
+            if (!v.empty()) std::memcpy(a.Data(), v.data(), v.size() * sizeof(double));
+            return a;
+          };
+          out.Set("irCombined", cpyF64(r.irCombined));
+          auto perBand = Napi::Array::New(env2, forge::acoustics::NUM_BANDS);
+          auto edcArr  = Napi::Array::New(env2, forge::acoustics::NUM_BANDS);
+          auto rt60Arr = Napi::Float64Array::New(env2, forge::acoustics::NUM_BANDS);
+          auto c50Arr  = Napi::Float64Array::New(env2, forge::acoustics::NUM_BANDS);
+          auto c80Arr  = Napi::Float64Array::New(env2, forge::acoustics::NUM_BANDS);
+          auto d50Arr  = Napi::Float64Array::New(env2, forge::acoustics::NUM_BANDS);
+          for (uint32_t b = 0; b < forge::acoustics::NUM_BANDS; ++b) {
+            perBand.Set(b, cpyF64(r.irPerBand[b]));
+            edcArr.Set(b,  cpyF64(r.edcDb[b]));
+            rt60Arr.Data()[b] = r.rt60Sec[b];
+            c50Arr.Data()[b]  = r.c50Db[b];
+            c80Arr.Data()[b]  = r.c80Db[b];
+            d50Arr.Data()[b]  = r.d50[b];
+          }
+          out.Set("irPerBand", perBand);
+          out.Set("edcDb",     edcArr);
+          out.Set("rt60Sec",   rt60Arr);
+          out.Set("c50Db",     c50Arr);
+          out.Set("c80Db",     c80Arr);
+          out.Set("d50",       d50Arr);
+          return out;
+        });
+      }));
+    exports.Set("acoustics", acoustics);
 
     return exports;
 }

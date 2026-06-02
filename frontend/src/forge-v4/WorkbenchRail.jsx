@@ -32,6 +32,8 @@ export const WORKBENCHES = [
   { id: 'casting',  icon: 'wb.sim',      label: 'Cast' },
   // Forge-172 — Injection mould flow (Hele-Shaw + Cross-WLF).
   { id: 'moldflow', icon: 'wb.mold',     label: 'MoldFlow' },
+  // Forge-175 — Acoustic room simulator (image-source method).
+  { id: 'acoustics',icon: 'wb.sim',      label: 'Acoust' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

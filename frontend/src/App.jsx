@@ -61,6 +61,8 @@ import { GeotechWorkbenchHost } from './forge-v4/GeotechWorkbench.jsx';
 import { CastingWorkbenchHost } from './forge-v4/CastingWorkbench.jsx';
 // Forge-172 — Injection mould flow (Hele-Shaw + Cross-WLF).
 import { MoldFlowWorkbenchHost } from './forge-v4/MoldFlowWorkbench.jsx';
+// Forge-175 — Acoustic room simulator (image-source method + Eyring).
+import { AcousticsWorkbenchHost } from './forge-v4/AcousticsWorkbench.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -149,6 +151,7 @@ function App() {
       <GeotechWorkbenchHost />
       <CastingWorkbenchHost />
       <MoldFlowWorkbenchHost />
+      <AcousticsWorkbenchHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />

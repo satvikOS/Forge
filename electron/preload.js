@@ -300,6 +300,11 @@ const forgeApi = {
       kernel.mold.heleShawFill(mesh, gate, mat, moldT, maxT, maxSteps ?? 500),
   } : null,
 
+  // acoustics (Forge-175) — image-source method + Eyring stat tail.
+  acoustics: kernel && kernel.acoustics ? {
+    simulate: (cfg) => kernel.acoustics.simulate(cfg),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

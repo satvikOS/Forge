@@ -869,6 +869,12 @@ export function ForgeShellV4() {
         setActiveWb('moldflow');
         window.__forgeOpenMoldFlowWorkbench?.();
         return;
+      // Forge-175 — Acoustic room simulator (image-source + Eyring).
+      case 'tools.acoustics':
+      case 'workbench.acoustics':
+        setActiveWb('acoustics');
+        window.__forgeOpenAcousticsWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
