@@ -1192,6 +1192,12 @@ export function ForgeShellV4() {
         setActiveWb('shaft');
         window.__forgeOpenShaftWorkbench?.();
         return;
+      // Forge-236 — Bolted connection (AISC J3 / EC3 §3.6).
+      case 'tools.boltconn':
+      case 'workbench.boltconn':
+        setActiveWb('boltconn');
+        window.__forgeOpenBoltConnWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

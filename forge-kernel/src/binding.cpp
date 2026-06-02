@@ -85,6 +85,7 @@
 #include "forge/SteelColumn.hpp"
 #include "forge/SeismicLoad.hpp"
 #include "forge/Shaft.hpp"
+#include "forge/BoltedConnection.hpp"
 
 #include <array>
 
@@ -7188,6 +7189,67 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("shaft", shNs);
+
+    // -------- Bolted connection (Forge-236) -----------------------------
+    auto bcNs = Napi::Object::New(env);
+    bcNs.Set("analyseShear", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boltconn::ShearInput in{};
+          in.boltAreaM2       = o.Get("boltAreaM2"      ).As<Napi::Number>().DoubleValue();
+          in.boltUltimatePa   = o.Get("boltUltimatePa"  ).As<Napi::Number>().DoubleValue();
+          in.plateThicknessM  = o.Get("plateThicknessM" ).As<Napi::Number>().DoubleValue();
+          in.boltNominalDiamM = o.Get("boltNominalDiamM").As<Napi::Number>().DoubleValue();
+          in.edgeClearanceM   = o.Get("edgeClearanceM"  ).As<Napi::Number>().DoubleValue();
+          in.plateUltimatePa  = o.Get("plateUltimatePa" ).As<Napi::Number>().DoubleValue();
+          in.shearPlanes      = o.Get("shearPlanes"     ).As<Napi::Number>().Int32Value();
+          in.phiShear         = o.Get("phiShear"        ).As<Napi::Number>().DoubleValue();
+          in.phiBearing       = o.Get("phiBearing"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::boltconn::analyseShear(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("boltShearN",      Napi::Number::New(env2, r.boltShearN));
+          out.Set("bearingN",        Napi::Number::New(env2, r.bearingN));
+          out.Set("bearingLcN",      Napi::Number::New(env2, r.bearingLcN));
+          out.Set("bearingDbN",      Napi::Number::New(env2, r.bearingDbN));
+          out.Set("designShearN",    Napi::Number::New(env2, r.designShearN));
+          out.Set("designBearingN",  Napi::Number::New(env2, r.designBearingN));
+          out.Set("governingN",      Napi::Number::New(env2, r.governingN));
+          out.Set("governedByShear", Napi::Boolean::New(env2, r.governedByShear));
+          return out;
+        });
+      }));
+    bcNs.Set("analyseTension", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boltconn::TensionInput in{};
+          in.grossAreaM2      = o.Get("grossAreaM2"     ).As<Napi::Number>().DoubleValue();
+          in.yieldPa          = o.Get("yieldPa"         ).As<Napi::Number>().DoubleValue();
+          in.ultimatePa       = o.Get("ultimatePa"      ).As<Napi::Number>().DoubleValue();
+          in.plateWidthM      = o.Get("plateWidthM"     ).As<Napi::Number>().DoubleValue();
+          in.plateThicknessM  = o.Get("plateThicknessM" ).As<Napi::Number>().DoubleValue();
+          in.boltsAcross      = o.Get("boltsAcross"     ).As<Napi::Number>().Int32Value();
+          in.holeDiameterM    = o.Get("holeDiameterM"   ).As<Napi::Number>().DoubleValue();
+          in.shearLagU        = o.Get("shearLagU"       ).As<Napi::Number>().DoubleValue();
+          in.phiYield         = o.Get("phiYield"        ).As<Napi::Number>().DoubleValue();
+          in.phiRupture       = o.Get("phiRupture"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::boltconn::analyseTension(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("netAreaM2",         Napi::Number::New(env2, r.netAreaM2));
+          out.Set("effectiveAreaM2",   Napi::Number::New(env2, r.effectiveAreaM2));
+          out.Set("yieldingN",         Napi::Number::New(env2, r.yieldingN));
+          out.Set("ruptureN",          Napi::Number::New(env2, r.ruptureN));
+          out.Set("designYieldN",      Napi::Number::New(env2, r.designYieldN));
+          out.Set("designRuptureN",    Napi::Number::New(env2, r.designRuptureN));
+          out.Set("governingN",        Napi::Number::New(env2, r.governingN));
+          out.Set("governedByRupture", Napi::Boolean::New(env2, r.governedByRupture));
+          return out;
+        });
+      }));
+    exports.Set("boltconn", bcNs);
 
     return exports;
 }

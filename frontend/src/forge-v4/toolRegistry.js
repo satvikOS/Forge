@@ -66,6 +66,12 @@ export const CALCULATOR_TREE = [
           { id: 'fatigue',   label: 'Fatigue life (Basquin + Miner)…', slice: 'Forge-212' },
         ],
       },
+      {
+        label: 'Connections',
+        items: [
+          { id: 'boltconn',  label: 'Bolted connection (AISC J3 / EC3 §3.6)…', slice: 'Forge-236' },
+        ],
+      },
     ],
   },
   {

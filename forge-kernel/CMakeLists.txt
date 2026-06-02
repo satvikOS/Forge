@@ -174,6 +174,7 @@ add_library(forge_kernel SHARED
     src/SteelColumn.cpp
     src/SeismicLoad.cpp
     src/Shaft.cpp
+    src/BoltedConnection.cpp
     ${PLANEGCS_SRC}
 )
 

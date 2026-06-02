@@ -527,6 +527,12 @@ const forgeApi = {
     analyseFatigue: (input) => kernel.shaft.analyseFatigue(input),
   } : null,
 
+  // boltconn (Forge-236) — AISC J3 / EC3 §3.6 bolted lap-joint check.
+  boltconn: kernel && kernel.boltconn ? {
+    analyseShear:   (input) => kernel.boltconn.analyseShear(input),
+    analyseTension: (input) => kernel.boltconn.analyseTension(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
