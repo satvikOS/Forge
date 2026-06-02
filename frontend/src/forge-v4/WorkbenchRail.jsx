@@ -38,6 +38,8 @@ export const WORKBENCHES = [
   { id: 'welddist', icon: 'wb.weldments',label: 'WeldFEA' },
   // Forge-179 — Cost estimation (material × machining × labour).
   { id: 'cost',     icon: 'wb.mfg',      label: 'Cost' },
+  // Forge-180 — Carbon-footprint LCA (cradle-to-gate).
+  { id: 'carbon',   icon: 'wb.sim',      label: 'Carbon' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

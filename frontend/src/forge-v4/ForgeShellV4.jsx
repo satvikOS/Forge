@@ -887,6 +887,12 @@ export function ForgeShellV4() {
         setActiveWb('cost');
         window.__forgeOpenCostWorkbench?.();
         return;
+      // Forge-180 — Carbon-footprint LCA (cradle-to-gate).
+      case 'tools.carbon':
+      case 'workbench.carbon':
+        setActiveWb('carbon');
+        window.__forgeOpenCarbonLcaWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

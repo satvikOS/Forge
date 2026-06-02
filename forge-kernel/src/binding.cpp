@@ -44,6 +44,7 @@
 #include "forge/WeldingFea.hpp"
 #include "forge/GltfExport.hpp"
 #include "forge/CostEstimation.hpp"
+#include "forge/CarbonLca.hpp"
 
 #include <array>
 
@@ -4723,6 +4724,57 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("cost", costNs);
+
+    // -------- Carbon-footprint LCA (Forge-180) -------------------------
+    auto carbonNs = Napi::Object::New(env);
+    carbonNs.Set("computeLca", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 1 || !info[0].IsObject()) {
+            throw Napi::TypeError::New(env2, "forge.carbon.computeLca: cfg required");
+          }
+          auto o = info[0].As<Napi::Object>();
+          forge::carbon::LcaInputs in{};
+          auto m = o.Get("material").As<Napi::Object>();
+          in.material.name             = m.Get("name").As<Napi::String>().Utf8Value();
+          in.material.densityKgM3      = m.Get("densityKgM3").As<Napi::Number>().DoubleValue();
+          in.material.co2PerKg         = m.Get("co2PerKg").As<Napi::Number>().DoubleValue();
+          in.material.recycledContent  = m.Has("recycledContent")
+              ? m.Get("recycledContent").As<Napi::Number>().DoubleValue() : 0.0;
+          in.material.recyclingCredit  = m.Has("recyclingCredit")
+              ? m.Get("recyclingCredit").As<Napi::Number>().DoubleValue() : 0.0;
+          auto p = o.Get("process").As<Napi::Object>();
+          in.process.name           = p.Get("name").As<Napi::String>().Utf8Value();
+          in.process.spindleKW      = p.Get("spindleKW").As<Napi::Number>().DoubleValue();
+          in.process.overheadFactor = p.Has("overheadFactor")
+              ? p.Get("overheadFactor").As<Napi::Number>().DoubleValue() : 1.2;
+          in.volumeCm3       = o.Get("volumeCm3").As<Napi::Number>().DoubleValue();
+          in.stockVolumeCm3  = o.Has("stockVolumeCm3")
+              ? o.Get("stockVolumeCm3").As<Napi::Number>().DoubleValue() : in.volumeCm3;
+          in.machiningTimeMin = o.Has("machiningTimeMin")
+              ? o.Get("machiningTimeMin").As<Napi::Number>().DoubleValue() : 0.0;
+          in.gridCo2PerKwh   = o.Has("gridCo2PerKwh")
+              ? o.Get("gridCo2PerKwh").As<Napi::Number>().DoubleValue() : 0.385;
+          in.transportKm     = o.Has("transportKm")
+              ? o.Get("transportKm").As<Napi::Number>().DoubleValue() : 500.0;
+          in.transportEmissionsPerTkm = o.Has("transportEmissionsPerTkm")
+              ? o.Get("transportEmissionsPerTkm").As<Napi::Number>().DoubleValue() : 0.062;
+          in.qty             = o.Has("qty") ? o.Get("qty").As<Napi::Number>().Int32Value() : 1;
+          auto R = forge::carbon::computeLca(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("massKg",                  Napi::Number::New(env2, R.massKg));
+          out.Set("unitMaterialKgCo2",       Napi::Number::New(env2, R.unitMaterialKgCo2));
+          out.Set("unitManufKgCo2",          Napi::Number::New(env2, R.unitManufKgCo2));
+          out.Set("unitTransportKgCo2",      Napi::Number::New(env2, R.unitTransportKgCo2));
+          out.Set("unitRecyclingCreditKgCo2",Napi::Number::New(env2, R.unitRecyclingCreditKgCo2));
+          out.Set("unitTotalKgCo2",          Napi::Number::New(env2, R.unitTotalKgCo2));
+          out.Set("batchTotalKgCo2",         Napi::Number::New(env2, R.batchTotalKgCo2));
+          out.Set("energyKwh",               Napi::Number::New(env2, R.energyKwh));
+          return out;
+        });
+      }));
+    exports.Set("carbon", carbonNs);
 
     return exports;
 }

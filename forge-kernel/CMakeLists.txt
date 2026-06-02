@@ -133,6 +133,7 @@ add_library(forge_kernel SHARED
     src/WeldingFea.cpp
     src/GltfExport.cpp
     src/CostEstimation.cpp
+    src/CarbonLca.cpp
     ${PLANEGCS_SRC}
 )
 

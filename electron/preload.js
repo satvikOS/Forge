@@ -323,6 +323,11 @@ const forgeApi = {
     computeProject: (inputs) => kernel.cost.computeProject(inputs),
   } : null,
 
+  // carbon (Forge-180) — cradle-to-gate kgCO2e per part + batch.
+  carbon: kernel && kernel.carbon ? {
+    computeLca: (inputs) => kernel.carbon.computeLca(inputs),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

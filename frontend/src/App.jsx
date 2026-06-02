@@ -67,6 +67,8 @@ import { AcousticsWorkbenchHost } from './forge-v4/AcousticsWorkbench.jsx';
 import { WeldingDistortionWorkbenchHost } from './forge-v4/WeldingDistortionWorkbench.jsx';
 // Forge-179 — Cost estimation (material × machining × labour).
 import { CostWorkbenchHost } from './forge-v4/CostWorkbench.jsx';
+// Forge-180 — Carbon-footprint LCA (cradle-to-gate).
+import { CarbonLcaWorkbenchHost } from './forge-v4/CarbonLcaWorkbench.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -158,6 +160,7 @@ function App() {
       <AcousticsWorkbenchHost />
       <WeldingDistortionWorkbenchHost />
       <CostWorkbenchHost />
+      <CarbonLcaWorkbenchHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />
