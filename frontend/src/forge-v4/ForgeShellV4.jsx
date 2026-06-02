@@ -1102,6 +1102,12 @@ export function ForgeShellV4() {
         setActiveWb('hxc');
         window.__forgeOpenHxcWorkbench?.();
         return;
+      // Forge-220 — Mohr's circle.
+      case 'tools.mohr':
+      case 'workbench.mohr':
+        setActiveWb('mohr');
+        window.__forgeOpenMohrWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

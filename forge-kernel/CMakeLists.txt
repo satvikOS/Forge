@@ -159,6 +159,7 @@ add_library(forge_kernel SHARED
     src/BeamDeflection.cpp
     src/Spring.cpp
     src/HeatExchanger.cpp
+    src/Mohr.cpp
     ${PLANEGCS_SRC}
 )
 

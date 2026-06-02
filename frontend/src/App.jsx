@@ -133,6 +133,8 @@ import { BeamDeflectionWorkbenchHost } from './forge-v4/BeamDeflectionWorkbench.
 import { SpringDesignWorkbenchHost } from './forge-v4/SpringDesignWorkbench.jsx';
 // Forge-218 — Heat exchanger LMTD workbench.
 import { HeatExchangerWorkbenchHost } from './forge-v4/HeatExchangerWorkbench.jsx';
+// Forge-220 — Mohr's circle workbench.
+import { MohrsCircleWorkbenchHost } from './forge-v4/MohrsCircleWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -265,6 +267,7 @@ function App() {
       <BeamDeflectionWorkbenchHost />
       <SpringDesignWorkbenchHost />
       <HeatExchangerWorkbenchHost />
+      <MohrsCircleWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

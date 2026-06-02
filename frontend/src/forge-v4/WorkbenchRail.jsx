@@ -102,6 +102,8 @@ export const WORKBENCHES = [
   { id: 'spring',       icon: 'wb.part',      label: 'Spring' },
   // Forge-218 — Heat exchanger LMTD.
   { id: 'hxc',          icon: 'wb.sim',       label: 'HX' },
+  // Forge-220 — Mohr's circle.
+  { id: 'mohr',         icon: 'wb.sim',       label: 'Mohr' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

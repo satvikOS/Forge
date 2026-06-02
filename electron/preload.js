@@ -435,6 +435,13 @@ const forgeApi = {
     effectiveness: (input) => kernel.hxc.effectiveness(input),
   } : null,
 
+  // mohr (Forge-220) — Mohr's circle / principal stress transformation.
+  mohr: kernel && kernel.mohr ? {
+    principal2D:   (input)        => kernel.mohr.principal2D(input),
+    stressAtAngle: (input, theta) => kernel.mohr.stressAtAngle(input, theta),
+    principal3D:   (input)        => kernel.mohr.principal3D(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

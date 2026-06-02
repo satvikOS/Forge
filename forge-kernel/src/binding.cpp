@@ -70,6 +70,7 @@
 #include "forge/BeamDeflection.hpp"
 #include "forge/Spring.hpp"
 #include "forge/HeatExchanger.hpp"
+#include "forge/Mohr.hpp"
 
 #include <array>
 
@@ -6531,6 +6532,64 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("hxc", hxNs);
+
+    // -------- Mohr's circle / principal stress (Forge-220) -------------
+    auto mhNs = Napi::Object::New(env);
+    auto readStress2D = [](Napi::Object o) -> forge::mohr::Stress2D {
+        forge::mohr::Stress2D s{};
+        s.sx  = o.Get("sx" ).As<Napi::Number>().DoubleValue();
+        s.sy  = o.Get("sy" ).As<Napi::Number>().DoubleValue();
+        s.txy = o.Get("txy").As<Napi::Number>().DoubleValue();
+        return s;
+    };
+    mhNs.Set("principal2D", Napi::Function::New(env,
+      [readStress2D](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto s = readStress2D(info[0].As<Napi::Object>());
+          auto r = forge::mohr::principal2D(s);
+          auto out = Napi::Object::New(env2);
+          out.Set("sigma1",    Napi::Number::New(env2, r.sigma1));
+          out.Set("sigma2",    Napi::Number::New(env2, r.sigma2));
+          out.Set("tauMax",    Napi::Number::New(env2, r.tauMax));
+          out.Set("thetaPRad", Napi::Number::New(env2, r.thetaPRad));
+          return out;
+        });
+      }));
+    mhNs.Set("stressAtAngle", Napi::Function::New(env,
+      [readStress2D](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto s = readStress2D(info[0].As<Napi::Object>());
+          const double th = info[1].As<Napi::Number>().DoubleValue();
+          auto r = forge::mohr::stressAtAngle(s, th);
+          auto out = Napi::Object::New(env2);
+          out.Set("sigma", Napi::Number::New(env2, r.sigma));
+          out.Set("tau",   Napi::Number::New(env2, r.tau));
+          return out;
+        });
+      }));
+    mhNs.Set("principal3D", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::mohr::Stress3D s{};
+          s.sx  = o.Get("sx" ).As<Napi::Number>().DoubleValue();
+          s.sy  = o.Get("sy" ).As<Napi::Number>().DoubleValue();
+          s.sz  = o.Get("sz" ).As<Napi::Number>().DoubleValue();
+          s.txy = o.Get("txy").As<Napi::Number>().DoubleValue();
+          s.tyz = o.Get("tyz").As<Napi::Number>().DoubleValue();
+          s.tzx = o.Get("tzx").As<Napi::Number>().DoubleValue();
+          auto r = forge::mohr::principal3D(s);
+          auto out = Napi::Object::New(env2);
+          out.Set("sigma1", Napi::Number::New(env2, r.sigma1));
+          out.Set("sigma2", Napi::Number::New(env2, r.sigma2));
+          out.Set("sigma3", Napi::Number::New(env2, r.sigma3));
+          return out;
+        });
+      }));
+    exports.Set("mohr", mhNs);
 
     return exports;
 }
