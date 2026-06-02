@@ -1036,6 +1036,12 @@ export function ForgeShellV4() {
         setActiveWb('dxf');
         window.__forgeOpenDxfWorkbench?.();
         return;
+      // Forge-208 — Sketch DOF audit.
+      case 'tools.sketchdof':
+      case 'workbench.sketchdof':
+        setActiveWb('sketchdof');
+        window.__forgeOpenSketchDofWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

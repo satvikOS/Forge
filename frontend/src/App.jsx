@@ -111,6 +111,8 @@ import { FrameTrussWorkbenchHost } from './forge-v4/FrameTrussWorkbench.jsx';
 import { PipeRouteWorkbenchHost } from './forge-v4/PipeRouteWorkbench.jsx';
 // Forge-207 — DXF round-trip workbench.
 import { DxfRoundtripWorkbenchHost } from './forge-v4/DxfRoundtripWorkbench.jsx';
+// Forge-208 — Sketch DOF audit workbench.
+import { SketchDofAuditWorkbenchHost } from './forge-v4/SketchDofAuditWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -232,6 +234,7 @@ function App() {
       <FrameTrussWorkbenchHost />
       <PipeRouteWorkbenchHost />
       <DxfRoundtripWorkbenchHost />
+      <SketchDofAuditWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

@@ -377,6 +377,11 @@ const forgeApi = {
     write: (doc)  => kernel.dxf.write(doc),
   } : null,
 
+  // sketchdof (Forge-208) — sketch constraint DOF audit.
+  sketchdof: kernel && kernel.sketchdof ? {
+    audit: (input) => kernel.sketchdof.audit(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

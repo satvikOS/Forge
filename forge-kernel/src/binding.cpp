@@ -61,6 +61,7 @@
 #include "forge/FrameTruss.hpp"
 #include "forge/PipeRoute.hpp"
 #include "forge/Dxf.hpp"
+#include "forge/SketchDof.hpp"
 
 #include <array>
 
@@ -5977,6 +5978,54 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("dxf", dxNs);
+
+    // -------- Sketch DOF audit (Forge-208) -----------------------------
+    auto sdNs = Napi::Object::New(env);
+    sdNs.Set("audit", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::sketchdof::Inputs in{};
+          auto es = o.Get("entities").As<Napi::Array>();
+          in.entities.reserve(es.Length());
+          for (std::uint32_t i = 0; i < es.Length(); ++i) {
+            forge::sketchdof::Entity e{};
+            e.kind = es.Get(i).As<Napi::Object>().Get("kind").As<Napi::String>().Utf8Value();
+            in.entities.push_back(std::move(e));
+          }
+          auto cs = o.Get("constraints").As<Napi::Array>();
+          in.constraints.reserve(cs.Length());
+          for (std::uint32_t i = 0; i < cs.Length(); ++i) {
+            forge::sketchdof::Constraint c{};
+            c.kind = cs.Get(i).As<Napi::Object>().Get("kind").As<Napi::String>().Utf8Value();
+            in.constraints.push_back(std::move(c));
+          }
+          auto readOverrides = [](Napi::Value v, std::vector<forge::sketchdof::CustomDof>& dst) {
+            if (!v.IsArray()) return;
+            auto a = v.As<Napi::Array>();
+            for (std::uint32_t i = 0; i < a.Length(); ++i) {
+              auto ro = a.Get(i).As<Napi::Object>();
+              forge::sketchdof::CustomDof c{};
+              c.kind = ro.Get("kind").As<Napi::String>().Utf8Value();
+              c.dof  = ro.Get("dof" ).As<Napi::Number>().Int32Value();
+              dst.push_back(std::move(c));
+            }
+          };
+          if (o.Has("entityOverrides"))     readOverrides(o.Get("entityOverrides"),     in.entityOverrides);
+          if (o.Has("constraintOverrides")) readOverrides(o.Get("constraintOverrides"), in.constraintOverrides);
+          auto r = forge::sketchdof::audit(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("totalEntities",    Napi::Number::New(env2, r.totalEntities));
+          out.Set("totalConstraints", Napi::Number::New(env2, r.totalConstraints));
+          out.Set("totalDof",         Napi::Number::New(env2, r.totalDof));
+          out.Set("constrainedDof",   Napi::Number::New(env2, r.constrainedDof));
+          out.Set("freeDof",          Napi::Number::New(env2, r.freeDof));
+          out.Set("status",           Napi::String::New(env2, r.status));
+          return out;
+        });
+      }));
+    exports.Set("sketchdof", sdNs);
 
     return exports;
 }

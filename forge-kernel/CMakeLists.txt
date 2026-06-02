@@ -150,6 +150,7 @@ add_library(forge_kernel SHARED
     src/FrameTruss.cpp
     src/PipeRoute.cpp
     src/Dxf.cpp
+    src/SketchDof.cpp
     ${PLANEGCS_SRC}
 )
 
