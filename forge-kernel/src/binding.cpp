@@ -77,6 +77,7 @@
 #include "forge/WindLoad.hpp"
 #include "forge/SnowLoad.hpp"
 #include "forge/Bearing.hpp"
+#include "forge/VBelt.hpp"
 
 #include <array>
 
@@ -6828,6 +6829,63 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("bearing", brNs);
+
+    // -------- V-belt drive (Forge-227) ---------------------------------
+    auto vbNs = Napi::Object::New(env);
+    vbNs.Set("pitchLength", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const double d1 = info[0].As<Napi::Number>().DoubleValue();
+          const double d2 = info[1].As<Napi::Number>().DoubleValue();
+          const double C  = info[2].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::vbelt::pitchLength(d1, d2, C));
+        });
+      }));
+    vbNs.Set("centreDistFromLength", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const double d1 = info[0].As<Napi::Number>().DoubleValue();
+          const double d2 = info[1].As<Napi::Number>().DoubleValue();
+          const double Lp = info[2].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::vbelt::centreDistFromLength(d1, d2, Lp));
+        });
+      }));
+    vbNs.Set("wrapAngleSmallRad", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const double d1 = info[0].As<Napi::Number>().DoubleValue();
+          const double d2 = info[1].As<Napi::Number>().DoubleValue();
+          const double C  = info[2].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::vbelt::wrapAngleSmallRad(d1, d2, C));
+        });
+      }));
+    vbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::vbelt::Inputs in{};
+          in.d1             = o.Get("d1"            ).As<Napi::Number>().DoubleValue();
+          in.d2             = o.Get("d2"            ).As<Napi::Number>().DoubleValue();
+          in.centreDist     = o.Get("centreDist"    ).As<Napi::Number>().DoubleValue();
+          in.rpmSmall       = o.Get("rpmSmall"      ).As<Napi::Number>().DoubleValue();
+          in.nominalPower   = o.Get("nominalPower"  ).As<Napi::Number>().DoubleValue();
+          in.serviceFactor  = o.Get("serviceFactor" ).As<Napi::Number>().DoubleValue();
+          in.ratingPerBelt  = o.Get("ratingPerBelt" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::vbelt::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("pitchLength",        Napi::Number::New(env2, r.pitchLength));
+          out.Set("wrapAngleSmallDeg",  Napi::Number::New(env2, r.wrapAngleSmallDeg));
+          out.Set("beltSpeed",          Napi::Number::New(env2, r.beltSpeed));
+          out.Set("designPower",        Napi::Number::New(env2, r.designPower));
+          out.Set("beltCount",          Napi::Number::New(env2, r.beltCount));
+          return out;
+        });
+      }));
+    exports.Set("vbelt", vbNs);
 
     return exports;
 }

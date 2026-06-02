@@ -1144,6 +1144,12 @@ export function ForgeShellV4() {
         setActiveWb('bearing');
         window.__forgeOpenBearingWorkbench?.();
         return;
+      // Forge-227 — V-belt drive.
+      case 'tools.vbelt':
+      case 'workbench.vbelt':
+        setActiveWb('vbelt');
+        window.__forgeOpenVBeltWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

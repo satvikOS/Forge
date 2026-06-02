@@ -475,6 +475,14 @@ const forgeApi = {
     analyse: (input) => kernel.bearing.analyse(input),
   } : null,
 
+  // vbelt (Forge-227) — V-belt drive geometry + belt count.
+  vbelt: kernel && kernel.vbelt ? {
+    pitchLength:          (d1, d2, C)  => kernel.vbelt.pitchLength(d1, d2, C),
+    centreDistFromLength: (d1, d2, Lp) => kernel.vbelt.centreDistFromLength(d1, d2, Lp),
+    wrapAngleSmallRad:    (d1, d2, C)  => kernel.vbelt.wrapAngleSmallRad(d1, d2, C),
+    analyse:              (input)      => kernel.vbelt.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

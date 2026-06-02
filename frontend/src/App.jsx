@@ -147,6 +147,8 @@ import { WindLoadWorkbenchHost } from './forge-v4/WindLoadWorkbench.jsx';
 import { SnowLoadWorkbenchHost } from './forge-v4/SnowLoadWorkbench.jsx';
 // Forge-226 — Bearing L10 life workbench.
 import { BearingLifeWorkbenchHost } from './forge-v4/BearingLifeWorkbench.jsx';
+// Forge-227 — V-belt drive workbench.
+import { VBeltWorkbenchHost } from './forge-v4/VBeltWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -286,6 +288,7 @@ function App() {
       <WindLoadWorkbenchHost />
       <SnowLoadWorkbenchHost />
       <BearingLifeWorkbenchHost />
+      <VBeltWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

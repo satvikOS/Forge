@@ -166,6 +166,7 @@ add_library(forge_kernel SHARED
     src/WindLoad.cpp
     src/SnowLoad.cpp
     src/Bearing.cpp
+    src/VBelt.cpp
     ${PLANEGCS_SRC}
 )
 

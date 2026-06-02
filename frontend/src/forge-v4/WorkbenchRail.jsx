@@ -116,6 +116,8 @@ export const WORKBENCHES = [
   { id: 'snowload',     icon: 'wb.sim',       label: 'Snow' },
   // Forge-226 — Bearing L10 life.
   { id: 'bearing',      icon: 'wb.part',      label: 'Bearing' },
+  // Forge-227 — V-belt drive.
+  { id: 'vbelt',        icon: 'wb.part',      label: 'V-belt' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
