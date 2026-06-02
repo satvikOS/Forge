@@ -69,6 +69,8 @@ import { WeldingDistortionWorkbenchHost } from './forge-v4/WeldingDistortionWork
 import { CostWorkbenchHost } from './forge-v4/CostWorkbench.jsx';
 // Forge-180 — Carbon-footprint LCA (cradle-to-gate).
 import { CarbonLcaWorkbenchHost } from './forge-v4/CarbonLcaWorkbench.jsx';
+// Forge-183 — Autosave + crash recovery banner.
+import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -161,6 +163,7 @@ function App() {
       <WeldingDistortionWorkbenchHost />
       <CostWorkbenchHost />
       <CarbonLcaWorkbenchHost />
+      <AutoSaveRecoveryHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />

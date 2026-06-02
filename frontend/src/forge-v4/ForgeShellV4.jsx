@@ -13,6 +13,8 @@ import { StatusBar } from './StatusBar.jsx';
 import { CommandBar } from './CommandBar.jsx';
 import { ArchieDock } from './ArchieDock.jsx';
 import { Viewport } from './Viewport.jsx';
+// Forge-183 — autosave (localStorage-backed crash recovery).
+import * as AutoSave from './autoSave.js';
 import { QuickAccessBar } from './QuickAccessBar.jsx';
 import { NavSphere } from './NavSphere.jsx';
 import { HeadsUpToolbar } from './HeadsUpToolbar.jsx';
@@ -194,7 +196,28 @@ export function ForgeShellV4() {
       if (typeof id === 'string') { setActiveWb(id); setActiveTool(null); }
     };
     window.__forgeFit = () => setCenterToken((n) => n + 1);
+    // Forge-183 — debounced autosave snapshot of the lossless state.
+    AutoSave.debouncedSnapshot({
+      projectName: 'untitled',
+      bodies,
+      featureTree,
+      viewState: { activeWb, theme, viewName, displayState },
+    }, 3000);
   }, [bodies, featureTree, selection, activeWb, theme]);
+
+  // Forge-183 — autosave window APIs + periodic 30 s timer.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    AutoSave.installWindowApis();
+    AutoSave.startPeriodic(() => {
+      AutoSave.snapshot({
+        projectName: 'untitled',
+        bodies, featureTree,
+        viewState: { activeWb, theme, viewName, displayState },
+      });
+    }, 30000);
+    return () => AutoSave.stopPeriodic();
+  }, []);
 
   // Forge-143 — workbench-changed event fires ONLY when activeWb actually
   // changes (previously this was in the bodies-publish effect, which fired
