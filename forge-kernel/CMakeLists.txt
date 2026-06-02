@@ -142,6 +142,7 @@ add_library(forge_kernel SHARED
     src/Circuit.cpp
     src/Terrain.cpp
     src/NurbsFit.cpp
+    src/MeshRepair.cpp
     ${PLANEGCS_SRC}
 )
 

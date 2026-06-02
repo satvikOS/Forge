@@ -320,6 +320,16 @@ const forgeApi = {
       kernel.gltf.exportGlbStream(bodies, filepath, options ?? {}),
   } : null,
 
+  // meshrepair (Forge-200) — triangle mesh cleanup + simplification.
+  meshrepair: kernel && kernel.meshrepair ? {
+    analyse:          (mesh) => kernel.meshrepair.analyse(mesh),
+    dedupeVertices:   (mesh, eps) => kernel.meshrepair.dedupeVertices(mesh, eps),
+    removeDegenerate: (mesh) => kernel.meshrepair.removeDegenerate(mesh),
+    fillHoles:        (mesh, maxLoopLen) => kernel.meshrepair.fillHoles(mesh, maxLoopLen),
+    laplacianSmooth:  (mesh, iter, lambda) => kernel.meshrepair.laplacianSmooth(mesh, iter, lambda),
+    decimate:         (mesh, target) => kernel.meshrepair.decimate(mesh, target),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

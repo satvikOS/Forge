@@ -53,6 +53,7 @@
 #include "forge/Circuit.hpp"
 #include "forge/Terrain.hpp"
 #include "forge/NurbsFit.hpp"
+#include "forge/MeshRepair.hpp"
 
 #include <array>
 
@@ -5302,6 +5303,99 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("nurbsfit", nfNs);
+
+    // -------- Mesh repair (Forge-200) ----------------------------------
+    auto mrNs = Napi::Object::New(env);
+
+    auto unpackMesh = [](Napi::Env e, Napi::Object o) -> forge::meshrepair::Mesh {
+        forge::meshrepair::Mesh m;
+        auto pos = o.Get("positions").As<Napi::Float32Array>();
+        auto idx = o.Get("indices").As<Napi::Uint32Array>();
+        m.positions.assign(pos.Data(), pos.Data() + pos.ElementLength());
+        m.indices.assign(idx.Data(), idx.Data() + idx.ElementLength());
+        (void)e;
+        return m;
+    };
+    auto packMesh = [](Napi::Env e, const forge::meshrepair::Mesh& m) -> Napi::Object {
+        auto out = Napi::Object::New(e);
+        auto pos = Napi::Float32Array::New(e, m.positions.size());
+        if (!m.positions.empty())
+            std::memcpy(pos.Data(), m.positions.data(), m.positions.size() * sizeof(float));
+        auto idx = Napi::Uint32Array::New(e, m.indices.size());
+        if (!m.indices.empty())
+            std::memcpy(idx.Data(), m.indices.data(), m.indices.size() * sizeof(std::uint32_t));
+        out.Set("positions", pos);
+        out.Set("indices",   idx);
+        return out;
+    };
+    auto packStats = [](Napi::Env e, const forge::meshrepair::Stats& s) -> Napi::Object {
+        auto o = Napi::Object::New(e);
+        o.Set("vertexCount",          Napi::Number::New(e, s.vertexCount));
+        o.Set("triangleCount",        Napi::Number::New(e, s.triangleCount));
+        o.Set("boundaryEdgeCount",    Napi::Number::New(e, s.boundaryEdgeCount));
+        o.Set("nonManifoldEdgeCount", Napi::Number::New(e, s.nonManifoldEdgeCount));
+        return o;
+    };
+
+    mrNs.Set("analyse", Napi::Function::New(env,
+      [unpackMesh, packStats](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = unpackMesh(env2, info[0].As<Napi::Object>());
+          return packStats(env2, forge::meshrepair::analyse(in));
+        });
+      }));
+    mrNs.Set("dedupeVertices", Napi::Function::New(env,
+      [unpackMesh, packMesh](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = unpackMesh(env2, info[0].As<Napi::Object>());
+          const double eps = info.Length() > 1 && info[1].IsNumber()
+              ? info[1].As<Napi::Number>().DoubleValue() : 1e-4;
+          return packMesh(env2, forge::meshrepair::dedupeVertices(in, eps));
+        });
+      }));
+    mrNs.Set("removeDegenerate", Napi::Function::New(env,
+      [unpackMesh, packMesh](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = unpackMesh(env2, info[0].As<Napi::Object>());
+          return packMesh(env2, forge::meshrepair::removeDegenerate(in));
+        });
+      }));
+    mrNs.Set("fillHoles", Napi::Function::New(env,
+      [unpackMesh, packMesh](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = unpackMesh(env2, info[0].As<Napi::Object>());
+          const std::uint32_t mx = info.Length() > 1 && info[1].IsNumber()
+              ? info[1].As<Napi::Number>().Uint32Value() : 512u;
+          return packMesh(env2, forge::meshrepair::fillHoles(in, mx));
+        });
+      }));
+    mrNs.Set("laplacianSmooth", Napi::Function::New(env,
+      [unpackMesh, packMesh](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = unpackMesh(env2, info[0].As<Napi::Object>());
+          const std::uint32_t it = info.Length() > 1 && info[1].IsNumber()
+              ? info[1].As<Napi::Number>().Uint32Value() : 1u;
+          const double lambda = info.Length() > 2 && info[2].IsNumber()
+              ? info[2].As<Napi::Number>().DoubleValue() : 0.5;
+          return packMesh(env2, forge::meshrepair::laplacianSmooth(in, it, lambda));
+        });
+      }));
+    mrNs.Set("decimate", Napi::Function::New(env,
+      [unpackMesh, packMesh](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto in = unpackMesh(env2, info[0].As<Napi::Object>());
+          const std::uint32_t tgt = info.Length() > 1 && info[1].IsNumber()
+              ? info[1].As<Napi::Number>().Uint32Value() : 100u;
+          return packMesh(env2, forge::meshrepair::decimateEdgeCollapse(in, tgt));
+        });
+      }));
+    exports.Set("meshrepair", mrNs);
 
     return exports;
 }

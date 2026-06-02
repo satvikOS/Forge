@@ -64,6 +64,8 @@ export const WORKBENCHES = [
   { id: 'webhook',  icon: 'archie.thread', label: 'Hook' },
   // Forge-198 — Streaming glTF publish.
   { id: 'gltf-publish', icon: 'wb.sketch', label: 'Publish' },
+  // Forge-200 — Mesh repair toolkit.
+  { id: 'meshrepair',   icon: 'wb.sim',    label: 'Repair' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

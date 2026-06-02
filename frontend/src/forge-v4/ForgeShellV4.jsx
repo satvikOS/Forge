@@ -988,6 +988,12 @@ export function ForgeShellV4() {
         setActiveWb('gltf-publish');
         window.__forgeOpenGltfPublishWorkbench?.();
         return;
+      // Forge-200 — Mesh repair toolkit.
+      case 'tools.meshrepair':
+      case 'workbench.meshrepair':
+        setActiveWb('meshrepair');
+        window.__forgeOpenMeshRepairWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

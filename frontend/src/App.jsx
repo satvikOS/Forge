@@ -95,6 +95,8 @@ import { A11yAuditWorkbenchHost } from './forge-v4/A11yAudit.jsx';
 import { WebhookWorkbenchHost } from './forge-v4/WebhookWorkbench.jsx';
 // Forge-198 — Streaming glTF publish workbench.
 import { GltfPublishWorkbenchHost } from './forge-v4/GltfPublishWorkbench.jsx';
+// Forge-200 — Mesh repair toolkit workbench.
+import { MeshRepairWorkbenchHost } from './forge-v4/MeshRepairWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -208,6 +210,7 @@ function App() {
       <A11yAuditWorkbenchHost />
       <WebhookWorkbenchHost />
       <GltfPublishWorkbenchHost />
+      <MeshRepairWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />
