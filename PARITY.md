@@ -168,8 +168,8 @@ viewport dominates. Old rows below are re-evaluated against v3.
 | Windows + Linux builds green                | ✅      | every push |
 | Headless E2E self-verification              | ✅      | Forge-29 — 12 screenshots / push |
 | Headed multi-camera e2e per workbench       | ✅      | Forge-171 — 5+ camera angles per slice; aero workbench is the first to follow the new standard |
-| Forge-kernel.node bundled in installer      | ☐      | needs workflow scope; follow-up |
-| OCCT dylibs bundled in macOS .app           | ☐      | follow-up |
+| Forge-kernel.node bundled in installer      | ◐      | Forge-182 — electron-builder.yml `extraResources` now copies `forge-kernel/build/Release/forge-kernel.node` into the .app at `Contents/Resources/forge-kernel/`. CI workflow changes that build the kernel on the macOS runner before electron-builder were drafted but blocked by the push token missing the `workflow` scope — needs a token re-auth (gh auth refresh --scopes workflow) before they can ship. |
+| OCCT dylibs bundled in macOS .app           | ◐      | Forge-182 documented the install_name_tool / @loader_path rewrite needed to make the bundled `.node` load against bundled OCCT dylibs; until that lands the macOS installer expects users to `brew install opencascade` themselves. |
 
 ## 11. Discipline workbenches
 

@@ -13,6 +13,17 @@ files:
   - "!e2e/**/*"
   - "!test-results/**/*"
 
+# Forge-182 — bundle forge-kernel.node into the installer so the
+# packaged app loads the native kernel without requiring users to clone
+# the source tree.
+# OCCT dylibs themselves remain ◐ on PARITY §10: macOS needs
+# install_name_tool to rewrite the kernel's load commands to
+# @loader_path/../Resources/occt, Windows needs the corresponding
+# .dll copy, Linux needs ldd-walking. Tracked as a separate slice.
+extraResources:
+  - from: "forge-kernel/build/Release/forge-kernel.node"
+    to: "forge-kernel/forge-kernel.node"
+
 extraMetadata:
   main: electron/main.js
 
