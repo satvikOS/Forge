@@ -58,6 +58,8 @@ export const WORKBENCHES = [
   { id: 'nurbsfit', icon: 'wb.sim',      label: 'NURBSfit' },
   // Forge-193 — Time-series log viewer (FEA / CFD / acoustics).
   { id: 'tsviewer', icon: 'archie.spark',label: 'Logs' },
+  // Forge-196 — ARIA / accessibility audit.
+  { id: 'a11y',     icon: 'misc.kbd',    label: 'A11y' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

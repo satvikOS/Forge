@@ -89,6 +89,8 @@ import { NurbsFitWorkbenchHost } from './forge-v4/NurbsFitWorkbench.jsx';
 import { TimeSeriesViewerWorkbenchHost } from './forge-v4/TimeSeriesViewerWorkbench.jsx';
 // Forge-195 — Multi-window helper (new-window button + hash hydration).
 import { MultiWindowHost } from './forge-v4/MultiWindow.jsx';
+// Forge-196 — Accessibility audit workbench.
+import { A11yAuditWorkbenchHost } from './forge-v4/A11yAudit.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -199,6 +201,7 @@ function App() {
       <NurbsFitWorkbenchHost />
       <TimeSeriesViewerWorkbenchHost />
       <MultiWindowHost />
+      <A11yAuditWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

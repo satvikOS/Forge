@@ -970,6 +970,12 @@ export function ForgeShellV4() {
         setActiveWb('tsviewer');
         window.__forgeOpenTimeSeriesViewerWorkbench?.();
         return;
+      // Forge-196 — ARIA / accessibility audit.
+      case 'tools.a11y':
+      case 'workbench.a11y':
+        setActiveWb('a11y');
+        window.__forgeOpenA11yWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
