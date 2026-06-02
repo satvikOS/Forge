@@ -137,6 +137,7 @@ add_library(forge_kernel SHARED
     src/SunPath.cpp
     src/Tolerance.cpp
     src/Ductwork.cpp
+    src/Variants.cpp
     ${PLANEGCS_SRC}
 )
 

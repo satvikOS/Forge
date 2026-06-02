@@ -46,6 +46,8 @@ export const WORKBENCHES = [
   { id: 'tolerance',icon: 'wb.mfg',      label: 'Stackup' },
   // Forge-186 — HVAC ductwork (ASHRAE sizing + pressure drop).
   { id: 'duct',     icon: 'wb.arch',     label: 'Ductwork' },
+  // Forge-187 — Generative variant explorer.
+  { id: 'variants', icon: 'wb.sim',      label: 'Variants' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

@@ -75,6 +75,8 @@ import { SunPathWorkbenchHost } from './forge-v4/SunPathWorkbench.jsx';
 import { ToleranceStackWorkbenchHost } from './forge-v4/ToleranceStackWorkbench.jsx';
 // Forge-186 — HVAC ductwork designer.
 import { DuctworkWorkbenchHost } from './forge-v4/DuctworkWorkbench.jsx';
+// Forge-187 — Generative variant explorer.
+import { VariantExplorerWorkbenchHost } from './forge-v4/VariantExplorerWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -178,6 +180,7 @@ function App() {
       <SunPathWorkbenchHost />
       <ToleranceStackWorkbenchHost />
       <DuctworkWorkbenchHost />
+      <VariantExplorerWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

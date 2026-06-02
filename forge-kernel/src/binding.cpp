@@ -48,6 +48,7 @@
 #include "forge/SunPath.hpp"
 #include "forge/Tolerance.hpp"
 #include "forge/Ductwork.hpp"
+#include "forge/Variants.hpp"
 
 #include <array>
 
@@ -4974,6 +4975,61 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("duct", ductNs);
+
+    // -------- Generative variants (Forge-187) --------------------------
+    auto varNs = Napi::Object::New(env);
+    varNs.Set("latinHypercube", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::variants::LhsInputs in{};
+          auto dimsArr = o.Get("dims").As<Napi::Array>();
+          for (uint32_t i = 0; i < dimsArr.Length(); ++i) {
+            auto d = dimsArr.Get(i).As<Napi::Object>();
+            forge::variants::DimSpec s{};
+            s.name = d.Get("name").As<Napi::String>().Utf8Value();
+            s.lo   = d.Get("lo").As<Napi::Number>().DoubleValue();
+            s.hi   = d.Get("hi").As<Napi::Number>().DoubleValue();
+            in.dims.push_back(std::move(s));
+          }
+          in.samples    = o.Get("samples").As<Napi::Number>().Int32Value();
+          in.randomSeed = o.Has("randomSeed")
+              ? static_cast<unsigned long>(o.Get("randomSeed").As<Napi::Number>().Int64Value())
+              : 42ul;
+          auto r = forge::variants::latinHypercube(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("nDims",    Napi::Number::New(env2, r.nDims));
+          out.Set("nSamples", Napi::Number::New(env2, r.nSamples));
+          auto va = Napi::Float64Array::New(env2, r.values.size());
+          if (!r.values.empty()) {
+            std::memcpy(va.Data(), r.values.data(), r.values.size() * sizeof(double));
+          }
+          out.Set("values", va);
+          return out;
+        });
+      }));
+    varNs.Set("paretoFront", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto objArr = info[0].As<Napi::Float64Array>();
+          const int nObj = info[1].As<Napi::Number>().Int32Value();
+          std::vector<int> sign;
+          auto signArr = info[2].As<Napi::Array>();
+          for (uint32_t i = 0; i < signArr.Length(); ++i) {
+            sign.push_back(signArr.Get(i).As<Napi::Number>().Int32Value());
+          }
+          std::vector<double> objs(objArr.Data(), objArr.Data() + objArr.ElementLength());
+          auto idx = forge::variants::paretoFront(objs, nObj, sign);
+          auto arr = Napi::Uint32Array::New(env2, idx.size());
+          if (!idx.empty()) {
+            std::memcpy(arr.Data(), idx.data(), idx.size() * sizeof(uint32_t));
+          }
+          return arr;
+        });
+      }));
+    exports.Set("variants", varNs);
 
     return exports;
 }

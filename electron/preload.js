@@ -346,6 +346,12 @@ const forgeApi = {
     sizeRoundForFriction:  (Q, tgt, air) => kernel.duct.sizeRoundForFriction(Q, tgt, air),
   } : null,
 
+  // variants (Forge-187) — Latin-hypercube + Pareto-front primitives.
+  variants: kernel && kernel.variants ? {
+    latinHypercube: (cfg)                  => kernel.variants.latinHypercube(cfg),
+    paretoFront:    (objs, nObj, signs)    => kernel.variants.paretoFront(objs, nObj, signs),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

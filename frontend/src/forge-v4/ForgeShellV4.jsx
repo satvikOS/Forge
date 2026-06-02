@@ -934,6 +934,12 @@ export function ForgeShellV4() {
         setActiveWb('duct');
         window.__forgeOpenDuctworkWorkbench?.();
         return;
+      // Forge-187 — Generative variant explorer.
+      case 'tools.variants':
+      case 'workbench.variants':
+        setActiveWb('variants');
+        window.__forgeOpenVariantsWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
