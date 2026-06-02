@@ -198,6 +198,92 @@ ipcMain.handle('win:closeWindow', async (_evt, { id } = {}) => {
   return { ok: true };
 });
 
+// Forge-197 — Embedded HTTP webhook receiver. Listens on an
+// unprivileged loopback port and forwards JSON payloads to the renderer
+// as 'webhook:received' events on the focused BrowserWindow's
+// webContents. Useful for triggering an export / render / e2e in
+// response to upstream CI completion.
+const http = require('http');
+const crypto = require('crypto');
+let webhookServer = null;
+let webhookPort = 0;
+let webhookSecret = null;
+let webhookCount = 0;
+ipcMain.handle('webhook:start', async (_evt, { port = 9595, secret = null } = {}) => {
+  if (webhookServer) {
+    try { webhookServer.close(); } catch {}
+    webhookServer = null;
+  }
+  try {
+    webhookSecret = (typeof secret === 'string' && secret.length > 0) ? secret : null;
+    webhookCount = 0;
+    webhookServer = http.createServer((req, res) => {
+      if (req.method !== 'POST') {
+        res.statusCode = 405; res.end('POST only');
+        return;
+      }
+      let body = '';
+      req.on('data', (chunk) => {
+        body += chunk;
+        if (body.length > 1e6) {
+          res.statusCode = 413; res.end('payload too large');
+          req.connection.destroy();
+        }
+      });
+      req.on('end', () => {
+        try {
+          if (webhookSecret) {
+            const sig = req.headers['x-hub-signature-256'] || '';
+            const hmac = crypto.createHmac('sha256', webhookSecret).update(body).digest('hex');
+            const expected = `sha256=${hmac}`;
+            if (sig !== expected) {
+              res.statusCode = 401; res.end('bad signature');
+              return;
+            }
+          }
+          let parsed = null;
+          try { parsed = JSON.parse(body); } catch { parsed = { raw: body }; }
+          webhookCount += 1;
+          const payload = {
+            url:        req.url,
+            headers:    req.headers,
+            method:     req.method,
+            body:       parsed,
+            receivedAt: Date.now(),
+          };
+          for (const win of BrowserWindow.getAllWindows()) {
+            try { win.webContents.send('webhook:received', payload); } catch {}
+          }
+          res.statusCode = 200;
+          res.setHeader('content-type', 'application/json');
+          res.end(JSON.stringify({ ok: true, count: webhookCount }));
+        } catch (e) {
+          res.statusCode = 500; res.end('handler error: ' + e.message);
+        }
+      });
+    });
+    await new Promise((resolve, reject) => {
+      webhookServer.once('error', reject);
+      webhookServer.listen(port, '127.0.0.1', resolve);
+    });
+    webhookPort = webhookServer.address().port;
+    return { ok: true, port: webhookPort, requireSignature: !!webhookSecret };
+  } catch (err) {
+    webhookServer = null;
+    return { ok: false, error: err.message };
+  }
+});
+ipcMain.handle('webhook:stop', async () => {
+  if (!webhookServer) return { ok: true, alreadyStopped: true };
+  try { webhookServer.close(); } catch {}
+  webhookServer = null;
+  return { ok: true };
+});
+ipcMain.handle('webhook:status', async () => ({
+  running: !!webhookServer, port: webhookPort, count: webhookCount,
+  requireSignature: !!webhookSecret,
+}));
+
 // electron-updater drives auto-update against the GitHub Releases the CI
 // workflow publishes. Loaded lazily/guarded so a dev run without the dep
 // installed still works.

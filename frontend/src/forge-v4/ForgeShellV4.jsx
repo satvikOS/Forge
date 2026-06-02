@@ -976,6 +976,12 @@ export function ForgeShellV4() {
         setActiveWb('a11y');
         window.__forgeOpenA11yWorkbench?.();
         return;
+      // Forge-197 — Webhook receiver.
+      case 'tools.webhook':
+      case 'workbench.webhook':
+        setActiveWb('webhook');
+        window.__forgeOpenWebhookWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

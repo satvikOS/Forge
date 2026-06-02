@@ -60,6 +60,8 @@ export const WORKBENCHES = [
   { id: 'tsviewer', icon: 'archie.spark',label: 'Logs' },
   // Forge-196 — ARIA / accessibility audit.
   { id: 'a11y',     icon: 'misc.kbd',    label: 'A11y' },
+  // Forge-197 — Webhook receiver (embedded HTTP listener).
+  { id: 'webhook',  icon: 'archie.thread', label: 'Hook' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

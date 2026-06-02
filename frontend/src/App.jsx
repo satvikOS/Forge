@@ -91,6 +91,8 @@ import { TimeSeriesViewerWorkbenchHost } from './forge-v4/TimeSeriesViewerWorkbe
 import { MultiWindowHost } from './forge-v4/MultiWindow.jsx';
 // Forge-196 — Accessibility audit workbench.
 import { A11yAuditWorkbenchHost } from './forge-v4/A11yAudit.jsx';
+// Forge-197 — Webhook receiver workbench.
+import { WebhookWorkbenchHost } from './forge-v4/WebhookWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -202,6 +204,7 @@ function App() {
       <TimeSeriesViewerWorkbenchHost />
       <MultiWindowHost />
       <A11yAuditWorkbenchHost />
+      <WebhookWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

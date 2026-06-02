@@ -604,6 +604,19 @@ const forgeApi = {
     closeWindow:  (id)     => ipcRenderer.invoke('win:closeWindow', { id }),
   },
 
+  // Forge-197 — Webhook receiver. Renderer can start / stop the
+  // embedded loopback HTTP listener and subscribe to incoming payloads.
+  webhook: {
+    start:  (opts)    => ipcRenderer.invoke('webhook:start', opts || {}),
+    stop:   ()        => ipcRenderer.invoke('webhook:stop'),
+    status: ()        => ipcRenderer.invoke('webhook:status'),
+    onPayload: (cb) => {
+      const handler = (_evt, payload) => { try { cb(payload); } catch {} };
+      ipcRenderer.on('webhook:received', handler);
+      return () => ipcRenderer.removeListener('webhook:received', handler);
+    },
+  },
+
   // weldments authoring (Forge-24) — structural members, end caps, gussets,
   // weld beads, member trims, BOM cut list.
   weldments: kernel && kernel.weldments ? {
