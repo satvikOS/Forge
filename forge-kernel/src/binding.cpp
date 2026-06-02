@@ -43,6 +43,7 @@
 #include "forge/Acoustics.hpp"
 #include "forge/WeldingFea.hpp"
 #include "forge/GltfExport.hpp"
+#include "forge/CostEstimation.hpp"
 
 #include <array>
 
@@ -4608,6 +4609,120 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("gltf", gltfNs);
+
+    // -------- Cost estimation (Forge-179) ------------------------------
+    auto costNs = Napi::Object::New(env);
+    auto readMaterials = [](Napi::Env e, Napi::Array arr) -> std::vector<forge::cost::MaterialCatalogueEntry> {
+        std::vector<forge::cost::MaterialCatalogueEntry> out;
+        out.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto o = arr.Get(i).As<Napi::Object>();
+            forge::cost::MaterialCatalogueEntry m{};
+            m.name              = o.Get("name").As<Napi::String>().Utf8Value();
+            m.densityKgM3       = o.Get("densityKgM3").As<Napi::Number>().DoubleValue();
+            m.pricePerKgUSD     = o.Get("pricePerKgUSD").As<Napi::Number>().DoubleValue();
+            m.mrrEndmillCm3Min  = o.Get("mrrEndmillCm3Min").As<Napi::Number>().DoubleValue();
+            m.mrrDrillCm3Min    = o.Get("mrrDrillCm3Min").As<Napi::Number>().DoubleValue();
+            m.mrrTurnCm3Min     = o.Get("mrrTurnCm3Min").As<Napi::Number>().DoubleValue();
+            m.co2PerKg          = o.Has("co2PerKg")
+                ? o.Get("co2PerKg").As<Napi::Number>().DoubleValue() : 0.0;
+            out.push_back(std::move(m));
+        }
+        (void)e;
+        return out;
+    };
+    auto readProcesses = [](Napi::Env e, Napi::Array arr) -> std::vector<forge::cost::ProcessEntry> {
+        std::vector<forge::cost::ProcessEntry> out;
+        out.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto o = arr.Get(i).As<Napi::Object>();
+            forge::cost::ProcessEntry p{};
+            p.name         = o.Get("name").As<Napi::String>().Utf8Value();
+            p.setupMin     = o.Get("setupMin").As<Napi::Number>().DoubleValue();
+            p.labourUsdMin = o.Get("labourUsdMin").As<Napi::Number>().DoubleValue();
+            out.push_back(std::move(p));
+        }
+        (void)e;
+        return out;
+    };
+    auto readBody = [](Napi::Object o) -> forge::cost::BodyCost {
+        forge::cost::BodyCost b{};
+        b.materialName    = o.Get("materialName").As<Napi::String>().Utf8Value();
+        b.volumeCm3       = o.Get("volumeCm3").As<Napi::Number>().DoubleValue();
+        b.stockVolumeCm3  = o.Get("stockVolumeCm3").As<Napi::Number>().DoubleValue();
+        b.processName     = o.Get("processName").As<Napi::String>().Utf8Value();
+        b.toolFamily      = o.Has("toolFamily") ? o.Get("toolFamily").As<Napi::Number>().Int32Value() : 0;
+        b.qty             = o.Has("qty") ? o.Get("qty").As<Napi::Number>().Int32Value() : 1;
+        return b;
+    };
+    auto writeResult = [](Napi::Env e, const forge::cost::CostResult& r) {
+        auto out = Napi::Object::New(e);
+        out.Set("unitMaterialUsd",  Napi::Number::New(e, r.unitMaterialUsd));
+        out.Set("unitMachiningUsd", Napi::Number::New(e, r.unitMachiningUsd));
+        out.Set("unitSetupUsd",     Napi::Number::New(e, r.unitSetupUsd));
+        out.Set("unitLabourUsd",    Napi::Number::New(e, r.unitLabourUsd));
+        out.Set("unitUsd",          Napi::Number::New(e, r.unitUsd));
+        out.Set("batchUsd",         Napi::Number::New(e, r.batchUsd));
+        out.Set("machiningTimeMin", Napi::Number::New(e, r.machiningTimeMin));
+        out.Set("massKg",           Napi::Number::New(e, r.massKg));
+        auto trn = Napi::Array::New(e, r.tornado.size());
+        for (size_t i = 0; i < r.tornado.size(); ++i) {
+            auto t = Napi::Object::New(e);
+            t.Set("label", Napi::String::New(e, r.tornado[i].label));
+            t.Set("usd",   Napi::Number::New(e, r.tornado[i].usd));
+            trn.Set((uint32_t)i, t);
+        }
+        out.Set("tornado", trn);
+        return out;
+    };
+    costNs.Set("computeUnit", Napi::Function::New(env,
+      [readMaterials, readProcesses, readBody, writeResult](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cost::CostInputs in;
+          in.body      = readBody(o.Get("body").As<Napi::Object>());
+          in.materials = readMaterials(env2, o.Get("materials").As<Napi::Array>());
+          in.processes = readProcesses(env2, o.Get("processes").As<Napi::Array>());
+          auto r = forge::cost::computeUnitCost(in);
+          return writeResult(env2, r);
+        });
+      }));
+    costNs.Set("computeProject", Napi::Function::New(env,
+      [readMaterials, readProcesses, readBody, writeResult](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (!info[0].IsArray()) {
+            throw Napi::TypeError::New(env2, "forge.cost.computeProject: expected array of CostInputs");
+          }
+          auto arr = info[0].As<Napi::Array>();
+          std::vector<forge::cost::CostInputs> inputs;
+          inputs.reserve(arr.Length());
+          for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto o = arr.Get(i).As<Napi::Object>();
+            forge::cost::CostInputs ci;
+            ci.body      = readBody(o.Get("body").As<Napi::Object>());
+            ci.materials = readMaterials(env2, o.Get("materials").As<Napi::Array>());
+            ci.processes = readProcesses(env2, o.Get("processes").As<Napi::Array>());
+            inputs.push_back(std::move(ci));
+          }
+          auto P = forge::cost::computeProjectCost(inputs);
+          auto out = Napi::Object::New(env2);
+          out.Set("totalMaterialUsd",  Napi::Number::New(env2, P.totalMaterialUsd));
+          out.Set("totalMachiningUsd", Napi::Number::New(env2, P.totalMachiningUsd));
+          out.Set("totalSetupUsd",     Napi::Number::New(env2, P.totalSetupUsd));
+          out.Set("totalLabourUsd",    Napi::Number::New(env2, P.totalLabourUsd));
+          out.Set("totalUsd",          Napi::Number::New(env2, P.totalUsd));
+          out.Set("totalQty",          Napi::Number::New(env2, P.totalQty));
+          auto pa = Napi::Array::New(env2, P.perBody.size());
+          for (size_t i = 0; i < P.perBody.size(); ++i) {
+            pa.Set((uint32_t)i, writeResult(env2, P.perBody[i]));
+          }
+          out.Set("perBody", pa);
+          return out;
+        });
+      }));
+    exports.Set("cost", costNs);
 
     return exports;
 }

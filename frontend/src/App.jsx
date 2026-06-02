@@ -65,6 +65,8 @@ import { MoldFlowWorkbenchHost } from './forge-v4/MoldFlowWorkbench.jsx';
 import { AcousticsWorkbenchHost } from './forge-v4/AcousticsWorkbench.jsx';
 // Forge-174 — Welding distortion FEA (Goldak + thermo-mechanical).
 import { WeldingDistortionWorkbenchHost } from './forge-v4/WeldingDistortionWorkbench.jsx';
+// Forge-179 — Cost estimation (material × machining × labour).
+import { CostWorkbenchHost } from './forge-v4/CostWorkbench.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -155,6 +157,7 @@ function App() {
       <MoldFlowWorkbenchHost />
       <AcousticsWorkbenchHost />
       <WeldingDistortionWorkbenchHost />
+      <CostWorkbenchHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />

@@ -317,6 +317,12 @@ const forgeApi = {
       kernel.gltf.exportGlb(bodies, filepath, options ?? {}),
   } : null,
 
+  // cost (Forge-179) — material × machining × labour cost engine.
+  cost: kernel && kernel.cost ? {
+    computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
+    computeProject: (inputs) => kernel.cost.computeProject(inputs),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

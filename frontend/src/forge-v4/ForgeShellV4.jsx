@@ -881,6 +881,12 @@ export function ForgeShellV4() {
         setActiveWb('welddist');
         window.__forgeOpenWeldingDistortionWorkbench?.();
         return;
+      // Forge-179 — Cost estimation (material × machining × labour).
+      case 'tools.cost':
+      case 'workbench.cost':
+        setActiveWb('cost');
+        window.__forgeOpenCostWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

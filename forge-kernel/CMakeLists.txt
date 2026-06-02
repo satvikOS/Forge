@@ -132,6 +132,7 @@ add_library(forge_kernel SHARED
     src/Acoustics.cpp
     src/WeldingFea.cpp
     src/GltfExport.cpp
+    src/CostEstimation.cpp
     ${PLANEGCS_SRC}
 )
 

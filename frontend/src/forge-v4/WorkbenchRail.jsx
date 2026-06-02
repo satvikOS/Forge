@@ -36,6 +36,8 @@ export const WORKBENCHES = [
   { id: 'acoustics',icon: 'wb.sim',      label: 'Acoust' },
   // Forge-174 — Welding distortion FEA (Goldak + thermo-mechanical).
   { id: 'welddist', icon: 'wb.weldments',label: 'WeldFEA' },
+  // Forge-179 — Cost estimation (material × machining × labour).
+  { id: 'cost',     icon: 'wb.mfg',      label: 'Cost' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
