@@ -90,6 +90,7 @@
 #include "forge/RcBeam.hpp"
 #include "forge/BearingCapacity.hpp"
 #include "forge/RetainingWall.hpp"
+#include "forge/PileCapacity.hpp"
 
 #include <array>
 
@@ -7396,6 +7397,59 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("retwall", rwNs);
+
+    // -------- Pile capacity (Forge-241) ---------------------------------
+    auto plNs = Napi::Object::New(env);
+    plNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pilecap::Input in{};
+          in.diameterM          = o.Get("diameterM"         ).As<Napi::Number>().DoubleValue();
+          in.waterTableDepthM   = o.Get("waterTableDepthM"  ).As<Napi::Number>().DoubleValue();
+          in.factorOfSafety     = o.Get("factorOfSafety"    ).As<Napi::Number>().DoubleValue();
+          in.Nq_tip             = o.Get("Nq_tip"            ).As<Napi::Number>().DoubleValue();
+          in.limitTipBearingPa  = o.Get("limitTipBearingPa" ).As<Napi::Number>().DoubleValue();
+          auto layersArr = o.Get("layers").As<Napi::Array>();
+          for (uint32_t i = 0; i < layersArr.Length(); ++i) {
+            auto lo = layersArr.Get(i).As<Napi::Object>();
+            forge::pilecap::Layer L{};
+            std::string typeStr = lo.Get("type").As<Napi::String>().Utf8Value();
+            if (typeStr == "clay")      L.type = forge::pilecap::SoilType::Clay;
+            else if (typeStr == "sand") L.type = forge::pilecap::SoilType::Sand;
+            else throw std::invalid_argument("layer type must be 'clay' or 'sand'");
+            L.thicknessM                = lo.Get("thicknessM"               ).As<Napi::Number>().DoubleValue();
+            L.effectiveUnitWeightNPerM3 = lo.Get("effectiveUnitWeightNPerM3").As<Napi::Number>().DoubleValue();
+            L.undrainedShearStrengthPa  = lo.Get("undrainedShearStrengthPa" ).As<Napi::Number>().DoubleValue();
+            L.alpha                     = lo.Get("alpha"                    ).As<Napi::Number>().DoubleValue();
+            L.frictionAngleDeg          = lo.Get("frictionAngleDeg"         ).As<Napi::Number>().DoubleValue();
+            L.beta                      = lo.Get("beta"                     ).As<Napi::Number>().DoubleValue();
+            in.layers.push_back(L);
+          }
+          auto r = forge::pilecap::analyse(in);
+          auto out = Napi::Object::New(env2);
+          auto larr = Napi::Array::New(env2, r.layers.size());
+          for (size_t i = 0; i < r.layers.size(); ++i) {
+            auto lo = Napi::Object::New(env2);
+            lo.Set("topDepthM",              Napi::Number::New(env2, r.layers[i].topDepthM));
+            lo.Set("bottomDepthM",           Napi::Number::New(env2, r.layers[i].bottomDepthM));
+            lo.Set("effectiveStressAtMidPa", Napi::Number::New(env2, r.layers[i].effectiveStressAtMidPa));
+            lo.Set("skinFrictionPa",         Napi::Number::New(env2, r.layers[i].skinFrictionPa));
+            lo.Set("skinForceN",             Napi::Number::New(env2, r.layers[i].skinForceN));
+            larr.Set(static_cast<uint32_t>(i), lo);
+          }
+          out.Set("layers",                  larr);
+          out.Set("effectiveStressAtTipPa",  Napi::Number::New(env2, r.effectiveStressAtTipPa));
+          out.Set("tipBearingPa",            Napi::Number::New(env2, r.tipBearingPa));
+          out.Set("tipForceN",               Napi::Number::New(env2, r.tipForceN));
+          out.Set("shaftForceN",             Napi::Number::New(env2, r.shaftForceN));
+          out.Set("ultimateCapacityN",       Napi::Number::New(env2, r.ultimateCapacityN));
+          out.Set("allowableCapacityN",      Napi::Number::New(env2, r.allowableCapacityN));
+          return out;
+        });
+      }));
+    exports.Set("pilecap", plNs);
 
     return exports;
 }

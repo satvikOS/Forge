@@ -553,6 +553,11 @@ const forgeApi = {
     analyse: (input) => kernel.retwall.analyse(input),
   } : null,
 
+  // pilecap (Forge-241) — Static axial pile capacity (α + Meyerhof).
+  pilecap: kernel && kernel.pilecap ? {
+    analyse: (input) => kernel.pilecap.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

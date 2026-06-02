@@ -1222,6 +1222,12 @@ export function ForgeShellV4() {
         setActiveWb('retwall');
         window.__forgeOpenRetWallWorkbench?.();
         return;
+      // Forge-241 — Pile capacity (α + Meyerhof).
+      case 'tools.pilecap':
+      case 'workbench.pilecap':
+        setActiveWb('pilecap');
+        window.__forgeOpenPileCapWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
