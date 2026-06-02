@@ -73,6 +73,12 @@ export const CALCULATOR_TREE = [
           { id: 'filletweld', label: 'Fillet weld (AISC J2 + AWS D1.1)…', slice: 'Forge-237' },
         ],
       },
+      {
+        label: 'Concrete',
+        items: [
+          { id: 'rcbeam',     label: 'RC beam flexure (ACI 318-19 §22.2)…', slice: 'Forge-238' },
+        ],
+      },
     ],
   },
   {

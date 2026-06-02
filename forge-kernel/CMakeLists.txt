@@ -176,6 +176,7 @@ add_library(forge_kernel SHARED
     src/Shaft.cpp
     src/BoltedConnection.cpp
     src/FilletWeld.cpp
+    src/RcBeam.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -538,6 +538,11 @@ const forgeApi = {
     analyse: (input) => kernel.filletweld.analyse(input),
   } : null,
 
+  // rcbeam (Forge-238) — ACI 318-19 §22.2 RC beam flexure.
+  rcbeam: kernel && kernel.rcbeam ? {
+    analyse: (input) => kernel.rcbeam.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

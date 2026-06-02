@@ -167,6 +167,8 @@ import { ShaftWorkbenchHost } from './forge-v4/ShaftWorkbench.jsx';
 import { BoltedConnectionWorkbenchHost } from './forge-v4/BoltedConnectionWorkbench.jsx';
 // Forge-237 — Fillet weld workbench.
 import { FilletWeldWorkbenchHost } from './forge-v4/FilletWeldWorkbench.jsx';
+// Forge-238 — RC beam flexure workbench.
+import { RcBeamWorkbenchHost } from './forge-v4/RcBeamWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -318,6 +320,7 @@ function App() {
       <ShaftWorkbenchHost />
       <BoltedConnectionWorkbenchHost />
       <FilletWeldWorkbenchHost />
+      <RcBeamWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -87,6 +87,7 @@
 #include "forge/Shaft.hpp"
 #include "forge/BoltedConnection.hpp"
 #include "forge/FilletWeld.hpp"
+#include "forge/RcBeam.hpp"
 
 #include <array>
 
@@ -7280,6 +7281,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("filletweld", fwNs);
+
+    // -------- RC beam flexure (Forge-238) -------------------------------
+    auto rcNs = Napi::Object::New(env);
+    rcNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::rcbeam::Input in{};
+          in.widthM          = o.Get("widthM"         ).As<Napi::Number>().DoubleValue();
+          in.effectiveDepthM = o.Get("effectiveDepthM").As<Napi::Number>().DoubleValue();
+          in.steelAreaM2     = o.Get("steelAreaM2"    ).As<Napi::Number>().DoubleValue();
+          in.concreteFcPa    = o.Get("concreteFcPa"   ).As<Napi::Number>().DoubleValue();
+          in.steelFyPa       = o.Get("steelFyPa"      ).As<Napi::Number>().DoubleValue();
+          in.steelEPa        = o.Get("steelEPa"       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::rcbeam::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("beta1",              Napi::Number::New(env2, r.beta1));
+          out.Set("stressBlockDepthM",  Napi::Number::New(env2, r.stressBlockDepthM));
+          out.Set("neutralAxisDepthM",  Napi::Number::New(env2, r.neutralAxisDepthM));
+          out.Set("steelStrain",        Napi::Number::New(env2, r.steelStrain));
+          out.Set("phi",                Napi::Number::New(env2, r.phi));
+          out.Set("nominalMomentNm",    Napi::Number::New(env2, r.nominalMomentNm));
+          out.Set("designMomentNm",     Napi::Number::New(env2, r.designMomentNm));
+          out.Set("rho",                Napi::Number::New(env2, r.rho));
+          out.Set("rhoMin",             Napi::Number::New(env2, r.rhoMin));
+          out.Set("rhoBalanced",        Napi::Number::New(env2, r.rhoBalanced));
+          out.Set("rhoMax",             Napi::Number::New(env2, r.rhoMax));
+          out.Set("tensionControlled",  Napi::Boolean::New(env2, r.tensionControlled));
+          out.Set("belowRhoMin",        Napi::Boolean::New(env2, r.belowRhoMin));
+          out.Set("aboveRhoMax",        Napi::Boolean::New(env2, r.aboveRhoMax));
+          return out;
+        });
+      }));
+    exports.Set("rcbeam", rcNs);
 
     return exports;
 }

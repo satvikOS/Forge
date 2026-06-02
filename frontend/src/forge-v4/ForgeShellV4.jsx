@@ -1204,6 +1204,12 @@ export function ForgeShellV4() {
         setActiveWb('filletweld');
         window.__forgeOpenFilletWeldWorkbench?.();
         return;
+      // Forge-238 — RC beam flexure (ACI 318-19).
+      case 'tools.rcbeam':
+      case 'workbench.rcbeam':
+        setActiveWb('rcbeam');
+        window.__forgeOpenRcBeamWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
