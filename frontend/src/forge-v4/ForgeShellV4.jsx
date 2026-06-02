@@ -1132,6 +1132,12 @@ export function ForgeShellV4() {
         setActiveWb('windload');
         window.__forgeOpenWindLoadWorkbench?.();
         return;
+      // Forge-225 — Snow load (ASCE 7).
+      case 'tools.snowload':
+      case 'workbench.snowload':
+        setActiveWb('snowload');
+        window.__forgeOpenSnowLoadWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

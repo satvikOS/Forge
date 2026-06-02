@@ -465,6 +465,11 @@ const forgeApi = {
     designPressure:   (input)  => kernel.windload.designPressure(input),
   } : null,
 
+  // snowload (Forge-225) — ASCE 7 snow load (flat + sloped roof).
+  snowload: kernel && kernel.snowload ? {
+    analyse: (input) => kernel.snowload.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

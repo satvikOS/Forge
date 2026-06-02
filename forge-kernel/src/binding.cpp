@@ -75,6 +75,7 @@
 #include "forge/GearPair.hpp"
 #include "forge/HydraulicCylinder.hpp"
 #include "forge/WindLoad.hpp"
+#include "forge/SnowLoad.hpp"
 
 #include <array>
 
@@ -6768,6 +6769,32 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("windload", wlNs);
+
+    // -------- Snow load (Forge-225) ------------------------------------
+    auto slNs = Napi::Object::New(env);
+    slNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::snowload::Inputs in{};
+          in.groundSnowPa = o.Get("groundSnowPa").As<Napi::Number>().DoubleValue();
+          in.exposure     = forge::snowload::exposureFromString(
+              o.Get("exposure").As<Napi::String>().Utf8Value());
+          in.thermal      = forge::snowload::thermalFromString(
+              o.Get("thermal").As<Napi::String>().Utf8Value());
+          in.risk         = forge::snowload::riskFromString(
+              o.Get("risk").As<Napi::String>().Utf8Value());
+          in.slopeDeg     = o.Get("slopeDeg").As<Napi::Number>().DoubleValue();
+          auto r = forge::snowload::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("flatRoofPa",   Napi::Number::New(env2, r.flatRoofPa));
+          out.Set("slopeFactor",  Napi::Number::New(env2, r.slopeFactor));
+          out.Set("slopedRoofPa", Napi::Number::New(env2, r.slopedRoofPa));
+          return out;
+        });
+      }));
+    exports.Set("snowload", slNs);
 
     return exports;
 }
