@@ -361,9 +361,10 @@ const forgeApi = {
     specForMetricNut:  (mCode)      => kernel.stdparts.specForMetricNut(mCode),
   } : null,
 
-  // frame (Forge-205) — 3D truss linear-elastic FEA.
+  // frame (Forge-205) — 3D truss linear-elastic FEA + Forge-210 modal.
   frame: kernel && kernel.frame ? {
     solve: (input) => kernel.frame.solve(input),
+    modal: (input) => kernel.frame.modal(input),
   } : null,
 
   // piperoute (Forge-206) — A* axis-aligned pipe router.

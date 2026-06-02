@@ -5842,6 +5842,59 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
           return out;
         });
       }));
+    frNs.Set("modal", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::frame::ModalInputs in{};
+          auto ns = o.Get("nodes").As<Napi::Array>();
+          in.nodes.reserve(ns.Length());
+          for (std::uint32_t i = 0; i < ns.Length(); ++i) {
+            auto no = ns.Get(i).As<Napi::Object>();
+            forge::frame::Node n{};
+            auto pos = no.Get("position").As<Napi::Array>();
+            n.position[0] = pos.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+            n.position[1] = pos.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+            n.position[2] = pos.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+            auto fx = no.Get("fixed").As<Napi::Array>();
+            n.fixed[0] = fx.Get(uint32_t(0)).As<Napi::Boolean>().Value();
+            n.fixed[1] = fx.Get(uint32_t(1)).As<Napi::Boolean>().Value();
+            n.fixed[2] = fx.Get(uint32_t(2)).As<Napi::Boolean>().Value();
+            in.nodes.push_back(n);
+          }
+          auto es = o.Get("elements").As<Napi::Array>();
+          in.elements.reserve(es.Length());
+          for (std::uint32_t i = 0; i < es.Length(); ++i) {
+            auto eo = es.Get(i).As<Napi::Object>();
+            forge::frame::ModalElement e{};
+            e.a       = eo.Get("a").As<Napi::Number>().Uint32Value();
+            e.b       = eo.Get("b").As<Napi::Number>().Uint32Value();
+            e.E       = eo.Get("E").As<Napi::Number>().DoubleValue();
+            e.A       = eo.Get("A").As<Napi::Number>().DoubleValue();
+            e.density = eo.Get("density").As<Napi::Number>().DoubleValue();
+            in.elements.push_back(e);
+          }
+          in.kModes = o.Get("kModes").As<Napi::Number>().Uint32Value();
+          auto r = forge::frame::modal(in);
+          auto out = Napi::Object::New(env2);
+          auto freqs = Napi::Float64Array::New(env2, r.frequenciesHz.size());
+          if (!r.frequenciesHz.empty())
+            std::memcpy(freqs.Data(), r.frequenciesHz.data(),
+                        r.frequenciesHz.size() * sizeof(double));
+          out.Set("frequenciesHz", freqs);
+          auto shapesArr = Napi::Array::New(env2, r.modeShapes.size());
+          for (std::size_t i = 0; i < r.modeShapes.size(); ++i) {
+            auto s = Napi::Float64Array::New(env2, r.modeShapes[i].size());
+            if (!r.modeShapes[i].empty())
+              std::memcpy(s.Data(), r.modeShapes[i].data(),
+                          r.modeShapes[i].size() * sizeof(double));
+            shapesArr.Set(static_cast<std::uint32_t>(i), s);
+          }
+          out.Set("modeShapes", shapesArr);
+          return out;
+        });
+      }));
     exports.Set("frame", frNs);
 
     // -------- Pipe routing (Forge-206) ---------------------------------

@@ -124,4 +124,84 @@ Outputs solve(const Inputs& in) {
     return out;
 }
 
+// ---------- Forge-210 modal analysis ----------------------------------
+
+ModalOutputs modal(const ModalInputs& in) {
+    const std::uint32_t nNodes = static_cast<std::uint32_t>(in.nodes.size());
+    if (nNodes == 0)            throw std::invalid_argument("frame.modal: no nodes");
+    if (in.elements.empty())    throw std::invalid_argument("frame.modal: no elements");
+    if (in.kModes == 0)         throw std::invalid_argument("frame.modal: kModes > 0");
+
+    const std::uint32_t dofs = nNodes * 3;
+    Eigen::MatrixXd K = Eigen::MatrixXd::Zero(dofs, dofs);
+    Eigen::MatrixXd M = Eigen::MatrixXd::Zero(dofs, dofs);
+
+    for (const auto& el : in.elements) {
+        if (el.a >= nNodes || el.b >= nNodes || el.a == el.b)
+            throw std::invalid_argument("frame.modal: bad element node ids");
+        if (el.E <= 0 || el.A <= 0 || el.density <= 0)
+            throw std::invalid_argument("frame.modal: E, A, ρ must be > 0");
+        const auto& na = in.nodes[el.a];
+        const auto& nb = in.nodes[el.b];
+        const double dx = nb.position[0] - na.position[0];
+        const double dy = nb.position[1] - na.position[1];
+        const double dz = nb.position[2] - na.position[2];
+        const double L = std::sqrt(dx*dx + dy*dy + dz*dz);
+        if (L < 1e-12) throw std::invalid_argument("frame.modal: zero-length element");
+        const double l = dx / L, m = dy / L, n = dz / L;
+        const double kOverL = el.E * el.A / L;
+        const double c[6] = { -l, -m, -n, l, m, n };
+        const std::uint32_t dofIdx[6] = {
+            el.a*3+0, el.a*3+1, el.a*3+2,
+            el.b*3+0, el.b*3+1, el.b*3+2,
+        };
+        for (int i = 0; i < 6; ++i)
+            for (int j = 0; j < 6; ++j)
+                K(dofIdx[i], dofIdx[j]) += kOverL * c[i] * c[j];
+
+        // Lumped mass: half per end-node, applied to each of tx/ty/tz.
+        const double halfM = 0.5 * el.density * el.A * L;
+        for (int dim = 0; dim < 3; ++dim) {
+            M(el.a*3+dim, el.a*3+dim) += halfM;
+            M(el.b*3+dim, el.b*3+dim) += halfM;
+        }
+    }
+
+    std::vector<std::uint32_t> freeDofs;
+    freeDofs.reserve(dofs);
+    for (std::uint32_t i = 0; i < nNodes; ++i)
+        for (int c = 0; c < 3; ++c)
+            if (!in.nodes[i].fixed[c]) freeDofs.push_back(i*3 + c);
+
+    const std::uint32_t nFree = static_cast<std::uint32_t>(freeDofs.size());
+    if (nFree == 0) throw std::invalid_argument("frame.modal: all DOFs are fixed");
+    Eigen::MatrixXd Kff(nFree, nFree), Mff(nFree, nFree);
+    for (std::uint32_t i = 0; i < nFree; ++i)
+        for (std::uint32_t j = 0; j < nFree; ++j) {
+            Kff(i, j) = K(freeDofs[i], freeDofs[j]);
+            Mff(i, j) = M(freeDofs[i], freeDofs[j]);
+        }
+
+    Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Kff, Mff);
+    if (es.info() != Eigen::Success)
+        throw std::runtime_error("frame.modal: eigenvalue solve failed");
+
+    ModalOutputs out{};
+    const std::uint32_t take = std::min<std::uint32_t>(in.kModes, nFree);
+    out.frequenciesHz.resize(take, 0.0);
+    out.modeShapes.resize(take, std::vector<double>(dofs, 0.0));
+    for (std::uint32_t k = 0; k < take; ++k) {
+        const double lambda = es.eigenvalues()(k);
+        const double omega  = (lambda > 0) ? std::sqrt(lambda) : 0.0;
+        out.frequenciesHz[k] = omega / (2.0 * 3.14159265358979323846);
+        Eigen::VectorXd phi = es.eigenvectors().col(k);
+        // Normalise so the largest |component| is 1.
+        double maxAbs = phi.cwiseAbs().maxCoeff();
+        if (maxAbs > 1e-30) phi /= maxAbs;
+        for (std::uint32_t i = 0; i < nFree; ++i)
+            out.modeShapes[k][freeDofs[i]] = phi(i);
+    }
+    return out;
+}
+
 }} // namespace forge::frame

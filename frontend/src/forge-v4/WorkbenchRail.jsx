@@ -84,6 +84,8 @@ export const WORKBENCHES = [
   { id: 'sketchdof',    icon: 'misc.kbd',     label: 'DOF' },
   // Forge-209 — Animation timeline.
   { id: 'animation',    icon: 'archie.spark', label: 'Anim' },
+  // Forge-210 — Modal / vibration analysis.
+  { id: 'modal',        icon: 'wb.sim',       label: 'Modal' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

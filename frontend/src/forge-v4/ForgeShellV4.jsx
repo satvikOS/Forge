@@ -1048,6 +1048,12 @@ export function ForgeShellV4() {
         setActiveWb('animation');
         window.__forgeOpenAnimationWorkbench?.();
         return;
+      // Forge-210 — Modal analysis.
+      case 'tools.modal':
+      case 'workbench.modal':
+        setActiveWb('modal');
+        window.__forgeOpenModalWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

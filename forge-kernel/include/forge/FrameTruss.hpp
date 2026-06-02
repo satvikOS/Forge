@@ -49,4 +49,33 @@ struct Outputs {
 
 Outputs solve(const Inputs& in);
 
+// Forge-210 — modal / vibration analysis.
+//
+// Generalised eigenvalue problem Kφ = ω²Mφ on the free-DOF partition.
+// Mass matrix is lumped: each truss element of length L, area A, and
+// density ρ contributes ρ·A·L / 2 to each of its end-nodes' tx/ty/tz
+// rows. Returns the lowest `kModes` natural frequencies (Hz) and
+// their mode-shape vectors (displacement per DOF, normalised so the
+// largest entry = 1).
+
+struct ModalElement {
+    std::uint32_t a, b;
+    double E;
+    double A;
+    double density;   // mass per unit volume; ρ
+};
+
+struct ModalInputs {
+    std::vector<Node>         nodes;
+    std::vector<ModalElement> elements;
+    std::uint32_t             kModes;
+};
+
+struct ModalOutputs {
+    std::vector<double>              frequenciesHz;   // size = kModes
+    std::vector<std::vector<double>> modeShapes;      // kModes × dofs
+};
+
+ModalOutputs modal(const ModalInputs& in);
+
 }} // namespace forge::frame
