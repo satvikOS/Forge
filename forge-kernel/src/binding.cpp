@@ -49,6 +49,7 @@
 #include "forge/Tolerance.hpp"
 #include "forge/Ductwork.hpp"
 #include "forge/Variants.hpp"
+#include "forge/Psychrometric.hpp"
 
 #include <array>
 
@@ -5030,6 +5031,63 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("variants", varNs);
+
+    // -------- HVAC psychrometric (Forge-192) ---------------------------
+    auto psyNs = Napi::Object::New(env);
+    psyNs.Set("saturationPressurePa", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          const double T = info[0].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(info.Env(), forge::psychro::saturationPressurePa(T));
+        });
+      }));
+    psyNs.Set("humidityRatio", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          const double pw = info[0].As<Napi::Number>().DoubleValue();
+          const double pAtm = info[1].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(info.Env(), forge::psychro::humidityRatio(pw, pAtm));
+        });
+      }));
+    psyNs.Set("dewPointC", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          const double pw = info[0].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(info.Env(), forge::psychro::dewPointC(pw));
+        });
+      }));
+    psyNs.Set("wetBulbC", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          const double Tdb = info[0].As<Napi::Number>().DoubleValue();
+          const double W = info[1].As<Napi::Number>().DoubleValue();
+          const double pAtm = info[2].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(info.Env(), forge::psychro::wetBulbC(Tdb, W, pAtm));
+        });
+      }));
+    psyNs.Set("stateFromTwo", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const int mask = info[0].As<Napi::Number>().Int32Value();
+          const double a = info[1].As<Napi::Number>().DoubleValue();
+          const double b = info[2].As<Napi::Number>().DoubleValue();
+          const double pAtm = info[3].As<Napi::Number>().DoubleValue();
+          auto s = forge::psychro::stateFromTwo(mask, a, b, pAtm);
+          auto o = Napi::Object::New(env2);
+          o.Set("tdbC",             Napi::Number::New(env2, s.tdbC));
+          o.Set("rh",               Napi::Number::New(env2, s.rh));
+          o.Set("humidityRatio",    Napi::Number::New(env2, s.humidityRatio));
+          o.Set("tdpC",             Napi::Number::New(env2, s.tdpC));
+          o.Set("twbC",             Napi::Number::New(env2, s.twbC));
+          o.Set("enthalpyKJperKg",  Napi::Number::New(env2, s.enthalpyKJperKg));
+          o.Set("vapourPressurePa", Napi::Number::New(env2, s.vapourPressurePa));
+          o.Set("satPressurePa",    Napi::Number::New(env2, s.satPressurePa));
+          o.Set("atmPressurePa",    Napi::Number::New(env2, s.atmPressurePa));
+          return o;
+        });
+      }));
+    exports.Set("psychro", psyNs);
 
     return exports;
 }

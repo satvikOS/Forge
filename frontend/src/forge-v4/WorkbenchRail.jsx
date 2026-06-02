@@ -48,6 +48,8 @@ export const WORKBENCHES = [
   { id: 'duct',     icon: 'wb.arch',     label: 'Ductwork' },
   // Forge-187 — Generative variant explorer.
   { id: 'variants', icon: 'wb.sim',      label: 'Variants' },
+  // Forge-192 — HVAC psychrometric chart.
+  { id: 'psychro',  icon: 'wb.arch',     label: 'Psychro' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

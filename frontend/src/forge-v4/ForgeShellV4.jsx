@@ -940,6 +940,12 @@ export function ForgeShellV4() {
         setActiveWb('variants');
         window.__forgeOpenVariantsWorkbench?.();
         return;
+      // Forge-192 — HVAC psychrometric chart.
+      case 'tools.psychro':
+      case 'workbench.psychro':
+        setActiveWb('psychro');
+        window.__forgeOpenPsychrometricWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

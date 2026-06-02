@@ -77,6 +77,8 @@ import { ToleranceStackWorkbenchHost } from './forge-v4/ToleranceStackWorkbench.
 import { DuctworkWorkbenchHost } from './forge-v4/DuctworkWorkbench.jsx';
 // Forge-187 — Generative variant explorer.
 import { VariantExplorerWorkbenchHost } from './forge-v4/VariantExplorerWorkbench.jsx';
+// Forge-192 — HVAC psychrometric chart.
+import { PsychrometricWorkbenchHost } from './forge-v4/PsychrometricWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -181,6 +183,7 @@ function App() {
       <ToleranceStackWorkbenchHost />
       <DuctworkWorkbenchHost />
       <VariantExplorerWorkbenchHost />
+      <PsychrometricWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

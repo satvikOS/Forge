@@ -138,6 +138,7 @@ add_library(forge_kernel SHARED
     src/Tolerance.cpp
     src/Ductwork.cpp
     src/Variants.cpp
+    src/Psychrometric.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -352,6 +352,15 @@ const forgeApi = {
     paretoFront:    (objs, nObj, signs)    => kernel.variants.paretoFront(objs, nObj, signs),
   } : null,
 
+  // psychro (Forge-192) — HVAC psychrometric chart calculator.
+  psychro: kernel && kernel.psychro ? {
+    saturationPressurePa: (T)                  => kernel.psychro.saturationPressurePa(T),
+    humidityRatio:        (pw, pAtm)           => kernel.psychro.humidityRatio(pw, pAtm),
+    dewPointC:            (pw)                 => kernel.psychro.dewPointC(pw),
+    wetBulbC:             (Tdb, W, pAtm)       => kernel.psychro.wetBulbC(Tdb, W, pAtm),
+    stateFromTwo:         (mask, a, b, pAtm)   => kernel.psychro.stateFromTwo(mask, a, b, pAtm),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {
