@@ -1198,6 +1198,12 @@ export function ForgeShellV4() {
         setActiveWb('boltconn');
         window.__forgeOpenBoltConnWorkbench?.();
         return;
+      // Forge-237 — Fillet weld (AISC J2 / AWS D1.1).
+      case 'tools.filletweld':
+      case 'workbench.filletweld':
+        setActiveWb('filletweld');
+        window.__forgeOpenFilletWeldWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

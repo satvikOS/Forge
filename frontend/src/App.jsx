@@ -165,6 +165,8 @@ import { SeismicLoadWorkbenchHost } from './forge-v4/SeismicLoadWorkbench.jsx';
 import { ShaftWorkbenchHost } from './forge-v4/ShaftWorkbench.jsx';
 // Forge-236 — Bolted connection workbench.
 import { BoltedConnectionWorkbenchHost } from './forge-v4/BoltedConnectionWorkbench.jsx';
+// Forge-237 — Fillet weld workbench.
+import { FilletWeldWorkbenchHost } from './forge-v4/FilletWeldWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -315,6 +317,7 @@ function App() {
       <SeismicLoadWorkbenchHost />
       <ShaftWorkbenchHost />
       <BoltedConnectionWorkbenchHost />
+      <FilletWeldWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

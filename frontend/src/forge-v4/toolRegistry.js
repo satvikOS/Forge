@@ -69,7 +69,8 @@ export const CALCULATOR_TREE = [
       {
         label: 'Connections',
         items: [
-          { id: 'boltconn',  label: 'Bolted connection (AISC J3 / EC3 §3.6)…', slice: 'Forge-236' },
+          { id: 'boltconn',   label: 'Bolted connection (AISC J3 / EC3 §3.6)…', slice: 'Forge-236' },
+          { id: 'filletweld', label: 'Fillet weld (AISC J2 + AWS D1.1)…', slice: 'Forge-237' },
         ],
       },
     ],

@@ -533,6 +533,11 @@ const forgeApi = {
     analyseTension: (input) => kernel.boltconn.analyseTension(input),
   } : null,
 
+  // filletweld (Forge-237) — AISC J2 + AWS D1.1 fillet weld design.
+  filletweld: kernel && kernel.filletweld ? {
+    analyse: (input) => kernel.filletweld.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

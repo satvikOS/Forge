@@ -86,6 +86,7 @@
 #include "forge/SeismicLoad.hpp"
 #include "forge/Shaft.hpp"
 #include "forge/BoltedConnection.hpp"
+#include "forge/FilletWeld.hpp"
 
 #include <array>
 
@@ -7250,6 +7251,35 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("boltconn", bcNs);
+
+    // -------- Fillet weld (Forge-237) -----------------------------------
+    auto fwNs = Napi::Object::New(env);
+    fwNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::filletweld::Input in{};
+          in.legSizeM        = o.Get("legSizeM"       ).As<Napi::Number>().DoubleValue();
+          in.weldLengthM     = o.Get("weldLengthM"    ).As<Napi::Number>().DoubleValue();
+          in.electrodeFexxPa = o.Get("electrodeFexxPa").As<Napi::Number>().DoubleValue();
+          in.thickerPlateM   = o.Get("thickerPlateM"  ).As<Napi::Number>().DoubleValue();
+          in.edgePlateM      = o.Get("edgePlateM"     ).As<Napi::Number>().DoubleValue();
+          in.phi             = o.Get("phi"            ).As<Napi::Number>().DoubleValue();
+          auto r = forge::filletweld::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("effectiveThroatM",     Napi::Number::New(env2, r.effectiveThroatM));
+          out.Set("nominalPerUnitNPerM",  Napi::Number::New(env2, r.nominalPerUnitNPerM));
+          out.Set("designPerUnitNPerM",   Napi::Number::New(env2, r.designPerUnitNPerM));
+          out.Set("totalDesignN",         Napi::Number::New(env2, r.totalDesignN));
+          out.Set("awsMinLegM",           Napi::Number::New(env2, r.awsMinLegM));
+          out.Set("aiscMaxLegM",          Napi::Number::New(env2, r.aiscMaxLegM));
+          out.Set("legBelowAwsMin",       Napi::Boolean::New(env2, r.legBelowAwsMin));
+          out.Set("legAboveAiscMax",      Napi::Boolean::New(env2, r.legAboveAiscMax));
+          return out;
+        });
+      }));
+    exports.Set("filletweld", fwNs);
 
     return exports;
 }
