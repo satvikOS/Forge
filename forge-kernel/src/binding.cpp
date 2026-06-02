@@ -38,6 +38,7 @@
 #include "forge/LineageRegistry.hpp"
 #include "forge/Airfoil.hpp"
 #include "forge/SlopeStability.hpp"
+#include "forge/Casting.hpp"
 
 #include <array>
 
@@ -4267,6 +4268,70 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("geotech", geotech);
+
+    // -------- Casting solidification (Forge-173) ------------------------
+    auto casting = Napi::Object::New(env);
+    casting.Set("solidify", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 1 || !info[0].IsObject()) {
+            throw Napi::TypeError::New(env2, "forge.casting.solidify: cfg must be an object");
+          }
+          auto o = info[0].As<Napi::Object>();
+          forge::casting::CastingConfig cfg{};
+          cfg.minX = o.Get("minX").As<Napi::Number>().DoubleValue();
+          cfg.minY = o.Get("minY").As<Napi::Number>().DoubleValue();
+          cfg.minZ = o.Get("minZ").As<Napi::Number>().DoubleValue();
+          cfg.maxX = o.Get("maxX").As<Napi::Number>().DoubleValue();
+          cfg.maxY = o.Get("maxY").As<Napi::Number>().DoubleValue();
+          cfg.maxZ = o.Get("maxZ").As<Napi::Number>().DoubleValue();
+          cfg.Nx = o.Get("Nx").As<Napi::Number>().Int32Value();
+          cfg.Ny = o.Get("Ny").As<Napi::Number>().Int32Value();
+          cfg.Nz = o.Get("Nz").As<Napi::Number>().Int32Value();
+          cfg.Tpour     = o.Get("Tpour").As<Napi::Number>().DoubleValue();
+          cfg.TambientK = o.Get("TambientK").As<Napi::Number>().DoubleValue();
+          cfg.hWall     = o.Get("hWall").As<Napi::Number>().DoubleValue();
+          auto a = o.Get("alloy").As<Napi::Object>();
+          cfg.alloy.rho       = a.Get("rho").As<Napi::Number>().DoubleValue();
+          cfg.alloy.cp        = a.Get("cp" ).As<Napi::Number>().DoubleValue();
+          cfg.alloy.k         = a.Get("k"  ).As<Napi::Number>().DoubleValue();
+          cfg.alloy.L         = a.Get("L"  ).As<Napi::Number>().DoubleValue();
+          cfg.alloy.Tsolidus  = a.Get("Tsolidus" ).As<Napi::Number>().DoubleValue();
+          cfg.alloy.Tliquidus = a.Get("Tliquidus").As<Napi::Number>().DoubleValue();
+          cfg.endTimeSec  = o.Get("endTimeSec").As<Napi::Number>().DoubleValue();
+          cfg.cflFactor   = o.Has("cflFactor"  ) ? o.Get("cflFactor"  ).As<Napi::Number>().DoubleValue() : 0.4;
+          cfg.sampleEvery = o.Has("sampleEvery") ? o.Get("sampleEvery").As<Napi::Number>().Int32Value()  : 50;
+          auto mask = o.Get("cavityMask").As<Napi::Uint8Array>();
+          cfg.cavityMask.assign(mask.Data(), mask.Data() + mask.ElementLength());
+          auto r = forge::casting::solidify(cfg);
+          auto out = Napi::Object::New(env2);
+          out.Set("Nx", Napi::Number::New(env2, r.Nx));
+          out.Set("Ny", Napi::Number::New(env2, r.Ny));
+          out.Set("Nz", Napi::Number::New(env2, r.Nz));
+          auto cpyF64 = [&](const std::vector<double>& v) {
+            auto arr = Napi::Float64Array::New(env2, v.size());
+            std::memcpy(arr.Data(), v.data(), v.size() * sizeof(double));
+            return arr;
+          };
+          out.Set("solidTimeSec",  cpyF64(r.solidTimeSec));
+          out.Set("peakTempK",     cpyF64(r.peakTempK));
+          out.Set("niyama",        cpyF64(r.niyama));
+          out.Set("snapshotTimesSec", cpyF64(r.snapshotTimesSec));
+          auto snaps = Napi::Array::New(env2, r.tempSnapshots.size());
+          for (size_t i = 0; i < r.tempSnapshots.size(); ++i) {
+            snaps.Set((uint32_t)i, cpyF64(r.tempSnapshots[i]));
+          }
+          out.Set("tempSnapshots", snaps);
+          out.Set("totalSimTimeSec", Napi::Number::New(env2, r.totalSimTimeSec));
+          out.Set("maxSolidTimeSec", Napi::Number::New(env2, r.maxSolidTimeSec));
+          out.Set("avgSolidTimeSec", Napi::Number::New(env2, r.avgSolidTimeSec));
+          out.Set("cellsSimulated",  Napi::Number::New(env2, r.cellsSimulated));
+          out.Set("cellsSolidified", Napi::Number::New(env2, r.cellsSolidified));
+          return out;
+        });
+      }));
+    exports.Set("casting", casting);
 
     return exports;
 }

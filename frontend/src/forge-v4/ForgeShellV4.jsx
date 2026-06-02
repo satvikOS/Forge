@@ -857,6 +857,12 @@ export function ForgeShellV4() {
         setActiveWb('geotech');
         window.__forgeOpenGeotechWorkbench?.();
         return;
+      // Forge-173 — Casting solidification (enthalpy FDM).
+      case 'tools.casting':
+      case 'workbench.casting':
+        setActiveWb('casting');
+        window.__forgeOpenCastingWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

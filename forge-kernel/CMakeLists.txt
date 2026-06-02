@@ -127,6 +127,7 @@ add_library(forge_kernel SHARED
     src/Nurbs.cpp
     src/Airfoil.cpp
     src/SlopeStability.cpp
+    src/Casting.cpp
     ${PLANEGCS_SRC}
 )
 

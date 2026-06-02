@@ -57,6 +57,8 @@ import { RobotWorkbenchHost } from './forge-v4/RobotWorkbench.jsx';
 import { AerospaceWorkbenchHost } from './forge-v4/AerospaceWorkbench.jsx';
 // Forge-176 — Geotechnical slope stability (Bishop + Janbu).
 import { GeotechWorkbenchHost } from './forge-v4/GeotechWorkbench.jsx';
+// Forge-173 — Casting solidification (enthalpy FDM).
+import { CastingWorkbenchHost } from './forge-v4/CastingWorkbench.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -143,6 +145,7 @@ function App() {
       <RobotWorkbenchHost />
       <AerospaceWorkbenchHost />
       <GeotechWorkbenchHost />
+      <CastingWorkbenchHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />

@@ -289,6 +289,11 @@ const forgeApi = {
     analyse: (cfg) => kernel.geotech.analyse(cfg),
   } : null,
 
+  // casting (Forge-173) — solidification (enthalpy FDM with phase change).
+  casting: kernel && kernel.casting ? {
+    solidify: (cfg) => kernel.casting.solidify(cfg),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

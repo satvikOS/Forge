@@ -28,6 +28,8 @@ export const WORKBENCHES = [
   { id: 'aero',     icon: 'wb.sim',      label: 'Aero' },
   // Forge-176 — Geotechnical slope stability (Bishop + Janbu).
   { id: 'geotech',  icon: 'wb.arch',     label: 'Geotech' },
+  // Forge-173 — Casting solidification (enthalpy FDM).
+  { id: 'casting',  icon: 'wb.sim',      label: 'Cast' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
