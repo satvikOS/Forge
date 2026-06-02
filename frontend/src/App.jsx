@@ -55,6 +55,8 @@ import { SiteHierarchyHost } from './forge-v4/SiteHierarchy.jsx';
 import { RobotWorkbenchHost } from './forge-v4/RobotWorkbench.jsx';
 // Forge-171 — Aerospace airfoil & wing designer (NACA / Selig / loft).
 import { AerospaceWorkbenchHost } from './forge-v4/AerospaceWorkbench.jsx';
+// Forge-176 — Geotechnical slope stability (Bishop + Janbu).
+import { GeotechWorkbenchHost } from './forge-v4/GeotechWorkbench.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -140,6 +142,7 @@ function App() {
       <SiteHierarchyHost />
       <RobotWorkbenchHost />
       <AerospaceWorkbenchHost />
+      <GeotechWorkbenchHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />

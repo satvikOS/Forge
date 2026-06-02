@@ -126,6 +126,7 @@ add_library(forge_kernel SHARED
     src/Weldments.cpp
     src/Nurbs.cpp
     src/Airfoil.cpp
+    src/SlopeStability.cpp
     ${PLANEGCS_SRC}
 )
 

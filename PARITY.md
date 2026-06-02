@@ -180,6 +180,7 @@ domain physics + parametric geometry in-kernel. Each row points at the native
 | Capability                                                     | Status | Notes |
 |----------------------------------------------------------------|--------|-------|
 | Aerospace airfoil + trapezoidal wing loft                      | ✅      | Forge-171 — `forge::airfoil` (NACA 4/5-digit, Selig DAT parser, OCCT `BRepOffsetAPI_ThruSections` wing loft with twist + sweep + dihedral + taper, planform metrics) |
+| Geotechnical slope stability (Bishop + Janbu)                  | ✅      | Forge-176 — `forge::geotech` (limit-equilibrium circular-search; Bishop iterative + Janbu corrected; multi-layer soils + optional water table; smoke verifies textbook FoS ≈ 1.3 for 1H:1V c-φ slope and monotone behaviour vs cohesion + water table) |
 
 ## Approval rule
 

@@ -26,6 +26,8 @@ export const WORKBENCHES = [
   { id: 'robot',    icon: 'wb.robot',    label: 'Robot' },
   // Forge-171 — Aerospace airfoil + wing designer (NACA / Selig / loft).
   { id: 'aero',     icon: 'wb.sim',      label: 'Aero' },
+  // Forge-176 — Geotechnical slope stability (Bishop + Janbu).
+  { id: 'geotech',  icon: 'wb.arch',     label: 'Geotech' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

@@ -844,6 +844,14 @@ export function ForgeShellV4() {
         setActiveWb('aero');
         window.__forgeOpenAerospaceWorkbench?.();
         return;
+      // Forge-176 — Geotechnical slope stability (Bishop + Janbu).
+      // GeotechWorkbenchHost (in App.jsx) registers
+      // __forgeOpenGeotechWorkbench on mount.
+      case 'tools.geotech':
+      case 'workbench.geotech':
+        setActiveWb('geotech');
+        window.__forgeOpenGeotechWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

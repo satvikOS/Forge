@@ -284,6 +284,11 @@ const forgeApi = {
     solveSteadyNS: (cfg) => kernel.cfd.solveSteadyNS(cfg),
   } : null,
 
+  // geotech (Forge-176) — slope stability (Bishop + Janbu, circular search).
+  geotech: kernel && kernel.geotech ? {
+    analyse: (cfg) => kernel.geotech.analyse(cfg),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

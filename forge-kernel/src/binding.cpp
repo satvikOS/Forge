@@ -37,6 +37,7 @@
 #include "forge/Nurbs.hpp"
 #include "forge/LineageRegistry.hpp"
 #include "forge/Airfoil.hpp"
+#include "forge/SlopeStability.hpp"
 
 #include <array>
 
@@ -4157,6 +4158,115 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     airfoil.Set("trapezoidalWing",  Napi::Function::New(env, AirfoilTrapezoidalWing));
     airfoil.Set("planformMetrics",  Napi::Function::New(env, AirfoilPlanformMetrics));
     exports.Set("airfoil", airfoil);
+
+    // -------- Geotech slope stability (Forge-176) -----------------------
+    auto geotech = Napi::Object::New(env);
+    geotech.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 1 || !info[0].IsObject()) {
+            throw Napi::TypeError::New(env2, "forge.geotech.analyse: cfg must be an object");
+          }
+          auto o = info[0].As<Napi::Object>();
+          forge::geotech::SlopeConfig cfg{};
+
+          auto readF64 = [&](const std::string& key) -> std::vector<double> {
+            std::vector<double> out;
+            if (!o.Has(key)) return out;
+            auto v = o.Get(key);
+            if (v.IsTypedArray()) {
+              auto a = v.As<Napi::Float64Array>();
+              out.assign(a.Data(), a.Data() + a.ElementLength());
+            } else if (v.IsArray()) {
+              auto a = v.As<Napi::Array>();
+              for (uint32_t i = 0; i < a.Length(); ++i) {
+                out.push_back(a.Get(i).As<Napi::Number>().DoubleValue());
+              }
+            }
+            return out;
+          };
+
+          cfg.groundProfile = readF64("groundProfile");
+          cfg.waterTable    = readF64("waterTable");
+
+          if (!o.Has("layers") || !o.Get("layers").IsArray()) {
+            throw Napi::TypeError::New(env2, "forge.geotech.analyse: layers must be array");
+          }
+          auto layersArr = o.Get("layers").As<Napi::Array>();
+          for (uint32_t i = 0; i < layersArr.Length(); ++i) {
+            auto lo = layersArr.Get(i).As<Napi::Object>();
+            forge::geotech::SoilLayer L{};
+            if (lo.Has("topProfile")) {
+              auto tp = lo.Get("topProfile");
+              if (tp.IsTypedArray()) {
+                auto a = tp.As<Napi::Float64Array>();
+                L.topProfile.assign(a.Data(), a.Data() + a.ElementLength());
+              } else if (tp.IsArray()) {
+                auto a = tp.As<Napi::Array>();
+                for (uint32_t j = 0; j < a.Length(); ++j) {
+                  L.topProfile.push_back(a.Get(j).As<Napi::Number>().DoubleValue());
+                }
+              }
+            }
+            L.gammaWet = lo.Has("gammaWet") ? lo.Get("gammaWet").As<Napi::Number>().DoubleValue() : 0.0;
+            L.gammaSat = lo.Has("gammaSat") ? lo.Get("gammaSat").As<Napi::Number>().DoubleValue() : L.gammaWet;
+            L.cPrime   = lo.Has("cPrime"  ) ? lo.Get("cPrime"  ).As<Napi::Number>().DoubleValue() : 0.0;
+            L.phiPrime = lo.Has("phiPrime") ? lo.Get("phiPrime").As<Napi::Number>().DoubleValue() : 0.0;
+            L.ru       = lo.Has("ru"      ) ? lo.Get("ru"      ).As<Napi::Number>().DoubleValue() : 0.0;
+            if (lo.Has("name") && lo.Get("name").IsString()) {
+              L.name = lo.Get("name").As<Napi::String>().Utf8Value();
+            }
+            cfg.layers.push_back(std::move(L));
+          }
+
+          cfg.xcMin = o.Get("xcMin").As<Napi::Number>().DoubleValue();
+          cfg.xcMax = o.Get("xcMax").As<Napi::Number>().DoubleValue();
+          cfg.ycMin = o.Get("ycMin").As<Napi::Number>().DoubleValue();
+          cfg.ycMax = o.Get("ycMax").As<Napi::Number>().DoubleValue();
+          cfg.rMin  = o.Get("rMin" ).As<Napi::Number>().DoubleValue();
+          cfg.rMax  = o.Get("rMax" ).As<Napi::Number>().DoubleValue();
+          cfg.nXc   = o.Get("nXc"  ).As<Napi::Number>().Int32Value();
+          cfg.nYc   = o.Get("nYc"  ).As<Napi::Number>().Int32Value();
+          cfg.nR    = o.Get("nR"   ).As<Napi::Number>().Int32Value();
+          cfg.sliceCount      = o.Has("sliceCount"     ) ? o.Get("sliceCount"     ).As<Napi::Number>().Int32Value()  : 30;
+          cfg.bishopMaxIters  = o.Has("bishopMaxIters" ) ? o.Get("bishopMaxIters" ).As<Napi::Number>().Int32Value()  : 50;
+          cfg.bishopTol       = o.Has("bishopTol"      ) ? o.Get("bishopTol"      ).As<Napi::Number>().DoubleValue() : 1e-4;
+          cfg.janbuF0         = o.Has("janbuF0"        ) ? o.Get("janbuF0"        ).As<Napi::Number>().DoubleValue() : 0.0;
+
+          auto result = forge::geotech::analyse(cfg);
+
+          auto out = Napi::Object::New(env2);
+          out.Set("fosBishop",       Napi::Number::New(env2, result.fosBishop));
+          out.Set("fosJanbu",        Napi::Number::New(env2, result.fosJanbu));
+          out.Set("xcCritical",      Napi::Number::New(env2, result.xcCritical));
+          out.Set("ycCritical",      Napi::Number::New(env2, result.ycCritical));
+          out.Set("rCritical",       Napi::Number::New(env2, result.rCritical));
+          out.Set("iterations",      Napi::Number::New(env2, result.iterations));
+          out.Set("trialsEvaluated", Napi::Number::New(env2, result.trialsEvaluated));
+          auto slip = Napi::Float64Array::New(env2, result.slipSurface.size());
+          std::memcpy(slip.Data(), result.slipSurface.data(),
+                      result.slipSurface.size() * sizeof(double));
+          out.Set("slipSurface", slip);
+          auto slicesArr = Napi::Array::New(env2, result.slices.size());
+          for (size_t i = 0; i < result.slices.size(); ++i) {
+            auto so = Napi::Object::New(env2);
+            so.Set("xCentre",      Napi::Number::New(env2, result.slices[i].xCentre));
+            so.Set("yBase",        Napi::Number::New(env2, result.slices[i].yBase));
+            so.Set("width",        Napi::Number::New(env2, result.slices[i].width));
+            so.Set("weight",       Napi::Number::New(env2, result.slices[i].weight));
+            so.Set("baseAngle",    Napi::Number::New(env2, result.slices[i].baseAngle));
+            so.Set("baseLength",   Napi::Number::New(env2, result.slices[i].baseLength));
+            so.Set("porePressure", Napi::Number::New(env2, result.slices[i].porePressure));
+            so.Set("cBase",        Napi::Number::New(env2, result.slices[i].cBase));
+            so.Set("phiBase",      Napi::Number::New(env2, result.slices[i].phiBase));
+            slicesArr.Set((uint32_t)i, so);
+          }
+          out.Set("slices", slicesArr);
+          return out;
+        });
+      }));
+    exports.Set("geotech", geotech);
 
     return exports;
 }
