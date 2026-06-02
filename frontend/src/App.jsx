@@ -141,6 +141,8 @@ import { PolygonSectionWorkbenchHost } from './forge-v4/PolygonSectionWorkbench.
 import { GearPairWorkbenchHost } from './forge-v4/GearPairWorkbench.jsx';
 // Forge-222 — Hydraulic cylinder sizing workbench.
 import { HydraulicCylinderWorkbenchHost } from './forge-v4/HydraulicCylinderWorkbench.jsx';
+// Forge-223 — Wind load (ASCE 7) workbench.
+import { WindLoadWorkbenchHost } from './forge-v4/WindLoadWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -277,6 +279,7 @@ function App() {
       <PolygonSectionWorkbenchHost />
       <GearPairWorkbenchHost />
       <HydraulicCylinderWorkbenchHost />
+      <WindLoadWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

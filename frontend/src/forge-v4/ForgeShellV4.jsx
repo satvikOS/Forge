@@ -1126,6 +1126,12 @@ export function ForgeShellV4() {
         setActiveWb('hydcyl');
         window.__forgeOpenHydCylWorkbench?.();
         return;
+      // Forge-223 — Wind load (ASCE 7).
+      case 'tools.windload':
+      case 'workbench.windload':
+        setActiveWb('windload');
+        window.__forgeOpenWindLoadWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

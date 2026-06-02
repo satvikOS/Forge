@@ -458,6 +458,13 @@ const forgeApi = {
     analyse: (input) => kernel.hydcyl.analyse(input),
   } : null,
 
+  // windload (Forge-223) — ASCE 7 wind velocity + design pressures.
+  windload: kernel && kernel.windload ? {
+    kzCoefficient:    (z, exp) => kernel.windload.kzCoefficient(z, exp),
+    velocityPressure: (input)  => kernel.windload.velocityPressure(input),
+    designPressure:   (input)  => kernel.windload.designPressure(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

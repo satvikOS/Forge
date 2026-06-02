@@ -110,6 +110,8 @@ export const WORKBENCHES = [
   { id: 'gearpair',     icon: 'wb.part',      label: 'Gear' },
   // Forge-222 — Hydraulic cylinder.
   { id: 'hydcyl',       icon: 'wb.part',      label: 'HydCyl' },
+  // Forge-223 — Wind load (ASCE 7).
+  { id: 'windload',     icon: 'wb.sim',       label: 'Wind' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

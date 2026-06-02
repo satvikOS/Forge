@@ -163,6 +163,7 @@ add_library(forge_kernel SHARED
     src/PolygonSection.cpp
     src/GearPair.cpp
     src/HydraulicCylinder.cpp
+    src/WindLoad.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -74,6 +74,7 @@
 #include "forge/PolygonSection.hpp"
 #include "forge/GearPair.hpp"
 #include "forge/HydraulicCylinder.hpp"
+#include "forge/WindLoad.hpp"
 
 #include <array>
 
@@ -6723,6 +6724,50 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("hydcyl", hcNs);
+
+    // -------- Wind load (Forge-223) ------------------------------------
+    auto wlNs = Napi::Object::New(env);
+    wlNs.Set("kzCoefficient", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const double z = info[0].As<Napi::Number>().DoubleValue();
+          const auto exp = forge::windload::exposureFromString(
+              info[1].As<Napi::String>().Utf8Value());
+          return Napi::Number::New(env2, forge::windload::kzCoefficient(z, exp));
+        });
+      }));
+    wlNs.Set("velocityPressure", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::windload::VelocityPressureInputs in{};
+          in.V        = o.Get("V"       ).As<Napi::Number>().DoubleValue();
+          in.z        = o.Get("z"       ).As<Napi::Number>().DoubleValue();
+          in.exposure = forge::windload::exposureFromString(
+              o.Get("exposure").As<Napi::String>().Utf8Value());
+          in.Kzt = o.Has("Kzt") ? o.Get("Kzt").As<Napi::Number>().DoubleValue() : 1.0;
+          in.Kd  = o.Has("Kd")  ? o.Get("Kd" ).As<Napi::Number>().DoubleValue() : 0.85;
+          in.Ke  = o.Has("Ke")  ? o.Get("Ke" ).As<Napi::Number>().DoubleValue() : 1.0;
+          return Napi::Number::New(env2, forge::windload::velocityPressure(in));
+        });
+      }));
+    wlNs.Set("designPressure", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::windload::DesignPressureInputs in{};
+          in.qz   = o.Get("qz"  ).As<Napi::Number>().DoubleValue();
+          in.G    = o.Has("G") ? o.Get("G").As<Napi::Number>().DoubleValue() : 0.85;
+          in.Cp   = o.Get("Cp"  ).As<Napi::Number>().DoubleValue();
+          in.qi   = o.Has("qi")   ? o.Get("qi"  ).As<Napi::Number>().DoubleValue() : 0.0;
+          in.GCpi = o.Has("GCpi") ? o.Get("GCpi").As<Napi::Number>().DoubleValue() : 0.0;
+          return Napi::Number::New(env2, forge::windload::designPressure(in));
+        });
+      }));
+    exports.Set("windload", wlNs);
 
     return exports;
 }
