@@ -169,6 +169,7 @@ add_library(forge_kernel SHARED
     src/VBelt.cpp
     src/PressureVessel.cpp
     src/PumpHead.cpp
+    src/Refrigeration.cpp
     ${PLANEGCS_SRC}
 )
 

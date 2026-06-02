@@ -80,6 +80,7 @@
 #include "forge/VBelt.hpp"
 #include "forge/PressureVessel.hpp"
 #include "forge/PumpHead.hpp"
+#include "forge/Refrigeration.hpp"
 
 #include <array>
 
@@ -6976,6 +6977,48 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pumphead", phNs);
+
+    // -------- Refrigeration COP (Forge-230) ----------------------------
+    auto rfNs = Napi::Object::New(env);
+    rfNs.Set("carnotCOP", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const double Th = info[0].As<Napi::Number>().DoubleValue();
+          const double Tc = info[1].As<Napi::Number>().DoubleValue();
+          auto m = forge::refrig::modeFromString(info[2].As<Napi::String>().Utf8Value());
+          return Napi::Number::New(env2, forge::refrig::carnotCOP(Th, Tc, m));
+        });
+      }));
+    rfNs.Set("vaporCycle", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::refrig::CycleInputs in{};
+          in.h1   = o.Get("h1"  ).As<Napi::Number>().DoubleValue();
+          in.h2   = o.Get("h2"  ).As<Napi::Number>().DoubleValue();
+          in.h3   = o.Get("h3"  ).As<Napi::Number>().DoubleValue();
+          in.mode = forge::refrig::modeFromString(o.Get("mode").As<Napi::String>().Utf8Value());
+          auto r = forge::refrig::vaporCycle(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("refrigerationEffect", Napi::Number::New(env2, r.refrigerationEffect));
+          out.Set("condenserRejection",  Napi::Number::New(env2, r.condenserRejection));
+          out.Set("compressorWork",      Napi::Number::New(env2, r.compressorWork));
+          out.Set("cop",                 Napi::Number::New(env2, r.cop));
+          return out;
+        });
+      }));
+    rfNs.Set("compressorPower", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          return Napi::Number::New(env2, forge::refrig::compressorPower(
+              info[0].As<Napi::Number>().DoubleValue(),
+              info[1].As<Napi::Number>().DoubleValue()));
+        });
+      }));
+    exports.Set("refrig", rfNs);
 
     return exports;
 }

@@ -496,6 +496,13 @@ const forgeApi = {
     analyse:        (input)         => kernel.pumphead.analyse(input),
   } : null,
 
+  // refrig (Forge-230) — refrigeration / heat-pump COP.
+  refrig: kernel && kernel.refrig ? {
+    carnotCOP:        (Th, Tc, mode) => kernel.refrig.carnotCOP(Th, Tc, mode),
+    vaporCycle:       (input)        => kernel.refrig.vaporCycle(input),
+    compressorPower:  (Q, cop)       => kernel.refrig.compressorPower(Q, cop),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

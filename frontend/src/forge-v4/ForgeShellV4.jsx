@@ -1162,6 +1162,12 @@ export function ForgeShellV4() {
         setActiveWb('pumphead');
         window.__forgeOpenPumpHeadWorkbench?.();
         return;
+      // Forge-230 — Refrigeration COP.
+      case 'tools.refrig':
+      case 'workbench.refrig':
+        setActiveWb('refrig');
+        window.__forgeOpenRefrigWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
