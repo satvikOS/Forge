@@ -169,13 +169,18 @@ export function ForgeShellV4() {
     window.__forgeSelection   = selection;
     window.__forgeActiveWb    = activeWb;
     window.__forgeTheme       = theme;
-    // setter so loaders can replace the scene from disk:
+    // setter so loaders can replace the scene from disk. Forge-177 — switched
+    // both calls to functional updaters because the value form was getting
+    // stomped: when a workbench publishes via __forgeSetBodies the same
+    // effect re-runs on the next render and re-defined __forgeSetBodies
+    // with a closure over the old (empty) bodies state, dropping the body.
     window.__forgeSetBodies = (next) => {
-      setBodies(Array.isArray(next) ? next : []);
-      setFeatureTree((tree) => Array.isArray(next)
-        ? next.map((b) => ({ id: b.id, label: b.name || b.toolId || b.id,
-                             icon: 'archie.spark', params: b.params || {} }))
-        : tree);
+      const arr = Array.isArray(next) ? next : [];
+      setBodies(() => arr);
+      setFeatureTree(() => arr.map((b) => ({
+        id: b.id, label: b.name || b.toolId || b.id,
+        icon: 'archie.spark', params: b.params || {},
+      })));
     };
     window.__forgeAppendBody = (b) => setBodies((arr) => [...arr, b]);
     window.__forgeReplaceFeatureTree = (next) => setFeatureTree(Array.isArray(next) ? next : []);

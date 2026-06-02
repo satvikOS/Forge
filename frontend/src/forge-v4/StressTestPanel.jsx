@@ -354,15 +354,20 @@ export function StressTestPanelHost() {
     const center = () => setCenterToken((t) => t + 1);
     window.__forgeOpenStressTest = (v) =>
       setOpen(v === undefined ? true : !!v);
-    window.__forgeSetBodies = setBodies;
-    window.__forgeClearBodies = clearBodies;
+    // Forge-177 — namespace to __forgeStress* so this no longer shadows
+    // the shell-level __forgeSetBodies wiring. The stress test owns its
+    // own private bodies array; mixing it with the shell's bodies
+    // silently dropped every workbench publish whenever this panel was
+    // mounted.
+    window.__forgeStressSetBodies = setBodies;
+    window.__forgeStressClearBodies = clearBodies;
     window.__forgeStressSetView = setStressView;
     window.__forgeStressCenter = center;
     return () => {
       try {
         delete window.__forgeOpenStressTest;
-        delete window.__forgeSetBodies;
-        delete window.__forgeClearBodies;
+        delete window.__forgeStressSetBodies;
+        delete window.__forgeStressClearBodies;
         delete window.__forgeStressSetView;
         delete window.__forgeStressCenter;
       } catch { /* noop */ }

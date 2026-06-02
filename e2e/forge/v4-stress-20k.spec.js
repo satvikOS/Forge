@@ -67,14 +67,14 @@ test.describe.serial('Forge-111 · 20k-body stress benchmark', () => {
     // Wait for the StressTestPanelHost to wire its globals.
     await page.waitForFunction(
       () => typeof window.__forgeOpenStressTest === 'function' &&
-            typeof window.__forgeSetBodies === 'function' &&
+            typeof window.__forgeStressSetBodies === 'function' &&
             typeof window.__forgeStressEstimateDrawCalls === 'function',
       { timeout: 5000 },
     );
     const hooks = await page.evaluate(() => ({
       open: typeof window.__forgeOpenStressTest,
-      set:  typeof window.__forgeSetBodies,
-      clr:  typeof window.__forgeClearBodies,
+      set:  typeof window.__forgeStressSetBodies,
+      clr:  typeof window.__forgeStressClearBodies,
       est:  typeof window.__forgeStressEstimateDrawCalls,
       scenes: typeof window.__forgeStressScene,
     }));
@@ -128,7 +128,7 @@ test.describe.serial('Forge-111 · 20k-body stress benchmark', () => {
   test('04 load 20k bolts into overlay', async () => {
     const result = await page.evaluate(() => {
       const arr = window.__forgeStressScene.bolts20k();
-      return window.__forgeSetBodies(arr);
+      return window.__forgeStressSetBodies(arr);
     });
     expect(result).toBe(20000);
     await page.waitForTimeout(WARMUP_MS);
@@ -267,7 +267,7 @@ test.describe.serial('Forge-111 · 20k-body stress benchmark', () => {
   });
 
   test('07 clear scene returns body count to zero', async () => {
-    await page.evaluate(() => window.__forgeClearBodies());
+    await page.evaluate(() => window.__forgeStressClearBodies());
     await page.waitForTimeout(400);
     const live = await page.evaluate(() => window.__forgeStressBodyCount);
     expect(live).toBe(0);
