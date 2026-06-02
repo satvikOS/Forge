@@ -81,6 +81,8 @@ import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 import { DragDropImportHost } from './forge-v4/DragDropImport.jsx';
 // Forge-189 — Onboarding tutorial (guided tooltips).
 import { OnboardingTourHost } from './forge-v4/OnboardingTour.jsx';
+// Forge-188 — Localisation picker + sample strip.
+import { LocalePickerHost } from './forge-v4/LocalePicker.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -179,6 +181,7 @@ function App() {
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />
+      <LocalePickerHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />
