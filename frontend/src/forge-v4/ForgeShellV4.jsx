@@ -1012,6 +1012,12 @@ export function ForgeShellV4() {
         setActiveWb('pathtrace');
         window.__forgeOpenPathTraceWorkbench?.();
         return;
+      // Forge-204 — Standard parts library.
+      case 'tools.stdparts':
+      case 'workbench.stdparts':
+        setActiveWb('stdparts');
+        window.__forgeOpenStdPartsWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

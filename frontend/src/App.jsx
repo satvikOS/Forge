@@ -103,6 +103,8 @@ import { SheetMetalUnfoldWorkbenchHost } from './forge-v4/SheetMetalUnfoldWorkbe
 import { PointCloudWorkbenchHost } from './forge-v4/PointCloudWorkbench.jsx';
 // Forge-203 — CPU path tracer preview workbench.
 import { PathTracePreviewWorkbenchHost } from './forge-v4/PathTracePreviewWorkbench.jsx';
+// Forge-204 — Standard parts library workbench.
+import { StdPartsLibraryWorkbenchHost } from './forge-v4/StdPartsLibraryWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -220,6 +222,7 @@ function App() {
       <SheetMetalUnfoldWorkbenchHost />
       <PointCloudWorkbenchHost />
       <PathTracePreviewWorkbenchHost />
+      <StdPartsLibraryWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

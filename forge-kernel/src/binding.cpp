@@ -57,6 +57,7 @@
 #include "forge/SheetMetalFlatPattern.hpp"
 #include "forge/PointCloud.hpp"
 #include "forge/PathTrace.hpp"
+#include "forge/StdParts.hpp"
 
 #include <array>
 
@@ -5661,6 +5662,117 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pathtrace", ptNs);
+
+    // -------- Standard parts library (Forge-204) -----------------------
+    auto spNs = Napi::Object::New(env);
+    auto packStdMesh = [](Napi::Env e, const forge::stdparts::Mesh& m) -> Napi::Object {
+        auto out = Napi::Object::New(e);
+        auto pos = Napi::Float32Array::New(e, m.positions.size());
+        if (!m.positions.empty())
+            std::memcpy(pos.Data(), m.positions.data(), m.positions.size() * sizeof(float));
+        auto idx = Napi::Uint32Array::New(e, m.indices.size());
+        if (!m.indices.empty())
+            std::memcpy(idx.Data(), m.indices.data(), m.indices.size() * sizeof(std::uint32_t));
+        out.Set("positions", pos);
+        out.Set("indices",   idx);
+        return out;
+    };
+    auto readSegs = [](const Napi::CallbackInfo& info, std::uint32_t which, std::uint32_t fallback) {
+        return (info.Length() > which && info[which].IsNumber())
+            ? info[which].As<Napi::Number>().Uint32Value() : fallback;
+    };
+    spNs.Set("makeBolt", Napi::Function::New(env,
+      [packStdMesh, readSegs](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::stdparts::BoltSpec s{};
+          s.diameter   = o.Get("diameter"  ).As<Napi::Number>().DoubleValue();
+          s.length     = o.Get("length"    ).As<Napi::Number>().DoubleValue();
+          s.headHeight = o.Get("headHeight").As<Napi::Number>().DoubleValue();
+          s.headWidth  = o.Get("headWidth" ).As<Napi::Number>().DoubleValue();
+          return packStdMesh(env2, forge::stdparts::makeBolt(s, readSegs(info, 1, 24)));
+        });
+      }));
+    spNs.Set("makeNut", Napi::Function::New(env,
+      [packStdMesh, readSegs](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::stdparts::NutSpec s{};
+          s.innerDiameter = o.Get("innerDiameter").As<Napi::Number>().DoubleValue();
+          s.height        = o.Get("height"       ).As<Napi::Number>().DoubleValue();
+          s.width         = o.Get("width"        ).As<Napi::Number>().DoubleValue();
+          return packStdMesh(env2, forge::stdparts::makeNut(s, readSegs(info, 1, 24)));
+        });
+      }));
+    spNs.Set("makeWasher", Napi::Function::New(env,
+      [packStdMesh, readSegs](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::stdparts::WasherSpec s{};
+          s.innerDiameter = o.Get("innerDiameter").As<Napi::Number>().DoubleValue();
+          s.outerDiameter = o.Get("outerDiameter").As<Napi::Number>().DoubleValue();
+          s.thickness     = o.Get("thickness"    ).As<Napi::Number>().DoubleValue();
+          return packStdMesh(env2, forge::stdparts::makeWasher(s, readSegs(info, 1, 32)));
+        });
+      }));
+    spNs.Set("makeBearing", Napi::Function::New(env,
+      [packStdMesh, readSegs](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::stdparts::BearingSpec s{};
+          s.innerDiameter = o.Get("innerDiameter").As<Napi::Number>().DoubleValue();
+          s.outerDiameter = o.Get("outerDiameter").As<Napi::Number>().DoubleValue();
+          s.width         = o.Get("width"        ).As<Napi::Number>().DoubleValue();
+          return packStdMesh(env2, forge::stdparts::makeBearing(s, readSegs(info, 1, 32)));
+        });
+      }));
+    spNs.Set("makeSpurGear", Napi::Function::New(env,
+      [packStdMesh, readSegs](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::stdparts::SpurGearSpec s{};
+          s.module        = o.Get("module"       ).As<Napi::Number>().DoubleValue();
+          s.teeth         = o.Get("teeth"        ).As<Napi::Number>().Uint32Value();
+          s.faceWidth     = o.Get("faceWidth"    ).As<Napi::Number>().DoubleValue();
+          s.pressureAngle = o.Has("pressureAngle")
+              ? o.Get("pressureAngle").As<Napi::Number>().DoubleValue() : 0.349;
+          return packStdMesh(env2, forge::stdparts::makeSpurGear(s, readSegs(info, 1, 16)));
+        });
+      }));
+    spNs.Set("specForMetricBolt", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const std::uint32_t m = info[0].As<Napi::Number>().Uint32Value();
+          const double L = info[1].As<Napi::Number>().DoubleValue();
+          auto s = forge::stdparts::specForMetricBolt(m, L);
+          auto out = Napi::Object::New(env2);
+          out.Set("diameter",   Napi::Number::New(env2, s.diameter));
+          out.Set("length",     Napi::Number::New(env2, s.length));
+          out.Set("headHeight", Napi::Number::New(env2, s.headHeight));
+          out.Set("headWidth",  Napi::Number::New(env2, s.headWidth));
+          return out;
+        });
+      }));
+    spNs.Set("specForMetricNut", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const std::uint32_t m = info[0].As<Napi::Number>().Uint32Value();
+          auto s = forge::stdparts::specForMetricNut(m);
+          auto out = Napi::Object::New(env2);
+          out.Set("innerDiameter", Napi::Number::New(env2, s.innerDiameter));
+          out.Set("height",        Napi::Number::New(env2, s.height));
+          out.Set("width",         Napi::Number::New(env2, s.width));
+          return out;
+        });
+      }));
+    exports.Set("stdparts", spNs);
 
     return exports;
 }

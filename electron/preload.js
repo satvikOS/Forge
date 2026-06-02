@@ -350,6 +350,17 @@ const forgeApi = {
     render: (input) => kernel.pathtrace.render(input),
   } : null,
 
+  // stdparts (Forge-204) — parametric ISO/ANSI standard parts.
+  stdparts: kernel && kernel.stdparts ? {
+    makeBolt:          (spec, segs) => kernel.stdparts.makeBolt(spec, segs),
+    makeNut:           (spec, segs) => kernel.stdparts.makeNut(spec, segs),
+    makeWasher:        (spec, segs) => kernel.stdparts.makeWasher(spec, segs),
+    makeBearing:       (spec, segs) => kernel.stdparts.makeBearing(spec, segs),
+    makeSpurGear:      (spec, segs) => kernel.stdparts.makeSpurGear(spec, segs),
+    specForMetricBolt: (mCode, len) => kernel.stdparts.specForMetricBolt(mCode, len),
+    specForMetricNut:  (mCode)      => kernel.stdparts.specForMetricNut(mCode),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

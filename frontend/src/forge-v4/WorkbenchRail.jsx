@@ -72,6 +72,8 @@ export const WORKBENCHES = [
   { id: 'pointcloud',   icon: 'archie.spark', label: 'Scan' },
   // Forge-203 — CPU path tracer preview.
   { id: 'pathtrace',    icon: 'wb.sim',       label: 'Render' },
+  // Forge-204 — Standard parts library.
+  { id: 'stdparts',     icon: 'wb.part',      label: 'Parts' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
