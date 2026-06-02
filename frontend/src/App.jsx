@@ -129,6 +129,8 @@ import { BucklingWorkbenchHost } from './forge-v4/BucklingWorkbench.jsx';
 import { MaterialDatabaseWorkbenchHost } from './forge-v4/MaterialDatabaseWorkbench.jsx';
 // Forge-216 — Beam deflection workbench.
 import { BeamDeflectionWorkbenchHost } from './forge-v4/BeamDeflectionWorkbench.jsx';
+// Forge-217 — Compression spring design workbench.
+import { SpringDesignWorkbenchHost } from './forge-v4/SpringDesignWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -259,6 +261,7 @@ function App() {
       <BucklingWorkbenchHost />
       <MaterialDatabaseWorkbenchHost />
       <BeamDeflectionWorkbenchHost />
+      <SpringDesignWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

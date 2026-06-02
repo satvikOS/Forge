@@ -423,6 +423,11 @@ const forgeApi = {
     solve: (input) => kernel.beam.solve(input),
   } : null,
 
+  // spring (Forge-217) — helical compression spring design.
+  spring: kernel && kernel.spring ? {
+    design: (input) => kernel.spring.design(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

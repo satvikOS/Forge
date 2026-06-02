@@ -1090,6 +1090,12 @@ export function ForgeShellV4() {
         setActiveWb('beam');
         window.__forgeOpenBeamWorkbench?.();
         return;
+      // Forge-217 — Spring design.
+      case 'tools.spring':
+      case 'workbench.spring':
+        setActiveWb('spring');
+        window.__forgeOpenSpringWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

@@ -68,6 +68,7 @@
 #include "forge/BoltJoint.hpp"
 #include "forge/Buckling.hpp"
 #include "forge/BeamDeflection.hpp"
+#include "forge/Spring.hpp"
 
 #include <array>
 
@@ -6451,6 +6452,33 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("beam", beamNs);
+
+    // -------- Spring design (Forge-217) --------------------------------
+    auto spgNs = Napi::Object::New(env);
+    spgNs.Set("design", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::spring::Inputs in{};
+          in.wireDiameter = o.Get("wireDiameter").As<Napi::Number>().DoubleValue();
+          in.meanDiameter = o.Get("meanDiameter").As<Napi::Number>().DoubleValue();
+          in.activeCoils  = o.Get("activeCoils" ).As<Napi::Number>().DoubleValue();
+          in.totalCoils   = o.Get("totalCoils"  ).As<Napi::Number>().DoubleValue();
+          in.shearModulus = o.Get("shearModulus").As<Napi::Number>().DoubleValue();
+          in.appliedForce = o.Get("appliedForce").As<Napi::Number>().DoubleValue();
+          auto r = forge::spring::design(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("rate",           Napi::Number::New(env2, r.rate));
+          out.Set("springIndex",    Napi::Number::New(env2, r.springIndex));
+          out.Set("wahlFactor",     Napi::Number::New(env2, r.wahlFactor));
+          out.Set("maxShearStress", Napi::Number::New(env2, r.maxShearStress));
+          out.Set("solidHeight",    Napi::Number::New(env2, r.solidHeight));
+          out.Set("deflectionAtF",  Napi::Number::New(env2, r.deflectionAtF));
+          return out;
+        });
+      }));
+    exports.Set("spring", spgNs);
 
     return exports;
 }

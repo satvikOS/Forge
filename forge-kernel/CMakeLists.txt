@@ -157,6 +157,7 @@ add_library(forge_kernel SHARED
     src/BoltJoint.cpp
     src/Buckling.cpp
     src/BeamDeflection.cpp
+    src/Spring.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -98,6 +98,8 @@ export const WORKBENCHES = [
   { id: 'materialdb',   icon: 'wb.part',      label: 'Materials' },
   // Forge-216 — Beam deflection calculator.
   { id: 'beam',         icon: 'wb.sim',       label: 'Beam' },
+  // Forge-217 — Compression spring design.
+  { id: 'spring',       icon: 'wb.part',      label: 'Spring' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {
