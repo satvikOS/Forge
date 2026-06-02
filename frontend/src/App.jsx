@@ -71,6 +71,8 @@ import { CostWorkbenchHost } from './forge-v4/CostWorkbench.jsx';
 import { CarbonLcaWorkbenchHost } from './forge-v4/CarbonLcaWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
+// Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
+import { DragDropImportHost } from './forge-v4/DragDropImport.jsx';
 // Forge-154 — engineering material catalogue picker.
 import { MaterialPickerHost } from './forge-v4/MaterialPicker.jsx';
 // Forge-158 — AIS-style subshape selection highlight overlay.
@@ -164,6 +166,7 @@ function App() {
       <CostWorkbenchHost />
       <CarbonLcaWorkbenchHost />
       <AutoSaveRecoveryHost />
+      <DragDropImportHost />
       <MaterialPickerHost />
       <SelectionHighlightHost />
       <ThreadDesignerPanelHost />
