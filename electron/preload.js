@@ -402,6 +402,14 @@ const forgeApi = {
     cumulativeDamage: (input) => kernel.fatigue.cumulativeDamage(input),
   } : null,
 
+  // boltjoint (Forge-214) — preload + load-factor + margin-of-safety.
+  boltjoint: kernel && kernel.boltjoint ? {
+    computePreload: (input) => kernel.boltjoint.computePreload(input),
+    jointStiffness: (input) => kernel.boltjoint.jointStiffness(input),
+    check:          (input) => kernel.boltjoint.check(input),
+    metricBolt:     (code)  => kernel.boltjoint.metricBolt(code),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

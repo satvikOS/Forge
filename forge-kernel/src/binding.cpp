@@ -65,6 +65,7 @@
 #include "forge/Animation.hpp"
 #include "forge/ThermalNetwork.hpp"
 #include "forge/Fatigue.hpp"
+#include "forge/BoltJoint.hpp"
 
 #include <array>
 
@@ -6281,6 +6282,77 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("fatigue", faNs);
+
+    // -------- Bolt joint calculator (Forge-214) ------------------------
+    auto bjNs = Napi::Object::New(env);
+    bjNs.Set("computePreload", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boltjoint::PreloadInputs in{};
+          in.torque    = o.Get("torque"   ).As<Napi::Number>().DoubleValue();
+          in.nutFactor = o.Get("nutFactor").As<Napi::Number>().DoubleValue();
+          in.diameter  = o.Get("diameter" ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::boltjoint::computePreload(in));
+        });
+      }));
+    bjNs.Set("jointStiffness", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boltjoint::StiffnessInputs in{};
+          in.boltE      = o.Get("boltE"     ).As<Napi::Number>().DoubleValue();
+          in.boltAt     = o.Get("boltAt"    ).As<Napi::Number>().DoubleValue();
+          in.gripLength = o.Get("gripLength").As<Napi::Number>().DoubleValue();
+          in.memberE    = o.Get("memberE"   ).As<Napi::Number>().DoubleValue();
+          in.memberArea = o.Get("memberArea").As<Napi::Number>().DoubleValue();
+          auto r = forge::boltjoint::jointStiffness(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("boltStiffness",   Napi::Number::New(env2, r.boltStiffness));
+          out.Set("memberStiffness", Napi::Number::New(env2, r.memberStiffness));
+          out.Set("loadFactor",      Napi::Number::New(env2, r.loadFactor));
+          return out;
+        });
+      }));
+    bjNs.Set("check", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boltjoint::CheckInputs in{};
+          in.preload       = o.Get("preload"      ).As<Napi::Number>().DoubleValue();
+          in.externalLoad  = o.Get("externalLoad" ).As<Napi::Number>().DoubleValue();
+          in.loadFactor    = o.Get("loadFactor"   ).As<Napi::Number>().DoubleValue();
+          in.tensileArea   = o.Get("tensileArea"  ).As<Napi::Number>().DoubleValue();
+          in.proofStrength = o.Get("proofStrength").As<Napi::Number>().DoubleValue();
+          auto r = forge::boltjoint::check(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("workingBoltForce", Napi::Number::New(env2, r.workingBoltForce));
+          out.Set("workingStress",    Napi::Number::New(env2, r.workingStress));
+          out.Set("proofLoad",        Napi::Number::New(env2, r.proofLoad));
+          out.Set("marginOfSafety",   Napi::Number::New(env2, r.marginOfSafety));
+          out.Set("adequate",         Napi::Boolean::New(env2, r.adequate));
+          return out;
+        });
+      }));
+    bjNs.Set("metricBolt", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const std::string code = info[0].As<Napi::String>().Utf8Value();
+          auto m = forge::boltjoint::metricBolt(code);
+          auto out = Napi::Object::New(env2);
+          out.Set("diameter",             Napi::Number::New(env2, m.diameter));
+          out.Set("tensileArea",          Napi::Number::New(env2, m.tensileArea));
+          out.Set("proofStrengthClass88", Napi::Number::New(env2, m.proofStrengthClass88));
+          out.Set("proofStrengthClass109",Napi::Number::New(env2, m.proofStrengthClass109));
+          out.Set("proofStrengthClass129",Napi::Number::New(env2, m.proofStrengthClass129));
+          return out;
+        });
+      }));
+    exports.Set("boltjoint", bjNs);
 
     return exports;
 }

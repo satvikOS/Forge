@@ -90,6 +90,8 @@ export const WORKBENCHES = [
   { id: 'thermal',      icon: 'wb.sim',       label: 'Heat' },
   // Forge-212 — Fatigue life calculator.
   { id: 'fatigue',      icon: 'wb.sim',       label: 'Fatigue' },
+  // Forge-214 — Bolt joint MoS calculator.
+  { id: 'boltjoint',    icon: 'wb.part',      label: 'Bolt' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

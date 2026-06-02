@@ -1066,6 +1066,12 @@ export function ForgeShellV4() {
         setActiveWb('fatigue');
         window.__forgeOpenFatigueWorkbench?.();
         return;
+      // Forge-214 — Bolt joint calculator.
+      case 'tools.boltjoint':
+      case 'workbench.boltjoint':
+        setActiveWb('boltjoint');
+        window.__forgeOpenBoltJointWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

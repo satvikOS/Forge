@@ -154,6 +154,7 @@ add_library(forge_kernel SHARED
     src/Animation.cpp
     src/ThermalNetwork.cpp
     src/Fatigue.cpp
+    src/BoltJoint.cpp
     ${PLANEGCS_SRC}
 )
 
