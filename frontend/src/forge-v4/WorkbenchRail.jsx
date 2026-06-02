@@ -106,6 +106,8 @@ export const WORKBENCHES = [
   { id: 'mohr',         icon: 'wb.sim',       label: 'Mohr' },
   // Forge-224 — Polygon section properties.
   { id: 'polysec',      icon: 'wb.sketch',    label: 'Section' },
+  // Forge-221 — Spur gear pair.
+  { id: 'gearpair',     icon: 'wb.part',      label: 'Gear' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

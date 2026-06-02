@@ -72,6 +72,7 @@
 #include "forge/HeatExchanger.hpp"
 #include "forge/Mohr.hpp"
 #include "forge/PolygonSection.hpp"
+#include "forge/GearPair.hpp"
 
 #include <array>
 
@@ -6636,6 +6637,57 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("polysec", psNs);
+
+    // -------- Gear pair (Forge-221) ------------------------------------
+    auto gpNs = Napi::Object::New(env);
+    gpNs.Set("lewisFormFactor", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const double N = info[0].As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::gearpair::lewisFormFactor(N));
+        });
+      }));
+    gpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::gearpair::Inputs in{};
+          in.module           = o.Get("module"          ).As<Napi::Number>().DoubleValue();
+          in.teeth1           = o.Get("teeth1"          ).As<Napi::Number>().DoubleValue();
+          in.teeth2           = o.Get("teeth2"          ).As<Napi::Number>().DoubleValue();
+          in.faceWidth        = o.Get("faceWidth"       ).As<Napi::Number>().DoubleValue();
+          in.torque1          = o.Get("torque1"         ).As<Napi::Number>().DoubleValue();
+          in.pressureAngleDeg = o.Has("pressureAngleDeg")
+              ? o.Get("pressureAngleDeg").As<Napi::Number>().DoubleValue() : 20.0;
+          in.materialE1       = o.Get("materialE1"      ).As<Napi::Number>().DoubleValue();
+          in.materialE2       = o.Get("materialE2"      ).As<Napi::Number>().DoubleValue();
+          in.materialNu1      = o.Get("materialNu1"     ).As<Napi::Number>().DoubleValue();
+          in.materialNu2      = o.Get("materialNu2"     ).As<Napi::Number>().DoubleValue();
+          in.KO = o.Has("KO") ? o.Get("KO").As<Napi::Number>().DoubleValue() : 1.0;
+          in.KV = o.Has("KV") ? o.Get("KV").As<Napi::Number>().DoubleValue() : 1.0;
+          in.KS = o.Has("KS") ? o.Get("KS").As<Napi::Number>().DoubleValue() : 1.0;
+          in.KH = o.Has("KH") ? o.Get("KH").As<Napi::Number>().DoubleValue() : 1.0;
+          in.KB = o.Has("KB") ? o.Get("KB").As<Napi::Number>().DoubleValue() : 1.0;
+          auto r = forge::gearpair::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("centreDistance",      Napi::Number::New(env2, r.centreDistance));
+          out.Set("gearRatio",           Napi::Number::New(env2, r.gearRatio));
+          out.Set("pitchDiameter1",      Napi::Number::New(env2, r.pitchDiameter1));
+          out.Set("pitchDiameter2",      Napi::Number::New(env2, r.pitchDiameter2));
+          out.Set("tangentialLoadN",     Napi::Number::New(env2, r.tangentialLoadN));
+          out.Set("lewisFormFactor1",    Napi::Number::New(env2, r.lewisFormFactor1));
+          out.Set("lewisFormFactor2",    Napi::Number::New(env2, r.lewisFormFactor2));
+          out.Set("bendingStressLewis1", Napi::Number::New(env2, r.bendingStressLewis1));
+          out.Set("bendingStressLewis2", Napi::Number::New(env2, r.bendingStressLewis2));
+          out.Set("bendingStressAGMA1",  Napi::Number::New(env2, r.bendingStressAGMA1));
+          out.Set("bendingStressAGMA2",  Napi::Number::New(env2, r.bendingStressAGMA2));
+          out.Set("contactStressHertz",  Napi::Number::New(env2, r.contactStressHertz));
+          return out;
+        });
+      }));
+    exports.Set("gearpair", gpNs);
 
     return exports;
 }

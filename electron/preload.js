@@ -447,6 +447,12 @@ const forgeApi = {
     analyse: (input) => kernel.polysec.analyse(input),
   } : null,
 
+  // gearpair (Forge-221) — spur gear Lewis bending + Hertz contact.
+  gearpair: kernel && kernel.gearpair ? {
+    lewisFormFactor: (N)     => kernel.gearpair.lewisFormFactor(N),
+    analyse:         (input) => kernel.gearpair.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

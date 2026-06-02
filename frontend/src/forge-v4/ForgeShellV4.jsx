@@ -1114,6 +1114,12 @@ export function ForgeShellV4() {
         setActiveWb('polysec');
         window.__forgeOpenPolySecWorkbench?.();
         return;
+      // Forge-221 — Spur gear pair.
+      case 'tools.gearpair':
+      case 'workbench.gearpair':
+        setActiveWb('gearpair');
+        window.__forgeOpenGearPairWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
