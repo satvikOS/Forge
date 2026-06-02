@@ -361,6 +361,11 @@ const forgeApi = {
     specForMetricNut:  (mCode)      => kernel.stdparts.specForMetricNut(mCode),
   } : null,
 
+  // frame (Forge-205) — 3D truss linear-elastic FEA.
+  frame: kernel && kernel.frame ? {
+    solve: (input) => kernel.frame.solve(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

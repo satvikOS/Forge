@@ -74,6 +74,8 @@ export const WORKBENCHES = [
   { id: 'pathtrace',    icon: 'wb.sim',       label: 'Render' },
   // Forge-204 — Standard parts library.
   { id: 'stdparts',     icon: 'wb.part',      label: 'Parts' },
+  // Forge-205 — Frame / truss FEA.
+  { id: 'frame',        icon: 'wb.sim',       label: 'Truss' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

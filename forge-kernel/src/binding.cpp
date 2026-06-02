@@ -58,6 +58,7 @@
 #include "forge/PointCloud.hpp"
 #include "forge/PathTrace.hpp"
 #include "forge/StdParts.hpp"
+#include "forge/FrameTruss.hpp"
 
 #include <array>
 
@@ -5773,6 +5774,71 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("stdparts", spNs);
+
+    // -------- Frame / truss FEA (Forge-205) ----------------------------
+    auto frNs = Napi::Object::New(env);
+    frNs.Set("solve", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::frame::Inputs in{};
+          auto ns = o.Get("nodes").As<Napi::Array>();
+          in.nodes.reserve(ns.Length());
+          for (std::uint32_t i = 0; i < ns.Length(); ++i) {
+            auto no = ns.Get(i).As<Napi::Object>();
+            forge::frame::Node n{};
+            auto pos = no.Get("position").As<Napi::Array>();
+            n.position[0] = pos.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+            n.position[1] = pos.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+            n.position[2] = pos.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+            auto fx = no.Get("fixed").As<Napi::Array>();
+            n.fixed[0] = fx.Get(uint32_t(0)).As<Napi::Boolean>().Value();
+            n.fixed[1] = fx.Get(uint32_t(1)).As<Napi::Boolean>().Value();
+            n.fixed[2] = fx.Get(uint32_t(2)).As<Napi::Boolean>().Value();
+            in.nodes.push_back(n);
+          }
+          auto es = o.Get("elements").As<Napi::Array>();
+          in.elements.reserve(es.Length());
+          for (std::uint32_t i = 0; i < es.Length(); ++i) {
+            auto eo = es.Get(i).As<Napi::Object>();
+            forge::frame::Element e{};
+            e.a = eo.Get("a").As<Napi::Number>().Uint32Value();
+            e.b = eo.Get("b").As<Napi::Number>().Uint32Value();
+            e.E = eo.Get("E").As<Napi::Number>().DoubleValue();
+            e.A = eo.Get("A").As<Napi::Number>().DoubleValue();
+            in.elements.push_back(e);
+          }
+          if (o.Has("loads") && o.Get("loads").IsArray()) {
+            auto ls = o.Get("loads").As<Napi::Array>();
+            in.loads.reserve(ls.Length());
+            for (std::uint32_t i = 0; i < ls.Length(); ++i) {
+              auto lo = ls.Get(i).As<Napi::Object>();
+              forge::frame::NodeLoad ld{};
+              ld.node = lo.Get("node").As<Napi::Number>().Uint32Value();
+              auto fa = lo.Get("force").As<Napi::Array>();
+              ld.force[0] = fa.Get(uint32_t(0)).As<Napi::Number>().DoubleValue();
+              ld.force[1] = fa.Get(uint32_t(1)).As<Napi::Number>().DoubleValue();
+              ld.force[2] = fa.Get(uint32_t(2)).As<Napi::Number>().DoubleValue();
+              in.loads.push_back(ld);
+            }
+          }
+          auto r = forge::frame::solve(in);
+          auto out = Napi::Object::New(env2);
+          auto packF64 = [&](const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env2, v.size());
+            if (!v.empty()) std::memcpy(a.Data(), v.data(), v.size() * sizeof(double));
+            return a;
+          };
+          out.Set("displacements", packF64(r.displacements));
+          out.Set("reactions",     packF64(r.reactions));
+          out.Set("axialForce",    packF64(r.axialForce));
+          out.Set("elementLength", packF64(r.elementLength));
+          out.Set("singular",      Napi::Boolean::New(env2, r.singular));
+          return out;
+        });
+      }));
+    exports.Set("frame", frNs);
 
     return exports;
 }

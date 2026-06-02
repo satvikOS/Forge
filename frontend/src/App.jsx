@@ -105,6 +105,8 @@ import { PointCloudWorkbenchHost } from './forge-v4/PointCloudWorkbench.jsx';
 import { PathTracePreviewWorkbenchHost } from './forge-v4/PathTracePreviewWorkbench.jsx';
 // Forge-204 — Standard parts library workbench.
 import { StdPartsLibraryWorkbenchHost } from './forge-v4/StdPartsLibraryWorkbench.jsx';
+// Forge-205 — Frame / truss FEA workbench.
+import { FrameTrussWorkbenchHost } from './forge-v4/FrameTrussWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -223,6 +225,7 @@ function App() {
       <PointCloudWorkbenchHost />
       <PathTracePreviewWorkbenchHost />
       <StdPartsLibraryWorkbenchHost />
+      <FrameTrussWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

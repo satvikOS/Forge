@@ -1018,6 +1018,12 @@ export function ForgeShellV4() {
         setActiveWb('stdparts');
         window.__forgeOpenStdPartsWorkbench?.();
         return;
+      // Forge-205 — Frame / truss FEA.
+      case 'tools.frame':
+      case 'workbench.frame':
+        setActiveWb('frame');
+        window.__forgeOpenFrameWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
