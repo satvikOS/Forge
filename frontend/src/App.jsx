@@ -171,6 +171,8 @@ import { FilletWeldWorkbenchHost } from './forge-v4/FilletWeldWorkbench.jsx';
 import { RcBeamWorkbenchHost } from './forge-v4/RcBeamWorkbench.jsx';
 // Forge-239 — Soil bearing capacity workbench.
 import { BearingCapacityWorkbenchHost } from './forge-v4/BearingCapacityWorkbench.jsx';
+// Forge-240 — Retaining wall workbench.
+import { RetainingWallWorkbenchHost } from './forge-v4/RetainingWallWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -324,6 +326,7 @@ function App() {
       <FilletWeldWorkbenchHost />
       <RcBeamWorkbenchHost />
       <BearingCapacityWorkbenchHost />
+      <RetainingWallWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

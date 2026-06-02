@@ -89,6 +89,7 @@
 #include "forge/FilletWeld.hpp"
 #include "forge/RcBeam.hpp"
 #include "forge/BearingCapacity.hpp"
+#include "forge/RetainingWall.hpp"
 
 #include <array>
 
@@ -7352,6 +7353,49 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("bearingcap", bgNs);
+
+    // -------- Retaining wall (Forge-240) --------------------------------
+    auto rwNs = Napi::Object::New(env);
+    rwNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::retwall::Input in{};
+          in.totalHeightM             = o.Get("totalHeightM"            ).As<Napi::Number>().DoubleValue();
+          in.embedmentDepthM          = o.Get("embedmentDepthM"         ).As<Napi::Number>().DoubleValue();
+          in.baseWidthM               = o.Get("baseWidthM"              ).As<Napi::Number>().DoubleValue();
+          in.toeWidthM                = o.Get("toeWidthM"               ).As<Napi::Number>().DoubleValue();
+          in.stemThicknessM           = o.Get("stemThicknessM"          ).As<Napi::Number>().DoubleValue();
+          in.baseThicknessM           = o.Get("baseThicknessM"          ).As<Napi::Number>().DoubleValue();
+          in.unitWeightSoilNPerM3     = o.Get("unitWeightSoilNPerM3"    ).As<Napi::Number>().DoubleValue();
+          in.frictionAngleDeg         = o.Get("frictionAngleDeg"        ).As<Napi::Number>().DoubleValue();
+          in.cohesionPa               = o.Get("cohesionPa"              ).As<Napi::Number>().DoubleValue();
+          in.frictionCoeffBase        = o.Get("frictionCoeffBase"       ).As<Napi::Number>().DoubleValue();
+          in.surchargePa              = o.Get("surchargePa"             ).As<Napi::Number>().DoubleValue();
+          in.unitWeightConcreteNPerM3 = o.Get("unitWeightConcreteNPerM3").As<Napi::Number>().DoubleValue();
+          in.allowableBearingPa       = o.Get("allowableBearingPa"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::retwall::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Ka",                      Napi::Number::New(env2, r.Ka));
+          out.Set("Kp",                      Napi::Number::New(env2, r.Kp));
+          out.Set("activeForceN",            Napi::Number::New(env2, r.activeForceN));
+          out.Set("activeMomentNm",          Napi::Number::New(env2, r.activeMomentNm));
+          out.Set("passiveForceN",           Napi::Number::New(env2, r.passiveForceN));
+          out.Set("weightTotalN",            Napi::Number::New(env2, r.weightTotalN));
+          out.Set("overturningMomentNm",     Napi::Number::New(env2, r.overturningMomentNm));
+          out.Set("resistingMomentNm",       Napi::Number::New(env2, r.resistingMomentNm));
+          out.Set("safetyFactorOverturning", Napi::Number::New(env2, r.safetyFactorOverturning));
+          out.Set("safetyFactorSliding",     Napi::Number::New(env2, r.safetyFactorSliding));
+          out.Set("resultantArmM",           Napi::Number::New(env2, r.resultantArmM));
+          out.Set("eccentricityM",           Napi::Number::New(env2, r.eccentricityM));
+          out.Set("toeBearingPa",            Napi::Number::New(env2, r.toeBearingPa));
+          out.Set("heelBearingPa",           Napi::Number::New(env2, r.heelBearingPa));
+          out.Set("safetyFactorBearing",     Napi::Number::New(env2, r.safetyFactorBearing));
+          return out;
+        });
+      }));
+    exports.Set("retwall", rwNs);
 
     return exports;
 }

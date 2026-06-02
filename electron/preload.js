@@ -548,6 +548,11 @@ const forgeApi = {
     analyse: (input) => kernel.bearingcap.analyse(input),
   } : null,
 
+  // retwall (Forge-240) — Rankine cantilever retaining wall stability.
+  retwall: kernel && kernel.retwall ? {
+    analyse: (input) => kernel.retwall.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

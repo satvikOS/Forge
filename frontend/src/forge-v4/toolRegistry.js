@@ -205,6 +205,7 @@ export const CALCULATOR_TREE = [
         label: 'Foundations',
         items: [
           { id: 'bearingcap', label: 'Bearing capacity (Terzaghi + Meyerhof)…', slice: 'Forge-239' },
+          { id: 'retwall',    label: 'Retaining wall (Rankine + stability)…', slice: 'Forge-240' },
         ],
       },
     ],

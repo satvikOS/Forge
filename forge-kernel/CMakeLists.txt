@@ -178,6 +178,7 @@ add_library(forge_kernel SHARED
     src/FilletWeld.cpp
     src/RcBeam.cpp
     src/BearingCapacity.cpp
+    src/RetainingWall.cpp
     ${PLANEGCS_SRC}
 )
 

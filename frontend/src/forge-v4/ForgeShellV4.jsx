@@ -1216,6 +1216,12 @@ export function ForgeShellV4() {
         setActiveWb('bearingcap');
         window.__forgeOpenBearingCapWorkbench?.();
         return;
+      // Forge-240 — Retaining wall (Rankine + stability).
+      case 'tools.retwall':
+      case 'workbench.retwall':
+        setActiveWb('retwall');
+        window.__forgeOpenRetWallWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
