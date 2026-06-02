@@ -92,6 +92,7 @@
 #include "forge/RetainingWall.hpp"
 #include "forge/PileCapacity.hpp"
 #include "forge/OpenChannel.hpp"
+#include "forge/WeirOrifice.hpp"
 
 #include <array>
 
@@ -7536,6 +7537,50 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("openchannel", ocNs);
+
+    // -------- Weir / orifice (Forge-243) --------------------------------
+    auto woNs = Napi::Object::New(env);
+    woNs.Set("rectWeirDischarge", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::weir::RectInput in{};
+          in.crestLengthM      = o.Get("crestLengthM"     ).As<Napi::Number>().DoubleValue();
+          in.headM             = o.Get("headM"            ).As<Napi::Number>().DoubleValue();
+          in.dischargeCoeff    = o.Get("dischargeCoeff"   ).As<Napi::Number>().DoubleValue();
+          in.endContractions   = o.Get("endContractions"  ).As<Napi::Number>().Int32Value();
+          in.gravityG          = o.Get("gravityG"         ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::weir::rectWeirDischarge(in));
+        });
+      }));
+    woNs.Set("vNotchDischarge", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::weir::VNotchInput in{};
+          in.notchAngleDeg     = o.Get("notchAngleDeg"    ).As<Napi::Number>().DoubleValue();
+          in.headM             = o.Get("headM"            ).As<Napi::Number>().DoubleValue();
+          in.dischargeCoeff    = o.Get("dischargeCoeff"   ).As<Napi::Number>().DoubleValue();
+          in.gravityG          = o.Get("gravityG"         ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::weir::vNotchDischarge(in));
+        });
+      }));
+    woNs.Set("orificeDischarge", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::weir::OrificeInput in{};
+          in.areaM2            = o.Get("areaM2"           ).As<Napi::Number>().DoubleValue();
+          in.headM             = o.Get("headM"            ).As<Napi::Number>().DoubleValue();
+          in.dischargeCoeff    = o.Get("dischargeCoeff"   ).As<Napi::Number>().DoubleValue();
+          in.gravityG          = o.Get("gravityG"         ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::weir::orificeDischarge(in));
+        });
+      }));
+    exports.Set("weir", woNs);
 
     return exports;
 }

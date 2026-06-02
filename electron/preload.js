@@ -567,6 +567,13 @@ const forgeApi = {
     flowRegime:        (input) => kernel.openchannel.flowRegime(input),
   } : null,
 
+  // weir (Forge-243) — sharp-crested weir / V-notch / orifice.
+  weir: kernel && kernel.weir ? {
+    rectWeirDischarge: (input) => kernel.weir.rectWeirDischarge(input),
+    vNotchDischarge:   (input) => kernel.weir.vNotchDischarge(input),
+    orificeDischarge:  (input) => kernel.weir.orificeDischarge(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

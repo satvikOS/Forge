@@ -1234,6 +1234,12 @@ export function ForgeShellV4() {
         setActiveWb('openchan');
         window.__forgeOpenOpenChanWorkbench?.();
         return;
+      // Forge-243 — Weir / V-notch / orifice.
+      case 'tools.weir':
+      case 'workbench.weir':
+        setActiveWb('weir');
+        window.__forgeOpenWeirWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

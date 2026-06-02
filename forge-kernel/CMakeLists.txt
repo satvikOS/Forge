@@ -181,6 +181,7 @@ add_library(forge_kernel SHARED
     src/RetainingWall.cpp
     src/PileCapacity.cpp
     src/OpenChannel.cpp
+    src/WeirOrifice.cpp
     ${PLANEGCS_SRC}
 )
 

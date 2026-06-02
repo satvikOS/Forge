@@ -141,6 +141,7 @@ export const CALCULATOR_TREE = [
         label: 'Open channel',
         items: [
           { id: 'openchan',  label: 'Open channel (Manning + critical depth)…', slice: 'Forge-242' },
+          { id: 'weir',      label: 'Weir / V-notch / orifice…', slice: 'Forge-243' },
         ],
       },
     ],

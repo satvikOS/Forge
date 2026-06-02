@@ -177,6 +177,8 @@ import { RetainingWallWorkbenchHost } from './forge-v4/RetainingWallWorkbench.js
 import { PileCapacityWorkbenchHost } from './forge-v4/PileCapacityWorkbench.jsx';
 // Forge-242 — Open-channel workbench.
 import { OpenChannelWorkbenchHost } from './forge-v4/OpenChannelWorkbench.jsx';
+// Forge-243 — Weir / V-notch / orifice workbench.
+import { WeirOrificeWorkbenchHost } from './forge-v4/WeirOrificeWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -333,6 +335,7 @@ function App() {
       <RetainingWallWorkbenchHost />
       <PileCapacityWorkbenchHost />
       <OpenChannelWorkbenchHost />
+      <WeirOrificeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
