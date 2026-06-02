@@ -373,6 +373,11 @@ const forgeApi = {
     cutFillVsPlane:  (spec) => kernel.terrain.cutFillVsPlane(spec),
   } : null,
 
+  // nurbsfit (Forge-194) — cubic B-spline surface fitting to point cloud.
+  nurbsfit: kernel && kernel.nurbsfit ? {
+    fitSurface: (spec) => kernel.nurbsfit.fitSurface(spec),
+  } : null,
+
   // airfoil (Forge-171) — NACA 4/5-digit + Selig parametric airfoils,
   // trapezoidal wing loft via OCCT ThruSections.
   airfoil: kernel && kernel.airfoil ? {

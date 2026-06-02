@@ -52,6 +52,7 @@
 #include "forge/Psychrometric.hpp"
 #include "forge/Circuit.hpp"
 #include "forge/Terrain.hpp"
+#include "forge/NurbsFit.hpp"
 
 #include <array>
 
@@ -5209,6 +5210,44 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("terrain", terNs);
+
+    // -------- NURBS surface fit (Forge-194) ----------------------------
+    auto nfNs = Napi::Object::New(env);
+    nfNs.Set("fitSurface", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::nurbsfit::FitInputs in{};
+          auto p = o.Get("points").As<Napi::Float64Array>();
+          in.points.assign(p.Data(), p.Data() + p.ElementLength());
+          in.uCount = o.Get("uCount").As<Napi::Number>().Int32Value();
+          in.vCount = o.Get("vCount").As<Napi::Number>().Int32Value();
+          auto r = forge::nurbsfit::fitSurface(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("uCount", Napi::Number::New(env2, r.uCount));
+          out.Set("vCount", Napi::Number::New(env2, r.vCount));
+          out.Set("xMin",   Napi::Number::New(env2, r.xMin));
+          out.Set("xMax",   Napi::Number::New(env2, r.xMax));
+          out.Set("yMin",   Napi::Number::New(env2, r.yMin));
+          out.Set("yMax",   Napi::Number::New(env2, r.yMax));
+          out.Set("samples",Napi::Number::New(env2, r.samples));
+          out.Set("maxAbsResidual", Napi::Number::New(env2, r.maxAbsResidual));
+          out.Set("rmsResidual",    Napi::Number::New(env2, r.rmsResidual));
+          auto cz = Napi::Float64Array::New(env2, r.controlZ.size());
+          std::memcpy(cz.Data(), r.controlZ.data(),
+                      r.controlZ.size() * sizeof(double));
+          out.Set("controlZ", cz);
+          auto rs = Napi::Float64Array::New(env2, r.residuals.size());
+          if (!r.residuals.empty()) {
+            std::memcpy(rs.Data(), r.residuals.data(),
+                        r.residuals.size() * sizeof(double));
+          }
+          out.Set("residuals", rs);
+          return out;
+        });
+      }));
+    exports.Set("nurbsfit", nfNs);
 
     return exports;
 }

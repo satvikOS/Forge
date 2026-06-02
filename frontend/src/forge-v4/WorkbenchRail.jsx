@@ -54,6 +54,8 @@ export const WORKBENCHES = [
   { id: 'circuit',  icon: 'wb.sim',      label: 'Circuit' },
   // Forge-191 — Civil terrain (Delaunay + cut/fill).
   { id: 'terrain',  icon: 'wb.arch',     label: 'Terrain' },
+  // Forge-194 — Reverse-engineering NURBS surface fit.
+  { id: 'nurbsfit', icon: 'wb.sim',      label: 'NURBSfit' },
 ];
 
 export function WorkbenchRail({ activeId, onSwitch }) {

@@ -83,6 +83,8 @@ import { PsychrometricWorkbenchHost } from './forge-v4/PsychrometricWorkbench.js
 import { CircuitWorkbenchHost } from './forge-v4/CircuitWorkbench.jsx';
 // Forge-191 — Civil terrain (Delaunay + cut/fill).
 import { TerrainWorkbenchHost } from './forge-v4/TerrainWorkbench.jsx';
+// Forge-194 — Reverse-engineering NURBS surface fit.
+import { NurbsFitWorkbenchHost } from './forge-v4/NurbsFitWorkbench.jsx';
 // Forge-183 — Autosave + crash recovery banner.
 import { AutoSaveRecoveryHost } from './forge-v4/AutoSaveRecoveryBanner.jsx';
 // Forge-184 — Drag-drop file import (STEP / IGES / STL / BREP).
@@ -190,6 +192,7 @@ function App() {
       <PsychrometricWorkbenchHost />
       <CircuitWorkbenchHost />
       <TerrainWorkbenchHost />
+      <NurbsFitWorkbenchHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
       <OnboardingTourHost />

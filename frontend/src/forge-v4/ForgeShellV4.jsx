@@ -958,6 +958,12 @@ export function ForgeShellV4() {
         setActiveWb('terrain');
         window.__forgeOpenTerrainWorkbench?.();
         return;
+      // Forge-194 — Reverse-engineering NURBS surface fit.
+      case 'tools.nurbsfit':
+      case 'workbench.nurbsfit':
+        setActiveWb('nurbsfit');
+        window.__forgeOpenNurbsFitWorkbench?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.
