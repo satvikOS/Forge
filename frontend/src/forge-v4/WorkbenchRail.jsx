@@ -4,10 +4,18 @@
 // copper border + label + a 3 px left stripe; the rest sit muted.
 // Designed for at-a-glance recognition: the user always sees which
 // workbench they're in without reading.
+//
+// Forge-233 — per feedback-forge-ui-hierarchy, the rail only renders
+// the CORE_WORKBENCH_IDS set (core modelling identity workbenches).
+// The 30+ engineering calculators live in the hierarchical Tools menu
+// (toolRegistry.js / HierarchicalToolsMenu.jsx). WORKBENCHES is still
+// the full registry so existing route handlers in ForgeShellV4 stay
+// untouched and Archie / e2e can still reach any workbench by id.
 
 import React from 'react';
 import { Icon } from './icons/Icon.jsx';
 import { Tooltip } from './Tooltip.jsx';
+import { CORE_WORKBENCH_IDS } from './toolRegistry.js';
 
 export const WORKBENCHES = [
   { id: 'mech',     icon: 'wb.mech',     label: 'Part' },
@@ -128,12 +136,17 @@ export const WORKBENCHES = [
   { id: 'fan',          icon: 'wb.sim',       label: 'Fan' },
 ];
 
+// Filter the registry down to the core identity workbenches; anything
+// else lives in the Tools menu via the HierarchicalToolsMenu.
+const CORE_SET = new Set(CORE_WORKBENCH_IDS);
+const CORE_WORKBENCHES = WORKBENCHES.filter((wb) => CORE_SET.has(wb.id));
+
 export function WorkbenchRail({ activeId, onSwitch }) {
   return (
     <nav className="forge-wb-rail"
          aria-label="Workbenches"
          data-testid="forge-wb-rail">
-      {WORKBENCHES.map((wb) => (
+      {CORE_WORKBENCHES.map((wb) => (
         <Tooltip key={wb.id} label={wb.label} placement="right">
           <button
             type="button"

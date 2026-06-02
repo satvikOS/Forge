@@ -1174,6 +1174,17 @@ export function ForgeShellV4() {
         setActiveWb('fan');
         window.__forgeOpenFanWorkbench?.();
         return;
+      // Forge-232 — Steel column (AISC 360 §E3).
+      case 'tools.steelcol':
+      case 'workbench.steelcol':
+        setActiveWb('steelcol');
+        window.__forgeOpenSteelColWorkbench?.();
+        return;
+      // Forge-233 — Hierarchical Tools menu.
+      case 'tools.open':
+      case 'tools.menu':
+        window.__forgeOpenToolsMenu?.();
+        return;
       // Forge-150 — Arch/BIM workbench (FreeCAD Arch parity).
       // Manual menu click switches to the arch workbench, opens the
       // tool panel + the project tree. Does NOT post to Archie's thread.

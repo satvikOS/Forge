@@ -1,0 +1,240 @@
+// Forge-233 — Hierarchical tool registry.
+//
+// The Forge platform has grown to 30+ engineering calculators on top
+// of the core modelling workbenches. Per feedback-forge-ui-hierarchy,
+// dumping all 30+ entries into a flat workbench rail is wrong — the
+// user can't navigate it. This registry groups every tool into a
+// proper category → sub-category → tool tree that drives:
+//
+//   * the slim workbench rail (CORE_WORKBENCH_IDS)
+//   * the hierarchical Tools menu (CALCULATOR_TREE)
+//
+// Every entry maps to a `tools.<id>` event that ForgeShellV4 already
+// routes — adding hierarchy here doesn't break any existing workbench
+// open API.
+
+// The small set of identity-modal workbenches that earn a rail slot.
+// Everything else lives in the Tools menu.
+export const CORE_WORKBENCH_IDS = [
+  'mech',       // Part / solid modelling
+  'draft',      // 2D sketcher
+  'drawing',    // Drawings
+  'sheet',      // Sheet metal
+  'weld',       // Weldments
+  'mold',       // Mold tooling
+  'sim',        // Simulation (FEA generic)
+  'mfg',        // Manufacturing (CAM)
+  'arch',       // Arch / BIM
+  'mesh',       // Polygon mesh
+  'robot',      // 6-axis industrial robot
+];
+
+// Hierarchical menu tree. Each leaf has:
+//   id    — the kebab-case workbench id (matches the `tools.<id>` event)
+//   label — display string
+//   slice — which Forge-N slice introduced it (for traceability)
+//   testid optional — slug used for the e2e selector
+export const CALCULATOR_TREE = [
+  {
+    label: 'Structural',
+    icon: 'wb.sim',
+    sections: [
+      {
+        label: 'Loads & code',
+        items: [
+          { id: 'windload',  label: 'Wind load (ASCE 7)…',  slice: 'Forge-223' },
+          { id: 'snowload',  label: 'Snow load (ASCE 7)…',  slice: 'Forge-225' },
+          { id: 'steelcol',  label: 'Steel column (AISC 360 §E3)…', slice: 'Forge-232' },
+        ],
+      },
+      {
+        label: 'Stress & buckling',
+        items: [
+          { id: 'mohr',      label: "Mohr's circle / principal stress…", slice: 'Forge-220' },
+          { id: 'polysec',   label: 'Polygon section properties…', slice: 'Forge-224' },
+          { id: 'buckling',  label: 'Column buckling (Euler + Johnson)…', slice: 'Forge-215' },
+          { id: 'beam',      label: 'Beam deflection (5 configs)…', slice: 'Forge-216' },
+        ],
+      },
+      {
+        label: 'FEA',
+        items: [
+          { id: 'frame',     label: 'Truss / frame linear FEA…', slice: 'Forge-205' },
+          { id: 'modal',     label: 'Modal / vibration analysis…', slice: 'Forge-210' },
+          { id: 'thermal',   label: 'Thermal network FEA…', slice: 'Forge-211' },
+          { id: 'fatigue',   label: 'Fatigue life (Basquin + Miner)…', slice: 'Forge-212' },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'Machine design',
+    icon: 'wb.part',
+    sections: [
+      {
+        label: 'Fasteners & joints',
+        items: [
+          { id: 'boltjoint', label: 'Bolt joint (Shigley + ISO 898)…', slice: 'Forge-214' },
+          { id: 'stdparts',  label: 'Standard parts library…', slice: 'Forge-204' },
+        ],
+      },
+      {
+        label: 'Power transmission',
+        items: [
+          { id: 'gearpair',  label: 'Spur gear pair (Lewis + Hertz)…', slice: 'Forge-221' },
+          { id: 'vbelt',     label: 'V-belt drive…', slice: 'Forge-227' },
+          { id: 'bearing',   label: 'Bearing L10 / Lna (ISO 281)…', slice: 'Forge-226' },
+          { id: 'spring',    label: 'Compression spring (Shigley)…', slice: 'Forge-217' },
+        ],
+      },
+      {
+        label: 'Actuators & vessels',
+        items: [
+          { id: 'hydcyl',    label: 'Hydraulic cylinder…', slice: 'Forge-222' },
+          { id: 'pvessel',   label: 'Pressure vessel (ASME VIII Div 1)…', slice: 'Forge-228' },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'Fluids & HVAC',
+    icon: 'wb.sim',
+    sections: [
+      {
+        label: 'Pipe & duct flow',
+        items: [
+          { id: 'pumphead',  label: 'Pump head / pipe flow…', slice: 'Forge-229' },
+          { id: 'duct',      label: 'HVAC ductwork sizing…', slice: 'Forge-186' },
+          { id: 'piperoute', label: 'Pipe routing (A* axis-aligned)…', slice: 'Forge-206' },
+        ],
+      },
+      {
+        label: 'Air & climate',
+        items: [
+          { id: 'fan',       label: 'Fan / blower + affinity laws…', slice: 'Forge-231' },
+          { id: 'refrig',    label: 'Refrigeration / heat-pump COP…', slice: 'Forge-230' },
+          { id: 'psychro',   label: 'Psychrometric chart…', slice: 'Forge-192' },
+          { id: 'hxc',       label: 'Heat exchanger LMTD…', slice: 'Forge-218' },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'CAD utilities',
+    icon: 'wb.sketch',
+    sections: [
+      {
+        label: 'Mesh & scan',
+        items: [
+          { id: 'meshrepair',          label: 'Mesh repair toolkit…', slice: 'Forge-200' },
+          { id: 'pointcloud',          label: 'Point cloud utilities…', slice: 'Forge-202' },
+          { id: 'sheetmetal-unfold',   label: 'Sheet-metal flat pattern…', slice: 'Forge-201' },
+          { id: 'nurbsfit',            label: 'NURBS surface fit…', slice: 'Forge-194' },
+        ],
+      },
+      {
+        label: 'Sketch & section',
+        items: [
+          { id: 'sketchdof', label: 'Sketch DOF audit…', slice: 'Forge-208' },
+        ],
+      },
+      {
+        label: 'Materials & data',
+        items: [
+          { id: 'materialdb', label: 'Material properties database…', slice: 'Forge-219' },
+          { id: 'dxf',        label: 'DXF round-trip…', slice: 'Forge-207' },
+          { id: 'tolerance',  label: 'Tolerance stack-up…', slice: 'Forge-185' },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'Publish & document',
+    icon: 'wb.drawing',
+    sections: [
+      {
+        label: 'Rendering & export',
+        items: [
+          { id: 'pathtrace',    label: 'Photorealistic render…', slice: 'Forge-203' },
+          { id: 'gltf-publish', label: 'Streaming glTF publish…', slice: 'Forge-198' },
+          { id: 'animation',    label: 'Animation timeline…', slice: 'Forge-209' },
+        ],
+      },
+      {
+        label: 'Cost & lifecycle',
+        items: [
+          { id: 'cost',    label: 'Cost estimation…', slice: 'Forge-179' },
+          { id: 'carbon',  label: 'Carbon footprint (LCA)…', slice: 'Forge-180' },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'Site & civil',
+    icon: 'wb.arch',
+    sections: [
+      {
+        label: 'Site analysis',
+        items: [
+          { id: 'sunpath',  label: 'Sun-path / daylight…', slice: 'Forge-181' },
+          { id: 'terrain',  label: 'Civil terrain (Delaunay)…', slice: 'Forge-191' },
+          { id: 'geotech',  label: 'Slope stability (Bishop)…', slice: 'Forge-176' },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'Electrical',
+    icon: 'wb.sim',
+    sections: [
+      {
+        label: 'Circuit',
+        items: [
+          { id: 'circuit',  label: 'Schematic + MNA DC/AC…', slice: 'Forge-190' },
+        ],
+      },
+    ],
+  },
+  {
+    label: 'Operations',
+    icon: 'misc.settings',
+    sections: [
+      {
+        label: 'Connectivity',
+        items: [
+          { id: 'webhook',   label: 'Webhook receiver…',     slice: 'Forge-197' },
+          { id: 'tsviewer',  label: 'Time-series log viewer…', slice: 'Forge-193' },
+        ],
+      },
+      {
+        label: 'Accessibility & QA',
+        items: [
+          { id: 'a11y',      label: 'A11y audit…', slice: 'Forge-196' },
+          { id: 'variants',  label: 'Generative variant explorer…', slice: 'Forge-187' },
+        ],
+      },
+    ],
+  },
+];
+
+// Flatten the tree to (id → {label, slice, breadcrumb}) for the
+// command palette + search.
+export function flattenTree() {
+  const flat = [];
+  for (const cat of CALCULATOR_TREE) {
+    for (const sec of cat.sections) {
+      for (const item of sec.items) {
+        flat.push({
+          ...item,
+          category: cat.label,
+          section: sec.label,
+          breadcrumb: `${cat.label} → ${sec.label} → ${item.label}`,
+        });
+      }
+    }
+  }
+  return flat;
+}
+
+// Total count for the e2e sanity check.
+export const TOTAL_CALCULATOR_COUNT = flattenTree().length;
