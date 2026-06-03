@@ -750,6 +750,11 @@ const forgeApi = {
     analyse: (input) => kernel.pumpnpsh.analyse(input),
   } : null,
 
+  // woodcolumn (Forge-274) — Wood column buckling capacity (NDS 2018 §3.7).
+  woodcolumn: kernel && kernel.woodcolumn ? {
+    analyse: (input) => kernel.woodcolumn.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

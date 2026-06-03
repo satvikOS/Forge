@@ -239,6 +239,8 @@ import { AnchorShearWorkbenchHost } from './forge-v4/AnchorShearWorkbench.jsx';
 import { WoodBeamWorkbenchHost } from './forge-v4/WoodBeamWorkbench.jsx';
 // Forge-273 — Pump NPSH available (ANSI/HI 9.6).
 import { PumpNpshWorkbenchHost } from './forge-v4/PumpNpshWorkbench.jsx';
+// Forge-274 — Wood column buckling (NDS 2018 §3.7).
+import { WoodColumnWorkbenchHost } from './forge-v4/WoodColumnWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -426,6 +428,7 @@ function App() {
       <AnchorShearWorkbenchHost />
       <WoodBeamWorkbenchHost />
       <PumpNpshWorkbenchHost />
+      <WoodColumnWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -123,6 +123,7 @@
 #include "forge/AnchorShear.hpp"
 #include "forge/WoodBeam.hpp"
 #include "forge/PumpNpsh.hpp"
+#include "forge/WoodColumn.hpp"
 
 #include <array>
 
@@ -8999,6 +9000,44 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pumpnpsh", npshNs);
+
+    // -------- Wood column buckling (Forge-274) --------------------------
+    auto wcNs = Napi::Object::New(env);
+    wcNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::woodcolumn::Input in{};
+          in.referenceFcMPa    = o.Get("referenceFcMPa"   ).As<Napi::Number>().DoubleValue();
+          in.emin_MPa          = o.Get("emin_MPa"         ).As<Napi::Number>().DoubleValue();
+          in.areaMm2           = o.Get("areaMm2"          ).As<Napi::Number>().DoubleValue();
+          in.effectiveLengthMm = o.Get("effectiveLengthMm").As<Napi::Number>().DoubleValue();
+          in.leastDimensionMm  = o.Get("leastDimensionMm" ).As<Napi::Number>().DoubleValue();
+          std::string ct       = o.Get("columnType"       ).As<Napi::String>().Utf8Value();
+          if      (ct == "sawn"   ) in.columnType = forge::woodcolumn::ColumnType::SawnLumber;
+          else if (ct == "round"  ) in.columnType = forge::woodcolumn::ColumnType::RoundTimber;
+          else if (ct == "glulam" ) in.columnType = forge::woodcolumn::ColumnType::Glulam;
+          else throw std::runtime_error("columnType must be 'sawn', 'round', or 'glulam'");
+          in.cD = o.Get("cD").As<Napi::Number>().DoubleValue();
+          in.cM = o.Get("cM").As<Napi::Number>().DoubleValue();
+          in.cT = o.Get("cT").As<Napi::Number>().DoubleValue();
+          in.cF = o.Get("cF").As<Napi::Number>().DoubleValue();
+          in.cI = o.Get("cI").As<Napi::Number>().DoubleValue();
+          auto r = forge::woodcolumn::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("slendernessLeOverD", Napi::Number::New(env2, r.slendernessLeOverD));
+          out.Set("fStarCMPa",          Napi::Number::New(env2, r.fStarCMPa));
+          out.Set("fcEMPa",             Napi::Number::New(env2, r.fcEMPa));
+          out.Set("alphaRatio",         Napi::Number::New(env2, r.alphaRatio));
+          out.Set("cFactor",            Napi::Number::New(env2, r.cFactor));
+          out.Set("cP",                 Napi::Number::New(env2, r.cP));
+          out.Set("fcPrimeMPa",         Napi::Number::New(env2, r.fcPrimeMPa));
+          out.Set("pAllowN",            Napi::Number::New(env2, r.pAllowN));
+          return out;
+        });
+      }));
+    exports.Set("woodcolumn", wcNs);
 
     return exports;
 }

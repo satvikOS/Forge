@@ -57,7 +57,8 @@ export const CALCULATOR_TREE = [
       {
         label: 'Wood members',
         items: [
-          { id: 'woodbeam', label: 'Wood beam bending (NDS 2018 §3.3)…', slice: 'Forge-272' },
+          { id: 'woodbeam',   label: 'Wood beam bending (NDS 2018 §3.3)…', slice: 'Forge-272' },
+          { id: 'woodcolumn', label: 'Wood column buckling (NDS 2018 §3.7)…', slice: 'Forge-274' },
         ],
       },
       {

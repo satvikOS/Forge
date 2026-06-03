@@ -1420,6 +1420,12 @@ export function ForgeShellV4() {
         setActiveWb('pumpnpsh');
         window.__forgeOpenPumpNpshWorkbench?.();
         return;
+      // Forge-274 — Wood column buckling (NDS 2018 §3.7).
+      case 'tools.woodcolumn':
+      case 'workbench.woodcolumn':
+        setActiveWb('woodcolumn');
+        window.__forgeOpenWoodColumnWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
