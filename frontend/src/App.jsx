@@ -233,6 +233,8 @@ import { AnchorBoltWorkbenchHost } from './forge-v4/AnchorBoltWorkbench.jsx';
 import { PowerScrewWorkbenchHost } from './forge-v4/PowerScrewWorkbench.jsx';
 // Forge-270 — Steel beam LTB (AISC 360-22 §F2).
 import { SteelBeamLtbWorkbenchHost } from './forge-v4/SteelBeamLtbWorkbench.jsx';
+// Forge-271 — Anchor bolt shear (ACI 318-19 §17.7).
+import { AnchorShearWorkbenchHost } from './forge-v4/AnchorShearWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -417,6 +419,7 @@ function App() {
       <AnchorBoltWorkbenchHost />
       <PowerScrewWorkbenchHost />
       <SteelBeamLtbWorkbenchHost />
+      <AnchorShearWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

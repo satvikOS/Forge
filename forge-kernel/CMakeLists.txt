@@ -209,6 +209,7 @@ add_library(forge_kernel SHARED
     src/AnchorBolt.cpp
     src/PowerScrew.cpp
     src/SteelBeamLtb.cpp
+    src/AnchorShear.cpp
     ${PLANEGCS_SRC}
 )
 

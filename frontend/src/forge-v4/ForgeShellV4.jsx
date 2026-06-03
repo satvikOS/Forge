@@ -1402,6 +1402,12 @@ export function ForgeShellV4() {
         setActiveWb('steelbeam');
         window.__forgeOpenSteelBeamLtbWorkbench?.();
         return;
+      // Forge-271 — Anchor bolt shear (ACI 318-19 §17.7).
+      case 'tools.anchorshear':
+      case 'workbench.anchorshear':
+        setActiveWb('anchorshear');
+        window.__forgeOpenAnchorShearWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

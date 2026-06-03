@@ -735,6 +735,11 @@ const forgeApi = {
     analyse: (input) => kernel.steelbeam.analyse(input),
   } : null,
 
+  // anchorshear (Forge-271) — Anchor bolt shear capacity (ACI 318-19 §17.7).
+  anchorshear: kernel && kernel.anchorshear ? {
+    analyse: (input) => kernel.anchorshear.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
