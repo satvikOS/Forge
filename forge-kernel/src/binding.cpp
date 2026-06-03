@@ -115,6 +115,7 @@
 #include "forge/SoundTL.hpp"
 #include "forge/PIDTuning.hpp"
 #include "forge/TunedMassDamper.hpp"
+#include "forge/OrificePlate.hpp"
 
 #include <array>
 
@@ -8711,6 +8712,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("tmd", tmdNs);
+
+    // -------- Orifice plate (Forge-266) ---------------------------------
+    auto opNs = Napi::Object::New(env);
+    opNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::orificeplate::Input in{};
+          in.pipeDiameterM         = o.Get("pipeDiameterM"        ).As<Napi::Number>().DoubleValue();
+          in.orificeDiameterM      = o.Get("orificeDiameterM"     ).As<Napi::Number>().DoubleValue();
+          in.upstreamDensityKgM3   = o.Get("upstreamDensityKgM3"  ).As<Napi::Number>().DoubleValue();
+          in.dynamicViscosityPas   = o.Get("dynamicViscosityPas"  ).As<Napi::Number>().DoubleValue();
+          in.differentialPressurePa = o.Get("differentialPressurePa").As<Napi::Number>().DoubleValue();
+          in.compressible          = o.Get("compressible"         ).As<Napi::Boolean>().Value();
+          in.kappaSpecHeatRatio    = o.Get("kappaSpecHeatRatio"   ).As<Napi::Number>().DoubleValue();
+          in.upstreamPressurePa    = o.Get("upstreamPressurePa"   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::orificeplate::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("betaRatio",             Napi::Number::New(env2, r.betaRatio));
+          out.Set("throatAreaM2",          Napi::Number::New(env2, r.throatAreaM2));
+          out.Set("reynoldsNumberD",       Napi::Number::New(env2, r.reynoldsNumberD));
+          out.Set("dischargeCoefficient",  Napi::Number::New(env2, r.dischargeCoefficient));
+          out.Set("expansibilityFactor",   Napi::Number::New(env2, r.expansibilityFactor));
+          out.Set("massFlowKgS",           Napi::Number::New(env2, r.massFlowKgS));
+          out.Set("volumeFlowM3S",         Napi::Number::New(env2, r.volumeFlowM3S));
+          return out;
+        });
+      }));
+    exports.Set("orificeplate", opNs);
 
     return exports;
 }

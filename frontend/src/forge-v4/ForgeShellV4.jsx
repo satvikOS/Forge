@@ -1372,6 +1372,12 @@ export function ForgeShellV4() {
         setActiveWb('tmd');
         window.__forgeOpenTMDWorkbench?.();
         return;
+      // Forge-266 — Orifice plate.
+      case 'tools.orifice':
+      case 'workbench.orifice':
+        setActiveWb('orifice');
+        window.__forgeOpenOrificeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

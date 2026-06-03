@@ -134,6 +134,7 @@ export const CALCULATOR_TREE = [
           { id: 'pumphead',  label: 'Pump head / pipe flow…', slice: 'Forge-229' },
           { id: 'duct',      label: 'HVAC ductwork sizing…', slice: 'Forge-186' },
           { id: 'piperoute', label: 'Pipe routing (A* axis-aligned)…', slice: 'Forge-206' },
+          { id: 'orifice',   label: 'Orifice plate (ISO 5167-2 flow meter)…', slice: 'Forge-266' },
         ],
       },
       {

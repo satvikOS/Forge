@@ -710,6 +710,11 @@ const forgeApi = {
     sizeAbsorber: (input) => kernel.tmd.sizeAbsorber(input),
   } : null,
 
+  // orificeplate (Forge-266) — ISO 5167-2 orifice flow meter.
+  orificeplate: kernel && kernel.orificeplate ? {
+    analyse: (input) => kernel.orificeplate.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

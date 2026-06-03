@@ -223,6 +223,8 @@ import { SoundTLWorkbenchHost } from './forge-v4/SoundTLWorkbench.jsx';
 import { PIDTuningWorkbenchHost } from './forge-v4/PIDTuningWorkbench.jsx';
 // Forge-265 — Tuned mass damper workbench.
 import { TunedMassDamperWorkbenchHost } from './forge-v4/TunedMassDamperWorkbench.jsx';
+// Forge-266 — Orifice plate workbench.
+import { OrificePlateWorkbenchHost } from './forge-v4/OrificePlateWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -402,6 +404,7 @@ function App() {
       <SoundTLWorkbenchHost />
       <PIDTuningWorkbenchHost />
       <TunedMassDamperWorkbenchHost />
+      <OrificePlateWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
