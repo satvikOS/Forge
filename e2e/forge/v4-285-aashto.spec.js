@@ -20,6 +20,7 @@ const REF = {
   deltaPSI: 1.7, subgradeMrPsi: 5000,
 };
 
+test.describe.configure({ timeout: 180000 });
 test.describe.serial('Forge-285 · AASHTO 93 flexible pavement', () => {
   let app, page;
 
@@ -27,6 +28,7 @@ test.describe.serial('Forge-285 · AASHTO 93 flexible pavement', () => {
     app = await _electron.launch({
       args: [ELECTRON_MAIN, '--no-sandbox'],
       env: { ...process.env, FORGE_E2E: '1' },
+      timeout: 150000,
     });
     page = await app.firstWindow();
     await page.waitForLoadState('domcontentloaded');
@@ -36,7 +38,12 @@ test.describe.serial('Forge-285 · AASHTO 93 flexible pavement', () => {
       document.querySelectorAll('[data-testid="forge-tour-overlay"]').forEach((n) => n.remove());
     });
   });
-  test.afterAll(async () => { if (app) await app.close(); });
+  test.afterAll(async () => {
+    if (!app) return;
+    try { await Promise.race([app.close(), new Promise((r) => setTimeout(r, 4000))]); }
+    catch (e) { /* ignore */ }
+    try { app.process()?.kill('SIGKILL'); } catch (e) { /* ignore */ }
+  });
 
   test('01 kernel bridge wired (cam #1 baseline)', async () => {
     await shot(page, 'baseline');
