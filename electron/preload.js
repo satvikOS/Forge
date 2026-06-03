@@ -637,6 +637,13 @@ const forgeApi = {
     lumenMethod:               (inp)  => kernel.lighting.lumenMethod(inp),
   } : null,
 
+  // battery (Forge-254) — Peukert runtime + CC-CV charge + terminal V.
+  battery: kernel && kernel.battery ? {
+    runtime:        (inp) => kernel.battery.runtime(inp),
+    chargeTime:     (inp) => kernel.battery.chargeTime(inp),
+    terminalState:  (inp) => kernel.battery.terminalState(inp),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

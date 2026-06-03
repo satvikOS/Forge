@@ -1300,6 +1300,12 @@ export function ForgeShellV4() {
         setActiveWb('lighting');
         window.__forgeOpenLightingWorkbench?.();
         return;
+      // Forge-254 — Battery sizing.
+      case 'tools.battery':
+      case 'workbench.battery':
+        setActiveWb('battery');
+        window.__forgeOpenBatteryWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

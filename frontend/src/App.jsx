@@ -199,6 +199,8 @@ import { ShortCircuitWorkbenchHost } from './forge-v4/ShortCircuitWorkbench.jsx'
 import { CableSizingWorkbenchHost } from './forge-v4/CableSizingWorkbench.jsx';
 // Forge-253 — Lighting design workbench.
 import { LightingWorkbenchHost } from './forge-v4/LightingWorkbench.jsx';
+// Forge-254 — Battery sizing workbench.
+import { BatteryWorkbenchHost } from './forge-v4/BatteryWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -366,6 +368,7 @@ function App() {
       <ShortCircuitWorkbenchHost />
       <CableSizingWorkbenchHost />
       <LightingWorkbenchHost />
+      <BatteryWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

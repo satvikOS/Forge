@@ -103,6 +103,7 @@
 #include "forge/ShortCircuit.hpp"
 #include "forge/CableSizing.hpp"
 #include "forge/Lighting.hpp"
+#include "forge/Battery.hpp"
 
 #include <array>
 
@@ -8174,6 +8175,63 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("lighting", liNs);
+
+    // -------- Battery sizing (Forge-254) --------------------------------
+    auto baNs = Napi::Object::New(env);
+    baNs.Set("runtime", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::battery::RuntimeInput in{};
+          in.ratedCapacityAh  = o.Get("ratedCapacityAh" ).As<Napi::Number>().DoubleValue();
+          in.ratedHours       = o.Get("ratedHours"      ).As<Napi::Number>().DoubleValue();
+          in.peukertExponent  = o.Get("peukertExponent" ).As<Napi::Number>().DoubleValue();
+          in.loadCurrentA     = o.Get("loadCurrentA"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::battery::runtime(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("effectiveCapacityAh", Napi::Number::New(env2, r.effectiveCapacityAh));
+          out.Set("runtimeHours",        Napi::Number::New(env2, r.runtimeHours));
+          return out;
+        });
+      }));
+    baNs.Set("chargeTime", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::battery::ChargeInput in{};
+          in.ratedCapacityAh  = o.Get("ratedCapacityAh" ).As<Napi::Number>().DoubleValue();
+          in.chargeCurrentA   = o.Get("chargeCurrentA"  ).As<Napi::Number>().DoubleValue();
+          in.initialSoc       = o.Get("initialSoc"      ).As<Napi::Number>().DoubleValue();
+          in.targetSoc        = o.Get("targetSoc"       ).As<Napi::Number>().DoubleValue();
+          in.cvPhaseFactor    = o.Get("cvPhaseFactor"   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::battery::chargeTime(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("constantCurrentHours", Napi::Number::New(env2, r.constantCurrentHours));
+          out.Set("constantVoltageHours", Napi::Number::New(env2, r.constantVoltageHours));
+          out.Set("totalHours",           Napi::Number::New(env2, r.totalHours));
+          return out;
+        });
+      }));
+    baNs.Set("terminalState", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::battery::DropInput in{};
+          in.openCircuitVoltage     = o.Get("openCircuitVoltage"    ).As<Napi::Number>().DoubleValue();
+          in.internalResistanceOhm  = o.Get("internalResistanceOhm" ).As<Napi::Number>().DoubleValue();
+          in.loadCurrentA           = o.Get("loadCurrentA"          ).As<Napi::Number>().DoubleValue();
+          auto r = forge::battery::terminalState(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("terminalVoltageV", Napi::Number::New(env2, r.terminalVoltageV));
+          out.Set("dropV",            Napi::Number::New(env2, r.dropV));
+          out.Set("stateOfCharge",    Napi::Number::New(env2, r.stateOfCharge));
+          return out;
+        });
+      }));
+    exports.Set("battery", baNs);
 
     return exports;
 }

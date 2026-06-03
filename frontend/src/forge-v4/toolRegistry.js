@@ -241,6 +241,12 @@ export const CALCULATOR_TREE = [
         ],
       },
       {
+        label: 'Battery',
+        items: [
+          { id: 'battery',  label: 'Battery sizing (Peukert + CC-CV + SoC)…', slice: 'Forge-254' },
+        ],
+      },
+      {
         label: 'Three-phase',
         items: [
           { id: 'threephase', label: 'Three-phase power + PF correction + p.u.…', slice: 'Forge-244' },
