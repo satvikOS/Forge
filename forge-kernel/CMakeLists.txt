@@ -210,6 +210,7 @@ add_library(forge_kernel SHARED
     src/PowerScrew.cpp
     src/SteelBeamLtb.cpp
     src/AnchorShear.cpp
+    src/WoodBeam.cpp
     ${PLANEGCS_SRC}
 )
 

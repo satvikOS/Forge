@@ -740,6 +740,11 @@ const forgeApi = {
     analyse: (input) => kernel.anchorshear.analyse(input),
   } : null,
 
+  // woodbeam (Forge-272) — Wood beam bending capacity (NDS 2018 §3.3 ASD).
+  woodbeam: kernel && kernel.woodbeam ? {
+    analyse: (input) => kernel.woodbeam.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -55,6 +55,12 @@ export const CALCULATOR_TREE = [
         ],
       },
       {
+        label: 'Wood members',
+        items: [
+          { id: 'woodbeam', label: 'Wood beam bending (NDS 2018 §3.3)…', slice: 'Forge-272' },
+        ],
+      },
+      {
         label: 'Stress & buckling',
         items: [
           { id: 'mohr',      label: "Mohr's circle / principal stress…", slice: 'Forge-220' },

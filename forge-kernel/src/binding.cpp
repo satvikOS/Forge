@@ -121,6 +121,7 @@
 #include "forge/PowerScrew.hpp"
 #include "forge/SteelBeamLtb.hpp"
 #include "forge/AnchorShear.hpp"
+#include "forge/WoodBeam.hpp"
 
 #include <array>
 
@@ -8935,6 +8936,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("anchorshear", ashNs);
+
+    // -------- Wood beam bending (Forge-272) -----------------------------
+    auto wbNs = Napi::Object::New(env);
+    wbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::woodbeam::Input in{};
+          in.referenceFbMPa     = o.Get("referenceFbMPa"   ).As<Napi::Number>().DoubleValue();
+          in.emin_MPa           = o.Get("emin_MPa"         ).As<Napi::Number>().DoubleValue();
+          in.widthMm            = o.Get("widthMm"          ).As<Napi::Number>().DoubleValue();
+          in.depthMm            = o.Get("depthMm"          ).As<Napi::Number>().DoubleValue();
+          in.effectiveLengthMm  = o.Get("effectiveLengthMm").As<Napi::Number>().DoubleValue();
+          in.cD                 = o.Get("cD"               ).As<Napi::Number>().DoubleValue();
+          in.cM                 = o.Get("cM"               ).As<Napi::Number>().DoubleValue();
+          in.cT                 = o.Get("cT"               ).As<Napi::Number>().DoubleValue();
+          in.cF                 = o.Get("cF"               ).As<Napi::Number>().DoubleValue();
+          in.cFu                = o.Get("cFu"              ).As<Napi::Number>().DoubleValue();
+          in.cI                 = o.Get("cI"               ).As<Napi::Number>().DoubleValue();
+          in.cR                 = o.Get("cR"               ).As<Napi::Number>().DoubleValue();
+          auto r = forge::woodbeam::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("sectionModulusMm3",  Napi::Number::New(env2, r.sectionModulusMm3));
+          out.Set("fbStarMPa",          Napi::Number::New(env2, r.fbStarMPa));
+          out.Set("slendernessRb",      Napi::Number::New(env2, r.slendernessRb));
+          out.Set("fbEMPa",             Napi::Number::New(env2, r.fbEMPa));
+          out.Set("alphaRatio",         Napi::Number::New(env2, r.alphaRatio));
+          out.Set("cL",                 Napi::Number::New(env2, r.cL));
+          out.Set("fbPrimeMPa",         Napi::Number::New(env2, r.fbPrimeMPa));
+          out.Set("mAllowNmm",          Napi::Number::New(env2, r.mAllowNmm));
+          return out;
+        });
+      }));
+    exports.Set("woodbeam", wbNs);
 
     return exports;
 }

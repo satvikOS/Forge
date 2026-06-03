@@ -1408,6 +1408,12 @@ export function ForgeShellV4() {
         setActiveWb('anchorshear');
         window.__forgeOpenAnchorShearWorkbench?.();
         return;
+      // Forge-272 — Wood beam bending (NDS 2018 §3.3).
+      case 'tools.woodbeam':
+      case 'workbench.woodbeam':
+        setActiveWb('woodbeam');
+        window.__forgeOpenWoodBeamWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
