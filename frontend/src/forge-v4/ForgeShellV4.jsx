@@ -1270,6 +1270,12 @@ export function ForgeShellV4() {
         setActiveWb('tline');
         window.__forgeOpenTLineWorkbench?.();
         return;
+      // Forge-249 — Synchronous machine.
+      case 'tools.syncm':
+      case 'workbench.syncm':
+        setActiveWb('syncm');
+        window.__forgeOpenSyncMWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

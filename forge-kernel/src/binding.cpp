@@ -98,6 +98,7 @@
 #include "forge/InductionMotor.hpp"
 #include "forge/SymComponents.hpp"
 #include "forge/TransmissionLine.hpp"
+#include "forge/SyncMachine.hpp"
 
 #include <array>
 
@@ -7915,6 +7916,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("tline", tlNs);
+
+    // -------- Synchronous machine (Forge-249) ---------------------------
+    auto symNs = Napi::Object::New(env);
+    symNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::syncmachine::Input in{};
+          std::string mode = o.Get("mode").As<Napi::String>().Utf8Value();
+          in.mode = (mode == "motor") ? forge::syncmachine::Mode::Motor
+                                       : forge::syncmachine::Mode::Generator;
+          in.terminalPhaseVoltageV   = o.Get("terminalPhaseVoltageV"  ).As<Napi::Number>().DoubleValue();
+          in.synchronousReactanceOhm = o.Get("synchronousReactanceOhm").As<Napi::Number>().DoubleValue();
+          in.armatureResistanceOhm   = o.Get("armatureResistanceOhm"  ).As<Napi::Number>().DoubleValue();
+          in.realPowerPerPhaseW      = o.Get("realPowerPerPhaseW"     ).As<Napi::Number>().DoubleValue();
+          in.powerFactor             = o.Get("powerFactor"            ).As<Napi::Number>().DoubleValue();
+          in.leading                 = o.Get("leading"                ).As<Napi::Boolean>().Value();
+          auto r = forge::syncmachine::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("armatureCurrentA",         Napi::Number::New(env2, r.armatureCurrentA));
+          out.Set("armatureCurrentAngDeg",    Napi::Number::New(env2, r.armatureCurrentAngDeg));
+          out.Set("inducedEmfV",              Napi::Number::New(env2, r.inducedEmfV));
+          out.Set("inducedEmfAngDeg",         Napi::Number::New(env2, r.inducedEmfAngDeg));
+          out.Set("reactivePowerPerPhaseVar", Napi::Number::New(env2, r.reactivePowerPerPhaseVar));
+          out.Set("maxPullOutPowerW",         Napi::Number::New(env2, r.maxPullOutPowerW));
+          return out;
+        });
+      }));
+    exports.Set("syncmachine", symNs);
 
     return exports;
 }

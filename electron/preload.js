@@ -608,6 +608,11 @@ const forgeApi = {
     analyse: (input) => kernel.tline.analyse(input),
   } : null,
 
+  // syncmachine (Forge-249) — cylindrical-rotor synchronous machine.
+  syncmachine: kernel && kernel.syncmachine ? {
+    analyse: (input) => kernel.syncmachine.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

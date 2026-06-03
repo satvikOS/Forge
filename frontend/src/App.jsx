@@ -189,6 +189,8 @@ import { InductionMotorWorkbenchHost } from './forge-v4/InductionMotorWorkbench.
 import { SymComponentsWorkbenchHost } from './forge-v4/SymComponentsWorkbench.jsx';
 // Forge-248 — Transmission line workbench.
 import { TransmissionLineWorkbenchHost } from './forge-v4/TransmissionLineWorkbench.jsx';
+// Forge-249 — Synchronous machine workbench.
+import { SyncMachineWorkbenchHost } from './forge-v4/SyncMachineWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -351,6 +353,7 @@ function App() {
       <InductionMotorWorkbenchHost />
       <SymComponentsWorkbenchHost />
       <TransmissionLineWorkbenchHost />
+      <SyncMachineWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
