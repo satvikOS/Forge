@@ -222,6 +222,7 @@ add_library(forge_kernel SHARED
     src/DiscBrake.cpp
     src/ReciprocatingCompressor.cpp
     src/ChainDrive.cpp
+    src/StoppingSightDistance.cpp
     ${PLANEGCS_SRC}
 )
 

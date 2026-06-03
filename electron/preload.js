@@ -800,6 +800,11 @@ const forgeApi = {
     analyse: (input) => kernel.chain.analyse(input),
   } : null,
 
+  // ssd (Forge-284) — Stopping sight distance (AASHTO Green Book §3.2.2).
+  ssd: kernel && kernel.ssd ? {
+    analyse: (input) => kernel.ssd.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

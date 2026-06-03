@@ -133,6 +133,7 @@
 #include "forge/DiscBrake.hpp"
 #include "forge/ReciprocatingCompressor.hpp"
 #include "forge/ChainDrive.hpp"
+#include "forge/StoppingSightDistance.hpp"
 
 #include <array>
 
@@ -9334,6 +9335,31 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("chain", cdNs);
+
+    // -------- Stopping sight distance (Forge-284) -----------------------
+    auto ssdNs = Napi::Object::New(env);
+    ssdNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::ssd::Input in{};
+          in.designSpeedKmH       = o.Get("designSpeedKmH"      ).As<Napi::Number>().DoubleValue();
+          in.perceptionTimeS      = o.Get("perceptionTimeS"     ).As<Napi::Number>().DoubleValue();
+          in.frictionCoefficient  = o.Get("frictionCoefficient" ).As<Napi::Number>().DoubleValue();
+          in.gradePct             = o.Get("gradePct"            ).As<Napi::Number>().DoubleValue();
+          auto r = forge::ssd::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("designSpeedMs",            Napi::Number::New(env2, r.designSpeedMs));
+          out.Set("effectiveDecelerationMs2", Napi::Number::New(env2, r.effectiveDecelerationMs2));
+          out.Set("perceptionDistanceM",      Napi::Number::New(env2, r.perceptionDistanceM));
+          out.Set("brakingDistanceM",         Napi::Number::New(env2, r.brakingDistanceM));
+          out.Set("totalSsdM",                Napi::Number::New(env2, r.totalSsdM));
+          out.Set("totalSsdFt",               Napi::Number::New(env2, r.totalSsdFt));
+          return out;
+        });
+      }));
+    exports.Set("ssd", ssdNs);
 
     return exports;
 }

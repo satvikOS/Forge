@@ -1480,6 +1480,12 @@ export function ForgeShellV4() {
         setActiveWb('chain');
         window.__forgeOpenChainDriveWorkbench?.();
         return;
+      // Forge-284 — Stopping sight distance.
+      case 'tools.ssd':
+      case 'workbench.ssd':
+        setActiveWb('ssd');
+        window.__forgeOpenStoppingSightDistanceWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
