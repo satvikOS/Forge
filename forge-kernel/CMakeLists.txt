@@ -228,6 +228,7 @@ add_library(forge_kernel SHARED
     src/Prismoidal.cpp
     src/PitotTube.cpp
     src/CircularPipeFlow.cpp
+    src/WormGear.cpp
     ${PLANEGCS_SRC}
 )
 

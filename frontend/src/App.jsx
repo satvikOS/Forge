@@ -271,6 +271,8 @@ import { PrismoidalWorkbenchHost } from './forge-v4/PrismoidalWorkbench.jsx';
 import { PitotTubeWorkbenchHost } from './forge-v4/PitotTubeWorkbench.jsx';
 // Forge-289 — Storm sewer / circular pipe Manning partial flow.
 import { CircularPipeFlowWorkbenchHost } from './forge-v4/CircularPipeFlowWorkbench.jsx';
+// Forge-290 — Worm gear drive (Shigley §13 / AGMA).
+import { WormGearWorkbenchHost } from './forge-v4/WormGearWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -474,6 +476,7 @@ function App() {
       <PrismoidalWorkbenchHost />
       <PitotTubeWorkbenchHost />
       <CircularPipeFlowWorkbenchHost />
+      <WormGearWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

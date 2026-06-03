@@ -1516,6 +1516,12 @@ export function ForgeShellV4() {
         setActiveWb('circpipe');
         window.__forgeOpenCircularPipeFlowWorkbench?.();
         return;
+      // Forge-290 — Worm gear drive.
+      case 'tools.wormgear':
+      case 'workbench.wormgear':
+        setActiveWb('wormgear');
+        window.__forgeOpenWormGearWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

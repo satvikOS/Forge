@@ -139,6 +139,7 @@
 #include "forge/Prismoidal.hpp"
 #include "forge/PitotTube.hpp"
 #include "forge/CircularPipeFlow.hpp"
+#include "forge/WormGear.hpp"
 
 #include <array>
 
@@ -9488,6 +9489,39 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("circpipe", cpfNs);
+
+    // -------- Worm gear drive (Forge-290) -------------------------------
+    auto wormNs = Napi::Object::New(env);
+    wormNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::wormgear::Input in{};
+          in.moduleMm            = o.Get("moduleMm"           ).As<Napi::Number>().DoubleValue();
+          in.wormStarts          = o.Get("wormStarts"         ).As<Napi::Number>().Int32Value();
+          in.gearTeeth           = o.Get("gearTeeth"          ).As<Napi::Number>().Int32Value();
+          in.wormPitchDiameterMm = o.Get("wormPitchDiameterMm").As<Napi::Number>().DoubleValue();
+          in.frictionCoefficient = o.Get("frictionCoefficient").As<Napi::Number>().DoubleValue();
+          in.inputSpeedRpm       = o.Get("inputSpeedRpm"      ).As<Napi::Number>().DoubleValue();
+          in.inputTorqueNm       = o.Get("inputTorqueNm"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::wormgear::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("velocityRatio",       Napi::Number::New(env2, r.velocityRatio));
+          out.Set("leadMm",              Napi::Number::New(env2, r.leadMm));
+          out.Set("leadAngleDeg",        Napi::Number::New(env2, r.leadAngleDeg));
+          out.Set("frictionAngleDeg",    Napi::Number::New(env2, r.frictionAngleDeg));
+          out.Set("gearPitchDiameterMm", Napi::Number::New(env2, r.gearPitchDiameterMm));
+          out.Set("centreDistanceMm",    Napi::Number::New(env2, r.centreDistanceMm));
+          out.Set("slidingVelocityMs",   Napi::Number::New(env2, r.slidingVelocityMs));
+          out.Set("efficiencyPct",       Napi::Number::New(env2, r.efficiencyPct));
+          out.Set("outputSpeedRpm",      Napi::Number::New(env2, r.outputSpeedRpm));
+          out.Set("outputTorqueNm",      Napi::Number::New(env2, r.outputTorqueNm));
+          out.Set("selfLocking",         Napi::Boolean::New(env2, r.selfLocking));
+          return out;
+        });
+      }));
+    exports.Set("wormgear", wormNs);
 
     return exports;
 }

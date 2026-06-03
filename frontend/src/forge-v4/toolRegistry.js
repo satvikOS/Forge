@@ -119,6 +119,7 @@ export const CALCULATOR_TREE = [
           { id: 'spring',    label: 'Compression spring (Shigley)…', slice: 'Forge-217' },
           { id: 'discbrake', label: 'Disc clutch / brake (Shigley §16-2)…', slice: 'Forge-281' },
           { id: 'chain',     label: 'Roller chain drive (ANSI B29.1)…', slice: 'Forge-283' },
+          { id: 'wormgear',  label: 'Worm gear drive (Shigley §13 / AGMA)…', slice: 'Forge-290' },
         ],
       },
       {

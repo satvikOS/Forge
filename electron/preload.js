@@ -830,6 +830,11 @@ const forgeApi = {
     analyse: (input) => kernel.circpipe.analyse(input),
   } : null,
 
+  // wormgear (Forge-290) — Worm gear drive (Shigley §13 / AGMA).
+  wormgear: kernel && kernel.wormgear ? {
+    analyse: (input) => kernel.wormgear.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
