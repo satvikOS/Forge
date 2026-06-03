@@ -265,6 +265,8 @@ import { StoppingSightDistanceWorkbenchHost } from './forge-v4/StoppingSightDist
 import { AashtoPavementWorkbenchHost } from './forge-v4/AashtoPavementWorkbench.jsx';
 // Forge-286 — Capstan / bollard friction (Eytelwein).
 import { CapstanFrictionWorkbenchHost } from './forge-v4/CapstanFrictionWorkbench.jsx';
+// Forge-287 — Earthwork prismoidal volume (Simpson 1/3).
+import { PrismoidalWorkbenchHost } from './forge-v4/PrismoidalWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -465,6 +467,7 @@ function App() {
       <StoppingSightDistanceWorkbenchHost />
       <AashtoPavementWorkbenchHost />
       <CapstanFrictionWorkbenchHost />
+      <PrismoidalWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

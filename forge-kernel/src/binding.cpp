@@ -136,6 +136,7 @@
 #include "forge/StoppingSightDistance.hpp"
 #include "forge/AashtoPavement.hpp"
 #include "forge/CapstanFriction.hpp"
+#include "forge/Prismoidal.hpp"
 
 #include <array>
 
@@ -9408,6 +9409,30 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("capstan", capNs);
+
+    // -------- Prismoidal earthwork volume (Forge-287) -------------------
+    auto prismNs = Napi::Object::New(env);
+    prismNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::prismoidal::Input in{};
+          in.lengthM       = o.Get("lengthM"      ).As<Napi::Number>().DoubleValue();
+          in.areaStartM2   = o.Get("areaStartM2"  ).As<Napi::Number>().DoubleValue();
+          in.areaMiddleM2  = o.Get("areaMiddleM2" ).As<Napi::Number>().DoubleValue();
+          in.areaEndM2     = o.Get("areaEndM2"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::prismoidal::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("prismoidalVolumeM3",         Napi::Number::New(env2, r.prismoidalVolumeM3));
+          out.Set("averageEndAreaVolumeM3",     Napi::Number::New(env2, r.averageEndAreaVolumeM3));
+          out.Set("differenceM3",               Napi::Number::New(env2, r.differenceM3));
+          out.Set("aeaErrorPct",                Napi::Number::New(env2, r.aeaErrorPct));
+          out.Set("prismoidalVolumeCubicYards", Napi::Number::New(env2, r.prismoidalVolumeCubicYards));
+          return out;
+        });
+      }));
+    exports.Set("prismoidal", prismNs);
 
     return exports;
 }

@@ -225,6 +225,7 @@ add_library(forge_kernel SHARED
     src/StoppingSightDistance.cpp
     src/AashtoPavement.cpp
     src/CapstanFriction.cpp
+    src/Prismoidal.cpp
     ${PLANEGCS_SRC}
 )
 

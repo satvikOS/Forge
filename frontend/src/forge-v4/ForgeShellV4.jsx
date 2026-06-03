@@ -1498,6 +1498,12 @@ export function ForgeShellV4() {
         setActiveWb('capstan');
         window.__forgeOpenCapstanFrictionWorkbench?.();
         return;
+      // Forge-287 — Earthwork prismoidal volume.
+      case 'tools.prismoidal':
+      case 'workbench.prismoidal':
+        setActiveWb('prismoidal');
+        window.__forgeOpenPrismoidalWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

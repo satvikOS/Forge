@@ -815,6 +815,11 @@ const forgeApi = {
     analyse: (input) => kernel.capstan.analyse(input),
   } : null,
 
+  // prismoidal (Forge-287) — Earthwork prismoidal volume (Simpson 1/3).
+  prismoidal: kernel && kernel.prismoidal ? {
+    analyse: (input) => kernel.prismoidal.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

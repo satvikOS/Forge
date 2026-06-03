@@ -284,6 +284,12 @@ export const CALCULATOR_TREE = [
         ],
       },
       {
+        label: 'Earthworks',
+        items: [
+          { id: 'prismoidal', label: 'Prismoidal earthwork volume (Simpson 1/3)…', slice: 'Forge-287' },
+        ],
+      },
+      {
         label: 'Hydrology',
         items: [
           { id: 'hydro',      label: 'Hydrology (rational + Kirpich + IDF)…', slice: 'Forge-256' },
