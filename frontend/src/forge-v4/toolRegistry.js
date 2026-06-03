@@ -178,6 +178,7 @@ export const CALCULATOR_TREE = [
           { id: 'boilereff',  label: 'Boiler efficiency (direct + indirect)…', slice: 'Forge-262' },
           { id: 'otto',       label: 'Otto cycle (air-standard SI engine)…', slice: 'Forge-276' },
           { id: 'diesel',     label: 'Diesel cycle (air-standard CI engine)…', slice: 'Forge-277' },
+          { id: 'brayton',    label: 'Brayton cycle (gas turbine with η_c/η_t)…', slice: 'Forge-278' },
         ],
       },
       {

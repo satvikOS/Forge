@@ -770,6 +770,11 @@ const forgeApi = {
     analyse: (input) => kernel.diesel.analyse(input),
   } : null,
 
+  // brayton (Forge-278) — Air-standard Brayton gas-turbine cycle with η_c/η_t.
+  brayton: kernel && kernel.brayton ? {
+    analyse: (input) => kernel.brayton.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

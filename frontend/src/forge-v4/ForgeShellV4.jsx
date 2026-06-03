@@ -1444,6 +1444,12 @@ export function ForgeShellV4() {
         setActiveWb('diesel');
         window.__forgeOpenDieselCycleWorkbench?.();
         return;
+      // Forge-278 — Brayton cycle (gas turbine).
+      case 'tools.brayton':
+      case 'workbench.brayton':
+        setActiveWb('brayton');
+        window.__forgeOpenBraytonCycleWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

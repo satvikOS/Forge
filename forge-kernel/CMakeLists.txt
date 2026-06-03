@@ -216,6 +216,7 @@ add_library(forge_kernel SHARED
     src/SiloPressure.cpp
     src/OttoCycle.cpp
     src/DieselCycle.cpp
+    src/BraytonCycle.cpp
     ${PLANEGCS_SRC}
 )
 

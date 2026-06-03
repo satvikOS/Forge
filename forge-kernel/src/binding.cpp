@@ -127,6 +127,7 @@
 #include "forge/SiloPressure.hpp"
 #include "forge/OttoCycle.hpp"
 #include "forge/DieselCycle.hpp"
+#include "forge/BraytonCycle.hpp"
 
 #include <array>
 
@@ -9138,6 +9139,44 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("diesel", dieselNs);
+
+    // -------- Air-standard Brayton cycle (Forge-278) --------------------
+    auto brayNs = Napi::Object::New(env);
+    brayNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::brayton::Input in{};
+          in.pressureRatio            = o.Get("pressureRatio"           ).As<Napi::Number>().DoubleValue();
+          in.intakeTemperatureK       = o.Get("intakeTemperatureK"      ).As<Napi::Number>().DoubleValue();
+          in.intakePressureKPa        = o.Get("intakePressureKPa"       ).As<Napi::Number>().DoubleValue();
+          in.turbineInletTemperatureK = o.Get("turbineInletTemperatureK").As<Napi::Number>().DoubleValue();
+          in.specificHeatRatio        = o.Get("specificHeatRatio"       ).As<Napi::Number>().DoubleValue();
+          in.compressorIsentropicEff  = o.Get("compressorIsentropicEff" ).As<Napi::Number>().DoubleValue();
+          in.turbineIsentropicEff     = o.Get("turbineIsentropicEff"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::brayton::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cPKJkgK",            Napi::Number::New(env2, r.cPKJkgK));
+          out.Set("t2sK",               Napi::Number::New(env2, r.t2sK));
+          out.Set("t2K",                Napi::Number::New(env2, r.t2K));
+          out.Set("t3K",                Napi::Number::New(env2, r.t3K));
+          out.Set("t4sK",               Napi::Number::New(env2, r.t4sK));
+          out.Set("t4K",                Napi::Number::New(env2, r.t4K));
+          out.Set("p2KPa",              Napi::Number::New(env2, r.p2KPa));
+          out.Set("p3KPa",              Napi::Number::New(env2, r.p3KPa));
+          out.Set("p4KPa",              Napi::Number::New(env2, r.p4KPa));
+          out.Set("compressorWorkKJkg", Napi::Number::New(env2, r.compressorWorkKJkg));
+          out.Set("turbineWorkKJkg",    Napi::Number::New(env2, r.turbineWorkKJkg));
+          out.Set("qInKJkg",            Napi::Number::New(env2, r.qInKJkg));
+          out.Set("qOutKJkg",           Napi::Number::New(env2, r.qOutKJkg));
+          out.Set("wNetKJkg",           Napi::Number::New(env2, r.wNetKJkg));
+          out.Set("thermalEfficiency",  Napi::Number::New(env2, r.thermalEfficiency));
+          out.Set("backWorkRatio",      Napi::Number::New(env2, r.backWorkRatio));
+          return out;
+        });
+      }));
+    exports.Set("brayton", brayNs);
 
     return exports;
 }

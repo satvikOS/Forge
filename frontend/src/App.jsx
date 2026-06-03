@@ -247,6 +247,8 @@ import { SiloPressureWorkbenchHost } from './forge-v4/SiloPressureWorkbench.jsx'
 import { OttoCycleWorkbenchHost } from './forge-v4/OttoCycleWorkbench.jsx';
 // Forge-277 — Air-standard Diesel cycle.
 import { DieselCycleWorkbenchHost } from './forge-v4/DieselCycleWorkbench.jsx';
+// Forge-278 — Air-standard Brayton cycle.
+import { BraytonCycleWorkbenchHost } from './forge-v4/BraytonCycleWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -438,6 +440,7 @@ function App() {
       <SiloPressureWorkbenchHost />
       <OttoCycleWorkbenchHost />
       <DieselCycleWorkbenchHost />
+      <BraytonCycleWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
