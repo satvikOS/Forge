@@ -251,6 +251,8 @@ import { DieselCycleWorkbenchHost } from './forge-v4/DieselCycleWorkbench.jsx';
 import { BraytonCycleWorkbenchHost } from './forge-v4/BraytonCycleWorkbench.jsx';
 // Forge-279 — DC shunt motor.
 import { DcMotorWorkbenchHost } from './forge-v4/DcMotorWorkbench.jsx';
+// Forge-280 — Wire rope sling capacity (ASME B30.9).
+import { WireRopeSlingWorkbenchHost } from './forge-v4/WireRopeSlingWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -444,6 +446,7 @@ function App() {
       <DieselCycleWorkbenchHost />
       <BraytonCycleWorkbenchHost />
       <DcMotorWorkbenchHost />
+      <WireRopeSlingWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

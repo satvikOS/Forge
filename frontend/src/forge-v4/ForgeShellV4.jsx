@@ -1456,6 +1456,12 @@ export function ForgeShellV4() {
         setActiveWb('dcmotor');
         window.__forgeOpenDcMotorWorkbench?.();
         return;
+      // Forge-280 — Wire rope sling capacity.
+      case 'tools.sling':
+      case 'workbench.sling':
+        setActiveWb('sling');
+        window.__forgeOpenWireRopeSlingWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

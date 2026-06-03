@@ -780,6 +780,11 @@ const forgeApi = {
     analyse: (input) => kernel.dcmotor.analyse(input),
   } : null,
 
+  // sling (Forge-280) — Wire rope sling capacity (ASME B30.9 / OSHA 1926.251).
+  sling: kernel && kernel.sling ? {
+    analyse: (input) => kernel.sling.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

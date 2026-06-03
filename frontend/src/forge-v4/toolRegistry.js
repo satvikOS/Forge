@@ -120,6 +120,12 @@ export const CALCULATOR_TREE = [
         ],
       },
       {
+        label: 'Lifting & rigging',
+        items: [
+          { id: 'sling',     label: 'Wire rope sling (ASME B30.9 / OSHA)…', slice: 'Forge-280' },
+        ],
+      },
+      {
         label: 'Shafts & axles',
         items: [
           { id: 'shaft',     label: 'Shaft (bending + torsion, ASME B106 / Shigley)…', slice: 'Forge-235' },

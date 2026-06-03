@@ -129,6 +129,7 @@
 #include "forge/DieselCycle.hpp"
 #include "forge/BraytonCycle.hpp"
 #include "forge/DcMotor.hpp"
+#include "forge/WireRopeSling.hpp"
 
 #include <array>
 
@@ -9211,6 +9212,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("dcmotor", dcNs);
+
+    // -------- Wire rope sling (Forge-280) -------------------------------
+    auto slingNs = Napi::Object::New(env);
+    slingNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::wireropesling::Input in{};
+          in.breakingStrengthN       = o.Get("breakingStrengthN"      ).As<Napi::Number>().DoubleValue();
+          in.designFactor            = o.Get("designFactor"           ).As<Napi::Number>().DoubleValue();
+          in.numberOfLegs            = o.Get("numberOfLegs"           ).As<Napi::Number>().Int32Value();
+          in.legAngleFromVerticalDeg = o.Get("legAngleFromVerticalDeg").As<Napi::Number>().DoubleValue();
+          std::string h              = o.Get("hitchType"              ).As<Napi::String>().Utf8Value();
+          if      (h == "vertical") in.hitchType = forge::wireropesling::HitchType::Vertical;
+          else if (h == "choker"  ) in.hitchType = forge::wireropesling::HitchType::Choker;
+          else if (h == "basket"  ) in.hitchType = forge::wireropesling::HitchType::BasketDouble;
+          else throw std::runtime_error("hitchType must be 'vertical', 'choker', or 'basket'");
+          auto r = forge::wireropesling::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("singleLegWllN",             Napi::Number::New(env2, r.singleLegWllN));
+          out.Set("hitchFactor",               Napi::Number::New(env2, r.hitchFactor));
+          out.Set("cosTheta",                  Napi::Number::New(env2, r.cosTheta));
+          out.Set("assemblyWllN",              Napi::Number::New(env2, r.assemblyWllN));
+          out.Set("perLegLoadAtFullCapacityN", Napi::Number::New(env2, r.perLegLoadAtFullCapacityN));
+          out.Set("angleStatus",               Napi::String::New(env2, r.angleStatus));
+          return out;
+        });
+      }));
+    exports.Set("sling", slingNs);
 
     return exports;
 }
