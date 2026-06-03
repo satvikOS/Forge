@@ -198,6 +198,7 @@ add_library(forge_kernel SHARED
     src/RcColumn.cpp
     src/Machining.cpp
     src/Combustion.cpp
+    src/VibIsolation.cpp
     ${PLANEGCS_SRC}
 )
 

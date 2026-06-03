@@ -115,6 +115,12 @@ export const CALCULATOR_TREE = [
           { id: 'pvessel',   label: 'Pressure vessel (ASME VIII Div 1)…', slice: 'Forge-228' },
         ],
       },
+      {
+        label: 'Dynamics',
+        items: [
+          { id: 'vibiso',    label: 'Vibration isolation (TR + isolator k)…', slice: 'Forge-260' },
+        ],
+      },
     ],
   },
   {

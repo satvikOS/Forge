@@ -1336,6 +1336,12 @@ export function ForgeShellV4() {
         setActiveWb('combustion');
         window.__forgeOpenCombustionWorkbench?.();
         return;
+      // Forge-260 — Vibration isolation.
+      case 'tools.vibiso':
+      case 'workbench.vibiso':
+        setActiveWb('vibiso');
+        window.__forgeOpenVibIsoWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

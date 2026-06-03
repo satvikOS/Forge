@@ -675,6 +675,12 @@ const forgeApi = {
     analyse: (input) => kernel.combustion.analyse(input),
   } : null,
 
+  // vibiso (Forge-260) — single-DoF vibration isolation.
+  vibiso: kernel && kernel.vibiso ? {
+    response:     (input) => kernel.vibiso.response(input),
+    sizeIsolator: (input) => kernel.vibiso.sizeIsolator(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

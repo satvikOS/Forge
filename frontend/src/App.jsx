@@ -211,6 +211,8 @@ import { RcColumnWorkbenchHost } from './forge-v4/RcColumnWorkbench.jsx';
 import { MachiningWorkbenchHost } from './forge-v4/MachiningWorkbench.jsx';
 // Forge-259 — Combustion analysis workbench.
 import { CombustionWorkbenchHost } from './forge-v4/CombustionWorkbench.jsx';
+// Forge-260 — Vibration isolation workbench.
+import { VibIsolationWorkbenchHost } from './forge-v4/VibIsolationWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -384,6 +386,7 @@ function App() {
       <RcColumnWorkbenchHost />
       <MachiningWorkbenchHost />
       <CombustionWorkbenchHost />
+      <VibIsolationWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

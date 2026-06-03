@@ -109,6 +109,7 @@
 #include "forge/RcColumn.hpp"
 #include "forge/Machining.hpp"
 #include "forge/Combustion.hpp"
+#include "forge/VibIsolation.hpp"
 
 #include <array>
 
@@ -8471,6 +8472,48 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("combustion", cmbNs);
+
+    // -------- Vibration isolation (Forge-260) ---------------------------
+    auto viNs = Napi::Object::New(env);
+    viNs.Set("response", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::vibiso::ResponseInput in{};
+          in.massKg                  = o.Get("massKg"                 ).As<Napi::Number>().DoubleValue();
+          in.stiffnessNPerM          = o.Get("stiffnessNPerM"         ).As<Napi::Number>().DoubleValue();
+          in.dampingCoefficientNsm   = o.Get("dampingCoefficientNsm"  ).As<Napi::Number>().DoubleValue();
+          in.drivingFrequencyHz      = o.Get("drivingFrequencyHz"     ).As<Napi::Number>().DoubleValue();
+          auto r = forge::vibiso::response(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("naturalFrequencyHz",  Napi::Number::New(env2, r.naturalFrequencyHz));
+          out.Set("dampingRatio",        Napi::Number::New(env2, r.dampingRatio));
+          out.Set("frequencyRatio",      Napi::Number::New(env2, r.frequencyRatio));
+          out.Set("transmissibility",    Napi::Number::New(env2, r.transmissibility));
+          out.Set("isolationPct",        Napi::Number::New(env2, r.isolationPct));
+          return out;
+        });
+      }));
+    viNs.Set("sizeIsolator", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::vibiso::SizingInput in{};
+          in.massKg               = o.Get("massKg"              ).As<Napi::Number>().DoubleValue();
+          in.drivingFrequencyHz   = o.Get("drivingFrequencyHz"  ).As<Napi::Number>().DoubleValue();
+          in.targetIsolationPct   = o.Get("targetIsolationPct"  ).As<Napi::Number>().DoubleValue();
+          in.dampingRatio         = o.Get("dampingRatio"        ).As<Napi::Number>().DoubleValue();
+          auto r = forge::vibiso::sizeIsolator(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("requiredFrequencyRatio",      Napi::Number::New(env2, r.requiredFrequencyRatio));
+          out.Set("requiredNaturalFrequencyHz",  Napi::Number::New(env2, r.requiredNaturalFrequencyHz));
+          out.Set("requiredStiffnessNPerM",      Napi::Number::New(env2, r.requiredStiffnessNPerM));
+          return out;
+        });
+      }));
+    exports.Set("vibiso", viNs);
 
     return exports;
 }
