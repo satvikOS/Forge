@@ -237,6 +237,7 @@ export const CALCULATOR_TREE = [
           { id: 'symcomp',    label: 'Symmetrical components + fault analysis…', slice: 'Forge-247' },
           { id: 'tline',      label: 'Transmission line (ABCD short / π / long)…', slice: 'Forge-248' },
           { id: 'syncm',      label: 'Synchronous machine (E_f, δ, P_max)…', slice: 'Forge-249' },
+          { id: 'pflow',      label: 'Power flow (Newton-Raphson N-bus)…', slice: 'Forge-250' },
         ],
       },
     ],

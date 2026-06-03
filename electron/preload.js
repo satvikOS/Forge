@@ -613,6 +613,11 @@ const forgeApi = {
     analyse: (input) => kernel.syncmachine.analyse(input),
   } : null,
 
+  // powerflow (Forge-250) — Newton-Raphson AC power flow on N-bus system.
+  powerflow: kernel && kernel.powerflow ? {
+    solve: (input) => kernel.powerflow.solve(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -1276,6 +1276,12 @@ export function ForgeShellV4() {
         setActiveWb('syncm');
         window.__forgeOpenSyncMWorkbench?.();
         return;
+      // Forge-250 — Newton-Raphson power flow.
+      case 'tools.pflow':
+      case 'workbench.pflow':
+        setActiveWb('pflow');
+        window.__forgeOpenPFlowWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

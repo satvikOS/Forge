@@ -99,6 +99,7 @@
 #include "forge/SymComponents.hpp"
 #include "forge/TransmissionLine.hpp"
 #include "forge/SyncMachine.hpp"
+#include "forge/PowerFlow.hpp"
 
 #include <array>
 
@@ -7946,6 +7947,69 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("syncmachine", symNs);
+
+    // -------- Power flow Newton-Raphson (Forge-250) ---------------------
+    auto pfNs = Napi::Object::New(env);
+    pfNs.Set("solve", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+
+          std::vector<forge::powerflow::Bus> buses;
+          auto busArr = o.Get("buses").As<Napi::Array>();
+          for (uint32_t i = 0; i < busArr.Length(); ++i) {
+            auto bo = busArr.Get(i).As<Napi::Object>();
+            forge::powerflow::Bus b{};
+            std::string kind = bo.Get("kind").As<Napi::String>().Utf8Value();
+            if      (kind == "slack") b.kind = forge::powerflow::BusKind::Slack;
+            else if (kind == "pv")    b.kind = forge::powerflow::BusKind::PV;
+            else if (kind == "pq")    b.kind = forge::powerflow::BusKind::PQ;
+            else throw std::invalid_argument("bus kind must be slack/pv/pq");
+            b.V_init       = bo.Get("V_init"      ).As<Napi::Number>().DoubleValue();
+            b.angleDegInit = bo.Get("angleDegInit").As<Napi::Number>().DoubleValue();
+            b.P_specified  = bo.Get("P_specified" ).As<Napi::Number>().DoubleValue();
+            b.Q_specified  = bo.Get("Q_specified" ).As<Napi::Number>().DoubleValue();
+            buses.push_back(b);
+          }
+
+          std::vector<forge::powerflow::Branch> branches;
+          auto brArr = o.Get("branches").As<Napi::Array>();
+          for (uint32_t i = 0; i < brArr.Length(); ++i) {
+            auto bo = brArr.Get(i).As<Napi::Object>();
+            forge::powerflow::Branch br{};
+            br.from   = bo.Get("from"  ).As<Napi::Number>().Int32Value();
+            br.to     = bo.Get("to"    ).As<Napi::Number>().Int32Value();
+            br.R      = bo.Get("R"     ).As<Napi::Number>().DoubleValue();
+            br.X      = bo.Get("X"     ).As<Napi::Number>().DoubleValue();
+            br.halfB  = bo.Get("halfB" ).As<Napi::Number>().DoubleValue();
+            branches.push_back(br);
+          }
+
+          auto sObj = o.Get("settings").As<Napi::Object>();
+          forge::powerflow::Settings settings{};
+          settings.tolerance     = sObj.Get("tolerance"    ).As<Napi::Number>().DoubleValue();
+          settings.maxIterations = sObj.Get("maxIterations").As<Napi::Number>().Int32Value();
+
+          auto r = forge::powerflow::solve(buses, branches, settings);
+          auto out = Napi::Object::New(env2);
+          auto barr = Napi::Array::New(env2, r.buses.size());
+          for (size_t i = 0; i < r.buses.size(); ++i) {
+            auto bo = Napi::Object::New(env2);
+            bo.Set("V",        Napi::Number::New(env2, r.buses[i].V));
+            bo.Set("angleDeg", Napi::Number::New(env2, r.buses[i].angleDeg));
+            bo.Set("P",        Napi::Number::New(env2, r.buses[i].P));
+            bo.Set("Q",        Napi::Number::New(env2, r.buses[i].Q));
+            barr.Set(static_cast<uint32_t>(i), bo);
+          }
+          out.Set("buses",            barr);
+          out.Set("iterations",       Napi::Number::New(env2, r.iterations));
+          out.Set("finalMaxMismatch", Napi::Number::New(env2, r.finalMaxMismatch));
+          out.Set("converged",        Napi::Boolean::New(env2, r.converged));
+          return out;
+        });
+      }));
+    exports.Set("powerflow", pfNs);
 
     return exports;
 }
