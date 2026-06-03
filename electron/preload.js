@@ -725,6 +725,11 @@ const forgeApi = {
     analyse: (input) => kernel.anchorbolt.analyse(input),
   } : null,
 
+  // powerscrew (Forge-269) — square/ACME thread torque & efficiency, Shigley §8-2.
+  powerscrew: kernel && kernel.powerscrew ? {
+    analyse: (input) => kernel.powerscrew.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

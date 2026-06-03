@@ -118,6 +118,7 @@
 #include "forge/OrificePlate.hpp"
 #include "forge/RcPunching.hpp"
 #include "forge/AnchorBolt.hpp"
+#include "forge/PowerScrew.hpp"
 
 #include <array>
 
@@ -8823,6 +8824,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("anchorbolt", anchorNs);
+
+    // -------- Power screw torque (Forge-269) ----------------------------
+    auto pscNs = Napi::Object::New(env);
+    pscNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::powerscrew::Input in{};
+          in.axialForceN         = o.Get("axialForceN"         ).As<Napi::Number>().DoubleValue();
+          in.meanDiameterMm      = o.Get("meanDiameterMm"      ).As<Napi::Number>().DoubleValue();
+          in.leadMm              = o.Get("leadMm"              ).As<Napi::Number>().DoubleValue();
+          in.threadFriction      = o.Get("threadFriction"      ).As<Napi::Number>().DoubleValue();
+          in.collarFriction      = o.Get("collarFriction"      ).As<Napi::Number>().DoubleValue();
+          in.collarMeanDiameterMm = o.Get("collarMeanDiameterMm").As<Napi::Number>().DoubleValue();
+          std::string tt         = o.Get("threadType"          ).As<Napi::String>().Utf8Value();
+          if      (tt == "square") in.threadType = forge::powerscrew::ThreadType::Square;
+          else if (tt == "acme"  ) in.threadType = forge::powerscrew::ThreadType::Acme;
+          else throw std::runtime_error("threadType must be 'square' or 'acme'");
+          auto r = forge::powerscrew::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("leadAngleDeg",       Napi::Number::New(env2, r.leadAngleDeg));
+          out.Set("frictionAngleDeg",   Napi::Number::New(env2, r.frictionAngleDeg));
+          out.Set("effectiveFriction",  Napi::Number::New(env2, r.effectiveFriction));
+          out.Set("raiseTorqueNm",      Napi::Number::New(env2, r.raiseTorqueNm));
+          out.Set("lowerTorqueNm",      Napi::Number::New(env2, r.lowerTorqueNm));
+          out.Set("collarTorqueNm",     Napi::Number::New(env2, r.collarTorqueNm));
+          out.Set("totalRaiseTorqueNm", Napi::Number::New(env2, r.totalRaiseTorqueNm));
+          out.Set("totalLowerTorqueNm", Napi::Number::New(env2, r.totalLowerTorqueNm));
+          out.Set("efficiencyPct",      Napi::Number::New(env2, r.efficiencyPct));
+          out.Set("selfLocking",        Napi::Boolean::New(env2, r.selfLocking));
+          return out;
+        });
+      }));
+    exports.Set("powerscrew", pscNs);
 
     return exports;
 }

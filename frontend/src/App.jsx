@@ -229,6 +229,8 @@ import { OrificePlateWorkbenchHost } from './forge-v4/OrificePlateWorkbench.jsx'
 import { RcPunchingWorkbenchHost } from './forge-v4/RcPunchingWorkbench.jsx';
 // Forge-268 — Anchor bolt tension capacity (ACI 318-19 Ch.17).
 import { AnchorBoltWorkbenchHost } from './forge-v4/AnchorBoltWorkbench.jsx';
+// Forge-269 — Power screw torque & efficiency (Shigley §8-2).
+import { PowerScrewWorkbenchHost } from './forge-v4/PowerScrewWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -411,6 +413,7 @@ function App() {
       <OrificePlateWorkbenchHost />
       <RcPunchingWorkbenchHost />
       <AnchorBoltWorkbenchHost />
+      <PowerScrewWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

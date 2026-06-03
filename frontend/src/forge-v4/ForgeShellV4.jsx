@@ -1390,6 +1390,12 @@ export function ForgeShellV4() {
         setActiveWb('anchorbolt');
         window.__forgeOpenAnchorBoltWorkbench?.();
         return;
+      // Forge-269 — Power screw torque & efficiency.
+      case 'tools.powerscrew':
+      case 'workbench.powerscrew':
+        setActiveWb('powerscrew');
+        window.__forgeOpenPowerScrewWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

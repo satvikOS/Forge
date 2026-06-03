@@ -207,6 +207,7 @@ add_library(forge_kernel SHARED
     src/OrificePlate.cpp
     src/RcPunching.cpp
     src/AnchorBolt.cpp
+    src/PowerScrew.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -91,8 +91,9 @@ export const CALCULATOR_TREE = [
       {
         label: 'Fasteners & joints',
         items: [
-          { id: 'boltjoint', label: 'Bolt joint (Shigley + ISO 898)…', slice: 'Forge-214' },
-          { id: 'stdparts',  label: 'Standard parts library…', slice: 'Forge-204' },
+          { id: 'boltjoint',  label: 'Bolt joint (Shigley + ISO 898)…', slice: 'Forge-214' },
+          { id: 'stdparts',   label: 'Standard parts library…', slice: 'Forge-204' },
+          { id: 'powerscrew', label: 'Power screw torque & η (Shigley §8-2)…', slice: 'Forge-269' },
         ],
       },
       {
