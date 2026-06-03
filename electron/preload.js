@@ -602,6 +602,12 @@ const forgeApi = {
     faultCurrents:  (input) => kernel.symcomp.faultCurrents(input),
   } : null,
 
+  // tline (Forge-248) — transmission line ABCD (short / med-π / long).
+  tline: kernel && kernel.tline ? {
+    abcd:    (input) => kernel.tline.abcd(input),
+    analyse: (input) => kernel.tline.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

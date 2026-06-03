@@ -186,6 +186,7 @@ add_library(forge_kernel SHARED
     src/Transformer.cpp
     src/InductionMotor.cpp
     src/SymComponents.cpp
+    src/TransmissionLine.cpp
     ${PLANEGCS_SRC}
 )
 

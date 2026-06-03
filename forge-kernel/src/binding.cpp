@@ -97,6 +97,7 @@
 #include "forge/Transformer.hpp"
 #include "forge/InductionMotor.hpp"
 #include "forge/SymComponents.hpp"
+#include "forge/TransmissionLine.hpp"
 
 #include <array>
 
@@ -7845,6 +7846,75 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("symcomp", syNs);
+
+    // -------- Transmission line (Forge-248) -----------------------------
+    auto tlNs = Napi::Object::New(env);
+    auto modelFromStr = [](const std::string& s) {
+      if (s == "short")    return forge::tline::Model::Short;
+      if (s == "mediumPi") return forge::tline::Model::MediumPi;
+      if (s == "long")     return forge::tline::Model::LongLine;
+      throw std::invalid_argument("model must be short / mediumPi / long");
+    };
+    auto readLineParams = [](const Napi::Object& o) {
+      forge::tline::LineParams p{};
+      p.resistancePerKmOhm  = o.Get("resistancePerKmOhm" ).As<Napi::Number>().DoubleValue();
+      p.reactancePerKmOhm   = o.Get("reactancePerKmOhm"  ).As<Napi::Number>().DoubleValue();
+      p.conductancePerKmS   = o.Get("conductancePerKmS"  ).As<Napi::Number>().DoubleValue();
+      p.susceptancePerKmS   = o.Get("susceptancePerKmS"  ).As<Napi::Number>().DoubleValue();
+      p.lengthKm            = o.Get("lengthKm"           ).As<Napi::Number>().DoubleValue();
+      return p;
+    };
+    auto abcdToObj = [](Napi::Env env2, const forge::tline::Abcd& a) {
+      auto o = Napi::Object::New(env2);
+      o.Set("A_mag", Napi::Number::New(env2, a.A_mag));
+      o.Set("A_ang", Napi::Number::New(env2, a.A_ang));
+      o.Set("B_mag", Napi::Number::New(env2, a.B_mag));
+      o.Set("B_ang", Napi::Number::New(env2, a.B_ang));
+      o.Set("C_mag", Napi::Number::New(env2, a.C_mag));
+      o.Set("C_ang", Napi::Number::New(env2, a.C_ang));
+      o.Set("D_mag", Napi::Number::New(env2, a.D_mag));
+      o.Set("D_ang", Napi::Number::New(env2, a.D_ang));
+      return o;
+    };
+    tlNs.Set("abcd", Napi::Function::New(env,
+      [modelFromStr, readLineParams, abcdToObj](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          auto model = modelFromStr(o.Get("model").As<Napi::String>().Utf8Value());
+          auto params = readLineParams(o.Get("params").As<Napi::Object>());
+          return abcdToObj(env2, forge::tline::abcd(model, params));
+        });
+      }));
+    tlNs.Set("analyse", Napi::Function::New(env,
+      [modelFromStr, readLineParams, abcdToObj](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          auto model = modelFromStr(o.Get("model").As<Napi::String>().Utf8Value());
+          auto params = readLineParams(o.Get("params").As<Napi::Object>());
+          auto loadO = o.Get("load").As<Napi::Object>();
+          forge::tline::LoadInput load{};
+          load.receivingPhaseVoltageV = loadO.Get("receivingPhaseVoltageV").As<Napi::Number>().DoubleValue();
+          load.receivingPowerW        = loadO.Get("receivingPowerW"       ).As<Napi::Number>().DoubleValue();
+          load.receivingPowerFactor   = loadO.Get("receivingPowerFactor"  ).As<Napi::Number>().DoubleValue();
+          load.leading                = loadO.Get("leading"               ).As<Napi::Boolean>().Value();
+          auto r = forge::tline::analyse(model, params, load);
+          auto out = Napi::Object::New(env2);
+          out.Set("abcd",                  abcdToObj(env2, r.abcd));
+          out.Set("sendingVoltageV",       Napi::Number::New(env2, r.sendingVoltageV));
+          out.Set("sendingVoltageAngDeg",  Napi::Number::New(env2, r.sendingVoltageAngDeg));
+          out.Set("sendingCurrentA",       Napi::Number::New(env2, r.sendingCurrentA));
+          out.Set("sendingCurrentAngDeg",  Napi::Number::New(env2, r.sendingCurrentAngDeg));
+          out.Set("sendingPowerFactor",    Napi::Number::New(env2, r.sendingPowerFactor));
+          out.Set("sendingRealPowerW",     Napi::Number::New(env2, r.sendingRealPowerW));
+          out.Set("sendingApparentVA",     Napi::Number::New(env2, r.sendingApparentVA));
+          out.Set("regulationPct",         Napi::Number::New(env2, r.regulationPct));
+          out.Set("efficiency",            Napi::Number::New(env2, r.efficiency));
+          return out;
+        });
+      }));
+    exports.Set("tline", tlNs);
 
     return exports;
 }

@@ -1264,6 +1264,12 @@ export function ForgeShellV4() {
         setActiveWb('symcomp');
         window.__forgeOpenSymCompWorkbench?.();
         return;
+      // Forge-248 — Transmission line.
+      case 'tools.tline':
+      case 'workbench.tline':
+        setActiveWb('tline');
+        window.__forgeOpenTLineWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

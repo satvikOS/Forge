@@ -235,6 +235,7 @@ export const CALCULATOR_TREE = [
           { id: 'xformer',    label: 'Transformer (OC + SC + regulation + η)…', slice: 'Forge-245' },
           { id: 'imotor',     label: 'Induction motor (Thevenin + T-s curve)…', slice: 'Forge-246' },
           { id: 'symcomp',    label: 'Symmetrical components + fault analysis…', slice: 'Forge-247' },
+          { id: 'tline',      label: 'Transmission line (ABCD short / π / long)…', slice: 'Forge-248' },
         ],
       },
     ],
