@@ -1450,6 +1450,12 @@ export function ForgeShellV4() {
         setActiveWb('brayton');
         window.__forgeOpenBraytonCycleWorkbench?.();
         return;
+      // Forge-279 — DC shunt motor.
+      case 'tools.dcmotor':
+      case 'workbench.dcmotor':
+        setActiveWb('dcmotor');
+        window.__forgeOpenDcMotorWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

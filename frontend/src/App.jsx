@@ -249,6 +249,8 @@ import { OttoCycleWorkbenchHost } from './forge-v4/OttoCycleWorkbench.jsx';
 import { DieselCycleWorkbenchHost } from './forge-v4/DieselCycleWorkbench.jsx';
 // Forge-278 — Air-standard Brayton cycle.
 import { BraytonCycleWorkbenchHost } from './forge-v4/BraytonCycleWorkbench.jsx';
+// Forge-279 — DC shunt motor.
+import { DcMotorWorkbenchHost } from './forge-v4/DcMotorWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -441,6 +443,7 @@ function App() {
       <OttoCycleWorkbenchHost />
       <DieselCycleWorkbenchHost />
       <BraytonCycleWorkbenchHost />
+      <DcMotorWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

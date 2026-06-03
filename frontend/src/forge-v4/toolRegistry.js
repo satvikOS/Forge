@@ -321,6 +321,12 @@ export const CALCULATOR_TREE = [
           { id: 'scstudy',    label: 'Short-circuit study (Z_bus fault MVA)…', slice: 'Forge-251' },
         ],
       },
+      {
+        label: 'DC machines',
+        items: [
+          { id: 'dcmotor',    label: 'DC shunt motor (T-n + η + speed reg)…', slice: 'Forge-279' },
+        ],
+      },
     ],
   },
   {

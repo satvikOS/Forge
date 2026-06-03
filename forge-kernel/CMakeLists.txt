@@ -217,6 +217,7 @@ add_library(forge_kernel SHARED
     src/OttoCycle.cpp
     src/DieselCycle.cpp
     src/BraytonCycle.cpp
+    src/DcMotor.cpp
     ${PLANEGCS_SRC}
 )
 

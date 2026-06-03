@@ -128,6 +128,7 @@
 #include "forge/OttoCycle.hpp"
 #include "forge/DieselCycle.hpp"
 #include "forge/BraytonCycle.hpp"
+#include "forge/DcMotor.hpp"
 
 #include <array>
 
@@ -9177,6 +9178,39 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("brayton", brayNs);
+
+    // -------- DC shunt motor (Forge-279) --------------------------------
+    auto dcNs = Napi::Object::New(env);
+    dcNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::dcmotor::Input in{};
+          in.supplyVoltageV         = o.Get("supplyVoltageV"        ).As<Napi::Number>().DoubleValue();
+          in.armatureResistanceOhms = o.Get("armatureResistanceOhms").As<Napi::Number>().DoubleValue();
+          in.motorConstantVPerRadS  = o.Get("motorConstantVPerRadS" ).As<Napi::Number>().DoubleValue();
+          in.loadTorqueNm           = o.Get("loadTorqueNm"          ).As<Napi::Number>().DoubleValue();
+          in.fieldResistanceOhms    = o.Get("fieldResistanceOhms"   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::dcmotor::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("armatureCurrentA",     Napi::Number::New(env2, r.armatureCurrentA));
+          out.Set("backEmfV",             Napi::Number::New(env2, r.backEmfV));
+          out.Set("angularSpeedRadS",     Napi::Number::New(env2, r.angularSpeedRadS));
+          out.Set("speedRpm",             Napi::Number::New(env2, r.speedRpm));
+          out.Set("noLoadSpeedRpm",       Napi::Number::New(env2, r.noLoadSpeedRpm));
+          out.Set("stallTorqueNm",        Napi::Number::New(env2, r.stallTorqueNm));
+          out.Set("speedRegulationPct",   Napi::Number::New(env2, r.speedRegulationPct));
+          out.Set("mechanicalPowerW",     Napi::Number::New(env2, r.mechanicalPowerW));
+          out.Set("armatureInputPowerW",  Napi::Number::New(env2, r.armatureInputPowerW));
+          out.Set("armatureCopperLossW",  Napi::Number::New(env2, r.armatureCopperLossW));
+          out.Set("fieldCurrentA",        Napi::Number::New(env2, r.fieldCurrentA));
+          out.Set("fieldCopperLossW",     Napi::Number::New(env2, r.fieldCopperLossW));
+          out.Set("armatureEfficiency",   Napi::Number::New(env2, r.armatureEfficiency));
+          return out;
+        });
+      }));
+    exports.Set("dcmotor", dcNs);
 
     return exports;
 }

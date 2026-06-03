@@ -775,6 +775,11 @@ const forgeApi = {
     analyse: (input) => kernel.brayton.analyse(input),
   } : null,
 
+  // dcmotor (Forge-279) — DC shunt motor steady-state analysis.
+  dcmotor: kernel && kernel.dcmotor ? {
+    analyse: (input) => kernel.dcmotor.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
