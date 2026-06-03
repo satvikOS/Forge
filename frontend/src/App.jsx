@@ -237,6 +237,8 @@ import { SteelBeamLtbWorkbenchHost } from './forge-v4/SteelBeamLtbWorkbench.jsx'
 import { AnchorShearWorkbenchHost } from './forge-v4/AnchorShearWorkbench.jsx';
 // Forge-272 — Wood beam bending (NDS 2018 §3.3 + §4.3).
 import { WoodBeamWorkbenchHost } from './forge-v4/WoodBeamWorkbench.jsx';
+// Forge-273 — Pump NPSH available (ANSI/HI 9.6).
+import { PumpNpshWorkbenchHost } from './forge-v4/PumpNpshWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -423,6 +425,7 @@ function App() {
       <SteelBeamLtbWorkbenchHost />
       <AnchorShearWorkbenchHost />
       <WoodBeamWorkbenchHost />
+      <PumpNpshWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

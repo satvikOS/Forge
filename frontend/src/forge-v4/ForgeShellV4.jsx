@@ -1414,6 +1414,12 @@ export function ForgeShellV4() {
         setActiveWb('woodbeam');
         window.__forgeOpenWoodBeamWorkbench?.();
         return;
+      // Forge-273 — Pump NPSH available (ANSI/HI 9.6).
+      case 'tools.pumpnpsh':
+      case 'workbench.pumpnpsh':
+        setActiveWb('pumpnpsh');
+        window.__forgeOpenPumpNpshWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

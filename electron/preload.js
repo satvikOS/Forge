@@ -745,6 +745,11 @@ const forgeApi = {
     analyse: (input) => kernel.woodbeam.analyse(input),
   } : null,
 
+  // pumpnpsh (Forge-273) — Pump NPSH available (Hydraulic Institute ANSI/HI 9.6).
+  pumpnpsh: kernel && kernel.pumpnpsh ? {
+    analyse: (input) => kernel.pumpnpsh.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

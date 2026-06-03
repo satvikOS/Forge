@@ -122,6 +122,7 @@
 #include "forge/SteelBeamLtb.hpp"
 #include "forge/AnchorShear.hpp"
 #include "forge/WoodBeam.hpp"
+#include "forge/PumpNpsh.hpp"
 
 #include <array>
 
@@ -8971,6 +8972,33 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("woodbeam", wbNs);
+
+    // -------- Pump NPSH available (Forge-273) ---------------------------
+    auto npshNs = Napi::Object::New(env);
+    npshNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pumpnpsh::Input in{};
+          in.atmosphericPressurePa = o.Get("atmosphericPressurePa").As<Napi::Number>().DoubleValue();
+          in.vapourPressurePa      = o.Get("vapourPressurePa"     ).As<Napi::Number>().DoubleValue();
+          in.densityKgM3           = o.Get("densityKgM3"          ).As<Napi::Number>().DoubleValue();
+          in.staticSuctionHeadM    = o.Get("staticSuctionHeadM"   ).As<Napi::Number>().DoubleValue();
+          in.frictionHeadM         = o.Get("frictionHeadM"        ).As<Napi::Number>().DoubleValue();
+          in.requiredNpshM         = o.Get("requiredNpshM"        ).As<Napi::Number>().DoubleValue();
+          auto r = forge::pumpnpsh::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("pressureHeadM",  Napi::Number::New(env2, r.pressureHeadM));
+          out.Set("availableNpshM", Napi::Number::New(env2, r.availableNpshM));
+          out.Set("marginM",        Napi::Number::New(env2, r.marginM));
+          out.Set("marginPct",      Napi::Number::New(env2, r.marginPct));
+          out.Set("cavitating",     Napi::Boolean::New(env2, r.cavitating));
+          out.Set("marginalPerHi",  Napi::Boolean::New(env2, r.marginalPerHi));
+          return out;
+        });
+      }));
+    exports.Set("pumpnpsh", npshNs);
 
     return exports;
 }

@@ -211,6 +211,7 @@ add_library(forge_kernel SHARED
     src/SteelBeamLtb.cpp
     src/AnchorShear.cpp
     src/WoodBeam.cpp
+    src/PumpNpsh.cpp
     ${PLANEGCS_SRC}
 )
 
