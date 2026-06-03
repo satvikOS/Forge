@@ -107,6 +107,7 @@
 #include "forge/SolarPv.hpp"
 #include "forge/Hydrology.hpp"
 #include "forge/RcColumn.hpp"
+#include "forge/Machining.hpp"
 
 #include <array>
 
@@ -8363,6 +8364,78 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("rccolumn", rclNs);
+
+    // -------- Machining (Forge-258) -------------------------------------
+    auto mcNs = Napi::Object::New(env);
+    mcNs.Set("turning", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::machining::TurningInput in{};
+          in.diameterMm                  = o.Get("diameterMm"                 ).As<Napi::Number>().DoubleValue();
+          in.cuttingSpeedM_min           = o.Get("cuttingSpeedM_min"          ).As<Napi::Number>().DoubleValue();
+          in.feedPerRevMm                = o.Get("feedPerRevMm"               ).As<Napi::Number>().DoubleValue();
+          in.depthOfCutMm                = o.Get("depthOfCutMm"               ).As<Napi::Number>().DoubleValue();
+          in.specificCuttingForceN_mm2   = o.Get("specificCuttingForceN_mm2"  ).As<Napi::Number>().DoubleValue();
+          in.machineEfficiency           = o.Get("machineEfficiency"          ).As<Napi::Number>().DoubleValue();
+          in.leadAngleDeg                = o.Get("leadAngleDeg"               ).As<Napi::Number>().DoubleValue();
+          auto r = forge::machining::turning(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("spindleSpeedRpm",  Napi::Number::New(env2, r.spindleSpeedRpm));
+          out.Set("mrrCm3Min",        Napi::Number::New(env2, r.mrrCm3Min));
+          out.Set("cuttingForceN",    Napi::Number::New(env2, r.cuttingForceN));
+          out.Set("powerKw",          Napi::Number::New(env2, r.powerKw));
+          return out;
+        });
+      }));
+    mcNs.Set("milling", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::machining::MillingInput in{};
+          in.diameterMm                  = o.Get("diameterMm"                 ).As<Napi::Number>().DoubleValue();
+          in.cuttingSpeedM_min           = o.Get("cuttingSpeedM_min"          ).As<Napi::Number>().DoubleValue();
+          in.feedPerToothMm              = o.Get("feedPerToothMm"             ).As<Napi::Number>().DoubleValue();
+          in.numberOfTeeth               = o.Get("numberOfTeeth"              ).As<Napi::Number>().Int32Value();
+          in.axialDepthMm                = o.Get("axialDepthMm"               ).As<Napi::Number>().DoubleValue();
+          in.radialDepthMm               = o.Get("radialDepthMm"              ).As<Napi::Number>().DoubleValue();
+          in.specificCuttingForceN_mm2   = o.Get("specificCuttingForceN_mm2"  ).As<Napi::Number>().DoubleValue();
+          in.machineEfficiency           = o.Get("machineEfficiency"          ).As<Napi::Number>().DoubleValue();
+          auto r = forge::machining::milling(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("spindleSpeedRpm",  Napi::Number::New(env2, r.spindleSpeedRpm));
+          out.Set("feedRateMmMin",    Napi::Number::New(env2, r.feedRateMmMin));
+          out.Set("mrrCm3Min",        Napi::Number::New(env2, r.mrrCm3Min));
+          out.Set("cuttingForceN",    Napi::Number::New(env2, r.cuttingForceN));
+          out.Set("powerKw",          Napi::Number::New(env2, r.powerKw));
+          return out;
+        });
+      }));
+    mcNs.Set("drilling", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::machining::DrillingInput in{};
+          in.diameterMm                  = o.Get("diameterMm"                 ).As<Napi::Number>().DoubleValue();
+          in.cuttingSpeedM_min           = o.Get("cuttingSpeedM_min"          ).As<Napi::Number>().DoubleValue();
+          in.feedPerRevMm                = o.Get("feedPerRevMm"               ).As<Napi::Number>().DoubleValue();
+          in.specificCuttingForceN_mm2   = o.Get("specificCuttingForceN_mm2"  ).As<Napi::Number>().DoubleValue();
+          in.machineEfficiency           = o.Get("machineEfficiency"          ).As<Napi::Number>().DoubleValue();
+          auto r = forge::machining::drilling(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("spindleSpeedRpm",  Napi::Number::New(env2, r.spindleSpeedRpm));
+          out.Set("feedRateMmMin",    Napi::Number::New(env2, r.feedRateMmMin));
+          out.Set("mrrCm3Min",        Napi::Number::New(env2, r.mrrCm3Min));
+          out.Set("thrustForceN",     Napi::Number::New(env2, r.thrustForceN));
+          out.Set("torqueNm",         Napi::Number::New(env2, r.torqueNm));
+          out.Set("powerKw",          Napi::Number::New(env2, r.powerKw));
+          return out;
+        });
+      }));
+    exports.Set("machining", mcNs);
 
     return exports;
 }

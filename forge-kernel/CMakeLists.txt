@@ -196,6 +196,7 @@ add_library(forge_kernel SHARED
     src/SolarPv.cpp
     src/Hydrology.cpp
     src/RcColumn.cpp
+    src/Machining.cpp
     ${PLANEGCS_SRC}
 )
 

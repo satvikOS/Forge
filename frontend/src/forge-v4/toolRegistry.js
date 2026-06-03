@@ -275,6 +275,18 @@ export const CALCULATOR_TREE = [
     ],
   },
   {
+    label: 'Manufacturing',
+    icon: 'wb.mfg',
+    sections: [
+      {
+        label: 'Machining',
+        items: [
+          { id: 'machining', label: 'Machining feeds + speeds + power…', slice: 'Forge-258' },
+        ],
+      },
+    ],
+  },
+  {
     label: 'Operations',
     icon: 'misc.settings',
     sections: [

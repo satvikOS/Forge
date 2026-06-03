@@ -663,6 +663,13 @@ const forgeApi = {
     analyse: (input) => kernel.rccolumn.analyse(input),
   } : null,
 
+  // machining (Forge-258) — feeds + speeds + cutting force + power.
+  machining: kernel && kernel.machining ? {
+    turning:  (input) => kernel.machining.turning(input),
+    milling:  (input) => kernel.machining.milling(input),
+    drilling: (input) => kernel.machining.drilling(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

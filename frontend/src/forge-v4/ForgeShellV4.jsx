@@ -1324,6 +1324,12 @@ export function ForgeShellV4() {
         setActiveWb('rccolumn');
         window.__forgeOpenRcColumnWorkbench?.();
         return;
+      // Forge-258 — Machining.
+      case 'tools.machining':
+      case 'workbench.machining':
+        setActiveWb('machining');
+        window.__forgeOpenMachiningWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

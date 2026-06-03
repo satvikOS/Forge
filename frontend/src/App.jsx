@@ -207,6 +207,8 @@ import { SolarPvWorkbenchHost } from './forge-v4/SolarPvWorkbench.jsx';
 import { HydrologyWorkbenchHost } from './forge-v4/HydrologyWorkbench.jsx';
 // Forge-257 — RC column workbench.
 import { RcColumnWorkbenchHost } from './forge-v4/RcColumnWorkbench.jsx';
+// Forge-258 — Machining workbench.
+import { MachiningWorkbenchHost } from './forge-v4/MachiningWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -378,6 +380,7 @@ function App() {
       <SolarPvWorkbenchHost />
       <HydrologyWorkbenchHost />
       <RcColumnWorkbenchHost />
+      <MachiningWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
