@@ -221,6 +221,7 @@ add_library(forge_kernel SHARED
     src/WireRopeSling.cpp
     src/DiscBrake.cpp
     src/ReciprocatingCompressor.cpp
+    src/ChainDrive.cpp
     ${PLANEGCS_SRC}
 )
 

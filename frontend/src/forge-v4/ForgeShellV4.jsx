@@ -1474,6 +1474,12 @@ export function ForgeShellV4() {
         setActiveWb('compressor');
         window.__forgeOpenReciprocatingCompressorWorkbench?.();
         return;
+      // Forge-283 — Roller chain drive.
+      case 'tools.chain':
+      case 'workbench.chain':
+        setActiveWb('chain');
+        window.__forgeOpenChainDriveWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

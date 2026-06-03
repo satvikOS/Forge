@@ -795,6 +795,11 @@ const forgeApi = {
     analyse: (input) => kernel.compressor.analyse(input),
   } : null,
 
+  // chain (Forge-283) — Roller chain drive geometry (ANSI B29.1).
+  chain: kernel && kernel.chain ? {
+    analyse: (input) => kernel.chain.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

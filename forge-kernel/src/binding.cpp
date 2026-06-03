@@ -132,6 +132,7 @@
 #include "forge/WireRopeSling.hpp"
 #include "forge/DiscBrake.hpp"
 #include "forge/ReciprocatingCompressor.hpp"
+#include "forge/ChainDrive.hpp"
 
 #include <array>
 
@@ -9304,6 +9305,35 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("compressor", compNs);
+
+    // -------- Roller chain drive (Forge-283) ----------------------------
+    auto cdNs = Napi::Object::New(env);
+    cdNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::chaindrive::Input in{};
+          in.pitchMm          = o.Get("pitchMm"         ).As<Napi::Number>().DoubleValue();
+          in.driverTeeth      = o.Get("driverTeeth"     ).As<Napi::Number>().Int32Value();
+          in.drivenTeeth      = o.Get("drivenTeeth"     ).As<Napi::Number>().Int32Value();
+          in.centerDistanceMm = o.Get("centerDistanceMm").As<Napi::Number>().DoubleValue();
+          in.driverSpeedRpm   = o.Get("driverSpeedRpm"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::chaindrive::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("driverPitchDiameterMm",   Napi::Number::New(env2, r.driverPitchDiameterMm));
+          out.Set("drivenPitchDiameterMm",   Napi::Number::New(env2, r.drivenPitchDiameterMm));
+          out.Set("speedRatio",              Napi::Number::New(env2, r.speedRatio));
+          out.Set("drivenSpeedRpm",          Napi::Number::New(env2, r.drivenSpeedRpm));
+          out.Set("chainVelocityMs",         Napi::Number::New(env2, r.chainVelocityMs));
+          out.Set("approxLengthMm",          Napi::Number::New(env2, r.approxLengthMm));
+          out.Set("lengthInPitches",         Napi::Number::New(env2, r.lengthInPitches));
+          out.Set("lengthInPitchesRounded",  Napi::Number::New(env2, r.lengthInPitchesRounded));
+          out.Set("finalCenterDistanceMm",   Napi::Number::New(env2, r.finalCenterDistanceMm));
+          return out;
+        });
+      }));
+    exports.Set("chain", cdNs);
 
     return exports;
 }
