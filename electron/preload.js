@@ -644,6 +644,13 @@ const forgeApi = {
     terminalState:  (inp) => kernel.battery.terminalState(inp),
   } : null,
 
+  // solarpv (Forge-255) — array + battery bank + inverter sizing.
+  solarpv: kernel && kernel.solarpv ? {
+    sizeArray:        (inp) => kernel.solarpv.sizeArray(inp),
+    sizeBatteryBank:  (inp) => kernel.solarpv.sizeBatteryBank(inp),
+    sizeInverterVA:   (inp) => kernel.solarpv.sizeInverterVA(inp),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

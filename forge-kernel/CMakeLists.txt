@@ -193,6 +193,7 @@ add_library(forge_kernel SHARED
     src/CableSizing.cpp
     src/Lighting.cpp
     src/Battery.cpp
+    src/SolarPv.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -104,6 +104,7 @@
 #include "forge/CableSizing.hpp"
 #include "forge/Lighting.hpp"
 #include "forge/Battery.hpp"
+#include "forge/SolarPv.hpp"
 
 #include <array>
 
@@ -8232,6 +8233,60 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("battery", baNs);
+
+    // -------- Solar PV sizing (Forge-255) -------------------------------
+    auto solNs = Napi::Object::New(env);
+    solNs.Set("sizeArray", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::solarpv::ArrayInput in{};
+          in.dailyEnergyAcWh     = o.Get("dailyEnergyAcWh"    ).As<Napi::Number>().DoubleValue();
+          in.peakSunHours        = o.Get("peakSunHours"       ).As<Napi::Number>().DoubleValue();
+          in.panelWattPeak       = o.Get("panelWattPeak"      ).As<Napi::Number>().DoubleValue();
+          in.inverterEfficiency  = o.Get("inverterEfficiency" ).As<Napi::Number>().DoubleValue();
+          in.batteryEfficiency   = o.Get("batteryEfficiency"  ).As<Napi::Number>().DoubleValue();
+          in.arrayDeratingFactor = o.Get("arrayDeratingFactor").As<Napi::Number>().DoubleValue();
+          auto r = forge::solarpv::sizeArray(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("requiredArrayPowerWp",  Napi::Number::New(env2, r.requiredArrayPowerWp));
+          out.Set("numberOfPanels",        Napi::Number::New(env2, r.numberOfPanels));
+          out.Set("installedArrayPowerWp", Napi::Number::New(env2, r.installedArrayPowerWp));
+          return out;
+        });
+      }));
+    solNs.Set("sizeBatteryBank", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::solarpv::BatteryInput in{};
+          in.dailyEnergyAcWh    = o.Get("dailyEnergyAcWh"   ).As<Napi::Number>().DoubleValue();
+          in.autonomyDays       = o.Get("autonomyDays"      ).As<Napi::Number>().DoubleValue();
+          in.depthOfDischarge   = o.Get("depthOfDischarge"  ).As<Napi::Number>().DoubleValue();
+          in.batteryBankVoltage = o.Get("batteryBankVoltage").As<Napi::Number>().DoubleValue();
+          in.batteryEfficiency  = o.Get("batteryEfficiency" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::solarpv::sizeBatteryBank(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("storageEnergyWh",    Napi::Number::New(env2, r.storageEnergyWh));
+          out.Set("batteryCapacityAh",  Napi::Number::New(env2, r.batteryCapacityAh));
+          return out;
+        });
+      }));
+    solNs.Set("sizeInverterVA", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::solarpv::InverterInput in{};
+          in.peakAcLoadW  = o.Get("peakAcLoadW" ).As<Napi::Number>().DoubleValue();
+          in.powerFactor  = o.Get("powerFactor" ).As<Napi::Number>().DoubleValue();
+          in.sizingFactor = o.Get("sizingFactor").As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::solarpv::sizeInverterVA(in));
+        });
+      }));
+    exports.Set("solarpv", solNs);
 
     return exports;
 }

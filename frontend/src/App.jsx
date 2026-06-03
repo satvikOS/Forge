@@ -201,6 +201,8 @@ import { CableSizingWorkbenchHost } from './forge-v4/CableSizingWorkbench.jsx';
 import { LightingWorkbenchHost } from './forge-v4/LightingWorkbench.jsx';
 // Forge-254 — Battery sizing workbench.
 import { BatteryWorkbenchHost } from './forge-v4/BatteryWorkbench.jsx';
+// Forge-255 — Solar PV sizing workbench.
+import { SolarPvWorkbenchHost } from './forge-v4/SolarPvWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -369,6 +371,7 @@ function App() {
       <CableSizingWorkbenchHost />
       <LightingWorkbenchHost />
       <BatteryWorkbenchHost />
+      <SolarPvWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -1306,6 +1306,12 @@ export function ForgeShellV4() {
         setActiveWb('battery');
         window.__forgeOpenBatteryWorkbench?.();
         return;
+      // Forge-255 — Solar PV sizing.
+      case 'tools.solar':
+      case 'workbench.solar':
+        setActiveWb('solar');
+        window.__forgeOpenSolarWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
