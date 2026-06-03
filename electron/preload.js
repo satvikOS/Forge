@@ -765,6 +765,11 @@ const forgeApi = {
     analyse: (input) => kernel.otto.analyse(input),
   } : null,
 
+  // diesel (Forge-277) — Air-standard Diesel cycle (CI engine, cutoff ratio).
+  diesel: kernel && kernel.diesel ? {
+    analyse: (input) => kernel.diesel.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

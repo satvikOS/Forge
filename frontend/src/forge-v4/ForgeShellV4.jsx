@@ -1438,6 +1438,12 @@ export function ForgeShellV4() {
         setActiveWb('otto');
         window.__forgeOpenOttoCycleWorkbench?.();
         return;
+      // Forge-277 — Diesel cycle (air-standard).
+      case 'tools.diesel':
+      case 'workbench.diesel':
+        setActiveWb('diesel');
+        window.__forgeOpenDieselCycleWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
