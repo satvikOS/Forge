@@ -670,6 +670,11 @@ const forgeApi = {
     drilling: (input) => kernel.machining.drilling(input),
   } : null,
 
+  // combustion (Forge-259) — stoichiometric AFR + flue gas composition.
+  combustion: kernel && kernel.combustion ? {
+    analyse: (input) => kernel.combustion.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

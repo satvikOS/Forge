@@ -197,6 +197,7 @@ add_library(forge_kernel SHARED
     src/Hydrology.cpp
     src/RcColumn.cpp
     src/Machining.cpp
+    src/Combustion.cpp
     ${PLANEGCS_SRC}
 )
 

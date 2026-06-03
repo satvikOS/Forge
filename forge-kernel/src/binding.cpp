@@ -108,6 +108,7 @@
 #include "forge/Hydrology.hpp"
 #include "forge/RcColumn.hpp"
 #include "forge/Machining.hpp"
+#include "forge/Combustion.hpp"
 
 #include <array>
 
@@ -8436,6 +8437,40 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("machining", mcNs);
+
+    // -------- Combustion (Forge-259) ------------------------------------
+    auto cmbNs = Napi::Object::New(env);
+    cmbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::combustion::Input in{};
+          auto fo = o.Get("fuel").As<Napi::Object>();
+          in.fuel.C = fo.Get("C").As<Napi::Number>().DoubleValue();
+          in.fuel.H = fo.Get("H").As<Napi::Number>().DoubleValue();
+          in.fuel.O = fo.Get("O").As<Napi::Number>().DoubleValue();
+          in.fuel.N = fo.Get("N").As<Napi::Number>().DoubleValue();
+          in.fuel.S = fo.Get("S").As<Napi::Number>().DoubleValue();
+          in.excessAirRatio = o.Get("excessAirRatio").As<Napi::Number>().DoubleValue();
+          auto r = forge::combustion::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("stoichiometricOxygenKgPerKgFuel", Napi::Number::New(env2, r.stoichiometricOxygenKgPerKgFuel));
+          out.Set("stoichiometricAirKgPerKgFuel",    Napi::Number::New(env2, r.stoichiometricAirKgPerKgFuel));
+          out.Set("actualAirKgPerKgFuel",            Napi::Number::New(env2, r.actualAirKgPerKgFuel));
+          out.Set("co2KgPerKgFuel",                  Napi::Number::New(env2, r.co2KgPerKgFuel));
+          out.Set("h2oKgPerKgFuel",                  Napi::Number::New(env2, r.h2oKgPerKgFuel));
+          out.Set("so2KgPerKgFuel",                  Napi::Number::New(env2, r.so2KgPerKgFuel));
+          out.Set("n2KgPerKgFuel",                   Napi::Number::New(env2, r.n2KgPerKgFuel));
+          out.Set("excessO2KgPerKgFuel",             Napi::Number::New(env2, r.excessO2KgPerKgFuel));
+          out.Set("dryFlueGasKgPerKgFuel",           Napi::Number::New(env2, r.dryFlueGasKgPerKgFuel));
+          out.Set("dryCO2MassPct",                   Napi::Number::New(env2, r.dryCO2MassPct));
+          out.Set("dryO2MassPct",                    Napi::Number::New(env2, r.dryO2MassPct));
+          out.Set("dryN2MassPct",                    Napi::Number::New(env2, r.dryN2MassPct));
+          return out;
+        });
+      }));
+    exports.Set("combustion", cmbNs);
 
     return exports;
 }

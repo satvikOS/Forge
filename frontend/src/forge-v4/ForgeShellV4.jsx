@@ -1330,6 +1330,12 @@ export function ForgeShellV4() {
         setActiveWb('machining');
         window.__forgeOpenMachiningWorkbench?.();
         return;
+      // Forge-259 — Combustion analysis.
+      case 'tools.combustion':
+      case 'workbench.combustion':
+        setActiveWb('combustion');
+        window.__forgeOpenCombustionWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

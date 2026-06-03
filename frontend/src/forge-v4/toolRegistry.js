@@ -145,6 +145,12 @@ export const CALCULATOR_TREE = [
           { id: 'weir',      label: 'Weir / V-notch / orifice…', slice: 'Forge-243' },
         ],
       },
+      {
+        label: 'Combustion',
+        items: [
+          { id: 'combustion', label: 'Combustion (stoichiometric AFR + flue gas)…', slice: 'Forge-259' },
+        ],
+      },
     ],
   },
   {
