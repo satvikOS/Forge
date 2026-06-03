@@ -227,6 +227,8 @@ import { TunedMassDamperWorkbenchHost } from './forge-v4/TunedMassDamperWorkbenc
 import { OrificePlateWorkbenchHost } from './forge-v4/OrificePlateWorkbench.jsx';
 // Forge-267 — RC slab punching shear (ACI 318-19 §22.6.5).
 import { RcPunchingWorkbenchHost } from './forge-v4/RcPunchingWorkbench.jsx';
+// Forge-268 — Anchor bolt tension capacity (ACI 318-19 Ch.17).
+import { AnchorBoltWorkbenchHost } from './forge-v4/AnchorBoltWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -408,6 +410,7 @@ function App() {
       <TunedMassDamperWorkbenchHost />
       <OrificePlateWorkbenchHost />
       <RcPunchingWorkbenchHost />
+      <AnchorBoltWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

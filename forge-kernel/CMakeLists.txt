@@ -206,6 +206,7 @@ add_library(forge_kernel SHARED
     src/TunedMassDamper.cpp
     src/OrificePlate.cpp
     src/RcPunching.cpp
+    src/AnchorBolt.cpp
     ${PLANEGCS_SRC}
 )
 

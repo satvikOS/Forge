@@ -117,6 +117,7 @@
 #include "forge/TunedMassDamper.hpp"
 #include "forge/OrificePlate.hpp"
 #include "forge/RcPunching.hpp"
+#include "forge/AnchorBolt.hpp"
 
 #include <array>
 
@@ -8781,6 +8782,47 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("rcpunching", punchNs);
+
+    // -------- Anchor bolt tension (Forge-268) ---------------------------
+    auto anchorNs = Napi::Object::New(env);
+    anchorNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::anchorbolt::Input in{};
+          in.effectiveTensileAreaMm2 = o.Get("effectiveTensileAreaMm2").As<Napi::Number>().DoubleValue();
+          in.steelUltimateMPa        = o.Get("steelUltimateMPa"       ).As<Napi::Number>().DoubleValue();
+          in.steelYieldMPa           = o.Get("steelYieldMPa"          ).As<Napi::Number>().DoubleValue();
+          in.embedmentDepthMm        = o.Get("embedmentDepthMm"       ).As<Napi::Number>().DoubleValue();
+          in.concreteStrengthMPa     = o.Get("concreteStrengthMPa"    ).As<Napi::Number>().DoubleValue();
+          in.minEdgeDistanceMm       = o.Get("minEdgeDistanceMm"      ).As<Napi::Number>().DoubleValue();
+          in.bearingAreaMm2          = o.Get("bearingAreaMm2"         ).As<Napi::Number>().DoubleValue();
+          in.lambdaLightweight       = o.Get("lambdaLightweight"      ).As<Napi::Number>().DoubleValue();
+          in.crackedConcrete         = o.Get("crackedConcrete"        ).As<Napi::Boolean>().Value();
+          in.castInAnchor            = o.Get("castInAnchor"           ).As<Napi::Boolean>().Value();
+          auto r = forge::anchorbolt::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cappedFutaMPa",     Napi::Number::New(env2, r.cappedFutaMPa));
+          out.Set("steelNominalN",     Napi::Number::New(env2, r.steelNominalN));
+          out.Set("phiSteelN",         Napi::Number::New(env2, r.phiSteelN));
+          out.Set("aNcoMm2",           Napi::Number::New(env2, r.aNcoMm2));
+          out.Set("aNcMm2",            Napi::Number::New(env2, r.aNcMm2));
+          out.Set("psiEdN",            Napi::Number::New(env2, r.psiEdN));
+          out.Set("psiCN",             Napi::Number::New(env2, r.psiCN));
+          out.Set("nBN",               Napi::Number::New(env2, r.nBN));
+          out.Set("breakoutNominalN",  Napi::Number::New(env2, r.breakoutNominalN));
+          out.Set("phiBreakoutN",      Napi::Number::New(env2, r.phiBreakoutN));
+          out.Set("psiCP",             Napi::Number::New(env2, r.psiCP));
+          out.Set("nPN",               Napi::Number::New(env2, r.nPN));
+          out.Set("pulloutNominalN",   Napi::Number::New(env2, r.pulloutNominalN));
+          out.Set("phiPulloutN",       Napi::Number::New(env2, r.phiPulloutN));
+          out.Set("phiGoverningN",     Napi::Number::New(env2, r.phiGoverningN));
+          out.Set("governingMode",     Napi::String::New(env2, r.governingMode));
+          return out;
+        });
+      }));
+    exports.Set("anchorbolt", anchorNs);
 
     return exports;
 }

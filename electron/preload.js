@@ -720,6 +720,11 @@ const forgeApi = {
     analyse: (input) => kernel.rcpunching.analyse(input),
   } : null,
 
+  // anchorbolt (Forge-268) — cast-in anchor bolt tension capacity, ACI 318-19 Ch.17.
+  anchorbolt: kernel && kernel.anchorbolt ? {
+    analyse: (input) => kernel.anchorbolt.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

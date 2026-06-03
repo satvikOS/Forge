@@ -1384,6 +1384,12 @@ export function ForgeShellV4() {
         setActiveWb('rcpunching');
         window.__forgeOpenRcPunchingWorkbench?.();
         return;
+      // Forge-268 — Anchor bolt tension.
+      case 'tools.anchorbolt':
+      case 'workbench.anchorbolt':
+        setActiveWb('anchorbolt');
+        window.__forgeOpenAnchorBoltWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
