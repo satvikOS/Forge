@@ -233,6 +233,7 @@ export const CALCULATOR_TREE = [
         items: [
           { id: 'threephase', label: 'Three-phase power + PF correction + p.u.…', slice: 'Forge-244' },
           { id: 'xformer',    label: 'Transformer (OC + SC + regulation + η)…', slice: 'Forge-245' },
+          { id: 'imotor',     label: 'Induction motor (Thevenin + T-s curve)…', slice: 'Forge-246' },
         ],
       },
     ],

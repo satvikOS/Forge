@@ -95,6 +95,7 @@
 #include "forge/WeirOrifice.hpp"
 #include "forge/ThreePhase.hpp"
 #include "forge/Transformer.hpp"
+#include "forge/InductionMotor.hpp"
 
 #include <array>
 
@@ -7731,6 +7732,45 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("transformer", trNs);
+
+    // -------- Induction motor (Forge-246) -------------------------------
+    auto imNs = Napi::Object::New(env);
+    imNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::inductionmotor::Input in{};
+          in.phaseVoltageV = o.Get("phaseVoltageV").As<Napi::Number>().DoubleValue();
+          in.frequencyHz   = o.Get("frequencyHz"  ).As<Napi::Number>().DoubleValue();
+          in.poles         = o.Get("poles"        ).As<Napi::Number>().Int32Value();
+          in.stator_R1     = o.Get("stator_R1"    ).As<Napi::Number>().DoubleValue();
+          in.stator_X1     = o.Get("stator_X1"    ).As<Napi::Number>().DoubleValue();
+          in.rotor_R2      = o.Get("rotor_R2"     ).As<Napi::Number>().DoubleValue();
+          in.rotor_X2      = o.Get("rotor_X2"     ).As<Napi::Number>().DoubleValue();
+          in.mag_Xm        = o.Get("mag_Xm"       ).As<Napi::Number>().DoubleValue();
+          in.slip          = o.Get("slip"         ).As<Napi::Number>().DoubleValue();
+          auto r = forge::inductionmotor::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("synchronousRadPerS",  Napi::Number::New(env2, r.synchronousRadPerS));
+          out.Set("synchronousRpm",      Napi::Number::New(env2, r.synchronousRpm));
+          out.Set("mechanicalRpm",       Napi::Number::New(env2, r.mechanicalRpm));
+          out.Set("thevenin_V",          Napi::Number::New(env2, r.thevenin_V));
+          out.Set("thevenin_R",          Napi::Number::New(env2, r.thevenin_R));
+          out.Set("thevenin_X",          Napi::Number::New(env2, r.thevenin_X));
+          out.Set("developedTorqueNm",   Napi::Number::New(env2, r.developedTorqueNm));
+          out.Set("airGapPowerW",        Napi::Number::New(env2, r.airGapPowerW));
+          out.Set("mechPowerW",          Napi::Number::New(env2, r.mechPowerW));
+          out.Set("rotorCopperLossW",    Napi::Number::New(env2, r.rotorCopperLossW));
+          out.Set("rotorCurrentA",       Napi::Number::New(env2, r.rotorCurrentA));
+          out.Set("breakdownSlip",       Napi::Number::New(env2, r.breakdownSlip));
+          out.Set("breakdownTorqueNm",   Napi::Number::New(env2, r.breakdownTorqueNm));
+          out.Set("startingTorqueNm",    Napi::Number::New(env2, r.startingTorqueNm));
+          out.Set("startingCurrentA",    Napi::Number::New(env2, r.startingCurrentA));
+          return out;
+        });
+      }));
+    exports.Set("inductionmotor", imNs);
 
     return exports;
 }

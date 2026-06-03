@@ -183,6 +183,8 @@ import { WeirOrificeWorkbenchHost } from './forge-v4/WeirOrificeWorkbench.jsx';
 import { ThreePhaseWorkbenchHost } from './forge-v4/ThreePhaseWorkbench.jsx';
 // Forge-245 — Transformer workbench.
 import { TransformerWorkbenchHost } from './forge-v4/TransformerWorkbench.jsx';
+// Forge-246 — Induction motor workbench.
+import { InductionMotorWorkbenchHost } from './forge-v4/InductionMotorWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -342,6 +344,7 @@ function App() {
       <WeirOrificeWorkbenchHost />
       <ThreePhaseWorkbenchHost />
       <TransformerWorkbenchHost />
+      <InductionMotorWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

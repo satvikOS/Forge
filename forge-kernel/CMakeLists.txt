@@ -184,6 +184,7 @@ add_library(forge_kernel SHARED
     src/WeirOrifice.cpp
     src/ThreePhase.cpp
     src/Transformer.cpp
+    src/InductionMotor.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -1252,6 +1252,12 @@ export function ForgeShellV4() {
         setActiveWb('xformer');
         window.__forgeOpenXformerWorkbench?.();
         return;
+      // Forge-246 — Induction motor.
+      case 'tools.imotor':
+      case 'workbench.imotor':
+        setActiveWb('imotor');
+        window.__forgeOpenIMotorWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

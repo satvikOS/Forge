@@ -590,6 +590,11 @@ const forgeApi = {
     maximumEfficiencyLoadFraction:  (Poc, Psc) => kernel.transformer.maximumEfficiencyLoadFraction(Poc, Psc),
   } : null,
 
+  // inductionmotor (Forge-246) — 3-φ IM per-phase Thevenin + T-s.
+  inductionmotor: kernel && kernel.inductionmotor ? {
+    analyse: (input) => kernel.inductionmotor.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
