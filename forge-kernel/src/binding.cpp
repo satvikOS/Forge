@@ -96,6 +96,7 @@
 #include "forge/ThreePhase.hpp"
 #include "forge/Transformer.hpp"
 #include "forge/InductionMotor.hpp"
+#include "forge/SymComponents.hpp"
 
 #include <array>
 
@@ -7771,6 +7772,79 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("inductionmotor", imNs);
+
+    // -------- Symmetrical components (Forge-247) ------------------------
+    auto syNs = Napi::Object::New(env);
+    auto polarFromObj = [](const Napi::Object& o) {
+      forge::symcomp::PhasorPolar p{};
+      p.magnitude = o.Get("magnitude").As<Napi::Number>().DoubleValue();
+      p.angleDeg  = o.Get("angleDeg" ).As<Napi::Number>().DoubleValue();
+      return p;
+    };
+    auto polarToObj = [](Napi::Env env2, const forge::symcomp::PhasorPolar& p) {
+      auto o = Napi::Object::New(env2);
+      o.Set("magnitude", Napi::Number::New(env2, p.magnitude));
+      o.Set("angleDeg",  Napi::Number::New(env2, p.angleDeg));
+      return o;
+    };
+    syNs.Set("decompose", Napi::Function::New(env,
+      [polarFromObj, polarToObj](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::symcomp::DecomposeInput in{
+            polarFromObj(o.Get("Va").As<Napi::Object>()),
+            polarFromObj(o.Get("Vb").As<Napi::Object>()),
+            polarFromObj(o.Get("Vc").As<Napi::Object>()),
+          };
+          auto r = forge::symcomp::decompose(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("zero",     polarToObj(env2, r.zero));
+          out.Set("positive", polarToObj(env2, r.positive));
+          out.Set("negative", polarToObj(env2, r.negative));
+          return out;
+        });
+      }));
+    syNs.Set("compose", Napi::Function::New(env,
+      [polarFromObj, polarToObj](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::symcomp::DecomposeResult in{
+            polarFromObj(o.Get("zero"    ).As<Napi::Object>()),
+            polarFromObj(o.Get("positive").As<Napi::Object>()),
+            polarFromObj(o.Get("negative").As<Napi::Object>()),
+          };
+          auto r = forge::symcomp::compose(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Va", polarToObj(env2, r.Va));
+          out.Set("Vb", polarToObj(env2, r.Vb));
+          out.Set("Vc", polarToObj(env2, r.Vc));
+          return out;
+        });
+      }));
+    syNs.Set("faultCurrents", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::symcomp::FaultInput in{};
+          in.prefaultPhaseVoltage = o.Get("prefaultPhaseVoltage").As<Napi::Number>().DoubleValue();
+          in.Z0_magnitude         = o.Get("Z0_magnitude"        ).As<Napi::Number>().DoubleValue();
+          in.Z0_angleDeg          = o.Get("Z0_angleDeg"         ).As<Napi::Number>().DoubleValue();
+          in.Z1_magnitude         = o.Get("Z1_magnitude"        ).As<Napi::Number>().DoubleValue();
+          in.Z1_angleDeg          = o.Get("Z1_angleDeg"         ).As<Napi::Number>().DoubleValue();
+          in.Z2_magnitude         = o.Get("Z2_magnitude"        ).As<Napi::Number>().DoubleValue();
+          in.Z2_angleDeg          = o.Get("Z2_angleDeg"         ).As<Napi::Number>().DoubleValue();
+          auto r = forge::symcomp::faultCurrents(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("threePhaseFaultI",   Napi::Number::New(env2, r.threePhaseFaultI));
+          out.Set("lineToGroundFaultI", Napi::Number::New(env2, r.lineToGroundFaultI));
+          out.Set("lineToLineFaultI",   Napi::Number::New(env2, r.lineToLineFaultI));
+          return out;
+        });
+      }));
+    exports.Set("symcomp", syNs);
 
     return exports;
 }

@@ -185,6 +185,7 @@ add_library(forge_kernel SHARED
     src/ThreePhase.cpp
     src/Transformer.cpp
     src/InductionMotor.cpp
+    src/SymComponents.cpp
     ${PLANEGCS_SRC}
 )
 

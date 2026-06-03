@@ -595,6 +595,13 @@ const forgeApi = {
     analyse: (input) => kernel.inductionmotor.analyse(input),
   } : null,
 
+  // symcomp (Forge-247) — symmetrical components + fault currents.
+  symcomp: kernel && kernel.symcomp ? {
+    decompose:      (input) => kernel.symcomp.decompose(input),
+    compose:        (input) => kernel.symcomp.compose(input),
+    faultCurrents:  (input) => kernel.symcomp.faultCurrents(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

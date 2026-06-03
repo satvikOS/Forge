@@ -1258,6 +1258,12 @@ export function ForgeShellV4() {
         setActiveWb('imotor');
         window.__forgeOpenIMotorWorkbench?.();
         return;
+      // Forge-247 — Symmetrical components.
+      case 'tools.symcomp':
+      case 'workbench.symcomp':
+        setActiveWb('symcomp');
+        window.__forgeOpenSymCompWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
