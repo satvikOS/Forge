@@ -78,6 +78,7 @@ export const CALCULATOR_TREE = [
         items: [
           { id: 'rcbeam',     label: 'RC beam flexure (ACI 318-19 §22.2)…', slice: 'Forge-238' },
           { id: 'rccolumn',   label: 'RC column (ACI 318-19 §22.4 axial + interaction)…', slice: 'Forge-257' },
+          { id: 'rcpunching', label: 'RC slab punching shear (ACI 318-19 §22.6.5)…', slice: 'Forge-267' },
         ],
       },
     ],

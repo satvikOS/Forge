@@ -1378,6 +1378,12 @@ export function ForgeShellV4() {
         setActiveWb('orifice');
         window.__forgeOpenOrificeWorkbench?.();
         return;
+      // Forge-267 — RC slab punching shear.
+      case 'tools.rcpunching':
+      case 'workbench.rcpunching':
+        setActiveWb('rcpunching');
+        window.__forgeOpenRcPunchingWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

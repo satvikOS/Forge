@@ -225,6 +225,8 @@ import { PIDTuningWorkbenchHost } from './forge-v4/PIDTuningWorkbench.jsx';
 import { TunedMassDamperWorkbenchHost } from './forge-v4/TunedMassDamperWorkbench.jsx';
 // Forge-266 — Orifice plate workbench.
 import { OrificePlateWorkbenchHost } from './forge-v4/OrificePlateWorkbench.jsx';
+// Forge-267 — RC slab punching shear (ACI 318-19 §22.6.5).
+import { RcPunchingWorkbenchHost } from './forge-v4/RcPunchingWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -405,6 +407,7 @@ function App() {
       <PIDTuningWorkbenchHost />
       <TunedMassDamperWorkbenchHost />
       <OrificePlateWorkbenchHost />
+      <RcPunchingWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

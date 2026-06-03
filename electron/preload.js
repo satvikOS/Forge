@@ -715,6 +715,11 @@ const forgeApi = {
     analyse: (input) => kernel.orificeplate.analyse(input),
   } : null,
 
+  // rcpunching (Forge-267) — RC slab two-way (punching) shear, ACI 318-19.
+  rcpunching: kernel && kernel.rcpunching ? {
+    analyse: (input) => kernel.rcpunching.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

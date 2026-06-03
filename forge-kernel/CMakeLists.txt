@@ -205,6 +205,7 @@ add_library(forge_kernel SHARED
     src/PIDTuning.cpp
     src/TunedMassDamper.cpp
     src/OrificePlate.cpp
+    src/RcPunching.cpp
     ${PLANEGCS_SRC}
 )
 

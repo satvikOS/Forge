@@ -116,6 +116,7 @@
 #include "forge/PIDTuning.hpp"
 #include "forge/TunedMassDamper.hpp"
 #include "forge/OrificePlate.hpp"
+#include "forge/RcPunching.hpp"
 
 #include <array>
 
@@ -8742,6 +8743,44 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("orificeplate", opNs);
+
+    // -------- RC slab punching shear (Forge-267) ------------------------
+    auto punchNs = Napi::Object::New(env);
+    punchNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::rcpunching::Input in{};
+          in.concreteStrengthMPa = o.Get("concreteStrengthMPa").As<Napi::Number>().DoubleValue();
+          in.effectiveDepthMm    = o.Get("effectiveDepthMm"   ).As<Napi::Number>().DoubleValue();
+          in.columnWidthMm       = o.Get("columnWidthMm"      ).As<Napi::Number>().DoubleValue();
+          in.columnDepthMm       = o.Get("columnDepthMm"      ).As<Napi::Number>().DoubleValue();
+          std::string loc        = o.Get("location"           ).As<Napi::String>().Utf8Value();
+          if (loc == "interior")      in.location = forge::rcpunching::Location::Interior;
+          else if (loc == "edge")     in.location = forge::rcpunching::Location::Edge;
+          else if (loc == "corner")   in.location = forge::rcpunching::Location::Corner;
+          else throw std::runtime_error("location must be one of: interior, edge, corner");
+          in.lambdaLightweight   = o.Get("lambdaLightweight"  ).As<Napi::Number>().DoubleValue();
+          in.factoredShearN      = o.Get("factoredShearN"     ).As<Napi::Number>().DoubleValue();
+          auto r = forge::rcpunching::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("betaC",                Napi::Number::New(env2, r.betaC));
+          out.Set("alphaS",               Napi::Number::New(env2, r.alphaS));
+          out.Set("criticalPerimeterMm",  Napi::Number::New(env2, r.criticalPerimeterMm));
+          out.Set("sqrtFcMPa",            Napi::Number::New(env2, r.sqrtFcMPa));
+          out.Set("vc1MPa",               Napi::Number::New(env2, r.vc1MPa));
+          out.Set("vc2MPa",               Napi::Number::New(env2, r.vc2MPa));
+          out.Set("vc3MPa",               Napi::Number::New(env2, r.vc3MPa));
+          out.Set("vcMPa",                Napi::Number::New(env2, r.vcMPa));
+          out.Set("VcN",                  Napi::Number::New(env2, r.VcN));
+          out.Set("phiVcN",               Napi::Number::New(env2, r.phiVcN));
+          out.Set("demandCapacityRatio",  Napi::Number::New(env2, r.demandCapacityRatio));
+          out.Set("passes",               Napi::Boolean::New(env2, r.passes));
+          return out;
+        });
+      }));
+    exports.Set("rcpunching", punchNs);
 
     return exports;
 }
