@@ -181,6 +181,8 @@ import { OpenChannelWorkbenchHost } from './forge-v4/OpenChannelWorkbench.jsx';
 import { WeirOrificeWorkbenchHost } from './forge-v4/WeirOrificeWorkbench.jsx';
 // Forge-244 — Three-phase power workbench.
 import { ThreePhaseWorkbenchHost } from './forge-v4/ThreePhaseWorkbench.jsx';
+// Forge-245 — Transformer workbench.
+import { TransformerWorkbenchHost } from './forge-v4/TransformerWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -339,6 +341,7 @@ function App() {
       <OpenChannelWorkbenchHost />
       <WeirOrificeWorkbenchHost />
       <ThreePhaseWorkbenchHost />
+      <TransformerWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

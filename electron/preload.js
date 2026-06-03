@@ -581,6 +581,15 @@ const forgeApi = {
     perUnit:                (input) => kernel.threephase.perUnit(input),
   } : null,
 
+  // transformer (Forge-245) — OC + SC + regulation + efficiency.
+  transformer: kernel && kernel.transformer ? {
+    openCircuitTest:                (input) => kernel.transformer.openCircuitTest(input),
+    shortCircuitTest:               (input) => kernel.transformer.shortCircuitTest(input),
+    voltageRegulation:              (input) => kernel.transformer.voltageRegulation(input),
+    efficiency:                     (input) => kernel.transformer.efficiency(input),
+    maximumEfficiencyLoadFraction:  (Poc, Psc) => kernel.transformer.maximumEfficiencyLoadFraction(Poc, Psc),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

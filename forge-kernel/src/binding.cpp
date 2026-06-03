@@ -94,6 +94,7 @@
 #include "forge/OpenChannel.hpp"
 #include "forge/WeirOrifice.hpp"
 #include "forge/ThreePhase.hpp"
+#include "forge/Transformer.hpp"
 
 #include <array>
 
@@ -7648,6 +7649,88 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("threephase", tpNs);
+
+    // -------- Transformer (Forge-245) -----------------------------------
+    auto trNs = Napi::Object::New(env);
+    trNs.Set("openCircuitTest", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::transformer::OcTestInput in{};
+          in.openCircuitVoltageV = o.Get("openCircuitVoltageV").As<Napi::Number>().DoubleValue();
+          in.openCircuitCurrentA = o.Get("openCircuitCurrentA").As<Napi::Number>().DoubleValue();
+          in.openCircuitPowerW   = o.Get("openCircuitPowerW"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::transformer::openCircuitTest(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cosPhiOc",                Napi::Number::New(env2, r.cosPhiOc));
+          out.Set("coreResistanceOhm",       Napi::Number::New(env2, r.coreResistanceOhm));
+          out.Set("magnetisingReactanceOhm", Napi::Number::New(env2, r.magnetisingReactanceOhm));
+          return out;
+        });
+      }));
+    trNs.Set("shortCircuitTest", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::transformer::ScTestInput in{};
+          in.shortCircuitCurrentA = o.Get("shortCircuitCurrentA").As<Napi::Number>().DoubleValue();
+          in.shortCircuitVoltageV = o.Get("shortCircuitVoltageV").As<Napi::Number>().DoubleValue();
+          in.shortCircuitPowerW   = o.Get("shortCircuitPowerW"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::transformer::shortCircuitTest(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("equivalentResistanceOhm", Napi::Number::New(env2, r.equivalentResistanceOhm));
+          out.Set("equivalentImpedanceOhm",  Napi::Number::New(env2, r.equivalentImpedanceOhm));
+          out.Set("equivalentReactanceOhm",  Napi::Number::New(env2, r.equivalentReactanceOhm));
+          return out;
+        });
+      }));
+    trNs.Set("voltageRegulation", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::transformer::RegInput in{};
+          in.equivalentResistanceOhm = o.Get("equivalentResistanceOhm").As<Napi::Number>().DoubleValue();
+          in.equivalentReactanceOhm  = o.Get("equivalentReactanceOhm" ).As<Napi::Number>().DoubleValue();
+          in.ratedHvCurrentA         = o.Get("ratedHvCurrentA"        ).As<Napi::Number>().DoubleValue();
+          in.loadFraction            = o.Get("loadFraction"           ).As<Napi::Number>().DoubleValue();
+          in.powerFactor             = o.Get("powerFactor"            ).As<Napi::Number>().DoubleValue();
+          in.leading                 = o.Get("leading"                ).As<Napi::Boolean>().Value();
+          in.ratedHvVoltageV         = o.Get("ratedHvVoltageV"        ).As<Napi::Number>().DoubleValue();
+          auto r = forge::transformer::voltageRegulation(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("voltageDropV",   Napi::Number::New(env2, r.voltageDropV));
+          out.Set("regulationPct",  Napi::Number::New(env2, r.regulationPct));
+          return out;
+        });
+      }));
+    trNs.Set("efficiency", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::transformer::EffInput in{};
+          in.ratedKva            = o.Get("ratedKva"           ).As<Napi::Number>().DoubleValue();
+          in.openCircuitPowerW   = o.Get("openCircuitPowerW"  ).As<Napi::Number>().DoubleValue();
+          in.shortCircuitPowerW  = o.Get("shortCircuitPowerW" ).As<Napi::Number>().DoubleValue();
+          in.loadFraction        = o.Get("loadFraction"       ).As<Napi::Number>().DoubleValue();
+          in.powerFactor         = o.Get("powerFactor"        ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::transformer::efficiency(in));
+        });
+      }));
+    trNs.Set("maximumEfficiencyLoadFraction", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          return Napi::Number::New(env2,
+              forge::transformer::maximumEfficiencyLoadFraction(
+                  info[0].As<Napi::Number>().DoubleValue(),
+                  info[1].As<Napi::Number>().DoubleValue()));
+        });
+      }));
+    exports.Set("transformer", trNs);
 
     return exports;
 }

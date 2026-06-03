@@ -1246,6 +1246,12 @@ export function ForgeShellV4() {
         setActiveWb('threephase');
         window.__forgeOpenThreePhaseWorkbench?.();
         return;
+      // Forge-245 — Transformer.
+      case 'tools.xformer':
+      case 'workbench.xformer':
+        setActiveWb('xformer');
+        window.__forgeOpenXformerWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

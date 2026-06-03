@@ -183,6 +183,7 @@ add_library(forge_kernel SHARED
     src/OpenChannel.cpp
     src/WeirOrifice.cpp
     src/ThreePhase.cpp
+    src/Transformer.cpp
     ${PLANEGCS_SRC}
 )
 

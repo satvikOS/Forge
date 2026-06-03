@@ -232,6 +232,7 @@ export const CALCULATOR_TREE = [
         label: 'Three-phase',
         items: [
           { id: 'threephase', label: 'Three-phase power + PF correction + p.u.…', slice: 'Forge-244' },
+          { id: 'xformer',    label: 'Transformer (OC + SC + regulation + η)…', slice: 'Forge-245' },
         ],
       },
     ],
