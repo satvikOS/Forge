@@ -138,6 +138,7 @@
 #include "forge/CapstanFriction.hpp"
 #include "forge/Prismoidal.hpp"
 #include "forge/PitotTube.hpp"
+#include "forge/CircularPipeFlow.hpp"
 
 #include <array>
 
@@ -9457,6 +9458,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pitot", pitotNs);
+
+    // -------- Circular pipe Manning partial flow (Forge-289) ------------
+    auto cpfNs = Napi::Object::New(env);
+    cpfNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::circpipe::Input in{};
+          in.pipeDiameterM = o.Get("pipeDiameterM").As<Napi::Number>().DoubleValue();
+          in.waterDepthM   = o.Get("waterDepthM"  ).As<Napi::Number>().DoubleValue();
+          in.manningN      = o.Get("manningN"     ).As<Napi::Number>().DoubleValue();
+          in.slope         = o.Get("slope"        ).As<Napi::Number>().DoubleValue();
+          auto r = forge::circpipe::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("depthRatio",        Napi::Number::New(env2, r.depthRatio));
+          out.Set("centralAngleRad",   Napi::Number::New(env2, r.centralAngleRad));
+          out.Set("flowAreaM2",        Napi::Number::New(env2, r.flowAreaM2));
+          out.Set("wettedPerimeterM",  Napi::Number::New(env2, r.wettedPerimeterM));
+          out.Set("hydraulicRadiusM",  Napi::Number::New(env2, r.hydraulicRadiusM));
+          out.Set("velocityMs",        Napi::Number::New(env2, r.velocityMs));
+          out.Set("dischargeM3S",      Napi::Number::New(env2, r.dischargeM3S));
+          out.Set("dischargeLs",       Napi::Number::New(env2, r.dischargeLs));
+          out.Set("areaRatio",         Napi::Number::New(env2, r.areaRatio));
+          out.Set("velocityRatio",     Napi::Number::New(env2, r.velocityRatio));
+          out.Set("dischargeRatio",    Napi::Number::New(env2, r.dischargeRatio));
+          return out;
+        });
+      }));
+    exports.Set("circpipe", cpfNs);
 
     return exports;
 }

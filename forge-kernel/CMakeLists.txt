@@ -227,6 +227,7 @@ add_library(forge_kernel SHARED
     src/CapstanFriction.cpp
     src/Prismoidal.cpp
     src/PitotTube.cpp
+    src/CircularPipeFlow.cpp
     ${PLANEGCS_SRC}
 )
 

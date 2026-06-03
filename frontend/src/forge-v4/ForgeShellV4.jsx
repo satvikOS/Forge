@@ -1510,6 +1510,12 @@ export function ForgeShellV4() {
         setActiveWb('pitot');
         window.__forgeOpenPitotTubeWorkbench?.();
         return;
+      // Forge-289 — Storm sewer / circular pipe partial flow.
+      case 'tools.circpipe':
+      case 'workbench.circpipe':
+        setActiveWb('circpipe');
+        window.__forgeOpenCircularPipeFlowWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

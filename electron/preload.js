@@ -825,6 +825,11 @@ const forgeApi = {
     analyse: (input) => kernel.pitot.analyse(input),
   } : null,
 
+  // circpipe (Forge-289) — Storm sewer / circular pipe Manning partial flow.
+  circpipe: kernel && kernel.circpipe ? {
+    analyse: (input) => kernel.circpipe.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

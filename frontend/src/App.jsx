@@ -269,6 +269,8 @@ import { CapstanFrictionWorkbenchHost } from './forge-v4/CapstanFrictionWorkbenc
 import { PrismoidalWorkbenchHost } from './forge-v4/PrismoidalWorkbench.jsx';
 // Forge-288 — Pitot tube velocity (incompressible).
 import { PitotTubeWorkbenchHost } from './forge-v4/PitotTubeWorkbench.jsx';
+// Forge-289 — Storm sewer / circular pipe Manning partial flow.
+import { CircularPipeFlowWorkbenchHost } from './forge-v4/CircularPipeFlowWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -471,6 +473,7 @@ function App() {
       <CapstanFrictionWorkbenchHost />
       <PrismoidalWorkbenchHost />
       <PitotTubeWorkbenchHost />
+      <CircularPipeFlowWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

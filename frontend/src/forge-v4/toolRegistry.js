@@ -293,7 +293,8 @@ export const CALCULATOR_TREE = [
       {
         label: 'Hydrology',
         items: [
-          { id: 'hydro',      label: 'Hydrology (rational + Kirpich + IDF)…', slice: 'Forge-256' },
+          { id: 'hydro',     label: 'Hydrology (rational + Kirpich + IDF)…', slice: 'Forge-256' },
+          { id: 'circpipe',  label: 'Storm sewer / circular pipe Manning…', slice: 'Forge-289' },
         ],
       },
     ],
