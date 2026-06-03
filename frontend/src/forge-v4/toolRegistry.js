@@ -200,6 +200,7 @@ export const CALCULATOR_TREE = [
         label: 'Heat transfer',
         items: [
           { id: 'fin',        label: 'Fin efficiency (rectangular + pin)…', slice: 'Forge-261' },
+          { id: 'finarray',   label: 'Heat sink fin array (Incropera Ch.3)…', slice: 'Forge-295' },
         ],
       },
       {

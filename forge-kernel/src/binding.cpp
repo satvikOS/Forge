@@ -144,6 +144,7 @@
 #include "forge/WoodShearWall.hpp"
 #include "forge/CraneHook.hpp"
 #include "forge/AirFilter.hpp"
+#include "forge/FinArray.hpp"
 
 #include <array>
 
@@ -9649,6 +9650,40 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("airfilter", afNs);
+
+    // -------- Heat sink fin array (Forge-295) ---------------------------
+    auto finarrNs = Napi::Object::New(env);
+    finarrNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::finarray::Input in{};
+          in.baseWidthMm               = o.Get("baseWidthMm"              ).As<Napi::Number>().DoubleValue();
+          in.baseLengthMm              = o.Get("baseLengthMm"             ).As<Napi::Number>().DoubleValue();
+          in.finCount                  = o.Get("finCount"                 ).As<Napi::Number>().Int32Value();
+          in.finThicknessMm            = o.Get("finThicknessMm"           ).As<Napi::Number>().DoubleValue();
+          in.finLengthMm               = o.Get("finLengthMm"              ).As<Napi::Number>().DoubleValue();
+          in.materialConductivityWmK   = o.Get("materialConductivityWmK"  ).As<Napi::Number>().DoubleValue();
+          in.convectionCoefficientWm2K = o.Get("convectionCoefficientWm2K").As<Napi::Number>().DoubleValue();
+          in.baseTemperatureC          = o.Get("baseTemperatureC"         ).As<Napi::Number>().DoubleValue();
+          in.ambientTemperatureC       = o.Get("ambientTemperatureC"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::finarray::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("finParameterPerM",          Napi::Number::New(env2, r.finParameterPerM));
+          out.Set("correctedLengthMm",         Napi::Number::New(env2, r.correctedLengthMm));
+          out.Set("singleFinEfficiency",       Napi::Number::New(env2, r.singleFinEfficiency));
+          out.Set("singleFinAreaMm2",          Napi::Number::New(env2, r.singleFinAreaMm2));
+          out.Set("totalFinAreaMm2",           Napi::Number::New(env2, r.totalFinAreaMm2));
+          out.Set("baseAreaMm2",               Napi::Number::New(env2, r.baseAreaMm2));
+          out.Set("totalAreaMm2",              Napi::Number::New(env2, r.totalAreaMm2));
+          out.Set("overallSurfaceEfficiency",  Napi::Number::New(env2, r.overallSurfaceEfficiency));
+          out.Set("thermalResistanceKW",       Napi::Number::New(env2, r.thermalResistanceKW));
+          out.Set("heatDissipatedW",           Napi::Number::New(env2, r.heatDissipatedW));
+          return out;
+        });
+      }));
+    exports.Set("finarray", finarrNs);
 
     return exports;
 }

@@ -1546,6 +1546,12 @@ export function ForgeShellV4() {
         setActiveWb('airfilter');
         window.__forgeOpenAirFilterWorkbench?.();
         return;
+      // Forge-295 — Heat sink fin array.
+      case 'tools.finarray':
+      case 'workbench.finarray':
+        setActiveWb('finarray');
+        window.__forgeOpenFinArrayWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

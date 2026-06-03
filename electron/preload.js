@@ -855,6 +855,11 @@ const forgeApi = {
     analyse: (input) => kernel.airfilter.analyse(input),
   } : null,
 
+  // finarray (Forge-295) — Heat sink rectangular fin array (Incropera Ch.3).
+  finarray: kernel && kernel.finarray ? {
+    analyse: (input) => kernel.finarray.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

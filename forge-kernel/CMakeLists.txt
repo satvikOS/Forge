@@ -233,6 +233,7 @@ add_library(forge_kernel SHARED
     src/WoodShearWall.cpp
     src/CraneHook.cpp
     src/AirFilter.cpp
+    src/FinArray.cpp
     ${PLANEGCS_SRC}
 )
 

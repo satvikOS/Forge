@@ -281,6 +281,8 @@ import { WoodShearWallWorkbenchHost } from './forge-v4/WoodShearWallWorkbench.js
 import { CraneHookWorkbenchHost } from './forge-v4/CraneHookWorkbench.jsx';
 // Forge-294 — Air filter Δp + fan energy (ASHRAE 52.2).
 import { AirFilterWorkbenchHost } from './forge-v4/AirFilterWorkbench.jsx';
+// Forge-295 — Heat sink fin array (Incropera Ch.3).
+import { FinArrayWorkbenchHost } from './forge-v4/FinArrayWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -489,6 +491,7 @@ function App() {
       <WoodShearWallWorkbenchHost />
       <CraneHookWorkbenchHost />
       <AirFilterWorkbenchHost />
+      <FinArrayWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
