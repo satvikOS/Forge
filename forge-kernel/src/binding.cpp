@@ -105,6 +105,7 @@
 #include "forge/Lighting.hpp"
 #include "forge/Battery.hpp"
 #include "forge/SolarPv.hpp"
+#include "forge/Hydrology.hpp"
 
 #include <array>
 
@@ -8287,6 +8288,45 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("solarpv", solNs);
+
+    // -------- Hydrology (Forge-256) -------------------------------------
+    auto hyNs = Napi::Object::New(env);
+    hyNs.Set("rationalDischarge", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hydrology::RunoffInput in{};
+          in.runoffCoefficient      = o.Get("runoffCoefficient"     ).As<Napi::Number>().DoubleValue();
+          in.rainfallIntensityMmHr  = o.Get("rainfallIntensityMmHr" ).As<Napi::Number>().DoubleValue();
+          in.drainageAreaM2         = o.Get("drainageAreaM2"        ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::hydrology::rationalDischarge(in));
+        });
+      }));
+    hyNs.Set("kirpichTimeOfConcentrationMin", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          return Napi::Number::New(env2,
+              forge::hydrology::kirpichTimeOfConcentrationMin(
+                  info[0].As<Napi::Number>().DoubleValue(),
+                  info[1].As<Napi::Number>().DoubleValue()));
+        });
+      }));
+    hyNs.Set("idfIntensityMmHr", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hydrology::IdfInput in{};
+          in.a            = o.Get("a"           ).As<Napi::Number>().DoubleValue();
+          in.b            = o.Get("b"           ).As<Napi::Number>().DoubleValue();
+          in.c            = o.Get("c"           ).As<Napi::Number>().DoubleValue();
+          in.durationMin  = o.Get("durationMin" ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::hydrology::idfIntensityMmHr(in));
+        });
+      }));
+    exports.Set("hydrology", hyNs);
 
     return exports;
 }

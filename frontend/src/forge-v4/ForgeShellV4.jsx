@@ -1312,6 +1312,12 @@ export function ForgeShellV4() {
         setActiveWb('solar');
         window.__forgeOpenSolarWorkbench?.();
         return;
+      // Forge-256 — Hydrology.
+      case 'tools.hydro':
+      case 'workbench.hydro':
+        setActiveWb('hydro');
+        window.__forgeOpenHydroWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -216,6 +216,12 @@ export const CALCULATOR_TREE = [
           { id: 'pilecap',    label: 'Pile capacity (α-method + Meyerhof tip)…', slice: 'Forge-241' },
         ],
       },
+      {
+        label: 'Hydrology',
+        items: [
+          { id: 'hydro',      label: 'Hydrology (rational + Kirpich + IDF)…', slice: 'Forge-256' },
+        ],
+      },
     ],
   },
   {

@@ -194,6 +194,7 @@ add_library(forge_kernel SHARED
     src/Lighting.cpp
     src/Battery.cpp
     src/SolarPv.cpp
+    src/Hydrology.cpp
     ${PLANEGCS_SRC}
 )
 

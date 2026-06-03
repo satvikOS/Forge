@@ -203,6 +203,8 @@ import { LightingWorkbenchHost } from './forge-v4/LightingWorkbench.jsx';
 import { BatteryWorkbenchHost } from './forge-v4/BatteryWorkbench.jsx';
 // Forge-255 — Solar PV sizing workbench.
 import { SolarPvWorkbenchHost } from './forge-v4/SolarPvWorkbench.jsx';
+// Forge-256 — Hydrology workbench.
+import { HydrologyWorkbenchHost } from './forge-v4/HydrologyWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -372,6 +374,7 @@ function App() {
       <LightingWorkbenchHost />
       <BatteryWorkbenchHost />
       <SolarPvWorkbenchHost />
+      <HydrologyWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
