@@ -219,6 +219,8 @@ import { FinEfficiencyWorkbenchHost } from './forge-v4/FinEfficiencyWorkbench.js
 import { BoilerEfficiencyWorkbenchHost } from './forge-v4/BoilerEfficiencyWorkbench.jsx';
 // Forge-263 — Sound TL workbench.
 import { SoundTLWorkbenchHost } from './forge-v4/SoundTLWorkbench.jsx';
+// Forge-264 — PID tuning workbench.
+import { PIDTuningWorkbenchHost } from './forge-v4/PIDTuningWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -396,6 +398,7 @@ function App() {
       <FinEfficiencyWorkbenchHost />
       <BoilerEfficiencyWorkbenchHost />
       <SoundTLWorkbenchHost />
+      <PIDTuningWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

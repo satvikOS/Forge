@@ -202,6 +202,7 @@ add_library(forge_kernel SHARED
     src/FinEfficiency.cpp
     src/BoilerEfficiency.cpp
     src/SoundTL.cpp
+    src/PIDTuning.cpp
     ${PLANEGCS_SRC}
 )
 

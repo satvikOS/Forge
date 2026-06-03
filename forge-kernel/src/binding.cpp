@@ -113,6 +113,7 @@
 #include "forge/FinEfficiency.hpp"
 #include "forge/BoilerEfficiency.hpp"
 #include "forge/SoundTL.hpp"
+#include "forge/PIDTuning.hpp"
 
 #include <array>
 
@@ -8639,6 +8640,51 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("soundtl", stlNs);
+
+    // -------- PID tuning (Forge-264) ------------------------------------
+    auto pdNs = Napi::Object::New(env);
+    auto controllerFromStr = [](const std::string& s) {
+      if (s == "P")   return forge::pidtuning::Controller::P;
+      if (s == "PI")  return forge::pidtuning::Controller::PI;
+      if (s == "PID") return forge::pidtuning::Controller::PID;
+      throw std::invalid_argument("controller must be P / PI / PID");
+    };
+    pdNs.Set("zieglerNichols", Napi::Function::New(env,
+      [controllerFromStr](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pidtuning::ZieglerNicholsInput in{};
+          in.controller             = controllerFromStr(o.Get("controller").As<Napi::String>().Utf8Value());
+          in.ultimateGainKu         = o.Get("ultimateGainKu"        ).As<Napi::Number>().DoubleValue();
+          in.ultimatePeriodPuSec    = o.Get("ultimatePeriodPuSec"   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::pidtuning::zieglerNichols(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Kp", Napi::Number::New(env2, r.Kp));
+          out.Set("Ti", Napi::Number::New(env2, r.Ti));
+          out.Set("Td", Napi::Number::New(env2, r.Td));
+          return out;
+        });
+      }));
+    pdNs.Set("cohenCoon", Napi::Function::New(env,
+      [controllerFromStr](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pidtuning::CohenCoonInput in{};
+          in.controller      = controllerFromStr(o.Get("controller").As<Napi::String>().Utf8Value());
+          in.processGainKp   = o.Get("processGainKp"  ).As<Napi::Number>().DoubleValue();
+          in.timeConstantTau = o.Get("timeConstantTau").As<Napi::Number>().DoubleValue();
+          in.deadTimeTheta   = o.Get("deadTimeTheta"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::pidtuning::cohenCoon(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Kp", Napi::Number::New(env2, r.Kp));
+          out.Set("Ti", Napi::Number::New(env2, r.Ti));
+          out.Set("Td", Napi::Number::New(env2, r.Td));
+          return out;
+        });
+      }));
+    exports.Set("pidtuning", pdNs);
 
     return exports;
 }

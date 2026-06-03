@@ -699,6 +699,12 @@ const forgeApi = {
     compositeTL: (input) => kernel.soundtl.compositeTL(input),
   } : null,
 
+  // pidtuning (Forge-264) — Ziegler-Nichols + Cohen-Coon PID tuning.
+  pidtuning: kernel && kernel.pidtuning ? {
+    zieglerNichols: (input) => kernel.pidtuning.zieglerNichols(input),
+    cohenCoon:      (input) => kernel.pidtuning.cohenCoon(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

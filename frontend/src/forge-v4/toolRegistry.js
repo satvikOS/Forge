@@ -323,6 +323,12 @@ export const CALCULATOR_TREE = [
         ],
       },
       {
+        label: 'Control',
+        items: [
+          { id: 'pidtune',   label: 'PID tuning (Ziegler-Nichols + Cohen-Coon)…', slice: 'Forge-264' },
+        ],
+      },
+      {
         label: 'Accessibility & QA',
         items: [
           { id: 'a11y',      label: 'A11y audit…', slice: 'Forge-196' },

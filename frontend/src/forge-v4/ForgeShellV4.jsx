@@ -1360,6 +1360,12 @@ export function ForgeShellV4() {
         setActiveWb('soundtl');
         window.__forgeOpenSoundTLWorkbench?.();
         return;
+      // Forge-264 — PID tuning.
+      case 'tools.pidtune':
+      case 'workbench.pidtune':
+        setActiveWb('pidtune');
+        window.__forgeOpenPIDTuneWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
