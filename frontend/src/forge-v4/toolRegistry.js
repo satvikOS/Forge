@@ -128,6 +128,7 @@ export const CALCULATOR_TREE = [
         items: [
           { id: 'sling',     label: 'Wire rope sling (ASME B30.9 / OSHA)…', slice: 'Forge-280' },
           { id: 'capstan',   label: 'Capstan / bollard friction (Eytelwein)…', slice: 'Forge-286' },
+          { id: 'hook',      label: 'Crane hook (DIN 15400 / ASME B30.10)…', slice: 'Forge-293' },
         ],
       },
       {

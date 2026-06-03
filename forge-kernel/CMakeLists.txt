@@ -231,6 +231,7 @@ add_library(forge_kernel SHARED
     src/WormGear.cpp
     src/BevelGear.cpp
     src/WoodShearWall.cpp
+    src/CraneHook.cpp
     ${PLANEGCS_SRC}
 )
 

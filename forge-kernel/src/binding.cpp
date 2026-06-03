@@ -142,6 +142,7 @@
 #include "forge/WormGear.hpp"
 #include "forge/BevelGear.hpp"
 #include "forge/WoodShearWall.hpp"
+#include "forge/CraneHook.hpp"
 
 #include <array>
 
@@ -9588,6 +9589,37 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("woodshear", wswNs);
+
+    // -------- Crane hook (Forge-293) ------------------------------------
+    auto hookNs = Napi::Object::New(env);
+    hookNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cranehook::Input in{};
+          in.wllKN                    = o.Get("wllKN"                   ).As<Napi::Number>().DoubleValue();
+          in.shankDiameterMm          = o.Get("shankDiameterMm"         ).As<Napi::Number>().DoubleValue();
+          in.shankAllowableStressMPa  = o.Get("shankAllowableStressMPa" ).As<Napi::Number>().DoubleValue();
+          in.throatSectionModulusMm3  = o.Get("throatSectionModulusMm3" ).As<Napi::Number>().DoubleValue();
+          in.throatMomentArmMm        = o.Get("throatMomentArmMm"       ).As<Napi::Number>().DoubleValue();
+          in.throatAllowableStressMPa = o.Get("throatAllowableStressMPa").As<Napi::Number>().DoubleValue();
+          auto r = forge::cranehook::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("shankAreaMm2",      Napi::Number::New(env2, r.shankAreaMm2));
+          out.Set("shankStressMPa",    Napi::Number::New(env2, r.shankStressMPa));
+          out.Set("shankDCR",          Napi::Number::New(env2, r.shankDCR));
+          out.Set("bendingMomentNmm",  Napi::Number::New(env2, r.bendingMomentNmm));
+          out.Set("throatStressMPa",   Napi::Number::New(env2, r.throatStressMPa));
+          out.Set("throatDCR",         Napi::Number::New(env2, r.throatDCR));
+          out.Set("governingDCR",      Napi::Number::New(env2, r.governingDCR));
+          out.Set("shankOK",           Napi::Boolean::New(env2, r.shankOK));
+          out.Set("throatOK",          Napi::Boolean::New(env2, r.throatOK));
+          out.Set("overallOK",         Napi::Boolean::New(env2, r.overallOK));
+          return out;
+        });
+      }));
+    exports.Set("hook", hookNs);
 
     return exports;
 }

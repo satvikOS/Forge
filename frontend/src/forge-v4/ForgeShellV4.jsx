@@ -1534,6 +1534,12 @@ export function ForgeShellV4() {
         setActiveWb('woodshear');
         window.__forgeOpenWoodShearWallWorkbench?.();
         return;
+      // Forge-293 — Crane hook.
+      case 'tools.hook':
+      case 'workbench.hook':
+        setActiveWb('hook');
+        window.__forgeOpenCraneHookWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

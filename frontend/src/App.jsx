@@ -277,6 +277,8 @@ import { WormGearWorkbenchHost } from './forge-v4/WormGearWorkbench.jsx';
 import { BevelGearWorkbenchHost } from './forge-v4/BevelGearWorkbench.jsx';
 // Forge-292 — Wood shear wall (NDS + SDPWS-21 §4).
 import { WoodShearWallWorkbenchHost } from './forge-v4/WoodShearWallWorkbench.jsx';
+// Forge-293 — Crane hook (DIN 15400 / ASME B30.10).
+import { CraneHookWorkbenchHost } from './forge-v4/CraneHookWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -483,6 +485,7 @@ function App() {
       <WormGearWorkbenchHost />
       <BevelGearWorkbenchHost />
       <WoodShearWallWorkbenchHost />
+      <CraneHookWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

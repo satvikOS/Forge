@@ -845,6 +845,11 @@ const forgeApi = {
     analyse: (input) => kernel.woodshear.analyse(input),
   } : null,
 
+  // hook (Forge-293) — Crane hook stress check (DIN 15400 / ASME B30.10).
+  hook: kernel && kernel.hook ? {
+    analyse: (input) => kernel.hook.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
