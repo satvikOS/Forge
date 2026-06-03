@@ -165,10 +165,11 @@ export const CALCULATOR_TREE = [
       {
         label: 'Air & climate',
         items: [
-          { id: 'fan',       label: 'Fan / blower + affinity laws…', slice: 'Forge-231' },
-          { id: 'refrig',    label: 'Refrigeration / heat-pump COP…', slice: 'Forge-230' },
-          { id: 'psychro',   label: 'Psychrometric chart…', slice: 'Forge-192' },
-          { id: 'hxc',       label: 'Heat exchanger LMTD…', slice: 'Forge-218' },
+          { id: 'fan',         label: 'Fan / blower + affinity laws…', slice: 'Forge-231' },
+          { id: 'refrig',      label: 'Refrigeration / heat-pump COP…', slice: 'Forge-230' },
+          { id: 'psychro',     label: 'Psychrometric chart…', slice: 'Forge-192' },
+          { id: 'hxc',         label: 'Heat exchanger LMTD…', slice: 'Forge-218' },
+          { id: 'compressor',  label: 'Reciprocating compressor (polytropic + η_v)…', slice: 'Forge-282' },
         ],
       },
       {

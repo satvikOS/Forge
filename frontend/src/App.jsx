@@ -255,6 +255,8 @@ import { DcMotorWorkbenchHost } from './forge-v4/DcMotorWorkbench.jsx';
 import { WireRopeSlingWorkbenchHost } from './forge-v4/WireRopeSlingWorkbench.jsx';
 // Forge-281 — Disc clutch / brake (Shigley §16-2).
 import { DiscBrakeWorkbenchHost } from './forge-v4/DiscBrakeWorkbench.jsx';
+// Forge-282 — Reciprocating compressor (polytropic + η_v).
+import { ReciprocatingCompressorWorkbenchHost } from './forge-v4/ReciprocatingCompressorWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -450,6 +452,7 @@ function App() {
       <DcMotorWorkbenchHost />
       <WireRopeSlingWorkbenchHost />
       <DiscBrakeWorkbenchHost />
+      <ReciprocatingCompressorWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

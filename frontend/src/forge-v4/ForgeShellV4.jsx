@@ -1468,6 +1468,12 @@ export function ForgeShellV4() {
         setActiveWb('discbrake');
         window.__forgeOpenDiscBrakeWorkbench?.();
         return;
+      // Forge-282 — Reciprocating compressor.
+      case 'tools.compressor':
+      case 'workbench.compressor':
+        setActiveWb('compressor');
+        window.__forgeOpenReciprocatingCompressorWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

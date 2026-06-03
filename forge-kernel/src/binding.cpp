@@ -131,6 +131,7 @@
 #include "forge/DcMotor.hpp"
 #include "forge/WireRopeSling.hpp"
 #include "forge/DiscBrake.hpp"
+#include "forge/ReciprocatingCompressor.hpp"
 
 #include <array>
 
@@ -9273,6 +9274,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("discbrake", dbNs);
+
+    // -------- Reciprocating compressor (Forge-282) ----------------------
+    auto compNs = Napi::Object::New(env);
+    compNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::recipcompressor::Input in{};
+          in.inletPressurePa       = o.Get("inletPressurePa"      ).As<Napi::Number>().DoubleValue();
+          in.inletTemperatureK     = o.Get("inletTemperatureK"    ).As<Napi::Number>().DoubleValue();
+          in.dischargePressurePa   = o.Get("dischargePressurePa"  ).As<Napi::Number>().DoubleValue();
+          in.massFlowKgS           = o.Get("massFlowKgS"          ).As<Napi::Number>().DoubleValue();
+          in.polytropicIndexN      = o.Get("polytropicIndexN"     ).As<Napi::Number>().DoubleValue();
+          in.polytropicEfficiency  = o.Get("polytropicEfficiency" ).As<Napi::Number>().DoubleValue();
+          in.clearanceRatioC       = o.Get("clearanceRatioC"      ).As<Napi::Number>().DoubleValue();
+          in.gasConstantJkgK       = o.Get("gasConstantJkgK"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::recipcompressor::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("pressureRatio",               Napi::Number::New(env2, r.pressureRatio));
+          out.Set("dischargeTemperatureK",       Napi::Number::New(env2, r.dischargeTemperatureK));
+          out.Set("temperatureRiseK",            Napi::Number::New(env2, r.temperatureRiseK));
+          out.Set("polytropicHeadJkg",           Napi::Number::New(env2, r.polytropicHeadJkg));
+          out.Set("volumetricEfficiency",        Napi::Number::New(env2, r.volumetricEfficiency));
+          out.Set("brakePowerW",                 Napi::Number::New(env2, r.brakePowerW));
+          out.Set("isothermalEquivalentHeadJkg", Napi::Number::New(env2, r.isothermalEquivalentHeadJkg));
+          return out;
+        });
+      }));
+    exports.Set("compressor", compNs);
 
     return exports;
 }

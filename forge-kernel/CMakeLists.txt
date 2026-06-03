@@ -220,6 +220,7 @@ add_library(forge_kernel SHARED
     src/DcMotor.cpp
     src/WireRopeSling.cpp
     src/DiscBrake.cpp
+    src/ReciprocatingCompressor.cpp
     ${PLANEGCS_SRC}
 )
 

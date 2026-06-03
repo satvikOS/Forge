@@ -790,6 +790,11 @@ const forgeApi = {
     analyse: (input) => kernel.discbrake.analyse(input),
   } : null,
 
+  // compressor (Forge-282) — Reciprocating compressor polytropic sizing.
+  compressor: kernel && kernel.compressor ? {
+    analyse: (input) => kernel.compressor.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
