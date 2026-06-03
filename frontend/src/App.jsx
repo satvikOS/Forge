@@ -263,6 +263,8 @@ import { ChainDriveWorkbenchHost } from './forge-v4/ChainDriveWorkbench.jsx';
 import { StoppingSightDistanceWorkbenchHost } from './forge-v4/StoppingSightDistanceWorkbench.jsx';
 // Forge-285 — AASHTO 93 flexible pavement design (SN).
 import { AashtoPavementWorkbenchHost } from './forge-v4/AashtoPavementWorkbench.jsx';
+// Forge-286 — Capstan / bollard friction (Eytelwein).
+import { CapstanFrictionWorkbenchHost } from './forge-v4/CapstanFrictionWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -462,6 +464,7 @@ function App() {
       <ChainDriveWorkbenchHost />
       <StoppingSightDistanceWorkbenchHost />
       <AashtoPavementWorkbenchHost />
+      <CapstanFrictionWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

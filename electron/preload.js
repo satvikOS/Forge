@@ -810,6 +810,11 @@ const forgeApi = {
     analyse: (input) => kernel.aashto.analyse(input),
   } : null,
 
+  // capstan (Forge-286) — Eytelwein capstan / bollard friction.
+  capstan: kernel && kernel.capstan ? {
+    analyse: (input) => kernel.capstan.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

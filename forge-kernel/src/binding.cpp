@@ -135,6 +135,7 @@
 #include "forge/ChainDrive.hpp"
 #include "forge/StoppingSightDistance.hpp"
 #include "forge/AashtoPavement.hpp"
+#include "forge/CapstanFriction.hpp"
 
 #include <array>
 
@@ -9385,6 +9386,28 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("aashto", pavNs);
+
+    // -------- Capstan / bollard friction (Forge-286) --------------------
+    auto capNs = Napi::Object::New(env);
+    capNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::capstan::Input in{};
+          in.holdingForceN        = o.Get("holdingForceN"       ).As<Napi::Number>().DoubleValue();
+          in.frictionCoefficient  = o.Get("frictionCoefficient" ).As<Napi::Number>().DoubleValue();
+          in.wrapAngleDeg         = o.Get("wrapAngleDeg"        ).As<Napi::Number>().DoubleValue();
+          auto r = forge::capstan::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("wrapAngleRad",        Napi::Number::New(env2, r.wrapAngleRad));
+          out.Set("amplificationRatio",  Napi::Number::New(env2, r.amplificationRatio));
+          out.Set("maxLoadN",            Napi::Number::New(env2, r.maxLoadN));
+          out.Set("mechanicalAdvantage", Napi::Number::New(env2, r.mechanicalAdvantage));
+          return out;
+        });
+      }));
+    exports.Set("capstan", capNs);
 
     return exports;
 }

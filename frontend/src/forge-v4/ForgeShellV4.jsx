@@ -1492,6 +1492,12 @@ export function ForgeShellV4() {
         setActiveWb('aashto');
         window.__forgeOpenAashtoPavementWorkbench?.();
         return;
+      // Forge-286 — Capstan / bollard friction.
+      case 'tools.capstan':
+      case 'workbench.capstan':
+        setActiveWb('capstan');
+        window.__forgeOpenCapstanFrictionWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
