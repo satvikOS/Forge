@@ -208,6 +208,7 @@ add_library(forge_kernel SHARED
     src/RcPunching.cpp
     src/AnchorBolt.cpp
     src/PowerScrew.cpp
+    src/SteelBeamLtb.cpp
     ${PLANEGCS_SRC}
 )
 

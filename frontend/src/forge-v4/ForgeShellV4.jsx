@@ -1396,6 +1396,12 @@ export function ForgeShellV4() {
         setActiveWb('powerscrew');
         window.__forgeOpenPowerScrewWorkbench?.();
         return;
+      // Forge-270 — Steel beam LTB (AISC 360 §F2).
+      case 'tools.steelbeam':
+      case 'workbench.steelbeam':
+        setActiveWb('steelbeam');
+        window.__forgeOpenSteelBeamLtbWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

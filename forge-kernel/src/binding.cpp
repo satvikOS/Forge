@@ -119,6 +119,7 @@
 #include "forge/RcPunching.hpp"
 #include "forge/AnchorBolt.hpp"
 #include "forge/PowerScrew.hpp"
+#include "forge/SteelBeamLtb.hpp"
 
 #include <array>
 
@@ -8859,6 +8860,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("powerscrew", pscNs);
+
+    // -------- Steel beam LTB (Forge-270) --------------------------------
+    auto sbNs = Napi::Object::New(env);
+    sbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::steelbeam::Input in{};
+          in.yieldMPa            = o.Get("yieldMPa"           ).As<Napi::Number>().DoubleValue();
+          in.elasticModulusMPa   = o.Get("elasticModulusMPa"  ).As<Napi::Number>().DoubleValue();
+          in.sectionModulusXMm3  = o.Get("sectionModulusXMm3" ).As<Napi::Number>().DoubleValue();
+          in.plasticModulusXMm3  = o.Get("plasticModulusXMm3" ).As<Napi::Number>().DoubleValue();
+          in.torsionConstantMm4  = o.Get("torsionConstantMm4" ).As<Napi::Number>().DoubleValue();
+          in.radiusYMm           = o.Get("radiusYMm"          ).As<Napi::Number>().DoubleValue();
+          in.radiusTsMm          = o.Get("radiusTsMm"         ).As<Napi::Number>().DoubleValue();
+          in.distanceBetweenFlangeCentroidsMm
+                                 = o.Get("distanceBetweenFlangeCentroidsMm").As<Napi::Number>().DoubleValue();
+          in.warpingCoefficient  = o.Get("warpingCoefficient" ).As<Napi::Number>().DoubleValue();
+          in.unbracedLengthMm    = o.Get("unbracedLengthMm"   ).As<Napi::Number>().DoubleValue();
+          in.cb                  = o.Get("cb"                 ).As<Napi::Number>().DoubleValue();
+          auto r = forge::steelbeam::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("mPlasticNmm",    Napi::Number::New(env2, r.mPlasticNmm));
+          out.Set("lpMm",           Napi::Number::New(env2, r.lpMm));
+          out.Set("lrMm",           Napi::Number::New(env2, r.lrMm));
+          out.Set("mNnominalNmm",   Napi::Number::New(env2, r.mNnominalNmm));
+          out.Set("fCrMPa",         Napi::Number::New(env2, r.fCrMPa));
+          out.Set("phiMnNmm",       Napi::Number::New(env2, r.phiMnNmm));
+          out.Set("mnOverOmegaNmm", Napi::Number::New(env2, r.mnOverOmegaNmm));
+          out.Set("regime",         Napi::String::New(env2, r.regime));
+          return out;
+        });
+      }));
+    exports.Set("steelbeam", sbNs);
 
     return exports;
 }

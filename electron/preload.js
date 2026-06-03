@@ -730,6 +730,11 @@ const forgeApi = {
     analyse: (input) => kernel.powerscrew.analyse(input),
   } : null,
 
+  // steelbeam (Forge-270) — Steel beam lateral-torsional buckling (AISC 360-22 §F2).
+  steelbeam: kernel && kernel.steelbeam ? {
+    analyse: (input) => kernel.steelbeam.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
