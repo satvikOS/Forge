@@ -760,6 +760,11 @@ const forgeApi = {
     analyse: (input) => kernel.silopressure.analyse(input),
   } : null,
 
+  // otto (Forge-276) — Air-standard Otto cycle (SI engine thermodynamics).
+  otto: kernel && kernel.otto ? {
+    analyse: (input) => kernel.otto.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

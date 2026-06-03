@@ -243,6 +243,8 @@ import { PumpNpshWorkbenchHost } from './forge-v4/PumpNpshWorkbench.jsx';
 import { WoodColumnWorkbenchHost } from './forge-v4/WoodColumnWorkbench.jsx';
 // Forge-275 — Janssen silo wall pressure.
 import { SiloPressureWorkbenchHost } from './forge-v4/SiloPressureWorkbench.jsx';
+// Forge-276 — Air-standard Otto cycle.
+import { OttoCycleWorkbenchHost } from './forge-v4/OttoCycleWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -432,6 +434,7 @@ function App() {
       <PumpNpshWorkbenchHost />
       <WoodColumnWorkbenchHost />
       <SiloPressureWorkbenchHost />
+      <OttoCycleWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

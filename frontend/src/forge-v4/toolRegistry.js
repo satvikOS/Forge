@@ -175,7 +175,8 @@ export const CALCULATOR_TREE = [
         label: 'Combustion',
         items: [
           { id: 'combustion', label: 'Combustion (stoichiometric AFR + flue gas)…', slice: 'Forge-259' },
-          { id: 'boilereff', label: 'Boiler efficiency (direct + indirect)…', slice: 'Forge-262' },
+          { id: 'boilereff',  label: 'Boiler efficiency (direct + indirect)…', slice: 'Forge-262' },
+          { id: 'otto',       label: 'Otto cycle (air-standard SI engine)…', slice: 'Forge-276' },
         ],
       },
       {

@@ -125,6 +125,7 @@
 #include "forge/PumpNpsh.hpp"
 #include "forge/WoodColumn.hpp"
 #include "forge/SiloPressure.hpp"
+#include "forge/OttoCycle.hpp"
 
 #include <array>
 
@@ -9066,6 +9067,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("silopressure", siloNs);
+
+    // -------- Air-standard Otto cycle (Forge-276) -----------------------
+    auto ottoNs = Napi::Object::New(env);
+    ottoNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::ottocycle::Input in{};
+          in.compressionRatio    = o.Get("compressionRatio"   ).As<Napi::Number>().DoubleValue();
+          in.intakeTemperatureK  = o.Get("intakeTemperatureK" ).As<Napi::Number>().DoubleValue();
+          in.intakePressureKPa   = o.Get("intakePressureKPa"  ).As<Napi::Number>().DoubleValue();
+          in.peakTemperatureK    = o.Get("peakTemperatureK"   ).As<Napi::Number>().DoubleValue();
+          in.specificHeatRatio   = o.Get("specificHeatRatio"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::ottocycle::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cVKJkgK",                  Napi::Number::New(env2, r.cVKJkgK));
+          out.Set("t2K",                      Napi::Number::New(env2, r.t2K));
+          out.Set("t3K",                      Napi::Number::New(env2, r.t3K));
+          out.Set("t4K",                      Napi::Number::New(env2, r.t4K));
+          out.Set("p2KPa",                    Napi::Number::New(env2, r.p2KPa));
+          out.Set("p3KPa",                    Napi::Number::New(env2, r.p3KPa));
+          out.Set("p4KPa",                    Napi::Number::New(env2, r.p4KPa));
+          out.Set("v1OverV2",                 Napi::Number::New(env2, r.v1OverV2));
+          out.Set("specificVolume1M3kg",      Napi::Number::New(env2, r.specificVolume1M3kg));
+          out.Set("specificVolume2M3kg",      Napi::Number::New(env2, r.specificVolume2M3kg));
+          out.Set("qInKJkg",                  Napi::Number::New(env2, r.qInKJkg));
+          out.Set("qOutKJkg",                 Napi::Number::New(env2, r.qOutKJkg));
+          out.Set("wNetKJkg",                 Napi::Number::New(env2, r.wNetKJkg));
+          out.Set("thermalEfficiency",        Napi::Number::New(env2, r.thermalEfficiency));
+          out.Set("meanEffectivePressureKPa", Napi::Number::New(env2, r.meanEffectivePressureKPa));
+          return out;
+        });
+      }));
+    exports.Set("otto", ottoNs);
 
     return exports;
 }

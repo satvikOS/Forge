@@ -214,6 +214,7 @@ add_library(forge_kernel SHARED
     src/PumpNpsh.cpp
     src/WoodColumn.cpp
     src/SiloPressure.cpp
+    src/OttoCycle.cpp
     ${PLANEGCS_SRC}
 )
 

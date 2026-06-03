@@ -1432,6 +1432,12 @@ export function ForgeShellV4() {
         setActiveWb('silopressure');
         window.__forgeOpenSiloPressureWorkbench?.();
         return;
+      // Forge-276 — Otto cycle (air-standard).
+      case 'tools.otto':
+      case 'workbench.otto':
+        setActiveWb('otto');
+        window.__forgeOpenOttoCycleWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
