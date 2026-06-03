@@ -1528,6 +1528,12 @@ export function ForgeShellV4() {
         setActiveWb('bevelgear');
         window.__forgeOpenBevelGearWorkbench?.();
         return;
+      // Forge-292 — Wood shear wall.
+      case 'tools.woodshear':
+      case 'workbench.woodshear':
+        setActiveWb('woodshear');
+        window.__forgeOpenWoodShearWallWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

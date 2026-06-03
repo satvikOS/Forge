@@ -275,6 +275,8 @@ import { CircularPipeFlowWorkbenchHost } from './forge-v4/CircularPipeFlowWorkbe
 import { WormGearWorkbenchHost } from './forge-v4/WormGearWorkbench.jsx';
 // Forge-291 — Bevel gear pair (Tredgold + AGMA 2003).
 import { BevelGearWorkbenchHost } from './forge-v4/BevelGearWorkbench.jsx';
+// Forge-292 — Wood shear wall (NDS + SDPWS-21 §4).
+import { WoodShearWallWorkbenchHost } from './forge-v4/WoodShearWallWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -480,6 +482,7 @@ function App() {
       <CircularPipeFlowWorkbenchHost />
       <WormGearWorkbenchHost />
       <BevelGearWorkbenchHost />
+      <WoodShearWallWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

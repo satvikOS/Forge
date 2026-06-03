@@ -840,6 +840,11 @@ const forgeApi = {
     analyse: (input) => kernel.bevelgear.analyse(input),
   } : null,
 
+  // woodshear (Forge-292) — Wood shear wall (NDS + SDPWS-21 §4).
+  woodshear: kernel && kernel.woodshear ? {
+    analyse: (input) => kernel.woodshear.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

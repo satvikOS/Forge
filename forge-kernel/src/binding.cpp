@@ -141,6 +141,7 @@
 #include "forge/CircularPipeFlow.hpp"
 #include "forge/WormGear.hpp"
 #include "forge/BevelGear.hpp"
+#include "forge/WoodShearWall.hpp"
 
 #include <array>
 
@@ -9556,6 +9557,37 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("bevelgear", bevelNs);
+
+    // -------- Wood shear wall (Forge-292) -------------------------------
+    auto wswNs = Napi::Object::New(env);
+    wswNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::woodshear::Input in{};
+          in.shearLoadKN            = o.Get("shearLoadKN"           ).As<Napi::Number>().DoubleValue();
+          in.wallLengthM            = o.Get("wallLengthM"           ).As<Napi::Number>().DoubleValue();
+          in.wallHeightM            = o.Get("wallHeightM"           ).As<Napi::Number>().DoubleValue();
+          in.allowableShearKNm      = o.Get("allowableShearKNm"     ).As<Napi::Number>().DoubleValue();
+          in.chordAreaMm2           = o.Get("chordAreaMm2"          ).As<Napi::Number>().DoubleValue();
+          in.chordAllowableStressMPa = o.Get("chordAllowableStressMPa").As<Napi::Number>().DoubleValue();
+          auto r = forge::woodshear::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("unitShearKNm",    Napi::Number::New(env2, r.unitShearKNm));
+          out.Set("shearDCR",        Napi::Number::New(env2, r.shearDCR));
+          out.Set("aspectRatio",     Napi::Number::New(env2, r.aspectRatio));
+          out.Set("aspectOK",        Napi::Boolean::New(env2, r.aspectOK));
+          out.Set("chordForceKN",    Napi::Number::New(env2, r.chordForceKN));
+          out.Set("chordStressMPa",  Napi::Number::New(env2, r.chordStressMPa));
+          out.Set("chordDCR",        Napi::Number::New(env2, r.chordDCR));
+          out.Set("shearOK",         Napi::Boolean::New(env2, r.shearOK));
+          out.Set("chordOK",         Napi::Boolean::New(env2, r.chordOK));
+          out.Set("overallOK",       Napi::Boolean::New(env2, r.overallOK));
+          return out;
+        });
+      }));
+    exports.Set("woodshear", wswNs);
 
     return exports;
 }

@@ -230,6 +230,7 @@ add_library(forge_kernel SHARED
     src/CircularPipeFlow.cpp
     src/WormGear.cpp
     src/BevelGear.cpp
+    src/WoodShearWall.cpp
     ${PLANEGCS_SRC}
 )
 
