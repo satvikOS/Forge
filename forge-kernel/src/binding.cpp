@@ -102,6 +102,7 @@
 #include "forge/PowerFlow.hpp"
 #include "forge/ShortCircuit.hpp"
 #include "forge/CableSizing.hpp"
+#include "forge/Lighting.hpp"
 
 #include <array>
 
@@ -8123,6 +8124,56 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("cable", cbNs);
+
+    // -------- Lighting design (Forge-253) -------------------------------
+    auto liNs = Napi::Object::New(env);
+    auto readRoom = [](const Napi::Object& o) {
+      forge::lighting::RoomGeom g{};
+      g.lengthM         = o.Get("lengthM"        ).As<Napi::Number>().DoubleValue();
+      g.widthM          = o.Get("widthM"         ).As<Napi::Number>().DoubleValue();
+      g.mountingHeightM = o.Get("mountingHeightM").As<Napi::Number>().DoubleValue();
+      return g;
+    };
+    liNs.Set("roomCavityRatio", Napi::Function::New(env,
+      [readRoom](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto g = readRoom(info[0].As<Napi::Object>());
+          return Napi::Number::New(env2, forge::lighting::roomCavityRatio(g));
+        });
+      }));
+    liNs.Set("coefficientOfUtilization", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          return Napi::Number::New(env2,
+              forge::lighting::coefficientOfUtilization(
+                  info[0].As<Napi::Number>().DoubleValue()));
+        });
+      }));
+    liNs.Set("lumenMethod", Napi::Function::New(env,
+      [readRoom](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::lighting::LumenMethodInput in{};
+          in.room                = readRoom(o.Get("room").As<Napi::Object>());
+          in.lumensPerLuminaire   = o.Get("lumensPerLuminaire"  ).As<Napi::Number>().DoubleValue();
+          in.luminaireCount       = o.Get("luminaireCount"      ).As<Napi::Number>().Int32Value();
+          in.targetIlluminanceLux = o.Get("targetIlluminanceLux").As<Napi::Number>().DoubleValue();
+          in.cuOverride           = o.Get("cuOverride"          ).As<Napi::Number>().DoubleValue();
+          in.lightLossFactor      = o.Get("lightLossFactor"     ).As<Napi::Number>().DoubleValue();
+          auto r = forge::lighting::lumenMethod(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("rcr",                  Napi::Number::New(env2, r.rcr));
+          out.Set("cu",                   Napi::Number::New(env2, r.cu));
+          out.Set("illuminanceLux",       Napi::Number::New(env2, r.illuminanceLux));
+          out.Set("requiredLuminaires",   Napi::Number::New(env2, r.requiredLuminaires));
+          out.Set("computedTotalLumens",  Napi::Number::New(env2, r.computedTotalLumens));
+          return out;
+        });
+      }));
+    exports.Set("lighting", liNs);
 
     return exports;
 }

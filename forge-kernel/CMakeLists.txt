@@ -191,6 +191,7 @@ add_library(forge_kernel SHARED
     src/PowerFlow.cpp
     src/ShortCircuit.cpp
     src/CableSizing.cpp
+    src/Lighting.cpp
     ${PLANEGCS_SRC}
 )
 

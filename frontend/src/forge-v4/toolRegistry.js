@@ -235,6 +235,12 @@ export const CALCULATOR_TREE = [
         ],
       },
       {
+        label: 'Lighting',
+        items: [
+          { id: 'lighting', label: 'Lighting design (IES lumen method)…', slice: 'Forge-253' },
+        ],
+      },
+      {
         label: 'Three-phase',
         items: [
           { id: 'threephase', label: 'Three-phase power + PF correction + p.u.…', slice: 'Forge-244' },

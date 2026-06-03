@@ -630,6 +630,13 @@ const forgeApi = {
     voltageDrop:   (input) => kernel.cable.voltageDrop(input),
   } : null,
 
+  // lighting (Forge-253) — IES lumen method illuminance solver.
+  lighting: kernel && kernel.lighting ? {
+    roomCavityRatio:           (room) => kernel.lighting.roomCavityRatio(room),
+    coefficientOfUtilization:  (rcr)  => kernel.lighting.coefficientOfUtilization(rcr),
+    lumenMethod:               (inp)  => kernel.lighting.lumenMethod(inp),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

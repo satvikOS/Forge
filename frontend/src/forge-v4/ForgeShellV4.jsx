@@ -1294,6 +1294,12 @@ export function ForgeShellV4() {
         setActiveWb('cable');
         window.__forgeOpenCableWorkbench?.();
         return;
+      // Forge-253 — Lighting design.
+      case 'tools.lighting':
+      case 'workbench.lighting':
+        setActiveWb('lighting');
+        window.__forgeOpenLightingWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
