@@ -1540,6 +1540,12 @@ export function ForgeShellV4() {
         setActiveWb('hook');
         window.__forgeOpenCraneHookWorkbench?.();
         return;
+      // Forge-294 — Air filter Δp + fan energy.
+      case 'tools.airfilter':
+      case 'workbench.airfilter':
+        setActiveWb('airfilter');
+        window.__forgeOpenAirFilterWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

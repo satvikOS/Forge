@@ -279,6 +279,8 @@ import { BevelGearWorkbenchHost } from './forge-v4/BevelGearWorkbench.jsx';
 import { WoodShearWallWorkbenchHost } from './forge-v4/WoodShearWallWorkbench.jsx';
 // Forge-293 — Crane hook (DIN 15400 / ASME B30.10).
 import { CraneHookWorkbenchHost } from './forge-v4/CraneHookWorkbench.jsx';
+// Forge-294 — Air filter Δp + fan energy (ASHRAE 52.2).
+import { AirFilterWorkbenchHost } from './forge-v4/AirFilterWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -486,6 +488,7 @@ function App() {
       <BevelGearWorkbenchHost />
       <WoodShearWallWorkbenchHost />
       <CraneHookWorkbenchHost />
+      <AirFilterWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -143,6 +143,7 @@
 #include "forge/BevelGear.hpp"
 #include "forge/WoodShearWall.hpp"
 #include "forge/CraneHook.hpp"
+#include "forge/AirFilter.hpp"
 
 #include <array>
 
@@ -9620,6 +9621,34 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("hook", hookNs);
+
+    // -------- Air filter (Forge-294) ------------------------------------
+    auto afNs = Napi::Object::New(env);
+    afNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::airfilter::Input in{};
+          in.flowRateM3S            = o.Get("flowRateM3S"           ).As<Napi::Number>().DoubleValue();
+          in.faceAreaM2             = o.Get("faceAreaM2"            ).As<Napi::Number>().DoubleValue();
+          in.initialPressureDropPa  = o.Get("initialPressureDropPa" ).As<Napi::Number>().DoubleValue();
+          in.finalPressureDropPa    = o.Get("finalPressureDropPa"   ).As<Napi::Number>().DoubleValue();
+          in.runHours               = o.Get("runHours"              ).As<Napi::Number>().DoubleValue();
+          in.fanEfficiency          = o.Get("fanEfficiency"         ).As<Napi::Number>().DoubleValue();
+          in.electricityRatePerKWh  = o.Get("electricityRatePerKWh" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::airfilter::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("faceVelocityMs",        Napi::Number::New(env2, r.faceVelocityMs));
+          out.Set("faceVelocityInRange",   Napi::Boolean::New(env2, r.faceVelocityInRange));
+          out.Set("averagePressureDropPa", Napi::Number::New(env2, r.averagePressureDropPa));
+          out.Set("fanPowerW",             Napi::Number::New(env2, r.fanPowerW));
+          out.Set("energyKWh",             Napi::Number::New(env2, r.energyKWh));
+          out.Set("energyCost",            Napi::Number::New(env2, r.energyCost));
+          return out;
+        });
+      }));
+    exports.Set("airfilter", afNs);
 
     return exports;
 }

@@ -232,6 +232,7 @@ add_library(forge_kernel SHARED
     src/BevelGear.cpp
     src/WoodShearWall.cpp
     src/CraneHook.cpp
+    src/AirFilter.cpp
     ${PLANEGCS_SRC}
 )
 

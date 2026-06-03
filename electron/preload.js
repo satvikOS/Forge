@@ -850,6 +850,11 @@ const forgeApi = {
     analyse: (input) => kernel.hook.analyse(input),
   } : null,
 
+  // airfilter (Forge-294) — Air filter Δp + fan energy (ASHRAE 52.2 style).
+  airfilter: kernel && kernel.airfilter ? {
+    analyse: (input) => kernel.airfilter.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

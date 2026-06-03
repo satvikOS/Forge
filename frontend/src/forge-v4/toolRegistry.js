@@ -176,6 +176,7 @@ export const CALCULATOR_TREE = [
           { id: 'psychro',     label: 'Psychrometric chart…', slice: 'Forge-192' },
           { id: 'hxc',         label: 'Heat exchanger LMTD…', slice: 'Forge-218' },
           { id: 'compressor',  label: 'Reciprocating compressor (polytropic + η_v)…', slice: 'Forge-282' },
+          { id: 'airfilter',   label: 'Air filter Δp + fan energy (ASHRAE 52.2)…', slice: 'Forge-294' },
         ],
       },
       {
