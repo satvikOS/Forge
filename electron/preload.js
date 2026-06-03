@@ -835,6 +835,11 @@ const forgeApi = {
     analyse: (input) => kernel.wormgear.analyse(input),
   } : null,
 
+  // bevelgear (Forge-291) — Bevel gear pair (Tredgold + AGMA 2003).
+  bevelgear: kernel && kernel.bevelgear ? {
+    analyse: (input) => kernel.bevelgear.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

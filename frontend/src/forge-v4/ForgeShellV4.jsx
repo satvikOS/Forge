@@ -1522,6 +1522,12 @@ export function ForgeShellV4() {
         setActiveWb('wormgear');
         window.__forgeOpenWormGearWorkbench?.();
         return;
+      // Forge-291 — Bevel gear pair.
+      case 'tools.bevelgear':
+      case 'workbench.bevelgear':
+        setActiveWb('bevelgear');
+        window.__forgeOpenBevelGearWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

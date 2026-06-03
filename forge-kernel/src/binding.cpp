@@ -140,6 +140,7 @@
 #include "forge/PitotTube.hpp"
 #include "forge/CircularPipeFlow.hpp"
 #include "forge/WormGear.hpp"
+#include "forge/BevelGear.hpp"
 
 #include <array>
 
@@ -9522,6 +9523,39 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("wormgear", wormNs);
+
+    // -------- Bevel gear (Forge-291) ------------------------------------
+    auto bevelNs = Napi::Object::New(env);
+    bevelNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::bevelgear::Input in{};
+          in.moduleMm         = o.Get("moduleMm"        ).As<Napi::Number>().DoubleValue();
+          in.pinionTeeth      = o.Get("pinionTeeth"     ).As<Napi::Number>().Int32Value();
+          in.gearTeeth        = o.Get("gearTeeth"       ).As<Napi::Number>().Int32Value();
+          in.faceWidthMm      = o.Get("faceWidthMm"     ).As<Napi::Number>().DoubleValue();
+          in.pressureAngleDeg = o.Get("pressureAngleDeg").As<Napi::Number>().DoubleValue();
+          in.pinionTorqueNm   = o.Get("pinionTorqueNm"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::bevelgear::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("gearRatio",                Napi::Number::New(env2, r.gearRatio));
+          out.Set("pinionConeAngleDeg",       Napi::Number::New(env2, r.pinionConeAngleDeg));
+          out.Set("gearConeAngleDeg",         Napi::Number::New(env2, r.gearConeAngleDeg));
+          out.Set("pinionPitchDiameterMm",    Napi::Number::New(env2, r.pinionPitchDiameterMm));
+          out.Set("gearPitchDiameterMm",      Napi::Number::New(env2, r.gearPitchDiameterMm));
+          out.Set("coneDistanceMm",           Napi::Number::New(env2, r.coneDistanceMm));
+          out.Set("pinionMeanRadiusMm",       Napi::Number::New(env2, r.pinionMeanRadiusMm));
+          out.Set("equivalentPinionTeeth",    Napi::Number::New(env2, r.equivalentPinionTeeth));
+          out.Set("equivalentGearTeeth",      Napi::Number::New(env2, r.equivalentGearTeeth));
+          out.Set("tangentialForceN",         Napi::Number::New(env2, r.tangentialForceN));
+          out.Set("radialForceN",             Napi::Number::New(env2, r.radialForceN));
+          out.Set("axialForceN",              Napi::Number::New(env2, r.axialForceN));
+          return out;
+        });
+      }));
+    exports.Set("bevelgear", bevelNs);
 
     return exports;
 }

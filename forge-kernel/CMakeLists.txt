@@ -229,6 +229,7 @@ add_library(forge_kernel SHARED
     src/PitotTube.cpp
     src/CircularPipeFlow.cpp
     src/WormGear.cpp
+    src/BevelGear.cpp
     ${PLANEGCS_SRC}
 )
 
