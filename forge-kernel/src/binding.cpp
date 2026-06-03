@@ -112,6 +112,7 @@
 #include "forge/VibIsolation.hpp"
 #include "forge/FinEfficiency.hpp"
 #include "forge/BoilerEfficiency.hpp"
+#include "forge/SoundTL.hpp"
 
 #include <array>
 
@@ -8605,6 +8606,39 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("boilereff", blNs);
+
+    // -------- Sound transmission loss (Forge-263) -----------------------
+    auto stlNs = Napi::Object::New(env);
+    stlNs.Set("massLawTL", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::soundtl::MassLawInput in{};
+          in.surfaceDensityKgPerM2 = o.Get("surfaceDensityKgPerM2").As<Napi::Number>().DoubleValue();
+          in.frequencyHz           = o.Get("frequencyHz"          ).As<Napi::Number>().DoubleValue();
+          in.coincidenceLossDb     = o.Get("coincidenceLossDb"    ).As<Napi::Number>().DoubleValue();
+          return Napi::Number::New(env2, forge::soundtl::massLawTL(in));
+        });
+      }));
+    stlNs.Set("compositeTL", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::soundtl::CompositeInput in{};
+          auto elArr = o.Get("elements").As<Napi::Array>();
+          for (uint32_t i = 0; i < elArr.Length(); ++i) {
+            auto eo = elArr.Get(i).As<Napi::Object>();
+            forge::soundtl::CompositeElement el{};
+            el.areaM2 = eo.Get("areaM2").As<Napi::Number>().DoubleValue();
+            el.transmissionLossDb = eo.Get("transmissionLossDb").As<Napi::Number>().DoubleValue();
+            in.elements.push_back(el);
+          }
+          return Napi::Number::New(env2, forge::soundtl::compositeTL(in));
+        });
+      }));
+    exports.Set("soundtl", stlNs);
 
     return exports;
 }

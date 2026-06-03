@@ -164,6 +164,12 @@ export const CALCULATOR_TREE = [
           { id: 'fin',        label: 'Fin efficiency (rectangular + pin)…', slice: 'Forge-261' },
         ],
       },
+      {
+        label: 'Acoustics',
+        items: [
+          { id: 'soundtl',    label: 'Sound transmission loss (mass law + composite)…', slice: 'Forge-263' },
+        ],
+      },
     ],
   },
   {

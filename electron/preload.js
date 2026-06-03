@@ -693,6 +693,12 @@ const forgeApi = {
     indirectMethod: (input) => kernel.boilereff.indirectMethod(input),
   } : null,
 
+  // soundtl (Forge-263) — mass-law + composite acoustic TL.
+  soundtl: kernel && kernel.soundtl ? {
+    massLawTL:   (input) => kernel.soundtl.massLawTL(input),
+    compositeTL: (input) => kernel.soundtl.compositeTL(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

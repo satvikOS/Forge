@@ -1354,6 +1354,12 @@ export function ForgeShellV4() {
         setActiveWb('boilereff');
         window.__forgeOpenBoilerEffWorkbench?.();
         return;
+      // Forge-263 — Sound TL.
+      case 'tools.soundtl':
+      case 'workbench.soundtl':
+        setActiveWb('soundtl');
+        window.__forgeOpenSoundTLWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

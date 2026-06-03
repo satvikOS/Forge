@@ -217,6 +217,8 @@ import { VibIsolationWorkbenchHost } from './forge-v4/VibIsolationWorkbench.jsx'
 import { FinEfficiencyWorkbenchHost } from './forge-v4/FinEfficiencyWorkbench.jsx';
 // Forge-262 — Boiler efficiency workbench.
 import { BoilerEfficiencyWorkbenchHost } from './forge-v4/BoilerEfficiencyWorkbench.jsx';
+// Forge-263 — Sound TL workbench.
+import { SoundTLWorkbenchHost } from './forge-v4/SoundTLWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -393,6 +395,7 @@ function App() {
       <VibIsolationWorkbenchHost />
       <FinEfficiencyWorkbenchHost />
       <BoilerEfficiencyWorkbenchHost />
+      <SoundTLWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
