@@ -130,6 +130,7 @@
 #include "forge/BraytonCycle.hpp"
 #include "forge/DcMotor.hpp"
 #include "forge/WireRopeSling.hpp"
+#include "forge/DiscBrake.hpp"
 
 #include <array>
 
@@ -9242,6 +9243,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("sling", slingNs);
+
+    // -------- Disc clutch / brake (Forge-281) ---------------------------
+    auto dbNs = Napi::Object::New(env);
+    dbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::discbrake::Input in{};
+          in.outerRadiusMm       = o.Get("outerRadiusMm"      ).As<Napi::Number>().DoubleValue();
+          in.innerRadiusMm       = o.Get("innerRadiusMm"      ).As<Napi::Number>().DoubleValue();
+          in.frictionCoefficient = o.Get("frictionCoefficient").As<Napi::Number>().DoubleValue();
+          in.clampingForceN      = o.Get("clampingForceN"     ).As<Napi::Number>().DoubleValue();
+          in.numberOfFaces       = o.Get("numberOfFaces"      ).As<Napi::Number>().Int32Value();
+          std::string a          = o.Get("assumption"         ).As<Napi::String>().Utf8Value();
+          if      (a == "uniform-wear"    ) in.assumption = forge::discbrake::Assumption::UniformWear;
+          else if (a == "uniform-pressure") in.assumption = forge::discbrake::Assumption::UniformPressure;
+          else throw std::runtime_error("assumption must be 'uniform-wear' or 'uniform-pressure'");
+          auto r = forge::discbrake::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("meanRadiusMm",      Napi::Number::New(env2, r.meanRadiusMm));
+          out.Set("contactAreaMm2",    Napi::Number::New(env2, r.contactAreaMm2));
+          out.Set("torqueNm",          Napi::Number::New(env2, r.torqueNm));
+          out.Set("averagePressureMPa", Napi::Number::New(env2, r.averagePressureMPa));
+          out.Set("maxPressureMPa",    Napi::Number::New(env2, r.maxPressureMPa));
+          out.Set("assumptionUsed",    Napi::String::New(env2, r.assumptionUsed));
+          return out;
+        });
+      }));
+    exports.Set("discbrake", dbNs);
 
     return exports;
 }

@@ -117,6 +117,7 @@ export const CALCULATOR_TREE = [
           { id: 'vbelt',     label: 'V-belt drive…', slice: 'Forge-227' },
           { id: 'bearing',   label: 'Bearing L10 / Lna (ISO 281)…', slice: 'Forge-226' },
           { id: 'spring',    label: 'Compression spring (Shigley)…', slice: 'Forge-217' },
+          { id: 'discbrake', label: 'Disc clutch / brake (Shigley §16-2)…', slice: 'Forge-281' },
         ],
       },
       {

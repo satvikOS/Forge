@@ -253,6 +253,8 @@ import { BraytonCycleWorkbenchHost } from './forge-v4/BraytonCycleWorkbench.jsx'
 import { DcMotorWorkbenchHost } from './forge-v4/DcMotorWorkbench.jsx';
 // Forge-280 — Wire rope sling capacity (ASME B30.9).
 import { WireRopeSlingWorkbenchHost } from './forge-v4/WireRopeSlingWorkbench.jsx';
+// Forge-281 — Disc clutch / brake (Shigley §16-2).
+import { DiscBrakeWorkbenchHost } from './forge-v4/DiscBrakeWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -447,6 +449,7 @@ function App() {
       <BraytonCycleWorkbenchHost />
       <DcMotorWorkbenchHost />
       <WireRopeSlingWorkbenchHost />
+      <DiscBrakeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

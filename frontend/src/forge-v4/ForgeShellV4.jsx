@@ -1462,6 +1462,12 @@ export function ForgeShellV4() {
         setActiveWb('sling');
         window.__forgeOpenWireRopeSlingWorkbench?.();
         return;
+      // Forge-281 — Disc clutch / brake.
+      case 'tools.discbrake':
+      case 'workbench.discbrake':
+        setActiveWb('discbrake');
+        window.__forgeOpenDiscBrakeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

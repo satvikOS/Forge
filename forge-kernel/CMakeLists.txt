@@ -219,6 +219,7 @@ add_library(forge_kernel SHARED
     src/BraytonCycle.cpp
     src/DcMotor.cpp
     src/WireRopeSling.cpp
+    src/DiscBrake.cpp
     ${PLANEGCS_SRC}
 )
 

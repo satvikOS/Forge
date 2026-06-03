@@ -785,6 +785,11 @@ const forgeApi = {
     analyse: (input) => kernel.sling.analyse(input),
   } : null,
 
+  // discbrake (Forge-281) — Disc clutch / brake torque (Shigley §16-2).
+  discbrake: kernel && kernel.discbrake ? {
+    analyse: (input) => kernel.discbrake.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
