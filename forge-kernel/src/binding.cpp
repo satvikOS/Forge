@@ -124,6 +124,7 @@
 #include "forge/WoodBeam.hpp"
 #include "forge/PumpNpsh.hpp"
 #include "forge/WoodColumn.hpp"
+#include "forge/SiloPressure.hpp"
 
 #include <array>
 
@@ -9038,6 +9039,33 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("woodcolumn", wcNs);
+
+    // -------- Janssen silo pressure (Forge-275) -------------------------
+    auto siloNs = Napi::Object::New(env);
+    siloNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::silopressure::Input in{};
+          in.bulkUnitWeightKnM3      = o.Get("bulkUnitWeightKnM3"     ).As<Napi::Number>().DoubleValue();
+          in.hydraulicRadiusM        = o.Get("hydraulicRadiusM"       ).As<Napi::Number>().DoubleValue();
+          in.wallFrictionCoefficient = o.Get("wallFrictionCoefficient").As<Napi::Number>().DoubleValue();
+          in.horizontalRatioK        = o.Get("horizontalRatioK"       ).As<Napi::Number>().DoubleValue();
+          in.depthM                  = o.Get("depthM"                 ).As<Napi::Number>().DoubleValue();
+          auto r = forge::silopressure::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("verticalPressureKPa",   Napi::Number::New(env2, r.verticalPressureKPa));
+          out.Set("wallPressureKPa",       Napi::Number::New(env2, r.wallPressureKPa));
+          out.Set("frictionStressKPa",     Napi::Number::New(env2, r.frictionStressKPa));
+          out.Set("asymptoticVerticalKPa", Napi::Number::New(env2, r.asymptoticVerticalKPa));
+          out.Set("asymptoticWallKPa",     Napi::Number::New(env2, r.asymptoticWallKPa));
+          out.Set("asymptoticFrictionKPa", Napi::Number::New(env2, r.asymptoticFrictionKPa));
+          out.Set("depthRatioToZc",        Napi::Number::New(env2, r.depthRatioToZc));
+          return out;
+        });
+      }));
+    exports.Set("silopressure", siloNs);
 
     return exports;
 }

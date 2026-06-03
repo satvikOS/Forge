@@ -755,6 +755,11 @@ const forgeApi = {
     analyse: (input) => kernel.woodcolumn.analyse(input),
   } : null,
 
+  // silopressure (Forge-275) — Janssen silo wall pressure for granular bulk storage.
+  silopressure: kernel && kernel.silopressure ? {
+    analyse: (input) => kernel.silopressure.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

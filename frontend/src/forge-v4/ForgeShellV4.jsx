@@ -1426,6 +1426,12 @@ export function ForgeShellV4() {
         setActiveWb('woodcolumn');
         window.__forgeOpenWoodColumnWorkbench?.();
         return;
+      // Forge-275 — Janssen silo pressure.
+      case 'tools.silopressure':
+      case 'workbench.silopressure':
+        setActiveWb('silopressure');
+        window.__forgeOpenSiloPressureWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -213,6 +213,7 @@ add_library(forge_kernel SHARED
     src/WoodBeam.cpp
     src/PumpNpsh.cpp
     src/WoodColumn.cpp
+    src/SiloPressure.cpp
     ${PLANEGCS_SRC}
 )
 
