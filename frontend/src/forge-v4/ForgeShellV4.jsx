@@ -1342,6 +1342,12 @@ export function ForgeShellV4() {
         setActiveWb('vibiso');
         window.__forgeOpenVibIsoWorkbench?.();
         return;
+      // Forge-261 — Fin efficiency.
+      case 'tools.fin':
+      case 'workbench.fin':
+        setActiveWb('fin');
+        window.__forgeOpenFinWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -157,6 +157,12 @@ export const CALCULATOR_TREE = [
           { id: 'combustion', label: 'Combustion (stoichiometric AFR + flue gas)…', slice: 'Forge-259' },
         ],
       },
+      {
+        label: 'Heat transfer',
+        items: [
+          { id: 'fin',        label: 'Fin efficiency (rectangular + pin)…', slice: 'Forge-261' },
+        ],
+      },
     ],
   },
   {

@@ -681,6 +681,12 @@ const forgeApi = {
     sizeIsolator: (input) => kernel.vibiso.sizeIsolator(input),
   } : null,
 
+  // fin (Forge-261) — heat-transfer fin efficiency (Incropera).
+  fin: kernel && kernel.fin ? {
+    rectangular: (input) => kernel.fin.rectangular(input),
+    pin:         (input) => kernel.fin.pin(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -110,6 +110,7 @@
 #include "forge/Machining.hpp"
 #include "forge/Combustion.hpp"
 #include "forge/VibIsolation.hpp"
+#include "forge/FinEfficiency.hpp"
 
 #include <array>
 
@@ -8514,6 +8515,49 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("vibiso", viNs);
+
+    // -------- Fin efficiency (Forge-261) --------------------------------
+    auto fnNs = Napi::Object::New(env);
+    auto writeFinResult = [](Napi::Env env2, const forge::finefficiency::Result& r) {
+      auto out = Napi::Object::New(env2);
+      out.Set("parameter_m",      Napi::Number::New(env2, r.parameter_m));
+      out.Set("correctedLength",  Napi::Number::New(env2, r.correctedLength));
+      out.Set("finEfficiency",    Napi::Number::New(env2, r.finEfficiency));
+      out.Set("finAreaM2",        Napi::Number::New(env2, r.finAreaM2));
+      out.Set("heatRateW",        Napi::Number::New(env2, r.heatRateW));
+      out.Set("finEffectiveness", Napi::Number::New(env2, r.finEffectiveness));
+      return out;
+    };
+    fnNs.Set("rectangular", Napi::Function::New(env,
+      [writeFinResult](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::finefficiency::RectInput in{};
+          in.heightM             = o.Get("heightM"            ).As<Napi::Number>().DoubleValue();
+          in.thicknessM          = o.Get("thicknessM"         ).As<Napi::Number>().DoubleValue();
+          in.widthM              = o.Get("widthM"             ).As<Napi::Number>().DoubleValue();
+          in.thermalConductivity = o.Get("thermalConductivity").As<Napi::Number>().DoubleValue();
+          in.convectionH         = o.Get("convectionH"        ).As<Napi::Number>().DoubleValue();
+          in.temperatureDiffK    = o.Get("temperatureDiffK"   ).As<Napi::Number>().DoubleValue();
+          return writeFinResult(env2, forge::finefficiency::rectangular(in));
+        });
+      }));
+    fnNs.Set("pin", Napi::Function::New(env,
+      [writeFinResult](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::finefficiency::PinInput in{};
+          in.lengthM             = o.Get("lengthM"            ).As<Napi::Number>().DoubleValue();
+          in.diameterM           = o.Get("diameterM"          ).As<Napi::Number>().DoubleValue();
+          in.thermalConductivity = o.Get("thermalConductivity").As<Napi::Number>().DoubleValue();
+          in.convectionH         = o.Get("convectionH"        ).As<Napi::Number>().DoubleValue();
+          in.temperatureDiffK    = o.Get("temperatureDiffK"   ).As<Napi::Number>().DoubleValue();
+          return writeFinResult(env2, forge::finefficiency::pin(in));
+        });
+      }));
+    exports.Set("fin", fnNs);
 
     return exports;
 }
