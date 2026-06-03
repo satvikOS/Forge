@@ -100,6 +100,7 @@
 #include "forge/TransmissionLine.hpp"
 #include "forge/SyncMachine.hpp"
 #include "forge/PowerFlow.hpp"
+#include "forge/ShortCircuit.hpp"
 
 #include <array>
 
@@ -8010,6 +8011,51 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("powerflow", pfNs);
+
+    // -------- Short-circuit (Forge-251) ---------------------------------
+    auto scNs2 = Napi::Object::New(env);
+    scNs2.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::shortcircuit::Input in{};
+          in.numBuses            = o.Get("numBuses"           ).As<Napi::Number>().Int32Value();
+          in.prefaultVoltagePu   = o.Get("prefaultVoltagePu"  ).As<Napi::Number>().DoubleValue();
+          auto gArr = o.Get("generators").As<Napi::Array>();
+          for (uint32_t i = 0; i < gArr.Length(); ++i) {
+            auto go = gArr.Get(i).As<Napi::Object>();
+            forge::shortcircuit::GenShunt g{};
+            g.busIndex      = go.Get("busIndex"     ).As<Napi::Number>().Int32Value();
+            g.subtransientX = go.Get("subtransientX").As<Napi::Number>().DoubleValue();
+            in.generators.push_back(g);
+          }
+          auto brArr = o.Get("branches").As<Napi::Array>();
+          for (uint32_t i = 0; i < brArr.Length(); ++i) {
+            auto bo = brArr.Get(i).As<Napi::Object>();
+            forge::shortcircuit::Branch br{};
+            br.from = bo.Get("from").As<Napi::Number>().Int32Value();
+            br.to   = bo.Get("to"  ).As<Napi::Number>().Int32Value();
+            br.R    = bo.Get("R"   ).As<Napi::Number>().DoubleValue();
+            br.X    = bo.Get("X"   ).As<Napi::Number>().DoubleValue();
+            in.branches.push_back(br);
+          }
+          auto r = forge::shortcircuit::analyse(in);
+          auto out = Napi::Object::New(env2);
+          auto arr = Napi::Array::New(env2, r.buses.size());
+          for (size_t i = 0; i < r.buses.size(); ++i) {
+            auto bo = Napi::Object::New(env2);
+            bo.Set("zDriveMag",      Napi::Number::New(env2, r.buses[i].zDriveMag));
+            bo.Set("zDriveAngDeg",   Napi::Number::New(env2, r.buses[i].zDriveAngDeg));
+            bo.Set("faultCurrentPu", Napi::Number::New(env2, r.buses[i].faultCurrentPu));
+            bo.Set("faultMvaPu",     Napi::Number::New(env2, r.buses[i].faultMvaPu));
+            arr.Set(static_cast<uint32_t>(i), bo);
+          }
+          out.Set("buses", arr);
+          return out;
+        });
+      }));
+    exports.Set("shortcircuit", scNs2);
 
     return exports;
 }

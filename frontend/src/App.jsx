@@ -193,6 +193,8 @@ import { TransmissionLineWorkbenchHost } from './forge-v4/TransmissionLineWorkbe
 import { SyncMachineWorkbenchHost } from './forge-v4/SyncMachineWorkbench.jsx';
 // Forge-250 — Newton-Raphson power-flow workbench.
 import { PowerFlowWorkbenchHost } from './forge-v4/PowerFlowWorkbench.jsx';
+// Forge-251 — Short-circuit study workbench.
+import { ShortCircuitWorkbenchHost } from './forge-v4/ShortCircuitWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -357,6 +359,7 @@ function App() {
       <TransmissionLineWorkbenchHost />
       <SyncMachineWorkbenchHost />
       <PowerFlowWorkbenchHost />
+      <ShortCircuitWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -1282,6 +1282,12 @@ export function ForgeShellV4() {
         setActiveWb('pflow');
         window.__forgeOpenPFlowWorkbench?.();
         return;
+      // Forge-251 — Short-circuit study.
+      case 'tools.scstudy':
+      case 'workbench.scstudy':
+        setActiveWb('scstudy');
+        window.__forgeOpenSCStudyWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -189,6 +189,7 @@ add_library(forge_kernel SHARED
     src/TransmissionLine.cpp
     src/SyncMachine.cpp
     src/PowerFlow.cpp
+    src/ShortCircuit.cpp
     ${PLANEGCS_SRC}
 )
 

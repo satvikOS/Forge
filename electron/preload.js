@@ -618,6 +618,11 @@ const forgeApi = {
     solve: (input) => kernel.powerflow.solve(input),
   } : null,
 
+  // shortcircuit (Forge-251) — Z_bus driving-point fault MVA.
+  shortcircuit: kernel && kernel.shortcircuit ? {
+    analyse: (input) => kernel.shortcircuit.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

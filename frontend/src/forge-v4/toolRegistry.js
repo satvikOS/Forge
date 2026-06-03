@@ -238,6 +238,7 @@ export const CALCULATOR_TREE = [
           { id: 'tline',      label: 'Transmission line (ABCD short / π / long)…', slice: 'Forge-248' },
           { id: 'syncm',      label: 'Synchronous machine (E_f, δ, P_max)…', slice: 'Forge-249' },
           { id: 'pflow',      label: 'Power flow (Newton-Raphson N-bus)…', slice: 'Forge-250' },
+          { id: 'scstudy',    label: 'Short-circuit study (Z_bus fault MVA)…', slice: 'Forge-251' },
         ],
       },
     ],
