@@ -278,7 +278,8 @@ export const CALCULATOR_TREE = [
       {
         label: 'Transportation',
         items: [
-          { id: 'ssd', label: 'Stopping sight distance (AASHTO Green Book)…', slice: 'Forge-284' },
+          { id: 'ssd',    label: 'Stopping sight distance (AASHTO Green Book)…', slice: 'Forge-284' },
+          { id: 'aashto', label: 'Pavement design SN (AASHTO 93)…', slice: 'Forge-285' },
         ],
       },
       {

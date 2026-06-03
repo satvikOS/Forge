@@ -134,6 +134,7 @@
 #include "forge/ReciprocatingCompressor.hpp"
 #include "forge/ChainDrive.hpp"
 #include "forge/StoppingSightDistance.hpp"
+#include "forge/AashtoPavement.hpp"
 
 #include <array>
 
@@ -9360,6 +9361,30 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("ssd", ssdNs);
+
+    // -------- AASHTO pavement (Forge-285) -------------------------------
+    auto pavNs = Napi::Object::New(env);
+    pavNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::aashto::Input in{};
+          in.w18Esals       = o.Get("w18Esals"      ).As<Napi::Number>().DoubleValue();
+          in.reliabilityPct = o.Get("reliabilityPct").As<Napi::Number>().DoubleValue();
+          in.overallStdDev  = o.Get("overallStdDev" ).As<Napi::Number>().DoubleValue();
+          in.deltaPSI       = o.Get("deltaPSI"      ).As<Napi::Number>().DoubleValue();
+          in.subgradeMrPsi  = o.Get("subgradeMrPsi" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::aashto::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("zR",               Napi::Number::New(env2, r.zR));
+          out.Set("logW18",           Napi::Number::New(env2, r.logW18));
+          out.Set("structuralNumber", Napi::Number::New(env2, r.structuralNumber));
+          out.Set("iterations",       Napi::Number::New(env2, r.iterations));
+          return out;
+        });
+      }));
+    exports.Set("aashto", pavNs);
 
     return exports;
 }

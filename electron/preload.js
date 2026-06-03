@@ -805,6 +805,11 @@ const forgeApi = {
     analyse: (input) => kernel.ssd.analyse(input),
   } : null,
 
+  // aashto (Forge-285) — Flexible pavement structural number (AASHTO 1993).
+  aashto: kernel && kernel.aashto ? {
+    analyse: (input) => kernel.aashto.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

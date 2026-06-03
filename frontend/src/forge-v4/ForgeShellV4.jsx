@@ -1486,6 +1486,12 @@ export function ForgeShellV4() {
         setActiveWb('ssd');
         window.__forgeOpenStoppingSightDistanceWorkbench?.();
         return;
+      // Forge-285 — AASHTO 93 pavement design.
+      case 'tools.aashto':
+      case 'workbench.aashto':
+        setActiveWb('aashto');
+        window.__forgeOpenAashtoPavementWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

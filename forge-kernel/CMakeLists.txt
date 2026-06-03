@@ -223,6 +223,7 @@ add_library(forge_kernel SHARED
     src/ReciprocatingCompressor.cpp
     src/ChainDrive.cpp
     src/StoppingSightDistance.cpp
+    src/AashtoPavement.cpp
     ${PLANEGCS_SRC}
 )
 

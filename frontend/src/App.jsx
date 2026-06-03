@@ -261,6 +261,8 @@ import { ReciprocatingCompressorWorkbenchHost } from './forge-v4/ReciprocatingCo
 import { ChainDriveWorkbenchHost } from './forge-v4/ChainDriveWorkbench.jsx';
 // Forge-284 — Stopping sight distance (AASHTO Green Book).
 import { StoppingSightDistanceWorkbenchHost } from './forge-v4/StoppingSightDistanceWorkbench.jsx';
+// Forge-285 — AASHTO 93 flexible pavement design (SN).
+import { AashtoPavementWorkbenchHost } from './forge-v4/AashtoPavementWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -459,6 +461,7 @@ function App() {
       <ReciprocatingCompressorWorkbenchHost />
       <ChainDriveWorkbenchHost />
       <StoppingSightDistanceWorkbenchHost />
+      <AashtoPavementWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
