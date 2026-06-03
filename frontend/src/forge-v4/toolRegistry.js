@@ -229,6 +229,12 @@ export const CALCULATOR_TREE = [
         ],
       },
       {
+        label: 'Cable',
+        items: [
+          { id: 'cable',    label: 'Cable sizing (NEC 310 + IEC 60364)…', slice: 'Forge-252' },
+        ],
+      },
+      {
         label: 'Three-phase',
         items: [
           { id: 'threephase', label: 'Three-phase power + PF correction + p.u.…', slice: 'Forge-244' },

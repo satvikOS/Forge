@@ -101,6 +101,7 @@
 #include "forge/SyncMachine.hpp"
 #include "forge/PowerFlow.hpp"
 #include "forge/ShortCircuit.hpp"
+#include "forge/CableSizing.hpp"
 
 #include <array>
 
@@ -8056,6 +8057,72 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("shortcircuit", scNs2);
+
+    // -------- Cable sizing (Forge-252) ----------------------------------
+    auto cbNs = Napi::Object::New(env);
+    cbNs.Set("ampacityTable", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto table = forge::cable::nec31016Table();
+          auto arr = Napi::Array::New(env2, table.size());
+          for (size_t i = 0; i < table.size(); ++i) {
+            auto o = Napi::Object::New(env2);
+            o.Set("size",          Napi::String::New(env2, table[i].size));
+            o.Set("xsecMm2",       Napi::Number::New(env2, table[i].xsecMm2));
+            o.Set("ampacityCu75C", Napi::Number::New(env2, table[i].ampacityCu75C));
+            arr.Set(static_cast<uint32_t>(i), o);
+          }
+          return arr;
+        });
+      }));
+    cbNs.Set("ampacity", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cable::AmpacityInput in{};
+          in.conductorSize = o.Get("conductorSize").As<Napi::String>().Utf8Value();
+          std::string m = o.Get("material").As<Napi::String>().Utf8Value();
+          in.material = (m == "aluminum") ? forge::cable::Material::Aluminum
+                                          : forge::cable::Material::Copper;
+          in.ambientTempC                  = o.Get("ambientTempC"                ).As<Napi::Number>().DoubleValue();
+          in.numCurrentCarryingConductors  = o.Get("numCurrentCarryingConductors").As<Napi::Number>().Int32Value();
+          auto r = forge::cable::ampacity(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("baseAmpacityA",      Napi::Number::New(env2, r.baseAmpacityA));
+          out.Set("ambientFactor",      Napi::Number::New(env2, r.ambientFactor));
+          out.Set("groupingFactor",     Napi::Number::New(env2, r.groupingFactor));
+          out.Set("materialFactor",     Napi::Number::New(env2, r.materialFactor));
+          out.Set("effectiveAmpacityA", Napi::Number::New(env2, r.effectiveAmpacityA));
+          return out;
+        });
+      }));
+    cbNs.Set("voltageDrop", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cable::VoltageDropInput in{};
+          std::string sys = o.Get("system").As<Napi::String>().Utf8Value();
+          in.system = (sys == "threePhase") ? forge::cable::System::ThreePhase
+                                            : forge::cable::System::SinglePhase;
+          in.xsecMm2                          = o.Get("xsecMm2"                         ).As<Napi::Number>().DoubleValue();
+          in.lengthMeters                     = o.Get("lengthMeters"                    ).As<Napi::Number>().DoubleValue();
+          in.loadAmperes                      = o.Get("loadAmperes"                     ).As<Napi::Number>().DoubleValue();
+          in.powerFactor                      = o.Get("powerFactor"                     ).As<Napi::Number>().DoubleValue();
+          in.materialResistivityOhmMmSqPerM   = o.Get("materialResistivityOhmMmSqPerM"  ).As<Napi::Number>().DoubleValue();
+          in.conductorReactanceOhmPerKm       = o.Get("conductorReactanceOhmPerKm"      ).As<Napi::Number>().DoubleValue();
+          in.systemVoltage                    = o.Get("systemVoltage"                   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::cable::voltageDrop(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cableResistanceOhmPerKm", Napi::Number::New(env2, r.cableResistanceOhmPerKm));
+          out.Set("voltageDropV",            Napi::Number::New(env2, r.voltageDropV));
+          out.Set("voltageDropPct",          Napi::Number::New(env2, r.voltageDropPct));
+          return out;
+        });
+      }));
+    exports.Set("cable", cbNs);
 
     return exports;
 }

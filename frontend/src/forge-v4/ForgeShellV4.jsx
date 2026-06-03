@@ -1288,6 +1288,12 @@ export function ForgeShellV4() {
         setActiveWb('scstudy');
         window.__forgeOpenSCStudyWorkbench?.();
         return;
+      // Forge-252 — Cable sizing.
+      case 'tools.cable':
+      case 'workbench.cable':
+        setActiveWb('cable');
+        window.__forgeOpenCableWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

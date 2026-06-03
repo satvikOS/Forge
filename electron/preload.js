@@ -623,6 +623,13 @@ const forgeApi = {
     analyse: (input) => kernel.shortcircuit.analyse(input),
   } : null,
 
+  // cable (Forge-252) — NEC 310 ampacity + IEC 60364 voltage drop.
+  cable: kernel && kernel.cable ? {
+    ampacityTable: ()      => kernel.cable.ampacityTable(),
+    ampacity:      (input) => kernel.cable.ampacity(input),
+    voltageDrop:   (input) => kernel.cable.voltageDrop(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

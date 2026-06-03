@@ -190,6 +190,7 @@ add_library(forge_kernel SHARED
     src/SyncMachine.cpp
     src/PowerFlow.cpp
     src/ShortCircuit.cpp
+    src/CableSizing.cpp
     ${PLANEGCS_SRC}
 )
 

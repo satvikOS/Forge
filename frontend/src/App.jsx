@@ -195,6 +195,8 @@ import { SyncMachineWorkbenchHost } from './forge-v4/SyncMachineWorkbench.jsx';
 import { PowerFlowWorkbenchHost } from './forge-v4/PowerFlowWorkbench.jsx';
 // Forge-251 — Short-circuit study workbench.
 import { ShortCircuitWorkbenchHost } from './forge-v4/ShortCircuitWorkbench.jsx';
+// Forge-252 — Cable sizing workbench.
+import { CableSizingWorkbenchHost } from './forge-v4/CableSizingWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -360,6 +362,7 @@ function App() {
       <SyncMachineWorkbenchHost />
       <PowerFlowWorkbenchHost />
       <ShortCircuitWorkbenchHost />
+      <CableSizingWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
