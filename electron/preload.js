@@ -574,6 +574,13 @@ const forgeApi = {
     orificeDischarge:  (input) => kernel.weir.orificeDischarge(input),
   } : null,
 
+  // threephase (Forge-244) — balanced 3-phase + PF correction + per-unit.
+  threephase: kernel && kernel.threephase ? {
+    balancedPower:          (input) => kernel.threephase.balancedPower(input),
+    powerFactorCorrection:  (input) => kernel.threephase.powerFactorCorrection(input),
+    perUnit:                (input) => kernel.threephase.perUnit(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

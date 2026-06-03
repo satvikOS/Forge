@@ -1240,6 +1240,12 @@ export function ForgeShellV4() {
         setActiveWb('weir');
         window.__forgeOpenWeirWorkbench?.();
         return;
+      // Forge-244 — Three-phase power.
+      case 'tools.threephase':
+      case 'workbench.threephase':
+        setActiveWb('threephase');
+        window.__forgeOpenThreePhaseWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

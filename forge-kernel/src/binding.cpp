@@ -93,6 +93,7 @@
 #include "forge/PileCapacity.hpp"
 #include "forge/OpenChannel.hpp"
 #include "forge/WeirOrifice.hpp"
+#include "forge/ThreePhase.hpp"
 
 #include <array>
 
@@ -7581,6 +7582,72 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("weir", woNs);
+
+    // -------- Three-phase power (Forge-244) -----------------------------
+    auto tpNs = Napi::Object::New(env);
+    tpNs.Set("balancedPower", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::threephase::PowerInput in{};
+          std::string conn = o.Get("connection").As<Napi::String>().Utf8Value();
+          in.connection = (conn == "delta") ? forge::threephase::Connection::Delta
+                                            : forge::threephase::Connection::Star;
+          in.lineLineVoltageV = o.Get("lineLineVoltageV").As<Napi::Number>().DoubleValue();
+          in.lineCurrentA     = o.Get("lineCurrentA"    ).As<Napi::Number>().DoubleValue();
+          in.powerFactor      = o.Get("powerFactor"     ).As<Napi::Number>().DoubleValue();
+          in.leading          = o.Get("leading"         ).As<Napi::Boolean>().Value();
+          auto r = forge::threephase::balancedPower(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("phaseVoltageV",  Napi::Number::New(env2, r.phaseVoltageV));
+          out.Set("phaseCurrentA",  Napi::Number::New(env2, r.phaseCurrentA));
+          out.Set("apparentVA",     Napi::Number::New(env2, r.apparentVA));
+          out.Set("realW",          Napi::Number::New(env2, r.realW));
+          out.Set("reactiveVAR",    Napi::Number::New(env2, r.reactiveVAR));
+          return out;
+        });
+      }));
+    tpNs.Set("powerFactorCorrection", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::threephase::PfCorrInput in{};
+          in.realPowerW       = o.Get("realPowerW"      ).As<Napi::Number>().DoubleValue();
+          in.powerFactor1     = o.Get("powerFactor1"    ).As<Napi::Number>().DoubleValue();
+          in.powerFactor2     = o.Get("powerFactor2"    ).As<Napi::Number>().DoubleValue();
+          in.lineLineVoltageV = o.Get("lineLineVoltageV").As<Napi::Number>().DoubleValue();
+          in.frequencyHz      = o.Get("frequencyHz"     ).As<Napi::Number>().DoubleValue();
+          auto r = forge::threephase::powerFactorCorrection(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("phi1Rad",            Napi::Number::New(env2, r.phi1Rad));
+          out.Set("phi2Rad",            Napi::Number::New(env2, r.phi2Rad));
+          out.Set("reactiveBeforeVAR",  Napi::Number::New(env2, r.reactiveBeforeVAR));
+          out.Set("reactiveAfterVAR",   Napi::Number::New(env2, r.reactiveAfterVAR));
+          out.Set("capacitorVAR",       Napi::Number::New(env2, r.capacitorVAR));
+          out.Set("capacitanceF",       Napi::Number::New(env2, r.capacitanceF));
+          return out;
+        });
+      }));
+    tpNs.Set("perUnit", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::threephase::PerUnitInput in{};
+          in.baseVA               = o.Get("baseVA"              ).As<Napi::Number>().DoubleValue();
+          in.baseVoltageLineLineV = o.Get("baseVoltageLineLineV").As<Napi::Number>().DoubleValue();
+          in.ohmicZ               = o.Get("ohmicZ"              ).As<Napi::Number>().DoubleValue();
+          auto r = forge::threephase::perUnit(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("baseImpedanceOhm", Napi::Number::New(env2, r.baseImpedanceOhm));
+          out.Set("baseCurrentA",     Napi::Number::New(env2, r.baseCurrentA));
+          out.Set("zpu",              Napi::Number::New(env2, r.zpu));
+          return out;
+        });
+      }));
+    exports.Set("threephase", tpNs);
 
     return exports;
 }

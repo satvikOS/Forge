@@ -228,6 +228,12 @@ export const CALCULATOR_TREE = [
           { id: 'circuit',  label: 'Schematic + MNA DC/AC…', slice: 'Forge-190' },
         ],
       },
+      {
+        label: 'Three-phase',
+        items: [
+          { id: 'threephase', label: 'Three-phase power + PF correction + p.u.…', slice: 'Forge-244' },
+        ],
+      },
     ],
   },
   {
