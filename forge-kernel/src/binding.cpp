@@ -114,6 +114,7 @@
 #include "forge/BoilerEfficiency.hpp"
 #include "forge/SoundTL.hpp"
 #include "forge/PIDTuning.hpp"
+#include "forge/TunedMassDamper.hpp"
 
 #include <array>
 
@@ -8685,6 +8686,31 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pidtuning", pdNs);
+
+    // -------- Tuned mass damper (Forge-265) -----------------------------
+    auto tmdNs = Napi::Object::New(env);
+    tmdNs.Set("sizeAbsorber", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::tmd::SizingInput in{};
+          in.primaryMassKg      = o.Get("primaryMassKg"     ).As<Napi::Number>().DoubleValue();
+          in.primaryFrequencyHz = o.Get("primaryFrequencyHz").As<Napi::Number>().DoubleValue();
+          in.massRatio          = o.Get("massRatio"         ).As<Napi::Number>().DoubleValue();
+          auto r = forge::tmd::sizeAbsorber(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("absorberMassKg",          Napi::Number::New(env2, r.absorberMassKg));
+          out.Set("frequencyRatioOptimum",   Napi::Number::New(env2, r.frequencyRatioOptimum));
+          out.Set("dampingRatioOptimum",     Napi::Number::New(env2, r.dampingRatioOptimum));
+          out.Set("absorberStiffnessNPerM",  Napi::Number::New(env2, r.absorberStiffnessNPerM));
+          out.Set("absorberDampingNsm",      Napi::Number::New(env2, r.absorberDampingNsm));
+          out.Set("absorberFrequencyHz",     Napi::Number::New(env2, r.absorberFrequencyHz));
+          out.Set("peakTransmissibility",    Napi::Number::New(env2, r.peakTransmissibility));
+          return out;
+        });
+      }));
+    exports.Set("tmd", tmdNs);
 
     return exports;
 }

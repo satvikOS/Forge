@@ -1366,6 +1366,12 @@ export function ForgeShellV4() {
         setActiveWb('pidtune');
         window.__forgeOpenPIDTuneWorkbench?.();
         return;
+      // Forge-265 — Tuned mass damper.
+      case 'tools.tmd':
+      case 'workbench.tmd':
+        setActiveWb('tmd');
+        window.__forgeOpenTMDWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -705,6 +705,11 @@ const forgeApi = {
     cohenCoon:      (input) => kernel.pidtuning.cohenCoon(input),
   } : null,
 
+  // tmd (Forge-265) — Den Hartog tuned mass damper sizing.
+  tmd: kernel && kernel.tmd ? {
+    sizeAbsorber: (input) => kernel.tmd.sizeAbsorber(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -221,6 +221,8 @@ import { BoilerEfficiencyWorkbenchHost } from './forge-v4/BoilerEfficiencyWorkbe
 import { SoundTLWorkbenchHost } from './forge-v4/SoundTLWorkbench.jsx';
 // Forge-264 — PID tuning workbench.
 import { PIDTuningWorkbenchHost } from './forge-v4/PIDTuningWorkbench.jsx';
+// Forge-265 — Tuned mass damper workbench.
+import { TunedMassDamperWorkbenchHost } from './forge-v4/TunedMassDamperWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -399,6 +401,7 @@ function App() {
       <BoilerEfficiencyWorkbenchHost />
       <SoundTLWorkbenchHost />
       <PIDTuningWorkbenchHost />
+      <TunedMassDamperWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

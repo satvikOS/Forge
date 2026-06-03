@@ -119,6 +119,7 @@ export const CALCULATOR_TREE = [
         label: 'Dynamics',
         items: [
           { id: 'vibiso',    label: 'Vibration isolation (TR + isolator k)…', slice: 'Forge-260' },
+          { id: 'tmd',       label: 'Tuned mass damper (Den Hartog)…', slice: 'Forge-265' },
         ],
       },
     ],

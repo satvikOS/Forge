@@ -203,6 +203,7 @@ add_library(forge_kernel SHARED
     src/BoilerEfficiency.cpp
     src/SoundTL.cpp
     src/PIDTuning.cpp
+    src/TunedMassDamper.cpp
     ${PLANEGCS_SRC}
 )
 
