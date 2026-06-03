@@ -200,6 +200,7 @@ add_library(forge_kernel SHARED
     src/Combustion.cpp
     src/VibIsolation.cpp
     src/FinEfficiency.cpp
+    src/BoilerEfficiency.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -687,6 +687,12 @@ const forgeApi = {
     pin:         (input) => kernel.fin.pin(input),
   } : null,
 
+  // boilereff (Forge-262) — direct + indirect boiler efficiency.
+  boilereff: kernel && kernel.boilereff ? {
+    directMethod:   (input) => kernel.boilereff.directMethod(input),
+    indirectMethod: (input) => kernel.boilereff.indirectMethod(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

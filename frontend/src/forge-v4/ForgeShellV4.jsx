@@ -1348,6 +1348,12 @@ export function ForgeShellV4() {
         setActiveWb('fin');
         window.__forgeOpenFinWorkbench?.();
         return;
+      // Forge-262 — Boiler efficiency.
+      case 'tools.boilereff':
+      case 'workbench.boilereff':
+        setActiveWb('boilereff');
+        window.__forgeOpenBoilerEffWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

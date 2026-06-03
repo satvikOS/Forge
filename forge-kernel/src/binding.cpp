@@ -111,6 +111,7 @@
 #include "forge/Combustion.hpp"
 #include "forge/VibIsolation.hpp"
 #include "forge/FinEfficiency.hpp"
+#include "forge/BoilerEfficiency.hpp"
 
 #include <array>
 
@@ -8558,6 +8559,52 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("fin", fnNs);
+
+    // -------- Boiler efficiency (Forge-262) -----------------------------
+    auto blNs = Napi::Object::New(env);
+    blNs.Set("directMethod", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boilereff::DirectInput in{};
+          in.steamFlowKgPerS           = o.Get("steamFlowKgPerS"          ).As<Napi::Number>().DoubleValue();
+          in.feedwaterEnthalpyKjPerKg  = o.Get("feedwaterEnthalpyKjPerKg" ).As<Napi::Number>().DoubleValue();
+          in.steamEnthalpyKjPerKg      = o.Get("steamEnthalpyKjPerKg"     ).As<Napi::Number>().DoubleValue();
+          in.fuelFlowKgPerS            = o.Get("fuelFlowKgPerS"           ).As<Napi::Number>().DoubleValue();
+          in.heatingValueKjPerKg       = o.Get("heatingValueKjPerKg"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::boilereff::directMethod(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("heatOutputKw",    Napi::Number::New(env2, r.heatOutputKw));
+          out.Set("heatInputKw",     Napi::Number::New(env2, r.heatInputKw));
+          out.Set("efficiencyPct",   Napi::Number::New(env2, r.efficiencyPct));
+          return out;
+        });
+      }));
+    blNs.Set("indirectMethod", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boilereff::IndirectInput in{};
+          in.dryFlueGasKgPerKgFuel   = o.Get("dryFlueGasKgPerKgFuel"  ).As<Napi::Number>().DoubleValue();
+          in.moistureKgPerKgFuel     = o.Get("moistureKgPerKgFuel"    ).As<Napi::Number>().DoubleValue();
+          in.flueGasTempC            = o.Get("flueGasTempC"           ).As<Napi::Number>().DoubleValue();
+          in.ambientTempC            = o.Get("ambientTempC"           ).As<Napi::Number>().DoubleValue();
+          in.heatingValueKjPerKg     = o.Get("heatingValueKjPerKg"    ).As<Napi::Number>().DoubleValue();
+          in.dryFlueGasCpKjPerKgK    = o.Get("dryFlueGasCpKjPerKgK"   ).As<Napi::Number>().DoubleValue();
+          in.radiationLossPct        = o.Get("radiationLossPct"       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::boilereff::indirectMethod(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("dryFlueGasLossPct",  Napi::Number::New(env2, r.dryFlueGasLossPct));
+          out.Set("waterVapourLossPct", Napi::Number::New(env2, r.waterVapourLossPct));
+          out.Set("radiationLossPct",   Napi::Number::New(env2, r.radiationLossPct));
+          out.Set("totalLossesPct",     Napi::Number::New(env2, r.totalLossesPct));
+          out.Set("efficiencyPct",      Napi::Number::New(env2, r.efficiencyPct));
+          return out;
+        });
+      }));
+    exports.Set("boilereff", blNs);
 
     return exports;
 }
