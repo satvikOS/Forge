@@ -820,6 +820,11 @@ const forgeApi = {
     analyse: (input) => kernel.prismoidal.analyse(input),
   } : null,
 
+  // pitot (Forge-288) — Pitot tube velocity (incompressible Bernoulli).
+  pitot: kernel && kernel.pitot ? {
+    analyse: (input) => kernel.pitot.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

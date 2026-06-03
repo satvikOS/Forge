@@ -1504,6 +1504,12 @@ export function ForgeShellV4() {
         setActiveWb('prismoidal');
         window.__forgeOpenPrismoidalWorkbench?.();
         return;
+      // Forge-288 — Pitot tube velocity.
+      case 'tools.pitot':
+      case 'workbench.pitot':
+        setActiveWb('pitot');
+        window.__forgeOpenPitotTubeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

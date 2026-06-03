@@ -226,6 +226,7 @@ add_library(forge_kernel SHARED
     src/AashtoPavement.cpp
     src/CapstanFriction.cpp
     src/Prismoidal.cpp
+    src/PitotTube.cpp
     ${PLANEGCS_SRC}
 )
 

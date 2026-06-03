@@ -137,6 +137,7 @@
 #include "forge/AashtoPavement.hpp"
 #include "forge/CapstanFriction.hpp"
 #include "forge/Prismoidal.hpp"
+#include "forge/PitotTube.hpp"
 
 #include <array>
 
@@ -9433,6 +9434,29 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("prismoidal", prismNs);
+
+    // -------- Pitot tube velocity (Forge-288) ---------------------------
+    auto pitotNs = Napi::Object::New(env);
+    pitotNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pitot::Input in{};
+          in.dynamicPressurePa = o.Get("dynamicPressurePa").As<Napi::Number>().DoubleValue();
+          in.densityKgM3       = o.Get("densityKgM3"      ).As<Napi::Number>().DoubleValue();
+          in.pitotCoefficient  = o.Get("pitotCoefficient" ).As<Napi::Number>().DoubleValue();
+          in.flowAreaM2        = o.Get("flowAreaM2"       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::pitot::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("velocityMs",     Napi::Number::New(env2, r.velocityMs));
+          out.Set("velocityHeadM",  Napi::Number::New(env2, r.velocityHeadM));
+          out.Set("volumeFlowM3S",  Napi::Number::New(env2, r.volumeFlowM3S));
+          out.Set("massFlowKgS",    Napi::Number::New(env2, r.massFlowKgS));
+          return out;
+        });
+      }));
+    exports.Set("pitot", pitotNs);
 
     return exports;
 }
