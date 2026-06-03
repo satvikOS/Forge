@@ -195,6 +195,7 @@ add_library(forge_kernel SHARED
     src/Battery.cpp
     src/SolarPv.cpp
     src/Hydrology.cpp
+    src/RcColumn.cpp
     ${PLANEGCS_SRC}
 )
 

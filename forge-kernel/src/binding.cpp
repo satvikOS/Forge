@@ -106,6 +106,7 @@
 #include "forge/Battery.hpp"
 #include "forge/SolarPv.hpp"
 #include "forge/Hydrology.hpp"
+#include "forge/RcColumn.hpp"
 
 #include <array>
 
@@ -8327,6 +8328,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("hydrology", hyNs);
+
+    // -------- RC column (Forge-257) -------------------------------------
+    auto rclNs = Napi::Object::New(env);
+    rclNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::rccolumn::Input in{};
+          std::string tt = o.Get("tieType").As<Napi::String>().Utf8Value();
+          in.tieType = (tt == "spiral") ? forge::rccolumn::TieType::Spiral
+                                         : forge::rccolumn::TieType::Tied;
+          in.grossAreaM2       = o.Get("grossAreaM2"      ).As<Napi::Number>().DoubleValue();
+          in.effectiveDepthM   = o.Get("effectiveDepthM"  ).As<Napi::Number>().DoubleValue();
+          in.overallDepthM     = o.Get("overallDepthM"    ).As<Napi::Number>().DoubleValue();
+          in.widthM            = o.Get("widthM"           ).As<Napi::Number>().DoubleValue();
+          in.coverM            = o.Get("coverM"           ).As<Napi::Number>().DoubleValue();
+          in.steelAreaTotalM2  = o.Get("steelAreaTotalM2" ).As<Napi::Number>().DoubleValue();
+          in.concreteFcPa      = o.Get("concreteFcPa"     ).As<Napi::Number>().DoubleValue();
+          in.steelFyPa         = o.Get("steelFyPa"        ).As<Napi::Number>().DoubleValue();
+          auto r = forge::rccolumn::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("phi",                    Napi::Number::New(env2, r.phi));
+          out.Set("maxFactor",              Napi::Number::New(env2, r.maxFactor));
+          out.Set("nominalAxialN",          Napi::Number::New(env2, r.nominalAxialN));
+          out.Set("designMaxAxialN",        Napi::Number::New(env2, r.designMaxAxialN));
+          out.Set("balancedAxialN",         Napi::Number::New(env2, r.balancedAxialN));
+          out.Set("balancedMomentNm",       Napi::Number::New(env2, r.balancedMomentNm));
+          out.Set("designBalancedAxialN",   Napi::Number::New(env2, r.designBalancedAxialN));
+          out.Set("designBalancedMomentNm", Napi::Number::New(env2, r.designBalancedMomentNm));
+          out.Set("beta1",                  Napi::Number::New(env2, r.beta1));
+          return out;
+        });
+      }));
+    exports.Set("rccolumn", rclNs);
 
     return exports;
 }

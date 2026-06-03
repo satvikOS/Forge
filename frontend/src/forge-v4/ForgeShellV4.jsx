@@ -1318,6 +1318,12 @@ export function ForgeShellV4() {
         setActiveWb('hydro');
         window.__forgeOpenHydroWorkbench?.();
         return;
+      // Forge-257 — RC column.
+      case 'tools.rccolumn':
+      case 'workbench.rccolumn':
+        setActiveWb('rccolumn');
+        window.__forgeOpenRcColumnWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

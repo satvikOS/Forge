@@ -658,6 +658,11 @@ const forgeApi = {
     idfIntensityMmHr:               (inp)      => kernel.hydrology.idfIntensityMmHr(inp),
   } : null,
 
+  // rccolumn (Forge-257) — ACI 318-19 §22.4 RC column.
+  rccolumn: kernel && kernel.rccolumn ? {
+    analyse: (input) => kernel.rccolumn.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

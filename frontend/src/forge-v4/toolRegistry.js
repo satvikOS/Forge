@@ -77,6 +77,7 @@ export const CALCULATOR_TREE = [
         label: 'Concrete',
         items: [
           { id: 'rcbeam',     label: 'RC beam flexure (ACI 318-19 §22.2)…', slice: 'Forge-238' },
+          { id: 'rccolumn',   label: 'RC column (ACI 318-19 §22.4 axial + interaction)…', slice: 'Forge-257' },
         ],
       },
     ],
