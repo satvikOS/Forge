@@ -1620,6 +1620,11 @@ export function ForgeShellV4() {
         setActiveWb('coolingtower');
         window.__forgeOpenCoolingTowerWorkbench?.();
         return;
+      case 'tools.mokabe':
+      case 'workbench.mokabe':
+        setActiveWb('mokabe');
+        window.__forgeOpenMononobeOkabeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

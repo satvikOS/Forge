@@ -291,6 +291,7 @@ export const CALCULATOR_TREE = [
           { id: 'pilecap',     label: 'Pile capacity (α-method + Meyerhof tip)…', slice: 'Forge-241' },
           { id: 'silopressure', label: 'Silo wall pressure (Janssen 1895)…', slice: 'Forge-275' },
           { id: 'consol',       label: '1D consolidation settlement (Terzaghi)…', slice: 'Forge-297' },
+          { id: 'mokabe',       label: 'Mononobe-Okabe seismic earth pressure…', slice: 'Forge-309' },
         ],
       },
       {

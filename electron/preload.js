@@ -925,6 +925,11 @@ const forgeApi = {
     analyse: (input) => kernel.coolingtower.analyse(input),
   } : null,
 
+  // mokabe (Forge-309) — Mononobe-Okabe seismic earth pressure.
+  mokabe: kernel && kernel.mokabe ? {
+    analyse: (input) => kernel.mokabe.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -158,6 +158,7 @@
 #include "forge/CoolingLoad.hpp"
 #include "forge/RCShear.hpp"
 #include "forge/CoolingTower.hpp"
+#include "forge/MononobeOkabe.hpp"
 
 #include <array>
 
@@ -10086,6 +10087,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("coolingtower", ctNs);
+
+    // -------- Mononobe-Okabe seismic earth pressure (Forge-309) ---------
+    auto moNs = Napi::Object::New(env);
+    moNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::mokabe::Input in{};
+          in.soilFrictionAngleDeg   = o.Get("soilFrictionAngleDeg"  ).As<Napi::Number>().DoubleValue();
+          in.wallFrictionAngleDeg   = o.Get("wallFrictionAngleDeg"  ).As<Napi::Number>().DoubleValue();
+          in.backfillSlopeDeg       = o.Get("backfillSlopeDeg"      ).As<Napi::Number>().DoubleValue();
+          in.wallTiltDeg            = o.Get("wallTiltDeg"           ).As<Napi::Number>().DoubleValue();
+          in.horizontalSeismicCoeff = o.Get("horizontalSeismicCoeff").As<Napi::Number>().DoubleValue();
+          in.verticalSeismicCoeff   = o.Get("verticalSeismicCoeff"  ).As<Napi::Number>().DoubleValue();
+          in.soilUnitWeightKnPerM3  = o.Get("soilUnitWeightKnPerM3" ).As<Napi::Number>().DoubleValue();
+          in.wallHeightM            = o.Get("wallHeightM"           ).As<Napi::Number>().DoubleValue();
+          auto r = forge::mokabe::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("staticKa",                    Napi::Number::New(env2, r.staticKa));
+          out.Set("seismicKae",                  Napi::Number::New(env2, r.seismicKae));
+          out.Set("seismicInertiaAngleDeg",      Napi::Number::New(env2, r.seismicInertiaAngleDeg));
+          out.Set("staticForceKnPerM",           Napi::Number::New(env2, r.staticForceKnPerM));
+          out.Set("totalSeismicForceKnPerM",     Napi::Number::New(env2, r.totalSeismicForceKnPerM));
+          out.Set("seismicIncrementKnPerM",      Napi::Number::New(env2, r.seismicIncrementKnPerM));
+          out.Set("pointOfApplicationFromBaseM", Napi::Number::New(env2, r.pointOfApplicationFromBaseM));
+          return out;
+        });
+      }));
+    exports.Set("mokabe", moNs);
 
     return exports;
 }

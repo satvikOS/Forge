@@ -309,6 +309,8 @@ import { CoolingLoadWorkbenchHost } from './forge-v4/CoolingLoadWorkbench.jsx';
 import { RCShearWorkbenchHost } from './forge-v4/RCShearWorkbench.jsx';
 // Forge-308 — Cooling tower performance (ASHRAE).
 import { CoolingTowerWorkbenchHost } from './forge-v4/CoolingTowerWorkbench.jsx';
+// Forge-309 — Mononobe-Okabe seismic earth pressure.
+import { MononobeOkabeWorkbenchHost } from './forge-v4/MononobeOkabeWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -531,6 +533,7 @@ function App() {
       <CoolingLoadWorkbenchHost />
       <RCShearWorkbenchHost />
       <CoolingTowerWorkbenchHost />
+      <MononobeOkabeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
