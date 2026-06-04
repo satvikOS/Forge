@@ -337,6 +337,11 @@ add_library(forge_kernel SHARED
     src/PVBattery.cpp
     src/DuctSilencer.cpp
     src/ThrustBlock.cpp
+    src/Corbel.cpp
+    src/WindTowerFoundation.cpp
+    src/AirReceiver.cpp
+    src/ButterworthFilter.cpp
+    src/PedestrianBridge.cpp
     ${PLANEGCS_SRC}
 )
 

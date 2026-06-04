@@ -268,6 +268,11 @@ export const CALCULATOR_TREE = [
           { id: 'pvbatt',      label: 'Off-grid PV battery (NREL/IEEE 1013)…', slice: 'Forge-334' },
           { id: 'silencer',    label: 'Duct silencer attenuation (ASHRAE Ch 49)…', slice: 'Forge-334' },
           { id: 'thrustblk',   label: 'Thrust block (DIPRA TB-3 / AWWA M11)…', slice: 'Forge-334' },
+          { id: 'corbel',      label: 'RC corbel (ACI 318 §16.5)…', slice: 'Forge-335' },
+          { id: 'wtbase',      label: 'Wind tower foundation (IEC 61400-6)…', slice: 'Forge-335' },
+          { id: 'airrcv',      label: 'Air receiver vessel (ASME UG-27)…', slice: 'Forge-335' },
+          { id: 'butter',      label: 'Butterworth IIR (Oppenheim-Schafer)…', slice: 'Forge-335' },
+          { id: 'pedvib',      label: 'Pedestrian bridge vibration (EN 1990)…', slice: 'Forge-335' },
         ],
       },
       {

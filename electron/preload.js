@@ -1087,6 +1087,13 @@ const forgeApi = {
   silencer:     kernel && kernel.silencer     ? { analyse: (i) => kernel.silencer.analyse(i) }     : null,
   thrustblk:    kernel && kernel.thrustblk    ? { analyse: (i) => kernel.thrustblk.analyse(i) }    : null,
 
+  // Forge-335 5-calc bundle
+  corbel:       kernel && kernel.corbel       ? { analyse: (i) => kernel.corbel.analyse(i) }       : null,
+  wtbase:       kernel && kernel.wtbase       ? { analyse: (i) => kernel.wtbase.analyse(i) }       : null,
+  airrcv:       kernel && kernel.airrcv       ? { analyse: (i) => kernel.airrcv.analyse(i) }       : null,
+  butter:       kernel && kernel.butter       ? { analyse: (i) => kernel.butter.analyse(i) }       : null,
+  pedvib:       kernel && kernel.pedvib       ? { analyse: (i) => kernel.pedvib.analyse(i) }       : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

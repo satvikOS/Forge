@@ -248,6 +248,11 @@
 #include "forge/PVBattery.hpp"
 #include "forge/DuctSilencer.hpp"
 #include "forge/ThrustBlock.hpp"
+#include "forge/Corbel.hpp"
+#include "forge/WindTowerFoundation.hpp"
+#include "forge/AirReceiver.hpp"
+#include "forge/ButterworthFilter.hpp"
+#include "forge/PedestrianBridge.hpp"
 
 #include <array>
 
@@ -12516,6 +12521,153 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("thrustblk", tblkNs);
+
+    // ---- Forge-335a — RC corbel ACI 318-19 §16.5 ---------------------------
+    auto crbNs = Napi::Object::New(env);
+    crbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::corbel::Input in{};
+          in.Vu_kN        = o.Get("Vu_kN").As<Napi::Number>().DoubleValue();
+          in.Nuc_kN       = o.Get("Nuc_kN").As<Napi::Number>().DoubleValue();
+          in.a_mm         = o.Get("a_mm").As<Napi::Number>().DoubleValue();
+          in.bw_mm        = o.Get("bw_mm").As<Napi::Number>().DoubleValue();
+          in.d_mm         = o.Get("d_mm").As<Napi::Number>().DoubleValue();
+          in.h_mm         = o.Get("h_mm").As<Napi::Number>().DoubleValue();
+          in.fc_MPa       = o.Get("fc_MPa").As<Napi::Number>().DoubleValue();
+          in.fy_MPa       = o.Get("fy_MPa").As<Napi::Number>().DoubleValue();
+          in.frictionMu   = o.Get("frictionMu").As<Napi::Number>().DoubleValue();
+          in.phi          = o.Get("phi").As<Napi::Number>().DoubleValue();
+          auto r = forge::corbel::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Vn_max_kN",         Napi::Number::New(env2, r.Vn_max_kN));
+          out.Set("Avf_required_mm2",  Napi::Number::New(env2, r.Avf_required_mm2));
+          out.Set("As_primary_mm2",    Napi::Number::New(env2, r.As_primary_mm2));
+          out.Set("Ah_stirrups_mm2",   Napi::Number::New(env2, r.Ah_stirrups_mm2));
+          out.Set("momentArm_jd_mm",   Napi::Number::New(env2, r.momentArm_jd_mm));
+          out.Set("shearOK",           Napi::Boolean::New(env2, r.shearOK));
+          return out;
+        });
+      }));
+    exports.Set("corbel", crbNs);
+
+    // ---- Forge-335b — Wind tower foundation overturning --------------------
+    auto wtbNs = Napi::Object::New(env);
+    wtbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::wtbase::Input in{};
+          in.thrustForce_kN        = o.Get("thrustForce_kN").As<Napi::Number>().DoubleValue();
+          in.hubHeight_m           = o.Get("hubHeight_m").As<Napi::Number>().DoubleValue();
+          in.towerWeight_kN        = o.Get("towerWeight_kN").As<Napi::Number>().DoubleValue();
+          in.foundationWidth_m     = o.Get("foundationWidth_m").As<Napi::Number>().DoubleValue();
+          in.foundationDepth_m     = o.Get("foundationDepth_m").As<Napi::Number>().DoubleValue();
+          in.concreteDensity_kgM3  = o.Get("concreteDensity_kgM3").As<Napi::Number>().DoubleValue();
+          in.soilDensity_kgM3      = o.Get("soilDensity_kgM3").As<Napi::Number>().DoubleValue();
+          in.soilCapDepth_m        = o.Get("soilCapDepth_m").As<Napi::Number>().DoubleValue();
+          in.allowableBearing_kPa  = o.Get("allowableBearing_kPa").As<Napi::Number>().DoubleValue();
+          auto r = forge::wtbase::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("foundationWeight_kN",    Napi::Number::New(env2, r.foundationWeight_kN));
+          out.Set("soilCapWeight_kN",       Napi::Number::New(env2, r.soilCapWeight_kN));
+          out.Set("totalGravity_kN",        Napi::Number::New(env2, r.totalGravity_kN));
+          out.Set("overturningMoment_kNm",  Napi::Number::New(env2, r.overturningMoment_kNm));
+          out.Set("restoringMoment_kNm",    Napi::Number::New(env2, r.restoringMoment_kNm));
+          out.Set("overturningSF",          Napi::Number::New(env2, r.overturningSF));
+          out.Set("eccentricity_m",         Napi::Number::New(env2, r.eccentricity_m));
+          out.Set("maxBearingPressure_kPa", Napi::Number::New(env2, r.maxBearingPressure_kPa));
+          out.Set("sizeOK",                 Napi::Boolean::New(env2, r.sizeOK));
+          return out;
+        });
+      }));
+    exports.Set("wtbase", wtbNs);
+
+    // ---- Forge-335c — Air receiver ASME UG-27 ------------------------------
+    auto arNs = Napi::Object::New(env);
+    arNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::airrcv::Input in{};
+          in.internalPressure_MPa  = o.Get("internalPressure_MPa").As<Napi::Number>().DoubleValue();
+          in.insideRadius_mm       = o.Get("insideRadius_mm").As<Napi::Number>().DoubleValue();
+          in.allowableStress_S_MPa = o.Get("allowableStress_S_MPa").As<Napi::Number>().DoubleValue();
+          in.jointEfficiency_E     = o.Get("jointEfficiency_E").As<Napi::Number>().DoubleValue();
+          in.corrosionAllowance_mm = o.Get("corrosionAllowance_mm").As<Napi::Number>().DoubleValue();
+          in.asBuiltThickness_mm   = o.Get("asBuiltThickness_mm").As<Napi::Number>().DoubleValue();
+          in.volume_L              = o.Get("volume_L").As<Napi::Number>().DoubleValue();
+          in.flowIn_LperS          = o.Get("flowIn_LperS").As<Napi::Number>().DoubleValue();
+          in.pressureMax_MPa       = o.Get("pressureMax_MPa").As<Napi::Number>().DoubleValue();
+          in.pressureMin_MPa       = o.Get("pressureMin_MPa").As<Napi::Number>().DoubleValue();
+          auto r = forge::airrcv::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("tCirc_mm",              Napi::Number::New(env2, r.tCirc_mm));
+          out.Set("tLong_mm",              Napi::Number::New(env2, r.tLong_mm));
+          out.Set("requiredThickness_mm",  Napi::Number::New(env2, r.requiredThickness_mm));
+          out.Set("MAWP_MPa",              Napi::Number::New(env2, r.MAWP_MPa));
+          out.Set("chargeTime_s",          Napi::Number::New(env2, r.chargeTime_s));
+          return out;
+        });
+      }));
+    exports.Set("airrcv", arNs);
+
+    // ---- Forge-335d — Butterworth IIR filter design ------------------------
+    auto bwNs = Napi::Object::New(env);
+    bwNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::butter::Input in{};
+          in.sampleRate_Hz  = o.Get("sampleRate_Hz").As<Napi::Number>().DoubleValue();
+          in.passEdge_Hz    = o.Get("passEdge_Hz").As<Napi::Number>().DoubleValue();
+          in.stopEdge_Hz    = o.Get("stopEdge_Hz").As<Napi::Number>().DoubleValue();
+          in.passRipple_dB  = o.Get("passRipple_dB").As<Napi::Number>().DoubleValue();
+          in.stopAtten_dB   = o.Get("stopAtten_dB").As<Napi::Number>().DoubleValue();
+          auto r = forge::butter::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("order_N",        Napi::Number::New(env2, r.order_N));
+          out.Set("cutoff_Hz",      Napi::Number::New(env2, r.cutoff_Hz));
+          out.Set("analogueOmegaC", Napi::Number::New(env2, r.analogueOmegaC));
+          out.Set("b0", Napi::Number::New(env2, r.b0));
+          out.Set("b1", Napi::Number::New(env2, r.b1));
+          out.Set("b2", Napi::Number::New(env2, r.b2));
+          out.Set("a1", Napi::Number::New(env2, r.a1));
+          out.Set("a2", Napi::Number::New(env2, r.a2));
+          return out;
+        });
+      }));
+    exports.Set("butter", bwNs);
+
+    // ---- Forge-335e — Pedestrian bridge vibration --------------------------
+    auto pvbNs2 = Napi::Object::New(env);
+    pvbNs2.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pedvib::Input in{};
+          in.span_m                = o.Get("span_m").As<Napi::Number>().DoubleValue();
+          in.EI_kNm2               = o.Get("EI_kNm2").As<Napi::Number>().DoubleValue();
+          in.linearMass_kgM        = o.Get("linearMass_kgM").As<Napi::Number>().DoubleValue();
+          in.pedestrianCountPerM2  = o.Get("pedestrianCountPerM2").As<Napi::Number>().DoubleValue();
+          in.bridgeDeckWidth_m     = o.Get("bridgeDeckWidth_m").As<Napi::Number>().DoubleValue();
+          auto r = forge::pedvib::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("firstFreq_Hz",              Napi::Number::New(env2, r.firstFreq_Hz));
+          out.Set("resonantPedestrianCount",   Napi::Number::New(env2, r.resonantPedestrianCount));
+          out.Set("peakAcceleration_mps2",     Napi::Number::New(env2, r.peakAcceleration_mps2));
+          out.Set("inVerticalResonance",       Napi::Boolean::New(env2, r.inVerticalResonance));
+          out.Set("meetsComfortLimit",         Napi::Boolean::New(env2, r.meetsComfortLimit));
+          return out;
+        });
+      }));
+    exports.Set("pedvib", pvbNs2);
 
     return exports;
 }

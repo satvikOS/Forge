@@ -451,6 +451,13 @@ import {
   SilencerWorkbenchHost,
   ThrustBlockWorkbenchHost,
 } from './forge-v4/Forge334BundleWorkbenches.jsx';
+import {
+  CorbelWorkbenchHost,
+  WindTowerWorkbenchHost,
+  AirReceiverWorkbenchHost,
+  ButterworthWorkbenchHost,
+  PedVibWorkbenchHost,
+} from './forge-v4/Forge335BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -763,6 +770,11 @@ function App() {
       <PVBattWorkbenchHost />
       <SilencerWorkbenchHost />
       <ThrustBlockWorkbenchHost />
+      <CorbelWorkbenchHost />
+      <WindTowerWorkbenchHost />
+      <AirReceiverWorkbenchHost />
+      <ButterworthWorkbenchHost />
+      <PedVibWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

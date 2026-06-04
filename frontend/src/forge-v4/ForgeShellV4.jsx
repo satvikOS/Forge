@@ -2086,6 +2086,32 @@ export function ForgeShellV4() {
         setActiveWb('thrustblk');
         window.__forgeOpenThrustBlockWorkbench?.();
         return;
+      // Forge-335 bundle
+      case 'tools.corbel':
+      case 'workbench.corbel':
+        setActiveWb('corbel');
+        window.__forgeOpenCorbelWorkbench?.();
+        return;
+      case 'tools.wtbase':
+      case 'workbench.wtbase':
+        setActiveWb('wtbase');
+        window.__forgeOpenWindTowerWorkbench?.();
+        return;
+      case 'tools.airrcv':
+      case 'workbench.airrcv':
+        setActiveWb('airrcv');
+        window.__forgeOpenAirReceiverWorkbench?.();
+        return;
+      case 'tools.butter':
+      case 'workbench.butter':
+        setActiveWb('butter');
+        window.__forgeOpenButterworthWorkbench?.();
+        return;
+      case 'tools.pedvib':
+      case 'workbench.pedvib':
+        setActiveWb('pedvib');
+        window.__forgeOpenPedVibWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
