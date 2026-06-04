@@ -1610,6 +1610,11 @@ export function ForgeShellV4() {
         setActiveWb('coolingload');
         window.__forgeOpenCoolingLoadWorkbench?.();
         return;
+      case 'tools.rcshear':
+      case 'workbench.rcshear':
+        setActiveWb('rcshear');
+        window.__forgeOpenRCShearWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

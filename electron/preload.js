@@ -915,6 +915,11 @@ const forgeApi = {
     analyse: (input) => kernel.coolingload.analyse(input),
   } : null,
 
+  // rcshear (Forge-307) — Reinforced concrete shear (ACI 318-19 §22.5).
+  rcshear: kernel && kernel.rcshear ? {
+    analyse: (input) => kernel.rcshear.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

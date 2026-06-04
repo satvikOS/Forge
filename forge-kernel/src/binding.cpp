@@ -156,6 +156,7 @@
 #include "forge/VoltageDrop.hpp"
 #include "forge/HertzPoint.hpp"
 #include "forge/CoolingLoad.hpp"
+#include "forge/RCShear.hpp"
 
 #include <array>
 
@@ -10023,6 +10024,37 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("coolingload", clNs);
+
+    // -------- Reinforced concrete shear (Forge-307) ---------------------
+    auto rcshNs = Napi::Object::New(env);
+    rcshNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::rcshear::Input in{};
+          in.widthMm             = o.Get("widthMm"            ).As<Napi::Number>().DoubleValue();
+          in.effectiveDepthMm    = o.Get("effectiveDepthMm"   ).As<Napi::Number>().DoubleValue();
+          in.fc_MPa              = o.Get("fc_MPa"             ).As<Napi::Number>().DoubleValue();
+          in.shearReinfAreaMm2   = o.Get("shearReinfAreaMm2"  ).As<Napi::Number>().DoubleValue();
+          in.stirrupSpacingMm    = o.Get("stirrupSpacingMm"   ).As<Napi::Number>().DoubleValue();
+          in.fyt_MPa             = o.Get("fyt_MPa"            ).As<Napi::Number>().DoubleValue();
+          in.lambda              = o.Get("lambda"             ).As<Napi::Number>().DoubleValue();
+          auto r = forge::rcshear::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Vc_kN",                Napi::Number::New(env2, r.Vc_kN));
+          out.Set("Vs_kN",                Napi::Number::New(env2, r.Vs_kN));
+          out.Set("Vn_kN",                Napi::Number::New(env2, r.Vn_kN));
+          out.Set("VnMax_kN",             Napi::Number::New(env2, r.VnMax_kN));
+          out.Set("phi",                  Napi::Number::New(env2, r.phi));
+          out.Set("phiVn_kN",             Napi::Number::New(env2, r.phiVn_kN));
+          out.Set("maxStirrupSpacingMm",  Napi::Number::New(env2, r.maxStirrupSpacingMm));
+          out.Set("spacingMeetsLimit",    Napi::Boolean::New(env2, r.spacingMeetsLimit));
+          out.Set("crushingControls",     Napi::Boolean::New(env2, r.crushingControls));
+          return out;
+        });
+      }));
+    exports.Set("rcshear", rcshNs);
 
     return exports;
 }
