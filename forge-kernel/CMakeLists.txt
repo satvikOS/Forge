@@ -317,6 +317,11 @@ add_library(forge_kernel SHARED
     src/DaylightFactor.cpp
     src/MassHaul.cpp
     src/RailBeam.cpp
+    src/BeamReactions.cpp
+    src/TankAnchor.cpp
+    src/HeatPump.cpp
+    src/BaseShear.cpp
+    src/PVShade.cpp
     ${PLANEGCS_SRC}
 )
 

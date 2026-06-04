@@ -228,6 +228,11 @@
 #include "forge/DaylightFactor.hpp"
 #include "forge/MassHaul.hpp"
 #include "forge/RailBeam.hpp"
+#include "forge/BeamReactions.hpp"
+#include "forge/TankAnchor.hpp"
+#include "forge/HeatPump.hpp"
+#include "forge/BaseShear.hpp"
+#include "forge/PVShade.hpp"
 
 #include <array>
 
@@ -11908,6 +11913,140 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("railbeam", rblNs);
+
+    // ---- Forge-331a — Beam reactions / moments / deflection ---------------
+    auto bmreactNs = Napi::Object::New(env);
+    bmreactNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::beamreact::Input in{};
+          in.span_m                 = o.Get("span_m").As<Napi::Number>().DoubleValue();
+          in.pointLoad_kN           = o.Get("pointLoad_kN").As<Napi::Number>().DoubleValue();
+          in.pointLoadPosition_m    = o.Get("pointLoadPosition_m").As<Napi::Number>().DoubleValue();
+          in.udl_kNm                = o.Get("udl_kNm").As<Napi::Number>().DoubleValue();
+          in.EI_kNm2                = o.Get("EI_kNm2").As<Napi::Number>().DoubleValue();
+          auto r = forge::beamreact::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("leftReaction_kN",       Napi::Number::New(env2, r.leftReaction_kN));
+          out.Set("rightReaction_kN",      Napi::Number::New(env2, r.rightReaction_kN));
+          out.Set("maxBendingMoment_kNm",  Napi::Number::New(env2, r.maxBendingMoment_kNm));
+          out.Set("maxShear_kN",           Napi::Number::New(env2, r.maxShear_kN));
+          out.Set("maxDeflection_mm",      Napi::Number::New(env2, r.maxDeflection_mm));
+          return out;
+        });
+      }));
+    exports.Set("beamreact", bmreactNs);
+
+    // ---- Forge-331b — API 650 tank wind anchorage --------------------------
+    auto taNs = Napi::Object::New(env);
+    taNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::tankanchor::Input in{};
+          in.tankDiameter_m       = o.Get("tankDiameter_m").As<Napi::Number>().DoubleValue();
+          in.tankHeight_m         = o.Get("tankHeight_m").As<Napi::Number>().DoubleValue();
+          in.shellWeight_kN       = o.Get("shellWeight_kN").As<Napi::Number>().DoubleValue();
+          in.fluidWeight_kN       = o.Get("fluidWeight_kN").As<Napi::Number>().DoubleValue();
+          in.windSpeed_ms         = o.Get("windSpeed_ms").As<Napi::Number>().DoubleValue();
+          in.anchorCount          = o.Get("anchorCount").As<Napi::Number>().Int32Value();
+          in.importanceFactorKs   = o.Get("importanceFactorKs").As<Napi::Number>().DoubleValue();
+          auto r = forge::tankanchor::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("windPressure_kPa",     Napi::Number::New(env2, r.windPressure_kPa));
+          out.Set("overturningMoment_kNm",Napi::Number::New(env2, r.overturningMoment_kNm));
+          out.Set("restoringMoment_kNm",  Napi::Number::New(env2, r.restoringMoment_kNm));
+          out.Set("netUplift_kN",         Napi::Number::New(env2, r.netUplift_kN));
+          out.Set("safetyFactor",         Napi::Number::New(env2, r.safetyFactor));
+          out.Set("anchorageRequired",    Napi::Boolean::New(env2, r.anchorageRequired));
+          return out;
+        });
+      }));
+    exports.Set("tankanchor", taNs);
+
+    // ---- Forge-331c — Heat-pump COP ----------------------------------------
+    auto hpumpNs = Napi::Object::New(env);
+    hpumpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::heatpump::Input in{};
+          in.sourceTemp_C          = o.Get("sourceTemp_C").As<Napi::Number>().DoubleValue();
+          in.sinkTemp_C            = o.Get("sinkTemp_C").As<Napi::Number>().DoubleValue();
+          in.secondLawEfficiency   = o.Get("secondLawEfficiency").As<Napi::Number>().DoubleValue();
+          in.compressorPower_kW    = o.Get("compressorPower_kW").As<Napi::Number>().DoubleValue();
+          in.mode                  = o.Get("mode").As<Napi::Number>().Int32Value();
+          auto r = forge::heatpump::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cop_carnot",     Napi::Number::New(env2, r.cop_carnot));
+          out.Set("cop_actual",     Napi::Number::New(env2, r.cop_actual));
+          out.Set("eer_btuhPerW",   Napi::Number::New(env2, r.eer_btuhPerW));
+          out.Set("capacity_kW",    Napi::Number::New(env2, r.capacity_kW));
+          out.Set("waste_kW",       Napi::Number::New(env2, r.waste_kW));
+          return out;
+        });
+      }));
+    exports.Set("heatpump", hpumpNs);
+
+    // ---- Forge-331d — ASCE 7 base shear ------------------------------------
+    auto bshearNs = Napi::Object::New(env);
+    bshearNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::baseshear::Input in{};
+          in.heightAboveBase_m   = o.Get("heightAboveBase_m").As<Napi::Number>().DoubleValue();
+          in.seismicWeight_kN    = o.Get("seismicWeight_kN").As<Napi::Number>().DoubleValue();
+          in.sds                 = o.Get("sds").As<Napi::Number>().DoubleValue();
+          in.sd1                 = o.Get("sd1").As<Napi::Number>().DoubleValue();
+          in.R                   = o.Get("R").As<Napi::Number>().DoubleValue();
+          in.Ie                  = o.Get("Ie").As<Napi::Number>().DoubleValue();
+          in.structuralSystem    = o.Get("structuralSystem").As<Napi::Number>().Int32Value();
+          auto r = forge::baseshear::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("approximatePeriod_s",   Napi::Number::New(env2, r.approximatePeriod_s));
+          out.Set("Cs",                    Napi::Number::New(env2, r.Cs));
+          out.Set("CsMax",                 Napi::Number::New(env2, r.CsMax));
+          out.Set("CsMin",                 Napi::Number::New(env2, r.CsMin));
+          out.Set("baseShear_kN",          Napi::Number::New(env2, r.baseShear_kN));
+          out.Set("baseShearCoeff",        Napi::Number::New(env2, r.baseShearCoeff));
+          return out;
+        });
+      }));
+    exports.Set("baseshear", bshearNs);
+
+    // ---- Forge-331e — PV horizon shading -----------------------------------
+    auto pvsNs = Napi::Object::New(env);
+    pvsNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pvshade::Input in{};
+          in.sunAltitudeDeg = o.Get("sunAltitudeDeg").As<Napi::Number>().DoubleValue();
+          in.sunAzimuthDeg  = o.Get("sunAzimuthDeg").As<Napi::Number>().DoubleValue();
+          auto horizonJs    = o.Get("horizon").As<Napi::Array>();
+          for (uint32_t i = 0; i < horizonJs.Length(); ++i) {
+              auto p = horizonJs.Get(i).As<Napi::Object>();
+              forge::pvshade::HorizonPoint pt{};
+              pt.azimuthDeg  = p.Get("azimuthDeg").As<Napi::Number>().DoubleValue();
+              pt.altitudeDeg = p.Get("altitudeDeg").As<Napi::Number>().DoubleValue();
+              in.horizon.push_back(pt);
+          }
+          auto r = forge::pvshade::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("horizonAltitudeAtSunAz_deg",  Napi::Number::New(env2, r.horizonAltitudeAtSunAz_deg));
+          out.Set("sunMarginDeg",                Napi::Number::New(env2, r.sunMarginDeg));
+          out.Set("shaded",                      Napi::Boolean::New(env2, r.shaded));
+          return out;
+        });
+      }));
+    exports.Set("pvshade", pvsNs);
 
     return exports;
 }

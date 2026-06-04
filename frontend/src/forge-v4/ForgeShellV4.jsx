@@ -1982,6 +1982,32 @@ export function ForgeShellV4() {
         setActiveWb('railbeam');
         window.__forgeOpenRailBeamWorkbench?.();
         return;
+      // Forge-331 bundle
+      case 'tools.beamreact':
+      case 'workbench.beamreact':
+        setActiveWb('beamreact');
+        window.__forgeOpenBeamReactionsWorkbench?.();
+        return;
+      case 'tools.tankanchor':
+      case 'workbench.tankanchor':
+        setActiveWb('tankanchor');
+        window.__forgeOpenTankAnchorWorkbench?.();
+        return;
+      case 'tools.heatpump':
+      case 'workbench.heatpump':
+        setActiveWb('heatpump');
+        window.__forgeOpenHeatPumpWorkbench?.();
+        return;
+      case 'tools.baseshear':
+      case 'workbench.baseshear':
+        setActiveWb('baseshear');
+        window.__forgeOpenBaseShearWorkbench?.();
+        return;
+      case 'tools.pvshade':
+      case 'workbench.pvshade':
+        setActiveWb('pvshade');
+        window.__forgeOpenPVShadeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

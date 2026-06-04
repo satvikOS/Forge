@@ -423,6 +423,13 @@ import {
   MassHaulWorkbenchHost,
   RailBeamWorkbenchHost,
 } from './forge-v4/Forge330BundleWorkbenches.jsx';
+import {
+  BeamReactionsWorkbenchHost,
+  TankAnchorWorkbenchHost,
+  HeatPumpWorkbenchHost,
+  BaseShearWorkbenchHost,
+  PVShadeWorkbenchHost,
+} from './forge-v4/Forge331BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -715,6 +722,11 @@ function App() {
       <DaylightWorkbenchHost />
       <MassHaulWorkbenchHost />
       <RailBeamWorkbenchHost />
+      <BeamReactionsWorkbenchHost />
+      <TankAnchorWorkbenchHost />
+      <HeatPumpWorkbenchHost />
+      <BaseShearWorkbenchHost />
+      <PVShadeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

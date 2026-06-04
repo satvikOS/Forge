@@ -248,6 +248,11 @@ export const CALCULATOR_TREE = [
           { id: 'daylight',    label: 'Daylight factor (BS 8206 / LEED)…', slice: 'Forge-330' },
           { id: 'masshaul',    label: 'Earthwork mass-haul (AEA)…', slice: 'Forge-330' },
           { id: 'railbeam',    label: 'Rail beam-on-foundation (AREMA 16)…', slice: 'Forge-330' },
+          { id: 'beamreact',   label: 'Beam reactions / V / M / δ (Hibbeler §6)…', slice: 'Forge-331' },
+          { id: 'tankanchor',  label: 'API 650 tank wind anchorage…', slice: 'Forge-331' },
+          { id: 'heatpump',    label: 'Heat-pump COP (Çengel §11)…', slice: 'Forge-331' },
+          { id: 'baseshear',   label: 'ASCE 7 §12.8 seismic base shear…', slice: 'Forge-331' },
+          { id: 'pvshade',     label: 'PV horizon shading (IES LS-2)…', slice: 'Forge-331' },
         ],
       },
       {

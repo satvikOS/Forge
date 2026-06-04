@@ -1059,6 +1059,13 @@ const forgeApi = {
   masshaul:     kernel && kernel.masshaul     ? { analyse: (i) => kernel.masshaul.analyse(i) }     : null,
   railbeam:     kernel && kernel.railbeam     ? { analyse: (i) => kernel.railbeam.analyse(i) }     : null,
 
+  // Forge-331 5-calc bundle
+  beamreact:    kernel && kernel.beamreact    ? { analyse: (i) => kernel.beamreact.analyse(i) }    : null,
+  tankanchor:   kernel && kernel.tankanchor   ? { analyse: (i) => kernel.tankanchor.analyse(i) }   : null,
+  heatpump:     kernel && kernel.heatpump     ? { analyse: (i) => kernel.heatpump.analyse(i) }     : null,
+  baseshear:    kernel && kernel.baseshear    ? { analyse: (i) => kernel.baseshear.analyse(i) }    : null,
+  pvshade:      kernel && kernel.pvshade      ? { analyse: (i) => kernel.pvshade.analyse(i) }      : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
