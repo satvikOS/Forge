@@ -1066,6 +1066,13 @@ const forgeApi = {
   baseshear:    kernel && kernel.baseshear    ? { analyse: (i) => kernel.baseshear.analyse(i) }    : null,
   pvshade:      kernel && kernel.pvshade      ? { analyse: (i) => kernel.pvshade.analyse(i) }      : null,
 
+  // Forge-332 5-calc bundle
+  padeye:       kernel && kernel.padeye       ? { analyse: (i) => kernel.padeye.analyse(i) }       : null,
+  hsd:          kernel && kernel.hsd          ? { analyse: (i) => kernel.hsd.analyse(i) }          : null,
+  weldgroup:    kernel && kernel.weldgroup    ? { analyse: (i) => kernel.weldgroup.analyse(i) }    : null,
+  boltpre:      kernel && kernel.boltpre      ? { analyse: (i) => kernel.boltpre.analyse(i) }      : null,
+  prestress:    kernel && kernel.prestress    ? { analyse: (i) => kernel.prestress.analyse(i) }    : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

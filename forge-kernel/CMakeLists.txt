@@ -322,6 +322,11 @@ add_library(forge_kernel SHARED
     src/HeatPump.cpp
     src/BaseShear.cpp
     src/PVShade.cpp
+    src/PadEye.cpp
+    src/HorizontalSight.cpp
+    src/WeldGroup.cpp
+    src/BoltPreload.cpp
+    src/PrestressLosses.cpp
     ${PLANEGCS_SRC}
 )
 

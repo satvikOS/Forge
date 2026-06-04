@@ -233,6 +233,11 @@
 #include "forge/HeatPump.hpp"
 #include "forge/BaseShear.hpp"
 #include "forge/PVShade.hpp"
+#include "forge/PadEye.hpp"
+#include "forge/HorizontalSight.hpp"
+#include "forge/WeldGroup.hpp"
+#include "forge/BoltPreload.hpp"
+#include "forge/PrestressLosses.hpp"
 
 #include <array>
 
@@ -12047,6 +12052,158 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pvshade", pvsNs);
+
+    // ---- Forge-332a — Pad-eye lug ASME BTH-1 -------------------------------
+    auto peNs = Napi::Object::New(env);
+    peNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::padeye::Input in{};
+          in.designLoad_kN      = o.Get("designLoad_kN").As<Napi::Number>().DoubleValue();
+          in.padThickness_mm    = o.Get("padThickness_mm").As<Napi::Number>().DoubleValue();
+          in.padDiameter_mm     = o.Get("padDiameter_mm").As<Napi::Number>().DoubleValue();
+          in.holeDiameter_mm    = o.Get("holeDiameter_mm").As<Napi::Number>().DoubleValue();
+          in.pinDiameter_mm     = o.Get("pinDiameter_mm").As<Napi::Number>().DoubleValue();
+          in.cheekToEdge_mm     = o.Get("cheekToEdge_mm").As<Napi::Number>().DoubleValue();
+          in.yieldStrength_MPa  = o.Get("yieldStrength_MPa").As<Napi::Number>().DoubleValue();
+          in.designCategory     = o.Get("designCategory").As<Napi::Number>().DoubleValue();
+          auto r = forge::padeye::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("bearingStress_MPa",     Napi::Number::New(env2, r.bearingStress_MPa));
+          out.Set("tensionAcrossHole_MPa", Napi::Number::New(env2, r.tensionAcrossHole_MPa));
+          out.Set("shearTearOut_MPa",      Napi::Number::New(env2, r.shearTearOut_MPa));
+          out.Set("allowableTensile_MPa",  Napi::Number::New(env2, r.allowableTensile_MPa));
+          out.Set("allowableShear_MPa",    Napi::Number::New(env2, r.allowableShear_MPa));
+          out.Set("governingUtilisation",  Napi::Number::New(env2, r.governingUtilisation));
+          out.Set("passes",                Napi::Boolean::New(env2, r.passes));
+          return out;
+        });
+      }));
+    exports.Set("padeye", peNs);
+
+    // ---- Forge-332b — Highway horizontal sight distance --------------------
+    auto hsdNs = Napi::Object::New(env);
+    hsdNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hsd::Input in{};
+          in.curveRadius_m      = o.Get("curveRadius_m").As<Napi::Number>().DoubleValue();
+          in.sightDistance_m    = o.Get("sightDistance_m").As<Napi::Number>().DoubleValue();
+          in.offsetAvailable_m  = o.Get("offsetAvailable_m").As<Napi::Number>().DoubleValue();
+          auto r = forge::hsd::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("middleOrdinateRequired_m",  Napi::Number::New(env2, r.middleOrdinateRequired_m));
+          out.Set("maxSafeSightDistance_m",    Napi::Number::New(env2, r.maxSafeSightDistance_m));
+          out.Set("meetsAvailableClearance",   Napi::Boolean::New(env2, r.meetsAvailableClearance));
+          return out;
+        });
+      }));
+    exports.Set("hsd", hsdNs);
+
+    // ---- Forge-332c — Welded fillet group elastic-vector -------------------
+    auto wgNs = Napi::Object::New(env);
+    wgNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::weldgroup::Input in{};
+          in.loadP_kN          = o.Get("loadP_kN").As<Napi::Number>().DoubleValue();
+          in.eccentricity_mm   = o.Get("eccentricity_mm").As<Napi::Number>().DoubleValue();
+          in.legSize_mm        = o.Get("legSize_mm").As<Napi::Number>().DoubleValue();
+          in.electrodeFu_MPa   = o.Get("electrodeFu_MPa").As<Napi::Number>().DoubleValue();
+          auto segsJs = o.Get("segments").As<Napi::Array>();
+          for (uint32_t i = 0; i < segsJs.Length(); ++i) {
+              auto s = segsJs.Get(i).As<Napi::Object>();
+              forge::weldgroup::WeldSegment seg{};
+              seg.x0_mm = s.Get("x0_mm").As<Napi::Number>().DoubleValue();
+              seg.y0_mm = s.Get("y0_mm").As<Napi::Number>().DoubleValue();
+              seg.x1_mm = s.Get("x1_mm").As<Napi::Number>().DoubleValue();
+              seg.y1_mm = s.Get("y1_mm").As<Napi::Number>().DoubleValue();
+              in.segments.push_back(seg);
+          }
+          auto r = forge::weldgroup::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("centroidX_mm",            Napi::Number::New(env2, r.centroidX_mm));
+          out.Set("centroidY_mm",            Napi::Number::New(env2, r.centroidY_mm));
+          out.Set("totalLength_mm",          Napi::Number::New(env2, r.totalLength_mm));
+          out.Set("polarSecondMoment_mm3",   Napi::Number::New(env2, r.polarSecondMoment_mm3));
+          out.Set("maxStress_MPa",           Napi::Number::New(env2, r.maxStress_MPa));
+          out.Set("allowableStress_MPa",     Napi::Number::New(env2, r.allowableStress_MPa));
+          out.Set("utilisation",             Napi::Number::New(env2, r.utilisation));
+          out.Set("passes",                  Napi::Boolean::New(env2, r.passes));
+          return out;
+        });
+      }));
+    exports.Set("weldgroup", wgNs);
+
+    // ---- Forge-332d — Bolt preload (Shigley §8.8) --------------------------
+    auto bpreNs = Napi::Object::New(env);
+    bpreNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boltpre::Input in{};
+          in.proofStrength_MPa       = o.Get("proofStrength_MPa").As<Napi::Number>().DoubleValue();
+          in.tensileArea_mm2         = o.Get("tensileArea_mm2").As<Napi::Number>().DoubleValue();
+          in.boltDiameter_mm         = o.Get("boltDiameter_mm").As<Napi::Number>().DoubleValue();
+          in.boltLengthGrip_mm       = o.Get("boltLengthGrip_mm").As<Napi::Number>().DoubleValue();
+          in.memberGripThickness_mm  = o.Get("memberGripThickness_mm").As<Napi::Number>().DoubleValue();
+          in.boltE_GPa               = o.Get("boltE_GPa").As<Napi::Number>().DoubleValue();
+          in.memberE_GPa             = o.Get("memberE_GPa").As<Napi::Number>().DoubleValue();
+          in.externalLoadP_kN        = o.Get("externalLoadP_kN").As<Napi::Number>().DoubleValue();
+          in.torqueCoefficient       = o.Get("torqueCoefficient").As<Napi::Number>().DoubleValue();
+          in.preloadFraction         = o.Get("preloadFraction").As<Napi::Number>().DoubleValue();
+          auto r = forge::boltpre::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("recommendedPreload_kN",   Napi::Number::New(env2, r.recommendedPreload_kN));
+          out.Set("tighteningTorque_Nm",     Napi::Number::New(env2, r.tighteningTorque_Nm));
+          out.Set("bolt_stiffness_NperM",    Napi::Number::New(env2, r.bolt_stiffness_NperM));
+          out.Set("member_stiffness_NperM",  Napi::Number::New(env2, r.member_stiffness_NperM));
+          out.Set("jointStiffnessRatio_C",   Napi::Number::New(env2, r.jointStiffnessRatio_C));
+          out.Set("boltLoad_kN",             Napi::Number::New(env2, r.boltLoad_kN));
+          out.Set("memberLoad_kN",           Napi::Number::New(env2, r.memberLoad_kN));
+          out.Set("separationLoad_kN",       Napi::Number::New(env2, r.separationLoad_kN));
+          out.Set("staticSafetyFactor",      Napi::Number::New(env2, r.staticSafetyFactor));
+          return out;
+        });
+      }));
+    exports.Set("boltpre", bpreNs);
+
+    // ---- Forge-332e — Prestress losses AASHTO LRFD §5.9 --------------------
+    auto prsNs = Napi::Object::New(env);
+    prsNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::prestress::Input in{};
+          in.initialStress_fpj_MPa                = o.Get("initialStress_fpj_MPa").As<Napi::Number>().DoubleValue();
+          in.concreteStrengthAtTransfer_fci_MPa   = o.Get("concreteStrengthAtTransfer_fci_MPa").As<Napi::Number>().DoubleValue();
+          in.finalConcreteStrength_fc_MPa         = o.Get("finalConcreteStrength_fc_MPa").As<Napi::Number>().DoubleValue();
+          in.fcgp_MPa                             = o.Get("fcgp_MPa").As<Napi::Number>().DoubleValue();
+          in.fcdp_MPa                             = o.Get("fcdp_MPa").As<Napi::Number>().DoubleValue();
+          in.strandModulus_GPa                    = o.Get("strandModulus_GPa").As<Napi::Number>().DoubleValue();
+          in.humidityH_pct                        = o.Get("humidityH_pct").As<Napi::Number>().DoubleValue();
+          in.shrinkageStrain_e6                   = o.Get("shrinkageStrain_e6").As<Napi::Number>().DoubleValue();
+          auto r = forge::prestress::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("loss_ES_MPa",       Napi::Number::New(env2, r.loss_ES_MPa));
+          out.Set("loss_SR_MPa",       Napi::Number::New(env2, r.loss_SR_MPa));
+          out.Set("loss_CR_MPa",       Napi::Number::New(env2, r.loss_CR_MPa));
+          out.Set("loss_RE_MPa",       Napi::Number::New(env2, r.loss_RE_MPa));
+          out.Set("totalLoss_MPa",     Napi::Number::New(env2, r.totalLoss_MPa));
+          out.Set("totalLossPercent",  Napi::Number::New(env2, r.totalLossPercent));
+          out.Set("finalStress_MPa",   Napi::Number::New(env2, r.finalStress_MPa));
+          return out;
+        });
+      }));
+    exports.Set("prestress", prsNs);
 
     return exports;
 }

@@ -430,6 +430,13 @@ import {
   BaseShearWorkbenchHost,
   PVShadeWorkbenchHost,
 } from './forge-v4/Forge331BundleWorkbenches.jsx';
+import {
+  PadEyeWorkbenchHost,
+  HSDWorkbenchHost,
+  WeldGroupWorkbenchHost,
+  BoltPreloadWorkbenchHost,
+  PrestressWorkbenchHost,
+} from './forge-v4/Forge332BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -727,6 +734,11 @@ function App() {
       <HeatPumpWorkbenchHost />
       <BaseShearWorkbenchHost />
       <PVShadeWorkbenchHost />
+      <PadEyeWorkbenchHost />
+      <HSDWorkbenchHost />
+      <WeldGroupWorkbenchHost />
+      <BoltPreloadWorkbenchHost />
+      <PrestressWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

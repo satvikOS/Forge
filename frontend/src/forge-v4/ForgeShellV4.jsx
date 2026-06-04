@@ -2008,6 +2008,32 @@ export function ForgeShellV4() {
         setActiveWb('pvshade');
         window.__forgeOpenPVShadeWorkbench?.();
         return;
+      // Forge-332 bundle
+      case 'tools.padeye':
+      case 'workbench.padeye':
+        setActiveWb('padeye');
+        window.__forgeOpenPadEyeWorkbench?.();
+        return;
+      case 'tools.hsd':
+      case 'workbench.hsd':
+        setActiveWb('hsd');
+        window.__forgeOpenHSDWorkbench?.();
+        return;
+      case 'tools.weldgroup':
+      case 'workbench.weldgroup':
+        setActiveWb('weldgroup');
+        window.__forgeOpenWeldGroupWorkbench?.();
+        return;
+      case 'tools.boltpre':
+      case 'workbench.boltpre':
+        setActiveWb('boltpre');
+        window.__forgeOpenBoltPreloadWorkbench?.();
+        return;
+      case 'tools.prestress':
+      case 'workbench.prestress':
+        setActiveWb('prestress');
+        window.__forgeOpenPrestressWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

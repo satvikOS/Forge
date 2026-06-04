@@ -253,6 +253,11 @@ export const CALCULATOR_TREE = [
           { id: 'heatpump',    label: 'Heat-pump COP (Çengel §11)…', slice: 'Forge-331' },
           { id: 'baseshear',   label: 'ASCE 7 §12.8 seismic base shear…', slice: 'Forge-331' },
           { id: 'pvshade',     label: 'PV horizon shading (IES LS-2)…', slice: 'Forge-331' },
+          { id: 'padeye',      label: 'Pad-eye lifting lug (ASME BTH-1)…', slice: 'Forge-332' },
+          { id: 'hsd',         label: 'Horizontal sight distance (AASHTO)…', slice: 'Forge-332' },
+          { id: 'weldgroup',   label: 'Welded fillet group (Salmon-Johnson)…', slice: 'Forge-332' },
+          { id: 'boltpre',     label: 'Bolt preload (Shigley §8.8)…', slice: 'Forge-332' },
+          { id: 'prestress',   label: 'Prestress losses (AASHTO LRFD §5.9)…', slice: 'Forge-332' },
         ],
       },
       {
