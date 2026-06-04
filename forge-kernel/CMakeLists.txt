@@ -307,6 +307,11 @@ add_library(forge_kernel SHARED
     src/SoundPropagation.cpp
     src/StandardAtmosphere.cpp
     src/Lighting901LPD.cpp
+    src/GeothermalLoop.cpp
+    src/TensionMember.cpp
+    src/BoltedTimber.cpp
+    src/ConveyorPower.cpp
+    src/DriftIndex.cpp
     ${PLANEGCS_SRC}
 )
 

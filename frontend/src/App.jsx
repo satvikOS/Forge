@@ -409,6 +409,13 @@ import {
   ISAWorkbenchHost,
   LPDWorkbenchHost,
 } from './forge-v4/Forge328BundleWorkbenches.jsx';
+import {
+  GeothermalWorkbenchHost,
+  TensionMemberWorkbenchHost,
+  BoltedTimberWorkbenchHost,
+  ConveyorWorkbenchHost,
+  DriftWorkbenchHost,
+} from './forge-v4/Forge329BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -691,6 +698,11 @@ function App() {
       <SoundPropWorkbenchHost />
       <ISAWorkbenchHost />
       <LPDWorkbenchHost />
+      <GeothermalWorkbenchHost />
+      <TensionMemberWorkbenchHost />
+      <BoltedTimberWorkbenchHost />
+      <ConveyorWorkbenchHost />
+      <DriftWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

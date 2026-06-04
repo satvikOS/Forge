@@ -1930,6 +1930,32 @@ export function ForgeShellV4() {
         setActiveWb('lpd');
         window.__forgeOpenLPDWorkbench?.();
         return;
+      // Forge-329 bundle
+      case 'tools.geothermal':
+      case 'workbench.geothermal':
+        setActiveWb('geothermal');
+        window.__forgeOpenGeothermalWorkbench?.();
+        return;
+      case 'tools.tension':
+      case 'workbench.tension':
+        setActiveWb('tension');
+        window.__forgeOpenTensionWorkbench?.();
+        return;
+      case 'tools.boltedtimber':
+      case 'workbench.boltedtimber':
+        setActiveWb('boltedtimber');
+        window.__forgeOpenBoltedTimberWorkbench?.();
+        return;
+      case 'tools.conveyor':
+      case 'workbench.conveyor':
+        setActiveWb('conveyor');
+        window.__forgeOpenConveyorWorkbench?.();
+        return;
+      case 'tools.drift':
+      case 'workbench.drift':
+        setActiveWb('drift');
+        window.__forgeOpenDriftWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

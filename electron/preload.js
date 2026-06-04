@@ -1045,6 +1045,13 @@ const forgeApi = {
   isa:       kernel && kernel.isa       ? { analyse: (i) => kernel.isa.analyse(i) }       : null,
   lpd:       kernel && kernel.lpd       ? { analyse: (i) => kernel.lpd.analyse(i) }       : null,
 
+  // Forge-329 5-calc bundle
+  geothermal:   kernel && kernel.geothermal   ? { analyse: (i) => kernel.geothermal.analyse(i) }   : null,
+  tension:      kernel && kernel.tension      ? { analyse: (i) => kernel.tension.analyse(i) }      : null,
+  boltedtimber: kernel && kernel.boltedtimber ? { analyse: (i) => kernel.boltedtimber.analyse(i) } : null,
+  conveyor:     kernel && kernel.conveyor     ? { analyse: (i) => kernel.conveyor.analyse(i) }     : null,
+  drift:        kernel && kernel.drift        ? { analyse: (i) => kernel.drift.analyse(i) }        : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

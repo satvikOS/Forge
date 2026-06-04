@@ -238,6 +238,11 @@ export const CALCULATOR_TREE = [
           { id: 'soundprop',   label: 'Sound L_w → L_p propagation (ISO 9613)…', slice: 'Forge-328' },
           { id: 'isa',         label: 'Standard atmosphere (ICAO ISA)…', slice: 'Forge-328' },
           { id: 'lpd',         label: 'LPD lighting power density (ASHRAE 90.1)…', slice: 'Forge-328' },
+          { id: 'geothermal',  label: 'Geothermal bore length (IGSHPA)…', slice: 'Forge-329' },
+          { id: 'tension',     label: 'Tension member shear-lag (AISC §D3)…', slice: 'Forge-329' },
+          { id: 'boltedtimber',label: 'Bolted timber connection (NDS)…', slice: 'Forge-329' },
+          { id: 'conveyor',    label: 'Conveyor belt power (CEMA)…', slice: 'Forge-329' },
+          { id: 'drift',       label: 'Tall-building drift (ASCE 7 §12.12)…', slice: 'Forge-329' },
         ],
       },
       {

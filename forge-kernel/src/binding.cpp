@@ -218,6 +218,11 @@
 #include "forge/SoundPropagation.hpp"
 #include "forge/StandardAtmosphere.hpp"
 #include "forge/Lighting901LPD.hpp"
+#include "forge/GeothermalLoop.hpp"
+#include "forge/TensionMember.hpp"
+#include "forge/BoltedTimber.hpp"
+#include "forge/ConveyorPower.hpp"
+#include "forge/DriftIndex.hpp"
 
 #include <array>
 
@@ -11631,6 +11636,130 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("lpd", lpdNs);
+
+    // -------- Forge-329 5-calc bundle -----------------------------------
+    auto geoNs = Napi::Object::New(env);
+    geoNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::geothermal::Input in{};
+          in.coolingLoadKw          = o.Get("coolingLoadKw"         ).As<Napi::Number>().DoubleValue();
+          in.soilConductivityWmk    = o.Get("soilConductivityWmk"   ).As<Napi::Number>().DoubleValue();
+          in.boreRadiusM            = o.Get("boreRadiusM"           ).As<Napi::Number>().DoubleValue();
+          in.pipeOuterDiameterMm    = o.Get("pipeOuterDiameterMm"   ).As<Napi::Number>().DoubleValue();
+          in.pipeConductivityWmk    = o.Get("pipeConductivityWmk"   ).As<Napi::Number>().DoubleValue();
+          in.groutConductivityWmk   = o.Get("groutConductivityWmk"  ).As<Napi::Number>().DoubleValue();
+          in.designTempDiffK        = o.Get("designTempDiffK"       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::geothermal::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("pipeResistanceMpwK",   Napi::Number::New(env2, r.pipeResistanceMpwK));
+          out.Set("groutResistanceMpwK",  Napi::Number::New(env2, r.groutResistanceMpwK));
+          out.Set("soilResistanceMpwK",   Napi::Number::New(env2, r.soilResistanceMpwK));
+          out.Set("totalResistanceMpwK",  Napi::Number::New(env2, r.totalResistanceMpwK));
+          out.Set("requiredBoreLengthM",  Napi::Number::New(env2, r.requiredBoreLengthM));
+          out.Set("mPerTon",              Napi::Number::New(env2, r.mPerTon));
+          return out;
+        });
+      }));
+    exports.Set("geothermal", geoNs);
+
+    auto tenNs = Napi::Object::New(env);
+    tenNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::tension::Input in{};
+          in.grossArea_mm2         = o.Get("grossArea_mm2"        ).As<Napi::Number>().DoubleValue();
+          in.netArea_mm2           = o.Get("netArea_mm2"          ).As<Napi::Number>().DoubleValue();
+          in.xBar_mm               = o.Get("xBar_mm"              ).As<Napi::Number>().DoubleValue();
+          in.connectionLength_mm   = o.Get("connectionLength_mm"  ).As<Napi::Number>().DoubleValue();
+          in.Fy_MPa                = o.Get("Fy_MPa"               ).As<Napi::Number>().DoubleValue();
+          in.Fu_MPa                = o.Get("Fu_MPa"               ).As<Napi::Number>().DoubleValue();
+          auto r = forge::tension::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("shearLag_U",         Napi::Number::New(env2, r.shearLag_U));
+          out.Set("effectiveArea_mm2",  Napi::Number::New(env2, r.effectiveArea_mm2));
+          out.Set("yieldCapacity_kN",   Napi::Number::New(env2, r.yieldCapacity_kN));
+          out.Set("ruptureCapacity_kN", Napi::Number::New(env2, r.ruptureCapacity_kN));
+          out.Set("designCapacity_kN",  Napi::Number::New(env2, r.designCapacity_kN));
+          return out;
+        });
+      }));
+    exports.Set("tension", tenNs);
+
+    auto btNs = Napi::Object::New(env);
+    btNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::boltedtimber::Input in{};
+          in.boltDiameterMm         = o.Get("boltDiameterMm"        ).As<Napi::Number>().DoubleValue();
+          in.mainMemberThicknessMm  = o.Get("mainMemberThicknessMm" ).As<Napi::Number>().DoubleValue();
+          in.sideMemberThicknessMm  = o.Get("sideMemberThicknessMm" ).As<Napi::Number>().DoubleValue();
+          in.mainEmbedmentMPa       = o.Get("mainEmbedmentMPa"      ).As<Napi::Number>().DoubleValue();
+          in.sideEmbedmentMPa       = o.Get("sideEmbedmentMPa"      ).As<Napi::Number>().DoubleValue();
+          in.loadDurationFactor     = o.Get("loadDurationFactor"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::boltedtimber::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Z_mainMode_kN", Napi::Number::New(env2, r.Z_mainMode_kN));
+          out.Set("Z_sideMode_kN", Napi::Number::New(env2, r.Z_sideMode_kN));
+          out.Set("governingZ_kN", Napi::Number::New(env2, r.governingZ_kN));
+          out.Set("adjustedZ_kN",  Napi::Number::New(env2, r.adjustedZ_kN));
+          return out;
+        });
+      }));
+    exports.Set("boltedtimber", btNs);
+
+    auto convNs = Napi::Object::New(env);
+    convNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::conveyor::Input in{};
+          in.horizontalLengthM        = o.Get("horizontalLengthM"      ).As<Napi::Number>().DoubleValue();
+          in.liftHeightM              = o.Get("liftHeightM"            ).As<Napi::Number>().DoubleValue();
+          in.beltSpeedMs              = o.Get("beltSpeedMs"            ).As<Napi::Number>().DoubleValue();
+          in.materialMassFlowKgPerS   = o.Get("materialMassFlowKgPerS" ).As<Napi::Number>().DoubleValue();
+          in.beltMassPerLengthKgM     = o.Get("beltMassPerLengthKgM"   ).As<Napi::Number>().DoubleValue();
+          in.idlerMassPerLengthKgM    = o.Get("idlerMassPerLengthKgM"  ).As<Napi::Number>().DoubleValue();
+          in.primaryFriction          = o.Get("primaryFriction"        ).As<Napi::Number>().DoubleValue();
+          in.drivetrainEfficiency     = o.Get("drivetrainEfficiency"   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::conveyor::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("materialPerLengthKgM", Napi::Number::New(env2, r.materialPerLengthKgM));
+          out.Set("effectiveTensionN",    Napi::Number::New(env2, r.effectiveTensionN));
+          out.Set("powerRequiredKW",      Napi::Number::New(env2, r.powerRequiredKW));
+          return out;
+        });
+      }));
+    exports.Set("conveyor", convNs);
+
+    auto drftNs = Napi::Object::New(env);
+    drftNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::drift::Input in{};
+          in.topDeflectionMm     = o.Get("topDeflectionMm"    ).As<Napi::Number>().DoubleValue();
+          in.buildingHeightM     = o.Get("buildingHeightM"    ).As<Napi::Number>().DoubleValue();
+          in.numberOfStories     = o.Get("numberOfStories"    ).As<Napi::Number>().Int32Value();
+          in.driftLimitDivisor   = o.Get("driftLimitDivisor"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::drift::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("overallDriftIndex",      Napi::Number::New(env2, r.overallDriftIndex));
+          out.Set("overallLimit",           Napi::Number::New(env2, r.overallLimit));
+          out.Set("storeyDriftAverageMm",   Napi::Number::New(env2, r.storeyDriftAverageMm));
+          out.Set("meetsOverallLimit",      Napi::Boolean::New(env2, r.meetsOverallLimit));
+          return out;
+        });
+      }));
+    exports.Set("drift", drftNs);
 
     return exports;
 }
