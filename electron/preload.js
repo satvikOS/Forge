@@ -1031,6 +1031,13 @@ const forgeApi = {
   solarcollector: kernel && kernel.solarcollector ? { analyse: (i) => kernel.solarcollector.analyse(i) } : null,
   chimney:        kernel && kernel.chimney        ? { analyse: (i) => kernel.chimney.analyse(i) }        : null,
 
+  // Forge-327 5-calc bundle
+  mohrcoulomb: kernel && kernel.mohrcoulomb ? { analyse: (i) => kernel.mohrcoulomb.analyse(i) } : null,
+  stair:       kernel && kernel.stair       ? { analyse: (i) => kernel.stair.analyse(i) }       : null,
+  snowpv:      kernel && kernel.snowpv      ? { analyse: (i) => kernel.snowpv.analyse(i) }      : null,
+  nrc:         kernel && kernel.nrc         ? { analyse: (i) => kernel.nrc.analyse(i) }         : null,
+  adiabatic:   kernel && kernel.adiabatic   ? { analyse: (i) => kernel.adiabatic.analyse(i) }   : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -208,6 +208,11 @@
 #include "forge/HunterFlow.hpp"
 #include "forge/SolarCollector.hpp"
 #include "forge/ChimneyDraft.hpp"
+#include "forge/MohrCoulomb.hpp"
+#include "forge/StairDesign.hpp"
+#include "forge/SnowOnPV.hpp"
+#include "forge/NRCAcoustic.hpp"
+#include "forge/AdiabaticCompressor.hpp"
 
 #include <array>
 
@@ -11395,6 +11400,123 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("chimney", chmNs);
+
+    // -------- Forge-327 5-calc bundle -----------------------------------
+    auto mohrNs = Napi::Object::New(env);
+    mohrNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::mc::Input in{};
+          in.cohesionKpa       = o.Get("cohesionKpa"      ).As<Napi::Number>().DoubleValue();
+          in.frictionAngleDeg  = o.Get("frictionAngleDeg" ).As<Napi::Number>().DoubleValue();
+          in.normalStressKpa   = o.Get("normalStressKpa"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::mc::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cohesionContributionKpa", Napi::Number::New(env2, r.cohesionContributionKpa));
+          out.Set("frictionContributionKpa", Napi::Number::New(env2, r.frictionContributionKpa));
+          out.Set("shearStrengthKpa",        Napi::Number::New(env2, r.shearStrengthKpa));
+          return out;
+        });
+      }));
+    exports.Set("mohrcoulomb", mohrNs);
+
+    auto stairNs = Napi::Object::New(env);
+    stairNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::stair::Input in{};
+          in.floorToFloorHeightMm = o.Get("floorToFloorHeightMm").As<Napi::Number>().DoubleValue();
+          in.maxRiserMm           = o.Get("maxRiserMm"          ).As<Napi::Number>().DoubleValue();
+          in.minTreadMm           = o.Get("minTreadMm"          ).As<Napi::Number>().DoubleValue();
+          auto r = forge::stair::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("numberOfRisers",   Napi::Number::New(env2, r.numberOfRisers));
+          out.Set("numberOfTreads",   Napi::Number::New(env2, r.numberOfTreads));
+          out.Set("actualRiserMm",    Napi::Number::New(env2, r.actualRiserMm));
+          out.Set("totalRunMm",       Napi::Number::New(env2, r.totalRunMm));
+          out.Set("pitchAngleDeg",    Napi::Number::New(env2, r.pitchAngleDeg));
+          out.Set("riserPlusTreadMm", Napi::Number::New(env2, r.riserPlusTreadMm));
+          out.Set("riserCompliant",   Napi::Boolean::New(env2, r.riserCompliant));
+          out.Set("treadCompliant",   Napi::Boolean::New(env2, r.treadCompliant));
+          out.Set("blondelCompliant", Napi::Boolean::New(env2, r.blondelCompliant));
+          out.Set("overallCompliant", Napi::Boolean::New(env2, r.overallCompliant));
+          return out;
+        });
+      }));
+    exports.Set("stair", stairNs);
+
+    auto snowpvNs = Napi::Object::New(env);
+    snowpvNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::snowpv::Input in{};
+          in.groundSnowKnM2 = o.Get("groundSnowKnM2").As<Napi::Number>().DoubleValue();
+          in.slopeAngleDeg  = o.Get("slopeAngleDeg" ).As<Napi::Number>().DoubleValue();
+          in.thermalC_t     = o.Get("thermalC_t"    ).As<Napi::Number>().DoubleValue();
+          in.exposureC_e    = o.Get("exposureC_e"   ).As<Napi::Number>().DoubleValue();
+          in.importanceI_s  = o.Get("importanceI_s" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::snowpv::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("slopeCoefficient_C_s",  Napi::Number::New(env2, r.slopeCoefficient_C_s));
+          out.Set("flatRoofSnowKnM2",      Napi::Number::New(env2, r.flatRoofSnowKnM2));
+          out.Set("slopedRoofSnowKnM2",    Napi::Number::New(env2, r.slopedRoofSnowKnM2));
+          out.Set("meetsMinimum",          Napi::Boolean::New(env2, r.meetsMinimum));
+          return out;
+        });
+      }));
+    exports.Set("snowpv", snowpvNs);
+
+    auto nrcNs = Napi::Object::New(env);
+    nrcNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::nrc::Input in{};
+          in.alpha250  = o.Get("alpha250" ).As<Napi::Number>().DoubleValue();
+          in.alpha500  = o.Get("alpha500" ).As<Napi::Number>().DoubleValue();
+          in.alpha1000 = o.Get("alpha1000").As<Napi::Number>().DoubleValue();
+          in.alpha2000 = o.Get("alpha2000").As<Napi::Number>().DoubleValue();
+          auto r = forge::nrc::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("nrcRaw",              Napi::Number::New(env2, r.nrcRaw));
+          out.Set("nrcRounded",          Napi::Number::New(env2, r.nrcRounded));
+          out.Set("meetsAbsorbentClass", Napi::Boolean::New(env2, r.meetsAbsorbentClass));
+          return out;
+        });
+      }));
+    exports.Set("nrc", nrcNs);
+
+    auto acompNs = Napi::Object::New(env);
+    acompNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::adicomp::Input in{};
+          in.inletTempC               = o.Get("inletTempC"              ).As<Napi::Number>().DoubleValue();
+          in.inletPressureKpaAbs      = o.Get("inletPressureKpaAbs"     ).As<Napi::Number>().DoubleValue();
+          in.dischargePressureKpaAbs  = o.Get("dischargePressureKpaAbs" ).As<Napi::Number>().DoubleValue();
+          in.kRatio                   = o.Get("kRatio"                  ).As<Napi::Number>().DoubleValue();
+          in.isentropicEfficiency     = o.Get("isentropicEfficiency"    ).As<Napi::Number>().DoubleValue();
+          in.molecularWeight          = o.Get("molecularWeight"         ).As<Napi::Number>().DoubleValue();
+          auto r = forge::adicomp::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("pressureRatio",            Napi::Number::New(env2, r.pressureRatio));
+          out.Set("isentropicDischargeTempC", Napi::Number::New(env2, r.isentropicDischargeTempC));
+          out.Set("actualDischargeTempC",     Napi::Number::New(env2, r.actualDischargeTempC));
+          out.Set("specificHeatCpKJpkgK",     Napi::Number::New(env2, r.specificHeatCpKJpkgK));
+          out.Set("specificWorkKJpkg",        Napi::Number::New(env2, r.specificWorkKJpkg));
+          return out;
+        });
+      }));
+    exports.Set("adiabatic", acompNs);
 
     return exports;
 }

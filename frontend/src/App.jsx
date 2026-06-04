@@ -393,6 +393,14 @@ import {
   SolarCollectorWorkbenchHost,
   ChimneyDraftWorkbenchHost,
 } from './forge-v4/Forge326BundleWorkbenches.jsx';
+// Forge-327 5-calc bundle.
+import {
+  MohrCoulombWorkbenchHost,
+  StairWorkbenchHost,
+  SnowOnPVWorkbenchHost,
+  NRCWorkbenchHost,
+  AdiabaticCompressorWorkbenchHost,
+} from './forge-v4/Forge327BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -665,6 +673,11 @@ function App() {
       <HunterWorkbenchHost />
       <SolarCollectorWorkbenchHost />
       <ChimneyDraftWorkbenchHost />
+      <MohrCoulombWorkbenchHost />
+      <StairWorkbenchHost />
+      <SnowOnPVWorkbenchHost />
+      <NRCWorkbenchHost />
+      <AdiabaticCompressorWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

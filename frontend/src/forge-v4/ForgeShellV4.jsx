@@ -1878,6 +1878,32 @@ export function ForgeShellV4() {
         setActiveWb('chimney');
         window.__forgeOpenChimneyWorkbench?.();
         return;
+      // Forge-327 bundle
+      case 'tools.mohrcoulomb':
+      case 'workbench.mohrcoulomb':
+        setActiveWb('mohrcoulomb');
+        window.__forgeOpenMohrCoulombWorkbench?.();
+        return;
+      case 'tools.stair':
+      case 'workbench.stair':
+        setActiveWb('stair');
+        window.__forgeOpenStairWorkbench?.();
+        return;
+      case 'tools.snowpv':
+      case 'workbench.snowpv':
+        setActiveWb('snowpv');
+        window.__forgeOpenSnowPVWorkbench?.();
+        return;
+      case 'tools.nrc':
+      case 'workbench.nrc':
+        setActiveWb('nrc');
+        window.__forgeOpenNRCWorkbench?.();
+        return;
+      case 'tools.adiabatic':
+      case 'workbench.adiabatic':
+        setActiveWb('adiabatic');
+        window.__forgeOpenAdiabaticCompWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

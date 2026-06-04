@@ -297,6 +297,11 @@ add_library(forge_kernel SHARED
     src/HunterFlow.cpp
     src/SolarCollector.cpp
     src/ChimneyDraft.cpp
+    src/MohrCoulomb.cpp
+    src/StairDesign.cpp
+    src/SnowOnPV.cpp
+    src/NRCAcoustic.cpp
+    src/AdiabaticCompressor.cpp
     ${PLANEGCS_SRC}
 )
 

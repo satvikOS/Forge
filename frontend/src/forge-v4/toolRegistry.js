@@ -228,6 +228,11 @@ export const CALCULATOR_TREE = [
           { id: 'hunter',      label: 'Hunter fixture flow (plumbing)…', slice: 'Forge-326' },
           { id: 'solarcollector', label: 'Solar thermal collector (Hottel-Whillier)…', slice: 'Forge-326' },
           { id: 'chimney',     label: 'Chimney natural draft (ASHRAE Ch 35)…', slice: 'Forge-326' },
+          { id: 'mohrcoulomb', label: 'Mohr-Coulomb shear (Terzaghi)…', slice: 'Forge-327' },
+          { id: 'stair',       label: 'Stair design (IBC §1011 + Blondel)…', slice: 'Forge-327' },
+          { id: 'snowpv',      label: 'Snow on PV array (ASCE 7-22 §7.13)…', slice: 'Forge-327' },
+          { id: 'nrc',         label: 'NRC noise reduction (ASTM C423)…', slice: 'Forge-327' },
+          { id: 'adiabatic',   label: 'Adiabatic compressor (P-T-η)…', slice: 'Forge-327' },
         ],
       },
       {
