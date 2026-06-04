@@ -297,6 +297,8 @@ import { DrumBrakeWorkbenchHost } from './forge-v4/DrumBrakeWorkbench.jsx';
 import { WireRopeWorkbenchHost } from './forge-v4/WireRopeWorkbench.jsx';
 // Forge-302 — Steel beam web shear (AISC 360 §G2).
 import { WebShearWorkbenchHost } from './forge-v4/WebShearWorkbench.jsx';
+// Forge-303 — Hazen-Williams pipe friction (NFPA 13 / AWWA).
+import { HazenWilliamsWorkbenchHost } from './forge-v4/HazenWilliamsWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -513,6 +515,7 @@ function App() {
       <DrumBrakeWorkbenchHost />
       <WireRopeWorkbenchHost />
       <WebShearWorkbenchHost />
+      <HazenWilliamsWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

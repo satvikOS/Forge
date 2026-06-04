@@ -152,6 +152,7 @@
 #include "forge/DrumBrake.hpp"
 #include "forge/WireRope.hpp"
 #include "forge/WebShear.hpp"
+#include "forge/HazenWilliams.hpp"
 
 #include <array>
 
@@ -9903,6 +9904,32 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("webshear", wshNs);
+
+    // -------- Hazen-Williams pipe friction (Forge-303) ------------------
+    auto hwNs = Napi::Object::New(env);
+    hwNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hazenwilliams::Input in{};
+          in.pipeLengthM      = o.Get("pipeLengthM"     ).As<Napi::Number>().DoubleValue();
+          in.innerDiameterMm  = o.Get("innerDiameterMm" ).As<Napi::Number>().DoubleValue();
+          in.flowLpm          = o.Get("flowLpm"         ).As<Napi::Number>().DoubleValue();
+          in.hazenWilliamsC   = o.Get("hazenWilliamsC"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::hazenwilliams::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("velocityMs",              Napi::Number::New(env2, r.velocityMs));
+          out.Set("reynoldsApprox",          Napi::Number::New(env2, r.reynoldsApprox));
+          out.Set("regimeFlag",              Napi::Number::New(env2, r.regimeFlag));
+          out.Set("frictionLossMPerM",       Napi::Number::New(env2, r.frictionLossMPerM));
+          out.Set("pressureGradientKpaPerM", Napi::Number::New(env2, r.pressureGradientKpaPerM));
+          out.Set("totalPressureLossKpa",    Napi::Number::New(env2, r.totalPressureLossKpa));
+          out.Set("velocityHeadKpa",         Napi::Number::New(env2, r.velocityHeadKpa));
+          return out;
+        });
+      }));
+    exports.Set("hazenwilliams", hwNs);
 
     return exports;
 }

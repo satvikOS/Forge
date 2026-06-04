@@ -1590,6 +1590,11 @@ export function ForgeShellV4() {
         setActiveWb('webshear');
         window.__forgeOpenWebShearWorkbench?.();
         return;
+      case 'tools.hazenwilliams':
+      case 'workbench.hazenwilliams':
+        setActiveWb('hazenwilliams');
+        window.__forgeOpenHazenWilliamsWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

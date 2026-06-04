@@ -241,6 +241,7 @@ add_library(forge_kernel SHARED
     src/DrumBrake.cpp
     src/WireRope.cpp
     src/WebShear.cpp
+    src/HazenWilliams.cpp
     ${PLANEGCS_SRC}
 )
 

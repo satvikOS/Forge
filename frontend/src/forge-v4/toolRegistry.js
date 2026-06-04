@@ -171,6 +171,7 @@ export const CALCULATOR_TREE = [
           { id: 'piperoute', label: 'Pipe routing (A* axis-aligned)…', slice: 'Forge-206' },
           { id: 'orifice',   label: 'Orifice plate (ISO 5167-2 flow meter)…', slice: 'Forge-266' },
           { id: 'pitot',     label: 'Pitot tube velocity (incompressible)…', slice: 'Forge-288' },
+          { id: 'hazenwilliams', label: 'Hazen-Williams friction (NFPA 13 / AWWA)…', slice: 'Forge-303' },
         ],
       },
       {

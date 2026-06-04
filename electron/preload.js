@@ -895,6 +895,11 @@ const forgeApi = {
     analyse: (input) => kernel.webshear.analyse(input),
   } : null,
 
+  // hazenwilliams (Forge-303) — Hazen-Williams pipe friction (NFPA 13 / AWWA).
+  hazenwilliams: kernel && kernel.hazenwilliams ? {
+    analyse: (input) => kernel.hazenwilliams.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
