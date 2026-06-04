@@ -23,6 +23,8 @@ import { PdmPanelHost } from './forge-v4/PdmPanel.jsx';
 import { PDMWorkbenchHost } from './forge-v4/PDMWorkbench.jsx';
 // PUSH-16: macro recorder + playback (window.forge.macros surface).
 import { MacroRecorderHost } from './forge-v4/MacroRecorder.jsx';
+// PUSH-17: materials library + exploded view (window.forge.materials surface).
+import { MaterialsLibraryHost, ExplodedViewHost } from './forge-v4/MaterialsLibrary.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -573,6 +575,8 @@ function App() {
       <PdmPanelHost />
       <PDMWorkbenchHost />
       <MacroRecorderHost />
+      <MaterialsLibraryHost />
+      <ExplodedViewHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

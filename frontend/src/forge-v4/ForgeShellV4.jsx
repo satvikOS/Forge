@@ -2354,6 +2354,17 @@ export function ForgeShellV4() {
       case 'macro.play':
         window.__forgeOpenMacroRecorder?.();
         return;
+      // PUSH-17: materials library + exploded view
+      case 'tools.materials':
+      case 'workbench.materials':
+      case 'render.material':
+        window.__forgeOpenMaterialsLibrary?.();
+        return;
+      case 'tools.explode':
+      case 'workbench.explode':
+      case 'render.explode':
+        window.__forgeOpenExplodedView?.();
+        return;
       // PUSH-01: routes from extended right-click context
       case 'palette.open':
         window.__forgeOpenCommandPalette?.(true);

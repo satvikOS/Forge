@@ -346,6 +346,13 @@ export const CALCULATOR_TREE = [
           { id: 'macros',   label: 'Macro recorder & playback…',                  slice: 'PUSH-16' },
         ],
       },
+      {
+        label: 'Visualization',
+        items: [
+          { id: 'materials', label: 'Materials library (apply to bodies)…', slice: 'PUSH-17' },
+          { id: 'explode',   label: 'Exploded view animator…',              slice: 'PUSH-17' },
+        ],
+      },
     ],
   },
   {
