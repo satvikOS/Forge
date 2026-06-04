@@ -253,6 +253,11 @@
 #include "forge/AirReceiver.hpp"
 #include "forge/ButterworthFilter.hpp"
 #include "forge/PedestrianBridge.hpp"
+#include "forge/PipeNetwork.hpp"
+#include "forge/TorsionalVibration.hpp"
+#include "forge/PierScour.hpp"
+#include "forge/Economizer.hpp"
+#include "forge/FiberLink.hpp"
 
 #include <array>
 
@@ -12668,6 +12673,174 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("pedvib", pvbNs2);
+
+    // ---- Forge-336a — Hardy Cross pipe network -----------------------------
+    auto pnNs = Napi::Object::New(env);
+    pnNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pipenet::Input in{};
+          in.loopCount       = o.Get("loopCount").As<Napi::Number>().Int32Value();
+          in.tolerance_Lps   = o.Get("tolerance_Lps").As<Napi::Number>().DoubleValue();
+          in.maxIterations   = o.Get("maxIterations").As<Napi::Number>().Int32Value();
+          auto pipesJs = o.Get("pipes").As<Napi::Array>();
+          for (uint32_t i = 0; i < pipesJs.Length(); ++i) {
+              auto p = pipesJs.Get(i).As<Napi::Object>();
+              forge::pipenet::Pipe pi{};
+              pi.length_m          = p.Get("length_m").As<Napi::Number>().DoubleValue();
+              pi.diameter_mm       = p.Get("diameter_mm").As<Napi::Number>().DoubleValue();
+              pi.frictionFactor_f  = p.Get("frictionFactor_f").As<Napi::Number>().DoubleValue();
+              pi.initialFlow_Lps   = p.Get("initialFlow_Lps").As<Napi::Number>().DoubleValue();
+              pi.loopIndex         = p.Get("loopIndex").As<Napi::Number>().Int32Value();
+              pi.loopSignCW        = p.Get("loopSignCW").As<Napi::Number>().Int32Value();
+              in.pipes.push_back(pi);
+          }
+          auto r = forge::pipenet::analyse(in);
+          auto out = Napi::Object::New(env2);
+          auto fJs = Napi::Array::New(env2, r.finalFlows_Lps.size());
+          auto hJs = Napi::Array::New(env2, r.headLosses_m.size());
+          for (uint32_t i = 0; i < r.finalFlows_Lps.size(); ++i)
+              fJs.Set(i, Napi::Number::New(env2, r.finalFlows_Lps[i]));
+          for (uint32_t i = 0; i < r.headLosses_m.size(); ++i)
+              hJs.Set(i, Napi::Number::New(env2, r.headLosses_m[i]));
+          out.Set("finalFlows_Lps",     fJs);
+          out.Set("headLosses_m",       hJs);
+          out.Set("iterationsUsed",     Napi::Number::New(env2, r.iterationsUsed));
+          out.Set("maxCorrection_Lps",  Napi::Number::New(env2, r.maxCorrection_Lps));
+          out.Set("converged",          Napi::Boolean::New(env2, r.converged));
+          return out;
+        });
+      }));
+    exports.Set("pipenet", pnNs);
+
+    // ---- Forge-336b — Holzer torsional vibration ---------------------------
+    auto tvNs = Napi::Object::New(env);
+    tvNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::torvib::Input in{};
+          in.frequencyLowerBound_Hz = o.Get("frequencyLowerBound_Hz").As<Napi::Number>().DoubleValue();
+          in.frequencyUpperBound_Hz = o.Get("frequencyUpperBound_Hz").As<Napi::Number>().DoubleValue();
+          in.nModesSought           = o.Get("nModesSought").As<Napi::Number>().Int32Value();
+          auto Jjs = o.Get("inertias_kgm2").As<Napi::Array>();
+          auto Kjs = o.Get("stiffnesses_NmPerRad").As<Napi::Array>();
+          for (uint32_t i = 0; i < Jjs.Length(); ++i)
+              in.inertias_kgm2.push_back(Jjs.Get(i).As<Napi::Number>().DoubleValue());
+          for (uint32_t i = 0; i < Kjs.Length(); ++i)
+              in.stiffnesses_NmPerRad.push_back(Kjs.Get(i).As<Napi::Number>().DoubleValue());
+          auto r = forge::torvib::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("iterationsTotal", Napi::Number::New(env2, r.iterationsTotal));
+          auto mArr = Napi::Array::New(env2, r.modes.size());
+          for (uint32_t i = 0; i < r.modes.size(); ++i) {
+              auto m = Napi::Object::New(env2);
+              m.Set("frequency_Hz", Napi::Number::New(env2, r.modes[i].frequency_Hz));
+              auto sh = Napi::Array::New(env2, r.modes[i].shape.size());
+              for (uint32_t j = 0; j < r.modes[i].shape.size(); ++j)
+                  sh.Set(j, Napi::Number::New(env2, r.modes[i].shape[j]));
+              m.Set("shape", sh);
+              mArr.Set(i, m);
+          }
+          out.Set("modes", mArr);
+          return out;
+        });
+      }));
+    exports.Set("torvib", tvNs);
+
+    // ---- Forge-336c — HEC-18 bridge pier scour -----------------------------
+    auto psNs2 = Napi::Object::New(env);
+    psNs2.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pierscour::Input in{};
+          in.approachVelocity_mps = o.Get("approachVelocity_mps").As<Napi::Number>().DoubleValue();
+          in.approachDepth_m      = o.Get("approachDepth_m").As<Napi::Number>().DoubleValue();
+          in.pierWidth_m          = o.Get("pierWidth_m").As<Napi::Number>().DoubleValue();
+          in.pierLength_m         = o.Get("pierLength_m").As<Napi::Number>().DoubleValue();
+          in.attackAngleDeg       = o.Get("attackAngleDeg").As<Napi::Number>().DoubleValue();
+          in.pierShape            = o.Get("pierShape").As<Napi::Number>().Int32Value();
+          in.bedCondition         = o.Get("bedCondition").As<Napi::Number>().Int32Value();
+          in.K4_armoring          = o.Get("K4_armoring").As<Napi::Number>().DoubleValue();
+          auto r = forge::pierscour::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("approachFroude_Fr1",  Napi::Number::New(env2, r.approachFroude_Fr1));
+          out.Set("K1_shape",            Napi::Number::New(env2, r.K1_shape));
+          out.Set("K2_angle",            Napi::Number::New(env2, r.K2_angle));
+          out.Set("K3_bed",              Napi::Number::New(env2, r.K3_bed));
+          out.Set("scourDepth_ys_m",     Napi::Number::New(env2, r.scourDepth_ys_m));
+          out.Set("scourRatio_ysOverY1", Napi::Number::New(env2, r.scourRatio_ysOverY1));
+          return out;
+        });
+      }));
+    exports.Set("pierscour", psNs2);
+
+    // ---- Forge-336d — Air-side economizer ----------------------------------
+    auto ecNs = Napi::Object::New(env);
+    ecNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::econ::Input in{};
+          in.oaDryBulb_C         = o.Get("oaDryBulb_C").As<Napi::Number>().DoubleValue();
+          in.oaWetBulb_C         = o.Get("oaWetBulb_C").As<Napi::Number>().DoubleValue();
+          in.returnDryBulb_C     = o.Get("returnDryBulb_C").As<Napi::Number>().DoubleValue();
+          in.returnWetBulb_C     = o.Get("returnWetBulb_C").As<Napi::Number>().DoubleValue();
+          in.airMassFlow_kgPerS  = o.Get("airMassFlow_kgPerS").As<Napi::Number>().DoubleValue();
+          in.minimumOAfraction   = o.Get("minimumOAfraction").As<Napi::Number>().DoubleValue();
+          in.highLimitT_C        = o.Get("highLimitT_C").As<Napi::Number>().DoubleValue();
+          in.highLimitH_kJperKg  = o.Get("highLimitH_kJperKg").As<Napi::Number>().DoubleValue();
+          in.controlType         = o.Get("controlType").As<Napi::Number>().Int32Value();
+          auto r = forge::econ::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("oaEnthalpy_kJperKg",     Napi::Number::New(env2, r.oaEnthalpy_kJperKg));
+          out.Set("returnEnthalpy_kJperKg", Napi::Number::New(env2, r.returnEnthalpy_kJperKg));
+          out.Set("recommendedOAfraction",  Napi::Number::New(env2, r.recommendedOAfraction));
+          out.Set("mixedEnthalpy_kJperKg",  Napi::Number::New(env2, r.mixedEnthalpy_kJperKg));
+          out.Set("freeCoolingCapacity_kW", Napi::Number::New(env2, r.freeCoolingCapacity_kW));
+          out.Set("economizerActive",       Napi::Boolean::New(env2, r.economizerActive));
+          return out;
+        });
+      }));
+    exports.Set("econ", ecNs);
+
+    // ---- Forge-336e — Optical fiber link budget ----------------------------
+    auto flNs = Napi::Object::New(env);
+    flNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::fiberlink::Input in{};
+          in.txPower_dBm              = o.Get("txPower_dBm").As<Napi::Number>().DoubleValue();
+          in.rxSensitivity_dBm        = o.Get("rxSensitivity_dBm").As<Napi::Number>().DoubleValue();
+          in.systemMargin_dB          = o.Get("systemMargin_dB").As<Napi::Number>().DoubleValue();
+          in.fiberAttenuation_dBperKm = o.Get("fiberAttenuation_dBperKm").As<Napi::Number>().DoubleValue();
+          in.linkLength_km            = o.Get("linkLength_km").As<Napi::Number>().DoubleValue();
+          in.spliceCount              = o.Get("spliceCount").As<Napi::Number>().Int32Value();
+          in.connectorCount           = o.Get("connectorCount").As<Napi::Number>().Int32Value();
+          in.spliceLoss_dB            = o.Get("spliceLoss_dB").As<Napi::Number>().DoubleValue();
+          in.connectorLoss_dB         = o.Get("connectorLoss_dB").As<Napi::Number>().DoubleValue();
+          auto r = forge::fiberlink::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("allowableBudget_dB",     Napi::Number::New(env2, r.allowableBudget_dB));
+          out.Set("fiberLoss_dB",           Napi::Number::New(env2, r.fiberLoss_dB));
+          out.Set("spliceLoss_dB_total",    Napi::Number::New(env2, r.spliceLoss_dB_total));
+          out.Set("connectorLoss_dB_total", Napi::Number::New(env2, r.connectorLoss_dB_total));
+          out.Set("totalLoss_dB",           Napi::Number::New(env2, r.totalLoss_dB));
+          out.Set("remainingMargin_dB",     Napi::Number::New(env2, r.remainingMargin_dB));
+          out.Set("maxReach_km",            Napi::Number::New(env2, r.maxReach_km));
+          out.Set("linkOK",                 Napi::Boolean::New(env2, r.linkOK));
+          return out;
+        });
+      }));
+    exports.Set("fiberlink", flNs);
 
     return exports;
 }

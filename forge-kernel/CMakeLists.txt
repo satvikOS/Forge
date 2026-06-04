@@ -342,6 +342,11 @@ add_library(forge_kernel SHARED
     src/AirReceiver.cpp
     src/ButterworthFilter.cpp
     src/PedestrianBridge.cpp
+    src/PipeNetwork.cpp
+    src/TorsionalVibration.cpp
+    src/PierScour.cpp
+    src/Economizer.cpp
+    src/FiberLink.cpp
     ${PLANEGCS_SRC}
 )
 

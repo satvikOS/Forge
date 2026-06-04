@@ -273,6 +273,11 @@ export const CALCULATOR_TREE = [
           { id: 'airrcv',      label: 'Air receiver vessel (ASME UG-27)…', slice: 'Forge-335' },
           { id: 'butter',      label: 'Butterworth IIR (Oppenheim-Schafer)…', slice: 'Forge-335' },
           { id: 'pedvib',      label: 'Pedestrian bridge vibration (EN 1990)…', slice: 'Forge-335' },
+          { id: 'pipenet',     label: 'Pipe network Hardy Cross (Linsley)…', slice: 'Forge-336' },
+          { id: 'torvib',      label: 'Torsional vibration (Holzer)…', slice: 'Forge-336' },
+          { id: 'pierscour',   label: 'Bridge pier scour (FHWA HEC-18)…', slice: 'Forge-336' },
+          { id: 'econ',        label: 'Air-side economizer (ASHRAE 90.1)…', slice: 'Forge-336' },
+          { id: 'fiberlink',   label: 'Fiber link budget (ITU-T G.957)…', slice: 'Forge-336' },
         ],
       },
       {

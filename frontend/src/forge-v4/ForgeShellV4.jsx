@@ -2112,6 +2112,32 @@ export function ForgeShellV4() {
         setActiveWb('pedvib');
         window.__forgeOpenPedVibWorkbench?.();
         return;
+      // Forge-336 bundle
+      case 'tools.pipenet':
+      case 'workbench.pipenet':
+        setActiveWb('pipenet');
+        window.__forgeOpenPipeNetWorkbench?.();
+        return;
+      case 'tools.torvib':
+      case 'workbench.torvib':
+        setActiveWb('torvib');
+        window.__forgeOpenTorVibWorkbench?.();
+        return;
+      case 'tools.pierscour':
+      case 'workbench.pierscour':
+        setActiveWb('pierscour');
+        window.__forgeOpenPierScourWorkbench?.();
+        return;
+      case 'tools.econ':
+      case 'workbench.econ':
+        setActiveWb('econ');
+        window.__forgeOpenEconomizerWorkbench?.();
+        return;
+      case 'tools.fiberlink':
+      case 'workbench.fiberlink':
+        setActiveWb('fiberlink');
+        window.__forgeOpenFiberLinkWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -1094,6 +1094,13 @@ const forgeApi = {
   butter:       kernel && kernel.butter       ? { analyse: (i) => kernel.butter.analyse(i) }       : null,
   pedvib:       kernel && kernel.pedvib       ? { analyse: (i) => kernel.pedvib.analyse(i) }       : null,
 
+  // Forge-336 5-calc bundle
+  pipenet:      kernel && kernel.pipenet      ? { analyse: (i) => kernel.pipenet.analyse(i) }      : null,
+  torvib:       kernel && kernel.torvib       ? { analyse: (i) => kernel.torvib.analyse(i) }       : null,
+  pierscour:    kernel && kernel.pierscour    ? { analyse: (i) => kernel.pierscour.analyse(i) }    : null,
+  econ:         kernel && kernel.econ         ? { analyse: (i) => kernel.econ.analyse(i) }         : null,
+  fiberlink:    kernel && kernel.fiberlink    ? { analyse: (i) => kernel.fiberlink.analyse(i) }    : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
