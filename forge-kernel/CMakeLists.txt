@@ -240,6 +240,7 @@ add_library(forge_kernel SHARED
     src/Catenary.cpp
     src/DrumBrake.cpp
     src/WireRope.cpp
+    src/WebShear.cpp
     ${PLANEGCS_SRC}
 )
 

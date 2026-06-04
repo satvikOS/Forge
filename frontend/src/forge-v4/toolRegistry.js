@@ -53,6 +53,7 @@ export const CALCULATOR_TREE = [
         items: [
           { id: 'steelcol',  label: 'Steel column (AISC 360 §E3)…', slice: 'Forge-232' },
           { id: 'steelbeam', label: 'Steel beam LTB (AISC 360 §F2)…', slice: 'Forge-270' },
+          { id: 'webshear',  label: 'Steel beam web shear (AISC 360 §G2)…', slice: 'Forge-302' },
         ],
       },
       {

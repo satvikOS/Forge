@@ -151,6 +151,7 @@
 #include "forge/Catenary.hpp"
 #include "forge/DrumBrake.hpp"
 #include "forge/WireRope.hpp"
+#include "forge/WebShear.hpp"
 
 #include <array>
 
@@ -9867,6 +9868,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("wirerope", wropeNs);
+
+    // -------- Steel beam web shear AISC §G2 (Forge-302) -----------------
+    auto wshNs = Napi::Object::New(env);
+    wshNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::webshear::Input in{};
+          in.overallDepthMm      = o.Get("overallDepthMm"     ).As<Napi::Number>().DoubleValue();
+          in.webThicknessMm      = o.Get("webThicknessMm"     ).As<Napi::Number>().DoubleValue();
+          in.flangeThicknessMm   = o.Get("flangeThicknessMm"  ).As<Napi::Number>().DoubleValue();
+          in.Fy_MPa              = o.Get("Fy_MPa"             ).As<Napi::Number>().DoubleValue();
+          in.E_MPa               = o.Get("E_MPa"              ).As<Napi::Number>().DoubleValue();
+          in.stiffenerSpacingMm  = o.Get("stiffenerSpacingMm" ).As<Napi::Number>().DoubleValue();
+          in.compactRolled       = o.Get("compactRolled"      ).As<Napi::Boolean>().Value();
+          auto r = forge::webshear::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("clearWebDepthMm",  Napi::Number::New(env2, r.clearWebDepthMm));
+          out.Set("webSlenderness",   Napi::Number::New(env2, r.webSlenderness));
+          out.Set("limitCompact",     Napi::Number::New(env2, r.limitCompact));
+          out.Set("limitInelastic",   Napi::Number::New(env2, r.limitInelastic));
+          out.Set("limitElastic",     Napi::Number::New(env2, r.limitElastic));
+          out.Set("k_v",              Napi::Number::New(env2, r.k_v));
+          out.Set("C_v1",             Napi::Number::New(env2, r.C_v1));
+          out.Set("regime",           Napi::Number::New(env2, r.regime));
+          out.Set("nominalShearN",    Napi::Number::New(env2, r.nominalShearN));
+          out.Set("LRFDshearN",       Napi::Number::New(env2, r.LRFDshearN));
+          out.Set("ASDshearN",        Napi::Number::New(env2, r.ASDshearN));
+          out.Set("phi",              Napi::Number::New(env2, r.phi));
+          out.Set("omega",            Napi::Number::New(env2, r.omega));
+          return out;
+        });
+      }));
+    exports.Set("webshear", wshNs);
 
     return exports;
 }

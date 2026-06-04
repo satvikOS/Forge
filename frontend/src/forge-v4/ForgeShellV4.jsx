@@ -1585,6 +1585,11 @@ export function ForgeShellV4() {
         setActiveWb('wirerope');
         window.__forgeOpenWireRopeWorkbench?.();
         return;
+      case 'tools.webshear':
+      case 'workbench.webshear':
+        setActiveWb('webshear');
+        window.__forgeOpenWebShearWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

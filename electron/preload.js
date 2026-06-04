@@ -890,6 +890,11 @@ const forgeApi = {
     analyse: (input) => kernel.wirerope.analyse(input),
   } : null,
 
+  // webshear (Forge-302) — Steel beam web shear (AISC 360-22 §G2).
+  webshear: kernel && kernel.webshear ? {
+    analyse: (input) => kernel.webshear.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

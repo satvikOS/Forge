@@ -295,6 +295,8 @@ import { CatenaryWorkbenchHost } from './forge-v4/CatenaryWorkbench.jsx';
 import { DrumBrakeWorkbenchHost } from './forge-v4/DrumBrakeWorkbench.jsx';
 // Forge-301 — Wire rope FOS + bending fatigue (Shigley §17-7).
 import { WireRopeWorkbenchHost } from './forge-v4/WireRopeWorkbench.jsx';
+// Forge-302 — Steel beam web shear (AISC 360 §G2).
+import { WebShearWorkbenchHost } from './forge-v4/WebShearWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -510,6 +512,7 @@ function App() {
       <CatenaryWorkbenchHost />
       <DrumBrakeWorkbenchHost />
       <WireRopeWorkbenchHost />
+      <WebShearWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
