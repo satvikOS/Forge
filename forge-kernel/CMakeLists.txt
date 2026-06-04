@@ -352,6 +352,11 @@ add_library(forge_kernel SHARED
     src/MorisonForce.cpp
     src/FourierHeat.cpp
     src/SimulatedAnnealing.cpp
+    src/CompositeSlab.cpp
+    src/Reverberation.cpp
+    src/AdiabaticFlame.cpp
+    src/MSEPullout.cpp
+    src/BayesUpdate.cpp
     ${PLANEGCS_SRC}
 )
 

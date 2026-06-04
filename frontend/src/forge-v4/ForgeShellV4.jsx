@@ -2164,6 +2164,32 @@ export function ForgeShellV4() {
         setActiveWb('sa');
         window.__forgeOpenSAWorkbench?.();
         return;
+      // Forge-338 bundle
+      case 'tools.compslab':
+      case 'workbench.compslab':
+        setActiveWb('compslab');
+        window.__forgeOpenCompSlabWorkbench?.();
+        return;
+      case 'tools.reverb':
+      case 'workbench.reverb':
+        setActiveWb('reverb');
+        window.__forgeOpenReverbWorkbench?.();
+        return;
+      case 'tools.flame':
+      case 'workbench.flame':
+        setActiveWb('flame');
+        window.__forgeOpenFlameWorkbench?.();
+        return;
+      case 'tools.msepull':
+      case 'workbench.msepull':
+        setActiveWb('msepull');
+        window.__forgeOpenMSEPullWorkbench?.();
+        return;
+      case 'tools.bayes':
+      case 'workbench.bayes':
+        setActiveWb('bayes');
+        window.__forgeOpenBayesWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

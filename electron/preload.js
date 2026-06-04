@@ -1108,6 +1108,13 @@ const forgeApi = {
   fourier:      kernel && kernel.fourier      ? { analyse: (i) => kernel.fourier.analyse(i) }      : null,
   sa:           kernel && kernel.sa           ? { analyse: (i) => kernel.sa.analyse(i) }           : null,
 
+  // Forge-338 5-calc bundle
+  compslab:     kernel && kernel.compslab     ? { analyse: (i) => kernel.compslab.analyse(i) }     : null,
+  reverb:       kernel && kernel.reverb       ? { analyse: (i) => kernel.reverb.analyse(i) }       : null,
+  flame:        kernel && kernel.flame        ? { analyse: (i) => kernel.flame.analyse(i) }        : null,
+  msepull:      kernel && kernel.msepull      ? { analyse: (i) => kernel.msepull.analyse(i) }      : null,
+  bayes:        kernel && kernel.bayes        ? { analyse: (i) => kernel.bayes.analyse(i) }        : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

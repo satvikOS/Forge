@@ -263,6 +263,11 @@
 #include "forge/MorisonForce.hpp"
 #include "forge/FourierHeat.hpp"
 #include "forge/SimulatedAnnealing.hpp"
+#include "forge/CompositeSlab.hpp"
+#include "forge/Reverberation.hpp"
+#include "forge/AdiabaticFlame.hpp"
+#include "forge/MSEPullout.hpp"
+#include "forge/BayesUpdate.hpp"
 
 #include <array>
 
@@ -12992,6 +12997,156 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("sa", saNs);
+
+    // ---- Forge-338a — Composite slab ANSI/SDI C-1 --------------------------
+    auto csNs = Napi::Object::New(env);
+    csNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::compslab::Input in{};
+          in.slabConcreteStrength_fc_MPa = o.Get("slabConcreteStrength_fc_MPa").As<Napi::Number>().DoubleValue();
+          in.slabThickness_mm            = o.Get("slabThickness_mm").As<Napi::Number>().DoubleValue();
+          in.ribHeight_hr_mm             = o.Get("ribHeight_hr_mm").As<Napi::Number>().DoubleValue();
+          in.effectiveWidth_b_mm         = o.Get("effectiveWidth_b_mm").As<Napi::Number>().DoubleValue();
+          in.studCapacity_Qn_kN          = o.Get("studCapacity_Qn_kN").As<Napi::Number>().DoubleValue();
+          in.studCount_perSpan           = o.Get("studCount_perSpan").As<Napi::Number>().Int32Value();
+          in.steelArea_mm2               = o.Get("steelArea_mm2").As<Napi::Number>().DoubleValue();
+          in.steelDepth_mm               = o.Get("steelDepth_mm").As<Napi::Number>().DoubleValue();
+          in.steelYield_Fy_MPa           = o.Get("steelYield_Fy_MPa").As<Napi::Number>().DoubleValue();
+          in.Es_GPa                      = o.Get("Es_GPa").As<Napi::Number>().DoubleValue();
+          in.Ec_GPa                      = o.Get("Ec_GPa").As<Napi::Number>().DoubleValue();
+          in.span_m                      = o.Get("span_m").As<Napi::Number>().DoubleValue();
+          in.serviceLoad_w_kNm           = o.Get("serviceLoad_w_kNm").As<Napi::Number>().DoubleValue();
+          in.steelI_mm4                  = o.Get("steelI_mm4").As<Napi::Number>().DoubleValue();
+          auto r = forge::compslab::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("C_compression_kN",     Napi::Number::New(env2, r.C_compression_kN));
+          out.Set("aDepth_mm",            Napi::Number::New(env2, r.aDepth_mm));
+          out.Set("phiMn_kNm",            Napi::Number::New(env2, r.phiMn_kNm));
+          out.Set("Itransformed_mm4",     Napi::Number::New(env2, r.Itransformed_mm4));
+          out.Set("serviceDeflection_mm", Napi::Number::New(env2, r.serviceDeflection_mm));
+          out.Set("partialComposite",     Napi::Boolean::New(env2, r.partialComposite));
+          return out;
+        });
+      }));
+    exports.Set("compslab", csNs);
+
+    // ---- Forge-338b — Sabine reverberation T_60 ----------------------------
+    auto rvNs = Napi::Object::New(env);
+    rvNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::reverb::Input in{};
+          in.roomVolume_m3 = o.Get("roomVolume_m3").As<Napi::Number>().DoubleValue();
+          auto surfJs = o.Get("surfaces").As<Napi::Array>();
+          for (uint32_t i = 0; i < surfJs.Length(); ++i) {
+              auto s = surfJs.Get(i).As<Napi::Object>();
+              forge::reverb::Surface su{};
+              su.area_m2          = s.Get("area_m2").As<Napi::Number>().DoubleValue();
+              su.absorption_alpha = s.Get("absorption_alpha").As<Napi::Number>().DoubleValue();
+              in.surfaces.push_back(su);
+          }
+          auto r = forge::reverb::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("absorptionTotal_m2", Napi::Number::New(env2, r.absorptionTotal_m2));
+          out.Set("T60_s",              Napi::Number::New(env2, r.T60_s));
+          out.Set("STI_estimate",       Napi::Number::New(env2, r.STI_estimate));
+          out.Set("intelligible",       Napi::Boolean::New(env2, r.intelligible));
+          return out;
+        });
+      }));
+    exports.Set("reverb", rvNs);
+
+    // ---- Forge-338c — Adiabatic flame CH4/air ------------------------------
+    auto flmNs = Napi::Object::New(env);
+    flmNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::flame::Input in{};
+          in.LHV_CH4_kJperKmol       = o.Get("LHV_CH4_kJperKmol").As<Napi::Number>().DoubleValue();
+          in.equivalenceRatio_phi    = o.Get("equivalenceRatio_phi").As<Napi::Number>().DoubleValue();
+          in.initialTemperature_C    = o.Get("initialTemperature_C").As<Napi::Number>().DoubleValue();
+          auto r = forge::flame::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("airExcessFraction",      Napi::Number::New(env2, r.airExcessFraction));
+          out.Set("productMoles_CO2",       Napi::Number::New(env2, r.productMoles_CO2));
+          out.Set("productMoles_H2O",       Napi::Number::New(env2, r.productMoles_H2O));
+          out.Set("productMoles_N2",        Napi::Number::New(env2, r.productMoles_N2));
+          out.Set("productMoles_O2",        Napi::Number::New(env2, r.productMoles_O2));
+          out.Set("adiabaticFlameTemp_K",   Napi::Number::New(env2, r.adiabaticFlameTemp_K));
+          out.Set("adiabaticFlameTemp_C",   Napi::Number::New(env2, r.adiabaticFlameTemp_C));
+          return out;
+        });
+      }));
+    exports.Set("flame", flmNs);
+
+    // ---- Forge-338d — MSE per-layer pullout FHWA-NHI-10-024 ----------------
+    auto mspNs = Napi::Object::New(env);
+    mspNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::msepull::Input in{};
+          in.wallHeight_H_m              = o.Get("wallHeight_H_m").As<Napi::Number>().DoubleValue();
+          in.depthBelowCrest_z_m         = o.Get("depthBelowCrest_z_m").As<Napi::Number>().DoubleValue();
+          in.verticalSpacing_Sv_m        = o.Get("verticalSpacing_Sv_m").As<Napi::Number>().DoubleValue();
+          in.soilFrictionAngleDeg_phi    = o.Get("soilFrictionAngleDeg_phi").As<Napi::Number>().DoubleValue();
+          in.soilUnitWeight_gamma_kNm3   = o.Get("soilUnitWeight_gamma_kNm3").As<Napi::Number>().DoubleValue();
+          in.surchargeQ_kNm2             = o.Get("surchargeQ_kNm2").As<Napi::Number>().DoubleValue();
+          in.reinforcementCoverage_Rc    = o.Get("reinforcementCoverage_Rc").As<Napi::Number>().DoubleValue();
+          in.pulloutResistanceFactor_F   = o.Get("pulloutResistanceFactor_F").As<Napi::Number>().DoubleValue();
+          in.scaleEffectAlpha            = o.Get("scaleEffectAlpha").As<Napi::Number>().DoubleValue();
+          in.safetyFactorSF              = o.Get("safetyFactorSF").As<Napi::Number>().DoubleValue();
+          in.isInextensibleBar           = o.Get("isInextensibleBar").As<Napi::Boolean>().Value();
+          auto r = forge::msepull::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Ka",                                 Napi::Number::New(env2, r.Ka));
+          out.Set("KrOverKa",                           Napi::Number::New(env2, r.KrOverKa));
+          out.Set("Kr",                                 Napi::Number::New(env2, r.Kr));
+          out.Set("verticalEffectiveStress_sigmaV_kPa", Napi::Number::New(env2, r.verticalEffectiveStress_sigmaV_kPa));
+          out.Set("maxLayerTension_Tmax_kNperM",        Napi::Number::New(env2, r.maxLayerTension_Tmax_kNperM));
+          out.Set("requiredEmbedmentLength_Le_m",       Napi::Number::New(env2, r.requiredEmbedmentLength_Le_m));
+          out.Set("activeZoneLength_La_m",              Napi::Number::New(env2, r.activeZoneLength_La_m));
+          out.Set("totalReinforcementLength_L_m",       Napi::Number::New(env2, r.totalReinforcementLength_L_m));
+          return out;
+        });
+      }));
+    exports.Set("msepull", mspNs);
+
+    // ---- Forge-338e — Bayesian beta-binomial -------------------------------
+    auto bayesNs = Napi::Object::New(env);
+    bayesNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::bayes::Input in{};
+          in.priorAlpha     = o.Get("priorAlpha").As<Napi::Number>().DoubleValue();
+          in.priorBeta      = o.Get("priorBeta").As<Napi::Number>().DoubleValue();
+          in.trials_n       = o.Get("trials_n").As<Napi::Number>().Int32Value();
+          in.successes_k    = o.Get("successes_k").As<Napi::Number>().Int32Value();
+          in.credibleLevel  = o.Get("credibleLevel").As<Napi::Number>().DoubleValue();
+          auto r = forge::bayes::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("posteriorAlpha",          Napi::Number::New(env2, r.posteriorAlpha));
+          out.Set("posteriorBeta",           Napi::Number::New(env2, r.posteriorBeta));
+          out.Set("posteriorMean",           Napi::Number::New(env2, r.posteriorMean));
+          out.Set("posteriorMode",           Napi::Number::New(env2, r.posteriorMode));
+          out.Set("posteriorStdDev",         Napi::Number::New(env2, r.posteriorStdDev));
+          out.Set("credibleIntervalLower",   Napi::Number::New(env2, r.credibleIntervalLower));
+          out.Set("credibleIntervalUpper",   Napi::Number::New(env2, r.credibleIntervalUpper));
+          out.Set("posteriorPredictiveProb", Napi::Number::New(env2, r.posteriorPredictiveProb));
+          return out;
+        });
+      }));
+    exports.Set("bayes", bayesNs);
 
     return exports;
 }

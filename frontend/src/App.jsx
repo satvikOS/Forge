@@ -472,6 +472,13 @@ import {
   FourierWorkbenchHost,
   SAWorkbenchHost,
 } from './forge-v4/Forge337BundleWorkbenches.jsx';
+import {
+  CompSlabWorkbenchHost,
+  ReverbWorkbenchHost,
+  FlameWorkbenchHost,
+  MSEPullWorkbenchHost,
+  BayesWorkbenchHost,
+} from './forge-v4/Forge338BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -799,6 +806,11 @@ function App() {
       <MorisonWorkbenchHost />
       <FourierWorkbenchHost />
       <SAWorkbenchHost />
+      <CompSlabWorkbenchHost />
+      <ReverbWorkbenchHost />
+      <FlameWorkbenchHost />
+      <MSEPullWorkbenchHost />
+      <BayesWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
