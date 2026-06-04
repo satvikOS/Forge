@@ -1080,6 +1080,13 @@ const forgeApi = {
   rspect:       kernel && kernel.rspect       ? { analyse: (i) => kernel.rspect.analyse(i) }       : null,
   buoyfloat:    kernel && kernel.buoyfloat    ? { analyse: (i) => kernel.buoyfloat.analyse(i) }    : null,
 
+  // Forge-334 5-calc bundle
+  vcurve:       kernel && kernel.vcurve       ? { analyse: (i) => kernel.vcurve.analyse(i) }       : null,
+  clarifier:    kernel && kernel.clarifier    ? { analyse: (i) => kernel.clarifier.analyse(i) }    : null,
+  pvbatt:       kernel && kernel.pvbatt       ? { analyse: (i) => kernel.pvbatt.analyse(i) }       : null,
+  silencer:     kernel && kernel.silencer     ? { analyse: (i) => kernel.silencer.analyse(i) }     : null,
+  thrustblk:    kernel && kernel.thrustblk    ? { analyse: (i) => kernel.thrustblk.analyse(i) }    : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

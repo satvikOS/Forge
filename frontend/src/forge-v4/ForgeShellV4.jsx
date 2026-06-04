@@ -2060,6 +2060,32 @@ export function ForgeShellV4() {
         setActiveWb('buoyfloat');
         window.__forgeOpenBuoyancyWorkbench?.();
         return;
+      // Forge-334 bundle
+      case 'tools.vcurve':
+      case 'workbench.vcurve':
+        setActiveWb('vcurve');
+        window.__forgeOpenVCurveWorkbench?.();
+        return;
+      case 'tools.clarifier':
+      case 'workbench.clarifier':
+        setActiveWb('clarifier');
+        window.__forgeOpenClarifierWorkbench?.();
+        return;
+      case 'tools.pvbatt':
+      case 'workbench.pvbatt':
+        setActiveWb('pvbatt');
+        window.__forgeOpenPVBattWorkbench?.();
+        return;
+      case 'tools.silencer':
+      case 'workbench.silencer':
+        setActiveWb('silencer');
+        window.__forgeOpenSilencerWorkbench?.();
+        return;
+      case 'tools.thrustblk':
+      case 'workbench.thrustblk':
+        setActiveWb('thrustblk');
+        window.__forgeOpenThrustBlockWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

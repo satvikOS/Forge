@@ -243,6 +243,11 @@
 #include "forge/GroundGrid.hpp"
 #include "forge/ResponseSpectrum.hpp"
 #include "forge/BuoyantStability.hpp"
+#include "forge/VerticalCurve.hpp"
+#include "forge/Clarifier.hpp"
+#include "forge/PVBattery.hpp"
+#include "forge/DuctSilencer.hpp"
+#include "forge/ThrustBlock.hpp"
 
 #include <array>
 
@@ -12369,6 +12374,148 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("buoyfloat", buoyNs);
+
+    // ---- Forge-334a — Vertical curve AASHTO §3.3.3 -------------------------
+    auto vcNs = Napi::Object::New(env);
+    vcNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::vcurve::Input in{};
+          in.grade1_pct      = o.Get("grade1_pct").As<Napi::Number>().DoubleValue();
+          in.grade2_pct      = o.Get("grade2_pct").As<Napi::Number>().DoubleValue();
+          in.designSpeed_kmh = o.Get("designSpeed_kmh").As<Napi::Number>().DoubleValue();
+          in.curveLength_m   = o.Get("curveLength_m").As<Napi::Number>().DoubleValue();
+          in.Kvalue          = o.Get("Kvalue").As<Napi::Number>().DoubleValue();
+          in.curveType       = o.Get("curveType").As<Napi::Number>().Int32Value();
+          auto r = forge::vcurve::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("algebraicGradeChange_A_pct", Napi::Number::New(env2, r.algebraicGradeChange_A_pct));
+          out.Set("computedLength_m",           Napi::Number::New(env2, r.computedLength_m));
+          out.Set("Kvalue",                     Napi::Number::New(env2, r.Kvalue));
+          out.Set("assumedSSD_m",               Napi::Number::New(env2, r.assumedSSD_m));
+          out.Set("minLength_AASHTO_m",         Napi::Number::New(env2, r.minLength_AASHTO_m));
+          out.Set("highOrLowPointStation_m",    Napi::Number::New(env2, r.highOrLowPointStation_m));
+          out.Set("meetsSightDistance",         Napi::Boolean::New(env2, r.meetsSightDistance));
+          return out;
+        });
+      }));
+    exports.Set("vcurve", vcNs);
+
+    // ---- Forge-334b — Wastewater clarifier sizing --------------------------
+    auto clarNs = Napi::Object::New(env);
+    clarNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::clarifier::Input in{};
+          in.designFlow_m3d        = o.Get("designFlow_m3d").As<Napi::Number>().DoubleValue();
+          in.tankDiameter_m        = o.Get("tankDiameter_m").As<Napi::Number>().DoubleValue();
+          in.tankDepth_m           = o.Get("tankDepth_m").As<Napi::Number>().DoubleValue();
+          in.weirLength_m          = o.Get("weirLength_m").As<Napi::Number>().DoubleValue();
+          in.returnSludgeRatio     = o.Get("returnSludgeRatio").As<Napi::Number>().DoubleValue();
+          in.mixedLiquorMLSS_kgM3  = o.Get("mixedLiquorMLSS_kgM3").As<Napi::Number>().DoubleValue();
+          in.clarifierType         = o.Get("clarifierType").As<Napi::Number>().Int32Value();
+          auto r = forge::clarifier::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("surfaceArea_m2",   Napi::Number::New(env2, r.surfaceArea_m2));
+          out.Set("tankVolume_m3",    Napi::Number::New(env2, r.tankVolume_m3));
+          out.Set("SOR_mPerD",        Napi::Number::New(env2, r.SOR_mPerD));
+          out.Set("WLR_m3PerMpD",     Napi::Number::New(env2, r.WLR_m3PerMpD));
+          out.Set("HRT_h",            Napi::Number::New(env2, r.HRT_h));
+          out.Set("SLR_kgPerM2D",     Napi::Number::New(env2, r.SLR_kgPerM2D));
+          out.Set("meetsSOR",         Napi::Boolean::New(env2, r.meetsSOR));
+          out.Set("meetsWLR",         Napi::Boolean::New(env2, r.meetsWLR));
+          return out;
+        });
+      }));
+    exports.Set("clarifier", clarNs);
+
+    // ---- Forge-334c — PV battery off-grid sizing ---------------------------
+    auto pvbNs = Napi::Object::New(env);
+    pvbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pvbatt::Input in{};
+          in.dailyLoadWh         = o.Get("dailyLoadWh").As<Napi::Number>().DoubleValue();
+          in.systemVoltage_V     = o.Get("systemVoltage_V").As<Napi::Number>().DoubleValue();
+          in.daysOfAutonomy      = o.Get("daysOfAutonomy").As<Napi::Number>().DoubleValue();
+          in.depthOfDischarge    = o.Get("depthOfDischarge").As<Napi::Number>().DoubleValue();
+          in.inverterEfficiency  = o.Get("inverterEfficiency").As<Napi::Number>().DoubleValue();
+          in.temperatureDerate   = o.Get("temperatureDerate").As<Napi::Number>().DoubleValue();
+          in.ageingDerate        = o.Get("ageingDerate").As<Napi::Number>().DoubleValue();
+          in.singleCellAh        = o.Get("singleCellAh").As<Napi::Number>().DoubleValue();
+          in.singleCellV         = o.Get("singleCellV").As<Napi::Number>().DoubleValue();
+          auto r = forge::pvbatt::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("bankCapacity_Ah",         Napi::Number::New(env2, r.bankCapacity_Ah));
+          out.Set("bankCapacity_kWh",        Napi::Number::New(env2, r.bankCapacity_kWh));
+          out.Set("seriesStringSize",        Napi::Number::New(env2, r.seriesStringSize));
+          out.Set("parallelStringCount",     Napi::Number::New(env2, r.parallelStringCount));
+          out.Set("totalCellCount",          Napi::Number::New(env2, r.totalCellCount));
+          out.Set("effectiveAutonomyHours",  Napi::Number::New(env2, r.effectiveAutonomyHours));
+          return out;
+        });
+      }));
+    exports.Set("pvbatt", pvbNs);
+
+    // ---- Forge-334d — HVAC duct silencer attenuation -----------------------
+    auto silNs = Napi::Object::New(env);
+    silNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::silencer::Input in{};
+          in.length_m            = o.Get("length_m").As<Napi::Number>().DoubleValue();
+          in.openCrossArea_m2    = o.Get("openCrossArea_m2").As<Napi::Number>().DoubleValue();
+          in.linedPerimeter_m    = o.Get("linedPerimeter_m").As<Napi::Number>().DoubleValue();
+          in.faceVelocity_mps    = o.Get("faceVelocity_mps").As<Napi::Number>().DoubleValue();
+          in.airDensity_kgM3     = o.Get("airDensity_kgM3").As<Napi::Number>().DoubleValue();
+          in.pressureLossK       = o.Get("pressureLossK").As<Napi::Number>().DoubleValue();
+          in.Koct_dBPerMeter     = o.Get("Koct_dBPerMeter").As<Napi::Number>().DoubleValue();
+          auto r = forge::silencer::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("insertionLoss_dB", Napi::Number::New(env2, r.insertionLoss_dB));
+          out.Set("pressureDrop_Pa",  Napi::Number::New(env2, r.pressureDrop_Pa));
+          out.Set("selfNoise_LwA_dB", Napi::Number::New(env2, r.selfNoise_LwA_dB));
+          return out;
+        });
+      }));
+    exports.Set("silencer", silNs);
+
+    // ---- Forge-334e — Thrust block pipe restraint --------------------------
+    auto tblkNs = Napi::Object::New(env);
+    tblkNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::thrustblk::Input in{};
+          in.pipeOuterDiameter_mm     = o.Get("pipeOuterDiameter_mm").As<Napi::Number>().DoubleValue();
+          in.designPressure_MPa       = o.Get("designPressure_MPa").As<Napi::Number>().DoubleValue();
+          in.bendAngleDeg             = o.Get("bendAngleDeg").As<Napi::Number>().DoubleValue();
+          in.soilBearingPressure_kPa  = o.Get("soilBearingPressure_kPa").As<Napi::Number>().DoubleValue();
+          in.safetyFactor             = o.Get("safetyFactor").As<Napi::Number>().DoubleValue();
+          in.fittingType              = o.Get("fittingType").As<Napi::Number>().Int32Value();
+          in.reducerOD2_mm            = o.Has("reducerOD2_mm")
+                                       ? o.Get("reducerOD2_mm").As<Napi::Number>().DoubleValue()
+                                       : 0.0;
+          auto r = forge::thrustblk::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("pipeArea_mm2",            Napi::Number::New(env2, r.pipeArea_mm2));
+          out.Set("thrustForce_kN",          Napi::Number::New(env2, r.thrustForce_kN));
+          out.Set("requiredBearingArea_m2",  Napi::Number::New(env2, r.requiredBearingArea_m2));
+          out.Set("squareBlockSide_m",       Napi::Number::New(env2, r.squareBlockSide_m));
+          out.Set("blockMassEstimate_t",     Napi::Number::New(env2, r.blockMassEstimate_t));
+          return out;
+        });
+      }));
+    exports.Set("thrustblk", tblkNs);
 
     return exports;
 }

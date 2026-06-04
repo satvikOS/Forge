@@ -444,6 +444,13 @@ import {
   ResponseSpectrumWorkbenchHost,
   BuoyancyWorkbenchHost,
 } from './forge-v4/Forge333BundleWorkbenches.jsx';
+import {
+  VCurveWorkbenchHost,
+  ClarifierWorkbenchHost,
+  PVBattWorkbenchHost,
+  SilencerWorkbenchHost,
+  ThrustBlockWorkbenchHost,
+} from './forge-v4/Forge334BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -751,6 +758,11 @@ function App() {
       <GroundGridWorkbenchHost />
       <ResponseSpectrumWorkbenchHost />
       <BuoyancyWorkbenchHost />
+      <VCurveWorkbenchHost />
+      <ClarifierWorkbenchHost />
+      <PVBattWorkbenchHost />
+      <SilencerWorkbenchHost />
+      <ThrustBlockWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -263,6 +263,11 @@ export const CALCULATOR_TREE = [
           { id: 'groundgrid',  label: 'Substation grounding grid (IEEE 80)…', slice: 'Forge-333' },
           { id: 'rspect',      label: 'Response spectrum (Newmark β)…', slice: 'Forge-333' },
           { id: 'buoyfloat',   label: 'Floating-body stability (GM / GZ)…', slice: 'Forge-333' },
+          { id: 'vcurve',      label: 'Highway vertical curve (AASHTO §3.3.3)…', slice: 'Forge-334' },
+          { id: 'clarifier',   label: 'Wastewater clarifier (Metcalf-Eddy)…', slice: 'Forge-334' },
+          { id: 'pvbatt',      label: 'Off-grid PV battery (NREL/IEEE 1013)…', slice: 'Forge-334' },
+          { id: 'silencer',    label: 'Duct silencer attenuation (ASHRAE Ch 49)…', slice: 'Forge-334' },
+          { id: 'thrustblk',   label: 'Thrust block (DIPRA TB-3 / AWWA M11)…', slice: 'Forge-334' },
         ],
       },
       {

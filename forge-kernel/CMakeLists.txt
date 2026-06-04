@@ -332,6 +332,11 @@ add_library(forge_kernel SHARED
     src/GroundGrid.cpp
     src/ResponseSpectrum.cpp
     src/BuoyantStability.cpp
+    src/VerticalCurve.cpp
+    src/Clarifier.cpp
+    src/PVBattery.cpp
+    src/DuctSilencer.cpp
+    src/ThrustBlock.cpp
     ${PLANEGCS_SRC}
 )
 
