@@ -361,6 +361,14 @@ import {
   HeatTraceWorkbenchHost,
   LightningWorkbenchHost,
 } from './forge-v4/Forge322BundleWorkbenches.jsx';
+// Forge-323 5-calc bundle.
+import {
+  StaticMarginWorkbenchHost,
+  RefrigerantPipeWorkbenchHost,
+  BusBarWorkbenchHost,
+  DuctLeakageWorkbenchHost,
+  DustVentWorkbenchHost,
+} from './forge-v4/Forge323BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -613,6 +621,11 @@ function App() {
       <CathodicWorkbenchHost />
       <HeatTraceWorkbenchHost />
       <LightningWorkbenchHost />
+      <StaticMarginWorkbenchHost />
+      <RefrigerantPipeWorkbenchHost />
+      <BusBarWorkbenchHost />
+      <DuctLeakageWorkbenchHost />
+      <DustVentWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

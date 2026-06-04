@@ -1003,6 +1003,13 @@ const forgeApi = {
   heattrace: kernel && kernel.heattrace ? { analyse: (i) => kernel.heattrace.analyse(i) } : null,
   lightning: kernel && kernel.lightning ? { analyse: (i) => kernel.lightning.analyse(i) } : null,
 
+  // Forge-323 5-calc bundle
+  staticmargin: kernel && kernel.staticmargin ? { analyse: (i) => kernel.staticmargin.analyse(i) } : null,
+  refpipe:      kernel && kernel.refpipe      ? { analyse: (i) => kernel.refpipe.analyse(i) }      : null,
+  busbar:       kernel && kernel.busbar       ? { analyse: (i) => kernel.busbar.analyse(i) }       : null,
+  ductleakage:  kernel && kernel.ductleakage  ? { analyse: (i) => kernel.ductleakage.analyse(i) }  : null,
+  dustvent:     kernel && kernel.dustvent     ? { analyse: (i) => kernel.dustvent.analyse(i) }     : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

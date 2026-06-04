@@ -188,6 +188,11 @@
 #include "forge/CathodicProtection.hpp"
 #include "forge/HeatTrace.hpp"
 #include "forge/LightningProtection.hpp"
+#include "forge/StaticMargin.hpp"
+#include "forge/RefrigerantPipe.hpp"
+#include "forge/BusBarForce.hpp"
+#include "forge/DuctLeakage.hpp"
+#include "forge/DustExplosionVent.hpp"
 
 #include <array>
 
@@ -10916,6 +10921,115 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("lightning", lpNs);
+
+    // -------- Forge-323 5-calc bundle -----------------------------------
+    auto smarginNs = Napi::Object::New(env);
+    smarginNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::staticmargin::Input in{};
+          in.xCG_normalized          = o.Get("xCG_normalized"         ).As<Napi::Number>().DoubleValue();
+          in.xACwing_normalized      = o.Get("xACwing_normalized"     ).As<Napi::Number>().DoubleValue();
+          in.tailVolumeCoefficient   = o.Get("tailVolumeCoefficient"  ).As<Napi::Number>().DoubleValue();
+          in.tailToWingCLalphaRatio  = o.Get("tailToWingCLalphaRatio" ).As<Napi::Number>().DoubleValue();
+          in.downwashGradient        = o.Get("downwashGradient"       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::staticmargin::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("xNP_normalized",         Napi::Number::New(env2, r.xNP_normalized));
+          out.Set("staticMargin",           Napi::Number::New(env2, r.staticMargin));
+          out.Set("stable",                 Napi::Boolean::New(env2, r.stable));
+          out.Set("meetsTypicalDesignTarget", Napi::Boolean::New(env2, r.meetsTypicalDesignTarget));
+          return out;
+        });
+      }));
+    exports.Set("staticmargin", smarginNs);
+
+    auto rpNs = Napi::Object::New(env);
+    rpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::refpipe::Input in{};
+          in.coolingDutyKw         = o.Get("coolingDutyKw"        ).As<Napi::Number>().DoubleValue();
+          in.enthalpyChangeKJpkg   = o.Get("enthalpyChangeKJpkg"  ).As<Napi::Number>().DoubleValue();
+          in.specificVolumeM3pkg   = o.Get("specificVolumeM3pkg"  ).As<Napi::Number>().DoubleValue();
+          in.velocityLimitMs       = o.Get("velocityLimitMs"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::refpipe::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("massFlowKgPerS",     Napi::Number::New(env2, r.massFlowKgPerS));
+          out.Set("volumeFlowM3PerS",   Napi::Number::New(env2, r.volumeFlowM3PerS));
+          out.Set("requiredAreaMm2",    Napi::Number::New(env2, r.requiredAreaMm2));
+          out.Set("requiredDiameterMm", Napi::Number::New(env2, r.requiredDiameterMm));
+          return out;
+        });
+      }));
+    exports.Set("refpipe", rpNs);
+
+    auto bbNs = Napi::Object::New(env);
+    bbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::busbar::Input in{};
+          in.shortCircuitCurrentKaRms = o.Get("shortCircuitCurrentKaRms").As<Napi::Number>().DoubleValue();
+          in.asymmetryFactorKappa     = o.Get("asymmetryFactorKappa"    ).As<Napi::Number>().DoubleValue();
+          in.conductorSpacingMm       = o.Get("conductorSpacingMm"      ).As<Napi::Number>().DoubleValue();
+          in.spanLengthM              = o.Get("spanLengthM"             ).As<Napi::Number>().DoubleValue();
+          auto r = forge::busbar::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("peakCurrentKa",      Napi::Number::New(env2, r.peakCurrentKa));
+          out.Set("forcePerLengthNm",   Napi::Number::New(env2, r.forcePerLengthNm));
+          out.Set("totalForcePerSpanN", Napi::Number::New(env2, r.totalForcePerSpanN));
+          out.Set("maxBendingMomentNm", Napi::Number::New(env2, r.maxBendingMomentNm));
+          return out;
+        });
+      }));
+    exports.Set("busbar", bbNs);
+
+    auto dlNs = Napi::Object::New(env);
+    dlNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::ductleak::Input in{};
+          in.ductSurfaceAreaM2     = o.Get("ductSurfaceAreaM2"    ).As<Napi::Number>().DoubleValue();
+          in.testPressureInchWC    = o.Get("testPressureInchWC"   ).As<Napi::Number>().DoubleValue();
+          in.leakageClassCL        = o.Get("leakageClassCL"       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::ductleak::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("leakageRateCfmPer100ft2", Napi::Number::New(env2, r.leakageRateCfmPer100ft2));
+          out.Set("leakageRateLPerSperM2",   Napi::Number::New(env2, r.leakageRateLPerSperM2));
+          out.Set("totalLeakageLPerS",       Napi::Number::New(env2, r.totalLeakageLPerS));
+          out.Set("totalLeakageCfm",         Napi::Number::New(env2, r.totalLeakageCfm));
+          return out;
+        });
+      }));
+    exports.Set("ductleakage", dlNs);
+
+    auto dvNs = Napi::Object::New(env);
+    dvNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::dustvent::Input in{};
+          in.vesselVolumeM3              = o.Get("vesselVolumeM3"             ).As<Napi::Number>().DoubleValue();
+          in.kstBarMperS                 = o.Get("kstBarMperS"                ).As<Napi::Number>().DoubleValue();
+          in.maxAllowableOverpressureBar = o.Get("maxAllowableOverpressureBar").As<Napi::Number>().DoubleValue();
+          in.ventReleasePressureBar      = o.Get("ventReleasePressureBar"     ).As<Napi::Number>().DoubleValue();
+          auto r = forge::dustvent::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("ventAreaM2",        Napi::Number::New(env2, r.ventAreaM2));
+          out.Set("pressureMarginBar", Napi::Number::New(env2, r.pressureMarginBar));
+          return out;
+        });
+      }));
+    exports.Set("dustvent", dvNs);
 
     return exports;
 }

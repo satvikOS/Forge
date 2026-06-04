@@ -277,6 +277,11 @@ add_library(forge_kernel SHARED
     src/CathodicProtection.cpp
     src/HeatTrace.cpp
     src/LightningProtection.cpp
+    src/StaticMargin.cpp
+    src/RefrigerantPipe.cpp
+    src/BusBarForce.cpp
+    src/DuctLeakage.cpp
+    src/DustExplosionVent.cpp
     ${PLANEGCS_SRC}
 )
 

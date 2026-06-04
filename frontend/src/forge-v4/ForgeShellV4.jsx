@@ -1774,6 +1774,32 @@ export function ForgeShellV4() {
         setActiveWb('lightning');
         window.__forgeOpenLightningWorkbench?.();
         return;
+      // Forge-323 bundle
+      case 'tools.staticmargin':
+      case 'workbench.staticmargin':
+        setActiveWb('staticmargin');
+        window.__forgeOpenStaticMarginWorkbench?.();
+        return;
+      case 'tools.refpipe':
+      case 'workbench.refpipe':
+        setActiveWb('refpipe');
+        window.__forgeOpenRefrigerantPipeWorkbench?.();
+        return;
+      case 'tools.busbar':
+      case 'workbench.busbar':
+        setActiveWb('busbar');
+        window.__forgeOpenBusBarWorkbench?.();
+        return;
+      case 'tools.ductleakage':
+      case 'workbench.ductleakage':
+        setActiveWb('ductleakage');
+        window.__forgeOpenDuctLeakageWorkbench?.();
+        return;
+      case 'tools.dustvent':
+      case 'workbench.dustvent':
+        setActiveWb('dustvent');
+        window.__forgeOpenDustVentWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

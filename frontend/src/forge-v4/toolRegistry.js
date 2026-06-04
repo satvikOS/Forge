@@ -208,6 +208,11 @@ export const CALCULATOR_TREE = [
           { id: 'cathodic',    label: 'Cathodic protection (sacrificial anode)…', slice: 'Forge-322' },
           { id: 'heattrace',   label: 'Pipe heat-trace wattage (IEEE 515)…', slice: 'Forge-322' },
           { id: 'lightning',   label: 'Lightning rolling sphere (NFPA 780)…', slice: 'Forge-322' },
+          { id: 'staticmargin',label: 'Aircraft static margin (longitudinal)…', slice: 'Forge-323' },
+          { id: 'refpipe',     label: 'Refrigerant pipe (ASHRAE velocity)…', slice: 'Forge-323' },
+          { id: 'busbar',      label: 'Bus bar SC force (IEC 60865)…', slice: 'Forge-323' },
+          { id: 'ductleakage', label: 'Duct leakage class (SMACNA)…', slice: 'Forge-323' },
+          { id: 'dustvent',    label: 'Dust explosion vent (NFPA 68)…', slice: 'Forge-323' },
         ],
       },
       {
