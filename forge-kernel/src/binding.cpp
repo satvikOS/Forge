@@ -278,6 +278,11 @@
 #include "forge/ChilledBeam.hpp"
 #include "forge/WeldHeatInput.hpp"
 #include "forge/MarkovChain.hpp"
+#include "forge/SoldierPile.hpp"
+#include "forge/HSSRoundBending.hpp"
+#include "forge/PlateHX.hpp"
+#include "forge/FOSMReliability.hpp"
+#include "forge/BridgeFlutter.hpp"
 
 #include <array>
 
@@ -13448,6 +13453,145 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("markov", mkNs);
+
+    // ---- Forge-341a — Soldier-pile wall FHWA -------------------------------
+    auto spNs3 = Napi::Object::New(env);
+    spNs3.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::soldierpile::Input in{};
+          in.wallHeight_H_m            = o.Get("wallHeight_H_m").As<Napi::Number>().DoubleValue();
+          in.soilFrictionAngleDeg_phi  = o.Get("soilFrictionAngleDeg_phi").As<Napi::Number>().DoubleValue();
+          in.soilUnitWeight_kNm3       = o.Get("soilUnitWeight_kNm3").As<Napi::Number>().DoubleValue();
+          in.surcharge_q_kNm2          = o.Get("surcharge_q_kNm2").As<Napi::Number>().DoubleValue();
+          in.pileSpacing_S_m           = o.Get("pileSpacing_S_m").As<Napi::Number>().DoubleValue();
+          in.soldierPileDepth_d_mm     = o.Get("soldierPileDepth_d_mm").As<Napi::Number>().DoubleValue();
+          in.soldierPileFy_MPa         = o.Get("soldierPileFy_MPa").As<Napi::Number>().DoubleValue();
+          auto r = forge::soldierpile::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Ka",                          Napi::Number::New(env2, r.Ka));
+          out.Set("Kp",                          Napi::Number::New(env2, r.Kp));
+          out.Set("activePressureAtBase_kPa",    Napi::Number::New(env2, r.activePressureAtBase_kPa));
+          out.Set("totalActiveForce_kNperM",     Napi::Number::New(env2, r.totalActiveForce_kNperM));
+          out.Set("requiredEmbedment_m",         Napi::Number::New(env2, r.requiredEmbedment_m));
+          out.Set("maxBendingMoment_kNm_perPile",Napi::Number::New(env2, r.maxBendingMoment_kNm_perPile));
+          out.Set("maxFiberStress_MPa",          Napi::Number::New(env2, r.maxFiberStress_MPa));
+          return out;
+        });
+      }));
+    exports.Set("soldierpile", spNs3);
+
+    // ---- Forge-341b — Round HSS bending AISC §F8 ---------------------------
+    auto rhssNs = Napi::Object::New(env);
+    rhssNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::roundhss::Input in{};
+          in.outsideDiameter_D_mm = o.Get("outsideDiameter_D_mm").As<Napi::Number>().DoubleValue();
+          in.wallThickness_t_mm   = o.Get("wallThickness_t_mm").As<Napi::Number>().DoubleValue();
+          in.Fy_MPa               = o.Get("Fy_MPa").As<Napi::Number>().DoubleValue();
+          in.E_GPa                = o.Get("E_GPa").As<Napi::Number>().DoubleValue();
+          auto r = forge::roundhss::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("DoverT",                Napi::Number::New(env2, r.DoverT));
+          out.Set("lambda_p",              Napi::Number::New(env2, r.lambda_p));
+          out.Set("lambda_r",              Napi::Number::New(env2, r.lambda_r));
+          out.Set("classification",        Napi::Number::New(env2, r.classification));
+          out.Set("plasticModulus_Z_mm3",  Napi::Number::New(env2, r.plasticModulus_Z_mm3));
+          out.Set("elasticModulus_S_mm3",  Napi::Number::New(env2, r.elasticModulus_S_mm3));
+          out.Set("Mn_kNm",                Napi::Number::New(env2, r.Mn_kNm));
+          out.Set("phiMn_kNm",             Napi::Number::New(env2, r.phiMn_kNm));
+          return out;
+        });
+      }));
+    exports.Set("roundhss", rhssNs);
+
+    // ---- Forge-341c — Plate HX ε-NTU ---------------------------------------
+    auto ehxNs = Napi::Object::New(env);
+    ehxNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::ehx::Input in{};
+          in.hotInletTemp_Th_in_C  = o.Get("hotInletTemp_Th_in_C").As<Napi::Number>().DoubleValue();
+          in.coldInletTemp_Tc_in_C = o.Get("coldInletTemp_Tc_in_C").As<Napi::Number>().DoubleValue();
+          in.hotMassFlow_kgPerS    = o.Get("hotMassFlow_kgPerS").As<Napi::Number>().DoubleValue();
+          in.coldMassFlow_kgPerS   = o.Get("coldMassFlow_kgPerS").As<Napi::Number>().DoubleValue();
+          in.hotCp_kJperKgK        = o.Get("hotCp_kJperKgK").As<Napi::Number>().DoubleValue();
+          in.coldCp_kJperKgK       = o.Get("coldCp_kJperKgK").As<Napi::Number>().DoubleValue();
+          in.UA_kWperK             = o.Get("UA_kWperK").As<Napi::Number>().DoubleValue();
+          in.flowArrangement       = o.Get("flowArrangement").As<Napi::Number>().Int32Value();
+          auto r = forge::ehx::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Cmin_kWperK",     Napi::Number::New(env2, r.Cmin_kWperK));
+          out.Set("Cmax_kWperK",     Napi::Number::New(env2, r.Cmax_kWperK));
+          out.Set("Cr",              Napi::Number::New(env2, r.Cr));
+          out.Set("NTU",             Napi::Number::New(env2, r.NTU));
+          out.Set("effectiveness",   Napi::Number::New(env2, r.effectiveness));
+          out.Set("heatTransfer_kW", Napi::Number::New(env2, r.heatTransfer_kW));
+          out.Set("hotOutletTemp_C", Napi::Number::New(env2, r.hotOutletTemp_C));
+          out.Set("coldOutletTemp_C",Napi::Number::New(env2, r.coldOutletTemp_C));
+          return out;
+        });
+      }));
+    exports.Set("ehx", ehxNs);
+
+    // ---- Forge-341d — FOSM reliability β -----------------------------------
+    auto fosmNs = Napi::Object::New(env);
+    fosmNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::fosm::Input in{};
+          in.meanR             = o.Get("meanR").As<Napi::Number>().DoubleValue();
+          in.sigmaR            = o.Get("sigmaR").As<Napi::Number>().DoubleValue();
+          in.meanS             = o.Get("meanS").As<Napi::Number>().DoubleValue();
+          in.sigmaS            = o.Get("sigmaS").As<Napi::Number>().DoubleValue();
+          in.correlation_rho   = o.Get("correlation_rho").As<Napi::Number>().DoubleValue();
+          auto r = forge::fosm::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("mean_g",                Napi::Number::New(env2, r.mean_g));
+          out.Set("sigma_g",               Napi::Number::New(env2, r.sigma_g));
+          out.Set("beta",                  Napi::Number::New(env2, r.beta));
+          out.Set("probabilityOfFailure",  Napi::Number::New(env2, r.probabilityOfFailure));
+          out.Set("safetyMarginCV",        Napi::Number::New(env2, r.safetyMarginCV));
+          return out;
+        });
+      }));
+    exports.Set("fosm", fosmNs);
+
+    // ---- Forge-341e — Bridge deck flutter (Selberg) ------------------------
+    auto flutNs = Napi::Object::New(env);
+    flutNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::flutter::Input in{};
+          in.deckWidth_B_m              = o.Get("deckWidth_B_m").As<Napi::Number>().DoubleValue();
+          in.linearMass_kgPerM          = o.Get("linearMass_kgPerM").As<Napi::Number>().DoubleValue();
+          in.torsionalFreq_falpha_Hz    = o.Get("torsionalFreq_falpha_Hz").As<Napi::Number>().DoubleValue();
+          in.heaveFreq_fh_Hz            = o.Get("heaveFreq_fh_Hz").As<Napi::Number>().DoubleValue();
+          in.airDensity_kgM3            = o.Get("airDensity_kgM3").As<Napi::Number>().DoubleValue();
+          in.designWindSpeed_Vd_mps     = o.Get("designWindSpeed_Vd_mps").As<Napi::Number>().DoubleValue();
+          auto r = forge::flutter::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("halfWidth_b_m",            Napi::Number::New(env2, r.halfWidth_b_m));
+          out.Set("massRatio_mu",             Napi::Number::New(env2, r.massRatio_mu));
+          out.Set("criticalWindSpeed_Ucr_mps",Napi::Number::New(env2, r.criticalWindSpeed_Ucr_mps));
+          out.Set("reducedVelocity_atVd",     Napi::Number::New(env2, r.reducedVelocity_atVd));
+          out.Set("safetyFactorUcrOverVd",    Napi::Number::New(env2, r.safetyFactorUcrOverVd));
+          out.Set("stable",                   Napi::Boolean::New(env2, r.stable));
+          return out;
+        });
+      }));
+    exports.Set("flutter", flutNs);
 
     return exports;
 }

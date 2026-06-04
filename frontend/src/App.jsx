@@ -493,6 +493,13 @@ import {
   WeldHIWorkbenchHost,
   MarkovWorkbenchHost,
 } from './forge-v4/Forge340BundleWorkbenches.jsx';
+import {
+  SoldierPileWorkbenchHost,
+  RoundHSSWorkbenchHost,
+  PlateHXWorkbenchHost,
+  FOSMWorkbenchHost,
+  FlutterWorkbenchHost,
+} from './forge-v4/Forge341BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -835,6 +842,11 @@ function App() {
       <ChBeamWorkbenchHost />
       <WeldHIWorkbenchHost />
       <MarkovWorkbenchHost />
+      <SoldierPileWorkbenchHost />
+      <RoundHSSWorkbenchHost />
+      <PlateHXWorkbenchHost />
+      <FOSMWorkbenchHost />
+      <FlutterWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

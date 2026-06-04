@@ -2242,6 +2242,32 @@ export function ForgeShellV4() {
         setActiveWb('markov');
         window.__forgeOpenMarkovWorkbench?.();
         return;
+      // Forge-341 bundle
+      case 'tools.soldierpile':
+      case 'workbench.soldierpile':
+        setActiveWb('soldierpile');
+        window.__forgeOpenSoldierPileWorkbench?.();
+        return;
+      case 'tools.roundhss':
+      case 'workbench.roundhss':
+        setActiveWb('roundhss');
+        window.__forgeOpenRoundHSSWorkbench?.();
+        return;
+      case 'tools.ehx':
+      case 'workbench.ehx':
+        setActiveWb('ehx');
+        window.__forgeOpenPlateHXWorkbench?.();
+        return;
+      case 'tools.fosm':
+      case 'workbench.fosm':
+        setActiveWb('fosm');
+        window.__forgeOpenFOSMWorkbench?.();
+        return;
+      case 'tools.flutter':
+      case 'workbench.flutter':
+        setActiveWb('flutter');
+        window.__forgeOpenFlutterWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

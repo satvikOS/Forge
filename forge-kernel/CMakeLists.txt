@@ -367,6 +367,11 @@ add_library(forge_kernel SHARED
     src/ChilledBeam.cpp
     src/WeldHeatInput.cpp
     src/MarkovChain.cpp
+    src/SoldierPile.cpp
+    src/HSSRoundBending.cpp
+    src/PlateHX.cpp
+    src/FOSMReliability.cpp
+    src/BridgeFlutter.cpp
     ${PLANEGCS_SRC}
 )
 

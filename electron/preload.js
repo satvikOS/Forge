@@ -1129,6 +1129,13 @@ const forgeApi = {
   weldhi:       kernel && kernel.weldhi       ? { analyse: (i) => kernel.weldhi.analyse(i) }       : null,
   markov:       kernel && kernel.markov       ? { analyse: (i) => kernel.markov.analyse(i) }       : null,
 
+  // Forge-341 5-calc bundle
+  soldierpile:  kernel && kernel.soldierpile  ? { analyse: (i) => kernel.soldierpile.analyse(i) }  : null,
+  roundhss:     kernel && kernel.roundhss     ? { analyse: (i) => kernel.roundhss.analyse(i) }     : null,
+  ehx:          kernel && kernel.ehx          ? { analyse: (i) => kernel.ehx.analyse(i) }          : null,
+  fosm:         kernel && kernel.fosm         ? { analyse: (i) => kernel.fosm.analyse(i) }         : null,
+  flutter:      kernel && kernel.flutter      ? { analyse: (i) => kernel.flutter.analyse(i) }      : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
