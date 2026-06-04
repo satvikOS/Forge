@@ -283,6 +283,12 @@
 #include "forge/PlateHX.hpp"
 #include "forge/FOSMReliability.hpp"
 #include "forge/BridgeFlutter.hpp"
+#include "forge/BooleanTol.hpp"
+#include "forge/ShapeCheck.hpp"
+#include "forge/ShapeFix.hpp"
+#include "forge/Sewing.hpp"
+#include "forge/VarFillet.hpp"
+#include "forge/LoftGuide.hpp"
 
 #include <array>
 
@@ -13592,6 +13598,209 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("flutter", flutNs);
+
+    // ===================================================================
+    // PUSH-18 — Tolerant fuzzy booleans (forge::booleantol)
+    // ===================================================================
+    auto bfNs2 = Napi::Object::New(env);
+    bfNs2.Set("fuse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          const auto a = requireHandle(info, 0);
+          const auto b = requireHandle(info, 1);
+          const double fuzz = requireNumber(info, 2, "fuzz");
+          return Napi::Number::New(info.Env(),
+              forge::booleantol::fuse(a, b, fuzz));
+        });
+      }));
+    bfNs2.Set("cut", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          const auto a = requireHandle(info, 0);
+          const auto b = requireHandle(info, 1);
+          const double fuzz = requireNumber(info, 2, "fuzz");
+          return Napi::Number::New(info.Env(),
+              forge::booleantol::cut(a, b, fuzz));
+        });
+      }));
+    bfNs2.Set("common", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          const auto a = requireHandle(info, 0);
+          const auto b = requireHandle(info, 1);
+          const double fuzz = requireNumber(info, 2, "fuzz");
+          return Napi::Number::New(info.Env(),
+              forge::booleantol::common(a, b, fuzz));
+        });
+      }));
+    exports.Set("booleantol", bfNs2);
+
+    // ===================================================================
+    // PUSH-18 — Shape validation (forge::shapecheck)
+    // ===================================================================
+    auto chkNs = Napi::Object::New(env);
+    chkNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const auto h = requireHandle(info, 0);
+          auto rep = forge::shapecheck::analyse(h);
+          auto out = Napi::Object::New(env2);
+          out.Set("valid",        Napi::Boolean::New(env2, rep.valid));
+          out.Set("faultyCount",  Napi::Number::New(env2, rep.faultyCount));
+          auto faults = Napi::Array::New(env2, rep.faultStrings.size());
+          for (std::size_t i = 0; i < rep.faultStrings.size(); ++i) {
+            faults.Set(static_cast<uint32_t>(i),
+                       Napi::String::New(env2, rep.faultStrings[i]));
+          }
+          out.Set("faultStrings", faults);
+          return out;
+        });
+      }));
+    exports.Set("shapecheck", chkNs);
+
+    // ===================================================================
+    // PUSH-18 — ShapeFix_Shape repair (forge::shapefix)
+    // ===================================================================
+    auto fixNs = Napi::Object::New(env);
+    fixNs.Set("repair", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const auto h = requireHandle(info, 0);
+          const double prec = info.Length() > 1 && info[1].IsNumber()
+              ? info[1].As<Napi::Number>().DoubleValue() : 0.0;
+          const double minT = info.Length() > 2 && info[2].IsNumber()
+              ? info[2].As<Napi::Number>().DoubleValue() : 0.0;
+          const double maxT = info.Length() > 3 && info[3].IsNumber()
+              ? info[3].As<Napi::Number>().DoubleValue() : 0.0;
+          auto r = forge::shapefix::repair(h, prec, minT, maxT);
+          auto out = Napi::Object::New(env2);
+          out.Set("handle", Napi::Number::New(env2, r.handle));
+          auto log = Napi::Array::New(env2, r.log.size());
+          for (std::size_t i = 0; i < r.log.size(); ++i) {
+            log.Set(static_cast<uint32_t>(i),
+                    Napi::String::New(env2, r.log[i]));
+          }
+          out.Set("log", log);
+          return out;
+        });
+      }));
+    exports.Set("shapefix", fixNs);
+
+    // ===================================================================
+    // PUSH-18 — Multi-shape sewing (forge::sewing)
+    // ===================================================================
+    auto sewNs = Napi::Object::New(env);
+    sewNs.Set("sew", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 1 || !info[0].IsArray()) {
+            throw Napi::TypeError::New(env2,
+                "sewing.sew(shapes[], tolerance): first arg must be array of handles");
+          }
+          auto arr = info[0].As<Napi::Array>();
+          std::vector<ShapeHandle> shapes;
+          shapes.reserve(arr.Length());
+          for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto v = arr.Get(i);
+            if (!v.IsNumber()) {
+              throw Napi::TypeError::New(env2,
+                  "sewing.sew: shape array entries must all be numbers");
+            }
+            shapes.push_back(v.As<Napi::Number>().Uint32Value());
+          }
+          const double tol = info.Length() > 1 && info[1].IsNumber()
+              ? info[1].As<Napi::Number>().DoubleValue() : 1.0e-3;
+          auto r = forge::sewing::sew(shapes, tol);
+          auto out = Napi::Object::New(env2);
+          out.Set("handle", Napi::Number::New(env2, r.handle));
+          auto rep = Napi::Object::New(env2);
+          rep.Set("inputShapeCount",   Napi::Number::New(env2, static_cast<double>(r.report.inputShapeCount)));
+          rep.Set("freeEdges",         Napi::Number::New(env2, static_cast<double>(r.report.freeEdges)));
+          rep.Set("multipleEdges",     Napi::Number::New(env2, static_cast<double>(r.report.multipleEdges)));
+          rep.Set("contiguousEdges",   Napi::Number::New(env2, static_cast<double>(r.report.contiguousEdges)));
+          rep.Set("degeneratedShapes", Napi::Number::New(env2, static_cast<double>(r.report.degeneratedShapes)));
+          out.Set("report", rep);
+          return out;
+        });
+      }));
+    exports.Set("sewing", sewNs);
+
+    // ===================================================================
+    // PUSH-18 — Variable-radius fillet via Law_Function (forge::varfillet)
+    // ===================================================================
+    auto vfNs = Napi::Object::New(env);
+    vfNs.Set("fillet", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          const auto solidH = requireHandle(info, 0);
+          if (info.Length() < 2 || !info[1].IsArray()) {
+            throw Napi::TypeError::New(env2,
+                "varfillet.fillet(solid, specs[], smooth?): specs must be array");
+          }
+          auto specsArr = info[1].As<Napi::Array>();
+          std::vector<forge::varfillet::EdgeSpec> specs;
+          specs.reserve(specsArr.Length());
+          for (uint32_t i = 0; i < specsArr.Length(); ++i) {
+            auto v = specsArr.Get(i);
+            if (!v.IsObject()) {
+              throw Napi::TypeError::New(env2,
+                  "varfillet.fillet: each spec entry must be an object");
+            }
+            auto obj = v.As<Napi::Object>();
+            forge::varfillet::EdgeSpec sp{};
+            sp.edgeIndex   = obj.Get("edgeIndex").As<Napi::Number>().Uint32Value();
+            sp.radiusStart = obj.Get("radiusStart").As<Napi::Number>().DoubleValue();
+            sp.radiusEnd   = obj.Get("radiusEnd").As<Napi::Number>().DoubleValue();
+            specs.push_back(sp);
+          }
+          const bool smooth = info.Length() > 2 && info[2].IsBoolean()
+              ? info[2].As<Napi::Boolean>().Value() : false;
+          ShapeHandle h = forge::varfillet::fillet(solidH, specs, smooth);
+          return Napi::Number::New(env2, h);
+        });
+      }));
+    exports.Set("varfillet", vfNs);
+
+    // ===================================================================
+    // PUSH-18 — Guided loft via BRepOffsetAPI_ThruSections (forge::loftguide)
+    // ===================================================================
+    auto lgNs = Napi::Object::New(env);
+    lgNs.Set("loft", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 1 || !info[0].IsArray()) {
+            throw Napi::TypeError::New(env2,
+                "loftguide.loft(profileWires[], guideEdges[], solid, ruled?): "
+                "profileWires must be array");
+          }
+          auto profArr = info[0].As<Napi::Array>();
+          std::vector<ShapeHandle> profiles;
+          profiles.reserve(profArr.Length());
+          for (uint32_t i = 0; i < profArr.Length(); ++i) {
+            profiles.push_back(profArr.Get(i).As<Napi::Number>().Uint32Value());
+          }
+          std::vector<ShapeHandle> guides;
+          if (info.Length() > 1 && info[1].IsArray()) {
+            auto gArr = info[1].As<Napi::Array>();
+            guides.reserve(gArr.Length());
+            for (uint32_t i = 0; i < gArr.Length(); ++i) {
+              guides.push_back(gArr.Get(i).As<Napi::Number>().Uint32Value());
+            }
+          }
+          const bool solid = info.Length() > 2 && info[2].IsBoolean()
+              ? info[2].As<Napi::Boolean>().Value() : true;
+          const bool ruled = info.Length() > 3 && info[3].IsBoolean()
+              ? info[3].As<Napi::Boolean>().Value() : false;
+          ShapeHandle h = forge::loftguide::loft(profiles, guides, solid, ruled);
+          return Napi::Number::New(env2, h);
+        });
+      }));
+    exports.Set("loftguide", lgNs);
 
     return exports;
 }

@@ -372,6 +372,12 @@ add_library(forge_kernel SHARED
     src/PlateHX.cpp
     src/FOSMReliability.cpp
     src/BridgeFlutter.cpp
+    src/BooleanTol.cpp
+    src/ShapeCheck.cpp
+    src/ShapeFix.cpp
+    src/Sewing.cpp
+    src/VarFillet.cpp
+    src/LoftGuide.cpp
     ${PLANEGCS_SRC}
 )
 
