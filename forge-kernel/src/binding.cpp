@@ -238,6 +238,11 @@
 #include "forge/WeldGroup.hpp"
 #include "forge/BoltPreload.hpp"
 #include "forge/PrestressLosses.hpp"
+#include "forge/BoltedFlange.hpp"
+#include "forge/SpillwayOgee.hpp"
+#include "forge/GroundGrid.hpp"
+#include "forge/ResponseSpectrum.hpp"
+#include "forge/BuoyantStability.hpp"
 
 #include <array>
 
@@ -12204,6 +12209,166 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("prestress", prsNs);
+
+    // ---- Forge-333a — ASME B16.5 bolted flange ----------------------------
+    auto flgNs = Napi::Object::New(env);
+    flgNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::flange::Input in{};
+          in.designPressure_MPa                = o.Get("designPressure_MPa").As<Napi::Number>().DoubleValue();
+          in.gasketOD_mm                       = o.Get("gasketOD_mm").As<Napi::Number>().DoubleValue();
+          in.gasketID_mm                       = o.Get("gasketID_mm").As<Napi::Number>().DoubleValue();
+          in.gasketFactorM                     = o.Get("gasketFactorM").As<Napi::Number>().DoubleValue();
+          in.seatingStress_y_MPa               = o.Get("seatingStress_y_MPa").As<Napi::Number>().DoubleValue();
+          in.allowableBoltStress_Sa_MPa        = o.Get("allowableBoltStress_Sa_MPa").As<Napi::Number>().DoubleValue();
+          in.allowableBoltStressAtm_Satm_MPa   = o.Get("allowableBoltStressAtm_Satm_MPa").As<Napi::Number>().DoubleValue();
+          in.singleBoltArea_mm2                = o.Get("singleBoltArea_mm2").As<Napi::Number>().DoubleValue();
+          auto r = forge::flange::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("gasketWidth_b0_mm",      Napi::Number::New(env2, r.gasketWidth_b0_mm));
+          out.Set("effectiveWidth_b_mm",    Napi::Number::New(env2, r.effectiveWidth_b_mm));
+          out.Set("effectiveDiameter_G_mm", Napi::Number::New(env2, r.effectiveDiameter_G_mm));
+          out.Set("Hd_kN",                  Napi::Number::New(env2, r.Hd_kN));
+          out.Set("Hp_kN",                  Napi::Number::New(env2, r.Hp_kN));
+          out.Set("Wm1_kN",                 Napi::Number::New(env2, r.Wm1_kN));
+          out.Set("Wm2_kN",                 Napi::Number::New(env2, r.Wm2_kN));
+          out.Set("Am_required_mm2",        Napi::Number::New(env2, r.Am_required_mm2));
+          out.Set("boltCountRequired",      Napi::Number::New(env2, r.boltCountRequired));
+          return out;
+        });
+      }));
+    exports.Set("flange", flgNs);
+
+    // ---- Forge-333b — Spillway ogee discharge ------------------------------
+    auto ogNs = Napi::Object::New(env);
+    ogNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::ogee::Input in{};
+          in.headOverCrest_H_m       = o.Get("headOverCrest_H_m").As<Napi::Number>().DoubleValue();
+          in.designHead_Hd_m         = o.Get("designHead_Hd_m").As<Napi::Number>().DoubleValue();
+          in.crestLength_L_m         = o.Get("crestLength_L_m").As<Napi::Number>().DoubleValue();
+          in.pierCount_N             = o.Get("pierCount_N").As<Napi::Number>().Int32Value();
+          in.pierContraction_Kp      = o.Get("pierContraction_Kp").As<Napi::Number>().DoubleValue();
+          in.abutmentContraction_Ka  = o.Get("abutmentContraction_Ka").As<Napi::Number>().DoubleValue();
+          in.dischargeCoefficient_C  = o.Get("dischargeCoefficient_C").As<Napi::Number>().DoubleValue();
+          in.profileSamples          = o.Get("profileSamples").As<Napi::Number>().Int32Value();
+          auto r = forge::ogee::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("effectiveLength_Le_m",   Napi::Number::New(env2, r.effectiveLength_Le_m));
+          out.Set("dischargeQ_m3s",         Napi::Number::New(env2, r.dischargeQ_m3s));
+          out.Set("specificDischarge_q_m2s",Napi::Number::New(env2, r.specificDischarge_q_m2s));
+          auto px = Napi::Array::New(env2, r.profileX_m.size());
+          auto py = Napi::Array::New(env2, r.profileY_m.size());
+          for (uint32_t i = 0; i < r.profileX_m.size(); ++i) px.Set(i, Napi::Number::New(env2, r.profileX_m[i]));
+          for (uint32_t i = 0; i < r.profileY_m.size(); ++i) py.Set(i, Napi::Number::New(env2, r.profileY_m[i]));
+          out.Set("profileX_m", px);
+          out.Set("profileY_m", py);
+          return out;
+        });
+      }));
+    exports.Set("ogee", ogNs);
+
+    // ---- Forge-333c — IEEE 80 grounding grid -------------------------------
+    auto ggNs = Napi::Object::New(env);
+    ggNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::groundgrid::Input in{};
+          in.soilResistivity_rho_Ohmm           = o.Get("soilResistivity_rho_Ohmm").As<Napi::Number>().DoubleValue();
+          in.surfaceLayerResistivity_rhos_Ohmm  = o.Get("surfaceLayerResistivity_rhos_Ohmm").As<Napi::Number>().DoubleValue();
+          in.surfaceLayerDepth_hs_m             = o.Get("surfaceLayerDepth_hs_m").As<Napi::Number>().DoubleValue();
+          in.gridDepth_h_m                      = o.Get("gridDepth_h_m").As<Napi::Number>().DoubleValue();
+          in.gridArea_m2                        = o.Get("gridArea_m2").As<Napi::Number>().DoubleValue();
+          in.totalConductorLength_m             = o.Get("totalConductorLength_m").As<Napi::Number>().DoubleValue();
+          in.faultClearTime_s                   = o.Get("faultClearTime_s").As<Napi::Number>().DoubleValue();
+          in.faultCurrent_kA                    = o.Get("faultCurrent_kA").As<Napi::Number>().DoubleValue();
+          in.conductorKf                        = o.Get("conductorKf").As<Napi::Number>().DoubleValue();
+          in.bodyWeight_kg                      = o.Get("bodyWeight_kg").As<Napi::Number>().Int32Value();
+          auto r = forge::groundgrid::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Cs_surface_derating",        Napi::Number::New(env2, r.Cs_surface_derating));
+          out.Set("allowableStepVoltage_V",     Napi::Number::New(env2, r.allowableStepVoltage_V));
+          out.Set("allowableTouchVoltage_V",    Napi::Number::New(env2, r.allowableTouchVoltage_V));
+          out.Set("requiredConductorArea_mm2",  Napi::Number::New(env2, r.requiredConductorArea_mm2));
+          out.Set("gridResistance_Ohm",         Napi::Number::New(env2, r.gridResistance_Ohm));
+          out.Set("groundPotentialRise_V",      Napi::Number::New(env2, r.groundPotentialRise_V));
+          return out;
+        });
+      }));
+    exports.Set("groundgrid", ggNs);
+
+    // ---- Forge-333d — Single-DOF response spectrum (Newmark) --------------
+    auto rsNs = Napi::Object::New(env);
+    rsNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::rspect::Input in{};
+          in.dampingRatio      = o.Get("dampingRatio").As<Napi::Number>().DoubleValue();
+          in.Tmin_s            = o.Get("Tmin_s").As<Napi::Number>().DoubleValue();
+          in.Tmax_s            = o.Get("Tmax_s").As<Napi::Number>().DoubleValue();
+          in.nSpectralPoints   = o.Get("nSpectralPoints").As<Napi::Number>().Int32Value();
+          auto tJs = o.Get("time_s").As<Napi::Array>();
+          auto aJs = o.Get("accel_ms2").As<Napi::Array>();
+          for (uint32_t i = 0; i < tJs.Length(); ++i) {
+              in.time_s.push_back(tJs.Get(i).As<Napi::Number>().DoubleValue());
+              in.accel_ms2.push_back(aJs.Get(i).As<Napi::Number>().DoubleValue());
+          }
+          auto r = forge::rspect::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("peakGroundAccel_ms2",  Napi::Number::New(env2, r.peakGroundAccel_ms2));
+          auto specArr = Napi::Array::New(env2, r.spectrum.size());
+          for (uint32_t i = 0; i < r.spectrum.size(); ++i) {
+              auto p = Napi::Object::New(env2);
+              p.Set("T_s",     Napi::Number::New(env2, r.spectrum[i].T_s));
+              p.Set("Sd_m",    Napi::Number::New(env2, r.spectrum[i].Sd_m));
+              p.Set("Sv_mps",  Napi::Number::New(env2, r.spectrum[i].Sv_mps));
+              p.Set("Sa_mps2", Napi::Number::New(env2, r.spectrum[i].Sa_mps2));
+              specArr.Set(i, p);
+          }
+          out.Set("spectrum", specArr);
+          return out;
+        });
+      }));
+    exports.Set("rspect", rsNs);
+
+    // ---- Forge-333e — Floating-body buoyancy + stability -------------------
+    auto buoyNs = Napi::Object::New(env);
+    buoyNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::buoyfloat::Input in{};
+          in.bodyMass_kg        = o.Get("bodyMass_kg").As<Napi::Number>().DoubleValue();
+          in.fluidDensity_kgM3  = o.Get("fluidDensity_kgM3").As<Napi::Number>().DoubleValue();
+          in.length_m           = o.Get("length_m").As<Napi::Number>().DoubleValue();
+          in.beam_m             = o.Get("beam_m").As<Napi::Number>().DoubleValue();
+          in.KG_m               = o.Get("KG_m").As<Napi::Number>().DoubleValue();
+          in.heelAngle_deg      = o.Get("heelAngle_deg").As<Napi::Number>().DoubleValue();
+          auto r = forge::buoyfloat::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("displacedVolume_m3",  Napi::Number::New(env2, r.displacedVolume_m3));
+          out.Set("draught_m",           Napi::Number::New(env2, r.draught_m));
+          out.Set("KB_m",                Napi::Number::New(env2, r.KB_m));
+          out.Set("BM_m",                Napi::Number::New(env2, r.BM_m));
+          out.Set("GM_m",                Napi::Number::New(env2, r.GM_m));
+          out.Set("rightingArm_GZ_m",    Napi::Number::New(env2, r.rightingArm_GZ_m));
+          out.Set("rightingMoment_kNm",  Napi::Number::New(env2, r.rightingMoment_kNm));
+          out.Set("stable",              Napi::Boolean::New(env2, r.stable));
+          return out;
+        });
+      }));
+    exports.Set("buoyfloat", buoyNs);
 
     return exports;
 }

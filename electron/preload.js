@@ -1073,6 +1073,13 @@ const forgeApi = {
   boltpre:      kernel && kernel.boltpre      ? { analyse: (i) => kernel.boltpre.analyse(i) }      : null,
   prestress:    kernel && kernel.prestress    ? { analyse: (i) => kernel.prestress.analyse(i) }    : null,
 
+  // Forge-333 5-calc bundle
+  flange:       kernel && kernel.flange       ? { analyse: (i) => kernel.flange.analyse(i) }       : null,
+  ogee:         kernel && kernel.ogee         ? { analyse: (i) => kernel.ogee.analyse(i) }         : null,
+  groundgrid:   kernel && kernel.groundgrid   ? { analyse: (i) => kernel.groundgrid.analyse(i) }   : null,
+  rspect:       kernel && kernel.rspect       ? { analyse: (i) => kernel.rspect.analyse(i) }       : null,
+  buoyfloat:    kernel && kernel.buoyfloat    ? { analyse: (i) => kernel.buoyfloat.analyse(i) }    : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

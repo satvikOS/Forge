@@ -2034,6 +2034,32 @@ export function ForgeShellV4() {
         setActiveWb('prestress');
         window.__forgeOpenPrestressWorkbench?.();
         return;
+      // Forge-333 bundle
+      case 'tools.flange':
+      case 'workbench.flange':
+        setActiveWb('flange');
+        window.__forgeOpenBoltedFlangeWorkbench?.();
+        return;
+      case 'tools.ogee':
+      case 'workbench.ogee':
+        setActiveWb('ogee');
+        window.__forgeOpenOgeeWorkbench?.();
+        return;
+      case 'tools.groundgrid':
+      case 'workbench.groundgrid':
+        setActiveWb('groundgrid');
+        window.__forgeOpenGroundGridWorkbench?.();
+        return;
+      case 'tools.rspect':
+      case 'workbench.rspect':
+        setActiveWb('rspect');
+        window.__forgeOpenResponseSpectrumWorkbench?.();
+        return;
+      case 'tools.buoyfloat':
+      case 'workbench.buoyfloat':
+        setActiveWb('buoyfloat');
+        window.__forgeOpenBuoyancyWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -327,6 +327,11 @@ add_library(forge_kernel SHARED
     src/WeldGroup.cpp
     src/BoltPreload.cpp
     src/PrestressLosses.cpp
+    src/BoltedFlange.cpp
+    src/SpillwayOgee.cpp
+    src/GroundGrid.cpp
+    src/ResponseSpectrum.cpp
+    src/BuoyantStability.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -258,6 +258,11 @@ export const CALCULATOR_TREE = [
           { id: 'weldgroup',   label: 'Welded fillet group (Salmon-Johnson)…', slice: 'Forge-332' },
           { id: 'boltpre',     label: 'Bolt preload (Shigley §8.8)…', slice: 'Forge-332' },
           { id: 'prestress',   label: 'Prestress losses (AASHTO LRFD §5.9)…', slice: 'Forge-332' },
+          { id: 'flange',      label: 'Bolted flange (ASME Sec VIII / B16.5)…', slice: 'Forge-333' },
+          { id: 'ogee',        label: 'Spillway ogee discharge (USACE EM 1110)…', slice: 'Forge-333' },
+          { id: 'groundgrid',  label: 'Substation grounding grid (IEEE 80)…', slice: 'Forge-333' },
+          { id: 'rspect',      label: 'Response spectrum (Newmark β)…', slice: 'Forge-333' },
+          { id: 'buoyfloat',   label: 'Floating-body stability (GM / GZ)…', slice: 'Forge-333' },
         ],
       },
       {
