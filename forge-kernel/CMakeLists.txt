@@ -254,6 +254,7 @@ add_library(forge_kernel SHARED
     src/SteamPipe.cpp
     src/AirPipe.cpp
     src/WindTurbine.cpp
+    src/ConcreteCreep.cpp
     ${PLANEGCS_SRC}
 )
 

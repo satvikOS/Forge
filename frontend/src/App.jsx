@@ -323,6 +323,8 @@ import { SteamPipeWorkbenchHost } from './forge-v4/SteamPipeWorkbench.jsx';
 import { AirPipeWorkbenchHost } from './forge-v4/AirPipeWorkbench.jsx';
 // Forge-315 — Wind turbine BEM / Betz.
 import { WindTurbineWorkbenchHost } from './forge-v4/WindTurbineWorkbench.jsx';
+// Forge-316 — Concrete creep + shrinkage (ACI 209R-92).
+import { ConcreteCreepWorkbenchHost } from './forge-v4/ConcreteCreepWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -552,6 +554,7 @@ function App() {
       <SteamPipeWorkbenchHost />
       <AirPipeWorkbenchHost />
       <WindTurbineWorkbenchHost />
+      <ConcreteCreepWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

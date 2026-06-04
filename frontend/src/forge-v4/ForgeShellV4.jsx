@@ -1655,6 +1655,11 @@ export function ForgeShellV4() {
         setActiveWb('windturbine');
         window.__forgeOpenWindTurbineWorkbench?.();
         return;
+      case 'tools.concretecreep':
+      case 'workbench.concretecreep':
+        setActiveWb('concretecreep');
+        window.__forgeOpenConcreteCreepWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

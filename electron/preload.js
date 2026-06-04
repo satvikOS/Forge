@@ -960,6 +960,11 @@ const forgeApi = {
     analyse: (input) => kernel.windturbine.analyse(input),
   } : null,
 
+  // concretecreep (Forge-316) — Creep + shrinkage (ACI 209R-92).
+  concretecreep: kernel && kernel.concretecreep ? {
+    analyse: (input) => kernel.concretecreep.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -165,6 +165,7 @@
 #include "forge/SteamPipe.hpp"
 #include "forge/AirPipe.hpp"
 #include "forge/WindTurbine.hpp"
+#include "forge/ConcreteCreep.hpp"
 
 #include <array>
 
@@ -10301,6 +10302,38 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("windturbine", wtNs);
+
+    // -------- Concrete creep + shrinkage ACI 209 (Forge-316) ------------
+    auto crpNs = Napi::Object::New(env);
+    crpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::creep::Input in{};
+          in.sustainedStressMPa       = o.Get("sustainedStressMPa"      ).As<Napi::Number>().DoubleValue();
+          in.concreteModulusMPa       = o.Get("concreteModulusMPa"      ).As<Napi::Number>().DoubleValue();
+          in.ambientHumidityPercent   = o.Get("ambientHumidityPercent"  ).As<Napi::Number>().DoubleValue();
+          in.loadingAgeDays           = o.Get("loadingAgeDays"          ).As<Napi::Number>().DoubleValue();
+          in.timeAfterLoadingDays     = o.Get("timeAfterLoadingDays"    ).As<Napi::Number>().DoubleValue();
+          in.ultimateCreepCoeff       = o.Get("ultimateCreepCoeff"      ).As<Napi::Number>().DoubleValue();
+          in.ultimateShrinkageStrain  = o.Get("ultimateShrinkageStrain" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::creep::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("humidityFactorCreep",   Napi::Number::New(env2, r.humidityFactorCreep));
+          out.Set("humidityFactorShrink",  Napi::Number::New(env2, r.humidityFactorShrink));
+          out.Set("loadAgeFactor",         Napi::Number::New(env2, r.loadAgeFactor));
+          out.Set("appliedUltimateCreep",  Napi::Number::New(env2, r.appliedUltimateCreep));
+          out.Set("appliedUltimateShrink", Napi::Number::New(env2, r.appliedUltimateShrink));
+          out.Set("creepCoefficient",      Napi::Number::New(env2, r.creepCoefficient));
+          out.Set("shrinkageStrain",       Napi::Number::New(env2, r.shrinkageStrain));
+          out.Set("instantaneousStrain",   Napi::Number::New(env2, r.instantaneousStrain));
+          out.Set("totalLongTermStrain",   Napi::Number::New(env2, r.totalLongTermStrain));
+          out.Set("creepStrain",           Napi::Number::New(env2, r.creepStrain));
+          return out;
+        });
+      }));
+    exports.Set("concretecreep", crpNs);
 
     return exports;
 }
