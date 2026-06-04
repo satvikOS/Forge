@@ -1800,6 +1800,32 @@ export function ForgeShellV4() {
         setActiveWb('dustvent');
         window.__forgeOpenDustVentWorkbench?.();
         return;
+      // Forge-324 bundle
+      case 'tools.iplv':
+      case 'workbench.iplv':
+        setActiveWb('iplv');
+        window.__forgeOpenIPLVWorkbench?.();
+        return;
+      case 'tools.snowdrift':
+      case 'workbench.snowdrift':
+        setActiveWb('snowdrift');
+        window.__forgeOpenSnowDriftWorkbench?.();
+        return;
+      case 'tools.slaboneway':
+      case 'workbench.slaboneway':
+        setActiveWb('slaboneway');
+        window.__forgeOpenSlabOneWayWorkbench?.();
+        return;
+      case 'tools.cranerunway':
+      case 'workbench.cranerunway':
+        setActiveWb('cranerunway');
+        window.__forgeOpenCraneRunwayWorkbench?.();
+        return;
+      case 'tools.cmucomp':
+      case 'workbench.cmucomp':
+        setActiveWb('cmucomp');
+        window.__forgeOpenCMUWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

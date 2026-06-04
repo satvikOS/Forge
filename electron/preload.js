@@ -1010,6 +1010,13 @@ const forgeApi = {
   ductleakage:  kernel && kernel.ductleakage  ? { analyse: (i) => kernel.ductleakage.analyse(i) }  : null,
   dustvent:     kernel && kernel.dustvent     ? { analyse: (i) => kernel.dustvent.analyse(i) }     : null,
 
+  // Forge-324 5-calc bundle
+  iplv:        kernel && kernel.iplv        ? { analyse: (i) => kernel.iplv.analyse(i) }        : null,
+  snowdrift:   kernel && kernel.snowdrift   ? { analyse: (i) => kernel.snowdrift.analyse(i) }   : null,
+  slaboneway:  kernel && kernel.slaboneway  ? { analyse: (i) => kernel.slaboneway.analyse(i) }  : null,
+  cranerunway: kernel && kernel.cranerunway ? { analyse: (i) => kernel.cranerunway.analyse(i) } : null,
+  cmucomp:     kernel && kernel.cmucomp     ? { analyse: (i) => kernel.cmucomp.analyse(i) }     : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

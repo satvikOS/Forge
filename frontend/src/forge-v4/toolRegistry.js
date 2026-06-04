@@ -213,6 +213,11 @@ export const CALCULATOR_TREE = [
           { id: 'busbar',      label: 'Bus bar SC force (IEC 60865)…', slice: 'Forge-323' },
           { id: 'ductleakage', label: 'Duct leakage class (SMACNA)…', slice: 'Forge-323' },
           { id: 'dustvent',    label: 'Dust explosion vent (NFPA 68)…', slice: 'Forge-323' },
+          { id: 'iplv',        label: 'Chiller IPLV (AHRI 550/590)…', slice: 'Forge-324' },
+          { id: 'snowdrift',   label: 'Roof snow drift (ASCE 7-22 §7.7)…', slice: 'Forge-324' },
+          { id: 'slaboneway',  label: 'RC one-way slab (ACI 318)…', slice: 'Forge-324' },
+          { id: 'cranerunway', label: 'Crane runway beam (AISC DG7)…', slice: 'Forge-324' },
+          { id: 'cmucomp',     label: 'CMU compression (TMS 402)…', slice: 'Forge-324' },
         ],
       },
       {

@@ -282,6 +282,11 @@ add_library(forge_kernel SHARED
     src/BusBarForce.cpp
     src/DuctLeakage.cpp
     src/DustExplosionVent.cpp
+    src/ChillerIPLV.cpp
+    src/SnowDrift.cpp
+    src/SlabOneWay.cpp
+    src/CraneRunway.cpp
+    src/CMUCompression.cpp
     ${PLANEGCS_SRC}
 )
 

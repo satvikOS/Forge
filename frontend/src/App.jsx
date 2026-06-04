@@ -369,6 +369,14 @@ import {
   DuctLeakageWorkbenchHost,
   DustVentWorkbenchHost,
 } from './forge-v4/Forge323BundleWorkbenches.jsx';
+// Forge-324 5-calc bundle.
+import {
+  IPLVWorkbenchHost,
+  SnowDriftWorkbenchHost,
+  SlabOneWayWorkbenchHost,
+  CraneRunwayWorkbenchHost,
+  CMUCompressionWorkbenchHost,
+} from './forge-v4/Forge324BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -626,6 +634,11 @@ function App() {
       <BusBarWorkbenchHost />
       <DuctLeakageWorkbenchHost />
       <DustVentWorkbenchHost />
+      <IPLVWorkbenchHost />
+      <SnowDriftWorkbenchHost />
+      <SlabOneWayWorkbenchHost />
+      <CraneRunwayWorkbenchHost />
+      <CMUCompressionWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -193,6 +193,11 @@
 #include "forge/BusBarForce.hpp"
 #include "forge/DuctLeakage.hpp"
 #include "forge/DustExplosionVent.hpp"
+#include "forge/ChillerIPLV.hpp"
+#include "forge/SnowDrift.hpp"
+#include "forge/SlabOneWay.hpp"
+#include "forge/CraneRunway.hpp"
+#include "forge/CMUCompression.hpp"
 
 #include <array>
 
@@ -11030,6 +11035,118 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("dustvent", dvNs);
+
+    // -------- Forge-324 5-calc bundle -----------------------------------
+    auto iplvNs = Napi::Object::New(env);
+    iplvNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::iplv::Input in{};
+          in.cop100 = o.Get("cop100").As<Napi::Number>().DoubleValue();
+          in.cop75  = o.Get("cop75" ).As<Napi::Number>().DoubleValue();
+          in.cop50  = o.Get("cop50" ).As<Napi::Number>().DoubleValue();
+          in.cop25  = o.Get("cop25" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::iplv::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("iplv",          Napi::Number::New(env2, r.iplv));
+          out.Set("iplv_kWperTon", Napi::Number::New(env2, r.iplv_kWperTon));
+          return out;
+        });
+      }));
+    exports.Set("iplv", iplvNs);
+
+    auto sndrNs = Napi::Object::New(env);
+    sndrNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::snowdrift::Input in{};
+          in.groundSnowLoad_kNm2  = o.Get("groundSnowLoad_kNm2").As<Napi::Number>().DoubleValue();
+          in.upwindFetchLength_m  = o.Get("upwindFetchLength_m").As<Napi::Number>().DoubleValue();
+          in.leewardDrift         = o.Get("leewardDrift"       ).As<Napi::Boolean>().Value();
+          auto r = forge::snowdrift::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("snowUnitWeight_kNm3", Napi::Number::New(env2, r.snowUnitWeight_kNm3));
+          out.Set("driftHeight_m",       Napi::Number::New(env2, r.driftHeight_m));
+          out.Set("driftPressure_kNm2",  Napi::Number::New(env2, r.driftPressure_kNm2));
+          return out;
+        });
+      }));
+    exports.Set("snowdrift", sndrNs);
+
+    auto solwNs = Napi::Object::New(env);
+    solwNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::slaboneway::Input in{};
+          in.spanLength_m         = o.Get("spanLength_m"        ).As<Napi::Number>().DoubleValue();
+          in.slabThickness_mm     = o.Get("slabThickness_mm"    ).As<Napi::Number>().DoubleValue();
+          in.effectiveDepth_d_mm  = o.Get("effectiveDepth_d_mm" ).As<Napi::Number>().DoubleValue();
+          in.areaSteelMm2PerM     = o.Get("areaSteelMm2PerM"    ).As<Napi::Number>().DoubleValue();
+          in.fc_MPa               = o.Get("fc_MPa"              ).As<Napi::Number>().DoubleValue();
+          in.fy_MPa               = o.Get("fy_MPa"              ).As<Napi::Number>().DoubleValue();
+          in.supportCondition     = o.Get("supportCondition"    ).As<Napi::String>().Utf8Value();
+          auto r = forge::slaboneway::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("minimumThicknessMm",   Napi::Number::New(env2, r.minimumThicknessMm));
+          out.Set("a_mm",                 Napi::Number::New(env2, r.a_mm));
+          out.Set("nominalMoment_kNmPerM",Napi::Number::New(env2, r.nominalMoment_kNmPerM));
+          out.Set("designMoment_kNmPerM", Napi::Number::New(env2, r.designMoment_kNmPerM));
+          out.Set("thicknessAdequate",    Napi::Boolean::New(env2, r.thicknessAdequate));
+          return out;
+        });
+      }));
+    exports.Set("slaboneway", solwNs);
+
+    auto crNs = Napi::Object::New(env);
+    crNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cranerunway::Input in{};
+          in.maxWheelLoadKn  = o.Get("maxWheelLoadKn" ).As<Napi::Number>().DoubleValue();
+          in.spanLengthM     = o.Get("spanLengthM"    ).As<Napi::Number>().DoubleValue();
+          in.impactFactor    = o.Get("impactFactor"   ).As<Napi::Number>().DoubleValue();
+          in.lateralFraction = o.Get("lateralFraction").As<Napi::Number>().DoubleValue();
+          auto r = forge::cranerunway::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("wheelLoadWithImpactKn",  Napi::Number::New(env2, r.wheelLoadWithImpactKn));
+          out.Set("lateralLoadKn",          Napi::Number::New(env2, r.lateralLoadKn));
+          out.Set("verticalMomentKnm",      Napi::Number::New(env2, r.verticalMomentKnm));
+          out.Set("lateralMomentKnm",       Napi::Number::New(env2, r.lateralMomentKnm));
+          out.Set("combinedDesignMomentKnm",Napi::Number::New(env2, r.combinedDesignMomentKnm));
+          return out;
+        });
+      }));
+    exports.Set("cranerunway", crNs);
+
+    auto cmuNs = Napi::Object::New(env);
+    cmuNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cmucomp::Input in{};
+          in.netAreaMm2          = o.Get("netAreaMm2"         ).As<Napi::Number>().DoubleValue();
+          in.radiusOfGyrationMm  = o.Get("radiusOfGyrationMm" ).As<Napi::Number>().DoubleValue();
+          in.effectiveHeightMm   = o.Get("effectiveHeightMm"  ).As<Napi::Number>().DoubleValue();
+          in.fm_MPa              = o.Get("fm_MPa"             ).As<Napi::Number>().DoubleValue();
+          auto r = forge::cmucomp::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("slendernessRatio_h_r", Napi::Number::New(env2, r.slendernessRatio_h_r));
+          out.Set("nominalCapacityKn",    Napi::Number::New(env2, r.nominalCapacityKn));
+          out.Set("designCapacityKn",     Napi::Number::New(env2, r.designCapacityKn));
+          out.Set("slenderRegime",        Napi::Boolean::New(env2, r.slenderRegime));
+          return out;
+        });
+      }));
+    exports.Set("cmucomp", cmuNs);
 
     return exports;
 }
