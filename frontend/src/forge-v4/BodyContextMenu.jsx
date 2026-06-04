@@ -44,12 +44,31 @@ function itemsFor(selection) {
       { id: 'dimension',  label: 'Dimension',       icon: 'sketch.dim' },
     ];
   }
+  // PUSH-01: empty-canvas right-click menu — full workbench launchers,
+  // common create ops, view shortcuts, and a tools sub-menu.
   return [
-    { id: 'create.box', label: 'Create box',     icon: 'sketch.rect' },
-    { id: 'create.cyl', label: 'Create cylinder', icon: 'sketch.circle' },
+    { id: 'create.box',      label: 'Create box',          icon: 'sketch.rect' },
+    { id: 'create.cyl',      label: 'Create cylinder',     icon: 'sketch.circle' },
+    { id: 'create.sphere',   label: 'Create sphere',       icon: 'sketch.circle' },
+    { id: 'create.cone',     label: 'Create cone',         icon: 'sketch.rect' },
+    { id: 'create.torus',    label: 'Create torus',        icon: 'sketch.circle' },
     { divider: true },
-    { id: 'view.zoomFit', label: 'Zoom to fit',  icon: 'view.zoom_fit', shortcut: 'F' },
-    { id: 'view.iso',     label: 'Isometric',     icon: 'view.iso',      shortcut: '1' },
+    { id: 'sketch.start',    label: 'Start sketch',        icon: 'sketch.rect' },
+    { id: 'workbench.mech',  label: 'Switch: Mech part',   icon: 'menu.edit' },
+    { id: 'workbench.sheet', label: 'Switch: Sheet metal', icon: 'solid.fillet' },
+    { id: 'workbench.draft', label: 'Switch: Drafting',    icon: 'sketch.dim' },
+    { id: 'workbench.sim',   label: 'Switch: Simulation',  icon: 'measure.mass' },
+    { id: 'workbench.mfg',   label: 'Switch: Manufacturing', icon: 'menu.edit' },
+    { id: 'workbench.drawing', label: 'Switch: Drawing',   icon: 'sketch.dim' },
+    { divider: true },
+    { id: 'tools.open',      label: 'Tools menu…',         icon: 'menu.edit' },
+    { id: 'palette.open',    label: 'Command palette…',    icon: 'misc.eye',     shortcut: '⌘K' },
+    { divider: true },
+    { id: 'view.zoomFit',    label: 'Zoom to fit',         icon: 'view.zoom_fit',shortcut: 'F' },
+    { id: 'view.iso',        label: 'Isometric',           icon: 'view.iso',     shortcut: '1' },
+    { id: 'view.front',      label: 'Front',               icon: 'view.iso' },
+    { id: 'view.top',        label: 'Top',                 icon: 'view.iso' },
+    { id: 'view.right',      label: 'Right',               icon: 'view.iso' },
   ];
 }
 

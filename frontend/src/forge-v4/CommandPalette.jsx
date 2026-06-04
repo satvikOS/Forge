@@ -28,6 +28,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MENU_SPEC, MENU_KEYS } from './Menus.jsx';
 import { WORKBENCHES } from './WorkbenchRail.jsx';
+import { CALCULATOR_TREE } from './toolRegistry.js';
 
 // We avoid importing Toolbar's SPEC directly to keep the dependency
 // graph minimal; instead, toolsForWorkbench is the public access.
@@ -124,6 +125,34 @@ function buildBodyEntries() {
   }));
 }
 
+// PUSH-01: index every calculator from CALCULATOR_TREE so Cmd-K finds
+// the 270+ tools that previously only lived behind the hierarchical Tools
+// menu. Each entry dispatches `tools.<id>` via the same forge:menu-action
+// pipeline so ForgeShellV4's route handlers run unchanged.
+function buildCalculatorEntries() {
+  const out = [];
+  for (const cat of (CALCULATOR_TREE || [])) {
+    for (const sec of (cat.sections || [])) {
+      for (const item of (sec.items || [])) {
+        if (!item || !item.id) continue;
+        const label = item.label ? item.label.replace(/…$/, '') : item.id;
+        const breadcrumb = `${cat.label || 'Tools'} > ${sec.label || ''} > ${label}`;
+        out.push({
+          id: `calc.${item.id}`,
+          kind: 'menu',
+          actionId: `tools.${item.id}`,
+          label,
+          breadcrumb,
+          shortcut: null,
+          icon: cat.icon || 'tool',
+          keywords: `${label} ${sec.label || ''} ${cat.label || ''} ${item.slice || ''}`.toLowerCase(),
+        });
+      }
+    }
+  }
+  return out;
+}
+
 export function buildCatalogue() {
   return [
     ...buildMenuEntries(),
@@ -131,6 +160,7 @@ export function buildCatalogue() {
     ...buildWorkbenchEntries(),
     ...buildFeatureEntries(),
     ...buildBodyEntries(),
+    ...buildCalculatorEntries(),
   ];
 }
 
