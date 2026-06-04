@@ -1630,6 +1630,11 @@ export function ForgeShellV4() {
         setActiveWb('blockshear');
         window.__forgeOpenBlockShearWorkbench?.();
         return;
+      case 'tools.sectclass':
+      case 'workbench.sectclass':
+        setActiveWb('sectclass');
+        window.__forgeOpenSectionClassWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -160,6 +160,7 @@
 #include "forge/CoolingTower.hpp"
 #include "forge/MononobeOkabe.hpp"
 #include "forge/BlockShear.hpp"
+#include "forge/SectionClass.hpp"
 
 #include <array>
 
@@ -10147,6 +10148,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("blockshear", bsNs);
+
+    // -------- Section classification AISC Table B4.1b (Forge-311) -------
+    auto sclassNs = Napi::Object::New(env);
+    sclassNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::sectclass::Input in{};
+          in.bf_mm  = o.Get("bf_mm" ).As<Napi::Number>().DoubleValue();
+          in.tf_mm  = o.Get("tf_mm" ).As<Napi::Number>().DoubleValue();
+          in.d_mm   = o.Get("d_mm"  ).As<Napi::Number>().DoubleValue();
+          in.tw_mm  = o.Get("tw_mm" ).As<Napi::Number>().DoubleValue();
+          in.Fy_MPa = o.Get("Fy_MPa").As<Napi::Number>().DoubleValue();
+          in.E_MPa  = o.Get("E_MPa" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::sectclass::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("flangeSlenderness", Napi::Number::New(env2, r.flangeSlenderness));
+          out.Set("flangeLambda_p",    Napi::Number::New(env2, r.flangeLambda_p));
+          out.Set("flangeLambda_r",    Napi::Number::New(env2, r.flangeLambda_r));
+          out.Set("flangeClass",       Napi::String::New(env2, r.flangeClass));
+          out.Set("webSlenderness",    Napi::Number::New(env2, r.webSlenderness));
+          out.Set("webLambda_p",       Napi::Number::New(env2, r.webLambda_p));
+          out.Set("webLambda_r",       Napi::Number::New(env2, r.webLambda_r));
+          out.Set("webClass",          Napi::String::New(env2, r.webClass));
+          out.Set("overallClass",      Napi::String::New(env2, r.overallClass));
+          return out;
+        });
+      }));
+    exports.Set("sectclass", sclassNs);
 
     return exports;
 }

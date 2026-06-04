@@ -935,6 +935,11 @@ const forgeApi = {
     analyse: (input) => kernel.blockshear.analyse(input),
   } : null,
 
+  // sectclass (Forge-311) — Section classification (AISC 360-22 Table B4.1b).
+  sectclass: kernel && kernel.sectclass ? {
+    analyse: (input) => kernel.sectclass.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
