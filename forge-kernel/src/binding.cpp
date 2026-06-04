@@ -155,6 +155,7 @@
 #include "forge/HazenWilliams.hpp"
 #include "forge/VoltageDrop.hpp"
 #include "forge/HertzPoint.hpp"
+#include "forge/CoolingLoad.hpp"
 
 #include <array>
 
@@ -9994,6 +9995,34 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("hertzpoint", hpNs);
+
+    // -------- HVAC cooling/heating load (Forge-306) ---------------------
+    auto clNs = Napi::Object::New(env);
+    clNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::coolingload::Input in{};
+          in.airflowLps        = o.Get("airflowLps"       ).As<Napi::Number>().DoubleValue();
+          in.tSupplyC          = o.Get("tSupplyC"         ).As<Napi::Number>().DoubleValue();
+          in.tReturnC          = o.Get("tReturnC"         ).As<Napi::Number>().DoubleValue();
+          in.wSupplyKgPerKg    = o.Get("wSupplyKgPerKg"   ).As<Napi::Number>().DoubleValue();
+          in.wReturnKgPerKg    = o.Get("wReturnKgPerKg"   ).As<Napi::Number>().DoubleValue();
+          in.atmPressureKPa    = o.Get("atmPressureKPa"   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::coolingload::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("massFlowKgPerS",        Napi::Number::New(env2, r.massFlowKgPerS));
+          out.Set("sensibleLoadKw",        Napi::Number::New(env2, r.sensibleLoadKw));
+          out.Set("latentLoadKw",          Napi::Number::New(env2, r.latentLoadKw));
+          out.Set("totalLoadKw",           Napi::Number::New(env2, r.totalLoadKw));
+          out.Set("sensibleHeatRatio",     Napi::Number::New(env2, r.sensibleHeatRatio));
+          out.Set("enthalpyDifferenceKjKg",Napi::Number::New(env2, r.enthalpyDifferenceKjKg));
+          out.Set("modeName",              Napi::String::New(env2, r.modeName));
+          return out;
+        });
+      }));
+    exports.Set("coolingload", clNs);
 
     return exports;
 }

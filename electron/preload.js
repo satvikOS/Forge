@@ -910,6 +910,11 @@ const forgeApi = {
     analyse: (input) => kernel.hertzpoint.analyse(input),
   } : null,
 
+  // coolingload (Forge-306) — HVAC sensible + latent coil load.
+  coolingload: kernel && kernel.coolingload ? {
+    analyse: (input) => kernel.coolingload.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

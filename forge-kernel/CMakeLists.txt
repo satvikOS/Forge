@@ -244,6 +244,7 @@ add_library(forge_kernel SHARED
     src/HazenWilliams.cpp
     src/VoltageDrop.cpp
     src/HertzPoint.cpp
+    src/CoolingLoad.cpp
     ${PLANEGCS_SRC}
 )
 

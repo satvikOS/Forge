@@ -1605,6 +1605,11 @@ export function ForgeShellV4() {
         setActiveWb('hertzpoint');
         window.__forgeOpenHertzPointWorkbench?.();
         return;
+      case 'tools.coolingload':
+      case 'workbench.coolingload':
+        setActiveWb('coolingload');
+        window.__forgeOpenCoolingLoadWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
