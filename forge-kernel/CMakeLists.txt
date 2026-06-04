@@ -373,6 +373,7 @@ add_library(forge_kernel SHARED
     src/FOSMReliability.cpp
     src/BridgeFlutter.cpp
     src/ClassASurfacing.cpp
+    src/SheetMetalExtended.cpp
     ${PLANEGCS_SRC}
 )
 
