@@ -374,6 +374,12 @@ add_library(forge_kernel SHARED
     src/BridgeFlutter.cpp
     src/ClassASurfacing.cpp
     src/SheetMetalExtended.cpp
+    src/BooleanTol.cpp
+    src/ShapeCheck.cpp
+    src/ShapeFix.cpp
+    src/Sewing.cpp
+    src/VarFillet.cpp
+    src/LoftGuide.cpp
     ${PLANEGCS_SRC}
 )
 
