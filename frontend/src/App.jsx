@@ -465,6 +465,13 @@ import {
   EconomizerWorkbenchHost,
   FiberLinkWorkbenchHost,
 } from './forge-v4/Forge336BundleWorkbenches.jsx';
+import {
+  BiaxFootWorkbenchHost,
+  ADMWorkbenchHost,
+  MorisonWorkbenchHost,
+  FourierWorkbenchHost,
+  SAWorkbenchHost,
+} from './forge-v4/Forge337BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -787,6 +794,11 @@ function App() {
       <PierScourWorkbenchHost />
       <EconomizerWorkbenchHost />
       <FiberLinkWorkbenchHost />
+      <BiaxFootWorkbenchHost />
+      <ADMWorkbenchHost />
+      <MorisonWorkbenchHost />
+      <FourierWorkbenchHost />
+      <SAWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

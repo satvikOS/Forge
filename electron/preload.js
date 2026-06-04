@@ -1101,6 +1101,13 @@ const forgeApi = {
   econ:         kernel && kernel.econ         ? { analyse: (i) => kernel.econ.analyse(i) }         : null,
   fiberlink:    kernel && kernel.fiberlink    ? { analyse: (i) => kernel.fiberlink.analyse(i) }    : null,
 
+  // Forge-337 5-calc bundle
+  biaxfoot:     kernel && kernel.biaxfoot     ? { analyse: (i) => kernel.biaxfoot.analyse(i) }     : null,
+  adm:          kernel && kernel.adm          ? { analyse: (i) => kernel.adm.analyse(i) }          : null,
+  morison:      kernel && kernel.morison      ? { analyse: (i) => kernel.morison.analyse(i) }      : null,
+  fourier:      kernel && kernel.fourier      ? { analyse: (i) => kernel.fourier.analyse(i) }      : null,
+  sa:           kernel && kernel.sa           ? { analyse: (i) => kernel.sa.analyse(i) }           : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

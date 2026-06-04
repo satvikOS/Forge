@@ -258,6 +258,11 @@
 #include "forge/PierScour.hpp"
 #include "forge/Economizer.hpp"
 #include "forge/FiberLink.hpp"
+#include "forge/BiaxialFooting.hpp"
+#include "forge/AluminumExtrusion.hpp"
+#include "forge/MorisonForce.hpp"
+#include "forge/FourierHeat.hpp"
+#include "forge/SimulatedAnnealing.hpp"
 
 #include <array>
 
@@ -12841,6 +12846,152 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("fiberlink", flNs);
+
+    // ---- Forge-337a — Biaxial rectangular footing --------------------------
+    auto bfNs = Napi::Object::New(env);
+    bfNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::biaxfoot::Input in{};
+          in.axialLoad_P_kN       = o.Get("axialLoad_P_kN").As<Napi::Number>().DoubleValue();
+          in.momentMx_kNm         = o.Get("momentMx_kNm").As<Napi::Number>().DoubleValue();
+          in.momentMy_kNm         = o.Get("momentMy_kNm").As<Napi::Number>().DoubleValue();
+          in.footingBx_m          = o.Get("footingBx_m").As<Napi::Number>().DoubleValue();
+          in.footingBy_m          = o.Get("footingBy_m").As<Napi::Number>().DoubleValue();
+          in.allowableBearing_kPa = o.Get("allowableBearing_kPa").As<Napi::Number>().DoubleValue();
+          auto r = forge::biaxfoot::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("eccentricity_ex_m", Napi::Number::New(env2, r.eccentricity_ex_m));
+          out.Set("eccentricity_ey_m", Napi::Number::New(env2, r.eccentricity_ey_m));
+          auto cs = Napi::Array::New(env2, 4);
+          for (uint32_t i = 0; i < 4; ++i) cs.Set(i, Napi::Number::New(env2, r.cornerStresses_kPa[i]));
+          out.Set("cornerStresses_kPa",  cs);
+          out.Set("sigmaMax_kPa",        Napi::Number::New(env2, r.sigmaMax_kPa));
+          out.Set("sigmaMin_kPa",        Napi::Number::New(env2, r.sigmaMin_kPa));
+          out.Set("upliftDetected",      Napi::Boolean::New(env2, r.upliftDetected));
+          out.Set("stable",              Napi::Boolean::New(env2, r.stable));
+          out.Set("meyerhofBx_m",        Napi::Number::New(env2, r.meyerhofBx_m));
+          out.Set("meyerhofBy_m",        Napi::Number::New(env2, r.meyerhofBy_m));
+          return out;
+        });
+      }));
+    exports.Set("biaxfoot", bfNs);
+
+    // ---- Forge-337b — Aluminum extrusion ADM 2020 --------------------------
+    auto admNs = Napi::Object::New(env);
+    admNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::adm::Input in{};
+          in.alloy                  = o.Get("alloy").As<Napi::String>().Utf8Value();
+          in.effectiveLength_mm     = o.Get("effectiveLength_mm").As<Napi::Number>().DoubleValue();
+          in.radiusOfGyration_mm    = o.Get("radiusOfGyration_mm").As<Napi::Number>().DoubleValue();
+          in.flatWidth_b_mm         = o.Get("flatWidth_b_mm").As<Napi::Number>().DoubleValue();
+          in.flatThickness_t_mm     = o.Get("flatThickness_t_mm").As<Napi::Number>().DoubleValue();
+          in.safetyFactor_Omega     = o.Get("safetyFactor_Omega").As<Napi::Number>().DoubleValue();
+          auto r = forge::adm::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("yieldStrength_MPa",          Napi::Number::New(env2, r.yieldStrength_MPa));
+          out.Set("ultimateStrength_MPa",       Napi::Number::New(env2, r.ultimateStrength_MPa));
+          out.Set("modulus_MPa",                Napi::Number::New(env2, r.modulus_MPa));
+          out.Set("slenderness",                Napi::Number::New(env2, r.slenderness));
+          out.Set("allowableAxialStress_MPa",   Napi::Number::New(env2, r.allowableAxialStress_MPa));
+          out.Set("btRatio",                    Napi::Number::New(env2, r.btRatio));
+          out.Set("localBucklingControlled",    Napi::Boolean::New(env2, r.localBucklingControlled));
+          return out;
+        });
+      }));
+    exports.Set("adm", admNs);
+
+    // ---- Forge-337c — Morison wave loading ---------------------------------
+    auto morNs = Napi::Object::New(env);
+    morNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::morison::Input in{};
+          in.waveHeight_H_m       = o.Get("waveHeight_H_m").As<Napi::Number>().DoubleValue();
+          in.wavePeriod_T_s       = o.Get("wavePeriod_T_s").As<Napi::Number>().DoubleValue();
+          in.waterDepth_d_m       = o.Get("waterDepth_d_m").As<Napi::Number>().DoubleValue();
+          in.cylinderDiameter_D_m = o.Get("cylinderDiameter_D_m").As<Napi::Number>().DoubleValue();
+          in.waterDensity_kgM3    = o.Get("waterDensity_kgM3").As<Napi::Number>().DoubleValue();
+          in.inertiaCoeff_CM      = o.Get("inertiaCoeff_CM").As<Napi::Number>().DoubleValue();
+          in.dragCoeff_CD         = o.Get("dragCoeff_CD").As<Napi::Number>().DoubleValue();
+          in.evaluationDepth_z_m  = o.Get("evaluationDepth_z_m").As<Napi::Number>().DoubleValue();
+          auto r = forge::morison::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("waveNumber_k_perM",       Napi::Number::New(env2, r.waveNumber_k_perM));
+          out.Set("maxParticleVelocity_mps", Napi::Number::New(env2, r.maxParticleVelocity_mps));
+          out.Set("maxParticleAccel_mps2",   Napi::Number::New(env2, r.maxParticleAccel_mps2));
+          out.Set("inertiaForcePerM_kN",     Napi::Number::New(env2, r.inertiaForcePerM_kN));
+          out.Set("dragForcePerM_kN",        Napi::Number::New(env2, r.dragForcePerM_kN));
+          out.Set("resultantPerM_kN",        Napi::Number::New(env2, r.resultantPerM_kN));
+          return out;
+        });
+      }));
+    exports.Set("morison", morNs);
+
+    // ---- Forge-337d — Fourier semi-infinite heat ---------------------------
+    auto fhNs = Napi::Object::New(env);
+    fhNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::fourier::Input in{};
+          in.surfaceTemperature_Ts_C   = o.Get("surfaceTemperature_Ts_C").As<Napi::Number>().DoubleValue();
+          in.initialTemperature_Tinf_C = o.Get("initialTemperature_Tinf_C").As<Napi::Number>().DoubleValue();
+          in.thermalConductivity_k_WmK = o.Get("thermalConductivity_k_WmK").As<Napi::Number>().DoubleValue();
+          in.density_rho_kgM3          = o.Get("density_rho_kgM3").As<Napi::Number>().DoubleValue();
+          in.specificHeat_cp_JkgK      = o.Get("specificHeat_cp_JkgK").As<Napi::Number>().DoubleValue();
+          in.depth_x_m                 = o.Get("depth_x_m").As<Napi::Number>().DoubleValue();
+          in.time_t_s                  = o.Get("time_t_s").As<Napi::Number>().DoubleValue();
+          auto r = forge::fourier::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("thermalDiffusivity_alpha_m2pers", Napi::Number::New(env2, r.thermalDiffusivity_alpha_m2pers));
+          out.Set("normalisedDepth_eta",             Napi::Number::New(env2, r.normalisedDepth_eta));
+          out.Set("temperatureAtDepth_C",            Napi::Number::New(env2, r.temperatureAtDepth_C));
+          out.Set("surfaceHeatFlux_Wm2",             Napi::Number::New(env2, r.surfaceHeatFlux_Wm2));
+          out.Set("penetrationDepth_m",              Napi::Number::New(env2, r.penetrationDepth_m));
+          return out;
+        });
+      }));
+    exports.Set("fourier", fhNs);
+
+    // ---- Forge-337e — Simulated annealing on Rosenbrock --------------------
+    auto saNs = Napi::Object::New(env);
+    saNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::sa::Input in{};
+          in.xLower             = o.Get("xLower").As<Napi::Number>().DoubleValue();
+          in.xUpper             = o.Get("xUpper").As<Napi::Number>().DoubleValue();
+          in.yLower             = o.Get("yLower").As<Napi::Number>().DoubleValue();
+          in.yUpper             = o.Get("yUpper").As<Napi::Number>().DoubleValue();
+          in.initialTemperature = o.Get("initialTemperature").As<Napi::Number>().DoubleValue();
+          in.coolingFactor      = o.Get("coolingFactor").As<Napi::Number>().DoubleValue();
+          in.iterationsTotal    = o.Get("iterationsTotal").As<Napi::Number>().Int32Value();
+          in.proposalStdDev     = o.Get("proposalStdDev").As<Napi::Number>().DoubleValue();
+          in.randomSeed         = o.Get("randomSeed").As<Napi::Number>().Int32Value();
+          auto r = forge::sa::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("bestX",            Napi::Number::New(env2, r.bestX));
+          out.Set("bestY",            Napi::Number::New(env2, r.bestY));
+          out.Set("bestValue",        Napi::Number::New(env2, r.bestValue));
+          out.Set("acceptanceRatio",  Napi::Number::New(env2, r.acceptanceRatio));
+          out.Set("iterationsRun",    Napi::Number::New(env2, r.iterationsRun));
+          out.Set("finalTemperature", Napi::Number::New(env2, r.finalTemperature));
+          return out;
+        });
+      }));
+    exports.Set("sa", saNs);
 
     return exports;
 }

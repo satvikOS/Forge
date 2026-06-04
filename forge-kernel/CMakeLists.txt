@@ -347,6 +347,11 @@ add_library(forge_kernel SHARED
     src/PierScour.cpp
     src/Economizer.cpp
     src/FiberLink.cpp
+    src/BiaxialFooting.cpp
+    src/AluminumExtrusion.cpp
+    src/MorisonForce.cpp
+    src/FourierHeat.cpp
+    src/SimulatedAnnealing.cpp
     ${PLANEGCS_SRC}
 )
 

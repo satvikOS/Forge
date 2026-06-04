@@ -2138,6 +2138,32 @@ export function ForgeShellV4() {
         setActiveWb('fiberlink');
         window.__forgeOpenFiberLinkWorkbench?.();
         return;
+      // Forge-337 bundle
+      case 'tools.biaxfoot':
+      case 'workbench.biaxfoot':
+        setActiveWb('biaxfoot');
+        window.__forgeOpenBiaxFootWorkbench?.();
+        return;
+      case 'tools.adm':
+      case 'workbench.adm':
+        setActiveWb('adm');
+        window.__forgeOpenADMWorkbench?.();
+        return;
+      case 'tools.morison':
+      case 'workbench.morison':
+        setActiveWb('morison');
+        window.__forgeOpenMorisonWorkbench?.();
+        return;
+      case 'tools.fourier':
+      case 'workbench.fourier':
+        setActiveWb('fourier');
+        window.__forgeOpenFourierWorkbench?.();
+        return;
+      case 'tools.sa':
+      case 'workbench.sa':
+        setActiveWb('sa');
+        window.__forgeOpenSAWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
