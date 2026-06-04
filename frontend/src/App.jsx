@@ -301,6 +301,8 @@ import { WebShearWorkbenchHost } from './forge-v4/WebShearWorkbench.jsx';
 import { HazenWilliamsWorkbenchHost } from './forge-v4/HazenWilliamsWorkbench.jsx';
 // Forge-304 — Cable voltage drop (NEC 215.2 / IEC 60364).
 import { VoltageDropWorkbenchHost } from './forge-v4/VoltageDropWorkbench.jsx';
+// Forge-305 — Hertz point contact (Shigley §3-19).
+import { HertzPointWorkbenchHost } from './forge-v4/HertzPointWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -519,6 +521,7 @@ function App() {
       <WebShearWorkbenchHost />
       <HazenWilliamsWorkbenchHost />
       <VoltageDropWorkbenchHost />
+      <HertzPointWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

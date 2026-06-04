@@ -71,6 +71,7 @@ export const CALCULATOR_TREE = [
           { id: 'polysec',   label: 'Polygon section properties…', slice: 'Forge-224' },
           { id: 'buckling',  label: 'Column buckling (Euler + Johnson)…', slice: 'Forge-215' },
           { id: 'beam',      label: 'Beam deflection (5 configs)…', slice: 'Forge-216' },
+          { id: 'hertzpoint',label: 'Hertz point contact (Shigley §3-19)…', slice: 'Forge-305' },
         ],
       },
       {

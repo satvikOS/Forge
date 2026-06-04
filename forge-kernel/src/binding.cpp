@@ -154,6 +154,7 @@
 #include "forge/WebShear.hpp"
 #include "forge/HazenWilliams.hpp"
 #include "forge/VoltageDrop.hpp"
+#include "forge/HertzPoint.hpp"
 
 #include <array>
 
@@ -9963,6 +9964,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("voltagedrop", vdNs);
+
+    // -------- Hertz point contact (Forge-305) ---------------------------
+    auto hpNs = Napi::Object::New(env);
+    hpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hertzpoint::Input in{};
+          in.normalForceN = o.Get("normalForceN").As<Napi::Number>().DoubleValue();
+          in.radius1Mm    = o.Get("radius1Mm"   ).As<Napi::Number>().DoubleValue();
+          in.radius2Mm    = o.Get("radius2Mm"   ).As<Napi::Number>().DoubleValue();
+          in.E1_MPa       = o.Get("E1_MPa"      ).As<Napi::Number>().DoubleValue();
+          in.E2_MPa       = o.Get("E2_MPa"      ).As<Napi::Number>().DoubleValue();
+          in.nu1          = o.Get("nu1"         ).As<Napi::Number>().DoubleValue();
+          in.nu2          = o.Get("nu2"         ).As<Napi::Number>().DoubleValue();
+          auto r = forge::hertzpoint::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("effectiveModulusMPa", Napi::Number::New(env2, r.effectiveModulusMPa));
+          out.Set("effectiveRadiusMm",   Napi::Number::New(env2, r.effectiveRadiusMm));
+          out.Set("contactRadiusMm",     Napi::Number::New(env2, r.contactRadiusMm));
+          out.Set("maxPressureMPa",      Napi::Number::New(env2, r.maxPressureMPa));
+          out.Set("meanPressureMPa",     Napi::Number::New(env2, r.meanPressureMPa));
+          out.Set("mutualApproachMm",    Napi::Number::New(env2, r.mutualApproachMm));
+          out.Set("maxShearStressMPa",   Napi::Number::New(env2, r.maxShearStressMPa));
+          out.Set("depthOfMaxShearMm",   Napi::Number::New(env2, r.depthOfMaxShearMm));
+          return out;
+        });
+      }));
+    exports.Set("hertzpoint", hpNs);
 
     return exports;
 }

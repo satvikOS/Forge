@@ -905,6 +905,11 @@ const forgeApi = {
     analyse: (input) => kernel.voltagedrop.analyse(input),
   } : null,
 
+  // hertzpoint (Forge-305) — Hertzian spherical contact (Shigley §3-19).
+  hertzpoint: kernel && kernel.hertzpoint ? {
+    analyse: (input) => kernel.hertzpoint.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -243,6 +243,7 @@ add_library(forge_kernel SHARED
     src/WebShear.cpp
     src/HazenWilliams.cpp
     src/VoltageDrop.cpp
+    src/HertzPoint.cpp
     ${PLANEGCS_SRC}
 )
 
