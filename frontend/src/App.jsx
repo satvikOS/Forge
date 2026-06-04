@@ -28,6 +28,8 @@ import { MaterialsLibraryHost, ExplodedViewHost } from './forge-v4/MaterialsLibr
 // PUSH-13: standard parts browser (ISO / ANSI / DIN / SKF / AISC / ASME / AGMA).
 import './forge-v4/StandardPartsCatalog.js';
 import { StandardPartsBrowserHost } from './forge-v4/StandardPartsBrowser.jsx';
+// PUSH-12: PMI / GD&T workbench (window.forge.pmi surface).
+import { PMIWorkbenchHost } from './forge-v4/PMIAnnotations.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -581,6 +583,7 @@ function App() {
       <MaterialsLibraryHost />
       <ExplodedViewHost />
       <StandardPartsBrowserHost />
+      <PMIWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

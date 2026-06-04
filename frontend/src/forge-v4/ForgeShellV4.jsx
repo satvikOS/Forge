@@ -2370,6 +2370,11 @@ export function ForgeShellV4() {
       case 'workbench.stdparts':
         window.__forgeOpenStandardPartsBrowser?.();
         return;
+      // PUSH-12: PMI / GD&T
+      case 'tools.pmi':
+      case 'workbench.pmi':
+        window.__forgeOpenPMIWorkbench?.();
+        return;
       // PUSH-01: routes from extended right-click context
       case 'palette.open':
         window.__forgeOpenCommandPalette?.(true);

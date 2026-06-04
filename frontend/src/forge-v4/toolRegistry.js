@@ -353,6 +353,18 @@ export const CALCULATOR_TREE = [
           { id: 'explode',   label: 'Exploded view animator…',              slice: 'PUSH-17' },
         ],
       },
+      {
+        label: 'Standard parts',
+        items: [
+          { id: 'stdparts', label: 'Standard parts browser (ISO/ANSI/DIN/SKF/AISC)…', slice: 'PUSH-13' },
+        ],
+      },
+      {
+        label: 'PMI / GD&T',
+        items: [
+          { id: 'pmi', label: 'PMI workbench (ASME Y14.5 / ISO 1101 / Y14.41)…', slice: 'PUSH-12' },
+        ],
+      },
     ],
   },
   {
