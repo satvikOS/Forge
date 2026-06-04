@@ -33,6 +33,7 @@
 #include "forge/Healing.hpp"
 #include "forge/Features.hpp"
 #include "forge/SheetMetal.hpp"
+#include "forge/SheetMetalExtended.hpp"
 #include "forge/Weldments.hpp"
 #include "forge/Nurbs.hpp"
 #include "forge/LineageRegistry.hpp"
@@ -13592,6 +13593,158 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("flutter", flutNs);
+
+    // ---- PUSH-06 — Sheet metal extended (gauge / BA / unfold / DXF / cost) -
+    auto sxNs = Napi::Object::New(env);
+
+    sxNs.Set("gaugeProperties", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 2 || !info[0].IsString() || !info[1].IsNumber()) {
+            throw Napi::TypeError::New(env2,
+              "forge.sheetextend.gaugeProperties(material:string, gauge:int)");
+          }
+          std::string mat = info[0].As<Napi::String>().Utf8Value();
+          int gauge       = info[1].As<Napi::Number>().Int32Value();
+          auto g = forge::sheetextend::gaugeProperties(mat, gauge);
+          auto out = Napi::Object::New(env2);
+          out.Set("thickness_mm",      Napi::Number::New(env2, g.thickness_mm));
+          out.Set("density_kgPerM3",   Napi::Number::New(env2, g.density_kgPerM3));
+          out.Set("kFactor_default",   Napi::Number::New(env2, g.kFactor_default));
+          out.Set("yieldStrength_MPa", Napi::Number::New(env2, g.yieldStrength_MPa));
+          return out;
+        });
+      }));
+
+    sxNs.Set("bendAllowance", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 4) {
+            throw Napi::TypeError::New(env2,
+              "forge.sheetextend.bendAllowance(angleDeg, R, t, K)");
+          }
+          double angle = info[0].As<Napi::Number>().DoubleValue();
+          double R     = info[1].As<Napi::Number>().DoubleValue();
+          double t     = info[2].As<Napi::Number>().DoubleValue();
+          double K     = info[3].As<Napi::Number>().DoubleValue();
+          auto b = forge::sheetextend::bendAllowance(angle, R, t, K);
+          auto out = Napi::Object::New(env2);
+          out.Set("bendAllowance_mm",  Napi::Number::New(env2, b.bendAllowance_mm));
+          out.Set("bendDeduction_mm",  Napi::Number::New(env2, b.bendDeduction_mm));
+          out.Set("neutralRadius_mm",  Napi::Number::New(env2, b.neutralRadius_mm));
+          out.Set("outsideSetback_mm", Napi::Number::New(env2, b.outsideSetback_mm));
+          return out;
+        });
+      }));
+
+    sxNs.Set("flatten", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsArray() ||
+              !info[2].IsNumber()) {
+            throw Napi::TypeError::New(env2,
+              "forge.sheetextend.flatten(solidPart:handle, bends:Array, thickness_mm)");
+          }
+          uint32_t h = info[0].As<Napi::Number>().Uint32Value();
+          auto arr   = info[1].As<Napi::Array>();
+          double t   = info[2].As<Napi::Number>().DoubleValue();
+          std::vector<forge::sheetextend::BendDef> defs;
+          defs.reserve(arr.Length());
+          for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto o = arr.Get(i).As<Napi::Object>();
+            forge::sheetextend::BendDef d{};
+            d.bendLineEdgeIndex = o.Get("bendLineEdgeIndex").As<Napi::Number>().Uint32Value();
+            d.angleDeg          = o.Get("angleDeg").As<Napi::Number>().DoubleValue();
+            d.innerRadius_mm    = o.Get("innerRadius_mm").As<Napi::Number>().DoubleValue();
+            d.kFactor           = o.Get("kFactor").As<Napi::Number>().DoubleValue();
+            defs.push_back(d);
+          }
+          uint32_t newH = forge::sheetextend::flatten(h, defs, t);
+          return Napi::Number::New(env2, newH);
+        });
+      }));
+
+    sxNs.Set("exportDxf", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsString()) {
+            throw Napi::TypeError::New(env2,
+              "forge.sheetextend.exportDxf(flatShape:handle, path:string, bends?:Array)");
+          }
+          uint32_t h         = info[0].As<Napi::Number>().Uint32Value();
+          std::string path   = info[1].As<Napi::String>().Utf8Value();
+          std::vector<forge::sheetextend::BendDef> defs;
+          if (info.Length() >= 3 && info[2].IsArray()) {
+            auto arr = info[2].As<Napi::Array>();
+            defs.reserve(arr.Length());
+            for (uint32_t i = 0; i < arr.Length(); ++i) {
+              auto o = arr.Get(i).As<Napi::Object>();
+              forge::sheetextend::BendDef d{};
+              d.bendLineEdgeIndex = o.Get("bendLineEdgeIndex").As<Napi::Number>().Uint32Value();
+              d.angleDeg          = o.Has("angleDeg")       ? o.Get("angleDeg").As<Napi::Number>().DoubleValue()       : 90.0;
+              d.innerRadius_mm    = o.Has("innerRadius_mm") ? o.Get("innerRadius_mm").As<Napi::Number>().DoubleValue() : 1.0;
+              d.kFactor           = o.Has("kFactor")        ? o.Get("kFactor").As<Napi::Number>().DoubleValue()        : 0.42;
+              defs.push_back(d);
+            }
+          }
+          std::size_t bytes = forge::sheetextend::exportDxf(h, path, defs);
+          return Napi::Number::New(env2, static_cast<double>(bytes));
+        });
+      }));
+
+    sxNs.Set("cornerRelief", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 4 || !info[0].IsNumber()) {
+            throw Napi::TypeError::New(env2,
+              "forge.sheetextend.cornerRelief(bentPart, w, d, type:string)");
+          }
+          uint32_t h      = info[0].As<Napi::Number>().Uint32Value();
+          double w        = info[1].As<Napi::Number>().DoubleValue();
+          double d        = info[2].As<Napi::Number>().DoubleValue();
+          std::string ts  = info[3].As<Napi::String>().Utf8Value();
+          forge::sheetextend::ReliefType type = forge::sheetextend::ReliefType::Round;
+          if      (ts == "round")       type = forge::sheetextend::ReliefType::Round;
+          else if (ts == "rectangular") type = forge::sheetextend::ReliefType::Rectangular;
+          else if (ts == "tear")        type = forge::sheetextend::ReliefType::Tear;
+          else throw Napi::TypeError::New(env2,
+              "forge.sheetextend.cornerRelief: type must be round|rectangular|tear");
+          uint32_t newH = forge::sheetextend::cornerRelief(h, w, d, type);
+          return Napi::Number::New(env2, newH);
+        });
+      }));
+
+    sxNs.Set("cost", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 5) {
+            throw Napi::TypeError::New(env2,
+              "forge.sheetextend.cost(flatPart, density_kgPerM3, pricePerKgUSD, "
+              "laserCutSpeedMmPerS, pierceCount)");
+          }
+          uint32_t h    = info[0].As<Napi::Number>().Uint32Value();
+          double rho    = info[1].As<Napi::Number>().DoubleValue();
+          double price  = info[2].As<Napi::Number>().DoubleValue();
+          double speed  = info[3].As<Napi::Number>().DoubleValue();
+          double pierce = info[4].As<Napi::Number>().DoubleValue();
+          auto c = forge::sheetextend::cost(h, rho, price, speed, pierce);
+          auto out = Napi::Object::New(env2);
+          out.Set("mass_kg",     Napi::Number::New(env2, c.mass_kg));
+          out.Set("cutTime_s",   Napi::Number::New(env2, c.cutTime_s));
+          out.Set("materialUSD", Napi::Number::New(env2, c.materialUSD));
+          out.Set("cutUSD",      Napi::Number::New(env2, c.cutUSD));
+          out.Set("totalUSD",    Napi::Number::New(env2, c.totalUSD));
+          return out;
+        });
+      }));
+
+    exports.Set("sheetextend", sxNs);
 
     return exports;
 }
