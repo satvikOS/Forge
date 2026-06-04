@@ -2346,6 +2346,33 @@ export function ForgeShellV4() {
       case 'workbench.pdmvault':
         window.__forgeOpenPDMWorkbench?.();
         return;
+      // PUSH-16: macro recorder
+      case 'tools.macros':
+      case 'workbench.macros':
+      case 'macro.record':
+      case 'macro.stop':
+      case 'macro.play':
+        window.__forgeOpenMacroRecorder?.();
+        return;
+      // PUSH-01: routes from extended right-click context
+      case 'palette.open':
+        window.__forgeOpenCommandPalette?.(true);
+        return;
+      case 'workbench.mech':
+      case 'workbench.sheet':
+      case 'workbench.draft':
+      case 'workbench.sim':
+      case 'workbench.mfg':
+      case 'workbench.drawing':
+      case 'workbench.weld':
+      case 'workbench.mold':
+      case 'workbench.arch':
+      case 'workbench.mesh':
+      case 'workbench.robot': {
+        const wb = id.split('.')[1];
+        setActiveWb(wb);
+        return;
+      }
       case 'tools.scenarios':
         window.__forgeBodies = bodies;
         window.__forgeSelection = selection;

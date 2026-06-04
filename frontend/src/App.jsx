@@ -21,6 +21,8 @@ import { PdmPanelHost } from './forge-v4/PdmPanel.jsx';
 // PUSH-14: real PDM vault (JSON-backed via pdm:* IPC). Coexists with the
 // legacy PdmPanel cosmetic UI.
 import { PDMWorkbenchHost } from './forge-v4/PDMWorkbench.jsx';
+// PUSH-16: macro recorder + playback (window.forge.macros surface).
+import { MacroRecorderHost } from './forge-v4/MacroRecorder.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -570,6 +572,7 @@ function App() {
       <BomPanelHost />
       <PdmPanelHost />
       <PDMWorkbenchHost />
+      <MacroRecorderHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

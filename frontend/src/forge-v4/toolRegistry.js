@@ -339,6 +339,13 @@ export const CALCULATOR_TREE = [
           { id: 'tolerance',  label: 'Tolerance stack-up…', slice: 'Forge-185' },
         ],
       },
+      {
+        label: 'Data management',
+        items: [
+          { id: 'pdmvault', label: 'PDM vault (check-in / out / history / ECN)…', slice: 'PUSH-14' },
+          { id: 'macros',   label: 'Macro recorder & playback…',                  slice: 'PUSH-16' },
+        ],
+      },
     ],
   },
   {
