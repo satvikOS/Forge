@@ -203,6 +203,11 @@ export const CALCULATOR_TREE = [
           { id: 'septic',      label: 'Septic tank (residential)…', slice: 'Forge-321' },
           { id: 'cyclone',     label: 'Cyclone separator (Lapple d_50)…', slice: 'Forge-321' },
           { id: 'stackeffect', label: 'Stack-effect chimney draft…', slice: 'Forge-321' },
+          { id: 'masonry',     label: 'Masonry wall flexure (TMS 402 §9)…', slice: 'Forge-322' },
+          { id: 'asphalt',     label: 'Asphalt mix volumetrics (Marshall)…', slice: 'Forge-322' },
+          { id: 'cathodic',    label: 'Cathodic protection (sacrificial anode)…', slice: 'Forge-322' },
+          { id: 'heattrace',   label: 'Pipe heat-trace wattage (IEEE 515)…', slice: 'Forge-322' },
+          { id: 'lightning',   label: 'Lightning rolling sphere (NFPA 780)…', slice: 'Forge-322' },
         ],
       },
       {

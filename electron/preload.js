@@ -996,6 +996,13 @@ const forgeApi = {
   cyclone:     kernel && kernel.cyclone     ? { analyse: (i) => kernel.cyclone.analyse(i) }     : null,
   stackeffect: kernel && kernel.stackeffect ? { analyse: (i) => kernel.stackeffect.analyse(i) } : null,
 
+  // Forge-322 5-calc bundle
+  masonry:   kernel && kernel.masonry   ? { analyse: (i) => kernel.masonry.analyse(i) }   : null,
+  asphalt:   kernel && kernel.asphalt   ? { analyse: (i) => kernel.asphalt.analyse(i) }   : null,
+  cathodic:  kernel && kernel.cathodic  ? { analyse: (i) => kernel.cathodic.analyse(i) }  : null,
+  heattrace: kernel && kernel.heattrace ? { analyse: (i) => kernel.heattrace.analyse(i) } : null,
+  lightning: kernel && kernel.lightning ? { analyse: (i) => kernel.lightning.analyse(i) } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

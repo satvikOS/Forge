@@ -353,6 +353,14 @@ import {
   CycloneWorkbenchHost,
   StackEffectWorkbenchHost,
 } from './forge-v4/Forge321BundleWorkbenches.jsx';
+// Forge-322 5-calc bundle.
+import {
+  MasonryWallWorkbenchHost,
+  AsphaltMixWorkbenchHost,
+  CathodicWorkbenchHost,
+  HeatTraceWorkbenchHost,
+  LightningWorkbenchHost,
+} from './forge-v4/Forge322BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -600,6 +608,11 @@ function App() {
       <SepticWorkbenchHost />
       <CycloneWorkbenchHost />
       <StackEffectWorkbenchHost />
+      <MasonryWallWorkbenchHost />
+      <AsphaltMixWorkbenchHost />
+      <CathodicWorkbenchHost />
+      <HeatTraceWorkbenchHost />
+      <LightningWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

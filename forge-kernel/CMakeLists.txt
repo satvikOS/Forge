@@ -272,6 +272,11 @@ add_library(forge_kernel SHARED
     src/SepticTank.cpp
     src/Cyclone.cpp
     src/StackEffect.cpp
+    src/MasonryWall.cpp
+    src/AsphaltMix.cpp
+    src/CathodicProtection.cpp
+    src/HeatTrace.cpp
+    src/LightningProtection.cpp
     ${PLANEGCS_SRC}
 )
 

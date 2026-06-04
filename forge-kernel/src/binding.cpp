@@ -183,6 +183,11 @@
 #include "forge/Cyclone.hpp"
 #include "forge/StackEffect.hpp"
 #include "forge/EnvelopeUValue.hpp"
+#include "forge/MasonryWall.hpp"
+#include "forge/AsphaltMix.hpp"
+#include "forge/CathodicProtection.hpp"
+#include "forge/HeatTrace.hpp"
+#include "forge/LightningProtection.hpp"
 
 #include <array>
 
@@ -10797,6 +10802,120 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("stackeffect", stkNs);
+
+    // -------- Forge-322 5-calc bundle -----------------------------------
+    auto msNs = Napi::Object::New(env);
+    msNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::masonry::Input in{};
+          in.wallWidthB_mm        = o.Get("wallWidthB_mm"      ).As<Napi::Number>().DoubleValue();
+          in.effectiveDepth_d_mm  = o.Get("effectiveDepth_d_mm").As<Napi::Number>().DoubleValue();
+          in.steelAreaAs_mm2      = o.Get("steelAreaAs_mm2"    ).As<Napi::Number>().DoubleValue();
+          in.factoredAxialPu_kN   = o.Get("factoredAxialPu_kN" ).As<Napi::Number>().DoubleValue();
+          in.fm_MPa               = o.Get("fm_MPa"             ).As<Napi::Number>().DoubleValue();
+          in.fy_MPa               = o.Get("fy_MPa"             ).As<Napi::Number>().DoubleValue();
+          auto r = forge::masonry::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("aMm",                Napi::Number::New(env2, r.aMm));
+          out.Set("Ase_mm2",            Napi::Number::New(env2, r.Ase_mm2));
+          out.Set("nominalMoment_kNm",  Napi::Number::New(env2, r.nominalMoment_kNm));
+          out.Set("designMoment_kNm",   Napi::Number::New(env2, r.designMoment_kNm));
+          return out;
+        });
+      }));
+    exports.Set("masonry", msNs);
+
+    auto asNs = Napi::Object::New(env);
+    asNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::asphalt::Input in{};
+          in.aggregateSG         = o.Get("aggregateSG"        ).As<Napi::Number>().DoubleValue();
+          in.asphaltSG           = o.Get("asphaltSG"          ).As<Napi::Number>().DoubleValue();
+          in.asphaltContentPct   = o.Get("asphaltContentPct"  ).As<Napi::Number>().DoubleValue();
+          in.bulkSG_Gmb          = o.Get("bulkSG_Gmb"         ).As<Napi::Number>().DoubleValue();
+          auto r = forge::asphalt::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("theoreticalMaxSG",       Napi::Number::New(env2, r.theoreticalMaxSG));
+          out.Set("airVoidsPct",            Napi::Number::New(env2, r.airVoidsPct));
+          out.Set("vmaPct",                 Napi::Number::New(env2, r.vmaPct));
+          out.Set("vfaPct",                 Napi::Number::New(env2, r.vfaPct));
+          out.Set("meetsSuperpaveAirVoids", Napi::Boolean::New(env2, r.meetsSuperpaveAirVoids));
+          return out;
+        });
+      }));
+    exports.Set("asphalt", asNs);
+
+    auto cpNs = Napi::Object::New(env);
+    cpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cp::Input in{};
+          in.protectedAreaM2            = o.Get("protectedAreaM2"           ).As<Napi::Number>().DoubleValue();
+          in.currentDensityMaPerM2      = o.Get("currentDensityMaPerM2"     ).As<Napi::Number>().DoubleValue();
+          in.designLifeYears            = o.Get("designLifeYears"           ).As<Napi::Number>().DoubleValue();
+          in.anodeConsumptionKgPerAmpYr = o.Get("anodeConsumptionKgPerAmpYr").As<Napi::Number>().DoubleValue();
+          in.anodeUtilizationFactor     = o.Get("anodeUtilizationFactor"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::cp::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("totalCurrentRequiredA",      Napi::Number::New(env2, r.totalCurrentRequiredA));
+          out.Set("anodeMassRequiredKg",        Napi::Number::New(env2, r.anodeMassRequiredKg));
+          out.Set("currentDensityMaPerM2Echo",  Napi::Number::New(env2, r.currentDensityMaPerM2Echo));
+          return out;
+        });
+      }));
+    exports.Set("cathodic", cpNs);
+
+    auto htNs = Napi::Object::New(env);
+    htNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::heattrace::Input in{};
+          in.pipeOuterDiameterMm        = o.Get("pipeOuterDiameterMm"      ).As<Napi::Number>().DoubleValue();
+          in.insulationThicknessMm      = o.Get("insulationThicknessMm"    ).As<Napi::Number>().DoubleValue();
+          in.insulationConductivityWmk  = o.Get("insulationConductivityWmk").As<Napi::Number>().DoubleValue();
+          in.outdoorFilmCoefficientWm2K = o.Get("outdoorFilmCoefficientWm2K").As<Napi::Number>().DoubleValue();
+          in.pipeTargetTempC            = o.Get("pipeTargetTempC"          ).As<Napi::Number>().DoubleValue();
+          in.ambientTempC               = o.Get("ambientTempC"             ).As<Napi::Number>().DoubleValue();
+          in.safetyFactor               = o.Get("safetyFactor"             ).As<Napi::Number>().DoubleValue();
+          auto r = forge::heattrace::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("insulationOD_mm",       Napi::Number::New(env2, r.insulationOD_mm));
+          out.Set("heatLossWPerM",         Napi::Number::New(env2, r.heatLossWPerM));
+          out.Set("recommendedCableWperM", Napi::Number::New(env2, r.recommendedCableWperM));
+          return out;
+        });
+      }));
+    exports.Set("heattrace", htNs);
+
+    auto lpNs = Napi::Object::New(env);
+    lpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::lightning::Input in{};
+          in.rollingSphereRadiusM   = o.Get("rollingSphereRadiusM"  ).As<Napi::Number>().DoubleValue();
+          in.mastHeightM            = o.Get("mastHeightM"           ).As<Napi::Number>().DoubleValue();
+          in.protectedObjectHeightM = o.Get("protectedObjectHeightM").As<Napi::Number>().DoubleValue();
+          auto r = forge::lightning::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("groundProtectedRadiusM",      Napi::Number::New(env2, r.groundProtectedRadiusM));
+          out.Set("objectProtectedRadiusM",      Napi::Number::New(env2, r.objectProtectedRadiusM));
+          out.Set("maximumProtectionConeRatio",  Napi::Number::New(env2, r.maximumProtectionConeRatio));
+          return out;
+        });
+      }));
+    exports.Set("lightning", lpNs);
 
     return exports;
 }

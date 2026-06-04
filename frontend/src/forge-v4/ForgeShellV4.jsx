@@ -1748,6 +1748,32 @@ export function ForgeShellV4() {
         setActiveWb('stackeffect');
         window.__forgeOpenStackEffectWorkbench?.();
         return;
+      // Forge-322 bundle
+      case 'tools.masonry':
+      case 'workbench.masonry':
+        setActiveWb('masonry');
+        window.__forgeOpenMasonryWallWorkbench?.();
+        return;
+      case 'tools.asphalt':
+      case 'workbench.asphalt':
+        setActiveWb('asphalt');
+        window.__forgeOpenAsphaltMixWorkbench?.();
+        return;
+      case 'tools.cathodic':
+      case 'workbench.cathodic':
+        setActiveWb('cathodic');
+        window.__forgeOpenCathodicWorkbench?.();
+        return;
+      case 'tools.heattrace':
+      case 'workbench.heattrace':
+        setActiveWb('heattrace');
+        window.__forgeOpenHeatTraceWorkbench?.();
+        return;
+      case 'tools.lightning':
+      case 'workbench.lightning':
+        setActiveWb('lightning');
+        window.__forgeOpenLightningWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
