@@ -1122,6 +1122,13 @@ const forgeApi = {
   knock:        kernel && kernel.knock        ? { analyse: (i) => kernel.knock.analyse(i) }        : null,
   npv:          kernel && kernel.npv          ? { analyse: (i) => kernel.npv.analyse(i) }          : null,
 
+  // Forge-340 5-calc bundle
+  cmushear:     kernel && kernel.cmushear     ? { analyse: (i) => kernel.cmushear.analyse(i) }     : null,
+  sccrit:       kernel && kernel.sccrit       ? { analyse: (i) => kernel.sccrit.analyse(i) }       : null,
+  chbeam:       kernel && kernel.chbeam       ? { analyse: (i) => kernel.chbeam.analyse(i) }       : null,
+  weldhi:       kernel && kernel.weldhi       ? { analyse: (i) => kernel.weldhi.analyse(i) }       : null,
+  markov:       kernel && kernel.markov       ? { analyse: (i) => kernel.markov.analyse(i) }       : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

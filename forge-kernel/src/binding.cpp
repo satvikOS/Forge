@@ -273,6 +273,11 @@
 #include "forge/SluiceGate.hpp"
 #include "forge/Knock.hpp"
 #include "forge/ProjectNPV.hpp"
+#include "forge/CMUShearWall.hpp"
+#include "forge/SlipCritical.hpp"
+#include "forge/ChilledBeam.hpp"
+#include "forge/WeldHeatInput.hpp"
+#include "forge/MarkovChain.hpp"
 
 #include <array>
 
@@ -13290,6 +13295,159 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("npv", npvNs);
+
+    // ---- Forge-340a — CMU in-plane shear wall ------------------------------
+    auto cmushNs = Napi::Object::New(env);
+    cmushNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cmushear::Input in{};
+          in.Vu_kN                       = o.Get("Vu_kN").As<Napi::Number>().DoubleValue();
+          in.Mu_kNm                      = o.Get("Mu_kNm").As<Napi::Number>().DoubleValue();
+          in.netArea_An_mm2              = o.Get("netArea_An_mm2").As<Napi::Number>().DoubleValue();
+          in.wallLength_dv_mm            = o.Get("wallLength_dv_mm").As<Napi::Number>().DoubleValue();
+          in.primeMasonryStrength_fm_MPa = o.Get("primeMasonryStrength_fm_MPa").As<Napi::Number>().DoubleValue();
+          in.horizReinfArea_Av_mm2       = o.Get("horizReinfArea_Av_mm2").As<Napi::Number>().DoubleValue();
+          in.horizReinfSpacing_s_mm      = o.Get("horizReinfSpacing_s_mm").As<Napi::Number>().DoubleValue();
+          in.horizReinfYield_fy_MPa      = o.Get("horizReinfYield_fy_MPa").As<Napi::Number>().DoubleValue();
+          in.phi                         = o.Get("phi").As<Napi::Number>().DoubleValue();
+          auto r = forge::cmushear::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("M_over_Vd",      Napi::Number::New(env2, r.M_over_Vd));
+          out.Set("Vnm_kN",         Napi::Number::New(env2, r.Vnm_kN));
+          out.Set("Vns_kN",         Napi::Number::New(env2, r.Vns_kN));
+          out.Set("Vn_kN",          Napi::Number::New(env2, r.Vn_kN));
+          out.Set("VnMax_kN",       Napi::Number::New(env2, r.VnMax_kN));
+          out.Set("Vn_governed_kN", Napi::Number::New(env2, r.Vn_governed_kN));
+          out.Set("phiVn_kN",       Napi::Number::New(env2, r.phiVn_kN));
+          out.Set("meetsDemand",    Napi::Boolean::New(env2, r.meetsDemand));
+          return out;
+        });
+      }));
+    exports.Set("cmushear", cmushNs);
+
+    // ---- Forge-340b — Slip-critical AISC §J3.8 -----------------------------
+    auto scrtNs = Napi::Object::New(env);
+    scrtNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::sccrit::Input in{};
+          in.slipCoefficient_mu  = o.Get("slipCoefficient_mu").As<Napi::Number>().DoubleValue();
+          in.fillerCount_hf      = o.Get("fillerCount_hf").As<Napi::Number>().Int32Value();
+          in.pretension_Tb_kN    = o.Get("pretension_Tb_kN").As<Napi::Number>().DoubleValue();
+          in.slipPlaneCount_ns   = o.Get("slipPlaneCount_ns").As<Napi::Number>().Int32Value();
+          in.boltCount_nb        = o.Get("boltCount_nb").As<Napi::Number>().Int32Value();
+          in.Tu_per_bolt_kN      = o.Get("Tu_per_bolt_kN").As<Napi::Number>().DoubleValue();
+          in.phi_for_holeType    = o.Get("phi_for_holeType").As<Napi::Number>().DoubleValue();
+          auto r = forge::sccrit::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("Du",              Napi::Number::New(env2, r.Du));
+          out.Set("hf",              Napi::Number::New(env2, r.hf));
+          out.Set("Ksc_reduction",   Napi::Number::New(env2, r.Ksc_reduction));
+          out.Set("Rn_per_bolt_kN",  Napi::Number::New(env2, r.Rn_per_bolt_kN));
+          out.Set("Rn_total_kN",     Napi::Number::New(env2, r.Rn_total_kN));
+          out.Set("phiRn_total_kN",  Napi::Number::New(env2, r.phiRn_total_kN));
+          return out;
+        });
+      }));
+    exports.Set("sccrit", scrtNs);
+
+    // ---- Forge-340c — Active chilled beam ----------------------------------
+    auto chbNs = Napi::Object::New(env);
+    chbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::chbeam::Input in{};
+          in.zoneTemp_C              = o.Get("zoneTemp_C").As<Napi::Number>().DoubleValue();
+          in.primaryAirTemp_C        = o.Get("primaryAirTemp_C").As<Napi::Number>().DoubleValue();
+          in.primaryAirFlow_LperS    = o.Get("primaryAirFlow_LperS").As<Napi::Number>().DoubleValue();
+          in.chilledWaterFlow_LperMin= o.Get("chilledWaterFlow_LperMin").As<Napi::Number>().DoubleValue();
+          in.chilledWaterIn_C        = o.Get("chilledWaterIn_C").As<Napi::Number>().DoubleValue();
+          in.chilledWaterOut_C       = o.Get("chilledWaterOut_C").As<Napi::Number>().DoubleValue();
+          in.inductionRatio_Ki       = o.Get("inductionRatio_Ki").As<Napi::Number>().DoubleValue();
+          in.zoneArea_m2             = o.Get("zoneArea_m2").As<Napi::Number>().DoubleValue();
+          in.occupantCount           = o.Get("occupantCount").As<Napi::Number>().Int32Value();
+          auto r = forge::chbeam::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("primaryAirSensible_kW",    Napi::Number::New(env2, r.primaryAirSensible_kW));
+          out.Set("coilSensible_kW",          Napi::Number::New(env2, r.coilSensible_kW));
+          out.Set("totalCooling_kW",          Napi::Number::New(env2, r.totalCooling_kW));
+          out.Set("requiredOutsideAir_LperS", Napi::Number::New(env2, r.requiredOutsideAir_LperS));
+          out.Set("oaCompliance",             Napi::Number::New(env2, r.oaCompliance));
+          out.Set("meetsOA",                  Napi::Boolean::New(env2, r.meetsOA));
+          return out;
+        });
+      }));
+    exports.Set("chbeam", chbNs);
+
+    // ---- Forge-340d — AWS welding heat input -------------------------------
+    auto whiNs = Napi::Object::New(env);
+    whiNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::weldhi::Input in{};
+          in.arcEfficiency_eta        = o.Get("arcEfficiency_eta").As<Napi::Number>().DoubleValue();
+          in.voltage_V                = o.Get("voltage_V").As<Napi::Number>().DoubleValue();
+          in.current_A                = o.Get("current_A").As<Napi::Number>().DoubleValue();
+          in.travelSpeed_mmPerS       = o.Get("travelSpeed_mmPerS").As<Napi::Number>().DoubleValue();
+          in.plateThickness_mm        = o.Get("plateThickness_mm").As<Napi::Number>().DoubleValue();
+          in.preheatTemp_C            = o.Get("preheatTemp_C").As<Napi::Number>().DoubleValue();
+          in.thermalConductivity_k_WmK= o.Get("thermalConductivity_k_WmK").As<Napi::Number>().DoubleValue();
+          in.densityRho_kgM3          = o.Get("densityRho_kgM3").As<Napi::Number>().DoubleValue();
+          in.specificHeat_cp_JkgK     = o.Get("specificHeat_cp_JkgK").As<Napi::Number>().DoubleValue();
+          auto r = forge::weldhi::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("heatInput_kJperMm",      Napi::Number::New(env2, r.heatInput_kJperMm));
+          out.Set("tEightFive_s",           Napi::Number::New(env2, r.tEightFive_s));
+          out.Set("maxHAZWidthEstimate_mm", Napi::Number::New(env2, r.maxHAZWidthEstimate_mm));
+          out.Set("thermalCycleSeverity",   Napi::Number::New(env2, r.thermalCycleSeverity));
+          return out;
+        });
+      }));
+    exports.Set("weldhi", whiNs);
+
+    // ---- Forge-340e — Markov chain stationary ------------------------------
+    auto mkNs = Napi::Object::New(env);
+    mkNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::markov::Input in{};
+          in.stateCount             = o.Get("stateCount").As<Napi::Number>().Int32Value();
+          in.iterationCount         = o.Get("iterationCount").As<Napi::Number>().Int32Value();
+          in.powerMethodMaxIter     = o.Get("powerMethodMaxIter").As<Napi::Number>().Int32Value();
+          in.powerMethodTolerance   = o.Get("powerMethodTolerance").As<Napi::Number>().DoubleValue();
+          auto P = o.Get("transitionMatrix").As<Napi::Array>();
+          for (uint32_t i = 0; i < P.Length(); ++i)
+              in.transitionMatrix.push_back(P.Get(i).As<Napi::Number>().DoubleValue());
+          auto p0 = o.Get("initialDistribution").As<Napi::Array>();
+          for (uint32_t i = 0; i < p0.Length(); ++i)
+              in.initialDistribution.push_back(p0.Get(i).As<Napi::Number>().DoubleValue());
+          auto r = forge::markov::analyse(in);
+          auto out = Napi::Object::New(env2);
+          auto pn = Napi::Array::New(env2, r.distributionAtN.size());
+          for (uint32_t i = 0; i < r.distributionAtN.size(); ++i)
+              pn.Set(i, Napi::Number::New(env2, r.distributionAtN[i]));
+          auto st = Napi::Array::New(env2, r.stationary.size());
+          for (uint32_t i = 0; i < r.stationary.size(); ++i)
+              st.Set(i, Napi::Number::New(env2, r.stationary[i]));
+          out.Set("distributionAtN",     pn);
+          out.Set("stationary",          st);
+          out.Set("stationaryConverged", Napi::Boolean::New(env2, r.stationaryConverged));
+          out.Set("iterationsUsed",      Napi::Number::New(env2, r.iterationsUsed));
+          return out;
+        });
+      }));
+    exports.Set("markov", mkNs);
 
     return exports;
 }

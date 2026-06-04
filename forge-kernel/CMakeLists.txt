@@ -362,6 +362,11 @@ add_library(forge_kernel SHARED
     src/SluiceGate.cpp
     src/Knock.cpp
     src/ProjectNPV.cpp
+    src/CMUShearWall.cpp
+    src/SlipCritical.cpp
+    src/ChilledBeam.cpp
+    src/WeldHeatInput.cpp
+    src/MarkovChain.cpp
     ${PLANEGCS_SRC}
 )
 

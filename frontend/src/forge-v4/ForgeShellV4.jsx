@@ -2216,6 +2216,32 @@ export function ForgeShellV4() {
         setActiveWb('npv');
         window.__forgeOpenNPVWorkbench?.();
         return;
+      // Forge-340 bundle
+      case 'tools.cmushear':
+      case 'workbench.cmushear':
+        setActiveWb('cmushear');
+        window.__forgeOpenCMUShearWorkbench?.();
+        return;
+      case 'tools.sccrit':
+      case 'workbench.sccrit':
+        setActiveWb('sccrit');
+        window.__forgeOpenSlipCritWorkbench?.();
+        return;
+      case 'tools.chbeam':
+      case 'workbench.chbeam':
+        setActiveWb('chbeam');
+        window.__forgeOpenChBeamWorkbench?.();
+        return;
+      case 'tools.weldhi':
+      case 'workbench.weldhi':
+        setActiveWb('weldhi');
+        window.__forgeOpenWeldHIWorkbench?.();
+        return;
+      case 'tools.markov':
+      case 'workbench.markov':
+        setActiveWb('markov');
+        window.__forgeOpenMarkovWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
