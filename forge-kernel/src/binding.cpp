@@ -168,6 +168,11 @@
 #include "forge/ConcreteCreep.hpp"
 #include "forge/DetentionBasin.hpp"
 #include "forge/BasePlate.hpp"
+#include "forge/HydraulicJump.hpp"
+#include "forge/BuriedPipe.hpp"
+#include "forge/SubstationGround.hpp"
+#include "forge/PileGroup.hpp"
+#include "forge/BasementUplift.hpp"
 
 #include <array>
 
@@ -10401,6 +10406,130 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("baseplate", bpNs);
+
+    // -------- Hydraulic jump Belanger (Forge-319) -----------------------
+    auto hjNs = Napi::Object::New(env);
+    hjNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hydjump::Input in{};
+          in.channelWidthB_m    = o.Get("channelWidthB_m"   ).As<Napi::Number>().DoubleValue();
+          in.upstreamDepthY1_m  = o.Get("upstreamDepthY1_m" ).As<Napi::Number>().DoubleValue();
+          in.dischargeQM3PerS   = o.Get("dischargeQM3PerS"  ).As<Napi::Number>().DoubleValue();
+          in.gravityMs2         = o.Get("gravityMs2"        ).As<Napi::Number>().DoubleValue();
+          auto r = forge::hydjump::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("upstreamVelocityV1_ms",     Napi::Number::New(env2, r.upstreamVelocityV1_ms));
+          out.Set("upstreamFroudeNumber",      Napi::Number::New(env2, r.upstreamFroudeNumber));
+          out.Set("sequentDepthY2_m",          Napi::Number::New(env2, r.sequentDepthY2_m));
+          out.Set("downstreamVelocityV2_ms",   Napi::Number::New(env2, r.downstreamVelocityV2_ms));
+          out.Set("downstreamFroudeNumber",    Napi::Number::New(env2, r.downstreamFroudeNumber));
+          out.Set("upstreamSpecificEnergyM",   Napi::Number::New(env2, r.upstreamSpecificEnergyM));
+          out.Set("downstreamSpecificEnergyM", Napi::Number::New(env2, r.downstreamSpecificEnergyM));
+          out.Set("energyHeadLossM",           Napi::Number::New(env2, r.energyHeadLossM));
+          out.Set("jumpEfficiencyPercent",     Napi::Number::New(env2, r.jumpEfficiencyPercent));
+          out.Set("jumpLengthM",               Napi::Number::New(env2, r.jumpLengthM));
+          out.Set("jumpType",                  Napi::String::New(env2, r.jumpType));
+          return out;
+        });
+      }));
+    exports.Set("hydjump", hjNs);
+
+    // -------- Buried-pipe earth load Marston (Forge-319b) ---------------
+    auto bpipeNs = Napi::Object::New(env);
+    bpipeNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::buriedpipe::Input in{};
+          in.trenchWidthBd_m       = o.Get("trenchWidthBd_m"      ).As<Napi::Number>().DoubleValue();
+          in.fillHeightH_m         = o.Get("fillHeightH_m"        ).As<Napi::Number>().DoubleValue();
+          in.soilFrictionAngleDeg  = o.Get("soilFrictionAngleDeg" ).As<Napi::Number>().DoubleValue();
+          in.soilUnitWeightKnPerM3 = o.Get("soilUnitWeightKnPerM3").As<Napi::Number>().DoubleValue();
+          auto r = forge::buriedpipe::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("K_Rankine",       Napi::Number::New(env2, r.K_Rankine));
+          out.Set("mu_prime",        Napi::Number::New(env2, r.mu_prime));
+          out.Set("C_d",             Napi::Number::New(env2, r.C_d));
+          out.Set("earthLoadKnPerM", Napi::Number::New(env2, r.earthLoadKnPerM));
+          return out;
+        });
+      }));
+    exports.Set("buriedpipe", bpipeNs);
+
+    // -------- Substation ground-grid IEEE 80 (Forge-319c) ---------------
+    auto sgNs = Napi::Object::New(env);
+    sgNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::subgnd::Input in{};
+          in.soilResistivityOhmM    = o.Get("soilResistivityOhmM"   ).As<Napi::Number>().DoubleValue();
+          in.gridAreaM2             = o.Get("gridAreaM2"            ).As<Napi::Number>().DoubleValue();
+          in.totalConductorLengthM  = o.Get("totalConductorLengthM" ).As<Napi::Number>().DoubleValue();
+          in.burialDepthM           = o.Get("burialDepthM"          ).As<Napi::Number>().DoubleValue();
+          auto r = forge::subgnd::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("gridResistanceOhm",  Napi::Number::New(env2, r.gridResistanceOhm));
+          out.Set("meetsIeee80Target",  Napi::Boolean::New(env2, r.meetsIeee80Target));
+          return out;
+        });
+      }));
+    exports.Set("subgnd", sgNs);
+
+    // -------- Pile group efficiency Converse-Labarre (Forge-319d) -------
+    auto pgNs = Napi::Object::New(env);
+    pgNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::pilegroup::Input in{};
+          in.pileDiameterMm       = o.Get("pileDiameterMm"      ).As<Napi::Number>().DoubleValue();
+          in.spacingMm            = o.Get("spacingMm"           ).As<Napi::Number>().DoubleValue();
+          in.rows_m               = o.Get("rows_m"              ).As<Napi::Number>().Int32Value();
+          in.columns_n            = o.Get("columns_n"           ).As<Napi::Number>().Int32Value();
+          in.singlePileCapacityKn = o.Get("singlePileCapacityKn").As<Napi::Number>().DoubleValue();
+          auto r = forge::pilegroup::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("anglePhiDeg",     Napi::Number::New(env2, r.anglePhiDeg));
+          out.Set("efficiency",      Napi::Number::New(env2, r.efficiency));
+          out.Set("groupCapacityKn", Napi::Number::New(env2, r.groupCapacityKn));
+          return out;
+        });
+      }));
+    exports.Set("pilegroup", pgNs);
+
+    // -------- Basement uplift / buoyancy (Forge-319e) -------------------
+    auto byNs = Napi::Object::New(env);
+    byNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::buoyancy::Input in{};
+          in.basementWidthB_m         = o.Get("basementWidthB_m"        ).As<Napi::Number>().DoubleValue();
+          in.basementLengthN_m        = o.Get("basementLengthN_m"       ).As<Napi::Number>().DoubleValue();
+          in.waterHeadAboveSlabM      = o.Get("waterHeadAboveSlabM"     ).As<Napi::Number>().DoubleValue();
+          in.slabSelfWeightKnPerM2    = o.Get("slabSelfWeightKnPerM2"   ).As<Napi::Number>().DoubleValue();
+          in.overburdenKnPerM2        = o.Get("overburdenKnPerM2"       ).As<Napi::Number>().DoubleValue();
+          in.waterUnitWeightKnPerM3   = o.Get("waterUnitWeightKnPerM3"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::buoyancy::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("slabAreaM2",     Napi::Number::New(env2, r.slabAreaM2));
+          out.Set("upliftForceKn",  Napi::Number::New(env2, r.upliftForceKn));
+          out.Set("weightForceKn",  Napi::Number::New(env2, r.weightForceKn));
+          out.Set("netUpliftKn",    Napi::Number::New(env2, r.netUpliftKn));
+          out.Set("factorOfSafety", Napi::Number::New(env2, r.factorOfSafety));
+          out.Set("passes",         Napi::Boolean::New(env2, r.passes));
+          return out;
+        });
+      }));
+    exports.Set("buoyancy", byNs);
 
     return exports;
 }

@@ -299,6 +299,9 @@ export const CALCULATOR_TREE = [
           { id: 'silopressure', label: 'Silo wall pressure (Janssen 1895)…', slice: 'Forge-275' },
           { id: 'consol',       label: '1D consolidation settlement (Terzaghi)…', slice: 'Forge-297' },
           { id: 'mokabe',       label: 'Mononobe-Okabe seismic earth pressure…', slice: 'Forge-309' },
+          { id: 'buriedpipe',   label: 'Buried pipe earth load (Marston)…', slice: 'Forge-319' },
+          { id: 'pilegroup',    label: 'Pile group efficiency (Converse-Labarre)…', slice: 'Forge-319' },
+          { id: 'buoyancy',     label: 'Basement hydrostatic uplift…', slice: 'Forge-319' },
         ],
       },
       {
@@ -320,6 +323,7 @@ export const CALCULATOR_TREE = [
         items: [
           { id: 'hydro',     label: 'Hydrology (rational + Kirpich + IDF)…', slice: 'Forge-256' },
           { id: 'detention', label: 'Stormwater detention basin (Mod. Rational)…', slice: 'Forge-317' },
+          { id: 'hydjump',   label: 'Hydraulic jump (Belanger sequent depth)…', slice: 'Forge-319' },
           { id: 'circpipe',  label: 'Storm sewer / circular pipe Manning…', slice: 'Forge-289' },
         ],
       },
@@ -340,6 +344,7 @@ export const CALCULATOR_TREE = [
         items: [
           { id: 'cable',       label: 'Cable sizing (NEC 310 + IEC 60364)…', slice: 'Forge-252' },
           { id: 'voltagedrop', label: 'Voltage drop (NEC 215.2)…', slice: 'Forge-304' },
+          { id: 'subgnd',      label: 'Substation grounding (IEEE 80 Sverak)…', slice: 'Forge-319' },
         ],
       },
       {

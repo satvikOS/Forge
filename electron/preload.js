@@ -975,6 +975,13 @@ const forgeApi = {
     analyse: (input) => kernel.baseplate.analyse(input),
   } : null,
 
+  // Forge-319 5-calc bundle
+  hydjump:    kernel && kernel.hydjump    ? { analyse: (i) => kernel.hydjump.analyse(i) }    : null,
+  buriedpipe: kernel && kernel.buriedpipe ? { analyse: (i) => kernel.buriedpipe.analyse(i) } : null,
+  subgnd:     kernel && kernel.subgnd     ? { analyse: (i) => kernel.subgnd.analyse(i) }     : null,
+  pilegroup:  kernel && kernel.pilegroup  ? { analyse: (i) => kernel.pilegroup.analyse(i) }  : null,
+  buoyancy:   kernel && kernel.buoyancy   ? { analyse: (i) => kernel.buoyancy.analyse(i) }   : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

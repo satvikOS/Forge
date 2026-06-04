@@ -1670,6 +1670,32 @@ export function ForgeShellV4() {
         setActiveWb('baseplate');
         window.__forgeOpenBasePlateWorkbench?.();
         return;
+      // Forge-319 5-calc bundle.
+      case 'tools.hydjump':
+      case 'workbench.hydjump':
+        setActiveWb('hydjump');
+        window.__forgeOpenHydraulicJumpWorkbench?.();
+        return;
+      case 'tools.buriedpipe':
+      case 'workbench.buriedpipe':
+        setActiveWb('buriedpipe');
+        window.__forgeOpenBuriedPipeWorkbench?.();
+        return;
+      case 'tools.subgnd':
+      case 'workbench.subgnd':
+        setActiveWb('subgnd');
+        window.__forgeOpenSubGndWorkbench?.();
+        return;
+      case 'tools.pilegroup':
+      case 'workbench.pilegroup':
+        setActiveWb('pilegroup');
+        window.__forgeOpenPileGroupWorkbench?.();
+        return;
+      case 'tools.buoyancy':
+      case 'workbench.buoyancy':
+        setActiveWb('buoyancy');
+        window.__forgeOpenBasementUpliftWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

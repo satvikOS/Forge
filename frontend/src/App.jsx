@@ -329,6 +329,14 @@ import { ConcreteCreepWorkbenchHost } from './forge-v4/ConcreteCreepWorkbench.js
 import { DetentionBasinWorkbenchHost } from './forge-v4/DetentionBasinWorkbench.jsx';
 // Forge-318 — Steel column base plate (AISC §J9 + DG1).
 import { BasePlateWorkbenchHost } from './forge-v4/BasePlateWorkbench.jsx';
+// Forge-319 5-calc bundle: hydraulic jump + Marston + IEEE 80 + pile group + buoyancy.
+import {
+  HydraulicJumpWorkbenchHost,
+  BuriedPipeWorkbenchHost,
+  SubstationGroundWorkbenchHost,
+  PileGroupWorkbenchHost,
+  BasementUpliftWorkbenchHost,
+} from './forge-v4/Forge319BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -561,6 +569,11 @@ function App() {
       <ConcreteCreepWorkbenchHost />
       <DetentionBasinWorkbenchHost />
       <BasePlateWorkbenchHost />
+      <HydraulicJumpWorkbenchHost />
+      <BuriedPipeWorkbenchHost />
+      <SubstationGroundWorkbenchHost />
+      <PileGroupWorkbenchHost />
+      <BasementUpliftWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -257,6 +257,11 @@ add_library(forge_kernel SHARED
     src/ConcreteCreep.cpp
     src/DetentionBasin.cpp
     src/BasePlate.cpp
+    src/HydraulicJump.cpp
+    src/BuriedPipe.cpp
+    src/SubstationGround.cpp
+    src/PileGroup.cpp
+    src/BasementUplift.cpp
     ${PLANEGCS_SRC}
 )
 
