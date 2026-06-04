@@ -920,6 +920,11 @@ const forgeApi = {
     analyse: (input) => kernel.rcshear.analyse(input),
   } : null,
 
+  // coolingtower (Forge-308) — Open-loop cooling tower performance (ASHRAE).
+  coolingtower: kernel && kernel.coolingtower ? {
+    analyse: (input) => kernel.coolingtower.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

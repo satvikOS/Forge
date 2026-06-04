@@ -157,6 +157,7 @@
 #include "forge/HertzPoint.hpp"
 #include "forge/CoolingLoad.hpp"
 #include "forge/RCShear.hpp"
+#include "forge/CoolingTower.hpp"
 
 #include <array>
 
@@ -10055,6 +10056,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("rcshear", rcshNs);
+
+    // -------- Cooling tower performance (Forge-308) ---------------------
+    auto ctNs = Napi::Object::New(env);
+    ctNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::coolingtower::Input in{};
+          in.waterFlowLps          = o.Get("waterFlowLps"         ).As<Napi::Number>().DoubleValue();
+          in.inletTempC            = o.Get("inletTempC"           ).As<Napi::Number>().DoubleValue();
+          in.outletTempC           = o.Get("outletTempC"          ).As<Napi::Number>().DoubleValue();
+          in.wetBulbTempC          = o.Get("wetBulbTempC"         ).As<Napi::Number>().DoubleValue();
+          in.cyclesOfConcentration = o.Get("cyclesOfConcentration").As<Napi::Number>().DoubleValue();
+          in.driftFraction         = o.Get("driftFraction"        ).As<Napi::Number>().DoubleValue();
+          auto r = forge::coolingtower::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("rangeK",             Napi::Number::New(env2, r.rangeK));
+          out.Set("approachK",          Napi::Number::New(env2, r.approachK));
+          out.Set("heatRejectionKw",    Napi::Number::New(env2, r.heatRejectionKw));
+          out.Set("evaporationLps",     Napi::Number::New(env2, r.evaporationLps));
+          out.Set("bleedLps",           Napi::Number::New(env2, r.bleedLps));
+          out.Set("driftLps",           Napi::Number::New(env2, r.driftLps));
+          out.Set("makeupLps",          Napi::Number::New(env2, r.makeupLps));
+          out.Set("evaporationPercent", Napi::Number::New(env2, r.evaporationPercent));
+          out.Set("makeupPercent",      Napi::Number::New(env2, r.makeupPercent));
+          return out;
+        });
+      }));
+    exports.Set("coolingtower", ctNs);
 
     return exports;
 }

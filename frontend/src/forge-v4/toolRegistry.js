@@ -186,6 +186,7 @@ export const CALCULATOR_TREE = [
           { id: 'compressor',  label: 'Reciprocating compressor (polytropic + η_v)…', slice: 'Forge-282' },
           { id: 'airfilter',   label: 'Air filter Δp + fan energy (ASHRAE 52.2)…', slice: 'Forge-294' },
           { id: 'coolingload', label: 'HVAC coil load (sensible + latent + SHR)…', slice: 'Forge-306' },
+          { id: 'coolingtower',label: 'Cooling tower (range/approach/makeup)…', slice: 'Forge-308' },
         ],
       },
       {

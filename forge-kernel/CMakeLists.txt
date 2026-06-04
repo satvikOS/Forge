@@ -246,6 +246,7 @@ add_library(forge_kernel SHARED
     src/HertzPoint.cpp
     src/CoolingLoad.cpp
     src/RCShear.cpp
+    src/CoolingTower.cpp
     ${PLANEGCS_SRC}
 )
 
