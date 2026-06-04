@@ -327,6 +327,8 @@ import { WindTurbineWorkbenchHost } from './forge-v4/WindTurbineWorkbench.jsx';
 import { ConcreteCreepWorkbenchHost } from './forge-v4/ConcreteCreepWorkbench.jsx';
 // Forge-317 — Stormwater detention basin (Modified Rational).
 import { DetentionBasinWorkbenchHost } from './forge-v4/DetentionBasinWorkbench.jsx';
+// Forge-318 — Steel column base plate (AISC §J9 + DG1).
+import { BasePlateWorkbenchHost } from './forge-v4/BasePlateWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -558,6 +560,7 @@ function App() {
       <WindTurbineWorkbenchHost />
       <ConcreteCreepWorkbenchHost />
       <DetentionBasinWorkbenchHost />
+      <BasePlateWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

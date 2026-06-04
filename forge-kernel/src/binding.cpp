@@ -167,6 +167,7 @@
 #include "forge/WindTurbine.hpp"
 #include "forge/ConcreteCreep.hpp"
 #include "forge/DetentionBasin.hpp"
+#include "forge/BasePlate.hpp"
 
 #include <array>
 
@@ -10364,6 +10365,42 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("detention", detNs);
+
+    // -------- Steel column base plate AISC §J9 (Forge-318) --------------
+    auto bpNs = Napi::Object::New(env);
+    bpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::baseplate::Input in{};
+          in.appliedAxialKn      = o.Get("appliedAxialKn"     ).As<Napi::Number>().DoubleValue();
+          in.plateWidthB_mm      = o.Get("plateWidthB_mm"     ).As<Napi::Number>().DoubleValue();
+          in.plateLengthN_mm     = o.Get("plateLengthN_mm"    ).As<Napi::Number>().DoubleValue();
+          in.columnDepthD_mm     = o.Get("columnDepthD_mm"    ).As<Napi::Number>().DoubleValue();
+          in.columnFlangeBf_mm   = o.Get("columnFlangeBf_mm"  ).As<Napi::Number>().DoubleValue();
+          in.supportWidthB2_mm   = o.Get("supportWidthB2_mm"  ).As<Napi::Number>().DoubleValue();
+          in.supportLengthN2_mm  = o.Get("supportLengthN2_mm" ).As<Napi::Number>().DoubleValue();
+          in.fc_MPa              = o.Get("fc_MPa"             ).As<Napi::Number>().DoubleValue();
+          in.Fy_MPa              = o.Get("Fy_MPa"             ).As<Napi::Number>().DoubleValue();
+          auto r = forge::baseplate::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("A_1_mm2",                   Napi::Number::New(env2, r.A_1_mm2));
+          out.Set("A_2_mm2",                   Napi::Number::New(env2, r.A_2_mm2));
+          out.Set("sqrtA2A1",                  Napi::Number::New(env2, r.sqrtA2A1));
+          out.Set("bearingStrength_Pp_kN",     Napi::Number::New(env2, r.bearingStrength_Pp_kN));
+          out.Set("LRFD_phiPp_kN",             Napi::Number::New(env2, r.LRFD_phiPp_kN));
+          out.Set("ASD_PpOverOmega_kN",        Napi::Number::New(env2, r.ASD_PpOverOmega_kN));
+          out.Set("projection_m_mm",           Napi::Number::New(env2, r.projection_m_mm));
+          out.Set("projection_n_mm",           Napi::Number::New(env2, r.projection_n_mm));
+          out.Set("thorntonLambda_nprime_mm",  Napi::Number::New(env2, r.thorntonLambda_nprime_mm));
+          out.Set("governingProjection_mm",    Napi::Number::New(env2, r.governingProjection_mm));
+          out.Set("requiredPlateThickness_mm", Napi::Number::New(env2, r.requiredPlateThickness_mm));
+          out.Set("bearingPasses",             Napi::Boolean::New(env2, r.bearingPasses));
+          return out;
+        });
+      }));
+    exports.Set("baseplate", bpNs);
 
     return exports;
 }

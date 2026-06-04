@@ -256,6 +256,7 @@ add_library(forge_kernel SHARED
     src/WindTurbine.cpp
     src/ConcreteCreep.cpp
     src/DetentionBasin.cpp
+    src/BasePlate.cpp
     ${PLANEGCS_SRC}
 )
 

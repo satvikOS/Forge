@@ -970,6 +970,11 @@ const forgeApi = {
     analyse: (input) => kernel.detention.analyse(input),
   } : null,
 
+  // baseplate (Forge-318) — Steel column base plate (AISC §J9 + DG1).
+  baseplate: kernel && kernel.baseplate ? {
+    analyse: (input) => kernel.baseplate.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

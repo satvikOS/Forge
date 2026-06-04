@@ -55,6 +55,7 @@ export const CALCULATOR_TREE = [
           { id: 'steelbeam', label: 'Steel beam LTB (AISC 360 §F2)…', slice: 'Forge-270' },
           { id: 'webshear',  label: 'Steel beam web shear (AISC 360 §G2)…', slice: 'Forge-302' },
           { id: 'sectclass', label: 'Section classification (AISC B4.1b)…', slice: 'Forge-311' },
+          { id: 'baseplate', label: 'Base plate on concrete (AISC §J9 + DG1)…', slice: 'Forge-318' },
         ],
       },
       {

@@ -1665,6 +1665,11 @@ export function ForgeShellV4() {
         setActiveWb('detention');
         window.__forgeOpenDetentionBasinWorkbench?.();
         return;
+      case 'tools.baseplate':
+      case 'workbench.baseplate':
+        setActiveWb('baseplate');
+        window.__forgeOpenBasePlateWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
