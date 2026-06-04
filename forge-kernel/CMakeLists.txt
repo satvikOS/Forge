@@ -236,6 +236,7 @@ add_library(forge_kernel SHARED
     src/FinArray.cpp
     src/HeadedStud.cpp
     src/Consolidation.cpp
+    src/VehicleBraking.cpp
     ${PLANEGCS_SRC}
 )
 

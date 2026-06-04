@@ -870,6 +870,11 @@ const forgeApi = {
     analyse: (input) => kernel.consol.analyse(input),
   } : null,
 
+  // vehbrake (Forge-298) — Vehicle braking energy + brake heat dissipation.
+  vehbrake: kernel && kernel.vehbrake ? {
+    analyse: (input) => kernel.vehbrake.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

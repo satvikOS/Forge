@@ -147,6 +147,7 @@
 #include "forge/FinArray.hpp"
 #include "forge/HeadedStud.hpp"
 #include "forge/Consolidation.hpp"
+#include "forge/VehicleBraking.hpp"
 
 #include <array>
 
@@ -9745,6 +9746,36 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("consol", consolNs);
+
+    // -------- Vehicle braking energy (Forge-298) ------------------------
+    auto vbrakeNs = Napi::Object::New(env);
+    vbrakeNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::vehbrake::Input in{};
+          in.vehicleMassKg          = o.Get("vehicleMassKg"         ).As<Napi::Number>().DoubleValue();
+          in.initialSpeedKmH        = o.Get("initialSpeedKmH"       ).As<Napi::Number>().DoubleValue();
+          in.decelerationMs2        = o.Get("decelerationMs2"       ).As<Napi::Number>().DoubleValue();
+          in.brakeCount             = o.Get("brakeCount"            ).As<Napi::Number>().Int32Value();
+          in.discMassKg             = o.Get("discMassKg"            ).As<Napi::Number>().DoubleValue();
+          in.discSpecificHeatJkgK   = o.Get("discSpecificHeatJkgK"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::vehbrake::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("initialSpeedMs",        Napi::Number::New(env2, r.initialSpeedMs));
+          out.Set("initialKineticEnergyJ", Napi::Number::New(env2, r.initialKineticEnergyJ));
+          out.Set("stopTimeS",             Napi::Number::New(env2, r.stopTimeS));
+          out.Set("stopDistanceM",         Napi::Number::New(env2, r.stopDistanceM));
+          out.Set("brakeForceTotalN",      Napi::Number::New(env2, r.brakeForceTotalN));
+          out.Set("brakeForcePerBrakeN",   Napi::Number::New(env2, r.brakeForcePerBrakeN));
+          out.Set("heatPerBrakeJ",         Napi::Number::New(env2, r.heatPerBrakeJ));
+          out.Set("discTemperatureRiseK",  Napi::Number::New(env2, r.discTemperatureRiseK));
+          out.Set("averagePowerW",         Napi::Number::New(env2, r.averagePowerW));
+          return out;
+        });
+      }));
+    exports.Set("vehbrake", vbrakeNs);
 
     return exports;
 }

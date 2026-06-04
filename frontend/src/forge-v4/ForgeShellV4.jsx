@@ -1564,6 +1564,12 @@ export function ForgeShellV4() {
         setActiveWb('consol');
         window.__forgeOpenConsolidationWorkbench?.();
         return;
+      // Forge-298 — Vehicle braking energy.
+      case 'tools.vehbrake':
+      case 'workbench.vehbrake':
+        setActiveWb('vehbrake');
+        window.__forgeOpenVehicleBrakingWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

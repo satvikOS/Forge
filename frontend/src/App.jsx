@@ -287,6 +287,8 @@ import { FinArrayWorkbenchHost } from './forge-v4/FinArrayWorkbench.jsx';
 import { HeadedStudWorkbenchHost } from './forge-v4/HeadedStudWorkbench.jsx';
 // Forge-297 — 1D consolidation settlement (Terzaghi).
 import { ConsolidationWorkbenchHost } from './forge-v4/ConsolidationWorkbench.jsx';
+// Forge-298 — Vehicle braking energy + brake heat.
+import { VehicleBrakingWorkbenchHost } from './forge-v4/VehicleBrakingWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -498,6 +500,7 @@ function App() {
       <FinArrayWorkbenchHost />
       <HeadedStudWorkbenchHost />
       <ConsolidationWorkbenchHost />
+      <VehicleBrakingWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
