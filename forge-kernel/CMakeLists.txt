@@ -372,6 +372,7 @@ add_library(forge_kernel SHARED
     src/PlateHX.cpp
     src/FOSMReliability.cpp
     src/BridgeFlutter.cpp
+    src/ClassASurfacing.cpp
     ${PLANEGCS_SRC}
 )
 

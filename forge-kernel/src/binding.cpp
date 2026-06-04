@@ -35,6 +35,7 @@
 #include "forge/SheetMetal.hpp"
 #include "forge/Weldments.hpp"
 #include "forge/Nurbs.hpp"
+#include "forge/ClassASurfacing.hpp"
 #include "forge/LineageRegistry.hpp"
 #include "forge/Airfoil.hpp"
 #include "forge/SlopeStability.hpp"
@@ -13592,6 +13593,204 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("flutter", flutNs);
+
+    // ---- PUSH-07 — Class-A surfacing (zebra, combs, G0-G3, K/H, stitchG2,
+    //                guided sweep) layered on top of forge.surfacing ----
+    auto clsaNs = Napi::Object::New(env);
+
+    clsaNs.Set("zebraStripes", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto h = requireHandle(info, 0);
+          std::uint32_t stripeCount = info[1].As<Napi::Number>().Uint32Value();
+          if (!info[2].IsArray() && !info[2].IsTypedArray()) {
+            throw Napi::TypeError::New(env2,
+              "forge.classa.zebraStripes: lightDir must be [x,y,z]");
+          }
+          double lx = 0, ly = 0, lz = 1;
+          if (info[2].IsTypedArray()) {
+            auto ta = info[2].As<Napi::Float64Array>();
+            if (ta.ElementLength() < 3) {
+              throw Napi::TypeError::New(env2,
+                "forge.classa.zebraStripes: lightDir must have 3 elements");
+            }
+            lx = ta.Data()[0]; ly = ta.Data()[1]; lz = ta.Data()[2];
+          } else {
+            auto a = info[2].As<Napi::Array>();
+            if (a.Length() < 3) {
+              throw Napi::TypeError::New(env2,
+                "forge.classa.zebraStripes: lightDir must have 3 elements");
+            }
+            lx = a.Get(uint32_t{0}).As<Napi::Number>().DoubleValue();
+            ly = a.Get(uint32_t{1}).As<Napi::Number>().DoubleValue();
+            lz = a.Get(uint32_t{2}).As<Napi::Number>().DoubleValue();
+          }
+          std::uint32_t uS = (info.Length() > 3 && info[3].IsNumber())
+            ? info[3].As<Napi::Number>().Uint32Value() : 32u;
+          std::uint32_t vS = (info.Length() > 4 && info[4].IsNumber())
+            ? info[4].As<Napi::Number>().Uint32Value() : 32u;
+          auto rows = forge::classa::zebraStripes(h, stripeCount, lx, ly, lz, uS, vS);
+          auto arr = Napi::Array::New(env2, rows.size());
+          for (std::size_t i = 0; i < rows.size(); ++i) {
+            auto o = Napi::Object::New(env2);
+            o.Set("u",            Napi::Number::New(env2, rows[i].u));
+            o.Set("v",            Napi::Number::New(env2, rows[i].v));
+            o.Set("stripeIndex",  Napi::Number::New(env2,
+              static_cast<double>(rows[i].stripeIndex)));
+            o.Set("normalAngle",  Napi::Number::New(env2, rows[i].normalAngle));
+            arr.Set(static_cast<uint32_t>(i), o);
+          }
+          return arr;
+        });
+      }));
+
+    clsaNs.Set("curvatureComb", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto h = requireHandle(info, 0);
+          std::uint32_t samples = info[1].As<Napi::Number>().Uint32Value();
+          double scale = info[2].As<Napi::Number>().DoubleValue();
+          auto rows = forge::classa::curvatureComb(h, samples, scale);
+          auto arr = Napi::Array::New(env2, rows.size());
+          for (std::size_t i = 0; i < rows.size(); ++i) {
+            auto o = Napi::Object::New(env2);
+            o.Set("u", Napi::Number::New(env2, rows[i].u));
+            auto p = Napi::Array::New(env2, 3);
+            p.Set(uint32_t{0}, rows[i].position3d[0]);
+            p.Set(uint32_t{1}, rows[i].position3d[1]);
+            p.Set(uint32_t{2}, rows[i].position3d[2]);
+            o.Set("position3d", p);
+            auto t = Napi::Array::New(env2, 3);
+            t.Set(uint32_t{0}, rows[i].combTip3d[0]);
+            t.Set(uint32_t{1}, rows[i].combTip3d[1]);
+            t.Set(uint32_t{2}, rows[i].combTip3d[2]);
+            o.Set("combTip3d", t);
+            o.Set("curvature", Napi::Number::New(env2, rows[i].curvature));
+            arr.Set(static_cast<uint32_t>(i), o);
+          }
+          return arr;
+        });
+      }));
+
+    clsaNs.Set("continuityCheck", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto fA = requireHandle(info, 0);
+          auto fB = requireHandle(info, 1);
+          auto eS = requireHandle(info, 2);
+          std::uint32_t samples = (info.Length() > 3 && info[3].IsNumber())
+            ? info[3].As<Napi::Number>().Uint32Value() : 32u;
+          auto r = forge::classa::continuityCheck(fA, fB, eS, samples);
+          auto o = Napi::Object::New(env2);
+          o.Set("g0_max_mm",     Napi::Number::New(env2, r.g0_max_mm));
+          o.Set("g1_max_deg",    Napi::Number::New(env2, r.g1_max_deg));
+          o.Set("g2_max_pct",    Napi::Number::New(env2, r.g2_max_pct));
+          o.Set("g3_max_pct",    Napi::Number::New(env2, r.g3_max_pct));
+          o.Set("g3_continuity", Napi::Boolean::New(env2, r.g3_continuity));
+          o.Set("samples",       Napi::Number::New(env2,
+            static_cast<double>(r.samples)));
+          return o;
+        });
+      }));
+
+    clsaNs.Set("gaussianAndMeanCurvature", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto h = requireHandle(info, 0);
+          std::uint32_t uS = (info.Length() > 1 && info[1].IsNumber())
+            ? info[1].As<Napi::Number>().Uint32Value() : 16u;
+          std::uint32_t vS = (info.Length() > 2 && info[2].IsNumber())
+            ? info[2].As<Napi::Number>().Uint32Value() : 16u;
+          auto rows = forge::classa::gaussianAndMeanCurvature(h, uS, vS);
+          auto arr = Napi::Array::New(env2, rows.size());
+          for (std::size_t i = 0; i < rows.size(); ++i) {
+            auto o = Napi::Object::New(env2);
+            o.Set("u",          Napi::Number::New(env2, rows[i].u));
+            o.Set("v",          Napi::Number::New(env2, rows[i].v));
+            o.Set("K_gaussian", Napi::Number::New(env2, rows[i].K_gaussian));
+            o.Set("H_mean",     Napi::Number::New(env2, rows[i].H_mean));
+            o.Set("kappaMax",   Napi::Number::New(env2, rows[i].kappaMax));
+            o.Set("kappaMin",   Napi::Number::New(env2, rows[i].kappaMin));
+            arr.Set(static_cast<uint32_t>(i), o);
+          }
+          return arr;
+        });
+      }));
+
+    clsaNs.Set("stitchG2", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (!info[0].IsArray()) {
+            throw Napi::TypeError::New(env2,
+              "forge.classa.stitchG2: expected handle array");
+          }
+          auto a = info[0].As<Napi::Array>();
+          std::vector<forge::ShapeHandle> handles;
+          handles.reserve(a.Length());
+          for (uint32_t i = 0; i < a.Length(); ++i) {
+            handles.push_back(a.Get(i).As<Napi::Number>().Uint32Value());
+          }
+          double tol = (info.Length() > 1 && info[1].IsNumber())
+            ? info[1].As<Napi::Number>().DoubleValue() : 1e-3;
+          bool reportCont = (info.Length() > 2 && info[2].IsBoolean())
+            ? info[2].As<Napi::Boolean>().Value() : true;
+          auto r = forge::classa::stitchG2(handles, tol, reportCont);
+          auto o = Napi::Object::New(env2);
+          o.Set("handle",    Napi::Number::New(env2,
+            static_cast<double>(r.handle)));
+          o.Set("edgeCount", Napi::Number::New(env2,
+            static_cast<double>(r.edgeCount)));
+          auto rep = Napi::Array::New(env2, r.reports.size());
+          for (std::size_t i = 0; i < r.reports.size(); ++i) {
+            auto rr = Napi::Object::New(env2);
+            rr.Set("g0_max_mm",     Napi::Number::New(env2,
+              r.reports[i].g0_max_mm));
+            rr.Set("g1_max_deg",    Napi::Number::New(env2,
+              r.reports[i].g1_max_deg));
+            rr.Set("g2_max_pct",    Napi::Number::New(env2,
+              r.reports[i].g2_max_pct));
+            rr.Set("g3_max_pct",    Napi::Number::New(env2,
+              r.reports[i].g3_max_pct));
+            rr.Set("g3_continuity", Napi::Boolean::New(env2,
+              r.reports[i].g3_continuity));
+            rr.Set("samples",       Napi::Number::New(env2,
+              static_cast<double>(r.reports[i].samples)));
+            rep.Set(static_cast<uint32_t>(i), rr);
+          }
+          o.Set("reports", rep);
+          return o;
+        });
+      }));
+
+    clsaNs.Set("sweepWithGuides", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto profile = requireHandle(info, 0);
+          auto spine   = requireHandle(info, 1);
+          std::vector<forge::ShapeHandle> guides;
+          if (info.Length() > 2 && info[2].IsArray()) {
+            auto a = info[2].As<Napi::Array>();
+            guides.reserve(a.Length());
+            for (uint32_t i = 0; i < a.Length(); ++i) {
+              guides.push_back(a.Get(i).As<Napi::Number>().Uint32Value());
+            }
+          }
+          bool isFrenet = (info.Length() > 3 && info[3].IsBoolean())
+            ? info[3].As<Napi::Boolean>().Value() : false;
+          bool isSolid  = (info.Length() > 4 && info[4].IsBoolean())
+            ? info[4].As<Napi::Boolean>().Value() : false;
+          return Napi::Number::New(env2,
+            forge::classa::sweepWithGuides(profile, spine, guides, isFrenet, isSolid));
+        });
+      }));
+
+    exports.Set("classa", clsaNs);
 
     return exports;
 }
