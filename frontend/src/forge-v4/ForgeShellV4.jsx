@@ -2341,6 +2341,11 @@ export function ForgeShellV4() {
       case 'tools.pdm':
         window.__forgeOpenPdm?.(true);
         return;
+      // PUSH-14: real PDM vault (JSON-backed)
+      case 'tools.pdmvault':
+      case 'workbench.pdmvault':
+        window.__forgeOpenPDMWorkbench?.();
+        return;
       case 'tools.scenarios':
         window.__forgeBodies = bodies;
         window.__forgeSelection = selection;

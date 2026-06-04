@@ -18,6 +18,9 @@ import { AssemblyTreePanelHost } from './forge-v4/AssemblyTreePanel.jsx';
 import { AssemblyPanelHost } from './forge-v4/AssemblyPanel.jsx';
 import { BomPanelHost } from './forge-v4/BomPanel.jsx';
 import { PdmPanelHost } from './forge-v4/PdmPanel.jsx';
+// PUSH-14: real PDM vault (JSON-backed via pdm:* IPC). Coexists with the
+// legacy PdmPanel cosmetic UI.
+import { PDMWorkbenchHost } from './forge-v4/PDMWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -566,6 +569,7 @@ function App() {
       <AssemblyPanelHost />
       <BomPanelHost />
       <PdmPanelHost />
+      <PDMWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

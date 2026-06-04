@@ -1423,6 +1423,24 @@ const forgeApi = {
     closeWindow:  (id)     => ipcRenderer.invoke('win:closeWindow', { id }),
   },
 
+  // PUSH-14 — PDM local vault bridge. JSON-backed, no deps. Renderer can
+  // check files in/out, view version history, roll back, attach ECN
+  // notices, and trace where-used linkage.
+  pdm: {
+    init:       ()      => ipcRenderer.invoke('pdm:init'),
+    list:       ()      => ipcRenderer.invoke('pdm:list'),
+    add:        (p)     => ipcRenderer.invoke('pdm:add', p),
+    checkout:   (p)     => ipcRenderer.invoke('pdm:checkout', p),
+    checkin:    (p)     => ipcRenderer.invoke('pdm:checkin', p),
+    history:    (p)     => ipcRenderer.invoke('pdm:history', p),
+    rollback:   (p)     => ipcRenderer.invoke('pdm:rollback', p),
+    fetch:      (p)     => ipcRenderer.invoke('pdm:fetch', p),
+    ecn:        (p)     => ipcRenderer.invoke('pdm:ecn', p),
+    ecnList:    (p)     => ipcRenderer.invoke('pdm:ecnList', p),
+    whereUsed:  (p)     => ipcRenderer.invoke('pdm:whereUsed', p),
+    setUses:    (p)     => ipcRenderer.invoke('pdm:setUses', p),
+  },
+
   // Forge-197 — Webhook receiver. Renderer can start / stop the
   // embedded loopback HTTP listener and subscribe to incoming payloads.
   webhook: {

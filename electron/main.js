@@ -284,6 +284,31 @@ ipcMain.handle('webhook:status', async () => ({
   requireSignature: !!webhookSecret,
 }));
 
+// PUSH-14 — PDM local vault. Pure Node fs + crypto, no external deps.
+const pdmVault = require('./pdmVault.js');
+let pdmInitialised = false;
+function ensurePdmInit() {
+  if (pdmInitialised) return;
+  pdmVault.init({
+    userDataPath: app.getPath('userData'),
+    userName: process.env.USER || process.env.USERNAME || 'unknown',
+    machine: process.platform,
+  });
+  pdmInitialised = true;
+}
+ipcMain.handle('pdm:init',       async () => { ensurePdmInit(); return { ok: true }; });
+ipcMain.handle('pdm:list',       async () => { ensurePdmInit(); return pdmVault.list(); });
+ipcMain.handle('pdm:add',        async (_e, payload) => { ensurePdmInit(); return pdmVault.add(payload); });
+ipcMain.handle('pdm:checkout',   async (_e, payload) => { ensurePdmInit(); return pdmVault.checkout(payload); });
+ipcMain.handle('pdm:checkin',    async (_e, payload) => { ensurePdmInit(); return pdmVault.checkin(payload); });
+ipcMain.handle('pdm:history',    async (_e, payload) => { ensurePdmInit(); return pdmVault.history(payload); });
+ipcMain.handle('pdm:rollback',   async (_e, payload) => { ensurePdmInit(); return pdmVault.rollback(payload); });
+ipcMain.handle('pdm:fetch',      async (_e, payload) => { ensurePdmInit(); return pdmVault.fetch(payload); });
+ipcMain.handle('pdm:ecn',        async (_e, payload) => { ensurePdmInit(); return pdmVault.ecn(payload); });
+ipcMain.handle('pdm:ecnList',    async (_e, payload) => { ensurePdmInit(); return pdmVault.ecnList(payload); });
+ipcMain.handle('pdm:whereUsed',  async (_e, payload) => { ensurePdmInit(); return pdmVault.whereUsed(payload); });
+ipcMain.handle('pdm:setUses',    async (_e, payload) => { ensurePdmInit(); return pdmVault.setUses(payload); });
+
 // electron-updater drives auto-update against the GitHub Releases the CI
 // workflow publishes. Loaded lazily/guarded so a dev run without the dep
 // installed still works.
