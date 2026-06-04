@@ -2365,6 +2365,11 @@ export function ForgeShellV4() {
       case 'render.explode':
         window.__forgeOpenExplodedView?.();
         return;
+      // PUSH-13: standard parts catalog browser
+      case 'tools.stdparts':
+      case 'workbench.stdparts':
+        window.__forgeOpenStandardPartsBrowser?.();
+        return;
       // PUSH-01: routes from extended right-click context
       case 'palette.open':
         window.__forgeOpenCommandPalette?.(true);
