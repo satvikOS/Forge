@@ -223,6 +223,11 @@
 #include "forge/BoltedTimber.hpp"
 #include "forge/ConveyorPower.hpp"
 #include "forge/DriftIndex.hpp"
+#include "forge/SlopeInfinite.hpp"
+#include "forge/EnginePerformance.hpp"
+#include "forge/DaylightFactor.hpp"
+#include "forge/MassHaul.hpp"
+#include "forge/RailBeam.hpp"
 
 #include <array>
 
@@ -11760,6 +11765,149 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("drift", drftNs);
+
+    // ---- Forge-330a — Slope infinite stability ----------------------------
+    auto slpNs = Napi::Object::New(env);
+    slpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::slope::Input in{};
+          in.cohesion_kPa        = o.Get("cohesion_kPa").As<Napi::Number>().DoubleValue();
+          in.unitWeight_kNm3     = o.Get("unitWeight_kNm3").As<Napi::Number>().DoubleValue();
+          in.sliceDepth_m        = o.Get("sliceDepth_m").As<Napi::Number>().DoubleValue();
+          in.slopeAngleDeg       = o.Get("slopeAngleDeg").As<Napi::Number>().DoubleValue();
+          in.frictionAngleDeg    = o.Get("frictionAngleDeg").As<Napi::Number>().DoubleValue();
+          in.waterTableDepth_m   = o.Get("waterTableDepth_m").As<Napi::Number>().DoubleValue();
+          auto r = forge::slope::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("slipDepth_m",                 Napi::Number::New(env2, r.slipDepth_m));
+          out.Set("effectiveNormalStress_kPa",   Napi::Number::New(env2, r.effectiveNormalStress_kPa));
+          out.Set("mobilisedShearStress_kPa",    Napi::Number::New(env2, r.mobilisedShearStress_kPa));
+          out.Set("resistingShearStress_kPa",    Napi::Number::New(env2, r.resistingShearStress_kPa));
+          out.Set("factorOfSafety",              Napi::Number::New(env2, r.factorOfSafety));
+          out.Set("stable",                      Napi::Boolean::New(env2, r.stable));
+          return out;
+        });
+      }));
+    exports.Set("slope", slpNs);
+
+    // ---- Forge-330b — IC engine performance (Heywood) ---------------------
+    auto engNs = Napi::Object::New(env);
+    engNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::engperf::Input in{};
+          in.displacement_L          = o.Get("displacement_L").As<Napi::Number>().DoubleValue();
+          in.speed_rpm               = o.Get("speed_rpm").As<Napi::Number>().DoubleValue();
+          in.brakeTorque_Nm          = o.Get("brakeTorque_Nm").As<Napi::Number>().DoubleValue();
+          in.fuelMassFlow_kgPerH     = o.Get("fuelMassFlow_kgPerH").As<Napi::Number>().DoubleValue();
+          in.airMassFlow_kgPerH      = o.Get("airMassFlow_kgPerH").As<Napi::Number>().DoubleValue();
+          in.airDensity_kgM3         = o.Get("airDensity_kgM3").As<Napi::Number>().DoubleValue();
+          in.stroke_mm               = o.Get("stroke_mm").As<Napi::Number>().DoubleValue();
+          in.cycleType               = o.Get("cycleType").As<Napi::Number>().Int32Value();
+          auto r = forge::engperf::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("bmep_kPa",                 Napi::Number::New(env2, r.bmep_kPa));
+          out.Set("brakePower_kW",            Napi::Number::New(env2, r.brakePower_kW));
+          out.Set("bsfc_g_per_kWh",           Napi::Number::New(env2, r.bsfc_g_per_kWh));
+          out.Set("volumetricEfficiency",     Napi::Number::New(env2, r.volumetricEfficiency));
+          out.Set("meanPistonSpeed_mPerS",    Napi::Number::New(env2, r.meanPistonSpeed_mPerS));
+          out.Set("airFuelRatio",             Napi::Number::New(env2, r.airFuelRatio));
+          return out;
+        });
+      }));
+    exports.Set("engperf", engNs);
+
+    // ---- Forge-330c — Daylight factor -------------------------------------
+    auto dlfacNs = Napi::Object::New(env);
+    dlfacNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::daylight::Input in{};
+          in.visibleTransmittance   = o.Get("visibleTransmittance").As<Napi::Number>().DoubleValue();
+          in.skyAngleDeg            = o.Get("skyAngleDeg").As<Napi::Number>().DoubleValue();
+          in.glazingArea_m2         = o.Get("glazingArea_m2").As<Napi::Number>().DoubleValue();
+          in.maintenanceFactor      = o.Get("maintenanceFactor").As<Napi::Number>().DoubleValue();
+          in.totalSurfaceArea_m2    = o.Get("totalSurfaceArea_m2").As<Napi::Number>().DoubleValue();
+          in.avgReflectance         = o.Get("avgReflectance").As<Napi::Number>().DoubleValue();
+          auto r = forge::daylight::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("daylightFactorPct",   Napi::Number::New(env2, r.daylightFactorPct));
+          out.Set("meetsLeed2pct",       Napi::Boolean::New(env2, r.meetsLeed2pct));
+          out.Set("meetsLeed3pct",       Napi::Boolean::New(env2, r.meetsLeed3pct));
+          return out;
+        });
+      }));
+    exports.Set("daylight", dlfacNs);
+
+    // ---- Forge-330d — Earthwork mass-haul ---------------------------------
+    auto mhaulNs = Napi::Object::New(env);
+    mhaulNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::masshaul::Input in{};
+          in.swellFactor      = o.Get("swellFactor").As<Napi::Number>().DoubleValue();
+          in.shrinkageFactor  = o.Get("shrinkageFactor").As<Napi::Number>().DoubleValue();
+          auto stationsJs     = o.Get("stations").As<Napi::Array>();
+          for (uint32_t i = 0; i < stationsJs.Length(); ++i) {
+              auto s = stationsJs.Get(i).As<Napi::Object>();
+              forge::masshaul::Station st{};
+              st.station_m       = s.Get("station_m").As<Napi::Number>().DoubleValue();
+              st.cutArea_m2      = s.Get("cutArea_m2").As<Napi::Number>().DoubleValue();
+              st.fillArea_m2     = s.Get("fillArea_m2").As<Napi::Number>().DoubleValue();
+              st.midCutArea_m2   = s.Has("midCutArea_m2")  ? s.Get("midCutArea_m2").As<Napi::Number>().DoubleValue()  : 0.0;
+              st.midFillArea_m2  = s.Has("midFillArea_m2") ? s.Get("midFillArea_m2").As<Napi::Number>().DoubleValue() : 0.0;
+              in.stations.push_back(st);
+          }
+          auto rmh = forge::masshaul::analyse(in);
+          auto& r = rmh;
+          auto out = Napi::Object::New(env2);
+          auto arr = Napi::Array::New(env2, r.cumulativeOrdinate_m3.size());
+          for (uint32_t i = 0; i < r.cumulativeOrdinate_m3.size(); ++i)
+              arr.Set(i, Napi::Number::New(env2, r.cumulativeOrdinate_m3[i]));
+          out.Set("cumulativeOrdinate_m3",  arr);
+          out.Set("totalCut_m3",            Napi::Number::New(env2, r.totalCut_m3));
+          out.Set("totalFillCompacted_m3",  Napi::Number::New(env2, r.totalFillCompacted_m3));
+          out.Set("totalFillLoose_m3",      Napi::Number::New(env2, r.totalFillLoose_m3));
+          out.Set("netBalance_m3",          Napi::Number::New(env2, r.netBalance_m3));
+          out.Set("maxOrdinate_m3",         Napi::Number::New(env2, r.maxOrdinate_m3));
+          out.Set("minOrdinate_m3",         Napi::Number::New(env2, r.minOrdinate_m3));
+          return out;
+        });
+      }));
+    exports.Set("masshaul", mhaulNs);
+
+    // ---- Forge-330e — Rail beam-on-elastic-foundation ---------------------
+    auto rblNs = Napi::Object::New(env);
+    rblNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::railbeam::Input in{};
+          in.wheelLoad_kN                  = o.Get("wheelLoad_kN").As<Napi::Number>().DoubleValue();
+          in.railE_GPa                     = o.Get("railE_GPa").As<Napi::Number>().DoubleValue();
+          in.railI_cm4                     = o.Get("railI_cm4").As<Napi::Number>().DoubleValue();
+          in.railSectionModulusBase_cm3    = o.Get("railSectionModulusBase_cm3").As<Napi::Number>().DoubleValue();
+          in.trackModulus_MPaPerM          = o.Get("trackModulus_MPaPerM").As<Napi::Number>().DoubleValue();
+          auto r = forge::railbeam::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("characteristicLength_m",   Napi::Number::New(env2, r.characteristicLength_m));
+          out.Set("maxRailDeflection_mm",     Napi::Number::New(env2, r.maxRailDeflection_mm));
+          out.Set("maxBendingMoment_kNm",     Napi::Number::New(env2, r.maxBendingMoment_kNm));
+          out.Set("maxRailStress_MPa",        Napi::Number::New(env2, r.maxRailStress_MPa));
+          return out;
+        });
+      }));
+    exports.Set("railbeam", rblNs);
 
     return exports;
 }

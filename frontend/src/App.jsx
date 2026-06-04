@@ -416,6 +416,13 @@ import {
   ConveyorWorkbenchHost,
   DriftWorkbenchHost,
 } from './forge-v4/Forge329BundleWorkbenches.jsx';
+import {
+  SlopeWorkbenchHost,
+  EnginePerfWorkbenchHost,
+  DaylightWorkbenchHost,
+  MassHaulWorkbenchHost,
+  RailBeamWorkbenchHost,
+} from './forge-v4/Forge330BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -703,6 +710,11 @@ function App() {
       <BoltedTimberWorkbenchHost />
       <ConveyorWorkbenchHost />
       <DriftWorkbenchHost />
+      <SlopeWorkbenchHost />
+      <EnginePerfWorkbenchHost />
+      <DaylightWorkbenchHost />
+      <MassHaulWorkbenchHost />
+      <RailBeamWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

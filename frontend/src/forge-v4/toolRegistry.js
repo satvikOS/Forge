@@ -243,6 +243,11 @@ export const CALCULATOR_TREE = [
           { id: 'boltedtimber',label: 'Bolted timber connection (NDS)…', slice: 'Forge-329' },
           { id: 'conveyor',    label: 'Conveyor belt power (CEMA)…', slice: 'Forge-329' },
           { id: 'drift',       label: 'Tall-building drift (ASCE 7 §12.12)…', slice: 'Forge-329' },
+          { id: 'slope',       label: 'Infinite-slope stability (Coulomb-Mohr)…', slice: 'Forge-330' },
+          { id: 'engperf',     label: 'IC engine BMEP / BSFC (Heywood)…', slice: 'Forge-330' },
+          { id: 'daylight',    label: 'Daylight factor (BS 8206 / LEED)…', slice: 'Forge-330' },
+          { id: 'masshaul',    label: 'Earthwork mass-haul (AEA)…', slice: 'Forge-330' },
+          { id: 'railbeam',    label: 'Rail beam-on-foundation (AREMA 16)…', slice: 'Forge-330' },
         ],
       },
       {

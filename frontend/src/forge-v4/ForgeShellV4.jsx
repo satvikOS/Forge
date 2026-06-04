@@ -1956,6 +1956,32 @@ export function ForgeShellV4() {
         setActiveWb('drift');
         window.__forgeOpenDriftWorkbench?.();
         return;
+      // Forge-330 bundle
+      case 'tools.slope':
+      case 'workbench.slope':
+        setActiveWb('slope');
+        window.__forgeOpenSlopeWorkbench?.();
+        return;
+      case 'tools.engperf':
+      case 'workbench.engperf':
+        setActiveWb('engperf');
+        window.__forgeOpenEnginePerfWorkbench?.();
+        return;
+      case 'tools.daylight':
+      case 'workbench.daylight':
+        setActiveWb('daylight');
+        window.__forgeOpenDaylightWorkbench?.();
+        return;
+      case 'tools.masshaul':
+      case 'workbench.masshaul':
+        setActiveWb('masshaul');
+        window.__forgeOpenMassHaulWorkbench?.();
+        return;
+      case 'tools.railbeam':
+      case 'workbench.railbeam':
+        setActiveWb('railbeam');
+        window.__forgeOpenRailBeamWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

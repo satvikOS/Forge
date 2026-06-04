@@ -312,6 +312,11 @@ add_library(forge_kernel SHARED
     src/BoltedTimber.cpp
     src/ConveyorPower.cpp
     src/DriftIndex.cpp
+    src/SlopeInfinite.cpp
+    src/EnginePerformance.cpp
+    src/DaylightFactor.cpp
+    src/MassHaul.cpp
+    src/RailBeam.cpp
     ${PLANEGCS_SRC}
 )
 

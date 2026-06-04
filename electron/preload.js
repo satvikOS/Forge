@@ -1052,6 +1052,13 @@ const forgeApi = {
   conveyor:     kernel && kernel.conveyor     ? { analyse: (i) => kernel.conveyor.analyse(i) }     : null,
   drift:        kernel && kernel.drift        ? { analyse: (i) => kernel.drift.analyse(i) }        : null,
 
+  // Forge-330 5-calc bundle
+  slope:        kernel && kernel.slope        ? { analyse: (i) => kernel.slope.analyse(i) }        : null,
+  engperf:      kernel && kernel.engperf      ? { analyse: (i) => kernel.engperf.analyse(i) }      : null,
+  daylight:     kernel && kernel.daylight     ? { analyse: (i) => kernel.daylight.analyse(i) }     : null,
+  masshaul:     kernel && kernel.masshaul     ? { analyse: (i) => kernel.masshaul.analyse(i) }     : null,
+  railbeam:     kernel && kernel.railbeam     ? { analyse: (i) => kernel.railbeam.analyse(i) }     : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
