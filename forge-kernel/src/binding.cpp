@@ -173,6 +173,11 @@
 #include "forge/SubstationGround.hpp"
 #include "forge/PileGroup.hpp"
 #include "forge/BasementUplift.hpp"
+#include "forge/RebarDevelopment.hpp"
+#include "forge/ChilledWaterPump.hpp"
+#include "forge/DieselGenset.hpp"
+#include "forge/ReverseOsmosis.hpp"
+#include "forge/EnvelopeUValue.hpp"
 
 #include <array>
 
@@ -10530,6 +10535,147 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("buoyancy", byNs);
+
+    // -------- Forge-320 5-calc bundle -----------------------------------
+    // Forge-320a Rebar development
+    auto rdNs = Napi::Object::New(env);
+    rdNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::rebardev::Input in{};
+          in.barDiameter_db_mm = o.Get("barDiameter_db_mm").As<Napi::Number>().DoubleValue();
+          in.fc_MPa            = o.Get("fc_MPa"           ).As<Napi::Number>().DoubleValue();
+          in.fy_MPa            = o.Get("fy_MPa"           ).As<Napi::Number>().DoubleValue();
+          in.psi_t             = o.Get("psi_t"            ).As<Napi::Number>().DoubleValue();
+          in.psi_e             = o.Get("psi_e"            ).As<Napi::Number>().DoubleValue();
+          in.psi_s             = o.Get("psi_s"            ).As<Napi::Number>().DoubleValue();
+          in.lambda            = o.Get("lambda"           ).As<Napi::Number>().DoubleValue();
+          in.clearCover_cb_mm  = o.Get("clearCover_cb_mm" ).As<Napi::Number>().DoubleValue();
+          in.Ktr_mm            = o.Get("Ktr_mm"           ).As<Napi::Number>().DoubleValue();
+          auto r = forge::rebardev::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cbKtrOverDb",         Napi::Number::New(env2, r.cbKtrOverDb));
+          out.Set("developmentLengthMm", Napi::Number::New(env2, r.developmentLengthMm));
+          out.Set("rawLengthMm",         Napi::Number::New(env2, r.rawLengthMm));
+          out.Set("minimumGoverned",     Napi::Boolean::New(env2, r.minimumGoverned));
+          return out;
+        });
+      }));
+    exports.Set("rebardev", rdNs);
+
+    // Forge-320b Chilled-water pump
+    auto chwNs = Napi::Object::New(env);
+    chwNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::chwpump::Input in{};
+          in.coolingLoadKw      = o.Get("coolingLoadKw"     ).As<Napi::Number>().DoubleValue();
+          in.designDeltaTKelvin = o.Get("designDeltaTKelvin").As<Napi::Number>().DoubleValue();
+          in.pumpHeadM          = o.Get("pumpHeadM"         ).As<Napi::Number>().DoubleValue();
+          in.pumpEfficiency     = o.Get("pumpEfficiency"    ).As<Napi::Number>().DoubleValue();
+          in.motorEfficiency    = o.Get("motorEfficiency"   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::chwpump::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("massFlowKgPerS",    Napi::Number::New(env2, r.massFlowKgPerS));
+          out.Set("volumeFlowLPerS",   Napi::Number::New(env2, r.volumeFlowLPerS));
+          out.Set("hydraulicPowerW",   Napi::Number::New(env2, r.hydraulicPowerW));
+          out.Set("pumpShaftPowerW",   Napi::Number::New(env2, r.pumpShaftPowerW));
+          out.Set("electricalPowerW",  Napi::Number::New(env2, r.electricalPowerW));
+          out.Set("overallEfficiency", Napi::Number::New(env2, r.overallEfficiency));
+          return out;
+        });
+      }));
+    exports.Set("chwpump", chwNs);
+
+    // Forge-320c Diesel genset
+    auto gsNs = Napi::Object::New(env);
+    gsNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::genset::Input in{};
+          in.connectedLoadKw        = o.Get("connectedLoadKw"       ).As<Napi::Number>().DoubleValue();
+          in.diversityFactor        = o.Get("diversityFactor"       ).As<Napi::Number>().DoubleValue();
+          in.powerFactor            = o.Get("powerFactor"           ).As<Napi::Number>().DoubleValue();
+          in.altitudeM              = o.Get("altitudeM"             ).As<Napi::Number>().DoubleValue();
+          in.ambientTempC           = o.Get("ambientTempC"          ).As<Napi::Number>().DoubleValue();
+          in.fuelConsumptionLPerKwh = o.Get("fuelConsumptionLPerKwh").As<Napi::Number>().DoubleValue();
+          in.designRuntimeHr        = o.Get("designRuntimeHr"       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::genset::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("altitudeDerateFactor",   Napi::Number::New(env2, r.altitudeDerateFactor));
+          out.Set("temperatureDerateFactor",Napi::Number::New(env2, r.temperatureDerateFactor));
+          out.Set("demandKvaRaw",           Napi::Number::New(env2, r.demandKvaRaw));
+          out.Set("requiredKvaNameplate",   Napi::Number::New(env2, r.requiredKvaNameplate));
+          out.Set("fuelTankLiters",         Napi::Number::New(env2, r.fuelTankLiters));
+          return out;
+        });
+      }));
+    exports.Set("genset", gsNs);
+
+    // Forge-320d Reverse osmosis
+    auto roNs = Napi::Object::New(env);
+    roNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::ro::Input in{};
+          in.feedFlowLpm        = o.Get("feedFlowLpm"       ).As<Napi::Number>().DoubleValue();
+          in.recoveryFraction   = o.Get("recoveryFraction"  ).As<Napi::Number>().DoubleValue();
+          in.feedTdsPpm         = o.Get("feedTdsPpm"        ).As<Napi::Number>().DoubleValue();
+          in.appliedPressureBar = o.Get("appliedPressureBar").As<Napi::Number>().DoubleValue();
+          in.temperatureC       = o.Get("temperatureC"      ).As<Napi::Number>().DoubleValue();
+          in.vantHoffFactorI    = o.Get("vantHoffFactorI"   ).As<Napi::Number>().DoubleValue();
+          auto r = forge::ro::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("permeateFlowLpm",           Napi::Number::New(env2, r.permeateFlowLpm));
+          out.Set("concentrateFlowLpm",        Napi::Number::New(env2, r.concentrateFlowLpm));
+          out.Set("concentrationFactor",       Napi::Number::New(env2, r.concentrationFactor));
+          out.Set("brineTdsPpm",               Napi::Number::New(env2, r.brineTdsPpm));
+          out.Set("averageOsmoticPressureKpa", Napi::Number::New(env2, r.averageOsmoticPressureKpa));
+          out.Set("netDrivingPressureKpa",     Napi::Number::New(env2, r.netDrivingPressureKpa));
+          out.Set("pressureSufficient",        Napi::Boolean::New(env2, r.pressureSufficient));
+          return out;
+        });
+      }));
+    exports.Set("reverseosmosis", roNs);
+
+    // Forge-320e Envelope U-value
+    auto uvNs = Napi::Object::New(env);
+    uvNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::uvalue::Input in{};
+          auto layersArr = o.Get("layers").As<Napi::Array>();
+          for (uint32_t i = 0; i < layersArr.Length(); ++i) {
+            auto lo = layersArr.Get(i).As<Napi::Object>();
+            forge::uvalue::Layer L{};
+            L.thicknessMm     = lo.Get("thicknessMm"    ).As<Napi::Number>().DoubleValue();
+            L.conductivityWmk = lo.Get("conductivityWmk").As<Napi::Number>().DoubleValue();
+            in.layers.push_back(L);
+          }
+          in.interiorFilmRSI    = o.Get("interiorFilmRSI"   ).As<Napi::Number>().DoubleValue();
+          in.exteriorFilmRSI    = o.Get("exteriorFilmRSI"   ).As<Napi::Number>().DoubleValue();
+          in.areaM2             = o.Get("areaM2"            ).As<Napi::Number>().DoubleValue();
+          in.designDeltaTKelvin = o.Get("designDeltaTKelvin").As<Napi::Number>().DoubleValue();
+          auto r = forge::uvalue::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("layerSumRSI", Napi::Number::New(env2, r.layerSumRSI));
+          out.Set("totalRSI",    Napi::Number::New(env2, r.totalRSI));
+          out.Set("uValueWm2K",  Napi::Number::New(env2, r.uValueWm2K));
+          out.Set("heatFlowW",   Napi::Number::New(env2, r.heatFlowW));
+          return out;
+        });
+      }));
+    exports.Set("envelope", uvNs);
 
     return exports;
 }

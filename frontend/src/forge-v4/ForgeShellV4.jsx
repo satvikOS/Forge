@@ -1696,6 +1696,32 @@ export function ForgeShellV4() {
         setActiveWb('buoyancy');
         window.__forgeOpenBasementUpliftWorkbench?.();
         return;
+      // Forge-320 bundle
+      case 'tools.rebardev':
+      case 'workbench.rebardev':
+        setActiveWb('rebardev');
+        window.__forgeOpenRebarDevWorkbench?.();
+        return;
+      case 'tools.chwpump':
+      case 'workbench.chwpump':
+        setActiveWb('chwpump');
+        window.__forgeOpenChWPumpWorkbench?.();
+        return;
+      case 'tools.genset':
+      case 'workbench.genset':
+        setActiveWb('genset');
+        window.__forgeOpenGensetWorkbench?.();
+        return;
+      case 'tools.reverseosmosis':
+      case 'workbench.reverseosmosis':
+        setActiveWb('reverseosmosis');
+        window.__forgeOpenROWorkbench?.();
+        return;
+      case 'tools.envelope':
+      case 'workbench.envelope':
+        setActiveWb('envelope');
+        window.__forgeOpenEnvelopeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

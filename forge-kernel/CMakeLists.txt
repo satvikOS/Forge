@@ -262,6 +262,11 @@ add_library(forge_kernel SHARED
     src/SubstationGround.cpp
     src/PileGroup.cpp
     src/BasementUplift.cpp
+    src/RebarDevelopment.cpp
+    src/ChilledWaterPump.cpp
+    src/DieselGenset.cpp
+    src/ReverseOsmosis.cpp
+    src/EnvelopeUValue.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -105,6 +105,7 @@ export const CALCULATOR_TREE = [
           { id: 'rcshear',    label: 'RC one-way shear (ACI 318-19 §22.5)…', slice: 'Forge-307' },
           { id: 'concretemix',label: 'Concrete mix design (ACI 211.1)…', slice: 'Forge-312' },
           { id: 'concretecreep', label: 'Creep + shrinkage (ACI 209R-92)…', slice: 'Forge-316' },
+          { id: 'rebardev',      label: 'Rebar development length (ACI §25.4.2)…', slice: 'Forge-320' },
         ],
       },
     ],
@@ -194,6 +195,9 @@ export const CALCULATOR_TREE = [
           { id: 'airfilter',   label: 'Air filter Δp + fan energy (ASHRAE 52.2)…', slice: 'Forge-294' },
           { id: 'coolingload', label: 'HVAC coil load (sensible + latent + SHR)…', slice: 'Forge-306' },
           { id: 'coolingtower',label: 'Cooling tower (range/approach/makeup)…', slice: 'Forge-308' },
+          { id: 'chwpump',     label: 'Chilled-water pump power (ASHRAE)…', slice: 'Forge-320' },
+          { id: 'reverseosmosis', label: 'Reverse osmosis (recovery + osmotic)…', slice: 'Forge-320' },
+          { id: 'envelope',    label: 'Building U-value envelope (ASHRAE)…', slice: 'Forge-320' },
         ],
       },
       {
@@ -345,6 +349,7 @@ export const CALCULATOR_TREE = [
           { id: 'cable',       label: 'Cable sizing (NEC 310 + IEC 60364)…', slice: 'Forge-252' },
           { id: 'voltagedrop', label: 'Voltage drop (NEC 215.2)…', slice: 'Forge-304' },
           { id: 'subgnd',      label: 'Substation grounding (IEEE 80 Sverak)…', slice: 'Forge-319' },
+          { id: 'genset',      label: 'Diesel genset sizing (kVA + fuel)…', slice: 'Forge-320' },
         ],
       },
       {

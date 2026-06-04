@@ -982,6 +982,13 @@ const forgeApi = {
   pilegroup:  kernel && kernel.pilegroup  ? { analyse: (i) => kernel.pilegroup.analyse(i) }  : null,
   buoyancy:   kernel && kernel.buoyancy   ? { analyse: (i) => kernel.buoyancy.analyse(i) }   : null,
 
+  // Forge-320 5-calc bundle
+  rebardev:       kernel && kernel.rebardev       ? { analyse: (i) => kernel.rebardev.analyse(i) }       : null,
+  chwpump:        kernel && kernel.chwpump        ? { analyse: (i) => kernel.chwpump.analyse(i) }        : null,
+  genset:         kernel && kernel.genset         ? { analyse: (i) => kernel.genset.analyse(i) }         : null,
+  reverseosmosis: kernel && kernel.reverseosmosis ? { analyse: (i) => kernel.reverseosmosis.analyse(i) } : null,
+  envelope:       kernel && kernel.envelope       ? { analyse: (i) => kernel.envelope.analyse(i) }       : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

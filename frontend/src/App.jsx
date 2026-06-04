@@ -337,6 +337,14 @@ import {
   PileGroupWorkbenchHost,
   BasementUpliftWorkbenchHost,
 } from './forge-v4/Forge319BundleWorkbenches.jsx';
+// Forge-320 5-calc bundle: rebar dev + ChW pump + genset + RO + U-value.
+import {
+  RebarDevWorkbenchHost,
+  ChilledWaterPumpWorkbenchHost,
+  GensetWorkbenchHost,
+  ReverseOsmosisWorkbenchHost,
+  EnvelopeWorkbenchHost,
+} from './forge-v4/Forge320BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -574,6 +582,11 @@ function App() {
       <SubstationGroundWorkbenchHost />
       <PileGroupWorkbenchHost />
       <BasementUpliftWorkbenchHost />
+      <RebarDevWorkbenchHost />
+      <ChilledWaterPumpWorkbenchHost />
+      <GensetWorkbenchHost />
+      <ReverseOsmosisWorkbenchHost />
+      <EnvelopeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
