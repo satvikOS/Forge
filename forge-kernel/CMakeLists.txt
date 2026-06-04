@@ -239,6 +239,7 @@ add_library(forge_kernel SHARED
     src/VehicleBraking.cpp
     src/Catenary.cpp
     src/DrumBrake.cpp
+    src/WireRope.cpp
     ${PLANEGCS_SRC}
 )
 

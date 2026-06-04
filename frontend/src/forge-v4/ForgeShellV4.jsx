@@ -1580,6 +1580,11 @@ export function ForgeShellV4() {
         setActiveWb('drumbrake');
         window.__forgeOpenDrumBrakeWorkbench?.();
         return;
+      case 'tools.wirerope':
+      case 'workbench.wirerope':
+        setActiveWb('wirerope');
+        window.__forgeOpenWireRopeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

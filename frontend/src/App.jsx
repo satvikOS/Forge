@@ -293,6 +293,8 @@ import { VehicleBrakingWorkbenchHost } from './forge-v4/VehicleBrakingWorkbench.
 import { CatenaryWorkbenchHost } from './forge-v4/CatenaryWorkbench.jsx';
 // Forge-300 — Drum brake (Shigley §16-3 short-shoe).
 import { DrumBrakeWorkbenchHost } from './forge-v4/DrumBrakeWorkbench.jsx';
+// Forge-301 — Wire rope FOS + bending fatigue (Shigley §17-7).
+import { WireRopeWorkbenchHost } from './forge-v4/WireRopeWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -507,6 +509,7 @@ function App() {
       <VehicleBrakingWorkbenchHost />
       <CatenaryWorkbenchHost />
       <DrumBrakeWorkbenchHost />
+      <WireRopeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

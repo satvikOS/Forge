@@ -885,6 +885,11 @@ const forgeApi = {
     analyse: (input) => kernel.drumbrake.analyse(input),
   } : null,
 
+  // wirerope (Forge-301) — Wire rope FOS + bending fatigue (Shigley §17-7).
+  wirerope: kernel && kernel.wirerope ? {
+    analyse: (input) => kernel.wirerope.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

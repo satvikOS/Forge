@@ -150,6 +150,7 @@
 #include "forge/VehicleBraking.hpp"
 #include "forge/Catenary.hpp"
 #include "forge/DrumBrake.hpp"
+#include "forge/WireRope.hpp"
 
 #include <array>
 
@@ -9830,6 +9831,42 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("drumbrake", drumNs);
+
+    // -------- Wire rope FOS + bending fatigue (Forge-301) ---------------
+    auto wropeNs = Napi::Object::New(env);
+    wropeNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::wirerope::Input in{};
+          in.ropeClass         = o.Get("ropeClass"        ).As<Napi::String>().Utf8Value();
+          in.applicationClass  = o.Get("applicationClass" ).As<Napi::String>().Utf8Value();
+          in.nominalDiameterMm = o.Get("nominalDiameterMm").As<Napi::Number>().DoubleValue();
+          in.workingLoadN      = o.Get("workingLoadN"     ).As<Napi::Number>().DoubleValue();
+          in.sheaveDiameterMm  = o.Get("sheaveDiameterMm" ).As<Napi::Number>().DoubleValue();
+          in.accelerationG     = o.Get("accelerationG"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::wirerope::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("breakingStrengthN",         Napi::Number::New(env2, r.breakingStrengthN));
+          out.Set("factorOfSafetyStatic",      Napi::Number::New(env2, r.factorOfSafetyStatic));
+          out.Set("factorOfSafetyDynamic",     Napi::Number::New(env2, r.factorOfSafetyDynamic));
+          out.Set("outerWireDiameterMm",       Napi::Number::New(env2, r.outerWireDiameterMm));
+          out.Set("bendingStressMPa",          Napi::Number::New(env2, r.bendingStressMPa));
+          out.Set("metallicAreaMm2",           Napi::Number::New(env2, r.metallicAreaMm2));
+          out.Set("equivalentBendingTensionN", Napi::Number::New(env2, r.equivalentBendingTensionN));
+          out.Set("totalEffectiveTensionN",    Napi::Number::New(env2, r.totalEffectiveTensionN));
+          out.Set("factorOfSafetyTotal",       Napi::Number::New(env2, r.factorOfSafetyTotal));
+          out.Set("sheaveRatio",               Napi::Number::New(env2, r.sheaveRatio));
+          out.Set("recommendedMinSheaveRatio", Napi::Number::New(env2, r.recommendedMinSheaveRatio));
+          out.Set("recommendedFOS",            Napi::Number::New(env2, r.recommendedFOS));
+          out.Set("sheavePasses",              Napi::Boolean::New(env2, r.sheavePasses));
+          out.Set("strengthPasses",            Napi::Boolean::New(env2, r.strengthPasses));
+          out.Set("passes",                    Napi::Boolean::New(env2, r.passes));
+          return out;
+        });
+      }));
+    exports.Set("wirerope", wropeNs);
 
     return exports;
 }
