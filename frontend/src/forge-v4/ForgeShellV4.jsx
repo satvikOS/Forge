@@ -1575,6 +1575,11 @@ export function ForgeShellV4() {
         setActiveWb('catenary');
         window.__forgeOpenCatenaryWorkbench?.();
         return;
+      case 'tools.drumbrake':
+      case 'workbench.drumbrake':
+        setActiveWb('drumbrake');
+        window.__forgeOpenDrumBrakeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

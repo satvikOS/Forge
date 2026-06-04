@@ -291,6 +291,8 @@ import { ConsolidationWorkbenchHost } from './forge-v4/ConsolidationWorkbench.js
 import { VehicleBrakingWorkbenchHost } from './forge-v4/VehicleBrakingWorkbench.jsx';
 // Forge-299 — Catenary cable sag-tension.
 import { CatenaryWorkbenchHost } from './forge-v4/CatenaryWorkbench.jsx';
+// Forge-300 — Drum brake (Shigley §16-3 short-shoe).
+import { DrumBrakeWorkbenchHost } from './forge-v4/DrumBrakeWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -504,6 +506,7 @@ function App() {
       <ConsolidationWorkbenchHost />
       <VehicleBrakingWorkbenchHost />
       <CatenaryWorkbenchHost />
+      <DrumBrakeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

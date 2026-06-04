@@ -149,6 +149,7 @@
 #include "forge/Consolidation.hpp"
 #include "forge/VehicleBraking.hpp"
 #include "forge/Catenary.hpp"
+#include "forge/DrumBrake.hpp"
 
 #include <array>
 
@@ -9802,6 +9803,33 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("catenary", catNs);
+
+    // -------- Drum brake short-shoe (Forge-300) -------------------------
+    auto drumNs = Napi::Object::New(env);
+    drumNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::drumbrake::Input in{};
+          in.leverForceP_N    = o.Get("leverForceP_N"   ).As<Napi::Number>().DoubleValue();
+          in.leverLength_c_m  = o.Get("leverLength_c_m" ).As<Napi::Number>().DoubleValue();
+          in.contactArm_a_m   = o.Get("contactArm_a_m"  ).As<Napi::Number>().DoubleValue();
+          in.drumRadius_r_m   = o.Get("drumRadius_r_m"  ).As<Napi::Number>().DoubleValue();
+          in.friction_mu      = o.Get("friction_mu"     ).As<Napi::Number>().DoubleValue();
+          in.selfEnergizing   = o.Get("selfEnergizing"  ).As<Napi::Boolean>().Value();
+          auto r = forge::drumbrake::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("normalForceN",        Napi::Number::New(env2, r.normalForceN));
+          out.Set("frictionForceN",      Napi::Number::New(env2, r.frictionForceN));
+          out.Set("brakingTorqueNm",     Napi::Number::New(env2, r.brakingTorqueNm));
+          out.Set("mechanicalAdvantage", Napi::Number::New(env2, r.mechanicalAdvantage));
+          out.Set("selfLockingMargin",   Napi::Number::New(env2, r.selfLockingMargin));
+          out.Set("selfLocked",          Napi::Boolean::New(env2, r.selfLocked));
+          return out;
+        });
+      }));
+    exports.Set("drumbrake", drumNs);
 
     return exports;
 }

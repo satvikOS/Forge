@@ -880,6 +880,11 @@ const forgeApi = {
     analyse: (input) => kernel.catenary.analyse(input),
   } : null,
 
+  // drumbrake (Forge-300) — Short-shoe block-on-drum brake (Shigley §16-3).
+  drumbrake: kernel && kernel.drumbrake ? {
+    analyse: (input) => kernel.drumbrake.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -238,6 +238,7 @@ add_library(forge_kernel SHARED
     src/Consolidation.cpp
     src/VehicleBraking.cpp
     src/Catenary.cpp
+    src/DrumBrake.cpp
     ${PLANEGCS_SRC}
 )
 
