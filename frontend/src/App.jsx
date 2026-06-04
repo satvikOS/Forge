@@ -325,6 +325,8 @@ import { AirPipeWorkbenchHost } from './forge-v4/AirPipeWorkbench.jsx';
 import { WindTurbineWorkbenchHost } from './forge-v4/WindTurbineWorkbench.jsx';
 // Forge-316 — Concrete creep + shrinkage (ACI 209R-92).
 import { ConcreteCreepWorkbenchHost } from './forge-v4/ConcreteCreepWorkbench.jsx';
+// Forge-317 — Stormwater detention basin (Modified Rational).
+import { DetentionBasinWorkbenchHost } from './forge-v4/DetentionBasinWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -555,6 +557,7 @@ function App() {
       <AirPipeWorkbenchHost />
       <WindTurbineWorkbenchHost />
       <ConcreteCreepWorkbenchHost />
+      <DetentionBasinWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

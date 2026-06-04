@@ -965,6 +965,11 @@ const forgeApi = {
     analyse: (input) => kernel.concretecreep.analyse(input),
   } : null,
 
+  // detention (Forge-317) — Stormwater detention basin (Modified Rational).
+  detention: kernel && kernel.detention ? {
+    analyse: (input) => kernel.detention.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

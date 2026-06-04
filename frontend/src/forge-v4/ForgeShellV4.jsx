@@ -1660,6 +1660,11 @@ export function ForgeShellV4() {
         setActiveWb('concretecreep');
         window.__forgeOpenConcreteCreepWorkbench?.();
         return;
+      case 'tools.detention':
+      case 'workbench.detention':
+        setActiveWb('detention');
+        window.__forgeOpenDetentionBasinWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

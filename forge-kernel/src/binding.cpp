@@ -166,6 +166,7 @@
 #include "forge/AirPipe.hpp"
 #include "forge/WindTurbine.hpp"
 #include "forge/ConcreteCreep.hpp"
+#include "forge/DetentionBasin.hpp"
 
 #include <array>
 
@@ -10334,6 +10335,35 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("concretecreep", crpNs);
+
+    // -------- Stormwater detention basin (Forge-317) --------------------
+    auto detNs = Napi::Object::New(env);
+    detNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::detention::Input in{};
+          in.areaHa                  = o.Get("areaHa"                 ).As<Napi::Number>().DoubleValue();
+          in.runoffCoeffPre          = o.Get("runoffCoeffPre"         ).As<Napi::Number>().DoubleValue();
+          in.runoffCoeffPost         = o.Get("runoffCoeffPost"        ).As<Napi::Number>().DoubleValue();
+          in.designIntensityMmHr     = o.Get("designIntensityMmHr"    ).As<Napi::Number>().DoubleValue();
+          in.allowableReleaseRatio   = o.Get("allowableReleaseRatio"  ).As<Napi::Number>().DoubleValue();
+          in.timeOfConcentrationMin  = o.Get("timeOfConcentrationMin" ).As<Napi::Number>().DoubleValue();
+          in.designStormDurationMin  = o.Get("designStormDurationMin" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::detention::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("areaM2",                  Napi::Number::New(env2, r.areaM2));
+          out.Set("preDevQM3PerS",           Napi::Number::New(env2, r.preDevQM3PerS));
+          out.Set("postDevQM3PerS",          Napi::Number::New(env2, r.postDevQM3PerS));
+          out.Set("allowableReleaseQM3PerS", Napi::Number::New(env2, r.allowableReleaseQM3PerS));
+          out.Set("detentionVolumeM3",       Napi::Number::New(env2, r.detentionVolumeM3));
+          out.Set("detentionVolumeAcreFt",   Napi::Number::New(env2, r.detentionVolumeAcreFt));
+          out.Set("detentionRequired",       Napi::Boolean::New(env2, r.detentionRequired));
+          return out;
+        });
+      }));
+    exports.Set("detention", detNs);
 
     return exports;
 }
