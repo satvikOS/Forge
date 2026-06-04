@@ -177,6 +177,11 @@
 #include "forge/ChilledWaterPump.hpp"
 #include "forge/DieselGenset.hpp"
 #include "forge/ReverseOsmosis.hpp"
+#include "forge/Ventilation.hpp"
+#include "forge/FirePump.hpp"
+#include "forge/SepticTank.hpp"
+#include "forge/Cyclone.hpp"
+#include "forge/StackEffect.hpp"
 #include "forge/EnvelopeUValue.hpp"
 
 #include <array>
@@ -10676,6 +10681,122 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("envelope", uvNs);
+
+    // -------- Forge-321 5-calc bundle -----------------------------------
+    auto vtNs = Napi::Object::New(env);
+    vtNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::ventilation::Input in{};
+          in.occupantsP                 = o.Get("occupantsP"               ).As<Napi::Number>().DoubleValue();
+          in.zoneAreaM2                 = o.Get("zoneAreaM2"               ).As<Napi::Number>().DoubleValue();
+          in.R_p_LpsPerPerson           = o.Get("R_p_LpsPerPerson"         ).As<Napi::Number>().DoubleValue();
+          in.R_a_LpsPerM2               = o.Get("R_a_LpsPerM2"             ).As<Napi::Number>().DoubleValue();
+          in.zoneAirDistEffectivenessE_z= o.Get("zoneAirDistEffectivenessE_z").As<Napi::Number>().DoubleValue();
+          auto r = forge::ventilation::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("breathingZoneFlowLps", Napi::Number::New(env2, r.breathingZoneFlowLps));
+          out.Set("outdoorAirFlowLps",    Napi::Number::New(env2, r.outdoorAirFlowLps));
+          out.Set("outdoorAirFlowCfm",    Napi::Number::New(env2, r.outdoorAirFlowCfm));
+          out.Set("perPersonOAcfm",       Napi::Number::New(env2, r.perPersonOAcfm));
+          return out;
+        });
+      }));
+    exports.Set("ventilation", vtNs);
+
+    auto fpNs = Napi::Object::New(env);
+    fpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::firepump::Input in{};
+          in.sprinklerDemandLpm  = o.Get("sprinklerDemandLpm" ).As<Napi::Number>().DoubleValue();
+          in.hoseAllowanceLpm    = o.Get("hoseAllowanceLpm"   ).As<Napi::Number>().DoubleValue();
+          in.staticHeadM         = o.Get("staticHeadM"        ).As<Napi::Number>().DoubleValue();
+          in.frictionLossM       = o.Get("frictionLossM"      ).As<Napi::Number>().DoubleValue();
+          in.residualPressureBar = o.Get("residualPressureBar").As<Napi::Number>().DoubleValue();
+          auto r = forge::firepump::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("ratedFlowLpm",                 Napi::Number::New(env2, r.ratedFlowLpm));
+          out.Set("ratedHeadM",                   Napi::Number::New(env2, r.ratedHeadM));
+          out.Set("ratedPressureBar",             Napi::Number::New(env2, r.ratedPressureBar));
+          out.Set("pump150PercentFlowLpm",        Napi::Number::New(env2, r.pump150PercentFlowLpm));
+          out.Set("pump150PercentMinPressureBar", Napi::Number::New(env2, r.pump150PercentMinPressureBar));
+          return out;
+        });
+      }));
+    exports.Set("firepump", fpNs);
+
+    auto stNs = Napi::Object::New(env);
+    stNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::septic::Input in{};
+          in.occupants             = o.Get("occupants"            ).As<Napi::Number>().Int32Value();
+          in.dailyFlowPerPersonL   = o.Get("dailyFlowPerPersonL"  ).As<Napi::Number>().DoubleValue();
+          in.retentionDays         = o.Get("retentionDays"        ).As<Napi::Number>().DoubleValue();
+          in.sludgeReserveFraction = o.Get("sludgeReserveFraction").As<Napi::Number>().DoubleValue();
+          auto r = forge::septic::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("dailyInflowL",    Napi::Number::New(env2, r.dailyInflowL));
+          out.Set("primaryStorageL", Napi::Number::New(env2, r.primaryStorageL));
+          out.Set("sludgeReserveL",  Napi::Number::New(env2, r.sludgeReserveL));
+          out.Set("totalVolumeL",    Napi::Number::New(env2, r.totalVolumeL));
+          out.Set("totalVolumeM3",   Napi::Number::New(env2, r.totalVolumeM3));
+          return out;
+        });
+      }));
+    exports.Set("septic", stNs);
+
+    auto cyNs = Napi::Object::New(env);
+    cyNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cyclone::Input in{};
+          in.inletVelocityMs        = o.Get("inletVelocityMs"       ).As<Napi::Number>().DoubleValue();
+          in.inletWidthM            = o.Get("inletWidthM"           ).As<Napi::Number>().DoubleValue();
+          in.numberOfTurns          = o.Get("numberOfTurns"         ).As<Napi::Number>().DoubleValue();
+          in.gasViscosityPaS        = o.Get("gasViscosityPaS"       ).As<Napi::Number>().DoubleValue();
+          in.particleDensityKgPerM3 = o.Get("particleDensityKgPerM3").As<Napi::Number>().DoubleValue();
+          in.gasDensityKgPerM3      = o.Get("gasDensityKgPerM3"     ).As<Napi::Number>().DoubleValue();
+          auto r = forge::cyclone::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cutDiameterUm", Napi::Number::New(env2, r.cutDiameterUm));
+          out.Set("cutDiameterM",  Napi::Number::New(env2, r.cutDiameterM));
+          return out;
+        });
+      }));
+    exports.Set("cyclone", cyNs);
+
+    auto stkNs = Napi::Object::New(env);
+    stkNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::stackeffect::Input in{};
+          in.stackHeightM    = o.Get("stackHeightM"   ).As<Napi::Number>().DoubleValue();
+          in.indoorTempC     = o.Get("indoorTempC"    ).As<Napi::Number>().DoubleValue();
+          in.outdoorTempC    = o.Get("outdoorTempC"   ).As<Napi::Number>().DoubleValue();
+          in.atmPressureKPa  = o.Get("atmPressureKPa" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::stackeffect::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("indoorDensityKgPerM3",          Napi::Number::New(env2, r.indoorDensityKgPerM3));
+          out.Set("outdoorDensityKgPerM3",         Napi::Number::New(env2, r.outdoorDensityKgPerM3));
+          out.Set("stackPressurePa",               Napi::Number::New(env2, r.stackPressurePa));
+          out.Set("stackPressurePascalAtMidHeight",Napi::Number::New(env2, r.stackPressurePascalAtMidHeight));
+          out.Set("airflowDirection",              Napi::Number::New(env2, r.airflowDirection));
+          return out;
+        });
+      }));
+    exports.Set("stackeffect", stkNs);
 
     return exports;
 }

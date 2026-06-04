@@ -198,6 +198,11 @@ export const CALCULATOR_TREE = [
           { id: 'chwpump',     label: 'Chilled-water pump power (ASHRAE)…', slice: 'Forge-320' },
           { id: 'reverseosmosis', label: 'Reverse osmosis (recovery + osmotic)…', slice: 'Forge-320' },
           { id: 'envelope',    label: 'Building U-value envelope (ASHRAE)…', slice: 'Forge-320' },
+          { id: 'ventilation', label: 'Ventilation rate (ASHRAE 62.1)…', slice: 'Forge-321' },
+          { id: 'firepump',    label: 'Fire pump (NFPA 20)…', slice: 'Forge-321' },
+          { id: 'septic',      label: 'Septic tank (residential)…', slice: 'Forge-321' },
+          { id: 'cyclone',     label: 'Cyclone separator (Lapple d_50)…', slice: 'Forge-321' },
+          { id: 'stackeffect', label: 'Stack-effect chimney draft…', slice: 'Forge-321' },
         ],
       },
       {

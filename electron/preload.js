@@ -989,6 +989,13 @@ const forgeApi = {
   reverseosmosis: kernel && kernel.reverseosmosis ? { analyse: (i) => kernel.reverseosmosis.analyse(i) } : null,
   envelope:       kernel && kernel.envelope       ? { analyse: (i) => kernel.envelope.analyse(i) }       : null,
 
+  // Forge-321 5-calc bundle
+  ventilation: kernel && kernel.ventilation ? { analyse: (i) => kernel.ventilation.analyse(i) } : null,
+  firepump:    kernel && kernel.firepump    ? { analyse: (i) => kernel.firepump.analyse(i) }    : null,
+  septic:      kernel && kernel.septic      ? { analyse: (i) => kernel.septic.analyse(i) }      : null,
+  cyclone:     kernel && kernel.cyclone     ? { analyse: (i) => kernel.cyclone.analyse(i) }     : null,
+  stackeffect: kernel && kernel.stackeffect ? { analyse: (i) => kernel.stackeffect.analyse(i) } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

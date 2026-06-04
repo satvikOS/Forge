@@ -345,6 +345,14 @@ import {
   ReverseOsmosisWorkbenchHost,
   EnvelopeWorkbenchHost,
 } from './forge-v4/Forge320BundleWorkbenches.jsx';
+// Forge-321 5-calc bundle: vent + fire pump + septic + cyclone + stack.
+import {
+  VentilationWorkbenchHost,
+  FirePumpWorkbenchHost,
+  SepticWorkbenchHost,
+  CycloneWorkbenchHost,
+  StackEffectWorkbenchHost,
+} from './forge-v4/Forge321BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -587,6 +595,11 @@ function App() {
       <GensetWorkbenchHost />
       <ReverseOsmosisWorkbenchHost />
       <EnvelopeWorkbenchHost />
+      <VentilationWorkbenchHost />
+      <FirePumpWorkbenchHost />
+      <SepticWorkbenchHost />
+      <CycloneWorkbenchHost />
+      <StackEffectWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

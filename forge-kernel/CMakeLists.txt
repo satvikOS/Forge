@@ -267,6 +267,11 @@ add_library(forge_kernel SHARED
     src/DieselGenset.cpp
     src/ReverseOsmosis.cpp
     src/EnvelopeUValue.cpp
+    src/Ventilation.cpp
+    src/FirePump.cpp
+    src/SepticTank.cpp
+    src/Cyclone.cpp
+    src/StackEffect.cpp
     ${PLANEGCS_SRC}
 )
 

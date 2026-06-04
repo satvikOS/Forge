@@ -1722,6 +1722,32 @@ export function ForgeShellV4() {
         setActiveWb('envelope');
         window.__forgeOpenEnvelopeWorkbench?.();
         return;
+      // Forge-321 bundle
+      case 'tools.ventilation':
+      case 'workbench.ventilation':
+        setActiveWb('ventilation');
+        window.__forgeOpenVentilationWorkbench?.();
+        return;
+      case 'tools.firepump':
+      case 'workbench.firepump':
+        setActiveWb('firepump');
+        window.__forgeOpenFirePumpWorkbench?.();
+        return;
+      case 'tools.septic':
+      case 'workbench.septic':
+        setActiveWb('septic');
+        window.__forgeOpenSepticWorkbench?.();
+        return;
+      case 'tools.cyclone':
+      case 'workbench.cyclone':
+        setActiveWb('cyclone');
+        window.__forgeOpenCycloneWorkbench?.();
+        return;
+      case 'tools.stackeffect':
+      case 'workbench.stackeffect':
+        setActiveWb('stackeffect');
+        window.__forgeOpenStackEffectWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
