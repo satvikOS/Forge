@@ -292,6 +292,11 @@ add_library(forge_kernel SHARED
     src/PlateBucklingLocal.cpp
     src/Ashrae62Residential.cpp
     src/WeldElectrode.cpp
+    src/ConcreteCover.cpp
+    src/MSEWall.cpp
+    src/HunterFlow.cpp
+    src/SolarCollector.cpp
+    src/ChimneyDraft.cpp
     ${PLANEGCS_SRC}
 )
 

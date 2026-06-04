@@ -1852,6 +1852,32 @@ export function ForgeShellV4() {
         setActiveWb('weldelectrode');
         window.__forgeOpenWeldElecWorkbench?.();
         return;
+      // Forge-326 bundle
+      case 'tools.cover':
+      case 'workbench.cover':
+        setActiveWb('cover');
+        window.__forgeOpenCoverWorkbench?.();
+        return;
+      case 'tools.mse':
+      case 'workbench.mse':
+        setActiveWb('mse');
+        window.__forgeOpenMSEWorkbench?.();
+        return;
+      case 'tools.hunter':
+      case 'workbench.hunter':
+        setActiveWb('hunter');
+        window.__forgeOpenHunterWorkbench?.();
+        return;
+      case 'tools.solarcollector':
+      case 'workbench.solarcollector':
+        setActiveWb('solarcollector');
+        window.__forgeOpenSolarCollWorkbench?.();
+        return;
+      case 'tools.chimney':
+      case 'workbench.chimney':
+        setActiveWb('chimney');
+        window.__forgeOpenChimneyWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

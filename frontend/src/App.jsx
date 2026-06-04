@@ -385,6 +385,14 @@ import {
   Ashrae62RWorkbenchHost,
   WeldElectrodeWorkbenchHost,
 } from './forge-v4/Forge325BundleWorkbenches.jsx';
+// Forge-326 5-calc bundle.
+import {
+  ConcreteCoverWorkbenchHost,
+  MSEWallWorkbenchHost,
+  HunterWorkbenchHost,
+  SolarCollectorWorkbenchHost,
+  ChimneyDraftWorkbenchHost,
+} from './forge-v4/Forge326BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -652,6 +660,11 @@ function App() {
       <PlateBucklingWorkbenchHost />
       <Ashrae62RWorkbenchHost />
       <WeldElectrodeWorkbenchHost />
+      <ConcreteCoverWorkbenchHost />
+      <MSEWallWorkbenchHost />
+      <HunterWorkbenchHost />
+      <SolarCollectorWorkbenchHost />
+      <ChimneyDraftWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

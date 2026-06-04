@@ -223,6 +223,11 @@ export const CALCULATOR_TREE = [
           { id: 'platebuck',   label: 'Plate buckling local (AISC §B4.1a)…', slice: 'Forge-325' },
           { id: 'ashrae62r',   label: 'ASHRAE 62.2 residential vent…', slice: 'Forge-325' },
           { id: 'weldelectrode', label: 'Weld electrode consumption (AWS)…', slice: 'Forge-325' },
+          { id: 'cover',       label: 'Concrete cover (ACI 318 §20.6)…', slice: 'Forge-326' },
+          { id: 'mse',         label: 'MSE retaining wall (FHWA)…', slice: 'Forge-326' },
+          { id: 'hunter',      label: 'Hunter fixture flow (plumbing)…', slice: 'Forge-326' },
+          { id: 'solarcollector', label: 'Solar thermal collector (Hottel-Whillier)…', slice: 'Forge-326' },
+          { id: 'chimney',     label: 'Chimney natural draft (ASHRAE Ch 35)…', slice: 'Forge-326' },
         ],
       },
       {

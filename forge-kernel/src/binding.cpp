@@ -203,6 +203,11 @@
 #include "forge/PlateBucklingLocal.hpp"
 #include "forge/Ashrae62Residential.hpp"
 #include "forge/WeldElectrode.hpp"
+#include "forge/ConcreteCover.hpp"
+#include "forge/MSEWall.hpp"
+#include "forge/HunterFlow.hpp"
+#include "forge/SolarCollector.hpp"
+#include "forge/ChimneyDraft.hpp"
 
 #include <array>
 
@@ -11276,6 +11281,120 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("weldelectrode", weNs);
+
+    // -------- Forge-326 5-calc bundle -----------------------------------
+    auto covNs = Napi::Object::New(env);
+    covNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cover::Input in{};
+          in.exposureCondition = o.Get("exposureCondition").As<Napi::String>().Utf8Value();
+          in.barSize           = o.Get("barSize"          ).As<Napi::String>().Utf8Value();
+          auto r = forge::cover::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("minimumCoverMm",     Napi::Number::New(env2, r.minimumCoverMm));
+          out.Set("exteriorFireRated",  Napi::Boolean::New(env2, r.exteriorFireRated));
+          return out;
+        });
+      }));
+    exports.Set("cover", covNs);
+
+    auto mseNs = Napi::Object::New(env);
+    mseNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::mse::Input in{};
+          in.wallHeightH_m              = o.Get("wallHeightH_m"             ).As<Napi::Number>().DoubleValue();
+          in.soilFrictionAngleDeg       = o.Get("soilFrictionAngleDeg"      ).As<Napi::Number>().DoubleValue();
+          in.foundationFrictionAngleDeg = o.Get("foundationFrictionAngleDeg").As<Napi::Number>().DoubleValue();
+          in.soilUnitWeightKnM3         = o.Get("soilUnitWeightKnM3"        ).As<Napi::Number>().DoubleValue();
+          in.reinforcementLengthM       = o.Get("reinforcementLengthM"      ).As<Napi::Number>().DoubleValue();
+          in.surchargeKnM2              = o.Get("surchargeKnM2"             ).As<Napi::Number>().DoubleValue();
+          auto r = forge::mse::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("K_active",                      Napi::Number::New(env2, r.K_active));
+          out.Set("drivingForceKnPerM",            Napi::Number::New(env2, r.drivingForceKnPerM));
+          out.Set("effectiveReinforcementLengthM", Napi::Number::New(env2, r.effectiveReinforcementLengthM));
+          out.Set("resistingForceKnPerM",          Napi::Number::New(env2, r.resistingForceKnPerM));
+          out.Set("slidingFOS",                    Napi::Number::New(env2, r.slidingFOS));
+          out.Set("meetsFOS",                      Napi::Boolean::New(env2, r.meetsFOS));
+          return out;
+        });
+      }));
+    exports.Set("mse", mseNs);
+
+    auto hntNs = Napi::Object::New(env);
+    hntNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::hunter::Input in{};
+          in.totalFixtureUnits = o.Get("totalFixtureUnits").As<Napi::Number>().DoubleValue();
+          in.flushValveMix     = o.Get("flushValveMix"    ).As<Napi::Boolean>().Value();
+          auto r = forge::hunter::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("designFlowGpm", Napi::Number::New(env2, r.designFlowGpm));
+          out.Set("designFlowLps", Napi::Number::New(env2, r.designFlowLps));
+          return out;
+        });
+      }));
+    exports.Set("hunter", hntNs);
+
+    auto solcolNs = Napi::Object::New(env);
+    solcolNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::solarcoll::Input in{};
+          in.collectorAreaM2                 = o.Get("collectorAreaM2"               ).As<Napi::Number>().DoubleValue();
+          in.opticalEfficiency_F_R_tau_alpha = o.Get("opticalEfficiency_F_R_tau_alpha").As<Napi::Number>().DoubleValue();
+          in.overallLossCoeff_U_L            = o.Get("overallLossCoeff_U_L"          ).As<Napi::Number>().DoubleValue();
+          in.F_R                             = o.Get("F_R"                           ).As<Napi::Number>().DoubleValue();
+          in.globalIrradianceWm2             = o.Get("globalIrradianceWm2"           ).As<Napi::Number>().DoubleValue();
+          in.inletTempC                      = o.Get("inletTempC"                    ).As<Napi::Number>().DoubleValue();
+          in.ambientTempC                    = o.Get("ambientTempC"                  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::solarcoll::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("usefulHeatGainW",         Napi::Number::New(env2, r.usefulHeatGainW));
+          out.Set("instantaneousEfficiency", Napi::Number::New(env2, r.instantaneousEfficiency));
+          out.Set("reducedTemperature",      Napi::Number::New(env2, r.reducedTemperature));
+          return out;
+        });
+      }));
+    exports.Set("solarcollector", solcolNs);
+
+    auto chmNs = Napi::Object::New(env);
+    chmNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::chimney::Input in{};
+          in.stackHeightM       = o.Get("stackHeightM"      ).As<Napi::Number>().DoubleValue();
+          in.flueDiameterM      = o.Get("flueDiameterM"     ).As<Napi::Number>().DoubleValue();
+          in.flueGasTempC       = o.Get("flueGasTempC"      ).As<Napi::Number>().DoubleValue();
+          in.ambientTempC       = o.Get("ambientTempC"      ).As<Napi::Number>().DoubleValue();
+          in.flueMassFlowKgPerS = o.Get("flueMassFlowKgPerS").As<Napi::Number>().DoubleValue();
+          in.atmPressureKPa     = o.Get("atmPressureKPa"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::chimney::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("rhoAmbient",        Napi::Number::New(env2, r.rhoAmbient));
+          out.Set("rhoFlue",           Napi::Number::New(env2, r.rhoFlue));
+          out.Set("availableDraftPa",  Napi::Number::New(env2, r.availableDraftPa));
+          out.Set("flueVelocityMs",    Napi::Number::New(env2, r.flueVelocityMs));
+          out.Set("frictionLossPa",    Napi::Number::New(env2, r.frictionLossPa));
+          out.Set("netDraftPa",        Napi::Number::New(env2, r.netDraftPa));
+          out.Set("draftAdequate",     Napi::Boolean::New(env2, r.draftAdequate));
+          return out;
+        });
+      }));
+    exports.Set("chimney", chmNs);
 
     return exports;
 }

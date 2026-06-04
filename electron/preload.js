@@ -1024,6 +1024,13 @@ const forgeApi = {
   ashrae62r:     kernel && kernel.ashrae62r     ? { analyse: (i) => kernel.ashrae62r.analyse(i) }     : null,
   weldelectrode: kernel && kernel.weldelectrode ? { analyse: (i) => kernel.weldelectrode.analyse(i) } : null,
 
+  // Forge-326 5-calc bundle
+  cover:          kernel && kernel.cover          ? { analyse: (i) => kernel.cover.analyse(i) }          : null,
+  mse:            kernel && kernel.mse            ? { analyse: (i) => kernel.mse.analyse(i) }            : null,
+  hunter:         kernel && kernel.hunter         ? { analyse: (i) => kernel.hunter.analyse(i) }         : null,
+  solarcollector: kernel && kernel.solarcollector ? { analyse: (i) => kernel.solarcollector.analyse(i) } : null,
+  chimney:        kernel && kernel.chimney        ? { analyse: (i) => kernel.chimney.analyse(i) }        : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
