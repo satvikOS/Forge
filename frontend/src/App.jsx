@@ -377,6 +377,14 @@ import {
   CraneRunwayWorkbenchHost,
   CMUCompressionWorkbenchHost,
 } from './forge-v4/Forge324BundleWorkbenches.jsx';
+// Forge-325 5-calc bundle.
+import {
+  PRVWorkbenchHost,
+  ExpansionTankWorkbenchHost,
+  PlateBucklingWorkbenchHost,
+  Ashrae62RWorkbenchHost,
+  WeldElectrodeWorkbenchHost,
+} from './forge-v4/Forge325BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -639,6 +647,11 @@ function App() {
       <SlabOneWayWorkbenchHost />
       <CraneRunwayWorkbenchHost />
       <CMUCompressionWorkbenchHost />
+      <PRVWorkbenchHost />
+      <ExpansionTankWorkbenchHost />
+      <PlateBucklingWorkbenchHost />
+      <Ashrae62RWorkbenchHost />
+      <WeldElectrodeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

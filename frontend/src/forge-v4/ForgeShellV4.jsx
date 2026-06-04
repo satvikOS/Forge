@@ -1826,6 +1826,32 @@ export function ForgeShellV4() {
         setActiveWb('cmucomp');
         window.__forgeOpenCMUWorkbench?.();
         return;
+      // Forge-325 bundle
+      case 'tools.prv':
+      case 'workbench.prv':
+        setActiveWb('prv');
+        window.__forgeOpenPRVWorkbench?.();
+        return;
+      case 'tools.expansiontank':
+      case 'workbench.expansiontank':
+        setActiveWb('expansiontank');
+        window.__forgeOpenExpTankWorkbench?.();
+        return;
+      case 'tools.platebuck':
+      case 'workbench.platebuck':
+        setActiveWb('platebuck');
+        window.__forgeOpenPlateBuckWorkbench?.();
+        return;
+      case 'tools.ashrae62r':
+      case 'workbench.ashrae62r':
+        setActiveWb('ashrae62r');
+        window.__forgeOpenAshrae62RWorkbench?.();
+        return;
+      case 'tools.weldelectrode':
+      case 'workbench.weldelectrode':
+        setActiveWb('weldelectrode');
+        window.__forgeOpenWeldElecWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

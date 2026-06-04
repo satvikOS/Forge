@@ -287,6 +287,11 @@ add_library(forge_kernel SHARED
     src/SlabOneWay.cpp
     src/CraneRunway.cpp
     src/CMUCompression.cpp
+    src/ReliefValve.cpp
+    src/ExpansionTank.cpp
+    src/PlateBucklingLocal.cpp
+    src/Ashrae62Residential.cpp
+    src/WeldElectrode.cpp
     ${PLANEGCS_SRC}
 )
 

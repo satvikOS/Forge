@@ -198,6 +198,11 @@
 #include "forge/SlabOneWay.hpp"
 #include "forge/CraneRunway.hpp"
 #include "forge/CMUCompression.hpp"
+#include "forge/ReliefValve.hpp"
+#include "forge/ExpansionTank.hpp"
+#include "forge/PlateBucklingLocal.hpp"
+#include "forge/Ashrae62Residential.hpp"
+#include "forge/WeldElectrode.hpp"
 
 #include <array>
 
@@ -11147,6 +11152,130 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("cmucomp", cmuNs);
+
+    // -------- Forge-325 5-calc bundle -----------------------------------
+    auto prvNs = Napi::Object::New(env);
+    prvNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::prv::Input in{};
+          in.mode                = o.Get("mode"               ).As<Napi::String>().Utf8Value();
+          in.inletPressureKpaAbs = o.Get("inletPressureKpaAbs").As<Napi::Number>().DoubleValue();
+          in.dischargeCoeffKd    = o.Get("dischargeCoeffKd"   ).As<Napi::Number>().DoubleValue();
+          in.massFlowKgPerH      = o.Get("massFlowKgPerH"     ).As<Napi::Number>().DoubleValue();
+          in.inletTempK          = o.Get("inletTempK"         ).As<Napi::Number>().DoubleValue();
+          in.molecularWeight     = o.Get("molecularWeight"    ).As<Napi::Number>().DoubleValue();
+          in.kRatio              = o.Get("kRatio"             ).As<Napi::Number>().DoubleValue();
+          in.volumeFlowLpm       = o.Get("volumeFlowLpm"      ).As<Napi::Number>().DoubleValue();
+          in.backPressureKpaAbs  = o.Get("backPressureKpaAbs" ).As<Napi::Number>().DoubleValue();
+          in.specificGravity     = o.Get("specificGravity"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::prv::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("gasCoefficientC",         Napi::Number::New(env2, r.gasCoefficientC));
+          out.Set("requiredOrificeAreaMm2",  Napi::Number::New(env2, r.requiredOrificeAreaMm2));
+          out.Set("standardLetterOrificeMm2",Napi::Number::New(env2, r.standardLetterOrificeMm2));
+          out.Set("nextStandardOrifice",     Napi::String::New(env2, r.nextStandardOrifice));
+          return out;
+        });
+      }));
+    exports.Set("prv", prvNs);
+
+    auto extNs = Napi::Object::New(env);
+    extNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::extank::Input in{};
+          in.systemVolumeLiters = o.Get("systemVolumeLiters").As<Napi::Number>().DoubleValue();
+          in.minTempC           = o.Get("minTempC"          ).As<Napi::Number>().DoubleValue();
+          in.maxTempC           = o.Get("maxTempC"          ).As<Napi::Number>().DoubleValue();
+          in.minPressureBarAbs  = o.Get("minPressureBarAbs" ).As<Napi::Number>().DoubleValue();
+          in.maxPressureBarAbs  = o.Get("maxPressureBarAbs" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::extank::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("densityMinKgPerM3",     Napi::Number::New(env2, r.densityMinKgPerM3));
+          out.Set("densityMaxKgPerM3",     Napi::Number::New(env2, r.densityMaxKgPerM3));
+          out.Set("expansionFraction",     Napi::Number::New(env2, r.expansionFraction));
+          out.Set("expansionVolumeLiters", Napi::Number::New(env2, r.expansionVolumeLiters));
+          out.Set("pressureFactor",        Napi::Number::New(env2, r.pressureFactor));
+          out.Set("tankVolumeLiters",      Napi::Number::New(env2, r.tankVolumeLiters));
+          return out;
+        });
+      }));
+    exports.Set("expansiontank", extNs);
+
+    auto pbNs = Napi::Object::New(env);
+    pbNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::platebuck::Input in{};
+          in.elementType = o.Get("elementType").As<Napi::String>().Utf8Value();
+          in.widthMm     = o.Get("widthMm"    ).As<Napi::Number>().DoubleValue();
+          in.thicknessMm = o.Get("thicknessMm").As<Napi::Number>().DoubleValue();
+          in.Fy_MPa      = o.Get("Fy_MPa"     ).As<Napi::Number>().DoubleValue();
+          in.E_MPa       = o.Get("E_MPa"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::platebuck::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("slenderness",    Napi::Number::New(env2, r.slenderness));
+          out.Set("lambdaR",        Napi::Number::New(env2, r.lambdaR));
+          out.Set("classification", Napi::String::New(env2, r.classification));
+          out.Set("Qs",             Napi::Number::New(env2, r.Qs));
+          return out;
+        });
+      }));
+    exports.Set("platebuck", pbNs);
+
+    auto a62rNs = Napi::Object::New(env);
+    a62rNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::ashrae62r::Input in{};
+          in.conditionedFloorAreaM2 = o.Get("conditionedFloorAreaM2").As<Napi::Number>().DoubleValue();
+          in.bedroomCount           = o.Get("bedroomCount"          ).As<Napi::Number>().Int32Value();
+          in.infiltrationCreditCfm  = o.Get("infiltrationCreditCfm" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::ashrae62r::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("requiredVentilationCfm", Napi::Number::New(env2, r.requiredVentilationCfm));
+          out.Set("netVentilationCfm",      Napi::Number::New(env2, r.netVentilationCfm));
+          out.Set("netVentilationLps",      Napi::Number::New(env2, r.netVentilationLps));
+          out.Set("complies",               Napi::Boolean::New(env2, r.complies));
+          return out;
+        });
+      }));
+    exports.Set("ashrae62r", a62rNs);
+
+    auto weNs = Napi::Object::New(env);
+    weNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::weldelec::Input in{};
+          in.weldType           = o.Get("weldType"          ).As<Napi::String>().Utf8Value();
+          in.sizeMm             = o.Get("sizeMm"            ).As<Napi::Number>().DoubleValue();
+          in.weldLengthM        = o.Get("weldLengthM"       ).As<Napi::Number>().DoubleValue();
+          in.processEfficiency  = o.Get("processEfficiency" ).As<Napi::Number>().DoubleValue();
+          in.electrodeCostPerKg = o.Get("electrodeCostPerKg").As<Napi::Number>().DoubleValue();
+          in.bevelAngleDeg      = o.Get("bevelAngleDeg"     ).As<Napi::Number>().DoubleValue();
+          in.rootGapMm          = o.Get("rootGapMm"         ).As<Napi::Number>().DoubleValue();
+          auto r = forge::weldelec::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("weldAreaMm2",     Napi::Number::New(env2, r.weldAreaMm2));
+          out.Set("weldVolumeM3",    Napi::Number::New(env2, r.weldVolumeM3));
+          out.Set("depositMassKg",   Napi::Number::New(env2, r.depositMassKg));
+          out.Set("electrodeMassKg", Napi::Number::New(env2, r.electrodeMassKg));
+          out.Set("electrodeCost",   Napi::Number::New(env2, r.electrodeCost));
+          return out;
+        });
+      }));
+    exports.Set("weldelectrode", weNs);
 
     return exports;
 }

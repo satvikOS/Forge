@@ -1017,6 +1017,13 @@ const forgeApi = {
   cranerunway: kernel && kernel.cranerunway ? { analyse: (i) => kernel.cranerunway.analyse(i) } : null,
   cmucomp:     kernel && kernel.cmucomp     ? { analyse: (i) => kernel.cmucomp.analyse(i) }     : null,
 
+  // Forge-325 5-calc bundle
+  prv:           kernel && kernel.prv           ? { analyse: (i) => kernel.prv.analyse(i) }           : null,
+  expansiontank: kernel && kernel.expansiontank ? { analyse: (i) => kernel.expansiontank.analyse(i) } : null,
+  platebuck:     kernel && kernel.platebuck     ? { analyse: (i) => kernel.platebuck.analyse(i) }     : null,
+  ashrae62r:     kernel && kernel.ashrae62r     ? { analyse: (i) => kernel.ashrae62r.analyse(i) }     : null,
+  weldelectrode: kernel && kernel.weldelectrode ? { analyse: (i) => kernel.weldelectrode.analyse(i) } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

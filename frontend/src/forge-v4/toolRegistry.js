@@ -218,6 +218,11 @@ export const CALCULATOR_TREE = [
           { id: 'slaboneway',  label: 'RC one-way slab (ACI 318)…', slice: 'Forge-324' },
           { id: 'cranerunway', label: 'Crane runway beam (AISC DG7)…', slice: 'Forge-324' },
           { id: 'cmucomp',     label: 'CMU compression (TMS 402)…', slice: 'Forge-324' },
+          { id: 'prv',         label: 'Relief valve API 520 (gas/liquid)…', slice: 'Forge-325' },
+          { id: 'expansiontank', label: 'Expansion tank · hydronic (ASHRAE)…', slice: 'Forge-325' },
+          { id: 'platebuck',   label: 'Plate buckling local (AISC §B4.1a)…', slice: 'Forge-325' },
+          { id: 'ashrae62r',   label: 'ASHRAE 62.2 residential vent…', slice: 'Forge-325' },
+          { id: 'weldelectrode', label: 'Weld electrode consumption (AWS)…', slice: 'Forge-325' },
         ],
       },
       {
