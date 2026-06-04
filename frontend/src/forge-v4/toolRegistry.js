@@ -233,6 +233,11 @@ export const CALCULATOR_TREE = [
           { id: 'snowpv',      label: 'Snow on PV array (ASCE 7-22 §7.13)…', slice: 'Forge-327' },
           { id: 'nrc',         label: 'NRC noise reduction (ASTM C423)…', slice: 'Forge-327' },
           { id: 'adiabatic',   label: 'Adiabatic compressor (P-T-η)…', slice: 'Forge-327' },
+          { id: 'mullion',     label: 'Curtain-wall mullion deflection (AAMA)…', slice: 'Forge-328' },
+          { id: 'sprinkler',   label: 'Sprinkler K-factor flow (NFPA 13)…', slice: 'Forge-328' },
+          { id: 'soundprop',   label: 'Sound L_w → L_p propagation (ISO 9613)…', slice: 'Forge-328' },
+          { id: 'isa',         label: 'Standard atmosphere (ICAO ISA)…', slice: 'Forge-328' },
+          { id: 'lpd',         label: 'LPD lighting power density (ASHRAE 90.1)…', slice: 'Forge-328' },
         ],
       },
       {

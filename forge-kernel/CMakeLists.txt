@@ -302,6 +302,11 @@ add_library(forge_kernel SHARED
     src/SnowOnPV.cpp
     src/NRCAcoustic.cpp
     src/AdiabaticCompressor.cpp
+    src/MullionDeflection.cpp
+    src/SprinklerK.cpp
+    src/SoundPropagation.cpp
+    src/StandardAtmosphere.cpp
+    src/Lighting901LPD.cpp
     ${PLANEGCS_SRC}
 )
 

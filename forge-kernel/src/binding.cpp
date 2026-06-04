@@ -213,6 +213,11 @@
 #include "forge/SnowOnPV.hpp"
 #include "forge/NRCAcoustic.hpp"
 #include "forge/AdiabaticCompressor.hpp"
+#include "forge/MullionDeflection.hpp"
+#include "forge/SprinklerK.hpp"
+#include "forge/SoundPropagation.hpp"
+#include "forge/StandardAtmosphere.hpp"
+#include "forge/Lighting901LPD.hpp"
 
 #include <array>
 
@@ -11517,6 +11522,115 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("adiabatic", acompNs);
+
+    // -------- Forge-328 5-calc bundle -----------------------------------
+    auto mulNs = Napi::Object::New(env);
+    mulNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::mullion::Input in{};
+          in.spanLengthMm           = o.Get("spanLengthMm"          ).As<Napi::Number>().DoubleValue();
+          in.windPressureKnM2       = o.Get("windPressureKnM2"      ).As<Napi::Number>().DoubleValue();
+          in.tributaryWidthMm       = o.Get("tributaryWidthMm"      ).As<Napi::Number>().DoubleValue();
+          in.E_MPa                  = o.Get("E_MPa"                 ).As<Napi::Number>().DoubleValue();
+          in.momentOfInertiaMm4     = o.Get("momentOfInertiaMm4"    ).As<Napi::Number>().DoubleValue();
+          in.deflectionLimitDivisor = o.Get("deflectionLimitDivisor").As<Napi::Number>().DoubleValue();
+          auto r = forge::mullion::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("linearLoadKnPerM",       Napi::Number::New(env2, r.linearLoadKnPerM));
+          out.Set("midspanDeflectionMm",    Napi::Number::New(env2, r.midspanDeflectionMm));
+          out.Set("deflectionLimitMm",      Napi::Number::New(env2, r.deflectionLimitMm));
+          out.Set("passes",                 Napi::Boolean::New(env2, r.passes));
+          return out;
+        });
+      }));
+    exports.Set("mullion", mulNs);
+
+    auto sprkNs = Napi::Object::New(env);
+    sprkNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::sprinkler::Input in{};
+          in.kFactorUSorMetric     = o.Get("kFactorUSorMetric"    ).As<Napi::Number>().DoubleValue();
+          in.metricInputs          = o.Get("metricInputs"         ).As<Napi::Boolean>().Value();
+          in.pressurePsi_or_bar    = o.Get("pressurePsi_or_bar"   ).As<Napi::Number>().DoubleValue();
+          in.designDensityMmPerMin = o.Get("designDensityMmPerMin").As<Napi::Number>().DoubleValue();
+          in.operationAreaM2       = o.Get("operationAreaM2"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::sprinkler::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("sprinklerFlowLpm",    Napi::Number::New(env2, r.sprinklerFlowLpm));
+          out.Set("sprinklerFlowGpm",    Napi::Number::New(env2, r.sprinklerFlowGpm));
+          out.Set("requiredAreaFlowLpm", Napi::Number::New(env2, r.requiredAreaFlowLpm));
+          out.Set("sprinklerOK",         Napi::Boolean::New(env2, r.sprinklerOK));
+          return out;
+        });
+      }));
+    exports.Set("sprinkler", sprkNs);
+
+    auto spropNs = Napi::Object::New(env);
+    spropNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::soundprop::Input in{};
+          in.soundPowerLevelDbW = o.Get("soundPowerLevelDbW").As<Napi::Number>().DoubleValue();
+          in.distanceM          = o.Get("distanceM"         ).As<Napi::Number>().DoubleValue();
+          in.directivityQ       = o.Get("directivityQ"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::soundprop::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("soundPressureLevelDbA", Napi::Number::New(env2, r.soundPressureLevelDbA));
+          out.Set("inverseSquareLossDb",   Napi::Number::New(env2, r.inverseSquareLossDb));
+          return out;
+        });
+      }));
+    exports.Set("soundprop", spropNs);
+
+    auto isaNs = Napi::Object::New(env);
+    isaNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::isa::Input in{};
+          in.altitudeM = o.Get("altitudeM").As<Napi::Number>().DoubleValue();
+          auto r = forge::isa::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("temperatureK",   Napi::Number::New(env2, r.temperatureK));
+          out.Set("temperatureC",   Napi::Number::New(env2, r.temperatureC));
+          out.Set("pressureKpa",    Napi::Number::New(env2, r.pressureKpa));
+          out.Set("densityKgM3",    Napi::Number::New(env2, r.densityKgM3));
+          out.Set("speedOfSoundMs", Napi::Number::New(env2, r.speedOfSoundMs));
+          return out;
+        });
+      }));
+    exports.Set("isa", isaNs);
+
+    auto lpdNs = Napi::Object::New(env);
+    lpdNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::lpd::Input in{};
+          in.spaceType        = o.Get("spaceType"       ).As<Napi::String>().Utf8Value();
+          in.floorAreaM2      = o.Get("floorAreaM2"     ).As<Napi::Number>().DoubleValue();
+          in.installedPowerW  = o.Get("installedPowerW" ).As<Napi::Number>().DoubleValue();
+          auto r = forge::lpd::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("allowanceWperM2",  Napi::Number::New(env2, r.allowanceWperM2));
+          out.Set("allowedPowerW",    Napi::Number::New(env2, r.allowedPowerW));
+          out.Set("overshootW",       Napi::Number::New(env2, r.overshootW));
+          out.Set("overshootPercent", Napi::Number::New(env2, r.overshootPercent));
+          out.Set("compliant",        Napi::Boolean::New(env2, r.compliant));
+          return out;
+        });
+      }));
+    exports.Set("lpd", lpdNs);
 
     return exports;
 }

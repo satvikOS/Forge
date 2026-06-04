@@ -1904,6 +1904,32 @@ export function ForgeShellV4() {
         setActiveWb('adiabatic');
         window.__forgeOpenAdiabaticCompWorkbench?.();
         return;
+      // Forge-328 bundle
+      case 'tools.mullion':
+      case 'workbench.mullion':
+        setActiveWb('mullion');
+        window.__forgeOpenMullionWorkbench?.();
+        return;
+      case 'tools.sprinkler':
+      case 'workbench.sprinkler':
+        setActiveWb('sprinkler');
+        window.__forgeOpenSprinklerWorkbench?.();
+        return;
+      case 'tools.soundprop':
+      case 'workbench.soundprop':
+        setActiveWb('soundprop');
+        window.__forgeOpenSoundPropWorkbench?.();
+        return;
+      case 'tools.isa':
+      case 'workbench.isa':
+        setActiveWb('isa');
+        window.__forgeOpenISAWorkbench?.();
+        return;
+      case 'tools.lpd':
+      case 'workbench.lpd':
+        setActiveWb('lpd');
+        window.__forgeOpenLPDWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

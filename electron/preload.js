@@ -1038,6 +1038,13 @@ const forgeApi = {
   nrc:         kernel && kernel.nrc         ? { analyse: (i) => kernel.nrc.analyse(i) }         : null,
   adiabatic:   kernel && kernel.adiabatic   ? { analyse: (i) => kernel.adiabatic.analyse(i) }   : null,
 
+  // Forge-328 5-calc bundle
+  mullion:   kernel && kernel.mullion   ? { analyse: (i) => kernel.mullion.analyse(i) }   : null,
+  sprinkler: kernel && kernel.sprinkler ? { analyse: (i) => kernel.sprinkler.analyse(i) } : null,
+  soundprop: kernel && kernel.soundprop ? { analyse: (i) => kernel.soundprop.analyse(i) } : null,
+  isa:       kernel && kernel.isa       ? { analyse: (i) => kernel.isa.analyse(i) }       : null,
+  lpd:       kernel && kernel.lpd       ? { analyse: (i) => kernel.lpd.analyse(i) }       : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

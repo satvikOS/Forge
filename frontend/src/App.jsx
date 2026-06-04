@@ -401,6 +401,14 @@ import {
   NRCWorkbenchHost,
   AdiabaticCompressorWorkbenchHost,
 } from './forge-v4/Forge327BundleWorkbenches.jsx';
+// Forge-328 5-calc bundle.
+import {
+  MullionWorkbenchHost,
+  SprinklerWorkbenchHost,
+  SoundPropWorkbenchHost,
+  ISAWorkbenchHost,
+  LPDWorkbenchHost,
+} from './forge-v4/Forge328BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -678,6 +686,11 @@ function App() {
       <SnowOnPVWorkbenchHost />
       <NRCWorkbenchHost />
       <AdiabaticCompressorWorkbenchHost />
+      <MullionWorkbenchHost />
+      <SprinklerWorkbenchHost />
+      <SoundPropWorkbenchHost />
+      <ISAWorkbenchHost />
+      <LPDWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
