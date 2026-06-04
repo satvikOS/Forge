@@ -900,6 +900,11 @@ const forgeApi = {
     analyse: (input) => kernel.hazenwilliams.analyse(input),
   } : null,
 
+  // voltagedrop (Forge-304) — Conductor voltage drop (NEC 215.2 / IEC 60364).
+  voltagedrop: kernel && kernel.voltagedrop ? {
+    analyse: (input) => kernel.voltagedrop.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

@@ -299,6 +299,8 @@ import { WireRopeWorkbenchHost } from './forge-v4/WireRopeWorkbench.jsx';
 import { WebShearWorkbenchHost } from './forge-v4/WebShearWorkbench.jsx';
 // Forge-303 — Hazen-Williams pipe friction (NFPA 13 / AWWA).
 import { HazenWilliamsWorkbenchHost } from './forge-v4/HazenWilliamsWorkbench.jsx';
+// Forge-304 — Cable voltage drop (NEC 215.2 / IEC 60364).
+import { VoltageDropWorkbenchHost } from './forge-v4/VoltageDropWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -516,6 +518,7 @@ function App() {
       <WireRopeWorkbenchHost />
       <WebShearWorkbenchHost />
       <HazenWilliamsWorkbenchHost />
+      <VoltageDropWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -325,7 +325,8 @@ export const CALCULATOR_TREE = [
       {
         label: 'Cable',
         items: [
-          { id: 'cable',    label: 'Cable sizing (NEC 310 + IEC 60364)…', slice: 'Forge-252' },
+          { id: 'cable',       label: 'Cable sizing (NEC 310 + IEC 60364)…', slice: 'Forge-252' },
+          { id: 'voltagedrop', label: 'Voltage drop (NEC 215.2)…', slice: 'Forge-304' },
         ],
       },
       {

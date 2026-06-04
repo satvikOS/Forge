@@ -1595,6 +1595,11 @@ export function ForgeShellV4() {
         setActiveWb('hazenwilliams');
         window.__forgeOpenHazenWilliamsWorkbench?.();
         return;
+      case 'tools.voltagedrop':
+      case 'workbench.voltagedrop':
+        setActiveWb('voltagedrop');
+        window.__forgeOpenVoltageDropWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

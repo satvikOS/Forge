@@ -242,6 +242,7 @@ add_library(forge_kernel SHARED
     src/WireRope.cpp
     src/WebShear.cpp
     src/HazenWilliams.cpp
+    src/VoltageDrop.cpp
     ${PLANEGCS_SRC}
 )
 

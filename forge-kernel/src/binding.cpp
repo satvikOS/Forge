@@ -153,6 +153,7 @@
 #include "forge/WireRope.hpp"
 #include "forge/WebShear.hpp"
 #include "forge/HazenWilliams.hpp"
+#include "forge/VoltageDrop.hpp"
 
 #include <array>
 
@@ -9930,6 +9931,38 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("hazenwilliams", hwNs);
+
+    // -------- Voltage drop NEC 215.2 (Forge-304) ------------------------
+    auto vdNs = Napi::Object::New(env);
+    vdNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::voltagedrop::Input in{};
+          in.conductor        = o.Get("conductor"       ).As<Napi::String>().Utf8Value();
+          in.phaseSystem      = o.Get("phaseSystem"     ).As<Napi::String>().Utf8Value();
+          in.crossSectionMm2  = o.Get("crossSectionMm2" ).As<Napi::Number>().DoubleValue();
+          in.currentA         = o.Get("currentA"        ).As<Napi::Number>().DoubleValue();
+          in.oneWayLengthM    = o.Get("oneWayLengthM"   ).As<Napi::Number>().DoubleValue();
+          in.nominalVoltageV  = o.Get("nominalVoltageV" ).As<Napi::Number>().DoubleValue();
+          in.powerFactor      = o.Get("powerFactor"     ).As<Napi::Number>().DoubleValue();
+          in.conductorTempC   = o.Get("conductorTempC"  ).As<Napi::Number>().DoubleValue();
+          in.reactancePerMOhm = o.Get("reactancePerMOhm").As<Napi::Number>().DoubleValue();
+          auto r = forge::voltagedrop::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("resistancePerMOhm",     Napi::Number::New(env2, r.resistancePerMOhm));
+          out.Set("reactancePerMOhmOut",   Napi::Number::New(env2, r.reactancePerMOhmOut));
+          out.Set("impedanceVoltageDropV", Napi::Number::New(env2, r.impedanceVoltageDropV));
+          out.Set("voltageDropV",          Napi::Number::New(env2, r.voltageDropV));
+          out.Set("voltageDropPercent",    Napi::Number::New(env2, r.voltageDropPercent));
+          out.Set("powerLossKw",           Napi::Number::New(env2, r.powerLossKw));
+          out.Set("meetsFeederLimit",      Napi::Boolean::New(env2, r.meetsFeederLimit));
+          out.Set("meetsCombinedLimit",    Napi::Boolean::New(env2, r.meetsCombinedLimit));
+          return out;
+        });
+      }));
+    exports.Set("voltagedrop", vdNs);
 
     return exports;
 }
