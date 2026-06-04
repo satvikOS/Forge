@@ -162,6 +162,7 @@
 #include "forge/BlockShear.hpp"
 #include "forge/SectionClass.hpp"
 #include "forge/ConcreteMix.hpp"
+#include "forge/SteamPipe.hpp"
 
 #include <array>
 
@@ -10214,6 +10215,33 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("concretemix", cmixNs);
+
+    // -------- Steam pipe sizing Spirax Sarco (Forge-313) ----------------
+    auto stpNs = Napi::Object::New(env);
+    stpNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::steampipe::Input in{};
+          in.steamPressureBarGauge = o.Get("steamPressureBarGauge").As<Napi::Number>().DoubleValue();
+          in.steamMassFlowKgPerH   = o.Get("steamMassFlowKgPerH"  ).As<Napi::Number>().DoubleValue();
+          in.velocityLimitMs       = o.Get("velocityLimitMs"      ).As<Napi::Number>().DoubleValue();
+          in.pipeLengthM           = o.Get("pipeLengthM"          ).As<Napi::Number>().DoubleValue();
+          auto r = forge::steampipe::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("saturationTempC",         Napi::Number::New(env2, r.saturationTempC));
+          out.Set("specificVolumeM3PerKg",   Napi::Number::New(env2, r.specificVolumeM3PerKg));
+          out.Set("requiredAreaMm2",         Napi::Number::New(env2, r.requiredAreaMm2));
+          out.Set("requiredDiameterMm",      Napi::Number::New(env2, r.requiredDiameterMm));
+          out.Set("standardDN",              Napi::Number::New(env2, r.standardDN));
+          out.Set("actualVelocityMs",        Napi::Number::New(env2, r.actualVelocityMs));
+          out.Set("pressureDropBarPer100m",  Napi::Number::New(env2, r.pressureDropBarPer100m));
+          out.Set("totalPressureDropBar",    Napi::Number::New(env2, r.totalPressureDropBar));
+          return out;
+        });
+      }));
+    exports.Set("steampipe", stpNs);
 
     return exports;
 }

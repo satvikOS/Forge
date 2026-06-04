@@ -251,6 +251,7 @@ add_library(forge_kernel SHARED
     src/BlockShear.cpp
     src/SectionClass.cpp
     src/ConcreteMix.cpp
+    src/SteamPipe.cpp
     ${PLANEGCS_SRC}
 )
 

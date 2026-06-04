@@ -1640,6 +1640,11 @@ export function ForgeShellV4() {
         setActiveWb('concretemix');
         window.__forgeOpenConcreteMixWorkbench?.();
         return;
+      case 'tools.steampipe':
+      case 'workbench.steampipe':
+        setActiveWb('steampipe');
+        window.__forgeOpenSteamPipeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

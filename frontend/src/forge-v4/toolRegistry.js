@@ -177,6 +177,7 @@ export const CALCULATOR_TREE = [
           { id: 'orifice',   label: 'Orifice plate (ISO 5167-2 flow meter)…', slice: 'Forge-266' },
           { id: 'pitot',     label: 'Pitot tube velocity (incompressible)…', slice: 'Forge-288' },
           { id: 'hazenwilliams', label: 'Hazen-Williams friction (NFPA 13 / AWWA)…', slice: 'Forge-303' },
+          { id: 'steampipe',     label: 'Saturated steam pipe (Spirax Sarco)…', slice: 'Forge-313' },
         ],
       },
       {

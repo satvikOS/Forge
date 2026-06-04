@@ -945,6 +945,11 @@ const forgeApi = {
     analyse: (input) => kernel.concretemix.analyse(input),
   } : null,
 
+  // steampipe (Forge-313) — Saturated-steam pipe sizing (Spirax Sarco).
+  steampipe: kernel && kernel.steampipe ? {
+    analyse: (input) => kernel.steampipe.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

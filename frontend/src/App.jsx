@@ -317,6 +317,8 @@ import { BlockShearWorkbenchHost } from './forge-v4/BlockShearWorkbench.jsx';
 import { SectionClassWorkbenchHost } from './forge-v4/SectionClassWorkbench.jsx';
 // Forge-312 — Concrete mix design (ACI 211.1).
 import { ConcreteMixWorkbenchHost } from './forge-v4/ConcreteMixWorkbench.jsx';
+// Forge-313 — Steam pipe sizing (Spirax Sarco).
+import { SteamPipeWorkbenchHost } from './forge-v4/SteamPipeWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -543,6 +545,7 @@ function App() {
       <BlockShearWorkbenchHost />
       <SectionClassWorkbenchHost />
       <ConcreteMixWorkbenchHost />
+      <SteamPipeWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />
