@@ -145,6 +145,7 @@
 #include "forge/CraneHook.hpp"
 #include "forge/AirFilter.hpp"
 #include "forge/FinArray.hpp"
+#include "forge/HeadedStud.hpp"
 
 #include <array>
 
@@ -9684,6 +9685,37 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("finarray", finarrNs);
+
+    // -------- Headed shear stud (Forge-296) -----------------------------
+    auto hsNs = Napi::Object::New(env);
+    hsNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::headedstud::Input in{};
+          in.studDiameterMm           = o.Get("studDiameterMm"          ).As<Napi::Number>().DoubleValue();
+          in.concreteStrengthMPa      = o.Get("concreteStrengthMPa"     ).As<Napi::Number>().DoubleValue();
+          in.concreteUnitWeightKgM3   = o.Get("concreteUnitWeightKgM3"  ).As<Napi::Number>().DoubleValue();
+          in.studUltimateStressMPa    = o.Get("studUltimateStressMPa"   ).As<Napi::Number>().DoubleValue();
+          in.groupFactorRg            = o.Get("groupFactorRg"           ).As<Napi::Number>().DoubleValue();
+          in.positionFactorRp         = o.Get("positionFactorRp"        ).As<Napi::Number>().DoubleValue();
+          in.studCount                = o.Get("studCount"               ).As<Napi::Number>().Int32Value();
+          in.requiredHorizShearKN     = o.Get("requiredHorizShearKN"    ).As<Napi::Number>().DoubleValue();
+          auto r = forge::headedstud::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("studAreaMm2",         Napi::Number::New(env2, r.studAreaMm2));
+          out.Set("concreteModulusMPa",  Napi::Number::New(env2, r.concreteModulusMPa));
+          out.Set("qNominalConcreteN",   Napi::Number::New(env2, r.qNominalConcreteN));
+          out.Set("qNominalSteelN",      Napi::Number::New(env2, r.qNominalSteelN));
+          out.Set("qNominalSingleN",     Napi::Number::New(env2, r.qNominalSingleN));
+          out.Set("totalCapacityKN",     Napi::Number::New(env2, r.totalCapacityKN));
+          out.Set("demandCapacityRatio", Napi::Number::New(env2, r.demandCapacityRatio));
+          out.Set("passes",              Napi::Boolean::New(env2, r.passes));
+          return out;
+        });
+      }));
+    exports.Set("headedstud", hsNs);
 
     return exports;
 }

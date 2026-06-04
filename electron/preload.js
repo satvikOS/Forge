@@ -860,6 +860,11 @@ const forgeApi = {
     analyse: (input) => kernel.finarray.analyse(input),
   } : null,
 
+  // headedstud (Forge-296) — Headed shear stud connector (AISC 360-22 §I8).
+  headedstud: kernel && kernel.headedstud ? {
+    analyse: (input) => kernel.headedstud.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

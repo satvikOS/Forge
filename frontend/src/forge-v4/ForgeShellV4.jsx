@@ -1552,6 +1552,12 @@ export function ForgeShellV4() {
         setActiveWb('finarray');
         window.__forgeOpenFinArrayWorkbench?.();
         return;
+      // Forge-296 — Headed shear stud connector.
+      case 'tools.headedstud':
+      case 'workbench.headedstud':
+        setActiveWb('headedstud');
+        window.__forgeOpenHeadedStudWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

@@ -234,6 +234,7 @@ add_library(forge_kernel SHARED
     src/CraneHook.cpp
     src/AirFilter.cpp
     src/FinArray.cpp
+    src/HeadedStud.cpp
     ${PLANEGCS_SRC}
 )
 
