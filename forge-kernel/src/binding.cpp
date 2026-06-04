@@ -268,6 +268,11 @@
 #include "forge/AdiabaticFlame.hpp"
 #include "forge/MSEPullout.hpp"
 #include "forge/BayesUpdate.hpp"
+#include "forge/RunoffCN.hpp"
+#include "forge/Waveguide.hpp"
+#include "forge/SluiceGate.hpp"
+#include "forge/Knock.hpp"
+#include "forge/ProjectNPV.hpp"
 
 #include <array>
 
@@ -13147,6 +13152,144 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("bayes", bayesNs);
+
+    // ---- Forge-339a — NRCS TR-55 Curve-Number runoff -----------------------
+    auto cnNs = Napi::Object::New(env);
+    cnNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::cn::Input in{};
+          in.curveNumber_CN          = o.Get("curveNumber_CN").As<Napi::Number>().DoubleValue();
+          in.rainfall_P_mm           = o.Get("rainfall_P_mm").As<Napi::Number>().DoubleValue();
+          in.drainageArea_km2        = o.Get("drainageArea_km2").As<Napi::Number>().DoubleValue();
+          in.timeOfConcentration_Tc_h= o.Get("timeOfConcentration_Tc_h").As<Napi::Number>().DoubleValue();
+          auto r = forge::cn::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("maxRetention_S_mm",        Napi::Number::New(env2, r.maxRetention_S_mm));
+          out.Set("initialAbstraction_Ia_mm", Napi::Number::New(env2, r.initialAbstraction_Ia_mm));
+          out.Set("runoffDepth_Q_mm",         Napi::Number::New(env2, r.runoffDepth_Q_mm));
+          out.Set("runoffVolume_m3",          Napi::Number::New(env2, r.runoffVolume_m3));
+          out.Set("peakFlow_qp_m3PerS",       Napi::Number::New(env2, r.peakFlow_qp_m3PerS));
+          return out;
+        });
+      }));
+    exports.Set("cn", cnNs);
+
+    // ---- Forge-339b — Rectangular waveguide TE/TM modes --------------------
+    auto wvgNs = Napi::Object::New(env);
+    wvgNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::waveguide::Input in{};
+          in.broadDim_a_mm        = o.Get("broadDim_a_mm").As<Napi::Number>().DoubleValue();
+          in.narrowDim_b_mm       = o.Get("narrowDim_b_mm").As<Napi::Number>().DoubleValue();
+          in.dielectric_eps_r     = o.Get("dielectric_eps_r").As<Napi::Number>().DoubleValue();
+          in.operatingFreq_GHz    = o.Get("operatingFreq_GHz").As<Napi::Number>().DoubleValue();
+          in.modeM                = o.Get("modeM").As<Napi::Number>().Int32Value();
+          in.modeN                = o.Get("modeN").As<Napi::Number>().Int32Value();
+          auto r = forge::waveguide::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("cutoffFreq_GHz",            Napi::Number::New(env2, r.cutoffFreq_GHz));
+          out.Set("cutoffWavelength_mm",       Napi::Number::New(env2, r.cutoffWavelength_mm));
+          out.Set("phaseConstant_beta_perM",   Napi::Number::New(env2, r.phaseConstant_beta_perM));
+          out.Set("guidedWavelength_mm",       Napi::Number::New(env2, r.guidedWavelength_mm));
+          out.Set("groupVelocity_mps",         Napi::Number::New(env2, r.groupVelocity_mps));
+          out.Set("isPropagating",             Napi::Boolean::New(env2, r.isPropagating));
+          return out;
+        });
+      }));
+    exports.Set("waveguide", wvgNs);
+
+    // ---- Forge-339c — Sluice gate underflow discharge ----------------------
+    auto slcNs = Napi::Object::New(env);
+    slcNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::sluice::Input in{};
+          in.gateOpening_a_m     = o.Get("gateOpening_a_m").As<Napi::Number>().DoubleValue();
+          in.upstreamHead_h_m    = o.Get("upstreamHead_h_m").As<Napi::Number>().DoubleValue();
+          in.gateWidth_b_m       = o.Get("gateWidth_b_m").As<Napi::Number>().DoubleValue();
+          in.tailwaterDepth_yt_m = o.Get("tailwaterDepth_yt_m").As<Napi::Number>().DoubleValue();
+          in.useContractedCd     = o.Get("useContractedCd").As<Napi::Boolean>().Value();
+          auto r = forge::sluice::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("dischargeCoefficient_Cd", Napi::Number::New(env2, r.dischargeCoefficient_Cd));
+          out.Set("specificDischarge_qPerM", Napi::Number::New(env2, r.specificDischarge_qPerM));
+          out.Set("totalDischarge_Q_m3s",    Napi::Number::New(env2, r.totalDischarge_Q_m3s));
+          out.Set("venaContracta_y2_m",      Napi::Number::New(env2, r.venaContracta_y2_m));
+          out.Set("isSubmerged",             Napi::Boolean::New(env2, r.isSubmerged));
+          return out;
+        });
+      }));
+    exports.Set("sluice", slcNs);
+
+    // ---- Forge-339d — SI engine knock margin -------------------------------
+    auto kncNs = Napi::Object::New(env);
+    kncNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::knock::Input in{};
+          in.compressionRatio            = o.Get("compressionRatio").As<Napi::Number>().DoubleValue();
+          in.intakeTemp_T1_K             = o.Get("intakeTemp_T1_K").As<Napi::Number>().DoubleValue();
+          in.intakePressure_p1_kPa       = o.Get("intakePressure_p1_kPa").As<Napi::Number>().DoubleValue();
+          in.specificHeatRatio_gamma     = o.Get("specificHeatRatio_gamma").As<Napi::Number>().DoubleValue();
+          in.octaneRON                   = o.Get("octaneRON").As<Napi::Number>().DoubleValue();
+          in.octaneMON                   = o.Get("octaneMON").As<Napi::Number>().DoubleValue();
+          in.criticalAutoignition_Ta_K   = o.Get("criticalAutoignition_Ta_K").As<Napi::Number>().DoubleValue();
+          auto r = forge::knock::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("endGasTemp_T2_K",       Napi::Number::New(env2, r.endGasTemp_T2_K));
+          out.Set("endGasPressure_p2_kPa", Napi::Number::New(env2, r.endGasPressure_p2_kPa));
+          out.Set("knockLimitedCR",        Napi::Number::New(env2, r.knockLimitedCR));
+          out.Set("antiKnockIndex",        Napi::Number::New(env2, r.antiKnockIndex));
+          out.Set("octaneMargin",          Napi::Number::New(env2, r.octaneMargin));
+          out.Set("willKnock",             Napi::Boolean::New(env2, r.willKnock));
+          return out;
+        });
+      }));
+    exports.Set("knock", kncNs);
+
+    // ---- Forge-339e — Project NPV / IRR / LCOE -----------------------------
+    auto npvNs = Napi::Object::New(env);
+    npvNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::npv::Input in{};
+          in.initialCapex_USD = o.Get("initialCapex_USD").As<Napi::Number>().DoubleValue();
+          in.discountRate_pct = o.Get("discountRate_pct").As<Napi::Number>().DoubleValue();
+          auto cf = o.Get("cashflows_USD").As<Napi::Array>();
+          for (uint32_t i = 0; i < cf.Length(); ++i)
+              in.cashflows_USD.push_back(cf.Get(i).As<Napi::Number>().DoubleValue());
+          if (o.Has("annualEnergy_kWh")) {
+              auto eg = o.Get("annualEnergy_kWh").As<Napi::Array>();
+              for (uint32_t i = 0; i < eg.Length(); ++i)
+                  in.annualEnergy_kWh.push_back(eg.Get(i).As<Napi::Number>().DoubleValue());
+          }
+          if (o.Has("annualOpex_USD")) {
+              auto op = o.Get("annualOpex_USD").As<Napi::Array>();
+              for (uint32_t i = 0; i < op.Length(); ++i)
+                  in.annualOpex_USD.push_back(op.Get(i).As<Napi::Number>().DoubleValue());
+          }
+          auto r = forge::npv::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("NPV_USD",         Napi::Number::New(env2, r.NPV_USD));
+          out.Set("IRR_pct",         Napi::Number::New(env2, r.IRR_pct));
+          out.Set("paybackYears",    Napi::Number::New(env2, r.paybackYears));
+          out.Set("LCOE_USDperKWh",  Napi::Number::New(env2, r.LCOE_USDperKWh));
+          return out;
+        });
+      }));
+    exports.Set("npv", npvNs);
 
     return exports;
 }

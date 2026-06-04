@@ -1115,6 +1115,13 @@ const forgeApi = {
   msepull:      kernel && kernel.msepull      ? { analyse: (i) => kernel.msepull.analyse(i) }      : null,
   bayes:        kernel && kernel.bayes        ? { analyse: (i) => kernel.bayes.analyse(i) }        : null,
 
+  // Forge-339 5-calc bundle
+  cn:           kernel && kernel.cn           ? { analyse: (i) => kernel.cn.analyse(i) }           : null,
+  waveguide:    kernel && kernel.waveguide    ? { analyse: (i) => kernel.waveguide.analyse(i) }    : null,
+  sluice:       kernel && kernel.sluice       ? { analyse: (i) => kernel.sluice.analyse(i) }       : null,
+  knock:        kernel && kernel.knock        ? { analyse: (i) => kernel.knock.analyse(i) }        : null,
+  npv:          kernel && kernel.npv          ? { analyse: (i) => kernel.npv.analyse(i) }          : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

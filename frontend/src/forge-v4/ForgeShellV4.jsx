@@ -2190,6 +2190,32 @@ export function ForgeShellV4() {
         setActiveWb('bayes');
         window.__forgeOpenBayesWorkbench?.();
         return;
+      // Forge-339 bundle
+      case 'tools.cn':
+      case 'workbench.cn':
+        setActiveWb('cn');
+        window.__forgeOpenCNWorkbench?.();
+        return;
+      case 'tools.waveguide':
+      case 'workbench.waveguide':
+        setActiveWb('waveguide');
+        window.__forgeOpenWaveguideWorkbench?.();
+        return;
+      case 'tools.sluice':
+      case 'workbench.sluice':
+        setActiveWb('sluice');
+        window.__forgeOpenSluiceWorkbench?.();
+        return;
+      case 'tools.knock':
+      case 'workbench.knock':
+        setActiveWb('knock');
+        window.__forgeOpenKnockWorkbench?.();
+        return;
+      case 'tools.npv':
+      case 'workbench.npv':
+        setActiveWb('npv');
+        window.__forgeOpenNPVWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

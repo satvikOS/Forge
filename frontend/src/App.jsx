@@ -479,6 +479,13 @@ import {
   MSEPullWorkbenchHost,
   BayesWorkbenchHost,
 } from './forge-v4/Forge338BundleWorkbenches.jsx';
+import {
+  CNWorkbenchHost,
+  WaveguideWorkbenchHost,
+  SluiceWorkbenchHost,
+  KnockWorkbenchHost,
+  NPVWorkbenchHost,
+} from './forge-v4/Forge339BundleWorkbenches.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -811,6 +818,11 @@ function App() {
       <FlameWorkbenchHost />
       <MSEPullWorkbenchHost />
       <BayesWorkbenchHost />
+      <CNWorkbenchHost />
+      <WaveguideWorkbenchHost />
+      <SluiceWorkbenchHost />
+      <KnockWorkbenchHost />
+      <NPVWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

@@ -357,6 +357,11 @@ add_library(forge_kernel SHARED
     src/AdiabaticFlame.cpp
     src/MSEPullout.cpp
     src/BayesUpdate.cpp
+    src/RunoffCN.cpp
+    src/Waveguide.cpp
+    src/SluiceGate.cpp
+    src/Knock.cpp
+    src/ProjectNPV.cpp
     ${PLANEGCS_SRC}
 )
 
