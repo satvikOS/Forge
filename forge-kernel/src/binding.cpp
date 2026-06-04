@@ -163,6 +163,7 @@
 #include "forge/SectionClass.hpp"
 #include "forge/ConcreteMix.hpp"
 #include "forge/SteamPipe.hpp"
+#include "forge/AirPipe.hpp"
 
 #include <array>
 
@@ -10242,6 +10243,34 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("steampipe", stpNs);
+
+    // -------- Compressed-air pipe sizing CAGI (Forge-314) ---------------
+    auto apNs = Napi::Object::New(env);
+    apNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::airpipe::Input in{};
+          in.supplyPressureBarGauge   = o.Get("supplyPressureBarGauge"  ).As<Napi::Number>().DoubleValue();
+          in.freeAirDeliveryM3PerMin  = o.Get("freeAirDeliveryM3PerMin" ).As<Napi::Number>().DoubleValue();
+          in.velocityLimitMs          = o.Get("velocityLimitMs"         ).As<Napi::Number>().DoubleValue();
+          in.pipeLengthM              = o.Get("pipeLengthM"             ).As<Napi::Number>().DoubleValue();
+          auto r = forge::airpipe::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("absolutePressureBar",     Napi::Number::New(env2, r.absolutePressureBar));
+          out.Set("actualVolumeFlowM3PerS",  Napi::Number::New(env2, r.actualVolumeFlowM3PerS));
+          out.Set("airDensityKgPerM3",       Napi::Number::New(env2, r.airDensityKgPerM3));
+          out.Set("requiredAreaMm2",         Napi::Number::New(env2, r.requiredAreaMm2));
+          out.Set("requiredDiameterMm",      Napi::Number::New(env2, r.requiredDiameterMm));
+          out.Set("standardDN",              Napi::Number::New(env2, r.standardDN));
+          out.Set("actualVelocityMs",        Napi::Number::New(env2, r.actualVelocityMs));
+          out.Set("pressureDropBarPer100m",  Napi::Number::New(env2, r.pressureDropBarPer100m));
+          out.Set("totalPressureDropBar",    Napi::Number::New(env2, r.totalPressureDropBar));
+          return out;
+        });
+      }));
+    exports.Set("airpipe", apNs);
 
     return exports;
 }

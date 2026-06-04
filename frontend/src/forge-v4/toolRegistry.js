@@ -178,6 +178,7 @@ export const CALCULATOR_TREE = [
           { id: 'pitot',     label: 'Pitot tube velocity (incompressible)…', slice: 'Forge-288' },
           { id: 'hazenwilliams', label: 'Hazen-Williams friction (NFPA 13 / AWWA)…', slice: 'Forge-303' },
           { id: 'steampipe',     label: 'Saturated steam pipe (Spirax Sarco)…', slice: 'Forge-313' },
+          { id: 'airpipe',       label: 'Compressed-air pipe (CAGI)…', slice: 'Forge-314' },
         ],
       },
       {

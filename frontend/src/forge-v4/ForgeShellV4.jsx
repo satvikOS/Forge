@@ -1645,6 +1645,11 @@ export function ForgeShellV4() {
         setActiveWb('steampipe');
         window.__forgeOpenSteamPipeWorkbench?.();
         return;
+      case 'tools.airpipe':
+      case 'workbench.airpipe':
+        setActiveWb('airpipe');
+        window.__forgeOpenAirPipeWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

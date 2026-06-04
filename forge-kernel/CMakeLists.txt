@@ -252,6 +252,7 @@ add_library(forge_kernel SHARED
     src/SectionClass.cpp
     src/ConcreteMix.cpp
     src/SteamPipe.cpp
+    src/AirPipe.cpp
     ${PLANEGCS_SRC}
 )
 

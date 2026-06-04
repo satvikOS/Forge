@@ -950,6 +950,11 @@ const forgeApi = {
     analyse: (input) => kernel.steampipe.analyse(input),
   } : null,
 
+  // airpipe (Forge-314) — Compressed-air pipe sizing (CAGI).
+  airpipe: kernel && kernel.airpipe ? {
+    analyse: (input) => kernel.airpipe.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
