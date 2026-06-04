@@ -355,6 +355,7 @@ export const CALCULATOR_TREE = [
         label: 'Solar PV',
         items: [
           { id: 'solar',    label: 'Solar PV sizing (array + bank + inverter)…', slice: 'Forge-255' },
+          { id: 'windturbine', label: 'Wind turbine (Betz / actuator-disc)…', slice: 'Forge-315' },
         ],
       },
       {

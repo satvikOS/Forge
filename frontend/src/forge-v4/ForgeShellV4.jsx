@@ -1650,6 +1650,11 @@ export function ForgeShellV4() {
         setActiveWb('airpipe');
         window.__forgeOpenAirPipeWorkbench?.();
         return;
+      case 'tools.windturbine':
+      case 'workbench.windturbine':
+        setActiveWb('windturbine');
+        window.__forgeOpenWindTurbineWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

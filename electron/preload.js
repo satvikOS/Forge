@@ -955,6 +955,11 @@ const forgeApi = {
     analyse: (input) => kernel.airpipe.analyse(input),
   } : null,
 
+  // windturbine (Forge-315) — Wind turbine BEM / Betz.
+  windturbine: kernel && kernel.windturbine ? {
+    analyse: (input) => kernel.windturbine.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

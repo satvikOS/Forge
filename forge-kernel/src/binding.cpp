@@ -164,6 +164,7 @@
 #include "forge/ConcreteMix.hpp"
 #include "forge/SteamPipe.hpp"
 #include "forge/AirPipe.hpp"
+#include "forge/WindTurbine.hpp"
 
 #include <array>
 
@@ -10271,6 +10272,35 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("airpipe", apNs);
+
+    // -------- Wind turbine BEM / Betz (Forge-315) -----------------------
+    auto wtNs = Napi::Object::New(env);
+    wtNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::windturbine::Input in{};
+          in.rotorDiameterM       = o.Get("rotorDiameterM"      ).As<Napi::Number>().DoubleValue();
+          in.windSpeedMs          = o.Get("windSpeedMs"         ).As<Napi::Number>().DoubleValue();
+          in.airDensityKgPerM3    = o.Get("airDensityKgPerM3"   ).As<Napi::Number>().DoubleValue();
+          in.powerCoefficient     = o.Get("powerCoefficient"    ).As<Napi::Number>().DoubleValue();
+          in.generatorEfficiency  = o.Get("generatorEfficiency" ).As<Napi::Number>().DoubleValue();
+          in.rotorSpeedRpm        = o.Get("rotorSpeedRpm"       ).As<Napi::Number>().DoubleValue();
+          in.capacityFactor       = o.Get("capacityFactor"      ).As<Napi::Number>().DoubleValue();
+          auto r = forge::windturbine::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("sweptAreaM2",          Napi::Number::New(env2, r.sweptAreaM2));
+          out.Set("availableWindPowerW",  Napi::Number::New(env2, r.availableWindPowerW));
+          out.Set("betzCeilingPowerW",    Napi::Number::New(env2, r.betzCeilingPowerW));
+          out.Set("mechanicalPowerW",     Napi::Number::New(env2, r.mechanicalPowerW));
+          out.Set("electricalPowerW",     Napi::Number::New(env2, r.electricalPowerW));
+          out.Set("tipSpeedRatio",        Napi::Number::New(env2, r.tipSpeedRatio));
+          out.Set("annualEnergyMWh",      Napi::Number::New(env2, r.annualEnergyMWh));
+          return out;
+        });
+      }));
+    exports.Set("windturbine", wtNs);
 
     return exports;
 }
