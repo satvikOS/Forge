@@ -930,6 +930,11 @@ const forgeApi = {
     analyse: (input) => kernel.mokabe.analyse(input),
   } : null,
 
+  // blockshear (Forge-310) — Block-shear rupture (AISC 360-22 §J4.3).
+  blockshear: kernel && kernel.blockshear ? {
+    analyse: (input) => kernel.blockshear.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

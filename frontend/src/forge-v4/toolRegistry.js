@@ -91,6 +91,7 @@ export const CALCULATOR_TREE = [
           { id: 'anchorbolt',  label: 'Anchor bolt tension (ACI 318-19 Ch.17)…', slice: 'Forge-268' },
           { id: 'anchorshear', label: 'Anchor bolt shear (ACI 318-19 §17.7)…',  slice: 'Forge-271' },
           { id: 'headedstud',  label: 'Headed shear stud (AISC 360-22 §I8)…',   slice: 'Forge-296' },
+          { id: 'blockshear',  label: 'Block-shear rupture (AISC 360-22 §J4.3)…', slice: 'Forge-310' },
         ],
       },
       {

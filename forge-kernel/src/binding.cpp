@@ -159,6 +159,7 @@
 #include "forge/RCShear.hpp"
 #include "forge/CoolingTower.hpp"
 #include "forge/MononobeOkabe.hpp"
+#include "forge/BlockShear.hpp"
 
 #include <array>
 
@@ -10117,6 +10118,35 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("mokabe", moNs);
+
+    // -------- Block-shear rupture AISC §J4.3 (Forge-310) ----------------
+    auto bsNs = Napi::Object::New(env);
+    bsNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::blockshear::Input in{};
+          in.A_gv_mm2 = o.Get("A_gv_mm2").As<Napi::Number>().DoubleValue();
+          in.A_nv_mm2 = o.Get("A_nv_mm2").As<Napi::Number>().DoubleValue();
+          in.A_nt_mm2 = o.Get("A_nt_mm2").As<Napi::Number>().DoubleValue();
+          in.U_bs     = o.Get("U_bs"    ).As<Napi::Number>().DoubleValue();
+          in.Fy_MPa   = o.Get("Fy_MPa"  ).As<Napi::Number>().DoubleValue();
+          in.Fu_MPa   = o.Get("Fu_MPa"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::blockshear::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("shearRuptureCapN",  Napi::Number::New(env2, r.shearRuptureCapN));
+          out.Set("shearYieldingCapN", Napi::Number::New(env2, r.shearYieldingCapN));
+          out.Set("tensionRuptureN",   Napi::Number::New(env2, r.tensionRuptureN));
+          out.Set("governingShearN",   Napi::Number::New(env2, r.governingShearN));
+          out.Set("nominalCapN",       Napi::Number::New(env2, r.nominalCapN));
+          out.Set("LRFDcapN",          Napi::Number::New(env2, r.LRFDcapN));
+          out.Set("ASDcapN",           Napi::Number::New(env2, r.ASDcapN));
+          out.Set("governingPath",     Napi::Number::New(env2, r.governingPath));
+          return out;
+        });
+      }));
+    exports.Set("blockshear", bsNs);
 
     return exports;
 }

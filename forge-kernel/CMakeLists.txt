@@ -248,6 +248,7 @@ add_library(forge_kernel SHARED
     src/RCShear.cpp
     src/CoolingTower.cpp
     src/MononobeOkabe.cpp
+    src/BlockShear.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -311,6 +311,8 @@ import { RCShearWorkbenchHost } from './forge-v4/RCShearWorkbench.jsx';
 import { CoolingTowerWorkbenchHost } from './forge-v4/CoolingTowerWorkbench.jsx';
 // Forge-309 — Mononobe-Okabe seismic earth pressure.
 import { MononobeOkabeWorkbenchHost } from './forge-v4/MononobeOkabeWorkbench.jsx';
+// Forge-310 — Block-shear rupture (AISC 360-22 §J4.3).
+import { BlockShearWorkbenchHost } from './forge-v4/BlockShearWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -534,6 +536,7 @@ function App() {
       <RCShearWorkbenchHost />
       <CoolingTowerWorkbenchHost />
       <MononobeOkabeWorkbenchHost />
+      <BlockShearWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

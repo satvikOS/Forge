@@ -1625,6 +1625,11 @@ export function ForgeShellV4() {
         setActiveWb('mokabe');
         window.__forgeOpenMononobeOkabeWorkbench?.();
         return;
+      case 'tools.blockshear':
+      case 'workbench.blockshear':
+        setActiveWb('blockshear');
+        window.__forgeOpenBlockShearWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
