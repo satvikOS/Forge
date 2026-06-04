@@ -146,6 +146,7 @@
 #include "forge/AirFilter.hpp"
 #include "forge/FinArray.hpp"
 #include "forge/HeadedStud.hpp"
+#include "forge/Consolidation.hpp"
 
 #include <array>
 
@@ -9716,6 +9717,34 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("headedstud", hsNs);
+
+    // -------- Consolidation (Forge-297) ---------------------------------
+    auto consolNs = Napi::Object::New(env);
+    consolNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::consol::Input in{};
+          in.soilDepthM                       = o.Get("soilDepthM"                      ).As<Napi::Number>().DoubleValue();
+          in.doubleDrainage                   = o.Get("doubleDrainage"                  ).As<Napi::Boolean>().Value();
+          in.coefficientOfConsolidationM2yr   = o.Get("coefficientOfConsolidationM2yr"  ).As<Napi::Number>().DoubleValue();
+          in.volumeCompressibilityM2MN        = o.Get("volumeCompressibilityM2MN"       ).As<Napi::Number>().DoubleValue();
+          in.pressureIncreaseKPa              = o.Get("pressureIncreaseKPa"             ).As<Napi::Number>().DoubleValue();
+          in.timeYears                        = o.Get("timeYears"                       ).As<Napi::Number>().DoubleValue();
+          auto r = forge::consol::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("drainagePathM",            Napi::Number::New(env2, r.drainagePathM));
+          out.Set("timeFactor",               Napi::Number::New(env2, r.timeFactor));
+          out.Set("degreeOfConsolidation",    Napi::Number::New(env2, r.degreeOfConsolidation));
+          out.Set("degreeOfConsolidationPct", Napi::Number::New(env2, r.degreeOfConsolidationPct));
+          out.Set("ultimateSettlementMm",     Napi::Number::New(env2, r.ultimateSettlementMm));
+          out.Set("settlementAtTimeMm",       Napi::Number::New(env2, r.settlementAtTimeMm));
+          out.Set("t90Years",                 Napi::Number::New(env2, r.t90Years));
+          return out;
+        });
+      }));
+    exports.Set("consol", consolNs);
 
     return exports;
 }

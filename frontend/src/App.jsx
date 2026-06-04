@@ -285,6 +285,8 @@ import { AirFilterWorkbenchHost } from './forge-v4/AirFilterWorkbench.jsx';
 import { FinArrayWorkbenchHost } from './forge-v4/FinArrayWorkbench.jsx';
 // Forge-296 — Headed shear stud connector (AISC 360-22 §I8).
 import { HeadedStudWorkbenchHost } from './forge-v4/HeadedStudWorkbench.jsx';
+// Forge-297 — 1D consolidation settlement (Terzaghi).
+import { ConsolidationWorkbenchHost } from './forge-v4/ConsolidationWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -495,6 +497,7 @@ function App() {
       <AirFilterWorkbenchHost />
       <FinArrayWorkbenchHost />
       <HeadedStudWorkbenchHost />
+      <ConsolidationWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

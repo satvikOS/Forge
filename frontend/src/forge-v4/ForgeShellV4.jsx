@@ -1558,6 +1558,12 @@ export function ForgeShellV4() {
         setActiveWb('headedstud');
         window.__forgeOpenHeadedStudWorkbench?.();
         return;
+      // Forge-297 — 1D consolidation settlement.
+      case 'tools.consol':
+      case 'workbench.consol':
+        setActiveWb('consol');
+        window.__forgeOpenConsolidationWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

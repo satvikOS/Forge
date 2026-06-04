@@ -281,6 +281,7 @@ export const CALCULATOR_TREE = [
           { id: 'retwall',     label: 'Retaining wall (Rankine + stability)…', slice: 'Forge-240' },
           { id: 'pilecap',     label: 'Pile capacity (α-method + Meyerhof tip)…', slice: 'Forge-241' },
           { id: 'silopressure', label: 'Silo wall pressure (Janssen 1895)…', slice: 'Forge-275' },
+          { id: 'consol',       label: '1D consolidation settlement (Terzaghi)…', slice: 'Forge-297' },
         ],
       },
       {

@@ -865,6 +865,11 @@ const forgeApi = {
     analyse: (input) => kernel.headedstud.analyse(input),
   } : null,
 
+  // consol (Forge-297) — 1D consolidation settlement (Terzaghi 1925).
+  consol: kernel && kernel.consol ? {
+    analyse: (input) => kernel.consol.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),
