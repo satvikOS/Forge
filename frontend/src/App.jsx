@@ -315,6 +315,8 @@ import { MononobeOkabeWorkbenchHost } from './forge-v4/MononobeOkabeWorkbench.js
 import { BlockShearWorkbenchHost } from './forge-v4/BlockShearWorkbench.jsx';
 // Forge-311 — Steel section classification (AISC 360-22 Table B4.1b).
 import { SectionClassWorkbenchHost } from './forge-v4/SectionClassWorkbench.jsx';
+// Forge-312 — Concrete mix design (ACI 211.1).
+import { ConcreteMixWorkbenchHost } from './forge-v4/ConcreteMixWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -540,6 +542,7 @@ function App() {
       <MononobeOkabeWorkbenchHost />
       <BlockShearWorkbenchHost />
       <SectionClassWorkbenchHost />
+      <ConcreteMixWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

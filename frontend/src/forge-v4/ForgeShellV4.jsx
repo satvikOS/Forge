@@ -1635,6 +1635,11 @@ export function ForgeShellV4() {
         setActiveWb('sectclass');
         window.__forgeOpenSectionClassWorkbench?.();
         return;
+      case 'tools.concretemix':
+      case 'workbench.concretemix':
+        setActiveWb('concretemix');
+        window.__forgeOpenConcreteMixWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':

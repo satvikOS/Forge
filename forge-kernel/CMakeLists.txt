@@ -250,6 +250,7 @@ add_library(forge_kernel SHARED
     src/MononobeOkabe.cpp
     src/BlockShear.cpp
     src/SectionClass.cpp
+    src/ConcreteMix.cpp
     ${PLANEGCS_SRC}
 )
 

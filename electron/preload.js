@@ -940,6 +940,11 @@ const forgeApi = {
     analyse: (input) => kernel.sectclass.analyse(input),
   } : null,
 
+  // concretemix (Forge-312) — Concrete mix design (ACI 211.1).
+  concretemix: kernel && kernel.concretemix ? {
+    analyse: (input) => kernel.concretemix.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

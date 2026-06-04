@@ -161,6 +161,7 @@
 #include "forge/MononobeOkabe.hpp"
 #include "forge/BlockShear.hpp"
 #include "forge/SectionClass.hpp"
+#include "forge/ConcreteMix.hpp"
 
 #include <array>
 
@@ -10178,6 +10179,41 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("sectclass", sclassNs);
+
+    // -------- Concrete mix design ACI 211.1 (Forge-312) -----------------
+    auto cmixNs = Napi::Object::New(env);
+    cmixNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::concretemix::Input in{};
+          in.targetStrengthMPa       = o.Get("targetStrengthMPa"      ).As<Napi::Number>().DoubleValue();
+          in.slumpMm                 = o.Get("slumpMm"                ).As<Napi::Number>().DoubleValue();
+          in.maxAggregateSizeMm      = o.Get("maxAggregateSizeMm"     ).As<Napi::Number>().DoubleValue();
+          in.airContentFraction      = o.Get("airContentFraction"     ).As<Napi::Number>().DoubleValue();
+          in.cementSpecificGravity   = o.Get("cementSpecificGravity"  ).As<Napi::Number>().DoubleValue();
+          in.sandSpecificGravity     = o.Get("sandSpecificGravity"    ).As<Napi::Number>().DoubleValue();
+          in.coarseSpecificGravity   = o.Get("coarseSpecificGravity"  ).As<Napi::Number>().DoubleValue();
+          in.coarseDryRoddedDensity  = o.Get("coarseDryRoddedDensity" ).As<Napi::Number>().DoubleValue();
+          in.coarseFinenessModulus   = o.Get("coarseFinenessModulus"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::concretemix::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("waterCementRatio",       Napi::Number::New(env2, r.waterCementRatio));
+          out.Set("waterDemandKg",          Napi::Number::New(env2, r.waterDemandKg));
+          out.Set("cementMassKg",           Napi::Number::New(env2, r.cementMassKg));
+          out.Set("coarseAggregateMassKg",  Napi::Number::New(env2, r.coarseAggregateMassKg));
+          out.Set("sandMassKg",             Napi::Number::New(env2, r.sandMassKg));
+          out.Set("airVolumeM3",            Napi::Number::New(env2, r.airVolumeM3));
+          out.Set("cementVolumeM3",         Napi::Number::New(env2, r.cementVolumeM3));
+          out.Set("waterVolumeM3",          Napi::Number::New(env2, r.waterVolumeM3));
+          out.Set("coarseVolumeM3",         Napi::Number::New(env2, r.coarseVolumeM3));
+          out.Set("sandVolumeM3",           Napi::Number::New(env2, r.sandVolumeM3));
+          out.Set("freshUnitWeightKgPerM3", Napi::Number::New(env2, r.freshUnitWeightKgPerM3));
+          return out;
+        });
+      }));
+    exports.Set("concretemix", cmixNs);
 
     return exports;
 }

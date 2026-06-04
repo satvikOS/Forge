@@ -102,6 +102,7 @@ export const CALCULATOR_TREE = [
           { id: 'rccolumn',   label: 'RC column (ACI 318-19 §22.4 axial + interaction)…', slice: 'Forge-257' },
           { id: 'rcpunching', label: 'RC slab punching shear (ACI 318-19 §22.6.5)…', slice: 'Forge-267' },
           { id: 'rcshear',    label: 'RC one-way shear (ACI 318-19 §22.5)…', slice: 'Forge-307' },
+          { id: 'concretemix',label: 'Concrete mix design (ACI 211.1)…', slice: 'Forge-312' },
         ],
       },
     ],
