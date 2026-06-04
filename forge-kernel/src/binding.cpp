@@ -148,6 +148,7 @@
 #include "forge/HeadedStud.hpp"
 #include "forge/Consolidation.hpp"
 #include "forge/VehicleBraking.hpp"
+#include "forge/Catenary.hpp"
 
 #include <array>
 
@@ -9776,6 +9777,31 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("vehbrake", vbrakeNs);
+
+    // -------- Catenary cable sag-tension (Forge-299) --------------------
+    auto catNs = Napi::Object::New(env);
+    catNs.Set("analyse", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto o = info[0].As<Napi::Object>();
+          forge::catenary::Input in{};
+          in.spanM               = o.Get("spanM"              ).As<Napi::Number>().DoubleValue();
+          in.horizontalTensionN  = o.Get("horizontalTensionN" ).As<Napi::Number>().DoubleValue();
+          in.linearWeightNPerM   = o.Get("linearWeightNPerM"  ).As<Napi::Number>().DoubleValue();
+          auto r = forge::catenary::analyse(in);
+          auto out = Napi::Object::New(env2);
+          out.Set("catenaryParameterM",    Napi::Number::New(env2, r.catenaryParameterM));
+          out.Set("sagM",                  Napi::Number::New(env2, r.sagM));
+          out.Set("sagParabolicM",         Napi::Number::New(env2, r.sagParabolicM));
+          out.Set("maxTensionN",           Napi::Number::New(env2, r.maxTensionN));
+          out.Set("cableLengthM",          Napi::Number::New(env2, r.cableLengthM));
+          out.Set("cableLengthParabolicM", Napi::Number::New(env2, r.cableLengthParabolicM));
+          out.Set("sagRatio",              Napi::Number::New(env2, r.sagRatio));
+          return out;
+        });
+      }));
+    exports.Set("catenary", catNs);
 
     return exports;
 }

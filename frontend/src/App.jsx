@@ -289,6 +289,8 @@ import { HeadedStudWorkbenchHost } from './forge-v4/HeadedStudWorkbench.jsx';
 import { ConsolidationWorkbenchHost } from './forge-v4/ConsolidationWorkbench.jsx';
 // Forge-298 — Vehicle braking energy + brake heat.
 import { VehicleBrakingWorkbenchHost } from './forge-v4/VehicleBrakingWorkbench.jsx';
+// Forge-299 — Catenary cable sag-tension.
+import { CatenaryWorkbenchHost } from './forge-v4/CatenaryWorkbench.jsx';
 // Forge-233 — Hierarchical Tools menu (groups 30+ calculators).
 import { HierarchicalToolsMenuHost } from './forge-v4/HierarchicalToolsMenu.jsx';
 // Forge-183 — Autosave + crash recovery banner.
@@ -501,6 +503,7 @@ function App() {
       <HeadedStudWorkbenchHost />
       <ConsolidationWorkbenchHost />
       <VehicleBrakingWorkbenchHost />
+      <CatenaryWorkbenchHost />
       <HierarchicalToolsMenuHost />
       <AutoSaveRecoveryHost />
       <DragDropImportHost />

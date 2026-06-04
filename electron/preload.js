@@ -875,6 +875,11 @@ const forgeApi = {
     analyse: (input) => kernel.vehbrake.analyse(input),
   } : null,
 
+  // catenary (Forge-299) — Catenary cable sag-tension (transmission, suspension).
+  catenary: kernel && kernel.catenary ? {
+    analyse: (input) => kernel.catenary.analyse(input),
+  } : null,
+
   // cost (Forge-179) — material × machining × labour cost engine.
   cost: kernel && kernel.cost ? {
     computeUnit:    (inputs) => kernel.cost.computeUnit(inputs),

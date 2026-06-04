@@ -45,6 +45,7 @@ export const CALCULATOR_TREE = [
           { id: 'windload',  label: 'Wind load (ASCE 7)…',  slice: 'Forge-223' },
           { id: 'snowload',  label: 'Snow load (ASCE 7)…',  slice: 'Forge-225' },
           { id: 'seismic',   label: 'Seismic load (ASCE 7 §12.8 ELF)…', slice: 'Forge-234' },
+          { id: 'catenary',  label: 'Catenary cable sag-tension (power/suspension)…', slice: 'Forge-299' },
         ],
       },
       {

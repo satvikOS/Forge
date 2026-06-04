@@ -1570,6 +1570,11 @@ export function ForgeShellV4() {
         setActiveWb('vehbrake');
         window.__forgeOpenVehicleBrakingWorkbench?.();
         return;
+      case 'tools.catenary':
+      case 'workbench.catenary':
+        setActiveWb('catenary');
+        window.__forgeOpenCatenaryWorkbench?.();
+        return;
       // Forge-233 — Hierarchical Tools menu.
       case 'tools.open':
       case 'tools.menu':
