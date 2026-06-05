@@ -38,6 +38,8 @@ import MateSolverWorkbenchHost from './forge-v4/MateSolverWorkbench.jsx';
 import CAMExtendedWorkbenchHost from './forge-v4/CAMExtendedWorkbench.jsx';
 // PUSH-15: SIMP topology optimisation.
 import TopologyWorkbenchHost from './forge-v4/TopologyWorkbench.jsx';
+// PUSH-02: Solid modelling ops (varfillet, loftguide, booleantol).
+import SolidOpsWorkbenchHost from './forge-v4/SolidOpsWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -596,6 +598,7 @@ function App() {
       <MateSolverWorkbenchHost />
       <CAMExtendedWorkbenchHost />
       <TopologyWorkbenchHost />
+      <SolidOpsWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

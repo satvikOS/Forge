@@ -2395,6 +2395,11 @@ export function ForgeShellV4() {
       case 'workbench.topology':
         window.__forgeOpenTopologyWorkbench?.();
         return;
+      // PUSH-02: Solid modelling ops
+      case 'tools.solidops':
+      case 'workbench.solidops':
+        window.__forgeOpenSolidOpsWorkbench?.();
+        return;
       // PUSH-01: routes from extended right-click context
       case 'palette.open':
         window.__forgeOpenCommandPalette?.(true);

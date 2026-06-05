@@ -389,6 +389,12 @@ export const CALCULATOR_TREE = [
           { id: 'topology', label: 'SIMP topology optimisation (Bendsoe-Sigmund)…', slice: 'PUSH-15' },
         ],
       },
+      {
+        label: 'Solid modelling ops',
+        items: [
+          { id: 'solidops', label: 'Variable fillet · loft w/ guides · tolerant boolean…', slice: 'PUSH-02' },
+        ],
+      },
     ],
   },
   {
