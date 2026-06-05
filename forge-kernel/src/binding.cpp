@@ -20,6 +20,7 @@
 #include "forge/AssemblyHierarchy.hpp"
 #include "forge/InterferenceDetection.hpp"
 #include "forge/MotionStudy.hpp"
+#include "forge/MateLibrary.hpp"
 #include "forge/Drawings.hpp"
 #include "forge/Sketcher.hpp"
 #include "forge/Fea.hpp"
@@ -14154,6 +14155,100 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("loftguide", lgNs);
+
+    // ===================================================================
+    // PUSH-04 — Assembly mate solver (forge::matelib). 12 SW-equivalent
+    // mate kinds; damped Gauss-Seidel; returns converged poses + log.
+    // ===================================================================
+    auto mlNs = Napi::Object::New(env);
+    mlNs.Set("solve", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 2 || !info[0].IsArray() || !info[1].IsArray()) {
+            throw Napi::TypeError::New(env2,
+                "matelib.solve(poses[], mates[], maxIter?, tol?): "
+                "poses and mates must be arrays");
+          }
+          auto posArr  = info[0].As<Napi::Array>();
+          auto mateArr = info[1].As<Napi::Array>();
+          int    maxIter = (info.Length() > 2 && info[2].IsNumber())
+              ? info[2].As<Napi::Number>().Int32Value() : 200;
+          double tol     = (info.Length() > 3 && info[3].IsNumber())
+              ? info[3].As<Napi::Number>().DoubleValue() : 1e-6;
+
+          std::vector<forge::matelib::ComponentPose> poses;
+          poses.reserve(posArr.Length());
+          for (uint32_t i = 0; i < posArr.Length(); ++i) {
+            auto o = posArr.Get(i).As<Napi::Object>();
+            forge::matelib::ComponentPose p{};
+            p.id = o.Get("id").As<Napi::Number>().Int32Value();
+            auto tA = o.Get("t").As<Napi::Array>();
+            auto qA = o.Get("q").As<Napi::Array>();
+            for (int j = 0; j < 3; ++j) p.t[j] = tA.Get(j).As<Napi::Number>().DoubleValue();
+            for (int j = 0; j < 4; ++j) p.q[j] = qA.Get(j).As<Napi::Number>().DoubleValue();
+            p.fixed = o.Has("fixed")
+                ? o.Get("fixed").As<Napi::Number>().Int32Value() : 0;
+            poses.push_back(p);
+          }
+
+          auto readRef = [](const Napi::Object& obj) -> forge::matelib::MateRef {
+            forge::matelib::MateRef r{};
+            r.component_id = obj.Get("component_id").As<Napi::Number>().Int32Value();
+            auto pA = obj.Get("point").As<Napi::Array>();
+            auto aA = obj.Get("axis").As<Napi::Array>();
+            for (int j = 0; j < 3; ++j) r.point[j] = pA.Get(j).As<Napi::Number>().DoubleValue();
+            for (int j = 0; j < 3; ++j) r.axis[j]  = aA.Get(j).As<Napi::Number>().DoubleValue();
+            r.extra = obj.Has("extra")
+                ? obj.Get("extra").As<Napi::Number>().DoubleValue() : 0.0;
+            return r;
+          };
+
+          std::vector<forge::matelib::Mate> mates;
+          mates.reserve(mateArr.Length());
+          for (uint32_t i = 0; i < mateArr.Length(); ++i) {
+            auto o = mateArr.Get(i).As<Napi::Object>();
+            forge::matelib::Mate m{};
+            m.kind  = o.Get("kind").As<Napi::String>().Utf8Value();
+            m.A     = readRef(o.Get("A").As<Napi::Object>());
+            m.B     = readRef(o.Get("B").As<Napi::Object>());
+            m.value = o.Has("value")
+                ? o.Get("value").As<Napi::Number>().DoubleValue() : 0.0;
+            mates.push_back(m);
+          }
+
+          auto rs = forge::matelib::solve(poses, mates, maxIter, tol);
+
+          auto outPoses = Napi::Array::New(env2, rs.poses.size());
+          for (uint32_t i = 0; i < rs.poses.size(); ++i) {
+            const auto& p = rs.poses[i];
+            auto o = Napi::Object::New(env2);
+            o.Set("id", Napi::Number::New(env2, p.id));
+            auto tA = Napi::Array::New(env2, 3);
+            auto qA = Napi::Array::New(env2, 4);
+            for (uint32_t j = 0; j < 3; ++j) tA.Set(j, Napi::Number::New(env2, p.t[j]));
+            for (uint32_t j = 0; j < 4; ++j) qA.Set(j, Napi::Number::New(env2, p.q[j]));
+            o.Set("t", tA);
+            o.Set("q", qA);
+            o.Set("fixed", Napi::Number::New(env2, p.fixed));
+            outPoses.Set(i, o);
+          }
+
+          auto logArr = Napi::Array::New(env2, rs.log.size());
+          for (uint32_t i = 0; i < rs.log.size(); ++i) {
+            logArr.Set(i, Napi::String::New(env2, rs.log[i]));
+          }
+
+          auto result = Napi::Object::New(env2);
+          result.Set("poses",      outPoses);
+          result.Set("converged",  Napi::Boolean::New(env2, rs.converged));
+          result.Set("iterations", Napi::Number::New(env2, rs.iterations));
+          result.Set("residual",   Napi::Number::New(env2, rs.residual));
+          result.Set("log",        logArr);
+          return result;
+        });
+      }));
+    exports.Set("matelib", mlNs);
 
     return exports;
 }
