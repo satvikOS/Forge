@@ -2415,20 +2415,10 @@ export function ForgeShellV4() {
       case 'workbench.feat':
         window.__forgeOpenFEATetWorkbench?.();
         return;
-      // PUSH-21: Mercedes M120 V12 engine builder
-      case 'tools.v12':
-      case 'workbench.v12':
-        window.__forgeOpenV12Builder?.();
-        return;
-      // PUSH-24: full V12 24-stage workflow
-      case 'tools.v12full':
-      case 'workbench.v12full':
-        window.__forgeOpenV12FullWorkflow?.();
-        return;
-      // PUSH-26: real V12 build into viewport
-      case 'tools.v12real':
-      case 'workbench.v12real':
-        window.__forgeOpenV12Real?.();
+      // PUSH-29: V12 Studio (real CAD)
+      case 'tools.v12studio':
+      case 'workbench.v12studio':
+        window.__forgeOpenV12Studio?.();
         return;
       // PUSH-05: Drawings (HLR + DXF/SVG)
       case 'tools.drawings':

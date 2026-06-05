@@ -48,12 +48,8 @@ import DrawingsHLRWorkbenchHost from './forge-v4/DrawingsHLRWorkbench.jsx';
 import MoldWorkbenchHost from './forge-v4/MoldWorkbench.jsx';
 // PUSH-11: Tet4 FEA (forge::fea::tet).
 import FEATetWorkbenchHost from './forge-v4/FEATetWorkbench.jsx';
-// PUSH-21: Mercedes-Benz M120 6.0L V12 engine builder.
-import V12EngineBuilderHost from './forge-v4/V12EngineBuilder.jsx';
-// PUSH-24: M120 V12 full 24-stage CAD workflow (sketch → FEA → render → PDM).
-import V12FullWorkflowHost from './forge-v4/V12FullWorkflow.jsx';
-// PUSH-26: M120 V12 REAL build into window.__forgeScene + 3 sims animated on mesh.
-import V12RealBuilderHost from './forge-v4/V12RealBuilder.jsx';
+// PUSH-29: V12 Studio — real CAD ribbon tools with parameter dialogs.
+import V12StudioHost from './forge-v4/V12Studio.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -617,9 +613,7 @@ function App() {
       <DrawingsHLRWorkbenchHost />
       <MoldWorkbenchHost />
       <FEATetWorkbenchHost />
-      <V12EngineBuilderHost />
-      <V12FullWorkflowHost />
-      <V12RealBuilderHost />
+      <V12StudioHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

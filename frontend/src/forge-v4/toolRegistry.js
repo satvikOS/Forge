@@ -422,9 +422,7 @@ export const CALCULATOR_TREE = [
       {
         label: 'Reference projects',
         items: [
-          { id: 'v12', label: 'Mercedes-Benz M120 6.0L V12 — build from scratch…', slice: 'PUSH-21' },
-          { id: 'v12full', label: 'Mercedes M120 V12 full 24-stage workflow (sketch → FEA → render → PDM)…', slice: 'PUSH-24' },
-          { id: 'v12real', label: 'Mercedes M120 V12 real build IN VIEWPORT + 3 mesh sims…', slice: 'PUSH-26' },
+          { id: 'v12studio', label: 'V12 Studio — sketch / extrude / fillet / pattern ribbon (real CAD)…', slice: 'PUSH-29' },
         ],
       },
     ],
