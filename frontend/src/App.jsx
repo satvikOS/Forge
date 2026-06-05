@@ -50,6 +50,8 @@ import MoldWorkbenchHost from './forge-v4/MoldWorkbench.jsx';
 import FEATetWorkbenchHost from './forge-v4/FEATetWorkbench.jsx';
 // PUSH-21: Mercedes-Benz M120 6.0L V12 engine builder.
 import V12EngineBuilderHost from './forge-v4/V12EngineBuilder.jsx';
+// PUSH-24: M120 V12 full 24-stage CAD workflow (sketch → FEA → render → PDM).
+import V12FullWorkflowHost from './forge-v4/V12FullWorkflow.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -614,6 +616,7 @@ function App() {
       <MoldWorkbenchHost />
       <FEATetWorkbenchHost />
       <V12EngineBuilderHost />
+      <V12FullWorkflowHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

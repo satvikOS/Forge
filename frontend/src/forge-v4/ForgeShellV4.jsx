@@ -2420,6 +2420,11 @@ export function ForgeShellV4() {
       case 'workbench.v12':
         window.__forgeOpenV12Builder?.();
         return;
+      // PUSH-24: full V12 24-stage workflow
+      case 'tools.v12full':
+      case 'workbench.v12full':
+        window.__forgeOpenV12FullWorkflow?.();
+        return;
       // PUSH-05: Drawings (HLR + DXF/SVG)
       case 'tools.drawings':
       case 'workbench.drawings':
