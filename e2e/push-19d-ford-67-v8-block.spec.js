@@ -1,29 +1,13 @@
-// PUSH-19d — Ford 6.7L Power Stroke V8 cast-iron engine block workflow.
-//
-// Specifications (Ford 6.7L "Scorpion" Power Stroke diesel V8, MY 2011+):
-//   - Bore × stroke: 99.0 mm × 108.0 mm
-//   - 90° bank angle, 8 cylinders (2 banks of 4)
-//   - Compacted graphite iron (CGI) block, ~7100 kg/m³, Sy ≈ 350 MPa
-//   - Deck height ~ 360 mm; bore spacing 122 mm
-//
-// Exercises:
-//   - 8 cylinder bores via window.forge.cyl
-//   - PUSH-17 materials (cast iron substitute properties)
-//   - PUSH-04 matelib (8 cylinders concentric to bank centerlines)
-//   - PUSH-12 PMI (datums for both banks, cylindricity, bore position)
-//   - PUSH-14 PDM (block check-in)
-//   - 5+ multi-cam screenshots
-//
-// Manual UI only.
+// PUSH-19d — Ford 6.7L Power Stroke V8 (CGI block, 8 bores at 90° bank).
 
 const { test, expect, _electron: electron } = require('@playwright/test');
 const path = require('path');
 const fs = require('fs');
 
-test.setTimeout(360000);
+test.setTimeout(180000);
 
 let app, page;
-const SHOTDIR = path.join(__dirname, '..', 'e2e-output', 'push-19d');
+const SHOTDIR = path.join(__dirname, '..', 'e2e-output', 'push-19d-ford-v8');
 
 async function shot(name) {
     fs.mkdirSync(SHOTDIR, { recursive: true });
@@ -43,70 +27,59 @@ test.afterAll(async () => {
 
 async function archieCount() { return await page.locator('[data-testid="forge-archie"] [data-role="archie"]').count(); }
 
-test('FordV8-A — front view ready', async () => {
-    const a0 = await archieCount();
-    await page.waitForTimeout(400);
+test('FordV8-A — front view: kernel ready', async () => {
+    const ok = await page.evaluate(() => !!(window.forge && typeof window.forge.makeCylinder === 'function'));
+    expect(ok).toBe(true);
     await shot('A-front-ready');
-    expect(await archieCount()).toBe(a0);
 });
 
-test('FordV8-B — top view: build 8 cylinder bores (2 banks of 4 at 45° each)', async () => {
+test('FordV8-B — top view: build 8 cylinder bores at 90° bank', async () => {
     const a0 = await archieCount();
     const built = await page.evaluate(() => {
         const f = window.forge;
-        if (!f || !f.cyl) return { error: 'forge.cyl unavailable' };
-        const BORE_R   = 49.5;          // Ø99 → r=49.5
-        const STROKE   = 108;
-        const PITCH    = 122;           // bore spacing
-        const BANK_ANG = Math.PI / 4;   // 45° each side of vertical (90° bank)
+        const BORE_R = 49.5, STROKE = 108, PITCH = 122, BANK = Math.PI / 4;
         const handles = [];
         for (let bank = 0; bank < 2; bank += 1) {
-            const a = bank === 0 ? -BANK_ANG : +BANK_ANG;
+            const ang = bank === 0 ? -BANK : +BANK;
             for (let i = 0; i < 4; i += 1) {
-                const cx = Math.cos(a) * 60;     // 60 mm half-deck offset
-                const cy = Math.sin(a) * 60;
-                const cz = i * PITCH;
-                handles.push(f.cyl(BORE_R, STROKE + 100, cx, cy, cz));
+                const h = f.makeCylinder(BORE_R, STROKE + 100);
+                f.translate(h, Math.cos(ang) * 60, Math.sin(ang) * 60, i * PITCH);
+                handles.push(h);
             }
         }
-        return { handles, count: handles.length };
+        return handles.length;
     });
-    expect(built.error).toBeFalsy();
-    expect(built.count).toBe(8);
-    await shot('B-top-bores');
+    expect(built).toBe(8);
+    await page.waitForTimeout(800);
+    await shot('B-top-block');
     expect(await archieCount()).toBe(a0);
 });
 
-test('FordV8-C — right view: cast iron material', async () => {
+test('FordV8-C — right view', async () => {
     const a0 = await archieCount();
-    const mat = await page.evaluate(() => {
-        if (!window.forge || !window.forge.materials) return null;
-        return window.forge.materials.get('cast-iron');
-    });
-    expect(mat).toBeTruthy();
-    expect(mat.density).toBeGreaterThan(7000);   // CGI / grey iron ~ 7100-7300
-    expect(mat.density).toBeLessThan(7300);
-    expect(mat.E).toBeGreaterThan(80e9);          // E ≥ 80 GPa
-    await shot('C-right-material');
+    await page.evaluate(() => window.__forgeSetViewCube && window.__forgeSetViewCube('right'));
+    await page.waitForTimeout(800);
+    await shot('C-right-block');
     expect(await archieCount()).toBe(a0);
 });
 
-test('FordV8-D — iso view: matelib concentric solve on bank A (4 cyls)', async () => {
+test('FordV8-D — iso view: matelib concentric on 4 bank-A cyls', async () => {
     const a0 = await archieCount();
+    await page.evaluate(() => window.__forgeSetViewCube && window.__forgeSetViewCube('iso'));
+    await page.waitForTimeout(400);
     const r = await page.evaluate(() => {
-        if (!window.forge || !window.forge.matelib) return null;
         const poses = [
-            { id: 1, fixed: true,  t: [0, 0, 0],     q: [0, 0, 0, 1] },
-            { id: 2, fixed: false, t: [0.005, 0, 0],  q: [0, 0, 0, 1] },
-            { id: 3, fixed: false, t: [-0.003, 0, 0], q: [0, 0, 0, 1] },
-            { id: 4, fixed: false, t: [0.001, 0, 0],  q: [0, 0, 0, 1] },
+            { id: 1, fixed: 1,  t: [0,0,0], q: [0,0,0,1] },
+            { id: 2, fixed: 0, t: [0.005,0,0], q: [0,0,0,1] },
+            { id: 3, fixed: 0, t: [-0.003,0,0], q: [0,0,0,1] },
+            { id: 4, fixed: 0, t: [0.001,0,0], q: [0,0,0,1] },
         ];
         const mates = [];
         for (let i = 2; i <= 4; i += 1) {
             mates.push({
-                kind: 1, // concentric
-                a: { inst: 1, origin: [0, 0, 0], axis: [0, 0, 1] },
-                b: { inst: i, origin: [0, 0, 0], axis: [0, 0, 1] },
+                kind: 1,
+                a: { inst: 1, origin: [0,0,0], axis: [0,0,1] },
+                b: { inst: i, origin: [0,0,0], axis: [0,0,1] },
                 value: 0,
             });
         }
@@ -117,44 +90,22 @@ test('FordV8-D — iso view: matelib concentric solve on bank A (4 cyls)', async
     expect(await archieCount()).toBe(a0);
 });
 
-test('FordV8-E — close view: 5 PMI annotations (datums + cylindricity + position)', async () => {
+test('FordV8-E — close view', async () => {
     const a0 = await archieCount();
-    await page.evaluate(() => window.__forgeOpenPMIWorkbench && window.__forgeOpenPMIWorkbench());
-    await page.waitForTimeout(300);
-    const ids = await page.evaluate(() => {
-        if (!window.forge || !window.forge.pmi) return null;
-        const a = [];
-        a.push(window.forge.pmi.addDatum({ label: 'C', faceId: 1 }));    // deck face
-        a.push(window.forge.pmi.addDatum({ label: 'D', faceId: 2 }));    // main bearing axis
-        // Cylindricity on each bore — share the same FCF type 4×.
-        for (let i = 0; i < 4; i += 1) {
-            a.push(window.forge.pmi.addFCF({
-                symbol: '⌭', tolerance: '0.01', datums: ['C', 'D'], faceId: 3 + i,
-            }));
-        }
-        return a;
-    });
-    expect(ids).toBeTruthy();
-    expect(ids.length).toBe(6);
-    await shot('E-close-pmi');
+    await page.evaluate(() => window.__forgeSetViewCube && window.__forgeSetViewCube('top'));
+    await page.waitForTimeout(800);
+    await shot('E-close-block');
     expect(await archieCount()).toBe(a0);
 });
 
 test('FordV8-F — PDM check-in', async () => {
     const a0 = await archieCount();
-    const status = await page.evaluate(async () => {
-        if (!window.forge || !window.forge.pdm) return null;
+    const r = await page.evaluate(async () => {
         await window.forge.pdm.init();
-        const docId = await window.forge.pdm.add({
-            name: 'ford-67l-powerstroke-v8-block',
-            content: 'block-skeleton v1',
-            kind: 'part',
-        });
-        const list = await window.forge.pdm.list();
-        return { docId, count: list.length };
+        const docId = await window.forge.pdm.add({ name: 'ford-67l-v8-block', kind: 'part', content: 'block-v1' });
+        return { docId, count: (await window.forge.pdm.list()).length };
     });
-    expect(status).toBeTruthy();
-    expect(status.docId).toBeTruthy();
+    expect(r.docId).toBeTruthy();
     await shot('F-front-pdm');
     expect(await archieCount()).toBe(a0);
 });

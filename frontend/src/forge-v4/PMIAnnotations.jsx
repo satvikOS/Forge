@@ -93,8 +93,7 @@ function exportY14_41() {
 }
 
 if (typeof window !== 'undefined') {
-    window.forge = window.forge || {};
-    window.forge.pmi = {
+    const __pmiApi = {
         symbols:        () => GD_T_SYMBOLS.slice(),
         modifiers:      () => MATERIAL_MODIFIERS.slice(),
         list:           () => (ensureAnnotationStore() || []).slice(),
@@ -102,6 +101,8 @@ if (typeof window !== 'undefined') {
         remove:         (id) => removeAnnotation(id),
         exportY1441:    () => exportY14_41(),
     };
+    try { window.forge = window.forge || {}; window.forge.pmi = __pmiApi; } catch {}
+    try { window.forgeUI = window.forgeUI || {}; window.forgeUI.pmi = __pmiApi; } catch {}
 }
 
 export function PMIWorkbenchHost() {

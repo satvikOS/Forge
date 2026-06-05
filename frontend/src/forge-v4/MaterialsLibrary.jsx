@@ -73,13 +73,17 @@ function applyMaterial(bodyHandle, materialId) {
 }
 
 if (typeof window !== 'undefined') {
-    window.forge = window.forge || {};
-    window.forge.materials = {
+    const __materialsApi = {
         library: () => MATERIAL_LIBRARY.slice(),
         lookup: (id) => MATERIAL_LIBRARY.find((m) => m.id === id) || null,
         apply: (bodyHandle, materialId) => applyMaterial(bodyHandle, materialId),
         map: () => ({ ...ensureMaterialMap() }),
     };
+    // contextBridge in Electron freezes window.forge — assigning to it or
+    // adding properties throws TypeError in strict mode. Try both targets
+    // and swallow failures so the module load never crashes the React tree.
+    try { window.forge = window.forge || {}; window.forge.materials = __materialsApi; } catch {}
+    try { window.forgeUI = window.forgeUI || {}; window.forgeUI.materials = __materialsApi; } catch {}
 }
 
 export function MaterialsLibraryHost() {

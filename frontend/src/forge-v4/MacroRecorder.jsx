@@ -50,11 +50,17 @@ export function runMacro(name, opts = {}) {
 }
 
 if (typeof window !== 'undefined') {
-    window.forge = window.forge || {};
-    window.forge.macros = window.forge.macros || {};
-    window.forge.macros.list = listMacros;
-    window.forge.macros.run = runMacro;
-    window.forge.macros.delete = deleteMacro;
+    const __macrosApi = { list: listMacros, run: runMacro, delete: deleteMacro };
+    try {
+        window.forge = window.forge || {};
+        window.forge.macros = window.forge.macros || {};
+        Object.assign(window.forge.macros, __macrosApi);
+    } catch {}
+    try {
+        window.forgeUI = window.forgeUI || {};
+        window.forgeUI.macros = window.forgeUI.macros || {};
+        Object.assign(window.forgeUI.macros, __macrosApi);
+    } catch {}
 }
 
 export function MacroRecorderHost() {

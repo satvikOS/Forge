@@ -239,11 +239,12 @@ function insertPart(code, position) {
 }
 
 if (typeof window !== 'undefined') {
-    window.forge = window.forge || {};
-    window.forge.stdpartsCatalog = {
+    const __stdpartsApi = {
         list:   listCatalog,
         get:    getPart,
         insert: insertPart,
         count:  CATALOG.length,
     };
+    try { window.forge = window.forge || {}; window.forge.stdpartsCatalog = __stdpartsApi; } catch {}
+    try { window.forgeUI = window.forgeUI || {}; window.forgeUI.stdpartsCatalog = __stdpartsApi; } catch {}
 }

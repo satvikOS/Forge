@@ -90,8 +90,7 @@ export function analyseRoute(nodes, specId) {
 }
 
 if (typeof window !== 'undefined') {
-    window.forge = window.forge || {};
-    window.forge.routing = {
+    const __routingApi = {
         pipeSpecs:  () => PIPE_SPECS.slice(),
         cableSpecs: () => CABLE_SPECS.slice(),
         analyse:    analyseRoute,
@@ -103,6 +102,8 @@ if (typeof window !== 'undefined') {
             return report;
         },
     };
+    try { window.forge = window.forge || {}; window.forge.routing = __routingApi; } catch {}
+    try { window.forgeUI = window.forgeUI || {}; window.forgeUI.routing = __routingApi; } catch {}
 }
 
 export function RoutingWorkbenchHost() {

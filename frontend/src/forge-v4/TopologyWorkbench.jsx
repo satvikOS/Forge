@@ -31,13 +31,17 @@ export function TopologyWorkbench({ onClose }) {
 
     useEffect(() => {
         if (typeof window === 'undefined') return undefined;
-        window.forge = window.forge || {};
-        window.forge.topology = {
+        const api = {
             runCantilever: (opts = {}) => runCantileverSIMP({ ...params, ...opts }),
             makeCubeDensitySDF,
             lastResult: () => result,
         };
-        return () => { if (window.forge && window.forge.topology) delete window.forge.topology; };
+        try { window.forge = window.forge || {}; window.forge.topology = api; } catch {}
+        try { window.forgeUI = window.forgeUI || {}; window.forgeUI.topology = api; } catch {}
+        return () => {
+            try { if (window.forge && window.forge.topology) delete window.forge.topology; } catch {}
+            try { if (window.forgeUI && window.forgeUI.topology) delete window.forgeUI.topology; } catch {}
+        };
     }, [params, result]);
 
     const onRun = useCallback(() => {
