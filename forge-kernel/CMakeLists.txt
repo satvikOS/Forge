@@ -380,6 +380,7 @@ add_library(forge_kernel SHARED
     src/Sewing.cpp
     src/VarFillet.cpp
     src/LoftGuide.cpp
+    src/CamExtended.cpp
     ${PLANEGCS_SRC}
 )
 
