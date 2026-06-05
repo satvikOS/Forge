@@ -48,8 +48,6 @@ import DrawingsHLRWorkbenchHost from './forge-v4/DrawingsHLRWorkbench.jsx';
 import MoldWorkbenchHost from './forge-v4/MoldWorkbench.jsx';
 // PUSH-11: Tet4 FEA (forge::fea::tet).
 import FEATetWorkbenchHost from './forge-v4/FEATetWorkbench.jsx';
-// PUSH-29: V12 Studio — real CAD ribbon tools with parameter dialogs.
-import V12StudioHost from './forge-v4/V12Studio.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -613,7 +611,6 @@ function App() {
       <DrawingsHLRWorkbenchHost />
       <MoldWorkbenchHost />
       <FEATetWorkbenchHost />
-      <V12StudioHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

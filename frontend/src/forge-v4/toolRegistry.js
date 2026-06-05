@@ -419,12 +419,6 @@ export const CALCULATOR_TREE = [
           { id: 'feat', label: 'Tet4 mesh + Jacobi-CG static + inverse-power modal…', slice: 'PUSH-11' },
         ],
       },
-      {
-        label: 'Reference projects',
-        items: [
-          { id: 'v12studio', label: 'V12 Studio — sketch / extrude / fillet / pattern ribbon (real CAD)…', slice: 'PUSH-29' },
-        ],
-      },
     ],
   },
   {

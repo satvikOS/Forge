@@ -2415,11 +2415,6 @@ export function ForgeShellV4() {
       case 'workbench.feat':
         window.__forgeOpenFEATetWorkbench?.();
         return;
-      // PUSH-29: V12 Studio (real CAD)
-      case 'tools.v12studio':
-      case 'workbench.v12studio':
-        window.__forgeOpenV12Studio?.();
-        return;
       // PUSH-05: Drawings (HLR + DXF/SVG)
       case 'tools.drawings':
       case 'workbench.drawings':
