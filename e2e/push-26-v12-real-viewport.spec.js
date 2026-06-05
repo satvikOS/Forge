@@ -61,9 +61,24 @@ test('02 — click Build V12 → geometry lands in viewport', async () => {
     await page.locator('[data-testid="forge-v12real-build"]').click();
     await page.waitForSelector('[data-testid="forge-v12real-built"]', { timeout: 8000 });
     await pause(1500);
-    await shot('02-v12-built');
+    await shot('02a-v12-built-close');
+    // Scroll-wheel zoom OUT until the whole V12 is in frame. The Forge-v4
+    // OrbitControls map wheel delta to dolly distance; 14 large scrolls
+    // back the camera to ~3000 mm which clears the V12 envelope.
+    const viewportBox = await page.locator('canvas').first().boundingBox();
+    if (viewportBox) {
+        const cx = viewportBox.x + viewportBox.width / 2;
+        const cy = viewportBox.y + viewportBox.height / 2;
+        await page.mouse.move(cx, cy);
+        for (let i = 0; i < 25; i += 1) {
+            await page.mouse.wheel(0, 500);          // scroll DOWN = zoom OUT
+            await pause(60);
+        }
+    }
+    await pause(500);
+    await shot('02b-v12-zoomed-out');
     const parts = parseInt(await page.locator('[data-testid="forge-v12real-parts"]').innerText(), 10);
-    expect(parts).toBeGreaterThan(70);          // 1+7+6+12+12+12+12+2+4+48+1+1 ≈ 118 parts
+    expect(parts).toBeGreaterThan(70);
 });
 
 test('03 — verify meshes are actually in __forgeScene', async () => {
@@ -77,11 +92,9 @@ test('03 — verify meshes are actually in __forgeScene', async () => {
     await shot('03-meshes-in-scene');
 });
 
-test('04 — rotate camera for iso view (drag in viewport)', async () => {
-    // simulate orbit by pressing keyboard view shortcut
-    await page.keyboard.press('5');             // ISO
-    await pause(800);
-    await shot('04-iso-view');
+test('04 — extra pause + screenshot (no keyboard shortcuts so fit holds)', async () => {
+    await pause(1200);
+    await shot('04-after-fit');
 });
 
 test('05 — sim 1: crank torsional vibration animation', async () => {

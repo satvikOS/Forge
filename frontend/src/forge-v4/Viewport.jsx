@@ -307,8 +307,15 @@ function CameraCenterEffect({ orbitRef, bundle, viewName, centerToken }) {
   const { useThree, useFrame } = bundle.r3f;
   const THREE = bundle.three;
   const { camera } = useThree();
-  // PUSH-27 — expose the OrbitControls so V12RealBuilder can fit-to-bounds
-  // after dropping 118 meshes into the scene.
+  // PUSH-27 — expose the OrbitControls. Use useFrame (already imported
+  // from bundle.r3f above) so we capture the controls AFTER they've been
+  // attached — Drei's OrbitControls only sets its ref after first frame.
+  useFrame(() => {
+    if (typeof window === 'undefined') return;
+    if (orbitRef.current && window.__forgeOrbit !== orbitRef.current) {
+      window.__forgeOrbit = orbitRef.current;
+    }
+  });
   React.useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     window.__forgeOrbit = orbitRef.current;
@@ -318,13 +325,16 @@ function CameraCenterEffect({ orbitRef, bundle, viewName, centerToken }) {
       box.getCenter(center);
       const size = new THREE.Vector3();
       box.getSize(size);
-      // Use the longest extent + a generous margin so the whole thing fits.
-      const maxDim = Math.max(size.x, size.y, size.z);
+      // Use diagonal length so the longest extent in ANY orientation fits.
+      const diag = size.length();
       const fov = (camera.fov * Math.PI) / 180;
       const margin = opts.margin ?? 2.4;
-      const dist = (maxDim / 2) / Math.tan(fov / 2) * margin;
-      // Engine-photo 3/4 view: look from front-right-above so the V banks
-      // are visible side-by-side and the long axis runs left-to-right.
+      const aspect = camera.aspect || 1.778;
+      // Use the smaller of horizontal/vertical FOV to be safe.
+      const fovV = fov;
+      const fovH = 2 * Math.atan(Math.tan(fov / 2) * aspect);
+      const fovMin = Math.min(fovV, fovH);
+      const dist = (diag / 2) / Math.tan(fovMin / 2) * margin;
       const dir = (opts.dir
         ? new THREE.Vector3(...opts.dir)
         : new THREE.Vector3(1.4, 0.6, 1.0)
