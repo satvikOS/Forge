@@ -401,6 +401,12 @@ export const CALCULATOR_TREE = [
           { id: 'sketchcs', label: 'PLANEGCS constraints (H/V/⊥/∥/=/tangent/distance)…', slice: 'PUSH-03' },
         ],
       },
+      {
+        label: 'Drawings (HLR)',
+        items: [
+          { id: 'drawingshlr', label: '2D HLR projection + DXF R12 / SVG export…', slice: 'PUSH-05' },
+        ],
+      },
     ],
   },
   {

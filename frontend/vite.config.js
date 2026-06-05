@@ -21,6 +21,10 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     rollupOptions: {
+      // Optional PDF deps used only by Forge-90/130 DrawingsWorkbench
+      // via dynamic import inside try/catch. Externalising lets Rollup
+      // skip static resolution; runtime gracefully falls back to SVG.
+      external: ['html2canvas', 'jspdf'],
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom'],

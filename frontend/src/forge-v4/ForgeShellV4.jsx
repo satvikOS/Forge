@@ -2405,6 +2405,11 @@ export function ForgeShellV4() {
       case 'workbench.sketchcs':
         window.__forgeOpenSketchConstraintsWorkbench?.();
         return;
+      // PUSH-05: Drawings (HLR + DXF/SVG)
+      case 'tools.drawings':
+      case 'workbench.drawings':
+        window.__forgeOpenDrawingsWorkbench?.();
+        return;
       // PUSH-01: routes from extended right-click context
       case 'palette.open':
         window.__forgeOpenCommandPalette?.(true);

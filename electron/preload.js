@@ -168,6 +168,19 @@ const forgeApi = {
       kernel.drawings.projectDetail(h, direction, focusCircle, scale ?? 2),
     projectBroken:  (h, direction, breakRegion) =>
       kernel.drawings.projectBroken(h, direction, breakRegion),
+    // PUSH-05 HLR API.
+    projectView:   kernel.drawings.projectView
+      ? (h, dir) => kernel.drawings.projectView(h, dir)
+      : null,
+    sectionView:   kernel.drawings.sectionView
+      ? (h, plane) => kernel.drawings.sectionView(h, plane)
+      : null,
+    emitDXF:       kernel.drawings.emitDXF
+      ? (views, dims) => kernel.drawings.emitDXF(views, dims ?? [])
+      : null,
+    emitSVG:       kernel.drawings.emitSVG
+      ? (view) => kernel.drawings.emitSVG(view)
+      : null,
   } : null,
 
   // 2.5D CAM (Forge-13) — toolpath generators + G-code post.

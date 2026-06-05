@@ -42,6 +42,8 @@ import TopologyWorkbenchHost from './forge-v4/TopologyWorkbench.jsx';
 import SolidOpsWorkbenchHost from './forge-v4/SolidOpsWorkbench.jsx';
 // PUSH-03: Sketch constraints (planegcs-backed).
 import SketchConstraintsWorkbenchHost from './forge-v4/SketchConstraintsWorkbench.jsx';
+// PUSH-05: Drawings HLR + DXF/SVG emit (forge::drawings).
+import DrawingsHLRWorkbenchHost from './forge-v4/DrawingsHLRWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -602,6 +604,7 @@ function App() {
       <TopologyWorkbenchHost />
       <SolidOpsWorkbenchHost />
       <SketchConstraintsWorkbenchHost />
+      <DrawingsHLRWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />
