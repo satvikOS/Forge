@@ -60,12 +60,20 @@ async function platformMenuAction(actionId) {
 // [data-testid=forge-tool-confirm]. For enum/select fields, sets value; for
 // vec3, types into each of the 3 inputs.
 async function clickTool(toolId, params = {}, screenshotLabel = null) {
+    // Before opening a new tool: nuke any stale dock or toast that could
+    // intercept the next click.
+    if (await page.locator('[data-testid="forge-tool-dock"]').count() > 0) {
+        await page.keyboard.press('Escape').catch(() => {});
+        await pause(200);
+    }
     const btn = page.locator(`[data-tool="${toolId}"]`);
     if (await btn.count() === 0) {
         console.warn(`[push-31] no [data-tool="${toolId}"] visible — skipping`);
         return;
     }
-    await btn.first().click();
+    // force: true bypasses any overlay (toast / confirmation corner / etc.)
+    // that might intercept the click.
+    await btn.first().click({ force: true, timeout: 8000 });
     // Some tools (sketch.finish) have empty schema and may not open a dialog.
     const dialog = page.locator('[data-testid="forge-tool-dock"]');
     let opened = false;
@@ -100,6 +108,8 @@ async function clickTool(toolId, params = {}, screenshotLabel = null) {
             }
         }
         await page.locator('[data-testid="forge-tool-confirm"]').click();
+        // Wait for the dock to actually close before the next tool click.
+        await page.waitForSelector('[data-testid="forge-tool-dock"]', { state: 'detached', timeout: 5000 }).catch(() => {});
         await pause(500);
     }
     if (screenshotLabel) await shot(screenshotLabel);
@@ -183,17 +193,20 @@ test('02 — sketch a Ø70 circle for the main journal', async () => {
     }, 'sketch-circle-r35');
 });
 
-test('03 — finish sketch', async () => {
+test('03 — finish sketch + extrude 26 mm = Ø70 cylinder', async () => {
     await platformMenuAction('sketch.finish');
-    await shot('sketch-finish');
-});
-
-test('04 — extrude profile 26 mm — should now produce a Ø70 cylinder', async () => {
     await clickTool('solid.extrude', {
         distance: spec.crankshaft.main_journal_width_mm,
         direction: 'Up (+Z)',
         op: 'New body',
-    }, 'extrude-26-main-journal');
+    }, 'extrude-main-journal');
+});
+
+test('04 — move main journal to crank centerline (translate -315, 0, 0)', async () => {
+    await clickTool('solid.translate', {
+        dx: -3 * spec.block.cylinder_pitch_mm,
+        dy: 0, dz: 0,
+    }, 'translate-main-journal');
 });
 
 test('05 — linear pattern 7 mains down crank axis at 106 mm pitch', async () => {
@@ -205,7 +218,7 @@ test('05 — linear pattern 7 mains down crank axis at 106 mm pitch', async () =
 });
 
 // ----- block envelope -----
-test('06 — block sketch + rect 636×220 + finish + extrude 280', async () => {
+test('06 — block: rect 636×220, extrude 280, no translate (sits at origin)', async () => {
     await platformMenuAction('sketch.new');
     await clickTool('sketch.rect', {
         center: [0, 0, 0],
@@ -220,11 +233,11 @@ test('06 — block sketch + rect 636×220 + finish + extrude 280', async () => {
     }, 'extrude-block');
 });
 
-// ----- bores bank A -----
-test('07 — bores bank A: sketch Ø89 + finish + extrude 86', async () => {
+// ----- bores bank A: circles at -Y, extrude, then translate down (-Y) -----
+test('07 — bore bank A: sketch Ø89 + extrude 86 + move to bank-A side', async () => {
     await platformMenuAction('sketch.new');
     await clickTool('sketch.circle', {
-        center: [0, -80, 0],
+        center: [0, 0, 0],
         radius: spec.bore.diameter_mm / 2,
     }, 'sketch-bore-A');
     await platformMenuAction('sketch.finish');
@@ -233,13 +246,14 @@ test('07 — bores bank A: sketch Ø89 + finish + extrude 86', async () => {
         direction: 'Up (+Z)',
         op: 'New body',
     }, 'extrude-bore-A');
+    await clickTool('solid.translate', { dx: 0, dy: -110, dz: 280 }, 'translate-bore-A');
 });
 
-// ----- bores bank B -----
-test('08 — bores bank B: sketch Ø89 at +Y + finish + extrude 86', async () => {
+// ----- bores bank B mirrored to +Y -----
+test('08 — bore bank B: same sketch + extrude + translate +Y', async () => {
     await platformMenuAction('sketch.new');
     await clickTool('sketch.circle', {
-        center: [0, 80, 0],
+        center: [0, 0, 0],
         radius: spec.bore.diameter_mm / 2,
     }, 'sketch-bore-B');
     await platformMenuAction('sketch.finish');
@@ -248,30 +262,44 @@ test('08 — bores bank B: sketch Ø89 at +Y + finish + extrude 86', async () =>
         direction: 'Up (+Z)',
         op: 'New body',
     }, 'extrude-bore-B');
+    await clickTool('solid.translate', { dx: 0, dy: 110, dz: 280 }, 'translate-bore-B');
 });
 
-// ----- head -----
-test('09 — head rect + extrude 80', async () => {
+// ----- head A on bank A side, elevated -----
+test('09 — head A: rect + extrude 80 + translate to bank A top', async () => {
     await platformMenuAction('sketch.new');
     await clickTool('sketch.rect', {
         center: [0, 0, 0], width: spec.block.block_length_mm, height: 100,
     });
     await platformMenuAction('sketch.finish');
-    await clickTool('solid.extrude', { distance: 80, direction: 'Up (+Z)', op: 'New body' }, 'extrude-head');
+    await clickTool('solid.extrude', { distance: 80, direction: 'Up (+Z)', op: 'New body' }, 'extrude-head-A');
+    await clickTool('solid.translate', { dx: 0, dy: -160, dz: 400 }, 'translate-head-A');
 });
 
-// ----- oil pan -----
-test('10 — oil pan rect + extrude 80', async () => {
+// ----- head B mirrored -----
+test('10 — head B: same + translate +Y top', async () => {
     await platformMenuAction('sketch.new');
     await clickTool('sketch.rect', {
-        center: [0, 0, 0], width: spec.block.block_length_mm * 1.05, height: 200,
+        center: [0, 0, 0], width: spec.block.block_length_mm, height: 100,
+    });
+    await platformMenuAction('sketch.finish');
+    await clickTool('solid.extrude', { distance: 80, direction: 'Up (+Z)', op: 'New body' }, 'extrude-head-B');
+    await clickTool('solid.translate', { dx: 0, dy: 160, dz: 400 }, 'translate-head-B');
+});
+
+// ----- oil pan: rect + extrude + translate BELOW block -----
+test('11 — oil pan: rect + extrude + translate -Z', async () => {
+    await platformMenuAction('sketch.new');
+    await clickTool('sketch.rect', {
+        center: [0, 0, 0], width: spec.block.block_length_mm * 1.05, height: 240,
     });
     await platformMenuAction('sketch.finish');
     await clickTool('solid.extrude', { distance: 80, direction: 'Up (+Z)', op: 'New body' }, 'extrude-pan');
+    await clickTool('solid.translate', { dx: 0, dy: 0, dz: -80 }, 'translate-pan');
 });
 
 // ----- view orbit -----
-test('11 — orbit through views (sidebar / cmd-bar shortcuts)', async () => {
+test('12 — orbit through views (sidebar / cmd-bar shortcuts)', async () => {
     for (const [key, label] of [['1','front'], ['2','top'], ['3','right'], ['5','iso']]) {
         await page.keyboard.press(key);
         await pause(1000);
@@ -279,7 +307,7 @@ test('11 — orbit through views (sidebar / cmd-bar shortcuts)', async () => {
     }
 });
 
-test('12 — final wide capture', async () => {
+test('13 — final wide capture', async () => {
     await pause(2000);
     await shot('final-assembly');
 });

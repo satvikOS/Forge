@@ -35,6 +35,7 @@ const SPEC = {
       { id: 'solid.hole',     label: 'Hole',    icon: 'solid.hole', hint: 'H' },
       { id: 'solid.thread',   label: 'Thread',  icon: 'solid.thread' },
       { id: 'solid.rib',      label: 'Rib',     icon: 'solid.rib' },
+      { id: 'solid.translate',label: 'Move',    icon: 'solid.draft', hint: 'M' },
     ]},
     { label: 'Pattern', tools: [
       { id: 'pattern.linear',   label: 'Linear',   icon: 'pattern.linear' },

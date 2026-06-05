@@ -137,6 +137,12 @@ export const TOOL_SCHEMAS = {
     { id: 'thickness',  label: 'Thickness',     type: 'number', default: 2,  unit: 'mm', min: 0.01 },
     { id: 'neutralFace',label: 'Neutral face',  type: 'ref' },
   ]},
+  'solid.translate':{ title: 'Move (translate body)', fields: [
+    { id: 'body', label: 'Body (defaults to last)', type: 'ref' },
+    { id: 'dx',   label: 'dX', type: 'number', default: 0, unit: 'mm' },
+    { id: 'dy',   label: 'dY', type: 'number', default: 0, unit: 'mm' },
+    { id: 'dz',   label: 'dZ', type: 'number', default: 0, unit: 'mm' },
+  ]},
 
   // ----- PATTERNS -----
   'pattern.linear':   { title: 'Linear Pattern', fields: [

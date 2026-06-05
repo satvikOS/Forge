@@ -78,7 +78,11 @@ function callNative(toolId, p, ctx) {
       // ----- primitive-ish: turn schema params into the closest native call -----
       case 'solid.extrude': {
         if (ctx?.currentSketch != null && f.part?.extrudeProfile) {
-          const dir = (p.direction || '').startsWith('Down') ? 'Z-' : 'Z+';
+          // The C++ binding expects a vec3 direction array, NOT the
+          // 'Z+' / 'Z-' string the schema produces. Convert here.
+          const isDown = (p.direction || '').startsWith('Down');
+          const isBoth = (p.direction || '').startsWith('Both');
+          const dir = isBoth ? [0, 0, 0] : (isDown ? [0, 0, -1] : [0, 0, 1]);
           return f.part.extrudeProfile(ctx.currentSketch, MM(p.distance, 25), dir);
         }
         if (f.makeBox) return f.makeBox(MM(p.width, 20), MM(p.height, 20), MM(p.distance, 25));
@@ -162,6 +166,13 @@ function callNative(toolId, p, ctx) {
       }
       case 'solid.thread': {
         if (f.makeCylinder) return f.makeCylinder(MM(p.major, 5) / 2, MM(p.length, 10));
+        return null;
+      }
+      case 'solid.translate': {
+        const target = pickTarget(ctx);
+        if (target != null && typeof f.translate === 'function') {
+          return f.translate(target, MM(p.dx, 0), MM(p.dy, 0), MM(p.dz, 0));
+        }
         return null;
       }
       // ----- patterns: real kernel patterns when we have a source body -----
