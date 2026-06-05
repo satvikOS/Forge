@@ -1239,6 +1239,248 @@ Napi::Value ProjectShapeBroken(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- drawings (PUSH-05)
+//
+// Stricter View2D / SectionView surface + DXF / SVG text emitters.
+// These live alongside the legacy projectShape / projectSection bindings
+// rather than replacing them — same HLR pipeline, different output
+// shape (per-polyline gp_Pnt2d arrays + bbox vs. packed Float32 +
+// starts).
+//
+// JS shape:
+//   forge.drawings.projectView(handle, "front" | "top" | "right" | "iso")
+//     → { visibleEdges: [[{x,y}, ...], ...],
+//          hiddenEdges:  [[{x,y}, ...], ...],
+//          bbox: { minX, minY, maxX, maxY } }
+//
+//   forge.drawings.sectionView(handle, { origin:[x,y,z], normal:[x,y,z] })
+//     → { sectionEdges, behindEdges }
+//
+//   forge.drawings.emitDXF([viewObj, ...], [ [start, end], ... ])
+//     → string  (AutoCAD R12 ASCII DXF)
+//
+//   forge.drawings.emitSVG(viewObj) → string
+
+namespace drawings_v2_bind {
+
+forge::drawings::ViewDirection parseViewDirection(Napi::Env env, const Napi::Value& v) {
+    if (!v.IsString()) {
+        throw Napi::TypeError::New(env,
+            "forge.drawings.projectView: direction must be 'front'|'top'|'right'|'iso'");
+    }
+    const std::string name = v.As<Napi::String>();
+    if (name == "front") return forge::drawings::ViewDirection::FRONT;
+    if (name == "top")   return forge::drawings::ViewDirection::TOP;
+    if (name == "right") return forge::drawings::ViewDirection::RIGHT;
+    if (name == "iso" || name == "isometric") return forge::drawings::ViewDirection::ISO;
+    throw Napi::TypeError::New(env,
+        "forge.drawings.projectView: unknown direction '" + name + "'");
+}
+
+Napi::Array polylineToArray(Napi::Env env, const forge::drawings::Polyline& pl) {
+    auto arr = Napi::Array::New(env, pl.size());
+    for (std::size_t i = 0; i < pl.size(); ++i) {
+        auto pt = Napi::Object::New(env);
+        pt.Set("x", Napi::Number::New(env, pl[i].X()));
+        pt.Set("y", Napi::Number::New(env, pl[i].Y()));
+        arr.Set(static_cast<uint32_t>(i), pt);
+    }
+    return arr;
+}
+
+Napi::Array bucketToArray(Napi::Env env, const std::vector<forge::drawings::Polyline>& bucket) {
+    auto arr = Napi::Array::New(env, bucket.size());
+    for (std::size_t i = 0; i < bucket.size(); ++i) {
+        arr.Set(static_cast<uint32_t>(i), polylineToArray(env, bucket[i]));
+    }
+    return arr;
+}
+
+Napi::Object view2DToObj(Napi::Env env, const forge::drawings::View2D& v) {
+    auto out = Napi::Object::New(env);
+    out.Set("visibleEdges", bucketToArray(env, v.visibleEdges));
+    out.Set("hiddenEdges",  bucketToArray(env, v.hiddenEdges));
+    auto bb = Napi::Object::New(env);
+    bb.Set("minX", Napi::Number::New(env, v.minX));
+    bb.Set("minY", Napi::Number::New(env, v.minY));
+    bb.Set("maxX", Napi::Number::New(env, v.maxX));
+    bb.Set("maxY", Napi::Number::New(env, v.maxY));
+    out.Set("bbox", bb);
+    return out;
+}
+
+// Reverse: read a JS view object (the same shape we emit above) back
+// into a forge::drawings::View2D so emitDXF can ingest an array of
+// pre-computed views without re-running HLR.
+forge::drawings::View2D objToView2D(Napi::Env env, const Napi::Object& obj) {
+    forge::drawings::View2D v;
+    auto readBucket = [&](const char* key, std::vector<forge::drawings::Polyline>& dst) {
+        if (!obj.Has(key)) return;
+        auto val = obj.Get(key);
+        if (!val.IsArray()) return;
+        auto arr = val.As<Napi::Array>();
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto plv = arr.Get(i);
+            if (!plv.IsArray()) continue;
+            auto pla = plv.As<Napi::Array>();
+            forge::drawings::Polyline pl;
+            pl.reserve(pla.Length());
+            for (uint32_t j = 0; j < pla.Length(); ++j) {
+                auto ptv = pla.Get(j);
+                if (!ptv.IsObject()) continue;
+                auto pto = ptv.As<Napi::Object>();
+                const double x = pto.Get("x").As<Napi::Number>().DoubleValue();
+                const double y = pto.Get("y").As<Napi::Number>().DoubleValue();
+                pl.emplace_back(x, y);
+            }
+            if (pl.size() >= 2) dst.push_back(std::move(pl));
+        }
+    };
+    readBucket("visibleEdges", v.visibleEdges);
+    readBucket("hiddenEdges",  v.hiddenEdges);
+    if (obj.Has("bbox") && obj.Get("bbox").IsObject()) {
+        auto bb = obj.Get("bbox").As<Napi::Object>();
+        v.minX = bb.Get("minX").As<Napi::Number>().DoubleValue();
+        v.minY = bb.Get("minY").As<Napi::Number>().DoubleValue();
+        v.maxX = bb.Get("maxX").As<Napi::Number>().DoubleValue();
+        v.maxY = bb.Get("maxY").As<Napi::Number>().DoubleValue();
+    }
+    return v;
+}
+
+} // namespace drawings_v2_bind
+
+Napi::Value ProjectView2D(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        auto dir = drawings_v2_bind::parseViewDirection(env,
+            info.Length() > 1 ? info[1] : env.Undefined());
+        const TopoDS_Shape& shape = ShapeRegistry::instance().get(h);
+        auto v = forge::drawings::projectView(shape, dir);
+        return drawings_v2_bind::view2DToObj(env, v);
+    });
+}
+
+Napi::Value SectionView2D(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        if (info.Length() < 2 || !info[1].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.drawings.sectionView: expected plane object {origin:[x,y,z], normal:[x,y,z]}");
+        }
+        auto planeObj = info[1].As<Napi::Object>();
+        auto readVec3 = [&](const char* k, double& a, double& b, double& c) {
+            auto v = planeObj.Get(k);
+            if (v.IsArray()) {
+                auto arr = v.As<Napi::Array>();
+                if (arr.Length() >= 3) {
+                    a = arr.Get(uint32_t{0}).As<Napi::Number>().DoubleValue();
+                    b = arr.Get(uint32_t{1}).As<Napi::Number>().DoubleValue();
+                    c = arr.Get(uint32_t{2}).As<Napi::Number>().DoubleValue();
+                    return;
+                }
+            }
+            if (v.IsTypedArray()) {
+                auto arr = v.As<Napi::Float64Array>();
+                if (arr.ElementLength() >= 3) {
+                    a = arr.Data()[0]; b = arr.Data()[1]; c = arr.Data()[2];
+                    return;
+                }
+            }
+            throw Napi::TypeError::New(env,
+                std::string("forge.drawings.sectionView: plane.") + k + " must be a 3-element array");
+        };
+        double ox, oy, oz, nx, ny, nz;
+        readVec3("origin", ox, oy, oz);
+        readVec3("normal", nx, ny, nz);
+        const double nlen = std::sqrt(nx * nx + ny * ny + nz * nz);
+        if (nlen < 1e-12) {
+            throw Napi::TypeError::New(env,
+                "forge.drawings.sectionView: plane normal cannot be zero");
+        }
+        gp_Pln plane(gp_Pnt(ox, oy, oz),
+                     gp_Dir(nx / nlen, ny / nlen, nz / nlen));
+        const TopoDS_Shape& shape = ShapeRegistry::instance().get(h);
+        auto s = forge::drawings::sectionView(shape, plane);
+
+        auto out = Napi::Object::New(env);
+        out.Set("sectionEdges", drawings_v2_bind::bucketToArray(env, s.sectionEdges));
+        out.Set("behindEdges",  drawings_v2_bind::bucketToArray(env, s.behindEdges));
+        return out;
+    });
+}
+
+Napi::Value EmitDXF(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1 || !info[0].IsArray()) {
+            throw Napi::TypeError::New(env,
+                "forge.drawings.emitDXF: expected array of views as arg 0");
+        }
+        auto viewsArr = info[0].As<Napi::Array>();
+        std::vector<forge::drawings::View2D> views;
+        views.reserve(viewsArr.Length());
+        for (uint32_t i = 0; i < viewsArr.Length(); ++i) {
+            auto v = viewsArr.Get(i);
+            if (!v.IsObject()) continue;
+            views.push_back(drawings_v2_bind::objToView2D(env, v.As<Napi::Object>()));
+        }
+
+        std::vector<std::pair<gp_Pnt2d, gp_Pnt2d>> dims;
+        if (info.Length() > 1 && info[1].IsArray()) {
+            auto dimsArr = info[1].As<Napi::Array>();
+            for (uint32_t i = 0; i < dimsArr.Length(); ++i) {
+                auto d = dimsArr.Get(i);
+                if (!d.IsArray()) continue;
+                auto da = d.As<Napi::Array>();
+                if (da.Length() < 2) continue;
+                auto readPt = [&](Napi::Value v, gp_Pnt2d& out) {
+                    if (v.IsArray()) {
+                        auto a = v.As<Napi::Array>();
+                        if (a.Length() >= 2) {
+                            out.SetCoord(
+                                a.Get(uint32_t{0}).As<Napi::Number>().DoubleValue(),
+                                a.Get(uint32_t{1}).As<Napi::Number>().DoubleValue());
+                            return true;
+                        }
+                    } else if (v.IsObject()) {
+                        auto o = v.As<Napi::Object>();
+                        if (o.Has("x") && o.Has("y")) {
+                            out.SetCoord(
+                                o.Get("x").As<Napi::Number>().DoubleValue(),
+                                o.Get("y").As<Napi::Number>().DoubleValue());
+                            return true;
+                        }
+                    }
+                    return false;
+                };
+                gp_Pnt2d a, b;
+                if (readPt(da.Get(uint32_t{0}), a) && readPt(da.Get(uint32_t{1}), b)) {
+                    dims.emplace_back(a, b);
+                }
+            }
+        }
+
+        const std::string s = forge::drawings::emitDXF(views, dims);
+        return Napi::String::New(env, s);
+    });
+}
+
+Napi::Value EmitSVG(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (info.Length() < 1 || !info[0].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.drawings.emitSVG: expected view object as arg 0");
+        }
+        auto v = drawings_v2_bind::objToView2D(env, info[0].As<Napi::Object>());
+        const std::string s = forge::drawings::emitSVG(v);
+        return Napi::String::New(env, s);
+    });
+}
+
 // ----------------------------------------------------------- sketcher
 Napi::Value SketcherCreate(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
@@ -4209,6 +4451,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     drawings.Set("projectSection", Napi::Function::New(env, ProjectShapeSection));
     drawings.Set("projectDetail",  Napi::Function::New(env, ProjectShapeDetail));
     drawings.Set("projectBroken",  Napi::Function::New(env, ProjectShapeBroken));
+    // ---- PUSH-05: View2D / SectionView surface + DXF / SVG emitters
+    drawings.Set("projectView",    Napi::Function::New(env, ProjectView2D));
+    drawings.Set("sectionView",    Napi::Function::New(env, SectionView2D));
+    drawings.Set("emitDXF",        Napi::Function::New(env, EmitDXF));
+    drawings.Set("emitSVG",        Napi::Function::New(env, EmitSVG));
     exports.Set("drawings", drawings);
     exports.Set("projectShape", Napi::Function::New(env, ProjectShape));
 
