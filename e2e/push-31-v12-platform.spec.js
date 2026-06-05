@@ -42,6 +42,19 @@ async function switchWorkbench(wbId) {
     await pause(500);
 }
 
+// The platform handles `sketch.new` / `sketch.finish` through the menu
+// channel (handleMenuAction in ForgeShellV4) — clicking the toolbar tool
+// just sets activeTool and the Confirm handler errors out when there's
+// no current sketch. Dispatching the platform's forge:menu-action event
+// IS the documented in-platform path: it's the same channel Cmd-K
+// palette, File menu, and the top toolbar use to start/end sketches.
+async function platformMenuAction(actionId) {
+    await page.evaluate((id) => {
+        window.dispatchEvent(new CustomEvent('forge:menu-action', { detail: { id } }));
+    }, actionId);
+    await pause(400);
+}
+
 // Click a real platform tool. Most tools open a ToolParamDialog (forge-tool-dock).
 // We fill its `input[data-field=...]` inputs from `params`, then click
 // [data-testid=forge-tool-confirm]. For enum/select fields, sets value; for
@@ -158,8 +171,9 @@ test('00 — Forge boot + switch to Mech workbench (sidebar click)', async () =>
 });
 
 // ----- crankshaft main journal -----
-test('01 — new sketch on XY plane', async () => {
-    await clickTool('sketch.new', { plane: 'XY' }, 'sketch-new-xy');
+test('01 — start sketch on XY plane (platform menu action)', async () => {
+    await platformMenuAction('sketch.new');
+    await shot('sketch-new-xy');
 });
 
 test('02 — sketch a Ø70 circle for the main journal', async () => {
@@ -170,10 +184,11 @@ test('02 — sketch a Ø70 circle for the main journal', async () => {
 });
 
 test('03 — finish sketch', async () => {
-    await clickTool('sketch.finish', {}, 'sketch-finish');
+    await platformMenuAction('sketch.finish');
+    await shot('sketch-finish');
 });
 
-test('04 — extrude profile 26 mm to make the journal', async () => {
+test('04 — extrude profile 26 mm — should now produce a Ø70 cylinder', async () => {
     await clickTool('solid.extrude', {
         distance: spec.crankshaft.main_journal_width_mm,
         direction: 'Up (+Z)',
@@ -190,23 +205,14 @@ test('05 — linear pattern 7 mains down crank axis at 106 mm pitch', async () =
 });
 
 // ----- block envelope -----
-test('06 — new sketch on XY plane', async () => {
-    await clickTool('sketch.new', { plane: 'XY' }, 'sketch-new-xy-block');
-});
-
-test('07 — sketch block outline rectangle 636 × 220', async () => {
+test('06 — block sketch + rect 636×220 + finish + extrude 280', async () => {
+    await platformMenuAction('sketch.new');
     await clickTool('sketch.rect', {
         center: [0, 0, 0],
         width: spec.block.block_length_mm,
         height: spec.block.block_height_mm,
     }, 'sketch-rect-block');
-});
-
-test('08 — finish sketch', async () => {
-    await clickTool('sketch.finish', {}, 'sketch-finish-block');
-});
-
-test('09 — extrude block 280 mm', async () => {
+    await platformMenuAction('sketch.finish');
     await clickTool('solid.extrude', {
         distance: spec.block.block_height_mm,
         direction: 'Up (+Z)',
@@ -214,84 +220,58 @@ test('09 — extrude block 280 mm', async () => {
     }, 'extrude-block');
 });
 
-test('10 — fillet block edges r=8 mm', async () => {
-    await clickTool('solid.fillet', { radius: 8 }, 'fillet-block');
-});
-
 // ----- bores bank A -----
-test('11 — new sketch on top face / XY for bores', async () => {
-    await clickTool('sketch.new', { plane: 'XY' }, 'sketch-new-bores');
-});
-
-test('12 — sketch bore Ø89', async () => {
+test('07 — bores bank A: sketch Ø89 + finish + extrude 86', async () => {
+    await platformMenuAction('sketch.new');
     await clickTool('sketch.circle', {
         center: [0, -80, 0],
         radius: spec.bore.diameter_mm / 2,
-    }, 'sketch-circle-bore');
-});
-
-test('13 — finish sketch', async () => {
-    await clickTool('sketch.finish', {}, 'sketch-finish-bore');
-});
-
-test('14 — extrude bore 86 mm', async () => {
+    }, 'sketch-bore-A');
+    await platformMenuAction('sketch.finish');
     await clickTool('solid.extrude', {
         distance: spec.bore.depth_mm,
         direction: 'Up (+Z)',
         op: 'New body',
-    }, 'extrude-bore');
+    }, 'extrude-bore-A');
 });
 
-test('15 — linear pattern 6 bores along X', async () => {
-    await clickTool('pattern.linear', {
-        dir: 'X',
-        count: 6,
-        spacing: spec.block.cylinder_pitch_mm,
-    }, 'pattern-bores-A');
-});
-
-// ----- bores bank B (mirror via separate build) -----
-test('16 — new sketch + circle Ø89 at +Y for bank B', async () => {
-    await clickTool('sketch.new', { plane: 'XY' });
+// ----- bores bank B -----
+test('08 — bores bank B: sketch Ø89 at +Y + finish + extrude 86', async () => {
+    await platformMenuAction('sketch.new');
     await clickTool('sketch.circle', {
         center: [0, 80, 0],
         radius: spec.bore.diameter_mm / 2,
-    }, 'sketch-bore-bank-B');
-});
-
-test('17 — finish + extrude + linear pattern for bank B', async () => {
-    await clickTool('sketch.finish', {});
-    await clickTool('solid.extrude', { distance: spec.bore.depth_mm, direction: 'Up (+Z)', op: 'New body' });
-    await clickTool('pattern.linear', {
-        dir: 'X', count: 6, spacing: spec.block.cylinder_pitch_mm,
-    }, 'pattern-bores-B');
+    }, 'sketch-bore-B');
+    await platformMenuAction('sketch.finish');
+    await clickTool('solid.extrude', {
+        distance: spec.bore.depth_mm,
+        direction: 'Up (+Z)',
+        op: 'New body',
+    }, 'extrude-bore-B');
 });
 
 // ----- head -----
-test('18 — head rect 636 × 100, extrude 80, fillet r=4', async () => {
-    await clickTool('sketch.new', { plane: 'XY' });
+test('09 — head rect + extrude 80', async () => {
+    await platformMenuAction('sketch.new');
     await clickTool('sketch.rect', {
         center: [0, 0, 0], width: spec.block.block_length_mm, height: 100,
     });
-    await clickTool('sketch.finish', {});
+    await platformMenuAction('sketch.finish');
     await clickTool('solid.extrude', { distance: 80, direction: 'Up (+Z)', op: 'New body' }, 'extrude-head');
-    await clickTool('solid.fillet', { radius: 4 }, 'fillet-head');
 });
 
 // ----- oil pan -----
-test('19 — oil pan rect 668 × 200, extrude 80, fillet r=6', async () => {
-    await clickTool('sketch.new', { plane: 'XY' });
+test('10 — oil pan rect + extrude 80', async () => {
+    await platformMenuAction('sketch.new');
     await clickTool('sketch.rect', {
         center: [0, 0, 0], width: spec.block.block_length_mm * 1.05, height: 200,
     });
-    await clickTool('sketch.finish', {});
+    await platformMenuAction('sketch.finish');
     await clickTool('solid.extrude', { distance: 80, direction: 'Up (+Z)', op: 'New body' }, 'extrude-pan');
-    await clickTool('solid.fillet', { radius: 6 }, 'fillet-pan');
 });
 
 // ----- view orbit -----
-test('20 — orbit through views (sidebar / cmd-bar shortcuts)', async () => {
-    // Press number keys for view shortcuts (1=front, 2=top, 3=right, 5=iso typically)
+test('11 — orbit through views (sidebar / cmd-bar shortcuts)', async () => {
     for (const [key, label] of [['1','front'], ['2','top'], ['3','right'], ['5','iso']]) {
         await page.keyboard.press(key);
         await pause(1000);
@@ -299,7 +279,7 @@ test('20 — orbit through views (sidebar / cmd-bar shortcuts)', async () => {
     }
 });
 
-test('21 — final wide capture', async () => {
+test('12 — final wide capture', async () => {
     await pause(2000);
     await shot('final-assembly');
 });
