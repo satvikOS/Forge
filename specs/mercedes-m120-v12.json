@@ -1,0 +1,100 @@
+{
+  "name": "Mercedes-Benz M120 6.0L V12",
+  "manufacturer": "Mercedes-Benz / Daimler AG",
+  "applications": [
+    "Mercedes-Benz S600 W140 / W220",
+    "Mercedes-Benz SL600 R129",
+    "Mercedes-Benz CL600 C140",
+    "Mercedes-Benz 600SEL",
+    "Pagani Zonda (modified M120)",
+    "McLaren F1 (BMW S70/2 derivation — same architecture)"
+  ],
+  "production": { "from": 1991, "to": 2002 },
+  "engine": {
+    "displacement_cc": 5987,
+    "configuration": "60° V12",
+    "bore_mm": 89.0,
+    "stroke_mm": 80.2,
+    "rod_length_mm": 144.0,
+    "compression_ratio": 10.0,
+    "firing_order": "1-12-5-8-3-10-6-7-2-11-4-9",
+    "valves_per_cyl": 4,
+    "valvetrain": "DOHC, chain-driven",
+    "induction": "naturally aspirated, sequential MPI (HFM-SFI)",
+    "power_kw": 290,
+    "power_hp": 389,
+    "torque_nm": 570,
+    "redline_rpm": 6800,
+    "fuel": "petrol RON 95+",
+    "engine_dry_mass_kg": 244
+  },
+  "block": {
+    "material_id": "al-7075",
+    "cylinder_pitch_mm": 106.0,
+    "block_length_mm": 636.0,
+    "deck_height_mm": 220.0,
+    "bank_angle_deg": 60,
+    "main_bearings_count": 7,
+    "head_bolts_per_cyl": 4
+  },
+  "bore": {
+    "diameter_mm": 89.0,
+    "depth_mm": 86.0,
+    "ra_target_um": 0.4,
+    "circularity_tol_mm": 0.005,
+    "cylindricity_tol_mm": 0.012
+  },
+  "crankshaft": {
+    "material_id": "steel-4140",
+    "main_journal_OD_mm": 70.0,
+    "main_journal_width_mm": 26.0,
+    "rod_journal_OD_mm": 60.0,
+    "rod_journal_width_mm": 24.0,
+    "throw_radius_mm": 40.1,
+    "throw_angles_deg": [0, 120, 240, 60, 180, 300]
+  },
+  "head_bolt": {
+    "standard": "ISO 4762 M12 × 1.75 × 130 12.9",
+    "preload_kN": 110,
+    "torque_pattern": "Mercedes 4-step plus 90°+90° angle"
+  },
+  "pmi": [
+    { "kind": "datum", "label": "A", "feature": "main bearing axis" },
+    { "kind": "datum", "label": "B", "feature": "deck face" },
+    { "kind": "datum", "label": "C", "feature": "front face of block" },
+    { "kind": "fcf", "symbol": "⌭", "tolerance": "0.012", "datums": ["A", "B"], "feature": "bore" },
+    { "kind": "fcf", "symbol": "⊥", "tolerance": "0.02", "datums": ["A"], "feature": "deck face wrt main axis" },
+    { "kind": "fcf", "symbol": "⌖", "tolerance": "Ø0.05", "modifier": "M", "datums": ["A", "C"], "feature": "bore axis position" },
+    { "kind": "surfaceFinish", "value": "Ra 0.4", "feature": "bore wall" },
+    { "kind": "surfaceFinish", "value": "Ra 1.6", "feature": "deck face" },
+    { "kind": "linearDim", "value": "Ø89", "upper": "+0.012", "lower": "-0", "feature": "bore" },
+    { "kind": "linearDim", "value": "Ø70", "upper": "+0", "lower": "-0.025", "feature": "main journal" }
+  ],
+  "load_case": {
+    "scenario": "peak combustion at crank top dead centre",
+    "cyl_pressure_MPa": 9.5,
+    "applied_face": "bore wall (annular ring around piston crown)",
+    "constraint": "fix all main bearing inner cylinders"
+  },
+  "build_recipe": {
+    "stages": [
+      { "id": 1, "label": "Sketch cylinder bore profile (Ø89 circle on XY)" },
+      { "id": 2, "label": "Extrude bore profile 86 mm" },
+      { "id": 3, "label": "Linear pattern 6 bores along block (106 mm pitch)" },
+      { "id": 4, "label": "Mirror-rotate to second bank (60° V)" },
+      { "id": 5, "label": "Sketch + extrude 7 main bearings on crank centerline" },
+      { "id": 6, "label": "Sketch + extrude 6 crank throws at 60° spacing" },
+      { "id": 7, "label": "Apply 4140 steel material to all parts" },
+      { "id": 8, "label": "Attach PMI annotations (datums A/B/C, cylindricity, position, surface finish)" },
+      { "id": 9, "label": "Generate 2D HLR drawing (FRONT projection) + DXF export" },
+      { "id": 10, "label": "PDM vault check-in (v1)" }
+    ]
+  },
+  "deliverables": [
+    "v12-bore-array.step",
+    "v12-crank.step",
+    "v12-drawing.dxf",
+    "pmi-Y14.41-bundle.txt",
+    "pdm vault doc M120-v1"
+  ]
+}
