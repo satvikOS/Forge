@@ -129,6 +129,7 @@ add_library(forge_kernel SHARED
     src/SlopeStability.cpp
     src/Casting.cpp
     src/MoldFlow.cpp
+    src/Mold.cpp
     src/Acoustics.cpp
     src/WeldingFea.cpp
     src/GltfExport.cpp
