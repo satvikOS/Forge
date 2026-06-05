@@ -44,6 +44,7 @@
 #include "forge/SlopeStability.hpp"
 #include "forge/Casting.hpp"
 #include "forge/MoldFlow.hpp"
+#include "forge/Mold.hpp"
 #include "forge/Acoustics.hpp"
 #include "forge/WeldingFea.hpp"
 #include "forge/GltfExport.hpp"
@@ -4900,6 +4901,201 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
           return out;
         });
       }));
+
+    // -------- PUSH-08 — Mold tooling (draft / parting / cavity / cooling) ---
+    // analyseDraft(partHandle, pullDir[3], draftThresholdDeg)
+    mold.Set("analyseDraft", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 3 || !info[0].IsNumber() ||
+              !info[1].IsArray() || !info[2].IsNumber()) {
+            throw Napi::TypeError::New(env2,
+              "forge.mold.analyseDraft(partHandle, [dx,dy,dz], draftThresholdDeg)");
+          }
+          uint32_t h = info[0].As<Napi::Number>().Uint32Value();
+          auto dirArr = info[1].As<Napi::Array>();
+          if (dirArr.Length() < 3) {
+            throw Napi::TypeError::New(env2,
+              "forge.mold.analyseDraft: pullDir must be [dx,dy,dz]");
+          }
+          gp_Dir pullDir(
+            dirArr.Get((uint32_t)0).As<Napi::Number>().DoubleValue(),
+            dirArr.Get((uint32_t)1).As<Napi::Number>().DoubleValue(),
+            dirArr.Get((uint32_t)2).As<Napi::Number>().DoubleValue());
+          double thresh = info[2].As<Napi::Number>().DoubleValue();
+          const TopoDS_Shape& part = forge::ShapeRegistry::instance().get(h);
+          auto faces = forge::mold::analyseDraft(part, pullDir, thresh);
+          auto arr = Napi::Array::New(env2, faces.size());
+          int positive = 0, negative = 0, vertical = 0;
+          for (uint32_t i = 0; i < faces.size(); ++i) {
+            auto o = Napi::Object::New(env2);
+            o.Set("angleDeg",   Napi::Number::New(env2, faces[i].angleDeg));
+            o.Set("isPositive", Napi::Boolean::New(env2, faces[i].isPositive));
+            o.Set("isNegative", Napi::Boolean::New(env2, faces[i].isNegative));
+            o.Set("isVertical", Napi::Boolean::New(env2, faces[i].isVertical));
+            if (faces[i].isPositive) ++positive;
+            if (faces[i].isNegative) ++negative;
+            if (faces[i].isVertical) ++vertical;
+            arr.Set(i, o);
+          }
+          auto out = Napi::Object::New(env2);
+          out.Set("faces",        arr);
+          out.Set("count",        Napi::Number::New(env2, (double)faces.size()));
+          out.Set("positiveCount",Napi::Number::New(env2, (double)positive));
+          out.Set("negativeCount",Napi::Number::New(env2, (double)negative));
+          out.Set("verticalCount",Napi::Number::New(env2, (double)vertical));
+          return out;
+        });
+      }));
+
+    // computeParting(partHandle, [dx,dy,dz]) -> { partingLineCount, partingSurface:handle }
+    mold.Set("computeParting", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsArray()) {
+            throw Napi::TypeError::New(env2,
+              "forge.mold.computeParting(partHandle, [dx,dy,dz])");
+          }
+          uint32_t h = info[0].As<Napi::Number>().Uint32Value();
+          auto dirArr = info[1].As<Napi::Array>();
+          if (dirArr.Length() < 3) {
+            throw Napi::TypeError::New(env2,
+              "forge.mold.computeParting: pullDir must be [dx,dy,dz]");
+          }
+          gp_Dir pullDir(
+            dirArr.Get((uint32_t)0).As<Napi::Number>().DoubleValue(),
+            dirArr.Get((uint32_t)1).As<Napi::Number>().DoubleValue(),
+            dirArr.Get((uint32_t)2).As<Napi::Number>().DoubleValue());
+          const TopoDS_Shape& part = forge::ShapeRegistry::instance().get(h);
+          auto r = forge::mold::computeParting(part, pullDir);
+          uint32_t surfHandle =
+            forge::ShapeRegistry::instance().add(r.partingSurface);
+          auto out = Napi::Object::New(env2);
+          out.Set("partingLineCount",
+                  Napi::Number::New(env2, (double)r.partingLines.size()));
+          out.Set("partingSurface", Napi::Number::New(env2, surfHandle));
+          return out;
+        });
+      }));
+
+    // splitCavityCore(moldBlockH, partH, partingSurfaceH) -> { cavity:h, core:h }
+    mold.Set("splitCavityCore", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 3 || !info[0].IsNumber() ||
+              !info[1].IsNumber() || !info[2].IsNumber()) {
+            throw Napi::TypeError::New(env2,
+              "forge.mold.splitCavityCore(moldBlock:h, part:h, partingSurface:h)");
+          }
+          uint32_t blockH  = info[0].As<Napi::Number>().Uint32Value();
+          uint32_t partH   = info[1].As<Napi::Number>().Uint32Value();
+          uint32_t surfH   = info[2].As<Napi::Number>().Uint32Value();
+          const TopoDS_Shape& block = forge::ShapeRegistry::instance().get(blockH);
+          const TopoDS_Shape& part  = forge::ShapeRegistry::instance().get(partH);
+          const TopoDS_Shape& surf  = forge::ShapeRegistry::instance().get(surfH);
+          auto r = forge::mold::splitCavityCore(block, part, surf);
+          uint32_t cavityH = forge::ShapeRegistry::instance().add(r.cavity);
+          uint32_t coreH   = forge::ShapeRegistry::instance().add(r.core);
+          auto out = Napi::Object::New(env2);
+          out.Set("cavity", Napi::Number::New(env2, cavityH));
+          out.Set("core",   Napi::Number::New(env2, coreH));
+          return out;
+        });
+      }));
+
+    // insertCoolingChannels(moldBlockH, channels:Array<{start,end,diameter}>) -> handle
+    mold.Set("insertCoolingChannels", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsArray()) {
+            throw Napi::TypeError::New(env2,
+              "forge.mold.insertCoolingChannels(moldBlock:h, channels:[{start:[x,y,z],end:[x,y,z],diameter}])");
+          }
+          uint32_t blockH = info[0].As<Napi::Number>().Uint32Value();
+          auto arr = info[1].As<Napi::Array>();
+          std::vector<forge::mold::CoolingChannel> channels;
+          channels.reserve(arr.Length());
+          for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto o = arr.Get(i).As<Napi::Object>();
+            auto sArr = o.Get("start").As<Napi::Array>();
+            auto eArr = o.Get("end").As<Napi::Array>();
+            forge::mold::CoolingChannel ch{
+              gp_Pnt(
+                sArr.Get((uint32_t)0).As<Napi::Number>().DoubleValue(),
+                sArr.Get((uint32_t)1).As<Napi::Number>().DoubleValue(),
+                sArr.Get((uint32_t)2).As<Napi::Number>().DoubleValue()),
+              gp_Pnt(
+                eArr.Get((uint32_t)0).As<Napi::Number>().DoubleValue(),
+                eArr.Get((uint32_t)1).As<Napi::Number>().DoubleValue(),
+                eArr.Get((uint32_t)2).As<Napi::Number>().DoubleValue()),
+              o.Get("diameter").As<Napi::Number>().DoubleValue()
+            };
+            channels.push_back(ch);
+          }
+          const TopoDS_Shape& block = forge::ShapeRegistry::instance().get(blockH);
+          auto r = forge::mold::insertCoolingChannels(block, channels);
+          uint32_t outH = forge::ShapeRegistry::instance().add(r);
+          return Napi::Number::New(env2, outH);
+        });
+      }));
+
+    // buildRunnerSystem(sprueTop:[x,y,z], gateEntries:Array<[x,y,z]>,
+    //                   sprueDia, runnerDia, gateDia)
+    //   -> { sprue:h, runners:[h], gates:[h] }
+    mold.Set("buildRunnerSystem", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 5 || !info[0].IsArray() || !info[1].IsArray() ||
+              !info[2].IsNumber() || !info[3].IsNumber() || !info[4].IsNumber()) {
+            throw Napi::TypeError::New(env2,
+              "forge.mold.buildRunnerSystem(sprueTop:[x,y,z], gateEntries:[[x,y,z]],"
+              " sprueDia, runnerDia, gateDia)");
+          }
+          auto sArr = info[0].As<Napi::Array>();
+          gp_Pnt sprueTop(
+            sArr.Get((uint32_t)0).As<Napi::Number>().DoubleValue(),
+            sArr.Get((uint32_t)1).As<Napi::Number>().DoubleValue(),
+            sArr.Get((uint32_t)2).As<Napi::Number>().DoubleValue());
+          auto gArr = info[1].As<Napi::Array>();
+          std::vector<gp_Pnt> gateEntries;
+          gateEntries.reserve(gArr.Length());
+          for (uint32_t i = 0; i < gArr.Length(); ++i) {
+            auto p = gArr.Get(i).As<Napi::Array>();
+            gateEntries.emplace_back(
+              p.Get((uint32_t)0).As<Napi::Number>().DoubleValue(),
+              p.Get((uint32_t)1).As<Napi::Number>().DoubleValue(),
+              p.Get((uint32_t)2).As<Napi::Number>().DoubleValue());
+          }
+          double sprueDia  = info[2].As<Napi::Number>().DoubleValue();
+          double runnerDia = info[3].As<Napi::Number>().DoubleValue();
+          double gateDia   = info[4].As<Napi::Number>().DoubleValue();
+          auto r = forge::mold::buildRunnerSystem(sprueTop, gateEntries,
+                                                  sprueDia, runnerDia, gateDia);
+          uint32_t sprueH =
+            forge::ShapeRegistry::instance().add(r.sprue);
+          auto runnersOut = Napi::Array::New(env2, r.runners.size());
+          for (uint32_t i = 0; i < r.runners.size(); ++i) {
+            uint32_t h = forge::ShapeRegistry::instance().add(r.runners[i]);
+            runnersOut.Set(i, Napi::Number::New(env2, h));
+          }
+          auto gatesOut = Napi::Array::New(env2, r.gates.size());
+          for (uint32_t i = 0; i < r.gates.size(); ++i) {
+            uint32_t h = forge::ShapeRegistry::instance().add(r.gates[i]);
+            gatesOut.Set(i, Napi::Number::New(env2, h));
+          }
+          auto out = Napi::Object::New(env2);
+          out.Set("sprue",   Napi::Number::New(env2, sprueH));
+          out.Set("runners", runnersOut);
+          out.Set("gates",   gatesOut);
+          return out;
+        });
+      }));
+
     exports.Set("mold", mold);
 
     // -------- Acoustics (Forge-175) -------------------------------------
