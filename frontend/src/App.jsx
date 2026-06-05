@@ -36,6 +36,8 @@ import { RoutingWorkbenchHost } from './forge-v4/RoutingWorkbench.jsx';
 import MateSolverWorkbenchHost from './forge-v4/MateSolverWorkbench.jsx';
 // PUSH-10: Extended CAM (forge::camx).
 import CAMExtendedWorkbenchHost from './forge-v4/CAMExtendedWorkbench.jsx';
+// PUSH-15: SIMP topology optimisation.
+import TopologyWorkbenchHost from './forge-v4/TopologyWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -593,6 +595,7 @@ function App() {
       <RoutingWorkbenchHost />
       <MateSolverWorkbenchHost />
       <CAMExtendedWorkbenchHost />
+      <TopologyWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

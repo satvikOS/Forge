@@ -383,6 +383,12 @@ export const CALCULATOR_TREE = [
           { id: 'camx', label: 'Pocket / contour / drill + Fanuc/Heidenhain/Siemens post…', slice: 'PUSH-10' },
         ],
       },
+      {
+        label: 'Generative / topology',
+        items: [
+          { id: 'topology', label: 'SIMP topology optimisation (Bendsoe-Sigmund)…', slice: 'PUSH-15' },
+        ],
+      },
     ],
   },
   {

@@ -2390,6 +2390,11 @@ export function ForgeShellV4() {
       case 'workbench.camx':
         window.__forgeOpenCAMExtendedWorkbench?.();
         return;
+      // PUSH-15: SIMP topology optimisation
+      case 'tools.topology':
+      case 'workbench.topology':
+        window.__forgeOpenTopologyWorkbench?.();
+        return;
       // PUSH-01: routes from extended right-click context
       case 'palette.open':
         window.__forgeOpenCommandPalette?.(true);
