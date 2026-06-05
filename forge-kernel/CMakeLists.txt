@@ -381,6 +381,7 @@ add_library(forge_kernel SHARED
     src/VarFillet.cpp
     src/LoftGuide.cpp
     src/MateLibrary.cpp
+    src/CamExtended.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -27,6 +27,7 @@
 #include "forge/FeaContact.hpp"
 #include "forge/Cam.hpp"
 #include "forge/CamAdvanced.hpp"
+#include "forge/CamExtended.hpp"
 #include "forge/GcodePost.hpp"
 #include "forge/Cfd.hpp"
 #include "forge/IoExchange.hpp"
@@ -14249,6 +14250,310 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
         });
       }));
     exports.Set("matelib", mlNs);
+
+    // ===================================================================
+    // PUSH-10 — Extended CAM (forge::camx)
+    //   listTools / pocketToolpath / contourToolpath / drillToolpath /
+    //   postProcess / estimateCycleTime
+    // ===================================================================
+    auto camxNs = Napi::Object::New(env);
+
+    // Helper lambdas (file-scope-local in the Init body).
+    auto readPt2Array = [](Napi::Env e2, Napi::Value v, const char* what)
+        -> std::vector<forge::camx::Pt2> {
+        if (!v.IsArray()) {
+            throw Napi::TypeError::New(e2,
+                std::string("forge.camx: ") + what + " must be an array");
+        }
+        auto arr = v.As<Napi::Array>();
+        std::vector<forge::camx::Pt2> out;
+        out.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto entry = arr.Get(i);
+            if (!entry.IsObject()) {
+                throw Napi::TypeError::New(e2,
+                    std::string("forge.camx: ") + what + "[i] must be an object {x,y}");
+            }
+            auto obj = entry.As<Napi::Object>();
+            forge::camx::Pt2 p{};
+            p.x = obj.Get("x").As<Napi::Number>().DoubleValue();
+            p.y = obj.Get("y").As<Napi::Number>().DoubleValue();
+            out.push_back(p);
+        }
+        return out;
+    };
+
+    auto readBoundary = [&readPt2Array](Napi::Env e2, Napi::Value v)
+        -> forge::camx::Boundary {
+        if (!v.IsArray()) {
+            throw Napi::TypeError::New(e2,
+                "forge.camx: boundary must be vector<vector<{x,y}>>");
+        }
+        auto outer = v.As<Napi::Array>();
+        forge::camx::Boundary b;
+        b.reserve(outer.Length());
+        for (uint32_t i = 0; i < outer.Length(); ++i) {
+            b.push_back(readPt2Array(e2, outer.Get(i), "boundary[i]"));
+        }
+        return b;
+    };
+
+    auto packPolyline3 = [](Napi::Env e2,
+                            const forge::camx::Polyline3& pl) -> Napi::Array {
+        auto arr = Napi::Array::New(e2, pl.size());
+        for (size_t i = 0; i < pl.size(); ++i) {
+            auto o = Napi::Object::New(e2);
+            o.Set("x", Napi::Number::New(e2, pl[i].x));
+            o.Set("y", Napi::Number::New(e2, pl[i].y));
+            o.Set("z", Napi::Number::New(e2, pl[i].z));
+            arr.Set(static_cast<uint32_t>(i), o);
+        }
+        return arr;
+    };
+
+    auto packPolylineList = [&packPolyline3](
+        Napi::Env e2, const std::vector<forge::camx::Polyline3>& pls)
+        -> Napi::Array {
+        auto arr = Napi::Array::New(e2, pls.size());
+        for (size_t i = 0; i < pls.size(); ++i) {
+            arr.Set(static_cast<uint32_t>(i), packPolyline3(e2, pls[i]));
+        }
+        return arr;
+    };
+
+    auto readPolylineList = [&readPt2Array](Napi::Env e2, Napi::Value v)
+        -> std::vector<forge::camx::Polyline3> {
+        if (!v.IsArray()) {
+            throw Napi::TypeError::New(e2,
+                "forge.camx: segments must be an array of polylines");
+        }
+        auto arr = v.As<Napi::Array>();
+        std::vector<forge::camx::Polyline3> out;
+        out.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            auto poly = arr.Get(i);
+            if (!poly.IsArray()) {
+                throw Napi::TypeError::New(e2,
+                    "forge.camx: each segment must be an array of {x,y,z}");
+            }
+            auto pa = poly.As<Napi::Array>();
+            forge::camx::Polyline3 pl;
+            pl.reserve(pa.Length());
+            for (uint32_t j = 0; j < pa.Length(); ++j) {
+                auto pe = pa.Get(j);
+                if (!pe.IsObject()) {
+                    throw Napi::TypeError::New(e2,
+                        "forge.camx: segment point must be an object {x,y,z}");
+                }
+                auto obj = pe.As<Napi::Object>();
+                forge::camx::Pt3 p3{};
+                p3.x = obj.Get("x").As<Napi::Number>().DoubleValue();
+                p3.y = obj.Get("y").As<Napi::Number>().DoubleValue();
+                p3.z = obj.Get("z").As<Napi::Number>().DoubleValue();
+                pl.push_back(p3);
+            }
+            out.push_back(std::move(pl));
+        }
+        (void)readPt2Array; // silence unused-warning if not exercised
+        return out;
+    };
+
+    camxNs.Set("listTools", Napi::Function::New(env,
+      [](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          auto tools = forge::camx::listTools();
+          auto arr = Napi::Array::New(env2, tools.size());
+          for (size_t i = 0; i < tools.size(); ++i) {
+            auto o = Napi::Object::New(env2);
+            o.Set("id",           Napi::Number::New(env2, tools[i].id));
+            o.Set("type",         Napi::Number::New(env2, static_cast<int>(tools[i].type)));
+            o.Set("diameter",     Napi::Number::New(env2, tools[i].diameter));
+            o.Set("fluteLength",  Napi::Number::New(env2, tools[i].fluteLength));
+            o.Set("totalLength",  Napi::Number::New(env2, tools[i].totalLength));
+            o.Set("flutes",       Napi::Number::New(env2, tools[i].flutes));
+            o.Set("material",     Napi::String::New(env2, tools[i].material));
+            o.Set("maxRPM",       Napi::Number::New(env2, tools[i].maxRPM));
+            o.Set("feedPerTooth", Napi::Number::New(env2, tools[i].feedPerTooth));
+            arr.Set(static_cast<uint32_t>(i), o);
+          }
+          return arr;
+        });
+      }));
+
+    camxNs.Set("pocketToolpath", Napi::Function::New(env,
+      [readBoundary, packPolylineList](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 3) {
+            throw Napi::TypeError::New(env2,
+                "forge.camx.pocketToolpath(boundary, toolId, params)");
+          }
+          auto boundary = readBoundary(env2, info[0]);
+          std::uint32_t toolId = info[1].As<Napi::Number>().Uint32Value();
+          auto po = info[2].As<Napi::Object>();
+          forge::camx::PocketParams pp{};
+          pp.depth    = po.Get("depth").As<Napi::Number>().DoubleValue();
+          pp.stepdown = po.Get("stepdown").As<Napi::Number>().DoubleValue();
+          pp.stepover = po.Get("stepover").As<Napi::Number>().DoubleValue();
+          auto dirVal = po.Get("direction");
+          if (dirVal.IsString()) {
+            std::string s = dirVal.As<Napi::String>().Utf8Value();
+            pp.climb = (s == "climb");
+          } else {
+            pp.climb = true;
+          }
+          auto result = forge::camx::pocketToolpath(boundary, toolId, pp);
+          return packPolylineList(env2, result);
+        });
+      }));
+
+    camxNs.Set("contourToolpath", Napi::Function::New(env,
+      [packPolylineList](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 4) {
+            throw Napi::TypeError::New(env2,
+                "forge.camx.contourToolpath(polyline, toolId, side, params)");
+          }
+          if (!info[0].IsArray()) {
+            throw Napi::TypeError::New(env2,
+                "forge.camx.contourToolpath: polyline must be array of {x,y}");
+          }
+          auto pa = info[0].As<Napi::Array>();
+          forge::camx::Polygon poly;
+          poly.reserve(pa.Length());
+          for (uint32_t i = 0; i < pa.Length(); ++i) {
+            auto obj = pa.Get(i).As<Napi::Object>();
+            forge::camx::Pt2 p{};
+            p.x = obj.Get("x").As<Napi::Number>().DoubleValue();
+            p.y = obj.Get("y").As<Napi::Number>().DoubleValue();
+            poly.push_back(p);
+          }
+          std::uint32_t toolId = info[1].As<Napi::Number>().Uint32Value();
+          forge::camx::ContourSide side = forge::camx::ContourSide_On;
+          if (info[2].IsString()) {
+            std::string s = info[2].As<Napi::String>().Utf8Value();
+            if (s == "inside")       side = forge::camx::ContourSide_Inside;
+            else if (s == "outside") side = forge::camx::ContourSide_Outside;
+            else if (s == "on")      side = forge::camx::ContourSide_On;
+            else throw Napi::TypeError::New(env2,
+                "forge.camx.contourToolpath: side must be 'inside'|'outside'|'on'");
+          } else if (info[2].IsNumber()) {
+            side = static_cast<forge::camx::ContourSide>(
+                info[2].As<Napi::Number>().Int32Value());
+          }
+          auto po = info[3].As<Napi::Object>();
+          forge::camx::ContourParams cp{};
+          cp.depth    = po.Get("depth").As<Napi::Number>().DoubleValue();
+          cp.stepdown = po.Get("stepdown").As<Napi::Number>().DoubleValue();
+          auto dirVal = po.Get("direction");
+          if (dirVal.IsString()) {
+            cp.climb = (dirVal.As<Napi::String>().Utf8Value() == "climb");
+          } else {
+            cp.climb = true;
+          }
+          auto result = forge::camx::contourToolpath(poly, toolId, side, cp);
+          return packPolylineList(env2, result);
+        });
+      }));
+
+    camxNs.Set("drillToolpath", Napi::Function::New(env,
+      [packPolylineList](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 4) {
+            throw Napi::TypeError::New(env2,
+                "forge.camx.drillToolpath(holes, toolId, cycle, params)");
+          }
+          if (!info[0].IsArray()) {
+            throw Napi::TypeError::New(env2,
+                "forge.camx.drillToolpath: holes must be array of {x,y}");
+          }
+          auto ha = info[0].As<Napi::Array>();
+          std::vector<forge::camx::Pt2> holes;
+          holes.reserve(ha.Length());
+          for (uint32_t i = 0; i < ha.Length(); ++i) {
+            auto obj = ha.Get(i).As<Napi::Object>();
+            forge::camx::Pt2 p{};
+            p.x = obj.Get("x").As<Napi::Number>().DoubleValue();
+            p.y = obj.Get("y").As<Napi::Number>().DoubleValue();
+            holes.push_back(p);
+          }
+          std::uint32_t toolId = info[1].As<Napi::Number>().Uint32Value();
+          forge::camx::DrillCycle cy = forge::camx::DrillCycle_G81;
+          if (info[2].IsString()) {
+            std::string s = info[2].As<Napi::String>().Utf8Value();
+            if      (s == "G81") cy = forge::camx::DrillCycle_G81;
+            else if (s == "G83") cy = forge::camx::DrillCycle_G83;
+            else throw Napi::TypeError::New(env2,
+                "forge.camx.drillToolpath: cycle must be 'G81' or 'G83'");
+          } else if (info[2].IsNumber()) {
+            cy = static_cast<forge::camx::DrillCycle>(
+                info[2].As<Napi::Number>().Int32Value());
+          }
+          auto po = info[3].As<Napi::Object>();
+          forge::camx::DrillParams dp{};
+          dp.depth   = po.Get("depth").As<Napi::Number>().DoubleValue();
+          dp.retract = po.Get("retract").As<Napi::Number>().DoubleValue();
+          auto pv = po.Get("peck");
+          dp.peck = pv.IsNumber() ? pv.As<Napi::Number>().DoubleValue() : 0.0;
+          auto result = forge::camx::drillToolpath(holes, toolId, cy, dp);
+          return packPolylineList(env2, result);
+        });
+      }));
+
+    camxNs.Set("postProcess", Napi::Function::New(env,
+      [readPolylineList](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 3) {
+            throw Napi::TypeError::New(env2,
+                "forge.camx.postProcess(segments, post, params)");
+          }
+          auto segs = readPolylineList(env2, info[0]);
+          forge::camx::PostFlavour pf = forge::camx::Post_Fanuc;
+          if (info[1].IsString()) {
+            std::string s = info[1].As<Napi::String>().Utf8Value();
+            if      (s == "fanuc")      pf = forge::camx::Post_Fanuc;
+            else if (s == "heidenhain") pf = forge::camx::Post_Heidenhain;
+            else if (s == "siemens")    pf = forge::camx::Post_Siemens;
+            else throw Napi::TypeError::New(env2,
+                "forge.camx.postProcess: post must be 'fanuc'|'heidenhain'|'siemens'");
+          } else if (info[1].IsNumber()) {
+            pf = static_cast<forge::camx::PostFlavour>(
+                info[1].As<Napi::Number>().Int32Value());
+          }
+          auto po = info[2].As<Napi::Object>();
+          forge::camx::PostParams pp{};
+          pp.spindleRPM = po.Get("spindleRPM").As<Napi::Number>().DoubleValue();
+          pp.feed       = po.Get("feed").As<Napi::Number>().DoubleValue();
+          pp.safeZ      = po.Get("safeZ").As<Napi::Number>().DoubleValue();
+          pp.toolId     = po.Get("toolId").As<Napi::Number>().Uint32Value();
+          auto out = forge::camx::postProcess(segs, pf, pp);
+          return Napi::String::New(env2, out);
+        });
+      }));
+
+    camxNs.Set("estimateCycleTime", Napi::Function::New(env,
+      [readPolylineList](const Napi::CallbackInfo& info) -> Napi::Value {
+        return safe(info, [&]() -> Napi::Value {
+          auto env2 = info.Env();
+          if (info.Length() < 2) {
+            throw Napi::TypeError::New(env2,
+                "forge.camx.estimateCycleTime(segments, feedMmMin)");
+          }
+          auto segs = readPolylineList(env2, info[0]);
+          double feed = info[1].As<Napi::Number>().DoubleValue();
+          auto r = forge::camx::estimateCycleTime(segs, feed);
+          auto o = Napi::Object::New(env2);
+          o.Set("totalLengthMm", Napi::Number::New(env2, r.totalLengthMm));
+          o.Set("timeSec",       Napi::Number::New(env2, r.timeSec));
+          return o;
+        });
+      }));
+
+    exports.Set("camx", camxNs);
 
     return exports;
 }
