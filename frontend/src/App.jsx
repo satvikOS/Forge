@@ -46,6 +46,8 @@ import SketchConstraintsWorkbenchHost from './forge-v4/SketchConstraintsWorkbenc
 import DrawingsHLRWorkbenchHost from './forge-v4/DrawingsHLRWorkbench.jsx';
 // PUSH-08: Mold tooling (forge::mold).
 import MoldWorkbenchHost from './forge-v4/MoldWorkbench.jsx';
+// PUSH-11: Tet4 FEA (forge::fea::tet).
+import FEATetWorkbenchHost from './forge-v4/FEATetWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -608,6 +610,7 @@ function App() {
       <SketchConstraintsWorkbenchHost />
       <DrawingsHLRWorkbenchHost />
       <MoldWorkbenchHost />
+      <FEATetWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

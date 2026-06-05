@@ -413,6 +413,12 @@ export const CALCULATOR_TREE = [
           { id: 'moldnew', label: 'Draft · parting · cavity/core · cooling · runners…', slice: 'PUSH-08' },
         ],
       },
+      {
+        label: 'FEA Tet4',
+        items: [
+          { id: 'feat', label: 'Tet4 mesh + Jacobi-CG static + inverse-power modal…', slice: 'PUSH-11' },
+        ],
+      },
     ],
   },
   {

@@ -316,6 +316,13 @@ const forgeApi = {
     MeanStressCorrection: kernel.fea.MeanStressCorrection
       ? Object.freeze({ ...kernel.fea.MeanStressCorrection })
       : Object.freeze({ None: 0, Goodman: 1, Soderberg: 2 }),
+    // PUSH-11 — true Tet4 FEA (forge::fea::tet). Bowyer-Watson Delaunay
+    // mesher + Jacobi-preconditioned CG static + inverse-power modal.
+    tet: kernel.fea.tet ? {
+      meshShape:         (h, targetEdge)          => kernel.fea.tet.meshShape(h, targetEdge),
+      solveLinearStatic: (mesh, mat, bc)          => kernel.fea.tet.solveLinearStatic(mesh, mat, bc ?? {}),
+      solveModal:        (mesh, mat, fixed, n)    => kernel.fea.tet.solveModal(mesh, mat, fixed ?? [], n ?? 3),
+    } : null,
   } : null,
 
   // native CFD (Forge-12b) — incompressible Navier-Stokes on a staggered

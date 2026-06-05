@@ -2410,6 +2410,11 @@ export function ForgeShellV4() {
       case 'workbench.moldnew':
         window.__forgeOpenMoldWorkbench?.();
         return;
+      // PUSH-11: Tet4 FEA
+      case 'tools.feat':
+      case 'workbench.feat':
+        window.__forgeOpenFEATetWorkbench?.();
+        return;
       // PUSH-05: Drawings (HLR + DXF/SVG)
       case 'tools.drawings':
       case 'workbench.drawings':
