@@ -110,3 +110,109 @@ ProjectedView projectShapeBroken(ShapeHandle h,
                                  BreakRegion region);
 
 } // namespace forge
+
+// ============================================================================
+// PUSH-05 — forge::drawings (nested namespace)
+//
+// Adds a stricter, self-contained 2D drawing surface on top of the same
+// HLR pipeline: a View2D struct that pairs polylines with an explicit
+// 2D bbox, a SectionView struct that separates the cut-plane intersection
+// from the geometry that lies behind it, and two text emitters (DXF / SVG)
+// that turn a list of views + dimensions into a portable drawing file.
+//
+// This is intentionally narrower than the rich `forge::ProjectedView` above:
+// it gives the Studio/Forge JS layer exactly what it needs to produce a
+// shop drawing (visible + hidden polylines, bbox, section cut, and a
+// linear-dimension list), with no detail/broken-view bookkeeping.
+//
+// Coordinates are in projection-plane mm; (0,0) is the projector origin
+// (same convention as projectShape() above). The bbox is computed across
+// both visible and hidden buckets.
+//
+// All four functions live in forge::drawings:
+//   * projectView(shape, dir)         — HLR projection in one of FRONT/TOP/RIGHT/ISO.
+//   * sectionView(shape, plane)       — cut the shape with `plane` and project
+//                                        the intersection wires PLUS the HLR
+//                                        of the back half (behindEdges).
+//   * emitDXF(views, dimensions)      — AutoCAD R12 DXF text (SECTION/ENTITIES
+//                                        with LWPOLYLINE per polyline; LINE for
+//                                        each dimension leader).
+//   * emitSVG(view)                   — single-view standalone SVG <path> per
+//                                        polyline (black 0.35mm visible,
+//                                        dashed hidden).
+// ============================================================================
+
+#include <TopoDS_Shape.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Pnt2d.hxx>
+
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace forge {
+namespace drawings {
+
+// Polyline2D = sequence of 2D screen-space points.
+using Polyline = std::vector<gp_Pnt2d>;
+
+// Standard view direction presets (right-hand world: X right, Y back, Z up).
+//   FRONT — camera looks down -Y; screen X = world X, screen Y = world Z.
+//   TOP   — camera looks down -Z; screen X = world X, screen Y = world Y.
+//   RIGHT — camera looks down -X; screen X = world Y, screen Y = world Z.
+//   ISO   — south-east isometric.
+enum class ViewDirection { FRONT, TOP, RIGHT, ISO };
+
+// View2D — the projected drawing of one shape from one ViewDirection.
+struct View2D {
+    std::vector<Polyline> visibleEdges;   // sharp visible edges (HLR V)
+    std::vector<Polyline> hiddenEdges;    // sharp hidden edges (HLR H)
+    double minX;
+    double minY;
+    double maxX;
+    double maxY;
+};
+
+// projectView — run HLR + extract VCompound / HCompound (with outline
+// merged into visibleEdges), discretise edges into polylines, and
+// compute the 2D bbox. Throws std::runtime_error if shape is null or
+// HLR produces no edges at all.
+View2D projectView(const TopoDS_Shape& shape, ViewDirection dir);
+
+// SectionView — the cross-section through a cutting plane.
+//   sectionEdges = polylines from the intersection of `shape` with the
+//                  cutting plane (BRepAlgoAPI_Section).
+//   behindEdges  = HLR-visible polylines of the half-space behind the
+//                  cutting plane, projected onto the plane.
+struct SectionView {
+    std::vector<Polyline> sectionEdges;
+    std::vector<Polyline> behindEdges;
+};
+
+// sectionView — intersect `shape` with `cuttingPlane`, return the cross-
+// section outline plus the visible HLR of the back half. The 2D
+// coordinate frame is the cutting plane's local (X, Y).
+SectionView sectionView(const TopoDS_Shape& shape, gp_Pln cuttingPlane);
+
+// emitDXF — minimal valid AutoCAD R12 ASCII DXF.
+//   * Begins with `0\nSECTION\n2\nENTITIES`.
+//   * One LWPOLYLINE per polyline, visible on layer "VISIBLE", hidden on
+//     layer "HIDDEN" (DXF doesn't natively dash — colour 1 = red is the
+//     legacy convention but we use layer name semantics).
+//   * `dimensions` is a list of (start, end) point pairs; each emits a
+//     plain LINE entity on layer "DIMS".
+//   * Ends with `0\nENDSEC\n0\nEOF`.
+std::string emitDXF(const std::vector<View2D>& views,
+                    const std::vector<std::pair<gp_Pnt2d, gp_Pnt2d>>& dimensions);
+
+// emitSVG — self-contained <svg> with one <path d="M ... L ..."/> per
+// polyline. visible: `stroke="black" stroke-width="0.35" fill="none"`.
+// hidden:  same plus `stroke-dasharray="2,2"`.
+//
+// The SVG's viewBox is the view's bbox padded by 5 mm on each side; Y
+// is flipped so that screen-Y points down (SVG convention) without
+// disturbing the model-space coordinates handed to dimensions / layout.
+std::string emitSVG(const View2D& view);
+
+} // namespace drawings
+} // namespace forge

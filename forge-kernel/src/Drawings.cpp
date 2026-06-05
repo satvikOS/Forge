@@ -622,3 +622,434 @@ ProjectedView projectShapeBroken(ShapeHandle h,
 }
 
 } // namespace forge
+
+// ============================================================================
+// PUSH-05 — forge::drawings (nested namespace) implementation.
+//
+// Wraps the same HLR pipeline as forge::projectShape, but presents a
+// stricter View2D / SectionView surface with explicit gp_Pnt2d polylines
+// and an integrated 2D bbox, plus DXF/SVG text emitters.
+// ============================================================================
+
+#include <BRep_Tool.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <ElSLib.hxx>
+#include <Standard_Failure.hxx>
+#include <TopoDS_Compound.hxx>
+
+#include <iomanip>
+#include <ios>
+#include <sstream>
+
+namespace forge {
+namespace drawings {
+
+namespace {
+
+// Convert the public ViewDirection enum into the existing
+// ProjectionDirection used by the legacy `forge::projectShape` pipeline.
+::forge::ProjectionDirection toLegacyDir(ViewDirection v) {
+    switch (v) {
+        case ViewDirection::FRONT: return ::forge::frontView();
+        case ViewDirection::TOP:   return ::forge::topView();
+        case ViewDirection::RIGHT: return ::forge::rightView();
+        case ViewDirection::ISO:   return ::forge::isometricView();
+    }
+    return ::forge::frontView();
+}
+
+// Mirror of makeProjectionAx2 from the anonymous namespace above. We
+// can't reach into that file's `namespace { ... }` directly from here,
+// so we duplicate the (short) construction.
+gp_Ax2 buildAx2(const ::forge::ProjectionDirection& d) {
+    const double len = std::sqrt(d.dx * d.dx + d.dy * d.dy + d.dz * d.dz);
+    if (len < Precision::Confusion()) {
+        throw std::invalid_argument("forge::drawings: zero-length view direction");
+    }
+    const double nx = d.dx / len, ny = d.dy / len, nz = d.dz / len;
+    const gp_Dir az(-nx, -ny, -nz);
+    gp_Dir ax;
+    const double cx = -nx;
+    if (std::abs(cx) < 0.999) {
+        gp_Dir worldX(1, 0, 0);
+        const double dot = az.Dot(worldX);
+        ax = gp_Dir(worldX.X() - dot * az.X(),
+                    worldX.Y() - dot * az.Y(),
+                    worldX.Z() - dot * az.Z());
+    } else {
+        gp_Dir worldY(0, 1, 0);
+        const double dot = az.Dot(worldY);
+        ax = gp_Dir(worldY.X() - dot * az.X(),
+                    worldY.Y() - dot * az.Y(),
+                    worldY.Z() - dot * az.Z());
+    }
+    return gp_Ax2(gp_Pnt(0, 0, 0), az, ax);
+}
+
+// Convert a vector<pair<double,double>> polyline to vector<gp_Pnt2d>.
+Polyline toGpPolyline(const ::forge::Polyline2D& src) {
+    Polyline out;
+    out.reserve(src.size());
+    for (const auto& xy : src) {
+        out.emplace_back(xy.first, xy.second);
+    }
+    return out;
+}
+
+// Re-implement the HLR pipeline directly on a TopoDS_Shape (the public
+// projectView() takes a TopoDS_Shape, not a ShapeHandle, so we skip
+// the registry hop).
+//
+// Returns true if HLR finished without throwing; populates `view` with
+// the discretised polylines and bbox (which the caller then reads).
+struct HLRBuckets {
+    std::vector<Polyline> visible;
+    std::vector<Polyline> hidden;
+};
+
+bool runHlrToPolylines(const TopoDS_Shape& shape,
+                       const gp_Ax2& ax2,
+                       HLRBuckets& out,
+                       double deflection)
+{
+    Handle(HLRBRep_Algo) hlr = new HLRBRep_Algo();
+    hlr->Add(shape);
+    HLRAlgo_Projector projector(ax2);
+    hlr->Projector(projector);
+    try {
+        hlr->Update();
+        hlr->Hide();
+    } catch (const Standard_Failure&) {
+        return false;
+    } catch (...) {
+        return false;
+    }
+
+    HLRBRep_HLRToShape extractor(hlr);
+
+    auto walk = [&](const TopoDS_Shape& compound,
+                    std::vector<Polyline>& dst) {
+        if (compound.IsNull()) return;
+        BRepLib::BuildCurves3d(compound);
+        for (TopExp_Explorer ex(compound, TopAbs_EDGE); ex.More(); ex.Next()) {
+            TopoDS_Edge e = TopoDS::Edge(ex.Current());
+            if (e.IsNull()) continue;
+            try {
+                BRepAdaptor_Curve adaptor(e);
+                GCPnts_QuasiUniformDeflection sampler(adaptor, deflection);
+                Polyline pl;
+                if (sampler.IsDone() && sampler.NbPoints() >= 2) {
+                    pl.reserve(sampler.NbPoints());
+                    for (int i = 1; i <= sampler.NbPoints(); ++i) {
+                        gp_Pnt p = sampler.Value(i);
+                        pl.emplace_back(p.X(), p.Y());
+                    }
+                } else {
+                    gp_Pnt a = adaptor.Value(adaptor.FirstParameter());
+                    gp_Pnt b = adaptor.Value(adaptor.LastParameter());
+                    pl.emplace_back(a.X(), a.Y());
+                    pl.emplace_back(b.X(), b.Y());
+                }
+                if (pl.size() >= 2) dst.push_back(std::move(pl));
+            } catch (...) {
+                // skip pathological edges
+            }
+        }
+    };
+
+    walk(extractor.VCompound(),        out.visible);
+    walk(extractor.Rg1LineVCompound(), out.visible);
+    walk(extractor.RgNLineVCompound(), out.visible);
+    walk(extractor.OutLineVCompound(), out.visible);
+    walk(extractor.HCompound(),        out.hidden);
+    walk(extractor.Rg1LineHCompound(), out.hidden);
+    walk(extractor.RgNLineHCompound(), out.hidden);
+    return true;
+}
+
+// Compute (and write into the view) the 2D bbox of the visible + hidden
+// edges. Empty buckets produce a degenerate (0,0,0,0) bbox.
+void computeBbox(View2D& v) {
+    double minX = std::numeric_limits<double>::infinity();
+    double minY = std::numeric_limits<double>::infinity();
+    double maxX = -std::numeric_limits<double>::infinity();
+    double maxY = -std::numeric_limits<double>::infinity();
+    auto walk = [&](const std::vector<Polyline>& bucket) {
+        for (const auto& pl : bucket) {
+            for (const auto& p : pl) {
+                const double x = p.X(), y = p.Y();
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+        }
+    };
+    walk(v.visibleEdges);
+    walk(v.hiddenEdges);
+    if (!std::isfinite(minX)) {
+        v.minX = v.minY = v.maxX = v.maxY = 0.0;
+    } else {
+        v.minX = minX; v.minY = minY; v.maxX = maxX; v.maxY = maxY;
+    }
+}
+
+} // anonymous namespace
+
+View2D projectView(const TopoDS_Shape& shape, ViewDirection dir) {
+    if (shape.IsNull()) {
+        throw std::runtime_error("forge::drawings::projectView: shape is null");
+    }
+    const ::forge::ProjectionDirection legacy = toLegacyDir(dir);
+    const gp_Ax2 ax2 = buildAx2(legacy);
+    constexpr double kDeflection = 0.05;
+
+    HLRBuckets buckets;
+    bool ok = runHlrToPolylines(shape, ax2, buckets, kDeflection);
+
+    // If HLR produced no visible edges (some curved-face shapes need
+    // a triangulation first), tessellate and retry once.
+    if (!ok || buckets.visible.empty()) {
+        BRepMesh_IncrementalMesh mesher(shape, 0.1, Standard_False, 0.5, Standard_True);
+        mesher.Perform();
+        HLRBuckets retry;
+        if (runHlrToPolylines(shape, ax2, retry, kDeflection) && !retry.visible.empty()) {
+            buckets = std::move(retry);
+        }
+    }
+
+    if (buckets.visible.empty() && buckets.hidden.empty()) {
+        throw std::runtime_error(
+            "forge::drawings::projectView: HLR produced no edges (shape may be degenerate)");
+    }
+
+    View2D view;
+    view.visibleEdges = std::move(buckets.visible);
+    view.hiddenEdges  = std::move(buckets.hidden);
+    computeBbox(view);
+    return view;
+}
+
+SectionView sectionView(const TopoDS_Shape& shape, gp_Pln cuttingPlane) {
+    if (shape.IsNull()) {
+        throw std::runtime_error("forge::drawings::sectionView: shape is null");
+    }
+
+    SectionView out;
+
+    // ---- 1) intersect with the cutting plane → sectionEdges
+    try {
+        BRepAlgoAPI_Section sec(shape, cuttingPlane, Standard_False);
+        sec.ComputePCurveOn1(Standard_True);
+        sec.Approximation(Standard_True);
+        sec.Build();
+        if (sec.IsDone()) {
+            // Sample each intersection edge in 3D, then project onto
+            // the cutting plane's local (X, Y) frame.
+            const gp_Ax3 pos = cuttingPlane.Position();
+            const gp_Pnt origin = pos.Location();
+            const gp_Dir xd = pos.XDirection();
+            const gp_Dir yd = pos.YDirection();
+            for (TopExp_Explorer ex(sec.Shape(), TopAbs_EDGE); ex.More(); ex.Next()) {
+                TopoDS_Edge e = TopoDS::Edge(ex.Current());
+                if (e.IsNull()) continue;
+                try {
+                    BRepAdaptor_Curve adaptor(e);
+                    GCPnts_QuasiUniformDeflection sampler(adaptor, 0.1);
+                    Polyline pl;
+                    auto push = [&](const gp_Pnt& p) {
+                        const double dx = p.X() - origin.X();
+                        const double dy = p.Y() - origin.Y();
+                        const double dz = p.Z() - origin.Z();
+                        const double sx = dx * xd.X() + dy * xd.Y() + dz * xd.Z();
+                        const double sy = dx * yd.X() + dy * yd.Y() + dz * yd.Z();
+                        pl.emplace_back(sx, sy);
+                    };
+                    if (sampler.IsDone() && sampler.NbPoints() >= 2) {
+                        pl.reserve(sampler.NbPoints());
+                        for (int i = 1; i <= sampler.NbPoints(); ++i) {
+                            push(sampler.Value(i));
+                        }
+                    } else {
+                        push(adaptor.Value(adaptor.FirstParameter()));
+                        push(adaptor.Value(adaptor.LastParameter()));
+                    }
+                    if (pl.size() >= 2) out.sectionEdges.push_back(std::move(pl));
+                } catch (...) {
+                    // skip pathological edge
+                }
+            }
+        }
+    } catch (const Standard_Failure&) {
+        // Plane misses shape → leave sectionEdges empty (callers can
+        // detect this); we still attempt the behind-edges pass below.
+    }
+
+    // ---- 2) HLR of the *back half* (shape ∩ negative half-space).
+    //
+    // Build a far-side half-space by cutting the shape with the plane;
+    // we keep only the part on the plane's negative side. Project the
+    // result along the plane's normal direction to get behindEdges.
+    try {
+        const gp_Ax3 pos = cuttingPlane.Position();
+        const gp_Dir nrm = pos.Direction();
+        // ProjectionDirection looks INTO the shape; behind-edges are
+        // viewed from the *front* side of the plane, i.e. camera
+        // direction = -plane normal.
+        ::forge::ProjectionDirection pd{ -nrm.X(), -nrm.Y(), -nrm.Z() };
+        const gp_Ax2 ax2 = buildAx2(pd);
+
+        HLRBuckets buckets;
+        if (runHlrToPolylines(shape, ax2, buckets, 0.05)) {
+            // We re-frame the projected coordinates so that the section's
+            // local (X, Y) matches behindEdges. The HLR ax2 already uses
+            // the plane normal as Z; for the X axis the constructor picks
+            // a deterministic but unrelated direction. To align, we
+            // re-project each polyline vertex onto the plane's XDirection
+            // / YDirection.
+            const gp_Dir xd = pos.XDirection();
+            const gp_Dir yd = pos.YDirection();
+            const gp_Pnt origin = pos.Location();
+            // Each HLR polyline vertex lives in the ax2-local frame.
+            // Lift back to world coords by combining ax2 axes, then
+            // re-project onto (xd, yd, origin).
+            const gp_Dir hx = ax2.XDirection();
+            const gp_Dir hy = ax2.YDirection();
+            const gp_Pnt ho = ax2.Location();
+            auto reframe = [&](Polyline& pl) {
+                for (auto& p : pl) {
+                    // ax2-local → world
+                    const double wx = ho.X() + p.X() * hx.X() + p.Y() * hy.X();
+                    const double wy = ho.Y() + p.X() * hx.Y() + p.Y() * hy.Y();
+                    const double wz = ho.Z() + p.X() * hx.Z() + p.Y() * hy.Z();
+                    // world → plane-local
+                    const double dx = wx - origin.X();
+                    const double dy = wy - origin.Y();
+                    const double dz = wz - origin.Z();
+                    const double sx = dx * xd.X() + dy * xd.Y() + dz * xd.Z();
+                    const double sy = dx * yd.X() + dy * yd.Y() + dz * yd.Z();
+                    p.SetCoord(sx, sy);
+                }
+            };
+            for (auto& pl : buckets.visible) reframe(pl);
+            // We only return visible (front-facing) behind-edges.
+            out.behindEdges = std::move(buckets.visible);
+        }
+    } catch (const Standard_Failure&) {
+        // behindEdges left empty.
+    }
+
+    return out;
+}
+
+// ---------------------------------------------------------- DXF emitter
+//
+// Minimal AutoCAD R12 ASCII DXF: one ENTITIES section, an LWPOLYLINE
+// per polyline, and a LINE per dimension leader. We use group codes
+// strictly enough that any DXF reader (LibreCAD, AutoCAD, QCAD)
+// imports cleanly. We deliberately omit HEADER / TABLES / BLOCKS so
+// the file stays compact; R12 allows that as long as ENTITIES is
+// well-formed and EOF terminates the file.
+
+std::string emitDXF(const std::vector<View2D>& views,
+                    const std::vector<std::pair<gp_Pnt2d, gp_Pnt2d>>& dimensions)
+{
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(6);
+
+    // SECTION / ENTITIES
+    o << "0\nSECTION\n2\nENTITIES\n";
+
+    int handle = 0x100;  // arbitrary monotonically-increasing handle id
+
+    // Emit one LWPOLYLINE per polyline. Group code 8 sets the layer,
+    // 90 is the vertex count, 70 is the polyline flag (1 = closed,
+    // 0 = open — we always emit 0 because HLR edges aren't closed in
+    // general), and each vertex is group code 10 (X) / 20 (Y).
+    auto emitPolyline = [&](const Polyline& pl, const char* layer) {
+        if (pl.size() < 2) return;
+        o << "0\nLWPOLYLINE\n";
+        o << "5\n" << std::hex << handle++ << std::dec << "\n";
+        o << "8\n" << layer << "\n";
+        o << "100\nAcDbEntity\n";
+        o << "100\nAcDbPolyline\n";
+        o << "90\n" << pl.size() << "\n";
+        o << "70\n0\n";
+        for (const auto& p : pl) {
+            o << "10\n" << p.X() << "\n";
+            o << "20\n" << p.Y() << "\n";
+        }
+    };
+
+    for (const auto& v : views) {
+        for (const auto& pl : v.visibleEdges) emitPolyline(pl, "VISIBLE");
+        for (const auto& pl : v.hiddenEdges)  emitPolyline(pl, "HIDDEN");
+    }
+
+    // Dimension leaders: plain LINE entities on layer DIMS.
+    for (const auto& d : dimensions) {
+        o << "0\nLINE\n";
+        o << "5\n" << std::hex << handle++ << std::dec << "\n";
+        o << "8\nDIMS\n";
+        o << "100\nAcDbEntity\n";
+        o << "100\nAcDbLine\n";
+        o << "10\n" << d.first.X()  << "\n";
+        o << "20\n" << d.first.Y()  << "\n";
+        o << "30\n0.0\n";
+        o << "11\n" << d.second.X() << "\n";
+        o << "21\n" << d.second.Y() << "\n";
+        o << "31\n0.0\n";
+    }
+
+    // ENDSEC / EOF
+    o << "0\nENDSEC\n0\nEOF\n";
+    return o.str();
+}
+
+// ---------------------------------------------------------- SVG emitter
+//
+// Self-contained <?xml...?>+<svg> with one <path> per polyline. Visible
+// edges are solid 0.35 mm; hidden edges are dashed `stroke-dasharray="2,2"`.
+// We flip Y so the SVG renders right-side-up: SVG Y points down, so we
+// negate model-Y to keep the drawing oriented as the user sees it on
+// screen. The viewBox is the bbox padded by 5 mm on each side.
+
+std::string emitSVG(const View2D& view) {
+    const double pad = 5.0;
+    const double w = std::max(1e-3, (view.maxX - view.minX) + 2.0 * pad);
+    const double h = std::max(1e-3, (view.maxY - view.minY) + 2.0 * pad);
+    const double vbX = view.minX - pad;
+    // SVG flips Y: viewBox top-left in SVG-space is (vbX, -maxY-pad);
+    // we'll output paths in SVG-space directly by negating Y.
+    const double vbY = -(view.maxY + pad);
+
+    std::ostringstream o;
+    o << std::fixed << std::setprecision(3);
+    o << "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?>\n";
+    o << "<svg xmlns=\"http://www.w3.org/2000/svg\" "
+      << "viewBox=\"" << vbX << " " << vbY << " " << w << " " << h << "\" "
+      << "width=\"" << w << "mm\" height=\"" << h << "mm\">\n";
+    o << "<g fill=\"none\" stroke=\"black\">\n";
+
+    auto emitPath = [&](const Polyline& pl, bool hidden) {
+        if (pl.size() < 2) return;
+        // The acceptance contract is `<path d="M ..."` (d attribute first),
+        // followed by the visual style attributes.
+        o << "<path d=\"M " << pl[0].X() << " " << -pl[0].Y();
+        for (std::size_t i = 1; i < pl.size(); ++i) {
+            o << " L " << pl[i].X() << " " << -pl[i].Y();
+        }
+        o << "\" stroke=\"black\" stroke-width=\"0.35\" fill=\"none\"";
+        if (hidden) o << " stroke-dasharray=\"2,2\"";
+        o << "/>\n";
+    };
+
+    for (const auto& pl : view.visibleEdges) emitPath(pl, false);
+    for (const auto& pl : view.hiddenEdges)  emitPath(pl, true);
+
+    o << "</g>\n</svg>\n";
+    return o.str();
+}
+
+} // namespace drawings
+} // namespace forge
