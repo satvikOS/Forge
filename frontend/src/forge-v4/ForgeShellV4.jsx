@@ -2830,10 +2830,35 @@ export function ForgeShellV4() {
                          }
                          setFeatureTree(nextFeat);
                          if (r.kind === 'native') {
-                           nextBodies = [...bodies, {
-                             id: nextId, kind: 'native', handle: r.handle,
-                             toolId: tool, params, name: title,
-                           }];
+                           // PUSH-31 — solid.translate (and other
+                           // body-replacing modifiers) should REPLACE the
+                           // previous body's handle, not append a new
+                           // body. Otherwise the un-translated copy stays
+                           // visible alongside the translated one.
+                           const REPLACE_LAST = new Set([
+                             'solid.translate', 'solid.rotate',
+                             'solid.fillet', 'solid.chamfer', 'solid.shell',
+                             'solid.hole', 'solid.draft',
+                           ]);
+                           if (REPLACE_LAST.has(tool)) {
+                             const idx = [...bodies].map((b, i) => ({ b, i }))
+                               .reverse().find((x) => x.b.kind === 'native')?.i;
+                             if (typeof idx === 'number') {
+                               nextBodies = bodies.map((b, i) => i === idx
+                                 ? { ...b, handle: r.handle, name: title }
+                                 : b);
+                             } else {
+                               nextBodies = [...bodies, {
+                                 id: nextId, kind: 'native', handle: r.handle,
+                                 toolId: tool, params, name: title,
+                               }];
+                             }
+                           } else {
+                             nextBodies = [...bodies, {
+                               id: nextId, kind: 'native', handle: r.handle,
+                               toolId: tool, params, name: title,
+                             }];
+                           }
                            setBodies(nextBodies);
                          }
                          // Forge-115 — capture op for undo/redo.

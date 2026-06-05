@@ -359,9 +359,9 @@ test('12 — zoom OUT so the whole V12 fits in frame', async () => {
         const cy = box.y + box.height / 2;
         await page.mouse.move(cx, cy);
         // Forge OrbitControls map wheel-delta to dolly distance with damping.
-        for (let i = 0; i < 60; i += 1) {
-            await page.mouse.wheel(0, 400);     // scroll DOWN = zoom OUT
-            await pause(40);
+        for (let i = 0; i < 12; i += 1) {
+            await page.mouse.wheel(0, 350);     // scroll DOWN = zoom OUT
+            await pause(60);
         }
     }
     await pause(800);
@@ -377,9 +377,9 @@ test('13 — orbit through views from the new distance', async () => {
         const box = await vp.boundingBox();
         if (box) {
             await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            for (let i = 0; i < 60; i += 1) {
-                await page.mouse.wheel(0, 400);
-                await pause(30);
+            for (let i = 0; i < 12; i += 1) {
+                await page.mouse.wheel(0, 350);
+                await pause(40);
             }
         }
         await pause(800);

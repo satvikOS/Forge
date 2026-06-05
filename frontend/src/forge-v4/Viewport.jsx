@@ -519,9 +519,9 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
                     onSelect?.({ kind: 'body', ids: [m.body?.handle ?? m.id] });
                   }}>
               {displayState === 'wireframe'
-                ? <meshBasicMaterial color={sel ? '#ffffff' : '#c4ccd6'} wireframe />
+                ? <meshBasicMaterial color={sel ? '#ffffff' : colorForBody(m.body)} wireframe />
                 : <meshStandardMaterial
-                    color={sel ? '#ffffff' : '#c4ccd6'}
+                    color={sel ? '#ffffff' : colorForBody(m.body)}
                     roughness={0.42} metalness={0.18}
                     transparent={displayState === 'transparent'}
                     opacity={displayState === 'transparent' ? 0.5 : 1} />}
@@ -536,6 +536,28 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
       })}
     </group>
   );
+}
+
+// PUSH-31 — color bodies so multi-part assemblies (e.g. V12 engine)
+// don't all visually blend into one grey blob. We use the body's
+// numeric handle (stable per body, unique across the session) hashed
+// into HSL space.
+function colorForBody(body) {
+  if (!body) return '#c4ccd6';
+  // Role-based colors when the body's name/toolId hints at the kind.
+  const name = (body.name || body.toolId || '').toLowerCase();
+  if (/fillet|chamfer/.test(name))      return '#e0af68';   // warm accent
+  if (/cut|hole|drill/.test(name))      return '#3a1f1f';   // dark cavity
+  if (/pattern|linear|circular/.test(name)) return '#7aa2f7'; // pattern blue
+  if (/revolve/.test(name))             return '#bb9af7';
+  if (/sweep|loft/.test(name))          return '#9ece6a';
+  // Default: hash the numeric handle so each Extrude gets a stable hue.
+  const h = (typeof body.handle === 'number'
+    ? body.handle
+    : (body.id || '').split('').reduce((a, c) => ((a << 5) - a + c.charCodeAt(0)) | 0, 0)
+  );
+  const hue = (Math.abs(h) * 37) % 360;
+  return `hsl(${hue}, 45%, 60%)`;
 }
 
 // Forge-125 — synthetic spec helper. Returns a copy with the segment
