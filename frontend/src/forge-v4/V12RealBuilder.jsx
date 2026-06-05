@@ -24,9 +24,15 @@ const COLOURS = {
     pan:     0x55585a,
 };
 
-function makeMesh(geo, color, name) {
+function makeMesh(geo, color, name, opts = {}) {
     const mat = new THREE.MeshStandardMaterial({
-        color, metalness: 0.85, roughness: 0.3, side: THREE.DoubleSide,
+        color,
+        metalness: opts.metalness ?? 0.85,
+        roughness: opts.roughness ?? 0.3,
+        side: THREE.DoubleSide,
+        transparent: opts.opacity != null && opts.opacity < 1,
+        opacity: opts.opacity ?? 1,
+        depthWrite: opts.opacity == null || opts.opacity >= 1,
     });
     const m = new THREE.Mesh(geo, mat);
     m.name = name || '';
@@ -41,10 +47,11 @@ function buildV12Group() {
     g.name = 'M120_V12_assembly';
     g.userData.v12Root = true;
 
-    // 1. Block envelope (Box)
+    // 1. Block envelope (Box) — semi-transparent so the internal V12 layout
+    //    (crank, 12 bores, 12 pistons, 12 rods) shows through.
     {
         const geo = new THREE.BoxGeometry(spec.block.block_length_mm, spec.block.block_height_mm, spec.block.block_height_mm);
-        g.add(makeMesh(geo, COLOURS.block, 'block-envelope'));
+        g.add(makeMesh(geo, COLOURS.block, 'block-envelope', { opacity: 0.18, metalness: 0.6, roughness: 0.4 }));
     }
 
     // 2. 7 main bearing journals (Cylinder, oriented along block axis)
@@ -156,7 +163,8 @@ function buildV12Group() {
         }
     }
 
-    // 8. Two cylinder heads (Boxes tilted ±30°)
+    // 8. Two cylinder heads (Boxes tilted ±30°) — also semi-transparent so
+    //    you see the valves + cams underneath.
     {
         const dx = spec.block.block_length_mm;
         const dy = 60;
@@ -165,7 +173,7 @@ function buildV12Group() {
         for (const bankSign of [-1, 1]) {
             const geo = new THREE.BoxGeometry(dx, dy, dz);
             geo.rotateY(bankSign * bankRad);
-            const m = makeMesh(geo, COLOURS.head, `head-${bankSign > 0 ? 'R' : 'L'}`);
+            const m = makeMesh(geo, COLOURS.head, `head-${bankSign > 0 ? 'R' : 'L'}`, { opacity: 0.30 });
             m.position.set(0, bankSign * 120, 180);
             g.add(m);
         }
@@ -206,18 +214,18 @@ function buildV12Group() {
         }
     }
 
-    // 11. Oil pan (box below block)
+    // 11. Oil pan (box below block) — solid; sits clearly below the crank.
     {
         const geo = new THREE.BoxGeometry(spec.block.block_length_mm * 1.05, 200, 80);
-        const m = makeMesh(geo, COLOURS.pan, 'oil-pan');
+        const m = makeMesh(geo, COLOURS.pan, 'oil-pan', { metalness: 0.7, roughness: 0.45 });
         m.position.set(0, 0, -180);
         g.add(m);
     }
 
-    // 12. Intake plenum
+    // 12. Intake plenum (box on top, sits across both heads)
     {
         const geo = new THREE.BoxGeometry(600, 150, 60);
-        const m = makeMesh(geo, COLOURS.block, 'intake-plenum');
+        const m = makeMesh(geo, 0x9a5a2e, 'intake-plenum', { metalness: 0.5, roughness: 0.5, opacity: 0.65 });
         m.position.set(0, 0, 280);
         g.add(m);
     }
@@ -285,12 +293,13 @@ export function V12RealBuilder({ onClose }) {
         groupRef.current = g;
         setBuilt(true);
         setPartsCount(g.children.length);
-        // Re-fit the camera so the user sees the V12.
-        if (window.__forgeCamera) {
-            const cam = window.__forgeCamera;
-            cam.position.set(900, 600, 900);
-            cam.lookAt(0, 0, 50);
-        }
+        // Fit camera to V12 bounds so the entire assembly is visible.
+        try {
+            const box = new THREE.Box3().setFromObject(g);
+            if (typeof window.__forgeFitToBounds === 'function') {
+                window.__forgeFitToBounds(box);
+            }
+        } catch (ex) { console.warn('[V12] fit-to-bounds failed', ex); }
     }, []);
 
     const onRemove = useCallback(() => {

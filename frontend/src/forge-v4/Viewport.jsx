@@ -307,6 +307,40 @@ function CameraCenterEffect({ orbitRef, bundle, viewName, centerToken }) {
   const { useThree, useFrame } = bundle.r3f;
   const THREE = bundle.three;
   const { camera } = useThree();
+  // PUSH-27 — expose the OrbitControls so V12RealBuilder can fit-to-bounds
+  // after dropping 118 meshes into the scene.
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    window.__forgeOrbit = orbitRef.current;
+    window.__forgeFitToBounds = (box, opts = {}) => {
+      if (!orbitRef.current || !box) return;
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      // Use the longest extent + a generous margin so the whole thing fits.
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const fov = (camera.fov * Math.PI) / 180;
+      const margin = opts.margin ?? 2.4;
+      const dist = (maxDim / 2) / Math.tan(fov / 2) * margin;
+      // Engine-photo 3/4 view: look from front-right-above so the V banks
+      // are visible side-by-side and the long axis runs left-to-right.
+      const dir = (opts.dir
+        ? new THREE.Vector3(...opts.dir)
+        : new THREE.Vector3(1.4, 0.6, 1.0)
+      ).normalize();
+      camera.position.copy(center).add(dir.multiplyScalar(dist));
+      camera.near = Math.max(1, dist / 100);
+      camera.far = Math.max(5000, dist * 10);
+      camera.updateProjectionMatrix();
+      orbitRef.current.target.copy(center);
+      orbitRef.current.update();
+    };
+    return () => {
+      if (window.__forgeOrbit === orbitRef.current) window.__forgeOrbit = null;
+      delete window.__forgeFitToBounds;
+    };
+  }, [camera, orbitRef]);
   const animRef = React.useRef(null);
   React.useEffect(() => {
     if (centerToken === 0) return;
