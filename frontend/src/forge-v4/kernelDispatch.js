@@ -69,6 +69,24 @@ function pickTarget(ctx) {
   return null;
 }
 
+// PUSH-31 — pick TWO body handles for boolean ops. Prefers explicit
+// params.a/.b, then user-selected bodies, then the last two native bodies
+// in ctx.bodies (the "no-fuss" default for users who just want to bool
+// their two most recent solids).
+function pickPair(ctx, p) {
+  if (typeof p?.a === 'number' && typeof p?.b === 'number') return [p.a, p.b];
+  const sel = ctx?.selectedBodies;
+  if (Array.isArray(sel) && sel.length >= 2 && typeof sel[0] === 'number' && typeof sel[1] === 'number') {
+    return [sel[0], sel[1]];
+  }
+  const bodies = Array.isArray(ctx?.bodies) ? ctx.bodies : [];
+  const natives = bodies.filter((b) => b && b.kind === 'native' && typeof b.handle === 'number');
+  if (natives.length >= 2) {
+    return [natives[natives.length - 2].handle, natives[natives.length - 1].handle];
+  }
+  return [null, null];
+}
+
 // Best-effort native dispatch. Returns null if the op isn't supported
 // natively; the caller then falls back to the synthetic path.
 function callNative(toolId, p, ctx) {
@@ -179,9 +197,17 @@ function callNative(toolId, p, ctx) {
       case 'pattern.linear': {
         const target = pickTarget(ctx);
         if (target != null && f.part?.linearPattern) {
+          // Schema fields are { dir: 'X'|'Y'|'Z'|'Edge…', count, spacing }
+          // — convert to (dx, dy, dz) for the kernel. Falls back to raw
+          // p.dx/p.dy/p.dz if a script passes them legacy-style.
+          const spacing = MM(p.spacing, MM(p.dx, 20));
+          const dir = (p.dir || 'X').toString().toUpperCase();
+          const dx = (p.dx != null && p.spacing == null) ? MM(p.dx, 0) : (dir === 'X' ? spacing : 0);
+          const dy = (p.dy != null && p.spacing == null) ? MM(p.dy, 0) : (dir === 'Y' ? spacing : 0);
+          const dz = (p.dz != null && p.spacing == null) ? MM(p.dz, 0) : (dir === 'Z' ? spacing : 0);
           return f.part.linearPattern(target,
             Math.max(2, Math.round(MM(p.count, 4))),
-            MM(p.dx, 12), MM(p.dy, 0), MM(p.dz, 0));
+            dx, dy, dz);
         }
         return null;
       }
@@ -213,18 +239,21 @@ function callNative(toolId, p, ctx) {
         return null;
       }
       // ----- booleans across the user-selected bodies -----
+      // PUSH-31 — fall back to the last two native bodies in ctx.bodies
+      // when the user hasn't explicitly picked refs A and B. Same logic
+      // a CAD newcomer would expect: bool the two most recent solids.
       case 'bool.union': {
-        const [a, b] = ctx?.selectedBodies || [];
+        const [a, b] = pickPair(ctx, p);
         if (typeof a === 'number' && typeof b === 'number' && f.fuse) return f.fuse(a, b);
         return null;
       }
       case 'bool.cut': {
-        const [a, b] = ctx?.selectedBodies || [];
+        const [a, b] = pickPair(ctx, p);
         if (typeof a === 'number' && typeof b === 'number' && f.cut) return f.cut(a, b);
         return null;
       }
       case 'bool.common': {
-        const [a, b] = ctx?.selectedBodies || [];
+        const [a, b] = pickPair(ctx, p);
         if (typeof a === 'number' && typeof b === 'number' && f.common) return f.common(a, b);
         return null;
       }

@@ -294,10 +294,12 @@ function RendererPublisher({ bundle }) {
     // renderer so the overlay doesn't have to instantiate its own.
     window.__forgeCamera = camera;
     window.__forgeScene  = scene;
+    window.__forgeThree  = bundle.three;
     return () => {
       if (window.__forgeRenderer === gl) window.__forgeRenderer = null;
       if (window.__forgeCamera === camera) window.__forgeCamera = null;
       if (window.__forgeScene === scene) window.__forgeScene = null;
+      if (window.__forgeThree === bundle.three) window.__forgeThree = null;
     };
   }, [gl, camera, scene]);
   return null;
