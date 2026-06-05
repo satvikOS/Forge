@@ -2425,6 +2425,11 @@ export function ForgeShellV4() {
       case 'workbench.v12full':
         window.__forgeOpenV12FullWorkflow?.();
         return;
+      // PUSH-26: real V12 build into viewport
+      case 'tools.v12real':
+      case 'workbench.v12real':
+        window.__forgeOpenV12Real?.();
+        return;
       // PUSH-05: Drawings (HLR + DXF/SVG)
       case 'tools.drawings':
       case 'workbench.drawings':

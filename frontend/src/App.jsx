@@ -52,6 +52,8 @@ import FEATetWorkbenchHost from './forge-v4/FEATetWorkbench.jsx';
 import V12EngineBuilderHost from './forge-v4/V12EngineBuilder.jsx';
 // PUSH-24: M120 V12 full 24-stage CAD workflow (sketch → FEA → render → PDM).
 import V12FullWorkflowHost from './forge-v4/V12FullWorkflow.jsx';
+// PUSH-26: M120 V12 REAL build into window.__forgeScene + 3 sims animated on mesh.
+import V12RealBuilderHost from './forge-v4/V12RealBuilder.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -617,6 +619,7 @@ function App() {
       <FEATetWorkbenchHost />
       <V12EngineBuilderHost />
       <V12FullWorkflowHost />
+      <V12RealBuilderHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />
