@@ -25,6 +25,7 @@
 #include "forge/Sketcher.hpp"
 #include "forge/Fea.hpp"
 #include "forge/FeaContact.hpp"
+#include "forge/FeaTet.hpp"
 #include "forge/Cam.hpp"
 #include "forge/CamAdvanced.hpp"
 #include "forge/CamExtended.hpp"
@@ -2399,6 +2400,227 @@ Napi::Value FeaSolveNonlinearPlastic(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- FEA / Tet (PUSH-11)
+//
+// JS surface — under `forge.fea.tet`:
+//   meshShape(handle, targetEdge)
+//     → { nodes: Float64Array (flat xyz, length 3N),
+//         ids:   Int32Array (length N),
+//         tets:  Int32Array (flat a,b,c,d × E),
+//         tetIds: Int32Array (length E),
+//         nodeCount, tetCount, shellTetsOnly }
+//   solveLinearStatic(meshObj, materialObj, bcObj)
+//     → { displacement: Float64Array (3N),
+//         vonMises:     Float64Array (E),
+//         maxDisp, maxVonMises, converged, cgIterations, cgResidual }
+//   solveModal(meshObj, materialObj, fixedNodesArr, nModes)
+//     → { eigenfrequencies: Float64Array (M),
+//         modeShapes: [Float64Array(3N)...], converged }
+namespace {
+
+Napi::Object feaTetMeshToJs(Napi::Env env, const forge::fea::tet::Mesh& m) {
+    auto out = Napi::Object::New(env);
+    auto nodes = Napi::Float64Array::New(env, m.nodes.size() * 3);
+    auto ids   = Napi::Int32Array::New(env, m.nodes.size());
+    for (std::size_t i = 0; i < m.nodes.size(); ++i) {
+        nodes.Data()[3*i+0] = m.nodes[i].x;
+        nodes.Data()[3*i+1] = m.nodes[i].y;
+        nodes.Data()[3*i+2] = m.nodes[i].z;
+        ids.Data()[i] = m.nodes[i].id;
+    }
+    out.Set("nodes", nodes);
+    out.Set("ids", ids);
+    auto tets   = Napi::Int32Array::New(env, m.tets.size() * 4);
+    auto tetIds = Napi::Int32Array::New(env, m.tets.size());
+    for (std::size_t i = 0; i < m.tets.size(); ++i) {
+        tets.Data()[4*i+0] = m.tets[i].a;
+        tets.Data()[4*i+1] = m.tets[i].b;
+        tets.Data()[4*i+2] = m.tets[i].c;
+        tets.Data()[4*i+3] = m.tets[i].d;
+        tetIds.Data()[i]   = m.tets[i].id;
+    }
+    out.Set("tets", tets);
+    out.Set("tetIds", tetIds);
+    out.Set("nodeCount", Napi::Number::New(env, static_cast<double>(m.nodes.size())));
+    out.Set("tetCount",  Napi::Number::New(env, static_cast<double>(m.tets.size())));
+    out.Set("shellTetsOnly", Napi::Boolean::New(env, m.shellTetsOnly));
+    return out;
+}
+
+forge::fea::tet::Mesh feaTetReadMesh(Napi::Env env, const Napi::Value& v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.fea.tet: mesh must be an object");
+    }
+    auto obj = v.As<Napi::Object>();
+    if (!obj.Has("nodes") || !obj.Get("nodes").IsTypedArray()) {
+        throw Napi::TypeError::New(env, "forge.fea.tet: mesh.nodes must be Float64Array");
+    }
+    if (!obj.Has("tets") || !obj.Get("tets").IsTypedArray()) {
+        throw Napi::TypeError::New(env, "forge.fea.tet: mesh.tets must be Int32Array");
+    }
+    forge::fea::tet::Mesh m;
+    auto nArr = obj.Get("nodes").As<Napi::Float64Array>();
+    std::size_t nN = nArr.ElementLength() / 3;
+    m.nodes.resize(nN);
+    Napi::Int32Array ids;
+    bool haveIds = obj.Has("ids") && obj.Get("ids").IsTypedArray();
+    if (haveIds) ids = obj.Get("ids").As<Napi::Int32Array>();
+    for (std::size_t i = 0; i < nN; ++i) {
+        m.nodes[i].x  = nArr.Data()[3*i+0];
+        m.nodes[i].y  = nArr.Data()[3*i+1];
+        m.nodes[i].z  = nArr.Data()[3*i+2];
+        m.nodes[i].id = haveIds && i < ids.ElementLength()
+            ? static_cast<int>(ids.Data()[i]) : static_cast<int>(i);
+    }
+    auto tArr = obj.Get("tets").As<Napi::Int32Array>();
+    std::size_t nT = tArr.ElementLength() / 4;
+    m.tets.resize(nT);
+    Napi::Int32Array tIds;
+    bool haveTIds = obj.Has("tetIds") && obj.Get("tetIds").IsTypedArray();
+    if (haveTIds) tIds = obj.Get("tetIds").As<Napi::Int32Array>();
+    for (std::size_t i = 0; i < nT; ++i) {
+        m.tets[i].a  = tArr.Data()[4*i+0];
+        m.tets[i].b  = tArr.Data()[4*i+1];
+        m.tets[i].c  = tArr.Data()[4*i+2];
+        m.tets[i].d  = tArr.Data()[4*i+3];
+        m.tets[i].id = haveTIds && i < tIds.ElementLength()
+            ? static_cast<int>(tIds.Data()[i]) : static_cast<int>(i);
+    }
+    if (obj.Has("shellTetsOnly") && obj.Get("shellTetsOnly").IsBoolean()) {
+        m.shellTetsOnly = obj.Get("shellTetsOnly").As<Napi::Boolean>().Value();
+    }
+    return m;
+}
+
+forge::fea::tet::Material feaTetReadMaterial(Napi::Env env, const Napi::Value& v) {
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.fea.tet: material must be an object");
+    }
+    auto obj = v.As<Napi::Object>();
+    auto req = [&](const char* k) {
+        if (!obj.Has(k) || !obj.Get(k).IsNumber()) {
+            throw Napi::TypeError::New(env,
+                std::string("forge.fea.tet: material.") + k + " required (number)");
+        }
+        return obj.Get(k).As<Napi::Number>().DoubleValue();
+    };
+    return forge::fea::tet::Material{req("E"), req("nu"), req("rho")};
+}
+
+forge::fea::tet::BC feaTetReadBC(Napi::Env env, const Napi::Value& v) {
+    forge::fea::tet::BC bc;
+    if (v.IsUndefined() || v.IsNull()) return bc;
+    if (!v.IsObject()) {
+        throw Napi::TypeError::New(env, "forge.fea.tet: bc must be an object");
+    }
+    auto obj = v.As<Napi::Object>();
+    if (obj.Has("fixedNodes") && obj.Get("fixedNodes").IsArray()) {
+        auto a = obj.Get("fixedNodes").As<Napi::Array>();
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            bc.fixedNodes.push_back(a.Get(i).As<Napi::Number>().Int32Value());
+        }
+    }
+    if (obj.Has("nodalForces") && obj.Get("nodalForces").IsArray()) {
+        auto a = obj.Get("nodalForces").As<Napi::Array>();
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            auto e = a.Get(i);
+            if (!e.IsObject()) {
+                throw Napi::TypeError::New(env,
+                    "forge.fea.tet: each nodalForces entry must be {nodeId, fx, fy, fz}");
+            }
+            auto o = e.As<Napi::Object>();
+            int nid = o.Has("nodeId") ? o.Get("nodeId").As<Napi::Number>().Int32Value() : 0;
+            double fx = o.Has("fx") ? o.Get("fx").As<Napi::Number>().DoubleValue() : 0.0;
+            double fy = o.Has("fy") ? o.Get("fy").As<Napi::Number>().DoubleValue() : 0.0;
+            double fz = o.Has("fz") ? o.Get("fz").As<Napi::Number>().DoubleValue() : 0.0;
+            bc.nodalForces.emplace_back(nid, std::array<double,3>{fx, fy, fz});
+        }
+    }
+    return bc;
+}
+
+std::vector<int> feaTetReadIntArr(Napi::Env env, const Napi::Value& v) {
+    std::vector<int> out;
+    if (v.IsUndefined() || v.IsNull()) return out;
+    if (!v.IsArray()) {
+        throw Napi::TypeError::New(env, "forge.fea.tet: expected int array");
+    }
+    auto a = v.As<Napi::Array>();
+    out.reserve(a.Length());
+    for (uint32_t i = 0; i < a.Length(); ++i) {
+        out.push_back(a.Get(i).As<Napi::Number>().Int32Value());
+    }
+    return out;
+}
+
+} // namespace
+
+Napi::Value FeaTetMeshShape(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        double te = requireNumber(info, 1, "targetEdge");
+        auto m = forge::fea::tet::meshShapeFromHandle(h, te);
+        return feaTetMeshToJs(info.Env(), m);
+    });
+}
+
+Napi::Value FeaTetSolveLinearStatic(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto m   = feaTetReadMesh(env, info[0]);
+        auto mat = feaTetReadMaterial(env, info[1]);
+        auto bc  = feaTetReadBC(env, info.Length() > 2 ? info[2] : env.Undefined());
+        auto r = forge::fea::tet::solveLinearStatic(m, mat, bc);
+        auto out = Napi::Object::New(env);
+        auto disp = Napi::Float64Array::New(env, r.displacement.size() * 3);
+        for (std::size_t i = 0; i < r.displacement.size(); ++i) {
+            disp.Data()[3*i+0] = r.displacement[i][0];
+            disp.Data()[3*i+1] = r.displacement[i][1];
+            disp.Data()[3*i+2] = r.displacement[i][2];
+        }
+        out.Set("displacement", disp);
+        auto vm = Napi::Float64Array::New(env, r.vonMises.size());
+        std::copy(r.vonMises.begin(), r.vonMises.end(), vm.Data());
+        out.Set("vonMises", vm);
+        out.Set("maxDisp",      Napi::Number::New(env, r.maxDisp));
+        out.Set("maxVonMises",  Napi::Number::New(env, r.maxVonMises));
+        out.Set("converged",    Napi::Boolean::New(env, r.converged));
+        out.Set("cgIterations", Napi::Number::New(env, r.cgIterations));
+        out.Set("cgResidual",   Napi::Number::New(env, r.cgResidual));
+        return out;
+    });
+}
+
+Napi::Value FeaTetSolveModal(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto m   = feaTetReadMesh(env, info[0]);
+        auto mat = feaTetReadMaterial(env, info[1]);
+        auto fixedNodes = feaTetReadIntArr(env, info.Length() > 2 ? info[2] : env.Undefined());
+        int nModes = info.Length() > 3 && info[3].IsNumber()
+            ? info[3].As<Napi::Number>().Int32Value() : 3;
+        auto r = forge::fea::tet::solveModal(m, mat, fixedNodes, nModes);
+        auto out = Napi::Object::New(env);
+        auto fr = Napi::Float64Array::New(env, r.eigenfrequencies.size());
+        std::copy(r.eigenfrequencies.begin(), r.eigenfrequencies.end(), fr.Data());
+        out.Set("eigenfrequencies", fr);
+        auto shapes = Napi::Array::New(env, r.modeShapes.size());
+        for (std::size_t k = 0; k < r.modeShapes.size(); ++k) {
+            auto& s = r.modeShapes[k];
+            auto ta = Napi::Float64Array::New(env, s.size() * 3);
+            for (std::size_t i = 0; i < s.size(); ++i) {
+                ta.Data()[3*i+0] = s[i][0];
+                ta.Data()[3*i+1] = s[i][1];
+                ta.Data()[3*i+2] = s[i][2];
+            }
+            shapes.Set(static_cast<uint32_t>(k), ta);
+        }
+        out.Set("modeShapes", shapes);
+        out.Set("converged",  Napi::Boolean::New(env, r.converged));
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- CFD (Forge-12b)
 //
 // JS surface — under `forge.cfd`:
@@ -4267,6 +4489,14 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     fc.Set("Goodman",   Napi::Number::New(env, 1));
     fc.Set("Soderberg", Napi::Number::New(env, 2));
     fea.Set("MeanStressCorrection", fc);
+
+    // PUSH-11 — Tet4 path under `forge.fea.tet`.
+    auto feaTet = Napi::Object::New(env);
+    feaTet.Set("meshShape",         Napi::Function::New(env, FeaTetMeshShape));
+    feaTet.Set("solveLinearStatic", Napi::Function::New(env, FeaTetSolveLinearStatic));
+    feaTet.Set("solveModal",        Napi::Function::New(env, FeaTetSolveModal));
+    fea.Set("tet", feaTet);
+
     exports.Set("fea", fea);
     // -------- cam (2.5D toolpath generators + G-code post) -------------
     auto cam = Napi::Object::New(env);
