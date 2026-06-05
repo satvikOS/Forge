@@ -231,6 +231,47 @@ export function ForgeShellV4() {
     } catch {}
   }, [activeWb]);
 
+  // PUSH-31 — Smart-fit camera to body bounds whenever viewName changes.
+  // Triggered by both the numeric keyboard shortcuts (1-7) and the
+  // view.iso/front/top/right/... menu actions.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !viewName) return undefined;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        try {
+          const THREE = window.__forgeThree;
+          const scene = window.__forgeScene;
+          const fit = window.__forgeFitToBounds;
+          if (!THREE || !scene || typeof fit !== 'function') return;
+          const box = new THREE.Box3();
+          let any = false;
+          scene.traverse((o) => {
+            if (o.isMesh && o.geometry && !o.userData?.helper) {
+              box.expandByObject(o);
+              any = true;
+            }
+          });
+          if (!any) return;
+          const dirs = {
+            front:  [0, -1, 0.05],
+            back:   [0,  1, 0.05],
+            top:    [0,  0.05, 1],
+            bottom: [0,  0.05, -1],
+            right:  [1,  0, 0.05],
+            left:   [-1, 0, 0.05],
+            iso:    [1, -0.7, 1],
+          };
+          fit(box, { dir: dirs[viewName] || dirs.iso, margin: 1.8 });
+        } catch { /* ignore */ }
+      });
+    });
+    return () => {
+      try { cancelAnimationFrame(raf1); } catch {}
+      try { cancelAnimationFrame(raf2); } catch {}
+    };
+  }, [viewName]);
+
   // Cmd+K → focus cmd bar; Cmd+/ toggle dock; Cmd+T cycle theme.
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -749,44 +790,11 @@ export function ForgeShellV4() {
       case 'view.preview':
         setPreviewOpen((v) => !v); return;
       case 'view.iso': case 'view.front': case 'view.top': case 'view.right':
-      case 'view.back': case 'view.bottom': case 'view.left': {
-        const viewKey = id.replace('view.', '');
-        setViewName(viewKey);
-        // PUSH-31 — smart-fit: after the view rotates into place, frame
-        // the camera to the body bounds instead of jumping to a fixed
-        // 40-unit distance (which leaves the user inside any model wider
-        // than ~80 mm). Two requestAnimationFrame ticks let the view
-        // change settle before we fit.
-        requestAnimationFrame(() => requestAnimationFrame(() => {
-          try {
-            if (typeof window === 'undefined') return;
-            const THREE = window.__forgeThree || (window.THREE);
-            const scene = window.__forgeScene;
-            const fit = window.__forgeFitToBounds;
-            if (!THREE || !scene || typeof fit !== 'function') return;
-            const box = new THREE.Box3();
-            let any = false;
-            scene.traverse((o) => {
-              if (o.isMesh && o.geometry && !o.userData?.helper) {
-                box.expandByObject(o);
-                any = true;
-              }
-            });
-            if (!any) return;
-            const dirs = {
-              front:  [0, -1, 0.05],
-              back:   [0,  1, 0.05],
-              top:    [0,  0.05, 1],
-              bottom: [0,  0.05, -1],
-              right:  [1,  0, 0.05],
-              left:   [-1, 0, 0.05],
-              iso:    [1, -0.7, 1],
-            };
-            fit(box, { dir: dirs[viewKey] || dirs.iso, margin: 1.8 });
-          } catch (err) { /* tolerate fit failure */ }
-        }));
+      case 'view.back': case 'view.bottom': case 'view.left':
+        // Smart-fit is handled by the useEffect on viewName so this code
+        // path AND the numeric keyboard shortcuts both get fit-on-change.
+        setViewName(id.replace('view.', ''));
         return;
-      }
       case 'view.zoomFit':
       case 'view.fit': {
         // Same smart-fit, but keep current view direction.

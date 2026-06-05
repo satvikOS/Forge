@@ -346,44 +346,23 @@ test('11 — oil pan: rect + extrude + translate -Z', async () => {
 });
 
 // ----- view orbit -----
-test('12 — zoom OUT so the whole V12 fits in frame', async () => {
-    // The platform's view shortcuts (front/top/right/iso) jump the camera
-    // to a fixed 40-unit distance from origin. But the V12 spans ~700 mm
-    // (≈700 units in the unscaled platform scene) — at 40 units away the
-    // camera is INSIDE the assembly. Mouse-wheel zoom out so all 29
-    // bodies are visible together.
-    const vp = page.locator('[data-testid="forge-viewport"]');
-    const box = await vp.boundingBox();
-    if (box) {
-        const cx = box.x + box.width / 2;
-        const cy = box.y + box.height / 2;
-        await page.mouse.move(cx, cy);
-        // Forge OrbitControls map wheel-delta to dolly distance with damping.
-        for (let i = 0; i < 12; i += 1) {
-            await page.mouse.wheel(0, 350);     // scroll DOWN = zoom OUT
-            await pause(60);
-        }
-    }
-    await pause(800);
-    await shot('zoomed-out');
+test('12 — press iso view shortcut (1) — smart-fit kicks in', async () => {
+    // The platform now smart-fits camera to body bbox on every viewName
+    // change. Just press '1' for iso and watch the camera frame the V12.
+    await page.keyboard.press('1');
+    await pause(1200);
+    await shot('view-iso-smartfit');
 });
 
 test('13 — orbit through views from the new distance', async () => {
-    for (const [key, label] of [['1','front'], ['2','top'], ['3','right'], ['5','iso']]) {
+    // Forge view shortcuts:
+    //   1 = iso, 2 = front, 3 = back, 4 = top, 5 = bottom, 6 = right, 7 = left
+    for (const [key, label] of [['2','front'], ['4','top'], ['6','right'], ['1','iso']]) {
         await page.keyboard.press(key);
-        await pause(1500);
-        // Re-apply the zoom each time since the view shortcut resets camera.
-        const vp = page.locator('[data-testid="forge-viewport"]');
-        const box = await vp.boundingBox();
-        if (box) {
-            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-            for (let i = 0; i < 12; i += 1) {
-                await page.mouse.wheel(0, 350);
-                await pause(40);
-            }
-        }
-        await pause(800);
-        await shot(`view-${label}-zoomed`);
+        // Smart-fit auto-applies via the platform's useEffect on viewName.
+        // No need to scroll wheel — camera positions itself for the bbox.
+        await pause(1200);
+        await shot(`view-${label}-smartfit`);
     }
 });
 
