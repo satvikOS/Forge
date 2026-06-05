@@ -48,6 +48,8 @@ import DrawingsHLRWorkbenchHost from './forge-v4/DrawingsHLRWorkbench.jsx';
 import MoldWorkbenchHost from './forge-v4/MoldWorkbench.jsx';
 // PUSH-11: Tet4 FEA (forge::fea::tet).
 import FEATetWorkbenchHost from './forge-v4/FEATetWorkbench.jsx';
+// PUSH-21: Mercedes-Benz M120 6.0L V12 engine builder.
+import V12EngineBuilderHost from './forge-v4/V12EngineBuilder.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -611,6 +613,7 @@ function App() {
       <DrawingsHLRWorkbenchHost />
       <MoldWorkbenchHost />
       <FEATetWorkbenchHost />
+      <V12EngineBuilderHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

@@ -419,6 +419,12 @@ export const CALCULATOR_TREE = [
           { id: 'feat', label: 'Tet4 mesh + Jacobi-CG static + inverse-power modal…', slice: 'PUSH-11' },
         ],
       },
+      {
+        label: 'Reference projects',
+        items: [
+          { id: 'v12', label: 'Mercedes-Benz M120 6.0L V12 — build from scratch…', slice: 'PUSH-21' },
+        ],
+      },
     ],
   },
   {

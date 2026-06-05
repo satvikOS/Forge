@@ -2415,6 +2415,11 @@ export function ForgeShellV4() {
       case 'workbench.feat':
         window.__forgeOpenFEATetWorkbench?.();
         return;
+      // PUSH-21: Mercedes M120 V12 engine builder
+      case 'tools.v12':
+      case 'workbench.v12':
+        window.__forgeOpenV12Builder?.();
+        return;
       // PUSH-05: Drawings (HLR + DXF/SVG)
       case 'tools.drawings':
       case 'workbench.drawings':
