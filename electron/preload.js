@@ -214,6 +214,25 @@ const forgeApi = {
     } : null,
   } : null,
 
+  // PUSH-04 — extended assembly mate library (forge::matelib). 12 SW-equivalent
+  // mate kinds (coincident, concentric, distance, angle, parallel, perpendicular,
+  // tangent, gear, rack-pinion, cam, slot, width) with damped Gauss-Seidel.
+  matelib: kernel && kernel.matelib ? {
+    solve: (poses, mates, maxIter, tol) =>
+      kernel.matelib.solve(poses, mates, maxIter ?? 256, tol ?? 1e-6),
+  } : null,
+
+  // PUSH-10 — extended CAM (forge::camx). 7-tool catalogue + 2.5-axis pocket /
+  // contour / drill cycles + Fanuc/Heidenhain/Siemens post-processors.
+  camx: kernel && kernel.camx ? {
+    listTools:         ()                              => kernel.camx.listTools(),
+    pocketToolpath:    (boundary, toolId, params)      => kernel.camx.pocketToolpath(boundary, toolId, params),
+    contourToolpath:   (polyline, toolId, side, params) => kernel.camx.contourToolpath(polyline, toolId, side, params),
+    drillToolpath:     (holes, toolId, cycle, params)  => kernel.camx.drillToolpath(holes, toolId, cycle, params),
+    postProcess:       (segments, post, params)        => kernel.camx.postProcess(segments, post, params),
+    estimateCycleTime: (segments, feedMmMin)           => kernel.camx.estimateCycleTime(segments, feedMmMin),
+  } : null,
+
   // parametric 2D sketcher (Forge-6) — planegcs-backed.
   sketcher: kernel && kernel.sketcher ? {
     kinds:    Object.freeze({ ...kernel.sketcher.kinds }),

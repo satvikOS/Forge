@@ -371,6 +371,18 @@ export const CALCULATOR_TREE = [
           { id: 'routing', label: 'Pipe / cable routing (ASME B36 / ASTM B88 / NEC)…', slice: 'PUSH-09' },
         ],
       },
+      {
+        label: 'Assembly',
+        items: [
+          { id: 'matesolver', label: 'Mate solver (12 kinds, Gauss-Seidel)…', slice: 'PUSH-04' },
+        ],
+      },
+      {
+        label: 'CAM extended',
+        items: [
+          { id: 'camx', label: 'Pocket / contour / drill + Fanuc/Heidenhain/Siemens post…', slice: 'PUSH-10' },
+        ],
+      },
     ],
   },
   {

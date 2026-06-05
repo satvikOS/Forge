@@ -2380,10 +2380,15 @@ export function ForgeShellV4() {
       case 'workbench.routing':
         window.__forgeOpenRoutingWorkbench?.();
         return;
-      // PUSH-12: PMI / GD&T
-      case 'tools.pmi':
-      case 'workbench.pmi':
-        window.__forgeOpenPMIWorkbench?.();
+      // PUSH-04: Mate solver (forge::matelib)
+      case 'tools.matesolver':
+      case 'workbench.matesolver':
+        window.__forgeOpenMateSolverWorkbench?.();
+        return;
+      // PUSH-10: Extended CAM (forge::camx)
+      case 'tools.camx':
+      case 'workbench.camx':
+        window.__forgeOpenCAMExtendedWorkbench?.();
         return;
       // PUSH-01: routes from extended right-click context
       case 'palette.open':

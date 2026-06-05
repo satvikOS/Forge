@@ -32,6 +32,10 @@ import { StandardPartsBrowserHost } from './forge-v4/StandardPartsBrowser.jsx';
 import { PMIWorkbenchHost } from './forge-v4/PMIAnnotations.jsx';
 // PUSH-09: Routing (piping + cable) workbench (window.forge.routing surface).
 import { RoutingWorkbenchHost } from './forge-v4/RoutingWorkbench.jsx';
+// PUSH-04: Assembly mate solver (forge::matelib).
+import MateSolverWorkbenchHost from './forge-v4/MateSolverWorkbench.jsx';
+// PUSH-10: Extended CAM (forge::camx).
+import CAMExtendedWorkbenchHost from './forge-v4/CAMExtendedWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -587,6 +591,8 @@ function App() {
       <StandardPartsBrowserHost />
       <PMIWorkbenchHost />
       <RoutingWorkbenchHost />
+      <MateSolverWorkbenchHost />
+      <CAMExtendedWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />
