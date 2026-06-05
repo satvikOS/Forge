@@ -30,6 +30,8 @@ import './forge-v4/StandardPartsCatalog.js';
 import { StandardPartsBrowserHost } from './forge-v4/StandardPartsBrowser.jsx';
 // PUSH-12: PMI / GD&T workbench (window.forge.pmi surface).
 import { PMIWorkbenchHost } from './forge-v4/PMIAnnotations.jsx';
+// PUSH-09: Routing (piping + cable) workbench (window.forge.routing surface).
+import { RoutingWorkbenchHost } from './forge-v4/RoutingWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -584,6 +586,7 @@ function App() {
       <ExplodedViewHost />
       <StandardPartsBrowserHost />
       <PMIWorkbenchHost />
+      <RoutingWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

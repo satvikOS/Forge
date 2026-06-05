@@ -365,6 +365,12 @@ export const CALCULATOR_TREE = [
           { id: 'pmi', label: 'PMI workbench (ASME Y14.5 / ISO 1101 / Y14.41)…', slice: 'PUSH-12' },
         ],
       },
+      {
+        label: 'Routing',
+        items: [
+          { id: 'routing', label: 'Pipe / cable routing (ASME B36 / ASTM B88 / NEC)…', slice: 'PUSH-09' },
+        ],
+      },
     ],
   },
   {
