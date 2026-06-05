@@ -40,6 +40,8 @@ import CAMExtendedWorkbenchHost from './forge-v4/CAMExtendedWorkbench.jsx';
 import TopologyWorkbenchHost from './forge-v4/TopologyWorkbench.jsx';
 // PUSH-02: Solid modelling ops (varfillet, loftguide, booleantol).
 import SolidOpsWorkbenchHost from './forge-v4/SolidOpsWorkbench.jsx';
+// PUSH-03: Sketch constraints (planegcs-backed).
+import SketchConstraintsWorkbenchHost from './forge-v4/SketchConstraintsWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -599,6 +601,7 @@ function App() {
       <CAMExtendedWorkbenchHost />
       <TopologyWorkbenchHost />
       <SolidOpsWorkbenchHost />
+      <SketchConstraintsWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

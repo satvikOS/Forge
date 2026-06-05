@@ -2400,6 +2400,11 @@ export function ForgeShellV4() {
       case 'workbench.solidops':
         window.__forgeOpenSolidOpsWorkbench?.();
         return;
+      // PUSH-03: Sketch constraints
+      case 'tools.sketchcs':
+      case 'workbench.sketchcs':
+        window.__forgeOpenSketchConstraintsWorkbench?.();
+        return;
       // PUSH-01: routes from extended right-click context
       case 'palette.open':
         window.__forgeOpenCommandPalette?.(true);

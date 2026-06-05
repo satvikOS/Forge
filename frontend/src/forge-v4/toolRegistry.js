@@ -395,6 +395,12 @@ export const CALCULATOR_TREE = [
           { id: 'solidops', label: 'Variable fillet · loft w/ guides · tolerant boolean…', slice: 'PUSH-02' },
         ],
       },
+      {
+        label: 'Sketch constraints',
+        items: [
+          { id: 'sketchcs', label: 'PLANEGCS constraints (H/V/⊥/∥/=/tangent/distance)…', slice: 'PUSH-03' },
+        ],
+      },
     ],
   },
   {
