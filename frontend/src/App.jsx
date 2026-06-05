@@ -44,6 +44,8 @@ import SolidOpsWorkbenchHost from './forge-v4/SolidOpsWorkbench.jsx';
 import SketchConstraintsWorkbenchHost from './forge-v4/SketchConstraintsWorkbench.jsx';
 // PUSH-05: Drawings HLR + DXF/SVG emit (forge::drawings).
 import DrawingsHLRWorkbenchHost from './forge-v4/DrawingsHLRWorkbench.jsx';
+// PUSH-08: Mold tooling (forge::mold).
+import MoldWorkbenchHost from './forge-v4/MoldWorkbench.jsx';
 import { ScenarioRunnerHost } from './forge-v4/ScenarioRunner.jsx';
 import { VideoCaptureHUD } from './forge-v4/VideoCaptureHUD.jsx';
 import { StressTestPanelHost } from './forge-v4/StressTestPanel.jsx';
@@ -605,6 +607,7 @@ function App() {
       <SolidOpsWorkbenchHost />
       <SketchConstraintsWorkbenchHost />
       <DrawingsHLRWorkbenchHost />
+      <MoldWorkbenchHost />
       <ScenarioRunnerHost />
       <VideoCaptureHUD />
       <PerfStatsHUD />

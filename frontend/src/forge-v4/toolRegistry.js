@@ -407,6 +407,12 @@ export const CALCULATOR_TREE = [
           { id: 'drawingshlr', label: '2D HLR projection + DXF R12 / SVG export…', slice: 'PUSH-05' },
         ],
       },
+      {
+        label: 'Mold tooling',
+        items: [
+          { id: 'moldnew', label: 'Draft · parting · cavity/core · cooling · runners…', slice: 'PUSH-08' },
+        ],
+      },
     ],
   },
   {

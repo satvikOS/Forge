@@ -2405,6 +2405,11 @@ export function ForgeShellV4() {
       case 'workbench.sketchcs':
         window.__forgeOpenSketchConstraintsWorkbench?.();
         return;
+      // PUSH-08: Mold tooling
+      case 'tools.moldnew':
+      case 'workbench.moldnew':
+        window.__forgeOpenMoldWorkbench?.();
+        return;
       // PUSH-05: Drawings (HLR + DXF/SVG)
       case 'tools.drawings':
       case 'workbench.drawings':

@@ -227,6 +227,16 @@ const forgeApi = {
     } : null,
   } : null,
 
+  // PUSH-08 — Mold tooling (forge::mold). Draft analysis, parting line,
+  // cavity/core split, cooling channels, runner system.
+  mold: kernel && kernel.mold ? {
+    analyseDraft:          (h, pullDir, threshDeg) => kernel.mold.analyseDraft(h, pullDir, threshDeg),
+    computeParting:        (h, pullDir)            => kernel.mold.computeParting(h, pullDir),
+    splitCavityCore:       (block, part, ps)       => kernel.mold.splitCavityCore(block, part, ps),
+    insertCoolingChannels: (block, channels)       => kernel.mold.insertCoolingChannels(block, channels),
+    buildRunnerSystem:     (sprueTop, gates, dias) => kernel.mold.buildRunnerSystem(sprueTop, gates, dias),
+  } : null,
+
   // PUSH-04 — extended assembly mate library (forge::matelib). 12 SW-equivalent
   // mate kinds (coincident, concentric, distance, angle, parallel, perpendicular,
   // tangent, gear, rack-pinion, cam, slot, width) with damped Gauss-Seidel.
