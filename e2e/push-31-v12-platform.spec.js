@@ -217,52 +217,99 @@ test('05 — linear pattern 7 mains down crank axis at 106 mm pitch', async () =
     }, 'pattern-linear-7-mains');
 });
 
-// ----- block envelope -----
-test('06 — block: rect 636×220, extrude 280, no translate (sits at origin)', async () => {
+// ----- deck plate (thin, so it doesn't obscure everything else) -----
+test('06 — deck plate: rect 636×220, extrude 40, translate up to z=200', async () => {
     await platformMenuAction('sketch.new');
     await clickTool('sketch.rect', {
         center: [0, 0, 0],
         width: spec.block.block_length_mm,
         height: spec.block.block_height_mm,
-    }, 'sketch-rect-block');
+    }, 'sketch-rect-deck');
     await platformMenuAction('sketch.finish');
     await clickTool('solid.extrude', {
-        distance: spec.block.block_height_mm,
+        distance: 40,
         direction: 'Up (+Z)',
         op: 'New body',
-    }, 'extrude-block');
+    }, 'extrude-deck');
+    await clickTool('solid.translate', { dx: 0, dy: 0, dz: 200 }, 'translate-deck');
 });
 
-// ----- bores bank A: circles at -Y, extrude, then translate down (-Y) -----
-test('07 — bore bank A: sketch Ø89 + extrude 86 + move to bank-A side', async () => {
-    await platformMenuAction('sketch.new');
-    await clickTool('sketch.circle', {
-        center: [0, 0, 0],
-        radius: spec.bore.diameter_mm / 2,
-    }, 'sketch-bore-A');
-    await platformMenuAction('sketch.finish');
-    await clickTool('solid.extrude', {
-        distance: spec.bore.depth_mm,
-        direction: 'Up (+Z)',
-        op: 'New body',
-    }, 'extrude-bore-A');
-    await clickTool('solid.translate', { dx: 0, dy: -110, dz: 280 }, 'translate-bore-A');
+// ----- 6 more main journals along X via individual extrudes (not pattern, so each visible) -----
+test('06b — 6 more crank mains as separate bodies along X', async () => {
+    for (let i = 1; i < 7; i += 1) {
+        await platformMenuAction('sketch.new');
+        await clickTool('sketch.circle', {
+            center: [0, 0, 0],
+            radius: spec.crankshaft.main_journal_OD_mm / 2,
+        });
+        await platformMenuAction('sketch.finish');
+        await clickTool('solid.extrude', {
+            distance: spec.crankshaft.main_journal_width_mm,
+            direction: 'Up (+Z)',
+            op: 'New body',
+        });
+        const x = (i - 3) * spec.block.cylinder_pitch_mm;
+        await clickTool('solid.translate', { dx: x, dy: 0, dz: 0 }, `main-${i + 1}`);
+    }
 });
 
-// ----- bores bank B mirrored to +Y -----
-test('08 — bore bank B: same sketch + extrude + translate +Y', async () => {
-    await platformMenuAction('sketch.new');
-    await clickTool('sketch.circle', {
-        center: [0, 0, 0],
-        radius: spec.bore.diameter_mm / 2,
-    }, 'sketch-bore-B');
-    await platformMenuAction('sketch.finish');
-    await clickTool('solid.extrude', {
-        distance: spec.bore.depth_mm,
-        direction: 'Up (+Z)',
-        op: 'New body',
-    }, 'extrude-bore-B');
-    await clickTool('solid.translate', { dx: 0, dy: 110, dz: 280 }, 'translate-bore-B');
+// ----- 6 crank throws at firing angles -----
+test('06c — 6 crank throws (rod journals) at firing angles', async () => {
+    for (let i = 0; i < 6; i += 1) {
+        await platformMenuAction('sketch.new');
+        await clickTool('sketch.circle', {
+            center: [0, 0, 0],
+            radius: spec.crankshaft.rod_journal_OD_mm / 2,
+        });
+        await platformMenuAction('sketch.finish');
+        await clickTool('solid.extrude', {
+            distance: spec.crankshaft.rod_journal_width_mm,
+            direction: 'Up (+Z)',
+            op: 'New body',
+        });
+        const a = (spec.crankshaft.throw_angles_deg[i] * Math.PI) / 180;
+        const x = (i - 2.5) * spec.block.cylinder_pitch_mm;
+        const y = Math.cos(a) * spec.crankshaft.throw_radius_mm;
+        const z = Math.sin(a) * spec.crankshaft.throw_radius_mm + 50;
+        await clickTool('solid.translate', { dx: x, dy: y, dz: z }, `throw-${i + 1}`);
+    }
+});
+
+// ----- 12 cylinder bores (2 banks × 6) each as individual extrude+translate -----
+test('07 — bore bank A: 6 Ø89 cylinders along X at -Y', async () => {
+    for (let i = 0; i < 6; i += 1) {
+        await platformMenuAction('sketch.new');
+        await clickTool('sketch.circle', {
+            center: [0, 0, 0],
+            radius: spec.bore.diameter_mm / 2,
+        });
+        await platformMenuAction('sketch.finish');
+        await clickTool('solid.extrude', {
+            distance: spec.bore.depth_mm,
+            direction: 'Up (+Z)',
+            op: 'New body',
+        });
+        const x = (i - 2.5) * spec.block.cylinder_pitch_mm;
+        await clickTool('solid.translate', { dx: x, dy: -90, dz: 240 }, `bore-A-${i + 1}`);
+    }
+});
+
+test('08 — bore bank B: 6 Ø89 cylinders along X at +Y', async () => {
+    for (let i = 0; i < 6; i += 1) {
+        await platformMenuAction('sketch.new');
+        await clickTool('sketch.circle', {
+            center: [0, 0, 0],
+            radius: spec.bore.diameter_mm / 2,
+        });
+        await platformMenuAction('sketch.finish');
+        await clickTool('solid.extrude', {
+            distance: spec.bore.depth_mm,
+            direction: 'Up (+Z)',
+            op: 'New body',
+        });
+        const x = (i - 2.5) * spec.block.cylinder_pitch_mm;
+        await clickTool('solid.translate', { dx: x, dy: 90, dz: 240 }, `bore-B-${i + 1}`);
+    }
 });
 
 // ----- head A on bank A side, elevated -----
@@ -299,15 +346,48 @@ test('11 — oil pan: rect + extrude + translate -Z', async () => {
 });
 
 // ----- view orbit -----
-test('12 — orbit through views (sidebar / cmd-bar shortcuts)', async () => {
+test('12 — zoom OUT so the whole V12 fits in frame', async () => {
+    // The platform's view shortcuts (front/top/right/iso) jump the camera
+    // to a fixed 40-unit distance from origin. But the V12 spans ~700 mm
+    // (≈700 units in the unscaled platform scene) — at 40 units away the
+    // camera is INSIDE the assembly. Mouse-wheel zoom out so all 29
+    // bodies are visible together.
+    const vp = page.locator('[data-testid="forge-viewport"]');
+    const box = await vp.boundingBox();
+    if (box) {
+        const cx = box.x + box.width / 2;
+        const cy = box.y + box.height / 2;
+        await page.mouse.move(cx, cy);
+        // Forge OrbitControls map wheel-delta to dolly distance with damping.
+        for (let i = 0; i < 60; i += 1) {
+            await page.mouse.wheel(0, 400);     // scroll DOWN = zoom OUT
+            await pause(40);
+        }
+    }
+    await pause(800);
+    await shot('zoomed-out');
+});
+
+test('13 — orbit through views from the new distance', async () => {
     for (const [key, label] of [['1','front'], ['2','top'], ['3','right'], ['5','iso']]) {
         await page.keyboard.press(key);
-        await pause(1000);
-        await shot(`view-${label}`);
+        await pause(1500);
+        // Re-apply the zoom each time since the view shortcut resets camera.
+        const vp = page.locator('[data-testid="forge-viewport"]');
+        const box = await vp.boundingBox();
+        if (box) {
+            await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+            for (let i = 0; i < 60; i += 1) {
+                await page.mouse.wheel(0, 400);
+                await pause(30);
+            }
+        }
+        await pause(800);
+        await shot(`view-${label}-zoomed`);
     }
 });
 
-test('13 — final wide capture', async () => {
+test('14 — final wide capture', async () => {
     await pause(2000);
     await shot('final-assembly');
 });
