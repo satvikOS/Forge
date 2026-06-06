@@ -14,7 +14,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
 | 8 | Mold / casting / tooling | 0 % | 80 % | 12 % | PUSH-44 (parting + cavity/core split) |
 | 9 | Routing (piping / cable) | 0 % | 80 % | 12 % | PUSH-45 (A* route → 3D pipe solid) |
-| 10 | CAM / manufacturing | 0 % | 80 % | 0 % | — |
+| 10 | CAM / manufacturing | 0 % | 80 % | 15 % | PUSH-46 (real toolpath gen proven) |
 | 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 3 % | — |
 | 12 | PMI / GD&T | 0 % | 80 % | 0 % | — |
 | 13 | Standard parts libs | 4 % | 80 % | 4 % | — |
@@ -37,6 +37,22 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-46 — CAM: real toolpath generation proven [2026-06-06]
+- **Dimensions touched**: #10 CAM (0→15%).
+- **Gap**: the forge::cam kernel (profile/pocket/face/drill/adaptive/5-axis
+  + simulateStock/generateCmm/gcode) and the ManufacturingWorkbench
+  (Stock/Tools/Ops/Sim/CMM/G-code tabs, camDispatch, ToolPreviewPanel) were
+  already complete and correctly wired — but there was NO end-to-end proof,
+  so CAM sat untracked at 0%. This slice is a pure proof/lock-in: no source
+  change, a headed e2e that exercises the real pipeline.
+- **E2E**: push-46-cam.spec.js (headed, MP4) — seed an 80×60×20 stock block,
+  open CAM (Tools → CAM), add a Profile op, Generate → the op summary shows
+  a real native toolpath (57 moves · cycle 125.4s · cutting 1924mm), global
+  search exposes CAM. 4/4 pass.
+- **Proof**: native cam.profile drives the toolpath (verified moveCount > 0,
+  positive cycle time). No regression risk (no source change). CI green.
+
 
 ### PUSH-45 — Routing: A* pipe route → real 3D pipe solid [2026-06-06]
 - **Dimensions touched**: #9 Routing (0→12%), #1 Kernel (pipeFromPolyline),
