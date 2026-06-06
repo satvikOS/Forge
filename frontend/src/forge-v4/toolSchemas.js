@@ -20,6 +20,27 @@ export const TOOL_SCHEMAS = {
     { id: 'plane', label: 'Plane', type: 'enum',
       options: ['XY','YZ','XZ','Top face of body'], default: 'XY' },
   ]},
+  // Slice-4 — reference / datum geometry.
+  'datum.offsetPlane': { title: 'Offset Plane', fields: [
+    { id: 'base',     label: 'Base plane', type: 'enum',
+      options: ['XY','YZ','XZ','Top face of body'], default: 'XY' },
+    { id: 'distance', label: 'Offset', type: 'number', default: 50, unit: 'mm' },
+  ]},
+  'datum.plane3pt': { title: 'Plane through 3 Points', fields: [
+    { id: 'p1', label: 'Point 1', type: 'vec3', default: [0,0,0], unit: 'mm' },
+    { id: 'p2', label: 'Point 2', type: 'vec3', default: [10,0,0], unit: 'mm' },
+    { id: 'p3', label: 'Point 3', type: 'vec3', default: [0,10,0], unit: 'mm' },
+  ]},
+  'datum.midPlane': { title: 'Mid Plane', fields: [
+    { id: 'planeA', label: 'Plane A', type: 'enum', options: ['XY','YZ','XZ'], default: 'XY' },
+    { id: 'offsetA', label: 'A offset', type: 'number', default: 0, unit: 'mm' },
+    { id: 'planeB', label: 'Plane B', type: 'enum', options: ['XY','YZ','XZ'], default: 'XY' },
+    { id: 'offsetB', label: 'B offset', type: 'number', default: 100, unit: 'mm' },
+  ]},
+  'datum.axis2pt': { title: 'Axis through 2 Points', fields: [
+    { id: 'p1', label: 'Point 1', type: 'vec3', default: [0,0,0], unit: 'mm' },
+    { id: 'p2', label: 'Point 2', type: 'vec3', default: [0,0,50], unit: 'mm' },
+  ]},
   'sketch.line':    { title: 'Line', fields: [
     { id: 'p0', label: 'From', type: 'vec3', default: [0,0,0], unit: 'mm' },
     { id: 'p1', label: 'To',   type: 'vec3', default: [10,0,0], unit: 'mm' },

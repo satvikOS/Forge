@@ -7,7 +7,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 |---|---|---|---|---|---|
 | 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 40 % | PUSH-34 (edge polylines) |
 | 2 | Solid modeling ops | 8 % | 80 % | 18 % | PUSH-34 (pick-edge fillet/chamfer) |
-| 3 | Sketch / 2D constraints | 18 % | 80 % | 34 % | PUSH-33 (sketch on any picked face) |
+| 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 4 % | — |
 | 5 | Drawings / 2D output | 3 % | 80 % | 3 % | — |
 | 6 | Sheet metal | 0 % | 80 % | 0 % | — |
@@ -21,7 +21,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 14 | PDM / PLM | 0 % | 80 % | 0 % | — |
 | 15 | Generative / topology | 0 % | 80 % | 0 % | — |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
-| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 12 % | — |
+| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 16 % | PUSH-35 (Datum group + role) |
 | 18 | API / customization | 5 % | 80 % | 5 % | — |
 | 19 | Visualization | 8 % | 80 % | 8 % | — |
 
@@ -37,6 +37,29 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-35 — Reference geometry / datum planes [2026-06-06]
+- **Dimensions touched**: #3 Sketch (sketch on a datum plane), #17 UI/UX
+  (Datum toolbar group + role wiring).
+- **JS**: ReferenceGeometry.js gains parametric datum factories —
+  offsetPlaneSpec, planeThrough3PointsSpec, midPlaneSpec,
+  axisFrom2PointsSpec, axisFromPlaneIntersectionSpec (pure geometry,
+  5/5 unit tests in DatumConstructors.test.mjs).
+- **Wiring**: new 'Datum' toolbar group (offsetPlane/plane3pt/midPlane/
+  axis2pt) + tool schemas; ForgeShellV4 datum.* handler registers the datum
+  (datumPlanes state, window.__forgeDatums) and for planes auto-opens a
+  sketch ON it — composing with the PUSH-32 custom-plane sketch path so a
+  datum-plane sketch + extrude builds geometry at the datum's location.
+- **Pitfall fixed (documented)**: the forge-v4 Toolbar is ROLE-FILTERED via
+  roleTemplates.js — a new toolgroup silently won't render unless its label
+  is in the active role's toolbarGroups. Added 'Datum' to the 'designer'
+  role's mech groups.
+- **E2E**: push-35-datum-planes.spec.js (headed, MP4) — create Offset Plane
+  50mm above XY (auto-opens sketch, asserts origin z≈50), rect+extrude →
+  assert solid spans z[50,70] (built on the datum, NOT world XY); 3-point +
+  mid-plane datums register (mid = z40, halfway 0..80). 4/4 pass. Kernel
+  smoke + V12 regression unaffected.
+- **CI**: see commit push.
 
 ### PUSH-34 — Edge picking (fillet/chamfer on a picked edge) [2026-06-06]
 - **Dimensions touched**: #1 Kernel (edge polylines), #2 Solid modeling

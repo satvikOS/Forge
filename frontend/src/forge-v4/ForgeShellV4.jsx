@@ -34,6 +34,9 @@ import { dispatchTool } from './kernelDispatch.js';
 import { dispatchSheet, SHEET_OPS } from './sheetMetalDispatch.js';
 import { dispatchWeld } from './weldmentsDispatch.js';
 import * as Sketch from './sketchSession.js';
+import {
+  offsetPlaneSpec, planeThrough3PointsSpec, midPlaneSpec, axisFrom2PointsSpec,
+} from '../kernel/forge/ReferenceGeometry.js';
 import { massProps, distance, angle, meshArea, meshBounds, detectInterference } from './measureDispatch.js';
 import { ConfigurationsPanel, pushHistory } from './ConfigurationsPanel.jsx';
 import { ExplodedView, WalkthroughPanel } from './ExplodedViewController.jsx';
@@ -57,6 +60,10 @@ export function ForgeShellV4() {
   const [activeWb, setActiveWb]       = useState(() => stored.get('wb', 'mech'));
   const [activeTool, setActiveTool]   = useState(null);
   const [selection, setSelection]     = useState({ kind: 'none', ids: [] });
+  // Slice-4 — datum/reference geometry created by the user (offset planes,
+  // 3-point planes, mid-planes, axes). Each is { id, kind, name, origin,
+  // normal|direction }. Sketchable planes feed Sketch.openSession(frame).
+  const [datumPlanes, setDatumPlanes] = useState([]);
   const [rightCollapsed, setRightCollapsed] = useState(false);
   const [dockOpen, setDockOpen]       = useState(false);
   const [thread, setThread]           = useState([]);
@@ -176,6 +183,7 @@ export function ForgeShellV4() {
     // Sketch-on-face (#216) — expose the active sketch session so the
     // dispatch/overlay and tooling can read its plane frame.
     window.__forgeCurrentSketch = currentSketch;
+    window.__forgeDatums = datumPlanes;
     window.__forgeActiveWb    = activeWb;
     window.__forgeTheme       = theme;
     // setter so loaders can replace the scene from disk. Forge-177 — switched
@@ -210,7 +218,7 @@ export function ForgeShellV4() {
       featureTree,
       viewState: { activeWb, theme, viewName, displayState },
     }, 3000);
-  }, [bodies, featureTree, selection, activeWb, theme, currentSketch]);
+  }, [bodies, featureTree, selection, activeWb, theme, currentSketch, datumPlanes]);
 
   // Forge-183 — autosave window APIs + periodic 30 s timer.
   useEffect(() => {
@@ -2833,6 +2841,62 @@ export function ForgeShellV4() {
                          // this fell through to the "open a sketch first"
                          // warning because the case was only handled in
                          // the forge:menu-action channel.
+                         // Slice-4 — datum / reference geometry. Build the
+                         // plane/axis spec, register it as a sketchable datum,
+                         // and (for planes) immediately open a sketch ON it so
+                         // the user can draw right away (SolidWorks behavior).
+                         if (typeof tool === 'string' && tool.startsWith('datum.')) {
+                           const NAMED = {
+                             XY: { origin: [0,0,0], normal: [0,0,1] },
+                             YZ: { origin: [0,0,0], normal: [1,0,0] },
+                             XZ: { origin: [0,0,0], normal: [0,1,0] },
+                           };
+                           let spec = null; let dkind = 'plane'; let label = title;
+                           try {
+                             if (tool === 'datum.offsetPlane') {
+                               let base = NAMED[params?.base] || NAMED.XY;
+                               if (/top|bottom|face/i.test(String(params?.base || ''))) {
+                                 const lastNative = [...bodies].reverse().find((b) => b.kind === 'native');
+                                 const f2 = lastNative ? Sketch.deriveFacePlane(lastNative.handle) : null;
+                                 if (f2) base = { origin: f2.origin, normal: f2.normal };
+                               }
+                               spec = offsetPlaneSpec(base, Number(params?.distance) || 0);
+                               label = `Offset Plane (${params?.base || 'XY'} +${params?.distance || 0})`;
+                             } else if (tool === 'datum.plane3pt') {
+                               spec = planeThrough3PointsSpec(params.p1 || [0,0,0], params.p2 || [10,0,0], params.p3 || [0,10,0]);
+                               label = 'Plane (3 points)';
+                             } else if (tool === 'datum.midPlane') {
+                               const a = offsetPlaneSpec(NAMED[params?.planeA] || NAMED.XY, Number(params?.offsetA) || 0);
+                               const b = offsetPlaneSpec(NAMED[params?.planeB] || NAMED.XY, Number(params?.offsetB) || 0);
+                               spec = midPlaneSpec(a, b);
+                               label = 'Mid Plane';
+                             } else if (tool === 'datum.axis2pt') {
+                               spec = axisFrom2PointsSpec(params.p1 || [0,0,0], params.p2 || [0,0,50]);
+                               dkind = 'axis';
+                               label = 'Axis (2 points)';
+                             }
+                           } catch (err) {
+                             showToast({ kind: 'warn', text: `${title}: ${err.message}`, ttl: 2200 });
+                             setActiveTool(null);
+                             return;
+                           }
+                           if (!spec) { setActiveTool(null); return; }
+                           const datum = { id: nextId, kind: dkind, name: label, ...spec };
+                           setDatumPlanes((d) => [...d, datum]);
+                           setFeatureTree((t) => [...t, { id: nextId, label, icon: 'sketch.rect', params }]);
+                           setActiveFeatureId(nextId);
+                           // For planes, open a sketch on the datum immediately.
+                           if (dkind === 'plane') {
+                             const next = Sketch.openSession({ origin: spec.origin, normal: spec.normal });
+                             setCurrentSketch(next);
+                             setSketchActive(true);
+                             showToast({ kind: 'ok', text: `${label} created — sketch opened on it`, ttl: 1600 });
+                           } else {
+                             showToast({ kind: 'ok', text: `${label} created`, ttl: 1400 });
+                           }
+                           setActiveTool(null);
+                           return;
+                         }
                          if (tool === 'sketch.new') {
                            const planeRaw = (params?.plane || 'XY').toString();
                            // Sketch-on-face (#216) — 'Top face of body' (and

@@ -21,7 +21,7 @@ export const ROLE_TEMPLATES = Object.freeze([
     defaultWorkbench: 'mech',
     toolbarGroups: [
       // workbench → group labels in the order to show; '*' = all groups.
-      { workbench: 'mech', groups: ['Sketch', 'Solid', 'Pattern', 'Boolean'] },
+      { workbench: 'mech', groups: ['Sketch', 'Solid', 'Datum', 'Pattern', 'Boolean'] },
     ],
     panels: ['featureTree', 'configurations'],
     accent: '#6cd0e8',

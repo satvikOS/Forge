@@ -32,6 +32,76 @@ function cross3(a, b) {
 
 function dot3(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
 
+function sub3(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+function add3(a, b) { return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+function scale3(a, s) { return [a[0]*s, a[1]*s, a[2]*s]; }
+
+// ----------------------------------------------------------------------------
+// Parametric datum constructors (Slice-4). Each returns a plain
+// {origin, normal} (planes) or {origin, direction} (axes) spec — caller wraps
+// it in a ReferencePlane/ReferenceAxis (or hands it to the sketch session as a
+// custom plane frame). Kept as free functions so they're trivially unit-test-
+// able without the registry.
+// ----------------------------------------------------------------------------
+
+/** Plane parallel to `base` (a {origin,normal}) offset `distance` along its
+ *  normal. distance>0 moves along +normal. */
+export function offsetPlaneSpec(base, distance) {
+  const n = normalize3(base.normal);
+  return { origin: add3(base.origin, scale3(n, distance)), normal: n };
+}
+
+/** Plane through three non-collinear points. Normal = (p2-p1)×(p3-p1),
+ *  origin = p1. Throws if the points are collinear. */
+export function planeThrough3PointsSpec(p1, p2, p3) {
+  const n = cross3(sub3(p2, p1), sub3(p3, p1));
+  if (Math.hypot(n[0], n[1], n[2]) < 1e-9) {
+    throw new Error('[forge.ref] planeThrough3Points: points are collinear');
+  }
+  return { origin: [...p1], normal: normalize3(n) };
+}
+
+/** Mid-plane halfway between two PARALLEL planes a and b (each {origin,
+ *  normal}). Normal taken from a; origin is the midpoint of a.origin and b's
+ *  projection. For non-parallel planes we still produce a usable bisector
+ *  using a's normal. */
+export function midPlaneSpec(a, b) {
+  const n = normalize3(a.normal);
+  const mid = scale3(add3(a.origin, b.origin), 0.5);
+  return { origin: mid, normal: n };
+}
+
+/** Axis through two distinct points. */
+export function axisFrom2PointsSpec(p1, p2) {
+  const d = sub3(p2, p1);
+  if (Math.hypot(d[0], d[1], d[2]) < 1e-9) {
+    throw new Error('[forge.ref] axisFrom2Points: coincident points');
+  }
+  return { origin: [...p1], direction: normalize3(d) };
+}
+
+/** Axis along the intersection line of two non-parallel planes a, b
+ *  (each {origin,normal}). Direction = na×nb; a point on the line is found
+ *  by solving the 2-plane system. Throws if planes are parallel. */
+export function axisFromPlaneIntersectionSpec(a, b) {
+  const na = normalize3(a.normal), nb = normalize3(b.normal);
+  const dir = cross3(na, nb);
+  const dl = Math.hypot(dir[0], dir[1], dir[2]);
+  if (dl < 1e-9) throw new Error('[forge.ref] axisFromPlaneIntersection: planes are parallel');
+  const u = scale3(dir, 1 / dl);
+  // Plane constants: na·x = da, nb·x = db.
+  const da = dot3(na, a.origin);
+  const db = dot3(nb, b.origin);
+  // Solve for a point on the line: x = c1*na + c2*nb (component in the plane
+  // spanned by the two normals). Using the standard formula.
+  const nana = dot3(na, na), nanb = dot3(na, nb), nbnb = dot3(nb, nb);
+  const det = nana * nbnb - nanb * nanb;
+  const c1 = (da * nbnb - db * nanb) / det;
+  const c2 = (db * nana - da * nanb) / det;
+  const origin = add3(scale3(na, c1), scale3(nb, c2));
+  return { origin, direction: u };
+}
+
 /** Plane: anchored at `origin`, oriented by unit `normal`. */
 export class ReferencePlane {
   constructor({ origin = [0, 0, 0], normal, name }) {

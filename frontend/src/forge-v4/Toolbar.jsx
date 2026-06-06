@@ -43,6 +43,12 @@ const SPEC = {
       { id: 'pattern.mirror',   label: 'Mirror',   icon: 'pattern.mirror' },
       { id: 'pattern.curve',    label: 'On curve', icon: 'pattern.curve' },
     ]},
+    { label: 'Datum', tools: [
+      { id: 'datum.offsetPlane', label: 'Offset Plane', icon: 'sketch.rect', hint: 'Offset a plane/face' },
+      { id: 'datum.plane3pt',    label: 'Plane 3pt',    icon: 'sketch.rect', hint: 'Plane through 3 points' },
+      { id: 'datum.midPlane',    label: 'Mid Plane',    icon: 'sketch.rect', hint: 'Mid-plane between 2 planes' },
+      { id: 'datum.axis2pt',     label: 'Axis 2pt',     icon: 'sketch.line', hint: 'Axis through 2 points' },
+    ]},
     { label: 'Boolean', tools: [
       { id: 'bool.union',  label: 'Union',  icon: 'bool.union' },
       { id: 'bool.cut',    label: 'Cut',    icon: 'bool.cut' },
