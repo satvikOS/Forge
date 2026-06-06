@@ -136,6 +136,10 @@ export const MENU_SPEC = {
       // PUSH-59 — Assembly Interference Detection panel (pairwise OCCT
       // BRepAlgoAPI_Common with volume readout per colliding pair).
       { id: 'tools.interference', label: 'Interference Detection…', icon: 'measure.interfere' },
+      // PUSH-63 — Entity Properties panel (per-face / per-edge / per-body
+      // readouts pulled live off the kernel's inferFeature + edgeSegments
+      // + massProps surfaces, driven by window.__forgeSelection).
+      { id: 'tools.entityProps',  label: 'Entity Properties…',     icon: 'measure.distance' },
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.

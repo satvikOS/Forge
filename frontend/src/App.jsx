@@ -566,6 +566,10 @@ import { MassPropsHost } from './forge-v4/MassPropsPanel.jsx';
 import { InterferenceHost } from './forge-v4/InterferencePanel.jsx';
 // PUSH-61 — Materials Browser (persistent body→material assignments).
 import { MaterialsBrowserHost } from './forge-v4/MaterialsBrowserPanel.jsx';
+// PUSH-63 — Entity Properties panel (face/edge/body inspector driven by
+// window.__forgeSelection + forge.direct.inferFeature / edgeSegments /
+// forge.massProps).
+import { EntityPropsHost } from './forge-v4/EntityPropsPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -919,6 +923,7 @@ function App() {
       <MassPropsHost />
       <InterferenceHost />
       <MaterialsBrowserHost />
+      <EntityPropsHost />
     </ViewportEnvironmentProvider>
   );
 }
