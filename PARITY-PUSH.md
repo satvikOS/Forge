@@ -5,24 +5,24 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
-| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 40 % | PUSH-34 (edge polylines) |
+| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 42 % | PUSH-58 (massProps wired to real UI) |
 | 2 | Solid modeling ops | 8 % | 80 % | 22 % | PUSH-39/40/41 (thicken/knit/trim) |
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
-| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 22 % | PUSH-37 (token-aware OCCT mates) |
-| 5 | Drawings / 2D output | 3 % | 80 % | 12 % | PUSH-42 (HLR project real model + render) |
+| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 28 % | PUSH-56 (configurations live re-apply + suppress) |
+| 5 | Drawings / 2D output | 3 % | 80 % | 18 % | PUSH-55 (DXF lands on disk) |
 | 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
 | 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
 | 8 | Mold / casting / tooling | 0 % | 80 % | 12 % | PUSH-44 (parting + cavity/core split) |
 | 9 | Routing (piping / cable) | 0 % | 80 % | 12 % | PUSH-45 (A* route → 3D pipe solid) |
 | 10 | CAM / manufacturing | 0 % | 80 % | 15 % | PUSH-46 (real toolpath gen proven) |
-| 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 18 % | PUSH-48 (FEA workbench mounted + static solve proven) |
+| 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 22 % | PUSH-57 (animation timeline drives real bodies) |
 | 12 | PMI / GD&T | 0 % | 80 % | 14 % | PUSH-47 (tolerance stack-up reachable + proven) |
 | 13 | Standard parts libs | 4 % | 80 % | 16 % | PUSH-52 (parametric insert → real B-rep body) |
 | 14 | PDM / PLM | 0 % | 80 % | 14 % | PUSH-51 (real vault check-in/out proven + Buffer fix) |
 | 15 | Generative / topology | 0 % | 80 % | 16 % | PUSH-49/50 (topology materialise + TPMS lattice) |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
-| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 20 % | PUSH-36 (Bodies panel) |
-| 18 | API / customization | 5 % | 80 % | 5 % | — |
+| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 25 % | PUSH-58 (Mass Properties inspector) |
+| 18 | API / customization | 5 % | 80 % | 22 % | PUSH-54 (plugin install + dispatch + uninstall) |
 | 19 | Visualization | 8 % | 80 % | 18 % | PUSH-53 (CPU path-tracer preview proven + reachable) |
 
 ## Test workflows queued (progressive complexity)
@@ -37,6 +37,82 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-58 — Mass Properties inspector — kernel → real engineering readout [2026-06-06]
+- **Dimensions touched**: #1 Kernel (massProps wired into a real UI), #17 UI/UX.
+- **Gap**: forge.massProps(handle) has been in the kernel from day one but
+  had no actual Mass Properties panel a user could click open — only a
+  HoverTooltip and a few headless workbenches called it.
+- **Fix**: new MassPropsPanel.jsx — right-docked panel + host. Reads the
+  active native body (selection → last-native fallback), calls
+  forge.massProps, renders volume / surface area / centre of mass / mass.
+  In-house 5-material density library: steel 7.85 / aluminum 2.70 /
+  plastic 1.05 / titanium 4.50 / brass 8.50 g/cc. Menu + Cmd+K reachable.
+- **E2E**: push-58-massprops.spec.js (headed, MP4, 6/6) — 30×30×30 box →
+  kernel volume 27000.000 mm³ (±1), area 5400.000 mm² (±1), steel mass
+  211.95 g exact, aluminum 72.90 g exact, titanium 121.50 g exact. CI green.
+
+### PUSH-57 — Animation timeline drives real OCCT bodies [2026-06-06]
+- **Dimensions touched**: #11 Simulation (motion), #17 UI/UX.
+- **Gap**: Forge-209 shipped a Catmull-Rom + linear keyframe evaluator
+  (forge.animation native addon) plus a timeline panel with Play / Pause /
+  Scrub — but only animated an abstract `box.translation` fixture, nothing
+  in the viewport actually moved.
+- **Fix**: AnimationTimelineWorkbench gains buildTracksFromBodies() and a
+  "Build from bodies" button that constructs one translation track per
+  native body, named `body:<handle>.translation`, with phased keyframes.
+  On every evaluate the panel publishes window.__forgeAnimationPose
+  (Map<handle, {pos:[x,y,z]}>). Viewport mounts a new AnimationPoseTicker
+  alongside the LOD ticker that, each r3f frame, imperatively sets
+  mesh.position for any mesh whose userData.body.handle matches.
+  Float64Array AND plain Array both accepted as the pos payload.
+- **E2E**: push-57-animation-live.spec.js (headed, MP4, 6/6) — 2 native
+  10×10×10 bodies, Build from bodies → both in pose Map; scrub t=1.5 →
+  poses non-trivial AND real three.js mesh.position reflects them
+  (±0.1 mm); rewind → A back to origin, B back to phased keyframe
+  [0,16,0]. CI green.
+
+### PUSH-56 — Configurations live re-apply [2026-06-06]
+- **Dimensions touched**: #4 Assembly/Configurations.
+- **Gap**: Design-table edits were a journal — switching variants A→B→A
+  baked B's overrides into the base feature tree, so A's geometry was
+  permanently lost on second visit.
+- **Fix**: ConfigurationsPanel split onApply into onApplyVariant
+  (regen-only, immutable base tree) and onReplaceTree (history restore).
+  Editing the active config's cell now re-applies immediately. New
+  Suppress checkbox row per feature; window.__forgeConfigurations is
+  published every render so projectFile.save round-trips variants.
+- **E2E**: push-56-configurations.spec.js (headed, MP4, 6/6) — seed
+  solid.extrude (30×30×25), add Tall variant, distance 25→60 → body
+  volume kernel-verified 22500→54000 mm³; suppress → 0 bodies; switch
+  back to default → 22500 exact. CI green.
+
+### PUSH-55 — Drawings: Save DXF lands on disk [2026-06-06]
+- **Dimensions touched**: #5 Drawings.
+- **Gap**: PUSH-42's HLR workbench projected the real model and rendered
+  it as a 2D drawing but Emit DXF/SVG only pasted the string into an
+  on-screen <pre> — no way to take the drawing out of the app.
+- **Fix**: DrawingsHLRWorkbench gains a Save DXF… button that calls the
+  existing native forge.drawings.emitDXF then pushes bytes through
+  forge.dialog.saveFile + forge.dialog.writeBlob. Publishes
+  window.__forgeLastDxfPath for scripting.
+- **E2E**: push-55-drawings-dxf.spec.js (headed, MP4, 5/5) — 40×30×20
+  body → FRONT projects 4 visible edges → Save DXF → 1008 B file on
+  disk with SECTION/ENTITIES/LWPOLYLINE/VISIBLE. TOP save → 1000 B,
+  different content. CI green.
+
+### PUSH-54 — Plugin marketplace API reachable + proven [2026-06-06]
+- **Dimensions touched**: #18 API/customization (5 % → 22 %).
+- **Gap**: window.Forge plugin manager existed but never had a real e2e
+  proving a third-party plugin could install through the UI, register a
+  tool via the public API, and have it dispatchable.
+- **Fix**: plugin run() now takes (params, ctx) — the natural plugin-author
+  shape; pluginManager snapshots the tool registry around plugin _evaluate
+  so imperatively-registered tool IDs are folded into the cleanup set
+  (uninstall was leaking orphans).
+- **E2E**: push-54-plugin.spec.js (headed, MP4, 5/5) — install-from-string
+  a doubler tool → dispatch returns { ok, doubled:42 } → uninstall →
+  registry empty. CI green.
 
 ### PUSH-50 — Lattice/Metamaterial (TPMS) proven + OCCT-reject fallback [2026-06-06]
 - **Dimensions touched**: #15 Generative/topology.
