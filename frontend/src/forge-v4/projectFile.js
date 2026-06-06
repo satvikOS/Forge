@@ -24,6 +24,7 @@
 // everything to a session ZIP that can be re-opened.
 
 import JSZip from 'jszip';
+import { saveConfigurations } from './ConfigurationsPanel.jsx';
 
 // ────────────────────────────────────────────── constants + helpers
 
@@ -158,6 +159,12 @@ export function restoreScene(scene) {
   }
   try { window.__forgeCurrentSketch  = scene.currentSketch  ?? null; } catch {}
   try { window.__forgeConfigurations = scene.configurations ?? null; } catch {}
+  // Also mirror configurations back into localStorage so the
+  // ConfigurationsPanel (which loads its state from LS on mount) sees
+  // the restored variant set the next time it's opened (PUSH-56).
+  if (scene.configurations) {
+    try { saveConfigurations(scene.configurations); } catch {}
+  }
   try { window.__forgePmi            = scene.pmi            ?? null; } catch {}
   try { window.__forgeMaterials      = scene.materials      ?? null; } catch {}
   try { window.__forgeViewState      = scene.viewState      ?? null; } catch {}

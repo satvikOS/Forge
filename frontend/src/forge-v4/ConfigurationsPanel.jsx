@@ -58,7 +58,13 @@ const rowStyle = {
   padding: 'var(--forge-space-1) var(--forge-space-2)', borderRadius: 'var(--forge-radius)',
 };
 
-export function ConfigurationsPanel({ open, onClose, featureTree, onApply }) {
+// onApplyVariant(appliedTree) — regen bodies from this applied tree (the
+//   base + active config's overrides/suppress) but DO NOT replace the
+//   featureTree React state, so switching variants is reversible.
+// onReplaceTree(tree) — replace the base feature tree wholesale (history
+//   restore). Distinct from variant apply so variant switches are
+//   idempotent across A→B→A.
+export function ConfigurationsPanel({ open, onClose, featureTree, onApplyVariant, onReplaceTree }) {
   const [state, setState] = React.useState(() => loadConfigurations());
   const [tab, setTab] = React.useState('configs');     // 'configs' | 'table' | 'history'
   const [history, setHistory] = React.useState(() => loadHistory());
@@ -69,7 +75,7 @@ export function ConfigurationsPanel({ open, onClose, featureTree, onApply }) {
   const setActive = (name) => {
     const next = { ...state, active: name };
     setState(next); saveConfigurations(next);
-    onApply?.(applyConfiguration(featureTree, next.configs[name]));
+    onApplyVariant?.(applyConfiguration(featureTree, next.configs[name]));
   };
   const addConfig = () => {
     const name = window.prompt('Configuration name', `Variant ${Object.keys(state.configs).length}`);
@@ -85,11 +91,27 @@ export function ConfigurationsPanel({ open, onClose, featureTree, onApply }) {
       [configName]: { ...cfg, overrides: { ...cfg.overrides, [featureId]: ov } } };
     const next = { ...state, configs: nextCfgs };
     setState(next); saveConfigurations(next);
+    // If we edit the ACTIVE configuration, re-apply so the viewport
+    // immediately rebuilds with the new value — the design table is a
+    // live editor, not a journal.
+    if (configName === next.active) {
+      onApplyVariant?.(applyConfiguration(featureTree, next.configs[configName]));
+    }
+  };
+  const toggleSuppress = (configName, featureId, sup) => {
+    const cfg = state.configs[configName] || { overrides: {}, suppress: {} };
+    const nextCfgs = { ...state.configs,
+      [configName]: { ...cfg, suppress: { ...cfg.suppress, [featureId]: !!sup } } };
+    const next = { ...state, configs: nextCfgs };
+    setState(next); saveConfigurations(next);
+    if (configName === next.active) {
+      onApplyVariant?.(applyConfiguration(featureTree, next.configs[configName]));
+    }
   };
   const restoreSnapshot = (idx) => {
     const snap = history[idx];
-    if (snap?.featureTree && onApply) {
-      onApply(snap.featureTree);
+    if (snap?.featureTree && onReplaceTree) {
+      onReplaceTree(snap.featureTree);
     }
   };
 
@@ -175,38 +197,61 @@ export function ConfigurationsPanel({ open, onClose, featureTree, onApply }) {
                 </tr>
               </thead>
               <tbody>
-                {featureTree.map((f) => paramKeys
-                  .filter((k) => k in (f.params || {}))
-                  .map((k) => (
-                    <tr key={`${f.id}/${k}`}>
-                      <td style={{ padding: 4 }}>
-                        <small style={{ color: 'var(--forge-ink-mute)' }}>{f.label}</small>
-                        <br />
-                        <strong style={{ fontFamily: 'var(--forge-mono)' }}>{k}</strong>
-                      </td>
-                      {configNames.map((c) => {
-                        const ov = state.configs[c].overrides[f.id]?.[k];
-                        const val = ov ?? f.params[k];
-                        return (
-                          <td key={c} style={{ padding: 2 }}>
-                            <input
-                              defaultValue={typeof val === 'object' ? JSON.stringify(val) : val}
-                              onBlur={(e) => {
-                                let raw = e.target.value;
-                                try { raw = JSON.parse(raw); }
-                                catch { /* keep string/number as typed */ }
-                                editCell(c, f.id, k, raw);
-                              }}
-                              style={{ width: '100%',
-                                       background: 'var(--forge-canvas)', color: 'var(--forge-ink)',
-                                       border: '1px solid var(--forge-rail-edge)', borderRadius: 3,
-                                       padding: '2px 4px', fontFamily: 'var(--forge-mono)', fontSize: 11 }}
-                              data-cell={`${c}/${f.id}/${k}`} />
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  )))}
+                {featureTree.flatMap((f) => [
+                  // One leading Suppress row per feature: checkbox per config.
+                  <tr key={`${f.id}/__suppress`} data-row="suppress" data-feature={f.id}>
+                    <td style={{ padding: 4 }}>
+                      <small style={{ color: 'var(--forge-ink-mute)' }}>{f.label}</small>
+                      <br />
+                      <em style={{ color: 'var(--forge-ink-mute)', fontSize: 10 }}>suppress</em>
+                    </td>
+                    {configNames.map((c) => {
+                      const sup = !!state.configs[c].suppress?.[f.id];
+                      return (
+                        <td key={c} style={{ padding: 4, textAlign: 'center' }}>
+                          <input
+                            type="checkbox"
+                            checked={sup}
+                            onChange={(e) => toggleSuppress(c, f.id, e.target.checked)}
+                            data-cell={`${c}/${f.id}/__suppress`} />
+                        </td>
+                      );
+                    })}
+                  </tr>,
+                  // Then one row per parameter key the feature actually owns.
+                  ...paramKeys
+                    .filter((k) => k in (f.params || {}))
+                    .map((k) => (
+                      <tr key={`${f.id}/${k}`}>
+                        <td style={{ padding: 4 }}>
+                          <small style={{ color: 'var(--forge-ink-mute)' }}>{f.label}</small>
+                          <br />
+                          <strong style={{ fontFamily: 'var(--forge-mono)' }}>{k}</strong>
+                        </td>
+                        {configNames.map((c) => {
+                          const ov = state.configs[c].overrides[f.id]?.[k];
+                          const val = ov ?? f.params[k];
+                          return (
+                            <td key={c} style={{ padding: 2 }}>
+                              <input
+                                defaultValue={typeof val === 'object' ? JSON.stringify(val) : val}
+                                onBlur={(e) => {
+                                  let raw = e.target.value;
+                                  try { raw = JSON.parse(raw); }
+                                  catch { /* keep string/number as typed */ }
+                                  editCell(c, f.id, k, raw);
+                                }}
+                                style={{ width: '100%',
+                                         background: 'var(--forge-canvas)', color: 'var(--forge-ink)',
+                                         border: '1px solid var(--forge-rail-edge)', borderRadius: 3,
+                                         padding: '2px 4px', fontFamily: 'var(--forge-mono)', fontSize: 11 }}
+                                data-cell={`${c}/${f.id}/${k}`} />
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    )),
+                ])}
               </tbody>
             </table>
           </section>

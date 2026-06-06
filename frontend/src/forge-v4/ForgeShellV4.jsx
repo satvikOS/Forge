@@ -38,7 +38,7 @@ import {
   offsetPlaneSpec, planeThrough3PointsSpec, midPlaneSpec, axisFrom2PointsSpec,
 } from '../kernel/forge/ReferenceGeometry.js';
 import { massProps, distance, angle, meshArea, meshBounds, detectInterference } from './measureDispatch.js';
-import { ConfigurationsPanel, pushHistory } from './ConfigurationsPanel.jsx';
+import { ConfigurationsPanel, pushHistory, loadConfigurations, saveConfigurations } from './ConfigurationsPanel.jsx';
 import { ExplodedView, WalkthroughPanel } from './ExplodedViewController.jsx';
 import { recordOp, undo as graphUndo, redo as graphRedo, canUndo, canRedo } from './opGraph.js';
 
@@ -186,6 +186,11 @@ export function ForgeShellV4() {
     window.__forgeDatums = datumPlanes;
     window.__forgeActiveWb    = activeWb;
     window.__forgeTheme       = theme;
+    // Publish the live configurations record so projectFile.save reads the
+    // current variant set (PUSH-56). The Configurations panel writes to
+    // localStorage on every edit; reading from LS here keeps the renderer
+    // and React state in sync without piping the state through.
+    try { window.__forgeConfigurations = loadConfigurations(); } catch {}
     // setter so loaders can replace the scene from disk. Forge-177 — switched
     // both calls to functional updaters because the value form was getting
     // stomped: when a workbench publishes via __forgeSetBodies the same
@@ -2805,7 +2810,13 @@ export function ForgeShellV4() {
       <ConfigurationsPanel open={configsOpen}
                            onClose={() => setConfigsOpen(false)}
                            featureTree={featureTree}
-                           onApply={(nextTree) => {
+                           onApplyVariant={(applied) => {
+                             // Regen bodies from the active config's applied
+                             // tree but keep `featureTree` as the immutable
+                             // base — A→B→A returns A's bodies exactly.
+                             setBodies(regenerate(applied.filter((n) => !n.suppressed)));
+                           }}
+                           onReplaceTree={(nextTree) => {
                              setFeatureTree(nextTree);
                              setBodies(regenerate(nextTree.filter((n) => !n.suppressed)));
                            }} />
