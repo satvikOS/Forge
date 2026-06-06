@@ -166,6 +166,8 @@ export const MENU_SPEC = {
       { id: 'tools.reverse',      label: 'Reverse Engineering…', icon: 'select.body' },
       // Forge-162 — First Article Inspection (FAI) heatmap + AS9102 PDF.
       { id: 'tools.inspect',      label: 'Inspection / FAI…',    icon: 'measure.distance' },
+      // Forge-185 — Tolerance stack-up (worst-case / RSS / Monte-Carlo Cp·Cpk).
+      { id: 'tools.tolerance',    label: 'Tolerance Stack-up…',  icon: 'measure.distance' },
       SEP,
       { id: 'tools.explode',      label: 'Exploded view…',       icon: 'misc.expand_r' },
       { id: 'tools.walkthrough',  label: 'Walk-through…',        icon: 'archie.send' },
