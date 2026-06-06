@@ -5,9 +5,9 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
-| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 48 % | PUSH-63 (inferFeature + edgeSegments in UI) |
+| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 52 % | PUSH-67 (massProps COM + inferFeature centroid for measure) |
 | 2 | Solid modeling ops | 8 % | 80 % | 22 % | PUSH-39/40/41 (thicken/knit/trim) |
-| 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
+| 3 | Sketch / 2D constraints | 18 % | 80 % | 46 % | PUSH-66 (parametric equation manager — live recompute) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 40 % | PUSH-59 (interference panel), PUSH-60 (real BOM + CSV), PUSH-61 (material persistence) |
 | 5 | Drawings / 2D output | 3 % | 80 % | 24 % | PUSH-62 (live Section view + DXF) |
 | 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
@@ -16,14 +16,14 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 9 | Routing (piping / cable) | 0 % | 80 % | 12 % | PUSH-45 (A* route → 3D pipe solid) |
 | 10 | CAM / manufacturing | 0 % | 80 % | 15 % | PUSH-46 (real toolpath gen proven) |
 | 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 26 % | PUSH-64 (animation MP4 export deterministic playback) |
-| 12 | PMI / GD&T | 0 % | 80 % | 14 % | PUSH-47 (tolerance stack-up reachable + proven) |
+| 12 | PMI / GD&T | 0 % | 80 % | 18 % | PUSH-67 (point-to-point + 3-pt angle measure) |
 | 13 | Standard parts libs | 4 % | 80 % | 16 % | PUSH-52 (parametric insert → real B-rep body) |
 | 14 | PDM / PLM | 0 % | 80 % | 14 % | PUSH-51 (real vault check-in/out proven + Buffer fix) |
 | 15 | Generative / topology | 0 % | 80 % | 16 % | PUSH-49/50 (topology materialise + TPMS lattice) |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
-| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 36 % | PUSH-63 (Entity Properties panel) |
+| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 44 % | PUSH-65 (Section plane panel), PUSH-66 (Equations), PUSH-67 (Measure) |
 | 18 | API / customization | 5 % | 80 % | 22 % | PUSH-54 (plugin install + dispatch + uninstall) |
-| 19 | Visualization | 8 % | 80 % | 22 % | PUSH-64 (canvas → ffmpeg MP4 deterministic) |
+| 19 | Visualization | 8 % | 80 % | 26 % | PUSH-65 (Section plane bbox-aware controls + clipping) |
 
 ## Test workflows queued (progressive complexity)
 
