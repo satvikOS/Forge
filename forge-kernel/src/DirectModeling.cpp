@@ -120,6 +120,16 @@ std::size_t faceCount(ShapeHandle shape) {
     return static_cast<std::size_t>(map.Extent());
 }
 
+// PUSH-31 — edge count helper so JS can default fillet-all/chamfer-all
+// when the user clicks the toolbar tool without picking edges (matches
+// SolidWorks "Round all edges" / Fusion 360 default fillet behavior).
+std::size_t edgeCount(ShapeHandle shape) {
+    const auto& s = ShapeRegistry::instance().get(shape);
+    TopTools_IndexedMapOfShape map;
+    TopExp::MapShapes(s, TopAbs_EDGE, map);
+    return static_cast<std::size_t>(map.Extent());
+}
+
 ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {
     const auto& s = ShapeRegistry::instance().get(shape);
     if (std::abs(distance) < Precision::Confusion()) {

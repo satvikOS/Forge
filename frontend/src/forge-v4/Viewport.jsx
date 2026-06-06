@@ -55,7 +55,8 @@ export function Viewport({ steps = [], selection, onSelect,
                            onGizmoChange = null,
                            centerToken = 0,            // bump to recentre camera on origin
                            sketchOverlay = null,       // {lines, circles, arcs} from current sketch
-                           sectionPlane = null }) {    // {axis:'X'|'Y'|'Z', offset:number, enabled:bool}
+                           sectionPlane = null,        // {axis:'X'|'Y'|'Z', offset:number, enabled:bool}
+                           explodeOffsets = {} }) {    // PUSH-31: { bodyId: [dx,dy,dz] }
   const [bundle, setBundle] = useState(null);
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -85,7 +86,8 @@ export function Viewport({ steps = [], selection, onSelect,
                          gizmoMode={gizmoMode} onGizmoChange={onGizmoChange}
                          centerToken={centerToken}
                          sketchOverlay={sketchOverlay}
-                         sectionPlane={sectionPlane} />
+                         sectionPlane={sectionPlane}
+                         explodeOffsets={explodeOffsets} />
         </Suspense>
       ) : <ViewportFallback />}
       <ViewportHUD viewName={viewName} displayState={displayState}
@@ -94,10 +96,52 @@ export function Viewport({ steps = [], selection, onSelect,
   );
 }
 
+// PUSH-31 — inside-Canvas helper that re-applies the global clipping
+// plane array each time `clippingPlanes` changes. The Canvas onCreated
+// callback only fires once, so toggling section view after first paint
+// previously did nothing.
+function ClippingUpdater({ clippingPlanes, bundle }) {
+  const { useThree } = bundle.r3f;
+  const gl = useThree((s) => s.gl);
+  React.useEffect(() => {
+    if (!gl) return undefined;
+    gl.clippingPlanes = clippingPlanes;
+    gl.localClippingEnabled = true;
+    return undefined;
+  }, [gl, clippingPlanes]);
+  return null;
+}
+
+// PUSH-31 — visual gizmo for the section cutting plane. Renders a
+// translucent square aligned with the cut so the user sees WHERE the
+// section is, not just that it's "enabled somewhere". Sized at 500mm
+// to comfortably encompass typical Mech bodies (engine block ~640mm).
+function SectionGizmo({ THREE, plane }) {
+  const axis = (plane.axis || 'X').toUpperCase();
+  const off = Number(plane.offset) || 0;
+  const size = 500;
+  // Orient the plane normal-up axis: rotate a base XY square so its
+  // normal matches the cutting axis.
+  let rotation = [0, 0, 0];
+  let position = [0, 0, 0];
+  if (axis === 'X') { rotation = [0, Math.PI / 2, 0]; position = [off, 0, 0]; }
+  else if (axis === 'Y') { rotation = [Math.PI / 2, 0, 0]; position = [0, off, 0]; }
+  else                   { rotation = [0, 0, 0];           position = [0, 0, off]; }
+  return (
+    <mesh position={position} rotation={rotation} renderOrder={9999}
+          userData={{ helper: true }}>
+      <planeGeometry args={[size, size]} />
+      <meshBasicMaterial color="#7aa2f7" transparent opacity={0.18}
+                         side={THREE.DoubleSide} depthWrite={false} />
+    </mesh>
+  );
+}
+
 function ViewportScene({ bundle, steps, selection, onSelect,
                          viewName, displayState, theme,
                          gizmoMode, onGizmoChange, centerToken,
-                         sketchOverlay, sectionPlane }) {
+                         sketchOverlay, sectionPlane,
+                         explodeOffsets = {} }) {
   const { Canvas } = bundle.r3f;
   const { OrbitControls, Grid, TransformControls, GizmoHelper, GizmoViewport, Html, Line } = bundle.drei;
   const THREE = bundle.three;
@@ -126,6 +170,10 @@ function ViewportScene({ bundle, steps, selection, onSelect,
       style={{ width: '100%', height: '100%' }}
       data-testid="forge-v4-canvas"
     >
+      {/* PUSH-31 — keep the renderer's global clipping array in sync with
+          sectionPlane changes (onCreated only fires once, so toggling section
+          view after first paint did nothing). */}
+      <ClippingUpdater clippingPlanes={clippingPlanes} bundle={bundle} />
       <color attach="background" args={getBgColor(displayState, theme)} />
       <ambientLight intensity={theme === 'light' ? 0.7 : 0.45} />
       <directionalLight position={[20, 30, 20]} intensity={0.9} />
@@ -139,11 +187,16 @@ function ViewportScene({ bundle, steps, selection, onSelect,
             fadeStrength={1.4}
             infiniteGrid />
       <OriginAxes Line={Line} Html={Html} labelInk={labelInk} />
+      {/* PUSH-31 — translucent plane indicator when section view is on. */}
+      {sectionPlane?.enabled && (
+        <SectionGizmo THREE={THREE} plane={sectionPlane} />
+      )}
       {sketchOverlay && <SketchOverlay Line={Line} overlay={sketchOverlay} ink={labelInk} />}
       <SceneMeshes THREE={THREE} bundle={bundle} steps={steps}
                    selection={selection} onSelect={onSelect}
                    displayState={displayState}
-                   selectedRef={selectedRef} />
+                   selectedRef={selectedRef}
+                   explodeOffsets={explodeOffsets} />
       {showGizmo && selectedRef.current && (
         <TransformControls
           object={selectedRef.current}
@@ -421,7 +474,8 @@ function getBgColor(state, theme) {
 // instance matrices into matching draw groups. Frustum-culled bodies get
 // a zero-scale instance matrix so they cost a single matrix multiply
 // each but don't rasterize any pixels.
-function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, selectedRef }) {
+function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, selectedRef,
+                       explodeOffsets = {} }) {
   const [meshes, setMeshes] = React.useState([]);
   React.useEffect(() => {
     let cancelled = false;
@@ -493,9 +547,14 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
         if (members.length === 1) {
           const m = members[0];
           const sel = selection?.ids?.includes(m.id) || selection?.ids?.includes(m.body?.handle);
+          // PUSH-31 — read explode offset for this body (defaults to 0,0,0).
+          // Wires ExplodedView's offset table to the rendered position so
+          // dragging the slider actually moves bodies in the viewport.
+          const off = explodeOffsets?.[m.id] || [0, 0, 0];
           return (
             <mesh key={m.key}
                   geometry={m.geometry}
+                  position={[off[0] || 0, off[1] || 0, off[2] || 0]}
                   ref={(el) => {
                     if (!el) return;
                     if (selectedRef) selectedRef.current = el;
@@ -548,6 +607,15 @@ function colorForBody(body) {
   if (!body) return '#c4ccd6';
   // Role-based colors when the body's name/toolId hints at the kind.
   const name = (body.name || body.toolId || '').toLowerCase();
+  // PUSH-31 — recognize V12 / general mech-assembly part roles so a
+  // multi-body assembly reads as an engine instead of a candy bowl.
+  // Order matters: more-specific patterns first.
+  if (/head\b|cylhead|valvecover/.test(name))     return '#3a4a6a'; // dark blue heads
+  if (/bore|cylbore|liner/.test(name))            return '#1a1d24'; // dark gun-metal bore
+  if (/journal|main|throw|crank|conrod/.test(name)) return '#a02d2d'; // crank red
+  if (/pan|sump/.test(name))                       return '#8a939e'; // light cast pan
+  if (/deck|block|cylblock/.test(name))            return '#6a737d'; // cast iron / aluminium block
+  if (/cam\b|valve|piston/.test(name))             return '#c98a3c'; // bronze tone
   if (/fillet|chamfer/.test(name))      return '#e0af68';   // warm accent
   if (/cut|hole|drill/.test(name))      return '#3a1f1f';   // dark cavity
   if (/pattern|linear|circular/.test(name)) return '#7aa2f7'; // pattern blue

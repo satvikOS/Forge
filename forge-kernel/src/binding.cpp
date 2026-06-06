@@ -3224,6 +3224,15 @@ Napi::Value DirectFaceCount(const Napi::CallbackInfo& info) {
     });
 }
 
+// PUSH-31 — JS-callable edge count so the toolbar fillet/chamfer tools
+// can default to "all edges" when no selection is supplied.
+Napi::Value DirectEdgeCount(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(),
+            static_cast<double>(forge::direct::edgeCount(requireHandle(info, 0))));
+    });
+}
+
 // ----------------------------------------------------------- healing (Forge-23)
 namespace heal_bind {
 Napi::Object sewReportToJs(Napi::Env env, const forge::heal::SewReport& r) {
@@ -4841,6 +4850,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     direct.Set("replaceFace",       Napi::Function::New(env, DirectReplaceFace));
     direct.Set("inferFeature",      Napi::Function::New(env, DirectInferFeature));
     direct.Set("faceCount",         Napi::Function::New(env, DirectFaceCount));
+    direct.Set("edgeCount",         Napi::Function::New(env, DirectEdgeCount));
     exports.Set("direct", direct);
 
     // -------- Healing (Forge-23) — sew / fill / validity ---------------

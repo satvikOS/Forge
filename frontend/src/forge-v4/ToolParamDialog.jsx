@@ -123,6 +123,7 @@ function FieldInput({ field, value, onChange, selection }) {
         <input type="number" value={value ?? 0}
                min={field.min} max={field.max} step={field.step ?? 0.01}
                onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+               data-field={field.id}
                className="forge-tool-input" />
         {field.unit && <span className="forge-tool-field-unit">{field.unit}</span>}
       </span>
@@ -136,6 +137,7 @@ function FieldInput({ field, value, onChange, selection }) {
         {[0,1,2].map((i) => (
           <input key={i} type="number" value={v[i] ?? 0} step={0.1}
                  onChange={(e) => { const n = [...v]; n[i] = parseFloat(e.target.value) || 0; onChange(n); }}
+                 data-field={field.id}
                  className="forge-tool-input" />
         ))}
       </span>
@@ -144,12 +146,14 @@ function FieldInput({ field, value, onChange, selection }) {
   if (field.type === 'bool') {
     return (
       <input type="checkbox" checked={!!value}
-             onChange={(e) => onChange(e.target.checked)} />
+             onChange={(e) => onChange(e.target.checked)}
+             data-field={field.id} />
     );
   }
   if (field.type === 'enum') {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)}
+              data-field={field.id}
               className="forge-tool-input">
         {(field.options || []).map((o) => (
           <option key={o} value={o}>{o}</option>

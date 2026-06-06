@@ -2640,6 +2640,7 @@ export function ForgeShellV4() {
                   sketchOverlay={currentSketch && sketchRev >= 0
                     ? Sketch.entityWorldGeometry(currentSketch) : null}
                   sectionPlane={sectionPlane}
+                  explodeOffsets={explodeOffsets}
                   onGizmoChange={(obj) => {
                     if (obj) showToast({ kind: 'info',
                       text: `${gizmoMode}: x=${obj.position.x.toFixed(1)} y=${obj.position.y.toFixed(1)} z=${obj.position.z.toFixed(1)}`,
@@ -2812,6 +2813,52 @@ export function ForgeShellV4() {
                              ttl: 1500 });
                            return;
                          }
+                         // PUSH-31 — sketch.new from the toolbar opens a
+                         // sketch session on the plane the user picked
+                         // in the dialog (defaults to XY). Previously
+                         // this fell through to the "open a sketch first"
+                         // warning because the case was only handled in
+                         // the forge:menu-action channel.
+                         if (tool === 'sketch.new') {
+                           const planeRaw = (params?.plane || 'XY').toString();
+                           // Normalise: 'Top face of body' is a future ref-pick
+                           // mode; for now fall back to XY with a warning so
+                           // the user gets feedback instead of a silent fail.
+                           let plane = 'XY';
+                           if (planeRaw === 'YZ' || planeRaw === 'XZ' || planeRaw === 'XY') {
+                             plane = planeRaw;
+                           } else if (/top|bottom|face/i.test(planeRaw)) {
+                             showToast({ kind: 'warn',
+                               text: 'Sketch on face needs a ref pick — falling back to XY',
+                               ttl: 1500 });
+                           }
+                           const next = Sketch.openSession(plane);
+                           setCurrentSketch(next);
+                           setSketchActive(true);
+                           setFeatureTree((t) => [...t, {
+                             id: nextId, label: `Sketch ${featureTree.length + 1} (${plane})`,
+                             icon: 'sketch.rect', params,
+                           }]);
+                           setActiveFeatureId(nextId);
+                           setActiveTool(null);
+                           showToast({ kind: 'ok',
+                             text: `Sketch opened on ${plane} (handle ${next.kernel ?? 'n/a'})`,
+                             ttl: 1200 });
+                           return;
+                         }
+                         // sketch.finish from the toolbar — same as the
+                         // menu action.
+                         if (tool === 'sketch.finish') {
+                           if (currentSketch) {
+                             const status = Sketch.solveSession(currentSketch);
+                             showToast({ kind: status === 'solved' ? 'ok' : 'warn',
+                               text: `Sketch ${status} · ${currentSketch.edges.length} entities`,
+                               ttl: 1500 });
+                           }
+                           setSketchActive(false);
+                           setActiveTool(null);
+                           return;
+                         }
                          if (tool.startsWith('sketch.') && !currentSketch) {
                            showToast({ kind: 'warn',
                              text: 'Open a sketch first (Sketch · New)',
@@ -2907,7 +2954,15 @@ export function ForgeShellV4() {
                              'solid.fillet', 'solid.chamfer', 'solid.shell',
                              'solid.hole', 'solid.draft',
                            ]);
-                           if (REPLACE_LAST.has(tool)) {
+                           // PUSH-31 — solid.extrude/revolve with op=Cut|Add|
+                           // Intersect modifies the previous body via boolean,
+                           // so it should REPLACE the prior body, not stack
+                           // separately. This is what makes a deck plate with
+                           // bores cut through it render as ONE coherent
+                           // engine block instead of overlapping cylinders.
+                           const op = (params?.op || '').toLowerCase();
+                           const isBoolOp = op === 'cut' || op === 'add' || op === 'intersect';
+                           if (REPLACE_LAST.has(tool) || isBoolOp) {
                              const idx = [...bodies].map((b, i) => ({ b, i }))
                                .reverse().find((x) => x.b.kind === 'native')?.i;
                              if (typeof idx === 'number') {

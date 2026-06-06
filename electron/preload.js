@@ -1308,6 +1308,9 @@ const forgeApi = {
     replaceFace:       (h, faceId, spec)                => kernel.direct.replaceFace(h, faceId, spec),
     inferFeature:      (h, faceId)                      => kernel.direct.inferFeature(h, faceId),
     faceCount:         (h)                              => kernel.direct.faceCount(h),
+    // PUSH-31 — used by V4 shell to default fillet/chamfer to "all edges"
+    // when the user invokes the toolbar tool without a selection.
+    edgeCount:         (h)                              => kernel.direct.edgeCount(h),
   } : null,
 
   // healing (Forge-23) — sew open shells, fill holes, simplify, repair, validate.

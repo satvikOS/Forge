@@ -69,6 +69,18 @@ function pickTarget(ctx) {
   return null;
 }
 
+// PUSH-31 — most-recent native body in ctx.bodies, ignoring synthetic
+// scaffolds. Used by solid.extrude with op=Cut|Add|Intersect to find
+// the body the user wants to bool the new extrusion against.
+function pickPrevNative(ctx) {
+  const bodies = Array.isArray(ctx?.bodies) ? ctx.bodies : [];
+  for (let i = bodies.length - 1; i >= 0; i--) {
+    const b = bodies[i];
+    if (b && b.kind === 'native' && typeof b.handle === 'number') return b.handle;
+  }
+  return null;
+}
+
 // PUSH-31 — pick TWO body handles for boolean ops. Prefers explicit
 // params.a/.b, then user-selected bodies, then the last two native bodies
 // in ctx.bodies (the "no-fuss" default for users who just want to bool
@@ -101,7 +113,20 @@ function callNative(toolId, p, ctx) {
           const isDown = (p.direction || '').startsWith('Down');
           const isBoth = (p.direction || '').startsWith('Both');
           const dir = isBoth ? [0, 0, 0] : (isDown ? [0, 0, -1] : [0, 0, 1]);
-          return f.part.extrudeProfile(ctx.currentSketch, MM(p.distance, 25), dir);
+          const newBody = f.part.extrudeProfile(ctx.currentSketch, MM(p.distance, 25), dir);
+          // PUSH-31 — honor the Operation dropdown (Cut/Add/Intersect)
+          // so the deck plate keeps ONE body with bores carved into it
+          // instead of N overlapping cylinders. Without this the V12
+          // renders as a striped blob; with it, you get a real engine
+          // block silhouette.
+          const op = (p.op || '').toLowerCase();
+          const prev = pickPrevNative(ctx);
+          if (typeof newBody === 'number' && typeof prev === 'number' && op !== 'new body' && op !== '') {
+            if (op === 'cut' && f.cut) return f.cut(prev, newBody);
+            if (op === 'add' && f.fuse) return f.fuse(prev, newBody);
+            if (op === 'intersect' && f.common) return f.common(prev, newBody);
+          }
+          return newBody;
         }
         if (f.makeBox) return f.makeBox(MM(p.width, 20), MM(p.height, 20), MM(p.distance, 25));
         return null;
@@ -138,8 +163,17 @@ function callNative(toolId, p, ctx) {
       case 'solid.fillet': {
         const target = pickTarget(ctx);
         if (target != null && f.part?.filletEdges) {
-          const edgeIds = Array.isArray(p.edgeIds) ? p.edgeIds :
-                          (Array.isArray(ctx?.selectedEdges) ? ctx.selectedEdges : []);
+          // PUSH-31 — default "fillet all edges" when neither the dialog
+          // nor the picker supplied a list. Matches SolidWorks "Round all
+          // edges" / Fusion 360 quick-fillet default.
+          let edgeIds = Array.isArray(p.edgeIds) && p.edgeIds.length ? p.edgeIds
+                      : (Array.isArray(ctx?.selectedEdges) && ctx.selectedEdges.length
+                          ? ctx.selectedEdges : null);
+          if (!edgeIds && typeof f.direct?.edgeCount === 'function') {
+            const n = f.direct.edgeCount(target);
+            edgeIds = Array.from({ length: n }, (_, i) => i);
+          }
+          if (!edgeIds || !edgeIds.length) return null;
           return f.part.filletEdges(target, edgeIds, MM(p.radius, 2));
         }
         return null;
@@ -147,8 +181,14 @@ function callNative(toolId, p, ctx) {
       case 'solid.chamfer': {
         const target = pickTarget(ctx);
         if (target != null && f.part?.chamferEdges) {
-          const edgeIds = Array.isArray(p.edgeIds) ? p.edgeIds :
-                          (Array.isArray(ctx?.selectedEdges) ? ctx.selectedEdges : []);
+          let edgeIds = Array.isArray(p.edgeIds) && p.edgeIds.length ? p.edgeIds
+                      : (Array.isArray(ctx?.selectedEdges) && ctx.selectedEdges.length
+                          ? ctx.selectedEdges : null);
+          if (!edgeIds && typeof f.direct?.edgeCount === 'function') {
+            const n = f.direct.edgeCount(target);
+            edgeIds = Array.from({ length: n }, (_, i) => i);
+          }
+          if (!edgeIds || !edgeIds.length) return null;
           return f.part.chamferEdges(target, edgeIds, MM(p.distance, 2), MM(p.distance2, 2));
         }
         return null;
@@ -156,12 +196,58 @@ function callNative(toolId, p, ctx) {
       case 'solid.hole': {
         const target = pickTarget(ctx);
         if (target != null && f.part?.holeWizard) {
-          const position = Array.isArray(p.position) ? p.position : [0, 0, 0];
-          const axis = Array.isArray(p.axis) ? p.axis : [0, 0, 1];
-          return f.part.holeWizard(target, position, axis, p.type || 'Simple',
-            { diameter: MM(p.diameter, 6), depth: MM(p.depth, 12),
-              counterboreDia: MM(p.counterboreDia, 0), counterboreDepth: MM(p.counterboreDepth, 0),
-              countersinkAngle: MM(p.countersinkAngle, 0) });
+          // PUSH-31 — when the user drives the toolbar Hole tool without
+          // picking a face (no position supplied), drop the hole on the
+          // body's top-face center, drilling -Z. Matches SolidWorks Hole
+          // Wizard's "default to selected feature" behavior without
+          // needing an OCCT face-pick infra wired through the dialog yet.
+          let position = Array.isArray(p.position) && p.position.length === 3
+            ? p.position : null;
+          let axis = Array.isArray(p.axis) && p.axis.length === 3
+            ? p.axis : null;
+          if (!position && typeof window !== 'undefined' && window.__forgeScene) {
+            let bodyMesh = null;
+            try {
+              window.__forgeScene.traverse((o) => {
+                if (!bodyMesh && o.isMesh && o.userData?.bodyId === target) {
+                  bodyMesh = o;
+                }
+              });
+            } catch { /* ignore traversal blips */ }
+            if (bodyMesh?.geometry) {
+              try { bodyMesh.geometry.computeBoundingBox?.(); } catch {}
+              const bb = bodyMesh.geometry.boundingBox;
+              const THREE = window.__forgeThree;
+              if (bb && THREE) {
+                const center = new THREE.Vector3();
+                bb.getCenter(center);
+                // Mesh world matrix may differ from kernel-local space if
+                // the body was scene-translated post-creation; project
+                // both center and top point through matrixWorld so the
+                // hole drops on the body the user actually sees.
+                bodyMesh.updateMatrixWorld?.(true);
+                const topLocal = new THREE.Vector3(center.x, center.y, bb.max.z);
+                const topWorld = topLocal.clone().applyMatrix4(bodyMesh.matrixWorld);
+                position = [topWorld.x, topWorld.y, topWorld.z];
+                if (!axis) axis = [0, 0, -1];
+              }
+            }
+          }
+          position = position || [0, 0, 0];
+          axis = axis || [0, 0, 1];
+          // PUSH-31 — the C++ binding expects:
+          //   • type as lowercase 'simple'|'counterbore'|'countersink'|'tapped'
+          //   • spec fields headDiameter / headDepth / headAngle, NOT the
+          //     UI-facing counterboreDia / counterboreDepth / countersinkAngle.
+          // The previous wiring sent capitalized strings and ignored field
+          // names, so every counterbore/countersink call threw inside OCCT.
+          const kernelType = String(p.type || 'simple').toLowerCase();
+          return f.part.holeWizard(target, position, axis, kernelType,
+            { diameter:     MM(p.diameter, 6),
+              depth:        MM(p.depth, 12),
+              headDiameter: MM(p.counterboreDia ?? p.headDiameter, 0),
+              headDepth:    MM(p.counterboreDepth ?? p.headDepth, 0),
+              headAngle:    p.countersinkAngle ?? p.headAngle ?? 0 });
         }
         if (f.makeCylinder) return f.makeCylinder(MM(p.diameter, 6) / 2, MM(p.depth, 12));
         return null;

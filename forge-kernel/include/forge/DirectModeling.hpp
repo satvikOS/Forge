@@ -94,4 +94,9 @@ FeatureInfo inferFeature(ShapeHandle shape, FaceId faceId);
 // iterate every face when the user wants to inspect the model.
 std::size_t faceCount(ShapeHandle shape);
 
+// PUSH-31 — number of TopAbs_EDGE sub-shapes (deterministic OCCT order).
+// Used by the V4 shell to default fillet/chamfer to "all edges" when the
+// user invokes the toolbar tool without picking any.
+std::size_t edgeCount(ShapeHandle shape);
+
 } // namespace forge::direct
