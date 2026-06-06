@@ -3571,6 +3571,19 @@ Napi::Value PartShell(const Napi::CallbackInfo& info) {
     });
 }
 
+Napi::Value PartThickenSurface(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        double t = requireNumber(info, 1, "thickness");
+        int side = 0;
+        if (info.Length() > 2 && info[2].IsNumber()) {
+            side = info[2].As<Napi::Number>().Int32Value();
+        }
+        return Napi::Number::New(info.Env(),
+                                 forge::part::thickenSurface(h, t, side));
+    });
+}
+
 Napi::Value PartFilletEdges(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto h = requireHandle(info, 0);
@@ -4843,6 +4856,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     part.Set("sweep",               Napi::Function::New(env, PartSweep));
     part.Set("loft",                Napi::Function::New(env, PartLoft));
     part.Set("shell",               Napi::Function::New(env, PartShell));
+    part.Set("thickenSurface",      Napi::Function::New(env, PartThickenSurface));
     part.Set("filletEdges",         Napi::Function::New(env, PartFilletEdges));
     part.Set("variableFilletEdge",  Napi::Function::New(env, PartVariableFillet));
     part.Set("chamferEdges",        Napi::Function::New(env, PartChamferEdges));

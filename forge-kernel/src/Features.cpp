@@ -22,6 +22,9 @@
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffset_MakeOffset.hxx>
+#include <BRepOffset.hxx>
+#include <GeomAbs_JoinType.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
@@ -355,6 +358,39 @@ ShapeHandle shell(ShapeHandle shape,
     mk.Build();
     if (!mk.IsDone()) {
         throw std::runtime_error("forge.part.shell: ThickSolid build failed");
+    }
+    return ShapeRegistry::instance().add(mk.Shape());
+}
+
+// ============================================================ thickenSurface
+//
+// Surface workbench (Slice-8). Offset an open surface / shell to a closed
+// solid of the given wall thickness — the "Thicken" command (SolidWorks
+// Insert > Boss/Base > Thicken, Fusion Thicken, NX Thicken). `thickness`
+// is the wall thickness in mm; sign selects the offset side (+ outward
+// along the surface normal, - inward). Both-sided thicken is done by
+// offsetting half each way.
+ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
+    requirePositive(std::abs(thickness), "thicken thickness");
+    const TopoDS_Shape& src = fetch(shape);
+
+    // BRepOffset_MakeOffset in Skin mode with makeThickSolid=true turns an
+    // open shell into a solid. Offset value sign chooses the side.
+    const double tol = 1.0e-4;
+    double offset = thickness;
+    if (side < 0) offset = -std::abs(thickness);
+    else if (side > 0) offset = std::abs(thickness);
+
+    BRepOffset_MakeOffset mk;
+    mk.Initialize(src, offset, tol, BRepOffset_Skin,
+                  /*Intersection*/ Standard_False,
+                  /*SelfInter*/ Standard_False,
+                  GeomAbs_Arc,
+                  /*makeThickSolid*/ Standard_True);
+    mk.MakeThickSolid();
+    if (!mk.IsDone()) {
+        throw std::runtime_error("forge.part.thickenSurface: offset build failed "
+                                 "(surface may be non-manifold or self-intersecting)");
     }
     return ShapeRegistry::instance().add(mk.Shape());
 }

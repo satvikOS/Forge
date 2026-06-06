@@ -1343,6 +1343,10 @@ const forgeApi = {
       kernel.part.loft(sectionHandles, guides ?? [], !!ruled, !!closed),
     shell:              (shape, faceIdsToRemove, thickness, multiThickness) =>
       kernel.part.shell(shape, faceIdsToRemove ?? [], thickness, multiThickness ?? []),
+    // Slice-8 surface workbench — thicken an open surface/shell into a solid.
+    // side: -1 inward, +1 outward, 0 symmetric.
+    thickenSurface:     (shape, thickness, side) =>
+      kernel.part.thickenSurface(shape, thickness, side ?? 0),
     filletEdges:        (shape, edgeIds, radius) =>
       kernel.part.filletEdges(shape, edgeIds, radius),
     variableFilletEdge: (shape, edgeId, anchorRadii) =>
@@ -1375,8 +1379,29 @@ const forgeApi = {
   // NURBS surfacing (Forge-36) — build/trim/sew/refine/eval/intersect/
   // project/classA-analyse over `Geom_BSplineSurface` faces.
   surfacing: kernel && kernel.surfacing ? {
-    buildPatch:    (grid, uDegree, vDegree, uKnots, vKnots) =>
-      kernel.surfacing.buildPatch(grid, uDegree ?? 3, vDegree ?? 3, uKnots ?? null, vKnots ?? null),
+    // The kernel's buildPatch expects a flat ControlGrid object
+    // { uCount, vCount, xyz:Float64Array }. The surfacing dispatch ops
+    // compose patches as a nested grid array [[ [x,y,z], … ], … ]. Accept
+    // BOTH here: if a grid array is passed, flatten it to a ControlGrid so
+    // every surface tool (extrude/sweep/fill/blend/loft/offset…) reaches
+    // the native kernel instead of silently failing as "kernel not ready".
+    buildPatch:    (gridOrSpec, uDegree, vDegree, uKnots, vKnots) => {
+      let spec = gridOrSpec;
+      if (Array.isArray(gridOrSpec)) {
+        const rows = gridOrSpec.length;
+        const cols = Array.isArray(gridOrSpec[0]) ? gridOrSpec[0].length : 0;
+        const xyz = new Float64Array(rows * cols * 3);
+        let i = 0;
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const p = gridOrSpec[r][c] || [0, 0, 0];
+            xyz[i++] = p[0]; xyz[i++] = p[1]; xyz[i++] = p[2];
+          }
+        }
+        spec = { uCount: rows, vCount: cols, xyz };
+      }
+      return kernel.surfacing.buildPatch(spec, uDegree ?? 3, vDegree ?? 3, uKnots ?? null, vKnots ?? null);
+    },
     trim:          (face, uvFlat)             => kernel.surfacing.trim(face, uvFlat),
     sew:           (faces, tolerance)         => kernel.surfacing.sew(faces, tolerance ?? 1e-3),
     refine:        (face, uTimes, vTimes)     => kernel.surfacing.refine(face, uTimes ?? 1, vTimes ?? 1),

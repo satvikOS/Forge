@@ -119,6 +119,12 @@ export const TOOL_SCHEMAS = {
     { id: 'removeFaces',label: 'Faces to remove', type: 'ref' },
     { id: 'thickness',  label: 'Wall thickness',  type: 'number', default: 2, unit: 'mm', min: 0.01 },
   ]},
+  'solid.thicken':  { title: 'Thicken', fields: [
+    { id: 'body',      label: 'Surface body',   type: 'ref' },
+    { id: 'thickness', label: 'Thickness',      type: 'number', default: 2, unit: 'mm', min: 0.01 },
+    { id: 'side',      label: 'Side',           type: 'enum',
+      options: ['Outward', 'Inward', 'Symmetric'], default: 'Outward' },
+  ]},
   'solid.fillet':   { title: 'Fillet', fields: [
     { id: 'edges',   label: 'Edges',  type: 'ref' },
     { id: 'radius',  label: 'Radius', type: 'number', default: 2, unit: 'mm', min: 0.01 },

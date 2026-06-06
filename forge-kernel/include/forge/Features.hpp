@@ -90,6 +90,10 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
                                 double baseThickness,
                                 const std::vector<FaceThickness>& perFaceOverrides);
 
+// Slice-8 surface workbench: thicken an open surface / shell into a solid of
+// the given wall thickness. `side`: -1 inward, +1 outward, 0 symmetric.
+ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side);
+
 ShapeHandle filletEdges(ShapeHandle shape,
                         const std::vector<std::uint32_t>& edgeIds,
                         double radius);

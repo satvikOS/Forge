@@ -177,6 +177,19 @@ function callNative(toolId, p, ctx) {
         }
         return null;
       }
+      case 'solid.thicken': {
+        // Slice-8 surface workbench — thicken an open surface/shell body
+        // into a closed solid. Operates on the picked target body (a
+        // surface body created by the surfacing tools, or an imported
+        // open shell). side: -1 inward, +1 outward, 0 symmetric.
+        const target = pickTarget(ctx);
+        if (target != null && f.part?.thickenSurface) {
+          const side = (p.side === 'Inward') ? -1
+                     : (p.side === 'Symmetric') ? 0 : 1;
+          return f.part.thickenSurface(target, MM(p.thickness, 2), side);
+        }
+        return null;
+      }
       case 'solid.fillet': {
         const target = pickTarget(ctx);
         if (target != null && f.part?.filletEdges) {

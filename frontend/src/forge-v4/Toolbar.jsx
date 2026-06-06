@@ -29,6 +29,7 @@ const SPEC = {
       { id: 'solid.sweep',    label: 'Sweep',   icon: 'solid.sweep' },
       { id: 'solid.loft',     label: 'Loft',    icon: 'solid.loft' },
       { id: 'solid.shell',    label: 'Shell',   icon: 'solid.shell' },
+      { id: 'solid.thicken',  label: 'Thicken', icon: 'solid.thicken', hint: 'Thicken surface → solid' },
       { id: 'solid.fillet',   label: 'Fillet',  icon: 'solid.fillet', hint: 'F' },
       { id: 'solid.chamfer',  label: 'Chamfer', icon: 'solid.chamfer' },
       { id: 'solid.draft',    label: 'Draft',   icon: 'solid.draft' },

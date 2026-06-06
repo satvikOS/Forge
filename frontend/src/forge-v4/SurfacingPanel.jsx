@@ -647,6 +647,25 @@ export function SurfacingPanel({ open, onClose }) {
     if (entry.id === 'classAAnalyse' && entry.ok && typeof entry.payload === 'object') {
       setContinuity(entry.payload);
     }
+    // Slice-8 — commit surface-producing ops to the live scene so the
+    // surface renders in the viewport AND becomes a pickable target for
+    // downstream solid ops (Thicken, Boolean, etc.). A surface result
+    // carries result.faceHandle (the native OCCT face/shell handle).
+    if (entry.ok && entry.payload && typeof entry.payload === 'object') {
+      const handle = entry.payload.faceHandle;
+      if (typeof handle === 'number' && typeof window !== 'undefined'
+          && typeof window.__forgeAppendBody === 'function') {
+        window.__forgeAppendBody({
+          id: `surf-${entry.ts || Date.now()}`,
+          kind: 'native',
+          handle,
+          toolId: `surface.${entry.id}`,
+          surface: true,
+          params: {},
+          name: entry.label || 'Surface',
+        });
+      }
+    }
   }, []);
 
   if (!open) return null;

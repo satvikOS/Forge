@@ -3090,7 +3090,7 @@ export function ForgeShellV4() {
                            const REPLACE_LAST = new Set([
                              'solid.translate', 'solid.rotate',
                              'solid.fillet', 'solid.chamfer', 'solid.shell',
-                             'solid.hole', 'solid.draft',
+                             'solid.hole', 'solid.draft', 'solid.thicken',
                            ]);
                            // PUSH-31 — solid.extrude/revolve with op=Cut|Add|
                            // Intersect modifies the previous body via boolean,
