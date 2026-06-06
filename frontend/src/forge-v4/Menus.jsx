@@ -140,6 +140,10 @@ export const MENU_SPEC = {
       // readouts pulled live off the kernel's inferFeature + edgeSegments
       // + massProps surfaces, driven by window.__forgeSelection).
       { id: 'tools.entityProps',  label: 'Entity Properties…',     icon: 'measure.distance' },
+      // PUSH-65 — Section Plane control panel (toggle / axis radio /
+      // body-bbox-aware offset slider, publishes window.__forgeSectionPlane
+      // + forge:section-update so the live viewport clipping picks it up).
+      { id: 'tools.sectionPlane', label: 'Section Plane…',         icon: 'view.section' },
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.

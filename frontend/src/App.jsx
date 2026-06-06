@@ -573,6 +573,10 @@ import { EntityPropsHost } from './forge-v4/EntityPropsPanel.jsx';
 // PUSH-67 — Point-to-Point Measure tool (distance + dx/dy/dz + 3-point
 // angle, driven by window.__forgeSelection like the entity panel).
 import { MeasureToolPanelHost } from './forge-v4/MeasureToolPanel.jsx';
+// PUSH-65 — Section Plane control panel (toggle / axis radio /
+// body-bbox-aware offset slider, publishes window.__forgeSectionPlane
+// + forge:section-update for the live viewport clipping).
+import { SectionPlanePanelHost } from './forge-v4/SectionPlanePanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -928,6 +932,7 @@ function App() {
       <MaterialsBrowserHost />
       <EntityPropsHost />
       <MeasureToolPanelHost />
+      <SectionPlanePanelHost />
     </ViewportEnvironmentProvider>
   );
 }
