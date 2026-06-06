@@ -12,6 +12,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { runCantileverSIMP, makeCubeDensitySDF } from '../foundation/TopoCantilever.js';
+import { extractIsoSurface, isoSurfaceToBinarySTL, smoothGridField } from '../foundation/MarchingCubes.js';
 
 function bucket(counts, edges, val) {
     for (let i = edges.length - 1; i >= 0; i -= 1) {
@@ -24,6 +25,8 @@ export function TopologyWorkbench({ onClose }) {
     const [running, setRunning] = useState(false);
     const [result, setResult] = useState(null);
     const [error, setError] = useState(null);
+    const [materializing, setMaterializing] = useState(false);
+    const [materialized, setMaterialized] = useState(null);
     const [params, setParams] = useState({
         W: 60, H: 40, T: 30, nx: 8, ny: 6, nz: 4,
         volumeFraction: 0.4, loadN: 1000, maxIter: 12,
@@ -47,6 +50,7 @@ export function TopologyWorkbench({ onClose }) {
     const onRun = useCallback(() => {
         setRunning(true);
         setError(null);
+        setMaterialized(null);
         // Run in a microtask so the spinner can paint before SIMP blocks.
         setTimeout(() => {
             try {
@@ -59,6 +63,57 @@ export function TopologyWorkbench({ onClose }) {
             }
         }, 30);
     }, [params]);
+
+    // PUSH-49 — Materialise the optimised density field into a REAL solid:
+    // marching-cubes the SIMP densitiesCube at the volume-fraction iso level,
+    // write the triangle soup to a tmp STL, import it through the native OCCT
+    // kernel, and commit the resulting body so the topology renders + becomes
+    // a usable downstream part (the SIMP engine alone only returns a density
+    // field + report — nothing visible in the viewport).
+    const onMaterialize = useCallback(() => {
+        if (!result) return;
+        setMaterializing(true);
+        setError(null);
+        setTimeout(() => {
+            try {
+                const f = (typeof window !== 'undefined') ? window.forge : null;
+                if (!f || !f.io || typeof f.io.writeTmpStl !== 'function'
+                    || typeof f.io.importStl !== 'function') {
+                    throw new Error('native io.writeTmpStl/importStl unavailable — load forge-kernel');
+                }
+                const { densitiesCube, nx, ny, nz, dx, dy, dz } = result;
+                // Smooth the density field once so the iso-surface is cleaner.
+                const values = smoothGridField(Float32Array.from(densitiesCube), nx, ny, nz, 1);
+                // Iso level at the target volume fraction keeps ~VF of cells solid.
+                const threshold = Math.max(0.15, Math.min(0.85, params.volumeFraction));
+                const iso = extractIsoSurface({
+                    values, nx, ny, nz,
+                    origin: [0, 0, 0],
+                    cellSize: [dx, dy, dz],
+                    threshold,
+                });
+                const triCount = iso.triVerts.length / 3;
+                if (triCount < 4) {
+                    throw new Error(`iso-surface too sparse (${triCount} tris) — lower the threshold / raise VF`);
+                }
+                const stlBytes = isoSurfaceToBinarySTL(iso);
+                const tmpPath = f.io.writeTmpStl('topology-optimised', stlBytes);
+                const handle = f.io.importStl(tmpPath);
+                if (typeof handle !== 'number' || handle <= 0) {
+                    throw new Error(`importStl returned bad handle ${handle}`);
+                }
+                window.__forgeAppendBody?.({
+                    id: `topo-${Date.now()}`, kind: 'native', handle,
+                    toolId: 'tools.topology', name: 'Optimised Topology',
+                });
+                setMaterialized({ handle, triCount, vertCount: iso.vertProperties.length / 3 });
+                setMaterializing(false);
+            } catch (ex) {
+                setError(String(ex && ex.message || ex));
+                setMaterializing(false);
+            }
+        }, 30);
+    }, [result, params.volumeFraction]);
 
     let histogram = null;
     if (result) {
@@ -199,6 +254,24 @@ export function TopologyWorkbench({ onClose }) {
                                 ))}
                             </tbody>
                         </table>
+
+                        <button data-testid="forge-topo-materialize" onClick={onMaterialize}
+                            disabled={materializing}
+                            style={{ marginTop: 10, padding: '6px 10px',
+                                     background: materializing ? '#1a1c20' : '#2a3d6d',
+                                     color: '#dde4f1', border: '1px solid #3a4f87',
+                                     borderRadius: 4, cursor: materializing ? 'wait' : 'pointer' }}>
+                            {materializing ? 'Materialising…' : 'Materialise → solid'}
+                        </button>
+                        {materialized && (
+                            <div data-testid="forge-topo-materialized" style={{
+                                marginTop: 8, padding: 8, background: '#0e1014',
+                                border: '1px solid #2a3d6d', borderRadius: 4,
+                            }}>
+                                <div>Body committed · handle <span data-testid="forge-topo-handle">{materialized.handle}</span></div>
+                                <div>Iso mesh: <span data-testid="forge-topo-tris">{materialized.triCount}</span> tris · {materialized.vertCount} verts</div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>

@@ -2480,7 +2480,7 @@ export function ForgeShellV4() {
         window.__forgeOpenCAMExtendedWorkbench?.();
         return;
       // PUSH-15: SIMP topology optimisation
-      case 'tools.topology':
+      case 'tools.topoOpt':
       case 'workbench.topology':
         window.__forgeOpenTopologyWorkbench?.();
         return;

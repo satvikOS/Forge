@@ -105,6 +105,8 @@ export const MENU_SPEC = {
       // Forge-160 — OpenSCAD-style CSG scripting workbench.
       { id: 'tools.csg',         label: 'CSG Scripting…',   icon: 'archie.formula' },
       { id: 'tools.topology',  label: 'Topology Inspector…', icon: 'select.body', shortcut: '⌘I' },
+      // PUSH-15/49 — SIMP topology optimisation (density field → materialised solid).
+      { id: 'tools.topoOpt',   label: 'Topology Optimisation (SIMP)…', icon: 'wb.sim' },
       { id: 'tools.measure',   label: 'Measure',            icon: 'measure.distance' },
       SEP,
       { id: 'tools.assembly',     label: 'Assembly…',        icon: 'wb.mech' },
