@@ -12,7 +12,9 @@ import { createPortal } from 'react-dom';
 // In-house density library (g/cc). The numbers match the same engineering
 // references used by the simulation workbench (PUSH-48). No external
 // catalog dependency — these five cover ~95% of mechanical CAD cases.
-const DENSITY_G_CC = Object.freeze({
+// Exported so PUSH-60 BomPanel can re-use the exact same table without
+// hard-coding a second copy.
+export const DENSITY_G_CC = Object.freeze({
   steel:     7.85,
   aluminum:  2.70,
   plastic:   1.05,
@@ -20,7 +22,7 @@ const DENSITY_G_CC = Object.freeze({
   brass:     8.50,
 });
 
-const MATERIAL_LIST = Object.freeze(['steel', 'aluminum', 'plastic', 'titanium', 'brass']);
+export const MATERIAL_LIST = Object.freeze(['steel', 'aluminum', 'plastic', 'titanium', 'brass']);
 
 // Convert volume (mm³) × density (g/cc) → mass (g). 1 cc = 1000 mm³.
 function massGrams(volumeMm3, densityGcc) {

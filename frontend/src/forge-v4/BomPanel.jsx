@@ -1,135 +1,274 @@
-// Forge-102 — BOM panel.
+// PUSH-60 — Bill of Materials panel (per-body view + CSV export).
 //
-// A dedicated 420 px right-anchored drawer that surfaces the aggregated
-// BOM as a sortable table:
-//   - Group-by toggle (material | name | spec)
-//   - Sortable qty / mass / cost columns (click headers)
-//   - Totals row pinned at the bottom
-//   - Export-CSV button — calls window.forge.dialog.saveFile
+// Forge-102 originally shipped a partKey-grouped BOM with cost rollups.
+// PUSH-60 reshapes the panel into the per-body engineering view a real
+// mechanical-CAD user expects: one row per native body, an inline material
+// picker on every row (shares the PUSH-58 5-material density table), live
+// mass (g) computed from the real kernel volume × density, a total row
+// across the bottom, and an Export CSV button that lands a real CSV file
+// on disk through `forge.dialog.saveFile` + `forge.dialog.writeBlob`.
 //
-// Mounts itself onto document.body and exposes:
+// Material selection is persisted across opens / re-renders on
+// `window.__forgeBodyMaterials` — a Map keyed by the native body handle.
+// Bodies without an entry default to steel (matches MassPropsPanel).
+//
+// The panel mounts itself onto document.body and exposes:
 //   window.__forgeOpenBom(true|false)
+//   window.__forgeCloseBom()
+//   window.__forgeRefreshBom()
 //
-// ForgeShellV4.jsx + Toolbar.jsx are off-limits this slice — the host
-// reads bodies via `window.__forgeBodies` and instances via the
-// assemblyHierarchy module so the panel works in isolation.
+// Reads bodies via `window.__forgeBodies` so the panel works in isolation
+// of ForgeShellV4 state (matches the original Forge-102 contract). The
+// ForgeShellV4 'tools.bom' handler already publishes the fresh bodies
+// list before calling __forgeOpenBom.
 
 import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './icons/Icon.jsx';
-import { listInstances } from './assemblyHierarchy.js';
-import {
-  aggregateBOM, exportCSV, totalsFor, MATERIAL_COSTS_PER_KG,
-} from './bomAggregator.js';
+import { DENSITY_G_CC, MATERIAL_LIST } from './MassPropsPanel.jsx';
 
-const PANEL_W = 420;
+const PANEL_W = 520;
+
+// ─────────────────────────────────────────────────────────────────────
+// Material book-keeping. We persist the per-body material choice on
+// `window.__forgeBodyMaterials` so the picker doesn't lose state when
+// the panel closes / re-renders, and so other surfaces (e.g. the
+// massprops panel) can read it back later.
+
+function getMaterialMap() {
+  if (typeof window === 'undefined') return new Map();
+  if (!(window.__forgeBodyMaterials instanceof Map)) {
+    window.__forgeBodyMaterials = new Map();
+  }
+  return window.__forgeBodyMaterials;
+}
+
+function getBodyMaterial(body) {
+  const map = getMaterialMap();
+  const key = bodyMaterialKey(body);
+  if (key == null) return 'steel';
+  return map.get(key) || 'steel';
+}
+
+function setBodyMaterial(body, material) {
+  const map = getMaterialMap();
+  const key = bodyMaterialKey(body);
+  if (key == null) return;
+  map.set(key, material);
+}
+
+function bodyMaterialKey(body) {
+  if (!body) return null;
+  if (typeof body.handle === 'number') return `h:${body.handle}`;
+  if (body.id != null) return `id:${body.id}`;
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Per-body kernel readout. We always re-call window.forge.massProps so
+// the row stays correct after a re-extrude / regen under the same id.
+
+function massPropsFor(body) {
+  if (!body || typeof body.handle !== 'number') return null;
+  const fn = (typeof window !== 'undefined') ? window.forge?.massProps : null;
+  if (typeof fn !== 'function') return null;
+  try {
+    const k = fn(body.handle);
+    if (!k) return null;
+    const volume = Number(k.volume ?? k.Volume ?? 0);
+    const area   = Number(k.area ?? k.surface ?? k.surfaceArea ?? 0);
+    if (!Number.isFinite(volume) || volume <= 0) return null;
+    return { volume, area };
+  } catch {
+    return null;
+  }
+}
+
+// Volume mm³ × density g/cc → mass g. 1 cc = 1000 mm³.
+function massGrams(volumeMm3, densityGcc) {
+  const v = Number(volumeMm3);
+  const d = Number(densityGcc);
+  if (!Number.isFinite(v) || !Number.isFinite(d)) return 0;
+  return v * d * 1e-3;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// CSV builder. Quotes every field, escapes embedded quotes, CRLF line
+// endings so Excel + Numbers + Sheets all open cleanly.
+
+function quoteCsv(v) {
+  const s = String(v ?? '');
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+
+export function buildBomCSV(rows) {
+  const cols = [
+    'name', 'qty', 'material', 'volume_mm3', 'density_g_cc',
+    'mass_g',
+  ];
+  const lines = [cols.map(quoteCsv).join(',')];
+  let totalMass = 0;
+  let totalQty = 0;
+  for (const r of rows || []) {
+    lines.push([
+      r.name,
+      r.qty,
+      r.material,
+      Number(r.volume_mm3).toFixed(3),
+      Number(r.density_g_cc).toFixed(3),
+      Number(r.mass_g).toFixed(3),
+    ].map(quoteCsv).join(','));
+    totalMass += Number(r.mass_g) || 0;
+    totalQty  += Number(r.qty) || 0;
+  }
+  lines.push('');
+  lines.push([
+    'TOTAL',
+    totalQty,
+    '',
+    '',
+    '',
+    totalMass.toFixed(3),
+  ].map(quoteCsv).join(','));
+  return lines.join('\r\n');
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Per-body row computation. One row per native body with a handle.
+
+function buildRows(bodies) {
+  const out = [];
+  for (const b of bodies || []) {
+    if (!b || b.kind !== 'native' || typeof b.handle !== 'number') continue;
+    const mp = massPropsFor(b);
+    const material = getBodyMaterial(b);
+    const density = DENSITY_G_CC[material] ?? DENSITY_G_CC.steel;
+    const volume_mm3 = mp ? mp.volume : 0;
+    const mass_g = massGrams(volume_mm3, density);
+    out.push({
+      body: b,
+      handle: b.handle,
+      name: b.name || b.toolId || `handle ${b.handle}`,
+      qty: 1,
+      material,
+      density_g_cc: density,
+      volume_mm3,
+      surface_mm2: mp ? mp.area : 0,
+      mass_g,
+    });
+  }
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Styles.
 
 function panelStyle() {
   return {
     position: 'fixed',
-    top: 'calc(var(--forge-topbar-h) + var(--forge-qat-h))',
+    top: 'calc(var(--forge-topbar-h, 40px) + var(--forge-qat-h, 32px))',
     right: 0,
     width: PANEL_W,
     maxWidth: '96vw',
-    height: 'calc(100vh - var(--forge-topbar-h) - var(--forge-qat-h) - var(--forge-cmdbar-h))',
-    background: 'var(--forge-canvas-2)',
-    borderLeft: '1px solid var(--forge-rail-edge)',
+    height: 'calc(100vh - var(--forge-topbar-h, 40px) - var(--forge-qat-h, 32px) - var(--forge-cmdbar-h, 24px))',
+    background: 'var(--forge-canvas-2, #161b22)',
+    borderLeft: '1px solid var(--forge-rail-edge, #2a2d34)',
     boxShadow: '-12px 0 32px rgba(0,0,0,0.45)',
     display: 'flex', flexDirection: 'column',
     fontSize: 12,
-    color: 'var(--forge-ink)',
+    color: 'var(--forge-ink, #dadde2)',
     zIndex: 1296,
   };
 }
 
-const HEADER_BTN = {
-  background: 'transparent',
-  border: 'none',
-  color: 'var(--forge-ink-mute)',
-  cursor: 'pointer',
-  font: 'inherit',
-  fontSize: 10,
+const HEADER_CELL = {
+  padding: '6px 8px',
+  textAlign: 'left',
   textTransform: 'uppercase',
   letterSpacing: '0.05em',
-  padding: '6px 6px',
+  fontSize: 10,
+  color: 'var(--forge-ink-mute, #9aa1ab)',
+};
+
+const CELL = {
+  padding: '4px 8px',
+  fontFamily: 'var(--forge-mono, ui-monospace, SF Mono, Menlo, monospace)',
+  fontSize: 11,
   textAlign: 'left',
 };
+const CELL_RIGHT = { ...CELL, textAlign: 'right' };
 
 // ─────────────────────────────────────────────────────────────────────
 
-export function BomPanel({
-  open,
-  onClose,
-  bodies = [],
-  instances = null,
-}) {
-  const [sortKey, setSortKey] = useState('name');
-  const [sortDir, setSortDir] = useState('asc');
-  const [groupBy, setGroupBy] = useState('none'); // 'none' | 'material' | 'name' | 'spec'
+export function BomPanel({ open, onClose, bodies = [] }) {
+  // Refresh tick: incremented whenever a material picker mutates the
+  // shared Map so React re-renders all derived numbers. We pass the tick
+  // into the useMemo dep so buildRows re-runs and pulls the fresh
+  // material out of the shared Map (buildRows reads it via the closure
+  // on getBodyMaterial → window.__forgeBodyMaterials).
+  const [tickValue, setTickValue] = useState(0);
+  const tick = useCallback(() => setTickValue((t) => t + 1), []);
   const [csvStatus, setCsvStatus] = useState(null);
 
   const rows = useMemo(
-    () => aggregateBOM(bodies, instances),
-    [bodies, instances]);
+    () => buildRows(bodies),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bodies, open, tickValue]);
 
-  const sorted = useMemo(() => {
-    const out = rows.slice();
-    out.sort((a, b) => compareRow(a, b, sortKey, sortDir));
-    return out;
-  }, [rows, sortKey, sortDir]);
-
-  const grouped = useMemo(() => groupRows(sorted, groupBy), [sorted, groupBy]);
-  const totals = useMemo(() => totalsFor(rows), [rows]);
-
-  const handleSort = (key) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir('asc');
+  const totals = useMemo(() => {
+    let mass_g = 0, qty = 0;
+    for (const r of rows) {
+      mass_g += r.mass_g;
+      qty    += r.qty;
     }
-  };
+    return { qty, mass_g };
+  }, [rows]);
 
-  const handleExport = useCallback(async () => {
-    const csv = exportCSV(rows);
+  const onMaterialPick = useCallback((row, value) => {
+    setBodyMaterial(row.body, value);
+    tick();
+  }, [tick]);
+
+  const onExport = useCallback(async () => {
+    const csv = buildBomCSV(rows);
     setCsvStatus('exporting…');
     try {
-      const fn = window?.forge?.dialog?.saveFile;
-      if (typeof fn === 'function') {
-        const result = await fn({
-          defaultPath: `bom-${new Date().toISOString().slice(0, 10)}.csv`,
-          filters: [{ name: 'CSV', extensions: ['csv'] }],
-          data: csv,
-          mime: 'text/csv',
-        });
-        if (result && result.path) {
-          setCsvStatus(`saved → ${result.path}`);
-        } else if (result === false) {
-          setCsvStatus('cancelled');
-        } else {
-          setCsvStatus('saved');
-        }
+      const dialog = (typeof window !== 'undefined') ? window.forge?.dialog : null;
+      if (!dialog || typeof dialog.saveFile !== 'function'
+                  || typeof dialog.writeBlob !== 'function') {
+        setCsvStatus('error: forge.dialog.saveFile / writeBlob unavailable');
+        return;
+      }
+      const filepath = await dialog.saveFile({
+        title: 'Export BOM CSV',
+        defaultPath: `bom-${new Date().toISOString().slice(0, 10)}.csv`,
+        filters: [{ name: 'CSV', extensions: ['csv'] }],
+      });
+      if (!filepath) {
+        setCsvStatus('cancelled');
+        return;
+      }
+      const bytes = new TextEncoder().encode(csv);
+      const res = await dialog.writeBlob(filepath, bytes);
+      if (res && res.ok) {
+        try { window.__forgeLastBomPath = filepath; } catch {}
+        setCsvStatus(`saved → ${filepath.split('/').pop()} (${res.bytes} B)`);
       } else {
-        // Browser fallback — Blob URL + anchor click.
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `bom-${new Date().toISOString().slice(0, 10)}.csv`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        setCsvStatus('downloaded');
+        setCsvStatus(`error: ${res?.error || 'writeBlob failed'}`);
       }
     } catch (err) {
       setCsvStatus(`error: ${err.message || String(err)}`);
-    } finally {
-      setTimeout(() => setCsvStatus(null), 2400);
     }
   }, [rows]);
+
+  // Auto-clear the status pill after a few seconds so it doesn't linger.
+  useEffect(() => {
+    if (!csvStatus) return undefined;
+    const t = setTimeout(() => setCsvStatus(null), 3600);
+    return () => clearTimeout(t);
+  }, [csvStatus]);
 
   if (!open) return null;
 
@@ -141,103 +280,70 @@ export function BomPanel({
       style={panelStyle()}>
 
       <Header
-        onClose={onClose}
         rowCount={rows.length}
-        groupBy={groupBy}
-        setGroupBy={setGroupBy}
-        onExport={handleExport}
+        onExport={onExport}
+        onClose={onClose}
         csvStatus={csvStatus}
       />
 
       <div style={{
         flex: 1, overflowY: 'auto',
-        background: 'var(--forge-canvas)',
+        background: 'var(--forge-canvas, #0e1117)',
       }}>
         {rows.length === 0 ? (
-          <div style={{
+          <div data-testid="forge-bom-empty" style={{
             padding: 20, fontStyle: 'italic',
-            color: 'var(--forge-ink-mute)', fontSize: 11,
+            color: 'var(--forge-ink-mute, #9aa1ab)', fontSize: 11,
           }}>
-            Bill of materials is empty. Insert bodies via the standard
-            parts library, then place instances via the assembly tree.
+            No native bodies in the scene. Add a body via the standard
+            parts library or any modelling workbench, then re-open the
+            BOM panel.
           </div>
         ) : (
           <table style={{
             width: '100%', borderCollapse: 'collapse',
-            fontSize: 11,
-            fontFamily: 'var(--forge-mono)',
           }}>
             <thead>
               <tr style={{
                 position: 'sticky', top: 0,
-                background: 'var(--forge-canvas-2)',
-                borderBottom: '1px solid var(--forge-rail-edge)',
-                color: 'var(--forge-ink-mute)',
+                background: 'var(--forge-canvas-2, #161b22)',
+                borderBottom: '1px solid var(--forge-rail-edge, #2a2d34)',
               }}>
-                <SortHdr label="Part" sk="name" cur={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortHdr label="Material" sk="material" cur={sortKey} dir={sortDir} onSort={handleSort} />
-                <SortHdr label="Qty" sk="qty" cur={sortKey} dir={sortDir} onSort={handleSort}
-                         align="right" />
-                <SortHdr label="g/ea" sk="mass_g_each" cur={sortKey} dir={sortDir} onSort={handleSort}
-                         align="right" />
-                <SortHdr label="g total" sk="mass_g_total" cur={sortKey} dir={sortDir} onSort={handleSort}
-                         align="right" />
-                <SortHdr label="$ ea" sk="cost_each" cur={sortKey} dir={sortDir} onSort={handleSort}
-                         align="right" />
-                <SortHdr label="$ total" sk="cost_total" cur={sortKey} dir={sortDir} onSort={handleSort}
-                         align="right" />
+                <th style={HEADER_CELL}>Name</th>
+                <th style={{ ...HEADER_CELL, textAlign: 'right' }}>Qty</th>
+                <th style={HEADER_CELL}>Material</th>
+                <th style={{ ...HEADER_CELL, textAlign: 'right' }}>Volume (mm³)</th>
+                <th style={{ ...HEADER_CELL, textAlign: 'right' }}>Density (g/cc)</th>
+                <th style={{ ...HEADER_CELL, textAlign: 'right' }}>Mass (g)</th>
               </tr>
             </thead>
             <tbody>
-              {grouped.flatMap(({ key, rows: rs }) => {
-                const groupHeader = groupBy === 'none' ? null : (
-                  <tr key={`g-${key}`}
-                      data-testid="forge-bom-group"
-                      data-group-key={key}>
-                    <td colSpan={7} style={{
-                      padding: '6px 8px',
-                      background: 'var(--forge-surface-2)',
-                      color: 'var(--forge-ink-2)',
-                      fontWeight: 600,
-                      borderBottom: '1px solid var(--forge-rail-edge)',
-                      fontSize: 10,
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.06em',
-                    }}>
-                      {key || '(none)'}
-                      <span style={{
-                        marginLeft: 6, color: 'var(--forge-ink-mute)',
-                        fontWeight: 400,
-                      }}>
-                        {rs.length} part{rs.length === 1 ? '' : 's'}
-                      </span>
-                    </td>
-                  </tr>
-                );
-                return [groupHeader, ...rs.map((r) => (
-                  <Row key={r.partKey} r={r} />
-                ))].filter(Boolean);
-              })}
+              {rows.map((r) => (
+                <Row
+                  key={`${r.handle}`}
+                  r={r}
+                  onMaterialPick={onMaterialPick}
+                />
+              ))}
             </tbody>
             <tfoot>
               <tr data-testid="forge-bom-totals"
                   style={{
-                    borderTop: '2px solid var(--forge-accent-rim)',
-                    background: 'var(--forge-canvas-2)',
-                    color: 'var(--forge-ink)',
-                    fontWeight: 600,
+                    borderTop: '2px solid var(--forge-accent-rim, #3a7afe)',
+                    background: 'var(--forge-canvas-2, #161b22)',
+                    color: 'var(--forge-ink, #dadde2)',
+                    fontWeight: 700,
                   }}>
-                <td style={{ padding: '8px' }}>TOTAL</td>
-                <td style={{ padding: '8px',
-                             color: 'var(--forge-ink-mute)' }}>
-                  {rows.length} parts
+                <td style={CELL}>TOTAL</td>
+                <td style={CELL_RIGHT} data-testid="forge-bom-total-qty">
+                  {totals.qty}
                 </td>
-                <td style={cellRight}>{totals.qty}</td>
-                <td style={cellRight}>—</td>
-                <td style={cellRight}>{totals.mass_g.toFixed(1)} g</td>
-                <td style={cellRight}>—</td>
-                <td style={{ ...cellRight, color: 'var(--forge-accent)' }}>
-                  ${totals.cost.toFixed(2)}
+                <td style={CELL}>—</td>
+                <td style={CELL_RIGHT}>—</td>
+                <td style={CELL_RIGHT}>—</td>
+                <td style={{ ...CELL_RIGHT, fontWeight: 700 }}
+                    data-testid="forge-bom-total-mass">
+                  {totals.mass_g.toFixed(3)} g
                 </td>
               </tr>
             </tfoot>
@@ -251,196 +357,120 @@ export function BomPanel({
 
 // ─────────────────────────────────────────────────────────────────────
 
-function Header({ onClose, rowCount, groupBy, setGroupBy, onExport, csvStatus }) {
+function Header({ rowCount, onExport, onClose, csvStatus }) {
   return (
     <header style={{
       display: 'flex', flexDirection: 'column',
-      borderBottom: '1px solid var(--forge-rail-edge)',
-      background: 'var(--forge-canvas)',
+      borderBottom: '1px solid var(--forge-rail-edge, #2a2d34)',
+      background: 'var(--forge-canvas, #0e1117)',
       flexShrink: 0,
     }}>
       <div style={{
         display: 'flex', alignItems: 'center',
-        gap: 'var(--forge-space-2)',
-        padding: 'var(--forge-space-3) var(--forge-space-4)',
+        gap: 8,
+        padding: '10px 12px',
       }}>
         <Icon name="wb.mech" size={14} />
         <span style={{ fontSize: 12, fontWeight: 600 }}>
           Bill of Materials
         </span>
-        <span style={{
-          fontFamily: 'var(--forge-mono)', fontSize: 10,
-          color: 'var(--forge-ink-mute)',
-          padding: '1px 6px', borderRadius: 'var(--forge-radius-pill)',
-          border: '1px solid var(--forge-rail-edge)',
+        <span data-testid="forge-bom-row-count" style={{
+          fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
+          fontSize: 10,
+          color: 'var(--forge-ink-mute, #9aa1ab)',
+          padding: '1px 6px', borderRadius: 'var(--forge-radius-pill, 10px)',
+          border: '1px solid var(--forge-rail-edge, #2a2d34)',
         }}>
           {rowCount}
         </span>
         <span style={{ flex: 1 }} />
-        <button type="button"
-                onClick={onExport}
-                data-testid="forge-bom-export-csv"
-                style={{
-                  background: 'var(--forge-accent-mute)',
-                  border: '1px solid var(--forge-accent-rim)',
-                  borderRadius: 3,
-                  color: 'var(--forge-ink)',
-                  font: 'inherit', fontSize: 11,
-                  padding: '4px 10px',
-                  cursor: 'pointer',
-                }}>
-          Export CSV
+        <button
+          type="button"
+          onClick={onExport}
+          data-testid="forge-bom-export-csv"
+          style={{
+            background: 'var(--forge-accent-mute, #1f3a72)',
+            border: '1px solid var(--forge-accent-rim, #3a7afe)',
+            borderRadius: 3,
+            color: 'var(--forge-ink, #dadde2)',
+            font: 'inherit', fontSize: 11,
+            padding: '4px 10px',
+            cursor: 'pointer',
+          }}>
+          Export CSV…
         </button>
-        <button type="button"
-                onClick={onClose}
-                aria-label="Close BOM panel"
-                data-testid="forge-bom-close"
-                style={{
-                  background: 'transparent', border: 'none',
-                  color: 'var(--forge-ink-mute)', cursor: 'pointer',
-                  display: 'inline-flex', padding: 2,
-                }}>
-          <Icon name="select.clear" size={12} />
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close BOM panel"
+          data-testid="forge-bom-close"
+          style={{
+            background: 'transparent', border: 'none',
+            color: 'var(--forge-ink-mute, #9aa1ab)', cursor: 'pointer',
+            display: 'inline-flex', padding: 2,
+          }}>
+          ×
         </button>
       </div>
 
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: 4,
-        padding: '0 var(--forge-space-4) var(--forge-space-2)',
-        fontSize: 10, color: 'var(--forge-ink-mute)',
-      }}>
-        <span style={{ textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Group by
-        </span>
-        {['none', 'material', 'name', 'spec'].map((g) => (
-          <button key={g}
-                  type="button"
-                  onClick={() => setGroupBy(g)}
-                  data-testid={`forge-bom-group-${g}`}
-                  data-active={String(groupBy === g)}
-                  style={{
-                    background: groupBy === g
-                      ? 'var(--forge-accent-mute)'
-                      : 'transparent',
-                    border: '1px solid '
-                      + (groupBy === g ? 'var(--forge-accent-rim)' : 'var(--forge-rail-edge)'),
-                    borderRadius: 2,
-                    color: 'var(--forge-ink)',
-                    fontSize: 10,
-                    padding: '2px 6px',
-                    cursor: 'pointer',
-                  }}>
-            {g}
-          </button>
-        ))}
-        <span style={{ flex: 1 }} />
-        {csvStatus && (
-          <span data-testid="forge-bom-csv-status"
-                style={{
-                  fontFamily: 'var(--forge-mono)',
-                  color: csvStatus.startsWith('error')
-                    ? 'var(--forge-err)'
-                    : 'var(--forge-ok)',
-                }}>
-            {csvStatus}
-          </span>
-        )}
-      </div>
+      {csvStatus && (
+        <div style={{
+          padding: '0 12px 8px',
+          fontSize: 10,
+          fontFamily: 'var(--forge-mono, monospace)',
+          color: csvStatus.startsWith('error')
+            ? 'var(--forge-err, #ff6363)'
+            : 'var(--forge-ok, #4caf50)',
+        }} data-testid="forge-bom-csv-status">
+          {csvStatus}
+        </div>
+      )}
     </header>
   );
 }
 
-function SortHdr({ label, sk, cur, dir, onSort, align }) {
-  const active = sk === cur;
-  return (
-    <th style={{
-      padding: 0,
-      textAlign: align || 'left',
-      width: align === 'right' ? '12%' : undefined,
-    }}>
-      <button type="button"
-              onClick={() => onSort(sk)}
-              data-testid={`forge-bom-sort-${sk}`}
-              data-active={String(active)}
-              style={{
-                ...HEADER_BTN,
-                width: '100%',
-                textAlign: align || 'left',
-                color: active ? 'var(--forge-ink)' : 'var(--forge-ink-mute)',
-              }}>
-        {label}
-        {active && (
-          <span style={{ marginLeft: 3 }}>{dir === 'asc' ? '▲' : '▼'}</span>
-        )}
-      </button>
-    </th>
-  );
-}
-
-const cellRight = {
-  padding: '4px 8px',
-  textAlign: 'right',
-  fontFamily: 'var(--forge-mono)',
-};
-const cellLeft = {
-  padding: '4px 8px',
-  textAlign: 'left',
-  color: 'var(--forge-ink)',
-};
-
-function Row({ r }) {
-  const costPerKg = MATERIAL_COSTS_PER_KG[r.material] ?? MATERIAL_COSTS_PER_KG.unknown;
+function Row({ r, onMaterialPick }) {
   return (
     <tr data-testid="forge-bom-row"
-        data-part-key={r.partKey}
+        data-handle={r.handle}
         data-material={r.material}
-        style={{ borderBottom: '1px solid var(--forge-rail-edge)' }}>
-      <td style={cellLeft}>
-        <div style={{ color: 'var(--forge-ink)' }}>{r.name}</div>
-        {r.spec && (
-          <div style={{ color: 'var(--forge-ink-mute)', fontSize: 9 }}>
-            {r.spec}
-          </div>
-        )}
+        style={{
+          borderBottom: '1px solid var(--forge-rail-edge, #2a2d34)',
+        }}>
+      <td style={CELL} data-testid="forge-bom-row-name">{r.name}</td>
+      <td style={CELL_RIGHT} data-testid="forge-bom-row-qty">{r.qty}</td>
+      <td style={CELL}>
+        <select
+          value={r.material}
+          onChange={(e) => onMaterialPick(r, e.target.value)}
+          data-testid="forge-bom-row-material"
+          data-handle={r.handle}
+          style={{
+            background: 'var(--forge-canvas, #0e1117)',
+            color: 'var(--forge-ink, #dadde2)',
+            border: '1px solid var(--forge-rail-edge, #2a2d34)',
+            borderRadius: 3,
+            padding: '2px 4px',
+            fontFamily: 'var(--forge-mono, monospace)',
+            fontSize: 11,
+          }}>
+          {MATERIAL_LIST.map((m) => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+        </select>
       </td>
-      <td style={cellLeft}>
-        <span title={`$${costPerKg.toFixed(2)} per kg`}>{r.material}</span>
+      <td style={CELL_RIGHT} data-testid="forge-bom-row-volume">
+        {Number(r.volume_mm3).toFixed(3)}
       </td>
-      <td style={cellRight}>{r.qty}</td>
-      <td style={cellRight}>{r.mass_g_each.toFixed(2)}</td>
-      <td style={cellRight}>{r.mass_g_total.toFixed(1)}</td>
-      <td style={cellRight}>${r.cost_each.toFixed(3)}</td>
-      <td style={{ ...cellRight, color: 'var(--forge-accent)' }}>
-        ${r.cost_total.toFixed(2)}
+      <td style={CELL_RIGHT} data-testid="forge-bom-row-density">
+        {Number(r.density_g_cc).toFixed(3)}
+      </td>
+      <td style={{ ...CELL_RIGHT, fontWeight: 600 }}
+          data-testid="forge-bom-row-mass">
+        {Number(r.mass_g).toFixed(3)}
       </td>
     </tr>
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────
-
-function compareRow(a, b, key, dir) {
-  const sign = dir === 'desc' ? -1 : 1;
-  const av = a[key], bv = b[key];
-  if (typeof av === 'number' && typeof bv === 'number') {
-    return sign * (av - bv);
-  }
-  return sign * String(av ?? '').localeCompare(String(bv ?? ''));
-}
-
-function groupRows(rows, groupBy) {
-  if (groupBy === 'none') {
-    return [{ key: '', rows }];
-  }
-  const buckets = new Map();
-  for (const r of rows) {
-    const key = String(r[groupBy] ?? '');
-    if (!buckets.has(key)) buckets.set(key, []);
-    buckets.get(key).push(r);
-  }
-  return Array.from(buckets.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([key, rs]) => ({ key, rows: rs }));
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -448,11 +478,7 @@ function groupRows(rows, groupBy) {
 
 export function BomPanelHost() {
   const [open, setOpen] = useState(false);
-  const [bodies, setBodies] = useState(() =>
-    (typeof window !== 'undefined' && Array.isArray(window.__forgeBodies))
-      ? window.__forgeBodies
-      : []);
-  const [instances, setInstances] = useState(() => safeListInstances());
+  const [bodies, setBodies] = useState(() => readBodies());
   const mounted = useRef(false);
 
   useEffect(() => {
@@ -460,19 +486,23 @@ export function BomPanelHost() {
     mounted.current = true;
     if (typeof window === 'undefined') return undefined;
     window.__forgeOpenBom = (v) => {
-      if (Array.isArray(window.__forgeBodies)) setBodies(window.__forgeBodies);
-      setInstances(safeListInstances());
+      setBodies(readBodies());
       setOpen(v === undefined ? true : !!v);
     };
     window.__forgeCloseBom = () => setOpen(false);
-    window.__forgeRefreshBom = () => {
-      if (Array.isArray(window.__forgeBodies)) setBodies([...window.__forgeBodies]);
-      setInstances(safeListInstances());
+    window.__forgeRefreshBom = () => setBodies(readBodies());
+    const onMenu = (e) => {
+      if (e?.detail?.id === 'tools.bom') {
+        setBodies(readBodies());
+        setOpen(true);
+      }
     };
+    window.addEventListener('forge:menu-action', onMenu);
     return () => {
       try { delete window.__forgeOpenBom; } catch {}
       try { delete window.__forgeCloseBom; } catch {}
       try { delete window.__forgeRefreshBom; } catch {}
+      window.removeEventListener('forge:menu-action', onMenu);
     };
   }, []);
 
@@ -481,13 +511,13 @@ export function BomPanelHost() {
     <BomPanel
       open={open}
       onClose={() => setOpen(false)}
-      bodies={bodies}
-      instances={instances} />
+      bodies={bodies} />
   );
 }
 
-function safeListInstances() {
-  try { return listInstances(); } catch { return []; }
+function readBodies() {
+  if (typeof window === 'undefined') return [];
+  return Array.isArray(window.__forgeBodies) ? window.__forgeBodies : [];
 }
 
 export default BomPanel;
