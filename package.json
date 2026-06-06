@@ -15,7 +15,7 @@
     "vercel-build": "cd frontend && npm run build",
     "forge:kernel": "cd forge-kernel && ../node_modules/.bin/cmake-js configure --CDCMAKE_BUILD_TYPE=Release && ../node_modules/.bin/cmake-js build --parallel 10",
     "forge:kernel:build": "cd forge-kernel && ../node_modules/.bin/cmake-js build --parallel 10",
-    "forge:kernel:test": "node forge-kernel/test/smoke.js && node forge-kernel/test/bench_100k.js && node forge-kernel/test/part_features_smoke.js && node forge-kernel/test/thicken_surface_smoke.js && node forge-kernel/test/sheet_metal_smoke.js && node forge-kernel/test/weldments_smoke.js && node forge-kernel/test/assembly_smoke.js && node forge-kernel/test/assembly_hierarchy_smoke.js",
+    "forge:kernel:test": "node forge-kernel/test/smoke.js && node forge-kernel/test/bench_100k.js && node forge-kernel/test/part_features_smoke.js && node forge-kernel/test/thicken_surface_smoke.js && node forge-kernel/test/knit_surface_smoke.js && node forge-kernel/test/sheet_metal_smoke.js && node forge-kernel/test/weldments_smoke.js && node forge-kernel/test/assembly_smoke.js && node forge-kernel/test/assembly_hierarchy_smoke.js",
     "forge:bridge:test": "node forge-kernel/test/bridge_smoke.js",
     "forge:unit": "node --test frontend/src/kernel/forge/__tests__/*.test.mjs",
     "forge:e2e:features": "npx playwright test e2e/push-32-sketch-on-face.spec.js e2e/push-34-edge-picking.spec.js e2e/push-35-datum-planes.spec.js e2e/push-36-multibody.spec.js e2e/push-37-assembly-mates.spec.js --workers=1 --reporter=line",

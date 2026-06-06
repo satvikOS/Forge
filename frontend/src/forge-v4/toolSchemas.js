@@ -125,6 +125,10 @@ export const TOOL_SCHEMAS = {
     { id: 'side',      label: 'Side',           type: 'enum',
       options: ['Outward', 'Inward', 'Symmetric'], default: 'Outward' },
   ]},
+  'solid.knit':     { title: 'Knit Surface', fields: [
+    { id: 'surfaces',  label: 'Surfaces (≥2)',  type: 'ref' },
+    { id: 'tolerance', label: 'Tolerance',      type: 'number', default: 0.001, unit: 'mm', min: 0.00001 },
+  ]},
   'solid.fillet':   { title: 'Fillet', fields: [
     { id: 'edges',   label: 'Edges',  type: 'ref' },
     { id: 'radius',  label: 'Radius', type: 'number', default: 2, unit: 'mm', min: 0.01 },

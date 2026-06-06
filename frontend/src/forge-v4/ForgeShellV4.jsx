@@ -3082,6 +3082,29 @@ export function ForgeShellV4() {
                          }
                          setFeatureTree(nextFeat);
                          if (r.kind === 'native') {
+                           // Slice-9 Knit — consumes 2+ surface bodies and
+                           // produces ONE sewn shell. Remove the input
+                           // surface bodies and append the shell (flagged
+                           // surface:true so it stays Thicken-able).
+                           if (tool === 'solid.knit') {
+                             const selSet = new Set(
+                               (selHandles && selHandles.length >= 2)
+                                 ? selHandles
+                                 : bodies.filter((b) => b && b.kind === 'native' && b.surface === true)
+                                         .map((b) => b.handle));
+                             nextBodies = [
+                               ...bodies.filter((b) => !(b && b.kind === 'native' && selSet.has(b.handle))),
+                               { id: nextId, kind: 'native', handle: r.handle,
+                                 toolId: tool, params, name: title, surface: true },
+                             ];
+                             setBodies(nextBodies);
+                             recordOp({ op: tool, params, before: beforeSnap,
+                                        after: { bodies: nextBodies, featureTree: nextFeat } });
+                             setActiveFeatureId(nextId);
+                             setActiveTool(null);
+                             showToast({ kind: 'ok', text: `${title} · shell knit`, ttl: 1500 });
+                             return;
+                           }
                            // PUSH-31 — solid.translate (and other
                            // body-replacing modifiers) should REPLACE the
                            // previous body's handle, not append a new
@@ -3104,8 +3127,12 @@ export function ForgeShellV4() {
                              const idx = [...bodies].map((b, i) => ({ b, i }))
                                .reverse().find((x) => x.b.kind === 'native')?.i;
                              if (typeof idx === 'number') {
+                               // Thicken turns a surface body into a solid —
+                               // clear the surface flag on the replacement.
+                               const clearSurface = (tool === 'solid.thicken');
                                nextBodies = bodies.map((b, i) => i === idx
-                                 ? { ...b, handle: r.handle, name: title }
+                                 ? { ...b, handle: r.handle, name: title,
+                                     surface: clearSurface ? false : b.surface }
                                  : b);
                              } else {
                                nextBodies = [...bodies, {

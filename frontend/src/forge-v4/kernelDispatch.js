@@ -190,6 +190,32 @@ function callNative(toolId, p, ctx) {
         }
         return null;
       }
+      case 'solid.knit': {
+        // Slice-9 surface workbench — Knit (sew) multiple surface patches
+        // into a single shell. Mirrors SolidWorks "Knit Surface" / NX
+        // "Sew" / CATIA GSD "Join". Sews the user-selected surface bodies
+        // (or, if none explicitly selected, every surface body in the
+        // scene) into one shell via the native surfacing.sew. The shell
+        // can then be Thickened into a solid.
+        if (!f.surfacing?.sew) return null;
+        const bodies = Array.isArray(ctx?.bodies) ? ctx.bodies : [];
+        // Prefer an explicit multi-selection; else knit ALL surface bodies.
+        let handles = null;
+        const sel = ctx?.selectedBodies;
+        if (Array.isArray(sel) && sel.length >= 2 &&
+            sel.every((h) => typeof h === 'number')) {
+          handles = sel;
+        } else {
+          handles = bodies
+            .filter((b) => b && b.kind === 'native' && b.surface === true
+                        && typeof b.handle === 'number')
+            .map((b) => b.handle);
+        }
+        if (!handles || handles.length < 2) return null;
+        const tol = (typeof p.tolerance === 'number' && p.tolerance > 0)
+          ? p.tolerance : 1e-3;
+        return f.surfacing.sew(handles, tol);
+      }
       case 'solid.fillet': {
         const target = pickTarget(ctx);
         if (target != null && f.part?.filletEdges) {

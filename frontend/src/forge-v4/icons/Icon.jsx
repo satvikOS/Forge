@@ -154,6 +154,7 @@ const PATHS = {
   'solid.loft':     (<><path d="M3 5h5v6H3z" /><path d="M10 4h3v8h-3z" /><path d="M8 5l2 -1M8 11l2 1" /></>),
   'solid.shell':    (<><path d="M3 4h10v8H3z" /><path d="M5 6h6v4H5z" /></>),
   'solid.thicken':  (<><path d="M3 7l5 -3 5 3" /><path d="M3 9l5 -3 5 3" /></>),
+  'solid.knit':     (<><path d="M3 5h10M3 11h10" /><path d="M5 5l3 6 3 -6" strokeDasharray="1.5 1.5" /></>),
   'solid.boundary': (<><path d="M3 3v10h10" /><path d="M3 3c2 4 8 4 10 10" /></>),
 
   // ──────────────── solid mods ────────────────
