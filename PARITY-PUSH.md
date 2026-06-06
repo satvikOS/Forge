@@ -5,11 +5,11 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
-| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 42 % | PUSH-58 (massProps wired to real UI) |
+| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 45 % | PUSH-59 (pairwise common-volume scan), PUSH-62 (sectionView UI) |
 | 2 | Solid modeling ops | 8 % | 80 % | 22 % | PUSH-39/40/41 (thicken/knit/trim) |
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
-| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 28 % | PUSH-56 (configurations live re-apply + suppress) |
-| 5 | Drawings / 2D output | 3 % | 80 % | 18 % | PUSH-55 (DXF lands on disk) |
+| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 40 % | PUSH-59 (interference panel), PUSH-60 (real BOM + CSV), PUSH-61 (material persistence) |
+| 5 | Drawings / 2D output | 3 % | 80 % | 24 % | PUSH-62 (live Section view + DXF) |
 | 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
 | 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
 | 8 | Mold / casting / tooling | 0 % | 80 % | 12 % | PUSH-44 (parting + cavity/core split) |
@@ -21,7 +21,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 14 | PDM / PLM | 0 % | 80 % | 14 % | PUSH-51 (real vault check-in/out proven + Buffer fix) |
 | 15 | Generative / topology | 0 % | 80 % | 16 % | PUSH-49/50 (topology materialise + TPMS lattice) |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
-| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 25 % | PUSH-58 (Mass Properties inspector) |
+| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 32 % | PUSH-61 (Materials browser dialog) |
 | 18 | API / customization | 5 % | 80 % | 22 % | PUSH-54 (plugin install + dispatch + uninstall) |
 | 19 | Visualization | 8 % | 80 % | 18 % | PUSH-53 (CPU path-tracer preview proven + reachable) |
 
