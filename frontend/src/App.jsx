@@ -564,6 +564,8 @@ import { SimulationWorkbenchHost } from './forge-v4/SimulationWorkbench.jsx';
 import { MassPropsHost } from './forge-v4/MassPropsPanel.jsx';
 // PUSH-59 — Assembly Interference Detection panel (pairwise OCCT scan).
 import { InterferenceHost } from './forge-v4/InterferencePanel.jsx';
+// PUSH-61 — Materials Browser (persistent body→material assignments).
+import { MaterialsBrowserHost } from './forge-v4/MaterialsBrowserPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -916,6 +918,7 @@ function App() {
       <SimulationWorkbenchHost />
       <MassPropsHost />
       <InterferenceHost />
+      <MaterialsBrowserHost />
     </ViewportEnvironmentProvider>
   );
 }

@@ -85,6 +85,22 @@ test.beforeAll(async () => {
     const discard = page.locator('button:has-text("Discard")');
     if (await discard.count() > 0) await discard.first().click({ timeout: 3000 }).catch(() => {});
     await pause(800);
+
+    // PUSH-61 — the body→material persistence layer (localStorage key
+    // `forge.v4.bodyMaterials`) survives across runs by design, but it
+    // would otherwise leak a stale aluminum/titanium assignment from a
+    // previous suite into this one and break the "steel default" path.
+    // Reset both layers (localStorage + legacy in-memory Map) up front.
+    await page.evaluate(() => {
+        try { window.localStorage.removeItem('forge.v4.bodyMaterials'); } catch {}
+        if (window.__forgeBodyMaterials instanceof Map) {
+            window.__forgeBodyMaterials.clear();
+        }
+        const helper = window.__forgeBodyMaterialsHelper;
+        if (helper && typeof helper.clearBodyMaterials === 'function') {
+            helper.clearBodyMaterials();
+        }
+    });
 });
 
 test.afterAll(async () => {

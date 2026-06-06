@@ -138,8 +138,15 @@ test('00 — boot + seed three native boxes (20³, 30³, 40³)', async () => {
     await shot('boot');
 
     // Reset the per-body material map so a previous run can't bleed in.
+    // PUSH-61 added a persistent localStorage layer; wipe both that and
+    // the legacy in-memory Map so the row defaults start at steel.
     await page.evaluate(() => {
+        try { window.localStorage.removeItem('forge.v4.bodyMaterials'); } catch {}
         window.__forgeBodyMaterials = new Map();
+        const helper = window.__forgeBodyMaterialsHelper;
+        if (helper && typeof helper.clearBodyMaterials === 'function') {
+            helper.clearBodyMaterials();
+        }
     });
 
     const seeded = await page.evaluate(() => {

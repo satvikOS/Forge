@@ -28,42 +28,29 @@ import React, {
 import { createPortal } from 'react-dom';
 import { Icon } from './icons/Icon.jsx';
 import { DENSITY_G_CC, MATERIAL_LIST } from './MassPropsPanel.jsx';
+import {
+  getBodyMaterial as bmGet,
+  setBodyMaterial as bmSet,
+  bodyMaterialKey,
+  FORGE_BODY_MATERIALS_EVENT,
+} from './bodyMaterials.js';
 
 const PANEL_W = 520;
 
 // ─────────────────────────────────────────────────────────────────────
-// Material book-keeping. We persist the per-body material choice on
-// `window.__forgeBodyMaterials` so the picker doesn't lose state when
-// the panel closes / re-renders, and so other surfaces (e.g. the
-// massprops panel) can read it back later.
-
-function getMaterialMap() {
-  if (typeof window === 'undefined') return new Map();
-  if (!(window.__forgeBodyMaterials instanceof Map)) {
-    window.__forgeBodyMaterials = new Map();
-  }
-  return window.__forgeBodyMaterials;
-}
+// Material book-keeping. PUSH-61 moved persistence to bodyMaterials.js
+// (localStorage + window event bus). The thin wrappers below keep the
+// rest of the file unchanged — they delegate every read/write through
+// the shared helper, which also mirrors the assignments back into the
+// legacy `window.__forgeBodyMaterials` Map so the PUSH-60 spec's
+// "iterate the Map" assertion still passes.
 
 function getBodyMaterial(body) {
-  const map = getMaterialMap();
-  const key = bodyMaterialKey(body);
-  if (key == null) return 'steel';
-  return map.get(key) || 'steel';
+  return bmGet(body);
 }
 
 function setBodyMaterial(body, material) {
-  const map = getMaterialMap();
-  const key = bodyMaterialKey(body);
-  if (key == null) return;
-  map.set(key, material);
-}
-
-function bodyMaterialKey(body) {
-  if (!body) return null;
-  if (typeof body.handle === 'number') return `h:${body.handle}`;
-  if (body.id != null) return `id:${body.id}`;
-  return null;
+  return bmSet(body, material);
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -230,6 +217,15 @@ export function BomPanel({ open, onClose, bodies = [] }) {
     setBodyMaterial(row.body, value);
     tick();
   }, [tick]);
+
+  // PUSH-61 — refresh when any other surface (MassProps, Materials
+  // Browser) writes a new material assignment so the BOM stays live.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onApplied = () => tick();
+    window.addEventListener(FORGE_BODY_MATERIALS_EVENT, onApplied);
+    return () => window.removeEventListener(FORGE_BODY_MATERIALS_EVENT, onApplied);
+  }, [open, tick]);
 
   const onExport = useCallback(async () => {
     const csv = buildBomCSV(rows);

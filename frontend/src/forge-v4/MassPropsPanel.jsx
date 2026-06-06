@@ -8,6 +8,11 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import {
+  getBodyMaterial,
+  setBodyMaterial,
+  FORGE_BODY_MATERIALS_EVENT,
+} from './bodyMaterials.js';
 
 // In-house density library (g/cc). The numbers match the same engineering
 // references used by the simulation workbench (PUSH-48). No external
@@ -64,7 +69,7 @@ const rowStyle = {
 
 export function MassPropsPanel({ open, onClose }) {
   const [body, setBody] = useState(() => activeBody());
-  const [material, setMaterial] = useState('steel');
+  const [material, setMaterial] = useState(() => getBodyMaterial(activeBody()));
   const [error, setError] = useState(null);
 
   // Keep the active body up-to-date — pulls a fresh snapshot whenever
@@ -72,10 +77,29 @@ export function MassPropsPanel({ open, onClose }) {
   // a couple of array operations).
   useEffect(() => {
     if (!open) return;
-    setBody(activeBody());
-    const onPick = () => setBody(activeBody());
+    const next = activeBody();
+    setBody(next);
+    setMaterial(getBodyMaterial(next));
+    const onPick = () => {
+      const n = activeBody();
+      setBody(n);
+      setMaterial(getBodyMaterial(n));
+    };
     window.addEventListener('forge:selection-changed', onPick);
     return () => window.removeEventListener('forge:selection-changed', onPick);
+  }, [open]);
+
+  // PUSH-61 — when another surface (BOM, Materials Browser) writes a
+  // material for the body currently showing in this panel, refresh the
+  // dropdown so the two views stay in sync.
+  useEffect(() => {
+    if (!open) return undefined;
+    const onApplied = () => {
+      const b = activeBody();
+      setMaterial(getBodyMaterial(b));
+    };
+    window.addEventListener(FORGE_BODY_MATERIALS_EVENT, onApplied);
+    return () => window.removeEventListener(FORGE_BODY_MATERIALS_EVENT, onApplied);
   }, [open]);
 
   // Compute kernel mass-props every time the active body changes. We
@@ -95,7 +119,16 @@ export function MassPropsPanel({ open, onClose }) {
     }
   }, [body]);
 
-  const density = DENSITY_G_CC[material];
+  // PUSH-61 — when the user picks a new material, write it through the
+  // persistence helper so the BOM / Materials Browser see it too.
+  const onMaterialChange = useCallback((e) => {
+    const next = e?.target?.value;
+    if (typeof next !== 'string' || next.length === 0) return;
+    setMaterial(next);
+    setBodyMaterial(body, next);
+  }, [body]);
+
+  const density = DENSITY_G_CC[material] ?? DENSITY_G_CC.steel;
   const mass    = massProps ? massGrams(massProps.volume, density) : null;
 
   if (!open) return null;
@@ -122,7 +155,7 @@ export function MassPropsPanel({ open, onClose }) {
         Material:
         <select data-testid="forge-massprops-material"
                 value={material}
-                onChange={(e) => setMaterial(e.target.value)}
+                onChange={onMaterialChange}
                 style={{ flex: 1, background: 'var(--forge-canvas)',
                          color: 'var(--forge-ink)',
                          border: '1px solid var(--forge-rail-edge)',
