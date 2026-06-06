@@ -570,6 +570,9 @@ import { MaterialsBrowserHost } from './forge-v4/MaterialsBrowserPanel.jsx';
 // window.__forgeSelection + forge.direct.inferFeature / edgeSegments /
 // forge.massProps).
 import { EntityPropsHost } from './forge-v4/EntityPropsPanel.jsx';
+// PUSH-67 — Point-to-Point Measure tool (distance + dx/dy/dz + 3-point
+// angle, driven by window.__forgeSelection like the entity panel).
+import { MeasureToolPanelHost } from './forge-v4/MeasureToolPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -924,6 +927,7 @@ function App() {
       <InterferenceHost />
       <MaterialsBrowserHost />
       <EntityPropsHost />
+      <MeasureToolPanelHost />
     </ViewportEnvironmentProvider>
   );
 }
