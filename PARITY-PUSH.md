@@ -23,7 +23,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
 | 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 20 % | PUSH-36 (Bodies panel) |
 | 18 | API / customization | 5 % | 80 % | 5 % | — |
-| 19 | Visualization | 8 % | 80 % | 8 % | — |
+| 19 | Visualization | 8 % | 80 % | 18 % | PUSH-53 (CPU path-tracer preview proven + reachable) |
 
 ## Test workflows queued (progressive complexity)
 

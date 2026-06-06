@@ -92,6 +92,8 @@ export const MENU_SPEC = {
       { id: 'tools.commandPalette', label: 'Command Palette…', icon: 'misc.search', shortcut: '⌘K' },
       // Forge-135 — path-traced offline render.
       { id: 'tools.pathTracer', label: 'Render Room…',       icon: 'view.shaded' },
+      // Forge-203 — CPU path-tracer photorealistic preview (AO + sun).
+      { id: 'tools.pathtrace',  label: 'Photorealistic Preview…', icon: 'view.shaded' },
       // Forge-137 — role + ribbon customiser.
       { id: 'tools.ribbon',     label: 'Customise Ribbons…', icon: 'misc.settings' },
       SEP,
