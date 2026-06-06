@@ -3584,6 +3584,28 @@ Napi::Value PartThickenSurface(const Napi::CallbackInfo& info) {
     });
 }
 
+Napi::Value PartPipeFromPolyline(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        // points: flat [x,y,z,…] array (Array or Float64Array); radius: number
+        std::vector<double> pts;
+        if (info[0].IsTypedArray()) {
+            auto ta = info[0].As<Napi::Float64Array>();
+            pts.assign(ta.Data(), ta.Data() + ta.ElementLength());
+        } else if (info[0].IsArray()) {
+            auto a = info[0].As<Napi::Array>();
+            pts.reserve(a.Length());
+            for (uint32_t i = 0; i < a.Length(); ++i)
+                pts.push_back(a.Get(i).As<Napi::Number>().DoubleValue());
+        } else {
+            throw Napi::TypeError::New(env,
+                "forge.part.pipeFromPolyline: points must be an Array or Float64Array");
+        }
+        double radius = requireNumber(info, 1, "radius");
+        return Napi::Number::New(env, forge::part::pipeFromPolyline(pts, radius));
+    });
+}
+
 Napi::Value PartFilletEdges(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto h = requireHandle(info, 0);
@@ -4857,6 +4879,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     part.Set("loft",                Napi::Function::New(env, PartLoft));
     part.Set("shell",               Napi::Function::New(env, PartShell));
     part.Set("thickenSurface",      Napi::Function::New(env, PartThickenSurface));
+    part.Set("pipeFromPolyline",    Napi::Function::New(env, PartPipeFromPolyline));
     part.Set("filletEdges",         Napi::Function::New(env, PartFilletEdges));
     part.Set("variableFilletEdge",  Napi::Function::New(env, PartVariableFillet));
     part.Set("chamferEdges",        Napi::Function::New(env, PartChamferEdges));

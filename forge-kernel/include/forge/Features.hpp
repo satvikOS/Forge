@@ -94,6 +94,11 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
 // the given wall thickness. `side`: -1 inward, +1 outward, 0 symmetric.
 ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side);
 
+// Slice-14 routing: sweep a circular profile of `radius` along the polyline
+// `pts` (flat [x,y,z] triples) → a 3D pipe solid. Turns a route centerline
+// into visible tube geometry.
+ShapeHandle pipeFromPolyline(const std::vector<double>& pts, double radius);
+
 ShapeHandle filletEdges(ShapeHandle shape,
                         const std::vector<std::uint32_t>& edgeIds,
                         double radius);

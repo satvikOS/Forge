@@ -124,6 +124,8 @@ export const MENU_SPEC = {
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
       // PUSH-42 — HLR engineering drawings (projected 2D views from the model).
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },
+      // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
+      { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
       { id: 'tools.threads',    label: 'Thread Designer…',  icon: 'sketch.spline' },
       // Forge-149 — Draft workbench (FreeCAD Draft parity).

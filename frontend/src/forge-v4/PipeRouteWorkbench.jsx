@@ -113,6 +113,26 @@ function PipeRoutePanel({ open, onClose }) {
     try {
       const r = pipeRoute(inp);
       setResult(r);
+      // Slice-14 — build a REAL 3D pipe solid by sweeping a circular profile
+      // along the routed centerline, and commit it to the live scene so the
+      // route is visible in the viewport (not just the 2D mini-view).
+      const poly = r && r.polyline ? Array.from(r.polyline) : [];
+      if (poly.length >= 6 && typeof window !== 'undefined'
+          && window.forge?.part?.pipeFromPolyline
+          && typeof window.__forgeAppendBody === 'function') {
+        try {
+          const radius = (typeof inp.radius === 'number' && inp.radius > 0) ? inp.radius : 1.5;
+          const handle = window.forge.part.pipeFromPolyline(poly, radius);
+          if (typeof handle === 'number' && handle > 0) {
+            window.__forgeAppendBody({
+              id: `pipe-${Date.now()}`, kind: 'native', handle,
+              toolId: 'routing.pipe', name: 'Routed Pipe', params: { radius },
+            });
+          }
+        } catch (sweepErr) {
+          setErr(`route ok, pipe build failed: ${sweepErr?.message || sweepErr}`);
+        }
+      }
     } catch (e) {
       setErr(String(e?.message || e));
     }

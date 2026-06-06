@@ -13,7 +13,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
 | 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
 | 8 | Mold / casting / tooling | 0 % | 80 % | 12 % | PUSH-44 (parting + cavity/core split) |
-| 9 | Routing (piping / cable) | 0 % | 80 % | 0 % | — |
+| 9 | Routing (piping / cable) | 0 % | 80 % | 12 % | PUSH-45 (A* route → 3D pipe solid) |
 | 10 | CAM / manufacturing | 0 % | 80 % | 0 % | — |
 | 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 3 % | — |
 | 12 | PMI / GD&T | 0 % | 80 % | 0 % | — |
@@ -37,6 +37,32 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-45 — Routing: A* pipe route → real 3D pipe solid [2026-06-06]
+- **Dimensions touched**: #9 Routing (0→12%), #1 Kernel (pipeFromPolyline),
+  #17 UI/UX (Tools-menu + global-search entry).
+- **Gap**: the forge::piperoute A* router was complete and the
+  PipeRouteWorkbench existed, but it only drew the route as a tiny 2D SVG
+  mini-view — no real 3D geometry ever entered the scene, and the workbench
+  had no menu/search entry (only a workbench-switch handler).
+- **Kernel**: new `forge::part::pipeFromPolyline(pts, radius)` — builds a
+  polygon spine wire from the routed centerline points and sweeps a
+  circular profile (BRepOffsetAPI_MakePipe) into a watertight pipe solid.
+  Profile face uses the plane-deriving MakeFace overload so it sits in the
+  first segment's plane.
+- **Wiring**: preload whitelists part.pipeFromPolyline; PipeRouteWorkbench
+  onRun now sweeps the routed polyline into a pipe solid and commits it via
+  __forgeAppendBody so the route is visible/scaled in the viewport. Added
+  Tools-menu `tools.piperoute` (→ global search) + icon.
+- **E2E**: push-45-piperoute.spec.js (headed, MP4) — open Pipe Routing,
+  Run: a real pipe solid commits (vol 141.4mm³, body count 0→1, renders 1
+  mesh in the live scene), global search exposes Pipe Routing. 5/5 pass.
+- **Kernel smoke**: pipe_route_smoke.js — A* routes a 4-pt polyline around
+  a box obstacle (length 28 > straight 21.5, 2 elbows); pipeFromPolyline
+  sweeps a watertight tube (vol in the πr²L band, real mesh). Added to gate.
+- **Proof**: full kernel suite, 21/21 unit, bridge, 24/24 existing feature
+  e2e green. CI green all 3 platforms.
+
 
 ### PUSH-44 — Mold Tools: parting surface + cavity/core split [2026-06-06]
 - **Dimensions touched**: #8 Mold (0→12%), #17 UI/UX.

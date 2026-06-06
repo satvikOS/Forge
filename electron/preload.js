@@ -1347,6 +1347,9 @@ const forgeApi = {
     // side: -1 inward, +1 outward, 0 symmetric.
     thickenSurface:     (shape, thickness, side) =>
       kernel.part.thickenSurface(shape, thickness, side ?? 0),
+    // Slice-14 routing — sweep a circular profile along a polyline → pipe solid.
+    pipeFromPolyline:   (pts, radius) =>
+      kernel.part.pipeFromPolyline(pts, radius),
     filletEdges:        (shape, edgeIds, radius) =>
       kernel.part.filletEdges(shape, edgeIds, radius),
     variableFilletEdge: (shape, edgeId, anchorRadii) =>

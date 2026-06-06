@@ -27,6 +27,8 @@
 #include <GeomAbs_JoinType.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
+#include <gp_Circ.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRep_Builder.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
@@ -304,6 +306,58 @@ ShapeHandle sweep(SketchHandle profileSketch, SketchHandle pathSketch,
     }
     mk.MakeSolid();
     return ShapeRegistry::instance().add(mk.Shape());
+}
+
+// ============================================================ pipeFromPolyline
+//
+// Slice-14 routing: build a real 3D pipe SOLID by sweeping a circular
+// profile of `radius` along the polyline defined by `pts` (flat
+// [x0,y0,z0, x1,y1,z1, …]). Turns a piperoute A* result into visible tube
+// geometry. Mirrors SolidWorks/NX Routing "pipe from centerline".
+ShapeHandle pipeFromPolyline(const std::vector<double>& pts, double radius) {
+    requirePositive(radius, "pipe radius");
+    if (pts.size() < 6 || (pts.size() % 3) != 0) {
+        throw std::invalid_argument(
+            "forge.part.pipeFromPolyline: need >= 2 points as flat [x,y,z] triples");
+    }
+    const std::size_t n = pts.size() / 3;
+    auto P = [&](std::size_t i) {
+        return gp_Pnt(pts[3*i], pts[3*i + 1], pts[3*i + 2]);
+    };
+
+    // Spine: polygon wire through the points (skip zero-length segments).
+    BRepBuilderAPI_MakePolygon poly;
+    poly.Add(P(0));
+    for (std::size_t i = 1; i < n; ++i) {
+        if (P(i).Distance(P(i - 1)) > Precision::Confusion()) poly.Add(P(i));
+    }
+    if (!poly.IsDone()) {
+        throw std::runtime_error("forge.part.pipeFromPolyline: spine wire build failed");
+    }
+    const TopoDS_Wire spine = poly.Wire();
+
+    // Circular profile at the first point, oriented along the first segment.
+    gp_Pnt p0 = P(0), p1 = P(1);
+    gp_Vec dir(p0, p1);
+    if (dir.Magnitude() < Precision::Confusion()) dir = gp_Vec(1, 0, 0);
+    gp_Ax2 ax(p0, gp_Dir(dir));
+    gp_Circ circ(ax, radius);
+    TopoDS_Edge cedge = BRepBuilderAPI_MakeEdge(circ).Edge();
+    TopoDS_Wire cwire = BRepBuilderAPI_MakeWire(cedge).Wire();
+    // Plane-deriving overload so the profile lies in the circle's own plane
+    // (faceFromWire assumes Z=0 and would fail for a tilted first segment).
+    BRepBuilderAPI_MakeFace mkProfile(cwire, /*OnlyPlane*/ Standard_True);
+    if (!mkProfile.IsDone()) {
+        throw std::runtime_error("forge.part.pipeFromPolyline: profile face build failed");
+    }
+    TopoDS_Face profileFace = mkProfile.Face();
+
+    BRepOffsetAPI_MakePipe pipeMk(spine, profileFace);
+    pipeMk.Build();
+    if (!pipeMk.IsDone()) {
+        throw std::runtime_error("forge.part.pipeFromPolyline: pipe build failed");
+    }
+    return ShapeRegistry::instance().add(pipeMk.Shape());
 }
 
 // ============================================================ loft
