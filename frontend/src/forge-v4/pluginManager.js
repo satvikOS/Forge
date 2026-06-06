@@ -215,6 +215,12 @@ export function install(manifest, { enabled = true, persist = true } = {}) {
   }
 
   // Run code to get delta + merge into manifest before applying.
+  // Snapshot the tool/menu registries around _evaluate so tools the plugin
+  // registers IMPERATIVELY (Forge.tools.registerTool inside its code, rather
+  // than via declarative toolContributions) are still tracked for cleanup on
+  // uninstall — otherwise uninstalling leaves orphan tools in the registry.
+  const toolIdsBefore = new Set(
+    (typeof Forge.tools.list === 'function' ? Forge.tools.list() : []).map((t) => t.id));
   let delta = {};
   try {
     delta = _evaluate(manifest, Forge);
@@ -225,6 +231,9 @@ export function install(manifest, { enabled = true, persist = true } = {}) {
     _emitChanged();
     throw err;
   }
+  const imperativeToolIds = (typeof Forge.tools.list === 'function' ? Forge.tools.list() : [])
+    .map((t) => t.id)
+    .filter((id) => !toolIdsBefore.has(id));
 
   const merged = {
     ...manifest,
@@ -234,6 +243,10 @@ export function install(manifest, { enabled = true, persist = true } = {}) {
   };
 
   const registered = _applyContributions(merged, Forge);
+  // Fold in imperatively-registered tools so cleanup unregisters them too.
+  for (const id of imperativeToolIds) {
+    if (!registered.tools.includes(id)) registered.tools.push(id);
+  }
   const cleanup = () => _cleanupContributions(registered, Forge);
 
   const rec = {

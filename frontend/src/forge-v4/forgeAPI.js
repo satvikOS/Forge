@@ -146,7 +146,10 @@ const tools = Object.freeze({
         bodies: scene.bodies,
         selection: scene.getSelection(),
       };
-      const r = plugin.run(ctx, params || {});
+      // Plugin tools are invoked run(params, ctx) — params first (the natural
+      // call shape a plugin author writes, e.g. run: (params) => …), ctx second
+      // for plugins that need scene/selection access.
+      const r = plugin.run(params || {}, ctx);
       _emit('forge:tool-dispatched', { toolId, params, source: 'plugin', result: r });
       return r;
     }
