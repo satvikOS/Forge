@@ -235,6 +235,12 @@ const forgeApi = {
     splitCavityCore:       (block, part, ps)       => kernel.mold.splitCavityCore(block, part, ps),
     insertCoolingChannels: (block, channels)       => kernel.mold.insertCoolingChannels(block, channels),
     buildRunnerSystem:     (sprueTop, gates, dias) => kernel.mold.buildRunnerSystem(sprueTop, gates, dias),
+    // mold (Forge-172) — injection-mould flow (Hele-Shaw + Cross-WLF).
+    // Merged here from the former duplicate `mold:` key below (a second
+    // object literal with the same key silently shadowed this whole API,
+    // so computeParting/splitCavityCore were invisible to the renderer).
+    heleShawFill: (mesh, gate, mat, moldT, maxT, maxSteps) =>
+      kernel.mold.heleShawFill(mesh, gate, mat, moldT, maxT, maxSteps ?? 500),
   } : null,
 
   // PUSH-04 — extended assembly mate library (forge::matelib). 12 SW-equivalent
@@ -341,12 +347,6 @@ const forgeApi = {
   // casting (Forge-173) — solidification (enthalpy FDM with phase change).
   casting: kernel && kernel.casting ? {
     solidify: (cfg) => kernel.casting.solidify(cfg),
-  } : null,
-
-  // mold (Forge-172) — injection-mould flow (Hele-Shaw + Cross-WLF).
-  mold: kernel && kernel.mold ? {
-    heleShawFill: (mesh, gate, mat, moldT, maxT, maxSteps) =>
-      kernel.mold.heleShawFill(mesh, gate, mat, moldT, maxT, maxSteps ?? 500),
   } : null,
 
   // acoustics (Forge-175) — image-source method + Eyring stat tail.

@@ -12,7 +12,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 5 | Drawings / 2D output | 3 % | 80 % | 12 % | PUSH-42 (HLR project real model + render) |
 | 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
 | 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
-| 8 | Mold / casting / tooling | 0 % | 80 % | 0 % | — |
+| 8 | Mold / casting / tooling | 0 % | 80 % | 12 % | PUSH-44 (parting + cavity/core split) |
 | 9 | Routing (piping / cable) | 0 % | 80 % | 0 % | — |
 | 10 | CAM / manufacturing | 0 % | 80 % | 0 % | — |
 | 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 3 % | — |
@@ -37,6 +37,33 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-44 — Mold Tools: parting surface + cavity/core split [2026-06-06]
+- **Dimensions touched**: #8 Mold (0→12%), #17 UI/UX.
+- **Two bugs fixed**:
+  1. preload.js had a DUPLICATE `mold:` object key — the second literal
+     (only heleShawFill) silently shadowed the first (the full tooling API:
+     analyseDraft/computeParting/splitCavityCore/insertCoolingChannels/
+     buildRunnerSystem), so window.forge.mold.computeParting was undefined
+     in the renderer. Merged heleShawFill into the real block, removed the
+     duplicate. (Verified no other duplicate top-level preload keys exist.)
+  2. mold.parting/cavity/core were only in the DEAD synthetic-path function
+     (stale boxes), never in the live callNative switch — so they errored
+     "kernel has no implementation". Wired all three to forge::mold.
+- **Wiring**: mold.parting → computeParting (commits parting surface).
+  mold.cavity / mold.core → enclose the picked part in an AABB-sized mold
+  block (margin default 20mm), computeParting along the pull dir, then
+  splitCavityCore and commit the requested half. Added moldPullDir() to map
+  the '+Z'/'-X'… direction enum to a vector.
+- **E2E**: push-44-mold.spec.js (headed, MP4) — seed a draftable cone part,
+  Mold workbench → Cavity: a real cavity solid commits (vol 346648mm³,
+  body count 1→2, > the cone part), global search exposes Cavity. 4/4 pass.
+- **Kernel smoke**: mold_split_smoke.js — cone parting (1 line + surface),
+  splitCavityCore yields cavity+core solids tiling the block around the
+  part. Added to gate.
+- **Proof**: 21/21 unit, bridge, full 24/24 existing feature e2e green. CI
+  green all 3 platforms.
+
 
 ### PUSH-43 — Sheet Metal: flat-pattern view wired up [2026-06-06]
 - **Dimensions touched**: #6 Sheet metal (0→14%), #17 UI/UX.

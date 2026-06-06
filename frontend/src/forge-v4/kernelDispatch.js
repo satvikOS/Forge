@@ -71,6 +71,21 @@ function pickTarget(ctx) {
   return null;
 }
 
+// Slice-13 — map a mold tool's pull-direction enum ('+Z'/'-X'/…) or an
+// explicit pullDir array to a unit vector. Defaults to +Z.
+function moldPullDir(p) {
+  if (Array.isArray(p?.pullDir) && p.pullDir.length === 3) return p.pullDir;
+  switch (p?.direction) {
+    case '-Z': return [0, 0, -1];
+    case '+X': return [1, 0, 0];
+    case '-X': return [-1, 0, 0];
+    case '+Y': return [0, 1, 0];
+    case '-Y': return [0, -1, 0];
+    case '+Z':
+    default:   return [0, 0, 1];
+  }
+}
+
 // PUSH-31 — most-recent native body in ctx.bodies, ignoring synthetic
 // scaffolds. Used by solid.extrude with op=Cut|Add|Intersect to find
 // the body the user wants to bool the new extrusion against.
@@ -445,7 +460,49 @@ function callNative(toolId, p, ctx) {
       case 'weld.trim':
       case 'weld.cutList':
         return null;     // handled by weldmentsDispatch — shell routes there
-      // ----- mold / sim / mfg / measure / view / sketch: no native body produced here -----
+      // ----- mold tooling: real forge::mold kernel (parting + split) -----
+      case 'mold.parting': {
+        // Compute the parting surface for the picked/last part along the
+        // pull direction and commit it as a surface body. forge::mold.
+        const part = pickTarget(ctx);
+        if (part == null || !f.mold?.computeParting) return null;
+        const pull = moldPullDir(p);
+        const r = f.mold.computeParting(part, pull);
+        return (r && typeof r.partingSurface === 'number') ? r.partingSurface : null;
+      }
+      case 'mold.cavity':
+      case 'mold.core': {
+        // Enclose the picked/last part in a mold block (sized to its AABB
+        // with margin), compute the parting surface, split into cavity +
+        // core, and return the requested half. forge::mold.splitCavityCore.
+        const part = pickTarget(ctx);
+        if (part == null || !f.mold?.computeParting || !f.mold?.splitCavityCore
+            || !f.makeBox || !f.tessellate) return null;
+        // Part AABB from its mesh.
+        let mesh; try { mesh = f.tessellate(part, 0.5, 0.6); } catch { return null; }
+        const pos = mesh && mesh.positions ? mesh.positions : null;
+        if (!pos || pos.length < 3) return null;
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+        for (let i = 0; i + 2 < pos.length; i += 3) {
+          minX = Math.min(minX, pos[i]);     maxX = Math.max(maxX, pos[i]);
+          minY = Math.min(minY, pos[i + 1]); maxY = Math.max(maxY, pos[i + 1]);
+          minZ = Math.min(minZ, pos[i + 2]); maxZ = Math.max(maxZ, pos[i + 2]);
+        }
+        const mgn = (typeof p.margin === 'number') ? p.margin : 20;
+        const bw = (maxX - minX) + 2 * mgn;
+        const bh = (maxY - minY) + 2 * mgn;
+        const bd = (maxZ - minZ) + 2 * mgn;
+        const block = f.makeBox(bw, bh, bd);
+        const pull = moldPullDir(p);
+        let pl; try { pl = f.mold.computeParting(part, pull); } catch { return null; }
+        if (!pl || typeof pl.partingSurface !== 'number') return null;
+        const split = f.mold.splitCavityCore(block, part, pl.partingSurface);
+        if (!split) return null;
+        const want = (toolId === 'mold.cavity') ? split.cavity : split.core;
+        return (typeof want === 'number') ? want : null;
+      }
+      // ----- sim / mfg / measure / view / sketch: no native body produced here -----
       default:
         return null;
     }
