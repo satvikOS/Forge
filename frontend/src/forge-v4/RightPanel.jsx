@@ -8,7 +8,9 @@ import { FeatureTree } from './FeatureTree.jsx';
 
 export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
                              selection, onPickFeature, onReorderFeature,
-                             onToggleSuppress, onDeleteFeature, onRenameFeature }) {
+                             onToggleSuppress, onDeleteFeature, onRenameFeature,
+                             bodies = [], onToggleBodyVisible, onRenameBody,
+                             onPickBody }) {
   if (collapsed) {
     return (
       <aside className="forge-right" data-collapsed="true"
@@ -74,6 +76,19 @@ export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
         </div>
       </section>
 
+      <section className="forge-right-section" data-testid="forge-bodies-section">
+        <header className="forge-right-section-header">
+          <Icon name="select.body" size={11} />
+          <span>Bodies · {(bodies || []).filter((b) => b && b.kind === 'native').length}</span>
+        </header>
+        <div className="forge-right-section-body">
+          <BodyList bodies={bodies}
+                    onToggleVisible={onToggleBodyVisible}
+                    onRename={onRenameBody}
+                    onPick={onPickBody} />
+        </div>
+      </section>
+
       <section className="forge-right-section">
         <header className="forge-right-section-header">
           <Icon name="select.body" size={11} />
@@ -91,6 +106,56 @@ export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
         </div>
       </section>
     </aside>
+  );
+}
+
+function BodyList({ bodies = [], onToggleVisible, onRename, onPick }) {
+  const natives = (bodies || []).filter((b) => b && b.kind === 'native');
+  if (natives.length === 0) {
+    return (
+      <div style={{ color: 'var(--forge-ink-mute)', fontStyle: 'italic', padding: '4px 0' }}>
+        No bodies yet.
+      </div>
+    );
+  }
+  return (
+    <ul data-testid="forge-body-list"
+        style={{ listStyle: 'none', margin: 0, padding: 0,
+                 display: 'flex', flexDirection: 'column', gap: 2 }}>
+      {natives.map((b) => {
+        const visible = b.visible !== false;
+        return (
+          <li key={b.id ?? b.handle}
+              data-body-id={b.handle}
+              data-visible={visible ? 'true' : 'false'}
+              style={{ display: 'flex', alignItems: 'center', gap: 6,
+                       padding: '2px 4px', borderRadius: 3 }}>
+            <button type="button"
+                    data-testid={`body-visible-${b.handle}`}
+                    title={visible ? 'Hide body' : 'Show body'}
+                    onClick={() => onToggleVisible?.(b)}
+                    style={{ width: 18, height: 18, display: 'flex',
+                             alignItems: 'center', justifyContent: 'center',
+                             background: 'transparent', border: 'none',
+                             color: visible ? 'var(--forge-ink)' : 'var(--forge-ink-mute)',
+                             cursor: 'pointer', opacity: visible ? 1 : 0.5 }}>
+              <Icon name={visible ? 'misc.eye' : 'misc.eye_off'} size={12} />
+            </button>
+            <span data-testid={`body-name-${b.handle}`}
+                  onDoubleClick={() => {
+                    const next = window.prompt?.('Rename body', b.name || `Body ${b.handle}`);
+                    if (next && onRename) onRename(b, next);
+                  }}
+                  onClick={() => onPick?.(b)}
+                  style={{ flex: 1, fontSize: 11, cursor: 'pointer',
+                           color: visible ? 'var(--forge-ink)' : 'var(--forge-ink-mute)',
+                           textDecoration: visible ? 'none' : 'line-through' }}>
+              {b.name || `Body ${b.handle}`}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

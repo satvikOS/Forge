@@ -2748,7 +2748,20 @@ export function ForgeShellV4() {
                        onRenameFeature={(id, label) => {
                          setFeatureTree((arr) => arr.map((n) =>
                            n.id === id ? { ...n, label } : n));
-                       }} />)
+                       }}
+                       bodies={bodies}
+                       onToggleBodyVisible={(b) => {
+                         // Multi-body manager (Slice-5) — per-body show/hide.
+                         setBodies((arr) => arr.map((x) =>
+                           (x.handle === b.handle && x.id === b.id)
+                             ? { ...x, visible: x.visible === false }
+                             : x));
+                       }}
+                       onRenameBody={(b, name) => {
+                         setBodies((arr) => arr.map((x) =>
+                           (x.handle === b.handle && x.id === b.id) ? { ...x, name } : x));
+                       }}
+                       onPickBody={(b) => setSelection({ kind: 'body', ids: [b.handle], bodyHandle: b.handle })} />)
       }
       <StatusBar workbench={activeWb} selection={selection} />
       <CommandBar ref={cmdRef}

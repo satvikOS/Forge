@@ -8,7 +8,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 40 % | PUSH-34 (edge polylines) |
 | 2 | Solid modeling ops | 8 % | 80 % | 18 % | PUSH-34 (pick-edge fillet/chamfer) |
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
-| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 4 % | — |
+| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 8 % | PUSH-36 (per-body show/hide) |
 | 5 | Drawings / 2D output | 3 % | 80 % | 3 % | — |
 | 6 | Sheet metal | 0 % | 80 % | 0 % | — |
 | 7 | Surfacing | 0 % | 80 % | 0 % | — |
@@ -21,7 +21,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 14 | PDM / PLM | 0 % | 80 % | 0 % | — |
 | 15 | Generative / topology | 0 % | 80 % | 0 % | — |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
-| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 16 % | PUSH-35 (Datum group + role) |
+| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 20 % | PUSH-36 (Bodies panel) |
 | 18 | API / customization | 5 % | 80 % | 5 % | — |
 | 19 | Visualization | 8 % | 80 % | 8 % | — |
 
@@ -37,6 +37,22 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-36 — Multi-body manager UI [2026-06-06]
+- **Dimensions touched**: #17 UI/UX (Bodies panel), partial #4 Assembly
+  (per-body show/hide is the precursor to body-folder management).
+- **UI**: RightPanel gains a 'Bodies' section (BodyList) listing every native
+  body with a per-body show/hide eye toggle + double-click rename + click-to-
+  select. ForgeShellV4 wires onToggleBodyVisible / onRenameBody / onPickBody
+  to setBodies (adds a `visible` flag). Viewport SceneMeshes skips rendering
+  any body with visible===false (suppression now body-level, not just
+  feature-level).
+- **E2E**: push-36-multibody.spec.js (headed, MP4) — build 2 bodies, assert
+  the Bodies panel lists 2, hide one → rendered mesh count drops 2→1 while
+  state keeps 2 (data-visible='false'), show again → 2 rendered. 5/5 pass.
+  Mesh count read live from window.__forgeScene. Kernel smoke + V12
+  regression unaffected.
+- **CI**: see commit push.
 
 ### PUSH-35 — Reference geometry / datum planes [2026-06-06]
 - **Dimensions touched**: #3 Sketch (sketch on a datum plane), #17 UI/UX

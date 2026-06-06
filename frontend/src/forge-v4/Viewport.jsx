@@ -603,6 +603,8 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
       {Array.from(groups.entries()).map(([key, members]) => {
         if (members.length === 1) {
           const m = members[0];
+          // Multi-body manager (Slice-5) — honor per-body visibility.
+          if (m.body && m.body.visible === false) return null;
           const sel = selection?.ids?.includes(m.id) || selection?.ids?.includes(m.body?.handle);
           // PUSH-31 — read explode offset for this body (defaults to 0,0,0).
           // Wires ExplodedView's offset table to the rendered position so
