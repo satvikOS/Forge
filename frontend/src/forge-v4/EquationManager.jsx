@@ -39,9 +39,27 @@ function saveVars(vars) {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(vars)); } catch {}
 }
 
-// Tiny expression evaluator — supports numbers, +-*/(), variable refs.
+// Tiny expression evaluator — supports numbers, +-*/(), variable refs,
+// dotted Math.* function calls (Math.sin, Math.PI, Math.pow, etc.).
 // Deliberately not eval(): walks an explicit recursive-descent parser
 // so it can't escape into JS land.
+//
+// PUSH-66 — extended tokenizer to recognise '.' and ',' so dotted
+// identifiers like Math.sin and function calls Math.pow(2, 3) parse.
+// The atom production now resolves `Math.<name>` against a whitelist
+// of pure-math constants & unary/binary functions.
+const MATH_WHITELIST = {
+  PI: Math.PI, E: Math.E, LN2: Math.LN2, LN10: Math.LN10,
+  LOG2E: Math.LOG2E, LOG10E: Math.LOG10E, SQRT2: Math.SQRT2,
+  abs: Math.abs, sign: Math.sign, sqrt: Math.sqrt, cbrt: Math.cbrt,
+  exp: Math.exp, log: Math.log, log2: Math.log2, log10: Math.log10,
+  sin: Math.sin, cos: Math.cos, tan: Math.tan,
+  asin: Math.asin, acos: Math.acos, atan: Math.atan,
+  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh,
+  ceil: Math.ceil, floor: Math.floor, round: Math.round, trunc: Math.trunc,
+  // Variadic-arity functions get clamped to their natural arity below.
+  min: Math.min, max: Math.max, pow: Math.pow, hypot: Math.hypot, atan2: Math.atan2,
+};
 function tokenize(s) {
   const out = [];
   let i = 0;
@@ -49,8 +67,18 @@ function tokenize(s) {
     const c = s[i];
     if (/\s/.test(c)) { i++; continue; }
     if (/[0-9.]/.test(c)) {
+      // A leading '.' that isn't followed by a digit is a member-access
+      // separator, not a number — emit it as its own token.
+      if (c === '.' && !/[0-9]/.test(s[i + 1] || '')) {
+        out.push({ k: '.' }); i++; continue;
+      }
       let j = i;
-      while (j < s.length && /[0-9.]/.test(s[j])) j++;
+      let sawDot = false;
+      while (j < s.length && /[0-9]/.test(s[j])) j++;
+      if (s[j] === '.' && /[0-9]/.test(s[j + 1] || '')) {
+        sawDot = true; j++;
+        while (j < s.length && /[0-9]/.test(s[j])) j++;
+      }
       out.push({ k: 'num', v: parseFloat(s.slice(i, j)) }); i = j; continue;
     }
     if (/[A-Za-z_]/.test(c)) {
@@ -58,7 +86,7 @@ function tokenize(s) {
       while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++;
       out.push({ k: 'id', v: s.slice(i, j) }); i = j; continue;
     }
-    if ('+-*/()'.includes(c)) { out.push({ k: c }); i++; continue; }
+    if ('+-*/(),.'.includes(c)) { out.push({ k: c }); i++; continue; }
     throw new Error('unexpected char: ' + c);
   }
   return out;
@@ -71,10 +99,42 @@ function evalExpr(s, env) {
   function expr()   { let v = term(); while (peek()?.k === '+' || peek()?.k === '-') { const op = eat().k; const r = term(); v = op === '+' ? v + r : v - r; } return v; }
   function term()   { let v = unary(); while (peek()?.k === '*' || peek()?.k === '/') { const op = eat().k; const r = unary(); v = op === '*' ? v * r : v / r; } return v; }
   function unary()  { if (peek()?.k === '-') { eat(); return -unary(); } if (peek()?.k === '+') { eat(); return unary(); } return atom(); }
+  function callArgs() {
+    eat('(');
+    const args = [];
+    if (peek()?.k !== ')') {
+      args.push(expr());
+      while (peek()?.k === ',') { eat(','); args.push(expr()); }
+    }
+    eat(')');
+    return args;
+  }
   function atom() {
     const t = peek();
     if (t?.k === 'num') { eat('num'); return t.v; }
-    if (t?.k === 'id')  { eat('id'); if (env[t.v] === undefined) throw new Error('undefined: ' + t.v); return env[t.v]; }
+    if (t?.k === 'id')  {
+      eat('id');
+      // Dotted reference: only `Math.<name>` is allowed. Anything else
+      // is an explicit error so users get a real message rather than
+      // silent NaN propagation.
+      if (peek()?.k === '.') {
+        if (t.v !== 'Math') throw new Error('only Math.* is allowed: ' + t.v);
+        eat('.');
+        const fn = eat('id').v;
+        const m = MATH_WHITELIST[fn];
+        if (m === undefined) throw new Error('Math.' + fn + ' not allowed');
+        // Function call vs constant — depends on the next token.
+        if (peek()?.k === '(') {
+          if (typeof m !== 'function') throw new Error('Math.' + fn + ' is not a function');
+          const args = callArgs();
+          return m(...args);
+        }
+        if (typeof m === 'function') throw new Error('Math.' + fn + ' needs ()');
+        return m;
+      }
+      if (env[t.v] === undefined) throw new Error('undefined: ' + t.v);
+      return env[t.v];
+    }
     if (t?.k === '(')   { eat('('); const v = expr(); eat(')'); return v; }
     throw new Error('unexpected');
   }
@@ -146,6 +206,44 @@ export function EquationManager({ open, onClose }) {
   const { values, errors } = solveEquations(vars, sheetEnv);
 
   useEffect(() => { saveVars(vars); }, [vars]);
+
+  // PUSH-66 — expose the resolved variable env as `window.__forgeEquations`
+  // (a live Map) and fire `forge:equations-changed` whenever the env shifts.
+  // Other panels (workbenches, the spreadsheet store, mate solver, etc.)
+  // listen to this event to re-derive feature parameters from variables.
+  // The Map is single-instance — we mutate it rather than replace it so
+  // downstream consumers that captured a reference at mount time keep
+  // seeing fresh values.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!(window.__forgeEquations instanceof Map)) {
+      window.__forgeEquations = new Map();
+    }
+    const m = window.__forgeEquations;
+    const next = new Set();
+    for (const v of vars) {
+      const val = values[v.id];
+      if (typeof val === 'number' && Number.isFinite(val)) {
+        m.set(v.id, val);
+        next.add(v.id);
+      }
+    }
+    // Drop entries that are no longer defined so stale variable names
+    // can't ghost-drive features after they're deleted.
+    for (const key of Array.from(m.keys())) {
+      if (!next.has(key)) m.delete(key);
+    }
+    // The event detail carries a plain { [name]: number } snapshot so
+    // listeners don't have to clone the Map themselves.
+    const snapshot = {};
+    for (const [k, v] of m.entries()) snapshot[k] = v;
+    try {
+      window.dispatchEvent(new CustomEvent('forge:equations-changed', {
+        detail: { values: snapshot, errors: { ...errors } },
+      }));
+    } catch {}
+  }, [vars, values, errors]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
@@ -224,26 +322,34 @@ export function EquationManager({ open, onClose }) {
                 const err = errors[v.id];
                 const value = values[v.id];
                 return (
-                  <tr key={i} style={{ borderTop: '1px solid var(--forge-rail-edge)' }}>
+                  <tr key={i}
+                      data-testid={`forge-eq-row-${v.id}`}
+                      data-eq-row-index={i}
+                      style={{ borderTop: '1px solid var(--forge-rail-edge)' }}>
                     <td style={{ padding: '4px 6px' }}>
                       <input type="text" value={v.id}
+                             data-testid={`forge-eq-name-${v.id}`}
                              onChange={(e) => updateVar(i, { id: e.target.value })}
                              className="forge-tool-input"
                              style={{ width: '100%', fontFamily: 'var(--forge-mono)' }} />
                     </td>
                     <td style={{ padding: '4px 6px' }}>
                       <input type="text" value={v.expr}
+                             data-testid={`forge-eq-expr-${v.id}`}
                              onChange={(e) => updateVar(i, { expr: e.target.value })}
                              className="forge-tool-input"
                              style={{ width: '100%', fontFamily: 'var(--forge-mono)' }} />
                     </td>
                     <td style={{ padding: '4px 6px' }}>
                       <input type="text" value={v.unit}
+                             data-testid={`forge-eq-unit-${v.id}`}
                              onChange={(e) => updateVar(i, { unit: e.target.value })}
                              className="forge-tool-input"
                              style={{ width: 60, fontFamily: 'var(--forge-mono)' }} />
                     </td>
-                    <td style={{ padding: '4px 6px',
+                    <td data-testid={`forge-eq-value-${v.id}`}
+                        data-eq-value={err ? '' : String(value)}
+                        style={{ padding: '4px 6px',
                                  fontFamily: 'var(--forge-mono)',
                                  color: err ? 'var(--forge-err)' : 'var(--forge-ok)' }}>
                       {err ? `⚠ ${err}` : `${(Math.round(value * 1000) / 1000)} ${v.unit}`}
@@ -251,6 +357,7 @@ export function EquationManager({ open, onClose }) {
                     <td style={{ padding: '4px 6px' }}>
                       <button type="button" onClick={() => removeVar(i)}
                               aria-label="Remove"
+                              data-testid={`forge-eq-remove-${v.id}`}
                               style={{
                                 background: 'transparent', border: 'none',
                                 color: 'var(--forge-ink-mute)', cursor: 'pointer',
@@ -272,9 +379,11 @@ export function EquationManager({ open, onClose }) {
           borderRadius: '0 0 var(--forge-radius-lg) var(--forge-radius-lg)',
         }}>
           <button type="button" onClick={addVar}
+                  data-testid="forge-eq-add"
                   className="forge-tool-dock-btn">+ Add variable</button>
           <span style={{ flex: 1 }} />
           <button type="button" onClick={onClose}
+                  data-testid="forge-eq-done"
                   className="forge-tool-dock-btn"
                   data-kind="confirm">Done</button>
         </footer>
