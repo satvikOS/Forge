@@ -34,20 +34,41 @@ if(NOT EXISTS "${NODE_ADDON_API_DIR}/napi.h")
 endif()
 
 # ---------------------------------------------------------------- OCCT
-# brew-installed OCCT 7.9.3 on Apple Silicon.
-set(OCCT_ROOT "/opt/homebrew/opt/opencascade")
+# brew-installed OCCT 7.9.3 on Apple Silicon by default. Override with
+# -DOCCT_ROOT=... or the OCCT_ROOT env var (e.g. CI on an Intel mac runner
+# where brew lives at /usr/local, or a custom OCCT prefix).
+if(DEFINED ENV{OCCT_ROOT} AND NOT DEFINED OCCT_ROOT)
+    set(OCCT_ROOT "$ENV{OCCT_ROOT}")
+endif()
+if(NOT DEFINED OCCT_ROOT)
+    set(OCCT_ROOT "/opt/homebrew/opt/opencascade")
+endif()
+# Fall back to the Intel-mac brew prefix if the ARM path is absent.
+if(NOT EXISTS "${OCCT_ROOT}/include/opencascade/Standard_Version.hxx"
+   AND EXISTS "/usr/local/opt/opencascade/include/opencascade/Standard_Version.hxx")
+    set(OCCT_ROOT "/usr/local/opt/opencascade")
+endif()
 if(NOT EXISTS "${OCCT_ROOT}/include/opencascade/Standard_Version.hxx")
-    message(FATAL_ERROR "OCCT not found at ${OCCT_ROOT}. Install with `brew install opencascade`.")
+    message(FATAL_ERROR "OCCT not found at ${OCCT_ROOT}. Install with `brew install opencascade` or set -DOCCT_ROOT=...")
 endif()
 
 set(OCCT_INC "${OCCT_ROOT}/include/opencascade")
 set(OCCT_LIB "${OCCT_ROOT}/lib")
 
 # ---------------------------------------------------------------- Eigen
-# Header-only template library; brew-installed.
-set(EIGEN_INC "/opt/homebrew/opt/eigen/include/eigen3")
+# Header-only template library; brew-installed. Override via OCCT-style env.
+if(DEFINED ENV{EIGEN_INC} AND NOT DEFINED EIGEN_INC)
+    set(EIGEN_INC "$ENV{EIGEN_INC}")
+endif()
+if(NOT DEFINED EIGEN_INC)
+    set(EIGEN_INC "/opt/homebrew/opt/eigen/include/eigen3")
+endif()
+if(NOT EXISTS "${EIGEN_INC}/Eigen/Dense"
+   AND EXISTS "/usr/local/opt/eigen/include/eigen3/Eigen/Dense")
+    set(EIGEN_INC "/usr/local/opt/eigen/include/eigen3")
+endif()
 if(NOT EXISTS "${EIGEN_INC}/Eigen/Dense")
-    message(FATAL_ERROR "Eigen not found at ${EIGEN_INC}. Install with `brew install eigen`.")
+    message(FATAL_ERROR "Eigen not found at ${EIGEN_INC}. Install with `brew install eigen` or set -DEIGEN_INC=...")
 endif()
 
 # OCCT 7.9 reorganises the Data Exchange toolkits: TKSTEP / TKSTEPBase /

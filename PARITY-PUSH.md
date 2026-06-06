@@ -38,6 +38,22 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
 
+### PUSH-38 — Real feature-correctness CI gate [2026-06-06]
+- **Why**: build-app.yml only proves the installers PACKAGE — it never built
+  the kernel or ran a single test, so "CI green" said nothing about whether
+  features work. New .github/workflows/feature-gate.yml runs on every push/PR
+  to archdisc on a macOS runner (OCCT 7.9 via brew = exact dev parity):
+  builds forge-kernel.node → kernel smoke + bridge smoke + frontend unit
+  (node --test) → headless Playwright over the picking/sketch-on-face/datum/
+  multibody/mate slices (--workers=1 so each Electron app launches serially;
+  parallel launches caused focus-fight click timeouts). Uploads e2e artifacts
+  on failure.
+- **CMakeLists**: OCCT_ROOT + EIGEN_INC are now env/-D overridable (with
+  Intel-mac /usr/local fallback) so the kernel builds on any runner; local
+  ARM build verified unchanged.
+- **Proof**: the exact gate command (5 specs, --workers=1) passes 24/24
+  locally in ~90s.
+
 ### PUSH-37 — Assembly mates with real face/axis tokens [2026-06-06]
 - **Dimensions touched**: #4 Assembly (mates reference sub-geometry, not
   just whole bodies), #1 Kernel (assembly smoke added to gate).
