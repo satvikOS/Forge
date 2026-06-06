@@ -6,6 +6,20 @@
 // __forgeOpenDrawingsHLRWorkbench to avoid collision.
 //
 // Manual UI only — never posts to Archie, never opens dock.
+//
+// PUSH-62 — Live Section view panel.
+//   Adds a Mode toggle ("projection" vs "section"). In section mode
+//   the existing "Project view" button calls
+//   forge.drawings.projectSection(handle, dir, plane, hatchSpec) and
+//   converts the legacy packed-Float32 ProjectedView bucket shape
+//   (visible / visibleStarts / visibleCount, hidden / cut / hatch …)
+//   into the same View2D shape (visibleEdges / hiddenEdges / bbox)
+//   the DrawingCanvas + emitDXF + Save DXF pipeline already speak —
+//   so the section silhouette + cut wires + hatch lines render
+//   immediately and Save DXF lands a real .dxf on disk that downstream
+//   CAD tools can ingest. The hatch lines merge into visibleEdges so
+//   the existing renderer paints them; cut/hatch counts surface on a
+//   small section-status report.
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
@@ -16,6 +30,96 @@ const VIEW_DIRS = [
     { id: 'right', label: 'RIGHT (+X)' },
     { id: 'iso',   label: 'ISO (1,1,1)' },
 ];
+
+// PUSH-62 — map a UI axis pick to the cutting-plane normal we feed the
+// kernel. The plane normal points "out of" the cut face; for axis-aligned
+// cuts the unit basis vector is the natural choice. (Origin is supplied
+// as `[0, 0, offset]` style by the caller — the normal vector determines
+// the cut direction.)
+function axisToNormal(axis) {
+    if (axis === 'X') return [1, 0, 0];
+    if (axis === 'Y') return [0, 1, 0];
+    return [0, 0, 1]; // Z (default)
+}
+
+function axisToOrigin(axis, offset) {
+    const o = Number.isFinite(offset) ? offset : 0;
+    if (axis === 'X') return [o, 0, 0];
+    if (axis === 'Y') return [0, o, 0];
+    return [0, 0, o]; // Z
+}
+
+// PUSH-62 — unpack the legacy packed-Float32 bucket the
+// projectSection / projectShape kernel binding emits
+// (Float32Array `verts` of x,y pairs + Uint32Array `starts` of
+// per-polyline offsets) into the array-of-{x,y}-polylines shape the
+// View2D-speaking renderer + emitDXF expect.
+//
+//   verts  = Float32Array[2 * totalVerts]  // x0,y0, x1,y1, x2,y2 …
+//   starts = Uint32Array[count + 1]        // starts[i] is the vertex
+//                                          // index where polyline i
+//                                          // begins; starts[count]
+//                                          // is the sentinel total.
+function unpackBucket(verts, starts, count) {
+    const polylines = [];
+    if (!verts || !starts) return polylines;
+    const n = Number(count || 0);
+    for (let i = 0; i < n; i += 1) {
+        const a = Number(starts[i]);
+        const b = Number(starts[i + 1]);
+        const pl = [];
+        for (let j = a; j < b; j += 1) {
+            pl.push({ x: verts[2 * j], y: verts[2 * j + 1] });
+        }
+        if (pl.length >= 2) polylines.push(pl);
+    }
+    return polylines;
+}
+
+// PUSH-62 — convert a packed ProjectedView (output of
+// forge.drawings.projectSection) into the View2D shape used by
+// DrawingCanvas + emitDXF. Section semantics:
+//   • silhouette outline + visible edges → visibleEdges (drawn solid)
+//   • cut wires (the actual section silhouette) → visibleEdges (heavy)
+//   • hatch lines → visibleEdges (the spec calls for "treat hatch
+//     edges as red 0.3 lines or merge into visible"; we merge so the
+//     existing single-style canvas renders them without touching the
+//     shared DrawingCanvas implementation)
+//   • hidden edges → hiddenEdges (drawn dashed grey, unchanged)
+// We also synthesise the {minX,minY,maxX,maxY} bbox required by the
+// canvas + downstream emitters by scanning every emitted point.
+function packedSectionToView2D(packed) {
+    if (!packed) return null;
+    const visibleBuckets = [
+        unpackBucket(packed.visible, packed.visibleStarts, packed.visibleCount),
+        unpackBucket(packed.outline, packed.outlineStarts, packed.outlineCount),
+        unpackBucket(packed.cut,     packed.cutStarts,     packed.cutCount),
+        unpackBucket(packed.hatch,   packed.hatchStarts,   packed.hatchCount),
+    ];
+    const visibleEdges = [];
+    for (const b of visibleBuckets) for (const pl of b) visibleEdges.push(pl);
+    const hiddenEdges = unpackBucket(packed.hidden, packed.hiddenStarts, packed.hiddenCount);
+
+    let minX = +Infinity, minY = +Infinity, maxX = -Infinity, maxY = -Infinity;
+    const scan = (pl) => {
+        for (const p of pl) {
+            if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+            if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+        }
+    };
+    for (const pl of visibleEdges) scan(pl);
+    for (const pl of hiddenEdges)  scan(pl);
+    if (!Number.isFinite(minX)) { minX = 0; minY = 0; maxX = 1; maxY = 1; }
+
+    return {
+        visibleEdges,
+        hiddenEdges,
+        bbox: { minX, minY, maxX, maxY },
+        // Section-only counts so the report block can surface them.
+        _sectionCutCount:   unpackBucket(packed.cut,   packed.cutStarts,   packed.cutCount).length,
+        _sectionHatchCount: unpackBucket(packed.hatch, packed.hatchStarts, packed.hatchCount).length,
+    };
+}
 
 // Slice-11 — render an HLR projection as a real 2D engineering drawing.
 // Visible edges = solid black; hidden edges = dashed grey. Y is flipped
@@ -64,6 +168,10 @@ export function DrawingsHLRWorkbench({ onClose }) {
     const [dxf, setDxf]   = useState('');
     const [svg, setSvg]   = useState('');
     const [error, setError] = useState(null);
+    // PUSH-62 — Section mode + cutting-plane editor state.
+    const [mode, setMode]       = useState('projection'); // 'projection' | 'section'
+    const [secAxis, setSecAxis] = useState('Z');
+    const [secOffset, setSecOffset] = useState(0);
 
     // Slice-11 — project the REAL current model. Prefer the
     // selected/last native body in the live scene; only fall back to a
@@ -111,13 +219,50 @@ export function DrawingsHLRWorkbench({ onClose }) {
         } catch (ex) { setError(String(ex.message || ex)); return null; }
     }, [surface]);
 
+    // PUSH-62 — Section-mode project: call the legacy packed-Float32
+    // projectSection binding, convert it into the View2D shape the
+    // renderer + emitDXF speak, and surface it via the same setView
+    // pipeline so the DrawingCanvas + Save DXF flow Just Work without
+    // touching any other file.
+    const projectSectionInto = useCallback((handle, direction, axis, offset) => {
+        if (!surface || !surface.projectSection || handle == null) {
+            setError('drawings.projectSection unavailable');
+            return null;
+        }
+        const off = Number(offset);
+        const plane = {
+            origin: axisToOrigin(axis, Number.isFinite(off) ? off : 0),
+            normal: axisToNormal(axis),
+        };
+        const hatchSpec = { angle: 45, spacing: 4, thickness: 0.4 };
+        try {
+            const packed = surface.projectSection(handle, direction, plane, hatchSpec);
+            const v = packedSectionToView2D(packed);
+            setView(v);
+            setError(null);
+            if (v && surface.emitSVG) {
+                try { setSvg(surface.emitSVG(v)); } catch { setSvg(''); }
+            }
+            return v;
+        } catch (ex) { setError(String(ex.message || ex)); return null; }
+    }, [surface]);
+
     // Auto-project once the model handle is known, and whenever the view
     // direction changes — so opening the workbench shows a drawing at once.
+    // PUSH-62: only auto-runs the projection branch; entering Section
+    // mode is an explicit user action, so we don't re-cut on every dir
+    // change until the user clicks Project view.
     useEffect(() => {
-        if (box != null) projectInto(box, dir);
-    }, [box, dir, projectInto]);
+        if (box != null && mode === 'projection') projectInto(box, dir);
+    }, [box, dir, mode, projectInto]);
 
-    const onProject = useCallback(() => { projectInto(box, dir); }, [projectInto, box, dir]);
+    const onProject = useCallback(() => {
+        if (mode === 'section') {
+            projectSectionInto(box, dir, secAxis, secOffset);
+        } else {
+            projectInto(box, dir);
+        }
+    }, [mode, projectInto, projectSectionInto, box, dir, secAxis, secOffset]);
 
     const onEmitDXF = useCallback(() => {
         if (!surface || !surface.emitDXF || !view) return;
@@ -200,6 +345,18 @@ export function DrawingsHLRWorkbench({ onClose }) {
                     Native HLR via HLRBRep_Algo + DXF R12 / SVG emit.
                 </div>
 
+                {/* PUSH-62 — Mode toggle. Section reveals the cutting-plane editor. */}
+                <div style={{ marginTop: 4 }}>
+                    <label>Mode: </label>
+                    <select data-testid="forge-drawingshlr-mode"
+                        value={mode} onChange={(e) => setMode(e.target.value)}
+                        style={{ background: '#0e1014', color: '#dadde2',
+                                 border: '1px solid #2a2d34', borderRadius: 4 }}>
+                        <option value="projection">Projection (HLR)</option>
+                        <option value="section">Section (cutting plane)</option>
+                    </select>
+                </div>
+
                 <div style={{ marginTop: 4 }}>
                     <label>View direction: </label>
                     <select data-testid="forge-drawingshlr-direction"
@@ -210,11 +367,40 @@ export function DrawingsHLRWorkbench({ onClose }) {
                     </select>
                 </div>
 
+                {/* PUSH-62 — cutting-plane editor (axis + offset). Only
+                    visible in section mode so projection mode UI stays
+                    pixel-identical to PUSH-05. */}
+                {mode === 'section' && (
+                    <div data-testid="forge-drawingshlr-section-controls" style={{
+                        marginTop: 6, padding: 6, background: '#0e1014',
+                        border: '1px solid #2a2d34', borderRadius: 4,
+                        display: 'flex', gap: 8, alignItems: 'center',
+                    }}>
+                        <label>Axis: </label>
+                        <select data-testid="forge-drawingshlr-section-axis"
+                            value={secAxis} onChange={(e) => setSecAxis(e.target.value)}
+                            style={{ background: '#0e1014', color: '#dadde2',
+                                     border: '1px solid #2a2d34', borderRadius: 4 }}>
+                            <option value="X">X (YZ-plane cut)</option>
+                            <option value="Y">Y (XZ-plane cut)</option>
+                            <option value="Z">Z (XY-plane cut)</option>
+                        </select>
+                        <label>Offset (mm): </label>
+                        <input data-testid="forge-drawingshlr-section-offset"
+                            type="number" step="0.5"
+                            value={secOffset}
+                            onChange={(e) => setSecOffset(parseFloat(e.target.value))}
+                            style={{ width: 70, background: '#0e1014', color: '#dadde2',
+                                     border: '1px solid #2a2d34', borderRadius: 4,
+                                     padding: '2px 4px' }} />
+                    </div>
+                )}
+
                 <button data-testid="forge-drawingshlr-project" onClick={onProject}
                     style={{ marginTop: 6, padding: '6px 10px', background: '#2c4d2a',
                              color: '#dfeedd', border: '1px solid #3a6738',
                              borderRadius: 4, cursor: 'pointer' }}>
-                    Project view
+                    {mode === 'section' ? 'Project section' : 'Project view'}
                 </button>
 
                 {view && (
@@ -224,6 +410,14 @@ export function DrawingsHLRWorkbench({ onClose }) {
                     }}>
                         <div>Visible edges: <span data-testid="forge-drawingshlr-visible-count">{view.visibleEdges?.length ?? 0}</span></div>
                         <div>Hidden edges: <span data-testid="forge-drawingshlr-hidden-count">{view.hiddenEdges?.length ?? 0}</span></div>
+                        {/* PUSH-62 — section-only counters, surfaced only when
+                            the active view came from projectSection. */}
+                        {mode === 'section' && (
+                            <>
+                                <div>Cut wires: <span data-testid="forge-drawingshlr-cut-count">{view._sectionCutCount ?? 0}</span></div>
+                                <div>Hatch lines: <span data-testid="forge-drawingshlr-hatch-count">{view._sectionHatchCount ?? 0}</span></div>
+                            </>
+                        )}
                         <div>BBox: <span data-testid="forge-drawingshlr-bbox">
                             x [{view.bbox?.minX?.toFixed(1)} → {view.bbox?.maxX?.toFixed(1)}]
                             y [{view.bbox?.minY?.toFixed(1)} → {view.bbox?.maxY?.toFixed(1)}]
