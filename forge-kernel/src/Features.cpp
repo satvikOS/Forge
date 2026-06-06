@@ -54,8 +54,10 @@
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Solid.hxx>
 #include <TopoDS_Wire.hxx>
+#include <gp.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
 #include <gp_Dir.hxx>
 #include <gp_GTrsf.hxx>
 #include <gp_Pln.hxx>
@@ -153,6 +155,85 @@ ShapeHandle extrudeProfile(SketchHandle sketch, double distance,
     mk.Build();
     if (!mk.IsDone()) {
         throw std::runtime_error("forge.part.extrudeProfile: prism build failed");
+    }
+    return ShapeRegistry::instance().add(mk.Shape());
+}
+
+// ===================================================== extrudeProfileOnPlane
+//
+// Sketch-on-face (#216). The sketcher works in a local 2D frame whose
+// entities `extractWires` emits on the world Z=0 plane. To honour a sketch
+// placed on an arbitrary plane — e.g. the top face of a deck plate — we
+// relocate that local profile onto the target plane via a rigid
+// transform, then extrude along the plane normal.
+//
+//   origin  : world point that the local (0,0) maps to (face centroid).
+//   normal  : plane normal — also the +extrude direction (unit, but we
+//             normalise defensively).
+//   uDir    : the local +X (u) axis direction in world space. Must not be
+//             parallel to normal; we re-orthogonalise to be safe.
+//   distance: extrude length (mm, > 0).
+//   sign    : +1 extrudes along +normal (boss), -1 along -normal (the
+//             "cut into the face" direction). Magnitude ignored.
+//
+// The returned solid is positioned in world space ready to be fused/cut
+// against the body the face belongs to — that boolean is the caller's
+// choice (Add/Cut/Intersect), mirroring extrudeProfile + the JS op switch.
+ShapeHandle extrudeProfileOnPlane(SketchHandle sketch, double distance,
+                                  double ox, double oy, double oz,
+                                  double nx, double ny, double nz,
+                                  double ux, double uy, double uz,
+                                  double sign) {
+    requirePositive(distance, "extrude distance");
+
+    // --- normalise + orthonormalise the target frame --------------------
+    gp_Vec n(nx, ny, nz);
+    if (n.Magnitude() < Precision::Confusion()) {
+        throw std::invalid_argument(
+            "forge.part.extrudeProfileOnPlane: plane normal is zero");
+    }
+    n.Normalize();
+
+    gp_Vec u(ux, uy, uz);
+    // If uDir is unusable (zero or parallel to n), synthesise a stable one.
+    if (u.Magnitude() < Precision::Confusion() ||
+        u.Crossed(n).Magnitude() < 1.0e-7) {
+        // Pick the world axis least aligned with n, project out n.
+        const double ax = std::abs(n.X()), ay = std::abs(n.Y()), az = std::abs(n.Z());
+        gp_Vec seed = (ax <= ay && ax <= az) ? gp_Vec(1, 0, 0)
+                    : (ay <= az)             ? gp_Vec(0, 1, 0)
+                                             : gp_Vec(0, 0, 1);
+        u = seed - n.Multiplied(seed.Dot(n));
+    } else {
+        // Project uDir onto the plane so it is exactly perpendicular to n.
+        u = u - n.Multiplied(u.Dot(n));
+    }
+    u.Normalize();
+
+    // --- build the local profile (Z=0) then rigidly relocate it ----------
+    TopoDS_Wire w = firstWire(sketch, "extrudeProfileOnPlane");
+    TopoDS_Face f = faceFromWire(w);
+
+    // Target frame: gp_Ax3 with origin, normal (Z), and uDir (X). gp_Trsf
+    // SetTransformation maps the *global* frame onto this Ax3, i.e. local
+    // (x,y,0) -> origin + x*u + y*v with v = n × u (right-handed).
+    gp_Ax3 dstFrame(gp_Pnt(ox, oy, oz), gp_Dir(n), gp_Dir(u));
+    gp_Trsf place;
+    place.SetTransformation(dstFrame, gp_Ax3(gp::XOY()));
+    BRepBuilderAPI_Transform mover(f, place, /*copy*/ Standard_True);
+    if (!mover.IsDone()) {
+        throw std::runtime_error(
+            "forge.part.extrudeProfileOnPlane: profile relocation failed");
+    }
+    TopoDS_Shape placedFace = mover.Shape();
+
+    const double s = (sign < 0.0) ? -1.0 : 1.0;
+    gp_Vec dir(n.Multiplied(s * distance));
+    BRepPrimAPI_MakePrism mk(placedFace, dir);
+    mk.Build();
+    if (!mk.IsDone()) {
+        throw std::runtime_error(
+            "forge.part.extrudeProfileOnPlane: prism build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
 }

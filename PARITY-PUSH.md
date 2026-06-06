@@ -6,8 +6,8 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
 | 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 35 % | — |
-| 2 | Solid modeling ops | 8 % | 80 % | 8 % | — |
-| 3 | Sketch / 2D constraints | 18 % | 80 % | 18 % | — |
+| 2 | Solid modeling ops | 8 % | 80 % | 14 % | PUSH-32 (extrude-cut on face) |
+| 3 | Sketch / 2D constraints | 18 % | 80 % | 30 % | PUSH-32 (sketch-on-face #216) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 4 % | — |
 | 5 | Drawings / 2D output | 3 % | 80 % | 3 % | — |
 | 6 | Sheet metal | 0 % | 80 % | 0 % | — |
@@ -37,3 +37,27 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-32 — Sketch-on-face (#216) [2026-06-06]
+- **Dimensions touched**: #3 Sketch/2D (sketch-on-arbitrary-plane), #2 Solid
+  modeling (extrude-cut on a model face — the SW newcomer workflow).
+- **Kernel**: new `forge::part::extrudeProfileOnPlane(sketch, distance,
+  origin, normal, uDir, sign)` — relocates the local 2D profile onto an
+  arbitrary world plane via `gp_Trsf`/`gp_Ax3` and extrudes along the normal
+  (+sign boss / -sign cut). Real OCCT geometry, verified: tilted/offset/wall
+  planes all place + extrude exactly; cut(plate, face-bore) = 931 725.67 mm³
+  (= 200×120×40 − π·15²·40, exact).
+- **Wiring**: preload exposes part.extrudeProfileOnPlane (was the missing
+  link — contextBridge whitelist); sketchSession.js carries a custom plane
+  frame {origin,normal,u,v} + deriveFacePlane() (kernel inferFeature →
+  top-face plane); ForgeShellV4 'Top face of body' opens a sketch ON the
+  picked/last body's top face; kernelDispatch solid.extrude uses the frame +
+  honors Cut/Add/Intersect. Fixed: sketch.new/finish no longer swallowed by
+  the entity-tool branch when a finished session lingers.
+- **Hooks**: window.__forgeSelect, window.__forgeCurrentSketch.
+- **E2E**: e2e/push-32-sketch-on-face.spec.js (headed, MP4) — builds a
+  200×120×40 plate, opens a sketch on its TOP face (asserts custom plane,
+  origin z≈40, normal≈+Z), bores Ø30 through with extrude-CUT, asserts final
+  body volume dropped by the bore volume. 6/6 pass.
+- **CI**: see commit push.
+

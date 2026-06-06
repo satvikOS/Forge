@@ -113,12 +113,27 @@ function callNative(toolId, p, ctx) {
           const isDown = (p.direction || '').startsWith('Down');
           const isBoth = (p.direction || '').startsWith('Both');
           const dir = isBoth ? [0, 0, 0] : (isDown ? [0, 0, -1] : [0, 0, 1]);
-          const newBody = f.part.extrudeProfile(ctx.currentSketch, MM(p.distance, 25), dir);
+          let newBody;
+          // Sketch-on-face (#216) — when the sketch sits on a custom
+          // (face-derived) plane, extrude along that plane's NORMAL via
+          // part.extrudeProfileOnPlane so the boss/cut grows off the real
+          // face instead of world +Z. `sign` selects boss (+normal, Up)
+          // vs cut-into-face (-normal, Down).
+          const frame = ctx.currentSketchFrame;
+          if (frame && f.part.extrudeProfileOnPlane) {
+            const sign = isDown ? -1 : 1;
+            newBody = f.part.extrudeProfileOnPlane(
+              ctx.currentSketch, MM(p.distance, 25),
+              frame.origin, frame.normal, frame.u, sign);
+          } else {
+            newBody = f.part.extrudeProfile(ctx.currentSketch, MM(p.distance, 25), dir);
+          }
           // PUSH-31 — honor the Operation dropdown (Cut/Add/Intersect)
           // so the deck plate keeps ONE body with bores carved into it
           // instead of N overlapping cylinders. Without this the V12
           // renders as a striped blob; with it, you get a real engine
-          // block silhouette.
+          // block silhouette. For sketch-on-face cuts, this is exactly
+          // the classic "extrude-cut on the top face" workflow.
           const op = (p.op || '').toLowerCase();
           const prev = pickPrevNative(ctx);
           if (typeof newBody === 'number' && typeof prev === 'number' && op !== 'new body' && op !== '') {

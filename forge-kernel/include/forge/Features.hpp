@@ -26,6 +26,17 @@ namespace forge { namespace part {
 ShapeHandle extrudeProfile(SketchHandle sketch, double distance,
                            double dirX, double dirY, double dirZ);
 
+// Sketch-on-face (#216) — place the sketch profile on an arbitrary world
+// plane (origin + normal + uDir) and extrude along the normal. `sign`
+// selects +normal (boss) or -normal (cut-into-face) direction. The result
+// is positioned in world space; the caller chooses any boolean against the
+// target body.
+ShapeHandle extrudeProfileOnPlane(SketchHandle sketch, double distance,
+                                  double ox, double oy, double oz,
+                                  double nx, double ny, double nz,
+                                  double ux, double uy, double uz,
+                                  double sign);
+
 ShapeHandle revolveProfile(SketchHandle sketch,
                            double ox, double oy, double oz,
                            double dx, double dy, double dz,

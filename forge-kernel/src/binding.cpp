@@ -3461,6 +3461,21 @@ Napi::Value PartExtrudeProfile(const Napi::CallbackInfo& info) {
     });
 }
 
+Napi::Value PartExtrudeProfileOnPlane(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto sk = requireHandle(info, 0);
+        double dist = requireNumber(info, 1, "distance");
+        auto o = part_bind::readVec3(info, 2, "origin");
+        auto n = part_bind::readVec3(info, 3, "normal");
+        auto u = part_bind::readVec3(info, 4, "uDir");
+        double sign = info.Length() > 5 && info[5].IsNumber()
+                          ? info[5].As<Napi::Number>().DoubleValue() : 1.0;
+        return Napi::Number::New(info.Env(),
+            forge::part::extrudeProfileOnPlane(sk, dist,
+                o[0], o[1], o[2], n[0], n[1], n[2], u[0], u[1], u[2], sign));
+    });
+}
+
 Napi::Value PartRevolveProfile(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto sk = requireHandle(info, 0);
@@ -4794,6 +4809,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     // -------- part features (Forge-22) ----------------------------------
     auto part = Napi::Object::New(env);
     part.Set("extrudeProfile",      Napi::Function::New(env, PartExtrudeProfile));
+    part.Set("extrudeProfileOnPlane", Napi::Function::New(env, PartExtrudeProfileOnPlane));
     part.Set("revolveProfile",      Napi::Function::New(env, PartRevolveProfile));
     part.Set("sweep",               Napi::Function::New(env, PartSweep));
     part.Set("loft",                Napi::Function::New(env, PartLoft));

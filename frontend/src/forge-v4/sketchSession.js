@@ -14,14 +14,107 @@ const PLANES = {
   XZ: { origin: [0, 0, 0], normal: [0, 1, 0], u: [1, 0, 0], v: [0, 0, 1] },
 };
 
+// Sketch-on-face (#216) — derive a full orthonormal plane frame
+// {origin, normal, u, v} from a named world plane OR a custom face-derived
+// frame. A custom frame is any object carrying at least {origin, normal};
+// u/v are synthesised when absent so the viewport overlay and the kernel
+// agree on the same basis.
+function normalize3(a) {
+  const m = Math.hypot(a[0], a[1], a[2]) || 1;
+  return [a[0] / m, a[1] / m, a[2] / m];
+}
+function cross3(a, b) {
+  return [a[1] * b[2] - a[2] * b[1],
+          a[2] * b[0] - a[0] * b[2],
+          a[0] * b[1] - a[1] * b[0]];
+}
+function dot3(a, b) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+
+// Build a stable {origin,normal,u,v} frame from a partial spec. Mirrors the
+// kernel's extrudeProfileOnPlane orthonormalisation so JS overlay lift and
+// the OCCT placement land in exactly the same spot.
+export function frameFromSpec(spec) {
+  const origin = spec.origin || [0, 0, 0];
+  const normal = normalize3(spec.normal || [0, 0, 1]);
+  let u = spec.u;
+  if (!u || Math.hypot(...cross3(u, normal)) < 1e-7) {
+    const ax = Math.abs(normal[0]), ay = Math.abs(normal[1]), az = Math.abs(normal[2]);
+    const seed = (ax <= ay && ax <= az) ? [1, 0, 0]
+               : (ay <= az)             ? [0, 1, 0]
+                                        : [0, 0, 1];
+    const d = dot3(seed, normal);
+    u = [seed[0] - normal[0] * d, seed[1] - normal[1] * d, seed[2] - normal[2] * d];
+  } else {
+    const d = dot3(u, normal);
+    u = [u[0] - normal[0] * d, u[1] - normal[1] * d, u[2] - normal[2] * d];
+  }
+  u = normalize3(u);
+  const v = cross3(normal, u); // right-handed, matches gp_Ax3(origin, n, u)
+  return { origin, normal, u, v };
+}
+
+// Resolve a sketch session's plane (named string OR custom frame object)
+// to a full frame for lifting/extruding.
+function planeFrame(plane) {
+  if (plane && typeof plane === 'object') return frameFromSpec(plane);
+  return PLANES[plane] || PLANES.XY;
+}
+
 function lift(pt2, plane) {
   const [u, v] = pt2;
-  const p = PLANES[plane] || PLANES.XY;
+  const p = planeFrame(plane);
   return [
     p.origin[0] + p.u[0] * u + p.v[0] * v,
     p.origin[1] + p.u[1] * u + p.v[1] * v,
     p.origin[2] + p.u[2] * u + p.v[2] * v,
   ];
+}
+
+// Public: resolve a session's plane to its world frame {origin,normal,u,v}.
+// Used by the extrude path to call part.extrudeProfileOnPlane so a
+// face-placed sketch produces a solid on that face (not world Z=0).
+export function planeFrameOf(session) {
+  return planeFrame(session?.plane);
+}
+
+// Public: true when the session is sketched on a custom (face-derived)
+// plane rather than a named world plane. World XY can use the simple
+// extrudeProfile path; everything else must use extrudeProfileOnPlane.
+export function isCustomPlane(session) {
+  return !!session && typeof session.plane === 'object' && session.plane !== null;
+}
+
+// Sketch-on-face (#216) — derive a sketch plane frame from a kernel body's
+// face. `faceId` is the 1-based OCCT face index; when omitted we auto-pick
+// the body's TOP face (planar, normal closest to +Z, highest centroid Z) —
+// the deck-plate-top workflow the user called out. Returns a frame spec
+// {origin, normal, u} ready to pass to openSession, or null if the body has
+// no usable planar face / the kernel introspection is unavailable.
+export function deriveFacePlane(bodyHandle, faceId = null) {
+  if (typeof window === 'undefined' || !window.forge?.direct?.inferFeature) return null;
+  const D = window.forge.direct;
+  try {
+    if (faceId != null) {
+      const fi = D.inferFeature(bodyHandle, faceId);
+      if (!fi || !fi.normal) return null;
+      return { origin: fi.centroid, normal: fi.normal, faceId };
+    }
+    const n = D.faceCount(bodyHandle);
+    let best = null, bestScore = -Infinity;
+    for (let i = 1; i <= n; i++) {
+      let fi;
+      try { fi = D.inferFeature(bodyHandle, i); } catch { continue; }
+      if (!fi || (fi.label && !/planar/i.test(fi.label))) continue;
+      // Prefer faces whose normal points up (+Z) and that sit highest.
+      const upDot = fi.normal[2];                 // alignment with +Z
+      const score = upDot * 1000 + fi.centroid[2]; // up-facing then highest
+      if (upDot > 0.5 && score > bestScore) { bestScore = score; best = { fi, i }; }
+    }
+    if (!best) return null;
+    return { origin: best.fi.centroid, normal: best.fi.normal, faceId: best.i };
+  } catch {
+    return null;
+  }
 }
 
 function hasSketcher() {

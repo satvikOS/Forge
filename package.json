@@ -13,7 +13,8 @@
     "electron:build:win": "cd frontend && npx vite build && npx electron-builder --win --x64",
     "electron:start": "npx electron .",
     "vercel-build": "cd frontend && npm run build",
-    "forge:kernel": "cd forge-kernel && ../node_modules/.bin/cmake-js configure --CDCMAKE_BUILD_TYPE=Release && ../node_modules/.bin/cmake-js build",
+    "forge:kernel": "cd forge-kernel && ../node_modules/.bin/cmake-js configure --CDCMAKE_BUILD_TYPE=Release && ../node_modules/.bin/cmake-js build --parallel 10",
+    "forge:kernel:build": "cd forge-kernel && ../node_modules/.bin/cmake-js build --parallel 10",
     "forge:kernel:test": "node forge-kernel/test/smoke.js && node forge-kernel/test/bench_100k.js && node forge-kernel/test/part_features_smoke.js && node forge-kernel/test/sheet_metal_smoke.js && node forge-kernel/test/weldments_smoke.js",
     "forge:bridge:test": "node forge-kernel/test/bridge_smoke.js"
   },

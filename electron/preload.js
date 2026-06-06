@@ -1329,6 +1329,11 @@ const forgeApi = {
   part: kernel && kernel.part ? {
     extrudeProfile:     (sk, distance, direction) =>
       kernel.part.extrudeProfile(sk, distance, direction),
+    // Sketch-on-face (#216) — place the sketch profile on an arbitrary
+    // world plane (origin + normal + uDir) and extrude along the normal.
+    // `sign` = +1 boss / -1 cut-into-face.
+    extrudeProfileOnPlane: (sk, distance, origin, normal, uDir, sign) =>
+      kernel.part.extrudeProfileOnPlane(sk, distance, origin, normal, uDir, sign),
     revolveProfile:     (sk, axisOrigin, axisDir, angleRad) =>
       kernel.part.revolveProfile(sk, axisOrigin, axisDir, angleRad),
     sweep:              (profileSk, pathSk, withGuides) =>

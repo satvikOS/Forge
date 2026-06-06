@@ -169,6 +169,13 @@ export function ForgeShellV4() {
     window.__forgeBodies      = bodies;
     window.__forgeFeatureTree = featureTree;
     window.__forgeSelection   = selection;
+    // Selection setter — lets the viewport picker (and e2e) drive the
+    // shell's selection without poking React state directly. Mirrors the
+    // onSelect handler the viewport already calls.
+    window.__forgeSelect = (sel) => setSelection(sel);
+    // Sketch-on-face (#216) — expose the active sketch session so the
+    // dispatch/overlay and tooling can read its plane frame.
+    window.__forgeCurrentSketch = currentSketch;
     window.__forgeActiveWb    = activeWb;
     window.__forgeTheme       = theme;
     // setter so loaders can replace the scene from disk. Forge-177 — switched
@@ -203,7 +210,7 @@ export function ForgeShellV4() {
       featureTree,
       viewState: { activeWb, theme, viewName, displayState },
     }, 3000);
-  }, [bodies, featureTree, selection, activeWb, theme]);
+  }, [bodies, featureTree, selection, activeWb, theme, currentSketch]);
 
   // Forge-183 — autosave window APIs + periodic 30 s timer.
   useEffect(() => {
@@ -2779,7 +2786,14 @@ export function ForgeShellV4() {
                          // not the body dispatch. Tools mutate `currentSketch` and
                          // append a feature node so the user sees their entity in
                          // the tree, but produce no body.
-                         if (tool.startsWith('sketch.') && currentSketch) {
+                         // NOTE: sketch.new / sketch.finish are lifecycle tools, not
+                         // entity tools — they must fall through to their dedicated
+                         // handlers below even when a (stale/finished) session is
+                         // still referenced by `currentSketch`. Without this guard,
+                         // opening a new sketch after finishing one was silently
+                         // swallowed here (sketch-on-face #216 regression).
+                         if (tool.startsWith('sketch.') && currentSketch
+                             && tool !== 'sketch.new' && tool !== 'sketch.finish') {
                            if (tool === 'sketch.line')
                              Sketch.addLine(currentSketch, params.p0?.[0] ?? 0, params.p0?.[1] ?? 0,
                                             params.p1?.[0] ?? 10, params.p1?.[1] ?? 0);
@@ -2821,28 +2835,44 @@ export function ForgeShellV4() {
                          // the forge:menu-action channel.
                          if (tool === 'sketch.new') {
                            const planeRaw = (params?.plane || 'XY').toString();
-                           // Normalise: 'Top face of body' is a future ref-pick
-                           // mode; for now fall back to XY with a warning so
-                           // the user gets feedback instead of a silent fail.
+                           // Sketch-on-face (#216) — 'Top face of body' (and
+                           // any face-style option) now derives a REAL plane
+                           // frame from the target body's top face via the
+                           // kernel (direct.inferFeature), so the sketch opens
+                           // ON that face. Falls back to XY only when there's
+                           // no body / no usable planar face.
                            let plane = 'XY';
+                           let planeLabel = 'XY';
                            if (planeRaw === 'YZ' || planeRaw === 'XZ' || planeRaw === 'XY') {
                              plane = planeRaw;
+                             planeLabel = planeRaw;
                            } else if (/top|bottom|face/i.test(planeRaw)) {
-                             showToast({ kind: 'warn',
-                               text: 'Sketch on face needs a ref pick — falling back to XY',
-                               ttl: 1500 });
+                             const lastNative = [...bodies].reverse().find((b) => b.kind === 'native');
+                             const tgt = (selection?.kind === 'body' && selection.ids?.length)
+                               ? bodies.find((b) => b.kind === 'native' &&
+                                   (b.handle === selection.ids[0] || b.id === selection.ids[0]))
+                               : lastNative;
+                             const frameSpec = tgt ? Sketch.deriveFacePlane(tgt.handle) : null;
+                             if (frameSpec) {
+                               plane = frameSpec;                    // custom frame object
+                               planeLabel = `face of ${tgt.name || ('body ' + tgt.handle)}`;
+                             } else {
+                               showToast({ kind: 'warn',
+                                 text: 'No body face to sketch on — falling back to XY',
+                                 ttl: 1600 });
+                             }
                            }
                            const next = Sketch.openSession(plane);
                            setCurrentSketch(next);
                            setSketchActive(true);
                            setFeatureTree((t) => [...t, {
-                             id: nextId, label: `Sketch ${featureTree.length + 1} (${plane})`,
+                             id: nextId, label: `Sketch ${featureTree.length + 1} (${planeLabel})`,
                              icon: 'sketch.rect', params,
                            }]);
                            setActiveFeatureId(nextId);
                            setActiveTool(null);
                            showToast({ kind: 'ok',
-                             text: `Sketch opened on ${plane} (handle ${next.kernel ?? 'n/a'})`,
+                             text: `Sketch opened on ${planeLabel} (handle ${next.kernel ?? 'n/a'})`,
                              ttl: 1200 });
                            return;
                          }
@@ -2880,6 +2910,13 @@ export function ForgeShellV4() {
                            lastBody: lastNative ? lastNative.handle : null,
                            selectedBodies: selHandles?.length ? selHandles : null,
                            currentSketch: currentSketch?.kernel ?? null,
+                          // Sketch-on-face (#216) — when the active sketch is
+                          // on a custom (face-derived) plane, hand the dispatch
+                          // its world frame so solid.extrude uses
+                          // part.extrudeProfileOnPlane and the solid lands on
+                          // that face instead of world Z=0.
+                          currentSketchFrame: (currentSketch && typeof currentSketch.plane === 'object')
+                            ? Sketch.planeFrameOf(currentSketch) : null,
                            // PUSH-31 — pass full bodies list so dispatchers
                            // can fall back to (e.g.) the last two native
                            // bodies for boolean ops when no ref is picked.
