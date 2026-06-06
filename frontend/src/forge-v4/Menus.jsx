@@ -133,6 +133,9 @@ export const MENU_SPEC = {
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },
       // PUSH-58 — Mass Properties inspector (kernel mass/area/COM × material).
       { id: 'tools.massprops',   label: 'Mass Properties…',  icon: 'measure.mass' },
+      // PUSH-59 — Assembly Interference Detection panel (pairwise OCCT
+      // BRepAlgoAPI_Common with volume readout per colliding pair).
+      { id: 'tools.interference', label: 'Interference Detection…', icon: 'measure.interfere' },
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
