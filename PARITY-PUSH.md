@@ -15,11 +15,11 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 8 | Mold / casting / tooling | 0 % | 80 % | 12 % | PUSH-44 (parting + cavity/core split) |
 | 9 | Routing (piping / cable) | 0 % | 80 % | 12 % | PUSH-45 (A* route → 3D pipe solid) |
 | 10 | CAM / manufacturing | 0 % | 80 % | 15 % | PUSH-46 (real toolpath gen proven) |
-| 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 3 % | — |
-| 12 | PMI / GD&T | 0 % | 80 % | 0 % | — |
+| 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 18 % | PUSH-48 (FEA workbench mounted + static solve proven) |
+| 12 | PMI / GD&T | 0 % | 80 % | 14 % | PUSH-47 (tolerance stack-up reachable + proven) |
 | 13 | Standard parts libs | 4 % | 80 % | 4 % | — |
 | 14 | PDM / PLM | 0 % | 80 % | 0 % | — |
-| 15 | Generative / topology | 0 % | 80 % | 0 % | — |
+| 15 | Generative / topology | 0 % | 80 % | 16 % | PUSH-49/50 (topology materialise + TPMS lattice) |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
 | 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 20 % | PUSH-36 (Bodies panel) |
 | 18 | API / customization | 5 % | 80 % | 5 % | — |
@@ -37,6 +37,54 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-50 — Lattice/Metamaterial (TPMS) proven + OCCT-reject fallback [2026-06-06]
+- **Dimensions touched**: #15 Generative/topology.
+- **Gap**: LatticeWorkbench (TPMS + strut generators, Gibson-Ashby model) was
+  mounted, wired, menu-reachable but unproven. Locking it in surfaced a real
+  bug: TPMS triangle soups are non-manifold → OCCT's STL reader throws
+  "BRep_API: command not done" inside createLatticeBody, propagating out and
+  failing the whole generate.
+- **Fix**: wrap the STL→importStl round-trip in try/catch; on OCCT reject, fall
+  back to a synthetic body that renders directly from mesh.positions.
+- **E2E**: push-50-lattice.spec.js (headed, MP4, 4/4) — generate gyroid → real
+  rho_rel, 10041 tris, Gibson-Ashby E_eff 26.6 GPa, body commits + renders
+  (15 meshes), accepts native OR synthetic-fallback. CI green (after re-run of
+  a transient macOS artifact-upload ENOTFOUND flake).
+
+### PUSH-49 — Topology Optimisation: materialise density field → real solid [2026-06-06]
+- **Dimensions touched**: #15 Generative/topology.
+- **Gap**: SIMP optimiser (runCantileverSIMP) ran but only displayed a density
+  report + histogram — nothing visible, no usable geometry.
+- **Fix**: "Materialise → solid" — marching-cubes the densitiesCube at the VF
+  iso level (extractIsoSurface + smoothGridField), STL round-trip through
+  io.writeTmpStl + io.importStl, commit via __forgeAppendBody. De-conflicted
+  the duplicate tools.topology menu id (SIMP → tools.topoOpt; Inspector keeps
+  tools.topology).
+- **E2E**: push-49-topology.spec.js (headed, MP4, 5/5) — Run SIMP (12 iters,
+  192 cells, compliance 6.6) → Materialise → |volume| 3053 mm³, 136-tri iso
+  mesh, renders. CI green.
+
+### PUSH-48 — Simulation (FEA/CFD): orphaned workbench mounted + proven [2026-06-06]
+- **Dimensions touched**: #11 Simulation, #17 UI/UX.
+- **Gap**: the 1274-line SimulationWorkbench (10 study types, 8 materials,
+  loads/BCs, result viewers) was completely orphaned — never imported/mounted,
+  no Host, absent from Menus.
+- **Fix**: SimulationWorkbenchHost (portal + active-body sourcing) mounted in
+  App.jsx; tools.simulation Menus entry + ForgeShellV4 dispatch.
+- **E2E**: push-48-simulation.spec.js (headed, MP4, 5/5) — seed SI-metre
+  cantilever, mesh (325 nodes/192 elems), static solve converged (residual
+  5.5e-11), kernel cross-check maxVonMises 26.2. CI green.
+
+### PUSH-47 — Tolerance Stack-up reachable + proven [2026-06-06]
+- **Dimensions touched**: #12 PMI/GD&T, #17 UI/UX.
+- **Gap**: ToleranceStackWorkbench was mounted + wired but absent from the
+  Menus spec → unreachable from global search.
+- **Fix**: add tools.tolerance to Menus.jsx MENU_SPEC.
+- **E2E**: push-47-tolerance.spec.js (headed, MP4, 5/5) — open workbench,
+  auto-compute default chain (worst-case 39.8→40.2, RSS Cpk 2.0, MC yield
+  100%), direct kernel cross-check 30±0.3 Cpk 2.236. CI green.
+
 
 ### PUSH-46 — CAM: real toolpath generation proven [2026-06-06]
 - **Dimensions touched**: #10 CAM (0→15%).

@@ -138,6 +138,8 @@ export const MENU_SPEC = {
       { id: 'tools.generative',    label: 'Generative Design…', icon: 'wb.sim' },
       { id: 'tools.bom',          label: 'Bill of Materials…',   icon: 'measure.mass' },
       { id: 'tools.pdm',          label: 'Product Data Management…', icon: 'misc.settings' },
+      // PUSH-14/51 — real JSON-backed PDM vault (check-in/out, revisions, ECN).
+      { id: 'tools.pdmvault',     label: 'PDM Vault (check-in/out)…', icon: 'misc.settings' },
       { id: 'tools.configurations', label: 'Configurations…',    icon: 'misc.settings' },
       { id: 'tools.skeleton',     label: 'Master Skeleton…',     icon: 'sketch.line' },
       { id: 'tools.scenarios',    label: 'Scenario Runner…',     icon: 'wb.sim' },

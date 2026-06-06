@@ -10,6 +10,22 @@ import { createPortal } from 'react-dom';
 
 const FONT = 'system-ui, sans-serif';
 
+// Browser-safe UTF-8 → base64. The renderer has no Node Buffer, so a bare
+// `Buffer.from(...)` throws ReferenceError ("Buffer is not defined") — encode
+// via TextEncoder + btoa instead so Add / Check-in work in the Electron
+// renderer context.
+function toBase64(str) {
+    try {
+        const bytes = new TextEncoder().encode(str);
+        let bin = '';
+        for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+        return btoa(bin);
+    } catch (_e) {
+        // Last-resort ASCII fallback.
+        return btoa(unescape(encodeURIComponent(str)));
+    }
+}
+
 async function callPdm(method, payload) {
     const api = (typeof window !== 'undefined') ? window.forge && window.forge.pdm : null;
     if (!api || typeof api[method] !== 'function') {
@@ -53,9 +69,7 @@ export function PDMWorkbenchHost() {
     const doAddSample = async () => {
         try {
             setBusy(true);
-            const samplePayload = Buffer.from
-                ? Buffer.from(`ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('${newDocName}'),'2;1');\nFILE_NAME('${newDocName}', '${new Date().toISOString()}',(),(),'','','');\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;`).toString('base64')
-                : btoa(`ISO-10303-21;\n${newDocName}\nENDSEC;`);
+            const samplePayload = toBase64(`ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION(('${newDocName}'),'2;1');\nFILE_NAME('${newDocName}', '${new Date().toISOString()}',(),(),'','','');\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;`);
             const ext = newDocName.split('.').pop() || 'bin';
             const meta = await callPdm('add', { name: newDocName, extension: ext, payloadBase64: samplePayload, user });
             await refresh();
@@ -74,9 +88,7 @@ export function PDMWorkbenchHost() {
     const doCheckin = async (docId) => {
         try {
             setBusy(true);
-            const payload = Buffer.from
-                ? Buffer.from(`v2 payload ${new Date().toISOString()}`).toString('base64')
-                : btoa(`v2 payload ${new Date().toISOString()}`);
+            const payload = toBase64(`v2 payload ${new Date().toISOString()}`);
             await callPdm('checkin', { docId, user, payloadBase64: payload, comment });
             await refresh();
             setError(null);
