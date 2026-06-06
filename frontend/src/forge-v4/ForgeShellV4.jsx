@@ -2932,6 +2932,15 @@ export function ForgeShellV4() {
                           // that face instead of world Z=0.
                           currentSketchFrame: (currentSketch && typeof currentSketch.plane === 'object')
                             ? Sketch.planeFrameOf(currentSketch) : null,
+                          // Slice-3 — when the user picked an edge in the
+                          // viewport (edge filter), pass its 0-based id so
+                          // fillet/chamfer round THAT edge instead of all.
+                          selectedEdges: (selection?.kind === 'edge' && typeof selection.edgeId === 'number')
+                            ? [selection.edgeId] : null,
+                          // The body the picked face/edge belongs to — lets
+                          // selection-aware ops target it directly.
+                          pickedBody: (typeof selection?.bodyHandle === 'number')
+                            ? selection.bodyHandle : null,
                            // PUSH-31 — pass full bodies list so dispatchers
                            // can fall back to (e.g.) the last two native
                            // bodies for boolean ops when no ref is picked.

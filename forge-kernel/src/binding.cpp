@@ -3239,6 +3239,29 @@ Napi::Value DirectEdgeCount(const Napi::CallbackInfo& info) {
     });
 }
 
+// Slice-3 — edge polylines for viewport edge picking. Returns
+// [{ id, points:Float32Array }] where id is the 0-based fillet/chamfer
+// edge id and points are world-space x,y,z samples along the edge.
+Napi::Value DirectEdgeSegments(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto h = requireHandle(info, 0);
+        double defl = info.Length() > 1 && info[1].IsNumber()
+                          ? info[1].As<Napi::Number>().DoubleValue() : 0.25;
+        auto edges = forge::direct::edgeSegments(h, defl);
+        auto arr = Napi::Array::New(env, edges.size());
+        for (std::size_t i = 0; i < edges.size(); ++i) {
+            auto o = Napi::Object::New(env);
+            o.Set("id", Napi::Number::New(env, static_cast<double>(edges[i].id)));
+            auto pts = Napi::Float32Array::New(env, edges[i].points.size());
+            std::copy(edges[i].points.begin(), edges[i].points.end(), pts.Data());
+            o.Set("points", pts);
+            arr.Set(i, o);
+        }
+        return arr;
+    });
+}
+
 // ----------------------------------------------------------- healing (Forge-23)
 namespace heal_bind {
 Napi::Object sewReportToJs(Napi::Env env, const forge::heal::SewReport& r) {
@@ -4873,6 +4896,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     direct.Set("inferFeature",      Napi::Function::New(env, DirectInferFeature));
     direct.Set("faceCount",         Napi::Function::New(env, DirectFaceCount));
     direct.Set("edgeCount",         Napi::Function::New(env, DirectEdgeCount));
+    direct.Set("edgeSegments",      Napi::Function::New(env, DirectEdgeSegments));
     exports.Set("direct", direct);
 
     // -------- Healing (Forge-23) — sew / fill / validity ---------------

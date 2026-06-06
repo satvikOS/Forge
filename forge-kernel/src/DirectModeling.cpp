@@ -1,7 +1,9 @@
 #include "forge/DirectModeling.hpp"
 #include "forge/Healing.hpp"
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <GCPnts_TangentialDeflection.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -128,6 +130,47 @@ std::size_t edgeCount(ShapeHandle shape) {
     TopTools_IndexedMapOfShape map;
     TopExp::MapShapes(s, TopAbs_EDGE, map);
     return static_cast<std::size_t>(map.Extent());
+}
+
+// Slice-3 edge picking — sample every edge into a world-space polyline,
+// tagged with a 0-based edge id that matches the TopExp_Explorer order
+// used by edgeById (and therefore part.filletEdges / chamferEdges /
+// varfillet). The viewport renders these as thin pickable lines; a click
+// resolves back to the edge id and feeds fillet/chamfer/dimension.
+//
+// `deflection` controls polyline density (chord tolerance, mm). Returns a
+// flat list: for each edge, { id, points:[x,y,z,...] }.
+std::vector<EdgePolyline> edgeSegments(ShapeHandle shape, double deflection) {
+    const auto& s = ShapeRegistry::instance().get(shape);
+    std::vector<EdgePolyline> out;
+    if (!(deflection > 1e-6)) deflection = 0.25;
+    std::uint32_t id = 0;  // 0-based, matches edgeById enumeration
+    for (TopExp_Explorer ex(s, TopAbs_EDGE); ex.More(); ex.Next(), ++id) {
+        const TopoDS_Edge& e = TopoDS::Edge(ex.Current());
+        EdgePolyline poly;
+        poly.id = id;
+        BRepAdaptor_Curve curve(e);
+        const double t0 = curve.FirstParameter();
+        const double t1 = curve.LastParameter();
+        if (!(t1 > t0)) {
+            // Degenerate / point edge — emit its single vertex.
+            gp_Pnt p = curve.Value(t0);
+            poly.points = { static_cast<float>(p.X()), static_cast<float>(p.Y()), static_cast<float>(p.Z()) };
+            out.push_back(std::move(poly));
+            continue;
+        }
+        GCPnts_TangentialDeflection sampler(curve, t0, t1, 0.1, deflection, 2);
+        const int n = sampler.NbPoints();
+        poly.points.reserve(static_cast<std::size_t>(n) * 3);
+        for (int i = 1; i <= n; ++i) {
+            gp_Pnt p = sampler.Value(i);
+            poly.points.push_back(static_cast<float>(p.X()));
+            poly.points.push_back(static_cast<float>(p.Y()));
+            poly.points.push_back(static_cast<float>(p.Z()));
+        }
+        out.push_back(std::move(poly));
+    }
+    return out;
 }
 
 ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {

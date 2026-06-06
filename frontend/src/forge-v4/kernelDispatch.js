@@ -59,10 +59,12 @@ function kernelReady() {
          window.forge.isReady();
 }
 
-// Resolve the operating-on body. Prefer the first item in
+// Resolve the operating-on body. Prefer an explicitly picked body
+// (face/edge pick → ctx.pickedBody), then the first item in
 // ctx.selectedBodies (user-picked), fall back to ctx.lastBody (most
 // recently created).
 function pickTarget(ctx) {
+  if (typeof ctx?.pickedBody === 'number') return ctx.pickedBody;
   const sel = ctx?.selectedBodies;
   if (Array.isArray(sel) && sel.length && typeof sel[0] === 'number') return sel[0];
   if (typeof ctx?.lastBody === 'number') return ctx.lastBody;

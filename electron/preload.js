@@ -1311,6 +1311,7 @@ const forgeApi = {
     // PUSH-31 — used by V4 shell to default fillet/chamfer to "all edges"
     // when the user invokes the toolbar tool without a selection.
     edgeCount:         (h)                              => kernel.direct.edgeCount(h),
+    edgeSegments:      (h, deflection)                  => kernel.direct.edgeSegments(h, deflection),
   } : null,
 
   // healing (Forge-23) — sew open shells, fill holes, simplify, repair, validate.

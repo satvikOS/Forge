@@ -192,6 +192,7 @@ function ViewportScene({ bundle, steps, selection, onSelect,
         <SectionGizmo THREE={THREE} plane={sectionPlane} />
       )}
       {sketchOverlay && <SketchOverlay Line={Line} overlay={sketchOverlay} ink={labelInk} />}
+      <EdgePickOverlay Line={Line} steps={steps} selection={selection} onSelect={onSelect} />
       <SceneMeshes THREE={THREE} bundle={bundle} steps={steps}
                    selection={selection} onSelect={onSelect}
                    displayState={displayState}
@@ -331,9 +332,60 @@ function SketchOverlay({ Line, overlay, ink }) {
   );
 }
 
-// Detects centerToken bumps and re-centres the camera target on origin while
-// preserving the current named view's framing direction. Eases over ~280 ms
-// so the recentre reads as a deliberate gesture, not a teleport.
+// Slice-3 edge picking — when the active selection filter is 'edge', render
+// each BREP edge of the native bodies as a pickable line. Clicking a line
+// reports {kind:'edge', bodyHandle, edgeId} so fillet/chamfer/dimension can
+// target THAT edge. A fat transparent line sits under each visible line to
+// make the ~1px edge easy to hit with the cursor.
+function EdgePickOverlay({ Line, steps, selection, onSelect }) {
+  const enabled = selection?.kind === 'edge';
+  const [edgeData, setEdgeData] = React.useState([]);
+  React.useEffect(() => {
+    if (!enabled || typeof window === 'undefined' || !window.forge?.direct?.edgeSegments) {
+      setEdgeData([]);
+      return;
+    }
+    const out = [];
+    for (const s of (steps || [])) {
+      if (s.kind !== 'native' || typeof s.handle !== 'number') continue;
+      try {
+        const segs = window.forge.direct.edgeSegments(s.handle, 0.25);
+        for (const e of segs) {
+          const pts = [];
+          const p = e.points;
+          for (let i = 0; i + 2 < p.length; i += 3) pts.push([p[i], p[i + 1], p[i + 2]]);
+          if (pts.length >= 2) out.push({ bodyHandle: s.handle, edgeId: e.id, pts });
+        }
+      } catch { /* skip bodies the kernel can't sample */ }
+    }
+    setEdgeData(out);
+  }, [enabled, steps]);
+  if (!enabled || edgeData.length === 0) return null;
+  const selEdge = (selection?.kind === 'edge' && typeof selection.edgeId === 'number')
+    ? selection.edgeId : null;
+  return (
+    <group renderOrder={8}>
+      {edgeData.map((e) => {
+        const isSel = selEdge === e.edgeId && selection.bodyHandle === e.bodyHandle;
+        const pick = (ev) => {
+          ev.stopPropagation();
+          onSelect?.({ kind: 'edge', ids: [e.bodyHandle],
+                       bodyHandle: e.bodyHandle, edgeId: e.edgeId });
+        };
+        return (
+          <group key={`${e.bodyHandle}-${e.edgeId}`}>
+            {/* fat invisible hit line for easy picking */}
+            <Line points={e.pts} color="#000000" transparent opacity={0}
+                  lineWidth={10} onClick={pick} onPointerDown={pick} />
+            {/* visible edge */}
+            <Line points={e.pts} color={isSel ? '#ffd166' : '#5fd0ff'}
+                  lineWidth={isSel ? 4 : 2} onClick={pick} />
+          </group>
+        );
+      })}
+    </group>
+  );
+}
 // Expose the active WebGLRenderer to window.__forgeRenderer so
 // PerfStatsHUD + Archie can read perf counters.
 function RendererPublisher({ bundle }) {

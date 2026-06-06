@@ -99,4 +99,17 @@ std::size_t faceCount(ShapeHandle shape);
 // user invokes the toolbar tool without picking any.
 std::size_t edgeCount(ShapeHandle shape);
 
+// Slice-3 edge picking — a sampled world-space polyline for one edge,
+// tagged with the 0-based TopExp_Explorer edge id (same order as edgeById
+// / part.filletEdges).
+struct EdgePolyline {
+    std::uint32_t id = 0;
+    std::vector<float> points;  // x,y,z triplets along the edge
+};
+
+// Sample every edge of `shape` into a polyline (chord tolerance
+// `deflection` mm). The returned ids match the fillet/chamfer edge id
+// convention so a viewport pick can drive those ops directly.
+std::vector<EdgePolyline> edgeSegments(ShapeHandle shape, double deflection);
+
 } // namespace forge::direct

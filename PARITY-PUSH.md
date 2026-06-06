@@ -5,8 +5,8 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
-| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 38 % | PUSH-33 (face-id mesh) |
-| 2 | Solid modeling ops | 8 % | 80 % | 14 % | PUSH-32 (extrude-cut on face) |
+| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 40 % | PUSH-34 (edge polylines) |
+| 2 | Solid modeling ops | 8 % | 80 % | 18 % | PUSH-34 (pick-edge fillet/chamfer) |
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 34 % | PUSH-33 (sketch on any picked face) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 4 % | — |
 | 5 | Drawings / 2D output | 3 % | 80 % | 3 % | — |
@@ -37,6 +37,26 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-34 — Edge picking (fillet/chamfer on a picked edge) [2026-06-06]
+- **Dimensions touched**: #1 Kernel (edge polylines), #2 Solid modeling
+  (single-edge fillet/chamfer), #17 UI/UX (viewport edge-filter picking).
+- **Kernel**: `direct.edgeSegments(shape, deflection)` samples every edge
+  into a world-space polyline (GCPnts_TangentialDeflection) tagged with the
+  SAME 0-based TopExp_Explorer edge id that part.filletEdges/edgeById uses.
+  Verified: box → 24 enumerated edges (12 unique ×2 shared faces), edge 0 =
+  (0,0,0)→(0,0,20), filletEdges([0],5) drops exactly 160.95 mm³.
+- **Wiring**: preload exposes edgeSegments; new `EdgePickOverlay` renders each
+  edge as a clickable line (fat invisible hit-line + visible line) in
+  edge-filter mode; click → {kind:'edge', bodyHandle, edgeId}; dispatch ctx
+  gains selectedEdges + pickedBody; pickTarget honors pickedBody so
+  fillet/chamfer round the PICKED edge (else the PUSH-31 all-edges fallback).
+- **E2E**: push-34-edge-picking.spec.js (headed, MP4) — build 60×40×30 block,
+  assert kernel emits pickable edges w/ fillet id convention, enter edge
+  filter, pick edge 0, fillet R5, assert volume drop ≈161 mm³ (single edge,
+  NOT all-edges). 4/4 pass. Pitfall fixed: dismiss stale autosave banner /
+  context menu before the toolbar click (was intercepting it).
+- **CI**: see commit push.
 
 ### PUSH-33 — Arbitrary-face picking (face-id tessellation) [2026-06-06]
 - **Dimensions touched**: #1 Kernel (face-id mesh map), #3 Sketch (sketch on
