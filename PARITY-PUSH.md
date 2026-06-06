@@ -5,7 +5,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
-| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 45 % | PUSH-59 (pairwise common-volume scan), PUSH-62 (sectionView UI) |
+| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 48 % | PUSH-63 (inferFeature + edgeSegments in UI) |
 | 2 | Solid modeling ops | 8 % | 80 % | 22 % | PUSH-39/40/41 (thicken/knit/trim) |
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 40 % | PUSH-59 (interference panel), PUSH-60 (real BOM + CSV), PUSH-61 (material persistence) |
@@ -15,15 +15,15 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 8 | Mold / casting / tooling | 0 % | 80 % | 12 % | PUSH-44 (parting + cavity/core split) |
 | 9 | Routing (piping / cable) | 0 % | 80 % | 12 % | PUSH-45 (A* route → 3D pipe solid) |
 | 10 | CAM / manufacturing | 0 % | 80 % | 15 % | PUSH-46 (real toolpath gen proven) |
-| 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 22 % | PUSH-57 (animation timeline drives real bodies) |
+| 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 26 % | PUSH-64 (animation MP4 export deterministic playback) |
 | 12 | PMI / GD&T | 0 % | 80 % | 14 % | PUSH-47 (tolerance stack-up reachable + proven) |
 | 13 | Standard parts libs | 4 % | 80 % | 16 % | PUSH-52 (parametric insert → real B-rep body) |
 | 14 | PDM / PLM | 0 % | 80 % | 14 % | PUSH-51 (real vault check-in/out proven + Buffer fix) |
 | 15 | Generative / topology | 0 % | 80 % | 16 % | PUSH-49/50 (topology materialise + TPMS lattice) |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
-| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 32 % | PUSH-61 (Materials browser dialog) |
+| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 36 % | PUSH-63 (Entity Properties panel) |
 | 18 | API / customization | 5 % | 80 % | 22 % | PUSH-54 (plugin install + dispatch + uninstall) |
-| 19 | Visualization | 8 % | 80 % | 18 % | PUSH-53 (CPU path-tracer preview proven + reachable) |
+| 19 | Visualization | 8 % | 80 % | 22 % | PUSH-64 (canvas → ffmpeg MP4 deterministic) |
 
 ## Test workflows queued (progressive complexity)
 
