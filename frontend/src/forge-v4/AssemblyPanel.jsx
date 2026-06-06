@@ -482,15 +482,31 @@ function AddMateStepper({ bodies, selection, onSelect, onApply }) {
   const [params, setParams] = useState({});
   const [pickMode, setPickMode] = useState(null); // 'a' | 'b' | null
 
-  // When a single body is selected in the viewport and we're in pick
-  // mode, auto-fill the slot.
+  // When a body OR a sub-entity (face/edge) is selected in the viewport and
+  // we're in pick mode, auto-fill the slot. Slice-6: face/edge picks
+  // (PUSH-33/34) carry a faceId/edgeId we capture as the mate token so
+  // coincident-face / concentric-axis mates reference real sub-geometry,
+  // not just the whole body (token 0).
   useEffect(() => {
-    if (!pickMode || !selection || selection.kind !== 'body') return;
-    if (!selection.ids?.length) return;
-    const inst = selection.ids[0];
-    const token = 0;
-    if (pickMode === 'a') setA({ inst, token });
-    else if (pickMode === 'b') setB({ inst, token });
+    if (!pickMode || !selection) return;
+    let inst = null; let token = 0; let ref = 'body';
+    if (selection.kind === 'face' && typeof selection.bodyHandle === 'number') {
+      inst = selection.bodyHandle;
+      // Encode face token as faceId+1 (reserve 0 = whole body).
+      token = (typeof selection.faceId === 'number') ? selection.faceId + 1 : 0;
+      ref = 'face';
+    } else if (selection.kind === 'edge' && typeof selection.bodyHandle === 'number') {
+      inst = selection.bodyHandle;
+      token = (typeof selection.edgeId === 'number') ? selection.edgeId + 1 : 0;
+      ref = 'edge';
+    } else if (selection.kind === 'body' && selection.ids?.length) {
+      inst = selection.ids[0];
+      token = 0; ref = 'body';
+    }
+    if (inst == null) return;
+    const slot = { inst, token, ref };
+    if (pickMode === 'a') setA(slot);
+    else if (pickMode === 'b') setB(slot);
     setPickMode(null);
   }, [selection, pickMode]);
 

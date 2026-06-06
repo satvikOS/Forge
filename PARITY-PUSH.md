@@ -8,7 +8,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 40 % | PUSH-34 (edge polylines) |
 | 2 | Solid modeling ops | 8 % | 80 % | 18 % | PUSH-34 (pick-edge fillet/chamfer) |
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
-| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 8 % | PUSH-36 (per-body show/hide) |
+| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 22 % | PUSH-37 (token-aware OCCT mates) |
 | 5 | Drawings / 2D output | 3 % | 80 % | 3 % | — |
 | 6 | Sheet metal | 0 % | 80 % | 0 % | — |
 | 7 | Surfacing | 0 % | 80 % | 0 % | — |
@@ -37,6 +37,25 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-37 — Assembly mates with real face/axis tokens [2026-06-06]
+- **Dimensions touched**: #4 Assembly (mates reference sub-geometry, not
+  just whole bodies), #1 Kernel (assembly smoke added to gate).
+- **Gap**: the kernel mate solver (addMate/solve/worldTransform, kinds
+  Coincident/Concentric/Parallel/Perpendicular/Distance/Angle/Tangent/Fixed)
+  was already complete + passing its own smoke — but AssemblyPanel's mate
+  builder HARDCODED token=0, so every mate referenced the whole body. Fixed:
+  the A/B pick auto-fill now captures faceId+1 / edgeId+1 from viewport
+  face/edge picks (PUSH-33/34) as the mate token (0 reserved = whole body).
+- **Gate**: added assembly_smoke.js + assembly_hierarchy_smoke.js to
+  forge:kernel:test.
+- **E2E**: push-37-assembly-mates.spec.js (headed, MP4) — drives
+  window.forge.assembly (the exact AssemblyPanel bridge): asserts the mate
+  surface + kinds; Distance mate relocates B to exactly 25mm from A
+  (converged, residual 5e-7); Concentric mate with token=1 collapses B's 50mm
+  in-plane offset to ~3e-7 (axis aligned). 3/3 pass. Kernel smoke (now incl.
+  assembly) + V12 regression green.
+- **CI**: see commit push.
 
 ### PUSH-36 — Multi-body manager UI [2026-06-06]
 - **Dimensions touched**: #17 UI/UX (Bodies panel), partial #4 Assembly
