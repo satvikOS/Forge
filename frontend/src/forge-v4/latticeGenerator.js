@@ -972,13 +972,25 @@ export async function createLatticeBody({ mesh, label, params }) {
   }
   const id = `lattice-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`;
   let nativeHandle = null;
+  let importNote = null;
   const f = typeof window !== 'undefined' ? window.forge : null;
   const kernelReady = f && typeof f.isReady === 'function' && f.isReady();
   if (kernelReady && f.io && typeof f.io.importStl === 'function' &&
       typeof f.io.writeTmpStl === 'function') {
-    const stl = meshToBinaryStl(mesh);
-    const filePath = await f.io.writeTmpStl(`${id}.stl`, stl);
-    nativeHandle = f.io.importStl(filePath);
+    // Round-trip through STL into the native OCCT kernel. TPMS triangle soups
+    // can be non-manifold / self-touching, which makes OCCT's STL reader throw
+    // ("BRep_API: command not done"). That must NOT lose the generated mesh —
+    // fall back to a synthetic body that renders directly from mesh.positions.
+    try {
+      const stl = meshToBinaryStl(mesh);
+      const filePath = await f.io.writeTmpStl(`${id}.stl`, stl);
+      const h = f.io.importStl(filePath);
+      if (typeof h === 'number' && h > 0) nativeHandle = h;
+      else importNote = `importStl returned ${h}`;
+    } catch (err) {
+      importNote = (err && err.message) ? err.message : String(err);
+      nativeHandle = null;
+    }
   }
   const body = {
     id,
@@ -987,6 +999,7 @@ export async function createLatticeBody({ mesh, label, params }) {
     label: label || `Lattice (${params?.surface || params?.pattern || 'mesh'})`,
     params: params || {},
     mesh: nativeHandle === null ? mesh : undefined,
+    importNote: importNote || undefined,
     ts: Date.now(),
   };
   if (typeof window !== 'undefined' && typeof window.__forgeAppendBody === 'function') {
