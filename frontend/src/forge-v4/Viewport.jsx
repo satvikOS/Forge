@@ -600,6 +600,7 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
   return (
     <group>
       <LodSchedulerTicker bundle={bundle} THREE={THREE} bodies={steps || []} />
+      <AnimationPoseTicker bundle={bundle} />
       {Array.from(groups.entries()).map(([key, members]) => {
         if (members.length === 1) {
           const m = members[0];
@@ -733,6 +734,49 @@ function instanceKeyFor(body) {
 // the Canvas so it can pull camera + frustum from useThree, and stays
 // outside of InstancedGroup so the scheduler runs once per frame, not
 // once per draw group.
+// PUSH-57 — read window.__forgeAnimationPose (Map<handle, {pos:[x,y,z]}>)
+// each frame and apply the per-body translation to whichever rendered
+// mesh tags itself with userData.body.handle === <handle>. The pose is
+// published by AnimationTimelineWorkbench when its tracks are bound to
+// the real scene (Build-from-bodies button); otherwise the map is
+// empty and the ticker is a no-op. Imperative position mutation skips
+// React re-renders, which is essential for 60 fps scrubbing.
+function AnimationPoseTicker({ bundle }) {
+  const { useFrame, useThree } = bundle.r3f;
+  const { scene } = useThree();
+  const diagRef = React.useRef({ ticks: 0, lastApplied: 0 });
+  useFrame(() => {
+    if (typeof window === 'undefined') return;
+    diagRef.current.ticks += 1;
+    const pose = window.__forgeAnimationPose;
+    if (!pose || typeof pose.get !== 'function' || pose.size === 0) return;
+    let applied = 0;
+    scene.traverse((obj) => {
+      const handle = obj?.userData?.body?.handle;
+      if (typeof handle !== 'number') return;
+      const p = pose.get(handle);
+      // p.pos may be a Float64Array (kernel ABI) or a plain array — both
+      // are indexable, so don't bail on Array.isArray.
+      if (p && p.pos && typeof p.pos.length === 'number' && p.pos.length >= 3) {
+        obj.position.set(
+          Number(p.pos[0]) || 0,
+          Number(p.pos[1]) || 0,
+          Number(p.pos[2]) || 0);
+        applied += 1;
+      }
+    });
+    diagRef.current.lastApplied = applied;
+    if (typeof window !== 'undefined') {
+      window.__forgeAnimationTickerStats = {
+        ticks: diagRef.current.ticks,
+        lastApplied: diagRef.current.lastApplied,
+        poseSize: pose.size,
+      };
+    }
+  });
+  return null;
+}
+
 function LodSchedulerTicker({ bundle, THREE, bodies }) {
   const { useFrame, useThree } = bundle.r3f;
   const { camera, size } = useThree();

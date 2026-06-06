@@ -74,8 +74,43 @@ function fixtureTracks() {
   ];
 }
 
+// PUSH-57 — build a per-body translation track for every native body in
+// the live scene. Each body's track orbits 20 mm around its base via a
+// 4-second loop with one cubic-Hermite ease so the animation reads as
+// purposeful motion (not a stutter), and the track name encodes the
+// real OCCT handle (`body:<handle>.translation`) so the viewport ticker
+// can resolve mesh ↔ track without an extra registry.
+export function buildTracksFromBodies(bodies) {
+  const nativeBodies = (Array.isArray(bodies) ? bodies : [])
+      .filter((b) => b && b.kind === 'native' && typeof b.handle === 'number');
+  return nativeBodies.map((b, i) => {
+    // Phase each body by 1 second so a 2-body assembly doesn't look like
+    // a single rigid translation — the e2e relies on the two bodies
+    // having distinguishable poses at t≈1 s.
+    const phase = i;
+    const radius = 12 + i * 4;     // pull bodies apart by index so the
+                                   // assertion can distinguish them
+    return {
+      name: `body:${b.handle}.translation`,
+      interpolation: 'cubic',
+      keys: [
+        { time: 0,   value: [0, 0, 0] },
+        { time: 1,   value: [radius, 0, 0] },
+        { time: 2,   value: [radius, radius, 0] },
+        { time: 3,   value: [0, radius, 0] },
+        { time: 4,   value: [0, 0, 0] },
+      ].map((k) => ({ ...k, time: (k.time + phase) % 4 }))
+       .sort((a, b) => a.time - b.time),
+    };
+  });
+}
+
 function AnimationPanel({ open, onClose }) {
-  const [tracks] = React.useState(fixtureTracks());
+  const [tracks, setTracks] = React.useState(fixtureTracks());
+  // PUSH-57 — "live" === bound to real OCCT bodies via track names of
+  // shape `body:<handle>.translation`. The viewport pose-ticker only
+  // reads those tracks.
+  const [live, setLive] = React.useState(false);
   const [time, setTime] = React.useState(0);
   const [playing, setPlaying] = React.useState(false);
   const [current, setCurrent] = React.useState(null);
@@ -88,13 +123,44 @@ function AnimationPanel({ open, onClose }) {
     catch (e) { setErr(String(e?.message || e)); return 0; }
   }, [tracks]);
 
+  const buildFromBodies = React.useCallback(() => {
+    if (typeof window === 'undefined') return;
+    const bodies = Array.isArray(window.__forgeBodies) ? window.__forgeBodies : [];
+    const next = buildTracksFromBodies(bodies);
+    if (next.length === 0) {
+      setErr('No native bodies in the scene — add one before binding tracks.');
+      return;
+    }
+    setErr('');
+    setTracks(next);
+    setLive(true);
+    setTime(0);
+    setPlaying(false);
+  }, []);
+
   React.useEffect(() => {
     try {
       const s = animationEvaluate(tracks, time);
       setCurrent(s);
-      if (typeof window !== 'undefined') window.__forgeAnimationCurrent = s;
+      if (typeof window !== 'undefined') {
+        window.__forgeAnimationCurrent = s;
+        // PUSH-57 — publish per-body pose for the viewport ticker. Only
+        // emit when the active track set is the live (body-bound) one
+        // so the legacy box.* fixture doesn't grab a random handle.
+        if (live) {
+          const pose = new Map();
+          for (const sample of s) {
+            const m = /^body:(\d+)\.translation$/.exec(sample.name || '');
+            if (!m) continue;
+            pose.set(Number(m[1]), { pos: sample.value });
+          }
+          window.__forgeAnimationPose = pose;
+        } else {
+          window.__forgeAnimationPose = new Map();
+        }
+      }
     } catch (e) { setErr(String(e?.message || e)); }
-  }, [tracks, time]);
+  }, [tracks, time, live]);
 
   React.useEffect(() => {
     if (!playing) return;
@@ -127,11 +193,22 @@ function AnimationPanel({ open, onClose }) {
         </button>
       </header>
       <div style={{ color: 'var(--forge-ink-mute)', lineHeight: 1.5 }}>
-        Linear + Catmull-Rom Hermite keyframe evaluator. Built-in fixture
-        is a 3-track box demo (translation / rotation / scale).
+        Linear + Catmull-Rom Hermite keyframe evaluator.
+        {' '}
+        {live
+          ? <span><strong>Live</strong> — bound to {tracks.length} body{tracks.length === 1 ? '' : 'ies'} in the scene; scrub or play to move them.</span>
+          : 'Built-in fixture is a 3-track box demo (translation / rotation / scale).'}
       </div>
 
       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        <button data-testid="forge-animation-build-from-bodies"
+                style={{ ...buttonStyle, background: live ? '#3a6738' : 'var(--forge-canvas-2)',
+                         color: live ? '#dfeedd' : 'var(--forge-ink)',
+                         border: live ? 'none' : '1px solid var(--forge-rail-edge)',
+                         fontWeight: 600 }}
+                onClick={buildFromBodies}>
+          {live ? '✓ Live tracks' : 'Build from bodies'}
+        </button>
         <button data-testid="forge-animation-play"
                 style={buttonStyle}
                 onClick={() => setPlaying((p) => !p)}>
