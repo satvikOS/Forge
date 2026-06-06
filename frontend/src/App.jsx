@@ -560,6 +560,8 @@ import { ReverseEngWorkbenchHost } from './forge-v4/ReverseEngWorkbench.jsx';
 // Forge-162 — Inspection / FAI workbench (CMM heatmap + AS9102 PDF).
 import { InspectionWorkbenchHost } from './forge-v4/InspectionWorkbench.jsx';
 import { SimulationWorkbenchHost } from './forge-v4/SimulationWorkbench.jsx';
+// PUSH-58 — Mass Properties panel (density picker + computed mass).
+import { MassPropsHost } from './forge-v4/MassPropsPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -910,6 +912,7 @@ function App() {
       <ReverseEngWorkbenchHost />
       <InspectionWorkbenchHost />
       <SimulationWorkbenchHost />
+      <MassPropsHost />
     </ViewportEnvironmentProvider>
   );
 }

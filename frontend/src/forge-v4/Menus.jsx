@@ -131,6 +131,8 @@ export const MENU_SPEC = {
       // PUSH-42 / PUSH-55 — HLR engineering drawings (projected 2D views +
       // native DXF/SVG export to disk).
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },
+      // PUSH-58 — Mass Properties inspector (kernel mass/area/COM × material).
+      { id: 'tools.massprops',   label: 'Mass Properties…',  icon: 'measure.mass' },
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
