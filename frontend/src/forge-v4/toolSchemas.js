@@ -129,6 +129,13 @@ export const TOOL_SCHEMAS = {
     { id: 'surfaces',  label: 'Surfaces (≥2)',  type: 'ref' },
     { id: 'tolerance', label: 'Tolerance',      type: 'number', default: 0.001, unit: 'mm', min: 0.00001 },
   ]},
+  'solid.trimSurface': { title: 'Trim Surface', fields: [
+    { id: 'surface', label: 'Surface',  type: 'ref' },
+    { id: 'uMin',    label: 'U min',    type: 'number', default: 0.25, min: 0, max: 1 },
+    { id: 'uMax',    label: 'U max',    type: 'number', default: 0.75, min: 0, max: 1 },
+    { id: 'vMin',    label: 'V min',    type: 'number', default: 0,    min: 0, max: 1 },
+    { id: 'vMax',    label: 'V max',    type: 'number', default: 1,    min: 0, max: 1 },
+  ]},
   'solid.fillet':   { title: 'Fillet', fields: [
     { id: 'edges',   label: 'Edges',  type: 'ref' },
     { id: 'radius',  label: 'Radius', type: 'number', default: 2, unit: 'mm', min: 0.01 },

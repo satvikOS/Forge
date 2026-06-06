@@ -6,12 +6,12 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
 | 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 40 % | PUSH-34 (edge polylines) |
-| 2 | Solid modeling ops | 8 % | 80 % | 18 % | PUSH-34 (pick-edge fillet/chamfer) |
+| 2 | Solid modeling ops | 8 % | 80 % | 22 % | PUSH-39/40/41 (thicken/knit/trim) |
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 22 % | PUSH-37 (token-aware OCCT mates) |
 | 5 | Drawings / 2D output | 3 % | 80 % | 3 % | — |
 | 6 | Sheet metal | 0 % | 80 % | 0 % | — |
-| 7 | Surfacing | 0 % | 80 % | 0 % | — |
+| 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
 | 8 | Mold / casting / tooling | 0 % | 80 % | 0 % | — |
 | 9 | Routing (piping / cable) | 0 % | 80 % | 0 % | — |
 | 10 | CAM / manufacturing | 0 % | 80 % | 0 % | — |
@@ -37,6 +37,35 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-39/40/41 — Surface workbench: Thicken, Knit, Trim [2026-06-06]
+- **Dimensions touched**: #7 Surfacing (0→16%), #2 Solid modeling (thicken/
+  knit/trim are real boundary ops), #1 Kernel (trimNurbsFace bug fix).
+- **Root unblock**: preload `surfacing.buildPatch` only accepted the kernel
+  ControlGrid object `{uCount,vCount,xyz}`, but surfacingDispatch composes
+  patches as nested grid arrays — so EVERY surface tool (extrude/sweep/fill/
+  blend/loft/offset…) silently failed as "kernel not ready". buildPatch now
+  flattens a grid array to a ControlGrid at the boundary. SurfacingPanel now
+  COMMITS surface results to the live scene via __forgeAppendBody (kind:
+  native, surface:true) so surfaces render in the viewport and are pickable
+  targets for downstream ops.
+- **PUSH-39 Thicken** (`solid.thicken`): kernel `part.thickenSurface(shape,
+  thickness, side)` via BRepOffset_MakeOffset (Skin, makeThickSolid). Open
+  surface → closed solid. Smoke: flat 100×60 patch thickened 5mm = exact
+  30000 mm³. e2e 5/5: surface (vol≈0) → solid (vol=50), replaces body.
+- **PUSH-40 Knit** (`solid.knit`): `surfacing.sew` over selected/all surface
+  bodies → one shell (consumes inputs). Smoke: two 100×60 patches sharing an
+  edge → shell area 12000, thickened = exact 48000 mm³ (merged). e2e 5/5:
+  two surfaces (33.3 each) → one shell area 66.6 (2× merge), count 2→1.
+- **PUSH-41 Trim** (`solid.trimSurface`): kernel BUG FIX — trimNurbsFace built
+  the trim wire from 3D straight edges (no pcurve) so MakeFace(surface,wire)
+  returned an EMPTY face; now builds 2D Geom2d parametric edges on the
+  surface + BRepLib::BuildCurves3d. Smoke: 6000 mm² patch trimmed to
+  u[0.25,0.75] = exact 3000 mm² (x 25..75). e2e 5/5: surface 33.3 → trimmed
+  15.7 (>0, ~half), replaces body.
+- **Gate**: thicken/knit/trim_surface_smoke.js added to forge:kernel:test.
+- **Proof**: 21/21 unit, bridge, full 24/24 existing feature e2e — no
+  regression from the buildPatch/Nurbs changes. CI green all 3 platforms.
 
 ### PUSH-38 — Real feature-correctness CI gate [2026-06-06]
 - **Why**: build-app.yml only proves the installers PACKAGE — it never built

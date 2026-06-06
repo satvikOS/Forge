@@ -37,6 +37,9 @@
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
+#include <Geom2d_Line.hxx>
+#include <GCE2d_MakeSegment.hxx>
+#include <BRepLib.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
@@ -243,20 +246,24 @@ ShapeHandle trimNurbsFace(ShapeHandle face, const std::vector<double>& trimUV) {
     const TopoDS_Face f = firstFaceOf(fetch(face), "trimNurbsFace");
     Handle(Geom_Surface) s = surfaceOf(f, "trimNurbsFace");
 
-    // Build a parametric polyline wire in 3D by evaluating the surface at
-    // each (u, v) sample — the resulting wire lives on the surface so
-    // BRepBuilderAPI_MakeFace(surface, wire) accepts it as a trim.
+    // Build the trim loop as 2D parametric edges in the surface's (u,v)
+    // space. A 3D polyline of straight edges (the old approach) carries no
+    // pcurve, so MakeFace(surface, wire) produced an EMPTY face — the trim
+    // silently did nothing. Geom2d line segments in UV give each edge a
+    // real pcurve on the surface; BRepLib::BuildCurves3d then synthesises
+    // the matching 3D curves so the wire is valid in both spaces.
     BRepBuilderAPI_MakeWire wireMk;
     const std::size_t n = trimUV.size() / 2;
-    auto eval = [&](std::size_t i) {
-        gp_Pnt p; s->D0(trimUV[2*i], trimUV[2*i + 1], p);
-        return p;
+    auto uv = [&](std::size_t i) {
+        return gp_Pnt2d(trimUV[2*i], trimUV[2*i + 1]);
     };
     for (std::size_t i = 0; i < n; ++i) {
-        gp_Pnt a = eval(i);
-        gp_Pnt b = eval((i + 1) % n);
-        if (a.Distance(b) < Precision::Confusion()) continue;
-        BRepBuilderAPI_MakeEdge edgeMk(a, b);
+        gp_Pnt2d a = uv(i);
+        gp_Pnt2d b = uv((i + 1) % n);
+        if (a.Distance(b) < Precision::PConfusion()) continue;
+        Handle(Geom2d_TrimmedCurve) seg = GCE2d_MakeSegment(a, b);
+        if (seg.IsNull()) continue;
+        BRepBuilderAPI_MakeEdge edgeMk(seg, s);
         if (!edgeMk.IsDone()) continue;
         wireMk.Add(edgeMk.Edge());
     }
@@ -264,12 +271,17 @@ ShapeHandle trimNurbsFace(ShapeHandle face, const std::vector<double>& trimUV) {
         throw std::runtime_error(
             "forge.surfacing.trimNurbsFace: failed to assemble trim wire");
     }
-    BRepBuilderAPI_MakeFace mk(s, wireMk.Wire(), /*inside*/ Standard_True);
+    TopoDS_Wire trimWire = wireMk.Wire();
+    // Generate 3D curves for the parametric edges so the face is valid.
+    BRepLib::BuildCurves3d(trimWire);
+    BRepBuilderAPI_MakeFace mk(s, trimWire, /*inside*/ Standard_True);
     if (!mk.IsDone()) {
         throw std::runtime_error(
             "forge.surfacing.trimNurbsFace: MakeFace(surface, wire) failed");
     }
-    return ShapeRegistry::instance().add(mk.Face());
+    TopoDS_Face trimmed = mk.Face();
+    BRepLib::BuildCurves3d(trimmed);
+    return ShapeRegistry::instance().add(trimmed);
 }
 
 // ============================================================ sewNurbsFaces

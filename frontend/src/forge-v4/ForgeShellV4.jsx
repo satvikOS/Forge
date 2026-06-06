@@ -3114,6 +3114,7 @@ export function ForgeShellV4() {
                              'solid.translate', 'solid.rotate',
                              'solid.fillet', 'solid.chamfer', 'solid.shell',
                              'solid.hole', 'solid.draft', 'solid.thicken',
+                             'solid.trimSurface',
                            ]);
                            // PUSH-31 — solid.extrude/revolve with op=Cut|Add|
                            // Intersect modifies the previous body via boolean,

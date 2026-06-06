@@ -31,6 +31,7 @@ const SPEC = {
       { id: 'solid.shell',    label: 'Shell',   icon: 'solid.shell' },
       { id: 'solid.thicken',  label: 'Thicken', icon: 'solid.thicken', hint: 'Thicken surface → solid' },
       { id: 'solid.knit',     label: 'Knit',    icon: 'solid.knit', hint: 'Knit/sew surfaces → shell' },
+      { id: 'solid.trimSurface', label: 'Trim Srf', icon: 'solid.trimSurface', hint: 'Trim surface to UV window' },
       { id: 'solid.fillet',   label: 'Fillet',  icon: 'solid.fillet', hint: 'F' },
       { id: 'solid.chamfer',  label: 'Chamfer', icon: 'solid.chamfer' },
       { id: 'solid.draft',    label: 'Draft',   icon: 'solid.draft' },

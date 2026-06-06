@@ -216,6 +216,28 @@ function callNative(toolId, p, ctx) {
           ? p.tolerance : 1e-3;
         return f.surfacing.sew(handles, tol);
       }
+      case 'solid.trimSurface': {
+        // Slice-10 surface workbench — Trim a surface to a parametric UV
+        // window. Mirrors SolidWorks "Trim Surface" / NX "Trim Sheet" /
+        // CATIA GSD "Split". Operates on the picked surface body, keeping
+        // the rectangular UV sub-region [uMin,uMax]x[vMin,vMax] (params in
+        // 0..1 of the surface's parametric range).
+        if (!f.surfacing?.trim) return null;
+        const target = pickTarget(ctx);
+        if (target == null) return null;
+        const clamp01 = (v, d) => {
+          const n = (typeof v === 'number') ? v : d;
+          return Math.max(0, Math.min(1, n));
+        };
+        const uMin = clamp01(p.uMin, 0.25);
+        const uMax = clamp01(p.uMax, 0.75);
+        const vMin = clamp01(p.vMin, 0);
+        const vMax = clamp01(p.vMax, 1);
+        if (uMax - uMin < 1e-6 || vMax - vMin < 1e-6) return null;
+        // CCW loop in UV space.
+        const uvLoop = [uMin, vMin, uMax, vMin, uMax, vMax, uMin, vMax];
+        return f.surfacing.trim(target, uvLoop);
+      }
       case 'solid.fillet': {
         const target = pickTarget(ctx);
         if (target != null && f.part?.filletEdges) {
