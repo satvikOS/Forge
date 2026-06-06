@@ -122,6 +122,8 @@ export const MENU_SPEC = {
       { id: 'tools.directEdit', label: 'Direct Edit…',     icon: 'sketch.rect' },
       { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
+      // PUSH-42 — HLR engineering drawings (projected 2D views from the model).
+      { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
       { id: 'tools.threads',    label: 'Thread Designer…',  icon: 'sketch.spline' },
       // Forge-149 — Draft workbench (FreeCAD Draft parity).

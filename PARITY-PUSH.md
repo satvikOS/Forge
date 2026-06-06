@@ -9,7 +9,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 2 | Solid modeling ops | 8 % | 80 % | 22 % | PUSH-39/40/41 (thicken/knit/trim) |
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 22 % | PUSH-37 (token-aware OCCT mates) |
-| 5 | Drawings / 2D output | 3 % | 80 % | 3 % | — |
+| 5 | Drawings / 2D output | 3 % | 80 % | 12 % | PUSH-42 (HLR project real model + render) |
 | 6 | Sheet metal | 0 % | 80 % | 0 % | — |
 | 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
 | 8 | Mold / casting / tooling | 0 % | 80 % | 0 % | — |
@@ -37,6 +37,31 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-42 — Drawings (HLR): project the real model + render the view [2026-06-06]
+- **Dimensions touched**: #5 Drawings (3→12%), #17 UI/UX (Tools-menu +
+  global-search entry).
+- **Gap**: DrawingsHLRWorkbench projected a HARDCODED 100×60×40 sample box
+  (window.forge.makeBox) and only printed edge counts + raw DXF/SVG text;
+  its bbox readout even read the wrong field (view.minX vs view.bbox.minX),
+  and the workbench wasn't reachable from any menu/search (only a global
+  window hook). The kernel HLR API (projectView/sectionView/projectSection/
+  projectDetail/projectBroken/emitDXF/emitSVG via HLRBRep_Algo) was complete.
+- **Fix**: the workbench now projects the REAL current body — the selected
+  body (window.__forgeSelection.bodyHandle) or the last native body — and
+  only falls back to a sample box when the scene is empty. It auto-projects
+  on open and on view-direction change, renders the projection as an actual
+  2D drawing (new DrawingCanvas: visible edges solid, hidden edges dashed,
+  Y-flipped engineering frame, scaled-to-fit), and fixes the bbox readout.
+  Added a Tools-menu entry `tools.drawingsHlr` (→ global command search) +
+  ForgeShellV4 handler.
+- **E2E**: push-42-drawings.spec.js (headed, MP4) — build an 80×50×30 block,
+  open Drawings (HLR): FRONT view projects the REAL block (footprint 80×30,
+  NOT the sample; visible edges>0), the SVG canvas renders 8 edge paths, TOP
+  view reprojects to 80×50, global search exposes the command. 6/6 pass.
+- **Proof**: no kernel change; full 24/24 existing feature e2e regression
+  green. CI green all 3 platforms.
+
 
 ### PUSH-39/40/41 — Surface workbench: Thicken, Knit, Trim [2026-06-06]
 - **Dimensions touched**: #7 Surfacing (0→16%), #2 Solid modeling (thicken/

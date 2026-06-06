@@ -17,32 +17,107 @@ const VIEW_DIRS = [
     { id: 'iso',   label: 'ISO (1,1,1)' },
 ];
 
+// Slice-11 — render an HLR projection as a real 2D engineering drawing.
+// Visible edges = solid black; hidden edges = dashed grey. Y is flipped
+// (drawing Y-up) and the view is scaled to fit a fixed canvas with margin.
+function DrawingCanvas({ view }) {
+    const W = 480, H = 300, M = 16;
+    const bb = view.bbox || { minX: 0, minY: 0, maxX: 1, maxY: 1 };
+    const spanX = Math.max(1e-6, bb.maxX - bb.minX);
+    const spanY = Math.max(1e-6, bb.maxY - bb.minY);
+    const s = Math.min((W - 2 * M) / spanX, (H - 2 * M) / spanY);
+    const ox = M + (W - 2 * M - spanX * s) / 2;
+    const oy = M + (H - 2 * M - spanY * s) / 2;
+    // World (x,y) → canvas px, flipping Y so up is up.
+    const px = (p) => ox + (p.x - bb.minX) * s;
+    const py = (p) => H - (oy + (p.y - bb.minY) * s);
+    const toPath = (edge) => {
+        if (!Array.isArray(edge) || edge.length < 2) return null;
+        return edge.map((p, i) => `${i === 0 ? 'M' : 'L'} ${px(p).toFixed(2)} ${py(p).toFixed(2)}`).join(' ');
+    };
+    const visible = (view.visibleEdges || []).map(toPath).filter(Boolean);
+    const hidden = (view.hiddenEdges || []).map(toPath).filter(Boolean);
+    return (
+        <svg data-testid="forge-drawingshlr-canvas"
+             width={W} height={H} viewBox={`0 0 ${W} ${H}`}
+             style={{ display: 'block', background: '#ffffff' }}>
+            {hidden.map((d, i) => (
+                <path key={`h${i}`} d={d} stroke="#9aa0a6" strokeWidth="0.8"
+                      strokeDasharray="4 3" fill="none" />
+            ))}
+            {visible.map((d, i) => (
+                <path key={`v${i}`} d={d} stroke="#111418" strokeWidth="1.4" fill="none" />
+            ))}
+        </svg>
+    );
+}
+
+
 export function DrawingsHLRWorkbench({ onClose }) {
     const surface = typeof window !== 'undefined' && window.forge && window.forge.drawings;
 
     const [box, setBox]   = useState(null);
+    const [modelName, setModelName] = useState(null);
+    const [usingSample, setUsingSample] = useState(false);
     const [dir, setDir]   = useState('front');
     const [view, setView] = useState(null);
     const [dxf, setDxf]   = useState('');
     const [svg, setSvg]   = useState('');
     const [error, setError] = useState(null);
 
+    // Slice-11 — project the REAL current model. Prefer the
+    // selected/last native body in the live scene; only fall back to a
+    // sample box when the scene is empty so the workbench is never blank.
     useEffect(() => {
-        if (!surface || !window.forge.box) return;
-        try { setBox(window.forge.box(100, 60, 40)); } catch { /* ignore */ }
+        if (!surface) return;
+        const bodies = (typeof window !== 'undefined' && Array.isArray(window.__forgeBodies))
+            ? window.__forgeBodies.filter((b) => b && b.kind === 'native' && typeof b.handle === 'number')
+            : [];
+        // Honour an explicit body selection if one exists.
+        let chosen = null;
+        const sel = (typeof window !== 'undefined' && window.__forgeSelection) || null;
+        if (sel && typeof sel.bodyHandle === 'number') {
+            chosen = bodies.find((b) => b.handle === sel.bodyHandle) || null;
+        }
+        if (!chosen && bodies.length) chosen = bodies[bodies.length - 1];
+        if (chosen) {
+            setBox(chosen.handle);
+            setModelName(chosen.name || `body ${chosen.handle}`);
+            setUsingSample(false);
+        } else if (window.forge.makeBox) {
+            try {
+                setBox(window.forge.makeBox(100, 60, 40));
+                setModelName('sample 100×60×40 box');
+                setUsingSample(true);
+            } catch { /* ignore */ }
+        }
     }, [surface]);
 
-    const onProject = useCallback(() => {
-        if (!surface || !surface.projectView || !box) {
+    const projectInto = useCallback((handle, direction) => {
+        if (!surface || !surface.projectView || handle == null) {
             setError('drawings.projectView unavailable');
-            return;
+            return null;
         }
         try {
-            const v = surface.projectView(box, dir);
+            const v = surface.projectView(handle, direction);
             setView(v);
             setError(null);
-        } catch (ex) { setError(String(ex.message || ex)); }
-    }, [surface, box, dir]);
+            // Auto-emit the SVG so the projection renders as an actual
+            // drawing immediately (not just edge counts).
+            if (surface.emitSVG) {
+                try { setSvg(surface.emitSVG(v)); } catch { setSvg(''); }
+            }
+            return v;
+        } catch (ex) { setError(String(ex.message || ex)); return null; }
+    }, [surface]);
+
+    // Auto-project once the model handle is known, and whenever the view
+    // direction changes — so opening the workbench shows a drawing at once.
+    useEffect(() => {
+        if (box != null) projectInto(box, dir);
+    }, [box, dir, projectInto]);
+
+    const onProject = useCallback(() => { projectInto(box, dir); }, [projectInto, box, dir]);
 
     const onEmitDXF = useCallback(() => {
         if (!surface || !surface.emitDXF || !view) return;
@@ -75,8 +150,10 @@ export function DrawingsHLRWorkbench({ onClose }) {
 
             <div style={{ padding: 10, overflowY: 'auto' }}>
                 <div style={{ opacity: 0.7, marginBottom: 6 }}>
-                    Sample: 100 × 60 × 40 box (handle: {box ?? '—'}). Native HLR
-                    via HLRBRep_Algo + DXF R12 / SVG emit.
+                    {usingSample
+                        ? 'Scene empty — showing sample 100 × 60 × 40 box. '
+                        : `Projecting: ${modelName ?? '—'} (handle ${box ?? '—'}). `}
+                    Native HLR via HLRBRep_Algo + DXF R12 / SVG emit.
                 </div>
 
                 <div style={{ marginTop: 4 }}>
@@ -104,9 +181,21 @@ export function DrawingsHLRWorkbench({ onClose }) {
                         <div>Visible edges: <span data-testid="forge-drawingshlr-visible-count">{view.visibleEdges?.length ?? 0}</span></div>
                         <div>Hidden edges: <span data-testid="forge-drawingshlr-hidden-count">{view.hiddenEdges?.length ?? 0}</span></div>
                         <div>BBox: <span data-testid="forge-drawingshlr-bbox">
-                            x [{view.minX?.toFixed(1)} → {view.maxX?.toFixed(1)}]
-                            y [{view.minY?.toFixed(1)} → {view.maxY?.toFixed(1)}]
+                            x [{view.bbox?.minX?.toFixed(1)} → {view.bbox?.maxX?.toFixed(1)}]
+                            y [{view.bbox?.minY?.toFixed(1)} → {view.bbox?.maxY?.toFixed(1)}]
                         </span></div>
+                    </div>
+                )}
+
+                {/* Slice-11 — render the projection as an ACTUAL drawing:
+                    visible edges as solid lines, hidden edges as dashed,
+                    in a flipped-Y (engineering) coordinate frame. */}
+                {view && view.bbox && (
+                    <div data-testid="forge-drawingshlr-canvas-wrap" style={{
+                        marginTop: 8, padding: 8, background: '#fafafa',
+                        border: '1px solid #2a2d34', borderRadius: 4,
+                    }}>
+                        <DrawingCanvas view={view} />
                     </div>
                 )}
 

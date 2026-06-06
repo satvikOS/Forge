@@ -909,6 +909,10 @@ export function ForgeShellV4() {
       case 'tools.surfacing':
         window.__forgeOpenSurfacing?.(true);
         return;
+      // PUSH-42 — HLR engineering drawings workbench.
+      case 'tools.drawingsHlr':
+        window.__forgeOpenDrawingsHLRWorkbench?.(true);
+        return;
       // Forge-166 — Thread Designer (ISO/UNC/UNF/NPT thread cutter).
       // Manual click opens the panel; it does NOT post to Archie's thread.
       case 'tools.threads':
