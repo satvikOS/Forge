@@ -17,8 +17,8 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 10 | CAM / manufacturing | 0 % | 80 % | 15 % | PUSH-46 (real toolpath gen proven) |
 | 11 | Simulation (FEA/CFD/motion) | 3 % | 80 % | 18 % | PUSH-48 (FEA workbench mounted + static solve proven) |
 | 12 | PMI / GD&T | 0 % | 80 % | 14 % | PUSH-47 (tolerance stack-up reachable + proven) |
-| 13 | Standard parts libs | 4 % | 80 % | 4 % | — |
-| 14 | PDM / PLM | 0 % | 80 % | 0 % | — |
+| 13 | Standard parts libs | 4 % | 80 % | 16 % | PUSH-52 (parametric insert → real B-rep body) |
+| 14 | PDM / PLM | 0 % | 80 % | 14 % | PUSH-51 (real vault check-in/out proven + Buffer fix) |
 | 15 | Generative / topology | 0 % | 80 % | 16 % | PUSH-49/50 (topology materialise + TPMS lattice) |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
 | 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 20 % | PUSH-36 (Bodies panel) |

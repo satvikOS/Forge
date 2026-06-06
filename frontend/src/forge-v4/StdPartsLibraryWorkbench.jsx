@@ -11,6 +11,60 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 
+// Commit a generated std-part mesh ({positions,indices}) as a scene body.
+// Round-trip through the native OCCT kernel via STL (so the part is a real
+// B-rep solid with mass properties); fall back to a synthetic mesh body if
+// OCCT rejects the soup. Mirrors createLatticeBody. Returns the committed body.
+function meshToBinaryStl(mesh) {
+  const positions = mesh.positions;
+  const tris = mesh.indices;
+  const numTri = tris.length / 3;
+  const buf = new ArrayBuffer(84 + numTri * 50);
+  const view = new DataView(buf);
+  view.setUint32(80, numTri, true);
+  let off = 84;
+  for (let t = 0; t < numTri; t++) {
+    const i0 = tris[t * 3], i1 = tris[t * 3 + 1], i2 = tris[t * 3 + 2];
+    const p0 = [positions[i0 * 3], positions[i0 * 3 + 1], positions[i0 * 3 + 2]];
+    const p1 = [positions[i1 * 3], positions[i1 * 3 + 1], positions[i1 * 3 + 2]];
+    const p2 = [positions[i2 * 3], positions[i2 * 3 + 1], positions[i2 * 3 + 2]];
+    const ux = p1[0] - p0[0], uy = p1[1] - p0[1], uz = p1[2] - p0[2];
+    const vx = p2[0] - p0[0], vy = p2[1] - p0[1], vz = p2[2] - p0[2];
+    let nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const nl = Math.hypot(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+    view.setFloat32(off, nx, true); view.setFloat32(off + 4, ny, true); view.setFloat32(off + 8, nz, true); off += 12;
+    for (const v of [p0, p1, p2]) {
+      view.setFloat32(off, v[0], true); view.setFloat32(off + 4, v[1], true); view.setFloat32(off + 8, v[2], true); off += 12;
+    }
+    view.setUint16(off, 0, true); off += 2;
+  }
+  return new Uint8Array(buf);
+}
+
+async function commitStdPartBody(mesh, label) {
+  if (typeof window === 'undefined' || typeof window.__forgeAppendBody !== 'function') return null;
+  const f = window.forge;
+  const id = `stdpart-${Date.now().toString(36)}`;
+  let handle = null, importNote = null;
+  if (f && f.io && typeof f.io.writeTmpStl === 'function' && typeof f.io.importStl === 'function') {
+    try {
+      const stl = meshToBinaryStl(mesh);
+      const fp = await f.io.writeTmpStl(`${id}.stl`, stl);
+      const h = f.io.importStl(fp);
+      if (typeof h === 'number' && h > 0) handle = h; else importNote = `importStl returned ${h}`;
+    } catch (err) { importNote = (err && err.message) ? err.message : String(err); handle = null; }
+  }
+  const body = {
+    id, kind: handle === null ? 'synthetic' : 'native',
+    handle: handle === null ? undefined : handle,
+    name: label, toolId: 'tools.stdparts',
+    mesh: handle === null ? { positions: mesh.positions, indices: mesh.indices } : undefined,
+    importNote: importNote || undefined, ts: Date.now(),
+  };
+  window.__forgeAppendBody(body);
+  return body;
+}
+
 const panelStyle = {
   position: 'fixed',
   top: 'calc(var(--forge-topbar-h) + var(--forge-qat-h))',
@@ -110,6 +164,7 @@ function StdPartsPanel({ open, onClose }) {
   const [selected, setSelected] = React.useState(null);
   const [mesh, setMesh] = React.useState(null);
   const [err, setErr] = React.useState('');
+  const [committed, setCommitted] = React.useState(null);
 
   if (!open) return null;
 
@@ -117,13 +172,17 @@ function StdPartsPanel({ open, onClose }) {
     e.label.toLowerCase().includes(query.toLowerCase()) ||
     e.family.includes(query.toLowerCase()));
 
-  const onInsert = () => {
+  const onInsert = async () => {
     if (!selected) return;
-    setErr(''); setMesh(null);
+    setErr(''); setMesh(null); setCommitted(null);
     try {
       const m = generateStdPart(selected);
       setMesh(m);
       if (typeof window !== 'undefined') window.__forgeLastStdPart = m;
+      // Commit the part as a real scene body (native B-rep via STL round-trip,
+      // synthetic-mesh fallback) so it renders + appears in the feature tree.
+      const body = await commitStdPartBody(m, selected.label);
+      if (body) setCommitted(body);
     } catch (e) {
       setErr(String(e?.message || e));
     }
@@ -198,6 +257,18 @@ function StdPartsPanel({ open, onClose }) {
                           fontFamily: 'var(--forge-mono)', fontSize: 11 }}>
           {selected.label}<br />
           {mesh.positions.length / 3} verts, {mesh.indices.length / 3} tris
+        </section>
+      )}
+
+      {committed && (
+        <section data-testid="forge-stdparts-committed"
+                 style={{ background: 'var(--forge-canvas)',
+                          padding: 'var(--forge-space-2)',
+                          borderRadius: 'var(--forge-radius)',
+                          fontFamily: 'var(--forge-mono)', fontSize: 11,
+                          marginTop: 'var(--forge-space-1)' }}>
+          Inserted body · <span data-testid="forge-stdparts-committed-kind">{committed.kind}</span>
+          {committed.handle != null ? <> · handle <span data-testid="forge-stdparts-committed-handle">{committed.handle}</span></> : null}
         </section>
       )}
     </div>

@@ -96,6 +96,8 @@ export const MENU_SPEC = {
       { id: 'tools.ribbon',     label: 'Customise Ribbons…', icon: 'misc.settings' },
       SEP,
       { id: 'tools.library',   label: 'Standard Parts Library…', icon: 'misc.search' },
+      // Forge-204 — parametric ISO/ANSI catalogue (bolt/nut/washer/bearing/gear).
+      { id: 'tools.stdparts',  label: 'Standard Parts (parametric)…', icon: 'misc.search' },
       // Forge-154 — engineering material catalogue picker (200+ alloys).
       { id: 'tools.materials', label: 'Material Library…',  icon: 'misc.search' },
       // Forge-158 — AIS-style subshape pick mode rotator.
