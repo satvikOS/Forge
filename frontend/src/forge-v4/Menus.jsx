@@ -139,6 +139,9 @@ export const MENU_SPEC = {
       { id: 'tools.configurations', label: 'Configurations…',    icon: 'misc.settings' },
       { id: 'tools.skeleton',     label: 'Master Skeleton…',     icon: 'sketch.line' },
       { id: 'tools.scenarios',    label: 'Scenario Runner…',     icon: 'wb.sim' },
+      // Forge-91 — Simulation workbench (FEA static/modal/dynamic/thermal/
+      // buckling/nonlinear/contact/plastic/fatigue + CFD).
+      { id: 'tools.simulation',   label: 'Simulation (FEA / CFD)…', icon: 'wb.sim' },
       { id: 'tools.convergence',  label: 'FEA Convergence…',     icon: 'measure.distance' },
       { id: 'tools.weldments',    label: 'Weldments…',           icon: 'wb.weldments' },
       // Forge-151 — Mesh workbench (polygonal mesh tools).

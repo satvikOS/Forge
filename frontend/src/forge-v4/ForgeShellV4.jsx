@@ -1010,6 +1010,13 @@ export function ForgeShellV4() {
         setActiveWb('tolerance');
         window.__forgeOpenToleranceWorkbench?.();
         return;
+      // Forge-91 — Simulation workbench (FEA / CFD).
+      case 'tools.simulation':
+      case 'tools.fea':
+      case 'workbench.simulation':
+        setActiveWb('simulation');
+        window.__forgeOpenSimulation?.();
+        return;
       // Forge-186 — HVAC ductwork.
       case 'tools.duct':
       case 'workbench.duct':

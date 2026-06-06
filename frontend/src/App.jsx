@@ -559,6 +559,7 @@ import { PidEditorHost } from './forge-v4/pidEditor.jsx';
 import { ReverseEngWorkbenchHost } from './forge-v4/ReverseEngWorkbench.jsx';
 // Forge-162 — Inspection / FAI workbench (CMM heatmap + AS9102 PDF).
 import { InspectionWorkbenchHost } from './forge-v4/InspectionWorkbench.jsx';
+import { SimulationWorkbenchHost } from './forge-v4/SimulationWorkbench.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -908,6 +909,7 @@ function App() {
       <PidEditorHost />
       <ReverseEngWorkbenchHost />
       <InspectionWorkbenchHost />
+      <SimulationWorkbenchHost />
     </ViewportEnvironmentProvider>
   );
 }

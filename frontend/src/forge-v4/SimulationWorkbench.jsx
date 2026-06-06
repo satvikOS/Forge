@@ -20,6 +20,7 @@
 // spacing. No emojis, no chromatic UI.
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './icons/Icon.jsx';
 import {
   isKernelReady,
@@ -1272,3 +1273,79 @@ function SimWorkbenchStyles() {
 }
 
 export default SimulationWorkbench;
+
+// ============================================================
+// Host — mounts the Simulation workbench as a right-docked panel,
+// sources the active body handle from the live body registry, and
+// wires open/close via window globals + the forge:menu-action and
+// forge:wb-changed events (so it is reachable from the Tools menu
+// and the global command search). Forge-91 / PUSH-48.
+// ============================================================
+
+function readActiveBody() {
+  if (typeof window === 'undefined') return { handle: null, name: 'No body selected' };
+  const bodies = Array.isArray(window.__forgeBodies) ? window.__forgeBodies : [];
+  const sel = window.__forgeSelection;
+  // Prefer an explicitly-selected native body, else the last native body.
+  const selIds = sel && sel.ids ? sel.ids : (Array.isArray(sel) ? sel : []);
+  let pick = null;
+  if (selIds && selIds.length) {
+    pick = bodies.find((b) => b && b.kind === 'native' && selIds.includes(b.id));
+  }
+  if (!pick) {
+    for (let i = bodies.length - 1; i >= 0; i--) {
+      if (bodies[i] && bodies[i].kind === 'native' && bodies[i].handle != null) { pick = bodies[i]; break; }
+    }
+  }
+  if (!pick) return { handle: null, name: 'No body selected' };
+  return { handle: pick.handle, name: pick.name || pick.id || 'Body' };
+}
+
+const SIM_PANEL_EVENT = 'forge:open-simulation';
+
+export function SimulationWorkbenchHost() {
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState({ handle: null, name: 'No body selected' });
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (mounted.current) return;
+    mounted.current = true;
+    if (typeof window === 'undefined') return undefined;
+    const refresh = () => setBody(readActiveBody());
+    window.__forgeOpenSimulation = () => { refresh(); setOpen(true); };
+    window.__forgeCloseSimulation = () => setOpen(false);
+    const onMenu = (e) => {
+      const id = e?.detail?.id;
+      if (id === 'tools.simulation' || id === 'workbench.simulation' || id === 'tools.fea') {
+        refresh(); setOpen(true);
+      }
+    };
+    const onEvt = () => { refresh(); setOpen(true); };
+    const syncWb = () => { if (window.__forgeActiveWb === 'simulation') { refresh(); setOpen(true); } };
+    window.addEventListener('forge:menu-action', onMenu);
+    window.addEventListener(SIM_PANEL_EVENT, onEvt);
+    window.addEventListener('forge:wb-changed', syncWb);
+    return () => {
+      window.removeEventListener('forge:menu-action', onMenu);
+      window.removeEventListener(SIM_PANEL_EVENT, onEvt);
+      window.removeEventListener('forge:wb-changed', syncWb);
+    };
+  }, []);
+
+  if (typeof document === 'undefined' || !open) return null;
+  const overlay = {
+    position: 'absolute', top: 56, right: 0, bottom: 0,
+    zIndex: 8400, display: 'flex', height: 'auto',
+    boxShadow: '-8px 0 28px rgba(0,0,0,0.45)',
+  };
+  return createPortal(
+    <div style={overlay} data-testid="forge-sim-host">
+      <SimulationWorkbench
+        activeBodyHandle={body.handle}
+        activeBodyName={body.name}
+        onClose={() => setOpen(false)}
+      />
+    </div>,
+    document.body,
+  );
+}
