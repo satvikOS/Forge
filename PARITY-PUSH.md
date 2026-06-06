@@ -5,9 +5,9 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
-| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 35 % | — |
+| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 38 % | PUSH-33 (face-id mesh) |
 | 2 | Solid modeling ops | 8 % | 80 % | 14 % | PUSH-32 (extrude-cut on face) |
-| 3 | Sketch / 2D constraints | 18 % | 80 % | 30 % | PUSH-32 (sketch-on-face #216) |
+| 3 | Sketch / 2D constraints | 18 % | 80 % | 34 % | PUSH-33 (sketch on any picked face) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 4 % | — |
 | 5 | Drawings / 2D output | 3 % | 80 % | 3 % | — |
 | 6 | Sheet metal | 0 % | 80 % | 0 % | — |
@@ -37,6 +37,26 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-33 — Arbitrary-face picking (face-id tessellation) [2026-06-06]
+- **Dimensions touched**: #1 Kernel (face-id mesh map), #3 Sketch (sketch on
+  ANY picked face), #17 UI/UX (viewport face-filter selection).
+- **Kernel**: `Mesh` gains a per-TRIANGLE `faceIds` array (1-based, same
+  TopExp_Explorer order as inferFeature/faceById); tessellate() populates it
+  and binding emits a Uint32Array `faceIds`. Verified: box → faceIds
+  [1,1,2,2,3,3,4,4,5,5,6,6] (6 faces, 2 tris each).
+- **Wiring**: Viewport keeps the faceIds map per mesh + on userData; a click
+  in face-filter mode resolves intersection.faceIndex → BREP faceId and
+  reports {kind:'face', bodyHandle, faceId, point}; sketch.new 'Top face of
+  body' prefers the PICKED face, else auto top-face. deriveFacePlane now
+  orients the face normal OUTWARD (inferFeature normals can point inward on
+  -X/bottom faces) using the body AABB center, so boss=+normal / cut=-normal
+  are always correct on any wall.
+- **E2E**: push-32 spec extended — test 05 picks a vertical SIDE face via
+  the kernel + __forgeSelect, opens a sketch on it (asserts horizontal
+  normal + matching faceId), extrudes a boss, asserts volume GREW (boss grew
+  outward off the wall). 7/7 pass. V12 regression unaffected.
+- **CI**: see commit push.
 
 ### PUSH-32 — Sketch-on-face (#216) [2026-06-06]
 - **Dimensions touched**: #3 Sketch/2D (sketch-on-arbitrary-plane), #2 Solid

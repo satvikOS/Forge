@@ -46,8 +46,10 @@ Mesh tessellate(ShapeHandle h, double linearTol, double angularTol) {
 
     Mesh out;
 
+    std::uint32_t faceId = 0;  // 1-based id assigned in TopExp_Explorer order
     for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
         TopoDS_Face face = TopoDS::Face(ex.Current());
+        ++faceId;
         TopLoc_Location loc;
         Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
         if (tri.IsNull()) continue;
@@ -91,6 +93,7 @@ Mesh tessellate(ShapeHandle h, double linearTol, double angularTol) {
             out.indices.push_back(base + n1 - 1);
             out.indices.push_back(base + n2 - 1);
             out.indices.push_back(base + n3 - 1);
+            out.faceIds.push_back(faceId);  // 1-based BREP face id for this triangle
         }
 
         // Renormalise this face's contribution.

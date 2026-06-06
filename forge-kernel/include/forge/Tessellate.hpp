@@ -12,6 +12,11 @@ struct Mesh {
     std::vector<float> positions;   // x,y,z triplets
     std::vector<float> normals;     // per-vertex normals (averaged)
     std::vector<std::uint32_t> indices; // triangle indices
+    // Per-TRIANGLE 1-based OCCT face id (same ordering as TopExp_Explorer
+    // over TopAbs_FACE — i.e. the ids inferFeature / faceById / direct.*
+    // use). Length == indices.size()/3. Lets the viewport map a raycast
+    // triangle hit back to the BREP face for face picking / sketch-on-face.
+    std::vector<std::uint32_t> faceIds;
 };
 
 // Tessellate a shape using OCCT BRepMesh. `linearTol` is in model units

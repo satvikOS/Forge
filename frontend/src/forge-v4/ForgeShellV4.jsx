@@ -2847,15 +2847,30 @@ export function ForgeShellV4() {
                              plane = planeRaw;
                              planeLabel = planeRaw;
                            } else if (/top|bottom|face/i.test(planeRaw)) {
+                             // Slice-2 — prefer the explicitly PICKED face when
+                             // the user selected one in the viewport (face filter
+                             // click populates selection.faceId + bodyHandle).
+                             // Otherwise fall back to the target body's top face.
                              const lastNative = [...bodies].reverse().find((b) => b.kind === 'native');
-                             const tgt = (selection?.kind === 'body' && selection.ids?.length)
-                               ? bodies.find((b) => b.kind === 'native' &&
-                                   (b.handle === selection.ids[0] || b.id === selection.ids[0]))
-                               : lastNative;
-                             const frameSpec = tgt ? Sketch.deriveFacePlane(tgt.handle) : null;
+                             let tgt = null;
+                             let pickedFaceId = null;
+                             if (selection?.kind === 'face' && typeof selection.faceId === 'number'
+                                 && typeof selection.bodyHandle === 'number') {
+                               tgt = bodies.find((b) => b.kind === 'native' && b.handle === selection.bodyHandle);
+                               pickedFaceId = selection.faceId;
+                             }
+                             if (!tgt) {
+                               tgt = (selection?.kind === 'body' && selection.ids?.length)
+                                 ? bodies.find((b) => b.kind === 'native' &&
+                                     (b.handle === selection.ids[0] || b.id === selection.ids[0]))
+                                 : lastNative;
+                             }
+                             const frameSpec = tgt ? Sketch.deriveFacePlane(tgt.handle, pickedFaceId) : null;
                              if (frameSpec) {
                                plane = frameSpec;                    // custom frame object
-                               planeLabel = `face of ${tgt.name || ('body ' + tgt.handle)}`;
+                               planeLabel = pickedFaceId != null
+                                 ? `face ${pickedFaceId} of ${tgt.name || ('body ' + tgt.handle)}`
+                                 : `top face of ${tgt.name || ('body ' + tgt.handle)}`;
                              } else {
                                showToast({ kind: 'warn',
                                  text: 'No body face to sketch on — falling back to XY',

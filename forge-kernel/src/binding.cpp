@@ -468,6 +468,12 @@ Napi::Value Tessellate(const Napi::CallbackInfo& info) {
         std::copy(m.indices.begin(), m.indices.end(), indices.Data());
         out.Set("indices", indices);
 
+        // Per-triangle 1-based BREP face id — enables viewport raycast →
+        // face picking (sketch-on-face, direct edit, selection).
+        auto faceIds = Napi::Uint32Array::New(env, m.faceIds.size());
+        std::copy(m.faceIds.begin(), m.faceIds.end(), faceIds.Data());
+        out.Set("faceIds", faceIds);
+
         out.Set("triangleCount", Napi::Number::New(env, static_cast<double>(m.indices.size() / 3)));
         return out;
     });

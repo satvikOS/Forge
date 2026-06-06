@@ -489,6 +489,7 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
         // single geometry up-front and re-tessellate via the scheduler
         // through window.forge.tessellateLOD.
         const lodGeoms = { 0: null, 1: null, 2: null };
+        let faceIds = null;
         if (s.kind === 'native' && typeof s.handle === 'number' &&
             typeof window !== 'undefined' && window.forge?.tessellate) {
           try {
@@ -497,6 +498,9 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
             g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3));
             if (m.normals) g.setAttribute('normal', new THREE.BufferAttribute(m.normals, 3));
             if (m.indices) g.setIndex(new THREE.BufferAttribute(m.indices, 1));
+            // Slice-2 face picking — keep the per-triangle BREP face id map so a
+            // raycast hit (intersection.faceIndex) resolves to the OCCT face id.
+            if (m.faceIds) faceIds = m.faceIds;
           } catch (err) {
             console.warn('[forge.v4.scene] tessellate failed:', err.message);
           }
@@ -517,6 +521,7 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
           g.computeBoundingSphere?.();
           next.push({ id: s.id, key: s.id, geometry: g, body: s,
                       instanceKey: instanceKeyFor(s),
+                      faceIds,
                       lodGeoms });
         }
       }
@@ -565,6 +570,7 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
                     el.userData.body = m.body;
                     el.userData.forgeBody = m.body;
                     el.userData.bodyId = m.body?.handle ?? m.id;
+                    el.userData.faceIds = m.faceIds || null;
                   }}
                   onPointerOver={(e) => {
                     e.stopPropagation();
@@ -577,7 +583,23 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
                   onClick={(e) => {
                     e.stopPropagation();
                     aisOnClick(e);
-                    onSelect?.({ kind: 'body', ids: [m.body?.handle ?? m.id] });
+                    // Slice-2 — when the active selection filter is faces (or
+                    // edges/verts), resolve the picked BREP face id from the
+                    // raycast triangle and report a sub-entity selection so
+                    // sketch-on-face / direct-edit can target THIS face. Falls
+                    // back to whole-body selection otherwise.
+                    const fids = m.faceIds;
+                    if ((selection?.kind === 'face') && fids &&
+                        typeof e.faceIndex === 'number' && e.faceIndex < fids.length) {
+                      const faceId = fids[e.faceIndex];
+                      onSelect?.({ kind: 'face',
+                                   ids: [m.body?.handle ?? m.id],
+                                   bodyHandle: m.body?.handle ?? m.id,
+                                   faceId,
+                                   point: e.point ? [e.point.x, e.point.y, e.point.z] : null });
+                    } else {
+                      onSelect?.({ kind: 'body', ids: [m.body?.handle ?? m.id] });
+                    }
                   }}>
               {displayState === 'wireframe'
                 ? <meshBasicMaterial color={sel ? '#ffffff' : colorForBody(m.body)} wireframe />

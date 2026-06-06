@@ -93,11 +93,33 @@ export function isCustomPlane(session) {
 export function deriveFacePlane(bodyHandle, faceId = null) {
   if (typeof window === 'undefined' || !window.forge?.direct?.inferFeature) return null;
   const D = window.forge.direct;
+  // Body AABB center — used to orient the derived face normal OUTWARD
+  // (inferFeature's normal can point inward for some BREP faces, e.g. the
+  // -X / bottom faces of a box). A sketch plane must face away from the
+  // solid so a +normal extrude is a boss and -normal is a cut-in.
+  let bodyCenter = null;
+  try {
+    const t = window.forge.tessellate(bodyHandle, 0.5);
+    const p = t.positions || t.vertices || t;
+    if (p && p.length) {
+      const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < p.length; i += 3) {
+        for (let j = 0; j < 3; j++) { mn[j] = Math.min(mn[j], p[i + j]); mx[j] = Math.max(mx[j], p[i + j]); }
+      }
+      bodyCenter = [(mn[0] + mx[0]) / 2, (mn[1] + mx[1]) / 2, (mn[2] + mx[2]) / 2];
+    }
+  } catch { /* no center → skip orientation */ }
+  const orient = (origin, normal) => {
+    if (!bodyCenter) return normal;
+    const out = [origin[0] - bodyCenter[0], origin[1] - bodyCenter[1], origin[2] - bodyCenter[2]];
+    const d = normal[0] * out[0] + normal[1] * out[1] + normal[2] * out[2];
+    return d < 0 ? [-normal[0], -normal[1], -normal[2]] : normal;
+  };
   try {
     if (faceId != null) {
       const fi = D.inferFeature(bodyHandle, faceId);
       if (!fi || !fi.normal) return null;
-      return { origin: fi.centroid, normal: fi.normal, faceId };
+      return { origin: fi.centroid, normal: orient(fi.centroid, fi.normal), faceId };
     }
     const n = D.faceCount(bodyHandle);
     let best = null, bestScore = -Infinity;
@@ -105,13 +127,14 @@ export function deriveFacePlane(bodyHandle, faceId = null) {
       let fi;
       try { fi = D.inferFeature(bodyHandle, i); } catch { continue; }
       if (!fi || (fi.label && !/planar/i.test(fi.label))) continue;
-      // Prefer faces whose normal points up (+Z) and that sit highest.
-      const upDot = fi.normal[2];                 // alignment with +Z
-      const score = upDot * 1000 + fi.centroid[2]; // up-facing then highest
-      if (upDot > 0.5 && score > bestScore) { bestScore = score; best = { fi, i }; }
+      const nrm = orient(fi.centroid, fi.normal);
+      // Prefer faces whose OUTWARD normal points up (+Z) and that sit highest.
+      const upDot = nrm[2];
+      const score = upDot * 1000 + fi.centroid[2];
+      if (upDot > 0.5 && score > bestScore) { bestScore = score; best = { fi, nrm, i }; }
     }
     if (!best) return null;
-    return { origin: best.fi.centroid, normal: best.fi.normal, faceId: best.i };
+    return { origin: best.fi.centroid, normal: best.nrm, faceId: best.i };
   } catch {
     return null;
   }

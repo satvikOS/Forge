@@ -256,7 +256,63 @@ test('04 — sketch a Ø30 circle on the face + extrude-CUT a bore through', asy
     await shot('bored-plate-final');
 });
 
-test('05 — iso view, smart-fit, final capture', async () => {
+test('05 — pick a SIDE face (face filter) + sketch + boss extrude on it', async () => {
+    // Enter face-selection filter, then resolve a vertical side face of the
+    // bored plate from the kernel and drive a real face pick through the
+    // shell selection (bodyHandle + faceId), exactly as the viewport raycast
+    // click does. This proves arbitrary-face picking, not just auto top-face.
+    await platformMenuAction('edit.filterFace');
+    const pick = await page.evaluate(() => {
+        const bodies = (window.__forgeBodies || []).filter((b) => b && b.kind === 'native');
+        const body = bodies[bodies.length - 1];
+        const D = window.forge.direct;
+        const n = D.faceCount(body.handle);
+        // find a planar face whose normal is ~horizontal (a +X/+Y wall)
+        for (let i = 1; i <= n; i++) {
+            const fi = D.inferFeature(body.handle, i);
+            if (fi && /planar/i.test(fi.label || '') && Math.abs(fi.normal[2]) < 0.2) {
+                window.__forgeSelect({ kind: 'face', ids: [body.handle],
+                    bodyHandle: body.handle, faceId: i });
+                return { handle: body.handle, faceId: i,
+                    normal: fi.normal, centroid: fi.centroid };
+            }
+        }
+        return null;
+    });
+    console.log('[push-32] side-face pick:', JSON.stringify(pick));
+    expect(pick).not.toBeNull();
+    await pause(300);
+
+    await clickTool('sketch.new', { plane: 'Top face of body' }, 'sketch-on-side-face');
+    const planeInfo = await page.evaluate(() => {
+        const s = window.__forgeCurrentSketch;
+        return s && typeof s.plane === 'object'
+            ? { custom: true, origin: s.plane.origin, normal: s.plane.normal, faceId: s.plane.faceId }
+            : { custom: false };
+    });
+    console.log('[push-32] side sketch plane:', JSON.stringify(planeInfo));
+    expect(planeInfo.custom).toBe(true);
+    // The sketch plane must be the SIDE face we picked: normal horizontal,
+    // faceId matching the pick.
+    expect(Math.abs(planeInfo.normal[2])).toBeLessThan(0.2);
+    expect(planeInfo.faceId).toBe(pick.faceId);
+
+    const volBefore = (await readNativeBodies())[0].vol;
+    await clickTool('sketch.circle', { center: [0, 0, 0], radius: 8 }, 'side-circle');
+    await platformMenuAction('sketch.finish');
+    // Up (+normal) = boss growing OUT of the side wall; Add = fuse to plate.
+    await clickTool('solid.extrude', { distance: 15, direction: 'Up (+Z)', op: 'Add' }, 'side-boss');
+
+    const bodies = await readNativeBodies();
+    console.log('[push-32] after side boss:', JSON.stringify(bodies));
+    expect(bodies.length).toBe(1);
+    // A boss adds material: volume must grow vs before (proves the boss grew
+    // OUTWARD off the side face, not into the body).
+    expect(bodies[0].vol).toBeGreaterThan(volBefore + 1000);
+    await shot('side-boss-final');
+});
+
+test('06 — iso view, smart-fit, final capture', async () => {
     await page.keyboard.press('1').catch(() => {});
     await pause(800);
     await shot('iso-final');
