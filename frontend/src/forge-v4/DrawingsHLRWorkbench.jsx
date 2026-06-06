@@ -131,6 +131,50 @@ export function DrawingsHLRWorkbench({ onClose }) {
         catch (ex) { setError(String(ex.message || ex)); }
     }, [surface, view]);
 
+    // PUSH-55 — save the projected view as a real .dxf file. Builds the
+    // DXF string fresh from the current view (and any future dim payload)
+    // via the kernel emit, prompts the user for a location via the
+    // Electron save dialog, then writes the bytes through writeBlob.
+    // Surfaces window.__forgeLastDxfPath so an e2e can inspect the result.
+    const [saveNote, setSaveNote] = useState(null);
+    const onSaveDXF = useCallback(async () => {
+        if (!surface || !surface.emitDXF || !view) return;
+        const dialog = (typeof window !== 'undefined') ? window.forge?.dialog : null;
+        if (!dialog || typeof dialog.saveFile !== 'function' || typeof dialog.writeBlob !== 'function') {
+            setError('forge.dialog.saveFile / writeBlob unavailable — cannot write DXF');
+            return;
+        }
+        let dxfStr;
+        try {
+            dxfStr = surface.emitDXF([view], []);
+        } catch (ex) {
+            setError(String(ex.message || ex));
+            return;
+        }
+        if (!dxfStr || dxfStr.length < 16) {
+            setError('emitDXF returned an empty payload — projection has no edges');
+            return;
+        }
+        const filepath = await dialog.saveFile({
+            title: 'Save DXF', defaultPath: `${modelName || 'sheet'}.dxf`,
+            filters: [{ name: 'AutoCAD DXF', extensions: ['dxf'] }],
+        });
+        if (!filepath) { setSaveNote('Save DXF · canceled'); return; }
+        try {
+            const bytes = new TextEncoder().encode(dxfStr);
+            const res = await dialog.writeBlob(filepath, bytes);
+            if (res && res.ok) {
+                try { window.__forgeLastDxfPath = filepath; } catch {}
+                setSaveNote(`Saved · ${filepath.split('/').pop()} (${res.bytes} B)`);
+                setError(null);
+            } else {
+                setError(`writeBlob failed${res?.error ? ' · ' + res.error : ''}`);
+            }
+        } catch (ex) {
+            setError(`writeBlob threw: ${ex.message}`);
+        }
+    }, [surface, view, modelName]);
+
     return createPortal(
         <div data-testid="forge-drawingshlr-panel" style={{
             position: 'fixed', right: 24, top: 96, width: 520, maxHeight: '82vh',
@@ -216,7 +260,22 @@ export function DrawingsHLRWorkbench({ onClose }) {
                                  borderRadius: 4, cursor: view ? 'pointer' : 'not-allowed' }}>
                         Emit SVG
                     </button>
+                    <button data-testid="forge-drawingshlr-save-dxf" onClick={onSaveDXF}
+                        disabled={!view}
+                        style={{ flex: 1, padding: '4px 8px',
+                                 background: view ? '#2c4d2a' : '#1a1c20',
+                                 color: '#dfeedd', border: '1px solid #3a6738',
+                                 borderRadius: 4, cursor: view ? 'pointer' : 'not-allowed' }}>
+                        Save DXF…
+                    </button>
                 </div>
+                {saveNote && (
+                    <div data-testid="forge-drawingshlr-save-note" style={{
+                        marginTop: 6, padding: '4px 6px', background: '#1d2b1f',
+                        border: '1px solid #2f4a32', borderRadius: 4, color: '#cfe2ce',
+                        fontSize: 11,
+                    }}>{saveNote}</div>
+                )}
 
                 {dxf && (
                     <details data-testid="forge-drawingshlr-dxf-section" open style={{ marginTop: 8 }}>

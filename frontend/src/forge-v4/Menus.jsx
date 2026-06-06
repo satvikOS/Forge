@@ -128,7 +128,8 @@ export const MENU_SPEC = {
       { id: 'tools.directEdit', label: 'Direct Edit…',     icon: 'sketch.rect' },
       { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
-      // PUSH-42 — HLR engineering drawings (projected 2D views from the model).
+      // PUSH-42 / PUSH-55 — HLR engineering drawings (projected 2D views +
+      // native DXF/SVG export to disk).
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
