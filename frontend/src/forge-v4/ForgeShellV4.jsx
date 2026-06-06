@@ -3042,6 +3042,23 @@ export function ForgeShellV4() {
                            const sr = dispatchSheet(tool, seeded);
                            if (sr.ok === false) {
                              r = { ok: false, error: sr.message || 'sheet-op-failed' };
+                           } else if (tool === 'sheet.flatPattern' || tool === 'sheet.unfold') {
+                             // Slice-12 — the flat pattern / unfold result is a
+                             // 2D WIRE (invisible as a body). Instead of
+                             // committing an invisible wire, develop it into a
+                             // real flat-pattern DRAWING in the FlatPatternHost,
+                             // sourced from the FORMED sheet body (seeded.shape).
+                             if (seeded.shape != null && typeof window !== 'undefined') {
+                               window.dispatchEvent(new CustomEvent('forge:open-flat-pattern', {
+                                 detail: {
+                                   shape: seeded.shape,
+                                   thickness: seeded.thickness ?? params.thickness,
+                                   bendRadius: seeded.bendRadius ?? params.bendRadius,
+                                   k: seeded.k ?? params.k,
+                                 },
+                               }));
+                             }
+                             r = { ok: true, kind: 'noop' };
                            } else if (sr.kind === 'native') {
                              r = { ok: true, kind: 'native', handle: sr.handle };
                            } else {

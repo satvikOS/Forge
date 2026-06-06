@@ -16,6 +16,7 @@
 // pattern reads correctly under both --forge-theme=dark and =light.
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon } from './icons/Icon.jsx';
 import { bends as bendsOp, flatPattern as flatPatternOp } from './sheetMetalDispatch.js';
 import { bendAllowance } from './kFactorTable.js';
@@ -39,6 +40,36 @@ function tessellateWire(wireHandle) {
     }
     if (typeof f.sheetMetal?.sampleWire === 'function') {
       return f.sheetMetal.sampleWire(wireHandle, 64) || [];
+    }
+    // Slice-12 fallback — sample the wire's edges into polylines via the
+    // direct.edgeSegments API (the same one drawings/edge-pick use). Each
+    // segment is { id, points: Float64Array[x0,y0,z0,x1,y1,z1,…] }. We take
+    // (x,y) of every vertex (the flat pattern lives in the z=0
+    // manufacturing plane) and concatenate them into one outline polyline
+    // so the SVG renders the real developed boundary.
+    if (typeof f.direct?.edgeSegments === 'function') {
+      const segs = f.direct.edgeSegments(wireHandle, 0.25);
+      if (Array.isArray(segs)) {
+        const out = [];
+        for (const seg of segs) {
+          const pts = seg && seg.points ? seg.points : seg;
+          if (!pts) continue;
+          // Float64Array / Array of flat triples.
+          if (typeof pts.length === 'number' && typeof pts[0] === 'number') {
+            for (let i = 0; i + 2 < pts.length + 1; i += 3) {
+              const x = pts[i], y = pts[i + 1];
+              if (Number.isFinite(x) && Number.isFinite(y)) out.push([x, y]);
+            }
+          } else if (Array.isArray(pts)) {
+            for (const p of pts) {
+              const x = Array.isArray(p) ? p[0] : p.x;
+              const y = Array.isArray(p) ? p[1] : p.y;
+              if (Number.isFinite(x) && Number.isFinite(y)) out.push([x, y]);
+            }
+          }
+        }
+        return out;
+      }
     }
   } catch {}
   return [];
@@ -282,3 +313,46 @@ export function FlatPatternView({
 }
 
 export default FlatPatternView;
+
+// ────────── self-mounting host (Slice-12) ──────────
+// Mounted once in App.jsx. ForgeShellV4 dispatches a
+// `forge:open-flat-pattern` window event (detail: { shape, thickness,
+// bendRadius, k }) after a sheet.flatPattern / sheet.unfold op so the
+// flat develops into a real, visible 2D drawing instead of an invisible
+// wire body. Mirrors SurfacingPanelHost's open-via-window-hook pattern.
+export function FlatPatternHost() {
+  const [state, setState] = useState(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onOpen = (e) => {
+      const d = (e && e.detail) || {};
+      if (d.shape == null) return;
+      setState({
+        shape: d.shape,
+        thickness: typeof d.thickness === 'number' ? d.thickness : 1.5,
+        bendRadius: typeof d.bendRadius === 'number' ? d.bendRadius : 1.5,
+        k: d.k,
+      });
+    };
+    window.addEventListener('forge:open-flat-pattern', onOpen);
+    window.__forgeOpenFlatPattern = (d) => onOpen({ detail: d });
+    return () => {
+      window.removeEventListener('forge:open-flat-pattern', onOpen);
+      delete window.__forgeOpenFlatPattern;
+    };
+  }, []);
+
+  if (!state) return null;
+  return createPortal(
+    <div data-testid="forge-flat-pattern-host"
+         style={{ position: 'fixed', right: 24, top: 96, zIndex: 940,
+                  boxShadow: '0 6px 22px rgba(0,0,0,0.45)' }}>
+      <FlatPatternView shape={state.shape} thickness={state.thickness}
+                       bendRadius={state.bendRadius} k={state.k}
+                       onClose={() => setState(null)} />
+    </div>,
+    document.body,
+  );
+}
+

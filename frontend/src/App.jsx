@@ -3,6 +3,7 @@ import { ForgeShellV4 } from './forge-v4/ForgeShellV4.jsx';
 import { DirectEditPanelHost } from './forge-v4/DirectEditPanel.jsx';
 import { HealPanelHost } from './forge-v4/HealPanel.jsx';
 import { SurfacingPanelHost } from './forge-v4/SurfacingPanel.jsx';
+import { FlatPatternHost } from './forge-v4/FlatPatternView.jsx';
 import { SurfaceAnalysisOverlayHost } from './forge-v4/SurfaceAnalysisOverlay.jsx';
 import { ManufacturingWorkbenchHost } from './forge-v4/ManufacturingWorkbench.jsx';
 import { WeldmentsWorkbenchHost } from './forge-v4/WeldmentsWorkbench.jsx';
@@ -585,6 +586,7 @@ function App() {
       <DirectEditPanelHost />
       <HealPanelHost />
       <SurfacingPanelHost />
+      <FlatPatternHost />
       <SurfaceAnalysisOverlayHost />
       <ManufacturingWorkbenchHost />
       <WeldmentsWorkbenchHost />

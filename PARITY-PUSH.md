@@ -10,7 +10,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 3 | Sketch / 2D constraints | 18 % | 80 % | 40 % | PUSH-35 (sketch on datum planes) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 22 % | PUSH-37 (token-aware OCCT mates) |
 | 5 | Drawings / 2D output | 3 % | 80 % | 12 % | PUSH-42 (HLR project real model + render) |
-| 6 | Sheet metal | 0 % | 80 % | 0 % | — |
+| 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
 | 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
 | 8 | Mold / casting / tooling | 0 % | 80 % | 0 % | — |
 | 9 | Routing (piping / cable) | 0 % | 80 % | 0 % | — |
@@ -37,6 +37,30 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 ## Batch log
 
 (Each commit batch records: dimensions touched, CI run URL, multi-cam e2e snapshot dir.)
+
+### PUSH-43 — Sheet Metal: flat-pattern view wired up [2026-06-06]
+- **Dimensions touched**: #6 Sheet metal (0→14%), #17 UI/UX.
+- **Gap**: the sheet-metal kernel chain (baseFlange/edgeFlange/miterFlange/
+  hem/jog/closedCorner/cornerRelief/unfold/flatPattern/bends) was complete
+  and the FlatPatternView component existed (renders the develop as SVG
+  with bend lines) — but the view was ORPHANED, never mounted anywhere.
+  Running Flat produced an invisible 2D wire body and no drawing.
+- **Fix**: added FlatPatternHost (self-mounting, listens for a
+  forge:open-flat-pattern window event), mounted it in App.jsx. ForgeShellV4
+  now opens it after sheet.flatPattern / sheet.unfold, sourcing the develop
+  from the FORMED body (not committing the invisible wire). Added an
+  edgeSegments-based fallback to the view's wire tessellator so the outline
+  actually renders (no forge.tessellateWire/sampleWire exist).
+- **E2E**: push-43-sheet-flat.spec.js (headed, MP4) — Sheet workbench →
+  100×60 base flange → 25mm edge flange (one 90° bend) → Flat: the
+  FlatPatternHost renders the developed pattern (bbox 102.2×60, bend count
+  exactly 1, 4 SVG outline paths). 5/5 pass.
+- **Kernel smoke**: sheet_flat_pattern_smoke.js — baseFlange exact 12000mm³,
+  edgeFlange grows volume, flatPattern develops to 224.2×60 with 1 bend.
+  Added to gate.
+- **Proof**: no kernel change; 21/21 unit, bridge, full 24/24 existing
+  feature e2e green. CI green all 3 platforms.
+
 
 ### PUSH-42 — Drawings (HLR): project the real model + render the view [2026-06-06]
 - **Dimensions touched**: #5 Drawings (3→12%), #17 UI/UX (Tools-menu +
