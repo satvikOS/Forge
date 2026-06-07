@@ -702,6 +702,22 @@ import { StlExportPanelHost } from './forge-v4/StlExportPanel.jsx';
 // the existing forge.dialog.saveFile + writeBlob bridge. Reachable via
 // the `tools.diagnostic` menu action OR window.__forgeOpenDiagnosticDump.
 import { DiagnosticDumpPanelHost } from './forge-v4/DiagnosticDumpPanel.jsx';
+// PUSH-87 (Slice-55) — Class-A light-line / isophote analysis overlay.
+// Material-swap shader on every body in the live scene; right-docked
+// control panel for azimuth / elevation / line density / threshold /
+// curvature gain + surface tint. Cooperates with PUSH-86 zebra so
+// toggling either overlay restores the other's underlying PBR.
+// Reachable via the `tools.lightLines` menu OR
+// `window.__forgeOpenLightLines()`.
+import { LightLineAnalysisOverlayHost } from './forge-v4/LightLineAnalysisOverlay.jsx';
+// PUSH-85 (Slice-53) — Class-A G2/G3 curvature-continuous Blend panel.
+// Picks four boundary curves (preset saddle, active-body top-face bbox,
+// or JSON override), maps a G1/G2/G3 continuity radio to Coons /
+// bicubic-Hermite tension, builds the 11×11 NURBS control grid, and
+// commits it as a native OCCT face via window.forge.surfacing.buildPatch
+// + window.__forgeAppendBody. Reachable through the tools.classABlend
+// menu action OR window.__forgeOpenClassABlend.
+import { ClassABlendPanelHost } from './forge-v4/ClassABlendPanel.jsx';
 // PUSH-93 (Slice-61) — BOM Balloon Auto-Place panel. Projects every body's
 // centroid (via forge.massProps) onto a drawing view (front/top/right), lays
 // balloons on a ring around the projected bbox, emits a renderable SVG
@@ -1097,6 +1113,8 @@ function App() {
       <BigSceneStressPanelHost />
       <ThemeSwitcherPanelHost />
       <BomBalloonsPanelHost />
+      <LightLineAnalysisOverlayHost />
+      <ClassABlendPanelHost />
     </ViewportEnvironmentProvider>
   );
 }

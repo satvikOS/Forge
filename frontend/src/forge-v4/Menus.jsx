@@ -152,6 +152,12 @@ export const MENU_SPEC = {
       // black / white reflection bands surface G0 / G1 / G2 continuity
       // defects. Floating control panel adjusts stripe count + axis live.
       { id: 'tools.zebraStripes', label: 'Zebra Stripes (Class-A)…', icon: 'sketch.spline' },
+      // PUSH-87 — Class-A light-line / isophote analysis (sibling to zebra).
+      // Single highlight contour at the picked light direction; kinks at G1
+      // breaks read as bold black lines, soft transitions stay faint grey
+      // via curvature-based dimming. Material-swap on the live body;
+      // cooperates with zebra so toggling either restores the underlying PBR.
+      { id: 'tools.lightLines',  label: 'Light-line / Isophote (Class-A)…', icon: 'sketch.spline' },
       // PUSH-42 / PUSH-55 — HLR engineering drawings (projected 2D views +
       // native DXF/SVG export to disk).
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },
@@ -184,6 +190,7 @@ export const MENU_SPEC = {
       { id: 'tools.pmiAnnotations', label: 'PMI Annotations…',      icon: 'measure.distance' }, // PUSH-78 — Datum/Tolerance/Finish/Weld notes attached to faces.
       { id: 'tools.gdtFrames',     label: 'GD&T Feature Control Frames…', icon: 'measure.distance' }, // PUSH-92 — ASME Y14.5 frame builder (14 symbols + Ø/M/L/F modifier + up to 3 datums); commits to window.__forgeGdtFrames.
       { id: 'tools.diagnostic',    label: 'Diagnostic Dump…',       icon: 'misc.settings' }, // PUSH-81 — one-button snapshot of all window.__forge* globals + selection + camera + kernel version into a JSON support report (via forge.dialog.saveFile + writeBlob).
+      { id: 'tools.classABlend',   label: 'Class-A Blend…',          icon: 'sketch.spline' }, // PUSH-85 — G2/G3 curvature-continuous Coons-+-bicubic-Hermite surface blend; commits an OCCT NURBS face via window.forge.surfacing.buildPatch + window.__forgeAppendBody.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
