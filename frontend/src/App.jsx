@@ -52,6 +52,12 @@ import DrillingPatternPanelHost from './forge-v4/DrillingPatternPanel.jsx';
 // surfaces moveCount / cycle time / cutting length. Reachable via the
 // tools.camAdaptive menu action or window.__forgeOpenCamAdaptive().
 import CamAdaptivePanelHost from './forge-v4/CamAdaptivePanel.jsx';
+// PUSH-118 (Slice-86) — 5-Axis CAM Strategies panel. Swarf /
+// Parallel-to-face / Pocket on top of window.forge.cam.multiAxisIndexed
+// + multiAxisContinuous. Tool-axis vector input drives the kernel
+// orientations / SurfaceStation normals directly. Reachable via the
+// tools.cam5Axis menu action OR window.__forgeOpenFiveAxisCAM().
+import { FiveAxisCAMPanelHost } from './forge-v4/FiveAxisCAMPanel.jsx';
 // PUSH-110 (Slice-79) — Drawing Print Preview / PDF panel. Paper-size
 // (ISO A0..A4 + ANSI Letter/Legal/Tabloid) + orientation + scale (1:1..1:20)
 // dropdowns; renders the live HLR view2D as mm-unit SVG with title block;
@@ -893,6 +899,8 @@ function App() {
       <MateSolverWorkbenchHost />
       <CAMExtendedWorkbenchHost />
       <DrillingPatternPanelHost />
+      <CamAdaptivePanelHost />
+      <FiveAxisCAMPanelHost />
       <TopologyWorkbenchHost />
       <TopologyConstraintsPanelHost />
       <SolidOpsWorkbenchHost />

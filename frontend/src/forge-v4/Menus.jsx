@@ -297,6 +297,11 @@ export const MENU_SPEC = {
       // generates a real native toolpath and surfaces moveCount /
       // cycle time / cutting length.
       { id: 'tools.camAdaptive', label: 'Adaptive Clearing (CAM)…', icon: 'wb.mfg' },
+      // PUSH-118 (Slice-86) — 5-Axis CAM Strategies (Swarf / Parallel-to-
+      // face / Pocket) via window.forge.cam.multiAxisIndexed +
+      // multiAxisContinuous. Tool-axis vector input feeds either an
+      // orientations[] (indexed) or a SurfaceStation[] (continuous).
+      { id: 'tools.cam5Axis',     label: '5-Axis CAM Strategies…', icon: 'wb.mfg' },
       // Forge-163 — 3D-printing slicer (real Marlin G-code emitter).
       { id: 'tools.slicer',       label: 'Slicer (3D printing)…', icon: 'wb.mfg' },
       // Forge-152 — Industrial robot workbench (KUKA KR6, ABB IRB1200,
