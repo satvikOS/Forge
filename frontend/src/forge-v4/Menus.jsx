@@ -138,6 +138,11 @@ export const MENU_SPEC = {
       { id: 'tools.directEditTranslate', label: 'Direct Edit — Translate…', icon: 'sketch.rect' },
       { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
+      // PUSH-86 (Slice-54) — Class-A zebra stripes surface analysis.
+      // Toggles a custom ShaderMaterial on every body's mesh: alternating
+      // black / white reflection bands surface G0 / G1 / G2 continuity
+      // defects. Floating control panel adjusts stripe count + axis live.
+      { id: 'tools.zebraStripes', label: 'Zebra Stripes (Class-A)…', icon: 'sketch.spline' },
       // PUSH-42 / PUSH-55 — HLR engineering drawings (projected 2D views +
       // native DXF/SVG export to disk).
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },

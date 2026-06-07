@@ -5,6 +5,10 @@ import { HealPanelHost } from './forge-v4/HealPanel.jsx';
 import { SurfacingPanelHost } from './forge-v4/SurfacingPanel.jsx';
 import { FlatPatternHost } from './forge-v4/FlatPatternView.jsx';
 import { SurfaceAnalysisOverlayHost } from './forge-v4/SurfaceAnalysisOverlay.jsx';
+// PUSH-86 (Slice-54) — Class-A zebra stripes surface analysis overlay.
+// Toggles a custom ShaderMaterial on every body's mesh; floating
+// control panel adjusts stripe count + axis live.
+import { ZebraStripesOverlayHost } from './forge-v4/ZebraStripesOverlay.jsx';
 import { ManufacturingWorkbenchHost } from './forge-v4/ManufacturingWorkbench.jsx';
 import { WeldmentsWorkbenchHost } from './forge-v4/WeldmentsWorkbench.jsx';
 import { StandardPartsLibraryHost } from './forge-v4/StandardPartsLibrary.jsx';
@@ -693,6 +697,7 @@ function App() {
       <SurfacingPanelHost />
       <FlatPatternHost />
       <SurfaceAnalysisOverlayHost />
+      <ZebraStripesOverlayHost />
       <ManufacturingWorkbenchHost />
       <WeldmentsWorkbenchHost />
       <StandardPartsLibraryHost />
