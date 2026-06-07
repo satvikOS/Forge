@@ -613,6 +613,11 @@ import { LightingPanelHost } from './forge-v4/LightingPanel.jsx';
 // the scene with inline rename inputs + Find/Replace + Number-suffix
 // renamer; commits via window.__forgeSetBodies in one atomic Apply).
 import { BatchRenamePanelHost } from './forge-v4/BatchRenamePanel.jsx';
+// PUSH-83 (Slice-51) — Catmull-Clark subdivision surface panel. Quad
+// control cage (cube or active body AABB) refined 1..4 iterations via
+// pure-JS Catmull-Clark, committed as a synthetic body through
+// window.__forgeAppendBody; publishes forge:subdivision-applied.
+import { SubdivisionSurfacePanelHost } from './forge-v4/SubdivisionSurfacePanel.jsx';
 // PUSH-74 — Recent Files panel (last 20 paths opened via File > Open,
 // re-open with one click; persists to localStorage forge.v4.recentFiles;
 // mirrors onto window.__forgeRecentFiles; subscribes to the global
@@ -1023,6 +1028,7 @@ function App() {
       <ActivityLogPanelHost />
       <LightingPanelHost />
       <BatchRenamePanelHost />
+      <SubdivisionSurfacePanelHost />
       <RecentFilesPanelHost />
       <PmiAnnotationsPanelHost />
       <SketchConstraintsToolbar />
