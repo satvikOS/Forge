@@ -664,6 +664,15 @@ import { ThemeSwitcherPanelHost } from './forge-v4/ThemeSwitcherPanel.jsx';
 // state; clicking a button calls window.forge.sketcher.addConstraint and
 // dispatches forge:sketch-constraint-add for downstream subscribers).
 import { SketchConstraintsToolbar } from './forge-v4/SketchConstraintsToolbar.jsx';
+// PUSH-91 (Slice-59) — Extended Sketch Constraints panel — full 16-kind
+// surface (12 geometric + 4 dimensional) with per-row numeric inputs +
+// Apply buttons + a live counter / log. Same bus contract as PUSH-72's
+// toolbar (forge:sketch-constraint-add-ext) — reads __forgeSelection +
+// __forgeCurrentSketch, calls window.forge.sketcher.addConstraint, and
+// composes the families the kernel doesn't expose directly (Symmetric /
+// Concentric / Fix / Diameter / Radius) out of the kernel-supplied
+// primitives so every button honestly reports what hit the solver.
+import { SketchConstraintsExtendedPanelHost } from './forge-v4/SketchConstraintsExtendedPanel.jsx';
 // PUSH-79 (Slice-47) — Theme switcher panel (Dark / Light / Sepia / High
 // Contrast) writing document.documentElement.dataset.forgeTheme + the
 // shell's existing forge.v4.theme localStorage key + dispatching
@@ -674,6 +683,12 @@ import { SketchConstraintsToolbar } from './forge-v4/SketchConstraintsToolbar.js
 // to window.__forgeAnimationPose, the same channel PUSH-57's viewport
 // AnimationPoseTicker reads to move bodies between renders.
 import { DirectEditTranslatePanelHost } from './forge-v4/DirectEditTranslatePanel.jsx';
+// PUSH-88 (Slice-56) — Pattern features (Linear / Circular / Mirror).
+// Seed-body picker + mode-typed Apply button; each pattern instance is a
+// fresh kernel handle produced by forge.translate / forge.rotate and
+// committed via window.__forgeAppendBody so the v4 shell rebuilds the
+// feature tree + meshes + outliner per instance.
+import { PatternFeaturePanelHost } from './forge-v4/PatternFeaturePanel.jsx';
 // PUSH-77 (Slice-45) — Multi-body STL export panel. Row-per-native-body
 // checkboxes + Combined / One-per-body radio + a single Export button
 // that drives forge.io.exportStl directly (one OCCT STL write per
@@ -687,6 +702,13 @@ import { StlExportPanelHost } from './forge-v4/StlExportPanel.jsx';
 // the existing forge.dialog.saveFile + writeBlob bridge. Reachable via
 // the `tools.diagnostic` menu action OR window.__forgeOpenDiagnosticDump.
 import { DiagnosticDumpPanelHost } from './forge-v4/DiagnosticDumpPanel.jsx';
+// PUSH-93 (Slice-61) — BOM Balloon Auto-Place panel. Projects every body's
+// centroid (via forge.massProps) onto a drawing view (front/top/right), lays
+// balloons on a ring around the projected bbox, emits a renderable SVG
+// snippet with leader lines from each balloon to its body's projected
+// centroid. Reachable via tools.bomBalloons OR
+// window.__forgeOpenBomBalloonsPanel.
+import { BomBalloonsPanelHost } from './forge-v4/BomBalloonsPanel.jsx';
 // PUSH-94 (Slice-62) — Big Scene Stress Test panel. Seeds N cubes
 // (1k / 5k / 10k / 30k) into a SIDECAR three.js canvas as ONE
 // THREE.InstancedMesh — total draw call = 1 by construction — and
@@ -1066,12 +1088,15 @@ function App() {
       <PmiAnnotationsPanelHost />
       <GdtFramePanelHost />
       <SketchConstraintsToolbar />
+      <SketchConstraintsExtendedPanelHost />
       <DirectEditTranslatePanelHost />
+      <PatternFeaturePanelHost />
       <SelectionFilterStrip />
       <StlExportPanelHost />
       <DiagnosticDumpPanelHost />
       <BigSceneStressPanelHost />
       <ThemeSwitcherPanelHost />
+      <BomBalloonsPanelHost />
     </ViewportEnvironmentProvider>
   );
 }

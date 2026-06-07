@@ -127,6 +127,10 @@ export const MENU_SPEC = {
       // so the e2e spec (and curious users) can reach it via real menu
       // navigation, not just the keyboard shortcut.
       { id: 'tools.stressTest', label: 'Stress test…',      icon: 'misc.kbd' },
+      // PUSH-94 (Slice-62) — Big Scene stress test: 30k+ bodies in a
+      // sidecar canvas via a single THREE.InstancedMesh. Reports FPS,
+      // draw calls, ms/frame; total draw call = 1 by construction.
+      { id: 'tools.bigSceneStress', label: 'Big Scene Stress Test (30k+)…', icon: 'misc.kbd' },
       SEP,
       // Forge-126 — class-A surfacing MVP. Direct Edit + Heal + Surfacing
       // share an entry block so users can find the GSD command surface
@@ -136,6 +140,11 @@ export const MENU_SPEC = {
       // Writes to window.__forgeAnimationPose (the PUSH-57 viewport pose
       // channel) so the AnimationPoseTicker moves the mesh on the next frame.
       { id: 'tools.directEditTranslate', label: 'Direct Edit — Translate…', icon: 'sketch.rect' },
+      // PUSH-88 (Slice-56) — Pattern features (Linear / Circular / Mirror).
+      // Seed body picker + mode selector; each pattern instance is a kernel
+      // forge.translate / forge.rotate copy committed via __forgeAppendBody
+      // so the v4 shell rebuilds the feature tree + meshes per instance.
+      { id: 'tools.patternFeature', label: 'Pattern — Linear / Circular / Mirror…', icon: 'sketch.rect' },
       { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
       // PUSH-86 (Slice-54) — Class-A zebra stripes surface analysis.
