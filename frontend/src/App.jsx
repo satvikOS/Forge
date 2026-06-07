@@ -628,6 +628,16 @@ import { MaterialPropertiesHost } from './forge-v4/MaterialPropertiesPanel.jsx';
 // Reads E + density from PUSH-109's window.__forgeMaterialProperties[handle]
 // and calls forge.fea.solveModal to produce a real frequency table.
 import { ModalAnalysisHost } from './forge-v4/ModalAnalysisPanel.jsx';
+// PUSH-222 (Slice-158) — Real Transient Dynamics FEA via the canonical
+// Newmark-β implicit scheme (γ=1/2, β=1/4 → A-stable). Solves
+// M·ü + C·u̇ + K·u = f(t) with Rayleigh damping C = α·M + β_R·K and
+// effective stiffness K_eff = K + (γ/(β·dt))·C + (1/(β·dt²))·M. Ships a
+// canonical SDOF mass-spring fixture (M=1, K=4π² → f_n = 1 Hz) plus
+// impulse / sinusoidal / step / free-vibration loading. Reachable via
+// tools.transientFea menu action OR window.__forgeOpenTransientFea().
+// Headless solver surface at window.__forgeTransientFeaHelper. No new
+// npm / C++ deps.
+import { TransientFeaPanelHost } from './forge-v4/TransientFeaPanel.jsx';
 // PUSH-119 (Slice-87) — Fatigue Analysis (S-N curve) panel. Reads σY + σU
 // off PUSH-109's window.__forgeMaterialProperties[handle], lets the user
 // pull max von Mises off PUSH-48's window.__forgeSimulationLast, applies
@@ -834,6 +844,11 @@ import { SweepCurvePanelHost } from './forge-v4/SweepCurvePanel.jsx';
 // PUSH-150..184 mega-batch salvage hosts — wired here after the agents
 // got rate-limited mid-flight.
 import { SurfaceContinuityPanelHost } from './forge-v4/SurfaceContinuityPanel.jsx'; // PUSH-150
+// PUSH-211 (Slice-156) — Real 3D porcupine plot. Per-vertex Meyer 2003
+// discrete curvature operators on a triangle BufferGeometry → THREE.
+// LineSegments quills coloured by a diverging ramp. Reachable via
+// tools.porcupinePlot menu action OR window.__forgeOpenPorcupinePlot.
+import { PorcupinePlotPanelHost } from './forge-v4/PorcupinePlotPanel.jsx';
 import { WingRibLoftPanelHost } from './forge-v4/WingRibLoftPanel.jsx';             // PUSH-160
 import { OctreePanelHost } from './forge-v4/OctreePanel.jsx';                       // PUSH-164
 import { LodMeshPanelHost } from './forge-v4/LodMeshPanel.jsx';                     // PUSH-165
@@ -934,6 +949,25 @@ import { PointCloudImportPanelHost } from './forge-v4/PointCloudImportPanel.jsx'
 // window.__forgeOpenCfd3d(). Headless solver surface at
 // window.__forgeCfd3dHelper. No new npm / C++ deps.
 import { Cfd3dPanelHost } from './forge-v4/Cfd3dPanel.jsx';
+// PUSH-213 (Slice-157) — Reflection Line analyser for Class-A surfacing QA.
+// Iso-contour of (r·u − cos ε) where r is the reflected view ray and u the
+// direction to an infinite straight light source. Parallel-line family for
+// parity with Alias / ICEM. Reachable via tools.reflectionLine menu OR
+// window.__forgeOpenReflectionLine(). Pure-math helpers at
+// window.__forgeReflectionLineHelper. No new npm / C++ deps.
+import { ReflectionLinePanelHost } from './forge-v4/ReflectionLinePanel.jsx';
+// PUSH-221 (Slice-153) — Frictionless penalty-method contact analysis between
+// two linear-elastic FEA bodies. Newton–Raphson + active-set + uniform-grid
+// BVH broad phase + Hertz two-sphere benchmark. Reachable via tools.contactFea
+// menu action OR window.__forgeOpenContactFea(). Headless solver surface at
+// window.__forgeContactFeaHelper. No new npm / C++ deps.
+import { ContactFeaPanelHost } from './forge-v4/ContactFeaPanel.jsx';
+// PUSH-208 (Slice-155) — N-sided Boundary Blend (Class-A surfacing primitive).
+// Real Mean Value Coordinates (Floater 2003) + Coons-style ribbon blend over
+// 3-8 boundary curves; G1 to the base surface via ribbon-tangent cross-row.
+// Reachable via tools.boundaryBlend menu action OR window.__forgeOpenBoundaryBlend().
+// Headless math at window.__forgeBoundaryBlendHelper. No new npm / C++ deps.
+import { BoundaryBlendPanelHost } from './forge-v4/BoundaryBlendPanel.jsx';
 // PUSH-201 (Slice-151) — CFD result visualisation panel host. Mounts
 // THREE groups (vectors / pressure / streamlines) onto window.__forgeScene
 // using cfdVisualisation.js builders. Reachable via tools.cfd3dViz OR
@@ -1345,6 +1379,10 @@ function App() {
       <ReverseEngineeringPanelHost />
       <PointCloudImportPanelHost />
       <Cfd3dPanelHost />
+      <ReflectionLinePanelHost />
+      <ContactFeaPanelHost />
+      <TransientFeaPanelHost />
+      <BoundaryBlendPanelHost />
       <Cfd3dVizPanelHost />
       <BrepCacheActivePanelHost />
       <DrawingTemplatesPanelHost />
@@ -1360,6 +1398,7 @@ function App() {
       <LoftSectionsPanelHost />
       <MultiSectionLoftPanelHost />
       <SurfaceContinuityPanelHost />
+      <PorcupinePlotPanelHost />
       <WingRibLoftPanelHost />
       <OctreePanelHost />
       <LodMeshPanelHost />

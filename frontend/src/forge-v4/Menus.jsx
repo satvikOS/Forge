@@ -178,6 +178,19 @@ export const MENU_SPEC = {
       // via forge.direct.edgeSegments(handle, 0.1), draws perpendicular
       // SVG hairs proportional to discrete curvature, reports {min,max,avg,inflections}.
       { id: 'tools.curvatureComb', label: 'Curvature Comb (Class-A)…', icon: 'sketch.spline' },
+      // PUSH-211 (Slice-156) — Real 3D porcupine plot. Discrete Meyer 2003
+      // angle-defect Gaussian + cotangent-Laplacian mean curvature on a
+      // triangle BufferGeometry; emits THREE.LineSegments quills coloured
+      // by a diverging ramp (red = +κ, blue = −κ, green ≈ 0). Sister
+      // tool to Zebra Stripes: zebra reveals C1/G1, porcupine reveals
+      // C2/G2 numerically.
+      { id: 'tools.porcupinePlot', label: 'Porcupine Curvature Plot…', icon: 'measure.angle' },
+      // PUSH-213 (Slice-157) — Reflection Line analyser (Class-A surfacing QA).
+      // Iso-contour of (r·u − cos ε) where r is the reflected view ray and u
+      // the direction to an infinite straight light source. Closed loops on
+      // smooth surfaces, kinks at G1/G2 breaks. Multi-line family for parity
+      // with Alias / ICEM.
+      { id: 'tools.reflectionLine', label: 'Reflection Line Analyser…', icon: 'measure.angle' },
       // PUSH-143 — ASME Y14.5-2018 semantic GD&T validator. Consumes
       // window.__forgeGdtFrames (PUSH-92) and runs the asmeY145Rules.js
       // rules engine for datum precedence, modifier compatibility,
@@ -236,6 +249,7 @@ export const MENU_SPEC = {
       { id: 'tools.moldCooling',   label: 'Mold Cooling Channels…', icon: 'solid.box' }, // PUSH-96 (Slice-64).
       { id: 'tools.diagnostic',    label: 'Diagnostic Dump…',       icon: 'misc.settings' }, // PUSH-81 — one-button snapshot of all window.__forge* globals + selection + camera + kernel version into a JSON support report (via forge.dialog.saveFile + writeBlob).
       { id: 'tools.classABlend',   label: 'Class-A Blend…',          icon: 'sketch.spline' }, // PUSH-85 — G2/G3 curvature-continuous Coons-+-bicubic-Hermite surface blend; commits an OCCT NURBS face via window.forge.surfacing.buildPatch + window.__forgeAppendBody.
+      { id: 'tools.boundaryBlend', label: 'N-sided Blend (3-8 curves)…', icon: 'measure.angle' }, // PUSH-208 (Slice-155) — Class-A N-sided boundary blend (3-8 curves, G1 to base surface) via real Mean Value Coordinates (Floater 2003) + ribbon Coons blend; commits a THREE.BufferGeometry mesh to window.__forgeScene and surfaces per-edge G1 deviation (degrees). Reachable via tools.boundaryBlend OR window.__forgeOpenBoundaryBlend(). Headless math at window.__forgeBoundaryBlendHelper.
       { id: 'tools.loftSections',  label: 'Loft Sections…',          icon: 'sketch.spline' }, // PUSH-102 (Slice-70) — Multi-section NURBS loft (N planar {z, radius} sections → 24×11 polar control grid → window.forge.surfacing.buildPatch); commits a native surface body + dispatches forge:loft-sections-built.
       { id: 'tools.multiSectionLoft', label: 'Multi-section Loft (guide curves)…', icon: 'sketch.spline' }, // PUSH-152 (Slice-112) — Generic loft through closed-polyline sections + open-polyline guide curves. Sections lerped along v, guide curves measured as deflections from the section-centroid spine, every section point shifted by the sum of guide deflections. Single big (24×11) control grid → window.forge.surfacing.buildPatch; commits a native surface body + dispatches forge:multi-section-loft-built.
       { id: 'tools.loftSolid',     label: 'Loft Solid…',             icon: 'solid.loft' },    // PUSH-121 (Slice-89) — Closed-loop multi-section solid loft. N planar {z, radius} sections → cone frustum per adjacent pair (forge.makeCone + forge.translate) fused into one watertight solid (forge.fuse); commits a native SOLID body + dispatches forge:loft-solid-built.
@@ -305,6 +319,12 @@ export const MENU_SPEC = {
       // Taylor–Green analytic vortex validation. Reachable via
       // tools.cfd3d OR window.__forgeOpenCfd3d().
       { id: 'tools.cfd3d',         label: 'CFD · 3D Navier–Stokes (SIMPLE)…', icon: 'wb.sim' },
+      // PUSH-221 (Slice-153) — Frictionless penalty-method node-to-
+      // surface contact between two linear-elastic FEA bodies. Newton–
+      // Raphson + active-set + uniform-grid BVH broad phase + Hertz
+      // two-sphere benchmark. Reachable via tools.contactFea OR
+      // window.__forgeOpenContactFea().
+      { id: 'tools.contactFea',    label: 'Contact Analysis (Penalty)…', icon: 'measure.distance' },
       // PUSH-201 (Slice-151) — CFD result visualisation: velocity
       // vectors (InstancedMesh arrows), pressure midplane (vertex-
       // coloured PlaneGeometry), and RK4 streamlines from an 8×8 seed
@@ -329,6 +349,15 @@ export const MENU_SPEC = {
       // modes table with frequency (Hz), period (ms), and ω² (rad²/s²);
       // helper exposed on window.__forgeModalAnalysisHelper.
       { id: 'tools.modalAnalysis', label: 'Modal Analysis (FEA · eigen)…', icon: 'wb.sim' },
+      // PUSH-222 (Slice-158) — Real Transient Dynamics FEA using the
+      // canonical Newmark-β implicit time-integration scheme:
+      //   M·ü + C·u̇ + K·u = f(t),   C = α·M + β_R·K (Rayleigh damping)
+      // with K_eff = K + (γ/(β·dt))·C + (1/(β·dt²))·M. Default β = 1/4,
+      // γ = 1/2 → unconditional stability. Includes a canonical SDOF
+      // mass-spring fixture (M=1, K=4π² → f_n = 1 Hz) plus impulse /
+      // sinusoidal / step / free-vibration loading. Solver surface is
+      // exposed on window.__forgeTransientFeaHelper. No new deps.
+      { id: 'tools.transientFea', label: 'Transient Dynamics (Newmark-β)…', icon: 'measure.angle' },
       // PUSH-119 (Slice-87) — Dedicated Fatigue Analysis (S-N curve) panel:
       // body picker → σ_a + σ_m inputs (or pull max von Mises from PUSH-48
       // static solve) → None/Goodman/Soderberg mean-stress correction →
