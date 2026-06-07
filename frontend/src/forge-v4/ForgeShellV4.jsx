@@ -953,6 +953,14 @@ export function ForgeShellV4() {
       case 'workbench.mfg':
         window.__forgeOpenCam?.({ bodies });
         return;
+      // PUSH-98 (Slice-66) — Drilling Pattern. Batched cam.drill across
+      // a hole table. The host (DrillingPatternPanelHost in App.jsx)
+      // registers window.__forgeOpenDrillingPattern on mount.
+      case 'tools.drillingPattern':
+      case 'workbench.drillingPattern':
+        if (typeof window !== 'undefined') window.__forgeBodies = bodies;
+        window.__forgeOpenDrillingPattern?.();
+        return;
       // Forge-163 — 3D-printing slicer. Manual menu click opens the
       // panel directly; it does NOT post to Archie's thread.
       // SlicerWorkbenchHost (App.jsx) registers __forgeOpenSlicer.
