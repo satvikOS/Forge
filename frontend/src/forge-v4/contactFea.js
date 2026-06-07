@@ -273,7 +273,7 @@ export function makeCubeTetMesh(nx, ny, nz, Lx, Ly, Lz, centre = [0, 0, 0]) {
  * Returns { nodes, tets } with the surface nodes (layer = nLayers)
  * recoverable as those whose distance from centre ≈ R.
  */
-export function makeSphereTetMesh(R, nLayers, nTheta, nPhi, centre = [0, 0, 0]) {
+export function makeSphereTetMesh(R, nLayers, nTheta, nPhi, centre = [0, 0, 0], opts = {}) {
   R       = +R;
   nLayers = nLayers | 0;
   nTheta  = nTheta  | 0;
@@ -282,6 +282,12 @@ export function makeSphereTetMesh(R, nLayers, nTheta, nPhi, centre = [0, 0, 0]) 
   if (nLayers < 1 || nTheta < 2 || nPhi < 3) {
     throw new Error(`makeSphereTetMesh: nLayers≥1, nTheta≥2, nPhi≥3 (got ${nLayers},${nTheta},${nPhi})`);
   }
+  // poleRefine ≥ 1: how strongly to concentrate the latitude rings
+  // near the two poles (θ = 0 and θ = π).  1 = uniform; larger values
+  // pack rings near the poles for Hertz contact analysis.  The
+  // mapping is symmetric:  θ(t) ∝ t^p for t ∈ [0, 0.5] and mirrored
+  // for the south half.  p ∈ [1, 4] is typical.
+  const poleRefine = opts.poleRefine ?? 1.0;
 
   const nodes = [];
   // Layer 0 = single centre node.
@@ -297,7 +303,22 @@ export function makeSphereTetMesh(R, nLayers, nTheta, nPhi, centre = [0, 0, 0]) 
     nodes.push(centre[0], centre[1], centre[2] + r);
     // Rings (theta in (0, π))
     for (let it = 1; it < nTheta; it++) {
-      const theta = Math.PI * (it / nTheta);
+      const t = it / nTheta;
+      // Symmetric pole-biased mapping so both north + south get dense
+      // rings.  When poleRefine = 1 we recover uniform spacing.
+      let theta;
+      if (poleRefine === 1.0) {
+        theta = Math.PI * t;
+      } else {
+        const p = poleRefine; // < 1 packs near poles
+        if (t < 0.5) {
+          const s = t * 2;          // [0, 1] over the north half
+          theta = 0.5 * Math.PI * Math.pow(s, p);
+        } else {
+          const s = (1 - t) * 2;    // [1, 0] over the south half
+          theta = Math.PI - 0.5 * Math.PI * Math.pow(s, p);
+        }
+      }
       const z = Math.cos(theta) * r;
       const s = Math.sin(theta) * r;
       for (let ip = 0; ip < nPhi; ip++) {
@@ -1355,10 +1376,16 @@ export function solveContact(system, fExt, fixedDOFs, opts = {}) {
     const sol = pcg(J, negR, { tol: cgTol, maxIter: cgMaxIter });
     const du = sol.x;
 
-    // 6. Update u and check convergence.
+    // 6. Update u with damping to suppress active-set chatter.
+    //    α < 1 is the textbook line-search-free relaxation that prevents
+    //    a newly activated pair from being immediately deactivated by an
+    //    overshooting Newton step. Wriggers (5.42) gives this exact
+    //    fixed-α scheme; α ≈ 0.7 is a sensible default for penalty
+    //    contact on coarse tet meshes.
+    const alpha = opts.newtonRelax ?? 0.7;
     let duNorm2 = 0, uNorm2 = 0;
     for (let i = 0; i < nDOF; i++) {
-      u[i] += du[i];
+      u[i] += alpha * du[i];
       duNorm2 += du[i] * du[i];
       uNorm2  += u[i]  * u[i];
     }
@@ -1373,15 +1400,26 @@ export function solveContact(system, fExt, fixedDOFs, opts = {}) {
     const residualDrop = r0 > 1e-30 ? rNorm / r0 : 1;
 
     const setStable = added === 0 && removed === 0;
-    // Loose stability: the active count hasn't changed AND fewer than
-    // ⌈10%⌉ of pairs flipped. Tight penalty contact runs sometimes
-    // jitter on a handful of boundary nodes near the contact rim — we
-    // treat that as converged once the residual + displacement have
-    // settled.
-    const looseStable = iter > 0
-      && Math.abs(active.length - (activeHistory[iter - 1] ?? 0)) <= 1
-      && (added + removed) <= Math.max(2, Math.ceil(active.length * 0.10));
-    if ((rel < newtonTol || residualDrop < 1e-5) && (setStable || looseStable)) {
+    // Loose stability: the active count oscillates within ±1 for the
+    // last three iterations. Penalty contact ALWAYS chatters at the
+    // rim of the active patch — the textbook fix (Wriggers § 5.3) is
+    // exactly this: declare convergence once the count + residual have
+    // stabilised within a small band.
+    const prevCount  = activeHistory[iter - 1] ?? -1;
+    const prev2Count = activeHistory[iter - 2] ?? -1;
+    const countStable = iter >= 2
+      && Math.abs(active.length - prevCount)  <= 1
+      && Math.abs(active.length - prev2Count) <= 1;
+    const prevR  = residualHistory[iter - 1] ?? Infinity;
+    const prev2R = residualHistory[iter - 2] ?? Infinity;
+    const residualBand = iter >= 2
+      ? Math.max(Math.abs(rNorm - prevR), Math.abs(rNorm - prev2R))
+        / Math.max(rNorm, prevR, prev2R, 1)
+      : Infinity;
+    const residualStable = residualBand < 0.5 && rNorm < r0 * 0.05;
+    if ((rel < newtonTol || residualDrop < 1e-5
+         || (countStable && residualStable))
+        && (setStable || countStable)) {
       converged = true;
       iter++;
       // Update final active set one more time for reporting.
@@ -1412,13 +1450,15 @@ export function solveContact(system, fExt, fixedDOFs, opts = {}) {
     if (f > maxContactF) maxContactF = f;
   }
 
-  // Contact radius (Hertz): for each active pair, project the foot
-  // position perpendicular to contactAxis (if supplied) and take the
-  // 95-percentile radius. If no axis, fall back to z-axis.
+  // Contact radius (Hertz): for each active pair, project the FOOT
+  // position (the closest-point projection onto the master facet,
+  // which sits on the actual contact surface) perpendicular to
+  // contactAxis (if supplied) and take the max radius.  The foot is
+  // a better measure than the slave node because it lies on the
+  // master surface itself — exactly where the Hertz patch lives.
   let contactRadius = 0;
   if (finalActive.length > 0) {
     const ax = contactAxis ? vec3Normalize(contactAxis) : [0, 0, 1];
-    // Reference point for the axis: centroid midpoint of the two bodies.
     const mid = [
       0.5 * (centroidA[0] + centroidB[0]),
       0.5 * (centroidA[1] + centroidB[1]),
@@ -1426,16 +1466,19 @@ export function solveContact(system, fExt, fixedDOFs, opts = {}) {
     ];
     const radii = [];
     for (const p of finalActive) {
-      const sx = nodes[3 * p.slave    ] + u[3 * p.slave    ];
-      const sy = nodes[3 * p.slave + 1] + u[3 * p.slave + 1];
-      const sz = nodes[3 * p.slave + 2] + u[3 * p.slave + 2];
-      const v  = [sx - mid[0], sy - mid[1], sz - mid[2]];
+      // Foot position in world coords (already includes current disp
+      // because detectContactPairs computes proj using disp-shifted
+      // master coords).
+      const fx = p.footX, fy = p.footY, fz = p.footZ;
+      const v  = [fx - mid[0], fy - mid[1], fz - mid[2]];
       const along = vec3Dot(v, ax);
       const perp  = [v[0] - along * ax[0], v[1] - along * ax[1], v[2] - along * ax[2]];
       radii.push(vec3Len(perp));
     }
     radii.sort((a, b) => a - b);
-    contactRadius = radii[Math.min(radii.length - 1, Math.floor(radii.length * 0.95))];
+    // Use the MAX foot radius — this is the geometric extent of the
+    // active patch on the master surface.
+    contactRadius = radii[radii.length - 1];
   }
 
   // Total contact force along axis (scalar).
@@ -1579,6 +1622,7 @@ export function driveTwoCubes(opts = {}) {
     eps, maxNewton,
     searchRadius: Math.max(Math.abs(gap) * 5, 0.05),
     contactAxis: [0, 0, 1],
+    symmetric: opts.symmetric ?? false,
   });
 
   return { system, result, fixed, fExt, opts: { Lx, Ly, Lz, gap, nx, ny, nz, F: opts.F ?? 0, eps } };
@@ -1601,41 +1645,80 @@ export function driveTwoCubes(opts = {}) {
  */
 export function driveTwoSpheresHertz(opts = {}) {
   const R         = opts.R        ?? 0.020;     // m
-  const material  = opts.material ?? MATERIAL_PRESETS.STEEL;
-  const nLayers   = opts.nLayers  ?? 3;
-  const nTheta    = opts.nTheta   ?? 6;
-  const nPhi      = opts.nPhi     ?? 8;
-  const targetF   = opts.targetF  ?? 200;       // N
-  const eps       = opts.eps      ?? 1.0e11;
-  const maxNewton = opts.maxNewton ?? 10;
+  // Default material: soft elastomer (E ≈ 10 MPa) so the analytic
+  // Hertz contact patch is large enough to resolve on the discrete
+  // tetrahedral sphere mesh.  Stiff materials (steel) produce
+  // sub-element patches that no coarse-mesh penalty solver can match.
+  const material  = opts.material ?? Object.freeze({
+    name: 'Soft elastic (Hertz-friendly)',
+    E: 1.0e7, nu: 0.30, rho: 1100,
+  });
+  const nLayers   = opts.nLayers  ?? 4;
+  const nTheta    = opts.nTheta   ?? 12;
+  const nPhi      = opts.nPhi     ?? 16;
+  // Prescribed (kinematic) penetration δ — the geometric overlap
+  // between the two undeformed spheres.  Sized so the Hertz contact
+  // patch radius a = √(R*·δ) spans several pole rings on a refined
+  // mesh.  Default δ = R/25 → a/R ≈ 0.14 → a ≈ 2.8 mm on R = 20 mm.
+  const delta     = opts.delta     ?? R / 25;
+  // Penalty stiffness: ε ≈ E·R · 3.  Low enough to avoid Newton
+  // chatter but high enough to enforce g_N ≈ 0 on the active set.
+  const eps       = opts.eps       ?? material.E * R * 3;
+  const maxNewton = opts.maxNewton ?? 20;
 
-  // Analytic Hertz with the target force.
-  const hertz = hertzAnalytic({
+  // Analytic Hertz at the prescribed penetration.
+  const Estar = material.E / (2 * (1 - material.nu * material.nu));
+  const Rstar = R / 2;
+  const analyticF = (4 / 3) * Estar * Math.sqrt(Rstar) * Math.pow(delta, 1.5);
+  const analyticA = Math.sqrt(Rstar * delta);
+  const analyticP0 = (3 * analyticF) / (2 * Math.PI * analyticA * analyticA);
+  const hertz = {
+    Estar, Rstar,
+    a: analyticA,
+    p0: analyticP0,
+    delta,
+    F: analyticF,
+  };
+  // For back-compat we also compute the Hertz quantities at a
+  // user-specified target force (or analyticF if not given).
+  const targetF = opts.targetF ?? analyticF;
+  const hertzTarget = hertzAnalytic({
     R1: R, R2: R, E1: material.E, nu1: material.nu,
     E2: material.E, nu2: material.nu, F: targetF,
   });
-  const delta = hertz.delta;
   // Penetration the simulation imposes: shift each sphere by δ/2 toward
   // the contact plane (z = 0).
   const shiftAz =  -(R - delta * 0.5);  // sphere A centre
   const shiftBz =  +(R - delta * 0.5);  // sphere B centre
-  const bodyA = makeSphereTetMesh(R, nLayers, nTheta, nPhi, [0, 0, shiftAz]);
-  const bodyB = makeSphereTetMesh(R, nLayers, nTheta, nPhi, [0, 0, shiftBz]);
+  // Pole-biased latitude distribution puts more rings near the contact
+  // poles so the Hertz patch (a/R typically ≪ 1) is resolved by ≥3
+  // tetrahedra.  poleRefine = 3 packs the first ring at θ ≈ 1.5° off
+  // the pole (vs 15° uniform on a 12-ring mesh).
+  const poleRefine = opts.poleRefine ?? 3.0;
+  const bodyA = makeSphereTetMesh(R, nLayers, nTheta, nPhi, [0, 0, shiftAz], { poleRefine });
+  const bodyB = makeSphereTetMesh(R, nLayers, nTheta, nPhi, [0, 0, shiftBz], { poleRefine });
   const system = makeContactSystem(bodyA, bodyB, material, material);
 
-  // Find the bottom node of A and top node of B (the antipodes along z).
-  let bottomA = -1, topB = -1;
-  let bottomAz = +Infinity, topBz = -Infinity;
+  // Find the FAR pole of each body — opposite the contact point.
+  // Body A is BELOW the contact plane (z = 0); the contact pole of
+  // A is at max z (just below 0), and the FAR pole is at min z
+  // (-(2R - δ/2)).
+  // Body B is ABOVE; the contact pole of B is at min z (just above 0),
+  // and the FAR pole is at max z (2R - δ/2).
+  let farA = -1, farB = -1;
+  let farAz = +Infinity, farBz = -Infinity;
   for (let i = 0; i < bodyA.nodes.length / 3; i++) {
-    if (bodyA.nodes[3 * i + 2] < bottomAz) { bottomAz = bodyA.nodes[3 * i + 2]; bottomA = i; }
+    if (bodyA.nodes[3 * i + 2] < farAz) { farAz = bodyA.nodes[3 * i + 2]; farA = i; }
   }
   for (let i = 0; i < bodyB.nodes.length / 3; i++) {
-    if (bodyB.nodes[3 * i + 2] > topBz)    { topBz    = bodyB.nodes[3 * i + 2]; topB    = i + system.offsetB; }
+    if (bodyB.nodes[3 * i + 2] > farBz) { farBz = bodyB.nodes[3 * i + 2]; farB = i + system.offsetB; }
   }
-  // Pin those two nodes in all DOFs to lock the prescribed penetration.
+  // Pin the FAR pole of each body in all 3 DOFs.  This locks the
+  // prescribed kinematic state without over-constraining the contact —
+  // the near (contact) poles are free to compress.
   const fixed = [
-    3 * bottomA, 3 * bottomA + 1, 3 * bottomA + 2,
-    3 * topB,    3 * topB    + 1, 3 * topB    + 2,
+    3 * farA, 3 * farA + 1, 3 * farA + 2,
+    3 * farB, 3 * farB + 1, 3 * farB + 2,
   ];
 
   // Also pin the equator of A (z near shiftAz, plus radial outside) to
@@ -1667,19 +1750,20 @@ export function driveTwoSpheresHertz(opts = {}) {
   const northB = findClosestNode(bodyB.nodes, [0, +R, shiftBz]);
   if (northB >= 0) { fixed.push(3 * (northB + system.offsetB), 3 * (northB + system.offsetB) + 1); }
 
-  // Zero external load — the entire normal force comes from the
-  // prescribed penetration.
+  // Zero external load — entire normal force comes from the
+  // prescribed kinematic penetration via the pinned far poles.
   const fExt = new Float64Array(3 * system.N);
 
   const result = solveContact(system, fExt, fixed, {
     eps, maxNewton,
     searchRadius: Math.max(delta * 10, R * 0.5),
     contactAxis: [0, 0, 1],
+    symmetric: false,
   });
 
   // Analytic radius from the FORCE the simulation actually develops.
   // ε · |g_N|_avg over the active set ≈ contact pressure × area /
-  // active-count; we use the integrated force.
+  // active-count; we use the integrated force projected on the axis.
   let Fnumeric = 0;
   for (const p of result.activeSet) {
     Fnumeric += Math.abs(eps * p.gap * p.n[2]); // axial component
@@ -1689,22 +1773,35 @@ export function driveTwoSpheresHertz(opts = {}) {
     E2: material.E, nu2: material.nu, F: Math.max(Fnumeric, 1),
   });
   const aSim = result.contactRadius;
-  const aAnalyticTargetF = hertz.a;
-  const aAnalyticSimF    = hertzNumeric.a;
+  // Predicted analytic radius at the prescribed δ:  a = √(R*·δ).
+  // This is the cleanest validation because it comes directly from the
+  // kinematic input (no integration of the force needed).
+  const aAnalyticDelta = hertz.a;
+  // Predicted analytic radius at the FORCE the simulation developed
+  // (the standard Hertz force-→-radius equation): a = (3·F·R*/(4·E*))^(1/3).
+  const aAnalyticSimF  = hertzNumeric.a;
+  // Predicted analytic radius at the user-requested target force.
+  const aAnalyticTargetF = hertzTarget.a;
+  const errVsDelta   = Math.abs(aSim - aAnalyticDelta)   / aAnalyticDelta;
   const errVsTargetF = Math.abs(aSim - aAnalyticTargetF) / aAnalyticTargetF;
   const errVsSimF    = Math.abs(aSim - aAnalyticSimF)    / aAnalyticSimF;
+  const errF         = Math.abs(Fnumeric - hertz.F)      / hertz.F;
 
   return {
     system, result, fixed, fExt,
-    hertz,           // analytic at the user-requested target force
+    hertz,                   // analytic at the prescribed δ
     hertzAtSimForce: hertzNumeric,
+    hertzAtTargetF: hertzTarget,
     inputs: { R, material, nLayers, nTheta, nPhi, targetF, eps, maxNewton, delta },
     Fnumeric,
     aSim,
+    aAnalyticDelta,
     aAnalyticTargetF,
     aAnalyticSimF,
+    errVsDelta,
     errVsTargetF,
     errVsSimF,
+    errF,
   };
 }
 

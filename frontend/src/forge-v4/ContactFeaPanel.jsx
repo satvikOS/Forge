@@ -249,11 +249,16 @@ export function ContactFeaPanel({ open, onClose }) {
   // Cube initial overlap (m).
   const [cubeOverlap, setCubeOverlap] = useState(0.005);
   // Sphere mesh resolution.
-  const [sphereLayers, setSphereLayers] = useState(3);
-  const [sphereTheta, setSphereTheta]   = useState(6);
-  const [spherePhi, setSpherePhi]       = useState(8);
-  // Hertz force.
-  const [hertzF, setHertzF] = useState(200);
+  // Defaults match driveTwoSpheresHertz so the Hertz patch is
+  // resolved by the discrete mesh (see contactFea.js for the
+  // mesh-resolution rationale).
+  const [sphereLayers, setSphereLayers] = useState(4);
+  const [sphereTheta, setSphereTheta]   = useState(12);
+  const [spherePhi, setSpherePhi]       = useState(16);
+  // Hertz force (panel default — drives back through hertzAnalytic
+  // for the "user-requested target force" comparison; the actual
+  // simulation force comes from the prescribed-δ kinematic).
+  const [hertzF, setHertzF] = useState(15);
   const [sphereR, setSphereR] = useState(0.020);
   // Apart gap.
   const [apartGap, setApartGap] = useState(0.05);
@@ -286,14 +291,20 @@ export function ContactFeaPanel({ open, onClose }) {
           });
           snap = snapshotResult(driverOut, 'cubes', { bodyA: 'cube', bodyB: 'cube', materialA, materialB });
         } else if (mode === CONTACT_MODE.HERTZ) {
+          // For Hertz mode the driver uses its own soft-elastomer
+          // default material so the analytic contact patch is
+          // resolvable on the discrete sphere mesh.  The panel's
+          // material cards are kept for the CUBE mode comparison.
           driverOut = driveTwoSpheresHertz({
-            R: sphereR, material: materialA,
+            R: sphereR,
             nLayers: sphereLayers, nTheta: sphereTheta, nPhi: spherePhi,
-            targetF: hertzF, eps, maxNewton,
+            targetF: hertzF,
+            // Let the driver pick ε + maxNewton tuned for Hertz.
           });
           snap = snapshotResult(driverOut, 'hertz', {
             bodyA: 'sphere', bodyB: 'sphere',
-            materialA, materialB: materialA,
+            materialA: driverOut.inputs.material,
+            materialB: driverOut.inputs.material,
           });
         } else if (mode === CONTACT_MODE.APART) {
           driverOut = driveBodiesApart({
