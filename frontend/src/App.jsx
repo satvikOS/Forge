@@ -596,12 +596,22 @@ import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
 // events, bounded ring buffer of last 500 entries, filter + clear +
 // JSON export via forge.dialog.saveFile, reachable via tools.activityLog).
 import { ActivityLogPanelHost } from './forge-v4/ActivityLogPanel.jsx';
+// PUSH-74 — Recent Files panel (last 20 paths opened via File > Open,
+// re-open with one click; persists to localStorage forge.v4.recentFiles;
+// mirrors onto window.__forgeRecentFiles; subscribes to the global
+// forge:file-opened bus event to auto-record new opens).
+import { RecentFilesPanelHost } from './forge-v4/RecentFilesPanel.jsx';
 // PUSH-72 (Slice-40) — Sketch Constraints quick-add toolbar (5 most
 // common kinds — Coincident / Parallel / Perpendicular / Equal / Tangent —
 // bound to the live window.__forgeSelection + window.__forgeCurrentSketch
 // state; clicking a button calls window.forge.sketcher.addConstraint and
 // dispatches forge:sketch-constraint-add for downstream subscribers).
 import { SketchConstraintsToolbar } from './forge-v4/SketchConstraintsToolbar.jsx';
+// PUSH-80 (Slice-48) — Direct Edit numeric translate panel. Body picker
+// (auto-selects active body) + dx/dy/dz numeric inputs + Apply writing
+// to window.__forgeAnimationPose, the same channel PUSH-57's viewport
+// AnimationPoseTicker reads to move bodies between renders.
+import { DirectEditTranslatePanelHost } from './forge-v4/DirectEditTranslatePanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -963,7 +973,9 @@ function App() {
       <DisplayStateQuickBar />
       <CameraBookmarksPanelHost />
       <ActivityLogPanelHost />
+      <RecentFilesPanelHost />
       <SketchConstraintsToolbar />
+      <DirectEditTranslatePanelHost />
     </ViewportEnvironmentProvider>
   );
 }

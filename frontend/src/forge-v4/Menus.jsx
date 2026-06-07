@@ -33,6 +33,7 @@ export const MENU_SPEC = {
       { id: 'file.exportBrep', label: 'Export BREP…', icon: 'io.brep' },
       { id: 'file.exportPdf',  label: 'Export PDF…',  icon: 'io.pdf' },
       SEP,
+      { id: 'file.recent',        label: 'Recent Files…',          icon: 'file.open' }, // PUSH-74 — last 20 paths opened via File > Open, re-open with one click; persists to forge.v4.recentFiles.
       { id: 'file.openProject',   label: 'Open Project (.forge)…', icon: 'file.open' },
       { id: 'file.saveProject',   label: 'Save Project (.forge)…', icon: 'file.save' },
       { id: 'file.exportBundle',  label: 'Export Project Bundle (.zip)…', icon: 'io.brep' },
@@ -126,6 +127,10 @@ export const MENU_SPEC = {
       // share an entry block so users can find the GSD command surface
       // through real menu navigation, not just the imperative open hook.
       { id: 'tools.directEdit', label: 'Direct Edit…',     icon: 'sketch.rect' },
+      // PUSH-80 — Direct Edit numeric translate (dx/dy/dz on a picked body).
+      // Writes to window.__forgeAnimationPose (the PUSH-57 viewport pose
+      // channel) so the AnimationPoseTicker moves the mesh on the next frame.
+      { id: 'tools.directEditTranslate', label: 'Direct Edit — Translate…', icon: 'sketch.rect' },
       { id: 'tools.heal',       label: 'Heal…',            icon: 'sketch.fillet' },
       { id: 'tools.surfacing',  label: 'Surfacing…',        icon: 'sketch.spline' },
       // PUSH-42 / PUSH-55 — HLR engineering drawings (projected 2D views +
@@ -150,6 +155,7 @@ export const MENU_SPEC = {
       { id: 'tools.cameraBookmarks', label: 'Camera Bookmarks…',   icon: 'view.iso' }, // PUSH-68 — save/restore named camera views (forge.v4.cameraBookmarks)
       { id: 'tools.sketchConstraints', label: 'Sketch Constraints…', icon: 'sketch.line' }, // PUSH-72 — Coincident/Parallel/Perpendicular/Equal/Tangent quick-add toolbar bound to window.__forgeSelection + window.__forgeCurrentSketch.
       { id: 'tools.activityLog',   label: 'Activity Log…',          icon: 'misc.search' }, // PUSH-73 — bus event stream (kernel + UI), ring buffer, filter, export JSON.
+      { id: 'tools.batchRename',   label: 'Batch Rename Bodies…',   icon: 'select.body' }, // PUSH-82 — Find/Replace + Number-suffix renamer for every body in the scene; commits via window.__forgeSetBodies.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
