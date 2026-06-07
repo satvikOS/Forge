@@ -810,6 +810,8 @@ import { LoftSectionsPanelHost } from './forge-v4/LoftSectionsPanel.jsx';
 // forge:sweep-curve-built. Reachable via tools.sweepCurve menu action OR
 // window.__forgeOpenSweepCurve.
 import { SweepCurvePanelHost } from './forge-v4/SweepCurvePanel.jsx';
+// PUSH-121 (Slice-89) — Loft Solid body — see LoftSolidPanel.jsx header.
+import { LoftSolidPanelHost } from './forge-v4/LoftSolidPanel.jsx';
 // PUSH-107 (Slice-76) — Surface Offset panel. Picks a surface body, samples
 // it on an 11×11 UV grid via window.forge.surfacing.eval, displaces each
 // sample along its surface normal by N mm (-10..+10), and rebuilds a new
@@ -846,6 +848,14 @@ import { StdPartsQuickInsertPanelHost } from './forge-v4/StdPartsQuickInsertPane
 // writeBlob. Reachable via tools.ap242Export menu OR
 // window.__forgeOpenAp242ExportPanel().
 import { Ap242ExportPanelHost } from './forge-v4/Ap242ExportPanel.jsx';
+// PUSH-123 (Slice-91) — IFC4 (BIM) Export panel. Right-docked surface
+// that bundles the live scene bodies + IFC project metadata (name,
+// description, length unit) into one ISO 16739-1:2018 / ISO 10303-21
+// .ifc via buildIfcText + forge.dialog.saveFile + writeBlob. Reachable
+// via tools.ifcExport menu OR window.__forgeOpenIfc4Export(). Distinct
+// from the legacy file.exportIfc modal IfcExportPanel — different code
+// path, different test-id namespace (forge-ifc4-* vs forge-ifc-*).
+import { Ifc4ExportPanelHost } from './forge-v4/Ifc4ExportPanel.jsx';
 // PUSH-112/113/115/116 — recovery wiring after the parallel-agent batch
 // got SIGKILLed; the panel files are present in the tree but their
 // host imports + mounts were never landed. Add them here so they
@@ -1249,6 +1259,7 @@ function App() {
       <BigSceneStressPanelHost />
       <StdPartsQuickInsertPanelHost />
       <Ap242ExportPanelHost />
+      <Ifc4ExportPanelHost />
       <ReverseEngineeringPanelHost />
       <DrawingTemplatesPanelHost />
       <ThermalAnalysisHost />
@@ -1261,6 +1272,7 @@ function App() {
       <CurvatureCombPanelHost />
       <ClassABlendPanelHost />
       <LoftSectionsPanelHost />
+      <LoftSolidPanelHost />
       <SweepCurvePanelHost />
       <SurfaceOffsetPanelHost />
       <SheetCataloguePanelHost />
