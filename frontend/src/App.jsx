@@ -41,6 +41,10 @@ import { RoutingWorkbenchHost } from './forge-v4/RoutingWorkbench.jsx';
 import MateSolverWorkbenchHost from './forge-v4/MateSolverWorkbench.jsx';
 // PUSH-10: Extended CAM (forge::camx).
 import CAMExtendedWorkbenchHost from './forge-v4/CAMExtendedWorkbench.jsx';
+// PUSH-98 (Slice-66) — CAM Drilling Pattern panel. Batched cam.drill over
+// a hole table, optional auto-import from circular tessellated edges,
+// native Fanuc G-code emission per Ø batch.
+import DrillingPatternPanelHost from './forge-v4/DrillingPatternPanel.jsx';
 // PUSH-15: SIMP topology optimisation.
 import TopologyWorkbenchHost from './forge-v4/TopologyWorkbench.jsx';
 // PUSH-02: Solid modelling ops (varfillet, loftguide, booleantol).
@@ -613,6 +617,8 @@ import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
 // JSON export via forge.dialog.saveFile, reachable via tools.activityLog).
 import { ActivityLogPanelHost } from './forge-v4/ActivityLogPanel.jsx';
 import { LightingPanelHost } from './forge-v4/LightingPanel.jsx';
+// PUSH-97 (Slice-65) — Batched cable / pipe routing panel.
+import { BatchRoutingPanelHost } from './forge-v4/BatchRoutingPanel.jsx';
 // PUSH-82 (Slice-50) — Batch Rename Bodies panel (table of every body in
 // the scene with inline rename inputs + Find/Replace + Number-suffix
 // renamer; commits via window.__forgeSetBodies in one atomic Apply).
@@ -792,6 +798,7 @@ function App() {
       <RoutingWorkbenchHost />
       <MateSolverWorkbenchHost />
       <CAMExtendedWorkbenchHost />
+      <DrillingPatternPanelHost />
       <TopologyWorkbenchHost />
       <TopologyConstraintsPanelHost />
       <SolidOpsWorkbenchHost />
@@ -1108,6 +1115,7 @@ function App() {
       <CameraBookmarksPanelHost />
       <ActivityLogPanelHost />
       <LightingPanelHost />
+      <BatchRoutingPanelHost />
       <BatchRenamePanelHost />
       <SubdivisionSurfacePanelHost />
       <VariableFilletPanelHost />

@@ -208,8 +208,11 @@ export const MENU_SPEC = {
       { id: 'tools.moldCooling',   label: 'Mold Cooling Channels…', icon: 'solid.box' }, // PUSH-96 (Slice-64).
       { id: 'tools.diagnostic',    label: 'Diagnostic Dump…',       icon: 'misc.settings' }, // PUSH-81 — one-button snapshot of all window.__forge* globals + selection + camera + kernel version into a JSON support report (via forge.dialog.saveFile + writeBlob).
       { id: 'tools.classABlend',   label: 'Class-A Blend…',          icon: 'sketch.spline' }, // PUSH-85 — G2/G3 curvature-continuous Coons-+-bicubic-Hermite surface blend; commits an OCCT NURBS face via window.forge.surfacing.buildPatch + window.__forgeAppendBody.
+      { id: 'tools.loftSections',  label: 'Loft Sections…',          icon: 'sketch.spline' }, // PUSH-102 (Slice-70) — Multi-section NURBS loft (N planar {z, radius} sections → 24×11 polar control grid → window.forge.surfacing.buildPatch); commits a native surface body + dispatches forge:loft-sections-built.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
+      // PUSH-97 (Slice-65) — Batched cable / pipe routing.
+      { id: 'tools.batchRouting', label: 'Batch Routing (cable / pipe)…', icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
       { id: 'tools.threads',    label: 'Thread Designer…',  icon: 'sketch.spline' },
       // Forge-149 — Draft workbench (FreeCAD Draft parity).
