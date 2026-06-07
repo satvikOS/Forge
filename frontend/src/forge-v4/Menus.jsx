@@ -185,6 +185,7 @@ export const MENU_SPEC = {
       { id: 'tools.batchRename',   label: 'Batch Rename Bodies…',   icon: 'select.body' }, // PUSH-82 — Find/Replace + Number-suffix renamer for every body in the scene; commits via window.__forgeSetBodies.
       { id: 'tools.subdivision',   label: 'Subdivision Surface…',   icon: 'sketch.spline' }, // PUSH-83 — Catmull-Clark refinement of a quad control cage (cube or active body AABB), commits the smooth mesh via window.__forgeAppendBody.
       { id: 'tools.variableFillet', label: 'Variable Fillet…',      icon: 'sketch.fillet' }, // PUSH-89 — Edge-parameterised (t, r) fillet profile (averaged-radius splice for now; publishes window.__forgeVariableFilletProfile for the future kernel binding).
+      { id: 'tools.voxelize',      label: 'Voxel-rep…',             icon: 'solid.box' }, // PUSH-84 (Slice-52) — sample an active B-rep body at a {8,16,32,64} grid + commit cube centres as a synthetic group body so V-rep joins B-rep + NURBS as a first-class modelling representation. Uses JS Möller-Trumbore ray-cast for point-in-mesh; pure math in voxelize.js.
       { id: 'tools.stlExport',     label: 'STL Export (multi-body)…', icon: 'io.stl' }, // PUSH-77 — Multi-body STL export panel.
       { id: 'tools.themes',        label: 'Themes…',                 icon: 'misc.theme' }, // PUSH-79 — Theme switcher panel.
       { id: 'tools.pmiAnnotations', label: 'PMI Annotations…',      icon: 'measure.distance' }, // PUSH-78 — Datum/Tolerance/Finish/Weld notes attached to faces.
