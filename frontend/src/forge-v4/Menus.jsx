@@ -264,6 +264,7 @@ export const MENU_SPEC = {
       { id: 'tools.helicalSweep', label: 'Helical Sweep (spring / thread)…', icon: 'solid.sweep' },
       { id: 'tools.ribFeature', label: 'Rib (Stiffener)…',   icon: 'sketch.line' }, // PUSH-126
       { id: 'tools.boltPattern', label: 'Bolt Pattern (PCD)…', icon: 'solid.hole' }, // PUSH-147
+      { id: 'tools.multiShell', label: 'Shell (multi-thickness)…', icon: 'solid.shell' }, // PUSH-148
       // PUSH-135 (Slice-100) — Hole table auto-from-features for drawings.
       // Scans a body via forge.direct.edgeSegments(handle, 0.1), detects
       // circular edges (curvature constant + closed polygon), groups
