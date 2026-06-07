@@ -45,6 +45,11 @@ import CAMExtendedWorkbenchHost from './forge-v4/CAMExtendedWorkbench.jsx';
 // a hole table, optional auto-import from circular tessellated edges,
 // native Fanuc G-code emission per Ø batch.
 import DrillingPatternPanelHost from './forge-v4/DrillingPatternPanel.jsx';
+// PUSH-110 (Slice-79) — Drawing Print Preview / PDF panel. Paper-size
+// (ISO A0..A4 + ANSI Letter/Legal/Tabloid) + orientation + scale (1:1..1:20)
+// dropdowns; renders the live HLR view2D as mm-unit SVG with title block;
+// Save SVG / Copy SVG / Print to PDF actions; pure JS, no new deps.
+import PrintPreviewPanelHost from './forge-v4/PrintPreviewPanel.jsx';
 // PUSH-15: SIMP topology optimisation.
 import TopologyWorkbenchHost from './forge-v4/TopologyWorkbench.jsx';
 // PUSH-101 (Slice-69) — Topology Optimisation smart-constraints panel
@@ -852,6 +857,7 @@ function App() {
       <SolidOpsWorkbenchHost />
       <SketchConstraintsWorkbenchHost />
       <DrawingsHLRWorkbenchHost />
+      <PrintPreviewPanelHost />
       <MoldWorkbenchHost />
       <FEATetWorkbenchHost />
       <ScenarioRunnerHost />
@@ -1185,6 +1191,7 @@ function App() {
       <StdPartsQuickInsertPanelHost />
       <ThemeSwitcherPanelHost />
       <BomBalloonsPanelHost />
+      <DetailViewsPanelHost />
       <PdmRevisionsPanelHost />
       <LightLineAnalysisOverlayHost />
       <DraftAnalysisOverlayHost />
