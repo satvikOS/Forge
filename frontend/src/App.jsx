@@ -585,6 +585,9 @@ import { LayersPanelHost } from './forge-v4/LayersPanel.jsx';
 // shaded/wireframe/transparent buttons + axis indicator + live FPS;
 // publishes window.__forgeDisplayState + forge:display-state-changed).
 import { DisplayStateQuickBar } from './forge-v4/DisplayStateQuickBar.jsx';
+// PUSH-68 — Camera Bookmarks panel (save / restore named camera views,
+// persists to localStorage key `forge.v4.cameraBookmarks`).
+import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -943,6 +946,7 @@ function App() {
       <SectionPlanePanelHost />
       <LayersPanelHost />
       <DisplayStateQuickBar />
+      <CameraBookmarksPanelHost />
     </ViewportEnvironmentProvider>
   );
 }
