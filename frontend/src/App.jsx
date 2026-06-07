@@ -592,6 +592,10 @@ import { DisplayStateQuickBar } from './forge-v4/DisplayStateQuickBar.jsx';
 // PUSH-68 — Camera Bookmarks panel (save / restore named camera views,
 // persists to localStorage key `forge.v4.cameraBookmarks`).
 import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
+// PUSH-73 — Activity Log panel (single subscriber to ALL forge:* window
+// events, bounded ring buffer of last 500 entries, filter + clear +
+// JSON export via forge.dialog.saveFile, reachable via tools.activityLog).
+import { ActivityLogPanelHost } from './forge-v4/ActivityLogPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -952,6 +956,7 @@ function App() {
       <BodyColorsPanelHost />
       <DisplayStateQuickBar />
       <CameraBookmarksPanelHost />
+      <ActivityLogPanelHost />
     </ViewportEnvironmentProvider>
   );
 }
