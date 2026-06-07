@@ -41,6 +41,14 @@ import {
   loadFromCache,
   FORGE_BREP_CACHE_KIND,
   FORGE_BREP_CACHE_VERSION,
+  saveSceneToActiveCache,
+  loadActiveCacheIntoScene,
+  listActiveCacheEntries,
+  listCachedActiveIds,
+  clearActiveCache,
+  saveBodyToActiveCache,
+  loadBodyFromActiveCache,
+  FORGE_BREP_CACHE_ACTIVE_VERSION,
 } from './brepCacheMath.js';
 
 const PANEL_W = 640;
@@ -640,6 +648,442 @@ export function BrepCachePanelHost() {
       open={open}
       onClose={() => setOpen(false)}
       bodies={bodies} />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// PUSH-215 (Slice-154) — Active load panel.
+//
+// PUSH-163 (above) ships the offline `.forgeCache.zip` save / load.
+// PUSH-215 wires the live restore path: a single panel that lists every
+// body already in the active cache (id, name, size_bytes, age) and four
+// actions:
+//
+//   * Load all          — `loadActiveCacheIntoScene()` →
+//                          forge.io.importBrep per entry → __forgeAppendBody.
+//   * Save current scene — `saveSceneToActiveCache(window.__forgeBodies)`
+//                          → forge.io.exportBrep per native body.
+//   * Clear             — `clearActiveCache()`.
+//   * Reload            — re-pull `listActiveCacheEntries()`.
+//
+// Self-mounting host exposes `window.__forgeOpenBrepCacheActive(true|false)`
+// and listens for `tools.brepCacheActive`. The Active panel coexists with
+// the PUSH-163 BrepCachePanel — different test-ids, different storage.
+
+function activePanelStyle() {
+  return {
+    position: 'fixed',
+    top: 'calc(var(--forge-topbar-h, 40px) + var(--forge-qat-h, 32px))',
+    right: 0,
+    width: PANEL_W,
+    maxWidth: '96vw',
+    height: 'calc(100vh - var(--forge-topbar-h, 40px) - var(--forge-qat-h, 32px) - var(--forge-cmdbar-h, 24px))',
+    background: 'var(--forge-canvas-2, #161b22)',
+    borderLeft: '1px solid var(--forge-rail-edge, #2a2d34)',
+    boxShadow: '-12px 0 32px rgba(0,0,0,0.45)',
+    display: 'flex', flexDirection: 'column',
+    fontSize: 12,
+    color: 'var(--forge-ink, #dadde2)',
+    zIndex: 1296,
+  };
+}
+
+function formatAge(ms) {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  if (ms < 1000) return `${ms} ms`;
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${m % 60}m`;
+  const d = Math.floor(h / 24);
+  return `${d}d ${h % 24}h`;
+}
+
+export function BrepCacheActivePanel({ open, onClose }) {
+  const [rows, setRows]       = useState(() => listActiveCacheEntries());
+  const [status, setStatus]   = useState(null);
+  const [busy, setBusy]       = useState(false);
+  const [lastResult, setLast] = useState(null);
+
+  const refresh = useCallback(() => {
+    const next = listActiveCacheEntries();
+    setRows(next);
+    if (typeof window !== 'undefined') {
+      try { window.__forgeBrepCacheActiveRows = next; } catch {}
+    }
+    return next;
+  }, []);
+
+  useEffect(() => {
+    if (open) refresh();
+  }, [open, refresh]);
+
+  // Tick the "age" column every 1.5 s while open.
+  useEffect(() => {
+    if (!open) return undefined;
+    const t = setInterval(() => refresh(), 1500);
+    return () => clearInterval(t);
+  }, [open, refresh]);
+
+  // Auto-clear status pill — errors stick longer.
+  useEffect(() => {
+    if (!status) return undefined;
+    const isErr = status.startsWith('error');
+    const t = setTimeout(() => setStatus(null), isErr ? 6000 : 3200);
+    return () => clearTimeout(t);
+  }, [status]);
+
+  const onSaveScene = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setStatus('saving current scene…');
+    try {
+      const bodies = (typeof window !== 'undefined' && Array.isArray(window.__forgeBodies))
+        ? window.__forgeBodies.slice() : [];
+      if (bodies.length === 0) {
+        setStatus('error: no bodies in window.__forgeBodies to save');
+        setBusy(false);
+        return;
+      }
+      const r = await saveSceneToActiveCache(bodies);
+      setLast({ kind: 'save', ...r });
+      try { window.__forgeBrepCacheActiveLastSave = r; } catch {}
+      const next = refresh();
+      if (r.errors && r.errors.length > 0) {
+        setStatus(`saved · ${r.saved.length} bodies · ${r.errors.length} errors`);
+      } else {
+        setStatus(`saved · ${r.saved.length} bodies → ${next.length} cached entries`);
+      }
+    } catch (err) {
+      setStatus(`error: ${err.message || String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, refresh]);
+
+  const onLoadAll = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    setStatus('loading cached bodies…');
+    try {
+      const before = (typeof window !== 'undefined' && Array.isArray(window.__forgeBodies))
+        ? window.__forgeBodies.length : 0;
+      const r = await loadActiveCacheIntoScene();
+      setLast({ kind: 'load', ...r, before });
+      try { window.__forgeBrepCacheActiveLastLoad = r; } catch {}
+      if (r.errors && r.errors.length > 0) {
+        setStatus(`loaded · ${r.restored.length} bodies · ${r.errors.length} errors`);
+      } else {
+        setStatus(`loaded · ${r.restored.length} bodies → __forgeBodies`);
+      }
+      refresh();
+    } catch (err) {
+      setStatus(`error: ${err.message || String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, refresh]);
+
+  const onClear = useCallback(() => {
+    if (busy) return;
+    const n = clearActiveCache();
+    setLast({ kind: 'clear', cleared: n });
+    try { window.__forgeBrepCacheActiveLastClear = n; } catch {}
+    refresh();
+    setStatus(`cleared · ${n} entries`);
+  }, [busy, refresh]);
+
+  const totalBytes = useMemo(
+    () => rows.reduce((acc, r) => acc + (r.size_bytes || 0), 0),
+    [rows],
+  );
+
+  if (!open) return null;
+
+  return createPortal(
+    <aside
+      role="region"
+      aria-label="BREP active-load cache"
+      data-testid="forge-brepcache-active-panel"
+      data-row-count={rows.length}
+      style={activePanelStyle()}>
+
+      <header style={{
+        display: 'flex', flexDirection: 'column',
+        borderBottom: '1px solid var(--forge-rail-edge, #2a2d34)',
+        background: 'var(--forge-canvas, #0e1117)',
+        flexShrink: 0,
+      }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '10px 12px',
+        }}>
+          <Icon name="io.brep" size={14} />
+          <span style={{ fontSize: 12, fontWeight: 600 }}>
+            BREP Cache · Active Load
+          </span>
+          <span data-testid="forge-brepcache-active-count"
+                style={{
+                  fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
+                  fontSize: 10,
+                  color: 'var(--forge-ink-mute, #9aa1ab)',
+                  padding: '1px 6px',
+                  borderRadius: 'var(--forge-radius-pill, 10px)',
+                  border: '1px solid var(--forge-rail-edge, #2a2d34)',
+                }}>
+            {rows.length} cached · {formatBytes(totalBytes)}
+          </span>
+          <span style={{ flex: 1 }} />
+          <button type="button"
+                  onClick={() => refresh()}
+                  disabled={busy}
+                  data-testid="forge-brepcache-active-reload"
+                  style={btnStyle()}>
+            Reload
+          </button>
+          <button type="button"
+                  onClick={onClose}
+                  aria-label="Close active BREP cache panel"
+                  data-testid="forge-brepcache-active-close"
+                  style={{
+                    background: 'transparent', border: 'none',
+                    color: 'var(--forge-ink-mute, #9aa1ab)', cursor: 'pointer',
+                    display: 'inline-flex', padding: 2,
+                  }}>
+            ×
+          </button>
+        </div>
+
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '0 12px 10px',
+        }}>
+          <button type="button"
+                  onClick={onLoadAll}
+                  disabled={busy || rows.length === 0}
+                  data-testid="forge-brepcache-active-load-all"
+                  style={btnStyle('primary')}>
+            Load all
+          </button>
+          <button type="button"
+                  onClick={onSaveScene}
+                  disabled={busy}
+                  data-testid="forge-brepcache-active-save-scene"
+                  style={btnStyle()}>
+            Save current scene to cache
+          </button>
+          <button type="button"
+                  onClick={onClear}
+                  disabled={busy || rows.length === 0}
+                  data-testid="forge-brepcache-active-clear"
+                  style={btnStyle()}>
+            Clear
+          </button>
+          <span style={{ flex: 1 }} />
+          <span data-testid="forge-brepcache-active-version"
+                style={{
+                  fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
+                  fontSize: 10,
+                  color: 'var(--forge-ink-mute, #9aa1ab)',
+                }}>
+            active · v{FORGE_BREP_CACHE_ACTIVE_VERSION}
+          </span>
+        </div>
+
+        {status && (
+          <div style={{
+            padding: '0 12px 8px',
+            fontSize: 10,
+            fontFamily: 'var(--forge-mono, monospace)',
+            color: status.startsWith('error')
+              ? 'var(--forge-err, #ff6363)'
+              : 'var(--forge-ok, #4caf50)',
+          }} data-testid="forge-brepcache-active-status">
+            {status}
+          </div>
+        )}
+      </header>
+
+      <div style={{
+        flex: 1, overflowY: 'auto',
+        background: 'var(--forge-canvas, #0e1117)',
+      }}>
+        {rows.length === 0 ? (
+          <div data-testid="forge-brepcache-active-empty"
+               style={{
+                 padding: 20, fontStyle: 'italic',
+                 color: 'var(--forge-ink-mute, #9aa1ab)', fontSize: 11,
+               }}>
+            Active cache is empty. Click "Save current scene to cache"
+            after seeding native bodies — the next session will be able
+            to "Load all" them straight back without re-tessellating.
+          </div>
+        ) : (
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{
+                position: 'sticky', top: 0,
+                background: 'var(--forge-canvas-2, #161b22)',
+                borderBottom: '1px solid var(--forge-rail-edge, #2a2d34)',
+              }}>
+                <th style={HEADER_CELL}>Id</th>
+                <th style={HEADER_CELL}>Name</th>
+                <th style={{ ...HEADER_CELL, textAlign: 'right' }}>size_bytes</th>
+                <th style={{ ...HEADER_CELL, textAlign: 'right' }}>Age</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}
+                    data-testid="forge-brepcache-active-row"
+                    data-id={row.id}
+                    data-name={row.name}
+                    data-size-bytes={row.size_bytes}
+                    style={{
+                      borderBottom: '1px solid var(--forge-rail-edge, #2a2d34)',
+                    }}>
+                  <td style={CELL}
+                      data-testid="forge-brepcache-active-row-id">{row.id}</td>
+                  <td style={CELL}
+                      data-testid="forge-brepcache-active-row-name">{row.name}</td>
+                  <td style={CELL_RIGHT}
+                      data-testid="forge-brepcache-active-row-bytes">
+                    {formatBytes(row.size_bytes)}
+                  </td>
+                  <td style={CELL_RIGHT}
+                      data-testid="forge-brepcache-active-row-age">
+                    {formatAge(row.age_ms)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr data-testid="forge-brepcache-active-totals"
+                  style={{
+                    borderTop: '2px solid var(--forge-accent-rim, #3a7afe)',
+                    background: 'var(--forge-canvas-2, #161b22)',
+                    color: 'var(--forge-ink, #dadde2)',
+                    fontWeight: 700,
+                  }}>
+                <td style={CELL}>—</td>
+                <td style={CELL}
+                    data-testid="forge-brepcache-active-summary-label">
+                  Total · {rows.length} entries
+                </td>
+                <td style={CELL_RIGHT}
+                    data-testid="forge-brepcache-active-summary-bytes">
+                  {formatBytes(totalBytes)}
+                </td>
+                <td style={CELL_RIGHT}>—</td>
+              </tr>
+            </tfoot>
+          </table>
+        )}
+
+        {lastResult && lastResult.kind === 'load' && (
+          <div data-testid="forge-brepcache-active-load-report"
+               style={{
+                 padding: '8px 12px',
+                 borderTop: '1px solid var(--forge-rail-edge, #2a2d34)',
+                 background: 'var(--forge-canvas-2, #161b22)',
+                 fontFamily: 'var(--forge-mono, monospace)',
+                 fontSize: 11,
+               }}>
+            <div style={{ marginBottom: 4, fontWeight: 600 }}>
+              Restore report · {lastResult.restored?.length ?? 0} bodies
+            </div>
+            {(lastResult.restored || []).map((r) => (
+              <div key={r.id}
+                   data-testid="forge-brepcache-active-restore-row"
+                   data-id={r.id}
+                   data-new-handle={r.newHandle ?? ''}
+                   style={{ display: 'flex', gap: 8 }}>
+                <span>{r.id}</span>
+                <span style={{ flex: 1 }} />
+                <span data-testid="forge-brepcache-active-restore-handle">
+                  handle = {r.newHandle ?? '—'}
+                </span>
+              </div>
+            ))}
+            {(lastResult.errors || []).map((e, i) => (
+              <div key={`load-err-${i}`}
+                   data-testid="forge-brepcache-active-restore-err"
+                   style={{ color: 'var(--forge-err, #ff6363)' }}>
+                {e.id} · {e.error}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {lastResult && lastResult.kind === 'save'
+            && lastResult.errors && lastResult.errors.length > 0 && (
+          <div data-testid="forge-brepcache-active-save-report"
+               style={{
+                 padding: '8px 12px',
+                 borderTop: '1px solid var(--forge-rail-edge, #2a2d34)',
+                 background: 'var(--forge-canvas-2, #161b22)',
+                 fontFamily: 'var(--forge-mono, monospace)',
+                 fontSize: 11,
+               }}>
+            <div style={{ marginBottom: 4, fontWeight: 600 }}>
+              Save errors · {lastResult.errors.length}
+            </div>
+            {(lastResult.errors || []).map((e, i) => (
+              <div key={`save-err-${i}`}
+                   data-testid="forge-brepcache-active-save-err"
+                   style={{ color: 'var(--forge-err, #ff6363)' }}>
+                {e.id ?? '(no id)'} · {e.error}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </aside>,
+    document.body,
+  );
+}
+
+export function BrepCacheActivePanelHost() {
+  const [open, setOpen] = useState(false);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    if (mounted.current) return undefined;
+    mounted.current = true;
+    if (typeof window === 'undefined') return undefined;
+
+    window.__forgeOpenBrepCacheActive  = (v) => setOpen(v === undefined ? true : !!v);
+    window.__forgeCloseBrepCacheActive = () => setOpen(false);
+    window.__forgeBrepCacheActiveHelper = Object.freeze({
+      saveSceneToActiveCache,
+      loadActiveCacheIntoScene,
+      listActiveCacheEntries,
+      listCachedActiveIds,
+      clearActiveCache,
+      saveBodyToActiveCache,
+      loadBodyFromActiveCache,
+      FORGE_BREP_CACHE_ACTIVE_VERSION,
+    });
+
+    const onMenu = (e) => {
+      if (e?.detail?.id === 'tools.brepCacheActive') setOpen(true);
+    };
+    window.addEventListener('forge:menu-action', onMenu);
+    return () => {
+      try { delete window.__forgeOpenBrepCacheActive; } catch {}
+      try { delete window.__forgeCloseBrepCacheActive; } catch {}
+      try { delete window.__forgeBrepCacheActiveHelper; } catch {}
+      window.removeEventListener('forge:menu-action', onMenu);
+    };
+  }, []);
+
+  if (typeof document === 'undefined') return null;
+  return (
+    <BrepCacheActivePanel
+      open={open}
+      onClose={() => setOpen(false)} />
   );
 }
 

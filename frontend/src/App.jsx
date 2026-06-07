@@ -934,6 +934,18 @@ import { PointCloudImportPanelHost } from './forge-v4/PointCloudImportPanel.jsx'
 // window.__forgeOpenCfd3d(). Headless solver surface at
 // window.__forgeCfd3dHelper. No new npm / C++ deps.
 import { Cfd3dPanelHost } from './forge-v4/Cfd3dPanel.jsx';
+// PUSH-201 (Slice-151) — CFD result visualisation panel host. Mounts
+// THREE groups (vectors / pressure / streamlines) onto window.__forgeScene
+// using cfdVisualisation.js builders. Reachable via tools.cfd3dViz OR
+// window.__forgeOpenCfd3dViz(). Helper surface at window.__forgeCfdVizHelper.
+import { Cfd3dVizPanelHost } from './forge-v4/Cfd3dVizPanel.jsx';
+// PUSH-215 (Slice-154) — BREP active-load cache panel host. Lives in the
+// same module as the PUSH-163 offline BrepCachePanel but exposes its own
+// window surface (__forgeOpenBrepCacheActive + __forgeBrepCacheActiveHelper)
+// and listens for tools.brepCacheActive. Restores every native body in
+// localStorage straight through forge.io.importBrep without re-running
+// its feature script — bypasses the offline `.forgeCache.zip` round-trip.
+import { BrepCacheActivePanelHost } from './forge-v4/BrepCachePanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -1333,6 +1345,8 @@ function App() {
       <ReverseEngineeringPanelHost />
       <PointCloudImportPanelHost />
       <Cfd3dPanelHost />
+      <Cfd3dVizPanelHost />
+      <BrepCacheActivePanelHost />
       <DrawingTemplatesPanelHost />
       <ThermalAnalysisHost />
       <ThemeSwitcherPanelHost />

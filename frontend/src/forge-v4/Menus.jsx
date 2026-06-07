@@ -305,6 +305,23 @@ export const MENU_SPEC = {
       // Taylor–Green analytic vortex validation. Reachable via
       // tools.cfd3d OR window.__forgeOpenCfd3d().
       { id: 'tools.cfd3d',         label: 'CFD · 3D Navier–Stokes (SIMPLE)…', icon: 'wb.sim' },
+      // PUSH-201 (Slice-151) — CFD result visualisation: velocity
+      // vectors (InstancedMesh arrows), pressure midplane (vertex-
+      // coloured PlaneGeometry), and RK4 streamlines from an 8×8 seed
+      // grid. Mounts groups onto window.__forgeScene with userData.cfdViz.
+      // Reachable via tools.cfd3dViz OR window.__forgeOpenCfd3dViz().
+      { id: 'tools.cfd3dViz',      label: 'CFD Visualisation…', icon: 'measure.distance' },
+      // PUSH-215 (Slice-154) — Active load path for the BREP binary
+      // cache. PUSH-163 ships the offline `.forgeCache.zip` round-trip;
+      // PUSH-215 keeps a per-body BREP cache in RAM + localStorage so
+      // the next session can restore every native body straight through
+      // forge.io.importBrep without re-running its feature script. The
+      // panel lists cached ids, lets the user "Load all" (→
+      // __forgeAppendBody + forge:bodies-changed dispatch), "Save
+      // current scene" (→ forge.io.exportBrep per body), and "Clear".
+      // Reachable via tools.brepCacheActive OR
+      // window.__forgeOpenBrepCacheActive().
+      { id: 'tools.brepCacheActive', label: 'BREP Cache (Active Load)…', icon: 'measure.angle' },
       // PUSH-114 (Slice-83) — Dedicated Modal Analysis panel: body picker
       // + mesh resolution slider + nModes input + Run → forge.fea.solveModal.
       // Reads E (Pa) + ρ (kg/m³) straight off the PUSH-109 material record

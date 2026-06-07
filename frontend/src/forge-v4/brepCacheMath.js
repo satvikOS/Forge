@@ -364,3 +364,343 @@ export async function loadFromCache(filepath, opts = {}) {
 
 export const FORGE_BREP_CACHE_KIND    = FORGE_CACHE_KIND;
 export const FORGE_BREP_CACHE_VERSION = FORGE_CACHE_VERSION;
+
+// ─────────────────────────────────────────────────────────────────────
+// PUSH-215 (Slice-154) — Active load path.
+//
+// PUSH-163 caches whole scenes to a single `.forgeCache.zip` on disk.
+// PUSH-215 is the *live* path the next-session loader hits: per-body
+// BREP bytes kept in an in-memory `Map<id, entry>` (persisted to
+// `localStorage` as base64) so reopening a session restores every body
+// directly through `forge.io.importBrep` without re-running its
+// feature script.
+//
+// `saveBodyToActiveCache` exports one native body's BREP, reads the
+// bytes back, stores the entry, and returns it. `loadBodyFromActiveCache`
+// stages the bytes back into `/tmp`, calls `forge.io.importBrep`, and
+// returns a fresh body record with the new kernel handle.
+//
+// Hard rules per the user mandate: NO MVP, NO fallback. If
+// `forge.io.exportBrep` / `forge.io.importBrep` is missing on the
+// kernel surface, the helpers throw with a real error (not a silent
+// no-op) so the panel can render it to the user.
+
+const ACTIVE_LS_KEY        = 'forge.v4.brepCacheActive';
+const ACTIVE_CACHE_VERSION = '1.0.0';
+
+function activeBytesToBase64(u8) {
+  if (!(u8 instanceof Uint8Array)) return '';
+  // Chunked to dodge the JS engine's spread-arg limit on > 100 kB blobs.
+  let s = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < u8.length; i += CHUNK) {
+    s += String.fromCharCode.apply(null, u8.subarray(i, i + CHUNK));
+  }
+  return (typeof btoa === 'function') ? btoa(s) : '';
+}
+
+function activeBase64ToBytes(b64) {
+  if (!b64) return new Uint8Array(0);
+  if (typeof atob !== 'function') return new Uint8Array(0);
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+  return out;
+}
+
+function activeReadLs() {
+  try {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage?.getItem(ACTIVE_LS_KEY);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    if (obj && obj.kind === FORGE_CACHE_KIND) return obj;
+    return null;
+  } catch { return null; }
+}
+
+function activeWriteLs(obj) {
+  try {
+    if (typeof window === 'undefined') return false;
+    window.localStorage?.setItem(ACTIVE_LS_KEY, JSON.stringify(obj));
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * In-memory active cache. Keyed by body id; each entry stores the
+ * BREP bytes (as Uint8Array) + tracking metadata.
+ *
+ * Schema per entry:
+ *   { id, name, bytes, size_bytes, savedAt, kind, toolId, params, spec,
+ *     material, volume_mm3, originalHandle }
+ */
+const __activeCache = (() => {
+  if (typeof window === 'undefined') return new Map();
+  // Stash on window so HMR + multiple imports share one source of truth.
+  if (!window.__forgeBrepActiveCacheMap) {
+    window.__forgeBrepActiveCacheMap = new Map();
+    // Rehydrate from localStorage on first import. We decode lazily so
+    // the bytes only land in memory if the user opens the panel.
+    const ls = activeReadLs();
+    if (ls && Array.isArray(ls.entries)) {
+      for (const e of ls.entries) {
+        if (!e || !e.id || typeof e.b64 !== 'string') continue;
+        const bytes = activeBase64ToBytes(e.b64);
+        if (bytes.length === 0) continue;
+        window.__forgeBrepActiveCacheMap.set(e.id, {
+          id:       e.id,
+          name:     e.name || String(e.id),
+          bytes,
+          size_bytes: bytes.length,
+          savedAt:  Number.isFinite(e.savedAt) ? e.savedAt : Date.now(),
+          kind:     'native',
+          toolId:   e.toolId  ?? null,
+          params:   e.params  ?? null,
+          spec:     e.spec    ?? null,
+          material: e.material ?? null,
+          volume_mm3:     (typeof e.volume_mm3 === 'number') ? e.volume_mm3 : null,
+          originalHandle: (typeof e.originalHandle === 'number') ? e.originalHandle : null,
+        });
+      }
+    }
+  }
+  return window.__forgeBrepActiveCacheMap;
+})();
+
+function activePersist() {
+  const entries = [];
+  for (const e of __activeCache.values()) {
+    entries.push({
+      id:        e.id,
+      name:      e.name,
+      savedAt:   e.savedAt,
+      toolId:    e.toolId  ?? null,
+      params:    e.params  ?? null,
+      spec:      e.spec    ?? null,
+      material:  e.material ?? null,
+      volume_mm3:     (typeof e.volume_mm3 === 'number') ? e.volume_mm3 : null,
+      originalHandle: (typeof e.originalHandle === 'number') ? e.originalHandle : null,
+      b64:       activeBytesToBase64(e.bytes),
+      size_bytes: e.size_bytes,
+    });
+  }
+  activeWriteLs({
+    kind: FORGE_CACHE_KIND,
+    activeCacheVersion: ACTIVE_CACHE_VERSION,
+    savedAt: isoNow(),
+    entries,
+  });
+}
+
+/**
+ * Save a single native body to the active cache. Returns the cache
+ * entry. Throws (real error) if the body isn't native or the kernel
+ * surface (`forge.io.exportBrep` + `forge.dialog.writeBlob`) is missing
+ * — silent no-op is explicitly forbidden per the PUSH-215 spec.
+ */
+export async function saveBodyToActiveCache(body) {
+  if (!body || typeof body !== 'object') {
+    throw new Error('saveBodyToActiveCache: body object required');
+  }
+  if (body.kind !== 'native' || typeof body.handle !== 'number') {
+    throw new Error(`saveBodyToActiveCache: body ${body.id || '?'} is not native (kind=${body.kind})`);
+  }
+  const forge = (typeof window !== 'undefined') ? window.forge : null;
+  if (!forge?.io?.exportBrep) {
+    throw new Error('forge.io.exportBrep unavailable on kernel surface');
+  }
+  if (!forge?.dialog?.writeBlob) {
+    throw new Error('forge.dialog.writeBlob unavailable on kernel surface');
+  }
+  const id     = body.id ?? `body-${Date.now()}`;
+  const safeId = safeName(id);
+  const tp     = tmpBrepPath(safeId);
+  const r      = forge.io.exportBrep(body.handle, tp);
+  if (r === false) {
+    throw new Error(`forge.io.exportBrep returned false for ${id}`);
+  }
+  const bytes = await readFileBytes(tp);
+  const entry = {
+    id,
+    name:       body.name || String(id),
+    bytes,
+    size_bytes: bytes.length,
+    savedAt:    Date.now(),
+    kind:       'native',
+    toolId:     body.toolId  ?? null,
+    params:     body.params  ?? null,
+    spec:       body.spec    ?? null,
+    material:   body.material ?? null,
+    volume_mm3: readBodyVolume(body.handle),
+    originalHandle: body.handle,
+  };
+  __activeCache.set(id, entry);
+  activePersist();
+  return entry;
+}
+
+/**
+ * Save every native body in `bodies` to the active cache. Returns
+ * `{ ok, saved, errors }` where `saved` is the entry list (id + size +
+ * savedAt). Per-body failures land in `errors` so the panel can render
+ * them — the function does not throw.
+ */
+export async function saveSceneToActiveCache(bodies) {
+  const list   = Array.isArray(bodies) ? bodies.filter(Boolean) : [];
+  const saved  = [];
+  const errors = [];
+  for (const b of list) {
+    try {
+      const e = await saveBodyToActiveCache(b);
+      saved.push({
+        id: e.id, name: e.name,
+        size_bytes: e.size_bytes,
+        savedAt:    e.savedAt,
+      });
+    } catch (err) {
+      errors.push({
+        id:    b?.id ?? null,
+        name:  b?.name ?? null,
+        error: err.message || String(err),
+      });
+    }
+  }
+  return { ok: errors.length === 0 && saved.length > 0, saved, errors };
+}
+
+/**
+ * Restore a single cached entry → returns the new body record (with
+ * a fresh `forge.io.importBrep` kernel handle).
+ */
+export async function loadBodyFromActiveCache(entry) {
+  if (!entry || typeof entry !== 'object' || !entry.id) {
+    throw new Error('loadBodyFromActiveCache: entry object required');
+  }
+  const forge = (typeof window !== 'undefined') ? window.forge : null;
+  if (!forge?.io?.importBrep) {
+    throw new Error('forge.io.importBrep unavailable on kernel surface');
+  }
+  if (!forge?.dialog?.writeBlob) {
+    throw new Error('forge.dialog.writeBlob unavailable on kernel surface');
+  }
+  const tp = await writeTmpBlob(entry.bytes, entry.id);
+  const h  = forge.io.importBrep(tp);
+  if (typeof h !== 'number') {
+    throw new Error(`forge.io.importBrep returned non-number for ${entry.id} (got ${typeof h})`);
+  }
+  return {
+    id:       entry.id,
+    kind:     'native',
+    handle:   h,
+    name:     entry.name || String(entry.id),
+    toolId:   entry.toolId  ?? null,
+    params:   entry.params  ?? null,
+    spec:     entry.spec    ?? null,
+    material: entry.material ?? null,
+    cachedVolume:   (typeof entry.volume_mm3 === 'number') ? entry.volume_mm3 : null,
+    restoredVolume: readBodyVolume(h),
+  };
+}
+
+/**
+ * Restore every cached body, appending each to `window.__forgeBodies`
+ * (via `__forgeAppendBody` when present) and dispatching
+ * `forge:bodies-changed` so listeners (viewport, BOM, drawings…) can
+ * refresh. Returns `{ ok, restored, errors }`.
+ */
+export async function loadActiveCacheIntoScene() {
+  const entries  = listActiveCacheEntries();
+  const restored = [];
+  const errors   = [];
+  for (const e of entries) {
+    try {
+      const cacheEntry = __activeCache.get(e.id);
+      if (!cacheEntry) {
+        errors.push({ id: e.id, error: 'entry missing in active cache map' });
+        continue;
+      }
+      const body = await loadBodyFromActiveCache(cacheEntry);
+      if (typeof window !== 'undefined') {
+        const appendBody = window.__forgeAppendBody;
+        if (typeof appendBody === 'function') {
+          appendBody(body);
+        } else {
+          if (!Array.isArray(window.__forgeBodies)) window.__forgeBodies = [];
+          window.__forgeBodies.push(body);
+        }
+      }
+      restored.push({
+        id:             body.id,
+        name:           body.name,
+        newHandle:      body.handle,
+        cachedVolume:   body.cachedVolume,
+        restoredVolume: body.restoredVolume,
+      });
+    } catch (err) {
+      errors.push({ id: e.id, error: err.message || String(err) });
+    }
+  }
+  if (typeof window !== 'undefined' && restored.length > 0) {
+    try {
+      window.dispatchEvent(new CustomEvent('forge:bodies-changed', {
+        detail: { source: 'brep-cache-active', restored: restored.length },
+      }));
+    } catch { /* ignore */ }
+  }
+  return { ok: errors.length === 0 && restored.length > 0, restored, errors };
+}
+
+/**
+ * Returns a sorted snapshot of every cached entry (newest first).
+ * Each row is { id, name, size_bytes, savedAt, age_ms } so the panel
+ * table can render without holding bytes in JSX state.
+ */
+export function listActiveCacheEntries() {
+  const now = Date.now();
+  const rows = [];
+  for (const e of __activeCache.values()) {
+    rows.push({
+      id:         e.id,
+      name:       e.name,
+      size_bytes: e.size_bytes,
+      savedAt:    e.savedAt,
+      age_ms:     Math.max(0, now - e.savedAt),
+      toolId:     e.toolId,
+      kind:       e.kind,
+      volume_mm3: e.volume_mm3,
+    });
+  }
+  rows.sort((a, b) => b.savedAt - a.savedAt);
+  return rows;
+}
+
+/**
+ * Returns the list of cached body ids.
+ */
+export function listCachedActiveIds() {
+  return listActiveCacheEntries().map((e) => e.id);
+}
+
+/**
+ * Wipe the active cache (RAM map + localStorage). Returns the
+ * pre-clear entry count so the panel can flash a confirmation.
+ */
+export function clearActiveCache() {
+  const n = __activeCache.size;
+  __activeCache.clear();
+  activePersist();
+  return n;
+}
+
+/**
+ * Used by the panel for test-time introspection. NOT part of the
+ * production caller surface — the panel reads `listActiveCacheEntries`
+ * + the load/save APIs above.
+ */
+export function _activeCacheRawMap() {
+  return __activeCache;
+}
+
+export const FORGE_BREP_CACHE_ACTIVE_VERSION = ACTIVE_CACHE_VERSION;
+export const FORGE_BREP_CACHE_ACTIVE_LS_KEY  = ACTIVE_LS_KEY;
