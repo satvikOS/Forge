@@ -810,7 +810,22 @@ import { LoftSectionsPanelHost } from './forge-v4/LoftSectionsPanel.jsx';
 // forge:sweep-curve-built. Reachable via tools.sweepCurve menu action OR
 // window.__forgeOpenSweepCurve.
 import { SweepCurvePanelHost } from './forge-v4/SweepCurvePanel.jsx';
+// PUSH-132 (Slice-97) — Helical Sweep panel. Builds a 3D helix polyline in
+// pure JS (x=R cos t, y=R sin t, z=pitch·t/2π) and feeds the flat XYZ
+// Float64Array to window.forge.part.pipeFromPolyline (same OCCT primitive
+// PUSH-45 piperoute / PUSH-122 sweepCurve use). Inputs: PCD radius, pitch,
+// length, profile radius. Commits the OCCT solid via window.__forgeAppendBody
+// and dispatches forge:helical-sweep-built. Reachable via tools.helicalSweep
+// menu action OR window.__forgeOpenHelicalSweep.
+import { HelicalSweepPanelHost } from './forge-v4/HelicalSweepPanel.jsx';
 import { RibFeaturePanelHost } from './forge-v4/RibFeaturePanel.jsx'; // PUSH-126
+// Salvaged after API session limit hit 12 parallel agents — Host files
+// landed on disk before commit; wiring them here so they reach the UI.
+import { RealVariableFilletPanelHost } from './forge-v4/RealVariableFilletPanel.jsx'; // PUSH-130
+import { RealG2BlendPanelHost } from './forge-v4/RealG2BlendPanel.jsx';                // PUSH-131
+import { AutoDimPanelHost } from './forge-v4/AutoDimPanel.jsx';                          // PUSH-136
+import { HoleTablePanelHost } from './forge-v4/HoleTablePanel.jsx';                      // PUSH-135
+import { SubAssemblyTreePanelHost } from './forge-v4/SubAssemblyTreePanel.jsx';          // PUSH-134
 // PUSH-121 (Slice-89) — Loft Solid body — see LoftSolidPanel.jsx header.
 import { LoftSolidPanelHost } from './forge-v4/LoftSolidPanel.jsx';
 // PUSH-107 (Slice-76) — Surface Offset panel. Picks a surface body, samples
@@ -1283,6 +1298,12 @@ function App() {
       <LoftSectionsPanelHost />
       <LoftSolidPanelHost />
       <SweepCurvePanelHost />
+      <HelicalSweepPanelHost />
+      <RealVariableFilletPanelHost />
+      <RealG2BlendPanelHost />
+      <AutoDimPanelHost />
+      <HoleTablePanelHost />
+      <SubAssemblyTreePanelHost />
       <RibFeaturePanelHost />
       <SurfaceOffsetPanelHost />
       <SheetCataloguePanelHost />

@@ -243,7 +243,21 @@ export const MENU_SPEC = {
       // window.forge.part.pipeFromPolyline directly and commits the OCCT
       // solid via window.__forgeAppendBody; dispatches forge:sweep-curve-built.
       { id: 'tools.sweepCurve', label: 'Sweep along Curve…', icon: 'solid.sweep' },
+      // PUSH-132 (Slice-97) — Helical Sweep. Build a 3D helix polyline in pure
+      // JS (x=R cos t, y=R sin t, z=pitch·t/2π) and feed it to
+      // forge.part.pipeFromPolyline → real helical sweep solid. Drives
+      // compression springs, screw threads, augers, drill flutes. Inputs:
+      // PCD radius / pitch / length / profile radius. Commits the OCCT body
+      // via window.__forgeAppendBody; dispatches forge:helical-sweep-built.
+      { id: 'tools.helicalSweep', label: 'Helical Sweep (spring / thread)…', icon: 'solid.sweep' },
       { id: 'tools.ribFeature', label: 'Rib (Stiffener)…',   icon: 'sketch.line' }, // PUSH-126
+      // PUSH-135 (Slice-100) — Hole table auto-from-features for drawings.
+      // Scans a body via forge.direct.edgeSegments(handle, 0.1), detects
+      // circular edges (curvature constant + closed polygon), groups
+      // co-axial pairs by (centre Z, diameter), and emits an ASME hole
+      // table (Tag / X / Y / Ø / Qty) with an SVG annotation preview.
+      // Reachable via tools.holeTable menu action OR window.__forgeOpenHoleTable.
+      { id: 'tools.holeTable',  label: 'Hole Table (drawings)…', icon: 'wb.drawing' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
       { id: 'tools.threads',    label: 'Thread Designer…',  icon: 'sketch.spline' },
       // Forge-149 — Draft workbench (FreeCAD Draft parity).
