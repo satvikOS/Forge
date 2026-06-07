@@ -173,11 +173,26 @@ export const MENU_SPEC = {
       { id: 'tools.lightLines',  label: 'Light-line / Isophote (Class-A)…', icon: 'sketch.spline' },
       // PUSH-104 (Slice-72) — Mold / casting draft-angle analysis overlay.
       { id: 'tools.draftAnalysis', label: 'Draft Angle Analysis (Mold/Casting)…', icon: 'sketch.spline' },
+      // PUSH-105 (Slice-74) — Curvature comb 2D/3D surface analysis panel.
+      // Picks an edge via window.__forgeSelection, samples its polyline
+      // via forge.direct.edgeSegments(handle, 0.1), draws perpendicular
+      // SVG hairs proportional to discrete curvature, reports {min,max,avg,inflections}.
+      { id: 'tools.curvatureComb', label: 'Curvature Comb (Class-A)…', icon: 'sketch.spline' },
       // PUSH-42 / PUSH-55 — HLR engineering drawings (projected 2D views +
       // native DXF/SVG export to disk).
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },
+      // PUSH-106 (Slice-75) — Detail View Circles panel. N circular detail
+      // regions on a parent view, each projected at its own scale via
+      // forge.drawings.projectDetail. Stores definitions on
+      // window.__forgeDetailViews + dispatches forge:detail-views-generated.
+      { id: 'tools.detailViews', label: 'Detail Views (drawings)…', icon: 'wb.drawing' },
       // PUSH-58 — Mass Properties inspector (kernel mass/area/COM × material).
       { id: 'tools.massprops',   label: 'Mass Properties…',  icon: 'measure.mass' },
+      // PUSH-109 (Slice-78) — Full Material Properties editor: per-body
+      // E/ν/ρ/σY/σU/k/α/cp + 6-entry preset library (Steel A36, Aluminum
+      // 6061, Ti-6Al-4V, Brass C26000, ABS, Carbon Fiber UD). Persists
+      // to forge.v4.materialProps + window.__forgeMaterialProperties.
+      { id: 'tools.materialProperties', label: 'Material Properties (FEA)…', icon: 'measure.mass' },
       // PUSH-59 — Assembly Interference Detection panel (pairwise OCCT
       // BRepAlgoAPI_Common with volume readout per colliding pair).
       { id: 'tools.interference', label: 'Interference Detection…', icon: 'measure.interfere' },
@@ -195,6 +210,7 @@ export const MENU_SPEC = {
       { id: 'tools.cameraBookmarks', label: 'Camera Bookmarks…',   icon: 'view.iso' }, // PUSH-68 — save/restore named camera views (forge.v4.cameraBookmarks)
       { id: 'tools.sketchConstraints', label: 'Sketch Constraints…', icon: 'sketch.line' }, // PUSH-72 — Coincident/Parallel/Perpendicular/Equal/Tangent quick-add toolbar bound to window.__forgeSelection + window.__forgeCurrentSketch.
       { id: 'tools.sketchConstraintsExt', label: 'Sketch Constraints (Extended)…', icon: 'sketch.line' }, // PUSH-91 — full 16-kind constraints panel (Geometric: Coincident/Parallel/Perpendicular/Equal/Tangent/Horizontal/Vertical/PointOnLine/PointOnCircle/Symmetric/Concentric/Fix · Dimensional: Distance/Angle/Diameter/Radius) with numeric inputs + per-row Apply; calls window.forge.sketcher.addConstraint and dispatches forge:sketch-constraint-add-ext.
+      { id: 'tools.liveSketchDims', label: 'Live Sketch Dimensions…', icon: 'sketch.line' }, // PUSH-108 (Slice-77) — Live numeric-edit table for every Distance/Angle/Diameter/Radius constraint in the active sketch; Apply re-adds via window.forge.sketcher.addConstraint(handle, kindId, refs, newValue) + .solve so geometry re-converges live. Listens to forge:sketch-constraint-add-ext (PUSH-91 publisher) + forge:sketch-dim-register; publishes forge:sketch-dim-updated.
       { id: 'tools.activityLog',   label: 'Activity Log…',          icon: 'misc.search' }, // PUSH-73 — bus event stream (kernel + UI), ring buffer, filter, export JSON.
       { id: 'tools.lightingEnv',   label: 'Viewport Lighting / Environment…', icon: 'view.shaded' }, // PUSH-75 — ambient + key intensity + key direction (az/el) + background colour; persists to forge.v4.lighting; publishes window.__forgeLighting + forge:lighting-changed.
       { id: 'tools.batchRename',   label: 'Batch Rename Bodies…',   icon: 'select.body' }, // PUSH-82 — Find/Replace + Number-suffix renamer for every body in the scene; commits via window.__forgeSetBodies.
@@ -211,6 +227,7 @@ export const MENU_SPEC = {
       { id: 'tools.loftSections',  label: 'Loft Sections…',          icon: 'sketch.spline' }, // PUSH-102 (Slice-70) — Multi-section NURBS loft (N planar {z, radius} sections → 24×11 polar control grid → window.forge.surfacing.buildPatch); commits a native surface body + dispatches forge:loft-sections-built.
       { id: 'tools.sheetCatalogue', label: 'Sheet Metal Catalogue…',  icon: 'wb.sheet' }, // PUSH-95 (Slice-63) — multi-flange catalogue panel exposing 8 forge.sheetMetal.* ops (edgeFlange / miterFlange / hem / jog / closedCorner / cornerRelief / unfold / flatPattern) with inline param dialogs and a 100×60×2 baseFlange auto-seed.
       { id: 'tools.boolHistory',   label: 'Boolean History…',        icon: 'sketch.rect' },    // PUSH-103 (Slice-71) — Audit / Undo / Replay panel for every solid.cut / solid.fuse / solid.common dispatch; listens for forge:tool-dispatched, snapshots the a + b bodies, lets the user undo the result or replay against live ids.
+      { id: 'tools.printPreview',  label: 'Print Preview / PDF…',    icon: 'wb.drawing' },     // PUSH-110 (Slice-79) — Drawing print preview with paper-size (ISO A0..A4 + ANSI Letter/Legal/Tabloid) + orientation + scale (1:1..1:20); renders the live HLR view2D as W3C-compliant mm-unit SVG with title block; Save SVG / Copy SVG / Print to PDF actions; helpers exposed on window.__forgePrintPreviewHelper.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // PUSH-97 (Slice-65) — Batched cable / pipe routing.

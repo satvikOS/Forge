@@ -58,6 +58,15 @@ import SolidOpsWorkbenchHost from './forge-v4/SolidOpsWorkbench.jsx';
 import SketchConstraintsWorkbenchHost from './forge-v4/SketchConstraintsWorkbench.jsx';
 // PUSH-05: Drawings HLR + DXF/SVG emit (forge::drawings).
 import DrawingsHLRWorkbenchHost from './forge-v4/DrawingsHLRWorkbench.jsx';
+// PUSH-106 (Slice-75) — Detail View Circles panel. User defines N
+// {cx, cy, radius, scale, label} circular detail regions on a parent
+// view; each region projects through forge.drawings.projectDetail at
+// its own scale (typically 2-4×). Renders an SVG snippet of the parent
+// rectangle with dashed callouts + tag bubbles, plus per-detail zoomed
+// SVG tiles, and stores the full definition + projections on
+// window.__forgeDetailViews. Reachable via tools.detailViews menu
+// action OR window.__forgeOpenDetailViews().
+import { DetailViewsPanelHost } from './forge-v4/DetailViewsPanel.jsx';
 // PUSH-08: Mold tooling (forge::mold).
 import MoldWorkbenchHost from './forge-v4/MoldWorkbench.jsx';
 // PUSH-11: Tet4 FEA (forge::fea::tet).
@@ -582,6 +591,9 @@ import { InspectionWorkbenchHost } from './forge-v4/InspectionWorkbench.jsx';
 import { SimulationWorkbenchHost } from './forge-v4/SimulationWorkbench.jsx';
 // PUSH-58 — Mass Properties panel (density picker + computed mass).
 import { MassPropsHost } from './forge-v4/MassPropsPanel.jsx';
+// PUSH-109 — Full Material Properties editor (per-body E/ν/ρ/σY/σU/k/α/cp
+// + 6-entry preset library; persists to forge.v4.materialProps).
+import { MaterialPropertiesHost } from './forge-v4/MaterialPropertiesPanel.jsx';
 // PUSH-59 — Assembly Interference Detection panel (pairwise OCCT scan).
 import { InterferenceHost } from './forge-v4/InterferencePanel.jsx';
 // PUSH-61 — Materials Browser (persistent body→material assignments).
@@ -686,6 +698,15 @@ import { SketchConstraintsToolbar } from './forge-v4/SketchConstraintsToolbar.js
 // Concentric / Fix / Diameter / Radius) out of the kernel-supplied
 // primitives so every button honestly reports what hit the solver.
 import { SketchConstraintsExtendedPanelHost } from './forge-v4/SketchConstraintsExtendedPanel.jsx';
+// PUSH-108 (Slice-77) — Live Sketch Dimensions panel. Right-rail table of
+// every Distance / Angle / Diameter / Radius constraint in the active
+// sketch (window.__forgeCurrentSketch). Per-row numeric input + Apply
+// re-adds the constraint via window.forge.sketcher.addConstraint(handle,
+// kindId, refs, newValue) and then window.forge.sketcher.solve(handle)
+// so the geometry re-converges live. Listens to forge:sketch-constraint-
+// add-ext (PUSH-91) for auto-population and forge:sketch-dim-register
+// for direct seeding; publishes forge:sketch-dim-updated per Apply.
+import { LiveSketchDimsPanelHost } from './forge-v4/LiveSketchDimsPanel.jsx';
 // PUSH-79 (Slice-47) — Theme switcher panel (Dark / Light / Sepia / High
 // Contrast) writing document.documentElement.dataset.forgeTheme + the
 // shell's existing forge.v4.theme localStorage key + dispatching
@@ -725,6 +746,14 @@ import { DiagnosticDumpPanelHost } from './forge-v4/DiagnosticDumpPanel.jsx';
 import { LightLineAnalysisOverlayHost } from './forge-v4/LightLineAnalysisOverlay.jsx';
 // PUSH-104 (Slice-72) — Mold / casting draft-angle analysis overlay.
 import { DraftAnalysisOverlayHost } from './forge-v4/DraftAnalysisOverlay.jsx';
+// PUSH-105 (Slice-74) — Curvature comb 2D/3D surface analysis panel.
+// Picks an edge via window.__forgeSelection, samples the polyline through
+// forge.direct.edgeSegments(handle, 0.1), computes discrete curvature via
+// the brief's κ = 2·sin(θ)/|segment| form, renders perpendicular SVG
+// hairs (length = κ·scale, scale slider 1..100), reports
+// {min,max,avg,absAvg,inflections}. Reachable via tools.curvatureComb
+// menu action OR window.__forgeOpenCurvatureComb.
+import { CurvatureCombPanelHost } from './forge-v4/CurvatureCombPanel.jsx';
 // PUSH-85 (Slice-53) — Class-A G2/G3 curvature-continuous Blend panel.
 // Picks four boundary curves (preset saddle, active-body top-face bbox,
 // or JSON override), maps a G1/G2/G3 continuity radio to Coons /
@@ -1114,6 +1143,7 @@ function App() {
       <InspectionWorkbenchHost />
       <SimulationWorkbenchHost />
       <MassPropsHost />
+      <MaterialPropertiesHost />
       <InterferenceHost />
       <MaterialsBrowserHost />
       <EntityPropsHost />
@@ -1137,6 +1167,7 @@ function App() {
       <MoldCoolingPanelHost />
       <SketchConstraintsToolbar />
       <SketchConstraintsExtendedPanelHost />
+      <LiveSketchDimsPanelHost />
       <DirectEditTranslatePanelHost />
       <PatternFeaturePanelHost />
       <SelectionFilterStrip />
