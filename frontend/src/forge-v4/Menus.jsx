@@ -146,6 +146,7 @@ export const MENU_SPEC = {
       { id: 'tools.sectionPlane', label: 'Section Plane…',         icon: 'view.section' },
       // PUSH-69 — Layers / Body visibility groups panel (named layer membership, visibility / lock per layer, persists to forge.v4.bodyLayers).
       { id: 'tools.layers',       label: 'Layers…',                icon: 'select.body' },
+      { id: 'tools.bodyColors',   label: 'Body Colours…',          icon: 'view.shaded' }, // PUSH-71 — per-body colour override + persistence (forge.v4.bodyColors)
       { id: 'tools.cameraBookmarks', label: 'Camera Bookmarks…',   icon: 'view.iso' }, // PUSH-68 — save/restore named camera views (forge.v4.cameraBookmarks)
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },

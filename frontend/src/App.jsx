@@ -581,6 +581,10 @@ import { SectionPlanePanelHost } from './forge-v4/SectionPlanePanel.jsx';
 // membership, per-layer visibility + lock toggles, body→layer map
 // persisted in localStorage key `forge.v4.bodyLayers`).
 import { LayersPanelHost } from './forge-v4/LayersPanel.jsx';
+// PUSH-71 — Body Colours override panel (per-body colour picker +
+// reset + auto-derive from material, mirrored into window.__forgeBodyColors
+// Map; persisted in localStorage key `forge.v4.bodyColors`).
+import { BodyColorsPanelHost } from './forge-v4/BodyColorsPanel.jsx';
 // PUSH-70 — Display State QuickBar (bottom-right always-on HUD;
 // shaded/wireframe/transparent buttons + axis indicator + live FPS;
 // publishes window.__forgeDisplayState + forge:display-state-changed).
@@ -945,6 +949,7 @@ function App() {
       <MeasureToolPanelHost />
       <SectionPlanePanelHost />
       <LayersPanelHost />
+      <BodyColorsPanelHost />
       <DisplayStateQuickBar />
       <CameraBookmarksPanelHost />
     </ViewportEnvironmentProvider>
