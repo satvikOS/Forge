@@ -210,6 +210,7 @@ export const MENU_SPEC = {
       { id: 'tools.classABlend',   label: 'Class-A Blend…',          icon: 'sketch.spline' }, // PUSH-85 — G2/G3 curvature-continuous Coons-+-bicubic-Hermite surface blend; commits an OCCT NURBS face via window.forge.surfacing.buildPatch + window.__forgeAppendBody.
       { id: 'tools.loftSections',  label: 'Loft Sections…',          icon: 'sketch.spline' }, // PUSH-102 (Slice-70) — Multi-section NURBS loft (N planar {z, radius} sections → 24×11 polar control grid → window.forge.surfacing.buildPatch); commits a native surface body + dispatches forge:loft-sections-built.
       { id: 'tools.sheetCatalogue', label: 'Sheet Metal Catalogue…',  icon: 'wb.sheet' }, // PUSH-95 (Slice-63) — multi-flange catalogue panel exposing 8 forge.sheetMetal.* ops (edgeFlange / miterFlange / hem / jog / closedCorner / cornerRelief / unfold / flatPattern) with inline param dialogs and a 100×60×2 baseFlange auto-seed.
+      { id: 'tools.boolHistory',   label: 'Boolean History…',        icon: 'sketch.rect' },    // PUSH-103 (Slice-71) — Audit / Undo / Replay panel for every solid.cut / solid.fuse / solid.common dispatch; listens for forge:tool-dispatched, snapshots the a + b bodies, lets the user undo the result or replay against live ids.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // PUSH-97 (Slice-65) — Batched cable / pipe routing.
@@ -232,6 +233,8 @@ export const MENU_SPEC = {
       { id: 'tools.pdm',          label: 'Product Data Management…', icon: 'misc.settings' },
       // PUSH-14/51 — real JSON-backed PDM vault (check-in/out, revisions, ECN).
       { id: 'tools.pdmvault',     label: 'PDM Vault (check-in/out)…', icon: 'misc.settings' },
+      // PUSH-100 (Slice-68) — Revisions dialog (semver + ECN log).
+      { id: 'tools.pdmRevisions', label: 'PDM Revisions (semver + ECN log)…', icon: 'misc.settings' },
       { id: 'tools.configurations', label: 'Configurations…',    icon: 'misc.settings' },
       { id: 'tools.skeleton',     label: 'Master Skeleton…',     icon: 'sketch.line' },
       { id: 'tools.scenarios',    label: 'Scenario Runner…',     icon: 'wb.sim' },

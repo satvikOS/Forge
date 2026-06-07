@@ -47,6 +47,11 @@ import CAMExtendedWorkbenchHost from './forge-v4/CAMExtendedWorkbench.jsx';
 import DrillingPatternPanelHost from './forge-v4/DrillingPatternPanel.jsx';
 // PUSH-15: SIMP topology optimisation.
 import TopologyWorkbenchHost from './forge-v4/TopologyWorkbench.jsx';
+// PUSH-101 (Slice-69) — Topology Optimisation smart-constraints panel
+// (keep / remove zones + filter radius + volume fraction + target
+// compliance). Publishes window.__forgeTopologyConstraints + fires
+// forge:topology-constraints-set so the SIMP runner can read it.
+import { TopologyConstraintsPanelHost } from './forge-v4/TopologyConstraintsPanel.jsx';
 // PUSH-02: Solid modelling ops (varfillet, loftguide, booleantol).
 import SolidOpsWorkbenchHost from './forge-v4/SolidOpsWorkbench.jsx';
 // PUSH-03: Sketch constraints (planegcs-backed).
@@ -1141,6 +1146,7 @@ function App() {
       <StdPartsQuickInsertPanelHost />
       <ThemeSwitcherPanelHost />
       <BomBalloonsPanelHost />
+      <PdmRevisionsPanelHost />
       <LightLineAnalysisOverlayHost />
       <DraftAnalysisOverlayHost />
       <ClassABlendPanelHost />

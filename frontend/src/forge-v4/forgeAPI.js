@@ -27,6 +27,14 @@ import { dispatchTool } from './kernelDispatch.js';
 import { applyPreset } from './pbrMaterials.js';
 import { toolsForWorkbench } from './Toolbar.jsx';
 import { MENU_SPEC } from './Menus.jsx';
+// PUSH-103 (Slice-71) — Boolean Operations History panel. Side-effect
+// import installs the forge:tool-dispatched listener + the helper API
+// + the window.__forgeOpenBoolHistory / __forgeCloseBoolHistory /
+// __forgeRecordBooleanOp / __forgeBoolHistoryHelper imperatives + the
+// standalone React root that mounts the panel UI on first open — all
+// at module-load time so the panel records ops + drives Undo / Replay
+// even before any React Host has mounted.
+import './BooleanHistoryPanel.jsx';
 
 /* =====================================================================
  * VERSION + capabilities
