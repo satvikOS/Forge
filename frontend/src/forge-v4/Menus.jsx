@@ -268,6 +268,18 @@ export const MENU_SPEC = {
       // modes table with frequency (Hz), period (ms), and ω² (rad²/s²);
       // helper exposed on window.__forgeModalAnalysisHelper.
       { id: 'tools.modalAnalysis', label: 'Modal Analysis (FEA · eigen)…', icon: 'wb.sim' },
+      // PUSH-119 (Slice-87) — Dedicated Fatigue Analysis (S-N curve) panel:
+      // body picker → σ_a + σ_m inputs (or pull max von Mises from PUSH-48
+      // static solve) → None/Goodman/Soderberg mean-stress correction →
+      // kernel forge.fatigue.cyclesToFailure (Basquin) for Nf. Reads σY/σU
+      // off PUSH-109's window.__forgeMaterialProperties[handle].
+      { id: 'tools.fatigueAnalysis', label: 'Fatigue Analysis (S-N curve)…', icon: 'wb.sim' },
+      // PUSH-120 (Slice-88) — Dedicated Buckling Analysis panel: body
+      // picker → applied axial load (magnitude + direction) + loaded
+      // face + clamp face + mesh slider + nModes → forge.fea.solveBuckling.
+      // Reads E + density off PUSH-109 at window.__forgeMaterialProperties.
+      // Results: λ₁ (first critical buckling factor) and P_cr = λ × F.
+      { id: 'tools.bucklingAnalysis', label: 'Buckling Analysis (FEA · linearised)…', icon: 'wb.sim' },
       { id: 'tools.convergence',  label: 'FEA Convergence…',     icon: 'measure.distance' },
       { id: 'tools.weldments',    label: 'Weldments…',           icon: 'wb.weldments' },
       // Forge-151 — Mesh workbench (polygonal mesh tools).
@@ -279,6 +291,12 @@ export const MENU_SPEC = {
       // PUSH-98 (Slice-66) — Drilling Pattern: batched cam.drill over a
       // hole table + auto-import circles from a body's edge tessellation.
       { id: 'tools.drillingPattern', label: 'Drilling Pattern…',  icon: 'wb.mfg' },
+      // PUSH-117 (Slice-85) — Adaptive Clearing: high-MRR roughing
+      // strategy with constant chip load via forge.cam.adaptiveClear.
+      // Picks stock + part bodies + tool Ø / stepover% / stepdown,
+      // generates a real native toolpath and surfaces moveCount /
+      // cycle time / cutting length.
+      { id: 'tools.camAdaptive', label: 'Adaptive Clearing (CAM)…', icon: 'wb.mfg' },
       // Forge-163 — 3D-printing slicer (real Marlin G-code emitter).
       { id: 'tools.slicer',       label: 'Slicer (3D printing)…', icon: 'wb.mfg' },
       // Forge-152 — Industrial robot workbench (KUKA KR6, ABB IRB1200,

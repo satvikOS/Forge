@@ -45,6 +45,13 @@ import CAMExtendedWorkbenchHost from './forge-v4/CAMExtendedWorkbench.jsx';
 // a hole table, optional auto-import from circular tessellated edges,
 // native Fanuc G-code emission per Ø batch.
 import DrillingPatternPanelHost from './forge-v4/DrillingPatternPanel.jsx';
+// PUSH-117 (Slice-85) — CAM Adaptive Clearing strategy panel. High-MRR
+// roughing with constant chip load (Archimedean spiral + engagement-arc
+// feed modulation) via window.forge.cam.adaptiveClear. Picks stock +
+// part bodies + tool Ø / stepover% / stepdown / z-top / z-bottom and
+// surfaces moveCount / cycle time / cutting length. Reachable via the
+// tools.camAdaptive menu action or window.__forgeOpenCamAdaptive().
+import CamAdaptivePanelHost from './forge-v4/CamAdaptivePanel.jsx';
 // PUSH-110 (Slice-79) — Drawing Print Preview / PDF panel. Paper-size
 // (ISO A0..A4 + ANSI Letter/Legal/Tabloid) + orientation + scale (1:1..1:20)
 // dropdowns; renders the live HLR view2D as mm-unit SVG with title block;
@@ -603,6 +610,18 @@ import { MaterialPropertiesHost } from './forge-v4/MaterialPropertiesPanel.jsx';
 // Reads E + density from PUSH-109's window.__forgeMaterialProperties[handle]
 // and calls forge.fea.solveModal to produce a real frequency table.
 import { ModalAnalysisHost } from './forge-v4/ModalAnalysisPanel.jsx';
+// PUSH-119 (Slice-87) — Fatigue Analysis (S-N curve) panel. Reads σY + σU
+// off PUSH-109's window.__forgeMaterialProperties[handle], lets the user
+// pull max von Mises off PUSH-48's window.__forgeSimulationLast, applies
+// None / Goodman / Soderberg mean-stress correction, and calls
+// forge.fatigue.cyclesToFailure (Basquin) for Nf.
+import { FatigueAnalysisHost } from './forge-v4/FatigueAnalysisPanel.jsx';
+// PUSH-120 (Slice-88) — Buckling Analysis panel (FEA linearised eigen).
+// Reads E + density off PUSH-109's window.__forgeMaterialProperties[handle],
+// distributes the applied axial load magnitude across a chosen AABB face,
+// pins the opposite (clamp) face, then calls forge.fea.solveBuckling to
+// compute λ such that P_cr = λ × |F_applied|.
+import { BucklingAnalysisHost } from './forge-v4/BucklingAnalysisPanel.jsx';
 // PUSH-59 — Assembly Interference Detection panel (pairwise OCCT scan).
 import { InterferenceHost } from './forge-v4/InterferencePanel.jsx';
 // PUSH-61 — Materials Browser (persistent body→material assignments).
@@ -1181,6 +1200,8 @@ function App() {
       <MassPropsHost />
       <MaterialPropertiesHost />
       <ModalAnalysisHost />
+      <FatigueAnalysisHost />
+      <BucklingAnalysisHost />
       <InterferenceHost />
       <MaterialsBrowserHost />
       <EntityPropsHost />
