@@ -52,6 +52,14 @@ import DrillingPatternPanelHost from './forge-v4/DrillingPatternPanel.jsx';
 // surfaces moveCount / cycle time / cutting length. Reachable via the
 // tools.camAdaptive menu action or window.__forgeOpenCamAdaptive().
 import CamAdaptivePanelHost from './forge-v4/CamAdaptivePanel.jsx';
+// PUSH-181 (Slice-137) — CNC Setup Sheet generator. Reads PUSH-46/98/117
+// cam results (window.__forgeCamResults + __forgeCamAdaptiveResult +
+// __forgeDrillingPatternResults) + window.__forgeBodies, picks the
+// stock body, and emits a printable operator sheet (program meta,
+// stock dims, fixture, op-by-op tool/RPM/feed/depth/cycle, tool-change
+// list, ASCII export). Reachable via tools.cncSetupSheet OR
+// window.__forgeOpenCncSetupSheet.
+import CncSetupSheetPanelHost from './forge-v4/CncSetupSheetPanel.jsx';
 // PUSH-118 (Slice-86) — 5-Axis CAM Strategies panel. Swarf /
 // Parallel-to-face / Pocket on top of window.forge.cam.multiAxisIndexed
 // + multiAxisContinuous. Tool-axis vector input drives the kernel
@@ -609,6 +617,10 @@ import { InspectionWorkbenchHost } from './forge-v4/InspectionWorkbench.jsx';
 import { SimulationWorkbenchHost } from './forge-v4/SimulationWorkbench.jsx';
 // PUSH-58 — Mass Properties panel (density picker + computed mass).
 import { MassPropsHost } from './forge-v4/MassPropsPanel.jsx';
+// PUSH-173 (Slice 129) — Full mass moment of inertia tensor (Ixx, Iyy, Izz,
+// Ixy, Iyz, Ixz + principal moments + axes) via pure-JS divergence-theorem
+// integration over the kernel tessellation.
+import { InertiaTensorHost } from './forge-v4/InertiaTensorPanel.jsx';
 // PUSH-109 — Full Material Properties editor (per-body E/ν/ρ/σY/σU/k/α/cp
 // + 6-entry preset library; persists to forge.v4.materialProps).
 import { MaterialPropertiesHost } from './forge-v4/MaterialPropertiesPanel.jsx';
@@ -946,6 +958,7 @@ function App() {
       <DrillingPatternPanelHost />
       <CamAdaptivePanelHost />
       <FiveAxisCAMPanelHost />
+      <CncSetupSheetPanelHost />
       <TopologyWorkbenchHost />
       <TopologyConstraintsPanelHost />
       <SolidOpsWorkbenchHost />
@@ -1251,6 +1264,7 @@ function App() {
       <InspectionWorkbenchHost />
       <SimulationWorkbenchHost />
       <MassPropsHost />
+      <InertiaTensorHost />
       <MaterialPropertiesHost />
       <ModalAnalysisHost />
       <FatigueAnalysisHost />
