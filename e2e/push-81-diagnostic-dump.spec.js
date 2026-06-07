@@ -99,9 +99,15 @@ test.beforeAll(async () => {
     page = await app.firstWindow();
     page.on('console', (msg) => {
         const t = msg.text();
-        if (/push-81|diagnostic|Diagnostic|forge|error|Error/i.test(t)) {
-            console.log('[browser]', t);
+        // Wide filter — catch React crashes / TypeErrors during app boot
+        // so we can debug the host's effect not installing.
+        if (msg.type() === 'error' || msg.type() === 'warning'
+            || /push-81|diagnostic|Diagnostic|forge|error|Error|exception|TypeError|crashed/i.test(t)) {
+            console.log('[browser]', msg.type(), t);
         }
+    });
+    page.on('pageerror', (err) => {
+        console.log('[browser pageerror]', err.message);
     });
     await page.waitForLoadState('domcontentloaded');
     await pause(3000);
@@ -224,14 +230,16 @@ test('01 — seed 1 real OCCT box so the report has a non-trivial body count', a
 test('02 — open Diagnostic Dump via tools.diagnostic menu action + override saveFile', async () => {
     await cameraTo('top');
 
-    // Override the saveFile dialog to a deterministic path. The
-    // writeBlob bridge stays real — we want the file to actually land
-    // on /tmp so we can read it back from disk and parse the JSON.
+    // Under Electron contextIsolation: true the contextBridge wraps the
+    // exposed `window.forge` global as a frozen, non-configurable
+    // property. We can't override `forge.dialog.saveFile` directly.
+    // Instead the panel exposes a test hook —
+    // `window.__forgeDiagnosticDumpForcePath` — that when set short-
+    // circuits the native save dialog and uses our deterministic path.
+    // The real `writeBlob` IPC stays live so the JSON file actually
+    // lands on disk and we can read + parse it back.
     await page.evaluate((target) => {
-        const f = window.forge || {};
-        f.dialog = f.dialog || {};
-        f.dialog.saveFile = async () => target;
-        window.forge = f;
+        window.__forgeDiagnosticDumpForcePath = target;
     }, TARGET_PATH);
 
     await platformMenuAction('tools.diagnostic');
@@ -261,12 +269,17 @@ test('03 — click Generate → file lands at /tmp/push81.json + parses as JSON 
     // page state survives, but other parallel beforeAll bootstraps or a
     // late-loading plugin might rewrite window.forge.dialog after our
     // test 02 set it. We restore the override here so the click below
-    // hits the deterministic /tmp/push81.json path regardless.
+    // hits the deterministic /tmp/push81.json path regardless. Same
+    // shallow-clone pattern as test 02 to dodge contextBridge-frozen
+    // dialog objects.
+    // Under Electron contextIsolation the renderer can't override the
+    // contextBridge-frozen `window.forge.dialog.saveFile`. The panel
+    // exposes a `window.__forgeDiagnosticDumpForcePath` hook for tests:
+    // when set, the panel uses that absolute path instead of calling
+    // the native save dialog. The real `writeBlob` bridge stays live so
+    // the JSON file actually lands on disk.
     await page.evaluate((target) => {
-        const f = window.forge || {};
-        f.dialog = f.dialog || {};
-        f.dialog.saveFile = async () => target;
-        window.forge = f;
+        window.__forgeDiagnosticDumpForcePath = target;
     }, TARGET_PATH);
 
     const btn = page.locator('[data-testid="forge-diagnostic-dump-generate"]');
@@ -323,10 +336,24 @@ test('03 — click Generate → file lands at /tmp/push81.json + parses as JSON 
     expect(report.bridges.hasWriteBlob).toBe(true);
 
     // Kernel version came back from the OCCT addon via window.forge.version().
+    // The addon returns a structured object — { forgeKernel, occt, napiCpp } —
+    // not a flat string. So we assert truthy + non-empty rather than string.
     expect(report.kernel).toBeTruthy();
     expect(report.kernel.available).toBe(true);
-    expect(typeof report.kernel.version).toBe('string');
-    expect(report.kernel.version.length).toBeGreaterThan(0);
+    expect(report.kernel.version).toBeTruthy();
+    // The OCCT version field is the load-bearing one — the kernel
+    // reports it as a semver string under the `occt` key (e.g. "7.9.3").
+    // We accept either shape: flat string, or object with a string-shaped
+    // value somewhere inside.
+    const ver = report.kernel.version;
+    if (typeof ver === 'string') {
+        expect(ver.length).toBeGreaterThan(0);
+    } else {
+        expect(typeof ver).toBe('object');
+        const inner = ver.occt || ver.forgeKernel || ver.version;
+        expect(typeof inner).toBe('string');
+        expect(inner.length).toBeGreaterThan(0);
+    }
 
     // The seeded body shows up.
     expect(report.bodiesCount).toBe(1);
@@ -391,8 +418,19 @@ test('04 — imperative __forgeBuildDiagnosticReport walks the same state + push
     expect(imperative.version).toBe(1);
     expect(imperative.bodiesCount).toBe(1);
     expect(imperative.kernelAvailable).toBe(true);
-    expect(typeof imperative.kernelVersion).toBe('string');
-    expect(imperative.kernelVersion.length).toBeGreaterThan(0);
+    // The OCCT addon publishes a structured version object —
+    // { forgeKernel, occt, napiCpp } — not a flat string. Accept either.
+    expect(imperative.kernelVersion).toBeTruthy();
+    if (typeof imperative.kernelVersion === 'string') {
+        expect(imperative.kernelVersion.length).toBeGreaterThan(0);
+    } else {
+        expect(typeof imperative.kernelVersion).toBe('object');
+        const inner = imperative.kernelVersion.occt
+                   || imperative.kernelVersion.forgeKernel
+                   || imperative.kernelVersion.version;
+        expect(typeof inner).toBe('string');
+        expect(inner.length).toBeGreaterThan(0);
+    }
     expect(imperative.bodiesLen).toBe(1);
     expect(imperative.keysScanned).toBeGreaterThan(20);
     expect(imperative.keysIncluded).toBeGreaterThan(0);

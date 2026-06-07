@@ -404,14 +404,9 @@ export function DiagnosticDumpPanel({ open, onClose }) {
     setBusy(true);
     setLastError(null);
     setStatusText('Collecting snapshot…');
-    // eslint-disable-next-line no-console
-    console.log('[diagnostic-dump] Generate clicked');
     try {
       const report = buildDiagnosticReport();
       setLastReport(report);
-      // eslint-disable-next-line no-console
-      console.log('[diagnostic-dump] report built, keys included =',
-                  report.diagnostics?.windowForgeKeysIncluded);
       const dialog = (typeof window !== 'undefined') ? window.forge?.dialog : null;
       if (!dialog || typeof dialog.saveFile !== 'function'
                   || typeof dialog.writeBlob !== 'function') {
@@ -421,13 +416,20 @@ export function DiagnosticDumpPanel({ open, onClose }) {
       }
       setStatusText('Picking destination…');
       const stamp = report.capturedAt.slice(0, 19).replace(/[:T]/g, '-');
-      const filepath = await dialog.saveFile({
-        title: 'Save Diagnostic Report',
-        defaultPath: `forge-diagnostic-${stamp}.json`,
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-      });
-      // eslint-disable-next-line no-console
-      console.log('[diagnostic-dump] saveFile returned path =', filepath);
+      // Test hook — under Electron contextIsolation the renderer can't
+      // override the contextBridge-frozen `forge.dialog.saveFile`. The
+      // e2e spec sets `window.__forgeDiagnosticDumpForcePath` to a
+      // deterministic absolute path before clicking Generate; we honour
+      // it if present, otherwise fall back to the real native dialog.
+      const forcedPath = (typeof window !== 'undefined')
+        ? window.__forgeDiagnosticDumpForcePath : null;
+      const filepath = (typeof forcedPath === 'string' && forcedPath.length)
+        ? forcedPath
+        : await dialog.saveFile({
+            title: 'Save Diagnostic Report',
+            defaultPath: `forge-diagnostic-${stamp}.json`,
+            filters: [{ name: 'JSON', extensions: ['json'] }],
+          });
       if (!filepath) {
         setStatusText('Cancelled.');
         return;
@@ -435,13 +437,7 @@ export function DiagnosticDumpPanel({ open, onClose }) {
       setStatusText('Writing…');
       const payload = JSON.stringify(report, null, 2);
       const bytes = new TextEncoder().encode(payload);
-      // eslint-disable-next-line no-console
-      console.log('[diagnostic-dump] writeBlob about to fire, payload bytes =',
-                  bytes.length);
       const res = await dialog.writeBlob(filepath, bytes);
-      // eslint-disable-next-line no-console
-      console.log('[diagnostic-dump] writeBlob returned',
-                  JSON.stringify(res || {}).slice(0, 200));
       if (res && res.ok) {
         setLastPath(filepath);
         try { window.__forgeLastDiagnosticPath = filepath; } catch {}
@@ -460,8 +456,6 @@ export function DiagnosticDumpPanel({ open, onClose }) {
       }
     } catch (err) {
       const msg = err?.message || String(err);
-      // eslint-disable-next-line no-console
-      console.log('[diagnostic-dump] onGenerate caught error =', msg);
       setLastError(msg);
       setStatusText(`Error: ${msg}`);
     } finally {
