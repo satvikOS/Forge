@@ -866,6 +866,13 @@ import { ThermalAnalysisHost } from './forge-v4/ThermalAnalysisPanel.jsx';
 // PUSH-116 BomAggregator deferred — panel imports a different bomAggregator.js
 // API than the existing module; left out of this batch to ship the rest.
 // import { BomAggregatorPanelHost } from './forge-v4/BomAggregatorPanel.jsx';
+// PUSH-124 (Slice-92) — Point Cloud Import + display panel. Loads
+// .xyz / .ply scans (or generates a synthetic Fibonacci-spiral sphere),
+// renders the cloud as a THREE.Points node + 8-corner InstancedMesh AABB
+// marker in window.__forgeScene, surfaces count + bbox + centroid +
+// diagonal statistics. Reachable via tools.pointCloud menu action OR
+// window.__forgeOpenPointCloudImport().
+import { PointCloudImportPanelHost } from './forge-v4/PointCloudImportPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -1261,6 +1268,7 @@ function App() {
       <Ap242ExportPanelHost />
       <Ifc4ExportPanelHost />
       <ReverseEngineeringPanelHost />
+      <PointCloudImportPanelHost />
       <DrawingTemplatesPanelHost />
       <ThermalAnalysisHost />
       <ThemeSwitcherPanelHost />

@@ -327,6 +327,13 @@ export const MENU_SPEC = {
       { id: 'tools.pid',          label: 'P&ID Schematic…',      icon: 'wb.mfg' },
       // Forge-161 — Reverse engineering (scan-to-CAD: PLY/PCD/XYZ/E57).
       { id: 'tools.reverse',      label: 'Reverse Engineering…', icon: 'select.body' },
+      // PUSH-124 (Slice-92) — Point Cloud Import + display panel. Loads
+      // .xyz / .ply scans (or generates a synthetic Fibonacci-spiral
+      // sphere), renders the cloud as a THREE.Points node + 8-corner
+      // InstancedMesh AABB marker in window.__forgeScene, surfaces
+      // count + bbox + centroid + diagonal statistics. Reachable via the
+      // tools.pointCloud menu action OR window.__forgeOpenPointCloudImport().
+      { id: 'tools.pointCloud',   label: 'Point Cloud Import…', icon: 'select.body' },
       // Forge-162 — First Article Inspection (FAI) heatmap + AS9102 PDF.
       { id: 'tools.inspect',      label: 'Inspection / FAI…',    icon: 'measure.distance' },
       // Forge-185 — Tolerance stack-up (worst-case / RSS / Monte-Carlo Cp·Cpk).
