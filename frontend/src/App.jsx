@@ -819,6 +819,7 @@ import { SweepCurvePanelHost } from './forge-v4/SweepCurvePanel.jsx';
 // menu action OR window.__forgeOpenHelicalSweep.
 import { HelicalSweepPanelHost } from './forge-v4/HelicalSweepPanel.jsx';
 import { RibFeaturePanelHost } from './forge-v4/RibFeaturePanel.jsx'; // PUSH-126
+import { BoltPatternPanelHost } from './forge-v4/BoltPatternPanel.jsx'; // PUSH-147
 // Salvaged after API session limit hit 12 parallel agents — Host files
 // landed on disk before commit; wiring them here so they reach the UI.
 import { RealVariableFilletPanelHost } from './forge-v4/RealVariableFilletPanel.jsx'; // PUSH-130
@@ -1311,6 +1312,7 @@ function App() {
       <CompositesLayupPanelHost />
       <CertTraceabilityPanelHost />
       <RibFeaturePanelHost />
+      <BoltPatternPanelHost />
       <SurfaceOffsetPanelHost />
       <SheetCataloguePanelHost />
     </ViewportEnvironmentProvider>
