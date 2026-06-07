@@ -613,6 +613,18 @@ import { BatchRenamePanelHost } from './forge-v4/BatchRenamePanel.jsx';
 // mirrors onto window.__forgeRecentFiles; subscribes to the global
 // forge:file-opened bus event to auto-record new opens).
 import { RecentFilesPanelHost } from './forge-v4/RecentFilesPanel.jsx';
+// PUSH-78 (Slice-46) — PMI Annotations panel — focused
+// Datum/Tolerance/Surface-finish/Weld notes attached to faces of the
+// active body. Persists to localStorage `forge.v4.pmiNotes`; mirrors
+// onto window.__forgePmi; broadcasts `forge:pmi-changed` for the
+// viewport / plugin / Archie subscribers. Separate from PUSH-12's
+// PMI Workbench — different file, different storage key, different bus.
+import { PmiAnnotationsPanelHost } from './forge-v4/PmiAnnotationsPanel.jsx';
+// PUSH-79 (Slice-47) — Theme switcher panel (Dark / Light / Sepia / High
+// Contrast) writing document.documentElement.dataset.forgeTheme + the
+// shell's existing forge.v4.theme localStorage key + dispatching
+// forge:theme-changed for the shell + DraftWorkbench subscribers.
+import { ThemeSwitcherPanelHost } from './forge-v4/ThemeSwitcherPanel.jsx';
 // PUSH-72 (Slice-40) — Sketch Constraints quick-add toolbar (5 most
 // common kinds — Coincident / Parallel / Perpendicular / Equal / Tangent —
 // bound to the live window.__forgeSelection + window.__forgeCurrentSketch
@@ -1006,6 +1018,7 @@ function App() {
       <LightingPanelHost />
       <BatchRenamePanelHost />
       <RecentFilesPanelHost />
+      <PmiAnnotationsPanelHost />
       <SketchConstraintsToolbar />
       <DirectEditTranslatePanelHost />
       <SelectionFilterStrip />

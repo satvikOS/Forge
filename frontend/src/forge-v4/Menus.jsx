@@ -157,8 +157,9 @@ export const MENU_SPEC = {
       { id: 'tools.activityLog',   label: 'Activity Log…',          icon: 'misc.search' }, // PUSH-73 — bus event stream (kernel + UI), ring buffer, filter, export JSON.
       { id: 'tools.lightingEnv',   label: 'Viewport Lighting / Environment…', icon: 'view.shaded' }, // PUSH-75 — ambient + key intensity + key direction (az/el) + background colour; persists to forge.v4.lighting; publishes window.__forgeLighting + forge:lighting-changed.
       { id: 'tools.batchRename',   label: 'Batch Rename Bodies…',   icon: 'select.body' }, // PUSH-82 — Find/Replace + Number-suffix renamer for every body in the scene; commits via window.__forgeSetBodies.
-      { id: 'tools.stlExport',     label: 'STL Export (multi-body)…', icon: 'io.stl' }, // PUSH-77 — Multi-body STL export panel: row-per-body checkboxes, Combined vs One-per-body radio, real forge.io.exportStl writes + forge.dialog.saveFile + forge.dialog.writeBlob multi-solid concatenation.
-      { id: 'tools.themes',        label: 'Themes…',                 icon: 'misc.theme' }, // PUSH-79 — Theme switcher panel (Dark / Light / Sepia / High Contrast) writing dataset.forgeTheme + forge.v4.theme + dispatching forge:theme-changed.
+      { id: 'tools.stlExport',     label: 'STL Export (multi-body)…', icon: 'io.stl' }, // PUSH-77 — Multi-body STL export panel.
+      { id: 'tools.themes',        label: 'Themes…',                 icon: 'misc.theme' }, // PUSH-79 — Theme switcher panel.
+      { id: 'tools.pmiAnnotations', label: 'PMI Annotations…',      icon: 'measure.distance' }, // PUSH-78 — Datum/Tolerance/Finish/Weld notes attached to faces.
       { id: 'tools.diagnostic',    label: 'Diagnostic Dump…',       icon: 'misc.settings' }, // PUSH-81 — one-button snapshot of all window.__forge* globals + selection + camera + kernel version into a JSON support report (via forge.dialog.saveFile + writeBlob).
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
