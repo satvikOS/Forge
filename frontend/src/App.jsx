@@ -603,6 +603,10 @@ import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
 // events, bounded ring buffer of last 500 entries, filter + clear +
 // JSON export via forge.dialog.saveFile, reachable via tools.activityLog).
 import { ActivityLogPanelHost } from './forge-v4/ActivityLogPanel.jsx';
+// PUSH-82 (Slice-50) — Batch Rename Bodies panel (table of every body in
+// the scene with inline rename inputs + Find/Replace + Number-suffix
+// renamer; commits via window.__forgeSetBodies in one atomic Apply).
+import { BatchRenamePanelHost } from './forge-v4/BatchRenamePanel.jsx';
 // PUSH-74 — Recent Files panel (last 20 paths opened via File > Open,
 // re-open with one click; persists to localStorage forge.v4.recentFiles;
 // mirrors onto window.__forgeRecentFiles; subscribes to the global
@@ -980,6 +984,7 @@ function App() {
       <DisplayStateQuickBar />
       <CameraBookmarksPanelHost />
       <ActivityLogPanelHost />
+      <BatchRenamePanelHost />
       <RecentFilesPanelHost />
       <SketchConstraintsToolbar />
       <DirectEditTranslatePanelHost />
