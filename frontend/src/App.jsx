@@ -653,6 +653,8 @@ import { RecentFilesPanelHost } from './forge-v4/RecentFilesPanel.jsx';
 import { PmiAnnotationsPanelHost } from './forge-v4/PmiAnnotationsPanel.jsx';
 // PUSH-92 — GD&T Feature Control Frames (ASME Y14.5 frame builder).
 import { GdtFramePanelHost } from './forge-v4/GdtFramePanel.jsx';
+// PUSH-96 — Mold Cooling Channels panel.
+import { MoldCoolingPanelHost } from './forge-v4/MoldCoolingPanel.jsx';
 // PUSH-79 (Slice-47) — Theme switcher panel (Dark / Light / Sepia / High
 // Contrast) writing document.documentElement.dataset.forgeTheme + the
 // shell's existing forge.v4.theme localStorage key + dispatching
@@ -710,6 +712,8 @@ import { DiagnosticDumpPanelHost } from './forge-v4/DiagnosticDumpPanel.jsx';
 // Reachable via the `tools.lightLines` menu OR
 // `window.__forgeOpenLightLines()`.
 import { LightLineAnalysisOverlayHost } from './forge-v4/LightLineAnalysisOverlay.jsx';
+// PUSH-104 (Slice-72) — Mold / casting draft-angle analysis overlay.
+import { DraftAnalysisOverlayHost } from './forge-v4/DraftAnalysisOverlay.jsx';
 // PUSH-85 (Slice-53) — Class-A G2/G3 curvature-continuous Blend panel.
 // Picks four boundary curves (preset saddle, active-body top-face bbox,
 // or JSON override), maps a G1/G2/G3 continuity radio to Coons /
@@ -718,6 +722,13 @@ import { LightLineAnalysisOverlayHost } from './forge-v4/LightLineAnalysisOverla
 // + window.__forgeAppendBody. Reachable through the tools.classABlend
 // menu action OR window.__forgeOpenClassABlend.
 import { ClassABlendPanelHost } from './forge-v4/ClassABlendPanel.jsx';
+// PUSH-102 (Slice-70) — Multi-section Loft panel. User defines N planar
+// {z, radius} sections; the panel polar-samples a 24×11 control grid
+// across them and commits a NURBS surface body via
+// window.forge.surfacing.buildPatch + window.__forgeAppendBody.
+// Reachable via tools.loftSections menu action OR
+// window.__forgeOpenLoftSections.
+import { LoftSectionsPanelHost } from './forge-v4/LoftSectionsPanel.jsx';
 // PUSH-93 (Slice-61) — BOM Balloon Auto-Place panel. Projects every body's
 // centroid (via forge.massProps) onto a drawing view (front/top/right), lays
 // balloons on a ring around the projected bbox, emits a renderable SVG
@@ -782,6 +793,7 @@ function App() {
       <MateSolverWorkbenchHost />
       <CAMExtendedWorkbenchHost />
       <TopologyWorkbenchHost />
+      <TopologyConstraintsPanelHost />
       <SolidOpsWorkbenchHost />
       <SketchConstraintsWorkbenchHost />
       <DrawingsHLRWorkbenchHost />
@@ -1103,6 +1115,7 @@ function App() {
       <RecentFilesPanelHost />
       <PmiAnnotationsPanelHost />
       <GdtFramePanelHost />
+      <MoldCoolingPanelHost />
       <SketchConstraintsToolbar />
       <SketchConstraintsExtendedPanelHost />
       <DirectEditTranslatePanelHost />
@@ -1114,7 +1127,9 @@ function App() {
       <ThemeSwitcherPanelHost />
       <BomBalloonsPanelHost />
       <LightLineAnalysisOverlayHost />
+      <DraftAnalysisOverlayHost />
       <ClassABlendPanelHost />
+      <LoftSectionsPanelHost />
     </ViewportEnvironmentProvider>
   );
 }

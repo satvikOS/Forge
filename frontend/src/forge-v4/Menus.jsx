@@ -101,6 +101,13 @@ export const MENU_SPEC = {
       { id: 'tools.library',   label: 'Standard Parts Library…', icon: 'misc.search' },
       // Forge-204 — parametric ISO/ANSI catalogue (bolt/nut/washer/bearing/gear).
       { id: 'tools.stdparts',  label: 'Standard Parts (parametric)…', icon: 'misc.search' },
+      // PUSH-99 (Slice-67) — Standard Parts Quick Insert: an 8-button
+      // name-based picker over the most common ISO fasteners + bearing +
+      // gear (M6/M8 bolts, M6/M8 nuts, ISO 7089 washers, 6800-2RS
+      // bearing, m=2 z=20 spur gear). Each insert button commits a real
+      // scene body at the world origin via the native stdparts kernel +
+      // OCCT STL round-trip (synthetic-mesh fallback).
+      { id: 'tools.stdPartsQuick', label: 'Standard Parts (quick insert)…', icon: 'misc.search' },
       // Forge-154 — engineering material catalogue picker (200+ alloys).
       { id: 'tools.materials', label: 'Material Library…',  icon: 'misc.search' },
       // Forge-158 — AIS-style subshape pick mode rotator.
@@ -112,6 +119,12 @@ export const MENU_SPEC = {
       { id: 'tools.topology',  label: 'Topology Inspector…', icon: 'select.body', shortcut: '⌘I' },
       // PUSH-15/49 — SIMP topology optimisation (density field → materialised solid).
       { id: 'tools.topoOpt',   label: 'Topology Optimisation (SIMP)…', icon: 'wb.sim' },
+      // PUSH-101 (Slice-69) — Topology Optimisation smart-constraints
+      // panel: keep / remove zones (bbox or sphere), filter radius,
+      // volume fraction, target compliance. Publishes the validated
+      // record to window.__forgeTopologyConstraints + fires
+      // forge:topology-constraints-set so the SIMP runner can read it.
+      { id: 'tools.topologyConstraints', label: 'Topology Constraints…', icon: 'wb.sim' },
       { id: 'tools.measure',   label: 'Measure',            icon: 'measure.distance' },
       // PUSH-90 — Dimension Chains panel (Ordinate / Baseline / Chain
       // dimensions across 3+ picked points; publishes window.__forgeDimChains
@@ -158,6 +171,8 @@ export const MENU_SPEC = {
       // via curvature-based dimming. Material-swap on the live body;
       // cooperates with zebra so toggling either restores the underlying PBR.
       { id: 'tools.lightLines',  label: 'Light-line / Isophote (Class-A)…', icon: 'sketch.spline' },
+      // PUSH-104 (Slice-72) — Mold / casting draft-angle analysis overlay.
+      { id: 'tools.draftAnalysis', label: 'Draft Angle Analysis (Mold/Casting)…', icon: 'sketch.spline' },
       // PUSH-42 / PUSH-55 — HLR engineering drawings (projected 2D views +
       // native DXF/SVG export to disk).
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },
@@ -190,6 +205,7 @@ export const MENU_SPEC = {
       { id: 'tools.themes',        label: 'Themes…',                 icon: 'misc.theme' }, // PUSH-79 — Theme switcher panel.
       { id: 'tools.pmiAnnotations', label: 'PMI Annotations…',      icon: 'measure.distance' }, // PUSH-78 — Datum/Tolerance/Finish/Weld notes attached to faces.
       { id: 'tools.gdtFrames',     label: 'GD&T Feature Control Frames…', icon: 'measure.distance' }, // PUSH-92 — ASME Y14.5 frame builder (14 symbols + Ø/M/L/F modifier + up to 3 datums); commits to window.__forgeGdtFrames.
+      { id: 'tools.moldCooling',   label: 'Mold Cooling Channels…', icon: 'solid.box' }, // PUSH-96 (Slice-64).
       { id: 'tools.diagnostic',    label: 'Diagnostic Dump…',       icon: 'misc.settings' }, // PUSH-81 — one-button snapshot of all window.__forge* globals + selection + camera + kernel version into a JSON support report (via forge.dialog.saveFile + writeBlob).
       { id: 'tools.classABlend',   label: 'Class-A Blend…',          icon: 'sketch.spline' }, // PUSH-85 — G2/G3 curvature-continuous Coons-+-bicubic-Hermite surface blend; commits an OCCT NURBS face via window.forge.surfacing.buildPatch + window.__forgeAppendBody.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
