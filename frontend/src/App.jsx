@@ -603,6 +603,13 @@ import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
 // events, bounded ring buffer of last 500 entries, filter + clear +
 // JSON export via forge.dialog.saveFile, reachable via tools.activityLog).
 import { ActivityLogPanelHost } from './forge-v4/ActivityLogPanel.jsx';
+// PUSH-75 (Slice-43) — Lighting / Environment controls panel (ambient +
+// key intensity, key direction azimuth/elevation, background colour).
+// Persists to localStorage `forge.v4.lighting`; broadcasts the canonical
+// `window.__forgeLighting` global + `forge:lighting-changed` bus event
+// so the viewport (and any subscriber) can pick up the latest state
+// without coupling Viewport.jsx to this panel.
+import { LightingPanelHost } from './forge-v4/LightingPanel.jsx';
 // PUSH-82 (Slice-50) — Batch Rename Bodies panel (table of every body in
 // the scene with inline rename inputs + Find/Replace + Number-suffix
 // renamer; commits via window.__forgeSetBodies in one atomic Apply).
@@ -623,6 +630,19 @@ import { SketchConstraintsToolbar } from './forge-v4/SketchConstraintsToolbar.js
 // to window.__forgeAnimationPose, the same channel PUSH-57's viewport
 // AnimationPoseTicker reads to move bodies between renders.
 import { DirectEditTranslatePanelHost } from './forge-v4/DirectEditTranslatePanel.jsx';
+// PUSH-77 (Slice-45) — Multi-body STL export panel. Row-per-native-body
+// checkboxes + Combined / One-per-body radio + a single Export button
+// that drives forge.io.exportStl directly (one OCCT STL write per
+// selected handle, then for Combined mode concatenates the per-body
+// ASCII blocks into one multi-solid .stl via forge.dialog.writeBlob).
+// Publishes window.__forgeLastStlExport + forge:stl-export-complete.
+import { StlExportPanelHost } from './forge-v4/StlExportPanel.jsx';
+// PUSH-81 (Slice-49) — Diagnostic state dump panel. One big button →
+// JSON snapshot of every `window.__forge*` global + the active selection
+// + the live viewport camera + the kernel version, written to disk via
+// the existing forge.dialog.saveFile + writeBlob bridge. Reachable via
+// the `tools.diagnostic` menu action OR window.__forgeOpenDiagnosticDump.
+import { DiagnosticDumpPanelHost } from './forge-v4/DiagnosticDumpPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -989,6 +1009,8 @@ function App() {
       <SketchConstraintsToolbar />
       <DirectEditTranslatePanelHost />
       <SelectionFilterStrip />
+      <StlExportPanelHost />
+      <DiagnosticDumpPanelHost />
     </ViewportEnvironmentProvider>
   );
 }

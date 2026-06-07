@@ -156,6 +156,8 @@ export const MENU_SPEC = {
       { id: 'tools.sketchConstraints', label: 'Sketch Constraints…', icon: 'sketch.line' }, // PUSH-72 — Coincident/Parallel/Perpendicular/Equal/Tangent quick-add toolbar bound to window.__forgeSelection + window.__forgeCurrentSketch.
       { id: 'tools.activityLog',   label: 'Activity Log…',          icon: 'misc.search' }, // PUSH-73 — bus event stream (kernel + UI), ring buffer, filter, export JSON.
       { id: 'tools.batchRename',   label: 'Batch Rename Bodies…',   icon: 'select.body' }, // PUSH-82 — Find/Replace + Number-suffix renamer for every body in the scene; commits via window.__forgeSetBodies.
+      { id: 'tools.stlExport',     label: 'STL Export (multi-body)…', icon: 'io.stl' }, // PUSH-77 — Multi-body STL export panel: row-per-body checkboxes, Combined vs One-per-body radio, real forge.io.exportStl writes + forge.dialog.saveFile + forge.dialog.writeBlob multi-solid concatenation.
+      { id: 'tools.themes',        label: 'Themes…',                 icon: 'misc.theme' }, // PUSH-79 — Theme switcher panel (Dark / Light / Sepia / High Contrast) writing dataset.forgeTheme + forge.v4.theme + dispatching forge:theme-changed.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
