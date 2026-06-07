@@ -235,6 +235,12 @@ export const MENU_SPEC = {
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // PUSH-97 (Slice-65) — Batched cable / pipe routing.
       { id: 'tools.batchRouting', label: 'Batch Routing (cable / pipe)…', icon: 'solid.sweep' },
+      // PUSH-122 (Slice-90) — Sweep along Curve. Generic Sweep tool: takes a
+      // circular profile (radius input) and sweeps it along a user-defined
+      // 3D polyline path (list of (x,y,z) points). Calls
+      // window.forge.part.pipeFromPolyline directly and commits the OCCT
+      // solid via window.__forgeAppendBody; dispatches forge:sweep-curve-built.
+      { id: 'tools.sweepCurve', label: 'Sweep along Curve…', icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
       { id: 'tools.threads',    label: 'Thread Designer…',  icon: 'sketch.spline' },
       // Forge-149 — Draft workbench (FreeCAD Draft parity).

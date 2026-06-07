@@ -803,6 +803,13 @@ import { ClassABlendPanelHost } from './forge-v4/ClassABlendPanel.jsx';
 // Reachable via tools.loftSections menu action OR
 // window.__forgeOpenLoftSections.
 import { LoftSectionsPanelHost } from './forge-v4/LoftSectionsPanel.jsx';
+// PUSH-122 (Slice-90) — Sweep along Curve panel. Takes a circular profile
+// radius + a list of (x,y,z) path points and calls
+// window.forge.part.pipeFromPolyline to produce a watertight OCCT solid
+// sweep. Commits the body via window.__forgeAppendBody and dispatches
+// forge:sweep-curve-built. Reachable via tools.sweepCurve menu action OR
+// window.__forgeOpenSweepCurve.
+import { SweepCurvePanelHost } from './forge-v4/SweepCurvePanel.jsx';
 // PUSH-107 (Slice-76) — Surface Offset panel. Picks a surface body, samples
 // it on an 11×11 UV grid via window.forge.surfacing.eval, displaces each
 // sample along its surface normal by N mm (-10..+10), and rebuilds a new
@@ -1254,6 +1261,7 @@ function App() {
       <CurvatureCombPanelHost />
       <ClassABlendPanelHost />
       <LoftSectionsPanelHost />
+      <SweepCurvePanelHost />
       <SurfaceOffsetPanelHost />
       <SheetCataloguePanelHost />
     </ViewportEnvironmentProvider>
