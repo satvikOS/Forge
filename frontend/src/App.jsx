@@ -622,6 +622,23 @@ import { BatchRenamePanelHost } from './forge-v4/BatchRenamePanel.jsx';
 // pure-JS Catmull-Clark, committed as a synthetic body through
 // window.__forgeAppendBody; publishes forge:subdivision-applied.
 import { SubdivisionSurfacePanelHost } from './forge-v4/SubdivisionSurfacePanel.jsx';
+// PUSH-89 (Slice-57) — Variable-radius fillet panel — UI-side intent
+// table of (t, r) anchors along a picked edge with a live radius-curve
+// preview. Apply averages the radii into a constant-radius
+// `forge.part.filletEdges` call (the C++ kernel binding stays untouched
+// per the brief) and publishes the full profile on
+// `window.__forgeVariableFilletProfile` for a future kernel-binding
+// slice to replay through OCCT's real Law_Function variable fillet.
+import { VariableFilletPanelHost } from './forge-v4/VariableFilletPanel.jsx';
+// PUSH-84 (Slice-52) — Voxel-rep panel. Picks the active B-rep body,
+// samples its bbox at a {8,16,32,64} grid resolution with a Möller-
+// Trumbore ray-cast point-in-mesh test, and commits the inside cube
+// centres as a synthetic `kind:'group'` body so the existing
+// SceneMeshes / InstancedGroup path renders the result without a
+// Viewport.jsx edit. Publishes window.__forgeVoxelizations +
+// forge:voxelization-committed. V-rep joins B-rep + NURBS as a first-
+// class modelling representation.
+import { VoxelizationPanelHost } from './forge-v4/VoxelizationPanel.jsx';
 // PUSH-74 — Recent Files panel (last 20 paths opened via File > Open,
 // re-open with one click; persists to localStorage forge.v4.recentFiles;
 // mirrors onto window.__forgeRecentFiles; subscribes to the global
@@ -634,6 +651,8 @@ import { RecentFilesPanelHost } from './forge-v4/RecentFilesPanel.jsx';
 // viewport / plugin / Archie subscribers. Separate from PUSH-12's
 // PMI Workbench — different file, different storage key, different bus.
 import { PmiAnnotationsPanelHost } from './forge-v4/PmiAnnotationsPanel.jsx';
+// PUSH-92 — GD&T Feature Control Frames (ASME Y14.5 frame builder).
+import { GdtFramePanelHost } from './forge-v4/GdtFramePanel.jsx';
 // PUSH-79 (Slice-47) — Theme switcher panel (Dark / Light / Sepia / High
 // Contrast) writing document.documentElement.dataset.forgeTheme + the
 // shell's existing forge.v4.theme localStorage key + dispatching
@@ -668,6 +687,13 @@ import { StlExportPanelHost } from './forge-v4/StlExportPanel.jsx';
 // the existing forge.dialog.saveFile + writeBlob bridge. Reachable via
 // the `tools.diagnostic` menu action OR window.__forgeOpenDiagnosticDump.
 import { DiagnosticDumpPanelHost } from './forge-v4/DiagnosticDumpPanel.jsx';
+// PUSH-94 (Slice-62) — Big Scene Stress Test panel. Seeds N cubes
+// (1k / 5k / 10k / 30k) into a SIDECAR three.js canvas as ONE
+// THREE.InstancedMesh — total draw call = 1 by construction — and
+// reports FPS / ms-per-frame / draw-calls via window.__forgeBigSceneStats.
+// The main Viewport is untouched. Reachable via tools.bigSceneStress
+// menu action OR window.__forgeOpenBigSceneStress.
+import { BigSceneStressPanelHost } from './forge-v4/BigSceneStressPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -1034,13 +1060,17 @@ function App() {
       <LightingPanelHost />
       <BatchRenamePanelHost />
       <SubdivisionSurfacePanelHost />
+      <VariableFilletPanelHost />
+      <VoxelizationPanelHost />
       <RecentFilesPanelHost />
       <PmiAnnotationsPanelHost />
+      <GdtFramePanelHost />
       <SketchConstraintsToolbar />
       <DirectEditTranslatePanelHost />
       <SelectionFilterStrip />
       <StlExportPanelHost />
       <DiagnosticDumpPanelHost />
+      <BigSceneStressPanelHost />
       <ThemeSwitcherPanelHost />
     </ViewportEnvironmentProvider>
   );

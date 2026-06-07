@@ -164,13 +164,16 @@ export const MENU_SPEC = {
       { id: 'tools.bodyColors',   label: 'Body Colours…',          icon: 'view.shaded' }, // PUSH-71 — per-body colour override + persistence (forge.v4.bodyColors)
       { id: 'tools.cameraBookmarks', label: 'Camera Bookmarks…',   icon: 'view.iso' }, // PUSH-68 — save/restore named camera views (forge.v4.cameraBookmarks)
       { id: 'tools.sketchConstraints', label: 'Sketch Constraints…', icon: 'sketch.line' }, // PUSH-72 — Coincident/Parallel/Perpendicular/Equal/Tangent quick-add toolbar bound to window.__forgeSelection + window.__forgeCurrentSketch.
+      { id: 'tools.sketchConstraintsExt', label: 'Sketch Constraints (Extended)…', icon: 'sketch.line' }, // PUSH-91 — full 16-kind constraints panel (Geometric: Coincident/Parallel/Perpendicular/Equal/Tangent/Horizontal/Vertical/PointOnLine/PointOnCircle/Symmetric/Concentric/Fix · Dimensional: Distance/Angle/Diameter/Radius) with numeric inputs + per-row Apply; calls window.forge.sketcher.addConstraint and dispatches forge:sketch-constraint-add-ext.
       { id: 'tools.activityLog',   label: 'Activity Log…',          icon: 'misc.search' }, // PUSH-73 — bus event stream (kernel + UI), ring buffer, filter, export JSON.
       { id: 'tools.lightingEnv',   label: 'Viewport Lighting / Environment…', icon: 'view.shaded' }, // PUSH-75 — ambient + key intensity + key direction (az/el) + background colour; persists to forge.v4.lighting; publishes window.__forgeLighting + forge:lighting-changed.
       { id: 'tools.batchRename',   label: 'Batch Rename Bodies…',   icon: 'select.body' }, // PUSH-82 — Find/Replace + Number-suffix renamer for every body in the scene; commits via window.__forgeSetBodies.
       { id: 'tools.subdivision',   label: 'Subdivision Surface…',   icon: 'sketch.spline' }, // PUSH-83 — Catmull-Clark refinement of a quad control cage (cube or active body AABB), commits the smooth mesh via window.__forgeAppendBody.
+      { id: 'tools.variableFillet', label: 'Variable Fillet…',      icon: 'sketch.fillet' }, // PUSH-89 — Edge-parameterised (t, r) fillet profile (averaged-radius splice for now; publishes window.__forgeVariableFilletProfile for the future kernel binding).
       { id: 'tools.stlExport',     label: 'STL Export (multi-body)…', icon: 'io.stl' }, // PUSH-77 — Multi-body STL export panel.
       { id: 'tools.themes',        label: 'Themes…',                 icon: 'misc.theme' }, // PUSH-79 — Theme switcher panel.
       { id: 'tools.pmiAnnotations', label: 'PMI Annotations…',      icon: 'measure.distance' }, // PUSH-78 — Datum/Tolerance/Finish/Weld notes attached to faces.
+      { id: 'tools.gdtFrames',     label: 'GD&T Feature Control Frames…', icon: 'measure.distance' }, // PUSH-92 — ASME Y14.5 frame builder (14 symbols + Ø/M/L/F modifier + up to 3 datums); commits to window.__forgeGdtFrames.
       { id: 'tools.diagnostic',    label: 'Diagnostic Dump…',       icon: 'misc.settings' }, // PUSH-81 — one-button snapshot of all window.__forge* globals + selection + camera + kernel version into a JSON support report (via forge.dialog.saveFile + writeBlob).
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
@@ -183,6 +186,12 @@ export const MENU_SPEC = {
       { id: 'tools.ship',          label: 'Ship · naval architecture…', icon: 'wb.mfg' },
       { id: 'tools.generative',    label: 'Generative Design…', icon: 'wb.sim' },
       { id: 'tools.bom',          label: 'Bill of Materials…',   icon: 'measure.mass' },
+      // PUSH-93 (Slice-61) — BOM Balloon Auto-Place. Projects every
+      // body's centroid (via forge.massProps) onto a chosen drawing view
+      // (front/top/right), lays balloons on a ring around the projected
+      // bbox, emits a renderable SVG snippet with leader lines from each
+      // balloon to its body's projected centroid. Reachable via tools.bomBalloons.
+      { id: 'tools.bomBalloons',  label: 'BOM Balloon Auto-Place…', icon: 'measure.distance' },
       { id: 'tools.pdm',          label: 'Product Data Management…', icon: 'misc.settings' },
       // PUSH-14/51 — real JSON-backed PDM vault (check-in/out, revisions, ECN).
       { id: 'tools.pdmvault',     label: 'PDM Vault (check-in/out)…', icon: 'misc.settings' },
