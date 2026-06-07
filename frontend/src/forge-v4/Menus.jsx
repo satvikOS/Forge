@@ -144,6 +144,16 @@ export const MENU_SPEC = {
       // sidecar canvas via a single THREE.InstancedMesh. Reports FPS,
       // draw calls, ms/frame; total draw call = 1 by construction.
       { id: 'tools.bigSceneStress', label: 'Big Scene Stress Test (30k+)…', icon: 'misc.kbd' },
+      // PUSH-207 (Slice-161) — 100k REAL-geometry assembly stress harness.
+      // Builds ~20 OCCT template B-reps via kernel.makeBox / makeCylinder /
+      // makeSphere, then seeds N instance bodies that all share the same
+      // handles by template. Commits into window.__forgeBodies so the
+      // MAIN viewport renders the assembly with PUSH-204 octree culling +
+      // Forge-106 InstancedGroup batching. Reports wall-clock, JS heap Δ,
+      // FPS (60-frame avg), visible-body count (from __forgeVisibleBodies),
+      // culling ratio. Reachable via tools.stress100k OR
+      // window.__forgeOpenStress100k().
+      { id: 'tools.stress100k', label: '100k Assembly Stress…', icon: 'measure.distance' },
       SEP,
       // Forge-126 — class-A surfacing MVP. Direct Edit + Heal + Surfacing
       // share an entry block so users can find the GSD command surface
@@ -319,6 +329,13 @@ export const MENU_SPEC = {
       // Taylor–Green analytic vortex validation. Reachable via
       // tools.cfd3d OR window.__forgeOpenCfd3d().
       { id: 'tools.cfd3d',         label: 'CFD · 3D Navier–Stokes (SIMPLE)…', icon: 'wb.sim' },
+      // PUSH-202 (Slice-159) — CFD Boundary Condition Editor. Paints BC
+      // tags (Wall / Inlet / Outlet / Lid) onto any of the six AABB
+      // faces of the PUSH-200 grid; persists into `bcType` + `bcValue`,
+      // re-applies applyBCs immediately, and re-solves through
+      // __forgeCfd3dHelper.step. Reachable via tools.cfd3dBcEditor OR
+      // window.__forgeOpenCfd3dBcEditor().
+      { id: 'tools.cfd3dBcEditor', label: 'CFD Boundary Conditions…', icon: 'measure.distance' },
       // PUSH-220 (Slice-152) — Real nonlinear static FEA in pure JS:
       // Newton-Raphson load-step driver, J2 (von Mises) radial-return
       // plasticity, linear isotropic hardening, 8-node hex (H8) with

@@ -949,6 +949,14 @@ import { PointCloudImportPanelHost } from './forge-v4/PointCloudImportPanel.jsx'
 // window.__forgeOpenCfd3d(). Headless solver surface at
 // window.__forgeCfd3dHelper. No new npm / C++ deps.
 import { Cfd3dPanelHost } from './forge-v4/Cfd3dPanel.jsx';
+// PUSH-202 (Slice-159) — CFD Boundary Condition Editor. Interactive
+// face-painter for the 3D Navier–Stokes grid: pick one of the six AABB
+// faces, choose a BC type (Wall / Inlet / Outlet / Lid), set Ux/Uy/Uz
+// for Inlet+Lid, and apply. Persists into the live grid's `bcType` +
+// `bcValue` arrays then re-solves through __forgeCfd3dHelper. Reachable
+// via tools.cfd3dBcEditor menu action OR window.__forgeOpenCfd3dBcEditor().
+// Editor surface at window.__forgeCfd3dBcEditor. No new npm / C++ deps.
+import { Cfd3dBcEditorPanelHost } from './forge-v4/Cfd3dBcEditorPanel.jsx';
 // PUSH-220 (Slice-152) — Real nonlinear static FEA in JS. Newton-Raphson
 // load-step driver, J2 radial-return plasticity with linear isotropic
 // hardening, 8-node hex (H8) with 2×2×2 Gauss, Jacobi-PCG linear solve.
@@ -1387,6 +1395,7 @@ function App() {
       <ReverseEngineeringPanelHost />
       <PointCloudImportPanelHost />
       <Cfd3dPanelHost />
+      <Cfd3dBcEditorPanelHost />
       <NonlinearFeaPanelHost />
       <ReflectionLinePanelHost />
       <ContactFeaPanelHost />
