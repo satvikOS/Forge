@@ -17,6 +17,17 @@
 // `tessellateLOD` API; the InstancedGroup uses the scheduler's
 // per-body decisions to skip frustum-culled bodies and hide them by
 // collapsing their instance matrix to a zero scale.
+//
+// PUSH-205 (Slice-160): InstancedGroup now consumes both
+// `window.__forgeVisibleBodies` (Set<id> published by OctreeCullingTicker
+// / PUSH-204) and `window.__forgeLodLevel` (Map<id, 0..2> mirrored from
+// the LOD scheduler). The visible-set drives per-instance ZERO_SCALE so
+// frustum-culled bodies cost a single matrix multiply but raster nothing;
+// the LOD map fires `forge:lod-needed` events when a body crosses a
+// level boundary so the kernel can asynchronously re-tessellate without
+// blocking the render loop. The viewport HUD shows a `visible / total`
+// chip when the scene exceeds 50 bodies so the 100k-part regime is
+// observable at a glance.
 
 import React, { Suspense, useEffect, useRef, useState } from 'react';
 import {
@@ -691,7 +702,7 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
           );
         }
         return (
-          <InstancedGroup key={key} THREE={THREE} members={members}
+          <InstancedGroup key={key} THREE={THREE} bundle={bundle} members={members}
                           displayState={displayState}
                           onSelect={onSelect} selection={selection} />
         );
@@ -860,8 +871,30 @@ function LodSchedulerTicker({ bundle, THREE, bodies }) {
   const { camera, size } = useThree();
   const frustum = React.useRef(new THREE.Frustum());
   const matrix = React.useRef(new THREE.Matrix4());
+  // PUSH-205 — mirror the scheduler's per-body level decisions into
+  // window.__forgeLodLevel so InstancedGroup can detect level changes
+  // and dispatch `forge:lod-needed` events for kernel re-tessellation.
+  // Keeping a stable Map instance avoids the GC pressure of allocating
+  // a new Map per frame (one per body-list ≈ 100k bodies in the
+  // stress scene).
+  const levelMap = React.useRef(null);
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (!levelMap.current) levelMap.current = new Map();
+    window.__forgeLodLevel = levelMap.current;
+    return () => {
+      if (typeof window !== 'undefined' && window.__forgeLodLevel === levelMap.current) {
+        window.__forgeLodLevel = null;
+      }
+    };
+  }, []);
   useFrame(() => {
-    if (!bodies || bodies.length === 0) return;
+    if (!bodies || bodies.length === 0) {
+      // Keep the level map alive but emptied so consumers don't read
+      // stale entries from a previous body-list.
+      if (levelMap.current && levelMap.current.size > 0) levelMap.current.clear();
+      return;
+    }
     camera.updateMatrixWorld();
     matrix.current.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.current.setFromProjectionMatrix(matrix.current);
@@ -870,17 +903,48 @@ function LodSchedulerTicker({ bundle, THREE, bodies }) {
       screenH: size?.height ?? 1000,
       fovRad: (camera.fov || 45) * Math.PI / 180,
     });
+    // Roll the scheduler's decisions into the stable level map. We don't
+    // wipe the map between frames — entries are overwritten in place so
+    // a body that disappeared from `bodies` is pruned below.
+    if (typeof window === 'undefined' || !levelMap.current) return;
+    const lm = levelMap.current;
+    const dec = window.__forgeLodDecisions;
+    if (!dec || typeof dec.get !== 'function') return;
+    // First pass: copy current decisions into the level map.
+    const seen = new Set();
+    for (const b of bodies) {
+      if (!b || !b.id) continue;
+      const d = dec.get(b.id);
+      if (!d) continue;
+      const lvl = (typeof d.level === 'number') ? d.level : 0;
+      lm.set(b.id, lvl);
+      seen.add(b.id);
+    }
+    // Second pass: prune stale entries (bodies no longer in the scene)
+    // so the map size stays bounded. The cost is O(map.size) but only
+    // happens when bodies disappear — typical scenes hold steady.
+    if (lm.size > seen.size) {
+      for (const id of lm.keys()) {
+        if (!seen.has(id)) lm.delete(id);
+      }
+    }
   });
   return null;
 }
 
-function InstancedGroup({ THREE, members, displayState, onSelect, selection }) {
+function InstancedGroup({ THREE, bundle, members, displayState, onSelect, selection }) {
   // All members share geometry — use the first.
   const geom = members[0].geometry;
   const ref = React.useRef();
   const tmpMat = React.useRef(new THREE.Matrix4());
   const ZERO_SCALE = React.useRef(new THREE.Matrix4().makeScale(0, 0, 0));
   const HIDE_POS = React.useRef(new THREE.Vector3(0, -1e6, 0));  // safely off-screen
+
+  // PUSH-205 — per-instance hidden flags + last-known LOD level. We
+  // hold these on a ref so they survive across frames without
+  // triggering React re-renders.
+  const prevHidden = React.useRef(null);
+  const prevLevel = React.useRef(null);
 
   // Initial placement — full visibility, identity scale. The frame-by-
   // frame LOD ticker (LodSchedulerTicker) updates these matrices each
@@ -900,44 +964,91 @@ function InstancedGroup({ THREE, members, displayState, onSelect, selection }) {
       ref.current.setMatrixAt(i, m);
     });
     ref.current.instanceMatrix.needsUpdate = true;
+    // Reset per-instance trackers when membership changes.
+    prevHidden.current = new Uint8Array(members.length);
+    prevLevel.current = new Int8Array(members.length).fill(-1);
   }, [THREE, members]);
 
-  // Forge-125 — per-frame frustum cull. Bodies the scheduler tagged as
-  // hidden get their instance matrix collapsed to a zero scale → no
-  // raster cost, no shadow contribution, but the slot index stays
-  // stable for selection. We read the latest decision snapshot from
-  // window.__forgeLodDecisions (set by lodScheduler.tick) once per
-  // frame, batching the matrix mutations into one needsUpdate.
-  React.useEffect(() => {
-    let raf = 0;
-    let prevHidden = new Uint8Array(members.length);
-    function tick() {
-      if (!ref.current) {
-        raf = requestAnimationFrame(tick);
-        return;
+  // PUSH-205 — per-frame consumer of:
+  //   • window.__forgeLodDecisions (Map<id, {hidden, level, dist}>)
+  //     published by LodSchedulerTicker → frame-by-frame "the scheduler
+  //     wants this body hidden / at level N"
+  //   • window.__forgeVisibleBodies (Set<id>) published by
+  //     OctreeCullingTicker → octree's frustum cull (O(log N + V))
+  //   • window.__forgeLodLevel (Map<id, level>) — same payload as the
+  //     LOD scheduler's decision but stable across frames; this loop
+  //     dispatches `forge:lod-needed` on level transitions so the
+  //     kernel can asynchronously tessellate at the chosen LOD.
+  //
+  // The two cull sources are UNION'd: a body is hidden if either the
+  // LOD scheduler tagged it hidden OR the octree's visible set does
+  // NOT contain its id. This keeps both systems honest — if the
+  // scheduler says "show me" but the octree says "not in frustum", we
+  // still skip the raster cost. Same matrix-mutation batching as
+  // Forge-125: one needsUpdate per frame.
+  //
+  // Forge-125 dispatch is preserved via the composed onLevelChange
+  // listener set elsewhere — we do NOT remove that, since it handles
+  // geometry swaps for kernel re-tessellation.
+  // bundle is always provided by the parent ViewportScene (which only
+  // renders when bundle is loaded), so `useFrame` is safe to call
+  // unconditionally — and MUST be, since hooks can't be conditional.
+  const { useFrame } = bundle.r3f;
+  useFrame(() => {
+    if (!ref.current) return;
+    if (typeof window === 'undefined') return;
+    const decisions = window.__forgeLodDecisions;
+    const visible   = window.__forgeVisibleBodies;
+    const levelMap  = window.__forgeLodLevel;
+    const visibleIsSet = visible instanceof Set;
+    let dirty = false;
+    const ph = prevHidden.current;
+    const pl = prevLevel.current;
+    if (!ph || ph.length !== members.length) return;
+    for (let i = 0; i < members.length; i++) {
+      const mb = members[i];
+      const bid = mb.body?.id ?? mb.id;
+      const bhandle = mb.body?.handle;
+      // LOD scheduler hidden flag.
+      const d = decisions?.get?.(bid);
+      const schedHidden = d ? !!d.hidden : false;
+      // Octree visibility — empty set or no set means "no octree yet"
+      // → don't cull (avoid blanking the viewport before the index
+      // builds on the first frame).
+      let octreeHidden = false;
+      if (visibleIsSet && visible.size > 0) {
+        const inVisByBid = bid != null && visible.has(bid);
+        const inVisByHandle = bhandle != null && visible.has(bhandle);
+        octreeHidden = !(inVisByBid || inVisByHandle);
       }
-      let dirty = false;
-      const decisions = (typeof window !== 'undefined') ? window.__forgeLodDecisions : null;
-      for (let i = 0; i < members.length; i++) {
-        const mb = members[i];
-        const d = decisions?.get?.(mb.body.id);
-        const hide = d ? d.hidden : false;
-        if (hide && !prevHidden[i]) {
-          ref.current.setMatrixAt(i, ZERO_SCALE.current);
-          prevHidden[i] = 1; dirty = true;
-        } else if (!hide && prevHidden[i]) {
-          const xform = mb.body.xform || mb.body.spec?.cells?.[0] || { x: 0, y: 0, z: 0 };
-          tmpMat.current.makeTranslation(xform.x || 0, xform.y || 0, xform.z || 0);
-          ref.current.setMatrixAt(i, tmpMat.current);
-          prevHidden[i] = 0; dirty = true;
+      const hide = schedHidden || octreeHidden;
+      if (hide && !ph[i]) {
+        ref.current.setMatrixAt(i, ZERO_SCALE.current);
+        ph[i] = 1; dirty = true;
+      } else if (!hide && ph[i]) {
+        const xform = mb.body.xform || mb.body.spec?.cells?.[0] || { x: 0, y: 0, z: 0 };
+        tmpMat.current.makeTranslation(xform.x || 0, xform.y || 0, xform.z || 0);
+        ref.current.setMatrixAt(i, tmpMat.current);
+        ph[i] = 0; dirty = true;
+      }
+      // LOD level transition → emit forge:lod-needed so the kernel
+      // can tessellate. We only dispatch when the level actually
+      // changed and the body is currently visible (no point
+      // tessellating an off-screen body at higher resolution).
+      if (!hide && levelMap && typeof levelMap.get === 'function' && bid != null) {
+        const lvl = levelMap.get(bid);
+        if (typeof lvl === 'number' && lvl !== pl[i]) {
+          pl[i] = lvl;
+          try {
+            window.dispatchEvent(new CustomEvent('forge:lod-needed', {
+              detail: { bodyId: bid, level: lvl, handle: bhandle ?? null },
+            }));
+          } catch { /* ignore — JSDOM, sealed window, etc. */ }
         }
       }
-      if (dirty) ref.current.instanceMatrix.needsUpdate = true;
-      raf = requestAnimationFrame(tick);
     }
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [THREE, members]);
+    if (dirty) ref.current.instanceMatrix.needsUpdate = true;
+  });
 
   // Forge-125 — when the scheduler upgrades a body's LOD to High and
   // the kernel returns a new mesh, swap the InstancedMesh's geometry.
@@ -995,10 +1106,59 @@ function InstancedGroup({ THREE, members, displayState, onSelect, selection }) {
   );
 }
 
-function ViewportHUD() {
+function ViewportHUD({ steps = [] } = {}) {
   // Forge-79 — viewport is now bare. Status (wb · view · displayState)
   // lives in the bottom status bar, axes triad is provided by the drei
   // GizmoHelper, and the scale bar / selection HUD were redundant with
   // the right Properties panel + bottom status. Less is more.
-  return null;
+  //
+  // PUSH-205 (Slice-160) — for the 100k-part regime, a tiny
+  // `visible / total` chip lives in the lower-right corner. It reads
+  // `window.__forgeVisibleBodies` (Set published by OctreeCullingTicker)
+  // and `window.__forgeBodies` / the live `steps` prop for the total.
+  // Below 50 bodies the octree is irrelevant noise and the chip stays
+  // hidden so the viewport reads clean.
+  const total = Array.isArray(steps) ? steps.length : 0;
+  const [visibleCount, setVisibleCount] = React.useState(0);
+  React.useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (total <= 50) return undefined;
+    let raf = 0;
+    let mounted = true;
+    const tick = () => {
+      if (!mounted) return;
+      const vs = window.__forgeVisibleBodies;
+      const n = (vs instanceof Set) ? vs.size : 0;
+      setVisibleCount((prev) => (prev === n ? prev : n));
+      // Throttle to every ~250 ms — the chip is informational, not a
+      // perf-critical readout. The full per-frame loop already lives in
+      // InstancedGroup; we don't need to re-render the HUD that often.
+      raf = window.setTimeout(tick, 250);
+    };
+    raf = window.setTimeout(tick, 250);
+    return () => {
+      mounted = false;
+      if (raf) window.clearTimeout(raf);
+    };
+  }, [total]);
+  if (total <= 50) return null;
+  return (
+    <div data-testid="forge-viewport-cullchip"
+         style={{
+           position: 'absolute', right: 12, bottom: 12,
+           padding: '4px 10px', borderRadius: 14,
+           background: 'rgba(20, 22, 27, 0.78)',
+           color: '#cfd5e1',
+           fontFamily: 'var(--forge-mono, monospace)',
+           fontSize: 11, letterSpacing: '0.05em',
+           border: '1px solid rgba(255, 255, 255, 0.08)',
+           boxShadow: '0 2px 6px rgba(0, 0, 0, 0.35)',
+           pointerEvents: 'none', userSelect: 'none',
+           zIndex: 14,
+         }}>
+      <span style={{ opacity: 0.65 }}>visible </span>
+      <span style={{ color: '#9ece6a' }}>{visibleCount}</span>
+      <span style={{ opacity: 0.65 }}> / {total}</span>
+    </div>
+  );
 }
