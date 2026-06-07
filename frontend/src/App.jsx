@@ -815,6 +815,15 @@ import { ClassABlendPanelHost } from './forge-v4/ClassABlendPanel.jsx';
 // Reachable via tools.loftSections menu action OR
 // window.__forgeOpenLoftSections.
 import { LoftSectionsPanelHost } from './forge-v4/LoftSectionsPanel.jsx';
+// PUSH-152 (Slice-112) — Multi-section Loft through Guide Curves. Generic
+// loft over N closed polyline sections + M open polyline guide curves.
+// Sections are blended along v (centroid-resampled to a 24-pt ring),
+// each guide is sampled at v and its offset from the centroid spine is
+// added to every ring point. One big (24×11) control grid →
+// window.forge.surfacing.buildPatch → commits a native SURFACE body via
+// window.__forgeAppendBody. Reachable via tools.multiSectionLoft menu
+// action OR window.__forgeOpenMultiSectionLoft.
+import { MultiSectionLoftPanelHost } from './forge-v4/MultiSectionLoftPanel.jsx';
 // PUSH-122 (Slice-90) — Sweep along Curve panel. Takes a circular profile
 // radius + a list of (x,y,z) path points and calls
 // window.forge.part.pipeFromPolyline to produce a watertight OCCT solid
@@ -1315,6 +1324,7 @@ function App() {
       <CurvatureCombPanelHost />
       <ClassABlendPanelHost />
       <LoftSectionsPanelHost />
+      <MultiSectionLoftPanelHost />
       <LoftSolidPanelHost />
       <SweepCurvePanelHost />
       <HelicalSweepPanelHost />
