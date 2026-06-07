@@ -63,6 +63,13 @@ import { GenerativeDesignPanelHost } from './forge-v4/GenerativeDesignPanel.jsx'
 import { SheetMetalWorkbenchHost } from './forge-v4/SheetMetalWorkbench.jsx';
 import { PluginManagerPanelHost } from './forge-v4/PluginManagerPanel.jsx';
 import { installForgeAPI } from './forge-v4/forgeAPI.js';
+// PUSH-76 (Slice-44) — Selection Filter chip strip (Body / Face / Edge /
+// Vertex) — always-visible top-left HUD. Clicking a chip dispatches the
+// existing edit.filter* menu-action so ForgeShellV4's setSelection runs;
+// also publishes window.__forgeSelectionFilter + forge:filter-changed for
+// downstream subscribers. Highlight stays in sync with the live shell
+// selection.kind via the forge:selection-changed bus.
+import { SelectionFilterStrip } from './forge-v4/SelectionFilterStrip.jsx';
 // Forge-135 / 137 / 139 — render room + role switcher + ribbon
 // customiser + universal command palette.
 import { PathTracedRenderHost } from './forge-v4/PathTracedRender.jsx';
@@ -976,6 +983,7 @@ function App() {
       <RecentFilesPanelHost />
       <SketchConstraintsToolbar />
       <DirectEditTranslatePanelHost />
+      <SelectionFilterStrip />
     </ViewportEnvironmentProvider>
   );
 }
