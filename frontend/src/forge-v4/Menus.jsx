@@ -148,6 +148,7 @@ export const MENU_SPEC = {
       { id: 'tools.layers',       label: 'Layers…',                icon: 'select.body' },
       { id: 'tools.bodyColors',   label: 'Body Colours…',          icon: 'view.shaded' }, // PUSH-71 — per-body colour override + persistence (forge.v4.bodyColors)
       { id: 'tools.cameraBookmarks', label: 'Camera Bookmarks…',   icon: 'view.iso' }, // PUSH-68 — save/restore named camera views (forge.v4.cameraBookmarks)
+      { id: 'tools.sketchConstraints', label: 'Sketch Constraints…', icon: 'sketch.line' }, // PUSH-72 — Coincident/Parallel/Perpendicular/Equal/Tangent quick-add toolbar bound to window.__forgeSelection + window.__forgeCurrentSketch.
       { id: 'tools.activityLog',   label: 'Activity Log…',          icon: 'misc.search' }, // PUSH-73 — bus event stream (kernel + UI), ring buffer, filter, export JSON.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },

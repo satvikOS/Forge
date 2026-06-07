@@ -596,6 +596,12 @@ import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
 // events, bounded ring buffer of last 500 entries, filter + clear +
 // JSON export via forge.dialog.saveFile, reachable via tools.activityLog).
 import { ActivityLogPanelHost } from './forge-v4/ActivityLogPanel.jsx';
+// PUSH-72 (Slice-40) — Sketch Constraints quick-add toolbar (5 most
+// common kinds — Coincident / Parallel / Perpendicular / Equal / Tangent —
+// bound to the live window.__forgeSelection + window.__forgeCurrentSketch
+// state; clicking a button calls window.forge.sketcher.addConstraint and
+// dispatches forge:sketch-constraint-add for downstream subscribers).
+import { SketchConstraintsToolbar } from './forge-v4/SketchConstraintsToolbar.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -957,6 +963,7 @@ function App() {
       <DisplayStateQuickBar />
       <CameraBookmarksPanelHost />
       <ActivityLogPanelHost />
+      <SketchConstraintsToolbar />
     </ViewportEnvironmentProvider>
   );
 }
