@@ -581,6 +581,10 @@ import { SectionPlanePanelHost } from './forge-v4/SectionPlanePanel.jsx';
 // membership, per-layer visibility + lock toggles, body→layer map
 // persisted in localStorage key `forge.v4.bodyLayers`).
 import { LayersPanelHost } from './forge-v4/LayersPanel.jsx';
+// PUSH-70 — Display State QuickBar (bottom-right always-on HUD;
+// shaded/wireframe/transparent buttons + axis indicator + live FPS;
+// publishes window.__forgeDisplayState + forge:display-state-changed).
+import { DisplayStateQuickBar } from './forge-v4/DisplayStateQuickBar.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -938,6 +942,7 @@ function App() {
       <MeasureToolPanelHost />
       <SectionPlanePanelHost />
       <LayersPanelHost />
+      <DisplayStateQuickBar />
     </ViewportEnvironmentProvider>
   );
 }
