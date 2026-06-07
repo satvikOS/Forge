@@ -935,6 +935,11 @@ export function ForgeShellV4() {
       case 'tools.drawingsHlr':
         window.__forgeOpenDrawingsHLRWorkbench?.(true);
         return;
+      // PUSH-110 (Slice-79) — Print Preview / PDF panel.
+      // PrintPreviewPanelHost (App.jsx) registers __forgeOpenPrintPreview.
+      case 'tools.printPreview':
+        window.__forgeOpenPrintPreview?.();
+        return;
       // Forge-166 — Thread Designer (ISO/UNC/UNF/NPT thread cutter).
       // Manual click opens the panel; it does NOT post to Archie's thread.
       case 'tools.threads':
