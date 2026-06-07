@@ -299,6 +299,12 @@ export const MENU_SPEC = {
       // Forge-91 — Simulation workbench (FEA static/modal/dynamic/thermal/
       // buckling/nonlinear/contact/plastic/fatigue + CFD).
       { id: 'tools.simulation',   label: 'Simulation (FEA / CFD)…', icon: 'wb.sim' },
+      // PUSH-200 (Slice-150) — Real 3D incompressible Navier–Stokes
+      // solver in pure JS. SIMPLE algorithm on a Cartesian grid up to
+      // 50³. Includes lid-driven cavity (Ghia 1982 benchmark) and
+      // Taylor–Green analytic vortex validation. Reachable via
+      // tools.cfd3d OR window.__forgeOpenCfd3d().
+      { id: 'tools.cfd3d',         label: 'CFD · 3D Navier–Stokes (SIMPLE)…', icon: 'wb.sim' },
       // PUSH-114 (Slice-83) — Dedicated Modal Analysis panel: body picker
       // + mesh resolution slider + nModes input + Run → forge.fea.solveModal.
       // Reads E (Pa) + ρ (kg/m³) straight off the PUSH-109 material record

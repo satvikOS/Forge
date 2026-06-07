@@ -927,6 +927,13 @@ import { ThermalAnalysisHost } from './forge-v4/ThermalAnalysisPanel.jsx';
 // diagonal statistics. Reachable via tools.pointCloud menu action OR
 // window.__forgeOpenPointCloudImport().
 import { PointCloudImportPanelHost } from './forge-v4/PointCloudImportPanel.jsx';
+// PUSH-200 (Slice-150) — Real 3D incompressible Navier–Stokes solver in JS.
+// SIMPLE algorithm on Cartesian grid (≤ 50³) with predictor / pressure-Poisson
+// / corrector. Drivers: lid-driven cavity (Ghia 1982 benchmark) and Taylor–Green
+// analytic vortex. Reachable via tools.cfd3d menu action OR
+// window.__forgeOpenCfd3d(). Headless solver surface at
+// window.__forgeCfd3dHelper. No new npm / C++ deps.
+import { Cfd3dPanelHost } from './forge-v4/Cfd3dPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -1325,6 +1332,7 @@ function App() {
       <Ifc4ExportPanelHost />
       <ReverseEngineeringPanelHost />
       <PointCloudImportPanelHost />
+      <Cfd3dPanelHost />
       <DrawingTemplatesPanelHost />
       <ThermalAnalysisHost />
       <ThemeSwitcherPanelHost />

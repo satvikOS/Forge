@@ -33,6 +33,29 @@ import {
   onClick      as aisOnClick,
   onMissed     as aisOnMissed,
 } from './aisSelection.js';
+// PUSH-204 (Slice-154) — wire the OctreeIndex (PUSH-164) into the live
+// viewport so per-frame culling is O(log N + visible) instead of an
+// O(N) walk through window.__forgeBodies. We build the octree once
+// per body-list change, then every animation frame extract the 6
+// camera frustum planes from the projection × view matrix and ask the
+// octree which body ids intersect. The result is published to
+// `window.__forgeVisibleBodies` (Set<id>) so SceneMeshes can filter the
+// draw list and so e2e harnesses can assert that culling is real.
+//
+// Cost guarantees:
+//   • build    — O(N log N) only when steps array identity changes.
+//   • query    — O(log N + V) where V = visible body count.
+//   • set ops  — Set construction is O(V).
+//
+// The contract from octreeIndex.js (OctreeIndex.planesFromCamera) lets
+// us avoid a hard-import of THREE for the math; we just need
+// camera.projectionMatrix + camera.matrixWorldInverse, which r3f
+// guarantees are up-to-date after `camera.updateMatrixWorld()`.
+import {
+  OctreeIndex,
+  getOctreeIndex,
+  installOctreeWindowApi,
+} from './octreeIndex.js';
 
 function ViewportFallback() {
   return (
@@ -601,6 +624,7 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
     <group>
       <LodSchedulerTicker bundle={bundle} THREE={THREE} bodies={steps || []} />
       <AnimationPoseTicker bundle={bundle} />
+      <OctreeCullingTicker bundle={bundle} THREE={THREE} bodies={steps || []} />
       {Array.from(groups.entries()).map(([key, members]) => {
         if (members.length === 1) {
           const m = members[0];
@@ -773,6 +797,60 @@ function AnimationPoseTicker({ bundle }) {
         poseSize: pose.size,
       };
     }
+  });
+  return null;
+}
+
+// PUSH-204 — Octree frustum culling ticker. Each frame:
+//   1. (Re)build the octree if the bodies-array identity changed.
+//   2. Extract the 6 frustum planes from camera.projectionMatrix ×
+//      camera.matrixWorldInverse via OctreeIndex.planesFromCamera.
+//   3. Query the octree → Set<id>.
+//   4. Publish to window.__forgeVisibleBodies for SceneMeshes / e2e.
+function OctreeCullingTicker({ bundle, THREE, bodies }) {
+  const { useFrame, useThree } = bundle.r3f;
+  const { camera } = useThree();
+  const lastBodiesRef = React.useRef(null);
+  const octreeRef = React.useRef(null);
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try { installOctreeWindowApi(); } catch (e) { /* noop — surface only */ }
+    }
+  }, []);
+  useFrame(() => {
+    if (typeof window === 'undefined') return;
+    if (!bodies || bodies.length === 0) {
+      try { window.__forgeVisibleBodies = new Set(); } catch {}
+      return;
+    }
+    if (lastBodiesRef.current !== bodies) {
+      lastBodiesRef.current = bodies;
+      const items = [];
+      for (const b of bodies) {
+        const id = b?.id ?? b?.body?.id ?? b?.handle;
+        if (id == null) continue;
+        const xform = b.xform || b.spec?.cells?.[0] || { x: 0, y: 0, z: 0 };
+        const bbox = b.spec?.bbox || b.bbox || null;
+        const half = 50;
+        const cx = (xform.x || 0), cy = (xform.y || 0), cz = (xform.z || 0);
+        const aabb = bbox
+          ? { minX: cx + bbox.minX, minY: cy + bbox.minY, minZ: cz + bbox.minZ,
+              maxX: cx + bbox.maxX, maxY: cy + bbox.maxY, maxZ: cz + bbox.maxZ }
+          : { minX: cx - half, minY: cy - half, minZ: cz - half,
+              maxX: cx + half, maxY: cy + half, maxZ: cz + half };
+        items.push({ id, aabb });
+      }
+      try { octreeRef.current = new OctreeIndex(items); }
+      catch (e) { octreeRef.current = null; }
+    }
+    const idx = octreeRef.current;
+    if (!idx) return;
+    camera.updateMatrixWorld();
+    const planes = OctreeIndex.planesFromCamera(camera);
+    const visible = idx.queryFrustum(planes);
+    try {
+      window.__forgeVisibleBodies = visible instanceof Set ? visible : new Set(visible);
+    } catch {}
   });
   return null;
 }
