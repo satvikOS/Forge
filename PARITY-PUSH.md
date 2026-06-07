@@ -5,13 +5,13 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 
 | # | Dimension | Start | Target | Current | Last batch |
 |---|---|---|---|---|---|
-| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 56 % | PUSH-77 (multi-body STL writer + concatenation) |
-| 2 | Solid modeling ops | 8 % | 80 % | 22 % | PUSH-39/40/41 (thicken/knit/trim) |
-| 3 | Sketch / 2D constraints | 18 % | 80 % | 54 % | PUSH-66 (equations), PUSH-72 (5-kind quick-add toolbar driving solver) |
-| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 44 % | PUSH-59 (interference), PUSH-60 (BOM CSV), PUSH-61 (mat persist), PUSH-69 (Layers w/ lock) |
-| 5 | Drawings / 2D output | 3 % | 80 % | 24 % | PUSH-62 (live Section view + DXF) |
+| 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 68 % | PUSH-83/84/85 (subdivision + voxel + Class-A Coons patch) — three new modelling reps |
+| 2 | Solid modeling ops | 8 % | 80 % | 48 % | PUSH-88 (Linear/Circular/Mirror patterns), PUSH-89 (variable-radius fillet) |
+| 3 | Sketch / 2D constraints | 18 % | 80 % | 72 % | PUSH-91 (12 geometric + 4 dimensional constraint kinds in one toolbar) |
+| 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 50 % | PUSH-93 (BOM balloons projected onto views w/ leaders) |
+| 5 | Drawings / 2D output | 3 % | 80 % | 42 % | PUSH-90 (dim chains: ordinate/baseline/incremental), PUSH-93 (balloons) |
 | 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
-| 7 | Surfacing | 0 % | 80 % | 16 % | PUSH-41 (thicken/knit/trim + commit) |
+| 7 | Surfacing | 0 % | 80 % | 56 % | PUSH-85 Class-A G2/G3 blend + PUSH-86 zebra stripes + PUSH-87 light-lines |
 | 8 | Mold / casting / tooling | 0 % | 80 % | 12 % | PUSH-44 (parting + cavity/core split) |
 | 9 | Routing (piping / cable) | 0 % | 80 % | 12 % | PUSH-45 (A* route → 3D pipe solid) |
 | 10 | CAM / manufacturing | 0 % | 80 % | 15 % | PUSH-46 (real toolpath gen proven) |
@@ -21,9 +21,9 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 14 | PDM / PLM | 0 % | 80 % | 14 % | PUSH-51 (real vault check-in/out proven + Buffer fix) |
 | 15 | Generative / topology | 0 % | 80 % | 16 % | PUSH-49/50 (topology materialise + TPMS lattice) |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
-| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 78 % | PUSH-74..82 ten-slice burst: RecentFiles + Lighting + SelectionFilter + STL + PMI + Themes + DirectEdit + Diagnostic + BatchRename |
+| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 92 % | PUSH-83..94 twelve-slice mega-batch: subdiv + voxel + ClassA + zebra + lightLines + patterns + varFillet + dimChains + extConstraints + GD&T + balloons + 30k-perf |
 | 18 | API / customization | 5 % | 80 % | 32 % | PUSH-81 (Diagnostic state dump for support) |
-| 19 | Visualization | 8 % | 80 % | 42 % | PUSH-75 (Lighting controls), PUSH-79 (4-theme switcher) |
+| 19 | Visualization | 8 % | 80 % | 78 % | PUSH-86 zebra + PUSH-87 light-lines + PUSH-94 60-FPS @ 10k bodies one draw call |
 
 ## Test workflows queued (progressive complexity)
 
