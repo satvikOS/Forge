@@ -831,6 +831,18 @@ import { MultiSectionLoftPanelHost } from './forge-v4/MultiSectionLoftPanel.jsx'
 // forge:sweep-curve-built. Reachable via tools.sweepCurve menu action OR
 // window.__forgeOpenSweepCurve.
 import { SweepCurvePanelHost } from './forge-v4/SweepCurvePanel.jsx';
+// PUSH-150..184 mega-batch salvage hosts — wired here after the agents
+// got rate-limited mid-flight.
+import { SurfaceContinuityPanelHost } from './forge-v4/SurfaceContinuityPanel.jsx'; // PUSH-150
+import { WingRibLoftPanelHost } from './forge-v4/WingRibLoftPanel.jsx';             // PUSH-160
+import { OctreePanelHost } from './forge-v4/OctreePanel.jsx';                       // PUSH-164
+import { LodMeshPanelHost } from './forge-v4/LodMeshPanel.jsx';                     // PUSH-165
+import { TolMonteCarloPanelHost } from './forge-v4/TolMonteCarloPanel.jsx';         // PUSH-175
+import { BendDeductionPanelHost } from './forge-v4/BendDeductionPanel.jsx';         // PUSH-179
+import { Fai9102PanelHost } from './forge-v4/Fai9102Panel.jsx';                     // PUSH-184
+import { WeldmentCutlistPanelHost } from './forge-v4/WeldmentCutlistPanel.jsx';     // PUSH-178
+import { DatumTargetPanelHost } from './forge-v4/DatumTargetPanel.jsx';             // PUSH-176
+import { SlicingPanelHost } from './forge-v4/SlicingPanel.jsx';                     // PUSH-172
 // PUSH-132 (Slice-97) — Helical Sweep panel. Builds a 3D helix polyline in
 // pure JS (x=R cos t, y=R sin t, z=pitch·t/2π) and feeds the flat XYZ
 // Float64Array to window.forge.part.pipeFromPolyline (same OCCT primitive
@@ -1325,6 +1337,16 @@ function App() {
       <ClassABlendPanelHost />
       <LoftSectionsPanelHost />
       <MultiSectionLoftPanelHost />
+      <SurfaceContinuityPanelHost />
+      <WingRibLoftPanelHost />
+      <OctreePanelHost />
+      <LodMeshPanelHost />
+      <TolMonteCarloPanelHost />
+      <BendDeductionPanelHost />
+      <Fai9102PanelHost />
+      <WeldmentCutlistPanelHost />
+      <DatumTargetPanelHost />
+      <SlicingPanelHost />
       <LoftSolidPanelHost />
       <SweepCurvePanelHost />
       <HelicalSweepPanelHost />
