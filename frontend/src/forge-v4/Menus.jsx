@@ -178,6 +178,18 @@ export const MENU_SPEC = {
       // via forge.direct.edgeSegments(handle, 0.1), draws perpendicular
       // SVG hairs proportional to discrete curvature, reports {min,max,avg,inflections}.
       { id: 'tools.curvatureComb', label: 'Curvature Comb (Class-A)…', icon: 'sketch.spline' },
+      // PUSH-143 — ASME Y14.5-2018 semantic GD&T validator. Consumes
+      // window.__forgeGdtFrames (PUSH-92) and runs the asmeY145Rules.js
+      // rules engine for datum precedence, modifier compatibility,
+      // composite frame validity, etc. Outputs a real inspection report.
+      { id: 'tools.asmeValidator', label: 'ASME Y14.5 Validator…', icon: 'measure.distance' },
+      // PUSH-144 — Composites layup + ply book. Real classical lamination
+      // theory ABD matrix, symmetric / balanced checks, ASCII ply book.
+      { id: 'tools.composites', label: 'Composites Layup (Ply Book)…', icon: 'wb.drawing' },
+      // PUSH-145 — Industry certification traceability matrix.
+      // Real FAA Part 23 / AS9100 Rev D / ISO 9001:2015 clause templates,
+      // CSV export.
+      { id: 'tools.certTraceability', label: 'Cert Traceability (FAA/AS9100/ISO)…', icon: 'misc.settings' },
       // PUSH-42 / PUSH-55 — HLR engineering drawings (projected 2D views +
       // native DXF/SVG export to disk).
       { id: 'tools.drawingsHlr', label: 'Drawings (HLR)…',   icon: 'wb.drawing' },

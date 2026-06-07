@@ -826,6 +826,9 @@ import { RealG2BlendPanelHost } from './forge-v4/RealG2BlendPanel.jsx';         
 import { AutoDimPanelHost } from './forge-v4/AutoDimPanel.jsx';                          // PUSH-136
 import { HoleTablePanelHost } from './forge-v4/HoleTablePanel.jsx';                      // PUSH-135
 import { SubAssemblyTreePanelHost } from './forge-v4/SubAssemblyTreePanel.jsx';          // PUSH-134
+import { AsmeValidatorPanelHost } from './forge-v4/AsmeValidatorPanel.jsx';              // PUSH-143
+import { CompositesLayupPanelHost } from './forge-v4/CompositesLayupPanel.jsx';          // PUSH-144
+import { CertTraceabilityPanelHost } from './forge-v4/CertTraceabilityPanel.jsx';        // PUSH-145
 // PUSH-121 (Slice-89) — Loft Solid body — see LoftSolidPanel.jsx header.
 import { LoftSolidPanelHost } from './forge-v4/LoftSolidPanel.jsx';
 // PUSH-107 (Slice-76) — Surface Offset panel. Picks a surface body, samples
@@ -1304,6 +1307,9 @@ function App() {
       <AutoDimPanelHost />
       <HoleTablePanelHost />
       <SubAssemblyTreePanelHost />
+      <AsmeValidatorPanelHost />
+      <CompositesLayupPanelHost />
+      <CertTraceabilityPanelHost />
       <RibFeaturePanelHost />
       <SurfaceOffsetPanelHost />
       <SheetCataloguePanelHost />
