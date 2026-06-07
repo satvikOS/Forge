@@ -603,6 +603,7 @@ import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
 // events, bounded ring buffer of last 500 entries, filter + clear +
 // JSON export via forge.dialog.saveFile, reachable via tools.activityLog).
 import { ActivityLogPanelHost } from './forge-v4/ActivityLogPanel.jsx';
+import { LightingPanelHost } from './forge-v4/LightingPanel.jsx';
 // PUSH-82 (Slice-50) — Batch Rename Bodies panel (table of every body in
 // the scene with inline rename inputs + Find/Replace + Number-suffix
 // renamer; commits via window.__forgeSetBodies in one atomic Apply).
