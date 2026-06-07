@@ -144,6 +144,8 @@ export const MENU_SPEC = {
       // body-bbox-aware offset slider, publishes window.__forgeSectionPlane
       // + forge:section-update so the live viewport clipping picks it up).
       { id: 'tools.sectionPlane', label: 'Section Plane…',         icon: 'view.section' },
+      // PUSH-69 — Layers / Body visibility groups panel (named layer membership, visibility / lock per layer, persists to forge.v4.bodyLayers).
+      { id: 'tools.layers',       label: 'Layers…',                icon: 'select.body' },
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.

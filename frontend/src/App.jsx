@@ -577,6 +577,10 @@ import { MeasureToolPanelHost } from './forge-v4/MeasureToolPanel.jsx';
 // body-bbox-aware offset slider, publishes window.__forgeSectionPlane
 // + forge:section-update for the live viewport clipping).
 import { SectionPlanePanelHost } from './forge-v4/SectionPlanePanel.jsx';
+// PUSH-69 — Layers / Body visibility groups panel (named layer
+// membership, per-layer visibility + lock toggles, body→layer map
+// persisted in localStorage key `forge.v4.bodyLayers`).
+import { LayersPanelHost } from './forge-v4/LayersPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -933,6 +937,7 @@ function App() {
       <EntityPropsHost />
       <MeasureToolPanelHost />
       <SectionPlanePanelHost />
+      <LayersPanelHost />
     </ViewportEnvironmentProvider>
   );
 }
