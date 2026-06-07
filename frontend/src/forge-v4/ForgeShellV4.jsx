@@ -145,6 +145,23 @@ export function ForgeShellV4() {
     document.documentElement.setAttribute('data-forge-theme', theme);
     stored.set('theme', theme);
   }, [theme]);
+  // PUSH-79 — the Theme switcher panel writes the chosen theme to the
+  // SAME localStorage key the shell reads (`forge.v4.theme`), but the
+  // shell's React `theme` state would otherwise overwrite the panel's
+  // value on the next render. Subscribe to forge:theme-changed so the
+  // shell's React state stays synced to whatever the panel last wrote.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const valid = new Set(['dark', 'light', 'sepia', 'high-contrast']);
+    const onThemeChanged = (e) => {
+      const next = e?.detail?.theme;
+      if (typeof next === 'string' && valid.has(next) && next !== theme) {
+        setTheme(next);
+      }
+    };
+    window.addEventListener('forge:theme-changed', onThemeChanged);
+    return () => window.removeEventListener('forge:theme-changed', onThemeChanged);
+  }, [theme]);
   useEffect(() => { stored.set('wb', activeWb); }, [activeWb]);
   // Forge-118 — subscribe to SectionControlHost updates.
   useEffect(() => {

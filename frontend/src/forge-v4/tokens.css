@@ -94,6 +94,66 @@
   color-scheme: light;
 }
 
+/* PUSH-79 — Sepia theme. Warm cream canvas + brown ink for long-document
+   reading comfort. Inspired by parchment-style PDF readers. */
+:root[data-forge-theme="sepia"] {
+  --forge-canvas:      #f6ecd6;          /* warm cream */
+  --forge-canvas-2:    #efe2c4;
+  --forge-canvas-3:    #e7d6b0;
+  --forge-rail:        #fbf3df;
+  --forge-rail-edge:   #c4b08a;
+  --forge-surface:     #fdf6e2;
+  --forge-surface-2:   #f3e7c8;
+  --forge-overlay:     rgba(76,53,21,0.32);
+
+  --forge-ink:         #4a2f15;          /* deep brown */
+  --forge-ink-2:       #6b4a25;
+  --forge-ink-mute:    #8c704b;
+  --forge-ink-faint:   #c1a978;
+
+  --forge-accent:        #8a3a13;
+  --forge-accent-hover:  #a04617;
+  --forge-accent-press:  #6e2e10;
+  --forge-accent-mute:   rgba(138,58,19,0.12);
+  --forge-accent-rim:    rgba(138,58,19,0.28);
+
+  --forge-ok:    #4a7a3a;
+  --forge-warn:  #a07212;
+  --forge-err:   #9b2f1a;
+
+  color-scheme: light;
+}
+
+/* PUSH-79 — High Contrast theme. Pure black + pure white + amber accent
+   for accessibility (WCAG AA on every surface). */
+:root[data-forge-theme="high-contrast"] {
+  --forge-canvas:      #000000;
+  --forge-canvas-2:    #000000;
+  --forge-canvas-3:    #0a0a0a;
+  --forge-rail:        #000000;
+  --forge-rail-edge:   #ffffff;
+  --forge-surface:     #0a0a0a;
+  --forge-surface-2:   #1a1a1a;
+  --forge-overlay:     rgba(0,0,0,0.92);
+
+  --forge-ink:         #ffffff;
+  --forge-ink-2:       #ffffff;
+  --forge-ink-mute:    #e0e0e0;
+  --forge-ink-faint:   #a0a0a0;
+
+  --forge-accent:        #ffb000;
+  --forge-accent-hover:  #ffc846;
+  --forge-accent-press:  #d99500;
+  --forge-accent-mute:   rgba(255,176,0,0.20);
+  --forge-accent-rim:    rgba(255,176,0,0.55);
+
+  --forge-ok:    #00ff00;
+  --forge-warn:  #ffb000;
+  --forge-err:   #ff5050;
+
+  color-scheme: dark;
+}
+
 /* Geometry — consistent everywhere */
 :root {
   /* zone heights */

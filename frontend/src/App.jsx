@@ -603,13 +603,6 @@ import { CameraBookmarksPanelHost } from './forge-v4/CameraBookmarksPanel.jsx';
 // events, bounded ring buffer of last 500 entries, filter + clear +
 // JSON export via forge.dialog.saveFile, reachable via tools.activityLog).
 import { ActivityLogPanelHost } from './forge-v4/ActivityLogPanel.jsx';
-// PUSH-75 (Slice-43) — Lighting / Environment controls panel (ambient +
-// key intensity, key direction azimuth/elevation, background colour).
-// Persists to localStorage `forge.v4.lighting`; broadcasts the canonical
-// `window.__forgeLighting` global + `forge:lighting-changed` bus event
-// so the viewport (and any subscriber) can pick up the latest state
-// without coupling Viewport.jsx to this panel.
-import { LightingPanelHost } from './forge-v4/LightingPanel.jsx';
 // PUSH-82 (Slice-50) — Batch Rename Bodies panel (table of every body in
 // the scene with inline rename inputs + Find/Replace + Number-suffix
 // renamer; commits via window.__forgeSetBodies in one atomic Apply).
@@ -625,6 +618,11 @@ import { RecentFilesPanelHost } from './forge-v4/RecentFilesPanel.jsx';
 // state; clicking a button calls window.forge.sketcher.addConstraint and
 // dispatches forge:sketch-constraint-add for downstream subscribers).
 import { SketchConstraintsToolbar } from './forge-v4/SketchConstraintsToolbar.jsx';
+// PUSH-79 (Slice-47) — Theme switcher panel (Dark / Light / Sepia / High
+// Contrast) writing document.documentElement.dataset.forgeTheme + the
+// shell's existing forge.v4.theme localStorage key + dispatching
+// forge:theme-changed for the shell + DraftWorkbench subscribers.
+import { ThemeSwitcherPanelHost } from './forge-v4/ThemeSwitcherPanel.jsx';
 // PUSH-80 (Slice-48) — Direct Edit numeric translate panel. Body picker
 // (auto-selects active body) + dx/dy/dz numeric inputs + Apply writing
 // to window.__forgeAnimationPose, the same channel PUSH-57's viewport
@@ -1004,6 +1002,7 @@ function App() {
       <DisplayStateQuickBar />
       <CameraBookmarksPanelHost />
       <ActivityLogPanelHost />
+      <LightingPanelHost />
       <BatchRenamePanelHost />
       <RecentFilesPanelHost />
       <SketchConstraintsToolbar />
@@ -1011,6 +1010,7 @@ function App() {
       <SelectionFilterStrip />
       <StlExportPanelHost />
       <DiagnosticDumpPanelHost />
+      <ThemeSwitcherPanelHost />
     </ViewportEnvironmentProvider>
   );
 }
