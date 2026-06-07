@@ -229,6 +229,8 @@ export const MENU_SPEC = {
       { id: 'tools.sheetCatalogue', label: 'Sheet Metal Catalogue…',  icon: 'wb.sheet' }, // PUSH-95 (Slice-63) — multi-flange catalogue panel exposing 8 forge.sheetMetal.* ops (edgeFlange / miterFlange / hem / jog / closedCorner / cornerRelief / unfold / flatPattern) with inline param dialogs and a 100×60×2 baseFlange auto-seed.
       { id: 'tools.boolHistory',   label: 'Boolean History…',        icon: 'sketch.rect' },    // PUSH-103 (Slice-71) — Audit / Undo / Replay panel for every solid.cut / solid.fuse / solid.common dispatch; listens for forge:tool-dispatched, snapshots the a + b bodies, lets the user undo the result or replay against live ids.
       { id: 'tools.printPreview',  label: 'Print Preview / PDF…',    icon: 'wb.drawing' },     // PUSH-110 (Slice-79) — Drawing print preview with paper-size (ISO A0..A4 + ANSI Letter/Legal/Tabloid) + orientation + scale (1:1..1:20); renders the live HLR view2D as W3C-compliant mm-unit SVG with title block; Save SVG / Copy SVG / Print to PDF actions; helpers exposed on window.__forgePrintPreviewHelper.
+      { id: 'tools.drawingTemplates', label: 'Drawing Templates…',   icon: 'wb.drawing' },     // PUSH-113 (Slice-82) — Drawing sheet templates (A0/A1/A2/A3/A4 portrait + landscape) with lower-right engineering title block, revision history table, and BOM placeholder. Edit project/drawing/drawn-by/checked-by/date/scale/revision fields live; save customised templates to localStorage; write the SVG sheet to disk via forge.dialog.saveFile; load the template into the Drawings (HLR) workbench. Helpers exposed on window.__forgeDrawingTemplatesHelper.
+      { id: 'tools.ap242Export',   label: 'AP242 STEP + PMI Export…', icon: 'io.step' },        // PUSH-111 (Slice-80) — Right-docked AP242 STEP + PMI Export panel. Bundles selected bodies + window.__forgePmi notes (PUSH-78) + window.__forgeGdtFrames (PUSH-92) + window.__forgeBodyMaterials (PUSH-61) into one semantic ISO 10303-242 .step via buildAP242 + forge.dialog.writeBlob. Publishes window.__forgeLastAp242Export + forge:ap242-export-complete.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // PUSH-97 (Slice-65) — Batched cable / pipe routing.
@@ -259,6 +261,13 @@ export const MENU_SPEC = {
       // Forge-91 — Simulation workbench (FEA static/modal/dynamic/thermal/
       // buckling/nonlinear/contact/plastic/fatigue + CFD).
       { id: 'tools.simulation',   label: 'Simulation (FEA / CFD)…', icon: 'wb.sim' },
+      // PUSH-114 (Slice-83) — Dedicated Modal Analysis panel: body picker
+      // + mesh resolution slider + nModes input + Run → forge.fea.solveModal.
+      // Reads E (Pa) + ρ (kg/m³) straight off the PUSH-109 material record
+      // at window.__forgeMaterialProperties[handle]. Results land in a
+      // modes table with frequency (Hz), period (ms), and ω² (rad²/s²);
+      // helper exposed on window.__forgeModalAnalysisHelper.
+      { id: 'tools.modalAnalysis', label: 'Modal Analysis (FEA · eigen)…', icon: 'wb.sim' },
       { id: 'tools.convergence',  label: 'FEA Convergence…',     icon: 'measure.distance' },
       { id: 'tools.weldments',    label: 'Weldments…',           icon: 'wb.weldments' },
       // Forge-151 — Mesh workbench (polygonal mesh tools).

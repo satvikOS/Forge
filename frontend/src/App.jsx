@@ -599,6 +599,10 @@ import { MassPropsHost } from './forge-v4/MassPropsPanel.jsx';
 // PUSH-109 — Full Material Properties editor (per-body E/ν/ρ/σY/σU/k/α/cp
 // + 6-entry preset library; persists to forge.v4.materialProps).
 import { MaterialPropertiesHost } from './forge-v4/MaterialPropertiesPanel.jsx';
+// PUSH-114 (Slice-83) — Dedicated Modal Analysis panel (FEA eigen).
+// Reads E + density from PUSH-109's window.__forgeMaterialProperties[handle]
+// and calls forge.fea.solveModal to produce a real frequency table.
+import { ModalAnalysisHost } from './forge-v4/ModalAnalysisPanel.jsx';
 // PUSH-59 — Assembly Interference Detection panel (pairwise OCCT scan).
 import { InterferenceHost } from './forge-v4/InterferencePanel.jsx';
 // PUSH-61 — Materials Browser (persistent body→material assignments).
@@ -802,6 +806,24 @@ import { BigSceneStressPanelHost } from './forge-v4/BigSceneStressPanel.jsx';
 import { SheetCataloguePanelHost } from './forge-v4/SheetCataloguePanel.jsx';
 // PUSH-99 (Slice-67) — Standard Parts Quick Insert panel.
 import { StdPartsQuickInsertPanelHost } from './forge-v4/StdPartsQuickInsertPanel.jsx';
+// PUSH-111 (Slice-80) — AP242 STEP + PMI Export panel. Right-docked
+// surface that bundles selected bodies + window.__forgePmi (PUSH-78) +
+// window.__forgeGdtFrames (PUSH-92) + window.__forgeBodyMaterials
+// (PUSH-61) into one semantic ISO 10303-242 STEP via the existing
+// ap242Export.js buildAP242 emitter + forge.dialog.saveFile +
+// writeBlob. Reachable via tools.ap242Export menu OR
+// window.__forgeOpenAp242ExportPanel().
+import { Ap242ExportPanelHost } from './forge-v4/Ap242ExportPanel.jsx';
+// PUSH-112/113/115/116 — recovery wiring after the parallel-agent batch
+// got SIGKILLed; the panel files are present in the tree but their
+// host imports + mounts were never landed. Add them here so they
+// reach the menu + Cmd+K palette.
+import { ReverseEngineeringPanelHost } from './forge-v4/ReverseEngineeringPanel.jsx';
+import { DrawingTemplatesPanelHost } from './forge-v4/DrawingTemplatesPanel.jsx';
+import { ThermalAnalysisHost } from './forge-v4/ThermalAnalysisPanel.jsx';
+// PUSH-116 BomAggregator deferred — panel imports a different bomAggregator.js
+// API than the existing module; left out of this batch to ship the rest.
+// import { BomAggregatorPanelHost } from './forge-v4/BomAggregatorPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -1158,6 +1180,7 @@ function App() {
       <SimulationWorkbenchHost />
       <MassPropsHost />
       <MaterialPropertiesHost />
+      <ModalAnalysisHost />
       <InterferenceHost />
       <MaterialsBrowserHost />
       <EntityPropsHost />
@@ -1189,6 +1212,10 @@ function App() {
       <DiagnosticDumpPanelHost />
       <BigSceneStressPanelHost />
       <StdPartsQuickInsertPanelHost />
+      <Ap242ExportPanelHost />
+      <ReverseEngineeringPanelHost />
+      <DrawingTemplatesPanelHost />
+      <ThermalAnalysisHost />
       <ThemeSwitcherPanelHost />
       <BomBalloonsPanelHost />
       <DetailViewsPanelHost />
