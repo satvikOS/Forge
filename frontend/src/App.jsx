@@ -905,6 +905,14 @@ import { PdmRevisionsPanelHost } from './forge-v4/PdmRevisionsPanel.jsx';
 // The main Viewport is untouched. Reachable via tools.bigSceneStress
 // menu action OR window.__forgeOpenBigSceneStress.
 import { BigSceneStressPanelHost } from './forge-v4/BigSceneStressPanel.jsx';
+// PUSH-207 (Slice-161) — 100k real-geometry assembly stress harness panel.
+// Builds ~20 OCCT template B-reps via kernel.makeBox / makeCylinder /
+// makeSphere, then seeds N instance bodies sharing those handles by
+// template. Commits into window.__forgeBodies so the MAIN viewport
+// renders the assembly with PUSH-204 octree culling. Reports wall-clock,
+// JS heap delta, FPS over 60 frames, visible-body count + culling ratio.
+// Reachable via tools.stress100k OR window.__forgeOpenStress100k().
+import { Stress100kPanelHost } from './forge-v4/Stress100kPanel.jsx';
 // PUSH-95 (Slice-63) — Sheet Metal Catalogue panel (8 forge.sheetMetal.* ops).
 import { SheetCataloguePanelHost } from './forge-v4/SheetCataloguePanel.jsx';
 // PUSH-99 (Slice-67) — Standard Parts Quick Insert panel.
@@ -1389,6 +1397,7 @@ function App() {
       <StlExportPanelHost />
       <DiagnosticDumpPanelHost />
       <BigSceneStressPanelHost />
+      <Stress100kPanelHost />
       <StdPartsQuickInsertPanelHost />
       <Ap242ExportPanelHost />
       <Ifc4ExportPanelHost />
