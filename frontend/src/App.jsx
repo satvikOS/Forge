@@ -635,7 +635,7 @@ import { SketchConstraintsToolbar } from './forge-v4/SketchConstraintsToolbar.js
 // Contrast) writing document.documentElement.dataset.forgeTheme + the
 // shell's existing forge.v4.theme localStorage key + dispatching
 // forge:theme-changed for the shell + DraftWorkbench subscribers.
-import { ThemeSwitcherPanelHost } from './forge-v4/ThemeSwitcherPanel.jsx';
+// (Import lives at line 627 — duplicate removed during the multi-agent merge.)
 // PUSH-80 (Slice-48) — Direct Edit numeric translate panel. Body picker
 // (auto-selects active body) + dx/dy/dz numeric inputs + Apply writing
 // to window.__forgeAnimationPose, the same channel PUSH-57's viewport
