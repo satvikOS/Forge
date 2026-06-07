@@ -340,6 +340,13 @@ export const MENU_SPEC = {
       // multiAxisContinuous. Tool-axis vector input feeds either an
       // orientations[] (indexed) or a SurfaceStation[] (continuous).
       { id: 'tools.cam5Axis',     label: '5-Axis CAM Strategies…', icon: 'wb.mfg' },
+      // PUSH-181 (Slice-137) — CNC Setup Sheet generator. Aggregates the
+      // per-op cam results (PUSH-46/98/117) into a structured operator
+      // sheet: program meta, stock dims, fixture orientation, op-by-op
+      // tool / RPM / feed / depth / cycle time + tool-change list +
+      // ASCII export. Reachable via tools.cncSetupSheet menu action OR
+      // window.__forgeOpenCncSetupSheet().
+      { id: 'tools.cncSetupSheet', label: 'CNC Setup Sheet…',     icon: 'wb.mfg' },
       // Forge-163 — 3D-printing slicer (real Marlin G-code emitter).
       { id: 'tools.slicer',       label: 'Slicer (3D printing)…', icon: 'wb.mfg' },
       // Forge-152 — Industrial robot workbench (KUKA KR6, ABB IRB1200,
