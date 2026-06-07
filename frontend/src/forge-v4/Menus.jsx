@@ -209,6 +209,7 @@ export const MENU_SPEC = {
       { id: 'tools.diagnostic',    label: 'Diagnostic Dump…',       icon: 'misc.settings' }, // PUSH-81 — one-button snapshot of all window.__forge* globals + selection + camera + kernel version into a JSON support report (via forge.dialog.saveFile + writeBlob).
       { id: 'tools.classABlend',   label: 'Class-A Blend…',          icon: 'sketch.spline' }, // PUSH-85 — G2/G3 curvature-continuous Coons-+-bicubic-Hermite surface blend; commits an OCCT NURBS face via window.forge.surfacing.buildPatch + window.__forgeAppendBody.
       { id: 'tools.loftSections',  label: 'Loft Sections…',          icon: 'sketch.spline' }, // PUSH-102 (Slice-70) — Multi-section NURBS loft (N planar {z, radius} sections → 24×11 polar control grid → window.forge.surfacing.buildPatch); commits a native surface body + dispatches forge:loft-sections-built.
+      { id: 'tools.sheetCatalogue', label: 'Sheet Metal Catalogue…',  icon: 'wb.sheet' }, // PUSH-95 (Slice-63) — multi-flange catalogue panel exposing 8 forge.sheetMetal.* ops (edgeFlange / miterFlange / hem / jog / closedCorner / cornerRelief / unfold / flatPattern) with inline param dialogs and a 100×60×2 baseFlange auto-seed.
       // PUSH-45 — A* pipe routing (route centerline → 3D pipe solid).
       { id: 'tools.piperoute',  label: 'Pipe Routing…',      icon: 'solid.sweep' },
       // PUSH-97 (Slice-65) — Batched cable / pipe routing.
@@ -245,6 +246,9 @@ export const MENU_SPEC = {
       // surfaces + strut truss topologies + Gibson-Ashby estimator).
       { id: 'tools.lattice',      label: 'Lattice / Metamaterial…', icon: 'select.body' },
       { id: 'tools.cam',          label: 'CAM (Manufacturing)…', icon: 'wb.mfg' },
+      // PUSH-98 (Slice-66) — Drilling Pattern: batched cam.drill over a
+      // hole table + auto-import circles from a body's edge tessellation.
+      { id: 'tools.drillingPattern', label: 'Drilling Pattern…',  icon: 'wb.mfg' },
       // Forge-163 — 3D-printing slicer (real Marlin G-code emitter).
       { id: 'tools.slicer',       label: 'Slicer (3D printing)…', icon: 'wb.mfg' },
       // Forge-152 — Industrial robot workbench (KUKA KR6, ABB IRB1200,

@@ -742,6 +742,8 @@ import { LoftSectionsPanelHost } from './forge-v4/LoftSectionsPanel.jsx';
 // centroid. Reachable via tools.bomBalloons OR
 // window.__forgeOpenBomBalloonsPanel.
 import { BomBalloonsPanelHost } from './forge-v4/BomBalloonsPanel.jsx';
+// PUSH-100 (Slice-68) — PDM Revisions dialog (semver + ECN log).
+import { PdmRevisionsPanelHost } from './forge-v4/PdmRevisionsPanel.jsx';
 // PUSH-94 (Slice-62) — Big Scene Stress Test panel. Seeds N cubes
 // (1k / 5k / 10k / 30k) into a SIDECAR three.js canvas as ONE
 // THREE.InstancedMesh — total draw call = 1 by construction — and
@@ -749,6 +751,10 @@ import { BomBalloonsPanelHost } from './forge-v4/BomBalloonsPanel.jsx';
 // The main Viewport is untouched. Reachable via tools.bigSceneStress
 // menu action OR window.__forgeOpenBigSceneStress.
 import { BigSceneStressPanelHost } from './forge-v4/BigSceneStressPanel.jsx';
+// PUSH-95 (Slice-63) — Sheet Metal Catalogue panel (8 forge.sheetMetal.* ops).
+import { SheetCataloguePanelHost } from './forge-v4/SheetCataloguePanel.jsx';
+// PUSH-99 (Slice-67) — Standard Parts Quick Insert panel.
+import { StdPartsQuickInsertPanelHost } from './forge-v4/StdPartsQuickInsertPanel.jsx';
 
 // Forge-134 — install the public plugin API surface as `window.Forge`
 // at app-bootstrap time, BEFORE the React tree mounts. PluginManagerPanelHost
@@ -1132,6 +1138,7 @@ function App() {
       <StlExportPanelHost />
       <DiagnosticDumpPanelHost />
       <BigSceneStressPanelHost />
+      <StdPartsQuickInsertPanelHost />
       <ThemeSwitcherPanelHost />
       <BomBalloonsPanelHost />
       <LightLineAnalysisOverlayHost />
