@@ -769,6 +769,14 @@ import { ClassABlendPanelHost } from './forge-v4/ClassABlendPanel.jsx';
 // Reachable via tools.loftSections menu action OR
 // window.__forgeOpenLoftSections.
 import { LoftSectionsPanelHost } from './forge-v4/LoftSectionsPanel.jsx';
+// PUSH-107 (Slice-76) — Surface Offset panel. Picks a surface body, samples
+// it on an 11×11 UV grid via window.forge.surfacing.eval, displaces each
+// sample along its surface normal by N mm (-10..+10), and rebuilds a new
+// NURBS face via window.forge.surfacing.buildPatch. Equivalent to one side
+// of OCCT's BRepOffsetAPI_MakeOffsetShape. Commits an offset surface body
+// via window.__forgeAppendBody. Reachable via tools.surfaceOffset menu
+// action OR window.__forgeOpenSurfaceOffset.
+import { SurfaceOffsetPanelHost } from './forge-v4/SurfaceOffsetPanel.jsx';
 // PUSH-93 (Slice-61) — BOM Balloon Auto-Place panel. Projects every body's
 // centroid (via forge.massProps) onto a drawing view (front/top/right), lays
 // balloons on a ring around the projected bbox, emits a renderable SVG
@@ -1180,8 +1188,10 @@ function App() {
       <PdmRevisionsPanelHost />
       <LightLineAnalysisOverlayHost />
       <DraftAnalysisOverlayHost />
+      <CurvatureCombPanelHost />
       <ClassABlendPanelHost />
       <LoftSectionsPanelHost />
+      <SurfaceOffsetPanelHost />
       <SheetCataloguePanelHost />
     </ViewportEnvironmentProvider>
   );
