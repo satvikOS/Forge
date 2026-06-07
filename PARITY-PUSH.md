@@ -7,7 +7,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 |---|---|---|---|---|---|
 | 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 52 % | PUSH-67 (massProps COM + inferFeature centroid for measure) |
 | 2 | Solid modeling ops | 8 % | 80 % | 22 % | PUSH-39/40/41 (thicken/knit/trim) |
-| 3 | Sketch / 2D constraints | 18 % | 80 % | 46 % | PUSH-66 (parametric equation manager — live recompute) |
+| 3 | Sketch / 2D constraints | 18 % | 80 % | 54 % | PUSH-66 (equations), PUSH-72 (5-kind quick-add toolbar driving solver) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 44 % | PUSH-59 (interference), PUSH-60 (BOM CSV), PUSH-61 (mat persist), PUSH-69 (Layers w/ lock) |
 | 5 | Drawings / 2D output | 3 % | 80 % | 24 % | PUSH-62 (live Section view + DXF) |
 | 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
@@ -21,9 +21,9 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 | 14 | PDM / PLM | 0 % | 80 % | 14 % | PUSH-51 (real vault check-in/out proven + Buffer fix) |
 | 15 | Generative / topology | 0 % | 80 % | 16 % | PUSH-49/50 (topology materialise + TPMS lattice) |
 | 16 | Engineering calculators | 200 % | 200 % | 200 % | held |
-| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 56 % | PUSH-68 (Camera bookmarks), PUSH-69 (Layers), PUSH-70 (Display QuickBar) |
-| 18 | API / customization | 5 % | 80 % | 22 % | PUSH-54 (plugin install + dispatch + uninstall) |
-| 19 | Visualization | 8 % | 80 % | 30 % | PUSH-70 (always-on display state HUD + FPS) |
+| 17 | UI/UX (ribbon/search/menus) | 12 % | 80 % | 64 % | PUSH-71 (Body colours), PUSH-72 (Sketch toolbar), PUSH-73 (Activity log) |
+| 18 | API / customization | 5 % | 80 % | 26 % | PUSH-73 (forge:* bus event introspection + export) |
+| 19 | Visualization | 8 % | 80 % | 34 % | PUSH-71 (per-body colour override w/ material auto-derive) |
 
 ## Test workflows queued (progressive complexity)
 
