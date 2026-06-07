@@ -1151,6 +1151,7 @@ function App() {
       <DraftAnalysisOverlayHost />
       <ClassABlendPanelHost />
       <LoftSectionsPanelHost />
+      <SheetCataloguePanelHost />
     </ViewportEnvironmentProvider>
   );
 }
