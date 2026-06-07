@@ -319,6 +319,14 @@ export const MENU_SPEC = {
       // Taylor–Green analytic vortex validation. Reachable via
       // tools.cfd3d OR window.__forgeOpenCfd3d().
       { id: 'tools.cfd3d',         label: 'CFD · 3D Navier–Stokes (SIMPLE)…', icon: 'wb.sim' },
+      // PUSH-220 (Slice-152) — Real nonlinear static FEA in pure JS:
+      // Newton-Raphson load-step driver, J2 (von Mises) radial-return
+      // plasticity, linear isotropic hardening, 8-node hex (H8) with
+      // 2×2×2 Gauss, Jacobi-PCG linear solve, adaptive bisection on
+      // Newton divergence. Reference: Simo & Hughes 1998 §3. Reach via
+      // tools.nonlinearFea OR window.__forgeOpenNonlinearFea(). The
+      // headless solver surface is at window.__forgeNonlinearFeaHelper.
+      { id: 'tools.nonlinearFea',  label: 'Nonlinear Static FEA…', icon: 'measure.angle' },
       // PUSH-221 (Slice-153) — Frictionless penalty-method node-to-
       // surface contact between two linear-elastic FEA bodies. Newton–
       // Raphson + active-set + uniform-grid BVH broad phase + Hertz

@@ -949,6 +949,14 @@ import { PointCloudImportPanelHost } from './forge-v4/PointCloudImportPanel.jsx'
 // window.__forgeOpenCfd3d(). Headless solver surface at
 // window.__forgeCfd3dHelper. No new npm / C++ deps.
 import { Cfd3dPanelHost } from './forge-v4/Cfd3dPanel.jsx';
+// PUSH-220 (Slice-152) — Real nonlinear static FEA in JS. Newton-Raphson
+// load-step driver, J2 radial-return plasticity with linear isotropic
+// hardening, 8-node hex (H8) with 2×2×2 Gauss, Jacobi-PCG linear solve.
+// Drivers: 1-element uniaxial-tension validation, N-element bar hardening
+// validation. Reachable via tools.nonlinearFea OR
+// window.__forgeOpenNonlinearFea(). Headless solver surface at
+// window.__forgeNonlinearFeaHelper. No new npm / C++ deps.
+import { NonlinearFeaPanelHost } from './forge-v4/NonlinearFeaPanel.jsx';
 // PUSH-213 (Slice-157) — Reflection Line analyser for Class-A surfacing QA.
 // Iso-contour of (r·u − cos ε) where r is the reflected view ray and u the
 // direction to an infinite straight light source. Parallel-line family for
@@ -1379,6 +1387,7 @@ function App() {
       <ReverseEngineeringPanelHost />
       <PointCloudImportPanelHost />
       <Cfd3dPanelHost />
+      <NonlinearFeaPanelHost />
       <ReflectionLinePanelHost />
       <ContactFeaPanelHost />
       <TransientFeaPanelHost />
