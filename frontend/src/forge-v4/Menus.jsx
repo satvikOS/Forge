@@ -243,6 +243,7 @@ export const MENU_SPEC = {
       // window.forge.part.pipeFromPolyline directly and commits the OCCT
       // solid via window.__forgeAppendBody; dispatches forge:sweep-curve-built.
       { id: 'tools.sweepCurve', label: 'Sweep along Curve…', icon: 'solid.sweep' },
+      { id: 'tools.ribFeature', label: 'Rib (Stiffener)…',   icon: 'sketch.line' }, // PUSH-126
       // Forge-166 — ISO / UNC / UNF / NPT thread cutter.
       { id: 'tools.threads',    label: 'Thread Designer…',  icon: 'sketch.spline' },
       // Forge-149 — Draft workbench (FreeCAD Draft parity).

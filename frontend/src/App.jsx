@@ -810,6 +810,7 @@ import { LoftSectionsPanelHost } from './forge-v4/LoftSectionsPanel.jsx';
 // forge:sweep-curve-built. Reachable via tools.sweepCurve menu action OR
 // window.__forgeOpenSweepCurve.
 import { SweepCurvePanelHost } from './forge-v4/SweepCurvePanel.jsx';
+import { RibFeaturePanelHost } from './forge-v4/RibFeaturePanel.jsx'; // PUSH-126
 // PUSH-121 (Slice-89) — Loft Solid body — see LoftSolidPanel.jsx header.
 import { LoftSolidPanelHost } from './forge-v4/LoftSolidPanel.jsx';
 // PUSH-107 (Slice-76) — Surface Offset panel. Picks a surface body, samples
@@ -1282,6 +1283,7 @@ function App() {
       <LoftSectionsPanelHost />
       <LoftSolidPanelHost />
       <SweepCurvePanelHost />
+      <RibFeaturePanelHost />
       <SurfaceOffsetPanelHost />
       <SheetCataloguePanelHost />
     </ViewportEnvironmentProvider>
