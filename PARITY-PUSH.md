@@ -7,7 +7,7 @@ proof. Tracks real parity %; no cosmetic counts. Updated after every CI-green ba
 |---|---|---|---|---|---|
 | 1 | Kernel (OCCT depth utilisation) | 35 % | 80 % | 68 % | PUSH-83/84/85 (subdivision + voxel + Class-A Coons patch) — three new modelling reps |
 | 2 | Solid modeling ops | 8 % | 80 % | 48 % | PUSH-88 (Linear/Circular/Mirror patterns), PUSH-89 (variable-radius fillet) |
-| 3 | Sketch / 2D constraints | 18 % | 80 % | 72 % | PUSH-91 (12 geometric + 4 dimensional constraint kinds in one toolbar) |
+| 3 | Sketch / 2D constraints | 18 % | 80 % | 82 % | PUSH-108 live dim editor with solver re-converge (real PLANEGCS round-trip) |
 | 4 | Assembly (mates, configs, BOM) | 4 % | 80 % | 50 % | PUSH-93 (BOM balloons projected onto views w/ leaders) |
 | 5 | Drawings / 2D output | 3 % | 80 % | 42 % | PUSH-90 (dim chains: ordinate/baseline/incremental), PUSH-93 (balloons) |
 | 6 | Sheet metal | 0 % | 80 % | 14 % | PUSH-43 (flat-pattern view wired) |
