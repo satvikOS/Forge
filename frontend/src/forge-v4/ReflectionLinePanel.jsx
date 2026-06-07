@@ -286,6 +286,24 @@ export function seedSphereBody({ radius = 10, divisions = 3, name } = {}) {
   } else {
     window.__forgeBodies = (window.__forgeBodies || []).concat([body]);
   }
+  // Dispatch the bus event so panels that listen for body-mutation can
+  // re-read window.__forgeBodies (same pattern as MultiShellPanel +
+  // RealVariableFilletPanel). __forgeAppendBody goes through React's
+  // setState which only flushes window.__forgeBodies after the next
+  // render — schedule the bus event on the next animation frame so
+  // listeners read the freshly committed array.
+  const fire = () => {
+    try {
+      window.dispatchEvent(new CustomEvent('forge:bodies-changed', {
+        detail: { kind: 'reflection-sphere', id },
+      }));
+    } catch {}
+  };
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => requestAnimationFrame(fire));
+  } else {
+    setTimeout(fire, 32);
+  }
   return body;
 }
 
@@ -309,6 +327,18 @@ export function seedPlaneBody({
     window.__forgeAppendBody(body);
   } else {
     window.__forgeBodies = (window.__forgeBodies || []).concat([body]);
+  }
+  const fire = () => {
+    try {
+      window.dispatchEvent(new CustomEvent('forge:bodies-changed', {
+        detail: { kind: 'reflection-plane', id },
+      }));
+    } catch {}
+  };
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => requestAnimationFrame(fire));
+  } else {
+    setTimeout(fire, 32);
   }
   return body;
 }

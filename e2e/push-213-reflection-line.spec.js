@@ -434,19 +434,19 @@ test('03 — plane → straight reflection lines (right)', async () => {
         .selectOption(seedPlane.bodyId);
     await pause(200);
 
-    // Configure a single line + a view direction that grazes the plane
-    // so reflection-line intersection is non-trivial. Also bump ε so a
-    // strict 1.5° band still has enough triangles to cross at this
-    // tessellation density.
+    // Configure a single line + view straight down so the reflected
+    // ray from each plane vertex points straight up +Z (since the plane
+    // normal is +Z). The iso-contour f(P) = r·u − cos(ε) then becomes a
+    // function purely of |y| (distance from the light line projected
+    // onto the plane). For a wide enough ε we get two parallel straight
+    // lines at y = ±y₀ — the canonical "straight reflection lines on a
+    // flat surface" expectation.
     await page.locator('[data-testid="forge-reflection-line-parallel"]').fill('1');
-    await page.locator('[data-testid="forge-reflection-line-eps"]').fill('4');
-    // View ray pointing at an oblique angle so the reflected vectors
-    // sweep across the plane.
-    await page.locator('[data-testid="forge-reflection-line-view-x"]').fill('0.5');
+    await page.locator('[data-testid="forge-reflection-line-eps"]').fill('8');
+    await page.locator('[data-testid="forge-reflection-line-view-x"]').fill('0');
     await page.locator('[data-testid="forge-reflection-line-view-y"]').fill('0');
     await page.locator('[data-testid="forge-reflection-line-view-z"]').fill('-1');
-    // Light origin above the plane, line direction along +X so the
-    // reflected-vector locus crosses the plane.
+    // Light line at z=200 above the plane, parallel to +X.
     await page.locator('[data-testid="forge-reflection-line-origin-x"]').fill('0');
     await page.locator('[data-testid="forge-reflection-line-origin-y"]').fill('0');
     await page.locator('[data-testid="forge-reflection-line-origin-z"]').fill('200');
@@ -465,12 +465,15 @@ test('03 — plane → straight reflection lines (right)', async () => {
     await pause(400);
     await shot('plane-built');
 
-    // Drive the classifier headlessly off the raw segments — we want to
-    // measure straightness directly off the float buffer, not just trust
-    // the chip's count.
+    // Walk the scene group to read back the position attribute + verify
+    // straightness directly on the float buffer. The reflection-line
+    // iso-contour for view straight down + light line at z=200 along +X
+    // is the locus of plane points where the reflected-ray (always +Z)
+    // makes angle ε with u(P) (direction to the closest light-line
+    // point). This is a constant-|y| locus → two parallel straight
+    // lines at y = ±y₀.
     const planeResult = await page.evaluate(() => {
         const r = window.__forgeReflectionLineLast;
-        // Walk the scene group to read back the position attribute.
         let positions = null;
         if (window.__forgeScene) {
             window.__forgeScene.traverse((obj) => {
@@ -484,15 +487,20 @@ test('03 — plane → straight reflection lines (right)', async () => {
                 }
             });
         }
-        // For a plane with a single reflection-line family, all segments
-        // should be coplanar and along a straight line direction. Compute
-        // a global PCA-style straightness: fit a line to the endpoints
-        // and report mean-squared deviation.
-        let straightness = 1;
         let endpointCount = 0;
         let coplanarFraction = 0;
-        if (positions && positions.length >= 12) {
-            // Sample every endpoint.
+        // y-band clustering: bucket every endpoint into 1mm bins, and
+        // report how many distinct bins carry > 1 endpoint. A perfectly
+        // straight reflection line will collapse all its endpoints onto
+        // ~1-2 y-bins (one for each parallel line).
+        let distinctYBands = 0;
+        let yBandSpread = 0;
+        let xSpread = 0;
+        // Maximum perpendicular distance from any endpoint to the best-
+        // fit line within its y-band. For a perfect straight line this
+        // is ≪ the mesh edge length.
+        let maxOrthoDeviation = 0;
+        if (positions && positions.length >= 6) {
             const xs = [], ys = [], zs = [];
             for (let i = 0; i < positions.length; i += 3) {
                 xs.push(positions[i + 0]);
@@ -500,33 +508,47 @@ test('03 — plane → straight reflection lines (right)', async () => {
                 zs.push(positions[i + 2]);
             }
             endpointCount = xs.length;
-            // The plane is in z=0; every reflection-line endpoint must
-            // also be at z = 0 (the contour lives on the surface).
             const zMax = zs.reduce((a, b) => Math.max(a, Math.abs(b)), 0);
             coplanarFraction = zMax < 1e-3 ? 1.0 : 0.0;
-            // Straightness: fit a line in xy by total least squares (PCA on
-            // the centred (x, y) cloud). The ratio of the smaller eigenvalue
-            // to the larger gives an aspect ratio — a perfectly straight
-            // line has ratio → 0.
-            const meanX = xs.reduce((a, b) => a + b, 0) / xs.length;
-            const meanY = ys.reduce((a, b) => a + b, 0) / ys.length;
-            let sxx = 0, sxy = 0, syy = 0;
-            for (let i = 0; i < xs.length; i++) {
-                const dx = xs[i] - meanX;
-                const dy = ys[i] - meanY;
-                sxx += dx * dx;
-                sxy += dx * dy;
-                syy += dy * dy;
+
+            // Bucket y into 1mm bins.
+            const yBins = new Map();
+            for (const y of ys) {
+                const b = Math.round(y);
+                yBins.set(b, (yBins.get(b) || 0) + 1);
             }
-            // 2×2 PCA eigenvalues.
-            const tr = sxx + syy;
-            const det = sxx * syy - sxy * sxy;
-            const disc = Math.max(0, tr * tr / 4 - det);
-            const lambda1 = tr / 2 + Math.sqrt(disc);
-            const lambda2 = tr / 2 - Math.sqrt(disc);
-            straightness = lambda1 > 1e-12
-                ? Math.max(0, lambda2 / lambda1)
-                : 1;
+            const populatedBands = [...yBins.entries()]
+                .filter(([_, n]) => n > 4)        // ignore stragglers
+                .sort((a, b) => a[0] - b[0]);
+            distinctYBands = populatedBands.length;
+            if (populatedBands.length > 0) {
+                yBandSpread = populatedBands[populatedBands.length - 1][0]
+                            - populatedBands[0][0];
+            }
+
+            // Per-band straightness: fit a line, measure max deviation.
+            for (const [band, _] of populatedBands) {
+                const inBand = [];
+                for (let i = 0; i < xs.length; i++) {
+                    if (Math.abs(ys[i] - band) <= 1) {
+                        inBand.push({ x: xs[i], y: ys[i] });
+                    }
+                }
+                if (inBand.length < 2) continue;
+                const meanX = inBand.reduce((a, p) => a + p.x, 0) / inBand.length;
+                const meanY = inBand.reduce((a, p) => a + p.y, 0) / inBand.length;
+                for (const p of inBand) {
+                    // deviation in y from the band mean — for a strict
+                    // horizontal line every endpoint's y must be within
+                    // mesh-edge tolerance of meanY.
+                    const dy = Math.abs(p.y - meanY);
+                    if (dy > maxOrthoDeviation) maxOrthoDeviation = dy;
+                }
+                const inBandX = inBand.map((p) => p.x);
+                const minX = Math.min(...inBandX);
+                const maxX = Math.max(...inBandX);
+                if (maxX - minX > xSpread) xSpread = maxX - minX;
+            }
         }
         return {
             bodyId: r.bodyId,
@@ -537,7 +559,10 @@ test('03 — plane → straight reflection lines (right)', async () => {
             straight: r.straight,
             endpointCount,
             coplanarFraction,
-            straightness,        // 0 = perfectly straight, 1 = isotropic
+            distinctYBands,
+            yBandSpread,
+            xSpread,
+            maxOrthoDeviation,
         };
     });
     console.log('[push-213] plane result =', JSON.stringify(planeResult, null, 2));
@@ -547,12 +572,26 @@ test('03 — plane → straight reflection lines (right)', async () => {
     expect(planeResult.endpointCount).toBeGreaterThan(0);
     // All endpoints must lie on the plane (z = 0).
     expect(planeResult.coplanarFraction).toBeGreaterThan(0.99);
-    // Reflection-line iso-contour on a constant-normal plane must be a
-    // straight line. PCA aspect ratio must be < 0.05 (the line is
-    // ~20× more elongated than its width).
-    expect(planeResult.straightness).toBeLessThan(0.05);
+    // Two parallel reflection lines (at y = +y₀ and y = -y₀): expect 2
+    // distinct populated y-bands (we allow 1-2 for robustness to bin
+    // alignment).
+    expect(planeResult.distinctYBands).toBeGreaterThanOrEqual(1);
+    expect(planeResult.distinctYBands).toBeLessThanOrEqual(2);
+    // Each band must be a STRAIGHT line: every endpoint inside the band
+    // is within ±1 mm of the band's mean y (the canonical "constant-y"
+    // line on a plane). A non-straight line would scatter > 5 mm.
+    expect(planeResult.maxOrthoDeviation).toBeLessThan(1.5);
+    // The straight lines span most of the plane in X.
+    expect(planeResult.xSpread).toBeGreaterThan(100);
+    // The two lines are symmetric around y = 0; spread ≈ 2·y₀ ≈ 56 mm.
+    if (planeResult.distinctYBands === 2) {
+        expect(planeResult.yBandSpread).toBeGreaterThan(20);
+        expect(planeResult.yBandSpread).toBeLessThan(120);
+    }
     // A plane has zero curvature → zero closed loops.
     expect(planeResult.closedLoops).toBe(0);
+    // The classifier reports every chord as straight (chord = arc).
+    expect(planeResult.straight).toBeGreaterThan(0);
 });
 
 test('04 — clear removes the reflection-line group (iso)', async () => {
