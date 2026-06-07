@@ -580,6 +580,11 @@ import { EntityPropsHost } from './forge-v4/EntityPropsPanel.jsx';
 // PUSH-67 — Point-to-Point Measure tool (distance + dx/dy/dz + 3-point
 // angle, driven by window.__forgeSelection like the entity panel).
 import { MeasureToolPanelHost } from './forge-v4/MeasureToolPanel.jsx';
+// PUSH-90 (Slice-58) — Dimension Chains panel (Ordinate / Baseline / Chain
+// dimensions across 3+ picked points; reuses the PUSH-67 selection-to-point
+// resolver so face / edge / body resolve through the same kernel surfaces;
+// publishes window.__forgeDimChains + forge:dim-chain-generated).
+import { DimensionChainsPanelHost } from './forge-v4/DimensionChainsPanel.jsx';
 // PUSH-65 — Section Plane control panel (toggle / axis radio /
 // body-bbox-aware offset slider, publishes window.__forgeSectionPlane
 // + forge:section-update for the live viewport clipping).
@@ -1009,6 +1014,7 @@ function App() {
       <MaterialsBrowserHost />
       <EntityPropsHost />
       <MeasureToolPanelHost />
+      <DimensionChainsPanelHost />
       <SectionPlanePanelHost />
       <LayersPanelHost />
       <BodyColorsPanelHost />

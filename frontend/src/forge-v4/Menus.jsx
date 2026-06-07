@@ -113,6 +113,11 @@ export const MENU_SPEC = {
       // PUSH-15/49 — SIMP topology optimisation (density field → materialised solid).
       { id: 'tools.topoOpt',   label: 'Topology Optimisation (SIMP)…', icon: 'wb.sim' },
       { id: 'tools.measure',   label: 'Measure',            icon: 'measure.distance' },
+      // PUSH-90 — Dimension Chains panel (Ordinate / Baseline / Chain
+      // dimensions across 3+ picked points; publishes window.__forgeDimChains
+      // + forge:dim-chain-generated; piggybacks PUSH-67 selection-to-point
+      // resolver so face / edge / body all reuse the same kernel surfaces).
+      { id: 'tools.dimChains', label: 'Dimension Chains…',  icon: 'measure.distance' },
       SEP,
       { id: 'tools.assembly',     label: 'Assembly…',        icon: 'wb.mech' },
       { id: 'tools.assemblyTree', label: 'Assembly tree…',   icon: 'wb.mech' },
