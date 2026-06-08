@@ -62,6 +62,10 @@ const stored = {
   },
 };
 
+// Forge-165 — Phase D.3 simulation auto-trigger (impl in simTriggers.js
+// so the unit test can import it without going through the JSX shell).
+import { detectSimTriggers as _detectSimTriggers } from './simTriggers.js';
+
 export function ForgeShellV4() {
   const [theme, setTheme]             = useState(() => stored.get('theme', 'dark'));
   const [activeWb, setActiveWb]       = useState(() => stored.get('wb', 'mech'));
@@ -404,6 +408,14 @@ export function ForgeShellV4() {
     if (!prompt) return;
     setDockOpen(true);
     pushThread({ role: 'user', text: prompt });
+    // Forge-165 — Phase D.3: simulation auto-trigger. Scan the prompt
+    // for load-bearing / dynamic / thermal cues and post a hint to
+    // the thread so Archie + the user both see that a Linear Static /
+    // Modal / Thermal analysis is appropriate. The user can act on it;
+    // a future training pass will teach Archie to auto-include the
+    // matching simulate.fea-* tool_calls.
+    const _simHint = _detectSimTriggers(prompt);
+    if (_simHint) pushThread({ role: 'tool', text: `[sim auto-trigger] ${_simHint}` });
     const hasKernel = typeof window !== 'undefined' && window.forge &&
                       typeof window.forge.isReady === 'function' &&
                       window.forge.isReady();
