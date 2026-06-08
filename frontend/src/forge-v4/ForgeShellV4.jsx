@@ -13,6 +13,11 @@ import { StatusBar } from './StatusBar.jsx';
 import { CommandBar } from './CommandBar.jsx';
 import { ArchieDock } from './ArchieDock.jsx';
 import { Viewport } from './Viewport.jsx';
+// Forge-162 — viewport perception (static import: see runArchie for the
+// per-turn caption capture). The legacy dynamic import here lost its
+// failures in a silent catch; static import surfaces any bundler issue
+// at load time the way slice 951q does for Studio.
+import { captureForgeViewportCaption as _captureForgeViewportCaption } from '../ai/VisionPerception.js';
 // Forge-183 — autosave (localStorage-backed crash recovery).
 import * as AutoSave from './autoSave.js';
 import { QuickAccessBar } from './QuickAccessBar.jsx';
@@ -415,6 +420,15 @@ export function ForgeShellV4() {
       pushThread({ role: 'archie', text: `Runner load failed: ${err.message}` });
       setRunning(false); return;
     }
+    // Forge-162 — viewport perception. Capture the live viewport caption
+    // via the local VL server before dispatching the Archie turn. The
+    // helper itself bounds the call with an AbortController so a slow
+    // VL response cannot stall the chat dispatch; empty caption (vision
+    // down or opt-out) means Archie runs blind and the prompt goes
+    // through unwrapped.
+    let viewportState = '';
+    try { viewportState = await _captureForgeViewportCaption(); }
+    catch (_) { /* vision optional */ }
     const ac = new AbortController();
     archieAbortRef.current = ac;
     try {
@@ -423,6 +437,7 @@ export function ForgeShellV4() {
         discipline: activeWb === 'mech' ? 'part' : activeWb,
         signal: ac.signal,
         forge: window.forge,
+        viewportState,
         onTrace: (ev) => {
           if (ev.kind === 'tool') {
             pushThread({

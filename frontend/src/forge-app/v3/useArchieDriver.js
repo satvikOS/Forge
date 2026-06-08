@@ -223,6 +223,15 @@ export function useArchieDriver({ store = _store } = {}) {
       return { status: 'error' };
     }
 
+    // Forge-162 — viewport perception. Lazy-import so server-side tests
+    // of useArchieDriver that stub window.forge don't fail to load the
+    // canvas-dependent module.
+    let viewportState = '';
+    try {
+      const { captureForgeViewportCaption } = await import('../../ai/VisionPerception.js');
+      viewportState = await captureForgeViewportCaption();
+    } catch (_) { /* vision optional */ }
+
     const ac = new AbortController();
     abortRef.current = ac;
 
@@ -232,6 +241,7 @@ export function useArchieDriver({ store = _store } = {}) {
         discipline: 'part',
         signal: ac.signal,
         forge: window.forge,
+        viewportState,
         onTrace: (ev) => {
           if (ev.kind === 'tool') {
             pushMsg({

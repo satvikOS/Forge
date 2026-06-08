@@ -66,4 +66,47 @@ plan to make a box and a hole
   assert.equal(calls, 2, 'archie was polled twice');
 }
 
+// ---- Forge-162: viewportState wraps the user prompt ----------------
+{
+  let capturedMessages = null;
+  const fakeArchie = async ({ messages }) => {
+    capturedMessages = messages;
+    return `<think>noted</think>`;
+  };
+  const CAPTION = '{"bodies":[{"kind":"box","dims":"50x30x10"}],"camera":{"angle_deg":35}}';
+  await runForgePrompt({
+    prompt: 'fillet all sharp edges 1.5mm',
+    discipline: 'part',
+    archie: fakeArchie,
+    viewportState: CAPTION,
+  });
+  assert.ok(capturedMessages, 'archie was called');
+  const userMsg = capturedMessages.find((m) => m.role === 'user' && m.content.includes('fillet all sharp edges 1.5mm'));
+  assert.ok(userMsg, 'final user turn present');
+  assert.ok(userMsg.content.includes('<viewport_state>'), 'viewport_state tag prepended');
+  assert.ok(userMsg.content.includes(CAPTION), 'caption body preserved');
+  // Order matters: viewport before prompt.
+  const vpIdx = userMsg.content.indexOf('<viewport_state>');
+  const promptIdx = userMsg.content.indexOf('fillet all sharp edges 1.5mm');
+  assert.ok(vpIdx < promptIdx, 'viewport_state precedes prompt');
+}
+
+// ---- Forge-162: empty viewportState skips the wrapper --------------
+{
+  let capturedMessages = null;
+  const fakeArchie = async ({ messages }) => {
+    capturedMessages = messages;
+    return `<think>noted</think>`;
+  };
+  await runForgePrompt({
+    prompt: 'blind run check',
+    discipline: 'part',
+    archie: fakeArchie,
+    // viewportState omitted — defaults to ''
+  });
+  const userMsg = capturedMessages.find((m) => m.role === 'user' && m.content.includes('blind run check'));
+  assert.ok(userMsg, 'final user turn present');
+  assert.ok(!userMsg.content.includes('<viewport_state>'), 'no viewport_state when omitted');
+}
+
 console.log('[forge.runner] all tests passed');

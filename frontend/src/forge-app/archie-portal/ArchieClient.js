@@ -10,6 +10,8 @@
  * overwrite-export) are gated through `onConfirmDestructive`.
  */
 
+import { captureForgeViewportCaption } from '../../ai/VisionPerception.js';
+
 const DESTRUCTIVE_TOOLS = new Set([
   'project.delete', 'part.delete', 'config.delete', 'thread.delete',
   'io.exportStep', 'io.exportStl', 'io.exportBrep',  // overwrites
@@ -96,11 +98,16 @@ export class ArchieClient {
       }
     };
 
+    // Forge-162 — capture the live viewport caption so Archie sees the
+    // current scene state before deciding the next tool_call.
+    const viewportState = await captureForgeViewportCaption();
+
     try {
       const trace = await this.run({
         prompt: enriched, discipline: thread.discipline,
         onTrace, signal, forge: this.forge,
         archie: this._archieFor(thread),
+        viewportState,
       });
       this.store.finalizeArchieMessage(thread, message.id,
         trace?.final?.status === 'clarify' ? 'awaiting-clarification' : 'done');
