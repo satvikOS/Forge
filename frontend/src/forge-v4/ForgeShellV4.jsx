@@ -439,6 +439,27 @@ export function ForgeShellV4() {
     catch (_) { /* memory optional */ }
     const ac = new AbortController();
     archieAbortRef.current = ac;
+    // Forge-164 — pre-push a pending archie message that streaming
+    // tokens flow into. The post-dispatch final-status block below
+    // strips the pending flag + finalises the text; the per-turn
+    // tool messages still arrive via onTrace.
+    pushThread({ role: 'archie', text: '…thinking…', pending: true });
+    const _streamUpdate = (acc) => {
+      const visible = (acc || '')
+        .replace(/<think>[\s\S]*?(<\/think>|$)/g, '')
+        .trim();
+      setThread((t) => {
+        // Update the latest pending archie message.
+        for (let i = t.length - 1; i >= 0; i--) {
+          if (t[i].role === 'archie' && t[i].pending) {
+            const next = t.slice();
+            next[i] = { ...t[i], text: visible || '…thinking…' };
+            return next;
+          }
+        }
+        return t;
+      });
+    };
     try {
       const trace = await runForgePrompt({
         prompt,
@@ -447,6 +468,7 @@ export function ForgeShellV4() {
         forge: window.forge,
         viewportState,
         priorContext,
+        onToken: ({ acc_content }) => _streamUpdate(acc_content),
         onTrace: (ev) => {
           if (ev.kind === 'tool') {
             pushThread({
@@ -475,14 +497,32 @@ export function ForgeShellV4() {
           }
         },
       });
+      // Forge-164 — finalize the pre-pushed pending archie message
+      // (drop pending flag + write the canonical final text) so the
+      // streaming buffer becomes the durable response. Push a new
+      // message only when the pending entry isn't found.
+      const _finalizePending = (text) => {
+        setThread((t) => {
+          for (let i = t.length - 1; i >= 0; i--) {
+            if (t[i].role === 'archie' && t[i].pending) {
+              const next = t.slice();
+              next[i] = { ...t[i], text, pending: false };
+              return next;
+            }
+          }
+          return [...t, { role: 'archie', text }];
+        });
+      };
       if (trace.final?.status === 'done' && trace.final.text) {
-        pushThread({ role: 'archie', text: trace.final.text });
+        _finalizePending(trace.final.text);
       } else if (trace.final?.status === 'clarify') {
-        pushThread({ role: 'archie', text: `Need: ${trace.final.clarify.question || '…'}` });
+        _finalizePending(`Need: ${trace.final.clarify.question || '…'}`);
       } else if (trace.final?.status === 'cancelled') {
-        pushThread({ role: 'archie', text: '(cancelled)' });
+        _finalizePending('(cancelled)');
       } else if (trace.final?.status === 'maxTurns') {
-        pushThread({ role: 'archie', text: '(max turns — try a smaller step)' });
+        _finalizePending('(max turns — try a smaller step)');
+      } else {
+        _finalizePending(trace.final?.text || '');
       }
       // Forge-163 — fire-and-forget remember this turn. The trace
       // captures both the final text AND the tool_call sequence; we
@@ -498,8 +538,19 @@ export function ForgeShellV4() {
         tool_calls: toolCalls.length ? toolCalls : null,
       });
     } catch (err) {
-      pushThread({ role: 'archie', text:
-        err.name === 'AbortError' ? '(cancelled)' : `Error: ${err.message}` });
+      // Forge-164 — also finalize the pending message on error so the
+      // user doesn't see "…thinking…" stuck after a failure.
+      const txt = err.name === 'AbortError' ? '(cancelled)' : `Error: ${err.message}`;
+      setThread((t) => {
+        for (let i = t.length - 1; i >= 0; i--) {
+          if (t[i].role === 'archie' && t[i].pending) {
+            const next = t.slice();
+            next[i] = { ...t[i], text: txt, pending: false };
+            return next;
+          }
+        }
+        return [...t, { role: 'archie', text: txt }];
+      });
     } finally {
       setRunning(false);
       archieAbortRef.current = null;

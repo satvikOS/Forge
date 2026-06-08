@@ -122,7 +122,8 @@ export function parseAssistant(text) {
  */
 async function archieComplete({ messages, discipline, model = 'archie-7b-base',
                                 temperature = 0.2, maxTokens = 2048,
-                                baseUrl = ARCHIE_BASE_URL, signal }) {
+                                baseUrl = ARCHIE_BASE_URL, signal,
+                                onToken = null }) {
   const adapter = `adapters/archie/mech/${discipline}`;
   const res = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
@@ -130,15 +131,55 @@ async function archieComplete({ messages, discipline, model = 'archie-7b-base',
     body: JSON.stringify({
       model, messages, temperature, max_tokens: maxTokens,
       adapters: adapter, // mlx_lm.server hot-swap convention
-      stream: false,
+      stream: !!onToken,
     }),
     signal,
   });
   if (!res.ok) {
     throw new Error(`[forge.runner] Archie ${res.status} ${res.statusText}`);
   }
-  const j = await res.json();
-  return j.choices?.[0]?.message?.content ?? '';
+  // Forge-164 — streaming chat output (Phase F.1, mirror of Studio
+  // slice 951s). When onToken is wired we parse OpenAI-compat SSE:
+  // `data: {json}\n` per chunk, terminator `data: [DONE]`. We
+  // accumulate the content into the same final string the non-
+  // streaming branch returns so parseAssistant + dispatchToolCall
+  // operate identically on both paths.
+  if (!onToken) {
+    const j = await res.json();
+    return j.choices?.[0]?.message?.content ?? '';
+  }
+  let acc = '';
+  const reader = res.body && typeof res.body.getReader === 'function'
+    ? res.body.getReader() : null;
+  if (!reader) {
+    const j = await res.json();
+    return j.choices?.[0]?.message?.content ?? '';
+  }
+  const decoder = new TextDecoder('utf-8');
+  let buf = '';
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let nl;
+    while ((nl = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (!line || !line.startsWith('data:')) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === '[DONE]') continue;
+      let chunk;
+      try { chunk = JSON.parse(payload); } catch (_) { continue; }
+      const delta = chunk?.choices?.[0]?.delta;
+      if (!delta) continue;
+      const dContent = typeof delta.content === 'string' ? delta.content : '';
+      if (dContent) acc += dContent;
+      try { onToken({ delta_content: dContent, acc_content: acc }); }
+      catch (_) { /* downstream UI errors must not stop the stream */ }
+    }
+  }
+  return acc;
 }
 
 /**
@@ -155,6 +196,7 @@ export async function runForgePrompt({
   signal = null,         // Forge-28: AbortSignal, honoured by archieComplete
   viewportState = '',    // Forge-162: vision caption prepended to user prompt
   priorContext  = '',    // Forge-163: long-session memory recall prepended too
+  onToken       = null,  // Forge-164: optional per-token streaming callback
 } = {}) {
   if (!prompt || typeof prompt !== 'string') {
     throw new Error('[forge.runner] prompt required');
@@ -191,7 +233,7 @@ export async function runForgePrompt({
       await _flushIfEnabled(trace);
       return trace;
     }
-    const completion = await archie({ messages, discipline, signal });
+    const completion = await archie({ messages, discipline, signal, onToken });
     const parsed = parseAssistant(completion);
     const iter = { turn, completion, parsed, toolResponses: [] };
 
