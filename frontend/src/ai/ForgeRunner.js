@@ -123,7 +123,7 @@ export function parseAssistant(text) {
 async function archieComplete({ messages, discipline, model = 'archie-7b-base',
                                 temperature = 0.2, maxTokens = 2048,
                                 baseUrl = ARCHIE_BASE_URL, signal,
-                                onToken = null }) {
+                                onToken = null, onToolCall = null }) {
   const adapter = `adapters/archie/mech/${discipline}`;
   const res = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
@@ -149,6 +149,25 @@ async function archieComplete({ messages, discipline, model = 'archie-7b-base',
     return j.choices?.[0]?.message?.content ?? '';
   }
   let acc = '';
+  // Forge-166 — speculative tool-call dispatch. Tracks how much of acc
+  // we've already scanned for complete <tool_call>…</tool_call> blocks
+  // so each one fires onToolCall exactly once during streaming.
+  let toolScanFrom = 0;
+  const maybeFlushToolCalls = async () => {
+    if (!onToolCall) return;
+    const re = /<tool_call>([\s\S]*?)<\/tool_call>/gi;
+    re.lastIndex = toolScanFrom;
+    let m;
+    while ((m = re.exec(acc)) !== null) {
+      toolScanFrom = re.lastIndex;
+      let obj;
+      try { obj = JSON.parse(m[1].trim()); } catch (_) { continue; }
+      if (obj && typeof obj.name === 'string') {
+        try { await onToolCall(obj); }
+        catch (_) { /* dispatch errors surfaced via UI thread */ }
+      }
+    }
+  };
   const reader = res.body && typeof res.body.getReader === 'function'
     ? res.body.getReader() : null;
   if (!reader) {
@@ -177,6 +196,7 @@ async function archieComplete({ messages, discipline, model = 'archie-7b-base',
       if (dContent) acc += dContent;
       try { onToken({ delta_content: dContent, acc_content: acc }); }
       catch (_) { /* downstream UI errors must not stop the stream */ }
+      if (dContent) await maybeFlushToolCalls();
     }
   }
   return acc;
@@ -233,9 +253,32 @@ export async function runForgePrompt({
       await _flushIfEnabled(trace);
       return trace;
     }
-    const completion = await archie({ messages, discipline, signal, onToken });
+    // Forge-166 — speculative tool-call dispatch. When the runner is
+    // streaming (onToken set), each <tool_call> closing tag mid-stream
+    // fires this callback so dispatchToolCall lands in the kernel as
+    // soon as the model commits. The signatures are tracked per-turn
+    // so the post-turn loop below skips already-dispatched calls.
+    const _iter = { turn, completion: '', parsed: null, toolResponses: [] };
+    const _specSigSet = new Set();
+    const _sig = (c) => JSON.stringify({ n: c.name, a: c.arguments || {} });
+    const _speculativeDispatch = async (call) => {
+      const sig = _sig(call);
+      if (_specSigSet.has(sig)) return;
+      _specSigSet.add(sig);
+      let resp;
+      try { resp = await dispatchToolCall(call, forge ? { forge } : {}); }
+      catch (e) { resp = { ok: false, error: String(e?.message || e) }; }
+      _iter.toolResponses.push(resp);
+      onTrace({ kind: 'tool', call, response: resp });
+    };
+    const completion = await archie({
+      messages, discipline, signal, onToken,
+      onToolCall: onToken ? _speculativeDispatch : null,
+    });
     const parsed = parseAssistant(completion);
-    const iter = { turn, completion, parsed, toolResponses: [] };
+    _iter.completion = completion;
+    _iter.parsed = parsed;
+    const iter = _iter;
 
     if (parsed.clarify) {
       iter.clarifyHandled = autoDefaultClarify
@@ -256,8 +299,12 @@ export async function runForgePrompt({
       return trace;
     }
 
-    // Dispatch every tool_call in order; aggregate responses for the next turn.
+    // Dispatch every tool_call in order; aggregate responses for the
+    // next turn. Forge-166 — skip anything the speculative dispatcher
+    // already executed during streaming so we don't double-dispatch
+    // (the post-stream parse re-sees the same <tool_call> tags).
     for (const call of parsed.toolCalls) {
+      if (_specSigSet.has(_sig(call))) continue;
       const resp = await dispatchToolCall(call, forge ? { forge } : {});
       iter.toolResponses.push(resp);
       onTrace({ kind: 'tool', call, response: resp });

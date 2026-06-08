@@ -109,6 +109,56 @@ plan to make a box and a hole
   assert.ok(!userMsg.content.includes('<viewport_state>'), 'no viewport_state when omitted');
 }
 
+// ---- Forge-166: speculative dispatch fires once per call ----------
+{
+  // archie mock honours onToolCall by walking the completion and
+  // calling it with each <tool_call> inline — simulating what the
+  // streaming SSE path does for real.
+  let onTokenSeen = false;
+  let turnNo = 0;
+  const dispatchedSigs = [];
+  const fakeArchie = async ({ onToken, onToolCall }) => {
+    onTokenSeen = !!onToken;
+    turnNo++;
+    if (turnNo > 1) {
+      // 2nd turn: done — runner exits the loop.
+      return '<think>nothing more</think>';
+    }
+    const completion = '<plan>{"goal":"two prims"}</plan>\n'
+      + '<tool_call>{"name":"sketch.create","arguments":{}}</tool_call>\n'
+      + '<tool_call>{"name":"sketch.add-point","arguments":{"sketchId":1,"x":0,"y":0}}</tool_call>';
+    if (onToolCall) {
+      // mimic the streaming-tag flush: parse + emit each tag.
+      const re = /<tool_call>([\s\S]*?)<\/tool_call>/g;
+      let m;
+      while ((m = re.exec(completion)) !== null) {
+        try {
+          const obj = JSON.parse(m[1].trim());
+          await onToolCall(obj);
+          dispatchedSigs.push(obj.name);
+        } catch (_) {}
+      }
+    }
+    return completion;
+  };
+  let traceToolCallCount = 0;
+  const trace = await runForgePrompt({
+    prompt: 'spec disp test',
+    discipline: 'part',
+    archie: fakeArchie,
+    onToken: () => { /* triggers the stream path inside the runner */ },
+    onTrace: (ev) => { if (ev.kind === 'tool') traceToolCallCount++; },
+  });
+  assert.ok(onTokenSeen, 'archie was called with onToken');
+  // Speculative dispatcher should have run each tag exactly once.
+  assert.equal(dispatchedSigs.length, 2, 'speculative dispatch ran twice');
+  // The post-turn loop should NOT have re-dispatched (sig set blocks).
+  assert.equal(traceToolCallCount, 2, 'onTrace fired once per tool, not twice');
+  // The first iteration's toolResponses array reflects the speculative
+  // dispatch sequence.
+  assert.equal(trace.iterations[0].toolResponses.length, 2);
+}
+
 // ---- Forge-163: priorContext wraps user prompt + correct order -----
 {
   let capturedMessages = null;
