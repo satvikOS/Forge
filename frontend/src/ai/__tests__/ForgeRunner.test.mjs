@@ -109,4 +109,32 @@ plan to make a box and a hole
   assert.ok(!userMsg.content.includes('<viewport_state>'), 'no viewport_state when omitted');
 }
 
+// ---- Forge-163: priorContext wraps user prompt + correct order -----
+{
+  let capturedMessages = null;
+  const fakeArchie = async ({ messages }) => {
+    capturedMessages = messages;
+    return `<think>noted</think>`;
+  };
+  const PRIOR = '<prior_context>[{"user":"earlier bracket","summary":"part.make-box"}]</prior_context>';
+  const VP    = '{"bodies":[],"camera":{"angle_deg":0}}';
+  await runForgePrompt({
+    prompt: 'now drill four M5 holes at the corners',
+    discipline: 'part',
+    archie: fakeArchie,
+    priorContext: PRIOR,
+    viewportState: VP,
+  });
+  const userMsg = capturedMessages.find((m) => m.role === 'user' && m.content.includes('drill four M5 holes'));
+  assert.ok(userMsg, 'final user turn present');
+  assert.ok(userMsg.content.includes('<prior_context>'), 'prior_context tag present');
+  assert.ok(userMsg.content.includes('<viewport_state>'), 'viewport_state tag present');
+  // Strict order: priors < viewport < prompt.
+  const pcIdx = userMsg.content.indexOf('<prior_context>');
+  const vpIdx = userMsg.content.indexOf('<viewport_state>');
+  const ptIdx = userMsg.content.indexOf('drill four M5 holes');
+  assert.ok(pcIdx < vpIdx, 'priors before viewport');
+  assert.ok(vpIdx < ptIdx, 'viewport before prompt');
+}
+
 console.log('[forge.runner] all tests passed');

@@ -154,6 +154,7 @@ export async function runForgePrompt({
   forge,
   signal = null,         // Forge-28: AbortSignal, honoured by archieComplete
   viewportState = '',    // Forge-162: vision caption prepended to user prompt
+  priorContext  = '',    // Forge-163: long-session memory recall prepended too
 } = {}) {
   if (!prompt || typeof prompt !== 'string') {
     throw new Error('[forge.runner] prompt required');
@@ -166,14 +167,17 @@ export async function runForgePrompt({
     final: null,
   };
 
-  // Forge-162 — viewport perception. When the UI tier captured a live
-  // VL caption it arrives as `viewportState`. Wrap it in the same
-  // <viewport_state> tag Studio uses (slice 951q) so the Archie LoRAs
-  // see one consistent perception schema across both apps.
-  const userPrompt = viewportState
-    ? `<viewport_state>${viewportState}</viewport_state>\n\n${prompt}`
-    : prompt;
+  // Forge-162/163 — perception + memory composition. priorContext
+  // (long-session recall) goes FIRST so Archie reads background before
+  // the current scene state, then viewport_state (what's on screen
+  // NOW), then the user's prompt. Same tag schema Studio uses.
+  const userPrompt = [
+    priorContext  || '',
+    viewportState ? `<viewport_state>${viewportState}</viewport_state>` : '',
+    prompt,
+  ].filter(Boolean).join('\n\n');
   trace.viewportState = viewportState || null;
+  trace.priorContext  = priorContext  || null;
 
   // Forge-113 — persona-aware composition. Replaces the legacy
   // [system, user] pair with [persona+system, ...few-shot, user].

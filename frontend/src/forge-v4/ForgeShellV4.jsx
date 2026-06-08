@@ -18,6 +18,8 @@ import { Viewport } from './Viewport.jsx';
 // failures in a silent catch; static import surfaces any bundler issue
 // at load time the way slice 951q does for Studio.
 import { captureForgeViewportCaption as _captureForgeViewportCaption } from '../ai/VisionPerception.js';
+// Forge-163 — long-session memory client (Phase A.4 — Forge half).
+import { recallPriorTurns as _recallPriorTurns, rememberTurn as _rememberTurn } from '../ai/SessionMemoryClient.js';
 // Forge-183 — autosave (localStorage-backed crash recovery).
 import * as AutoSave from './autoSave.js';
 import { QuickAccessBar } from './QuickAccessBar.jsx';
@@ -429,6 +431,12 @@ export function ForgeShellV4() {
     let viewportState = '';
     try { viewportState = await _captureForgeViewportCaption(); }
     catch (_) { /* vision optional */ }
+    // Forge-163 — long-session memory recall. Same bounded-timeout
+    // pattern; empty string when the store is down or opted out so
+    // Archie's prompt goes through unwrapped.
+    let priorContext = '';
+    try { priorContext = await _recallPriorTurns(prompt, { app: 'forge' }); }
+    catch (_) { /* memory optional */ }
     const ac = new AbortController();
     archieAbortRef.current = ac;
     try {
@@ -438,6 +446,7 @@ export function ForgeShellV4() {
         signal: ac.signal,
         forge: window.forge,
         viewportState,
+        priorContext,
         onTrace: (ev) => {
           if (ev.kind === 'tool') {
             pushThread({
@@ -475,6 +484,19 @@ export function ForgeShellV4() {
       } else if (trace.final?.status === 'maxTurns') {
         pushThread({ role: 'archie', text: '(max turns — try a smaller step)' });
       }
+      // Forge-163 — fire-and-forget remember this turn. The trace
+      // captures both the final text AND the tool_call sequence; we
+      // give the store the dispatched tool_calls so future recall
+      // surfaces "last time you asked for X, Archie ran tools Y, Z".
+      const toolCalls = [];
+      for (const it of (trace.iterations || [])) {
+        for (const c of (it?.parsed?.toolCalls || [])) toolCalls.push(c);
+      }
+      _rememberTurn({
+        app: 'forge', user_text: prompt,
+        assistant_summary: (trace.final?.text || trace.final?.status || '').slice(0, 800),
+        tool_calls: toolCalls.length ? toolCalls : null,
+      });
     } catch (err) {
       pushThread({ role: 'archie', text:
         err.name === 'AbortError' ? '(cancelled)' : `Error: ${err.message}` });
