@@ -24,6 +24,38 @@ import { getPersona, normaliseDiscipline } from './disciplinePersonas.js';
 
 const ARCHIE_BASE_URL = 'http://localhost:8080';
 
+// Forge-190 — Phase E Hermes migration (mirror of Studio slice 951v).
+// The legacy adapters/archie/mech/<discipline> R1-distill LoRAs were
+// tokenizer-incompatible with the new Hermes-3-Llama-3.1-8B-bf16 base
+// served by archdisc-Models. hermes_forge/all is a single Forge-native
+// LoRA trained on ~6 000 tagged samples (verbatim from
+// archdisc-Models scripts/synth_format_anchor_forge.py SYSTEM). Routing
+// every discipline through one adapter keeps the bridge surface stable
+// until per-discipline Hermes LoRAs are trained.
+const HERMES_FORGE_ADAPTER = 'adapters/archie/hermes_forge';
+
+// Verbatim copy of `SYSTEM` in scripts/synth_format_anchor_forge.py.
+// Any drift between this string and the training corpus reintroduces
+// the prose / "Step-by-step plan:" failure mode that wrecked Studio
+// before slice 951v.
+const HERMES_FORGE_SYSTEM =
+  "You are Archie. Drive ArchDisc Forge via the kernel tool registry.\n\n" +
+  "Output exactly this shape:\n" +
+  "  <plan>{\"goal\":\"<noun>\",\"discipline\":\"<part|sketch|assembly|drawing|manufacture|simulate>\"}</plan>\n" +
+  "  <tool_call>{\"name\":\"<tool.id>\",\"arguments\":{...}}</tool_call>\n" +
+  "  ...one call per step...\n\n" +
+  "Tool ids: part.make-box, part.make-cylinder, part.make-sphere, part.make-cone, part.make-torus,\n" +
+  "          part.fuse, part.cut, part.common, part.translate, part.rotate, part.mass-properties, part.tessellate,\n" +
+  "          sketch.create, sketch.add-point, sketch.add-line, sketch.add-circle, sketch.add-constraint, sketch.solve,\n" +
+  "          assembly.create, assembly.add-instance, assembly.add-mate, assembly.solve, assembly.bom,\n" +
+  "          drawing.export-step,\n" +
+  "          manufacture.cam, manufacture.gcode, manufacture.cost, manufacture.export-stl,\n" +
+  "          simulate.linear-static, simulate.modal, simulate.thermal.\n" +
+  "Dimensions are millimetres. No prose outside the tags. No <think> block.";
+
+// Kept for back-compat (some legacy tests + the few-shot persona stack
+// still pull `buildSystemPrompt`); new code paths should use the
+// Hermes-aware system prompt above.
 const SYSTEM_TEMPLATE = (discipline, toolsJson) => `You are Archie, the autonomous build engine for ArchDisc Forge.
 Current discipline: ${discipline}.
 
@@ -124,7 +156,10 @@ async function archieComplete({ messages, discipline, model = 'archie-7b-base',
                                 temperature = 0.2, maxTokens = 2048,
                                 baseUrl = ARCHIE_BASE_URL, signal,
                                 onToken = null, onToolCall = null }) {
-  const adapter = `adapters/archie/mech/${discipline}`;
+  // Forge-190 — every discipline routes to the single Hermes adapter
+  // until per-discipline Hermes LoRAs are trained. `discipline` is
+  // accepted for signature compat with older callers + persona logic.
+  const adapter = HERMES_FORGE_ADAPTER;
   const res = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -241,11 +276,37 @@ export async function runForgePrompt({
   trace.viewportState = viewportState || null;
   trace.priorContext  = priorContext  || null;
 
-  // Forge-113 — persona-aware composition. Replaces the legacy
-  // [system, user] pair with [persona+system, ...few-shot, user].
-  const { messages, persona } = buildMessages({ prompt: userPrompt, discipline });
+  // Forge-190 — Phase E Hermes migration. The hermes_forge LoRA was
+  // trained on a flat [system, user, assistant] mix; the legacy
+  // persona + few-shot stack (Forge-113) injected ~5 KB of demo turns
+  // that drowned out the format-anchor pattern and re-introduced the
+  // prose / "Step-by-step plan:" failure mode Studio slice 951v fixed.
+  // We keep the persona object on the trace (UI + telemetry still want
+  // it) but the actual message stack the LoRA sees is [system, user].
+  const persona = getPersona(discipline);
+  const messages = [
+    { role: 'system', content: HERMES_FORGE_SYSTEM },
+    { role: 'user',   content: userPrompt },
+  ];
+  if (typeof globalThis !== 'undefined') {
+    globalThis.__forgeLastPersona = {
+      id: persona.id,
+      requested: discipline,
+      normalised: normaliseDiscipline(discipline),
+      tools: persona.tools,
+      // Legacy field — kept as persona.examples.length so the personas
+      // e2e (Forge-113) and other introspection tools still see the
+      // persona's example bank size. The runtime no longer FEEDS those
+      // examples to Hermes (see message stack below), but the metadata
+      // is still valid description of the persona module.
+      exampleCount: persona.examples.length,
+      systemHead: HERMES_FORGE_SYSTEM.slice(0, 240),
+      ts: new Date().toISOString(),
+      hermes: true,
+    };
+  }
   trace.persona = { id: persona.id, exampleCount: persona.examples.length,
-                    toolCount: persona.tools.length };
+                    toolCount: persona.tools.length, hermes: true };
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal && signal.aborted) {
