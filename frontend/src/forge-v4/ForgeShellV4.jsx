@@ -149,6 +149,9 @@ export function ForgeShellV4() {
   useEffect(() => { stored.set('previewTab', previewTab); }, [previewTab]);
   const cmdRef = useRef(null);
   const archieAbortRef = useRef(null);
+  // Forge-191 — monotonic suffix so Archie-created body ids stay unique
+  // even when speculative dispatch lands several in one millisecond.
+  const _archieBodySeq = useRef(0);
 
   // Theme into the data attribute that the tokens.css selectors read.
   useEffect(() => {
@@ -489,13 +492,20 @@ export function ForgeShellV4() {
                 ev.response?.ok === false ? '✗ ' + (ev.response.error || 'err')
                                           : '✓'}`,
             });
-            // Forge-107 — if the tool response carries a kernel handle, surface
-            // it as a body so Archie-driven geometry actually appears in the
-            // viewport (same path manual confirms use).
+            // Forge-107/191 — if the tool response carries a kernel handle,
+            // surface it as a body so Archie-driven geometry actually appears
+            // in the viewport (same path manual confirms use). Forge-191:
+            // dispatchToolCall nests the run() payload under `result`, and
+            // every part.make-* tool returns `{ shape: <handle> }` — the
+            // legacy chain never checked result.shape, so Archie dispatches
+            // ticked ✓ in the thread while the viewport stayed empty.
+            const _res = ev.response?.result;
             const h = ev.response?.handle ?? ev.response?.shape ??
-                      ev.response?.result?.handle ?? null;
+                      _res?.handle ?? _res?.shape ?? null;
             if (typeof h === 'number') {
-              const nextId = `archie-${Date.now().toString(36)}`;
+              // Forge-191 — Date.now() alone collides when speculative
+              // dispatch lands two bodies in the same millisecond.
+              const nextId = `archie-${Date.now().toString(36)}-${(_archieBodySeq.current += 1)}`;
               setBodies((b) => [...b, {
                 id: nextId, kind: 'native', handle: h,
                 toolId: ev.call.name, params: ev.call.arguments,

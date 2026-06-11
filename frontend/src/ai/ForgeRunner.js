@@ -152,19 +152,25 @@ export function parseAssistant(text) {
  * adapter is selected per-discipline (see ~/archdisc-Models adapter
  * layout); the server routes adapters/archie/mech/${discipline}.
  */
-async function archieComplete({ messages, discipline, model = 'archie-7b-base',
+async function archieComplete({ messages, discipline,
                                 temperature = 0.2, maxTokens = 2048,
                                 baseUrl = ARCHIE_BASE_URL, signal,
                                 onToken = null, onToolCall = null }) {
   // Forge-190 — every discipline routes to the single Hermes adapter
   // until per-discipline Hermes LoRAs are trained. `discipline` is
   // accepted for signature compat with older callers + persona logic.
+  //
+  // Forge-191 — NO `model` field. Current mlx_lm.server resolves an
+  // unknown model id as a HuggingFace repo path (the legacy
+  // 'archie-7b-base' id hit HF, got 401, and the request 404'd).
+  // Omitting the field uses the server's loaded model; per-request
+  // `adapters` does the actual routing — same contract Studio uses.
   const adapter = HERMES_FORGE_ADAPTER;
   const res = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model, messages, temperature, max_tokens: maxTokens,
+      messages, temperature, max_tokens: maxTokens,
       adapters: adapter, // mlx_lm.server hot-swap convention
       stream: !!onToken,
     }),
