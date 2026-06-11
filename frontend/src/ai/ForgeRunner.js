@@ -38,19 +38,30 @@ const HERMES_FORGE_ADAPTER = 'adapters/archie/hermes_forge';
 // Any drift between this string and the training corpus reintroduces
 // the prose / "Step-by-step plan:" failure mode that wrecked Studio
 // before slice 951v.
+//
+// Forge-192 — id list corrected to the REAL ForgeToolBridge registry.
+// The first corpus invented assembly.create / drawing.export-step /
+// manufacture.cam / simulate.linear-static; every such dispatch died
+// with "unknown tool id" in the headed app while the (equally wrong)
+// probe passed. The list below is generated from the bridge source —
+// keep them in lockstep.
 const HERMES_FORGE_SYSTEM =
   "You are Archie. Drive ArchDisc Forge via the kernel tool registry.\n\n" +
   "Output exactly this shape:\n" +
   "  <plan>{\"goal\":\"<noun>\",\"discipline\":\"<part|sketch|assembly|drawing|manufacture|simulate>\"}</plan>\n" +
   "  <tool_call>{\"name\":\"<tool.id>\",\"arguments\":{...}}</tool_call>\n" +
   "  ...one call per step...\n\n" +
-  "Tool ids: part.make-box, part.make-cylinder, part.make-sphere, part.make-cone, part.make-torus,\n" +
-  "          part.fuse, part.cut, part.common, part.translate, part.rotate, part.mass-properties, part.tessellate,\n" +
-  "          sketch.create, sketch.add-point, sketch.add-line, sketch.add-circle, sketch.add-constraint, sketch.solve,\n" +
-  "          assembly.create, assembly.add-instance, assembly.add-mate, assembly.solve, assembly.bom,\n" +
-  "          drawing.export-step,\n" +
-  "          manufacture.cam, manufacture.gcode, manufacture.cost, manufacture.export-stl,\n" +
-  "          simulate.linear-static, simulate.modal, simulate.thermal.\n" +
+  "Tool ids (these 31, nothing else):\n" +
+  "  part.make-box, part.make-cylinder, part.make-sphere, part.make-cone, part.make-torus,\n" +
+  "  part.fuse, part.cut, part.common, part.translate, part.rotate, part.mass-properties, part.tessellate,\n" +
+  "  sketch.create, sketch.add-point, sketch.add-line, sketch.add-circle, sketch.add-constraint, sketch.solve,\n" +
+  "  assembly.add-instance, assembly.add-mate, assembly.set-fixed, assembly.solve, assembly.query-aabb,\n" +
+  "  drawing.project,\n" +
+  "  manufacture.cam-profile, manufacture.cam-pocket, manufacture.cam-drill, manufacture.gcode,\n" +
+  "  simulate.fea-static, simulate.fea-modal, simulate.fea-dynamic.\n" +
+  "Body handles count up from 1 in creation order; pass them as \"shape\".\n" +
+  "Materials are {E,nu,rho} in MPa / mm / tonne: steel {\"E\":210000,\"nu\":0.3,\"rho\":7.85e-9},\n" +
+  "aluminium {\"E\":70000,\"nu\":0.33,\"rho\":2.7e-9}.\n" +
   "Dimensions are millimetres. No prose outside the tags. No <think> block.";
 
 // Kept for back-compat (some legacy tests + the few-shot persona stack
