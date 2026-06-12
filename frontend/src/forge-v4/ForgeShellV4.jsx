@@ -554,9 +554,17 @@ export function ForgeShellV4() {
       for (const it of (trace.iterations || [])) {
         for (const c of (it?.parsed?.toolCalls || [])) toolCalls.push(c);
       }
+      // Forge-194 — store a DIGEST, never raw tags (mirror of Studio
+      // 952/956): a recalled <tool_call> dump inside <prior_context>
+      // hijacks the next reply. Recall-side sanitization exists too;
+      // store-side keeps the DB itself clean.
+      const _rawFinal = (trace.final?.text || trace.final?.status || '');
+      const _summary = /<(tool_call|plan|think)>/i.test(_rawFinal)
+        ? `dispatched ${toolCalls.length} tool calls`
+        : _rawFinal.replace(/<\/?\s*(tool_call|plan|think|viewport_state|prior_context|clarify)\b[^>]*>/gi, ' ').slice(0, 800);
       _rememberTurn({
         app: 'forge', user_text: prompt,
-        assistant_summary: (trace.final?.text || trace.final?.status || '').slice(0, 800),
+        assistant_summary: _summary,
         tool_calls: toolCalls.length ? toolCalls : null,
       });
     } catch (err) {
