@@ -11,6 +11,34 @@ export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
                              onToggleSuppress, onDeleteFeature, onRenameFeature,
                              bodies = [], onToggleBodyVisible, onRenameBody,
                              onPickBody }) {
+  // Forge-195 (parity ledger: panel resizing) — drag-to-resize on the
+  // panel's left edge, width persisted; the Studio V3 pattern ported.
+  const W_KEY = 'forge.v4.rightWidth';
+  const W_MIN = 260, W_MAX = 640;
+  const [width, setWidth] = React.useState(() => {
+    const raw = Number(window.localStorage.getItem(W_KEY));
+    return Number.isFinite(raw) && raw >= W_MIN && raw <= W_MAX ? raw : 0;
+  });
+  const dragRef = React.useRef(null);
+  React.useEffect(() => {
+    if (width) { try { window.localStorage.setItem(W_KEY, String(width)); } catch (_) {} }
+  }, [width]);
+  const onDragStart = (e) => {
+    e.preventDefault();
+    const startW = width || (e.currentTarget.parentElement?.getBoundingClientRect()?.width || 340);
+    dragRef.current = { startX: e.clientX, startW };
+    const onMove = (ev) => {
+      const dx = ev.clientX - dragRef.current.startX;
+      setWidth(Math.min(W_MAX, Math.max(W_MIN, dragRef.current.startW - dx)));
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      dragRef.current = null;
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
   if (collapsed) {
     return (
       <aside className="forge-right" data-collapsed="true"
@@ -36,7 +64,13 @@ export function RightPanel({ collapsed, onToggle, featureTree, activeFeatureId,
   return (
     <aside className="forge-right" data-collapsed="false"
            aria-label="Feature tree and properties"
-           data-testid="forge-right">
+           data-testid="forge-right"
+           style={width ? { width, position: 'relative' } : { position: 'relative' }}>
+      <div data-testid="forge-right-resize"
+           onMouseDown={onDragStart}
+           title="Drag to resize"
+           style={{ position: 'absolute', left: -3, top: 0, bottom: 0, width: 6,
+                    cursor: 'ew-resize', zIndex: 5 }} />
       <header style={{
         display: 'flex', alignItems: 'center', gap: 8,
         padding: '8px 12px',
