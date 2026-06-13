@@ -560,6 +560,25 @@ function getBgColor(state, theme) {
 // instance matrices into matching draw groups. Frustum-culled bodies get
 // a zero-scale instance matrix so they cost a single matrix multiply
 // each but don't rasterize any pixels.
+// Forge-196 — kernel mesh fields cross the contextBridge; depending on the
+// Electron version a Float32Array may arrive intact, as an ArrayBuffer, as a
+// plain Array, or as a numeric-keyed object. Re-marshal to the requested
+// TypedArray; null means "absent or unusable" (caller decides loudly).
+function toTypedArray(a, Ctor) {
+  if (a == null) return null;
+  if (a instanceof Ctor) return a;
+  if (ArrayBuffer.isView(a)) return new Ctor(a.buffer, a.byteOffset, a.byteLength / Ctor.BYTES_PER_ELEMENT);
+  if (a instanceof ArrayBuffer) return new Ctor(a);
+  if (Array.isArray(a) || typeof a.length === 'number') return Ctor.from(a);
+  if (typeof a === 'object') {
+    const keys = Object.keys(a);
+    if (keys.length && keys.every((k) => /^\d+$/.test(k))) {
+      return Ctor.from({ length: keys.length }, (_, i) => a[i]);
+    }
+  }
+  return null;
+}
+
 function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, selectedRef,
                        explodeOffsets = {} }) {
   const [meshes, setMeshes] = React.useState([]);
@@ -580,15 +599,26 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
             typeof window !== 'undefined' && window.forge?.tessellate) {
           try {
             const m = window.forge.tessellate(s.handle, 0.1, 0.5);
+            // Forge-196 — contextBridge clones typed arrays lossily on some
+            // Electron versions (see preload writeBlob); re-marshal before
+            // BufferAttribute, which hard-requires TypedArrays.
+            const pos = toTypedArray(m.positions, Float32Array);
+            if (!pos || pos.length === 0) {
+              throw new Error(`tessellate returned no positions (got ${m.positions ? m.positions.constructor?.name : m.positions})`);
+            }
             g = new THREE.BufferGeometry();
-            g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3));
-            if (m.normals) g.setAttribute('normal', new THREE.BufferAttribute(m.normals, 3));
-            if (m.indices) g.setIndex(new THREE.BufferAttribute(m.indices, 1));
+            g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+            const nrm = toTypedArray(m.normals, Float32Array);
+            if (nrm) g.setAttribute('normal', new THREE.BufferAttribute(nrm, 3));
+            const idx = toTypedArray(m.indices, Uint32Array);
+            if (idx) g.setIndex(new THREE.BufferAttribute(idx, 1));
             // Slice-2 face picking — keep the per-triangle BREP face id map so a
             // raycast hit (intersection.faceIndex) resolves to the OCCT face id.
             if (m.faceIds) faceIds = m.faceIds;
           } catch (err) {
-            console.warn('[forge.v4.scene] tessellate failed:', err.message);
+            g = null;
+            console.error('[forge.v4.scene] tessellate FAILED — body will not render:',
+                          { id: s.id, toolId: s.toolId, handle: s.handle, error: err.message });
           }
         }
         if (!g && s.kind === 'synthetic' && s.spec) {
@@ -688,7 +718,18 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
                                    faceId,
                                    point: e.point ? [e.point.x, e.point.y, e.point.z] : null });
                     } else {
-                      onSelect?.({ kind: 'body', ids: [m.body?.handle ?? m.id] });
+                      // Forge-197 — aisOnClick above already applied the
+                      // modifier-key routing (Shift extends, Ctrl/Cmd
+                      // toggles); its compat shape carries EVERY selected
+                      // body id. Pass that through instead of stomping the
+                      // set back to a single id.
+                      const ais = (typeof window !== 'undefined'
+                                   && window.__forgeSelection
+                                   && window.__forgeSelection.kind === 'body'
+                                   && window.__forgeSelection.ids.length)
+                        ? window.__forgeSelection
+                        : { kind: 'body', ids: [m.body?.handle ?? m.id] };
+                      onSelect?.(ais);
                     }
                   }}>
               {displayState === 'wireframe'

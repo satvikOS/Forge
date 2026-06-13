@@ -30,6 +30,12 @@ const state = {
   mode: 'body',
   selection: null,   // { kind, bodyId, faceIdx?, edgeIdx?, vertexIdx?, point? }
   hovered:   null,   // same shape; the pre-selection layer
+  // Forge-197 — multi-select set (Blender/Maya modifier-key parity).
+  // `selection` stays the ACTIVE entity (last pick — gizmo target);
+  // `selectionSet` holds every selected entity including it. Empty set
+  // + selection=null means nothing selected; single-pick keeps the set
+  // at exactly [selection].
+  selectionSet: [],
 };
 
 const _listeners = new Set();
@@ -41,13 +47,23 @@ function notify() {
     // copy/paste handlers) get a back-compat shape: { kind, ids: [..] }
     // when the new selection is set.
     window.__forgeHovered   = state.hovered;
-    window.__forgeSelection = state.selection
-      ? compatShape(state.selection)
-      : { kind: 'none', ids: [] };
+    // Compat shape carries EVERY selected body in ids (consumers that
+    // read ids[0] keep working; multi-aware consumers read the array).
+    const compat = state.selection ? compatShape(state.selection) : { kind: 'none', ids: [] };
+    if (state.selectionSet.length > 1) {
+      const ids = [];
+      for (const ent of state.selectionSet) {
+        if (ent && ent.bodyId != null && !ids.includes(ent.bodyId)) ids.push(ent.bodyId);
+      }
+      compat.ids = ids;
+      compat.multi = true;
+    }
+    window.__forgeSelection = compat;
     window.__forgeAisSelection = {
       mode: state.mode,
       selection: state.selection,
       hovered: state.hovered,
+      selectionSet: [...state.selectionSet],
     };
     window.dispatchEvent(new CustomEvent('forge:selection-changed', {
       detail: { selection: state.selection, hovered: state.hovered },
@@ -82,6 +98,7 @@ export function setMode(mode) {
   // Clear stale selections that no longer match the new mode.
   state.selection = null;
   state.hovered = null;
+  state.selectionSet = [];
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('forge:selection-mode-changed',
       { detail: { mode } }));
@@ -96,9 +113,10 @@ export function getHovered()   { return state.hovered; }
 
 /** Clear everything; equivalent to Esc + click-on-empty-canvas. */
 export function clear() {
-  if (!state.selection && !state.hovered) return;
+  if (!state.selection && !state.hovered && !state.selectionSet.length) return;
   state.selection = null;
   state.hovered = null;
+  state.selectionSet = [];
   notify();
 }
 
@@ -200,13 +218,67 @@ export function onPointerOver(e) {
   notify();
 }
 
-/** Drive selection from an r3f onClick. */
+/** Drive selection from an r3f onClick.
+ * Forge-197 — modifier-key routing (Blender/Maya parity):
+ *   plain click        → replace (single select)
+ *   Shift+click        → extend (add to set)
+ *   Ctrl/Cmd+click     → toggle (remove if selected, add if not)
+ * r3f events surface modifiers on the synthetic event AND nativeEvent;
+ * read whichever carries them. */
 export function onClick(e) {
   const ent = resolvePointerEvent(e);
-  if (entityEqual(ent, state.selection)) return;
+  if (!ent) return;
+  const ne = (e && e.nativeEvent) || e || {};
+  const ctrl  = !!(ne.ctrlKey || ne.metaKey || (e && (e.ctrlKey || e.metaKey)));
+  const shift = !!(ne.shiftKey || (e && e.shiftKey));
+  if (ctrl)       { toggleSelection(ent); return; }
+  if (shift)      { addToSelection(ent); return; }
+  if (entityEqual(ent, state.selection) && state.selectionSet.length <= 1) return;
+  state.selection = ent;
+  state.selectionSet = [ent];
+  notify();
+}
+
+// Forge-197 — selection-set operations. Pure state transforms; the
+// active entity always tracks the most recent meaningful pick.
+export function addToSelection(ent) {
+  if (!ent) return;
+  if (!state.selectionSet.some((x) => entityEqual(x, ent))) {
+    state.selectionSet = [...state.selectionSet, ent];
+  }
   state.selection = ent;
   notify();
 }
+
+export function toggleSelection(ent) {
+  if (!ent) return;
+  const had = state.selectionSet.some((x) => entityEqual(x, ent));
+  if (had) {
+    state.selectionSet = state.selectionSet.filter((x) => !entityEqual(x, ent));
+    if (entityEqual(state.selection, ent)) {
+      state.selection = state.selectionSet.length
+        ? state.selectionSet[state.selectionSet.length - 1] : null;
+    }
+  } else {
+    state.selectionSet = [...state.selectionSet, ent];
+    state.selection = ent;
+  }
+  notify();
+}
+
+export function removeFromSelection(ent) {
+  if (!ent) return;
+  if (!state.selectionSet.some((x) => entityEqual(x, ent))) return;
+  state.selectionSet = state.selectionSet.filter((x) => !entityEqual(x, ent));
+  if (entityEqual(state.selection, ent)) {
+    state.selection = state.selectionSet.length
+      ? state.selectionSet[state.selectionSet.length - 1] : null;
+  }
+  notify();
+}
+
+export function getSelectionSet() { return [...state.selectionSet]; }
+export function isMultiSelect()   { return state.selectionSet.length > 1; }
 
 /** Clear hover when the cursor leaves a body. */
 export function onPointerOut() {
@@ -215,11 +287,12 @@ export function onPointerOut() {
   notify();
 }
 
-/** Click on empty canvas → drop selection. */
+/** Click on empty canvas → drop selection (the whole set). */
 export function onMissed() {
-  if (!state.selection && !state.hovered) return;
+  if (!state.selection && !state.hovered && !state.selectionSet.length) return;
   state.selection = null;
   state.hovered = null;
+  state.selectionSet = [];
   notify();
 }
 
