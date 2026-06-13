@@ -559,8 +559,11 @@ export function ForgeShellV4() {
       // hijacks the next reply. Recall-side sanitization exists too;
       // store-side keeps the DB itself clean.
       const _rawFinal = (trace.final?.text || trace.final?.status || '');
+      // Slice 963 mirror — the digest must read as a TRAINED
+      // prior_context clause; "dispatched N tool calls" is an alien
+      // shape that collapsed Studio's staged prompts when recalled.
       const _summary = /<(tool_call|plan|think)>/i.test(_rawFinal)
-        ? `dispatched ${toolCalls.length} tool calls`
+        ? 'Built the requested bodies; checks passed.'
         : _rawFinal.replace(/<\/?\s*(tool_call|plan|think|viewport_state|prior_context|clarify)\b[^>]*>/gi, ' ').slice(0, 800);
       _rememberTurn({
         app: 'forge', user_text: prompt,

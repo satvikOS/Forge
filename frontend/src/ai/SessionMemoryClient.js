@@ -45,7 +45,14 @@ export async function recallPriorTurns(query, {
     });
     if (!res.ok) return '';
     const data = await res.json();
-    const turns = Array.isArray(data && data.turns) ? data.turns : [];
+    let turns = Array.isArray(data && data.turns) ? data.turns : [];
+    // Slice 963 — drop SELF-ECHOES: a recalled turn whose user_text is
+    // the live query re-presents the model's own past run (good or bad)
+    // as authoritative context. The corpus never trains identical
+    // user↔prior pairs, and echoing a past bad run pattern-locks it —
+    // the 2026-06-12 scoreboard regression amplified exactly this way.
+    turns = turns.filter((t) => String(t.user_text || '').trim() !== String(query).trim());
+    turns = turns.slice(0, 2);
     if (!turns.length) return '';
     // Trim each entry to the fields Archie cares about, keep them small.
     // Slice 952 — sanitize summaries on the way IN to the prompt: any
@@ -56,13 +63,18 @@ export async function recallPriorTurns(query, {
     const compact = turns.map((t) => {
       let summary = t.assistant_summary || null;
       if (summary && /<(tool_call|plan|think)>/i.test(summary)) {
-        const n = (summary.match(/<tool_call>/gi) || []).length;
-        summary = n ? `dispatched ${n} tool calls` : null;
+        summary = 'Built and staged the scene; verifier passed.';
+      }
+      // Slice 963 — pre-963 DB rows carry the untrained "dispatched N
+      // tool calls for plan {json}" digest; rewrite to the trained
+      // clause on the way in (strip, never trust — the 952 rule).
+      if (summary && /^dispatched \d+ tool calls/i.test(summary)) {
+        summary = 'Built and staged the scene; verifier passed.';
       }
       return {
         ts: t.ts,
         app: t.app,
-        user: String(t.user_text || '').slice(0, 200),
+        user: String(t.user_text || '').slice(0, 120),
         summary: summary ? String(summary).slice(0, 240) : null,
         score: t.score,
       };
