@@ -1066,3 +1066,13 @@ html, body, #root {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--forge-rail-edge); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--forge-ink-faint); }
+
+/* Parity #18 (accessibility / WCAG 2.1 2.4.7 Focus Visible) — keyboard
+ * focus was invisible app-wide (audit 2026-06-13). :focus-visible only
+ * shows for keyboard/AT focus, not mouse. Scoped to the Forge app. */
+.forge-app :focus-visible {
+  outline: 2px solid var(--forge-accent-rim, var(--forge-ink-faint));
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+.forge-app :focus:not(:focus-visible) { outline: none; }
