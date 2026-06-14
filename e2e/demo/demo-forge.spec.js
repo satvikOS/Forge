@@ -138,6 +138,12 @@ test('Forge investor demo — engineering plan → drive → visually verify', a
         } catch (_) {}
       }
       try { fs.copyFileSync(path.join(OUT, `${r.id}-RENDER.png`), path.join(dir, `${r.id}-render.png`)); deliverable.files.push(`${r.id}-render.png`); } catch (_) {}
+      // SPEC/PLAN doc — the engineering deliverable (dims + sim plan).
+      try {
+        const stageLines = r.stages.map((s, i) => `  ${i + 1}. ${s.prompt}`).join('\n');
+        const card = `# ${r.title}\n\nReference: ${r.ref}\n\n## Archie's engineering plan (the spec)\n${r.plan || ''}\n\n## Execution (human-like app drive)\n${stageLines}\n\nRender: ${render.mode}${render.samples ? ' @ ' + render.samples + ' spp (M4 Max GPU ray tracing)' : ''}\nDeliverable: glb + STEP (manufacturing) + STL + render PNG\n`;
+        fs.writeFileSync(path.join(dir, `${r.id}-plan.md`), card); deliverable.files.push(`${r.id}-plan.md`);
+      } catch (_) {}
     }
 
     report.push({ id: r.id, title: r.title, ref: r.ref, allPass, stages: stageResults, finals, render, deliverable });
