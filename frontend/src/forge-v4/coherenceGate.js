@@ -107,3 +107,98 @@ export function verifyCoherenceRules(bodies, ctx) {
   const r = verifyCoherence({ bodies, ...(ctx || {}) });
   return { verdict: r.verdict, reason: r.reasons[0] || '', reasons: r.reasons };
 }
+
+// ─── Mesh-topology gate (parity #57 + defect-taxonomy #62) ───────────────
+// Deterministic detection of the rule-checkable MESH degradation modes
+// from data/knowledge/modeling_defects.json — runs on raw geometry
+// (positions: flat xyz, indices: triangle list) and reports every defect
+// class found, so the visual go/no-go can block a degraded build before
+// it reaches the user. Pure, O(n) except the optional weld scan.
+// Self-intersection (O(n²)) is intentionally excluded here — too costly
+// for a live gate; flagged for an explicit on-demand check.
+export function verifyMeshTopology(positions, indices, opts = {}) {
+  const reasons = [];
+  const pos = positions && positions.length != null ? positions : [];
+  const nV = Math.floor(pos.length / 3);
+  let idx = indices && indices.length != null ? indices : null;
+  if (!idx) { idx = []; for (let i = 0; i < nV; i++) idx.push(i); }
+  const nT = Math.floor(idx.length / 3);
+  if (nT === 0) return { verdict: 'coherent', reasons, stats: { tris: 0 } };
+
+  const eps = Number.isFinite(opts.eps) ? opts.eps : 1e-9;
+  const degenEps = Number.isFinite(opts.degenAreaEps) ? opts.degenAreaEps : 1e-12;
+  const edgeFaces = new Map();   // 'a_b' → count (manifold check)
+  const edgeDir = new Map();     // 'a_b' (a<b) → net winding sign (consistency)
+  const usedV = new Uint8Array(nV);
+  let degenerate = 0, nanFace = 0;
+
+  const area2 = (a, b, c) => {
+    const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2];
+    const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2];
+    const cx = pos[c * 3], cy = pos[c * 3 + 1], cz = pos[c * 3 + 2];
+    const ux = bx - ax, uy = by - ay, uz = bz - az;
+    const vx = cx - ax, vy = cy - ay, vz = cz - az;
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    return Math.hypot(nx, ny, nz); // = 2× triangle area
+  };
+
+  for (let f = 0; f < nT; f++) {
+    const a = idx[f * 3], b = idx[f * 3 + 1], c = idx[f * 3 + 2];
+    if (![a, b, c].every((i) => i >= 0 && i < nV)) { nanFace++; continue; }
+    usedV[a] = usedV[b] = usedV[c] = 1;
+    const ar = area2(a, b, c);
+    if (!Number.isFinite(ar)) { nanFace++; continue; }
+    if (ar < degenEps || a === b || b === c || a === c) { degenerate++; continue; }
+    for (const [u, v] of [[a, b], [b, c], [c, a]]) {
+      const k = u < v ? `${u}_${v}` : `${v}_${u}`;
+      edgeFaces.set(k, (edgeFaces.get(k) || 0) + 1);
+      edgeDir.set(k, (edgeDir.get(k) || 0) + (u < v ? 1 : -1)); // ±1 per traversal
+    }
+  }
+
+  // Degenerate / zero-area faces.
+  if (degenerate > 0) reasons.push(`${degenerate} degenerate (zero-area) face(s)`);
+  if (nanFace > 0) reasons.push(`${nanFace} face(s) with non-finite / out-of-range vertices`);
+
+  // Non-manifold + boundary (tearing) from edge-face counts.
+  let nonManifold = 0, boundary = 0;
+  for (const cnt of edgeFaces.values()) {
+    if (cnt > 2) nonManifold++;
+    else if (cnt === 1) boundary++;
+  }
+  if (nonManifold > 0) reasons.push(`${nonManifold} non-manifold edge(s) (shared by >2 faces)`);
+  if (boundary > 0 && opts.expectClosed) reasons.push(`${boundary} boundary edge(s) — open/torn shell (closed expected)`);
+
+  // Inverted facets: a manifold edge whose two traversals do NOT cancel
+  // means both faces wound it the same way (inconsistent winding).
+  let inconsistent = 0;
+  for (const [k, cnt] of edgeFaces) {
+    if (cnt === 2 && edgeDir.get(k) !== 0) inconsistent++;
+  }
+  if (inconsistent > 0) reasons.push(`${inconsistent} edge(s) with inconsistent winding (inverted facets / non-unified normals)`);
+
+  // Floating / isolated vertices.
+  let floating = 0;
+  for (let v = 0; v < nV; v++) if (!usedV[v]) floating++;
+  if (floating > 0) reasons.push(`${floating} floating (isolated) vertex/vertices`);
+
+  // Coincident unwelded vertices (mesh-tearing / split-vertex signal) —
+  // optional scan (skipped above a cap for perf).
+  if (opts.weldScan !== false && nV <= (opts.weldScanCap || 50000)) {
+    const grid = new Map();
+    const q = (x) => Math.round(x / Math.max(eps, 1e-9));
+    let coincident = 0;
+    for (let v = 0; v < nV; v++) {
+      const key = `${q(pos[v * 3])},${q(pos[v * 3 + 1])},${q(pos[v * 3 + 2])}`;
+      const prev = grid.get(key);
+      if (prev !== undefined) coincident++; else grid.set(key, v);
+    }
+    if (coincident > 0) reasons.push(`${coincident} coincident unwelded vertex/vertices (potential tearing/split seam)`);
+  }
+
+  return {
+    verdict: reasons.length ? 'incoherent' : 'coherent',
+    reasons,
+    stats: { tris: nT, verts: nV, nonManifold, boundary, degenerate, inconsistent, floating },
+  };
+}
