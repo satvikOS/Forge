@@ -97,7 +97,51 @@ test('Forge investor demo — engineering plan → drive → visually verify', a
         finals.push(name);
       }
     }
-    report.push({ id: r.id, title: r.title, ref: r.ref, allPass, stages: stageResults, finals });
+    // ── FINAL PIPELINE STAGE: hi-def GPU ray-traced render → publish
+    //    full engineering deliverable (glb + STEP + STL + render). ──
+    let render = { mode: 'skipped' };
+    let deliverable = { files: [] };
+    if (allPass) {
+      // RENDER — Forge path tracer (M4 Max GPU). Returns an rgb buffer;
+      // the workbench draws it to a canvas. Soft-fail to the raster
+      // viewport so a hero frame always lands.
+      render = await page.evaluate(async () => {
+        try {
+          if (typeof window.__forgeOpenPathTracer === 'function') window.__forgeOpenPathTracer();
+          else if (typeof window.__forgeOpenPathTraceWorkbench === 'function') window.__forgeOpenPathTraceWorkbench();
+          await new Promise((res) => setTimeout(res, 600));
+          if (typeof window.__forgePathTraceRender === 'function') {
+            const out = await window.__forgePathTraceRender({ width: 1280, height: 720, samples: 256, bounces: 4 });
+            return { mode: 'pathtrace', samples: 256, ok: !!out };
+          }
+          return { mode: 'raster' };
+        } catch (e) { return { mode: 'error', error: String(e && e.message || e) }; }
+      });
+      await page.waitForTimeout(800);
+      await page.screenshot({ path: path.join(OUT, `${r.id}-RENDER.png`) });
+
+      // PUBLISH — glb + STEP (the manufacturing-grade deliverable) + STL.
+      const exported = await page.evaluate(async () => {
+        const out = {};
+        const u8toB64 = (b) => { const u8 = b instanceof Uint8Array ? b : new Uint8Array(b); let s = ''; for (let i = 0; i < u8.length; i++) s += String.fromCharCode(u8[i]); return { b64: btoa(s), bytes: u8.length }; };
+        try { if (window.__forgeExportGlbStream) { const g = await window.__forgeExportGlbStream(); if (g) out.glb = u8toB64(g); } } catch (_) {}
+        try { if (window.forge && window.forge.io && window.forge.io.exportStep) { const bodies = window.__forgeBodies || []; const h = bodies[0] && (bodies[0].handle); if (h != null) { const step = await window.forge.io.exportStep(h); if (typeof step === 'string') out.step = step; } } } catch (_) {}
+        try { if (window.__forgeLastStlExport) { const s = window.__forgeLastStlExport; if (typeof s === 'string') out.stl = s; } } catch (_) {}
+        return out;
+      });
+      const dir = path.join(OUT, 'deliverables', r.id);
+      fs.mkdirSync(dir, { recursive: true });
+      for (const [k, v] of Object.entries(exported || {})) {
+        try {
+          if (k === 'glb' && v && v.b64) { fs.writeFileSync(path.join(dir, `${r.id}.glb`), Buffer.from(v.b64, 'base64')); deliverable.files.push(`${r.id}.glb (${v.bytes}B)`); }
+          else if (typeof v === 'string' && v.length) { fs.writeFileSync(path.join(dir, `${r.id}.${k}`), v); deliverable.files.push(`${r.id}.${k} (${v.length}B)`); }
+        } catch (_) {}
+      }
+      try { fs.copyFileSync(path.join(OUT, `${r.id}-RENDER.png`), path.join(dir, `${r.id}-render.png`)); deliverable.files.push(`${r.id}-render.png`); } catch (_) {}
+    }
+
+    report.push({ id: r.id, title: r.title, ref: r.ref, allPass, stages: stageResults, finals, render, deliverable });
+    console.log(`[demo:${r.id}] ${allPass ? 'PASS' : 'FAIL'} | render=${render.mode} | deliverable=${deliverable.files.length} files`);
   }
 
   fs.writeFileSync(path.join(OUT, 'demo-report.json'), JSON.stringify(report, null, 1));
