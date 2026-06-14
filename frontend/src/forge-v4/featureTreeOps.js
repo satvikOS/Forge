@@ -1,5 +1,5 @@
 // Feature-tree optimizer (parity #60) — pure, DOM-free, node-testable;
-// Forge copy (byte-equal with Studio) (the SessionMemoryClient pattern).
+// behaviorally-identical copy of Studio (header differs) (the SessionMemoryClient pattern).
 //
 // Reliable CAD copilots offer "find + merge duplicate features." Done
 // naively that corrupts geometry (two extrudes ≠ one). This optimizer is
@@ -36,20 +36,43 @@ const SETTER_OPS = new Set([
 const _key = (f) => `${f.toolId || f.op || ''}|${JSON.stringify(f.params || {})}`;
 const _target = (f) => f.target ?? f.bodyId ?? (f.params && (f.params.target ?? f.params.bodyId ?? f.params.id)) ?? null;
 
+// EXPLICIT allow-lists, never substring matching. Adversarial
+// verification (2026-06-13) caught the substring form deleting real
+// geometry: 'removeFace'/'removeBody'/'removeShell' contain "move" and
+// 'rotateExtrude'/'rotateSweep' contain "rotate", so a face-removal or a
+// revolve was mistaken for an identity transform and silently dropped —
+// a geometry-loss violation of the module's core promise. Allow-lists +
+// "param actually present" guards make a missing/unknown op a CONSERVATIVE
+// KEEP, never a delete.
+const TRANSLATE_OPS = new Set([
+  'translate', 'move', 'studio.translate', 'studio.move', 'transform.translate',
+]);
+const ROTATE_OPS = new Set([
+  'rotate', 'studio.rotate', 'transform.rotate',
+]);
+const SCALE_OPS = new Set([
+  'scale', 'studio.scale', 'transform.scale',
+]);
+
 function _isIdentityTransform(f) {
   const op = String(f.toolId || f.op || '').toLowerCase();
   const p = f.params || {};
   const near0 = (v) => Math.abs(Number(v) || 0) < 1e-9;
   const near1 = (v) => Math.abs((Number(v) || 0) - 1) < 1e-9;
-  const vecNear = (a, fn) => Array.isArray(a) && a.every(fn);
-  if (op.includes('translate') || op.includes('move')) {
+  // A vector counts only if it actually HAS finite components — an
+  // all-undefined [dx,dy,dz] must NOT read as "all near zero".
+  const vecNear = (a, fn) => Array.isArray(a) && a.length > 0 && a.every((v) => v != null && fn(v));
+  if (TRANSLATE_OPS.has(op)) {
     const d = p.delta || p.translation || [p.dx, p.dy, p.dz];
     return vecNear(d, near0);
   }
-  if (op.includes('rotate')) return near0(p.angle ?? p.deg ?? p.radians);
-  if (op.includes('scale')) {
+  if (ROTATE_OPS.has(op)) {
+    const a = p.angle ?? p.deg ?? p.radians;
+    return a != null && near0(a); // missing angle (e.g. full revolve) → KEEP
+  }
+  if (SCALE_OPS.has(op)) {
     const s = p.scale || p.factor || [p.sx, p.sy, p.sz];
-    return Array.isArray(s) ? vecNear(s, near1) : near1(s);
+    return Array.isArray(s) ? vecNear(s, near1) : (s != null && near1(s));
   }
   return false;
 }
