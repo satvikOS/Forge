@@ -57,14 +57,11 @@ export const FORGE_RECIPES = [
     prompt: 'model a tube, outer Ø50, 4 mm wall, 120 long',
     expect: (st) => st.bodies >= 1,
   },
-  {
-    id: 'stepped-shaft',
-    title: 'Stepped shaft — Ø30×60 → Ø20×40',
-    ref: 'V-656 mechanical',
-    plan: 'Two coaxial cylinders fused into a stepped shaft — one asset call → one body.',
-    prompt: 'model a stepped shaft, Ø30 by 60 then Ø20 by 40',
-    expect: (st) => st.bodies >= 1,
-  },
+  // NOTE: stepped-shaft dropped from the LIVE set — the coaxial-fuse asset
+  // is the most degradation-sensitive (came out as a box+blob once serve had
+  // handled several requests). Re-add once serve stability over a long session
+  // is solved (see feedback-models-serve-restart-before-demo). flange / tube /
+  // l-bracket / bored-plate exercise the cut+fuse story reliably.
   {
     id: 'bored-mounting-plate',
     title: 'Mounting plate 120×80×14 mm + Ø25 centre bore',
