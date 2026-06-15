@@ -71,4 +71,25 @@ export const FORGE_RECIPES = [
     prompt: 'model a mounting plate 120 by 80 by 14 mm with a 25 mm hole through the centre',
     expect: (st) => st.bodies >= 1,
   },
+  {
+    id: 'spur-gear', title: 'Spur gear — Ø80, 20 mm bore', ref: 'standard part',
+    plan: 'Toothed gear: hub + radial teeth + centre bore, one asset call.',
+    prompt: 'a spur gear, 80 mm OD with a 20 mm bore', expect: (st) => st.bodies >= 1,
+  },
+  {
+    id: 'bushing', title: 'Flanged bushing — Ø30, Ø12 bore', ref: 'standard part',
+    plan: 'Tube with a flange — one asset call.', prompt: 'a bushing, 12 bore, 30 OD', expect: (st) => st.bodies >= 1,
+  },
+  {
+    id: 'u-channel', title: 'U-channel — 100 long', ref: 'structural',
+    plan: 'C-section channel — box minus inner box, one asset call.', prompt: 'a U-channel 100 long, 50 wide', expect: (st) => st.bodies >= 1,
+  },
+  {
+    id: 'pipe-tee', title: 'Pipe tee — Ø30', ref: 'standard part',
+    plan: 'Two perpendicular tubes fused — one asset call.', prompt: 'a pipe tee, 30 OD', expect: (st) => st.bodies >= 1,
+  },
+  {
+    id: 'keyed-shaft', title: 'Keyed shaft — Ø30 x 80', ref: 'mechanical',
+    plan: 'Shaft with a keyway slot — one asset call.', prompt: 'a keyed shaft Ø30 by 80', expect: (st) => st.bodies >= 1,
+  },
 ];
