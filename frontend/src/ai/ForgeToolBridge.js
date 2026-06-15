@@ -30,14 +30,37 @@ import { getForge } from '../kernel/forge/index.js';
 // the un-filleted shape rather than fail the build.
 function roundEdges(shape, forge, radius) {
   try {
-    if (!forge || typeof forge.edgeCount !== 'function' || typeof forge.filletEdges !== 'function') return shape;
-    const n = forge.edgeCount(shape);
+    // Edge count + fillet live on the namespaced kernel surface
+    // (forge.direct.edgeCount / forge.part.filletEdges) — NOT flat. The
+    // old flat probe silently no-op'd, so asset edges shipped as raw
+    // boolean blocks. Edge ids are 0-based (see RealVariableFilletPanel).
+    const edgeCount  = forge?.direct?.edgeCount;
+    const filletEdges = forge?.part?.filletEdges;
+    if (typeof edgeCount !== 'function' || typeof filletEdges !== 'function') return shape;
+    const n = edgeCount(shape);
     if (!n) return shape;
     const ids = Array.from({ length: n }, (_, i) => i);
-    const r = forge.filletEdges(shape, ids, radius);
+    const r = filletEdges(shape, ids, radius);
     return (typeof r === 'number' && r > 0) ? r : shape;
   } catch (_) { return shape; }
 }
+
+// Build a closed planar (XY, z=0) profile sketch from a [[x,y], …] point
+// list and return the sketch handle the part-feature ops consume. One
+// tool call → one profile → one feature, matching the asset-builder
+// philosophy (Archie never juggles sketch handles across turns).
+function buildProfileSketch(forge, points, { closed = true } = {}) {
+  const sk = forge && forge.sketcher;
+  if (!sk || typeof sk.createSketch !== 'function') throw new Error('forge.sketcher unavailable');
+  if (!Array.isArray(points) || points.length < 2) throw new Error('profile needs ≥2 points');
+  const h = sk.createSketch();
+  const ids = points.map((p) => sk.addPoint(h, +p[0] || 0, +p[1] || 0));
+  for (let i = 0; i < ids.length - 1; i++) sk.addLine(h, ids[i], ids[i + 1]);
+  if (closed) sk.addLine(h, ids[ids.length - 1], ids[0]);
+  return h;
+}
+
+const DEG = (d) => (Number(d) || 0) * Math.PI / 180;
 
 // ===================================================================
 //                              tool registry
@@ -185,6 +208,152 @@ export const FORGE_TOOLS = [
       const m = forge.tessellate(shape, linearTol, angularTol);
       return { triangleCount: m.triangleCount, vertexCount: m.positions.length / 3 };
     } },
+
+  // ===================================================== PARAMETRIC / FREEFORM
+  // These reach the OCCT kernel's real feature/surfacing/direct/heal verbs
+  // (window.forge.part.* / .surfacing.* / .direct.* / .heal.*) — sweeps,
+  // lofts of revolution, NURBS patches, graduated fillets, patterns, draft,
+  // shell, face push/pull. This is what lets Archie build CURVED / BLENDED /
+  // PATTERNED geometry instead of straight CSG primitive stacks.
+  { name: 'part.extrude', discipline: 'part', produces: 'handle',
+    description: 'Extrude a closed 2D profile (XY points, mm) by a distance along a direction → prism solid.',
+    parameters: { profile: P('array', '[[x,y], …] closed profile points', { required: true }),
+                  distance: P('number', 'extrude distance in mm', { required: true }),
+                  dir: P('array', '[dx,dy,dz] direction (default +Z)', { default: [0, 0, 1] }) },
+    run: ({ profile, distance, dir }, forge) => {
+      const sk = buildProfileSketch(forge, profile);
+      const d = Float64Array.from(Array.isArray(dir) && dir.length === 3 ? dir : [0, 0, 1]);
+      return { shape: forge.part.extrudeProfile(sk, distance, d) };
+    } },
+
+  { name: 'part.revolve', discipline: 'part', produces: 'handle',
+    description: 'Revolve a closed 2D profile (XY points) around an axis → solid of revolution (vase/dome/turned part). Curved.',
+    parameters: { profile: P('array', '[[x,y], …] profile on one side of the axis', { required: true }),
+                  axisOrigin: P('array', '[x,y,z] axis point (default origin)', { default: [0, 0, 0] }),
+                  axisDir: P('array', '[x,y,z] axis direction (default +Y)', { default: [0, 1, 0] }),
+                  angleDeg: P('number', 'revolution angle in degrees', { default: 360 }) },
+    run: ({ profile, axisOrigin, axisDir, angleDeg }, forge) => {
+      const sk = buildProfileSketch(forge, profile);
+      const o = Float64Array.from(Array.isArray(axisOrigin) ? axisOrigin : [0, 0, 0]);
+      const a = Float64Array.from(Array.isArray(axisDir) ? axisDir : [0, 1, 0]);
+      return { shape: forge.part.revolveProfile(sk, o, a, DEG(angleDeg ?? 360)) };
+    } },
+
+  { name: 'part.pipe', discipline: 'part', produces: 'handle',
+    description: 'Sweep a circular profile of given radius along a 3D polyline path → watertight curved pipe/tube/duct solid.',
+    parameters: { path: P('array', '[[x,y,z], …] ≥2 spine points (mm)', { required: true }),
+                  radius: P('number', 'tube radius in mm', { required: true }) },
+    run: ({ path, radius }, forge) => {
+      if (!Array.isArray(path) || path.length < 2) throw new Error('pipe path needs ≥2 points');
+      const flat = new Float64Array(path.length * 3);
+      for (let i = 0; i < path.length; i++) { flat[i * 3] = +path[i][0] || 0; flat[i * 3 + 1] = +path[i][1] || 0; flat[i * 3 + 2] = +path[i][2] || 0; }
+      return { shape: forge.part.pipeFromPolyline(flat, radius) };
+    } },
+
+  { name: 'part.nurbs-surface', discipline: 'part', produces: 'handle',
+    description: 'Build a freeform NURBS surface from a control-point grid, optionally thickened into a solid. Freeform/curved.',
+    parameters: { grid: P('array', '[[ [x,y,z], … ], … ] rows×cols control grid', { required: true }),
+                  uDegree: P('uint', 'U degree (default 3)', { default: 3 }),
+                  vDegree: P('uint', 'V degree (default 3)', { default: 3 }),
+                  thickness: P('number', 'if >0, thicken the surface into a solid (mm)', { default: 0 }) },
+    run: ({ grid, uDegree, vDegree, thickness }, forge) => {
+      const face = forge.surfacing.buildPatch(grid, uDegree ?? 3, vDegree ?? 3, null, null);
+      if (thickness && thickness > 0) return { shape: forge.part.thickenSurface(face, thickness, 0), face };
+      return { shape: face, face };
+    } },
+
+  { name: 'part.fillet', discipline: 'part', produces: 'handle',
+    description: 'Round edges of a solid with a constant radius. Omit edgeIds to fillet ALL edges (manufactured look).',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  radius: P('number', 'fillet radius in mm', { required: true }),
+                  edgeIds: P('array', '0-based edge ids (default: all edges)', { default: null }) },
+    run: ({ shape, radius, edgeIds }, forge) => {
+      let ids = edgeIds;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        const n = forge.direct.edgeCount(shape);
+        ids = Array.from({ length: n }, (_, i) => i);
+      }
+      return { shape: forge.part.filletEdges(shape, ids, radius) };
+    } },
+
+  { name: 'part.variable-fillet', discipline: 'part', produces: 'handle',
+    description: 'Graduated (variable-radius) fillet along one edge, radius interpolated through anchor points.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  edgeId: P('uint', '0-based edge id to fillet', { required: true }),
+                  anchors: P('array', '[{u,r}, …] u∈[0,1] position → radius mm', { required: true }) },
+    run: ({ shape, edgeId, anchors }, forge) => {
+      const a = (anchors || []).map((p) => ({ u: +p.u, r: +p.r }));
+      return { shape: forge.part.variableFilletEdge(shape, edgeId, a) };
+    } },
+
+  { name: 'part.chamfer', discipline: 'part', produces: 'handle',
+    description: 'Chamfer (break) edges of a solid by a distance. Omit edgeIds to chamfer ALL edges.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  distance: P('number', 'chamfer distance in mm', { required: true }),
+                  edgeIds: P('array', '0-based edge ids (default: all)', { default: null }) },
+    run: ({ shape, distance, edgeIds }, forge) => {
+      let ids = edgeIds;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        const n = forge.direct.edgeCount(shape);
+        ids = Array.from({ length: n }, (_, i) => i);
+      }
+      return { shape: forge.part.chamferEdges(shape, ids, distance, -1) };
+    } },
+
+  { name: 'part.shell', discipline: 'part', produces: 'handle',
+    description: 'Hollow a solid to a wall thickness, optionally removing faces to open it (faceIds 1-based).',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  thickness: P('number', 'wall thickness in mm', { required: true }),
+                  faceIds: P('array', '1-based face ids to remove/open (default none)', { default: [] }) },
+    run: ({ shape, thickness, faceIds }, forge) => ({ shape: forge.part.shell(shape, Array.isArray(faceIds) ? faceIds : [], thickness, []) }) },
+
+  { name: 'part.draft-faces', discipline: 'part', produces: 'handle',
+    description: 'Apply a draft (taper) angle to faces about a neutral plane — for mould release / cast parts.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  neutralPlane: P('uint', 'neutral plane face id (1-based)', { required: true }),
+                  faceIds: P('array', '1-based face ids to draft', { required: true }),
+                  angleDeg: P('number', 'draft angle in degrees', { required: true }) },
+    run: ({ shape, neutralPlane, faceIds, angleDeg }, forge) => ({ shape: forge.part.draftFaces(shape, neutralPlane, faceIds, DEG(angleDeg)) }) },
+
+  { name: 'part.linear-pattern', discipline: 'part', produces: 'handle',
+    description: 'Replicate a solid in a straight row → fused pattern body.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  count: P('uint', 'instance count', { required: true }),
+                  dx: P('number', 'x spacing mm', { default: 0 }),
+                  dy: P('number', 'y spacing mm', { default: 0 }),
+                  dz: P('number', 'z spacing mm', { default: 0 }) },
+    run: ({ shape, count, dx, dy, dz }, forge) => ({ shape: forge.part.linearPattern(shape, count, dx ?? 0, dy ?? 0, dz ?? 0) }) },
+
+  { name: 'part.circular-pattern', discipline: 'part', produces: 'handle',
+    description: 'Replicate a solid around an axis → radial/ring pattern body.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  count: P('uint', 'instance count', { required: true }),
+                  axisOrigin: P('array', '[x,y,z] axis point (default origin)', { default: [0, 0, 0] }),
+                  axisDir: P('array', '[x,y,z] axis direction (default +Z)', { default: [0, 0, 1] }),
+                  totalAngleDeg: P('number', 'total spread in degrees', { default: 360 }) },
+    run: ({ shape, count, axisOrigin, axisDir, totalAngleDeg }, forge) => {
+      const o = Float64Array.from(Array.isArray(axisOrigin) ? axisOrigin : [0, 0, 0]);
+      const a = Float64Array.from(Array.isArray(axisDir) ? axisDir : [0, 0, 1]);
+      return { shape: forge.part.circularPattern(shape, count, o, a, DEG(totalAngleDeg ?? 360)) };
+    } },
+
+  { name: 'part.push-pull-face', discipline: 'part', produces: 'handle',
+    description: 'Direct-edit: push/pull a single face along its normal by a distance (synchronous tech).',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  faceId: P('uint', '1-based face id', { required: true }),
+                  distance: P('number', 'offset in mm (+out / −in)', { required: true }) },
+    run: ({ shape, faceId, distance }, forge) => ({ shape: forge.direct.pushPullFace(shape, faceId, distance) }) },
+
+  { name: 'part.continuity-check', discipline: 'part', produces: 'report',
+    description: 'Class-A surface analysis (zebra/curvature) of a NURBS face — reports continuity quality (G0/G1/G2).',
+    parameters: { face: P('uint', 'face handle', { required: true }),
+                  samples: P('uint', 'sample count', { default: 16 }) },
+    run: ({ face, samples }, forge) => forge.surfacing.classAAnalyse(face, samples ?? 16) },
+
+  { name: 'part.check-validity', discipline: 'part', produces: 'report',
+    description: 'Validate a solid (manifold / self-intersection / small faces) — the coherence gate for a body.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }) },
+    run: ({ shape }, forge) => forge.heal.checkValidity(shape) },
 
   // ============================================================ ASSEMBLY
   { name: 'assembly.add-instance', discipline: 'assembly', produces: 'handle',

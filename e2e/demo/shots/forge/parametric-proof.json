@@ -1,0 +1,63 @@
+{
+ "log": [
+  {
+   "name": "part.revolve",
+   "ok": true,
+   "error": null,
+   "shape": 1
+  },
+  {
+   "name": "part.pipe",
+   "ok": true,
+   "error": null,
+   "shape": 2
+  },
+  {
+   "name": "part.nurbs-surface",
+   "ok": true,
+   "error": null,
+   "shape": 4
+  },
+  {
+   "name": "part.make-box",
+   "ok": true,
+   "error": null,
+   "shape": 5
+  },
+  {
+   "name": "part.fillet",
+   "ok": true,
+   "error": null,
+   "shape": 6
+  },
+  {
+   "name": "part.make-cylinder",
+   "ok": true,
+   "error": null,
+   "shape": 7
+  },
+  {
+   "name": "part.translate",
+   "ok": true,
+   "error": null,
+   "shape": 8
+  },
+  {
+   "name": "part.circular-pattern",
+   "ok": true,
+   "error": null,
+   "shape": 9
+  }
+ ],
+ "bodyCount": 5,
+ "render": {
+  "calls": 6,
+  "tris": 12290,
+  "bodies": 5
+ },
+ "extent": [
+  745,
+  94,
+  240
+ ]
+}

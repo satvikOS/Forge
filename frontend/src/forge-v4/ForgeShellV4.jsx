@@ -9,6 +9,7 @@ import { TopBar } from './TopBar.jsx';
 import { WorkbenchRail } from './WorkbenchRail.jsx';
 import { Toolbar, toolsForWorkbench } from './Toolbar.jsx';
 import { installForgeEnvironmentBuilder } from './forgeEnvironmentBuilder.js';
+import { installForgeRunner } from '../ai/ForgeRunner.js';
 import { RightPanel } from './RightPanel.jsx';
 import { StatusBar } from './StatusBar.jsx';
 import { CommandBar } from './CommandBar.jsx';
@@ -206,6 +207,7 @@ export function ForgeShellV4() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try { installForgeEnvironmentBuilder(); } catch (_) {} // window.__forgeBuildEnvironment (100k industrial env)
+    try { installForgeRunner(); } catch (_) {} // window.__forgeRun + window.__forgeEngine.dispatchToolCall (Archie tool bridge)
     window.__forgeBodies      = bodies;
     window.__forgeFeatureTree = featureTree;
     window.__forgeSelection   = selection;

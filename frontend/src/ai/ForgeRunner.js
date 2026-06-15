@@ -53,7 +53,7 @@ Output exactly this shape:
   <tool_call>{"name":"<tool.id>","arguments":{...}}</tool_call>
   ...one call per step...
 
-Tool ids (these 31, nothing else):
+Tool ids (use these, nothing else):
   part.make-box, part.make-cylinder, part.make-sphere, part.make-cone, part.make-torus,
   part.fuse, part.cut, part.common, part.translate, part.rotate, part.mass-properties, part.tessellate,
   sketch.create, sketch.add-point, sketch.add-line, sketch.add-circle, sketch.add-constraint, sketch.solve,
@@ -61,6 +61,14 @@ Tool ids (these 31, nothing else):
   drawing.project,
   manufacture.cam-profile, manufacture.cam-pocket, manufacture.cam-drill, manufacture.gcode,
   simulate.fea-static, simulate.fea-modal, simulate.fea-dynamic.
+Parametric / freeform features — PREFER these for CURVED, BLENDED or PATTERNED geometry instead of stacking boxes:
+  part.extrude{profile,distance,dir}, part.revolve{profile,axisOrigin,axisDir,angleDeg} (vases/turned parts),
+  part.pipe{path,radius} (curved pipe/duct along a 3D polyline), part.nurbs-surface{grid,uDegree,vDegree,thickness} (freeform),
+  part.fillet{shape,radius,edgeIds?} (round edges; omit edgeIds = all), part.variable-fillet{shape,edgeId,anchors:[{u,r}]},
+  part.chamfer{shape,distance,edgeIds?}, part.shell{shape,thickness,faceIds?}, part.draft-faces{shape,neutralPlane,faceIds,angleDeg},
+  part.linear-pattern{shape,count,dx,dy,dz}, part.circular-pattern{shape,count,axisOrigin,axisDir,totalAngleDeg},
+  part.push-pull-face{shape,faceId,distance}, part.continuity-check{face}, part.check-validity{shape}.
+Profiles are [[x,y],…] closed point lists (mm). Real parts are seldom all-straight: use fillets, draft and revolves.
 Parametric assets — PREFER one of these when the request matches a whole part (one call builds it):
   asset.make-bored-plate{dx,dy,dz,bore}, asset.make-l-bracket{len,width,thick,wall,hole},
   asset.make-flange{od,thick,bore,bolts,bolt_d,bcd}, asset.make-stepped-shaft{d1,h1,d2,h2},
