@@ -22,9 +22,7 @@
   ],
   "render": {
    "mode": "pathtrace-gpu",
-   "samples": 128,
-   "w": 1280,
-   "h": 720
+   "samples": 128
   },
   "deliverable": {
    "files": [
@@ -59,9 +57,7 @@
   ],
   "render": {
    "mode": "pathtrace-gpu",
-   "samples": 128,
-   "w": 1280,
-   "h": 720
+   "samples": 128
   },
   "deliverable": {
    "files": [
@@ -96,9 +92,7 @@
   ],
   "render": {
    "mode": "pathtrace-gpu",
-   "samples": 128,
-   "w": 1280,
-   "h": 720
+   "samples": 128
   },
   "deliverable": {
    "files": [
@@ -133,9 +127,7 @@
   ],
   "render": {
    "mode": "pathtrace-gpu",
-   "samples": 128,
-   "w": 1280,
-   "h": 720
+   "samples": 128
   },
   "deliverable": {
    "files": [
@@ -170,9 +162,7 @@
   ],
   "render": {
    "mode": "pathtrace-gpu",
-   "samples": 128,
-   "w": 1280,
-   "h": 720
+   "samples": 128
   },
   "deliverable": {
    "files": [
@@ -207,9 +197,7 @@
   ],
   "render": {
    "mode": "pathtrace-gpu",
-   "samples": 128,
-   "w": 1280,
-   "h": 720
+   "samples": 128
   },
   "deliverable": {
    "files": [

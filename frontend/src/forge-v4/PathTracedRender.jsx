@@ -233,7 +233,14 @@ function harvestScene() {
   return out;
 }
 
-function frameCameraForScene(scene, aspect) {
+const FORGE_ANGLE_DIRS = {
+  hero:    [1.55, 1.2, 1.75],
+  front:   [0.05, 0.5, 1.9],
+  profile: [1.9, 0.5, 0.12],
+  top:     [0.5, 2.1, 0.6],
+};
+
+function frameCameraForScene(scene, aspect, angle = 'hero') {
   // Frame the PART (measured in harvestScene), not the whole scene —
   // otherwise the proportional floor still pulls the framing wide. Fall
   // back to the scene box if the part metrics are absent.
@@ -247,13 +254,12 @@ function frameCameraForScene(scene, aspect) {
     radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 30);
   }
   const cam = new THREE.PerspectiveCamera(40, aspect, Math.max(radius * 0.01, 0.05), radius * 200);
-  // 3/4 hero angle, distance ≈ 2.6× radius so a 40° FOV frames the part
-  // filling most of the view (scale to viewer).
-  cam.position.set(
-    center.x + radius * 1.55,
-    center.y + radius * 1.2,
-    center.z + radius * 1.75,
-  );
+  // distance ≈ 2.66× radius so a 40° FOV fills the view; the angle picks the
+  // (normalized) view direction so every angle keeps the same framing.
+  const raw = FORGE_ANGLE_DIRS[angle] || FORGE_ANGLE_DIRS.hero;
+  const d = radius * 2.66;
+  const dn = new THREE.Vector3(raw[0], raw[1], raw[2]).normalize();
+  cam.position.set(center.x + dn.x * d, center.y + dn.y * d, center.z + dn.z * d);
   cam.lookAt(center);
   cam.updateMatrixWorld(true);
   return cam;
@@ -266,6 +272,7 @@ export async function runPathTracedRender({
   samples = 32,
   denoise = true,
   resolutionId = '1080p',
+  angle = 'hero',
   onProgress,
 } = {}) {
   const cap = detectWebGL2Compute();
@@ -280,7 +287,7 @@ export async function runPathTracedRender({
   canvas.width = res.w; canvas.height = res.h;
 
   const scene = harvestScene();
-  const camera = frameCameraForScene(scene, res.w / res.h);
+  const camera = frameCameraForScene(scene, res.w / res.h, angle);
 
   const env = buildEnvTexture(envPresetId, renderer);
   scene.environment = env.tex;

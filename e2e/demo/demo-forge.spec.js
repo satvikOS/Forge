@@ -166,18 +166,23 @@ test('Forge investor demo — engineering plan → drive → visually verify', a
       // always lands.
       const renderPath = path.join(OUT, `${r.id}-RENDER.png`);
       try { fs.unlinkSync(renderPath); } catch (_) {} // never reuse a prior run's frame
-      render = await page.evaluate(async () => {
-        try {
-          if (typeof window.__forgeRunPathTracedRender === 'function') {
-            const out = await window.__forgeRunPathTracedRender({ samples: 128, resolutionId: '720p', envPresetId: 'studio', denoise: true });
-            if (out && out.dataUrl) return { mode: 'pathtrace-gpu', samples: out.samples, w: out.width, h: out.height, dataUrl: out.dataUrl };
-          }
-          return { mode: 'viewport', note: '__forgeRunPathTracedRender unavailable' };
-        } catch (e) { return { mode: 'viewport', note: String(e && e.message || e) }; }
-      });
-      if (render && render.mode === 'pathtrace-gpu' && render.dataUrl) {
-        try { fs.writeFileSync(renderPath, Buffer.from(render.dataUrl.split(',')[1], 'base64')); } catch (e) { render.writeErr = String(e); }
-        delete render.dataUrl; // don't bloat the report json
+      // Multi-angle: hero (→RENDER.png) + front/profile/top, each a fresh GPU
+      // path trace from a normalized camera direction (≥4 angles per part).
+      for (const angle of ['hero', 'front', 'profile', 'top']) {
+        const out = await page.evaluate(async (a) => {
+          try {
+            if (typeof window.__forgeRunPathTracedRender === 'function') {
+              const o = await window.__forgeRunPathTracedRender({ samples: 128, resolutionId: '720p', envPresetId: 'studio', denoise: true, angle: a });
+              if (o && o.dataUrl) return { mode: 'pathtrace-gpu', samples: o.samples, dataUrl: o.dataUrl };
+            }
+            return { mode: 'viewport' };
+          } catch (e) { return { mode: 'viewport', note: String(e && e.message || e) }; }
+        }, angle);
+        if (out && out.dataUrl) {
+          const fp = angle === 'hero' ? renderPath : path.join(OUT, `${r.id}-${angle}.png`);
+          try { fs.writeFileSync(fp, Buffer.from(out.dataUrl.split(',')[1], 'base64')); } catch (e) { out.writeErr = String(e); }
+          if (angle === 'hero') render = { mode: out.mode, samples: out.samples };
+        } else if (angle === 'hero') render = out || { mode: 'viewport' };
       }
       if (!fs.existsSync(renderPath)) {
         // fallback: shaded viewport frame
