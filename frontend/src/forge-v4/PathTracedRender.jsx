@@ -35,9 +35,9 @@ const ENV_PRESETS = Object.freeze({
   studio: {
     label: 'Studio',
     top:    new THREE.Color(0xffffff),
-    bottom: new THREE.Color(0x404040),
-    exponent: 1.0,
-    intensity: 1.4,
+    bottom: new THREE.Color(0x16171b),
+    exponent: 0.72,
+    intensity: 1.95,
   },
   sunset: {
     label: 'Sunset',
@@ -223,7 +223,9 @@ function harvestScene() {
   const span = Math.max(partSize.x, partSize.z, partSize.y) * 10 + 1;
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(span, span),
-    new THREE.MeshPhysicalMaterial({ color: 0x1a1c20, metalness: 0.0, roughness: 0.85 }),
+    // subtly reflective studio sweep floor → a product-shot reflection under
+    // the part (clearcoat gives the soft mirror without full chrome).
+    new THREE.MeshPhysicalMaterial({ color: 0x141519, metalness: 0.1, roughness: 0.4, clearcoat: 0.35, clearcoatRoughness: 0.45 }),
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.set(partCenter.x, partBox.min.y - partSize.y * 0.01 - 0.01, partCenter.z);
