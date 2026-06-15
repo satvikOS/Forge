@@ -23,6 +23,22 @@
 
 import { getForge } from '../kernel/forge/index.js';
 
+// Round ALL edges of a finished asset body so machined parts read as
+// manufactured (broken edges), not raw boolean blocks. Fillets every edge
+// (forge.edgeCount → forge.filletEdges, both flat on the kernel bridge) with a
+// small radius; OCCT can throw on contradictory edge sets, so we fall back to
+// the un-filleted shape rather than fail the build.
+function roundEdges(shape, forge, radius) {
+  try {
+    if (!forge || typeof forge.edgeCount !== 'function' || typeof forge.filletEdges !== 'function') return shape;
+    const n = forge.edgeCount(shape);
+    if (!n) return shape;
+    const ids = Array.from({ length: n }, (_, i) => i);
+    const r = forge.filletEdges(shape, ids, radius);
+    return (typeof r === 'number' && r > 0) ? r : shape;
+  } catch (_) { return shape; }
+}
+
 // ===================================================================
 //                              tool registry
 // ===================================================================
@@ -347,7 +363,7 @@ export const FORGE_TOOLS = [
       let plate = forge.makeBox(dx, dy, dz);
       let tool = forge.makeCylinder(bore / 2, dz + 4);
       tool = forge.translate(tool, dx / 2, dy / 2, -2);
-      return { shape: forge.cut(plate, tool) };
+      return { shape: roundEdges(forge.cut(plate, tool), forge, 1.5) };
     } },
   { name: 'asset.make-l-bracket', discipline: 'part', produces: 'handle',
     description: 'L-bracket: foot + perpendicular wall fused into an L, with two bolt holes in the foot.',
@@ -364,7 +380,7 @@ export const FORGE_TOOLS = [
         h = forge.translate(h, hx, W * 0.6, -2);
         body = forge.cut(body, h);
       }
-      return { shape: body };
+      return { shape: roundEdges(body, forge, 1.5) };
     } },
   { name: 'asset.make-flange', discipline: 'part', produces: 'handle',
     description: 'Round flange: disc + centre bore + N bolt holes on a bolt circle.',
@@ -381,7 +397,7 @@ export const FORGE_TOOLS = [
         h = forge.translate(h, bcr * Math.cos(ang), bcr * Math.sin(ang), -2);
         disc = forge.cut(disc, h);
       }
-      return { shape: disc };
+      return { shape: roundEdges(disc, forge, 1.2) };
     } },
   { name: 'asset.make-stepped-shaft', discipline: 'part', produces: 'handle',
     description: 'Two-diameter shaft: a large section with a smaller coaxial section on top, fused.',
@@ -392,7 +408,7 @@ export const FORGE_TOOLS = [
       let big = forge.makeCylinder(d1 / 2, h1);
       let small = forge.makeCylinder(d2 / 2, h2);
       small = forge.translate(small, 0, 0, h1);
-      return { shape: forge.fuse(big, small) };
+      return { shape: roundEdges(forge.fuse(big, small), forge, 1.0) };
     } },
   { name: 'asset.make-tube', discipline: 'part', produces: 'handle',
     description: 'Hollow tube / pipe: outer cylinder minus a coaxial bore.',
@@ -402,7 +418,7 @@ export const FORGE_TOOLS = [
       const R = (a.od || 50) / 2, w = a.wall || 4, L = a.len || 80;
       let outer = forge.makeCylinder(R, L);
       let bore = forge.makeCylinder(R - w, L + 4); bore = forge.translate(bore, 0, 0, -2);
-      return { shape: forge.cut(outer, bore) };
+      return { shape: roundEdges(forge.cut(outer, bore), forge, 0.8) };
     } },
   { name: 'asset.make-gusset-bracket', discipline: 'part', produces: 'handle',
     description: 'Mounting bracket: base plate + vertical web + a triangular-ish gusset rib, with holes in the base.',
@@ -423,7 +439,7 @@ export const FORGE_TOOLS = [
         h = forge.translate(h, hx, W * 0.62, -2);
         body = forge.cut(body, h);
       }
-      return { shape: body };
+      return { shape: roundEdges(body, forge, 1.2) };
     } },
 ];
 
