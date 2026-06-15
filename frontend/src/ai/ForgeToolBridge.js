@@ -329,6 +329,102 @@ export const FORGE_TOOLS = [
       const r = forge.drawings.projectShape(shape, direction);
       return { visibleCount: r.visibleCount, hiddenCount: r.hiddenCount, outlineCount: r.outlineCount };
     } },
+
+  // ============================================================ ASSETS
+  // Parametric asset builders — capability-roadmap pillar 1 (blockout →
+  // detailed). Each composes its features in DETERMINISTIC kernel code
+  // (one run() → one fused/cut final handle), so Archie emits ONE tool
+  // call and gets a correct, clean, single-body part — instead of a
+  // stochastic pile of primitives. Conventions: box corner-at-origin
+  // [0,d]; cylinder radial-centre origin, z∈[0,h]; cut(a,b)=a−b; through-
+  // cutters overhang ±2 mm. All dims mm.
+  { name: 'asset.make-bored-plate', discipline: 'part', produces: 'handle',
+    description: 'Rectangular plate with a centred through-bore.',
+    parameters: { dx: P('number', 'width mm', { default: 120 }), dy: P('number', 'depth mm', { default: 80 }),
+                  dz: P('number', 'thickness mm', { default: 14 }), bore: P('number', 'bore diameter mm', { default: 25 }) },
+    run: (a, forge) => {
+      const dx = a.dx || 120, dy = a.dy || 80, dz = a.dz || 14, bore = a.bore || 25;
+      let plate = forge.makeBox(dx, dy, dz);
+      let tool = forge.makeCylinder(bore / 2, dz + 4);
+      tool = forge.translate(tool, dx / 2, dy / 2, -2);
+      return { shape: forge.cut(plate, tool) };
+    } },
+  { name: 'asset.make-l-bracket', discipline: 'part', produces: 'handle',
+    description: 'L-bracket: foot + perpendicular wall fused into an L, with two bolt holes in the foot.',
+    parameters: { len: P('number', 'length mm', { default: 60 }), width: P('number', 'foot width mm', { default: 40 }),
+                  thick: P('number', 'wall thickness mm', { default: 6 }), wall: P('number', 'upstand height mm', { default: 50 }),
+                  hole: P('number', 'hole diameter mm', { default: 8 }) },
+    run: (a, forge) => {
+      const L = a.len || 60, W = a.width || 40, t = a.thick || 6, H = a.wall || 50, hd = (a.hole || 8) / 2;
+      let foot = forge.makeBox(L, W, t);
+      let wall = forge.makeBox(L, t, H);              // rises at the y=0 edge
+      let body = forge.fuse(foot, wall);
+      for (const hx of [L * 0.5 - L * 0.22, L * 0.5 + L * 0.22]) {
+        let h = forge.makeCylinder(hd, t + 4);
+        h = forge.translate(h, hx, W * 0.6, -2);
+        body = forge.cut(body, h);
+      }
+      return { shape: body };
+    } },
+  { name: 'asset.make-flange', discipline: 'part', produces: 'handle',
+    description: 'Round flange: disc + centre bore + N bolt holes on a bolt circle.',
+    parameters: { od: P('number', 'outer diameter mm', { default: 80 }), thick: P('number', 'thickness mm', { default: 10 }),
+                  bore: P('number', 'centre bore diameter mm', { default: 25 }), bolts: P('uint', 'bolt count', { default: 6 }),
+                  bolt_d: P('number', 'bolt hole diameter mm', { default: 8 }), bcd: P('number', 'bolt circle diameter mm', { default: 60 }) },
+    run: (a, forge) => {
+      const R = (a.od || 80) / 2, t = a.thick || 10, br = (a.bore || 25) / 2, n = a.bolts || 6, bhr = (a.bolt_d || 8) / 2, bcr = (a.bcd || 60) / 2;
+      let disc = forge.makeCylinder(R, t);
+      let cb = forge.makeCylinder(br, t + 4); cb = forge.translate(cb, 0, 0, -2); disc = forge.cut(disc, cb);
+      for (let i = 0; i < n; i++) {
+        const ang = 2 * Math.PI * i / n;
+        let h = forge.makeCylinder(bhr, t + 4);
+        h = forge.translate(h, bcr * Math.cos(ang), bcr * Math.sin(ang), -2);
+        disc = forge.cut(disc, h);
+      }
+      return { shape: disc };
+    } },
+  { name: 'asset.make-stepped-shaft', discipline: 'part', produces: 'handle',
+    description: 'Two-diameter shaft: a large section with a smaller coaxial section on top, fused.',
+    parameters: { d1: P('number', 'lower diameter mm', { default: 40 }), h1: P('number', 'lower length mm', { default: 60 }),
+                  d2: P('number', 'upper diameter mm', { default: 24 }), h2: P('number', 'upper length mm', { default: 40 }) },
+    run: (a, forge) => {
+      const d1 = a.d1 || 40, h1 = a.h1 || 60, d2 = a.d2 || 24, h2 = a.h2 || 40;
+      let big = forge.makeCylinder(d1 / 2, h1);
+      let small = forge.makeCylinder(d2 / 2, h2);
+      small = forge.translate(small, 0, 0, h1);
+      return { shape: forge.fuse(big, small) };
+    } },
+  { name: 'asset.make-tube', discipline: 'part', produces: 'handle',
+    description: 'Hollow tube / pipe: outer cylinder minus a coaxial bore.',
+    parameters: { od: P('number', 'outer diameter mm', { default: 50 }), wall: P('number', 'wall thickness mm', { default: 4 }),
+                  len: P('number', 'length mm', { default: 80 }) },
+    run: (a, forge) => {
+      const R = (a.od || 50) / 2, w = a.wall || 4, L = a.len || 80;
+      let outer = forge.makeCylinder(R, L);
+      let bore = forge.makeCylinder(R - w, L + 4); bore = forge.translate(bore, 0, 0, -2);
+      return { shape: forge.cut(outer, bore) };
+    } },
+  { name: 'asset.make-gusset-bracket', discipline: 'part', produces: 'handle',
+    description: 'Mounting bracket: base plate + vertical web + a triangular-ish gusset rib, with holes in the base.',
+    parameters: { len: P('number', 'length mm', { default: 80 }), base_w: P('number', 'base width mm', { default: 60 }),
+                  wall: P('number', 'web height mm', { default: 70 }), thick: P('number', 'thickness mm', { default: 8 }),
+                  hole: P('number', 'hole diameter mm', { default: 9 }) },
+    run: (a, forge) => {
+      const L = a.len || 80, W = a.base_w || 60, H = a.wall || 70, t = a.thick || 8, hd = (a.hole || 9) / 2;
+      let base = forge.makeBox(L, W, t);
+      let web = forge.makeBox(L, t, H);
+      let body = forge.fuse(base, web);
+      // gusset rib down the centre, between web and base (a stepped box brace)
+      let rib = forge.makeBox(t, W * 0.5, H * 0.5);
+      rib = forge.translate(rib, L / 2 - t / 2, t, t);
+      body = forge.fuse(body, rib);
+      for (const hx of [L * 0.28, L * 0.72]) {
+        let h = forge.makeCylinder(hd, t + 4);
+        h = forge.translate(h, hx, W * 0.62, -2);
+        body = forge.cut(body, h);
+      }
+      return { shape: body };
+    } },
 ];
 
 // ===================================================================
