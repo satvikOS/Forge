@@ -1,0 +1,80 @@
+{
+ "log": [
+  {
+   "name": "asset.make-flange",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "asset.make-flange",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.surface-wear",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.surface-deposit",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "asset.make-spur-gear",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "asset.make-spur-gear",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.surface-deposit",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.surface-wear",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.make-box",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.fillet",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.make-box",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.fillet",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.chipped-edges",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "part.surface-wear",
+   "ok": true,
+   "error": null
+  }
+ ],
+ "bodyCount": 6,
+ "render": {
+  "calls": 7,
+  "tris": 41485,
+  "bodies": 6
+ }
+}

@@ -69,6 +69,9 @@ Parametric / freeform features — PREFER these for CURVED, BLENDED or PATTERNED
   part.linear-pattern{shape,count,dx,dy,dz}, part.circular-pattern{shape,count,axisOrigin,axisDir,totalAngleDeg},
   part.push-pull-face{shape,faceId,distance}, part.continuity-check{face}, part.check-validity{shape}.
 Profiles are [[x,y],…] closed point lists (mm). Real parts are seldom all-straight: use fillets, draft and revolves.
+Degradation / weathering — when the request implies a used / cast / aged / as-found / worn part, apply ONE on the finished body:
+  part.surface-wear{shape,count,depth,seed} (pitting/dents), part.surface-deposit{shape,count,height,seed} (corrosion blisters),
+  part.chipped-edges{shape,count,size,seed} (impact/handling chips). Precision/aerospace/new parts stay clean (skip these).
 Parametric assets — PREFER one of these when the request matches a whole part (one call builds it):
   asset.make-bored-plate{dx,dy,dz,bore}, asset.make-l-bracket{len,width,thick,wall,hole},
   asset.make-flange{od,thick,bore,bolts,bolt_d,bcd}, asset.make-stepped-shaft{d1,h1,d2,h2},

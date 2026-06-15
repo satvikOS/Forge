@@ -39,6 +39,12 @@ function roundEdges(shape, forge, radius) {
     if (typeof edgeCount !== 'function' || typeof filletEdges !== 'function') return shape;
     const n = edgeCount(shape);
     if (!n) return shape;
+    // Cap the all-edge fillet: OCCT BRepFilletAPI on a dense edge set
+    // (bolt-hole circles, gear teeth) can self-intersect and churn for
+    // minutes. Above the cap, leave edges crisp rather than risk a hang —
+    // simple parts (≤ cap edges) still read as broken-edge / manufactured.
+    const EDGE_CAP = 16;
+    if (n > EDGE_CAP) return shape;
     const ids = Array.from({ length: n }, (_, i) => i);
     const r = filletEdges(shape, ids, radius);
     return (typeof r === 'number' && r > 0) ? r : shape;
@@ -61,6 +67,64 @@ function buildProfileSketch(forge, points, { closed = true } = {}) {
 }
 
 const DEG = (d) => (Number(d) || 0) * Math.PI / 180;
+
+// Deterministic, seedable RNG (mulberry32) — degradation must be
+// reproducible per seed so a "weathered" part renders identically across
+// runs (and so the corpus/gauntlet can pin a seed).
+function mulberry32(seed) {
+  let a = (seed >>> 0) || 1;
+  return () => {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+// Sample N surface points off a body's tessellation — the anchor set for
+// dents / blisters / pitting so degradation sits ON the real surface.
+function surfaceSamples(forge, shape, n, rng) {
+  const m = forge.tessellate(shape, 0.6, 0.7);
+  const pos = m.positions; const nv = Math.floor((pos.length || 0) / 3);
+  if (!nv) return [];
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const vi = Math.floor(rng() * nv);
+    out.push([pos[vi * 3], pos[vi * 3 + 1], pos[vi * 3 + 2]]);
+  }
+  return out;
+}
+
+// Fuse a list of small primitive handles into ONE tool compound. Cutting/
+// fusing dents one-at-a-time against the body is O(n²) (each boolean re-
+// processes the ever-more-complex body and hangs). Building the tool first
+// — N cheap fuses of small disjoint solids — then a SINGLE boolean with the
+// body keeps it fast and robust.
+function fuseAll(forge, handles) {
+  let tool = null;
+  for (const h of handles) {
+    if (typeof h !== 'number' || h <= 0) continue;
+    if (tool == null) { tool = h; continue; }
+    const f = forge.fuse(tool, h);
+    if (typeof f === 'number' && f > 0) tool = f;
+  }
+  return tool;
+}
+
+// Do-no-harm guard for degradation: a boolean near thin walls / hole rims can
+// emit a degenerate solid (NaN tessellation). Verify the result tessellates
+// finite; if not, the degradation is dropped and the clean body is returned —
+// degradation must never corrupt a part.
+function finiteSolid(forge, h) {
+  try {
+    if (typeof h !== 'number' || h <= 0) return false;
+    const m = forge.tessellate(h, 1.0, 0.8);
+    const p = m && m.positions;
+    if (!p || !p.length) return false;
+    for (let i = 0; i < p.length; i++) if (!Number.isFinite(p[i])) return false;
+    return true;
+  } catch (_) { return false; }
+}
 
 // ===================================================================
 //                              tool registry
@@ -354,6 +418,69 @@ export const FORGE_TOOLS = [
     description: 'Validate a solid (manifold / self-intersection / small faces) — the coherence gate for a body.',
     parameters: { shape: P('uint', 'shape handle', { required: true }) },
     run: ({ shape }, forge) => forge.heal.checkValidity(shape) },
+
+  // ===================================================== DEGRADATION / WEATHERING
+  // Real parts are never perfectly clean: castings pit, edges nick, surfaces
+  // corrode, used parts wear asymmetrically. These verbs let Archie PRODUCE
+  // that realism on demand (the defect taxonomy as GENERATION, not just
+  // recognition) — deterministic per seed. They compose existing kernel
+  // booleans, so the output stays a valid OCCT solid.
+  { name: 'part.surface-wear', discipline: 'part', produces: 'handle',
+    description: 'Carve random dents / nicks / pitting into a solid surface (casting porosity, wear scars, as-found roughness). Asymmetric, seeded.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  count: P('uint', 'number of dents', { default: 18 }),
+                  depth: P('number', 'mean dent radius in mm', { default: 1.6 }),
+                  seed: P('uint', 'rng seed', { default: 7 }) },
+    run: ({ shape, count, depth, seed }, forge) => {
+      const rng = mulberry32(seed ?? 7);
+      const pts = surfaceSamples(forge, shape, count ?? 18, rng);
+      const dents = pts.map(([x, y, z]) => forge.translate(forge.makeSphere((depth ?? 1.6) * (0.55 + rng() * 0.9)), x, y, z));
+      const tool = fuseAll(forge, dents);
+      if (tool == null) return { shape, dents: 0 };
+      const cut = forge.cut(shape, tool);
+      const ok = finiteSolid(forge, cut);
+      return { shape: ok ? cut : shape, dents: ok ? pts.length : 0, degraded: ok };
+    } },
+
+  { name: 'part.surface-deposit', discipline: 'part', produces: 'handle',
+    description: 'Fuse random blisters / nodules / weld-spatter onto a surface (corrosion build-up, slag, accreted material). Asymmetric, seeded.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  count: P('uint', 'number of blisters', { default: 14 }),
+                  height: P('number', 'mean blister radius in mm', { default: 1.4 }),
+                  seed: P('uint', 'rng seed', { default: 11 }) },
+    run: ({ shape, count, height, seed }, forge) => {
+      const rng = mulberry32(seed ?? 11);
+      const pts = surfaceSamples(forge, shape, count ?? 14, rng);
+      const blobs = pts.map(([x, y, z]) => forge.translate(forge.makeSphere((height ?? 1.4) * (0.5 + rng() * 1.0)), x, y, z));
+      const tool = fuseAll(forge, blobs);
+      if (tool == null) return { shape, blisters: 0 };
+      const f = forge.fuse(shape, tool);
+      const ok = finiteSolid(forge, f);
+      return { shape: ok ? f : shape, blisters: ok ? pts.length : 0, degraded: ok };
+    } },
+
+  { name: 'part.chipped-edges', discipline: 'part', produces: 'handle',
+    description: 'Knock random chips off edges/corners (impact damage, handling wear) by subtracting small jittered boxes near the surface. Asymmetric, seeded.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  count: P('uint', 'number of chips', { default: 10 }),
+                  size: P('number', 'mean chip size in mm', { default: 3 }),
+                  seed: P('uint', 'rng seed', { default: 23 }) },
+    run: ({ shape, count, size, seed }, forge) => {
+      const rng = mulberry32(seed ?? 23);
+      const pts = surfaceSamples(forge, shape, count ?? 10, rng);
+      const chips = pts.map(([x, y, z]) => {
+        const s = (size ?? 3) * (0.6 + rng() * 1.0);
+        let chip = forge.makeBox(s, s, s);
+        chip = forge.rotate(chip, 0, 0, 1, rng() * Math.PI);
+        chip = forge.rotate(chip, 1, 0, 0, rng() * Math.PI);
+        return forge.translate(chip, x - s / 2, y - s / 2, z - s / 2);
+      });
+      const tool = fuseAll(forge, chips);
+      if (tool == null) return { shape, chips: 0 };
+      const cut = forge.cut(shape, tool);
+      const ok = finiteSolid(forge, cut);
+      return { shape: ok ? cut : shape, chips: ok ? pts.length : 0, degraded: ok };
+    } },
 
   // ============================================================ ASSEMBLY
   { name: 'assembly.add-instance', discipline: 'assembly', produces: 'handle',
