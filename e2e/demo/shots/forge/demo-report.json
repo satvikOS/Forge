@@ -1,0 +1,224 @@
+[
+ {
+  "id": "tape-measure-housing",
+  "title": "Tape-measure housing — exact 70×65×35 mm",
+  "ref": "V-358",
+  "allPass": true,
+  "stages": [
+   {
+    "shot": "build",
+    "passed": true,
+    "bodies": 1,
+    "lastSim": false,
+    "scaled": null
+   }
+  ],
+  "finals": [
+   "front",
+   "iso",
+   "right",
+   "top",
+   "close"
+  ],
+  "render": {
+   "mode": "pathtrace-gpu",
+   "samples": 128,
+   "w": 1280,
+   "h": 720
+  },
+  "deliverable": {
+   "files": [
+    "tape-measure-housing-render.png",
+    "tape-measure-housing.glb (1636B)",
+    "tape-measure-housing.step (15451B)",
+    "tape-measure-housing-plan.md"
+   ],
+   "pubErrs": []
+  }
+ },
+ {
+  "id": "precision-shaft",
+  "title": "Precision shaft — Ø24 × 90 mm",
+  "ref": "V-656 mechanical",
+  "allPass": true,
+  "stages": [
+   {
+    "shot": "build",
+    "passed": true,
+    "bodies": 1,
+    "lastSim": false,
+    "scaled": null
+   }
+  ],
+  "finals": [
+   "front",
+   "iso",
+   "right",
+   "top",
+   "close"
+  ],
+  "render": {
+   "mode": "pathtrace-gpu",
+   "samples": 128,
+   "w": 1280,
+   "h": 720
+  },
+  "deliverable": {
+   "files": [
+    "precision-shaft-render.png",
+    "precision-shaft.glb (5996B)",
+    "precision-shaft.step (5699B)",
+    "precision-shaft-plan.md"
+   ],
+   "pubErrs": []
+  }
+ },
+ {
+  "id": "pipe-flange",
+  "title": "Pipe flange — Ø80, 6 bolt holes on Ø60 BCD, Ø25 bore",
+  "ref": "V-656 mechanical / standard part",
+  "allPass": true,
+  "stages": [
+   {
+    "shot": "build",
+    "passed": true,
+    "bodies": 1,
+    "lastSim": false,
+    "scaled": null
+   }
+  ],
+  "finals": [
+   "front",
+   "iso",
+   "right",
+   "top",
+   "close"
+  ],
+  "render": {
+   "mode": "pathtrace-gpu",
+   "samples": 128,
+   "w": 1280,
+   "h": 720
+  },
+  "deliverable": {
+   "files": [
+    "pipe-flange-render.png",
+    "pipe-flange.glb (38352B)",
+    "pipe-flange.step (31621B)",
+    "pipe-flange-plan.md"
+   ],
+   "pubErrs": []
+  }
+ },
+ {
+  "id": "l-bracket",
+  "title": "L-bracket — 100×60×8 mm, two mounting holes",
+  "ref": "V-656 mechanical",
+  "allPass": true,
+  "stages": [
+   {
+    "shot": "build",
+    "passed": true,
+    "bodies": 1,
+    "lastSim": false,
+    "scaled": null
+   }
+  ],
+  "finals": [
+   "front",
+   "iso",
+   "right",
+   "top",
+   "close"
+  ],
+  "render": {
+   "mode": "pathtrace-gpu",
+   "samples": 128,
+   "w": 1280,
+   "h": 720
+  },
+  "deliverable": {
+   "files": [
+    "l-bracket-render.png",
+    "l-bracket.glb (9820B)",
+    "l-bracket.step (31834B)",
+    "l-bracket-plan.md"
+   ],
+   "pubErrs": []
+  }
+ },
+ {
+  "id": "tube",
+  "title": "Tube — outer Ø50, 4 mm wall, 120 long",
+  "ref": "V-656 mechanical",
+  "allPass": true,
+  "stages": [
+   {
+    "shot": "build",
+    "passed": true,
+    "bodies": 1,
+    "lastSim": false,
+    "scaled": null
+   }
+  ],
+  "finals": [
+   "front",
+   "iso",
+   "right",
+   "top",
+   "close"
+  ],
+  "render": {
+   "mode": "pathtrace-gpu",
+   "samples": 128,
+   "w": 1280,
+   "h": 720
+  },
+  "deliverable": {
+   "files": [
+    "tube-render.png",
+    "tube.glb (14868B)",
+    "tube.step (9362B)",
+    "tube-plan.md"
+   ],
+   "pubErrs": []
+  }
+ },
+ {
+  "id": "bored-mounting-plate",
+  "title": "Mounting plate 120×80×14 mm + Ø25 centre bore",
+  "ref": "V-656 mechanical",
+  "allPass": true,
+  "stages": [
+   {
+    "shot": "build",
+    "passed": true,
+    "bodies": 1,
+    "lastSim": false,
+    "scaled": null
+   }
+  ],
+  "finals": [
+   "front",
+   "iso",
+   "right",
+   "top",
+   "close"
+  ],
+  "render": {
+   "mode": "pathtrace-gpu",
+   "samples": 128,
+   "w": 1280,
+   "h": 720
+  },
+  "deliverable": {
+   "files": [
+    "bored-mounting-plate-render.png",
+    "bored-mounting-plate.glb (6944B)",
+    "bored-mounting-plate.step (19091B)",
+    "bored-mounting-plate-plan.md"
+   ],
+   "pubErrs": []
+  }
+ }
+]
