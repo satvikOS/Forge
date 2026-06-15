@@ -289,6 +289,8 @@ export async function runForgePrompt({
   viewportState = '',    // Forge-162: vision caption prepended to user prompt
   priorContext  = '',    // Forge-163: long-session memory recall prepended too
   onToken       = null,  // Forge-164: optional per-token streaming callback
+  gate          = true,  // step C: post-build validity gate (heal.checkValidity per body)
+  maxGateRepairs = 1,    // step C: how many AutoCorrector repair turns the gate may trigger
 } = {}) {
   if (!prompt || typeof prompt !== 'string') {
     throw new Error('[forge.runner] prompt required');
@@ -345,6 +347,10 @@ export async function runForgePrompt({
   trace.persona = { id: persona.id, exampleCount: persona.examples.length,
                     toolCount: persona.tools.length, hermes: true };
 
+  // step C — post-build coherence gate budget. Repairs let Archie take one
+  // extra turn to fix a body that fails native validity (heal.checkValidity).
+  let _gateRepairsLeft = maxGateRepairs;
+
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal && signal.aborted) {
       trace.final = { status: 'cancelled' };
@@ -391,7 +397,23 @@ export async function runForgePrompt({
 
     if (parsed.toolCalls.length === 0) {
       trace.iterations.push(iter);
-      trace.final = { status: 'done', text: completion };
+      // step C — POST-BUILD COHERENCE GATE. Run native validity on every body
+      // Archie built this run; if any is invalid and a repair turn remains,
+      // feed the defects back as a tool_response and let Archie rebuild
+      // (AutoCorrector) instead of silently shipping a broken solid.
+      const gateRes = gate ? _gateForge(trace, forge) : null;
+      if (gateRes) trace.gateChecks = gateRes;
+      if (gateRes && !gateRes.allValid && _gateRepairsLeft > 0) {
+        _gateRepairsLeft--;
+        onTrace({ kind: 'gate', gate: gateRes });
+        messages.push({ role: 'assistant', content: completion });
+        messages.push({ role: 'tool', content:
+          `<tool_response>${JSON.stringify({ ok: false, gate: 'invalid', defects: gateRes.defects })}</tool_response>\n`
+          + 'Post-build check failed: the bodies above are invalid (non-manifold / self-intersecting). '
+          + 'Rebuild the affected part(s) as clean valid solids and avoid the reported issues.' });
+        continue; // take one more turn to repair
+      }
+      trace.final = { status: 'done', text: completion, gate: gateRes };
       onTrace({ kind: 'done', iter });
       await _flushIfEnabled(trace);
       return trace;
@@ -421,6 +443,32 @@ export async function runForgePrompt({
   trace.final = { status: 'maxTurns' };
   await _flushIfEnabled(trace);
   return trace;
+}
+
+// step C — post-build coherence gate. Collect every body handle Archie built
+// across the run (tool_responses with produces==='handle') and run the kernel's
+// native validity check on each. Conservative: a body is "invalid" only when the
+// kernel explicitly says so (ok/manifold false, or self-intersection) — unknown /
+// thrown checks are treated as pass so the gate never loops spuriously. Pure read;
+// degrades to allValid when the kernel/heal surface is absent (e.g. unit tests).
+function _gateForge(trace, forge) {
+  const cv = forge && forge.heal && forge.heal.checkValidity;
+  if (typeof cv !== 'function') return { allValid: true, checked: 0, defects: [], skipped: 'no heal.checkValidity' };
+  const handles = [];
+  for (const it of (trace.iterations || [])) {
+    for (const r of (it.toolResponses || [])) {
+      if (r && r.ok && r.produces === 'handle' && r.result && typeof r.result.shape === 'number') handles.push(r.result.shape);
+    }
+  }
+  const distinct = [...new Set(handles)];
+  const defects = [];
+  for (const h of distinct) {
+    let v;
+    try { v = cv(h); } catch (_) { continue; } // thrown check → treat as unknown (pass)
+    const bad = v && (v.ok === false || v.valid === false || v.manifold === false || v.selfIntersect === true || v.selfIntersecting === true);
+    if (bad) defects.push({ handle: h, reason: (v && (v.description || v.reason)) || 'invalid solid (non-manifold/self-intersecting)' });
+  }
+  return { allValid: defects.length === 0, checked: distinct.length, defects };
 }
 
 // Forge-46: flush traces to disk at the end of every run. Best-effort —
