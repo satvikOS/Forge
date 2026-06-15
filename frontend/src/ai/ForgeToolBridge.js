@@ -68,6 +68,17 @@ function buildProfileSketch(forge, points, { closed = true } = {}) {
 
 const DEG = (d) => (Number(d) || 0) * Math.PI / 180;
 
+// True hexagonal prism (across-flats = af) via the intersection of three boxes
+// rotated 60° — a real hex, not a round approximation. Centred on origin, z∈[0,h].
+function hexPrism(forge, af, h) {
+  const L = af * 2.4;
+  const mk = (ang) => { let b = forge.makeBox(L, af, h); b = forge.translate(b, -L / 2, -af / 2, 0); return ang ? forge.rotate(b, 0, 0, 1, ang) : b; };
+  let s = mk(0);
+  s = forge.common(s, mk(Math.PI / 3));
+  s = forge.common(s, mk(2 * Math.PI / 3));
+  return s;
+}
+
 // Deterministic, seedable RNG (mulberry32) — degradation must be
 // reproducible per seed so a "weathered" part renders identically across
 // runs (and so the corpus/gauntlet can pin a seed).
@@ -855,6 +866,76 @@ export const FORGE_TOOLS = [
     bore = forge.translate(bore, 0, 0, w - 2);
     return { shape: roundEdges(forge.cut(cup, bore), forge, 0.8) };
   } },
+
+  // ── standard-part vocabulary tier (#58) — recognizable hardware ──
+  { name: 'asset.make-hex-nut', discipline: 'part', produces: 'handle',
+    description: 'Hex nut: true hexagonal prism with a threaded-bore hole (ISO-style).',
+    parameters: { af: P('number', 'across-flats mm', { default: 13 }), thick: P('number', 'thickness mm', { default: 6.5 }), bore: P('number', 'bore (thread) diameter mm', { default: 8 }) },
+    run: (a, forge) => {
+      const af = a.af || 13, t = a.thick || 6.5, br = (a.bore || 8) / 2;
+      let nut = hexPrism(forge, af, t);
+      let bore = forge.makeCylinder(br, t + 4); bore = forge.translate(bore, 0, 0, -2);
+      return { shape: roundEdges(forge.cut(nut, bore), forge, 0.5) };
+    } },
+  { name: 'asset.make-hex-bolt', discipline: 'part', produces: 'handle',
+    description: 'Hex-head bolt: hexagonal head + cylindrical shank.',
+    parameters: { af: P('number', 'head across-flats mm', { default: 13 }), head_h: P('number', 'head height mm', { default: 5.5 }), shank_d: P('number', 'shank diameter mm', { default: 8 }), length: P('number', 'shank length mm', { default: 40 }) },
+    run: (a, forge) => {
+      const af = a.af || 13, hh = a.head_h || 5.5, sr = (a.shank_d || 8) / 2, L = a.length || 40;
+      let head = hexPrism(forge, af, hh);
+      let shank = forge.makeCylinder(sr, L); shank = forge.translate(shank, 0, 0, -L);
+      return { shape: roundEdges(forge.fuse(head, shank), forge, 0.4) };
+    } },
+  { name: 'asset.make-socket-screw', discipline: 'part', produces: 'handle',
+    description: 'Socket-head cap screw: cylindrical head with a hex socket + shank.',
+    parameters: { head_d: P('number', 'head diameter mm', { default: 13 }), head_h: P('number', 'head height mm', { default: 8 }), shank_d: P('number', 'shank diameter mm', { default: 8 }), length: P('number', 'shank length mm', { default: 30 }) },
+    run: (a, forge) => {
+      const hr = (a.head_d || 13) / 2, hh = a.head_h || 8, sr = (a.shank_d || 8) / 2, L = a.length || 30;
+      let head = forge.makeCylinder(hr, hh);
+      let sock = hexPrism(forge, hr * 0.95, hh); sock = forge.translate(sock, 0, 0, hh * 0.35);
+      head = forge.cut(head, sock);
+      let shank = forge.makeCylinder(sr, L); shank = forge.translate(shank, 0, 0, -L);
+      return { shape: roundEdges(forge.fuse(head, shank), forge, 0.4) };
+    } },
+  { name: 'asset.make-hex-standoff', discipline: 'part', produces: 'handle',
+    description: 'Hex standoff / spacer: hexagonal prism with a through-bore.',
+    parameters: { af: P('number', 'across-flats mm', { default: 10 }), length: P('number', 'length mm', { default: 25 }), bore: P('number', 'bore diameter mm', { default: 4.5 }) },
+    run: (a, forge) => {
+      const af = a.af || 10, L = a.length || 25, br = (a.bore || 4.5) / 2;
+      let body = hexPrism(forge, af, L);
+      let bore = forge.makeCylinder(br, L + 4); bore = forge.translate(bore, 0, 0, -2);
+      return { shape: roundEdges(forge.cut(body, bore), forge, 0.3) };
+    } },
+  { name: 'asset.make-ball-bearing', discipline: 'part', produces: 'handle',
+    description: 'Deep-groove ball bearing: outer ring + inner ring + a ring of balls.',
+    parameters: { od: P('number', 'outer diameter mm', { default: 42 }), id: P('number', 'bore diameter mm', { default: 20 }), width: P('number', 'width mm', { default: 12 }), balls: P('uint', 'ball count', { default: 9 }) },
+    run: (a, forge) => {
+      const R = (a.od || 42) / 2, ir = (a.id || 20) / 2, W = a.width || 12, n = a.balls || 9;
+      const raceR = (R + ir) / 2, ballR = (R - ir) * 0.22;
+      let outer = forge.makeCylinder(R, W); let ob = forge.makeCylinder(raceR + ballR * 0.7, W + 4); ob = forge.translate(ob, 0, 0, -2); outer = forge.cut(outer, ob);
+      let inner = forge.makeCylinder(raceR - ballR * 0.7, W); let ib = forge.makeCylinder(ir, W + 4); ib = forge.translate(ib, 0, 0, -2); inner = forge.cut(inner, ib);
+      let body = forge.fuse(outer, inner);
+      for (let i = 0; i < n; i++) { const ang = 2 * Math.PI * i / n; let ball = forge.makeSphere(ballR); ball = forge.translate(ball, raceR * Math.cos(ang), raceR * Math.sin(ang), W / 2); body = forge.fuse(body, ball); }
+      return { shape: body };
+    } },
+  { name: 'asset.make-tslot-extrusion', discipline: 'part', produces: 'handle',
+    description: 'Aluminium T-slot extrusion: square profile with a T-slot channel on each face + centre bore.',
+    parameters: { size: P('number', 'profile size mm (e.g. 20)', { default: 20 }), length: P('number', 'length mm', { default: 120 }), slot: P('number', 'slot width mm', { default: 6 }) },
+    run: (a, forge) => {
+      const s = a.size || 20, L = a.length || 120, sw = a.slot || 6, h = s / 2;
+      let body = forge.makeBox(s, s, L); body = forge.translate(body, -h, -h, 0);
+      let cb = forge.makeCylinder(sw * 0.45, L + 4); cb = forge.translate(cb, 0, 0, -2); body = forge.cut(body, cb);
+      const slotL = L + 4;
+      for (let f = 0; f < 4; f++) {
+        const ang = f * Math.PI / 2;
+        let mouth = forge.makeBox(sw, s, slotL); mouth = forge.translate(mouth, -sw / 2, h - sw, -2);
+        let cav = forge.makeBox(sw * 1.7, sw * 1.2, slotL); cav = forge.translate(cav, -sw * 0.85, h - sw * 2.0, -2);
+        let cut = forge.fuse(mouth, cav);
+        if (ang) cut = forge.rotate(cut, 0, 0, 1, ang);
+        body = forge.cut(body, cut);
+      }
+      return { shape: roundEdges(body, forge, 0.6) };
+    } },
 ];
 
 // ===================================================================

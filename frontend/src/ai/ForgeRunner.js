@@ -78,7 +78,9 @@ Parametric assets — PREFER one of these when the request matches a whole part 
   asset.make-tube{od,wall,len}, asset.make-gusset-bracket{len,base_w,wall,thick,hole},
   asset.make-spur-gear{od,bore,thick}, asset.make-washer{od,id,thick}, asset.make-bushing{id,od,len},
   asset.make-pulley{od,bore,width}, asset.make-u-channel{len,width,height}, asset.make-keyed-shaft{diameter,length},
-  asset.make-pipe-tee{od,wall}, asset.make-end-cap{od,id,height}.
+  asset.make-pipe-tee{od,wall}, asset.make-end-cap{od,id,height},
+  asset.make-hex-nut{af,thick,bore}, asset.make-hex-bolt{af,head_h,shank_d,length}, asset.make-socket-screw{head_d,head_h,shank_d,length},
+  asset.make-hex-standoff{af,length,bore}, asset.make-ball-bearing{od,id,width,balls}, asset.make-tslot-extrusion{size,length,slot}.
 Body handles count up from 1 in creation order; pass them as "shape".
 Materials are {E,nu,rho} in MPa / mm / tonne: steel {"E":210000,"nu":0.3,"rho":7.85e-9},
 aluminium {"E":70000,"nu":0.33,"rho":2.7e-9}.

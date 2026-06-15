@@ -1,0 +1,39 @@
+{
+ "log": [
+  {
+   "name": "asset.make-hex-nut",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "asset.make-hex-bolt",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "asset.make-socket-screw",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "asset.make-hex-standoff",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "asset.make-ball-bearing",
+   "ok": true,
+   "error": null
+  },
+  {
+   "name": "asset.make-tslot-extrusion",
+   "ok": true,
+   "error": null
+  }
+ ],
+ "render": {
+  "calls": 7,
+  "tris": 10830,
+  "bodies": 6
+ }
+}
