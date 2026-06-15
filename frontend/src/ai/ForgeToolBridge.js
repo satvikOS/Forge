@@ -441,6 +441,124 @@ export const FORGE_TOOLS = [
       }
       return { shape: roundEdges(body, forge, 1.2) };
     } },
+  { name: 'asset.make-spur-gear', discipline: 'part', produces: 'handle',
+  description: 'Spur gear: cylinder hub with N radial teeth and centre bore.',
+  parameters: { od: P('number', 'outer diameter mm', { default: 80 }), bore: P('number', 'centre bore diameter mm', { default: 20 }),
+                thick: P('number', 'thickness mm', { default: 12 }), teeth: P('uint', 'tooth count', { default: 20 }),
+                tooth_h: P('number', 'tooth height mm', { default: 8 }), tooth_w: P('number', 'tooth width mm', { default: 6 }) },
+  run: (a, forge) => {
+    const R = (a.od || 80) / 2, br = (a.bore || 20) / 2, t = a.thick || 12, n = a.teeth || 20;
+    const th = a.tooth_h || 8, tw = a.tooth_w || 6;
+    const hub_r = R - th;
+    let hub = forge.makeCylinder(hub_r, t);
+    let cb = forge.makeCylinder(br, t + 4); cb = forge.translate(cb, 0, 0, -2); hub = forge.cut(hub, cb);
+    for (let i = 0; i < n; i++) {
+      const ang = 2 * Math.PI * i / n;
+      const cx = hub_r * Math.cos(ang), cy = hub_r * Math.sin(ang);
+      let tooth = forge.makeBox(tw, th, t);
+      tooth = forge.translate(tooth, -tw / 2, 0, 0);
+      tooth = forge.translate(tooth, cx, cy, 0);
+      hub = forge.fuse(hub, tooth);
+    }
+    return { shape: roundEdges(hub, forge, 0.6) };
+  } },
+  { name: 'asset.make-washer', discipline: 'part', produces: 'handle',
+  description: 'Washer: thin annular disc with outer diameter and centre hole.',
+  parameters: { od: P('number', 'outer diameter mm', { default: 25 }), id: P('number', 'inner hole diameter mm', { default: 10 }),
+                thick: P('number', 'thickness mm', { default: 2 }) },
+  run: (a, forge) => {
+    const R = (a.od || 25) / 2, r = (a.id || 10) / 2, t = a.thick || 2;
+    let disc = forge.makeCylinder(R, t);
+    let bore = forge.makeCylinder(r, t + 4); bore = forge.translate(bore, 0, 0, -2);
+    return { shape: roundEdges(forge.cut(disc, bore), forge, 0.4) };
+  } },
+  { name: 'asset.make-bushing', discipline: 'part', produces: 'handle',
+  description: 'Bushing: hollow tube with a radial flange at one end.',
+  parameters: { id: P('number', 'inner bore diameter mm', { default: 12 }), od: P('number', 'outer diameter mm', { default: 30 }),
+                len: P('number', 'bushing length mm', { default: 25 }), flange_w: P('number', 'flange width mm', { default: 4 }),
+                flange_od: P('number', 'flange outer diameter mm', { default: 40 }) },
+  run: (a, forge) => {
+    const ir = (a.id || 12) / 2, R = (a.od || 30) / 2, L = a.len || 25, fw = a.flange_w || 4, fr = (a.flange_od || 40) / 2;
+    let tube = forge.makeCylinder(R, L);
+    let bore = forge.makeCylinder(ir, L + 4); bore = forge.translate(bore, 0, 0, -2); tube = forge.cut(tube, bore);
+    let flange = forge.makeCylinder(fr, fw);
+    flange = forge.translate(flange, 0, 0, L - fw);
+    let body = forge.fuse(tube, flange);
+    let inner_bore = forge.makeCylinder(ir, fw + 4); inner_bore = forge.translate(inner_bore, 0, 0, L - fw - 2);
+    return { shape: roundEdges(forge.cut(body, inner_bore), forge, 0.8) };
+  } },
+  { name: 'asset.make-pulley', discipline: 'part', produces: 'handle',
+  description: 'Pulley: cylinder with two rim flanges, centre bore, and V-groove cut.',
+  parameters: { od: P('number', 'outer diameter mm', { default: 100 }), bore: P('number', 'centre bore diameter mm', { default: 20 }),
+                width: P('number', 'pulley width mm', { default: 30 }), rim_h: P('number', 'rim flange height mm', { default: 5 }),
+                groove_w: P('number', 'V-groove width mm', { default: 15 }), groove_d: P('number', 'V-groove depth mm', { default: 4 }) },
+  run: (a, forge) => {
+    const R = (a.od || 100) / 2, br = (a.bore || 20) / 2, W = a.width || 30, rh = a.rim_h || 5;
+    const gw = a.groove_w || 15, gd = a.groove_d || 4;
+    let core = forge.makeCylinder(R, W);
+    let cb = forge.makeCylinder(br, W + 4); cb = forge.translate(cb, 0, 0, -2); core = forge.cut(core, cb);
+    let rim1 = forge.makeCylinder(R + 2, rh);
+    rim1 = forge.translate(rim1, 0, 0, -rh);
+    let rim2 = forge.makeCylinder(R + 2, rh);
+    rim2 = forge.translate(rim2, 0, 0, W);
+    let body = forge.fuse(core, forge.fuse(rim1, rim2));
+    let groove = forge.makeCone(gw / 2 + gd / 2, gw / 2 - gd / 2, gd);
+    groove = forge.translate(groove, 0, 0, W / 2 - gd / 2);
+    return { shape: roundEdges(forge.cut(body, groove), forge, 0.9) };
+  } },
+  { name: 'asset.make-u-channel', discipline: 'part', produces: 'handle',
+  description: 'U-channel: rectangular channel formed by subtracting inner box from outer box.',
+  parameters: { len: P('number', 'length mm', { default: 100 }), width: P('number', 'outer width mm', { default: 50 }),
+                height: P('number', 'height mm', { default: 40 }), thick: P('number', 'wall thickness mm', { default: 4 }) },
+  run: (a, forge) => {
+    const L = a.len || 100, W = a.width || 50, H = a.height || 40, t = a.thick || 4;
+    let outer = forge.makeBox(L, W, H);
+    let inner = forge.makeBox(L - 2 * t, W - 2 * t, H - t);
+    inner = forge.translate(inner, t, t, t);
+    return { shape: roundEdges(forge.cut(outer, inner), forge, 1.0) };
+  } },
+  { name: 'asset.make-keyed-shaft', discipline: 'part', produces: 'handle',
+  description: 'Keyed shaft: cylinder with a rectangular keyway slot cut radially.',
+  parameters: { diameter: P('number', 'shaft diameter mm', { default: 30 }), length: P('number', 'shaft length mm', { default: 80 }),
+                key_w: P('number', 'keyway width mm', { default: 8 }), key_d: P('number', 'keyway depth mm', { default: 4 }),
+                key_len: P('number', 'keyway length mm', { default: 40 }) },
+  run: (a, forge) => {
+    const R = (a.diameter || 30) / 2, L = a.length || 80, kw = a.key_w || 8, kd = a.key_d || 4, kl = a.key_len || 40;
+    let shaft = forge.makeCylinder(R, L);
+    let keyway = forge.makeBox(kw, kd, kl);
+    keyway = forge.translate(keyway, -kw / 2, R - kd, (L - kl) / 2);
+    return { shape: roundEdges(forge.cut(shaft, keyway), forge, 0.6) };
+  } },
+  { name: 'asset.make-pipe-tee', discipline: 'part', produces: 'handle',
+  description: 'Pipe tee: two perpendicular hollow tubes fused at a junction.',
+  parameters: { od: P('number', 'outer diameter mm', { default: 30 }), wall: P('number', 'wall thickness mm', { default: 3 }),
+                main_len: P('number', 'main arm length mm', { default: 80 }), branch_len: P('number', 'branch length mm', { default: 60 }) },
+  run: (a, forge) => {
+    const R = (a.od || 30) / 2, w = a.wall || 3, Lm = a.main_len || 80, Lb = a.branch_len || 60;
+    const r = R - w;
+    let main = forge.makeCylinder(R, Lm);
+    let main_bore = forge.makeCylinder(r, Lm + 4); main_bore = forge.translate(main_bore, 0, 0, -2);
+    main = forge.cut(main, main_bore);
+    let branch = forge.makeCylinder(R, Lb);
+    branch = forge.rotate(branch, 1, 0, 0, Math.PI / 2);
+    branch = forge.translate(branch, 0, 0, Lm / 2);
+    let branch_bore = forge.makeCylinder(r, Lb + 4);
+    branch_bore = forge.rotate(branch_bore, 1, 0, 0, Math.PI / 2);
+    branch_bore = forge.translate(branch_bore, 0, 0, Lm / 2);
+    let body = forge.fuse(main, branch);
+    return { shape: roundEdges(forge.cut(body, forge.cut(main_bore, branch_bore)), forge, 0.7) };
+  } },
+  { name: 'asset.make-end-cap', discipline: 'part', produces: 'handle',
+  description: 'End cap: hollow cup formed by cutting a coaxial bore from the top of a cylinder.',
+  parameters: { od: P('number', 'outer diameter mm', { default: 50 }), id: P('number', 'inner hole diameter mm', { default: 40 }),
+                height: P('number', 'height mm', { default: 25 }), wall: P('number', 'wall thickness mm', { default: 3 }) },
+  run: (a, forge) => {
+    const R = (a.od || 50) / 2, r = (a.id || 40) / 2, H = a.height || 25, w = a.wall || 3;
+    let cup = forge.makeCylinder(R, H);
+    let bore = forge.makeCylinder(r, H - w + 2);
+    bore = forge.translate(bore, 0, 0, w - 2);
+    return { shape: roundEdges(forge.cut(cup, bore), forge, 0.8) };
+  } },
 ];
 
 // ===================================================================
