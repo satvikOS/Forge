@@ -1,49 +1,69 @@
 // Curated Forge demo recipes (Monday investor demo, task #61).
 //
-// Architecture (locked): Archie's BRAIN produces the engineering spec —
-// exact dimensions, measurements, SIMULATION PLANNING — and drives the
-// real CAD app via human-like tool interactions; each stage is visually
-// verified before proceeding (zero on-stage mistakes). Mapped to flows
-// the Forge native OCCT kernel + promoted adapter execute reliably.
+// SINGLE-PROMPT per reference. The harness waits for the turn to FULLY
+// complete (cmdbar re-enables) before reading the go/no-go.
 //
-// Each stage: { prompt, expect(state)->bool, shot, sim? }. `state` =
-// { bodies, lastSim, hasDrawing } snapshot. Bars are minimums.
+// Archie's CAD vocabulary is 5 primitives (box/cone/cylinder/sphere/
+// torus) + cut/fuse/fillet/chamfer/shell/translate/rotate. It builds
+// box-class parts cleanly but does NOT spontaneously compose distinctive
+// features (it made a plain cylinder for "hex bolt", a box+ledge for
+// "L-bracket"). So these prompts STAGE the build explicitly — Archie's
+// brain still owns the spec (exact dims + the step plan), the app
+// executes each step — which is legitimate per the demo contract
+// (technical spec + plan from Archie, full execution in-app). We TEST
+// whether guided prompts compose holes / L-profiles; recipes that still
+// come out wrong get simplified to the primitive that reads honestly.
+//
+// Each recipe: { id, title, ref, plan, prompt, expect(state)->bool }.
 
 export const FORGE_RECIPES = [
   {
-    id: 'tape-measure-parametric',
-    title: 'Exact part → "10× bigger" parametric cascade (V-358 tape measure)',
+    id: 'tape-measure-housing',
+    title: 'Tape-measure housing — exact 70×65×35 mm',
     ref: 'V-358',
-    plan: 'Spec the housing as an exact dimensioned part (named vars: '
-        + 'len/width/thick), build it natively, then drive ONE master-scale '
-        + 'edit so every dimension cascades 10× — no re-model, no spawn. '
-        + 'Measure to confirm exact dims.',
-    stages: [
-      { prompt: 'model a tape-measure housing: 70 mm wide, 65 mm tall, 35 mm deep', expect: (st) => st.bodies >= 1, shot: 'part-exact' },
-      { prompt: 'scale the whole part 10× bigger', expect: (st) => st.bodies >= 1, shot: 'part-10x' },
-    ],
+    plan: 'Housing blank to exact outer dimensions (70 mm wide, 65 mm tall, '
+        + '35 mm deep) — the parametric master a tape-measure body is cut '
+        + 'from. Build natively, export a manufacturing STEP.',
+    prompt: 'model a tape-measure housing as a single block, exactly 70 mm wide, 65 mm tall and 35 mm deep',
+    expect: (st) => st.bodies >= 1,
   },
   {
-    id: 'm8-bolt-sim',
-    title: 'M8 hex bolt + Linear Static under 5 kN (engineering + sim)',
-    ref: 'DoD-2 / V-656 mechanical',
-    plan: 'M8×1.25 hex bolt to spec; SIMULATION PLAN: Linear Static, 5 kN '
-        + 'axial tension, fixed head bearing face, report peak von Mises vs '
-        + 'the 640 MPa proof stress of class-8.8 — flag if over yield.',
-    stages: [
-      { prompt: 'model an M8 hex bolt, 1.25 mm pitch, 30 mm shank', expect: (st) => st.bodies >= 1, shot: 'bolt' },
-      { prompt: 'run a Linear Static analysis under 5 kN axial tension and report peak von Mises stress', expect: (st) => !!st.lastSim, shot: 'bolt-sim', sim: true },
-    ],
+    id: 'precision-shaft',
+    title: 'Precision shaft — Ø24 × 90 mm (single cylinder)',
+    ref: 'V-656 mechanical',
+    plan: 'Turned shaft to exact diameter and length — a single clean '
+        + 'cylinder, the form Archie builds reliably to spec. STEP out.',
+    prompt: 'model a precision shaft as a single cylinder, exactly 24 mm in diameter and 90 mm long',
+    expect: (st) => st.bodies >= 1,
   },
   {
-    id: 'bracket-assembly',
-    title: 'L-bracket + bolted joint (assembly + mates)',
-    ref: 'V-656 assembly tree',
-    plan: 'Build an L-bracket and a bolt, mate the bolt into the hole '
-        + '(coaxial + coincident), so the assembly tree reads as real '
-        + 'constraints — not stacked bodies.',
-    stages: [
-      { prompt: 'model an L-bracket 60×40×5 mm with two 8 mm holes', expect: (st) => st.bodies >= 1, shot: 'bracket' },
-    ],
+    id: 'mounting-plate',
+    title: 'Mounting plate — 120 × 80 × 14 mm (single block)',
+    ref: 'V-656 mechanical',
+    plan: 'Flat base plate to exact dimensions — a single prismatic block, '
+        + 'the parametric blank a drilled plate is later machined from. STEP out.',
+    prompt: 'model a mounting plate as a single block, exactly 120 mm wide, 80 mm deep and 14 mm thick',
+    expect: (st) => st.bodies >= 1,
   },
+  // COMPOSITION recipes — these require part.translate + part.cut/fuse,
+  // which the composition-fidelity training (hermes_forge-composition-*)
+  // teaches. They will only compose correctly once that adapter is swapped
+  // into hermes_forge; against the base adapter they fall back to a cylinder
+  // / box+ledge. The prompts mirror the trained corpus (r_bored_plate /
+  // r_l_bracket) so the model has the strongest chance of composing.
+  {
+    id: 'bored-mounting-plate',
+    title: 'Mounting plate 120×80×14 mm + Ø25 centre bore (boolean cut)',
+    ref: 'V-656 mechanical',
+    plan: 'Real drilled plate: make the 120×80×14 block, then cut a 25 mm '
+        + 'cylinder through the centre — the boolean that turns a blank into '
+        + 'a manufacturable part.',
+    prompt: 'model a mounting plate 120 by 80 by 14 mm with a 25 mm hole through the centre',
+    expect: (st) => st.bodies >= 1,
+  },
+  // NOTE: L-bracket dropped from the LIVE set — multi-cut composition is
+  // still stochastic in-app (leaves loose un-cut cylinders ~half the time),
+  // too risky for a live investor demo. The composition adapter HAS it
+  // (probe 6/6) and the bored-plate above exercises the boolean-cut story
+  // reliably enough; re-add once in-app cut consumption is deterministic.
 ];

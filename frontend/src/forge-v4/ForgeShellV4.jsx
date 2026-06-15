@@ -239,6 +239,10 @@ export function ForgeShellV4() {
     window.__forgeReplaceFeatureTree = (next) => setFeatureTree(Array.isArray(next) ? next : []);
     // Forge-139 — palette-driven feature selection bridge.
     window.__forgeSelectFeature = (id) => setActiveFeatureId(id);
+    // Stop button's action, exposed so automation (the demo harness, the
+    // render queue) can abort a runaway turn the same way a human clicks
+    // Stop — prevents one slow turn from bleeding into the next.
+    window.__forgeCancelArchie = () => { try { cancelArchie(); } catch (_) {} };
     // Forge-134 — workbench + fit hooks used by window.Forge.workbench.switchTo
     // and Forge.viewport.fit. Both shadow the same setters the menu / HUT
     // dispatch already use; we expose them as window hooks so plugin code
@@ -476,8 +480,20 @@ export function ForgeShellV4() {
       });
     };
     try {
+      // Creation-order handle (1-based) → body id, for this turn. Lets
+      // boolean/transform ops drop their consumed source bodies so the
+      // viewport shows the RESULT, not part+cutter+offcuts. Reset per turn
+      // (scene is cleared per build).
+      const _h2id = [];
       const trace = await runForgePrompt({
         prompt,
+        // Bound the agent loop to ONE inference. The composition-trained
+        // adapter emits a COMPLETE part in a single turn (probe: bore =
+        // box+cyl+translate+cut; L-bracket = 9 calls). It does NOT emit a
+        // no-tool-call "done", so any extra turn just piles on more bodies
+        // (maxTurns 6 → 130+ bodies, a cluttered z-fighting mess). One turn
+        // = one clean part. Raise only once a trained stop-signal lands.
+        maxTurns: 1,
         discipline: activeWb === 'mech' ? 'part' : activeWb,
         signal: ac.signal,
         forge: window.forge,
@@ -506,15 +522,21 @@ export function ForgeShellV4() {
               // Forge-191 — Date.now() alone collides when speculative
               // dispatch lands two bodies in the same millisecond.
               const nextId = `archie-${Date.now().toString(36)}-${(_archieBodySeq.current += 1)}`;
-              setBodies((b) => [...b, {
-                id: nextId, kind: 'native', handle: h,
-                toolId: ev.call.name, params: ev.call.arguments,
-                name: `Archie · ${ev.call.name}`,
-              }]);
-              setFeatureTree((t) => [...t, {
-                id: nextId, label: `Archie · ${ev.call.name}`,
-                icon: 'archie.spark', params: ev.call.arguments,
-              }]);
+              // Boolean (cut/fuse/common) + transform (translate/rotate)
+              // ops CONSUME their source handles — drop those bodies so the
+              // scene shows only the result, not the inputs + offcuts.
+              const _a = ev.call.arguments || {};
+              const _consumed = /(^|\.)(cut|fuse|common)$/.test(ev.call.name)
+                ? [_a.a, _a.b]
+                : /(^|\.)(translate|rotate)$/.test(ev.call.name) ? [_a.shape] : [];
+              const _rmIds = new Set(_consumed
+                .map((k) => (typeof k === 'number' ? _h2id[k - 1] : null))
+                .filter(Boolean));
+              _h2id.push(nextId);
+              const _body = { id: nextId, kind: 'native', handle: h, toolId: ev.call.name, params: _a, name: `Archie · ${ev.call.name}` };
+              const _feat = { id: nextId, label: `Archie · ${ev.call.name}`, icon: 'archie.spark', params: _a };
+              setBodies((b) => (_rmIds.size ? b.filter((x) => !_rmIds.has(x.id)) : b).concat([_body]));
+              setFeatureTree((t) => (_rmIds.size ? t.filter((x) => !_rmIds.has(x.id)) : t).concat([_feat]));
             }
           }
         },

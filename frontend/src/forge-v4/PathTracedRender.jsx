@@ -159,19 +159,46 @@ function makeOfflineRenderer() {
 
 function harvestScene() {
   const out = new THREE.Scene();
-  const live = (typeof window !== 'undefined' && Array.isArray(window.__forgeViewportMeshes))
+  let live = (typeof window !== 'undefined' && Array.isArray(window.__forgeViewportMeshes))
     ? window.__forgeViewportMeshes : [];
+  // __forgeViewportMeshes is not always published; fall back to walking
+  // the live render scene for the actual body meshes (tagged
+  // userData.forgeBody by Viewport.jsx) so the path tracer renders the
+  // real part rather than the neutral-cube placeholder.
+  if ((!live || live.length === 0) && typeof window !== 'undefined' && window.__forgeScene) {
+    const collected = [];
+    window.__forgeScene.traverse((o) => {
+      if (o && o.isMesh && o.geometry && !o.userData?.helper
+          && (o.userData?.forgeBody || o.userData?.body || o.userData?.bodyId != null)) {
+        o.updateWorldMatrix?.(true, false);
+        collected.push(o);
+      }
+    });
+    live = collected;
+  }
+  // Brushed-metal palette so parts read as machined hardware, not flat
+  // clay. We do NOT clone the viewport material (it carries flat selection
+  // colours / vertex tints that path-trace as muddy checker artifacts);
+  // instead assign a clean PBR metal, varied per body for visual interest.
+  const METALS = [
+    { color: 0xc9ced6, metalness: 0.92, roughness: 0.28 }, // brushed steel
+    { color: 0xd2d6dc, metalness: 0.95, roughness: 0.16 }, // polished steel
+    { color: 0xc6c2bb, metalness: 0.88, roughness: 0.38 }, // aluminium
+    { color: 0xb9a78c, metalness: 0.85, roughness: 0.42 }, // brass-ish
+  ];
+  let _mi = 0;
   for (const m of live) {
     if (!m || !m.geometry) continue;
-    const mat = m.material && m.material.clone
-      ? m.material.clone()
-      : new THREE.MeshPhysicalMaterial({ color: 0xb8c0ce, metalness: 0.85, roughness: 0.25 });
+    const spec = METALS[_mi++ % METALS.length];
+    const mat = new THREE.MeshPhysicalMaterial({ color: spec.color, metalness: spec.metalness, roughness: spec.roughness, clearcoat: 0.15, clearcoatRoughness: 0.3 });
     const clone = new THREE.Mesh(m.geometry.clone(), mat);
-    clone.position.copy(m.position);
-    clone.quaternion.copy(m.quaternion);
-    clone.scale.copy(m.scale);
+    // Bake the WORLD transform into the clone so bodies nested under
+    // groups land in the right place (copying only local position drops
+    // any parent offset).
+    m.updateWorldMatrix?.(true, false);
+    if (m.matrixWorld) clone.applyMatrix4(m.matrixWorld);
+    else { clone.position.copy(m.position); clone.quaternion.copy(m.quaternion); clone.scale.copy(m.scale); }
     clone.matrixAutoUpdate = true;
-    clone.updateMatrix();
     out.add(clone);
   }
   if (out.children.length === 0) {
@@ -181,30 +208,49 @@ function harvestScene() {
     const m = new THREE.MeshPhysicalMaterial({ color: 0xa8b0bc, metalness: 0.5, roughness: 0.4 });
     out.add(new THREE.Mesh(g, m));
   }
-  // Ground plane — large + slightly diffuse so the path tracer has a
-  // floor to bounce off (without one, every render looks like it's in
-  // a void).
+  // Measure the PART now, before adding the floor, so the camera frames
+  // the part (not a giant ground plane) and the floor is sized to the
+  // part. Scale-to-viewer: a 70 mm housing must dominate the frame, never
+  // sit as a speck on a 2 m floor.
+  const partBox = new THREE.Box3().setFromObject(out);
+  const partCenter = partBox.getCenter(new THREE.Vector3());
+  const partSize = partBox.getSize(new THREE.Vector3());
+  out.userData.partCenter = partCenter;
+  out.userData.partRadius = Math.max(partSize.length() / 2, 1);
+  // Ground plane sized to the part (≈10× its footprint) and set at its
+  // base — gives the path tracer a floor to bounce off without dwarfing
+  // the part.
+  const span = Math.max(partSize.x, partSize.z, partSize.y) * 10 + 1;
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(2000, 2000),
+    new THREE.PlaneGeometry(span, span),
     new THREE.MeshPhysicalMaterial({ color: 0x1a1c20, metalness: 0.0, roughness: 0.85 }),
   );
   floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -30;
+  floor.position.set(partCenter.x, partBox.min.y - partSize.y * 0.01 - 0.01, partCenter.z);
   out.add(floor);
   return out;
 }
 
 function frameCameraForScene(scene, aspect) {
-  const box = new THREE.Box3().setFromObject(scene);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const radius = Math.max(size.length() / 2, 30);
-  const cam = new THREE.PerspectiveCamera(40, aspect, 0.1, radius * 100);
-  // 3/4 hero angle.
+  // Frame the PART (measured in harvestScene), not the whole scene —
+  // otherwise the proportional floor still pulls the framing wide. Fall
+  // back to the scene box if the part metrics are absent.
+  let center, radius;
+  if (scene.userData && scene.userData.partCenter) {
+    center = scene.userData.partCenter;
+    radius = scene.userData.partRadius;
+  } else {
+    const box = new THREE.Box3().setFromObject(scene);
+    center = box.getCenter(new THREE.Vector3());
+    radius = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 30);
+  }
+  const cam = new THREE.PerspectiveCamera(40, aspect, Math.max(radius * 0.01, 0.05), radius * 200);
+  // 3/4 hero angle, distance ≈ 2.6× radius so a 40° FOV frames the part
+  // filling most of the view (scale to viewer).
   cam.position.set(
-    center.x + radius * 1.6,
+    center.x + radius * 1.55,
     center.y + radius * 1.2,
-    center.z + radius * 2.0,
+    center.z + radius * 1.75,
   );
   cam.lookAt(center);
   cam.updateMatrixWorld(true);
@@ -246,11 +292,14 @@ export async function runPathTracedRender({
   pt.renderToCanvas = false;
   pt.filterGlossyFactor = denoise ? 0.5 : 0.0;
 
-  // Build/bake the scene generator (this walks the scene graph and
-  // emits BVH + material buffers).
-  const generator = new PathTracingSceneGenerator();
-  const built = generator.generate(scene);
+  // Bake BVH + material buffers and upload to the tracer. setScene does
+  // this internally (generator.setObjects + sync generate) — do NOT call
+  // a standalone PathTracingSceneGenerator.generate(scene): its first arg
+  // is onProgress, so passing the scene there makes the BVH builder try
+  // to invoke the scene as a callback ("onProgress is not a function"),
+  // and it double-bakes the BVH (extra memory).
   pt.setScene(scene, camera);
+  const built = true;
 
   // Pump samples until we've hit the target.
   let sampleIndex = 0;
@@ -279,7 +328,34 @@ export async function runPathTracedRender({
   pt.renderSample();
   ctx.drawImage(canvas, 0, 0, res.w, res.h);
 
-  // Clean up.
+  // Grade pass — subtle S-curve contrast + radial vignette for a crafted
+  // hero look. The renderer already ACES-tonemaps + sRGB-encodes, so we do
+  // NOT re-tonemap; just gently shape contrast and darken the edges.
+  try {
+    const img = ctx.getImageData(0, 0, res.w, res.h);
+    const d = img.data;
+    const cx = res.w / 2, cy = res.h / 2, maxd = Math.hypot(cx, cy);
+    const contrast = 1.08; // gentle mid punch
+    for (let i = 0; i < d.length; i += 4) {
+      const idx = i >> 2; const px = idx % res.w, py = (idx / res.w) | 0;
+      const vig = 1 - 0.28 * Math.pow(Math.hypot(px - cx, py - cy) / maxd, 2.2);
+      for (let c = 0; c < 3; c++) {
+        let v = d[i + c] / 255;
+        v = (v - 0.5) * contrast + 0.5; // contrast around mid-grey
+        v *= vig;                        // vignette
+        d[i + c] = Math.max(0, Math.min(255, v * 255));
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch (_) { /* grading optional */ }
+
+  // Clean up. Dispose the path tracer, env, and scene meshes — AND tear
+  // down the offline renderer's WebGL2 context (forceContextLoss + null
+  // the singleton). The path tracer's GPU textures/BVH targets are not
+  // fully reclaimed by pt.dispose() alone; without a hard context teardown
+  // the singleton renderer accumulates GPU memory across successive
+  // renders and the ~3rd render in a session crashes the page (the next
+  // cmdbar interaction then hangs). A fresh context is rebuilt next call.
   try { pt.dispose?.(); } catch {}
   try { env.tex.dispose?.(); } catch {}
   scene.traverse((o) => {
@@ -289,6 +365,9 @@ export async function runPathTracedRender({
       mats.forEach((m) => m?.dispose?.());
     }
   });
+  try { renderer.forceContextLoss?.(); } catch {}
+  try { wrapper.dispose(); } catch {}
+  _offlineRendererSingleton = null;
 
   return { canvas: out, width: res.w, height: res.h, samples: target,
            envPresetId, resolutionId, generated: !!built };
@@ -552,7 +631,18 @@ export function PathTracedRenderHost() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     window.__forgeOpenPathTracer = (v) => setOpen(typeof v === 'boolean' ? v : !open);
-    return () => { try { delete window.__forgeOpenPathTracer; } catch {} };
+    // Headless driver — run the real GPU path tracer WITHOUT opening the
+    // panel (the modal overlay obstructs the cmdbar). Returns a PNG data
+    // URL of the M4 Max ray-traced hero frame so callers (the demo
+    // harness, the render queue) can write it to disk.
+    window.__forgeRunPathTracedRender = async (opts = {}) => {
+      const { canvas, width, height, samples } = await runPathTracedRender(opts);
+      return { dataUrl: canvas.toDataURL('image/png'), width, height, samples };
+    };
+    return () => {
+      try { delete window.__forgeOpenPathTracer; } catch {}
+      try { delete window.__forgeRunPathTracedRender; } catch {}
+    };
   }, [open]);
   if (typeof document === 'undefined') return null;
   return createPortal(
