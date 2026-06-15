@@ -3,16 +3,14 @@
 // SINGLE-PROMPT per reference. The harness waits for the turn to FULLY
 // complete (cmdbar re-enables) before reading the go/no-go.
 //
-// Archie's CAD vocabulary is 5 primitives (box/cone/cylinder/sphere/
-// torus) + cut/fuse/fillet/chamfer/shell/translate/rotate. It builds
-// box-class parts cleanly but does NOT spontaneously compose distinctive
-// features (it made a plain cylinder for "hex bolt", a box+ledge for
-// "L-bracket"). So these prompts STAGE the build explicitly — Archie's
-// brain still owns the spec (exact dims + the step plan), the app
-// executes each step — which is legitimate per the demo contract
-// (technical spec + plan from Archie, full execution in-app). We TEST
-// whether guided prompts compose holes / L-profiles; recipes that still
-// come out wrong get simplified to the primitive that reads honestly.
+// 2026-06-15: driven by the ASSET adapter (hermes_forge = assets-20260615)
+// under its byte-matched ASSET_SYS. Archie now PREFERS a parametric asset
+// (asset.make-flange / l-bracket / tube / stepped-shaft / bored-plate /
+// gusset-bracket) when a request matches a whole part — one tool call →
+// one clean, manufacturable single body (probe 6/6). Distinctive features
+// (bolt circles, bores, L-profiles) compose deterministically in kernel
+// code instead of the old stochastic multi-primitive boolean. Plain
+// primitive parts (housing/shaft) still build from part.make-*.
 //
 // Each recipe: { id, title, ref, plan, prompt, expect(state)->bool }.
 
@@ -21,49 +19,59 @@ export const FORGE_RECIPES = [
     id: 'tape-measure-housing',
     title: 'Tape-measure housing — exact 70×65×35 mm',
     ref: 'V-358',
-    plan: 'Housing blank to exact outer dimensions (70 mm wide, 65 mm tall, '
-        + '35 mm deep) — the parametric master a tape-measure body is cut '
-        + 'from. Build natively, export a manufacturing STEP.',
+    plan: 'Housing blank to exact outer dimensions — the parametric master a '
+        + 'tape-measure body is cut from. Native build, manufacturing STEP out.',
     prompt: 'model a tape-measure housing as a single block, exactly 70 mm wide, 65 mm tall and 35 mm deep',
     expect: (st) => st.bodies >= 1,
   },
   {
     id: 'precision-shaft',
-    title: 'Precision shaft — Ø24 × 90 mm (single cylinder)',
+    title: 'Precision shaft — Ø24 × 90 mm',
     ref: 'V-656 mechanical',
-    plan: 'Turned shaft to exact diameter and length — a single clean '
-        + 'cylinder, the form Archie builds reliably to spec. STEP out.',
+    plan: 'Turned shaft to exact diameter and length — a single clean cylinder. STEP out.',
     prompt: 'model a precision shaft as a single cylinder, exactly 24 mm in diameter and 90 mm long',
     expect: (st) => st.bodies >= 1,
   },
   {
-    id: 'mounting-plate',
-    title: 'Mounting plate — 120 × 80 × 14 mm (single block)',
-    ref: 'V-656 mechanical',
-    plan: 'Flat base plate to exact dimensions — a single prismatic block, '
-        + 'the parametric blank a drilled plate is later machined from. STEP out.',
-    prompt: 'model a mounting plate as a single block, exactly 120 mm wide, 80 mm deep and 14 mm thick',
+    id: 'pipe-flange',
+    title: 'Pipe flange — Ø80, 6 bolt holes on Ø60 BCD, Ø25 bore',
+    ref: 'V-656 mechanical / standard part',
+    plan: 'Real flange: disc + centre bore + 6-hole bolt circle, composed in '
+        + 'one parametric asset call → one clean body. STEP out.',
+    prompt: 'model a Ø80 steel flange, 12 mm thick, 6 bolt holes on a 60 mm bolt circle, 25 mm bore',
     expect: (st) => st.bodies >= 1,
   },
-  // COMPOSITION recipes — these require part.translate + part.cut/fuse,
-  // which the composition-fidelity training (hermes_forge-composition-*)
-  // teaches. They will only compose correctly once that adapter is swapped
-  // into hermes_forge; against the base adapter they fall back to a cylinder
-  // / box+ledge. The prompts mirror the trained corpus (r_bored_plate /
-  // r_l_bracket) so the model has the strongest chance of composing.
+  {
+    id: 'l-bracket',
+    title: 'L-bracket — 100×60×8 mm, two mounting holes',
+    ref: 'V-656 mechanical',
+    plan: 'Foot + wall fused into an L, two through-holes — one asset call → one body.',
+    prompt: 'model an L-bracket, 100 long, 60 wide, 8 thick, with two mounting holes',
+    expect: (st) => st.bodies >= 1,
+  },
+  {
+    id: 'tube',
+    title: 'Tube — outer Ø50, 4 mm wall, 120 long',
+    ref: 'V-656 mechanical',
+    plan: 'Hollow round tube — outer cylinder minus bore — one asset call → one body.',
+    prompt: 'model a tube, outer Ø50, 4 mm wall, 120 long',
+    expect: (st) => st.bodies >= 1,
+  },
+  {
+    id: 'stepped-shaft',
+    title: 'Stepped shaft — Ø30×60 → Ø20×40',
+    ref: 'V-656 mechanical',
+    plan: 'Two coaxial cylinders fused into a stepped shaft — one asset call → one body.',
+    prompt: 'model a stepped shaft, Ø30 by 60 then Ø20 by 40',
+    expect: (st) => st.bodies >= 1,
+  },
   {
     id: 'bored-mounting-plate',
-    title: 'Mounting plate 120×80×14 mm + Ø25 centre bore (boolean cut)',
+    title: 'Mounting plate 120×80×14 mm + Ø25 centre bore',
     ref: 'V-656 mechanical',
-    plan: 'Real drilled plate: make the 120×80×14 block, then cut a 25 mm '
-        + 'cylinder through the centre — the boolean that turns a blank into '
-        + 'a manufacturable part.',
+    plan: 'Drilled plate: block + centred bore — the boolean that turns a blank '
+        + 'into a manufacturable part — one asset call → one body.',
     prompt: 'model a mounting plate 120 by 80 by 14 mm with a 25 mm hole through the centre',
     expect: (st) => st.bodies >= 1,
   },
-  // NOTE: L-bracket dropped from the LIVE set — multi-cut composition is
-  // still stochastic in-app (leaves loose un-cut cylinders ~half the time),
-  // too risky for a live investor demo. The composition adapter HAS it
-  // (probe 6/6) and the bored-plate above exercises the boolean-cut story
-  // reliably enough; re-add once in-app cut consumption is deterministic.
 ];
