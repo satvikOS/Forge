@@ -1,0 +1,53 @@
+{
+ "buildMs": 92,
+ "instMeshes": 14,
+ "totalInst": 105572,
+ "machines": 242,
+ "stats": {
+  "machines": 242,
+  "tanks": 15,
+  "components": 107609,
+  "drawCalls": 931,
+  "bolts": 1064,
+  "fasteners": 15000,
+  "studs": 6000,
+  "drums": 15950,
+  "crates": 34000,
+  "rollers": 375,
+  "rackUprights": 2730,
+  "rackBeams": 10752,
+  "pallets": 2000,
+  "drumPallets": 550,
+  "totes": 1024,
+  "instanced": {
+   "column": 96,
+   "roofBeam": 81,
+   "bolt": 1064,
+   "roller": 375,
+   "rackUp": 2730,
+   "rackBeam": 10752,
+   "tote": 1024,
+   "fastener": 15000,
+   "stud": 6000,
+   "crate": 34000,
+   "drum": 15950,
+   "drumLid": 15950,
+   "drumPallet": 550,
+   "pallet": 2000
+  },
+  "footprint": [
+   268,
+   184
+  ],
+  "seed": 7
+ },
+ "extent": [
+  270,
+  12,
+  184
+ ],
+ "render": {
+  "calls": 112,
+  "tris": 2771116
+ }
+}
