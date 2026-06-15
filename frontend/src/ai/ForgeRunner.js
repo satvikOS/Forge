@@ -295,6 +295,11 @@ export async function runForgePrompt({
   if (!prompt || typeof prompt !== 'string') {
     throw new Error('[forge.runner] prompt required');
   }
+  // #59 selection-context — if the caller didn't pass a viewport caption, build
+  // one from the live scene + selection so "fillet the selected part" resolves.
+  if (!viewportState && typeof window !== 'undefined' && typeof window.__forgeSelectionContext === 'function') {
+    try { viewportState = window.__forgeSelectionContext() || ''; } catch (_) { /* best-effort */ }
+  }
   const trace = {
     runId: `forge-${new Date().toISOString().replace(/[:.]/g, '-')}-${Math.random().toString(36).slice(2, 6)}`,
     ts: new Date().toISOString(),
