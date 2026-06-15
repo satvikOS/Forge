@@ -293,6 +293,7 @@ export async function runForgePrompt({
   onToken       = null,  // Forge-164: optional per-token streaming callback
   gate          = true,  // step C: post-build validity gate (heal.checkValidity per body)
   maxGateRepairs = 1,    // step C: how many AutoCorrector repair turns the gate may trigger
+  stages        = null,  // #67: staged refinement — array of per-stage instructions
 } = {}) {
   if (!prompt || typeof prompt !== 'string') {
     throw new Error('[forge.runner] prompt required');
@@ -357,6 +358,11 @@ export async function runForgePrompt({
   // step C — post-build coherence gate budget. Repairs let Archie take one
   // extra turn to fix a body that fails native validity (heal.checkValidity).
   let _gateRepairsLeft = maxGateRepairs;
+  // #67 staged refinement — when `stages` is given, each stage builds until the
+  // model stops, then the runner advances it to the next stage (blockout → detail
+  // → validate) instead of finishing. Single-shot when stages is null.
+  const _stages = Array.isArray(stages) && stages.length ? stages : null;
+  let _stageIdx = 0;
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal && signal.aborted) {
@@ -420,7 +426,15 @@ export async function runForgePrompt({
           + 'Rebuild the affected part(s) as clean valid solids and avoid the reported issues.' });
         continue; // take one more turn to repair
       }
-      trace.final = { status: 'done', text: completion, gate: gateRes };
+      // #67 — stage complete + valid: advance to the next refinement stage.
+      if (_stages && _stageIdx < _stages.length - 1) {
+        _stageIdx++;
+        onTrace({ kind: 'stage', stage: _stageIdx, total: _stages.length, instruction: _stages[_stageIdx] });
+        messages.push({ role: 'assistant', content: completion });
+        messages.push({ role: 'user', content: `<stage>${_stageIdx + 1}/${_stages.length}</stage> ${_stages[_stageIdx]}` });
+        continue;
+      }
+      trace.final = { status: 'done', text: completion, gate: gateRes, stages: _stages ? _stages.length : 1 };
       onTrace({ kind: 'done', iter });
       await _flushIfEnabled(trace);
       return trace;
@@ -495,8 +509,17 @@ export { _flushIfEnabled as flushArchieTrace };
  * Install the autonomous entry point on `window`. Matches Studio's
  * `__archieRun` convention so existing Mech/Studio docs apply.
  */
+// #67 — default Forge refinement stages (Forge has no shading stage; the
+// analogue is blockout → manufactured detail → validate).
+export const FORGE_STAGES = [
+  'Blockout: build the part from primitives / asset builders.',
+  'Detail: refine the part — add fillets, chamfers or draft where a manufactured part would have them.',
+  'Validate: confirm the part is one clean manifold solid (part.check-validity).',
+];
+
 export function installForgeRunner(globalObj = (typeof window !== 'undefined' ? window : globalThis)) {
   globalObj.__forgeRun = (opts) => runForgePrompt(opts || {});
+  globalObj.__forgeRunStaged = (opts) => runForgePrompt({ stages: FORGE_STAGES, ...(opts || {}) });
   globalObj.__forgeEngine = { dispatchToolCall, buildSystemPrompt,
                               parseAssistant, buildMessages, getPersona };
   // Forge-113 — convenience getter so e2e + dev tools can confirm the
