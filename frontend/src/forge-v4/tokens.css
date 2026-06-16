@@ -1051,6 +1051,7 @@ html, body, #root {
   line-height: 1.55;
   padding: 6px 10px;
   border-radius: var(--forge-radius);
+  white-space: pre-wrap;   /* conversational multi-line lead + ✓ validity line */
 }
 .forge-archie-msg[data-role="user"]   { background: var(--forge-surface); color: var(--forge-ink); }
 .forge-archie-msg[data-role="archie"] { background: var(--forge-accent-mute); border-left: 2px solid var(--forge-accent); color: var(--forge-ink); }

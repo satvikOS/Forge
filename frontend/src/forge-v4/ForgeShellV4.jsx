@@ -70,6 +70,64 @@ const stored = {
 // so the unit test can import it without going through the JSX shell).
 import { detectSimTriggers as _detectSimTriggers } from './simTriggers.js';
 
+// ── Conversational layer (user rule 2026-06-16: "make Archie conversational
+// instead of spitting internal language"). These read ONLY the already-parsed
+// trace objects (parsed.plan/toolCalls + toolResponses) and rewrite DISPLAY
+// text — the <tool_call>/<plan>/<think> protocol strings the model emits and
+// the parser/dispatcher read stay byte-identical. Forward-compatible with the
+// corpus fold: if the model emits its own conversational line, archieNarrate
+// prefers it; until then it synthesizes one from the build trace.
+const FORGE_CALL_LABEL = {
+  'part.make-box': 'box', 'part.make-cylinder': 'cylinder', 'part.make-sphere': 'sphere',
+  'part.make-cone': 'cone', 'part.make-torus': 'torus', 'part.make-wedge': 'wedge',
+  'part.cut': 'cut a pocket', 'part.fuse': 'fused', 'part.common': 'intersected',
+  'part.translate': 'positioned', 'part.rotate': 'rotated', 'part.mirror': 'mirrored',
+  'part.fillet': 'rounded edges', 'part.chamfer': 'chamfered', 'part.shell': 'shelled',
+  'part.extrude': 'extruded', 'part.revolve': 'revolved', 'part.pipe': 'swept a pipe',
+  'part.draft-faces': 'drafted faces', 'part.linear-pattern': 'linear pattern',
+  'part.circular-pattern': 'circular pattern', 'part.push-pull-face': 'push/pull face',
+  'asset.make-flange': 'flange', 'asset.make-bored-plate': 'bored plate',
+  'asset.make-l-bracket': 'L-bracket', 'asset.make-hex-nut': 'hex nut',
+  'asset.make-hex-bolt': 'hex bolt', 'asset.make-socket-screw': 'socket-head screw',
+  'asset.make-hex-standoff': 'hex standoff', 'asset.make-ball-bearing': 'ball bearing',
+  'asset.make-tslot-extrusion': 't-slot extrusion',
+};
+function forgeFmtArgs(name, a) {
+  if (!a) return '';
+  const n = (x) => (typeof x === 'number' ? (Math.round(x * 100) / 100) : x);
+  if (/make-box|make-wedge/.test(name) && a.dx != null) return ` ${n(a.dx)}×${n(a.dy)}×${n(a.dz)} mm`;
+  if (/make-cylinder|make-cone/.test(name) && a.radius != null) return ` Ø${n(a.radius * 2)}×${n(a.height)} mm`;
+  if (/fillet|chamfer/.test(name) && a.radius != null) return ` R${n(a.radius)}`;
+  if (/shell/.test(name) && a.thickness != null) return ` ${n(a.thickness)} mm wall`;
+  if (/circular-pattern|linear-pattern/.test(name) && a.count != null) return ` ×${a.count}`;
+  if (/flange/.test(name)) return ` Ø${n(a.od)}${a.bolts ? `, ${a.bolts} bolt holes${a.bcd ? ` on a Ø${n(a.bcd)} circle` : ''}` : ''}${a.bore ? `, Ø${n(a.bore)} bore` : ''}`;
+  return '';
+}
+function forgeHumanizeCall(call, resp) {
+  const name = (call && call.name) || '?';
+  const label = FORGE_CALL_LABEL[name] || String(name).replace(/^.*\./, '').replace(/-/g, ' ');
+  const args = forgeFmtArgs(name, call && call.arguments);
+  const ok = !resp || resp.ok !== false;
+  return `${label}${args} ${ok ? '✓' : '✗ ' + ((resp && resp.error) || 'failed')}`;
+}
+function archieNarrate(trace) {
+  const its = (trace && trace.iterations) || [];
+  const goal = (its[0] && its[0].parsed && its[0].parsed.plan && its[0].parsed.plan.goal) || 'the part';
+  // Prefer the model's OWN conversational line (everything before the first
+  // tag, tags stripped) — empty for today's tag-only model, populated after
+  // the corpus fold; synthesize from the goal otherwise.
+  const raw = (trace && trace.final && trace.final.text) || '';
+  const prose = raw.split(/<(?:plan|tool_call|think)\b/i)[0].replace(/<[^>]*>/g, ' ').trim();
+  let lead = (prose && !/^[…\s.]*$/.test(prose)) ? prose : `Here's ${goal}.`;
+  // Brief count recap from the dispatched calls (so the line is informative).
+  const calls = its.flatMap((it) => (it && it.parsed && it.parsed.toolCalls) || []);
+  const holes = calls.filter((c) => /\.cut$/.test(c.name || '')).length;
+  if (!prose && holes > 0) lead = `Here's ${goal} — ${calls.length} operations, ${holes} cut${holes > 1 ? 's' : ''}.`;
+  const gc = trace && trace.gateChecks;
+  const v = gc ? (gc.allValid ? '\n✓ Valid, watertight solid.' : `\n⚠ Validity check flagged ${(gc.defects || []).length || 'some'} issue(s).`) : '';
+  return lead + v;
+}
+
 export function ForgeShellV4() {
   const [theme, setTheme]             = useState(() => stored.get('theme', 'dark'));
   const [activeWb, setActiveWb]       = useState(() => stored.get('wb', 'mech'));
@@ -472,15 +530,21 @@ export function ForgeShellV4() {
     // tool messages still arrive via onTrace.
     pushThread({ role: 'archie', text: '…thinking…', pending: true });
     const _streamUpdate = (acc) => {
+      // Strip the WHOLE internal protocol (think/plan/tool_call) from the live
+      // bubble so raw JSON never flashes; show the model's conversational lead
+      // if it emits one (post-fold), else a stable "Working…" placeholder.
       const visible = (acc || '')
         .replace(/<think>[\s\S]*?(<\/think>|$)/g, '')
+        .replace(/<plan>[\s\S]*?(<\/plan>|$)/g, '')
+        .replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, '')
+        .replace(/<[^>]*>/g, '')
         .trim();
       setThread((t) => {
         // Update the latest pending archie message.
         for (let i = t.length - 1; i >= 0; i--) {
           if (t[i].role === 'archie' && t[i].pending) {
             const next = t.slice();
-            next[i] = { ...t[i], text: visible || '…thinking…' };
+            next[i] = { ...t[i], text: visible || 'Working…' };
             return next;
           }
         }
@@ -512,9 +576,9 @@ export function ForgeShellV4() {
           if (ev.kind === 'tool') {
             pushThread({
               role: 'tool',
-              text: `${ev.call.name}(${JSON.stringify(ev.call.arguments)}) → ${
-                ev.response?.ok === false ? '✗ ' + (ev.response.error || 'err')
-                                          : '✓'}`,
+              // Humanized live step ("▶ box 120×80×20 mm ✓") instead of raw
+              // tool-call JSON (conversational-layer rule).
+              text: `▶ ${forgeHumanizeCall(ev.call, ev.response)}`,
             });
             // Forge-107/191 — if the tool response carries a kernel handle,
             // surface it as a body so Archie-driven geometry actually appears
@@ -565,16 +629,23 @@ export function ForgeShellV4() {
           return [...t, { role: 'archie', text }];
         });
       };
-      if (trace.final?.status === 'done' && trace.final.text) {
-        _finalizePending(trace.final.text);
-      } else if (trace.final?.status === 'clarify') {
+      // Forge ends a clean single-part build at status 'maxTurns' (the model
+      // emits a complete part in one turn, never a no-tool "done"). So narrate
+      // conversationally whenever a build actually happened — only fall back to
+      // the "try a smaller step" hint when NOTHING was dispatched.
+      const _builtSomething = (trace.iterations || []).some((it) => ((it && it.parsed && it.parsed.toolCalls) || []).length > 0);
+      if (trace.final?.status === 'clarify') {
         _finalizePending(`Need: ${trace.final.clarify.question || '…'}`);
       } else if (trace.final?.status === 'cancelled') {
         _finalizePending('(cancelled)');
+      } else if (_builtSomething) {
+        // Conversational summary synthesized from the parsed trace — never the
+        // raw <plan>/<tool_call> wall (conversational-layer rule).
+        _finalizePending(archieNarrate(trace));
       } else if (trace.final?.status === 'maxTurns') {
         _finalizePending('(max turns — try a smaller step)');
       } else {
-        _finalizePending(trace.final?.text || '');
+        _finalizePending(archieNarrate(trace));
       }
       // Forge-163 — fire-and-forget remember this turn. The trace
       // captures both the final text AND the tool_call sequence; we

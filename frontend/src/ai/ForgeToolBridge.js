@@ -982,6 +982,57 @@ export async function dispatchToolCall({ name, arguments: args }, opts = {}) {
   }
 }
 
+/** Keys under `result` that may carry a kernel handle, in scoring priority. */
+const HANDLE_KEYS = [
+  'shape', 'sketchId', 'instanceId', 'mateId', 'face',
+  'pointId', 'lineId', 'circleId', 'constraintId',
+];
+
+/**
+ * Replay an ordered list of Archie tool_calls against a supplied `forge`,
+ * threading nothing implicitly (handles are referenced by int in each
+ * call's own arguments, exactly as the corpus encodes them). Stateless and
+ * side-effect-free beyond the kernel handle registry that `forge` owns.
+ *
+ * @param {Array<{name:string, arguments?:object, args?:object}>} calls
+ * @param {object} forge  injected kernel facade (raw kernel or headless factory)
+ * @returns {Promise<{handles:number[], lastHandle:?number,
+ *                     errors:Array<{index,tool,error}>, dispatched:object[]}>}
+ *   - `handles`: every body handle produced, in order
+ *   - `lastHandle`: last SOLID body handle (`result.shape` > 0) — the final
+ *     body to score; booleans/transforms/features return fresh handles that
+ *     supersede their inputs, so this lands on the terminal body.
+ */
+export async function dispatchSequence(calls, forge) {
+  const handles = [];
+  const errors = [];
+  const dispatched = [];
+  let lastHandle = null;
+
+  for (let i = 0; i < calls.length; i++) {
+    const call = calls[i];
+    const res = await dispatchToolCall(
+      { name: call.name, arguments: call.arguments || call.args || {} },
+      { forge },
+    );
+    dispatched.push(res);
+
+    if (!res.ok) { errors.push({ index: i, tool: call.name, error: res.error }); continue; }
+    if (res.produces !== 'handle') continue; // skip report/mesh/gcode verbs
+
+    const r = res.result || {};
+    if (typeof r.shape === 'number' && r.shape > 0) {
+      handles.push(r.shape);
+      lastHandle = r.shape; // last produced solid wins
+    } else {
+      for (const k of HANDLE_KEYS) {
+        if (typeof r[k] === 'number' && r[k] > 0) { handles.push(r[k]); break; }
+      }
+    }
+  }
+  return { handles, lastHandle, errors, dispatched };
+}
+
 /**
  * Build the JSON `<tools>` array Archie's system prompt expects for a
  * given discipline. Strips the `run` function — the model only sees
