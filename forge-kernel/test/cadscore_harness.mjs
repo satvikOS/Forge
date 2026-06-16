@@ -1144,7 +1144,8 @@ async function main() {
 
 // Reusable labeler surface (for forge-kernel/test/label_rows.mjs and other tools).
 // Exporting named function DECLARATIONS does not change the CLI behavior below.
-export { makeHeadlessForge, tess, bboxOf, bettiNumbers, checkValid, dimsFromCalls, parseRow, runJobInChild };
+export { makeHeadlessForge, tess, bboxOf, bettiNumbers, checkValid, dimsFromCalls, parseRow, runJobInChild,
+         postToModel, callsFromAssistant, CANONICAL_SYSTEM };
 
 // Entry: worker vs orchestrator. Only fires when this file is the program entry
 // point — when imported as a module (e.g. by label_rows.mjs) nothing auto-runs.
