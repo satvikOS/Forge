@@ -11,6 +11,7 @@ import { Toolbar, toolsForWorkbench } from './Toolbar.jsx';
 import { installForgeEnvironmentBuilder } from './forgeEnvironmentBuilder.js';
 import { installForgeRunner } from '../ai/ForgeRunner.js';
 import { installForgeEdit } from './forgeEdit.js';
+import { installForgeMechanism } from './forgeMechanism.js';
 import { RightPanel } from './RightPanel.jsx';
 import { StatusBar } from './StatusBar.jsx';
 import { CommandBar } from './CommandBar.jsx';
@@ -210,6 +211,7 @@ export function ForgeShellV4() {
     try { installForgeEnvironmentBuilder(); } catch (_) {} // window.__forgeBuildEnvironment (100k industrial env)
     try { installForgeRunner(); } catch (_) {} // window.__forgeRun + window.__forgeEngine.dispatchToolCall (Archie tool bridge)
     try { installForgeEdit(); } catch (_) {} // __forgeSelectionContext + __forgeAdjustParam + __forgeEditSelected (#56/#59/#60)
+    try { installForgeMechanism(); } catch (_) {} // __forgeMechanism (kinematic mechanisms: piston-crank/four-bar/gear-pair → moving assembly)
     window.__forgeBodies      = bodies;
     window.__forgeFeatureTree = featureTree;
     window.__forgeSelection   = selection;
