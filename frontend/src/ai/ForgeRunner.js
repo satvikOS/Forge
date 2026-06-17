@@ -60,8 +60,7 @@ Tool ids (use these, nothing else):
   assembly.add-instance, assembly.add-mate, assembly.set-fixed, assembly.solve, assembly.query-aabb,
   drawing.project,
   manufacture.cam-profile, manufacture.cam-pocket, manufacture.cam-drill, manufacture.gcode,
-  simulate.fea-static, simulate.fea-modal, simulate.fea-dynamic, simulate.fea-buckling, simulate.fea-thermal,
-  simulate.fea-fatigue, simulate.fea-nonlinear, simulate.fea-contact, simulate.cfd, simulate.dynamics-motion.
+  simulate.fea-static, simulate.fea-modal, simulate.fea-dynamic.
 Context build — the DEFAULT way to compose a part with an extra named feature. Build into the CURRENT body; the model NEVER names a handle:
   part.begin{primitive,dx,dy,dz|diameter,depth,at?} opens the current body from one primitive (box|cylinder|cone|sphere; at:[x,y,z] offsets it),
   part.add{primitive,…,at?} fuses a primitive ON (bosses/flanges/ribs/standoffs/fins), part.subtract{primitive,…,at?} cuts one OFF (holes/bores/pockets/slots; cutters auto-overhang through),
@@ -78,6 +77,7 @@ Parametric / freeform features — PREFER these for CURVED, BLENDED or PATTERNED
   part.linear-pattern{shape,count,dx,dy,dz}, part.circular-pattern{shape,count,axisOrigin,axisDir,totalAngleDeg},
   part.push-pull-face{shape,faceId,distance}, part.continuity-check{face}, part.check-validity{shape}.
 Profiles are [[x,y],…] closed point lists (mm). Real parts are seldom all-straight: use fillets, draft and revolves.
+Annotation / analysis — part.annotate-pmi{shape,notes,filepath} writes datum letters + GD&T feature-control-frame strings into an AP242 STEP file (annotation only), simulate.tolerance-stack{chain,USL,LSL} runs a 1-D worst-case+RSS+Monte-Carlo stack on a linear dimension chain vs the assembly spec limits (numeric only).
 A whole standard part = ONE asset.make-* call; a part with an extra named feature = a context build. Fillets/chamfers go via part.finish LAST.
 Degradation / weathering — when the request implies a used / cast / aged / as-found / worn part, apply ONE on the finished body:
   part.surface-wear{shape,count,depth,seed} (pitting/dents), part.surface-deposit{shape,count,height,seed} (corrosion blisters),
@@ -94,6 +94,7 @@ Parametric assets — PREFER one of these when the request matches a whole part 
 Body handles count up from 1 in creation order; pass them as "shape".
 Materials are {E,nu,rho} in MPa / mm / tonne: steel {"E":210000,"nu":0.3,"rho":7.85e-9},
 aluminium {"E":70000,"nu":0.33,"rho":2.7e-9}.
+Dimensions are millimetres. Begin with exactly ONE brief conversational line naming what you are building, then the plan and tool_calls. No prose after the tags. No markdown, no lists, no <think> block.
 Full physics suite — after building the part, run the matching analysis. These verbs re-mesh the shape and work in SI (metres, Pascals, Newtons, kelvin); material is {E,nu,rho} in Pa (steel {"E":2.1e11,"nu":0.3,"rho":7850}, aluminium {"E":7e10,"nu":0.33,"rho":2700}) or {k} W/(m·K) for thermal:
   simulate.fea-buckling{shape,material,fixedFace,loadFace,load,modes,meshSize} — first critical buckling load (N) + safety factor for columns/struts/thin panels,
   simulate.fea-thermal{shape,material{k},hotFace,coldFace,hotTemp,coldTemp,meshSize} — steady-state temperature range (°C) + mean heat flux,
@@ -102,8 +103,7 @@ Full physics suite — after building the part, run the matching analysis. These
   simulate.fea-contact{shapeA,shapeB,material,load,meshSize} — penalty contact / press-fit: max contact pressure (MPa) + press-in displacement,
   simulate.cfd{domain,grid,rho,viscosity,inletFace,velocity,maxIter} — incompressible laminar steady Navier-Stokes: peak velocity (m/s), Reynolds, pressure range,
   simulate.dynamics-motion{motor,axis,totalAngle,steps} — assembly kinematics: sweep a driver mate over N frames, return the driven trajectory (build the mate assembly first).
-Faces are -x|+x|-y|+y|-z|+z. Build the geometry in mm as usual, then call ONE simulate.* verb with SI arguments.
-Dimensions are millimetres. No prose outside the tags. No <think> block.`;
+Faces are -x|+x|-y|+y|-z|+z. Build the geometry in mm as usual, then call ONE simulate.* verb with SI arguments.`;
 
 // Kept for back-compat (some legacy tests + the few-shot persona stack
 // still pull `buildSystemPrompt`); new code paths should use the
