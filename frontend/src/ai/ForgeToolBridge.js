@@ -79,6 +79,97 @@ function hexPrism(forge, af, h) {
   return s;
 }
 
+// ===================================================================
+//   CONTEXT / PATTERN verb helpers (the build123d-style implicit-part API)
+// ===================================================================
+// The measured dominant defect (ladder_probe) is the model emitting wrong /
+// missing fuse/cut HANDLE IDS → disconnected solids. The structural fix is to
+// remove handles from the model's surface entirely: a per-sequence `ctx.current`
+// holds the implicit "current part", and verbs MUTATE it. The model only ever
+// names a primitive + dims + an optional `at` — never a handle. This mirrors
+// build123d's implicit current-part + Mode (ADD/SUBTRACT/INTERSECT) + Locations,
+// which makes the disconnected-solid failure mode impossible by construction.
+
+// Build one of the four supported primitives from a {primitive, ...dims} arg
+// bag, optionally translated to an `at:[x,y,z]` anchor. `bump` overhangs a
+// cutter so through-features clear (the corpus convention: +bump on the swept
+// dimension, then drop by bump/2 so it pokes out both ends). Returns a handle.
+//   box      → dx,dy,dz       (corner-at-origin, like makeBox)
+//   cylinder → diameter|radius, depth|height|length
+//   cone     → r1,r2,h  (or diameter1/diameter2/depth aliases)
+//   sphere   → diameter|radius
+function buildPrimitive(forge, a, { bump = 0 } = {}) {
+  const prim = String(a.primitive || a.prim || 'box').toLowerCase();
+  const num = (...keys) => { for (const k of keys) if (typeof a[k] === 'number') return a[k]; return undefined; };
+  let h;
+  if (prim === 'box') {
+    const dx = num('dx', 'width', 'w') || 10;
+    const dy = num('dy', 'depth', 'd') || 10;
+    const dz = num('dz', 'height', 'h', 'thickness', 't') || 10;
+    h = forge.makeBox(dx, dy, dz + (bump ? bump : 0));
+    if (bump) h = forge.translate(h, 0, 0, -bump / 2);
+  } else if (prim === 'cylinder' || prim === 'cyl' || prim === 'hole') {
+    const dia = num('diameter', 'dia', 'd');
+    const r = dia != null ? dia / 2 : (num('radius', 'r') || 5);
+    const len = num('depth', 'height', 'h', 'length', 'len', 'thickness', 't') || 10;
+    h = forge.makeCylinder(r, len + (bump ? bump : 0));
+    if (bump) h = forge.translate(h, 0, 0, -bump / 2);
+  } else if (prim === 'cone' || prim === 'frustum') {
+    const d1 = num('diameter1', 'd1'); const d2 = num('diameter2', 'd2');
+    const r1 = d1 != null ? d1 / 2 : (num('r1', 'radius1') || 5);
+    const r2 = d2 != null ? d2 / 2 : (num('r2', 'radius2') || 0);
+    const hh = num('h', 'height', 'depth', 'length') || 10;
+    h = forge.makeCone(r1, r2, hh + (bump ? bump : 0));
+    if (bump) h = forge.translate(h, 0, 0, -bump / 2);
+  } else if (prim === 'sphere' || prim === 'ball') {
+    const dia = num('diameter', 'dia', 'd');
+    const r = dia != null ? dia / 2 : (num('radius', 'r') || 5);
+    h = forge.makeSphere(r);
+  } else {
+    throw new Error(`unknown primitive '${prim}' (use box|cylinder|cone|sphere)`);
+  }
+  const at = a.at;
+  if (Array.isArray(at) && at.length >= 1) {
+    h = forge.translate(h, +at[0] || 0, +at[1] || 0, +at[2] || 0);
+  }
+  return h;
+}
+
+// Cap an all-edge fillet/chamfer to a safe edge count (dense edge sets — bolt
+// circles, gear teeth — make OCCT BRepFilletAPI self-intersect or hang). Mirrors
+// roundEdges' EDGE_CAP guard but for an explicit user radius. Falls back to the
+// un-filleted shape rather than failing the build.
+function safeFilletAll(forge, shape, radius) {
+  try {
+    const n = forge?.direct?.edgeCount ? forge.direct.edgeCount(shape) : 0;
+    if (!n || n > 16) return shape;
+    const ids = Array.from({ length: n }, (_, i) => i);
+    const r = forge.part.filletEdges(shape, ids, radius);
+    return (typeof r === 'number' && r > 0) ? r : shape;
+  } catch (_) { return shape; }
+}
+function safeChamferAll(forge, shape, distance) {
+  try {
+    const n = forge?.direct?.edgeCount ? forge.direct.edgeCount(shape) : 0;
+    if (!n || n > 16) return shape;
+    const ids = Array.from({ length: n }, (_, i) => i);
+    const r = forge.part.chamferEdges(shape, ids, distance, -1);
+    return (typeof r === 'number' && r > 0) ? r : shape;
+  } catch (_) { return shape; }
+}
+
+// Require a live current part for the verbs that mutate it.
+function requireCurrent(ctx, verb) {
+  if (!ctx || typeof ctx.current !== 'number' || ctx.current <= 0) {
+    throw new Error(`${verb} needs a current part — call part.begin first`);
+  }
+  return ctx.current;
+}
+
+// Through-cut overhang convention used across the asset builders: +4 mm depth,
+// dropped -2 mm, so a cutter pierces both faces of the body it's subtracted from.
+const CUT_OVERHANG = 4;
+
 // Deterministic, seedable RNG (mulberry32) — degradation must be
 // reproducible per seed so a "weathered" part renders identically across
 // runs (and so the corpus/gauntlet can pin a seed).
@@ -282,6 +373,207 @@ export const FORGE_TOOLS = [
     run: ({ shape, linearTol, angularTol }, forge) => {
       const m = forge.tessellate(shape, linearTol, angularTol);
       return { triangleCount: m.triangleCount, vertexCount: m.positions.length / 3 };
+    } },
+
+  // ============================================ CONTEXT (handle-free, build123d-style)
+  // The model NEVER emits a handle. A per-sequence `ctx.current` holds the
+  // implicit "current part"; each verb mutates it in place. This makes the
+  // dominant ladder_probe defect (wrong/missing fuse/cut handle ids →
+  // disconnected solids) IMPOSSIBLE: there is no handle to get wrong.
+  //
+  // API CHOICE: add / subtract / intersect are kept as THREE separate verbs
+  // (rather than one part.feature{op}). For an 8B model, a distinct verb name
+  // that encodes the boolean is a stronger signal than an `op` enum arg it must
+  // also fill correctly — the verb name IS the operation. part.begin opens the
+  // body, part.finish closes it (optional edge break). All take {primitive,
+  // ...dims, at?} — a primitive + numbers + an optional XYZ anchor, nothing else.
+  { name: 'part.begin', discipline: 'part', produces: 'handle',
+    description: 'Start a new part from a primitive — the implicit current body. The model passes NO handle; later add/subtract/finish verbs mutate this same body. primitive: box|cylinder|cone|sphere. box uses dx,dy,dz; cylinder uses diameter+depth; sphere uses diameter. at:[x,y,z] offsets the primitive.',
+    parameters: { primitive: P('enum', 'box|cylinder|cone|sphere', { required: true }),
+                  dx: P('number', 'box x extent mm', {}), dy: P('number', 'box y extent mm', {}), dz: P('number', 'box z/height mm', {}),
+                  diameter: P('number', 'cylinder/cone/sphere diameter mm', {}), depth: P('number', 'cylinder/cone height mm', {}),
+                  at: P('array', '[x,y,z] placement offset mm (default origin)', { default: null }) },
+    run: (a, forge, ctx) => {
+      const h = buildPrimitive(forge, a);
+      ctx.current = h;
+      return { shape: h, current: h, op: 'begin' };
+    } },
+  { name: 'part.add', discipline: 'part', produces: 'handle',
+    description: 'Fuse (union) a primitive onto the current part — no handle needed. Same args as part.begin. Use this to bolt a boss/flange/rib onto the body.',
+    parameters: { primitive: P('enum', 'box|cylinder|cone|sphere', { required: true }),
+                  dx: P('number', '', {}), dy: P('number', '', {}), dz: P('number', '', {}),
+                  diameter: P('number', '', {}), depth: P('number', '', {}),
+                  at: P('array', '[x,y,z] placement offset mm', { default: null }) },
+    run: (a, forge, ctx) => {
+      const cur = requireCurrent(ctx, 'part.add');
+      const tool = buildPrimitive(forge, a);
+      const f = forge.fuse(cur, tool);
+      if (typeof f === 'number' && f > 0) ctx.current = f;
+      return { shape: ctx.current, current: ctx.current, op: 'add' };
+    } },
+  { name: 'part.subtract', discipline: 'part', produces: 'handle',
+    description: 'Cut (subtract) a primitive from the current part — no handle needed. Same args as part.begin. Cutters auto-overhang so through-holes/slots clear both faces. Use for holes, bores, pockets, slots.',
+    parameters: { primitive: P('enum', 'box|cylinder|cone|sphere', { required: true }),
+                  dx: P('number', '', {}), dy: P('number', '', {}), dz: P('number', '', {}),
+                  diameter: P('number', '', {}), depth: P('number', '', {}),
+                  at: P('array', '[x,y,z] placement offset mm', { default: null }) },
+    run: (a, forge, ctx) => {
+      const cur = requireCurrent(ctx, 'part.subtract');
+      // auto-overhang: bump the swept dimension so the cutter pierces both faces
+      const tool = buildPrimitive(forge, a, { bump: CUT_OVERHANG });
+      const c = forge.cut(cur, tool);
+      if (typeof c === 'number' && c > 0) ctx.current = c;
+      return { shape: ctx.current, current: ctx.current, op: 'subtract' };
+    } },
+  { name: 'part.intersect', discipline: 'part', produces: 'handle',
+    description: 'Keep only the overlap (boolean common) of the current part and a primitive — no handle needed. Same args as part.begin.',
+    parameters: { primitive: P('enum', 'box|cylinder|cone|sphere', { required: true }),
+                  dx: P('number', '', {}), dy: P('number', '', {}), dz: P('number', '', {}),
+                  diameter: P('number', '', {}), depth: P('number', '', {}),
+                  at: P('array', '[x,y,z] placement offset mm', { default: null }) },
+    run: (a, forge, ctx) => {
+      const cur = requireCurrent(ctx, 'part.intersect');
+      const tool = buildPrimitive(forge, a);
+      const c = forge.common(cur, tool);
+      if (typeof c === 'number' && c > 0) ctx.current = c;
+      return { shape: ctx.current, current: ctx.current, op: 'intersect' };
+    } },
+  { name: 'part.finish', discipline: 'part', produces: 'handle',
+    description: 'Finish the current part (terminal) — optionally break all edges with a fillet (round) and/or chamfer. No handle needed. Returns the final single-body solid.',
+    parameters: { fillet: P('number', 'round-all-edges radius mm (optional)', { default: 0 }),
+                  chamfer: P('number', 'chamfer-all-edges distance mm (optional)', { default: 0 }) },
+    run: (a, forge, ctx) => {
+      let cur = requireCurrent(ctx, 'part.finish');
+      if (a.fillet && a.fillet > 0) cur = safeFilletAll(forge, cur, a.fillet);
+      if (a.chamfer && a.chamfer > 0) cur = safeChamferAll(forge, cur, a.chamfer);
+      ctx.current = cur;
+      return { shape: cur, current: cur, op: 'finish', terminal: true };
+    } },
+
+  // ============================================ PATTERN (place features into ctx.current)
+  // Replicated features in ONE call — no manual loop, no per-instance handle.
+  // Each builds N cutters/adders, fuses them into a single tool, then applies
+  // ONE boolean to ctx.current (the fast O(n) path, not O(n²) body re-processing).
+  { name: 'part.bolt-circle', discipline: 'part', produces: 'handle',
+    description: 'Cut N holes evenly spaced on a bolt-circle (BCD) into the current part — no handle, no loop. Centred on the Z axis at the given at_z (default through the body).',
+    parameters: { count: P('uint', 'number of holes', { required: true }),
+                  bcd: P('number', 'bolt-circle diameter mm', { required: true }),
+                  diameter: P('number', 'hole diameter mm', { required: true }),
+                  depth: P('number', 'hole depth mm (default: through)', { default: 0 }),
+                  at_z: P('number', 'z of the hole bottom mm (default 0)', { default: 0 }) },
+    run: (a, forge, ctx) => {
+      const cur = requireCurrent(ctx, 'part.bolt-circle');
+      const n = Math.max(1, a.count | 0), bcr = (a.bcd || 0) / 2, hr = (a.diameter || 6) / 2;
+      const depth = (a.depth && a.depth > 0) ? a.depth : 1000; // tall enough to be a through-cut
+      const z0 = (a.at_z || 0) - CUT_OVERHANG / 2;
+      const tools = [];
+      for (let i = 0; i < n; i++) {
+        const ang = 2 * Math.PI * i / n;
+        let h = forge.makeCylinder(hr, depth + CUT_OVERHANG);
+        h = forge.translate(h, bcr * Math.cos(ang), bcr * Math.sin(ang), z0);
+        tools.push(h);
+      }
+      const tool = fuseAll(forge, tools);
+      if (tool != null) { const c = forge.cut(cur, tool); if (typeof c === 'number' && c > 0) ctx.current = c; }
+      return { shape: ctx.current, current: ctx.current, holes: n, op: 'bolt-circle' };
+    } },
+  { name: 'part.grid-holes', discipline: 'part', produces: 'handle',
+    description: 'Cut an nx×ny grid of holes (pitch dx,dy) into the current part — no handle, no loop. The grid is centred on the origin in XY.',
+    parameters: { nx: P('uint', 'columns', { required: true }), ny: P('uint', 'rows', { required: true }),
+                  dx: P('number', 'x pitch mm', { required: true }), dy: P('number', 'y pitch mm', { required: true }),
+                  diameter: P('number', 'hole diameter mm', { required: true }),
+                  depth: P('number', 'hole depth mm (default: through)', { default: 0 }),
+                  at_z: P('number', 'z of the hole bottom mm (default 0)', { default: 0 }) },
+    run: (a, forge, ctx) => {
+      const cur = requireCurrent(ctx, 'part.grid-holes');
+      const nx = Math.max(1, a.nx | 0), ny = Math.max(1, a.ny | 0);
+      const dx = a.dx || 0, dy = a.dy || 0, hr = (a.diameter || 6) / 2;
+      const depth = (a.depth && a.depth > 0) ? a.depth : 1000;
+      const z0 = (a.at_z || 0) - CUT_OVERHANG / 2;
+      const x0 = -((nx - 1) * dx) / 2, y0 = -((ny - 1) * dy) / 2;
+      const tools = [];
+      for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
+        let h = forge.makeCylinder(hr, depth + CUT_OVERHANG);
+        h = forge.translate(h, x0 + i * dx, y0 + j * dy, z0);
+        tools.push(h);
+      }
+      const tool = fuseAll(forge, tools);
+      if (tool != null) { const c = forge.cut(cur, tool); if (typeof c === 'number' && c > 0) ctx.current = c; }
+      return { shape: ctx.current, current: ctx.current, holes: nx * ny, op: 'grid-holes' };
+    } },
+  { name: 'part.holes', discipline: 'part', produces: 'handle',
+    description: 'Cut holes at explicit XY locations into the current part — no handle, no loop. locations is [[x,y], …].',
+    parameters: { locations: P('array', '[[x,y], …] hole centres mm', { required: true }),
+                  diameter: P('number', 'hole diameter mm', { required: true }),
+                  depth: P('number', 'hole depth mm (default: through)', { default: 0 }),
+                  at_z: P('number', 'z of the hole bottom mm (default 0)', { default: 0 }) },
+    run: (a, forge, ctx) => {
+      const cur = requireCurrent(ctx, 'part.holes');
+      const locs = Array.isArray(a.locations) ? a.locations : [];
+      const hr = (a.diameter || 6) / 2;
+      const depth = (a.depth && a.depth > 0) ? a.depth : 1000;
+      const z0 = (a.at_z || 0) - CUT_OVERHANG / 2;
+      const tools = [];
+      for (const p of locs) {
+        let h = forge.makeCylinder(hr, depth + CUT_OVERHANG);
+        h = forge.translate(h, +p[0] || 0, +p[1] || 0, z0);
+        tools.push(h);
+      }
+      const tool = fuseAll(forge, tools);
+      if (tool != null) { const c = forge.cut(cur, tool); if (typeof c === 'number' && c > 0) ctx.current = c; }
+      return { shape: ctx.current, current: ctx.current, holes: locs.length, op: 'holes' };
+    } },
+  { name: 'part.pattern-feature', discipline: 'part', produces: 'handle',
+    description: 'Replicate a primitive feature (linear row or polar ring) and add OR subtract the whole set into the current part in ONE call — no handle, no loop. kind:linear steps by step_x,step_y,step_z; kind:polar places on a bcd (and optional total_angle). The feature size comes from its own dims (box dx,dy,dz; cylinder diameter+depth). op:add fuses, op:subtract cuts (cutters auto-overhang).',
+    parameters: { primitive: P('enum', 'box|cylinder|cone|sphere', { required: true }),
+                  dx: P('number', 'box x extent mm', {}), dy: P('number', 'box y extent mm', {}), dz: P('number', 'box z/height mm', {}),
+                  diameter: P('number', 'cylinder/cone/sphere diameter mm', {}), depth: P('number', 'cylinder/cone height mm', {}),
+                  kind: P('enum', 'linear|polar', { required: true }),
+                  count: P('uint', 'instance count', { required: true }),
+                  step_x: P('number', 'linear x pitch mm (kind=linear)', { default: 0 }),
+                  step_y: P('number', 'linear y pitch mm (kind=linear)', { default: 0 }),
+                  step_z: P('number', 'linear z pitch mm (kind=linear)', { default: 0 }),
+                  bcd: P('number', 'polar bolt-circle diameter mm (kind=polar)', { default: 0 }),
+                  total_angle: P('number', 'polar total spread deg (default 360)', { default: 360 }),
+                  op: P('enum', 'add|subtract', { default: 'subtract' }) },
+    run: (a, forge, ctx) => {
+      const cur = requireCurrent(ctx, 'part.pattern-feature');
+      const n = Math.max(1, a.count | 0);
+      const subtract = String(a.op || 'subtract').toLowerCase() !== 'add';
+      const bump = subtract ? CUT_OVERHANG : 0;
+      const kind = String(a.kind || 'linear').toLowerCase();
+      const tools = [];
+      if (kind === 'polar') {
+        const bcr = (a.bcd || 0) / 2;
+        const span = (a.total_angle != null ? a.total_angle : 360) * Math.PI / 180;
+        // 360° → don't double the seam: step = span/n; partial arc → span/(n-1).
+        const full = Math.abs(span - 2 * Math.PI) < 1e-6;
+        const step = full ? (2 * Math.PI / n) : (n > 1 ? span / (n - 1) : 0);
+        for (let i = 0; i < n; i++) {
+          const ang = i * step;
+          let h = buildPrimitive(forge, a, { bump });
+          h = forge.translate(h, bcr * Math.cos(ang), bcr * Math.sin(ang), 0);
+          tools.push(h);
+        }
+      } else {
+        // Linear step is SEPARATE from the feature's own size — fall back to
+        // dx/dy/dz only when no explicit step_* is given (so a row of boxes that
+        // also names dx still pitches sensibly).
+        const sx = a.step_x != null ? a.step_x : (a.dx || 0);
+        const sy = a.step_y != null ? a.step_y : (a.dy || 0);
+        const sz = a.step_z != null ? a.step_z : (a.dz || 0);
+        for (let i = 0; i < n; i++) {
+          let h = buildPrimitive(forge, a, { bump });
+          h = forge.translate(h, i * sx, i * sy, i * sz);
+          tools.push(h);
+        }
+      }
+      const tool = fuseAll(forge, tools);
+      if (tool != null) {
+        const r = subtract ? forge.cut(cur, tool) : forge.fuse(cur, tool);
+        if (typeof r === 'number' && r > 0) ctx.current = r;
+      }
+      return { shape: ctx.current, current: ctx.current, instances: n, op: 'pattern-feature', mode: subtract ? 'subtract' : 'add' };
     } },
 
   // ===================================================== PARAMETRIC / FREEFORM
@@ -974,9 +1266,14 @@ export async function dispatchToolCall({ name, arguments: args }, opts = {}) {
   const val = validateArguments(spec, args);
   if (!val.ok) return { ok: false, tool: name, args, error: val.error };
   const forge = opts.forge || getForge();
+  // Per-sequence context for the handle-free CONTEXT/PATTERN verbs (part.begin/
+  // add/subtract/intersect/finish + the pattern verbs). `ctx.current` is the
+  // implicit "current part" handle the build123d-style API mutates. Non-context
+  // verbs receive ctx as a 3rd arg and simply ignore it → fully backward compatible.
+  const ctx = opts.ctx || { current: null };
   try {
-    const result = await Promise.resolve(spec.run(args, forge));
-    return { ok: true, tool: name, args, produces: spec.produces, result };
+    const result = await Promise.resolve(spec.run(args, forge, ctx));
+    return { ok: true, tool: name, args, produces: spec.produces, result, current: ctx.current };
   } catch (e) {
     return { ok: false, tool: name, args, error: e.message || String(e) };
   }
@@ -996,14 +1293,20 @@ const HANDLE_KEYS = [
  *
  * @param {Array<{name:string, arguments?:object, args?:object}>} calls
  * @param {object} forge  injected kernel facade (raw kernel or headless factory)
- * @returns {Promise<{handles:number[], lastHandle:?number,
+ * @param {object} [ctx]  per-sequence implicit "current part" context for the
+ *   handle-free CONTEXT/PATTERN verbs. Defaults to a fresh `{current:null}`.
+ *   Threaded as the 3rd arg to every `spec.run(args, forge, ctx)`; only the
+ *   context verbs read/write it, so legacy explicit-handle rows are unaffected.
+ * @returns {Promise<{handles:number[], lastHandle:?number, current:?number,
  *                     errors:Array<{index,tool,error}>, dispatched:object[]}>}
  *   - `handles`: every body handle produced, in order
  *   - `lastHandle`: last SOLID body handle (`result.shape` > 0) — the final
  *     body to score; booleans/transforms/features return fresh handles that
  *     supersede their inputs, so this lands on the terminal body.
+ *   - `current`: `ctx.current` — the terminal body of a CONTEXT sequence
+ *     (part.begin…part.finish). The scorer should prefer `current ?? lastHandle`.
  */
-export async function dispatchSequence(calls, forge) {
+export async function dispatchSequence(calls, forge, ctx = { current: null }) {
   const handles = [];
   const errors = [];
   const dispatched = [];
@@ -1013,7 +1316,7 @@ export async function dispatchSequence(calls, forge) {
     const call = calls[i];
     const res = await dispatchToolCall(
       { name: call.name, arguments: call.arguments || call.args || {} },
-      { forge },
+      { forge, ctx },
     );
     dispatched.push(res);
 
@@ -1030,7 +1333,15 @@ export async function dispatchSequence(calls, forge) {
       }
     }
   }
-  return { handles, lastHandle, errors, dispatched };
+  // ctx.current is the authoritative terminal body for a CONTEXT sequence; for
+  // pure explicit-handle sequences it stays null and the scorer falls back to
+  // lastHandle. Mirror ctx.current into lastHandle when set so existing callers
+  // that only read lastHandle still terminate on the right body.
+  if (typeof ctx.current === 'number' && ctx.current > 0) {
+    if (!handles.includes(ctx.current)) handles.push(ctx.current);
+    lastHandle = ctx.current;
+  }
+  return { handles, lastHandle, current: ctx.current ?? null, errors, dispatched };
 }
 
 /**

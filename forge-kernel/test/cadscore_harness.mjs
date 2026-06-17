@@ -62,13 +62,19 @@ const BRIDGE_PATH = path.resolve(REPO, 'frontend', 'src', 'ai', 'ForgeToolBridge
 const MODELS_FORGE = '/Users/account_clawteam1/archdisc-Models/data/forge';
 
 // ───────────────────────────────────────────────────────────────────────────
-//  Canonical SYSTEM string (3025-char `0f45c91b…`) — for the --model path only.
+//  Canonical SYSTEM string (4822-char sha256 `2be3ee94…`) — for the --model path.
+//  LOCKSTEP: byte-identical to ForgeRunner.HERMES_FORGE_SYSTEM and
+//  synth_defect_injection.SYSTEM. Any drift reintroduces the base-model
+//  regression — keep all three in sync (verify with `--sha`, below).
 // ───────────────────────────────────────────────────────────────────────────
 const CANONICAL_SYSTEM =
-  'You are Archie. Drive ArchDisc Forge via the kernel tool registry.\n\n' +
+  'You are Archie. Drive ArchDisc Forge via the kernel tool registry.\n' +
+  '\n' +
   'Output exactly this shape:\n' +
   '  <plan>{"goal":"<noun>","discipline":"<part|sketch|assembly|drawing|manufacture|simulate>"}</plan>\n' +
-  '  <tool_call>{"name":"<tool.id>","arguments":{...}}</tool_call>\n  ...one call per step...\n\n' +
+  '  <tool_call>{"name":"<tool.id>","arguments":{...}}</tool_call>\n' +
+  '  ...one call per step...\n' +
+  '\n' +
   'Tool ids (use these, nothing else):\n' +
   '  part.make-box, part.make-cylinder, part.make-sphere, part.make-cone, part.make-torus,\n' +
   '  part.fuse, part.cut, part.common, part.translate, part.rotate, part.mass-properties, part.tessellate,\n' +
@@ -77,6 +83,14 @@ const CANONICAL_SYSTEM =
   '  drawing.project,\n' +
   '  manufacture.cam-profile, manufacture.cam-pocket, manufacture.cam-drill, manufacture.gcode,\n' +
   '  simulate.fea-static, simulate.fea-modal, simulate.fea-dynamic.\n' +
+  'Context build — the DEFAULT way to compose a part with an extra named feature. Build into the CURRENT body; the model NEVER names a handle:\n' +
+  '  part.begin{primitive,dx,dy,dz|diameter,depth,at?} opens the current body from one primitive (box|cylinder|cone|sphere; at:[x,y,z] offsets it),\n' +
+  '  part.add{primitive,…,at?} fuses a primitive ON (bosses/flanges/ribs/standoffs/fins), part.subtract{primitive,…,at?} cuts one OFF (holes/bores/pockets/slots; cutters auto-overhang through),\n' +
+  '  part.intersect{primitive,…,at?} keeps the overlap, part.finish{fillet?,chamfer?} closes the body and breaks all edges LAST.\n' +
+  'Build into the CURRENT body with part.add/part.subtract — never name a handle. Centre the base part on the origin so the pattern verbs line up.\n' +
+  'Pattern features — repeated features (bolt circles, grids, fins) use ONE pattern verb, never N manual cuts:\n' +
+  '  part.bolt-circle{count,bcd,diameter,depth?,at_z?} cuts N holes on a Z-axis bolt circle, part.grid-holes{nx,ny,dx,dy,diameter,depth?,at_z?} cuts an origin-centred grid,\n' +
+  '  part.holes{locations,diameter,depth?,at_z?} cuts holes at explicit [[x,y],…], part.pattern-feature{primitive,…,kind,count,step_x,step_y,step_z|bcd,total_angle?,op} replicates a feature (kind:linear|polar, op:add|subtract).\n' +
   'Parametric / freeform features — PREFER these for CURVED, BLENDED or PATTERNED geometry instead of stacking boxes:\n' +
   '  part.extrude{profile,distance,dir}, part.revolve{profile,axisOrigin,axisDir,angleDeg} (vases/turned parts),\n' +
   '  part.pipe{path,radius} (curved pipe/duct along a 3D polyline), part.nurbs-surface{grid,uDegree,vDegree,thickness} (freeform),\n' +
@@ -84,7 +98,8 @@ const CANONICAL_SYSTEM =
   '  part.chamfer{shape,distance,edgeIds?}, part.shell{shape,thickness,faceIds?}, part.draft-faces{shape,neutralPlane,faceIds,angleDeg},\n' +
   '  part.linear-pattern{shape,count,dx,dy,dz}, part.circular-pattern{shape,count,axisOrigin,axisDir,totalAngleDeg},\n' +
   '  part.push-pull-face{shape,faceId,distance}, part.continuity-check{face}, part.check-validity{shape}.\n' +
-  'Profiles are [[x,y],...] closed point lists (mm). Real parts are seldom all-straight: use fillets, draft and revolves.\n' +
+  'Profiles are [[x,y],…] closed point lists (mm). Real parts are seldom all-straight: use fillets, draft and revolves.\n' +
+  'A whole standard part = ONE asset.make-* call; a part with an extra named feature = a context build. Fillets/chamfers go via part.finish LAST.\n' +
   'Degradation / weathering — when the request implies a used / cast / aged / as-found / worn part, apply ONE on the finished body:\n' +
   '  part.surface-wear{shape,count,depth,seed} (pitting/dents), part.surface-deposit{shape,count,height,seed} (corrosion blisters),\n' +
   '  part.chipped-edges{shape,count,size,seed} (impact/handling chips). Precision/aerospace/new parts stay clean (skip these).\n' +
@@ -94,8 +109,13 @@ const CANONICAL_SYSTEM =
   '  asset.make-tube{od,wall,len}, asset.make-gusset-bracket{len,base_w,wall,thick,hole},\n' +
   '  asset.make-spur-gear{od,bore,thick}, asset.make-washer{od,id,thick}, asset.make-bushing{id,od,len},\n' +
   '  asset.make-pulley{od,bore,width}, asset.make-u-channel{len,width,height}, asset.make-keyed-shaft{diameter,length},\n' +
-  '  asset.make-pipe-tee{od,wall}, asset.make-end-cap{od,id,height}.\n' +
+  '  asset.make-pipe-tee{od,wall}, asset.make-end-cap{od,id,height},\n' +
+  '  asset.make-hex-nut{af,thick,bore}, asset.make-hex-bolt{af,head_h,shank_d,length}, asset.make-socket-screw{head_d,head_h,shank_d,length},\n' +
+  '  asset.make-hex-standoff{af,length,bore}, asset.make-ball-bearing{od,id,width,balls}, asset.make-tslot-extrusion{size,length,slot}.\n' +
   'Body handles count up from 1 in creation order; pass them as "shape".\n' +
+  'Materials are {E,nu,rho} in MPa / mm / tonne: steel {"E":210000,"nu":0.3,"rho":7.85e-9},\n' +
+  'aluminium {"E":70000,"nu":0.33,"rho":2.7e-9}.\n' +
+  'Dimensions are millimetres. No prose outside the tags. No <think> block.';
   'Dimensions are millimetres. No prose outside the tags. No <think> block.';
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -1013,6 +1033,33 @@ async function main() {
   const argv = process.argv.slice(2);
   const arg = (flag) => { const i = argv.indexOf(flag); return i >= 0 ? argv[i + 1] : null; };
   const has = (flag) => argv.includes(flag);
+
+  // ── --sha: print the SHA-256 of the canonical SYSTEM here and (best-effort)
+  //    the live HERMES_FORGE_SYSTEM in ForgeRunner.js, asserting byte-match.
+  //    This is the lockstep check: all three SYSTEM copies must share one SHA. ──
+  if (has('--sha')) {
+    const crypto = await import('crypto');
+    const sha = (s) => crypto.createHash('sha256').update(s, 'utf8').digest('hex');
+    const local = sha(CANONICAL_SYSTEM);
+    console.log(`cadscore_harness.mjs  CANONICAL_SYSTEM   len=${CANONICAL_SYSTEM.length}  sha256=${local}`);
+    let hermes = null;
+    try {
+      const frPath = path.resolve(REPO, 'frontend', 'src', 'ai', 'ForgeRunner.js');
+      const src = fs.readFileSync(frPath, 'utf8');
+      const m = src.match(/const HERMES_FORGE_SYSTEM\s*=\s*\n`([\s\S]*?)`;/);
+      hermes = m ? m[1] : null;
+    } catch { /* best-effort */ }
+    if (hermes != null) {
+      const h = sha(hermes);
+      console.log(`ForgeRunner.js        HERMES_FORGE_SYSTEM len=${hermes.length}  sha256=${h}`);
+      const ok = h === local;
+      console.log(`LOCKSTEP (cadscore === ForgeRunner): ${ok ? 'MATCH ✓' : 'MISMATCH ✗'}`);
+      if (!ok) process.exit(7);
+    } else {
+      console.log('ForgeRunner.js        HERMES_FORGE_SYSTEM not found (could not read source)');
+    }
+    return;
+  }
 
   // Probe that the kernel loads headless (a fresh child does the real builds).
   try {

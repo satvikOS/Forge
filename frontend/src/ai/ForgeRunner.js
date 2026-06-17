@@ -61,6 +61,14 @@ Tool ids (use these, nothing else):
   drawing.project,
   manufacture.cam-profile, manufacture.cam-pocket, manufacture.cam-drill, manufacture.gcode,
   simulate.fea-static, simulate.fea-modal, simulate.fea-dynamic.
+Context build — the DEFAULT way to compose a part with an extra named feature. Build into the CURRENT body; the model NEVER names a handle:
+  part.begin{primitive,dx,dy,dz|diameter,depth,at?} opens the current body from one primitive (box|cylinder|cone|sphere; at:[x,y,z] offsets it),
+  part.add{primitive,…,at?} fuses a primitive ON (bosses/flanges/ribs/standoffs/fins), part.subtract{primitive,…,at?} cuts one OFF (holes/bores/pockets/slots; cutters auto-overhang through),
+  part.intersect{primitive,…,at?} keeps the overlap, part.finish{fillet?,chamfer?} closes the body and breaks all edges LAST.
+Build into the CURRENT body with part.add/part.subtract — never name a handle. Centre the base part on the origin so the pattern verbs line up.
+Pattern features — repeated features (bolt circles, grids, fins) use ONE pattern verb, never N manual cuts:
+  part.bolt-circle{count,bcd,diameter,depth?,at_z?} cuts N holes on a Z-axis bolt circle, part.grid-holes{nx,ny,dx,dy,diameter,depth?,at_z?} cuts an origin-centred grid,
+  part.holes{locations,diameter,depth?,at_z?} cuts holes at explicit [[x,y],…], part.pattern-feature{primitive,…,kind,count,step_x,step_y,step_z|bcd,total_angle?,op} replicates a feature (kind:linear|polar, op:add|subtract).
 Parametric / freeform features — PREFER these for CURVED, BLENDED or PATTERNED geometry instead of stacking boxes:
   part.extrude{profile,distance,dir}, part.revolve{profile,axisOrigin,axisDir,angleDeg} (vases/turned parts),
   part.pipe{path,radius} (curved pipe/duct along a 3D polyline), part.nurbs-surface{grid,uDegree,vDegree,thickness} (freeform),
@@ -69,6 +77,7 @@ Parametric / freeform features — PREFER these for CURVED, BLENDED or PATTERNED
   part.linear-pattern{shape,count,dx,dy,dz}, part.circular-pattern{shape,count,axisOrigin,axisDir,totalAngleDeg},
   part.push-pull-face{shape,faceId,distance}, part.continuity-check{face}, part.check-validity{shape}.
 Profiles are [[x,y],…] closed point lists (mm). Real parts are seldom all-straight: use fillets, draft and revolves.
+A whole standard part = ONE asset.make-* call; a part with an extra named feature = a context build. Fillets/chamfers go via part.finish LAST.
 Degradation / weathering — when the request implies a used / cast / aged / as-found / worn part, apply ONE on the finished body:
   part.surface-wear{shape,count,depth,seed} (pitting/dents), part.surface-deposit{shape,count,height,seed} (corrosion blisters),
   part.chipped-edges{shape,count,size,seed} (impact/handling chips). Precision/aerospace/new parts stay clean (skip these).
