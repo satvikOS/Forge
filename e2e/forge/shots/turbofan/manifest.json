@@ -1,0 +1,701 @@
+{
+  "generatedAt": "2026-06-17T23:06:07.321Z",
+  "tool": "turbofan_cae_suite.mjs",
+  "kernel": {
+    "forgeKernel": "0.1.0",
+    "occt": "7.9.3",
+    "napiCpp": 8
+  },
+  "model": {
+    "builder": "frontend/src/forge-v4/turbofanBuilder.js",
+    "units": "mm (geometry) / SI (simulation)"
+  },
+  "deliverables": [
+    {
+      "category": "assembly",
+      "path": "e2e/forge/shots/turbofan/assembly/turbofan_assembly.step",
+      "file": "turbofan_assembly.step",
+      "what": "Full-engine assembly STEP (AP242 B-Rep): every unique body fused — disks, blades(1/stage), casings, shafts, combustor, nacelle, bypass duct."
+    },
+    {
+      "category": "assembly",
+      "path": "e2e/forge/shots/turbofan/assembly/turbofan_assembly.stl",
+      "file": "turbofan_assembly.stl",
+      "what": "Full-engine assembly mesh (binary STL) for viewing / 3D-print / downstream meshing."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/fan_disk.step",
+      "file": "fan_disk.step",
+      "what": "Raw B-Rep STEP of body 'fan_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/fan_disk.stl",
+      "file": "fan_disk.stl",
+      "what": "Raw mesh STL of body 'fan_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/fan_blade.step",
+      "file": "fan_blade.step",
+      "what": "Raw B-Rep STEP of body 'fan_blade' (role=blade, 22× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/fan_blade.stl",
+      "file": "fan_blade.stl",
+      "what": "Raw mesh STL of body 'fan_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s1_disk.step",
+      "file": "lpc_s1_disk.step",
+      "what": "Raw B-Rep STEP of body 'lpc_s1_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s1_disk.stl",
+      "file": "lpc_s1_disk.stl",
+      "what": "Raw mesh STL of body 'lpc_s1_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s1_blade.step",
+      "file": "lpc_s1_blade.step",
+      "what": "Raw B-Rep STEP of body 'lpc_s1_blade' (role=blade, 38× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s1_blade.stl",
+      "file": "lpc_s1_blade.stl",
+      "what": "Raw mesh STL of body 'lpc_s1_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s2_disk.step",
+      "file": "lpc_s2_disk.step",
+      "what": "Raw B-Rep STEP of body 'lpc_s2_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s2_disk.stl",
+      "file": "lpc_s2_disk.stl",
+      "what": "Raw mesh STL of body 'lpc_s2_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s2_blade.step",
+      "file": "lpc_s2_blade.step",
+      "what": "Raw B-Rep STEP of body 'lpc_s2_blade' (role=blade, 38× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s2_blade.stl",
+      "file": "lpc_s2_blade.stl",
+      "what": "Raw mesh STL of body 'lpc_s2_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s3_disk.step",
+      "file": "lpc_s3_disk.step",
+      "what": "Raw B-Rep STEP of body 'lpc_s3_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s3_disk.stl",
+      "file": "lpc_s3_disk.stl",
+      "what": "Raw mesh STL of body 'lpc_s3_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s3_blade.step",
+      "file": "lpc_s3_blade.step",
+      "what": "Raw B-Rep STEP of body 'lpc_s3_blade' (role=blade, 38× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpc_s3_blade.stl",
+      "file": "lpc_s3_blade.stl",
+      "what": "Raw mesh STL of body 'lpc_s3_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s1_disk.step",
+      "file": "hpc_s1_disk.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s1_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s1_disk.stl",
+      "file": "hpc_s1_disk.stl",
+      "what": "Raw mesh STL of body 'hpc_s1_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s1_blade.step",
+      "file": "hpc_s1_blade.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s1_blade' (role=blade, 46× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s1_blade.stl",
+      "file": "hpc_s1_blade.stl",
+      "what": "Raw mesh STL of body 'hpc_s1_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s2_disk.step",
+      "file": "hpc_s2_disk.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s2_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s2_disk.stl",
+      "file": "hpc_s2_disk.stl",
+      "what": "Raw mesh STL of body 'hpc_s2_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s2_blade.step",
+      "file": "hpc_s2_blade.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s2_blade' (role=blade, 46× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s2_blade.stl",
+      "file": "hpc_s2_blade.stl",
+      "what": "Raw mesh STL of body 'hpc_s2_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s3_disk.step",
+      "file": "hpc_s3_disk.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s3_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s3_disk.stl",
+      "file": "hpc_s3_disk.stl",
+      "what": "Raw mesh STL of body 'hpc_s3_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s3_blade.step",
+      "file": "hpc_s3_blade.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s3_blade' (role=blade, 46× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s3_blade.stl",
+      "file": "hpc_s3_blade.stl",
+      "what": "Raw mesh STL of body 'hpc_s3_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s4_disk.step",
+      "file": "hpc_s4_disk.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s4_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s4_disk.stl",
+      "file": "hpc_s4_disk.stl",
+      "what": "Raw mesh STL of body 'hpc_s4_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s4_blade.step",
+      "file": "hpc_s4_blade.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s4_blade' (role=blade, 46× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s4_blade.stl",
+      "file": "hpc_s4_blade.stl",
+      "what": "Raw mesh STL of body 'hpc_s4_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s5_disk.step",
+      "file": "hpc_s5_disk.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s5_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s5_disk.stl",
+      "file": "hpc_s5_disk.stl",
+      "what": "Raw mesh STL of body 'hpc_s5_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s5_blade.step",
+      "file": "hpc_s5_blade.step",
+      "what": "Raw B-Rep STEP of body 'hpc_s5_blade' (role=blade, 46× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpc_s5_blade.stl",
+      "file": "hpc_s5_blade.stl",
+      "what": "Raw mesh STL of body 'hpc_s5_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/combustor.step",
+      "file": "combustor.step",
+      "what": "Raw B-Rep STEP of body 'combustor' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/combustor.stl",
+      "file": "combustor.stl",
+      "what": "Raw mesh STL of body 'combustor'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpt_s1_disk.step",
+      "file": "hpt_s1_disk.step",
+      "what": "Raw B-Rep STEP of body 'hpt_s1_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpt_s1_disk.stl",
+      "file": "hpt_s1_disk.stl",
+      "what": "Raw mesh STL of body 'hpt_s1_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpt_s1_blade.step",
+      "file": "hpt_s1_blade.step",
+      "what": "Raw B-Rep STEP of body 'hpt_s1_blade' (role=blade, 52× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpt_s1_blade.stl",
+      "file": "hpt_s1_blade.stl",
+      "what": "Raw mesh STL of body 'hpt_s1_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpt_s2_disk.step",
+      "file": "hpt_s2_disk.step",
+      "what": "Raw B-Rep STEP of body 'hpt_s2_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpt_s2_disk.stl",
+      "file": "hpt_s2_disk.stl",
+      "what": "Raw mesh STL of body 'hpt_s2_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpt_s2_blade.step",
+      "file": "hpt_s2_blade.step",
+      "what": "Raw B-Rep STEP of body 'hpt_s2_blade' (role=blade, 52× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hpt_s2_blade.stl",
+      "file": "hpt_s2_blade.stl",
+      "what": "Raw mesh STL of body 'hpt_s2_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s1_disk.step",
+      "file": "lpt_s1_disk.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s1_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s1_disk.stl",
+      "file": "lpt_s1_disk.stl",
+      "what": "Raw mesh STL of body 'lpt_s1_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s1_blade.step",
+      "file": "lpt_s1_blade.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s1_blade' (role=blade, 60× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s1_blade.stl",
+      "file": "lpt_s1_blade.stl",
+      "what": "Raw mesh STL of body 'lpt_s1_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s2_disk.step",
+      "file": "lpt_s2_disk.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s2_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s2_disk.stl",
+      "file": "lpt_s2_disk.stl",
+      "what": "Raw mesh STL of body 'lpt_s2_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s2_blade.step",
+      "file": "lpt_s2_blade.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s2_blade' (role=blade, 60× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s2_blade.stl",
+      "file": "lpt_s2_blade.stl",
+      "what": "Raw mesh STL of body 'lpt_s2_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s3_disk.step",
+      "file": "lpt_s3_disk.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s3_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s3_disk.stl",
+      "file": "lpt_s3_disk.stl",
+      "what": "Raw mesh STL of body 'lpt_s3_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s3_blade.step",
+      "file": "lpt_s3_blade.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s3_blade' (role=blade, 60× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s3_blade.stl",
+      "file": "lpt_s3_blade.stl",
+      "what": "Raw mesh STL of body 'lpt_s3_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s4_disk.step",
+      "file": "lpt_s4_disk.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s4_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s4_disk.stl",
+      "file": "lpt_s4_disk.stl",
+      "what": "Raw mesh STL of body 'lpt_s4_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s4_blade.step",
+      "file": "lpt_s4_blade.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s4_blade' (role=blade, 60× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s4_blade.stl",
+      "file": "lpt_s4_blade.stl",
+      "what": "Raw mesh STL of body 'lpt_s4_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s5_disk.step",
+      "file": "lpt_s5_disk.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s5_disk' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s5_disk.stl",
+      "file": "lpt_s5_disk.stl",
+      "what": "Raw mesh STL of body 'lpt_s5_disk'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s5_blade.step",
+      "file": "lpt_s5_blade.step",
+      "what": "Raw B-Rep STEP of body 'lpt_s5_blade' (role=blade, 60× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lpt_s5_blade.stl",
+      "file": "lpt_s5_blade.stl",
+      "what": "Raw mesh STL of body 'lpt_s5_blade'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lp_shaft.step",
+      "file": "lp_shaft.step",
+      "what": "Raw B-Rep STEP of body 'lp_shaft' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/lp_shaft.stl",
+      "file": "lp_shaft.stl",
+      "what": "Raw mesh STL of body 'lp_shaft'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hp_shaft.step",
+      "file": "hp_shaft.step",
+      "what": "Raw B-Rep STEP of body 'hp_shaft' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/hp_shaft.stl",
+      "file": "hp_shaft.stl",
+      "what": "Raw mesh STL of body 'hp_shaft'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/core_casing.step",
+      "file": "core_casing.step",
+      "what": "Raw B-Rep STEP of body 'core_casing' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/core_casing.stl",
+      "file": "core_casing.stl",
+      "what": "Raw mesh STL of body 'core_casing'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/nacelle.step",
+      "file": "nacelle.step",
+      "what": "Raw B-Rep STEP of body 'nacelle' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/nacelle.stl",
+      "file": "nacelle.stl",
+      "what": "Raw mesh STL of body 'nacelle'."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/bypass_duct.step",
+      "file": "bypass_duct.step",
+      "what": "Raw B-Rep STEP of body 'bypass_duct' (role=static, 1× in assembly)."
+    },
+    {
+      "category": "parts",
+      "path": "e2e/forge/shots/turbofan/parts/bypass_duct.stl",
+      "file": "bypass_duct.stl",
+      "what": "Raw mesh STL of body 'bypass_duct'."
+    },
+    {
+      "category": "drawings",
+      "path": "e2e/forge/shots/turbofan/drawings/turbofan_front.svg",
+      "file": "turbofan_front.svg",
+      "what": "Orthographic front view (hidden-line-removed projection → SVG) of the engine silhouette."
+    },
+    {
+      "category": "drawings",
+      "path": "e2e/forge/shots/turbofan/drawings/turbofan_top.svg",
+      "file": "turbofan_top.svg",
+      "what": "Orthographic top view (hidden-line-removed projection → SVG) of the engine silhouette."
+    },
+    {
+      "category": "drawings",
+      "path": "e2e/forge/shots/turbofan/drawings/turbofan_right.svg",
+      "file": "turbofan_right.svg",
+      "what": "Orthographic right view (hidden-line-removed projection → SVG) of the engine silhouette."
+    },
+    {
+      "category": "drawings",
+      "path": "e2e/forge/shots/turbofan/drawings/turbofan_iso.svg",
+      "file": "turbofan_iso.svg",
+      "what": "Orthographic iso view (hidden-line-removed projection → SVG) of the engine silhouette."
+    },
+    {
+      "category": "drawings",
+      "path": "e2e/forge/shots/turbofan/drawings/fan_disk_front.svg",
+      "file": "fan_disk_front.svg",
+      "what": "Part drawing (front) of the fan disk — the CAM target part."
+    },
+    {
+      "category": "drawings",
+      "path": "e2e/forge/shots/turbofan/drawings/fan_disk_right.svg",
+      "file": "fan_disk_right.svg",
+      "what": "Part drawing (right) of the fan disk — the CAM target part."
+    },
+    {
+      "category": "assembly",
+      "path": "e2e/forge/shots/turbofan/assembly/turbofan_BOM.json",
+      "file": "turbofan_BOM.json",
+      "what": "Bill of Materials: 38 unique bodies, 792 total parts (blades expanded into polar rings), with material + mass roll-up."
+    },
+    {
+      "category": "assembly",
+      "path": "e2e/forge/shots/turbofan/assembly/turbofan_BOM.csv",
+      "file": "turbofan_BOM.csv",
+      "what": "Bill of Materials (CSV)."
+    },
+    {
+      "category": "cam",
+      "path": "e2e/forge/shots/turbofan/cam/fan_disk_profile.nc",
+      "file": "fan_disk_profile.nc",
+      "what": "Fanuc G-code for the fan-disk profile operation (153 moves, 2849.7 s)."
+    },
+    {
+      "category": "cam",
+      "path": "e2e/forge/shots/turbofan/cam/fan_disk_pocket.nc",
+      "file": "fan_disk_pocket.nc",
+      "what": "Fanuc G-code for the fan-disk pocket operation (3351 moves, 35131.6 s)."
+    },
+    {
+      "category": "cam",
+      "path": "e2e/forge/shots/turbofan/cam/fan_disk_drill.nc",
+      "file": "fan_disk_drill.nc",
+      "what": "Fanuc G-code for the fan-disk drill operation (697 moves, 670.5 s)."
+    },
+    {
+      "category": "cam",
+      "path": "e2e/forge/shots/turbofan/cam/fan_disk_cam_plan.json",
+      "file": "fan_disk_cam_plan.json",
+      "what": "CAM operation plan (profile + pocket + drill) for the fan disk, total cycle ≈ 38652 s."
+    },
+    {
+      "category": "cae",
+      "path": "e2e/forge/shots/turbofan/cae/turbofan_CAE_report.md",
+      "file": "turbofan_CAE_report.md",
+      "what": "CAE report (markdown): every FEA/CFD/dynamics/thermal result tabulated with numbers + pass/fail engineering margins + honest scope notes."
+    },
+    {
+      "category": "cae",
+      "path": "e2e/forge/shots/turbofan/cae/turbofan_CAE_results.json",
+      "file": "turbofan_CAE_results.json",
+      "what": "CAE results as machine-readable JSON."
+    }
+  ],
+  "cae": {
+    "feaStaticBlade": {
+      "component": "fan blade (Ti-6Al-4V)",
+      "model": "cantilever slab, root-fixed (-x)",
+      "loads": {
+        "rpm": 2500,
+        "omega_rad_s": 261.8,
+        "tipSpeed_m_s": 327.2,
+        "bladeMass_kg": 24.919,
+        "centrifugal_N": 1366323,
+        "aeroBending_N": 3470,
+        "rMean_m": 0.8
+      },
+      "nodes": 5016,
+      "elements": 3150,
+      "maxVonMises_MPa": 348.5,
+      "maxDisplacement_mm": 19.367,
+      "yieldStrength_MPa": 880,
+      "safetyFactor": 2.53,
+      "pass": true
+    },
+    "feaNonlinearBlade": {
+      "component": "fan blade — 1.25× overspeed (1.56× load)",
+      "model": "elasto-plastic radial-return",
+      "nodes": 5016,
+      "elements": 3150,
+      "maxVonMises_MPa": 720.3,
+      "maxPlasticStrain": 0,
+      "yielded": false,
+      "converged": true,
+      "pass": true,
+      "note": "pass = plastic strain < 0.2% at 1.25× overspeed (blade survives a burst-margin transient with negligible permanent set)"
+    },
+    "fatigueBlade": {
+      "component": "fan blade HCF (Goodman-corrected)",
+      "alternating_MPa": 122,
+      "mean_MPa": 226.5,
+      "lifeCycles": "infinite (>1e8, below S-N knee)",
+      "lifeHours_at_rpm": "∞",
+      "pass": true,
+      "note": "pass = ≥1e7 cycles (infinite-life regime for Ti HCF; \"infinite\" = alternating stress below the S-N knee)"
+    },
+    "modalDisk": {
+      "component": "fan disk (Ti-6Al-4V)",
+      "model": "annular slab proxy, bore-clamped (-z)",
+      "nodes": 363,
+      "elements": 200,
+      "frequenciesHz": [
+        6556.2,
+        6562.4,
+        6562.4,
+        6835,
+        6903.3,
+        6954.5
+      ],
+      "firstNatural_Hz": 6556.2,
+      "runningOrders_Hz": [
+        41.7,
+        83.3,
+        125
+      ],
+      "nearestOrder_Hz": 125,
+      "resonanceMargin_pct": 5145,
+      "pass": true,
+      "note": "pass = first natural ≥10% off the nearest 1E/2E/3E running order (Campbell separation)"
+    },
+    "cfdCore": {
+      "duct": "core gas path (hot)",
+      "physicalInletVelocity_m_s": 180,
+      "fluid": "hot air ρ=0.45 ν=7e-5",
+      "normalizedCavityPeak": 1.148,
+      "reynolds": 59053,
+      "pressureRange_norm": 58.314,
+      "residual": "3.4e-3 → 7.3e-13",
+      "converged": true,
+      "regime": "Re>2300 → physically turbulent (solver is LAMINAR — see honest note)"
+    },
+    "cfdBypass": {
+      "duct": "bypass fan duct",
+      "physicalInletVelocity_m_s": 147.3,
+      "fluid": "ambient air ρ=1.0 ν=1.8e-5",
+      "normalizedCavityPeak": 0.178,
+      "reynolds": 35685,
+      "pressureRange_norm": 8.759,
+      "residual": "4.7e-4 → 4.6e-14",
+      "converged": true,
+      "regime": "Re>2300 → physically turbulent (solver is LAMINAR — see honest note)"
+    },
+    "dynamicsMotion": {
+      "study": "fan/rotor full-revolution kinematic sweep",
+      "frames": 36,
+      "allConverged": true,
+      "driverSwept_rad": 6.2832,
+      "revolution_rad": 6.2832,
+      "bladeTipPathLength_m": 6.283,
+      "bladeTipSpeed_m_s": 327.2,
+      "rpm": 2500,
+      "pass": true,
+      "note": "SEQUENTIAL FRAMES (mate network re-solved per frame) — a motion study, NOT hardware real-time."
+    },
+    "thermalHotSection": {
+      "component": "combustor liner (Inconel 718)",
+      "model": "through-wall conduction, hot/cold faces fixed",
+      "wallThickness_mm": 26,
+      "hotFace_C": 1500,
+      "coldFace_C": 600,
+      "nodes": 8464,
+      "elements": 6075,
+      "minT_C": 600,
+      "maxT_C": 1500,
+      "deltaT_C": 900,
+      "meanHeatFlux_kW_m2": 394.6,
+      "pass": true,
+      "note": "pass = temperatures bounded by the imposed hot/cold BCs (conduction sanity); real liner needs film-cooling + TBC + radiation."
+    },
+    "toleranceStack": {
+      "fit": "fan-blade root in disk fir-tree slot (clearance)",
+      "nominalClearance_mm": 0.1,
+      "min_mm": 0.07,
+      "max_mm": 0.13,
+      "Cpk": 4.47,
+      "mcYield_pct": 100,
+      "pass": true,
+      "note": "numeric 1-D stack; not a geometric/datum-frame check"
+    }
+  },
+  "summary": {
+    "bodies": 38,
+    "instances": 792,
+    "totalParts": 792,
+    "estimatedDryMass_kg": 61707,
+    "deliverableCount": 92,
+    "caeFamilies": 9
+  }
+}

@@ -1,0 +1,126 @@
+{
+  "feaStaticBlade": {
+    "component": "fan blade (Ti-6Al-4V)",
+    "model": "cantilever slab, root-fixed (-x)",
+    "loads": {
+      "rpm": 2500,
+      "omega_rad_s": 261.8,
+      "tipSpeed_m_s": 327.2,
+      "bladeMass_kg": 24.919,
+      "centrifugal_N": 1366323,
+      "aeroBending_N": 3470,
+      "rMean_m": 0.8
+    },
+    "nodes": 5016,
+    "elements": 3150,
+    "maxVonMises_MPa": 348.5,
+    "maxDisplacement_mm": 19.367,
+    "yieldStrength_MPa": 880,
+    "safetyFactor": 2.53,
+    "pass": true
+  },
+  "feaNonlinearBlade": {
+    "component": "fan blade — 1.25× overspeed (1.56× load)",
+    "model": "elasto-plastic radial-return",
+    "nodes": 5016,
+    "elements": 3150,
+    "maxVonMises_MPa": 720.3,
+    "maxPlasticStrain": 0,
+    "yielded": false,
+    "converged": true,
+    "pass": true,
+    "note": "pass = plastic strain < 0.2% at 1.25× overspeed (blade survives a burst-margin transient with negligible permanent set)"
+  },
+  "fatigueBlade": {
+    "component": "fan blade HCF (Goodman-corrected)",
+    "alternating_MPa": 122,
+    "mean_MPa": 226.5,
+    "lifeCycles": "infinite (>1e8, below S-N knee)",
+    "lifeHours_at_rpm": "∞",
+    "pass": true,
+    "note": "pass = ≥1e7 cycles (infinite-life regime for Ti HCF; \"infinite\" = alternating stress below the S-N knee)"
+  },
+  "modalDisk": {
+    "component": "fan disk (Ti-6Al-4V)",
+    "model": "annular slab proxy, bore-clamped (-z)",
+    "nodes": 363,
+    "elements": 200,
+    "frequenciesHz": [
+      6556.2,
+      6562.4,
+      6562.4,
+      6835,
+      6903.3,
+      6954.5
+    ],
+    "firstNatural_Hz": 6556.2,
+    "runningOrders_Hz": [
+      41.7,
+      83.3,
+      125
+    ],
+    "nearestOrder_Hz": 125,
+    "resonanceMargin_pct": 5145,
+    "pass": true,
+    "note": "pass = first natural ≥10% off the nearest 1E/2E/3E running order (Campbell separation)"
+  },
+  "cfdCore": {
+    "duct": "core gas path (hot)",
+    "physicalInletVelocity_m_s": 180,
+    "fluid": "hot air ρ=0.45 ν=7e-5",
+    "normalizedCavityPeak": 1.148,
+    "reynolds": 59053,
+    "pressureRange_norm": 58.314,
+    "residual": "3.4e-3 → 7.3e-13",
+    "converged": true,
+    "regime": "Re>2300 → physically turbulent (solver is LAMINAR — see honest note)"
+  },
+  "cfdBypass": {
+    "duct": "bypass fan duct",
+    "physicalInletVelocity_m_s": 147.3,
+    "fluid": "ambient air ρ=1.0 ν=1.8e-5",
+    "normalizedCavityPeak": 0.178,
+    "reynolds": 35685,
+    "pressureRange_norm": 8.759,
+    "residual": "4.7e-4 → 4.6e-14",
+    "converged": true,
+    "regime": "Re>2300 → physically turbulent (solver is LAMINAR — see honest note)"
+  },
+  "dynamicsMotion": {
+    "study": "fan/rotor full-revolution kinematic sweep",
+    "frames": 36,
+    "allConverged": true,
+    "driverSwept_rad": 6.2832,
+    "revolution_rad": 6.2832,
+    "bladeTipPathLength_m": 6.283,
+    "bladeTipSpeed_m_s": 327.2,
+    "rpm": 2500,
+    "pass": true,
+    "note": "SEQUENTIAL FRAMES (mate network re-solved per frame) — a motion study, NOT hardware real-time."
+  },
+  "thermalHotSection": {
+    "component": "combustor liner (Inconel 718)",
+    "model": "through-wall conduction, hot/cold faces fixed",
+    "wallThickness_mm": 26,
+    "hotFace_C": 1500,
+    "coldFace_C": 600,
+    "nodes": 8464,
+    "elements": 6075,
+    "minT_C": 600,
+    "maxT_C": 1500,
+    "deltaT_C": 900,
+    "meanHeatFlux_kW_m2": 394.6,
+    "pass": true,
+    "note": "pass = temperatures bounded by the imposed hot/cold BCs (conduction sanity); real liner needs film-cooling + TBC + radiation."
+  },
+  "toleranceStack": {
+    "fit": "fan-blade root in disk fir-tree slot (clearance)",
+    "nominalClearance_mm": 0.1,
+    "min_mm": 0.07,
+    "max_mm": 0.13,
+    "Cpk": 4.47,
+    "mcYield_pct": 100,
+    "pass": true,
+    "note": "numeric 1-D stack; not a geometric/datum-frame check"
+  }
+}

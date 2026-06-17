@@ -3606,6 +3606,49 @@ Napi::Value PartPipeFromPolyline(const Napi::CallbackInfo& info) {
     });
 }
 
+namespace {
+// Read a flat numeric array (Array or Float64Array) into std::vector<double>.
+std::vector<double> readFlatDoubles(const Napi::CallbackInfo& info, int idx,
+                                    const char* what) {
+    auto env = info.Env();
+    std::vector<double> out;
+    if (info.Length() <= static_cast<size_t>(idx)) {
+        throw Napi::TypeError::New(env, std::string("forge.part: ") + what + " missing");
+    }
+    const Napi::Value v = info[idx];
+    if (v.IsTypedArray()) {
+        auto ta = v.As<Napi::Float64Array>();
+        out.assign(ta.Data(), ta.Data() + ta.ElementLength());
+    } else if (v.IsArray()) {
+        auto a = v.As<Napi::Array>();
+        out.reserve(a.Length());
+        for (uint32_t i = 0; i < a.Length(); ++i)
+            out.push_back(a.Get(i).As<Napi::Number>().DoubleValue());
+    } else {
+        throw Napi::TypeError::New(env,
+            std::string("forge.part: ") + what + " must be an Array or Float64Array");
+    }
+    return out;
+}
+} // namespace
+
+Napi::Value PartProfileWire(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto pts = readFlatDoubles(info, 0, "profileWire points");
+        bool closed = info.Length() > 1 && info[1].IsBoolean()
+                          ? info[1].As<Napi::Boolean>().Value() : true;
+        return Napi::Number::New(info.Env(), forge::part::profileWire(pts, closed));
+    });
+}
+
+Napi::Value PartSweepPolyline(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto prof = readFlatDoubles(info, 0, "sweepPolyline profileXY");
+        auto path = readFlatDoubles(info, 1, "sweepPolyline path");
+        return Napi::Number::New(info.Env(), forge::part::sweepPolyline(prof, path));
+    });
+}
+
 Napi::Value PartFilletEdges(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto h = requireHandle(info, 0);
@@ -4880,6 +4923,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     part.Set("shell",               Napi::Function::New(env, PartShell));
     part.Set("thickenSurface",      Napi::Function::New(env, PartThickenSurface));
     part.Set("pipeFromPolyline",    Napi::Function::New(env, PartPipeFromPolyline));
+    part.Set("profileWire",         Napi::Function::New(env, PartProfileWire));
+    part.Set("sweepPolyline",       Napi::Function::New(env, PartSweepPolyline));
     part.Set("filletEdges",         Napi::Function::New(env, PartFilletEdges));
     part.Set("variableFilletEdge",  Napi::Function::New(env, PartVariableFillet));
     part.Set("chamferEdges",        Napi::Function::New(env, PartChamferEdges));

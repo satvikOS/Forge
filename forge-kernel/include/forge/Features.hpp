@@ -99,6 +99,21 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side);
 // into visible tube geometry.
 ShapeHandle pipeFromPolyline(const std::vector<double>& pts, double radius);
 
+// Build a polyline WIRE ShapeHandle from world-space 3D points (flat
+// [x,y,z,…] triples). `closed` adds a closing segment back to the first
+// point. Returns a TopoDS_Wire handle suitable as a loft section
+// (forge::loftguide::loft) — lets JS position each loft cross-section in
+// 3D, which the always-Z=0 sketcher cannot express. Throws on <2 points.
+ShapeHandle profileWire(const std::vector<double>& pts, bool closed);
+
+// Sweep an arbitrary closed 2D profile (XY [x,y,…] pairs) along a 3D path
+// polyline (flat [x,y,z,…] triples). The profile is placed perpendicular
+// to the path's first segment (mirrors pipeFromPolyline's framing) so the
+// result is a real watertight swept SOLID — unlike forge::part::sweep,
+// which collapses when profile + path are coplanar. Throws on bad inputs.
+ShapeHandle sweepPolyline(const std::vector<double>& profileXY,
+                          const std::vector<double>& pathPts);
+
 ShapeHandle filletEdges(ShapeHandle shape,
                         const std::vector<std::uint32_t>& edgeIds,
                         double radius);

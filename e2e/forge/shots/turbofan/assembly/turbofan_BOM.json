@@ -1,0 +1,351 @@
+{
+  "assembly": "high-bypass turbofan",
+  "uniqueBodies": 38,
+  "totalParts": 792,
+  "estimatedDryMass_kg": 61707,
+  "massNote": "mass = solid-volume × material density on the as-modelled (thick-walled / solid) B-rep; a production engine is hollow/honeycomb/composite and lighter, so this is an upper-bound geometry-derived figure.",
+  "lines": [
+    {
+      "item": "fan_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 33760.5,
+      "massEach_kg": 149.559,
+      "massTotal_kg": 149.559
+    },
+    {
+      "item": "fan_blade",
+      "qty": 22,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 3902.7,
+      "massEach_kg": 17.289,
+      "massTotal_kg": 380.356
+    },
+    {
+      "item": "lpc_s1_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 4870.5,
+      "massEach_kg": 21.576,
+      "massTotal_kg": 21.576
+    },
+    {
+      "item": "lpc_s1_blade",
+      "qty": 38,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 95,
+      "massEach_kg": 0.421,
+      "massTotal_kg": 15.991
+    },
+    {
+      "item": "lpc_s2_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 4870.5,
+      "massEach_kg": 21.576,
+      "massTotal_kg": 21.576
+    },
+    {
+      "item": "lpc_s2_blade",
+      "qty": 38,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 82.6,
+      "massEach_kg": 0.366,
+      "massTotal_kg": 13.905
+    },
+    {
+      "item": "lpc_s3_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 4870.5,
+      "massEach_kg": 21.576,
+      "massTotal_kg": 21.576
+    },
+    {
+      "item": "lpc_s3_blade",
+      "qty": 38,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 70.2,
+      "massEach_kg": 0.311,
+      "massTotal_kg": 11.819
+    },
+    {
+      "item": "hpc_s1_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 2357.1,
+      "massEach_kg": 10.442,
+      "massTotal_kg": 10.442
+    },
+    {
+      "item": "hpc_s1_blade",
+      "qty": 46,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 35.1,
+      "massEach_kg": 0.155,
+      "massTotal_kg": 7.146
+    },
+    {
+      "item": "hpc_s2_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 2357.1,
+      "massEach_kg": 10.442,
+      "massTotal_kg": 10.442
+    },
+    {
+      "item": "hpc_s2_blade",
+      "qty": 46,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 28.2,
+      "massEach_kg": 0.125,
+      "massTotal_kg": 5.756
+    },
+    {
+      "item": "hpc_s3_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 2357.1,
+      "massEach_kg": 10.442,
+      "massTotal_kg": 10.442
+    },
+    {
+      "item": "hpc_s3_blade",
+      "qty": 46,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 21.4,
+      "massEach_kg": 0.095,
+      "massTotal_kg": 4.367
+    },
+    {
+      "item": "hpc_s4_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 2357.1,
+      "massEach_kg": 10.442,
+      "massTotal_kg": 10.442
+    },
+    {
+      "item": "hpc_s4_blade",
+      "qty": 46,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 14.6,
+      "massEach_kg": 0.065,
+      "massTotal_kg": 2.977
+    },
+    {
+      "item": "hpc_s5_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 2357.1,
+      "massEach_kg": 10.442,
+      "massTotal_kg": 10.442
+    },
+    {
+      "item": "hpc_s5_blade",
+      "qty": 46,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 7.8,
+      "massEach_kg": 0.035,
+      "massTotal_kg": 1.588
+    },
+    {
+      "item": "combustor",
+      "qty": 1,
+      "role": "static",
+      "material": "Inconel 718",
+      "volume_cm3": 23690.9,
+      "massEach_kg": 194.028,
+      "massTotal_kg": 194.028
+    },
+    {
+      "item": "hpt_s1_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Inconel 718",
+      "volume_cm3": 3946,
+      "massEach_kg": 32.318,
+      "massTotal_kg": 32.318
+    },
+    {
+      "item": "hpt_s1_blade",
+      "qty": 52,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 128,
+      "massEach_kg": 0.567,
+      "massTotal_kg": 29.481
+    },
+    {
+      "item": "hpt_s2_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Inconel 718",
+      "volume_cm3": 3946,
+      "massEach_kg": 32.318,
+      "massTotal_kg": 32.318
+    },
+    {
+      "item": "hpt_s2_blade",
+      "qty": 52,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 128,
+      "massEach_kg": 0.567,
+      "massTotal_kg": 29.481
+    },
+    {
+      "item": "lpt_s1_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Inconel 718",
+      "volume_cm3": 6494,
+      "massEach_kg": 53.186,
+      "massTotal_kg": 53.186
+    },
+    {
+      "item": "lpt_s1_blade",
+      "qty": 60,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 205.3,
+      "massEach_kg": 0.91,
+      "massTotal_kg": 54.571
+    },
+    {
+      "item": "lpt_s2_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Inconel 718",
+      "volume_cm3": 6494,
+      "massEach_kg": 53.186,
+      "massTotal_kg": 53.186
+    },
+    {
+      "item": "lpt_s2_blade",
+      "qty": 60,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 250.6,
+      "massEach_kg": 1.11,
+      "massTotal_kg": 66.609
+    },
+    {
+      "item": "lpt_s3_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Inconel 718",
+      "volume_cm3": 6494,
+      "massEach_kg": 53.186,
+      "massTotal_kg": 53.186
+    },
+    {
+      "item": "lpt_s3_blade",
+      "qty": 60,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 295.9,
+      "massEach_kg": 1.311,
+      "massTotal_kg": 78.647
+    },
+    {
+      "item": "lpt_s4_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Inconel 718",
+      "volume_cm3": 6494,
+      "massEach_kg": 53.186,
+      "massTotal_kg": 53.186
+    },
+    {
+      "item": "lpt_s4_blade",
+      "qty": 60,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 341.2,
+      "massEach_kg": 1.511,
+      "massTotal_kg": 90.684
+    },
+    {
+      "item": "lpt_s5_disk",
+      "qty": 1,
+      "role": "static",
+      "material": "Inconel 718",
+      "volume_cm3": 6494,
+      "massEach_kg": 53.186,
+      "massTotal_kg": 53.186
+    },
+    {
+      "item": "lpt_s5_blade",
+      "qty": 60,
+      "role": "blade",
+      "material": "Ti-6Al-4V",
+      "volume_cm3": 386.5,
+      "massEach_kg": 1.712,
+      "massTotal_kg": 102.722
+    },
+    {
+      "item": "lp_shaft",
+      "qty": 1,
+      "role": "static",
+      "material": "Steel (structure)",
+      "volume_cm3": 47182.8,
+      "massEach_kg": 370.385,
+      "massTotal_kg": 370.385
+    },
+    {
+      "item": "hp_shaft",
+      "qty": 1,
+      "role": "static",
+      "material": "Steel (structure)",
+      "volume_cm3": 24542.1,
+      "massEach_kg": 192.656,
+      "massTotal_kg": 192.656
+    },
+    {
+      "item": "core_casing",
+      "qty": 1,
+      "role": "static",
+      "material": "Steel (structure)",
+      "volume_cm3": 491370.2,
+      "massEach_kg": 3857.256,
+      "massTotal_kg": 3857.256
+    },
+    {
+      "item": "nacelle",
+      "qty": 1,
+      "role": "static",
+      "material": "Steel (structure)",
+      "volume_cm3": 3549122.1,
+      "massEach_kg": 27860.609,
+      "massTotal_kg": 27860.609
+    },
+    {
+      "item": "bypass_duct",
+      "qty": 1,
+      "role": "static",
+      "material": "Steel (structure)",
+      "volume_cm3": 3533613.2,
+      "massEach_kg": 27738.863,
+      "massTotal_kg": 27738.863
+    }
+  ]
+}

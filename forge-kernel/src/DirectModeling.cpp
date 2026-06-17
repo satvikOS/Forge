@@ -94,6 +94,33 @@ gp_Pnt faceCentroid(const TopoDS_Face& face) {
     return props.CentreOfMass();
 }
 
+gp_Pnt solidCentroid(const TopoDS_Shape& shape) {
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(shape, props);
+    return props.CentreOfMass();
+}
+
+// Geometric outward normal: `outwardNormal()` derives its sign from
+// face.Orientation(), but TopTools_IndexedMapOfShape (used by lookupFace)
+// normalises every face's orientation to FORWARD, so both faces of a box
+// pair report the SAME surface normal — half of them then point INWARD.
+// That made pushPullFace a silent no-op for the -X/-Y/-Z faces (the prism
+// landed inside the body and the fuse added nothing). Here we resolve the
+// ambiguity from geometry: the outward normal is the one pointing AWAY from
+// the solid's volume centroid. Robust for any convex-ish face on a solid;
+// for the rare face whose centroid sits on the body centroid we keep the
+// orientation-derived sign.
+gp_Vec trueOutwardNormal(const TopoDS_Shape& solid, const TopoDS_Face& face) {
+    gp_Vec n = outwardNormal(face);
+    const gp_Pnt fc = faceCentroid(face);
+    const gp_Pnt sc = solidCentroid(solid);
+    const gp_Vec away(sc, fc);  // solid centroid -> face centroid = outward
+    if (away.Magnitude() > Precision::Confusion()) {
+        if (n.Dot(away) < 0.0) n.Reverse();
+    }
+    return n;
+}
+
 double faceArea(const TopoDS_Face& face) {
     GProp_GProps props;
     BRepGProp::SurfaceProperties(face, props);
@@ -180,7 +207,7 @@ ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {
         return ShapeRegistry::instance().add(s);
     }
     const auto face = lookupFace(s, faceId);
-    const gp_Vec n  = outwardNormal(face);
+    const gp_Vec n  = trueOutwardNormal(s, face);
     const gp_Vec v  = n.Multiplied(std::abs(distance));
     const TopoDS_Shape prism = extrudeFace(face, v);
 
@@ -410,7 +437,7 @@ FeatureInfo inferFeature(ShapeHandle shape, FaceId faceId) {
 
     BRepAdaptor_Surface adaptor(face);
     const auto kind = adaptor.GetType();
-    const gp_Vec n = outwardNormal(face);
+    const gp_Vec n = trueOutwardNormal(s, face);
     const gp_Pnt c = faceCentroid(face);
     const double area = faceArea(face);
 

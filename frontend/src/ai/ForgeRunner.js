@@ -94,7 +94,7 @@ Parametric assets — PREFER one of these when the request matches a whole part 
 Body handles count up from 1 in creation order; pass them as "shape".
 Materials are {E,nu,rho} in MPa / mm / tonne: steel {"E":210000,"nu":0.3,"rho":7.85e-9},
 aluminium {"E":70000,"nu":0.33,"rho":2.7e-9}.
-Dimensions are millimetres. Begin with exactly ONE brief conversational line naming what you are building, then the plan and tool_calls. No prose after the tags. No markdown, no lists, no <think> block.
+Dimensions are millimetres. No prose outside the tags. No <think> block.
 Full physics suite — after building the part, run the matching analysis. These verbs re-mesh the shape and work in SI (metres, Pascals, Newtons, kelvin); material is {E,nu,rho} in Pa (steel {"E":2.1e11,"nu":0.3,"rho":7850}, aluminium {"E":7e10,"nu":0.33,"rho":2700}) or {k} W/(m·K) for thermal:
   simulate.fea-buckling{shape,material,fixedFace,loadFace,load,modes,meshSize} — first critical buckling load (N) + safety factor for columns/struts/thin panels,
   simulate.fea-thermal{shape,material{k},hotFace,coldFace,hotTemp,coldTemp,meshSize} — steady-state temperature range (°C) + mean heat flux,
@@ -397,12 +397,21 @@ export async function runForgePrompt({
     const _iter = { turn, completion: '', parsed: null, toolResponses: [] };
     const _specSigSet = new Set();
     const _sig = (c) => JSON.stringify({ n: c.name, a: c.arguments || {} });
+    // Forge-2026-06-17 — ONE shared per-turn context for the handle-free CONTEXT
+    // verbs (part.begin/add/subtract/intersect/finish + pattern verbs). Without a
+    // shared ctx every streamed call got a fresh {current:null}, so part.begin
+    // built a body but bolt-circle/subtract/finish threw "needs a current part" —
+    // the part never accumulated and nothing surfaced to the viewport. Sharing it
+    // across BOTH the speculative and post-turn dispatch paths makes the build123d-
+    // style accumulation work end-to-end; each response carries `current` so the
+    // shell can surface the single evolving body.
+    const _ctx = { current: null };
     const _speculativeDispatch = async (call) => {
       const sig = _sig(call);
       if (_specSigSet.has(sig)) return;
       _specSigSet.add(sig);
       let resp;
-      try { resp = await dispatchToolCall(call, forge ? { forge } : {}); }
+      try { resp = await dispatchToolCall(call, { forge, ctx: _ctx }); }
       catch (e) { resp = { ok: false, error: String(e?.message || e) }; }
       _iter.toolResponses.push(resp);
       onTrace({ kind: 'tool', call, response: resp });
@@ -465,7 +474,7 @@ export async function runForgePrompt({
     // (the post-stream parse re-sees the same <tool_call> tags).
     for (const call of parsed.toolCalls) {
       if (_specSigSet.has(_sig(call))) continue;
-      const resp = await dispatchToolCall(call, forge ? { forge } : {});
+      const resp = await dispatchToolCall(call, { forge, ctx: _ctx });
       iter.toolResponses.push(resp);
       onTrace({ kind: 'tool', call, response: resp });
     }

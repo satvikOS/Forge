@@ -557,6 +557,12 @@ export function ForgeShellV4() {
       // viewport shows the RESULT, not part+cutter+offcuts. Reset per turn
       // (scene is cleared per build).
       const _h2id = [];
+      // Context-verb single evolving body: part.begin/add/subtract/intersect/
+      // finish + pattern verbs all mutate the shared ctx.current, so the response
+      // carries `current` as the one body's handle. Track it and update IN PLACE
+      // (replace the prior) so the viewport shows the part accumulate and ends on
+      // the FINISHED solid — not a pile of intermediate shells.
+      let _ctxBodyId = null, _ctxHandle = null;
       const trace = await runForgePrompt({
         prompt,
         // Bound the agent loop to ONE inference. The composition-trained
@@ -588,6 +594,26 @@ export function ForgeShellV4() {
             // legacy chain never checked result.shape, so Archie dispatches
             // ticked ✓ in the thread while the viewport stayed empty.
             const _res = ev.response?.result;
+            const _a = ev.call.arguments || {};
+            // CONTEXT/PATTERN verbs mutate the shared ctx.current — the response
+            // carries `current` as the single evolving body. Surface ONE body that
+            // updates in place (replace the prior current) so the viewport shows
+            // the part build up and ends on the FINISHED solid (after part.finish).
+            const _cur = (typeof ev.response?.current === 'number') ? ev.response.current
+                       : (typeof _res?.current === 'number') ? _res.current : null;
+            if (_cur !== null && ev.response?.ok !== false) {
+              if (_cur !== _ctxHandle) {
+                const nid = `archie-${Date.now().toString(36)}-${(_archieBodySeq.current += 1)}`;
+                const prev = _ctxBodyId;
+                _ctxBodyId = nid; _ctxHandle = _cur;
+                const _body = { id: nid, kind: 'native', handle: _cur, toolId: ev.call.name, params: _a, name: `Archie · ${ev.call.name}` };
+                const _feat = { id: nid, label: `Archie · ${ev.call.name}`, icon: 'archie.spark', params: _a };
+                setBodies((b) => (prev ? b.filter((x) => x.id !== prev) : b).concat([_body]));
+                setFeatureTree((t) => (prev ? t.filter((x) => x.id !== prev) : t).concat([_feat]));
+              }
+              return; // handled as a context-verb step
+            }
+            // Forge-107/191 — non-context handle surfacing (make-*/boolean/transform).
             const h = ev.response?.handle ?? ev.response?.shape ??
                       _res?.handle ?? _res?.shape ?? null;
             if (typeof h === 'number') {
@@ -597,7 +623,6 @@ export function ForgeShellV4() {
               // Boolean (cut/fuse/common) + transform (translate/rotate)
               // ops CONSUME their source handles — drop those bodies so the
               // scene shows only the result, not the inputs + offcuts.
-              const _a = ev.call.arguments || {};
               const _consumed = /(^|\.)(cut|fuse|common)$/.test(ev.call.name)
                 ? [_a.a, _a.b]
                 : /(^|\.)(translate|rotate)$/.test(ev.call.name) ? [_a.shape] : [];

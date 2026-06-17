@@ -360,6 +360,101 @@ ShapeHandle pipeFromPolyline(const std::vector<double>& pts, double radius) {
     return ShapeRegistry::instance().add(pipeMk.Shape());
 }
 
+// ============================================================ profileWire
+//
+// Build a polyline TopoDS_Wire from world-space 3D points. Returned as a
+// ShapeHandle so JS can position each loft cross-section freely in 3D
+// (the always-Z=0 sketcher can't), then feed the list to
+// forge::loftguide::loft for a real lofted SOLID.
+ShapeHandle profileWire(const std::vector<double>& pts, bool closed) {
+    if (pts.size() < 6 || (pts.size() % 3) != 0) {
+        throw std::invalid_argument(
+            "forge.part.profileWire: need >= 2 points as flat [x,y,z] triples");
+    }
+    const std::size_t n = pts.size() / 3;
+    BRepBuilderAPI_MakePolygon poly;
+    for (std::size_t i = 0; i < n; ++i) {
+        poly.Add(gp_Pnt(pts[3 * i], pts[3 * i + 1], pts[3 * i + 2]));
+    }
+    if (closed) poly.Close();
+    poly.Build();
+    if (!poly.IsDone()) {
+        throw std::runtime_error("forge.part.profileWire: wire build failed");
+    }
+    return ShapeRegistry::instance().add(poly.Wire());
+}
+
+// ============================================================ sweepPolyline
+//
+// Sweep a closed 2D profile (XY pairs) along a 3D path polyline. The
+// profile is relocated onto a plane normal to the path's first segment
+// (mirrors pipeFromPolyline's framing), so the swept body is a real
+// watertight SOLID even when the caller's profile + path would be coplanar
+// in the always-Z=0 sketcher (the failure mode of forge::part::sweep).
+ShapeHandle sweepPolyline(const std::vector<double>& profileXY,
+                          const std::vector<double>& pathPts) {
+    if (profileXY.size() < 6 || (profileXY.size() % 2) != 0) {
+        throw std::invalid_argument(
+            "forge.part.sweepPolyline: profile needs >= 3 [x,y] pairs");
+    }
+    if (pathPts.size() < 6 || (pathPts.size() % 3) != 0) {
+        throw std::invalid_argument(
+            "forge.part.sweepPolyline: path needs >= 2 [x,y,z] triples");
+    }
+    const std::size_t pn = pathPts.size() / 3;
+    auto P = [&](std::size_t i) {
+        return gp_Pnt(pathPts[3 * i], pathPts[3 * i + 1], pathPts[3 * i + 2]);
+    };
+
+    // Spine wire through the path points (skip zero-length segments).
+    BRepBuilderAPI_MakePolygon spinePoly;
+    spinePoly.Add(P(0));
+    for (std::size_t i = 1; i < pn; ++i) {
+        if (P(i).Distance(P(i - 1)) > Precision::Confusion()) spinePoly.Add(P(i));
+    }
+    spinePoly.Build();
+    if (!spinePoly.IsDone()) {
+        throw std::runtime_error("forge.part.sweepPolyline: spine wire build failed");
+    }
+    const TopoDS_Wire spine = spinePoly.Wire();
+
+    // Build a local right-handed frame at the path start whose Z is the
+    // first segment's tangent; map the 2D profile (local x,y) into it.
+    const gp_Pnt p0 = P(0);
+    gp_Vec tangent(P(0), P(1));
+    if (tangent.Magnitude() < Precision::Confusion()) tangent = gp_Vec(0, 0, 1);
+    tangent.Normalize();
+    gp_Ax2 frame(p0, gp_Dir(tangent));
+    const gp_Vec ux(frame.XDirection());
+    const gp_Vec uy(frame.YDirection());
+
+    const std::size_t cn = profileXY.size() / 2;
+    BRepBuilderAPI_MakePolygon profPoly;
+    for (std::size_t i = 0; i < cn; ++i) {
+        const double lx = profileXY[2 * i], ly = profileXY[2 * i + 1];
+        gp_Pnt wp(p0.X() + lx * ux.X() + ly * uy.X(),
+                  p0.Y() + lx * ux.Y() + ly * uy.Y(),
+                  p0.Z() + lx * ux.Z() + ly * uy.Z());
+        profPoly.Add(wp);
+    }
+    profPoly.Close();
+    profPoly.Build();
+    if (!profPoly.IsDone()) {
+        throw std::runtime_error("forge.part.sweepPolyline: profile wire build failed");
+    }
+    BRepBuilderAPI_MakeFace mkProfile(profPoly.Wire(), /*OnlyPlane*/ Standard_True);
+    if (!mkProfile.IsDone()) {
+        throw std::runtime_error("forge.part.sweepPolyline: profile face build failed");
+    }
+
+    BRepOffsetAPI_MakePipe pipeMk(spine, mkProfile.Face());
+    pipeMk.Build();
+    if (!pipeMk.IsDone()) {
+        throw std::runtime_error("forge.part.sweepPolyline: pipe build failed");
+    }
+    return ShapeRegistry::instance().add(pipeMk.Shape());
+}
+
 // ============================================================ loft
 ShapeHandle loft(const std::vector<SketchHandle>& sections,
                  const std::vector<SketchHandle>& /*guides*/,

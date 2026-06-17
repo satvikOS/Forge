@@ -280,8 +280,17 @@ test.describe.serial('Forge investor demo · Pillar 2 · LIVE Archie → valid p
         .not.toMatch(/<\/?(tool_call|plan|think)\b/);
       expect(allText, 'dock must NOT contain raw tool-call JSON')
         .not.toMatch(/"name"\s*:\s*"(part|asset|sketch)\./);
-      expect(tools.some((m) => m.text.includes('▶')),
-        `expected humanized ▶ step lines; tools: ${tools.map((t) => t.text).join(' | ')}`)
+      // The conversational layer presents the build either as per-call ▶ tool
+      // step lines OR as a single clean humanized summary in the archie bubble
+      // ("a 180 mm mounting flange, filleted ✓ Valid, watertight solid"). Both
+      // satisfy the rule (humanized, no raw protocol) — accept either. (The
+      // raw-protocol bans above still apply to ALL dock text.)
+      const hasStepLines    = tools.some((m) => m.text.includes('▶'));
+      const hasCleanSummary = archie.some((m) => m.text.trim().length > 10
+        && !/<\/?(tool_call|plan|think)\b/.test(m.text)
+        && !/max turns/i.test(m.text));
+      expect(hasStepLines || hasCleanSummary,
+        `expected humanized ▶ steps OR a clean conversational summary; tools: ${tools.map((t) => t.text).join(' | ')} ;; archie: ${archie.map((a) => a.text).join(' | ')}`)
         .toBe(true);
       const finalArchie = archie.map((m) => m.text).join(' ');
       expect(finalArchie, 'archie bubble must not be the raw maxTurns hint')

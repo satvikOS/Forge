@@ -1350,6 +1350,13 @@ const forgeApi = {
     // Slice-14 routing — sweep a circular profile along a polyline → pipe solid.
     pipeFromPolyline:   (pts, radius) =>
       kernel.part.pipeFromPolyline(pts, radius),
+    // 3D-positioned profile wire (loft section builder) + arbitrary-profile
+    // sweep along a 3D path — let the bridge build real loft/sweep SOLIDS
+    // that the always-Z=0 sketcher can't express.
+    profileWire:        (pts, closed) =>
+      kernel.part.profileWire(pts, closed !== false),
+    sweepPolyline:      (profileXY, pathPts) =>
+      kernel.part.sweepPolyline(profileXY, pathPts),
     filletEdges:        (shape, edgeIds, radius) =>
       kernel.part.filletEdges(shape, edgeIds, radius),
     variableFilletEdge: (shape, edgeId, anchorRadii) =>
@@ -1377,6 +1384,14 @@ const forgeApi = {
       kernel.part.loftWithGuides(sectionHandles, guideSks ?? [], !!ruled, !!closed),
     shellMultiThickness: (shape, faceIdsToRemove, baseThickness, perFaceOverrides) =>
       kernel.part.shellMultiThickness(shape, faceIdsToRemove ?? [], baseThickness, perFaceOverrides ?? []),
+  } : null,
+
+  // PUSH-18 — guided/plain loft via BRepOffsetAPI_ThruSections over
+  // 3D-positioned profile WIRES (built by part.profileWire). The Archie
+  // part.loft bridge verb skins these into a real lofted solid.
+  loftguide: kernel && kernel.loftguide ? {
+    loft: (profileWires, guideEdges, solid, ruled) =>
+      kernel.loftguide.loft(profileWires, guideEdges ?? [], solid !== false, !!ruled),
   } : null,
 
   // NURBS surfacing (Forge-36) — build/trim/sew/refine/eval/intersect/

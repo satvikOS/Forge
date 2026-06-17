@@ -135,27 +135,54 @@ function buildPrimitive(forge, a, { bump = 0 } = {}) {
   return h;
 }
 
-// Cap an all-edge fillet/chamfer to a safe edge count (dense edge sets — bolt
-// circles, gear teeth — make OCCT BRepFilletAPI self-intersect or hang). Mirrors
-// roundEdges' EDGE_CAP guard but for an explicit user radius. Falls back to the
-// un-filleted shape rather than failing the build.
-function safeFilletAll(forge, shape, radius) {
-  try {
-    const n = forge?.direct?.edgeCount ? forge.direct.edgeCount(shape) : 0;
-    if (!n || n > 16) return shape;
-    const ids = Array.from({ length: n }, (_, i) => i);
-    const r = forge.part.filletEdges(shape, ids, radius);
-    return (typeof r === 'number' && r > 0) ? r : shape;
-  } catch (_) { return shape; }
+// Round/break ALL edges of a body for an explicit user radius. Returns the
+// new handle and, critically, a truthful `applied` flag so part.finish never
+// SILENTLY drops the edge break.
+//
+// History: the old version capped at edgeCount > 16 and returned the UNchanged
+// shape with no flag — so finish{fillet} on an 18-edge body (box+boss+bore)
+// reported ok/terminal yet shipped raw boolean blocks. The cap existed because
+// a single all-edge BRepFilletAPI pass on a dense edge set (bolt circles, gear
+// teeth) can self-intersect and fail. The real fix is to attempt the fillet
+// for ANY edge count and, when OCCT can't take the whole set at once, fall back
+// to an edge-by-edge pass (each edge filleted independently and re-applied),
+// only skipping the individual edges OCCT genuinely rejects. The caller learns
+// what happened via { handle, applied, edgesTotal, edgesDone }.
+// Greedily build the largest edge id set that the kernel op accepts in ONE
+// pass against the ORIGINAL body, then apply it. Edge ids re-enumerate after
+// every fillet/chamfer, so we must never iterate ids against a mutating
+// handle (that skips most edges — the bug that made the naive per-edge
+// fallback round only ~4/27 edges). Testing each candidate against the
+// stable original body, then a single final pass, rounds essentially every
+// compatible edge (e.g. 26/27 — only OCCT-incompatible seam edges drop).
+function greedyEdgeOp(forge, shape, applyIds /* (ids) => newHandle|0 */) {
+  const n = forge?.direct?.edgeCount ? forge.direct.edgeCount(shape) : 0;
+  if (!n) return { handle: shape, applied: false, edgesTotal: 0, edgesDone: 0 };
+  const tryIds = (ids) => {
+    try { const r = applyIds(ids); return (typeof r === 'number' && r > 0) ? r : 0; }
+    catch (_) { return 0; }
+  };
+  // Fast path: every edge in one pass.
+  const all = Array.from({ length: n }, (_, i) => i);
+  const whole = tryIds(all);
+  if (whole) return { handle: whole, applied: true, edgesTotal: n, edgesDone: n };
+  // Robust path: greedily accumulate the compatible-edge subset (all tests on
+  // the ORIGINAL body, never a mutated handle), then apply the kept set once.
+  const keep = [];
+  for (let i = 0; i < n; i++) {
+    if (tryIds([...keep, i])) keep.push(i);
+  }
+  if (!keep.length) return { handle: shape, applied: false, edgesTotal: n, edgesDone: 0 };
+  const final = tryIds(keep);
+  return final
+    ? { handle: final, applied: true, edgesTotal: n, edgesDone: keep.length }
+    : { handle: shape, applied: false, edgesTotal: n, edgesDone: 0 };
 }
-function safeChamferAll(forge, shape, distance) {
-  try {
-    const n = forge?.direct?.edgeCount ? forge.direct.edgeCount(shape) : 0;
-    if (!n || n > 16) return shape;
-    const ids = Array.from({ length: n }, (_, i) => i);
-    const r = forge.part.chamferEdges(shape, ids, distance, -1);
-    return (typeof r === 'number' && r > 0) ? r : shape;
-  } catch (_) { return shape; }
+function filletAllEdges(forge, shape, radius) {
+  return greedyEdgeOp(forge, shape, (ids) => forge.part.filletEdges(shape, ids, radius));
+}
+function chamferAllEdges(forge, shape, distance) {
+  return greedyEdgeOp(forge, shape, (ids) => forge.part.chamferEdges(shape, ids, distance, -1));
 }
 
 // Require a live current part for the verbs that mutate it.
@@ -531,10 +558,21 @@ export const FORGE_TOOLS = [
                   chamfer: P('number', 'chamfer-all-edges distance mm (optional)', { default: 0 }) },
     run: (a, forge, ctx) => {
       let cur = requireCurrent(ctx, 'part.finish');
-      if (a.fillet && a.fillet > 0) cur = safeFilletAll(forge, cur, a.fillet);
-      if (a.chamfer && a.chamfer > 0) cur = safeChamferAll(forge, cur, a.chamfer);
+      const out = { op: 'finish', terminal: true };
+      if (a.fillet && a.fillet > 0) {
+        const r = filletAllEdges(forge, cur, a.fillet);
+        cur = r.handle;
+        out.fillet = { applied: r.applied, edgesTotal: r.edgesTotal, edgesDone: r.edgesDone };
+        if (!r.applied) out.warning = `fillet ${a.fillet}mm could not be applied to any of ${r.edgesTotal} edges`;
+      }
+      if (a.chamfer && a.chamfer > 0) {
+        const r = chamferAllEdges(forge, cur, a.chamfer);
+        cur = r.handle;
+        out.chamfer = { applied: r.applied, edgesTotal: r.edgesTotal, edgesDone: r.edgesDone };
+        if (!r.applied) out.warning = `chamfer ${a.chamfer}mm could not be applied to any of ${r.edgesTotal} edges`;
+      }
       ctx.current = cur;
-      return { shape: cur, current: cur, op: 'finish', terminal: true };
+      return { shape: cur, current: cur, ...out };
     } },
 
   // ============================================ PATTERN (place features into ctx.current)
@@ -687,10 +725,41 @@ export const FORGE_TOOLS = [
                   axisDir: P('array', '[x,y,z] axis direction (default +Y)', { default: [0, 1, 0] }),
                   angleDeg: P('number', 'revolution angle in degrees', { default: 360 }) },
     run: ({ profile, axisOrigin, axisDir, angleDeg }, forge) => {
+      const o = Array.isArray(axisOrigin) ? axisOrigin.map(Number) : [0, 0, 0];
+      let d = Array.isArray(axisDir) ? axisDir.map(Number) : [0, 1, 0];
+      const L = Math.hypot(d[0], d[1], d[2]) || 1;
+      d = [d[0] / L, d[1] / L, d[2] / L];
+      const ang = DEG(angleDeg ?? 360);
+      // The sketcher builds the profile wire flat in the world XY plane (z=0).
+      // revolveProfile only yields a SOLID when the axis is COPLANAR with that
+      // profile plane (i.e. the axis lies in XY → z-component ≈ 0). When the
+      // axis has a Z component (the natural vase/turned-part call: XY profile +
+      // Z axis), the flat profile sweeps into a degenerate SHEET (V=0). Fix:
+      // revolve canonically about +Y at the origin (always coplanar → real
+      // solid), then rigid-map +Y onto the requested axis and translate to the
+      // requested origin. For an in-plane axis we keep the direct path so the
+      // existing offset-profile usage is byte-for-byte unchanged.
+      const inPlane = Math.abs(d[2]) < 1e-6;
+      if (inPlane) {
+        const sk = buildProfileSketch(forge, profile);
+        return { shape: forge.part.revolveProfile(sk, Float64Array.from(o), Float64Array.from(d), ang) };
+      }
       const sk = buildProfileSketch(forge, profile);
-      const o = Float64Array.from(Array.isArray(axisOrigin) ? axisOrigin : [0, 0, 0]);
-      const a = Float64Array.from(Array.isArray(axisDir) ? axisDir : [0, 1, 0]);
-      return { shape: forge.part.revolveProfile(sk, o, a, DEG(angleDeg ?? 360)) };
+      let h = forge.part.revolveProfile(sk, new Float64Array([0, 0, 0]), new Float64Array([0, 1, 0]), ang);
+      // Rotate +Y → d about (Y × d) by acos(Y·d).
+      const dot = d[1]; // [0,1,0]·d
+      if (dot < 1 - 1e-9) {
+        let cx = 1 * d[2] - 0 * d[1];   // Y×d, Y=[0,1,0]
+        let cy = 0 * d[0] - 0 * d[2];
+        let cz = 0 * d[1] - 1 * d[0];
+        const cl = Math.hypot(cx, cy, cz);
+        if (cl < 1e-9) { cx = 1; cy = 0; cz = 0; } // antiparallel → 180° about X
+        else { cx /= cl; cy /= cl; cz /= cl; }
+        const ang2 = Math.acos(Math.max(-1, Math.min(1, dot)));
+        h = forge.rotate(h, cx, cy, cz, ang2);
+      }
+      if (o[0] || o[1] || o[2]) h = forge.translate(h, o[0], o[1], o[2]);
+      return { shape: h };
     } },
 
   { name: 'part.pipe', discipline: 'part', produces: 'handle',
@@ -702,6 +771,44 @@ export const FORGE_TOOLS = [
       const flat = new Float64Array(path.length * 3);
       for (let i = 0; i < path.length; i++) { flat[i * 3] = +path[i][0] || 0; flat[i * 3 + 1] = +path[i][1] || 0; flat[i * 3 + 2] = +path[i][2] || 0; }
       return { shape: forge.part.pipeFromPolyline(flat, radius) };
+    } },
+
+  { name: 'part.loft', discipline: 'part', produces: 'handle',
+    description: 'Loft (skin) a solid through ≥2 closed cross-sections stacked along Z → blended transition body (adapter, transition duct, hull, bottle). Each section is a closed [[x,y], …] profile placed at its own z. Sections are listed bottom-to-top.',
+    parameters: { sections: P('array', '[{z, profile:[[x,y], …]}, …] ≥2 closed cross-sections (bottom→top)', { required: true }),
+                  ruled: P('bool', 'straight rulings between sections (no smoothing)', { default: false }),
+                  closed: P('bool', 'close the loft back to the first section (looped)', { default: false }) },
+    run: ({ sections, ruled, closed }, forge) => {
+      if (!Array.isArray(sections) || sections.length < 2) {
+        throw new Error('part.loft needs ≥2 sections, each {z, profile:[[x,y],…]}');
+      }
+      // The sketcher can only build wires at z=0, so we build each section as a
+      // world-positioned 3D polyline WIRE (profileWire) at its own z, then skin
+      // them with loftguide.loft. This is what makes the loft a real SOLID
+      // (a coplanar all-z=0 loft collapses to a flat sheet, V=0).
+      const wires = sections.map((s, i) => {
+        const prof = s && Array.isArray(s.profile) ? s.profile : (Array.isArray(s) ? s : null);
+        if (!prof || prof.length < 3) throw new Error(`part.loft section ${i} needs a closed profile of ≥3 [x,y] points`);
+        const z = s && typeof s.z === 'number' ? s.z : (typeof s.at_z === 'number' ? s.at_z : i * 10);
+        const flat = new Float64Array(prof.length * 3);
+        for (let j = 0; j < prof.length; j++) { flat[j * 3] = +prof[j][0] || 0; flat[j * 3 + 1] = +prof[j][1] || 0; flat[j * 3 + 2] = z; }
+        return forge.part.profileWire(flat, true);
+      });
+      return { shape: forge.loftguide.loft(wires, [], true, !!ruled), op: 'loft', closed: !!closed };
+    } },
+
+  { name: 'part.sweep', discipline: 'part', produces: 'handle',
+    description: 'Sweep a closed 2D profile along a 3D path polyline → constant-section swept solid (gasket, extruded rail, handle, channel, trim). The profile is carried perpendicular to the path. Use part.pipe for a simple round tube.',
+    parameters: { profile: P('array', '[[x,y], …] closed cross-section (in the plane ⟂ to the path start)', { required: true }),
+                  path: P('array', '[[x,y,z], …] ≥2 spine points (mm)', { required: true }) },
+    run: ({ profile, path }, forge) => {
+      if (!Array.isArray(profile) || profile.length < 3) throw new Error('part.sweep profile needs ≥3 [x,y] points');
+      if (!Array.isArray(path) || path.length < 2) throw new Error('part.sweep path needs ≥2 [x,y,z] points');
+      const pf = new Float64Array(profile.length * 2);
+      for (let i = 0; i < profile.length; i++) { pf[i * 2] = +profile[i][0] || 0; pf[i * 2 + 1] = +profile[i][1] || 0; }
+      const pa = new Float64Array(path.length * 3);
+      for (let i = 0; i < path.length; i++) { pa[i * 3] = +path[i][0] || 0; pa[i * 3 + 1] = +path[i][1] || 0; pa[i * 3 + 2] = +path[i][2] || 0; }
+      return { shape: forge.part.sweepPolyline(pf, pa), op: 'sweep' };
     } },
 
   { name: 'part.nurbs-surface', discipline: 'part', produces: 'handle',
@@ -767,7 +874,29 @@ export const FORGE_TOOLS = [
                   neutralPlane: P('uint', 'neutral plane face id (1-based)', { required: true }),
                   faceIds: P('array', '1-based face ids to draft', { required: true }),
                   angleDeg: P('number', 'draft angle in degrees', { required: true }) },
-    run: ({ shape, neutralPlane, faceIds, angleDeg }, forge) => ({ shape: forge.part.draftFaces(shape, neutralPlane, faceIds, DEG(angleDeg)) }) },
+    run: ({ shape, neutralPlane, faceIds, angleDeg }, forge) => {
+      // The kernel's draftFaces wants the neutral plane as an object
+      // {origin, normal}; the model (and this spec) supply it as a face id.
+      // The old code passed the raw uint straight through → kernel threw
+      // "neutralPlane must be {origin, normal}" for every call. Resolve the
+      // face id to its centroid + outward normal via direct.inferFeature
+      // (1-based face ids — clamp a 0 to 1). Pass an object plane straight
+      // through unchanged so both shapes are accepted.
+      let plane = neutralPlane;
+      if (!plane || typeof plane !== 'object') {
+        let fid = Number(neutralPlane) | 0;
+        if (fid < 1) fid = 1; // kernel face ids are 1-based
+        const fi = forge.direct.inferFeature(shape, fid);
+        plane = { origin: Float64Array.from(fi.centroid), normal: Float64Array.from(fi.normal) };
+      } else {
+        // normalise array-likes into Float64Array for the kernel binding
+        plane = {
+          origin: Float64Array.from(plane.origin || [0, 0, 0]),
+          normal: Float64Array.from(plane.normal || [0, 0, 1]),
+        };
+      }
+      return { shape: forge.part.draftFaces(shape, plane, faceIds, DEG(angleDeg)) };
+    } },
 
   { name: 'part.linear-pattern', discipline: 'part', produces: 'handle',
     description: 'Replicate a solid in a straight row → fused pattern body.',
@@ -808,6 +937,120 @@ export const FORGE_TOOLS = [
     description: 'Validate a solid (manifold / self-intersection / small faces) — the coherence gate for a body.',
     parameters: { shape: P('uint', 'shape handle', { required: true }) },
     run: ({ shape }, forge) => forge.heal.checkValidity(shape) },
+
+  // ===================================================== HEALING / REPAIR
+  // Reach the OCCT shape-healing pipeline (window.forge.heal.*) — the kernel
+  // methods exist (binding.cpp HealSew/Simplify/AutoFill/AutoRepair/Harmonize),
+  // but were never declared as Archie-dispatchable verbs (only checkValidity
+  // was). These let Archie repair imported / boolean-corrupted bodies: sew open
+  // shells closed, simplify redundant topology, cap missing faces, fix self-
+  // intersections, and re-orient face normals. Each returns the healed body
+  // handle as `shape` so the sequence threading / scorer lands on it.
+  { name: 'heal.sew', discipline: 'part', produces: 'handle',
+    description: 'Sew adjacent faces/shells of a shape into a watertight solid within a tolerance (close small open edges from a boolean/import). Returns the sewn body handle + a before/after report (closed, faces, open edges).',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  tolerance: P('number', 'sewing tolerance in mm', { default: 1e-3 }) },
+    run: ({ shape, tolerance }, forge) => {
+      if (!forge.heal || typeof forge.heal.sewShape !== 'function') {
+        throw new Error('forge.heal.sewShape unavailable — build the kernel with Forge-23');
+      }
+      const r = forge.heal.sewShape(shape, tolerance > 0 ? tolerance : 1e-3);
+      if (!r || !(r.handle > 0)) throw new Error('heal.sew: sewShape returned no handle');
+      return { shape: r.handle, op: 'heal-sew', report: r.report };
+    } },
+
+  { name: 'heal.simplify', discipline: 'part', produces: 'handle',
+    description: 'Simplify redundant topology of a shape — unify coplanar faces / collinear edges (and optionally concatenate B-splines). Returns the simplified body handle + face/edge counts before & after. Use to clean up over-tessellated imports / boolean debris.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  unifyFaces: P('boolean', 'merge coplanar faces', { default: true }),
+                  unifyEdges: P('boolean', 'merge collinear edges', { default: true }),
+                  concatBSplines: P('boolean', 'concatenate adjacent B-spline edges', { default: false }) },
+    run: ({ shape, unifyFaces, unifyEdges, concatBSplines }, forge) => {
+      if (!forge.heal || typeof forge.heal.simplifyShape !== 'function') {
+        throw new Error('forge.heal.simplifyShape unavailable — build the kernel with Forge-23');
+      }
+      const r = forge.heal.simplifyShape(shape, {
+        unifyFaces: unifyFaces !== false,
+        unifyEdges: unifyEdges !== false,
+        concatBSplines: !!concatBSplines,
+      });
+      if (!r || !(r.handle > 0)) throw new Error('heal.simplify: simplifyShape returned no handle');
+      return { shape: r.handle, op: 'heal-simplify',
+        facesBefore: r.facesBefore, facesAfter: r.facesAfter,
+        edgesBefore: r.edgesBefore, edgesAfter: r.edgesAfter };
+    } },
+
+  { name: 'heal.auto-fill', discipline: 'part', produces: 'handle',
+    description: 'Cap missing faces on an open shell — reconstruct the surface over open boundaries to recover a closed solid. Returns the filled body handle + a report (faces added, closed after). Use after deleting a face / on an open imported shell.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  tolerance: P('number', 'fill tolerance in mm', { default: 1e-3 }) },
+    run: ({ shape, tolerance }, forge) => {
+      if (!forge.heal || typeof forge.heal.autoFillMissingFaces !== 'function') {
+        throw new Error('forge.heal.autoFillMissingFaces unavailable — build the kernel with Forge-23');
+      }
+      const r = forge.heal.autoFillMissingFaces(shape, tolerance > 0 ? tolerance : 1e-3);
+      if (!r || !(r.handle > 0)) throw new Error('heal.auto-fill: autoFillMissingFaces returned no handle');
+      return { shape: r.handle, op: 'heal-auto-fill', report: r.report };
+    } },
+
+  { name: 'heal.auto-repair', discipline: 'part', produces: 'handle',
+    description: 'Run the full OCCT auto-repair pass on a shape: fix tolerances, self-intersections, small faces, orientation, and bad wires. Returns the repaired body handle + a report of which fixers fired. Use as a catch-all coherence pass on a suspect / imported body.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  tolerance: P('number', 'repair tolerance in mm', { default: 1e-3 }) },
+    run: ({ shape, tolerance }, forge) => {
+      if (!forge.heal || typeof forge.heal.autoRepairSelfIntersection !== 'function') {
+        throw new Error('forge.heal.autoRepairSelfIntersection unavailable — build the kernel with Forge-23');
+      }
+      const r = forge.heal.autoRepairSelfIntersection(shape, tolerance > 0 ? tolerance : 1e-3);
+      if (!r || !(r.handle > 0)) throw new Error('heal.auto-repair: autoRepairSelfIntersection returned no handle');
+      return { shape: r.handle, op: 'heal-auto-repair', report: r.report };
+    } },
+
+  { name: 'heal.harmonize-normals', discipline: 'part', produces: 'handle',
+    description: 'Re-orient all face normals of a shape to point consistently outward (fix inverted/inconsistent normals from an import or stitch). Returns the re-oriented body handle.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }) },
+    run: ({ shape }, forge) => {
+      if (!forge.heal || typeof forge.heal.harmonizeNormals !== 'function') {
+        throw new Error('forge.heal.harmonizeNormals unavailable — build the kernel with Forge-23');
+      }
+      const h = forge.heal.harmonizeNormals(shape);
+      if (!(h > 0)) throw new Error('heal.harmonize-normals: harmonizeNormals returned no handle');
+      return { shape: h, op: 'heal-harmonize-normals' };
+    } },
+
+  // Validity check under the heal.* namespace. The same capability already
+  // ships as `part.check-validity`, but the Archie corpus / kernel name is
+  // `forge.heal.checkValidity`, so this exposes it under the matching `heal.`
+  // verb id (a `heal.check-validity` tool_call previously errored as unknown).
+  // Returns isClosed / isManifold / isOriented + bad face/edge ids.
+  { name: 'heal.check-validity', discipline: 'part', produces: 'report',
+    description: 'Validate a solid (closed / manifold / oriented; bad faces & edges) — the coherence gate for a body. Alias of part.check-validity under the heal.* namespace.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }) },
+    run: ({ shape }, forge) => {
+      if (!forge.heal || typeof forge.heal.checkValidity !== 'function') {
+        throw new Error('forge.heal.checkValidity unavailable — build the kernel with Forge-23');
+      }
+      const v = forge.heal.checkValidity(shape);
+      return { op: 'heal-check-validity',
+        isClosed: v.isClosed, isManifold: v.isManifold, isOriented: v.isOriented,
+        hasSelfIntersect: v.hasSelfIntersect, hasNonManifoldEdge: v.hasNonManifoldEdge,
+        badFaces: v.badFaces, badEdges: v.badEdges };
+    } },
+
+  // Kernel-name alias for forge.massProps. The same capability already ships as
+  // `part.mass-properties`; this exposes it under the bare kernel verb name the
+  // Archie corpus also emits, so a `massProps` tool_call dispatches instead of
+  // erroring as an unknown tool. Returns volume (mm³), surface area (mm²) and
+  // centre of mass [x,y,z] (mm).
+  { name: 'massProps', discipline: 'part', produces: 'report',
+    description: 'Mass properties of a body: volume (mm³), surface area (mm²), and centre of mass [x,y,z] (mm). Alias of part.mass-properties.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }) },
+    run: ({ shape }, forge) => {
+      if (typeof forge.massProps !== 'function') {
+        throw new Error('forge.massProps unavailable — kernel not loaded');
+      }
+      return forge.massProps(shape);
+    } },
 
   // ===================================================== DEGRADATION / WEATHERING
   // Real parts are never perfectly clean: castings pit, edges nick, surfaces
@@ -922,50 +1165,136 @@ export const FORGE_TOOLS = [
 
   // ============================================================ SIMULATE
   { name: 'simulate.fea-static', discipline: 'simulate', produces: 'report',
-    description: 'Linear-static FEA on a shape. Returns tip deflection + max von Mises.',
+    description: 'Linear-static FEA on a shape. Meshes the body, applies nodal loads + pinned BCs, returns max von Mises (Pa), peak displacement (m) and the solver residual. Loads/BCs may be given as explicit nodeId lists OR left empty to clamp fixedFace and push loadFace.',
     parameters: { shape: P('uint', 'shape handle', { required: true }),
-                  material: P('object', '{E, nu, rho}', { required: true }),
-                  loads: P('array', '[{nodeId, fx, fy, fz}, ...]', { default: [] }),
+                  material: P('object', '{E, nu, rho} (Pa, -, kg/m³)', { required: true }),
+                  loads: P('array', '[{nodeId, fx, fy, fz}, ...] nodal forces (N); empty → distribute `force` over loadFace', { default: [] }),
                   pressureLoads: P('array', '[{faceId, pressure}, ...]', { default: [] }),
-                  bcs: P('array', '[{nodeId, fx, fy, fz}] pinned DOFs', { default: [] }),
+                  bcs: P('array', '[{nodeId, fx, fy, fz}] pinned DOFs; empty → pin fixedFace', { default: [] }),
+                  fixedFace: P('enum', 'face to clamp when bcs empty: -x|+x|-y|+y|-z|+z', { default: '-x' }),
+                  loadFace: P('enum', 'face to load when loads empty', { default: '+x' }),
+                  force: P('array', '[fx,fy,fz] total force on loadFace (N) when loads empty', { default: [0, 0, -100] }),
                   meshSize: P('number', 'target element size in mm', { default: 5 }) },
-    run: (args, forge) => {
-      if (!forge.fea || !forge.fea.runStatic) {
-        throw new Error('forge.fea not yet loaded — build the kernel with Forge-12');
+    run: (a, forge) => {
+      if (!forge.fea || typeof forge.fea.solveStatic !== 'function') {
+        throw new Error('forge.fea.solveStatic unavailable — build the kernel with Forge-12');
       }
-      return forge.fea.runStatic(args);
+      const mesh = feaMesh(forge, a.shape, a.meshSize);
+      const bcs = (Array.isArray(a.bcs) && a.bcs.length)
+        ? a.bcs
+        : pinFaceBcs(mesh, faceBit(a.fixedFace, 0));
+      let loads = Array.isArray(a.loads) ? a.loads : [];
+      if (!loads.length) {
+        const f = Array.isArray(a.force) && a.force.length === 3 ? a.force : [0, 0, -100];
+        loads = distributeFaceLoad(mesh, faceBit(a.loadFace, 1), f).loads;
+      }
+      const pres = Array.isArray(a.pressureLoads) ? a.pressureLoads : [];
+      const r = forge.fea.solveStatic(mesh, a.material, loads, pres, bcs);
+      // Peak nodal displacement magnitude from the DOF vector u (3 per node).
+      const u = r.u || [];
+      let maxDisp = 0;
+      for (let i = 0; i < mesh.nodeCount; i++) {
+        const dx = u[3 * i] || 0, dy = u[3 * i + 1] || 0, dz = u[3 * i + 2] || 0;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        if (d > maxDisp) maxDisp = d;
+      }
+      return {
+        op: 'fea-static',
+        nodes: mesh.nodeCount, elements: mesh.elemCount,
+        maxVonMises_Pa: r.maxVonMises,
+        maxVonMises_MPa: r.maxVonMises / 1e6,
+        maxAtElem: r.maxAtElem,
+        maxDisplacement_m: maxDisp,
+        residual: r.residual,
+      };
     } },
 
   { name: 'simulate.fea-modal', discipline: 'simulate', produces: 'report',
-    description: 'Modal analysis. Returns the first N natural frequencies (Hz).',
+    description: 'Modal analysis. Meshes the body, pins fixedFace (or an explicit bcs list), returns the first N natural frequencies (Hz). Kernel eigenvalues are ω² (rad²/s²); f = √λ / 2π.',
     parameters: { shape: P('uint', 'shape handle', { required: true }),
-                  material: P('object', '{E, nu, rho}', { required: true }),
-                  bcs: P('array', 'pinned-node BC list', { default: [] }),
+                  material: P('object', '{E, nu, rho} (Pa, -, kg/m³)', { required: true }),
+                  bcs: P('array', 'pinned-node BC list; empty → pin fixedFace', { default: [] }),
+                  fixedFace: P('enum', 'face to clamp when bcs empty: -x|+x|-y|+y|-z|+z', { default: '-x' }),
                   modes: P('uint', 'number of modes', { default: 6 }),
                   meshSize: P('number', 'target element size in mm', { default: 5 }) },
-    run: (args, forge) => {
-      if (!forge.fea || !forge.fea.runModal) {
-        throw new Error('forge.fea not yet loaded — build the kernel with Forge-12');
+    run: (a, forge) => {
+      if (!forge.fea || typeof forge.fea.solveModal !== 'function') {
+        throw new Error('forge.fea.solveModal unavailable — build the kernel with Forge-12');
       }
-      return forge.fea.runModal(args);
+      const mesh = feaMesh(forge, a.shape, a.meshSize);
+      const bcs = (Array.isArray(a.bcs) && a.bcs.length)
+        ? a.bcs
+        : pinFaceBcs(mesh, faceBit(a.fixedFace, 0));
+      const nModes = (a.modes | 0) || 6;
+      const r = forge.fea.solveModal(mesh, a.material, bcs, nModes);
+      const eig = Array.from(r.eigenvalues || []);
+      // Eigenvalues are ω² (rad²/s²). f = √λ / 2π. Guard tiny negatives.
+      const frequenciesHz = eig.map((l) => (l > 0 ? Math.sqrt(l) / (2 * Math.PI) : 0));
+      return {
+        op: 'fea-modal',
+        nodes: mesh.nodeCount, elements: mesh.elemCount,
+        modesCaptured: r.nModes,
+        eigenvalues: eig,
+        frequenciesHz,
+      };
     } },
 
   { name: 'simulate.fea-dynamic', discipline: 'simulate', produces: 'report',
-    description: 'Transient implicit Newmark-β dynamics. Returns tip-displacement history + envelope.',
+    description: 'Transient implicit Newmark-β dynamics. Meshes the body, pins fixedFace, applies a nodal load (or distributes `force` over loadFace), integrates 0→tEnd at dt. Returns the peak von Mises envelope (Pa), peak displacement (m) and step count.',
     parameters: { shape: P('uint', 'shape handle', { required: true }),
-                  material: P('object', '{E, nu, rho}', { required: true }),
-                  loads: P('array', 'nodal load list', { default: [] }),
-                  bcs: P('array', 'pinned-node BC list', { default: [] }),
+                  material: P('object', '{E, nu, rho} (Pa, -, kg/m³)', { required: true }),
+                  loads: P('array', '[{nodeId, fx, fy, fz}] nodal forces (N); empty → distribute `force` over loadFace', { default: [] }),
+                  bcs: P('array', 'pinned-node BC list; empty → pin fixedFace', { default: [] }),
+                  fixedFace: P('enum', 'face to clamp when bcs empty: -x|+x|-y|+y|-z|+z', { default: '-x' }),
+                  loadFace: P('enum', 'face to load when loads empty', { default: '+x' }),
+                  force: P('array', '[fx,fy,fz] total force on loadFace (N) when loads empty', { default: [0, 0, -100] }),
                   tEnd: P('number', 'simulation duration in seconds', { required: true }),
                   dt: P('number', 'time step in seconds', { required: true }),
                   rayleighAlpha: P('number', 'mass-proportional damping', { default: 0 }),
                   rayleighBeta: P('number', 'stiffness-proportional damping', { default: 0 }),
                   meshSize: P('number', 'target element size in mm', { default: 5 }) },
-    run: (args, forge) => {
-      if (!forge.fea || !forge.fea.runDynamic) {
-        throw new Error('forge.fea not yet loaded — build the kernel with Forge-12');
+    run: (a, forge) => {
+      if (!forge.fea || typeof forge.fea.solveDynamic !== 'function') {
+        throw new Error('forge.fea.solveDynamic unavailable — build the kernel with Forge-12');
       }
-      return forge.fea.runDynamic(args);
+      const mesh = feaMesh(forge, a.shape, a.meshSize);
+      const bcs = (Array.isArray(a.bcs) && a.bcs.length)
+        ? a.bcs
+        : pinFaceBcs(mesh, faceBit(a.fixedFace, 0));
+      let loads = Array.isArray(a.loads) ? a.loads : [];
+      if (!loads.length) {
+        const f = Array.isArray(a.force) && a.force.length === 3 ? a.force : [0, 0, -100];
+        loads = distributeFaceLoad(mesh, faceBit(a.loadFace, 1), f).loads;
+      }
+      const tEnd = Number(a.tEnd);
+      const dt = Number(a.dt);
+      if (!(tEnd > 0) || !(dt > 0)) {
+        throw new Error('simulate.fea-dynamic: tEnd and dt must be positive seconds');
+      }
+      const r = forge.fea.solveDynamic(
+        mesh, a.material, loads, bcs, tEnd, dt,
+        Number(a.rayleighAlpha) || 0, Number(a.rayleighBeta) || 0);
+      const envelope = Array.from(r.maxStressEnvelope || []);
+      const peakVonMises = envelope.length ? Math.max(...envelope) : 0;
+      // Peak nodal displacement magnitude across every captured step.
+      let maxDisp = 0;
+      for (const step of (r.displacements || [])) {
+        for (let i = 0; i < mesh.nodeCount; i++) {
+          const dx = step[3 * i] || 0, dy = step[3 * i + 1] || 0, dz = step[3 * i + 2] || 0;
+          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+          if (d > maxDisp) maxDisp = d;
+        }
+      }
+      return {
+        op: 'fea-dynamic',
+        nodes: mesh.nodeCount, elements: mesh.elemCount,
+        steps: r.stepCount,
+        tEnd_s: tEnd, dt_s: dt,
+        peakVonMises_Pa: peakVonMises,
+        peakVonMises_MPa: peakVonMises / 1e6,
+        maxDisplacement_m: maxDisp,
+        cpuMs: r.cpuMs,
+      };
     } },
 
   // ====================================================== FULL PHYSICS SUITE
@@ -1319,9 +1648,16 @@ export const FORGE_TOOLS = [
                   cutParams: P('object', '{feedXY, feedZ, spindleRPM, stepdown}', { required: true }),
                   zTop: P('number', 'top of cut', { required: true }),
                   zBottom: P('number', 'bottom of cut', { required: true }) },
-    run: (args, forge) => {
+    run: ({ shape, face, tool, cutParams, zTop, zBottom, leadIn }, forge) => {
       if (!forge.cam || !forge.cam.profile) throw new Error('forge.cam not yet loaded — Forge-13');
-      return forge.cam.profile(args);
+      // Kernel signature is POSITIONAL: profile(shape, faceId, tool, cutParams,
+      // zTop, zBottom, leadIn). Passing a single object made OCCT reject arg0
+      // ('expected handle (uint32) at arg 0'). A null/undefined face → kAutoFaceId
+      // (first +Z planar face); an explicit id (incl. 0) is honoured.
+      const faceId = (face == null) ? forge.cam.kAutoFaceId : (face >>> 0);
+      const tp = forge.cam.profile(shape, faceId, tool, cutParams, +zTop, +zBottom, +leadIn || 0);
+      return { op: 'cam-profile', moveCount: tp.moveCount, cycleTimeSec: tp.cycleTimeSec,
+               estCuttingMm: tp.estCuttingMm, toolId: tp.toolId, toolpath: tp };
     } },
 
   { name: 'manufacture.cam-pocket', discipline: 'manufacture', produces: 'report',
@@ -1332,9 +1668,14 @@ export const FORGE_TOOLS = [
                   cutParams: P('object', '', { required: true }),
                   zTop: P('number', '', { required: true }),
                   zBottom: P('number', '', { required: true }) },
-    run: (args, forge) => {
+    run: ({ shape, face, tool, cutParams, zTop, zBottom }, forge) => {
       if (!forge.cam || !forge.cam.pocket) throw new Error('forge.cam not yet loaded — Forge-13');
-      return forge.cam.pocket(args);
+      // POSITIONAL: pocket(shape, faceId, tool, cutParams, zTop, zBottom). The
+      // old single-object call hit OCCT 'expected handle (uint32) at arg 0'.
+      const faceId = (face == null) ? forge.cam.kAutoFaceId : (face >>> 0);
+      const tp = forge.cam.pocket(shape, faceId, tool, cutParams, +zTop, +zBottom);
+      return { op: 'cam-pocket', moveCount: tp.moveCount, cycleTimeSec: tp.cycleTimeSec,
+               estCuttingMm: tp.estCuttingMm, toolId: tp.toolId, toolpath: tp };
     } },
 
   { name: 'manufacture.cam-drill', discipline: 'manufacture', produces: 'report',
@@ -1346,9 +1687,13 @@ export const FORGE_TOOLS = [
                   zTop: P('number', '', { required: true }),
                   zBottom: P('number', '', { required: true }),
                   peck: P('boolean', 'use peck cycle', { default: true }) },
-    run: (args, forge) => {
+    run: ({ shape, holes, bit, cutParams, zTop, zBottom, peck }, forge) => {
       if (!forge.cam || !forge.cam.drill) throw new Error('forge.cam not yet loaded — Forge-13');
-      return forge.cam.drill(args);
+      // POSITIONAL: drill(shape, holes, bit, cutParams, zTop, zBottom, peck). The
+      // old single-object call hit OCCT 'expected handle (uint32) at arg 0'.
+      const tp = forge.cam.drill(shape, holes, bit, cutParams, +zTop, +zBottom, peck !== false);
+      return { op: 'cam-drill', moveCount: tp.moveCount, cycleTimeSec: tp.cycleTimeSec,
+               estCuttingMm: tp.estCuttingMm, toolId: tp.toolId, holes: (holes || []).length, toolpath: tp };
     } },
 
   { name: 'manufacture.gcode', discipline: 'manufacture', produces: 'gcode',
@@ -1356,9 +1701,111 @@ export const FORGE_TOOLS = [
     parameters: { toolpath: P('object', 'toolpath handle/spec', { required: true }),
                   dialect: P('enum', 'Fanuc|Haas|LinuxCNC|Grbl', { default: 'Fanuc' }),
                   safeZ: P('number', 'rapid clearance in mm', { default: 5 }) },
-    run: (args, forge) => {
+    run: ({ toolpath, dialect, safeZ }, forge) => {
       if (!forge.cam || !forge.cam.gcode) throw new Error('forge.cam not yet loaded — Forge-13');
-      return forge.cam.gcode(args);
+      // forge.cam.gcode is a NAMESPACE OBJECT ({toGcode, Dialect}), not a callable.
+      // The old `forge.cam.gcode(args)` threw 'forge.cam.gcode is not a function'.
+      // Correct call is gcode.toGcode(toolpath, dialect, safeZ). The toolpath is
+      // the raw kernel toolpath object surfaced by the cam-* verbs under `.toolpath`
+      // (a bare toolpath is also accepted).
+      if (typeof forge.cam.gcode.toGcode !== 'function') {
+        throw new Error('forge.cam.gcode.toGcode unavailable — build the kernel with Forge-13');
+      }
+      const tp = (toolpath && toolpath.toolpath) ? toolpath.toolpath : toolpath;
+      const text = forge.cam.gcode.toGcode(tp, dialect || 'Fanuc', safeZ == null ? 5 : +safeZ);
+      return { op: 'gcode', dialect: dialect || 'Fanuc', safeZ: safeZ == null ? 5 : +safeZ,
+               bytes: text.length, gcode: text };
+    } },
+
+  // ============================================================ IO / IMPORT
+  // Import an external CAD file (STEP / STL / BREP / IGES) into a live kernel
+  // body and surface its handle so downstream feature/boolean verbs can
+  // operate on it. The kernel exposes forge.io.import{Step,Stl,Brep,Iges};
+  // there was previously NO import verb on the bridge at all (only the
+  // exportStepWithPmi path under part.annotate-pmi). Format is auto-detected
+  // from the path extension unless an explicit `format` is given.
+  { name: 'io.import', discipline: 'part', produces: 'handle',
+    description: 'Import an external CAD file (STEP/STL/BREP/IGES) into the kernel and return its body handle. Format is inferred from the file extension (.step/.stp, .stl, .brep/.brp, .iges/.igs) unless `format` overrides it.',
+    parameters: { filepath: P('string', 'absolute path to the CAD file on disk', { required: true }),
+                  format: P('enum', 'step|stl|brep|iges (default: inferred from extension)', { default: null }) },
+    run: ({ filepath, format }, forge) => {
+      if (!forge.io) throw new Error('forge.io unavailable — build the kernel with Forge-21');
+      const fp = String(filepath || '');
+      if (!fp) throw new Error('io.import requires an absolute filepath');
+      // Resolve format: explicit arg wins, else infer from extension.
+      let fmt = (format ? String(format) : '').toLowerCase();
+      if (!fmt) {
+        const ext = (fp.split('.').pop() || '').toLowerCase();
+        fmt = ({ step: 'step', stp: 'step', stl: 'stl', brep: 'brep', brp: 'brep',
+                 iges: 'iges', igs: 'iges' })[ext] || '';
+      }
+      const fn = ({ step: 'importStep', stl: 'importStl', brep: 'importBrep', iges: 'importIges' })[fmt];
+      if (!fn) throw new Error(`io.import: unsupported/unknown format '${fmt || '(none)'}' for ${fp}`);
+      if (typeof forge.io[fn] !== 'function') {
+        throw new Error(`forge.io.${fn} unavailable — build the kernel with Forge-21/34`);
+      }
+      const shape = forge.io[fn](fp);
+      if (!(typeof shape === 'number' && shape > 0)) {
+        throw new Error(`io.import: ${fn} returned no handle for ${fp}`);
+      }
+      return { op: 'import', format: fmt, filepath: fp, shape };
+    } },
+
+  // Export a kernel body to a STEP (AP242) file. The kernel writes the file
+  // to an absolute path (the renderer supplies one from the OS save dialog;
+  // headless callers pass a tmp path). We do NOT synthesize a path — surface
+  // the real requirement instead of guessing. (For PMI/GD&T-annotated STEP,
+  // use part.annotate-pmi which routes through exportStepWithPmi.)
+  { name: 'io.export-step', discipline: 'part', produces: 'report',
+    description: 'Export a shape to a STEP (ISO-10303 AP242) file at an absolute path. Exact B-Rep — round-trips volume/area. Returns the written path. For GD&T/PMI annotations use part.annotate-pmi instead.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  filepath: P('string', 'absolute output .step/.stp path the kernel writes to', { required: true }) },
+    run: ({ shape, filepath }, forge) => {
+      if (!forge.io || typeof forge.io.exportStep !== 'function') {
+        throw new Error('forge.io.exportStep unavailable — build the kernel with Forge-21');
+      }
+      if (!(typeof shape === 'number' && shape > 0)) {
+        throw new Error('io.export-step: a valid shape handle is required');
+      }
+      const fp = filepath && String(filepath).trim();
+      if (!fp) {
+        throw new Error('io.export-step: filepath required (absolute .step path the kernel writes to)');
+      }
+      const ok = forge.io.exportStep(shape, fp);
+      if (!ok) throw new Error(`io.export-step: kernel failed to write STEP to ${fp}`);
+      return { op: 'export-step', ok: true, format: 'step', filepath: fp };
+    } },
+
+  // Export a kernel body to an STL mesh file (binary by default). Tessellation
+  // tolerances are in mm (linear) and radians (angular), matching exportStl.
+  { name: 'io.export-stl', discipline: 'part', produces: 'report',
+    description: 'Export a shape to an STL mesh file at an absolute path. Tessellates the body (linearTol mm / angularTol rad) and writes binary STL by default (set binary:false for ASCII). Returns the written path.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  filepath: P('string', 'absolute output .stl path the kernel writes to', { required: true }),
+                  linearTol: P('number', 'linear deflection tolerance (mm)', { default: 0.1 }),
+                  angularTol: P('number', 'angular deflection tolerance (rad)', { default: 0.5 }),
+                  binary: P('boolean', 'write binary STL (false → ASCII)', { default: true }) },
+    run: ({ shape, filepath, linearTol, angularTol, binary }, forge) => {
+      if (!forge.io || typeof forge.io.exportStl !== 'function') {
+        throw new Error('forge.io.exportStl unavailable — build the kernel with Forge-21');
+      }
+      if (!(typeof shape === 'number' && shape > 0)) {
+        throw new Error('io.export-stl: a valid shape handle is required');
+      }
+      const fp = filepath && String(filepath).trim();
+      if (!fp) {
+        throw new Error('io.export-stl: filepath required (absolute .stl path the kernel writes to)');
+      }
+      const lin = Number(linearTol) > 0 ? Number(linearTol) : 0.1;
+      const ang = Number(angularTol) > 0 ? Number(angularTol) : 0.5;
+      // exportStl(handle, path, linTol, angTol, ascii) — ascii = !binary.
+      const ascii = binary === false;
+      const ok = forge.io.exportStl(shape, fp, lin, ang, ascii);
+      if (!ok) throw new Error(`io.export-stl: kernel failed to write STL to ${fp}`);
+      return {
+        op: 'export-stl', ok: true, format: 'stl', filepath: fp,
+        linearTol_mm: lin, angularTol_rad: ang, binary: !ascii,
+      };
     } },
 
   // ============================================================ DRAWING
