@@ -881,6 +881,60 @@ export const FORGE_TOOLS = [
       return forge.fea.runDynamic(args);
     } },
 
+  // 1-D tolerance stack-up (Forge-185 kernel). HONEST SCOPE: this is a
+  // *numeric* worst-case + RSS + Monte-Carlo stack on a linear dimension
+  // chain — it does NOT read geometry or verify a tolerance against a
+  // datum frame. Archie supplies the chain (each link {nominal, plus,
+  // minus}); the verb maps to the kernel's {nominal,tolPlus,tolMinus}
+  // shape and surfaces the stack nominal/min/max + Cpk. USL/LSL are the
+  // assembly spec limits the Cpk is judged against.
+  { name: 'simulate.tolerance-stack', discipline: 'simulate', produces: 'report',
+    description: '1-D tolerance stack-up on a linear dimension chain. Each link is {nominal, plus, minus} (mm). Returns stack nominal/min/max (worst case), RSS μ/σ, and Cpk vs the assembly spec limits USL/LSL. NUMERIC ONLY — does not read geometry or check a datum frame.',
+    parameters: { chain: P('array', '[{nominal, plus, minus, name?, dist?}] linear dimension links (mm); dist 0=normal|1=uniform|2=triangular', { required: true }),
+                  USL: P('number', 'upper spec limit on the assembly stack (mm)', { required: true }),
+                  LSL: P('number', 'lower spec limit on the assembly stack (mm)', { required: true }),
+                  mcSamples: P('uint', 'Monte-Carlo sample count', { default: 10000 }),
+                  randomSeed: P('uint', 'Monte-Carlo RNG seed', { default: 42 }) },
+    run: ({ chain, USL, LSL, mcSamples, randomSeed }, forge) => {
+      if (!forge.tolerance || typeof forge.tolerance.compute !== 'function') {
+        throw new Error('forge.tolerance not loaded — build the kernel with Forge-185');
+      }
+      const links = (Array.isArray(chain) ? chain : []).map((c, i) => ({
+        name:     c.name != null ? String(c.name) : `dim${i}`,
+        nominal:  +c.nominal || 0,
+        // Map the Archie-facing {plus, minus} to the kernel's
+        // {tolPlus, tolMinus}; tolMinus is a positive magnitude.
+        tolPlus:  Math.abs(+c.plus  || 0),
+        tolMinus: Math.abs(+c.minus || 0),
+        dist:     (c.dist | 0) || 0,
+      }));
+      const r = forge.tolerance.compute({
+        chain: links,
+        USL: +USL, LSL: +LSL,
+        mcSamples: (mcSamples | 0) || 10000,
+        randomSeed: (randomSeed | 0) || 42,
+      });
+      return {
+        op: 'tolerance-stack',
+        links: links.length,
+        // Worst-case stack (deterministic): nominal ± Σ|tol|.
+        nominal: r.worstCaseNominal,
+        min:     r.worstCaseLow,
+        max:     r.worstCaseHigh,
+        // Statistical (RSS) — the headline Cpk callers ask for.
+        rssMu:   r.rssMu,
+        rssSigma: r.rssSigma,
+        Cp:      r.rssCp,
+        Cpk:     r.rssCpk,
+        // Monte-Carlo diagnostics.
+        mcCpk:   r.mcCpk,
+        mcYieldPct: r.mcYieldPct,
+        USL: +USL, LSL: +LSL,
+        // HONEST: a numeric stack, NOT a geometric tolerance verification.
+        note: 'numeric 1-D stack; not a geometric/datum-frame check',
+      };
+    } },
+
   // ============================================================ MANUFACTURE
   { name: 'manufacture.cam-profile', discipline: 'manufacture', produces: 'report',
     description: 'Generate a 2.5D contour-profile toolpath around a face.',
@@ -943,6 +997,45 @@ export const FORGE_TOOLS = [
         : view;
       const r = forge.drawings.projectShape(shape, direction);
       return { visibleCount: r.visibleCount, hiddenCount: r.hiddenCount, outlineCount: r.outlineCount };
+    } },
+
+  // PMI / MBD annotation (Forge-34 kernel exportStepWithPmi). HONEST
+  // SCOPE: this ANNOTATES — it writes datum letters + Feature-Control-
+  // Frame strings as an `/* PMI_FCF: … */` ISO-10303-21 comment block into
+  // an AP242 STEP file, anchored to faces by {anchorKind, anchorId}. It
+  // does NOT verify a tolerance geometrically or build a datum reference
+  // frame; an AP242 reader recovers the GD&T text, nothing is checked.
+  { name: 'part.annotate-pmi', discipline: 'drawing', produces: 'report',
+    description: 'Annotate a shape with PMI / MBD: write datum letters + Feature-Control-Frame (GD&T) strings into an AP242 STEP file as a PMI comment block, anchored to faces. ANNOTATION ONLY — records the GD&T text; does NOT verify tolerances geometrically.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  notes: P('array', '[{text, anchorKind?, anchorId?}] PMI strings, e.g. {text:"|⌖|⌀0.1|A|B|", anchorKind:"face", anchorId:3}', { required: true }),
+                  filepath: P('string', 'absolute output .step path the kernel writes to', { required: true }) },
+    run: ({ shape, notes, filepath }, forge) => {
+      if (!forge.io || typeof forge.io.exportStepWithPmi !== 'function') {
+        throw new Error('forge.io.exportStepWithPmi not available — build the kernel with Forge-34');
+      }
+      const list = (Array.isArray(notes) ? notes : []).map((n) => ({
+        text:       String(n.text || ''),
+        anchorKind: n.anchorKind != null ? String(n.anchorKind) : '',
+        anchorId:   (n.anchorId | 0) || 0,
+      }));
+      // The kernel writes to an absolute filesystem path. The renderer
+      // supplies one from the OS save dialog; headless callers pass a tmp
+      // path. We do NOT synthesize one here (no Node fs in the renderer) —
+      // surface the real requirement rather than guess a path.
+      const fp = filepath && String(filepath).trim();
+      if (!fp) {
+        throw new Error('part.annotate-pmi: filepath required (absolute .step path the kernel writes to)');
+      }
+      const ok = forge.io.exportStepWithPmi(shape, fp, list);
+      return {
+        op: 'annotate-pmi',
+        ok: !!ok,
+        filepath: fp,
+        annotations: list.length,
+        // HONEST: text annotation only — not a geometric FCF check.
+        note: 'PMI text annotation (datum letters + FCF strings) — not geometrically verified',
+      };
     } },
 
   // ============================================================ ASSETS

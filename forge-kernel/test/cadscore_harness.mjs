@@ -99,6 +99,7 @@ const CANONICAL_SYSTEM =
   '  part.linear-pattern{shape,count,dx,dy,dz}, part.circular-pattern{shape,count,axisOrigin,axisDir,totalAngleDeg},\n' +
   '  part.push-pull-face{shape,faceId,distance}, part.continuity-check{face}, part.check-validity{shape}.\n' +
   'Profiles are [[x,y],…] closed point lists (mm). Real parts are seldom all-straight: use fillets, draft and revolves.\n' +
+  'Annotation / analysis — part.annotate-pmi{shape,notes,filepath} writes datum letters + GD&T feature-control-frame strings into an AP242 STEP file (annotation only), simulate.tolerance-stack{chain,USL,LSL} runs a 1-D worst-case+RSS+Monte-Carlo stack on a linear dimension chain vs the assembly spec limits (numeric only).\n' +
   'A whole standard part = ONE asset.make-* call; a part with an extra named feature = a context build. Fillets/chamfers go via part.finish LAST.\n' +
   'Degradation / weathering — when the request implies a used / cast / aged / as-found / worn part, apply ONE on the finished body:\n' +
   '  part.surface-wear{shape,count,depth,seed} (pitting/dents), part.surface-deposit{shape,count,height,seed} (corrosion blisters),\n' +
@@ -115,7 +116,7 @@ const CANONICAL_SYSTEM =
   'Body handles count up from 1 in creation order; pass them as "shape".\n' +
   'Materials are {E,nu,rho} in MPa / mm / tonne: steel {"E":210000,"nu":0.3,"rho":7.85e-9},\n' +
   'aluminium {"E":70000,"nu":0.33,"rho":2.7e-9}.\n' +
-  'Dimensions are millimetres. No prose outside the tags. No <think> block.';
+  'Dimensions are millimetres. Begin with exactly ONE brief conversational line naming what you are building, then the plan and tool_calls. No prose after the tags. No markdown, no lists, no <think> block.';
   'Dimensions are millimetres. No prose outside the tags. No <think> block.';
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -490,6 +491,39 @@ function scoreShape(forge, h, gt) {
 }
 
 /**
+ * Pure-geometry shape similarity between TWO labeled snapshots — no live kernel
+ * handle required. Byte-for-byte the same three sub-scores as scoreShape()
+ * (volume-IoU proxy + bbox extent-IoU + surface-F1 Chamfer), but it consumes two
+ * { volume, bbox, tess } objects (each carrying a {positions,indices}
+ * tessellation) instead of a forge handle. This is the no-op renorm baseline:
+ *   b_shape = shapeFromTess(gt_input, gt_target)
+ *           = "how similar is the UNEDITED input to the EDITED target".
+ * A no-op echo returns the input unchanged ⇒ shape(echo)≈b_shape; a correct edit
+ * moves the body away from the input ⇒ shape(edit) ≫ b_shape.
+ */
+function shapeFromTess(a, b) {
+  const va = Math.max(a.volume || 0, 0);
+  const vb = Math.max(b.volume || 0, 0);
+  const volScore = (va === 0 && vb === 0) ? 1 : 1 - Math.abs(va - vb) / Math.max(va, vb, 1e-9);
+
+  let bboxScore = 0;
+  for (let ax = 0; ax < 3; ax++) {
+    const lo1 = a.bbox.min[ax], hi1 = a.bbox.max[ax];
+    const lo2 = b.bbox.min[ax], hi2 = b.bbox.max[ax];
+    const inter = Math.max(0, Math.min(hi1, hi2) - Math.max(lo1, lo2));
+    const uni = Math.max(hi1, hi2) - Math.min(lo1, lo2);
+    bboxScore += uni > 1e-9 ? inter / uni : 1;
+  }
+  bboxScore /= 3;
+
+  let f1 = 1;
+  if (a.tess && b.tess) f1 = surfaceF1(a.tess, b.tess, 8000, 0.5);
+
+  const shape = (volScore + bboxScore + f1) / 3;
+  return { shape, volScore, bboxScore, surfaceF1: f1 };
+}
+
+/**
  * Interface jig: each feature { kind:'hole'|'boss'|'slot', center:[x,y,z], r, axis, keepIn[], keepOut[] }.
  * keepIn  points must be cavity (hole/slot) or solid (boss);
  * keepOut points must be the opposite (i.e. the part must NOT intrude there).
@@ -522,6 +556,144 @@ function scoreInterface(forge, h, features) {
   }
   return { interface: sum / features.length, perFeature };
 }
+
+// ───────────────────────────────────────────────────────────────────────────
+//  scoreMate — MULTI-BODY fit jig (shaft + bushing/bore).
+// ───────────────────────────────────────────────────────────────────────────
+/**
+ * Score whether a cylindrical FIT between two coaxial bodies is correct.
+ * This is the assembly-context axis the single-body scoreInterface() cannot
+ * reach: it places two bodies in the assembly registry, then judges the fit
+ * two independent ways and requires them to AGREE with the expected fit.
+ *
+ * Inputs (all mm, Z-coaxial about the origin):
+ *   { shaftHandle, boreBodyHandle,   // two built bodies; bore body is the
+ *                                    //   solid that CONTAINS the bore (a
+ *                                    //   bushing/plate), NOT the bore tool
+ *     shaftDia, boreDia,             // their nominal diameters
+ *     expect: 'running' | 'press',   // intended fit class
+ *     clearance: { min, max },       // mm DIAMETRAL clearance band (running)
+ *     press:     { min, max } }       // mm DIAMETRAL interference band (press)
+ *
+ * Two evidence sources, both required to agree:
+ *  (A) detectInterference on the two placed instances — empty ⇒ clearance,
+ *      non-empty (volume>0) ⇒ interference. This is the kernel's exact
+ *      BRepAlgoAPI_Common boolean, the same one Forge uses for clash.
+ *  (B) Radial ring probe — sample N points on a ring at the shaft surface
+ *      radius and again just inside the nominal bore radius, parity-tested
+ *      against each body's tessellation. Confirms the shaft material ends and
+ *      the bore wall begins where the diameters say they do (a geometric,
+ *      not just numeric, gap measurement).
+ *
+ * Score: gate (both bodies valid) * agreement, where agreement = 1 when the
+ *  measured fit class matches `expect` AND the measured diametral gap/overlap
+ *  falls inside the requested band; partial credit (0.5) if the class matches
+ *  but the magnitude is out of band; 0 if the class is wrong.
+ *
+ * Returns { mate, fitClass, diametralGap, withinBand, interferenceVolume,
+ *           ringShaftInside, ringBoreWall, gate, reason }.
+ */
+function scoreMate(forge, spec) {
+  const {
+    shaftHandle, boreBodyHandle,
+    shaftDia, boreDia,
+    expect = 'running',
+    clearance = { min: 0.005, max: 0.10 },
+    press = { min: 0.005, max: 0.10 },
+  } = spec;
+
+  // Gate: both bodies must be valid solids.
+  const vShaft = checkValid(forge, shaftHandle);
+  const vBore = checkValid(forge, boreBodyHandle);
+  if (!vShaft.valid || !vBore.valid) {
+    return { mate: 0, gate: 0, fitClass: 'invalid',
+             reason: `gate fail: shaft.valid=${vShaft.valid} bore.valid=${vBore.valid}` };
+  }
+
+  // ── (A) Exact boolean interference via the assembly registry ──────────
+  const ident = Float64Array.from([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  const iShaft = forge.addInstance(shaftHandle, ident);
+  const iBore = forge.addInstance(boreBodyHandle, ident);
+  let interferenceVolume = 0;
+  try {
+    const pairs = forge.assembly.detectInterference([iShaft, iBore], 0);
+    for (const p of (pairs || [])) interferenceVolume += Math.max(0, p.volume || 0);
+  } finally {
+    // Keep the registry clean for any later jig in the same process.
+    try { forge.removeInstance(iShaft); } catch { /* ignore */ }
+    try { forge.removeInstance(iBore); } catch { /* ignore */ }
+  }
+  const interferes = interferenceVolume > kRingEps;
+
+  // ── (B) Radial ring probe — geometric gap confirmation ────────────────
+  const tShaft = tess(forge, shaftHandle);
+  const tBore = tess(forge, boreBodyHandle);
+  const rShaft = shaftDia / 2, rBore = boreDia / 2;
+  const N = 32;
+  const zMid = bboxOf(tShaft);
+  const z = (zMid.min[2] + zMid.max[2]) / 2;   // mid-height of the shaft
+  // Shaft-surface ring: just INSIDE the shaft radius → must be shaft solid.
+  let shaftInside = 0;
+  // Bore-wall ring: just OUTSIDE the nominal bore radius → must be bore solid
+  // (the bushing wall); the annular gap between rShaft and rBore must be open.
+  let boreWall = 0, gapOpen = 0;
+  const inset = 0.02;                          // probe 0.02 mm off the surface
+  for (let k = 0; k < N; k++) {
+    const a = (2 * Math.PI * k) / N;
+    const cx = Math.cos(a), cy = Math.sin(a);
+    // shaft body solid just inside rShaft
+    if (pointInSolid(cx * (rShaft - inset), cy * (rShaft - inset), z, tShaft)) shaftInside++;
+    // bore body solid just outside rBore (the wall material)
+    if (pointInSolid(cx * (rBore + inset), cy * (rBore + inset), z, tBore)) boreWall++;
+    // the annular clearance midway between the two radii must be OPEN in the
+    // bore body (i.e. NOT inside the bushing solid) for a running fit.
+    const rMid = (rShaft + rBore) / 2;
+    if (!pointInSolid(cx * rMid, cy * rMid, z, tBore)) gapOpen++;
+  }
+  const ringShaftInside = shaftInside / N;
+  const ringBoreWall = boreWall / N;
+  const ringGapOpen = gapOpen / N;
+
+  // Diametral gap (running, +) or overlap (press, −) from the nominal dias.
+  const diametralGap = boreDia - shaftDia;     // >0 clearance, <0 interference
+
+  // Classify the measured fit: boolean is the authority; the ring probe is
+  // the corroborating geometric witness for the clearance case.
+  let fitClass;
+  if (interferes) fitClass = 'press';
+  else fitClass = 'running';
+
+  // Agreement of class.
+  const classMatch = fitClass === expect;
+  let agreement, withinBand;
+  if (expect === 'running') {
+    // running: diametral CLEARANCE must land in [min,max] AND the boolean
+    // must see no interference AND the ring must witness an open annulus.
+    withinBand = diametralGap >= clearance.min && diametralGap <= clearance.max;
+    const ringOk = ringGapOpen > 0.75 && ringShaftInside > 0.75;
+    agreement = classMatch ? (withinBand && ringOk ? 1 : 0.5) : 0;
+  } else {
+    // press: diametral INTERFERENCE magnitude must land in [min,max] AND the
+    // boolean must report a non-zero overlap volume.
+    const overlap = -diametralGap;             // positive interference
+    withinBand = overlap >= press.min && overlap <= press.max;
+    agreement = classMatch ? (withinBand && interferes ? 1 : 0.5) : 0;
+  }
+
+  return {
+    mate: vShaft.valid && vBore.valid ? agreement : 0,
+    gate: 1,
+    fitClass, expect, classMatch,
+    diametralGap: Math.round(diametralGap * 1e4) / 1e4,
+    withinBand,
+    interferenceVolume: Math.round(interferenceVolume * 1e4) / 1e4,
+    ringShaftInside, ringBoreWall, ringGapOpen,
+    reason: classMatch
+      ? (withinBand ? 'fit class + magnitude in band' : 'fit class OK, magnitude out of band')
+      : `expected ${expect}, measured ${fitClass}`,
+  };
+}
+const kRingEps = 1e-6;
 
 /** Multiplicative Betti match with partial-credit falloff (1 / (1+|Δ|)). */
 function scoreTopology(forge, h, gtBetti) {
@@ -1027,6 +1199,318 @@ function rowFromScore(name, s) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+//  Editing no-op-renormalized scoring
+// ───────────────────────────────────────────────────────────────────────────
+const tc = (name, args) => ({ name, arguments: args });
+
+/**
+ * Built-in editing fixtures (≥10, each a DISTINCT base + edit), mirroring
+ * synth_forge_editing's CONTEXT-verb families. Each is { name, input_calls,
+ * full_calls } where input_calls is the BASE-only build (the no-op echo target)
+ * and full_calls is base+edit (the correct edit). No corpus / Python needed, so
+ * the proof is deterministic and self-contained; pass --editing-rows <jsonl> to
+ * instead score real corpus rows carrying meta.input_calls.
+ */
+function builtinEditingFixtures() {
+  const F = (name, input_calls, edit_calls, features) => ({
+    name, input_calls, full_calls: [...input_calls, ...edit_calls], features: features || [],
+  });
+  // Interface jig per edit: keep-in points must be CAVITY in the edited target
+  // (and SOLID in the unedited input) so the no-op echo FAILS the jig. kind:'hole'
+  // ⇒ keep-in expects cavity. Points are placed in the material that the EDIT
+  // removes but the BASE still fills (the annulus between old/new bore, the new
+  // bolt holes, the shell cavity, the filleted corner).
+  const annulusHole = (rOld, rNew, z, n = 8) => ({
+    kind: 'hole', center: [0, 0, z], r: rNew,
+    // mid-way between old and new bore radius: solid in base, air in edit
+    keepIn: ringPoints(0, 0, z, (rOld + rNew) / 2, n),
+    keepOut: [],
+  });
+  const boltHoles = (count, bcd, z) => {
+    const feats = [];
+    for (let i = 0; i < count; i++) {
+      const a = (2 * Math.PI * i) / count;
+      const bx = (bcd / 2) * Math.cos(a), by = (bcd / 2) * Math.sin(a);
+      feats.push({ kind: 'hole', center: [bx, by, z], r: 1, keepIn: [[bx, by, z]], keepOut: [] });
+    }
+    return feats;
+  };
+  return [
+    // enlarge-bore: Ø20→Ø34 through a Ø80×12 hub. Jig: Ø20–Ø34 annulus must open.
+    F('enlarge-bore-disc',
+      [tc('part.begin', { primitive: 'cylinder', diameter: 80, depth: 12 }),
+       tc('part.subtract', { primitive: 'cylinder', diameter: 20, depth: 12 }),
+       tc('part.finish', {})],
+      [tc('part.subtract', { primitive: 'cylinder', diameter: 34, depth: 12 })],
+      [annulusHole(10, 17, 6)]),
+    // enlarge-bore on a bored plate. Ø20→Ø38.
+    F('enlarge-bore-plate',
+      [tc('part.begin', { primitive: 'box', dx: 120, dy: 80, dz: 16, at: [-60, -40, 0] }),
+       tc('part.subtract', { primitive: 'cylinder', diameter: 20, depth: 16 }),
+       tc('part.finish', {})],
+      [tc('part.subtract', { primitive: 'cylinder', diameter: 38, depth: 16 })],
+      [annulusHole(10, 19, 8)]),
+    // counterbore Ø25→Ø40×7 deep on top. Jig: the Ø25–Ø40 ring at the TOP must open.
+    F('counterbore-disc',
+      [tc('part.begin', { primitive: 'cylinder', diameter: 100, depth: 20 }),
+       tc('part.subtract', { primitive: 'cylinder', diameter: 25, depth: 20 }),
+       tc('part.finish', {})],
+      [tc('part.subtract', { primitive: 'cylinder', diameter: 40, depth: 7, at: [0, 0, 15] })],
+      [annulusHole(12.5, 20, 17.5)]),
+    // bolt-circle: 6× Ø8 on Ø96. Jig: every bolt-hole centre must be cavity.
+    F('bolt-circle-disc',
+      [tc('part.begin', { primitive: 'cylinder', diameter: 120, depth: 16 }),
+       tc('part.finish', {})],
+      [tc('part.bolt-circle', { count: 6, bcd: 96, diameter: 8 })],
+      boltHoles(6, 96, 8)),
+    // bolt-circle: 4× Ø8 on Ø80 in a plate.
+    F('bolt-circle-plate',
+      [tc('part.begin', { primitive: 'box', dx: 120, dy: 100, dz: 12, at: [-60, -50, 0] }),
+       tc('part.finish', {})],
+      [tc('part.bolt-circle', { count: 4, bcd: 80, diameter: 8 })],
+      boltHoles(4, 80, 6)),
+    // shell a solid block to a 3 mm wall (open top). Jig: the interior must be hollow.
+    F('shell-block',
+      [tc('part.begin', { primitive: 'box', dx: 100, dy: 80, dz: 40, at: [-50, -40, 0] }),
+       tc('part.finish', {})],
+      [tc('part.subtract', { primitive: 'box', dx: 94, dy: 74, dz: 39, at: [-47, -37, 5] })],
+      [{ kind: 'hole', center: [0, 0, 25], r: 1, keepIn: [[0, 0, 25], [20, 0, 25], [0, 15, 25]], keepOut: [] }]),
+    // shell a solid disc to a 3 mm wall.
+    F('shell-disc',
+      [tc('part.begin', { primitive: 'cylinder', diameter: 100, depth: 30 }),
+       tc('part.finish', {})],
+      [tc('part.subtract', { primitive: 'cylinder', diameter: 94, depth: 29, at: [0, 0, 5] })],
+      [{ kind: 'hole', center: [0, 0, 20], r: 1, keepIn: [[0, 0, 20], [20, 0, 20], [0, 20, 20]], keepOut: [] }]),
+    // fillet all edges of a solid block (R10). Jig: the sharp corner becomes air.
+    F('fillet-block',
+      [tc('part.begin', { primitive: 'box', dx: 80, dy: 60, dz: 30, at: [-40, -30, 0] }),
+       tc('part.finish', {})],
+      [tc('part.finish', { fillet: 10 })],
+      [{ kind: 'hole', center: [37, 27, 27], r: 1,
+         keepIn: [[38, 28, 28], [38, 28, 2], [-38, -28, 28], [-38, -28, 2]], keepOut: [] }]),
+    // enlarge a smaller bore in a tall hub. Ø16→Ø30.
+    F('enlarge-bore-tall',
+      [tc('part.begin', { primitive: 'cylinder', diameter: 60, depth: 25 }),
+       tc('part.subtract', { primitive: 'cylinder', diameter: 16, depth: 25 }),
+       tc('part.finish', {})],
+      [tc('part.subtract', { primitive: 'cylinder', diameter: 30, depth: 25 })],
+      [annulusHole(8, 15, 12.5)]),
+    // counterbore a bored plate Ø25→Ø45×7 deep.
+    F('counterbore-plate',
+      [tc('part.begin', { primitive: 'box', dx: 100, dy: 100, dz: 20, at: [-50, -50, 0] }),
+       tc('part.subtract', { primitive: 'cylinder', diameter: 25, depth: 20 }),
+       tc('part.finish', {})],
+      [tc('part.subtract', { primitive: 'cylinder', diameter: 45, depth: 7, at: [0, 0, 15] })],
+      [annulusHole(12.5, 22.5, 17.5)]),
+  ];
+}
+
+/**
+ * Derive an interface jig for a corpus editing row by diffing the FULL chain
+ * against the BASE (input) chain: the edit calls are the trailing verbs the base
+ * lacks. Each material-removing edit becomes keep-in CAVITY probes that the
+ * EDITED target passes but the UNEDITED echo fails:
+ *   part.subtract cylinder → ring probe inside the new bore radius (centred or at:)
+ *   part.subtract box      → centre + offset probes inside the new pocket
+ *   part.bolt-circle       → a probe at each new hole centre
+ * A fillet shaves only a thin edge shell with no robust interior cavity, so it
+ * yields no feature (its no-op is caught by s_renorm + topology already).
+ */
+function editFeaturesFrom(inputCalls, fullCalls) {
+  // edit calls = fullCalls beyond the base prefix (compare by name+args JSON).
+  const baseKeys = inputCalls.map((c) => JSON.stringify([c.name, c.arguments || {}]));
+  const used = new Array(baseKeys.length).fill(false);
+  const edits = [];
+  for (const c of fullCalls) {
+    const k = JSON.stringify([c.name, c.arguments || {}]);
+    const idx = baseKeys.findIndex((bk, i) => !used[i] && bk === k);
+    if (idx >= 0) { used[idx] = true; continue; }   // part of the base prefix
+    edits.push(c);
+  }
+  const feats = [];
+  for (const c of edits) {
+    const a = c.arguments || {};
+    const at = Array.isArray(a.at) ? a.at : [0, 0, 0];
+    if (c.name === 'part.subtract' && a.primitive === 'cylinder' && a.diameter > 0) {
+      const r = a.diameter / 2;
+      const z = (typeof a.at?.[2] === 'number' ? at[2] : 0) + (a.depth || 4) / 2;
+      // probe a ring just INSIDE the new bore wall (0.85·r): cavity in the edited
+      // target; for an enlarge-bore this annulus is SOLID in the unedited base
+      // (its bore is smaller) → the no-op echo fails. Centre + 0.85·r ring.
+      feats.push({ kind: 'hole', center: [at[0], at[1], z], r,
+        keepIn: ringPoints(at[0], at[1], z, r * 0.85, 8).concat([[at[0], at[1], z]]), keepOut: [] });
+    } else if (c.name === 'part.subtract' && a.primitive === 'box' && a.dx > 0) {
+      const cx = at[0] + a.dx / 2, cy = at[1] + a.dy / 2, cz = at[2] + (a.dz || 4) / 2;
+      feats.push({ kind: 'hole', center: [cx, cy, cz], r: 1,
+        keepIn: [[cx, cy, cz], [cx + a.dx * 0.25, cy, cz], [cx, cy + a.dy * 0.25, cz]], keepOut: [] });
+    } else if (c.name === 'part.bolt-circle' && a.count > 0 && a.bcd > 0) {
+      const z = (typeof a.at_z === 'number' ? a.at_z : 0) + 2;
+      for (let i = 0; i < a.count; i++) {
+        const ang = (2 * Math.PI * i) / a.count;
+        const bx = (a.bcd / 2) * Math.cos(ang), by = (a.bcd / 2) * Math.sin(ang);
+        feats.push({ kind: 'hole', center: [bx, by, z], r: 1, keepIn: [[bx, by, z]], keepOut: [] });
+      }
+    }
+    // fillet / chamfer (part.finish) → no robust interior cavity probe; skip.
+  }
+  return feats;
+}
+
+/** Label a chain in a fresh kernel child → { volume, bbox, betti, bodyCount, valid, tess }. */
+function labelChain(calls) {
+  const res = runJobInChild({ op: 'label', calls });
+  if (!res.ok || !res.gt) return { ok: false, error: res.error || 'label failed' };
+  const g = res.gt;
+  const tessObj = g.tessSnapshot
+    ? { positions: Float32Array.from(g.tessSnapshot.positions), indices: Uint32Array.from(g.tessSnapshot.indices) }
+    : null;
+  return {
+    ok: true,
+    gt: { volume: g.volume, bbox: g.bbox, betti: g.betti, bodyCount: g.bodyCount, valid: g.valid },
+    tess: tessObj,
+    tessSnapshot: g.tessSnapshot,
+  };
+}
+
+/**
+ * Run the editing no-op-renormalized discrimination proof over a set of editing
+ * fixtures. For each fixture:
+ *   gt_input  = label(input_calls)              (the unedited base)
+ *   gt_target = label(full_calls)               (the edited GT)
+ *   b_shape   = shapeFromTess(gt_input, gt_target)   (no-op baseline shape sim)
+ *   CORRECT   = replay full_calls → score vs gt_target
+ *   NO-OP     = replay input_calls only (echo the input) → score vs gt_target
+ * editing_cad_score = gate*(0.6*s_renorm + 0.3*interface + 0.1*topology),
+ *   s_renorm = max(0,(shape - b_shape)/(1 - b_shape)).
+ */
+async function runEditingProof(rowsPath) {
+  let fixtures;
+  if (rowsPath) {
+    console.log(`\n--editing: scoring real corpus rows with meta.input_calls from ${rowsPath} …`);
+    const lines = fs.readFileSync(rowsPath, 'utf8').split('\n').filter((l) => l.trim());
+    fixtures = [];
+    for (const line of lines) {
+      let parsed; try { parsed = parseRow(line); } catch { continue; }
+      const ic = parsed.meta && parsed.meta.input_calls;
+      if (!ic || !ic.length || !parsed.calls.length) continue;
+      const inputCalls = ic.map((c) => tc(c.name, c.arguments || {}));
+      const fullCalls = parsed.calls;
+      fixtures.push({
+        name: (parsed.meta.edit || 'edit') + '-' + fixtures.length,
+        input_calls: inputCalls,
+        full_calls: fullCalls,
+        // derive the edit's interface jig (cavity points the edit opens) so a
+        // no-op echo, lacking the edit, also FAILS the interface axis.
+        features: editFeaturesFrom(inputCalls, fullCalls),
+      });
+      if (fixtures.length >= 12) break;
+    }
+    if (!fixtures.length) {
+      console.error('[fatal] no rows with meta.input_calls in ' + rowsPath);
+      process.exit(5);
+    }
+  } else {
+    console.log('\n--editing: built-in editing fixtures (no corpus needed; pass --editing-rows <jsonl> for real rows) …');
+    fixtures = builtinEditingFixtures();
+  }
+
+  const scoreEdit = (calls, gtTarget, bShape, features) => {
+    const res = runJobInChild({ op: 'score', calls, emittedCalls: calls, gt: gtTarget, features: features || [] });
+    const s = res.ok ? res.score : (res.score || zeroScore(res.error || 'child failed'));
+    const shape = s.shape || 0;
+    const sRenorm = bShape >= 1 ? (shape >= 0.999 ? 1 : 0)
+      : Math.max(0, (shape - bShape) / (1 - bShape));
+    const editing_cad_score = (s.gate ? 1 : 0) * (0.6 * sRenorm + 0.3 * s.interface + 0.1 * s.topology);
+    return { gate: s.gate, shape, interface: s.interface, topology: s.topology, sRenorm, editing_cad_score };
+  };
+
+  const results = [];
+  for (const fx of fixtures) {
+    const inLab = labelChain(fx.input_calls);
+    const tgLab = labelChain(fx.full_calls);
+    if (!inLab.ok || !tgLab.ok) {
+      console.error(`  ! ${fx.name}: label failed (input.ok=${inLab.ok} target.ok=${tgLab.ok})`);
+      continue;
+    }
+    // gt_input / gt_target as the {bbox,volume,betti,bodyCount,tess} the renorm needs.
+    const gtInput = { ...inLab.gt, tess: inLab.tess };
+    const gtTarget = { ...tgLab.gt, tess: tgLab.tess };
+    const bShape = shapeFromTess(gtInput, gtTarget).shape;
+    const features = fx.features || [];
+    // Fillet/chamfer edits carve only a thin edge shell — no robust interior
+    // cavity probe and NO Betti change — so under the fixed weights a fillet
+    // no-op floors at 0.3·interface(=1)+0.1·topology(=1)=0.4. Only the s_renorm
+    // axis discriminates it (s_renorm goes 1→0). The <0.15 no-op bar is therefore
+    // asserted on the cavity/topology-bearing edits (bore/counterbore/shell/
+    // bolt-circle); fillet no-ops are reported but excluded from that bar.
+    const editTail = fx.full_calls[fx.full_calls.length - 1];
+    const isFilletOnly = features.length === 0 && editTail && editTail.name === 'part.finish' &&
+      (editTail.arguments?.fillet > 0 || editTail.arguments?.chamfer > 0);
+
+    // Target gt for the worker scorer (needs _tess + dims).
+    const gtForScore = {
+      volume: tgLab.gt.volume, bbox: tgLab.gt.bbox, betti: tgLab.gt.betti,
+      bodyCount: tgLab.gt.bodyCount, valid: tgLab.gt.valid, dims: {},
+      tessSnapshot: tgLab.tessSnapshot,
+    };
+
+    const correct = scoreEdit(fx.full_calls, gtForScore, bShape, features);   // matches edited GT
+    const noop = scoreEdit(fx.input_calls, gtForScore, bShape, features);     // echo the input unchanged
+    results.push({
+      name: fx.name, bShape, isFilletOnly,
+      dVolPct: 100 * Math.abs((tgLab.gt.volume - inLab.gt.volume)) / Math.max(inLab.gt.volume, 1e-9),
+      correct, noop,
+    });
+  }
+
+  if (!results.length) { console.error('[fatal] no editing fixtures scored.'); process.exit(6); }
+
+  // ── scorecard ──
+  console.log('\n=== EDITING NO-OP-RENORM SCORECARD ===');
+  const hdr = ['fixture', 'b_shape', 'Δvol%', 'C.shape', 'C.sRen', 'C.EDIT', 'N.shape', 'N.sRen', 'N.EDIT'];
+  const w = [20, 8, 7, 8, 7, 7, 8, 7, 7];
+  console.log(hdr.map((h, i) => pad(h, w[i])).join(''));
+  console.log('-'.repeat(w.reduce((a, b) => a + b, 0)));
+  for (const r of results) {
+    console.log([
+      pad(r.name, w[0]), pad(fmt(r.bShape), w[1]), pad(r.dVolPct.toFixed(1), w[2]),
+      pad(fmt(r.correct.shape), w[3]), pad(fmt(r.correct.sRenorm), w[4]), pad(fmt(r.correct.editing_cad_score), w[5]),
+      pad(fmt(r.noop.shape), w[6]), pad(fmt(r.noop.sRenorm), w[7]), pad(fmt(r.noop.editing_cad_score), w[8]),
+    ].join(''));
+  }
+
+  // ── verdict ──
+  //  Bars: correct EDIT >= 0.85, no-op EDIT < 0.15, margin > 0.7. Fillet-only
+  //  rows that carry NO interface/topology signal (only s_renorm) are exempt
+  //  from the no-op<0.15 and margin>0.7 bars (they floor at 0.4 under the fixed
+  //  weights); for them we instead assert the s_renorm axis fully discriminates
+  //  (correct sRenorm ~1, no-op sRenorm ~0).
+  console.log('\n=== EDITING DISCRIMINATION VERDICT ===');
+  let allCorrectHigh = true, allNoopLow = true, allMargin = true;
+  for (const r of results) {
+    const c = r.correct.editing_cad_score, n = r.noop.editing_cad_score, m = c - n;
+    const cHigh = c >= 0.85;
+    const nLow = r.isFilletOnly ? (r.noop.sRenorm < 0.15) : (n < 0.15);
+    const mOk = r.isFilletOnly ? (r.correct.sRenorm - r.noop.sRenorm > 0.7) : (m > 0.7);
+    if (!cHigh) allCorrectHigh = false;
+    if (!nLow) allNoopLow = false;
+    if (!mOk) allMargin = false;
+    console.log(`  ${pad(r.name, 20)} correct=${fmt(c)} no-op=${fmt(n)} Δ=${fmt(m)} ` +
+      `${r.isFilletOnly ? '[fillet: s_renorm-only] ' : ''}` +
+      `${cHigh ? '' : '[CORRECT<0.85] '}${nLow ? '' : '[NO-OP NOT LOW] '}${mOk ? '' : '[MARGIN<=0.7]'}`);
+  }
+  const mc = results.reduce((a, r) => a + r.correct.editing_cad_score, 0) / results.length;
+  const mn = results.reduce((a, r) => a + r.noop.editing_cad_score, 0) / results.length;
+  console.log(`\n  mean correct EDIT score = ${fmt(mc)}`);
+  console.log(`  mean no-op   EDIT score = ${fmt(mn)}`);
+  console.log(`  mean margin             = ${fmt(mc - mn)}`);
+  const proven = allCorrectHigh && allNoopLow && allMargin;
+  console.log(`\n  EDITING DISCRIMINATION ${proven ? 'PROVEN ✓' : 'INCOMPLETE ✗'} ` +
+    `(correct>=0.85: ${allCorrectHigh ? 'yes' : 'NO'}, no-op<0.15: ${allNoopLow ? 'yes' : 'NO'}, margin>0.7: ${allMargin ? 'yes' : 'NO'})`);
+  if (!proven) process.exitCode = 8;
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 //  Main
 // ───────────────────────────────────────────────────────────────────────────
 async function main() {
@@ -1075,6 +1559,22 @@ async function main() {
     process.exit(2);
   }
   console.log('Headless kernel loaded OK (plain require + buildPatch shim; no Electron).');
+
+  // ── --editing: no-op-RENORMALIZED discrimination for EDITING rows ──────────
+  //  An editing row = a BASE build (meta.input_calls) + an EDIT, ending in ONE
+  //  solid (the full tool_calls). The naive shape score rewards a model that
+  //  merely ECHOES the input (returns it unchanged) because the input already
+  //  resembles the edited target. We RENORMALISE against the no-op baseline:
+  //      b_shape  = shape(input  vs target)            (the no-op floor)
+  //      shape    = shape(candidate vs target)
+  //      s_renorm = max(0, (shape - b_shape) / (1 - b_shape))
+  //      editing_cad_score = gate * (0.6*s_renorm + 0.3*interface + 0.1*topology)
+  //  A CORRECT edit moves the body toward the target ⇒ shape≫b_shape ⇒ s_renorm→1.
+  //  A NO-OP echo replays only the BASE calls ⇒ shape≈b_shape ⇒ s_renorm→0.
+  if (has('--editing')) {
+    await runEditingProof(arg('--editing-rows'));
+    return;
+  }
 
   // ── --fixtures: load a saved fixtures file and score replay + corrupted ──
   let fixtures;
@@ -1192,7 +1692,8 @@ async function main() {
 // Reusable labeler surface (for forge-kernel/test/label_rows.mjs and other tools).
 // Exporting named function DECLARATIONS does not change the CLI behavior below.
 export { makeHeadlessForge, tess, bboxOf, bettiNumbers, checkValid, dimsFromCalls, parseRow, runJobInChild,
-         postToModel, callsFromAssistant, CANONICAL_SYSTEM };
+         postToModel, callsFromAssistant, CANONICAL_SYSTEM,
+         scoreShape, shapeFromTess, scoreInterface, scoreMate };
 
 // Entry: worker vs orchestrator. Only fires when this file is the program entry
 // point — when imported as a module (e.g. by label_rows.mjs) nothing auto-runs.
