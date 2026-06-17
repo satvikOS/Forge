@@ -980,6 +980,13 @@ import { NonlinearFeaPanelHost } from './forge-v4/NonlinearFeaPanel.jsx';
 // window.__forgeOpenReflectionLine(). Pure-math helpers at
 // window.__forgeReflectionLineHelper. No new npm / C++ deps.
 import { ReflectionLinePanelHost } from './forge-v4/ReflectionLinePanel.jsx';
+// PUSH-212 (Slice-162) — Real G3 Curve Match (Class-A surfacing). Solves the
+// first 4 control points of a target cubic / quintic Bezier so it joins a
+// reference curve at u=0 with position + tangent + curvature + curvature-
+// derivative continuity (G3). Real De Casteljau + Frenet math. Reachable
+// via tools.curveMatchG3 menu OR window.__forgeOpenCurveMatchG3(). Helper
+// surface at window.__forgeCurveMatchG3Helper. No new npm / C++ deps.
+import { CurveMatchG3PanelHost } from './forge-v4/CurveMatchG3Panel.jsx';
 // PUSH-221 (Slice-153) — Frictionless penalty-method contact analysis between
 // two linear-elastic FEA bodies. Newton–Raphson + active-set + uniform-grid
 // BVH broad phase + Hertz two-sphere benchmark. Reachable via tools.contactFea
@@ -1407,6 +1414,7 @@ function App() {
       <Cfd3dBcEditorPanelHost />
       <NonlinearFeaPanelHost />
       <ReflectionLinePanelHost />
+      <CurveMatchG3PanelHost />
       <ContactFeaPanelHost />
       <TransientFeaPanelHost />
       <BoundaryBlendPanelHost />

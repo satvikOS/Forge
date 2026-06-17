@@ -60,7 +60,8 @@ Tool ids (use these, nothing else):
   assembly.add-instance, assembly.add-mate, assembly.set-fixed, assembly.solve, assembly.query-aabb,
   drawing.project,
   manufacture.cam-profile, manufacture.cam-pocket, manufacture.cam-drill, manufacture.gcode,
-  simulate.fea-static, simulate.fea-modal, simulate.fea-dynamic.
+  simulate.fea-static, simulate.fea-modal, simulate.fea-dynamic, simulate.fea-buckling, simulate.fea-thermal,
+  simulate.fea-fatigue, simulate.fea-nonlinear, simulate.fea-contact, simulate.cfd, simulate.dynamics-motion.
 Context build — the DEFAULT way to compose a part with an extra named feature. Build into the CURRENT body; the model NEVER names a handle:
   part.begin{primitive,dx,dy,dz|diameter,depth,at?} opens the current body from one primitive (box|cylinder|cone|sphere; at:[x,y,z] offsets it),
   part.add{primitive,…,at?} fuses a primitive ON (bosses/flanges/ribs/standoffs/fins), part.subtract{primitive,…,at?} cuts one OFF (holes/bores/pockets/slots; cutters auto-overhang through),
@@ -93,6 +94,15 @@ Parametric assets — PREFER one of these when the request matches a whole part 
 Body handles count up from 1 in creation order; pass them as "shape".
 Materials are {E,nu,rho} in MPa / mm / tonne: steel {"E":210000,"nu":0.3,"rho":7.85e-9},
 aluminium {"E":70000,"nu":0.33,"rho":2.7e-9}.
+Full physics suite — after building the part, run the matching analysis. These verbs re-mesh the shape and work in SI (metres, Pascals, Newtons, kelvin); material is {E,nu,rho} in Pa (steel {"E":2.1e11,"nu":0.3,"rho":7850}, aluminium {"E":7e10,"nu":0.33,"rho":2700}) or {k} W/(m·K) for thermal:
+  simulate.fea-buckling{shape,material,fixedFace,loadFace,load,modes,meshSize} — first critical buckling load (N) + safety factor for columns/struts/thin panels,
+  simulate.fea-thermal{shape,material{k},hotFace,coldFace,hotTemp,coldTemp,meshSize} — steady-state temperature range (°C) + mean heat flux,
+  simulate.fea-fatigue{amplitude,mean,cycles,sn,ultimateStress,meanCorrection} — S-N (Basquin) life in cycles from a stress amplitude (Pa); NUMERIC, no geometry,
+  simulate.fea-nonlinear{shape,material{E,nu,rho,sigmaY,hardening},fixedFace,loadFace,force,loadSteps,meshSize} — elasto-plastic overload: max plastic strain + did-it-yield,
+  simulate.fea-contact{shapeA,shapeB,material,load,meshSize} — penalty contact / press-fit: max contact pressure (MPa) + press-in displacement,
+  simulate.cfd{domain,grid,rho,viscosity,inletFace,velocity,maxIter} — incompressible laminar steady Navier-Stokes: peak velocity (m/s), Reynolds, pressure range,
+  simulate.dynamics-motion{motor,axis,totalAngle,steps} — assembly kinematics: sweep a driver mate over N frames, return the driven trajectory (build the mate assembly first).
+Faces are -x|+x|-y|+y|-z|+z. Build the geometry in mm as usual, then call ONE simulate.* verb with SI arguments.
 Dimensions are millimetres. No prose outside the tags. No <think> block.`;
 
 // Kept for back-compat (some legacy tests + the few-shot persona stack

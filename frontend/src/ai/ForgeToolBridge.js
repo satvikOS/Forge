@@ -229,6 +229,93 @@ function finiteSolid(forge, h) {
 }
 
 // ===================================================================
+//   SIMULATION helpers — shared by the FEA / CFD bridge verbs below.
+// ===================================================================
+// Every native solver (forge.fea.solve*) consumes a *mesh* (built once via
+// forge.fea.meshFromBrep) plus node-indexed BC / load lists — NOT a raw shape
+// handle. The smoke tests (fea/buckling/thermal/contact/nonlinear/plasticity)
+// all locate boundary nodes by the per-node face bitmask `mesh.nodeToFace`,
+// where bit b set means "this node lies on face b". The brick-grid mesher uses
+// the canonical OCCT box face order:
+//   0 = -X   1 = +X   2 = -Y   3 = +Y   4 = -Z   5 = +Z
+// These helpers reproduce the smoke-test node-picking so Archie can drive a
+// solver from a shape handle + a couple of plain-English face names, never
+// touching node ids.
+const FACE_BIT = Object.freeze({
+  '-x': 0, '+x': 1, '-y': 2, '+y': 3, '-z': 4, '+z': 5,
+  nx: 0, px: 1, ny: 2, py: 3, nz: 4, pz: 5,
+});
+function faceBit(name, fallback) {
+  if (typeof name === 'number') return name | 0;
+  const k = String(name || '').toLowerCase().trim();
+  return FACE_BIT[k] != null ? FACE_BIT[k] : fallback;
+}
+// All node ids on a given face (by face bit). `mesh.nodeToFace[i]` is a bitmask.
+function nodesOnFace(mesh, bit) {
+  const out = [];
+  for (let i = 0; i < mesh.nodeCount; i++) {
+    if (mesh.nodeToFace[i] & (1 << bit)) out.push(i);
+  }
+  return out;
+}
+// Node closest to a target XYZ (in metres) — for picking a single probe node.
+function nearestNode(mesh, target) {
+  let best = 0, bestD = Infinity;
+  for (let i = 0; i < mesh.nodeCount; i++) {
+    const dx = mesh.nodes[3 * i] - target[0];
+    const dy = mesh.nodes[3 * i + 1] - target[1];
+    const dz = mesh.nodes[3 * i + 2] - target[2];
+    const d = dx * dx + dy * dy + dz * dz;
+    if (d < bestD) { bestD = d; best = i; }
+  }
+  return best;
+}
+// Mesh AABB (metres) — used to default the load / probe face to the far end and
+// to report a deflection probe point.
+function meshAabb(mesh) {
+  let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < mesh.nodeCount; i++) {
+    for (let k = 0; k < 3; k++) {
+      const v = mesh.nodes[3 * i + k];
+      if (v < lo[k]) lo[k] = v;
+      if (v > hi[k]) hi[k] = v;
+    }
+  }
+  return { lo, hi };
+}
+// Build a fixed (pin all 3 DOF) BC list from every node on the given face.
+function pinFaceBcs(mesh, bit) {
+  return nodesOnFace(mesh, bit).map((id) => ({ nodeId: id, fx: true, fy: true, fz: true }));
+}
+// Distribute a total force vector evenly across every node of a face → load
+// list in the {nodeId, fx, fy, fz} shape the kernel consumes (SI: Newtons).
+function distributeFaceLoad(mesh, bit, force) {
+  const ids = nodesOnFace(mesh, bit);
+  if (!ids.length) return { loads: [], nodes: [] };
+  const n = ids.length;
+  const per = [force[0] / n, force[1] / n, force[2] / n];
+  return {
+    loads: ids.map((id) => ({ nodeId: id, fx: per[0], fy: per[1], fz: per[2] })),
+    nodes: ids,
+  };
+}
+// Mesh a shape handle for FEA. The native meshFromBrep targets element edge
+// length in METRES (the smoke tests use b/2 ≈ 5 mm on a 10 mm beam). Archie
+// supplies meshSize in mm; we convert. Throws on an empty mesh so the failure
+// is the real one, not a downstream NaN.
+function feaMesh(forge, shape, meshSizeMm) {
+  if (!forge.fea || typeof forge.fea.meshFromBrep !== 'function') {
+    throw new Error('forge.fea.meshFromBrep unavailable — build the kernel with Forge-12');
+  }
+  const edgeM = (Number(meshSizeMm) > 0 ? Number(meshSizeMm) : 5) / 1000;
+  const mesh = forge.fea.meshFromBrep(shape, edgeM);
+  if (!mesh || !mesh.nodeCount || !mesh.elemCount) {
+    throw new Error('FEA mesh is empty — shape may be invalid or meshSize too coarse');
+  }
+  return mesh;
+}
+
+// ===================================================================
 //                              tool registry
 // ===================================================================
 
@@ -879,6 +966,294 @@ export const FORGE_TOOLS = [
         throw new Error('forge.fea not yet loaded — build the kernel with Forge-12');
       }
       return forge.fea.runDynamic(args);
+    } },
+
+  // ====================================================== FULL PHYSICS SUITE
+  // Thin wrappers over the native kernel solvers the preload already exposes
+  // (forge.fea.solveBuckling / solveThermal / fatigueLife / solveNonlinearPlastic
+  // / solveContact + forge.cfd.solveSteadyNS + forge.assembly.runMotionStudy).
+  // Each is self-contained: take a shape handle (or assembly), mesh it via
+  // meshFromBrep, locate BC / load nodes by face name, solve, and return ONLY
+  // the physics summary (max stress, safety factor, critical load, max temp,
+  // fatigue life, peak velocity / pressure, motion trajectory). Archie never
+  // touches a node id or a mesh object. SI units throughout (m, N, Pa, kg, K).
+
+  { name: 'simulate.fea-buckling', discipline: 'simulate', produces: 'report',
+    description: 'Linear-buckling (eigenvalue) FEA on a shape. Pins one face, applies a compressive load on another, returns the first critical buckling load (N), all load factors, and a buckling safety factor vs the applied load. Use for columns / struts / thin panels.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  material: P('object', '{E, nu, rho} (Pa, -, kg/m³)', { required: true }),
+                  fixedFace: P('enum', 'face to clamp: -x|+x|-y|+y|-z|+z', { default: '-x' }),
+                  loadFace: P('enum', 'face the compressive load acts on', { default: '+x' }),
+                  load: P('number', 'compressive load magnitude (N), pushed into the body along the loadFace inward normal', { default: 1000 }),
+                  modes: P('uint', 'number of buckling modes', { default: 3 }),
+                  meshSize: P('number', 'target element size in mm', { default: 5 }) },
+    run: (a, forge) => {
+      if (!forge.fea || typeof forge.fea.solveBuckling !== 'function') {
+        throw new Error('forge.fea.solveBuckling unavailable — build the kernel with Forge-31');
+      }
+      const mesh = feaMesh(forge, a.shape, a.meshSize);
+      const fixBit = faceBit(a.fixedFace, 0);
+      const loadBit = faceBit(a.loadFace, 1);
+      const bcs = pinFaceBcs(mesh, fixBit);
+      // Compressive: act along the inward normal of the load face.
+      const sign = (loadBit % 2 === 0) ? +1 : -1; // -X face pushed +X (in), +X pushed -X (in)
+      const axis = loadBit >> 1; // 0=x,1=y,2=z
+      const P_pre = Math.abs(Number(a.load) || 1000);
+      const f = [0, 0, 0]; f[axis] = sign * P_pre;
+      const { loads } = distributeFaceLoad(mesh, loadBit, f);
+      const r = forge.fea.solveBuckling(mesh, a.material, loads, bcs, (a.modes | 0) || 3);
+      const lf = Array.from(r.loadFactors || []);
+      return {
+        op: 'fea-buckling',
+        nodes: mesh.nodeCount, elements: mesh.elemCount,
+        appliedLoad_N: P_pre,
+        firstCriticalLoad_N: r.firstCriticalLoad,
+        loadFactors: lf,
+        // λ₁ is the multiple of the applied load at which buckling occurs.
+        bucklingSafetyFactor: lf.length ? lf[0] : null,
+        modesCaptured: r.nModes,
+        cpuMs: r.cpuMs,
+      };
+    } },
+
+  { name: 'simulate.fea-thermal', discipline: 'simulate', produces: 'report',
+    description: 'Steady-state thermal conduction FEA on a shape. Holds two faces at fixed temperatures (°C), optional surface convection, returns the temperature range (min/max °C) and mean heat flux (W/m²). Use for heat-sink / bracket / casting thermal checks.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  material: P('object', '{k} thermal conductivity W/(m·K)', { required: true }),
+                  hotFace: P('enum', 'face held at hotTemp: -x|+x|-y|+y|-z|+z', { default: '-x' }),
+                  coldFace: P('enum', 'face held at coldTemp', { default: '+x' }),
+                  hotTemp: P('number', 'hot-face temperature °C', { default: 100 }),
+                  coldTemp: P('number', 'cold-face temperature °C', { default: 0 }),
+                  meshSize: P('number', 'target element size in mm', { default: 5 }) },
+    run: (a, forge) => {
+      if (!forge.fea || typeof forge.fea.solveThermal !== 'function') {
+        throw new Error('forge.fea.solveThermal unavailable — build the kernel with Forge-12b');
+      }
+      const mesh = feaMesh(forge, a.shape, a.meshSize);
+      const hotIds = nodesOnFace(mesh, faceBit(a.hotFace, 0));
+      const coldIds = nodesOnFace(mesh, faceBit(a.coldFace, 1));
+      const TH = Number(a.hotTemp != null ? a.hotTemp : 100);
+      const TC = Number(a.coldTemp != null ? a.coldTemp : 0);
+      const dirichlet = [
+        ...hotIds.map((id) => ({ nodeId: id, T: TH })),
+        ...coldIds.map((id) => ({ nodeId: id, T: TC })),
+      ];
+      const r = forge.fea.solveThermal(mesh, a.material, dirichlet, [], []);
+      let qSum = 0, qN = 0;
+      for (const q of (r.elemFluxMag || [])) { qSum += q; qN++; }
+      return {
+        op: 'fea-thermal',
+        nodes: mesh.nodeCount, elements: mesh.elemCount,
+        minT_C: r.minT, maxT_C: r.maxT,
+        meanHeatFlux_W_m2: qN ? qSum / qN : 0,
+        residual: r.residual,
+      };
+    } },
+
+  { name: 'simulate.fea-fatigue', discipline: 'simulate', produces: 'report',
+    description: 'S-N (Basquin) fatigue-life estimate from a stress amplitude history. Supply the cyclic stress range and an S-N curve; returns fatigue life in cycles (and the governing amplitude). NUMERIC stress-life — does not re-mesh geometry; feed it the peak alternating stress from a static/dynamic run.',
+    parameters: { amplitude: P('number', 'alternating stress amplitude (Pa)', { required: true }),
+                  mean: P('number', 'mean stress (Pa)', { default: 0 }),
+                  cycles: P('uint', 'number of cycles in the supplied history (sampling only)', { default: 200 }),
+                  sn: P('object', '{N:[..], S:[..]} S-N curve points (cycles, Pa); default steel HCF curve', { default: null }),
+                  ultimateStress: P('number', 'ultimate tensile strength (Pa) for Goodman mean-stress correction', { default: 0 }),
+                  meanCorrection: P('enum', 'None|Goodman|Soderberg', { default: 'None' }) },
+    run: (a, forge) => {
+      if (!forge.fea || typeof forge.fea.fatigueLife !== 'function') {
+        throw new Error('forge.fea.fatigueLife unavailable — build the kernel with Forge-12b');
+      }
+      const amp = Math.abs(Number(a.amplitude) || 0);
+      const mean = Number(a.mean) || 0;
+      const nCycles = Math.max(1, (a.cycles | 0) || 200);
+      const spc = 4; // samples per cycle (peak/valley + 2 intermediate, matches smoke)
+      const nSteps = nCycles * spc;
+      const hist = new Float64Array(nSteps);
+      for (let i = 0; i < nSteps; i++) hist[i] = mean + amp * Math.sin(2 * Math.PI * (i / spc));
+      const sn = (a.sn && Array.isArray(a.sn.N) && Array.isArray(a.sn.S))
+        ? a.sn
+        : { N: [1e3, 1e6], S: [600e6, 200e6] }; // canonical steel HCF curve
+      const corrMap = { none: 0, goodman: 1, soderberg: 2 };
+      const corr = (forge.fea.MeanStressCorrection
+        && forge.fea.MeanStressCorrection[String(a.meanCorrection || 'None')]) != null
+        ? forge.fea.MeanStressCorrection[String(a.meanCorrection || 'None')]
+        : (corrMap[String(a.meanCorrection || 'none').toLowerCase()] ?? 0);
+      const cfg = { sn, meanCorrection: corr, cyclesPerSample: 1.0 };
+      if (a.ultimateStress) cfg.ultimateStress = Number(a.ultimateStress);
+      const r = forge.fea.fatigueLife(hist, 1, nSteps, cfg);
+      return {
+        op: 'fea-fatigue',
+        amplitude_Pa: amp, mean_Pa: mean,
+        lifeCycles: r.cyclesToFailure ? r.cyclesToFailure[0] : r.minLife,
+        minLifeCycles: r.minLife,
+        maxAmplitudeObserved_Pa: r.maxAmplitude,
+        meanCorrection: String(a.meanCorrection || 'None'),
+      };
+    } },
+
+  { name: 'simulate.fea-nonlinear', discipline: 'simulate', produces: 'report',
+    description: 'Elasto-plastic (nonlinear) static FEA with radial-return plasticity. Pins one face, loads another, ramps the load over N steps. Returns max equivalent plastic strain, max residual von Mises (MPa), and whether the part yielded. Use to check permanent set / overload.',
+    parameters: { shape: P('uint', 'shape handle', { required: true }),
+                  material: P('object', '{E, nu, rho, sigmaY, hardening} (Pa)', { required: true }),
+                  fixedFace: P('enum', 'face to clamp: -x|+x|-y|+y|-z|+z', { default: '-x' }),
+                  loadFace: P('enum', 'face the load acts on', { default: '+x' }),
+                  force: P('array', '[fx,fy,fz] total force on loadFace (N)', { default: [0, -10000, 0] }),
+                  loadSteps: P('uint', 'number of load increments', { default: 5 }),
+                  meshSize: P('number', 'target element size in mm', { default: 5 }) },
+    run: (a, forge) => {
+      if (!forge.fea || typeof forge.fea.solveNonlinearPlastic !== 'function') {
+        throw new Error('forge.fea.solveNonlinearPlastic unavailable — build the kernel with Forge-31');
+      }
+      const mesh = feaMesh(forge, a.shape, a.meshSize);
+      const bcs = pinFaceBcs(mesh, faceBit(a.fixedFace, 0));
+      const F = Array.isArray(a.force) && a.force.length === 3 ? a.force.map(Number) : [0, -10000, 0];
+      const { loads } = distributeFaceLoad(mesh, faceBit(a.loadFace, 1), F);
+      const r = forge.fea.solveNonlinearPlastic(mesh, a.material, loads, bcs, (a.loadSteps | 0) || 5);
+      const epF = r.stepPlasticStrain ? r.stepPlasticStrain[r.stepPlasticStrain.length - 1] : [];
+      const sigF = r.stepStress ? r.stepStress[r.stepStress.length - 1] : [];
+      let maxEp = 0, maxSig = 0;
+      for (let e = 0; e < epF.length; e++) if (epF[e] > maxEp) maxEp = epF[e];
+      for (let e = 0; e < sigF.length; e++) if (sigF[e] > maxSig) maxSig = sigF[e];
+      return {
+        op: 'fea-nonlinear',
+        nodes: mesh.nodeCount, elements: mesh.elemCount,
+        maxPlasticStrain: maxEp,
+        maxVonMises_MPa: maxSig / 1e6,
+        yielded: maxEp > 0,
+        converged: r.converged,
+        stepIterations: Array.from(r.stepIterations || []),
+        cpuMs: r.cpuMs,
+      };
+    } },
+
+  { name: 'simulate.fea-contact', discipline: 'simulate', produces: 'report',
+    description: 'Penalty contact FEA between two stacked shapes. Pins the base of shape B, presses shape A onto B with a load, returns max contact pressure (MPa), number of active contact pairs, and the press-in displacement (mm). Use for bearing seats / press-fits / stacked parts.',
+    parameters: { shapeA: P('uint', 'upper shape handle (loaded)', { required: true }),
+                  shapeB: P('uint', 'lower shape handle (supported)', { required: true }),
+                  material: P('object', '{E, nu, rho} (Pa)', { required: true }),
+                  load: P('number', 'compressive load on shape A top face (N)', { default: 1000 }),
+                  meshSize: P('number', 'target element size in mm', { default: 5 }) },
+    run: (a, forge) => {
+      if (!forge.fea || typeof forge.fea.solveContact !== 'function') {
+        throw new Error('forge.fea.solveContact unavailable — build the kernel with Forge-31');
+      }
+      const meshA = feaMesh(forge, a.shapeA, a.meshSize);
+      const meshB = feaMesh(forge, a.shapeB, a.meshSize);
+      // B base = -Z (bit 4) pinned; A top = +Z (bit 5) loaded down; contact at
+      // A's -Z (bit 4) against B's +Z (bit 5) — mirrors contact_smoke.js.
+      const bcsB = pinFaceBcs(meshB, 4);
+      const F = -Math.abs(Number(a.load) || 1000);
+      const { loads: loadsA } = distributeFaceLoad(meshA, 5, [0, 0, F]);
+      const aBottom = nodesOnFace(meshA, 4);
+      const pairs = aBottom.map((id) => ({ nodeA: id, faceB: 5 }));
+      // Soft lateral pin on the centroid-most bottom node of A (rigid-body
+      // suppression, as the smoke does), leaving its Z free to press in.
+      let cx = 0, cy = 0, cz = 0;
+      for (const id of aBottom) { cx += meshA.nodes[3 * id]; cy += meshA.nodes[3 * id + 1]; cz += meshA.nodes[3 * id + 2]; }
+      const cN = aBottom.length || 1; cx /= cN; cy /= cN; cz /= cN;
+      const centerA = nearestNode(meshA, [cx, cy, cz]);
+      const bcsA = [{ nodeId: centerA, fx: true, fy: true, fz: false }];
+      const r = forge.fea.solveContact(meshA, meshB, a.material, loadsA, [], bcsA, bcsB, pairs, 0);
+      let maxP = 0, active = 0;
+      for (const p of (r.contactPressure || [])) { if (p > maxP) maxP = p; if (p > 0) active++; }
+      const topA = nodesOnFace(meshA, 5);
+      let maxUz = 0;
+      for (const id of topA) { const uz = r.uA[3 * id + 2]; if (Math.abs(uz) > maxUz) maxUz = Math.abs(uz); }
+      return {
+        op: 'fea-contact',
+        appliedLoad_N: Math.abs(F),
+        maxContactPressure_MPa: maxP / 1e6,
+        activePairs: active, totalPairs: pairs.length,
+        pressInDisplacement_mm: maxUz * 1000,
+        iterations: r.iterations, converged: r.converged,
+        cpuMs: r.cpuMs,
+      };
+    } },
+
+  { name: 'simulate.cfd', discipline: 'simulate', produces: 'report',
+    description: 'Incompressible steady Navier-Stokes CFD on a box domain (laminar, MAC grid, projection method). One face drives the flow at a given velocity; the rest are no-slip walls. Returns peak velocity (m/s), Reynolds number, pressure range (Pa), and divergence convergence. Honest scope: laminar only, no turbulence model, structured cartesian grid.',
+    parameters: { domain: P('array', '[minX,minY,minZ,maxX,maxY,maxZ] domain box (m)', { default: [0, 0, 0, 1, 1, 1] }),
+                  grid: P('uint', 'cells per axis (N×N×N)', { default: 32 }),
+                  rho: P('number', 'fluid density kg/m³', { default: 1.0 }),
+                  viscosity: P('number', 'kinematic viscosity ν (m²/s)', { default: 0.01 }),
+                  inletFace: P('enum', 'driven face: -x|+x|-y|+y|-z|+z', { default: '+y' }),
+                  velocity: P('array', '[vx,vy,vz] tangential drive velocity on inletFace (m/s)', { default: [1, 0, 0] }),
+                  maxIter: P('uint', 'outer projection iterations', { default: 100 }) },
+    run: (a, forge) => {
+      if (!forge.cfd || typeof forge.cfd.solveSteadyNS !== 'function') {
+        throw new Error('forge.cfd.solveSteadyNS unavailable — build the kernel with Forge-12b');
+      }
+      const dom = Array.isArray(a.domain) && a.domain.length === 6 ? a.domain : [0, 0, 0, 1, 1, 1];
+      const N = Math.max(8, (a.grid | 0) || 32);
+      const inlet = faceBit(a.inletFace, 3); // default +Y (lid)
+      const v = Array.isArray(a.velocity) && a.velocity.length === 3 ? a.velocity.map(Number) : [1, 0, 0];
+      const walls = [0, 1, 2, 3, 4, 5].filter((b) => b !== inlet);
+      const cfg = {
+        domain: Float64Array.from(dom),
+        Nx: N, Ny: N, Nz: N,
+        rho: Number(a.rho) || 1.0,
+        nu: Number(a.viscosity) || 0.01,
+        maxIter: (a.maxIter | 0) || 100,
+        residualTol: 1e-9,
+        walls,
+        lid: { faceId: inlet, vx: v[0], vy: v[1], vz: v[2] },
+      };
+      const r = forge.cfd.solveSteadyNS(cfg);
+      let pmin = Infinity, pmax = -Infinity;
+      for (const p of (r.p || [])) { if (p < pmin) pmin = p; if (p > pmax) pmax = p; }
+      return {
+        op: 'cfd',
+        grid: `${N}x${N}x${N}`,
+        peakVelocity_m_s: r.maxVelocity,
+        reynolds: r.reynolds,
+        pressureMin_Pa: Number.isFinite(pmin) ? pmin : 0,
+        pressureMax_Pa: Number.isFinite(pmax) ? pmax : 0,
+        iterations: r.iterations,
+        initialResidual: r.initialResidual,
+        finalResidual: r.finalResidual,
+        cpuMs: r.cpuMs,
+      };
+    } },
+
+  { name: 'simulate.dynamics-motion', discipline: 'simulate', produces: 'report',
+    description: 'Assembly kinematics / motion study. Drives a mate value (the motor) on an already-built mate assembly through a total sweep over N frames, solving the mate network each frame. Returns the per-frame driver value + trajectory of the driven instance (start/end position, path length, convergence). Build the assembly + mates first (assembly.add-instance / assembly.add-mate), then call this.',
+    parameters: { motor: P('uint', 'driver instance id (the motorised mate target)', { required: true }),
+                  axis: P('uint', 'topology selector on the motor (0=origin|1=axis|2=face)', { default: 0 }),
+                  totalAngle: P('number', 'total sweep of the driver value (rad for angular, mm for linear)', { required: true }),
+                  steps: P('uint', 'number of frames', { default: 36 }) },
+    run: (a, forge) => {
+      if (!forge.assembly || typeof forge.assembly.runMotionStudy !== 'function') {
+        throw new Error('forge.assembly.runMotionStudy unavailable — build the kernel with Forge-35');
+      }
+      const steps = Math.max(2, (a.steps | 0) || 36);
+      const run = forge.assembly.runMotionStudy(a.motor | 0, (a.axis | 0) || 0, Number(a.totalAngle) || 0, steps);
+      const frames = run.frames || [];
+      const first = frames[0], last = frames[frames.length - 1];
+      // Path length + endpoints of the DRIVEN motor instance across the sweep.
+      const key = String(a.motor | 0);
+      let pathLen = 0, startPos = null, endPos = null;
+      let prev = null;
+      const driverValues = [];
+      for (const fr of frames) {
+        if (typeof fr.value === 'number') driverValues.push(fr.value);
+        const t = fr.transforms && fr.transforms[key];
+        if (!t) continue;
+        const p = [t[3], t[7], t[11]];
+        if (!startPos) startPos = p;
+        endPos = p;
+        if (prev) pathLen += Math.hypot(p[0] - prev[0], p[1] - prev[1], p[2] - prev[2]);
+        prev = p;
+      }
+      return {
+        op: 'dynamics-motion',
+        frames: frames.length,
+        allConverged: run.allConverged,
+        maxResidual: run.maxResidual,
+        driverStart: first ? first.value : null,
+        driverEnd: last ? last.value : null,
+        driverSwept: (first && last) ? (last.value - first.value) : null,
+        startPos, endPos,
+        pathLength: pathLen,
+      };
     } },
 
   // 1-D tolerance stack-up (Forge-185 kernel). HONEST SCOPE: this is a

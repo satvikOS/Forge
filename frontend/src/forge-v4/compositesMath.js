@@ -34,6 +34,14 @@
 // load-bearing, but the ratios (E1/E2 ≈ 10..20 for UD; ≈ 1 for woven)
 // are real and steer the ABD matrix to the right magnitudes.
 
+// Strength allowables (MPa) — fibre / matrix / shear ultimates, used by
+// the Tsai-Wu / Tsai-Hill / max-stress polynomial failure criteria below.
+// Magnitudes from public Hexcel / Toray data sheets:
+//   * UD CFRP T700/M21    : Xt 2100, Xc 1200, Yt 60, Yc 250, S 90 MPa.
+//   * Woven CFRP          : Xt = Yt 850, Xc = Yc 700, S 110 MPa.
+//   * Nomex honeycomb     : Xt = Yt = 1, Xc = Yc = 1, S = 1 MPa (placeholder
+//                           — cores rarely drive ply-level Tsai-Wu, the
+//                           skin plies do).
 export const COMPOSITE_MATERIALS = Object.freeze({
   'UD CFRP': Object.freeze({
     label: 'UD CFRP (T700/M21)',
@@ -44,6 +52,10 @@ export const COMPOSITE_MATERIALS = Object.freeze({
     G12_GPa: 4.5,
     nu12: 0.31,
     nominalPlyThickness_mm: 0.125,
+    // Strength allowables (PUSH-223): ultimate tensile / compressive / shear.
+    Xt_MPa: 2100, Xc_MPa: 1200,
+    Yt_MPa:   60, Yc_MPa:  250,
+    S_MPa:    90,
   }),
   'Woven': Object.freeze({
     label: 'Woven CFRP plain weave',
@@ -54,6 +66,9 @@ export const COMPOSITE_MATERIALS = Object.freeze({
     G12_GPa: 4.2,
     nu12: 0.05,
     nominalPlyThickness_mm: 0.25,
+    Xt_MPa: 850, Xc_MPa: 700,
+    Yt_MPa: 850, Yc_MPa: 700,
+    S_MPa:  110,
   }),
   'Core': Object.freeze({
     label: 'Core (Nomex honeycomb 48 kg/m³)',
@@ -64,6 +79,9 @@ export const COMPOSITE_MATERIALS = Object.freeze({
     G12_GPa: 0.02,
     nu12: 0.30,
     nominalPlyThickness_mm: 10.0,
+    Xt_MPa: 1.5, Xc_MPa: 1.5,
+    Yt_MPa: 1.5, Yc_MPa: 1.5,
+    S_MPa:  0.8,
   }),
 });
 
@@ -381,6 +399,188 @@ export function computeABD(book) {
 }
 
 // ─────────────────────────────────────────────────────────────────────
+// PUSH-223 — Polynomial / max-stress failure criteria per ply.
+//
+// All criteria operate on the LAMINA stress vector σ_local = {σ1, σ2, τ12}
+// in the ply's principal material axes (1 = fibre, 2 = transverse).
+// A laminate analyst must first rotate the global laminate stress
+// (σx, σy, τxy) into the ply axes via the standard transformation
+//     σ_local = T(θ) · σ_global
+// with
+//     T = [[ c²,  s², 2sc ],
+//          [ s²,  c², -2sc ],
+//          [-sc, sc,  c² - s² ]]
+// where c = cos θ, s = sin θ.
+//
+// Reserve factor (RF) = "the scalar by which σ can be multiplied before
+// failure". For linear scaling σ → R·σ, the criteria become:
+//
+//   max-stress:  RF = min over fibre / transverse / shear envelopes.
+//   Tsai-Hill:   1 = (Rσ1/X)² − (Rσ1·Rσ2/X²) + (Rσ2/Y)² + (Rτ12/S)²
+//                  ⇒ RF² = 1 / [(σ1/X)² − σ1σ2/X² + (σ2/Y)² + (τ12/S)²]
+//                  (X picks Xt or Xc by sign of σ1; Y picks Yt or Yc.)
+//   Tsai-Wu:     F1·σ1 + F2·σ2 + F11·σ1² + F22·σ2² + F66·τ12²
+//                     + 2·F12·σ1·σ2 = 1
+//                with
+//                   F1  = 1/Xt − 1/Xc
+//                   F11 = 1/(Xt·Xc)
+//                   F2  = 1/Yt − 1/Yc
+//                   F22 = 1/(Yt·Yc)
+//                   F66 = 1/S²
+//                   F12 = −½ √(F11 · F22)        (Tsai-Wu interaction)
+//                Solve the quadratic a·R² + b·R − 1 = 0 with
+//                   a = F11·σ1² + F22·σ2² + F66·τ12² + 2·F12·σ1·σ2
+//                   b = F1·σ1 + F2·σ2
+//                ⇒ RF = (−b + √(b² + 4a)) / (2a)
+//
+// Returns { RF, FI_at_unit_load }. The "failure index" FI is the LHS of
+// the Tsai criterion evaluated at the actual stress (FI ≥ 1 ⇒ failed).
+// For max-stress, FI = 1/RF.
+
+/**
+ * Rotate (σx, σy, τxy) from the laminate axes into the ply principal
+ * (1, 2, 12) axes for a ply at angle θ degrees.
+ */
+export function rotateStressToPly(sigGlobal, orientation_deg) {
+  const theta = orientation_deg * Math.PI / 180;
+  const c = Math.cos(theta), s = Math.sin(theta);
+  const c2 = c * c, s2 = s * s, cs = c * s;
+  const sx = sigGlobal[0], sy = sigGlobal[1], sxy = sigGlobal[2];
+  return [
+    c2 * sx + s2 * sy + 2 * cs * sxy,        // σ1
+    s2 * sx + c2 * sy - 2 * cs * sxy,        // σ2
+    -cs * sx + cs * sy + (c2 - s2) * sxy,    // τ12
+  ];
+}
+
+/**
+ * Material strength allowables — read from COMPOSITE_MATERIALS or fall
+ * back to a UD CFRP placeholder. Units MPa.
+ */
+export function plyAllowables(materialId) {
+  const m = COMPOSITE_MATERIALS[materialId] || COMPOSITE_MATERIALS['UD CFRP'];
+  return {
+    Xt: +m.Xt_MPa || 1, Xc: +m.Xc_MPa || 1,
+    Yt: +m.Yt_MPa || 1, Yc: +m.Yc_MPa || 1,
+    S:  +m.S_MPa  || 1,
+  };
+}
+
+/**
+ * Max-stress criterion. Returns { mode, RF, FI }.
+ *   mode = 'fibre+' / 'fibre−' / 'matrix+' / 'matrix−' / 'shear'
+ */
+export function maxStressFailure(sigPly, materialId) {
+  const A = plyAllowables(materialId);
+  const [s1, s2, t12] = sigPly;
+  const eps = 1e-300;
+  const RF_f = s1 >= 0 ? (A.Xt / Math.max(Math.abs(s1), eps))
+                       : (A.Xc / Math.max(Math.abs(s1), eps));
+  const RF_m = s2 >= 0 ? (A.Yt / Math.max(Math.abs(s2), eps))
+                       : (A.Yc / Math.max(Math.abs(s2), eps));
+  const RF_s = A.S / Math.max(Math.abs(t12), eps);
+  const RF_arr = [RF_f, RF_m, RF_s];
+  const modes  = [
+    s1 >= 0 ? 'fibre+' : 'fibre-',
+    s2 >= 0 ? 'matrix+' : 'matrix-',
+    'shear',
+  ];
+  let RF = RF_arr[0], idx = 0;
+  for (let i = 1; i < 3; i++) {
+    if (RF_arr[i] < RF) { RF = RF_arr[i]; idx = i; }
+  }
+  return { mode: modes[idx], RF, FI: RF > 0 ? 1 / RF : Infinity };
+}
+
+/**
+ * Tsai-Hill criterion (interactive but no tension/compression asymmetry
+ * encoding). Returns { RF, FI }.
+ */
+export function tsaiHillFailure(sigPly, materialId) {
+  const A = plyAllowables(materialId);
+  const [s1, s2, t12] = sigPly;
+  const X = s1 >= 0 ? A.Xt : A.Xc;
+  const Y = s2 >= 0 ? A.Yt : A.Yc;
+  const fi = (s1 / X) * (s1 / X)
+           - (s1 * s2) / (X * X)
+           + (s2 / Y) * (s2 / Y)
+           + (t12 / A.S) * (t12 / A.S);
+  if (fi <= 0) return { RF: Infinity, FI: 0 };
+  // Tsai-Hill is purely quadratic in σ → RF = 1/√FI.
+  return { RF: 1 / Math.sqrt(fi), FI: fi };
+}
+
+/**
+ * Tsai-Wu polynomial criterion. Returns { RF, FI, coefficients }.
+ */
+export function tsaiWuFailure(sigPly, materialId) {
+  const A = plyAllowables(materialId);
+  const [s1, s2, t12] = sigPly;
+  const F1  = 1 / A.Xt - 1 / A.Xc;
+  const F2  = 1 / A.Yt - 1 / A.Yc;
+  const F11 = 1 / (A.Xt * A.Xc);
+  const F22 = 1 / (A.Yt * A.Yc);
+  const F66 = 1 / (A.S * A.S);
+  const F12 = -0.5 * Math.sqrt(F11 * F22);
+  const FI = F1 * s1 + F2 * s2
+           + F11 * s1 * s1 + F22 * s2 * s2
+           + F66 * t12 * t12
+           + 2 * F12 * s1 * s2;
+  // Reserve factor: solve a·R² + b·R − 1 = 0  (the FI(σ→Rσ) = 1 equation).
+  const a = F11 * s1 * s1 + F22 * s2 * s2 + F66 * t12 * t12
+          + 2 * F12 * s1 * s2;
+  const b = F1 * s1 + F2 * s2;
+  let RF;
+  if (Math.abs(a) < 1e-300) {
+    RF = b !== 0 ? 1 / b : Infinity;
+  } else {
+    const disc = b * b + 4 * a;
+    if (disc < 0) {
+      RF = Infinity;
+    } else {
+      const sqrtD = Math.sqrt(disc);
+      // Positive root — the one corresponding to load amplification in
+      // the actual loading direction.
+      const r1 = (-b + sqrtD) / (2 * a);
+      const r2 = (-b - sqrtD) / (2 * a);
+      const pos = [r1, r2].filter((r) => Number.isFinite(r) && r > 0);
+      if (pos.length === 0) RF = Infinity;
+      else RF = Math.min(...pos);
+    }
+  }
+  return {
+    RF, FI,
+    coefficients: { F1, F2, F11, F22, F66, F12 },
+  };
+}
+
+/**
+ * Convenience — evaluate the three criteria and return whichever gives
+ * the lowest RF along with the per-criterion result. The first-ply-
+ * failure (FPF) load multiplier is min(RF) over all plies.
+ */
+export function plyFailureReport(sigPly, materialId) {
+  const ms = maxStressFailure(sigPly, materialId);
+  const th = tsaiHillFailure(sigPly, materialId);
+  const tw = tsaiWuFailure(sigPly, materialId);
+  const candidates = [
+    { name: 'max-stress', RF: ms.RF, FI: ms.FI, mode: ms.mode },
+    { name: 'tsai-hill', RF: th.RF, FI: th.FI },
+    { name: 'tsai-wu',   RF: tw.RF, FI: tw.FI },
+  ];
+  let crit = candidates[0];
+  for (let i = 1; i < candidates.length; i++) {
+    if (candidates[i].RF < crit.RF) crit = candidates[i];
+  }
+  return {
+    maxStress: ms, tsaiHill: th, tsaiWu: tw,
+    criticalCriterion: crit.name,
+    RF: crit.RF, FI: crit.FI,
+    mode: crit.mode || null,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────
 // ASCII ply book export — Boeing / Airbus shop-floor format.
 //
 // One header block + one line per row (NOT per ply) so the layup
@@ -459,6 +659,10 @@ export const COMPOSITES_HELPER_KEYS = Object.freeze([
   'isSymmetric', 'isBalanced', 'summarise',
   'reducedStiffness', 'rotatedQ', 'computeABD',
   'exportPlyBookAscii',
+  // PUSH-223 strength + failure exports.
+  'rotateStressToPly', 'plyAllowables',
+  'maxStressFailure', 'tsaiHillFailure', 'tsaiWuFailure',
+  'plyFailureReport',
   'COMPOSITE_MATERIALS', 'COMPOSITE_MATERIAL_IDS',
   'STANDARD_ORIENTATIONS',
 ]);
@@ -478,6 +682,12 @@ export default {
   rotatedQ,
   computeABD,
   exportPlyBookAscii,
+  rotateStressToPly,
+  plyAllowables,
+  maxStressFailure,
+  tsaiHillFailure,
+  tsaiWuFailure,
+  plyFailureReport,
   COMPOSITE_MATERIALS,
   COMPOSITE_MATERIAL_IDS,
   STANDARD_ORIENTATIONS,
