@@ -57,7 +57,7 @@ unified power of all five classes — `KERNEL_UNIFICATION.md §0/§4` + `KERNEL_
 the in-house kernel is built bottom-up ALONGSIDE the OCCT-backed kernel (OCCT stays the working
 foundation + parity oracle until each capability reaches parity). These are the first **real,
 compiled, validated** increments — pure C++20, zero dependencies, no WASM, one shared predicate
-engine (no duplicates). Run: `npm run forge:native` (251 tests across 11 gates; CI: `kernel-tests.yml` `native` job).
+engine (no duplicates). Run: `npm run forge:native` (264 tests across 12 gates; CI: `kernel-tests.yml` `native` job).
 
 | Module (`forge::native::`) | Class re-implemented | Status | Validated gate (real, this commit) |
 |---|---|---|---|
@@ -73,6 +73,16 @@ the core primitive of general booleans → the `manifold-3d` removal path), `geo
 (Bowyer–Watson via robust `incircle`, 43/43), `brep::NurbsCalculus` (curve/surface derivatives,
 tangent/normal/curvature + Boehm knot insertion, 21/21), `implicit::DualContour` (sharp-feature
 meshing, 10/10), `voxel::VoxelMesh` (voxel→half-edge mesh, 12/12).
+
+**Round 3 [2026-06-20] — mesh boolean (the `manifold-3d` / WASM-removal probe):** `mesh::meshBoolean`
+(A∪B / A∩B / A−B), 15/15 on its gate AND adversarially stress-tested across **94 cases (34 structured
++ 60 random)**. **Honesty verdict: 0 fakes** — it never returns `ok=true` on a broken/wrong mesh. But
+it is honestly **NOT a general boolean**: robust only for axis-aligned + well-conditioned enclosed/curved
+cuts; arbitrary ROTATED/tilted general-position overlaps, PARTIAL coplanar contact, and slivers hit the
+**snap-rounding wall** (the two surfaces' double-precision cut points land in different weld cells →
+T-junctions) and are DETECTED and returned `ok=false`. **`manifold-3d` CANNOT be retired on this
+increment** — a drop-in replacement needs exact-rational cut coordinates or a global snap-rounding pass
+(TARGETED, `KERNEL_INHOUSE_ROADMAP.md` Stage 2). The "general" naming overclaim was corrected in the header.
 
 **Honest status:** these are *first/second increments*, NOT parity, and NOT yet wired into `binding.cpp` /
 the live kernel (validated only via standalone gates). The hard remainders — general mesh booleans,
