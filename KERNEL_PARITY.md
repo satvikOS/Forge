@@ -57,7 +57,7 @@ unified power of all five classes — `KERNEL_UNIFICATION.md §0/§4` + `KERNEL_
 the in-house kernel is built bottom-up ALONGSIDE the OCCT-backed kernel (OCCT stays the working
 foundation + parity oracle until each capability reaches parity). These are the first **real,
 compiled, validated** increments — pure C++20, zero dependencies, no WASM, one shared predicate
-engine (no duplicates). Run: `npm run forge:native` (151 tests; CI: `kernel-tests.yml` `native` job).
+engine (no duplicates). Run: `npm run forge:native` (251 tests across 11 gates; CI: `kernel-tests.yml` `native` job).
 
 | Module (`forge::native::`) | Class re-implemented | Status | Validated gate (real, this commit) |
 |---|---|---|---|
@@ -68,7 +68,13 @@ engine (no duplicates). Run: `npm run forge:native` (151 tests; CI: `kernel-test
 | `implicit` (Sdf+IsoMesher) | libfive F-rep/SDF | PARTIAL | 15/15 — SDF tree + marching cubes; sphere → 4/3·π·r³ convergence |
 | `voxel` (VoxelGrid+Tpms) | PicoGK voxel/lattice | PARTIAL | 9/9 — sphere vol error shrinks 1660×; gyroid volume-fraction 0.5; percolation |
 
-**Honest status:** these are *first increments*, NOT parity, and NOT yet wired into `binding.cpp` /
+**Round 2 [2026-06-20]:** next validated increment per class — `mesh::triTriIntersect` (exact, 14/14;
+the core primitive of general booleans → the `manifold-3d` removal path), `geom::Delaunay`
+(Bowyer–Watson via robust `incircle`, 43/43), `brep::NurbsCalculus` (curve/surface derivatives,
+tangent/normal/curvature + Boehm knot insertion, 21/21), `implicit::DualContour` (sharp-feature
+meshing, 10/10), `voxel::VoxelMesh` (voxel→half-edge mesh, 12/12).
+
+**Honest status:** these are *first/second increments*, NOT parity, and NOT yet wired into `binding.cpp` /
 the live kernel (validated only via standalone gates). The hard remainders — general mesh booleans,
 curve-curve / surface-surface intersection, B-rep boolean + features (the OCCT replacement, longest
 pole) — are TARGETED per `KERNEL_INHOUSE_ROADMAP.md` Stages 2/4/5/6 and marked in each module header.
