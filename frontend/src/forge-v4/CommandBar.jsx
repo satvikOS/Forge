@@ -4,6 +4,33 @@
 import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import { Icon } from './icons/Icon.jsx';
 
+// Demo prompt-preset library. Clicking a chip INJECTS the preset text and
+// submits it through the SAME path a typed+Enter prompt uses (onSubmit →
+// runArchie → ForgeRunner), so Archie genuinely performs it via CUA — no
+// scripted shortcut. Each chip carries data-forge-v4-prompt-preset="<id>".
+export const FORGE_PROMPT_PRESETS = [
+  {
+    id: 'ge9x-turbofan',
+    label: 'GE9X turbofan',
+    text: 'Design a GE9X-class high-bypass turbofan.',
+  },
+  {
+    id: 'planetary-gearbox',
+    label: 'Planetary gearbox 4.3:1',
+    text: 'Design a planetary gearbox with a ~4.3:1 ratio.',
+  },
+  {
+    id: 'lox-rp1-turbopump',
+    label: 'LOX/RP-1 turbopump',
+    text: 'Design a LOX/RP-1 rocket turbopump.',
+  },
+  {
+    id: 'mounting-flange',
+    label: 'Ø120 8-bolt flange',
+    text: 'Model a Ø120 mounting flange with an 8-bolt circle and a central bore.',
+  },
+];
+
 export const CommandBar = forwardRef(function CommandBar(
   { onSubmit, running = false, dockOpen = false, onToggleDock }, externalRef
 ) {
@@ -22,11 +49,37 @@ export const CommandBar = forwardRef(function CommandBar(
     setValue('');
   }
 
+  // Inject a preset prompt visibly into the input, then submit it through
+  // the EXACT same onSubmit path a typed+Enter prompt uses.
+  function submitText(text) {
+    const t = String(text || '').trim();
+    if (!t || running) return;
+    setValue(t);
+    onSubmit?.(t);
+    setValue('');
+  }
+
   return (
     <footer className="forge-cmdbar"
             role="form"
             aria-label="Archie command bar"
             data-testid="forge-cmdbar">
+      <span className="forge-cmdbar-presets"
+            data-forge-v4-prompt-presets
+            aria-label="Prompt presets">
+        <span className="forge-cmdbar-presets-label">Try:</span>
+        {FORGE_PROMPT_PRESETS.map((p) => (
+          <button key={p.id}
+                  type="button"
+                  className="forge-cmdbar-preset-chip"
+                  data-forge-v4-prompt-preset={p.id}
+                  title={p.text}
+                  disabled={running}
+                  onClick={() => submitText(p.text)}>
+            {p.label}
+          </button>
+        ))}
+      </span>
       <span className="forge-cmdbar-glyph" aria-hidden="true">
         {running ? <Icon name="archie.spark" size={16} /> : <Icon name="archie.spark" size={16} />}
       </span>

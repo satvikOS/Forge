@@ -78,6 +78,11 @@ Parametric / freeform features — PREFER these for CURVED, BLENDED or PATTERNED
   part.push-pull-face{shape,faceId,distance}, part.continuity-check{face}, part.check-validity{shape}.
 Profiles are [[x,y],…] closed point lists (mm). Real parts are seldom all-straight: use fillets, draft and revolves.
 Annotation / analysis — part.annotate-pmi{shape,notes,filepath} writes datum letters + GD&T feature-control-frame strings into an AP242 STEP file (annotation only), simulate.tolerance-stack{chain,USL,LSL} runs a 1-D worst-case+RSS+Monte-Carlo stack on a linear dimension chain vs the assembly spec limits (numeric only).
+GD&T (assembly-context) — when a feature must be toleranced RELATIVE TO A MATING PART, declare the datum then apply the feature-control-frame, and write the AP242 STEP last:
+  gdt.datum{shape,letter,anchorId?,feature?} names a datum (A/B/C) on a face, gdt.feature-control-frame{shape,characteristic,tolerance,diametral?,modifier?,datums,anchorId?} applies any FCF (position|concentricity|perpendicularity|parallelism|flatness|cylindricity|runout|profile…) with ordered datum refs,
+  gdt.position-relative-to-mate{shape,feature,tolerance,relativeTo,datums,modifier?,anchorId?} positions a hole/bore of THIS part relative to the MATING part's datum (the bolt-pattern-matches-the-flange case; Ø zone, usually MMC),
+  gdt.concentric-to-mate{shape,feature,control?,tolerance,relativeTo,datums,anchorId?} makes a bore/shaft coaxial to the MATING part's axis datum, gdt.write-step{shape,filepath} flushes all accumulated GD&T to the AP242 STEP. The relativeTo + datums come from the MATING body in <viewport_state>. These ANNOTATE (PMI) — they record the GD&T, not verify it.
+  assembly.detect-interference{instances,tolerance?} checks for overlapping solid volume between placed instances (verify a fit does not clash before annotating it).
 A whole standard part = ONE asset.make-* call; a part with an extra named feature = a context build. Fillets/chamfers go via part.finish LAST.
 Degradation / weathering — when the request implies a used / cast / aged / as-found / worn part, apply ONE on the finished body:
   part.surface-wear{shape,count,depth,seed} (pitting/dents), part.surface-deposit{shape,count,height,seed} (corrosion blisters),
@@ -102,7 +107,8 @@ Full physics suite — after building the part, run the matching analysis. These
   simulate.fea-nonlinear{shape,material{E,nu,rho,sigmaY,hardening},fixedFace,loadFace,force,loadSteps,meshSize} — elasto-plastic overload: max plastic strain + did-it-yield,
   simulate.fea-contact{shapeA,shapeB,material,load,meshSize} — penalty contact / press-fit: max contact pressure (MPa) + press-in displacement,
   simulate.cfd{domain,grid,rho,viscosity,inletFace,velocity,maxIter} — incompressible laminar steady Navier-Stokes: peak velocity (m/s), Reynolds, pressure range,
-  simulate.dynamics-motion{motor,axis,totalAngle,steps} — assembly kinematics: sweep a driver mate over N frames, return the driven trajectory (build the mate assembly first).
+  simulate.dynamics-motion{motor,axis,totalAngle,steps} — assembly kinematics: sweep a driver mate over N frames, return the driven trajectory (build the mate assembly first),
+  simulate.multibody-dynamics{study|bodies,constraints,loads,gravity,dt,steps} — RIGOROUS inertial multibody dynamics (HHT-α + Baumgarte, mass+inertia EOM, validated pendulum 0.016%/rotor 0.00%): study:"rotor"{mass,radius,torque} spins a disk under torque, study:"pendulum"{mass,length,angleDeg} swings under gravity, or give explicit bodies ([{mass,inertia?,position?,linVel?,angVel?}] or [{shape,density}]) + constraints ([{kind:ballJoint|axisLock|distance,bodyA,bodyB?,anchor?,axis?,value?}]) + loads ([{body,force?,torque?}]) + gravity. Returns per-step samples (animate the motion) + maxConstraintDrift/energyDrift/stable. SI (kg,m,N,N·m,rad).
 Faces are -x|+x|-y|+y|-z|+z. Build the geometry in mm as usual, then call ONE simulate.* verb with SI arguments.`;
 
 // Kept for back-compat (some legacy tests + the few-shot persona stack

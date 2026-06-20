@@ -55,6 +55,29 @@ endif()
 set(OCCT_INC "${OCCT_ROOT}/include/opencascade")
 set(OCCT_LIB "${OCCT_ROOT}/lib")
 
+# ---------------------------------------------------------------- OCCT version pin (C0 ratchet)
+# Forge's kernel binds OCCT 7.9's reorganised Data-Exchange toolkit names
+# (TKDESTEP / TKDEIGES / TKDESTL / TKDEVRML). A different major.minor (e.g. 8.0)
+# renames those and silently breaks the link, so we pin major.minor and fail
+# loud + legible instead. The brew patch version floats, so only major.minor is
+# enforced. Override with -DEXPECTED_OCCT_VERSION=X.Y after verifying the TKDE*
+# toolkit names still link under the new version.
+if(NOT DEFINED EXPECTED_OCCT_VERSION)
+    set(EXPECTED_OCCT_VERSION "7.9")
+endif()
+file(STRINGS "${OCCT_INC}/Standard_Version.hxx" _occ_ver_line
+     REGEX "#define[ \t]+OCC_VERSION_COMPLETE[ \t]+\"[0-9.]+\"")
+string(REGEX MATCH "[0-9]+\\.[0-9]+\\.[0-9]+" OCCT_VERSION_FOUND "${_occ_ver_line}")
+string(REGEX MATCH "^[0-9]+\\.[0-9]+" OCCT_VERSION_MAJORMINOR "${OCCT_VERSION_FOUND}")
+message(STATUS "Forge kernel: OCCT ${OCCT_VERSION_FOUND} at ${OCCT_ROOT} (pinned to ${EXPECTED_OCCT_VERSION}.x)")
+if(NOT OCCT_VERSION_MAJORMINOR STREQUAL EXPECTED_OCCT_VERSION)
+    message(FATAL_ERROR
+        "OCCT version mismatch: found ${OCCT_VERSION_FOUND} (major.minor ${OCCT_VERSION_MAJORMINOR}) but "
+        "Forge's kernel is pinned to OCCT ${EXPECTED_OCCT_VERSION}.x — the Data-Exchange toolkit names "
+        "(TKDESTEP/TKDEIGES/...) differ across minor versions. Install OCCT ${EXPECTED_OCCT_VERSION}, or pass "
+        "-DEXPECTED_OCCT_VERSION=${OCCT_VERSION_MAJORMINOR} once you have verified the TKDE* toolkits link.")
+endif()
+
 # ---------------------------------------------------------------- Eigen
 # Header-only template library; brew-installed. Override via OCCT-style env.
 if(DEFINED ENV{EIGEN_INC} AND NOT DEFINED EIGEN_INC)
@@ -130,6 +153,7 @@ add_library(forge_kernel SHARED
     src/AssemblyHierarchy.cpp
     src/InterferenceDetection.cpp
     src/MotionStudy.cpp
+    src/MultibodyDynamics.cpp
     src/Drawings.cpp
     src/Sketcher.cpp
     src/Fea.cpp

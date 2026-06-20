@@ -109,7 +109,7 @@ export function FeatureTree({ nodes, activeId, onPick, onReorder,
           data-testid="forge-feature-tree"
           data-feature-filter={filterTerm}
           data-feature-visible-count={visibleNodes.length}>
-        {visibleNodes.map((n) => {
+        {visibleNodes.map((n, i) => {
           const isActive = n.id === activeId;
           const isOver = n.id === overId;
           return (
@@ -126,6 +126,7 @@ export function FeatureTree({ nodes, activeId, onPick, onReorder,
                 }}
                 onDoubleClick={() => setRenaming(n.id)}
                 style={{
+                  position: 'relative',
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '3px 4px',
                   borderRadius: 3,
@@ -134,7 +135,15 @@ export function FeatureTree({ nodes, activeId, onPick, onReorder,
                   cursor: 'pointer',
                   textDecoration: n.suppressed ? 'line-through' : 'none',
                 }}>
+              {/* connector spine joining the per-row status dots (harvested from legacy FeatureTreePanel) */}
+              <span aria-hidden="true" style={{
+                position: 'absolute', left: 6.5, width: 1,
+                top: i === 0 ? 'calc(50% - 1px)' : 0,
+                bottom: i === visibleNodes.length - 1 ? 'calc(50% - 1px)' : 0,
+                background: 'var(--forge-rail-edge)', pointerEvents: 'none',
+              }} />
               <span style={{
+                position: 'relative',
                 display: 'inline-block', width: 6, height: 6, borderRadius: '50%',
                 background: isActive ? 'var(--forge-accent)' : 'var(--forge-ink-faint)',
               }} />

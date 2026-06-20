@@ -23,6 +23,11 @@ import {
   GradientEquirectTexture,
   BlurredEnvMapGenerator,
 } from 'three-gpu-pathtracer';
+// Forge flagship: engineer-correct PBR material library + component tagger so
+// the path tracer renders each body (titanium / nickel superalloy / CFRP / …)
+// with its REAL reflectance. Pure, side-effect-free module.
+import { MATERIAL_LIBRARY as FLAGSHIP_MATERIALS,
+         materialForComponent as flagshipMaterialFor } from './forgeFlagshipMaterials.js';
 
 // ────────────────────────────── env presets ──────────────────────────
 //
@@ -186,11 +191,39 @@ function harvestScene() {
     { color: 0xc6c2bb, metalness: 0.88, roughness: 0.38 }, // aluminium
     { color: 0xb9a78c, metalness: 0.85, roughness: 0.42 }, // brass-ish
   ];
+  // Forge flagship: when a body carries an engineering material tag (its name
+  // resolves through forgeFlagshipMaterials, or a preset is pinned in
+  // window.__forgeBodyPBR), path-trace it with that REAL reflectance
+  // (titanium / nickel superalloy / CFRP / …) instead of the round-robin metal.
+  const pbrByHandle = (typeof window !== 'undefined' && window.__forgeBodyPBR instanceof Map)
+    ? window.__forgeBodyPBR : null;
+  const matFromFlagship = (mesh) => {
+    const body = mesh.userData?.forgeBody || mesh.userData?.body;
+    const handle = body?.handle ?? mesh.userData?.bodyId;
+    let preset = (pbrByHandle && typeof handle === 'number') ? pbrByHandle.get(handle) : null;
+    if (!preset && body?.name) {
+      preset = FLAGSHIP_MATERIALS[flagshipMaterialFor(body.name)];
+    }
+    if (!preset) return null;
+    const params = {
+      color: new THREE.Color(preset.color),
+      metalness: preset.metalness ?? 1.0,
+      roughness: preset.roughness ?? 0.4,
+      clearcoat: preset.clearcoat ?? 0,
+      clearcoatRoughness: preset.clearcoatRoughness ?? 0.3,
+    };
+    if (preset.sheen) { params.sheen = preset.sheen; if (preset.sheenColor) params.sheenColor = new THREE.Color(preset.sheenColor); }
+    if (preset.envMapIntensity != null) params.envMapIntensity = preset.envMapIntensity;
+    return new THREE.MeshPhysicalMaterial(params);
+  };
   let _mi = 0;
   for (const m of live) {
     if (!m || !m.geometry) continue;
-    const spec = METALS[_mi++ % METALS.length];
-    const mat = new THREE.MeshPhysicalMaterial({ color: spec.color, metalness: spec.metalness, roughness: spec.roughness, clearcoat: 0.15, clearcoatRoughness: 0.3 });
+    let mat = matFromFlagship(m);
+    if (!mat) {
+      const spec = METALS[_mi++ % METALS.length];
+      mat = new THREE.MeshPhysicalMaterial({ color: spec.color, metalness: spec.metalness, roughness: spec.roughness, clearcoat: 0.15, clearcoatRoughness: 0.3 });
+    }
     const clone = new THREE.Mesh(m.geometry.clone(), mat);
     // Bake the WORLD transform into the clone so bodies nested under
     // groups land in the right place (copying only local position drops

@@ -1,0 +1,64 @@
+name: Kernel + Guards
+
+# A6 + C0 ratchets (PLATFORM_UPGRADE.md). Dedicated, SEPARATE from the release
+# pipeline (build-app.yml) so a heavy native-kernel build can never delay a
+# desktop release — and so the native kernel's own smoke suite can never
+# silently regress. Two independent jobs:
+#   guards  (ubuntu, fast)  — brand-guard + dep-allowlist + bridge↔prompt contract
+#   kernel  (macOS, heavy)  — builds forge-kernel.node on OCCT 7.9 and runs the smokes
+#
+# Hardware-calm: the kernel build is its own job, never stacked onto the
+# Electron/Vite build. Neither job `needs` the other, so an OCCT-env hiccup in
+# CI surfaces as a red kernel check without blocking the guards check.
+
+on:
+  push:
+    branches: [archdisc]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kernel-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund --ignore-scripts
+      - name: Brand-guard + dep-allowlist + bridge↔prompt contract
+        working-directory: frontend
+        run: npm test
+
+  kernel:
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install native build deps (OCCT 7.9 / Eigen / Boost / CMake)
+        run: brew install opencascade eigen boost cmake
+      - name: Report OCCT version (C0 pin checks this)
+        run: |
+          grep -h OCC_VERSION_COMPLETE \
+            /opt/homebrew/opt/opencascade/include/opencascade/Standard_Version.hxx || true
+      - name: Install root deps (cmake-js, node-addon-api)
+        run: npm install --no-audit --no-fund --ignore-scripts
+      - name: Configure + build native kernel (.node)
+        run: npm run forge:kernel
+      - name: Kernel smoke suite
+        run: npm run forge:kernel:test
+      - name: Bridge smoke
+        run: npm run forge:bridge:test

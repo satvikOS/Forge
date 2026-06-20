@@ -969,6 +969,43 @@ html, body, #root {
   align-items: center;
   padding: 0 14px;
   gap: 10px;
+  position: relative;
+}
+/* Prompt-preset "Try:" row — floats just above the cmdbar so the 52px
+   bar keeps its full-width input. */
+.forge-cmdbar-presets {
+  position: absolute;
+  left: 14px;
+  bottom: 100%;
+  margin-bottom: 6px;
+  display: flex; align-items: center; flex-wrap: wrap;
+  gap: 6px;
+  z-index: 6;
+}
+.forge-cmdbar-presets-label {
+  font-size: 10px;
+  color: var(--forge-ink-mute);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  user-select: none;
+}
+.forge-cmdbar-preset-chip {
+  background: var(--forge-surface);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: 999px;
+  color: var(--forge-ink-2);
+  font: inherit; font-size: 11px;
+  padding: 2px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.forge-cmdbar-preset-chip:hover {
+  border-color: var(--forge-accent);
+  color: var(--forge-ink);
+}
+.forge-cmdbar-preset-chip:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .forge-cmdbar-glyph {
   color: var(--forge-accent);

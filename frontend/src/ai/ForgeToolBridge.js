@@ -343,6 +343,260 @@ function feaMesh(forge, shape, meshSizeMm) {
 }
 
 // ===================================================================
+//   MULTIBODY-DYNAMICS helpers (the rigorous inertial DAE solver)
+// ===================================================================
+// forge.simulate.multibodyDynamics(cfg) integrates the constrained Newton-Euler
+// equations of motion (HHT-α + Baumgarte) — the REAL dynamics solver, validated
+// closed-form (pendulum 0.016 %, rotor 0.00 %). UNLIKE the FEA verbs it does NOT
+// consume a mesh or a shape handle: each body is an inertial point (mass +
+// inertia tensor + initial COM pose/velocity). The bodies/constraints are the
+// ASSEMBLY: the corpus + Archie describe them as the moving members of the
+// motion study (a rotor spinning under torque, a pendulum/linkage swinging under
+// gravity), mirroring how simulate.dynamics-motion reads the mate assembly.
+//
+// `inertia` is a row-major 3×3 about the COM (kg·m²). When Archie supplies only
+// a mass + a coarse size, we estimate a solid-box inertia so a study is still
+// physically sane. When a `shape` handle is given we derive mass = ρ·V (massProps
+// volume is in mm³ → m³) and a box-AABB inertia, so a study can be hung off a
+// built part with one number (density). SI throughout (kg, m, N, rad).
+
+// Solid-cuboid inertia about the COM (kg·m²) for a box of full extents
+// (ax,ay,az) metres and mass m. Diagonal — Ixx=m(ay²+az²)/12 etc.
+function boxInertia(m, ax, ay, az) {
+  const Ixx = m * (ay * ay + az * az) / 12;
+  const Iyy = m * (ax * ax + az * az) / 12;
+  const Izz = m * (ax * ax + ay * ay) / 12;
+  return [Ixx, 0, 0, 0, Iyy, 0, 0, 0, Izz];
+}
+
+// Coerce one Archie-supplied body bag into the kernel MbdBody shape. Accepts an
+// explicit inertia[9], OR a mass + {size:[ax,ay,az] m} solid-box estimate, OR a
+// shape handle + density (kg/m³) → mass = ρ·V, box-AABB inertia. Position /
+// velocities default to rest at the origin. Returns the kernel-ready object.
+function mbdBody(forge, b) {
+  const out = {};
+  // --- mass + inertia ---
+  let mass = (typeof b.mass === 'number' && b.mass > 0) ? b.mass : null;
+  let inertia = (Array.isArray(b.inertia) && b.inertia.length === 9)
+    ? b.inertia.map(Number) : null;
+  // Size in metres for a box inertia estimate; or derive from a shape handle.
+  let size = Array.isArray(b.size) && b.size.length === 3 ? b.size.map(Number) : null;
+  if ((mass == null || inertia == null) && typeof b.shape === 'number' && b.shape > 0
+      && typeof forge.massProps === 'function') {
+    const mp = forge.massProps(b.shape);
+    const Vm3 = (Number(mp.volume) || 0) / 1e9;          // mm³ → m³
+    const rho = (typeof b.density === 'number' && b.density > 0) ? b.density : 7850; // steel
+    if (mass == null && Vm3 > 0) mass = rho * Vm3;
+    if (!size && typeof forge.tessellate === 'function') {
+      // AABB of the body (mm) → metre extents for the box-inertia estimate.
+      try {
+        const mesh = forge.tessellate(b.shape, 1.0, 0.8);
+        const p = mesh.positions || [];
+        let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+        for (let i = 0; i < p.length; i += 3) {
+          for (let k = 0; k < 3; k++) {
+            const v = p[i + k];
+            if (v < lo[k]) lo[k] = v;
+            if (v > hi[k]) hi[k] = v;
+          }
+        }
+        if (Number.isFinite(lo[0])) size = [(hi[0] - lo[0]) / 1000, (hi[1] - lo[1]) / 1000, (hi[2] - lo[2]) / 1000];
+      } catch (_) { /* leave size null → identity inertia fallback below */ }
+    }
+  }
+  if (mass == null) mass = 1.0;
+  if (inertia == null) {
+    inertia = size ? boxInertia(mass, size[0] || 0.1, size[1] || 0.1, size[2] || 0.1)
+                   : null; // null → kernel defaults to identity inertia
+  }
+  out.mass = mass;
+  if (inertia) out.inertia = inertia;
+  const v3 = (k, d = [0, 0, 0]) => (Array.isArray(b[k]) && b[k].length === 3 ? b[k].map(Number) : d);
+  out.position    = v3('position');
+  out.orientation = v3('orientation');
+  out.linVel      = v3('linVel');
+  out.angVel      = v3('angVel');
+  return out;
+}
+
+// Coerce one constraint bag → kernel MbdConstraint. kind is ballJoint|axisLock|
+// distance (the three the kernel supports). Defaults pin bodyA's local origin to
+// a world anchor (BallJoint), the Z axis (AxisLock), or value-separation
+// (Distance).
+function mbdConstraint(c) {
+  const kindRaw = String(c.kind || 'ballJoint').toLowerCase();
+  let kind = 'ballJoint';
+  if (kindRaw.startsWith('axis')) kind = 'axisLock';
+  else if (kindRaw.startsWith('dist')) kind = 'distance';
+  const v3 = (k, d) => (Array.isArray(c[k]) && c[k].length === 3 ? c[k].map(Number) : d);
+  const out = {
+    kind,
+    bodyA: (c.bodyA | 0) || 0,
+    bodyB: (c.bodyB | 0) || 0,
+    pointA: v3('pointA', [0, 0, 0]),
+    pointB: v3('pointB', [0, 0, 0]),
+    anchor: v3('anchor', [0, 0, 0]),
+    axis:   v3('axis',   [0, 0, 1]),
+  };
+  if (typeof c.value === 'number') out.value = c.value;
+  return out;
+}
+
+// Build the canonical bodies+constraints+loads for a named study so Archie can
+// run a motion study with a couple of plain numbers (mirrors how the FEA verbs
+// let Archie name a face + a force instead of node lists). Returns {bodies,
+// constraints, loads, gravity} all SI. The pendulum / rotor presets are exactly
+// the closed-form-validated benchmark cases (pendulum 0.016 %, rotor 0.00 %).
+//   pendulum — point mass `mass` on a rod `length` m, pinned at the origin by a
+//              BallJoint, swinging under gravity from `angleDeg` off vertical.
+//   rotor    — disk (mass, radius m) spun about +Z by a constant `torque` N·m,
+//              its spin axis locked by an AxisLock; reports the spin-up.
+function mbdStudy(study, a) {
+  const g = Array.isArray(a.gravity) && a.gravity.length === 3 ? a.gravity.map(Number) : null;
+  if (study === 'rotor') {
+    const m = (typeof a.mass === 'number' && a.mass > 0) ? a.mass : 2.0;
+    const R = (typeof a.radius === 'number' && a.radius > 0) ? a.radius : 0.1;
+    const Iz = 0.5 * m * R * R;                       // solid-disk polar inertia
+    const torque = (typeof a.torque === 'number') ? a.torque : 1.0;
+    return {
+      bodies: [{ mass: m, inertia: [Iz, 0, 0, 0, Iz, 0, 0, 0, Iz] }],
+      constraints: [
+        { kind: 'ballJoint', bodyA: 0, pointA: [0, 0, 0], anchor: [0, 0, 0] },
+        { kind: 'axisLock',  bodyA: 0, axis: [0, 0, 1] },
+      ],
+      loads: [{ body: 0, torque: [0, 0, torque] }],
+      gravity: g || [0, 0, 0],
+    };
+  }
+  // default: pendulum
+  const m = (typeof a.mass === 'number' && a.mass > 0) ? a.mass : 1.0;
+  const L = (typeof a.length === 'number' && a.length > 0) ? a.length : 1.0;
+  const th = DEG(typeof a.angleDeg === 'number' ? a.angleDeg : 30);
+  // Bob hangs at -Z from the pivot; start it `th` off the −Z vertical (about +Y).
+  const pos = [L * Math.sin(th), 0, -L * Math.cos(th)];
+  // BallJoint pins the bob's COM-relative pivot point back to the world origin.
+  return {
+    bodies: [{ mass: m, position: pos, inertia: [1e-4, 0, 0, 0, 1e-4, 0, 0, 0, 1e-4] }],
+    constraints: [
+      { kind: 'ballJoint', bodyA: 0, pointA: [-pos[0], -pos[1], -pos[2]], anchor: [0, 0, 0] },
+    ],
+    loads: [],
+    gravity: g || [0, 0, -9.81],
+  };
+}
+
+// Finite-ness guard for the returned samples — the headless verify + the UI
+// animation both need every sample component to be a real number.
+function mbdSamplesFinite(samples) {
+  if (!Array.isArray(samples) || !samples.length) return false;
+  for (const s of samples) {
+    if (!Number.isFinite(s.t)) return false;
+    for (const arr of [s.position, s.orientation, s.linVel, s.angVel]) {
+      if (!Array.isArray(arr)) return false;
+      for (const v of arr) for (const x of v) if (!Number.isFinite(x)) return false;
+    }
+    if (!Number.isFinite(s.constraintResidual) || !Number.isFinite(s.energy)) return false;
+  }
+  return true;
+}
+
+// ===================================================================
+//   GD&T / PMI helpers (assembly-context conditioning — task #72)
+// ===================================================================
+// HONEST SCOPE (verified against forge-kernel.node 2026-06-18): the ONLY
+// native PMI-capable kernel op is `io.exportStepWithPmi(handle, path, notes[])`
+// where each note is a PmiNote {text, anchorKind, anchorId}. There is NO native
+// `gdt`/`datum`/`pmi` namespace, NO datum store, and NO geometric FCF/position
+// evaluator on the kernel handle path. So the gdt.* verbs below AUTHOR GD&T:
+// they compose ASME Y14.5 datum + Feature-Control-Frame strings (including ones
+// that REFERENCE A MATING PART's datum) and attach them as PMI to an AP242 STEP
+// file via that one bound op. They do NOT geometrically verify a tolerance.
+//
+// ASME Y14.5 geometric-characteristic symbols (Unicode). The string form a real
+// FCF takes is  |<sym>|<Ø?><tol><modifier?>|<datum>|<datum>|…  — exactly what
+// the PmiNote.text field carries and what the gdt_relative corpus already emits.
+const GDT_SYMBOL = {
+  position: '⌖',        // ⌖  positional
+  concentricity: '◎',   // ◎  concentricity / coaxiality
+  symmetry: '⌯',        // ⌯  symmetry
+  flatness: '⏥',        // ⏥  flatness
+  straightness: '—',    // —  straightness
+  circularity: '○',     // ○  circularity / roundness
+  cylindricity: '⌭',    // ⌭  cylindricity
+  perpendicularity: '⟂',// ⟂  perpendicularity
+  parallelism: '∥',     // ∥  parallelism
+  angularity: '∠',      // ∠  angularity
+  profileLine: '⌒',     // ⌒  profile of a line
+  profileSurface: '⌓',  // ⌓  profile of a surface
+  runout: '↗',          // ↗  circular runout
+  totalRunout: '↗↗', // ↗↗ total runout
+};
+// Material-condition modifiers appended to the tolerance value.
+const GDT_MODIFIER = { mmc: 'Ⓜ', lmc: 'Ⓛ', rfs: '' }; // Ⓜ / Ⓛ / (none)
+
+function gdtCharSymbol(characteristic) {
+  const key = String(characteristic || 'position')
+    .replace(/[^a-z]/gi, '').toLowerCase();
+  const alias = {
+    pos: 'position', truepos: 'position', truepositon: 'position',
+    conc: 'concentricity', coax: 'concentricity', coaxiality: 'concentricity',
+    perp: 'perpendicularity', para: 'parallelism', parallel: 'parallelism',
+    flat: 'flatness', round: 'circularity', roundness: 'circularity',
+    cyl: 'cylindricity', sym: 'symmetry', ang: 'angularity',
+    runOut: 'runout', total: 'totalRunout', profile: 'profileSurface',
+  };
+  const k = GDT_SYMBOL[key] ? key : (alias[key] || key);
+  return { key: k, sym: GDT_SYMBOL[k] || GDT_SYMBOL.position };
+}
+
+// Build one ASME Y14.5 Feature-Control-Frame string. `datums` is the ordered
+// list of datum-reference letters (primary, secondary, tertiary) — for an
+// ASSEMBLY-CONTEXT tolerance these are the MATING PART's datum letters, so the
+// authored FCF reads "position of THIS feature wrt the mating part's datum A".
+function buildFcf({ characteristic, tolerance, diametral = false, modifier = 'rfs', datums = [] }) {
+  const { sym } = gdtCharSymbol(characteristic);
+  const tol = Number(tolerance);
+  const dia = diametral ? 'Ø' : '';                 // Ø for cylindrical zones
+  const mod = GDT_MODIFIER[String(modifier).toLowerCase()] || '';
+  const tolField = `${dia}${Number.isFinite(tol) ? tol : 0}${mod}`;
+  const refs = (Array.isArray(datums) ? datums : [datums])
+    .filter((d) => d != null && String(d).trim() !== '')
+    .map((d) => String(d).trim().toUpperCase());
+  return `|${sym}|${tolField}|${refs.join('|')}${refs.length ? '|' : ''}`;
+}
+
+// The PMI note list lives on the per-sequence ctx (like ctx.current for the
+// context-build verbs) so a build can author several datums + FCFs across
+// turns, then flush once. Returns the live array, creating it on first use.
+function gdtNotes(ctx) {
+  if (!ctx) return [];
+  if (!Array.isArray(ctx.gdt)) ctx.gdt = [];
+  return ctx.gdt;
+}
+
+// Flush accumulated PMI notes to an AP242 STEP file via the one bound kernel op.
+// `shape` is the body the GD&T annotates (the part the datums/FCFs sit on).
+// Returns { ok, filepath, annotations } or throws if the op isn't built.
+function flushPmi(forge, shape, filepath, notes) {
+  if (!forge.io || typeof forge.io.exportStepWithPmi !== 'function') {
+    throw new Error('forge.io.exportStepWithPmi not available — build the kernel with Forge-34');
+  }
+  if (!(typeof shape === 'number' && shape > 0)) {
+    throw new Error('a valid shape handle is required to write PMI');
+  }
+  const fp = filepath && String(filepath).trim();
+  if (!fp) throw new Error('filepath required (absolute .step path the kernel writes to)');
+  const list = notes.map((n) => ({
+    text: String(n.text || ''),
+    anchorKind: n.anchorKind != null ? String(n.anchorKind) : '',
+    anchorId: (n.anchorId | 0) || 0,
+  }));
+  // PmiNote signature is POSITIONAL: exportStepWithPmi(handle, path, notes[]).
+  const ok = forge.io.exportStepWithPmi(shape, fp, list);
+  return { ok: !!ok, filepath: fp, annotations: list.length };
+}
+
+// ===================================================================
 //                              tool registry
 // ===================================================================
 
@@ -1585,6 +1839,107 @@ export const FORGE_TOOLS = [
       };
     } },
 
+  // RIGOROUS multibody dynamics — the constrained inertial DAE solver
+  // (forge.simulate.multibodyDynamics; HHT-α + Baumgarte; closed-form validated:
+  // pendulum 0.016 %, rotor 0.00 %). This SUPERSEDES the kinematic
+  // dynamics-motion: it time-marches Newton-Euler equations of motion with real
+  // mass + inertia, so it captures spin-up under torque, free swing under
+  // gravity, and conserves energy on the constraint manifold. Each moving member
+  // of the assembly is one inertial body; mates become ballJoint/axisLock/
+  // distance constraints. The verb returns the per-step samples (position /
+  // orientation / linVel / angVel per body) so the UI thread can ANIMATE the
+  // in-motion result, plus the drift + stability diagnostics.
+  { name: 'simulate.multibody-dynamics', discipline: 'simulate', produces: 'report',
+    description: 'Rigorous constrained multibody dynamics (HHT-α + Baumgarte) — the REAL inertial motion solver (validated: pendulum 0.016%, rotor 0.00%). Time-marches Newton-Euler EOM with mass + inertia, so it captures a rotor spinning UP under torque or a pendulum/linkage swinging under gravity. Two ways to drive it: (1) a `study` preset — study:"rotor"{mass,radius,torque} spins a disk about +Z under a constant torque; study:"pendulum"{mass,length,angleDeg} swings a bob from angleDeg off vertical under gravity. (2) explicit `bodies` (each {mass,inertia?[9],position?,orientation?,linVel?,angVel?} SI; or {shape,density} to derive mass=ρ·V + box inertia from a built body), `constraints` ([{kind:ballJoint|axisLock|distance,bodyA,bodyB?,pointA?,pointB?,anchor?,axis?,value?}]), `loads` ([{body,force?,torque?}]), and `gravity` [gx,gy,gz]. Returns per-step samples (position/orientation/linVel/angVel per body) for animation + maxConstraintDrift, energyDrift, stepsTaken, stable. SI throughout (kg, m, N, N·m, rad). Build the assembly bodies first, then run this.',
+    parameters: { study: P('enum', 'preset motion study: rotor|pendulum (omit to specify bodies/constraints/loads explicitly)', { default: null }),
+                  bodies: P('array', '[{mass,inertia?,position?,orientation?,linVel?,angVel?}] OR [{shape,density}] inertial bodies (SI). Ignored when `study` is set.', { default: [] }),
+                  constraints: P('array', '[{kind:ballJoint|axisLock|distance, bodyA, bodyB?, pointA?, pointB?, anchor?, axis?, value?}] mate constraints', { default: [] }),
+                  loads: P('array', '[{body, force?[3], torque?[3]}] constant world-frame loads (N, N·m)', { default: [] }),
+                  gravity: P('array', '[gx,gy,gz] uniform gravity m/s² (default [0,0,-9.81] for pendulum, none for rotor)', { default: null }),
+                  // study presets:
+                  mass: P('number', 'preset body mass (kg)', {}),
+                  radius: P('number', 'rotor disk radius (m)', {}),
+                  torque: P('number', 'rotor drive torque about +Z (N·m)', {}),
+                  length: P('number', 'pendulum rod length (m)', {}),
+                  angleDeg: P('number', 'pendulum start angle off vertical (deg)', {}),
+                  // integrator config:
+                  dt: P('number', 'time step (s)', { default: 1e-3 }),
+                  steps: P('uint', 'number of steps', { default: 1000 }),
+                  alpha: P('number', 'HHT-α numerical damping (∈[-1/3,0])', { default: -0.05 }),
+                  baumgarteOmega: P('number', 'Baumgarte stabilisation frequency (rad/s)', { default: 20 }),
+                  baumgarteZeta: P('number', 'Baumgarte damping ratio', { default: 1 }),
+                  sampleStride: P('uint', 'record every Nth step (keeps the returned trajectory compact)', { default: 0 }) },
+    run: (a, forge, ctx) => {
+      if (!forge.simulate || typeof forge.simulate.multibodyDynamics !== 'function') {
+        throw new Error('forge.simulate.multibodyDynamics unavailable — build the kernel with the multibody solver (Push-36 MultibodyDynamics)');
+      }
+      // Resolve the bodies/constraints/loads/gravity — either from a study preset
+      // or from explicit Archie-supplied lists. A study preset wins.
+      let bodies, constraints, loads, gravity;
+      const study = a.study ? String(a.study).toLowerCase() : null;
+      if (study === 'rotor' || study === 'pendulum') {
+        const s = mbdStudy(study, a);
+        bodies = s.bodies; constraints = s.constraints; loads = s.loads; gravity = s.gravity;
+      } else {
+        let raw = Array.isArray(a.bodies) ? a.bodies : [];
+        // Default to the current ctx part as a single body if Archie supplied none
+        // (one built body → a one-body study, e.g. a free-fall / torque sanity run).
+        if (!raw.length && ctx && typeof ctx.current === 'number' && ctx.current > 0) {
+          raw = [{ shape: ctx.current }];
+        }
+        bodies = raw.map((b) => mbdBody(forge, b || {}));
+        constraints = (Array.isArray(a.constraints) ? a.constraints : []).map(mbdConstraint);
+        loads = (Array.isArray(a.loads) ? a.loads : []).map((l) => ({
+          body: (l.body | 0) || 0,
+          force:  Array.isArray(l.force)  && l.force.length  === 3 ? l.force.map(Number)  : [0, 0, 0],
+          torque: Array.isArray(l.torque) && l.torque.length === 3 ? l.torque.map(Number) : [0, 0, 0],
+        }));
+        gravity = Array.isArray(a.gravity) && a.gravity.length === 3 ? a.gravity.map(Number) : [0, 0, 0];
+      }
+      if (!bodies.length) {
+        throw new Error('simulate.multibody-dynamics: need at least one body (give `study`, a `bodies` list, or build a part first)');
+      }
+      // A default sampleStride keeps the trajectory compact when many steps are
+      // requested (≈ 60 samples) so the animation payload stays light.
+      const nSteps = Math.max(1, (a.steps | 0) || 1000);
+      const stride = (a.sampleStride | 0) > 0 ? (a.sampleStride | 0) : Math.max(1, Math.floor(nSteps / 60));
+      const cfg = {
+        bodies,
+        constraints,
+        loads,
+        gravity,
+        dt: Number(a.dt) > 0 ? Number(a.dt) : 1e-3,
+        steps: nSteps,
+        alpha: typeof a.alpha === 'number' ? a.alpha : -0.05,
+        baumgarteOmega: typeof a.baumgarteOmega === 'number' ? a.baumgarteOmega : 20,
+        baumgarteZeta: typeof a.baumgarteZeta === 'number' ? a.baumgarteZeta : 1,
+        sampleStride: stride,
+      };
+      const r = forge.simulate.multibodyDynamics(cfg);
+      const samples = Array.isArray(r.samples) ? r.samples : [];
+      const finite = mbdSamplesFinite(samples);
+      const first = samples[0], last = samples[samples.length - 1];
+      return {
+        op: 'multibody-dynamics',
+        study: study || 'explicit',
+        bodyCount: bodies.length,
+        constraintCount: constraints.length,
+        steps: nSteps,
+        sampleStride: stride,
+        sampleCount: samples.length,
+        stable: !!r.stable && finite,
+        maxConstraintDrift: r.maxConstraintDrift,
+        energyDrift: r.energyDrift,
+        stepsTaken: r.stepsTaken,
+        energyStart: first ? first.energy : null,
+        energyEnd: last ? last.energy : null,
+        finalConstraintResidual: last ? last.constraintResidual : null,
+        // Full per-step trajectory for the UI thread to animate the in-motion
+        // result (position/orientation/linVel/angVel per body, per sample).
+        samples,
+      };
+    } },
+
   // 1-D tolerance stack-up (Forge-185 kernel). HONEST SCOPE: this is a
   // *numeric* worst-case + RSS + Monte-Carlo stack on a linear dimension
   // chain — it does NOT read geometry or verify a tolerance against a
@@ -1858,6 +2213,154 @@ export const FORGE_TOOLS = [
         // HONEST: text annotation only — not a geometric FCF check.
         note: 'PMI text annotation (datum letters + FCF strings) — not geometrically verified',
       };
+    } },
+
+  // ====================================================== GD&T (assembly-context)
+  // Semantic GD&T verbs (task #72). The flat `part.annotate-pmi` makes Archie
+  // hand-author raw FCF strings ("|⌖|Ø0.1|A|") + pick anchor ids — error-prone
+  // and opaque to the assembly-context conditioning. These verbs let Archie
+  // declare INTENT (datum on a face; a positional/concentricity/perpendicularity
+  // tolerance of a feature RELATIVE TO A MATING PART's datum) and the bridge
+  // composes the correct ASME Y14.5 FCF, accumulating PMI notes on the per-
+  // sequence ctx. A final gdt.write-step (or any verb given `filepath`) flushes
+  // them through the ONE bound op, io.exportStepWithPmi.
+  //
+  // HONEST SCOPE: these AUTHOR/ATTACH GD&T as AP242 PMI; the kernel has NO
+  // geometric FCF evaluator on the native-handle path, so a position/concentric
+  // tolerance is RECORDED relative to the mate datum, NOT geometrically verified.
+
+  { name: 'gdt.datum', discipline: 'drawing', produces: 'report',
+    description: 'Declare a GD&T datum (a reference letter A/B/C…) on a face of THIS part — the seating face, bore axis, or mating surface other tolerances reference. Accumulates a PMI note; pass `filepath` to also write the AP242 STEP now. ANNOTATION ONLY (no geometric datum frame is solved).',
+    parameters: { shape: P('uint', 'shape handle the datum sits on', { required: true }),
+                  letter: P('string', 'datum letter, e.g. "A" (primary), "B", "C"', { required: true }),
+                  anchorId: P('uint', 'face id the datum labels (0 = first face)', { default: 0 }),
+                  feature: P('string', 'human label for the datum feature, e.g. "seating face" / "bore axis"', { default: '' }),
+                  filepath: P('string', 'optional absolute .step path to flush all accumulated PMI now', { default: null }) },
+    run: ({ shape, letter, anchorId, feature, filepath }, forge, ctx) => {
+      const L = String(letter || 'A').trim().toUpperCase().slice(0, 2);
+      const note = { text: `DATUM ${L}${feature ? ` (${feature})` : ''}`, anchorKind: 'face', anchorId: (anchorId | 0) || 0 };
+      const notes = gdtNotes(ctx); notes.push(note);
+      let flushed = null;
+      if (filepath) flushed = flushPmi(forge, shape, filepath, notes);
+      return { op: 'gdt-datum', datum: L, fcf: note.text, anchorId: note.anchorId,
+               pending: notes.length, written: flushed,
+               note: 'datum label authored as AP242 PMI — not a solved datum reference frame' };
+    } },
+
+  { name: 'gdt.feature-control-frame', discipline: 'drawing', produces: 'report',
+    description: 'Apply a GD&T Feature-Control-Frame to a feature of THIS part: a geometric characteristic (position|concentricity|perpendicularity|parallelism|flatness|cylindricity|runout|profile|…), a tolerance value (mm), an optional Ø zone + material modifier (MMC/LMC), and an ORDERED list of datum reference letters. For an assembly fit, the datums are the MATING PART\'s datums. Accumulates a PMI note; pass `filepath` to write now. ANNOTATION ONLY — records the FCF, does not verify it geometrically.',
+    parameters: { shape: P('uint', 'shape handle the FCF sits on', { required: true }),
+                  characteristic: P('enum', 'position|concentricity|perpendicularity|parallelism|flatness|cylindricity|circularity|symmetry|angularity|runout|totalRunout|profileSurface|profileLine|straightness', { required: true }),
+                  tolerance: P('number', 'tolerance zone value in mm', { required: true }),
+                  diametral: P('boolean', 'Ø (cylindrical) tolerance zone — true for hole/shaft position', { default: false }),
+                  modifier: P('enum', 'rfs|mmc|lmc material condition modifier', { default: 'rfs' }),
+                  datums: P('array', 'ordered datum letters [primary, secondary, tertiary], e.g. ["A","B"]', { default: [] }),
+                  anchorId: P('uint', 'face id the FCF labels (the toleranced feature)', { default: 0 }),
+                  filepath: P('string', 'optional absolute .step path to flush all accumulated PMI now', { default: null }) },
+    run: ({ shape, characteristic, tolerance, diametral, modifier, datums, anchorId, filepath }, forge, ctx) => {
+      const fcf = buildFcf({ characteristic, tolerance, diametral: !!diametral, modifier, datums });
+      const note = { text: fcf, anchorKind: 'face', anchorId: (anchorId | 0) || 0 };
+      const notes = gdtNotes(ctx); notes.push(note);
+      let flushed = null;
+      if (filepath) flushed = flushPmi(forge, shape, filepath, notes);
+      return { op: 'gdt-fcf', characteristic: gdtCharSymbol(characteristic).key, fcf,
+               datums: (Array.isArray(datums) ? datums : [datums]).filter(Boolean).map((d) => String(d).toUpperCase()),
+               anchorId: note.anchorId, pending: notes.length, written: flushed,
+               note: 'FCF authored as AP242 PMI — not geometrically verified' };
+    } },
+
+  // ASSEMBLY-CONTEXT GD&T — the headline of task #72. Position a bolt hole / pilot
+  // bore of THIS part relative to a MATING PART's datum (e.g. "position Ø0.1 of
+  // the bolt hole relative to datum A on the mating flange"). `relativeTo` names
+  // the mating body (its handle or name as it appears in <viewport_state>); the
+  // datum letter is the one the mating part carries. The authored FCF reads the
+  // toleranced feature of THIS part against the MATE's datum reference frame.
+  { name: 'gdt.position-relative-to-mate', discipline: 'drawing', produces: 'report',
+    description: 'Assembly-context positional tolerance: apply a true-position (⌖) FCF to a hole/bore/feature of THIS part, located RELATIVE TO A MATING PART\'s datum(s). Use when a bolt hole must line up with the mating flange\'s pattern, or a pilot bore with the mating boss. `relativeTo` is the mating body (handle/name from <viewport_state>); `datums` are the mating part\'s datum letters. Accumulates a PMI note; pass `filepath` to write now. ANNOTATION ONLY — not geometrically verified.',
+    parameters: { shape: P('uint', 'THIS part\'s shape handle (the feature being toleranced sits on it)', { required: true }),
+                  feature: P('string', 'the toleranced feature, e.g. "bolt hole" / "pilot bore"', { default: 'hole' }),
+                  tolerance: P('number', 'positional tolerance value in mm (the Ø zone)', { required: true }),
+                  relativeTo: P('string', 'the MATING body it locates against (handle or name from <viewport_state>)', { required: true }),
+                  datums: P('array', 'the MATING part\'s ordered datum letters, e.g. ["A","B"] (A=mating seating face/axis)', { required: true }),
+                  modifier: P('enum', 'rfs|mmc|lmc — MMC is the usual call for clearance bolt patterns', { default: 'mmc' }),
+                  anchorId: P('uint', 'face id of the toleranced feature on THIS part', { default: 0 }),
+                  filepath: P('string', 'optional absolute .step path to flush all accumulated PMI now', { default: null }) },
+    run: ({ shape, feature, tolerance, relativeTo, datums, modifier, anchorId, filepath }, forge, ctx) => {
+      const refs = (Array.isArray(datums) ? datums : [datums]).filter(Boolean).map((d) => String(d).trim().toUpperCase());
+      if (!refs.length) throw new Error('gdt.position-relative-to-mate: at least one mating datum letter is required');
+      // True position is always a diametral (Ø) zone for a round feature.
+      const fcf = buildFcf({ characteristic: 'position', tolerance, diametral: true, modifier, datums: refs });
+      const note = { text: fcf, anchorKind: 'face', anchorId: (anchorId | 0) || 0 };
+      const notes = gdtNotes(ctx); notes.push(note);
+      let flushed = null;
+      if (filepath) flushed = flushPmi(forge, shape, filepath, notes);
+      return { op: 'gdt-position-rel', feature: String(feature || 'hole'), fcf,
+               relativeTo: String(relativeTo), datums: refs, anchorId: note.anchorId,
+               pending: notes.length, written: flushed,
+               note: `position of "${feature}" authored relative to mating datum ${refs.join('-')} (${relativeTo}) — PMI only, not geometrically verified` };
+    } },
+
+  { name: 'gdt.concentric-to-mate', discipline: 'drawing', produces: 'report',
+    description: 'Assembly-context coaxiality: apply a concentricity (◎) or runout (↗) FCF to a bore/shaft of THIS part RELATIVE TO A MATING PART\'s axis datum (e.g. a pulley bore concentric to the mating shaft\'s axis A). `relativeTo` is the mating body; `datums` are its axis-datum letters. Accumulates a PMI note; pass `filepath` to write now. ANNOTATION ONLY.',
+    parameters: { shape: P('uint', 'THIS part\'s shape handle (the bore/shaft sits on it)', { required: true }),
+                  feature: P('string', 'the toleranced feature, e.g. "bore" / "outer journal"', { default: 'bore' }),
+                  control: P('enum', 'concentricity|runout|totalRunout', { default: 'concentricity' }),
+                  tolerance: P('number', 'tolerance value in mm', { required: true }),
+                  relativeTo: P('string', 'the MATING body it is coaxial to (handle or name from <viewport_state>)', { required: true }),
+                  datums: P('array', 'the MATING part\'s axis datum letter(s), e.g. ["A"]', { required: true }),
+                  anchorId: P('uint', 'face id of the toleranced feature on THIS part', { default: 0 }),
+                  filepath: P('string', 'optional absolute .step path to flush all accumulated PMI now', { default: null }) },
+    run: ({ shape, feature, control, tolerance, relativeTo, datums, anchorId, filepath }, forge, ctx) => {
+      const refs = (Array.isArray(datums) ? datums : [datums]).filter(Boolean).map((d) => String(d).trim().toUpperCase());
+      if (!refs.length) throw new Error('gdt.concentric-to-mate: at least one mating axis-datum letter is required');
+      // Concentricity/runout zones are diametral about the datum axis.
+      const fcf = buildFcf({ characteristic: control || 'concentricity', tolerance, diametral: true, modifier: 'rfs', datums: refs });
+      const note = { text: fcf, anchorKind: 'face', anchorId: (anchorId | 0) || 0 };
+      const notes = gdtNotes(ctx); notes.push(note);
+      let flushed = null;
+      if (filepath) flushed = flushPmi(forge, shape, filepath, notes);
+      return { op: 'gdt-concentric-rel', feature: String(feature || 'bore'),
+               control: gdtCharSymbol(control || 'concentricity').key, fcf,
+               relativeTo: String(relativeTo), datums: refs, anchorId: note.anchorId,
+               pending: notes.length, written: flushed,
+               note: `coaxiality of "${feature}" authored relative to mating axis datum ${refs.join('-')} (${relativeTo}) — PMI only, not geometrically verified` };
+    } },
+
+  { name: 'gdt.write-step', discipline: 'drawing', produces: 'report',
+    description: 'Flush all GD&T notes accumulated by prior gdt.* verbs (datums + FCFs) onto a body and write the AP242 STEP file. Call this LAST after declaring datums + FCFs. Routes through the one bound kernel op io.exportStepWithPmi.',
+    parameters: { shape: P('uint', 'shape handle the PMI annotates', { required: true }),
+                  filepath: P('string', 'absolute output .step path the kernel writes to', { required: true }),
+                  extraNotes: P('array', 'optional extra [{text, anchorKind?, anchorId?}] PMI notes to append', { default: [] }) },
+    run: ({ shape, filepath, extraNotes }, forge, ctx) => {
+      const notes = gdtNotes(ctx).slice();
+      for (const n of (Array.isArray(extraNotes) ? extraNotes : [])) {
+        notes.push({ text: String(n.text || ''), anchorKind: n.anchorKind != null ? String(n.anchorKind) : '', anchorId: (n.anchorId | 0) || 0 });
+      }
+      if (!notes.length) throw new Error('gdt.write-step: no GD&T notes accumulated — call gdt.datum / gdt.feature-control-frame first (or pass extraNotes)');
+      const flushed = flushPmi(forge, shape, filepath, notes);
+      // Clear the accumulator so a subsequent unrelated build starts clean.
+      if (ctx) ctx.gdt = [];
+      return { op: 'gdt-write-step', ...flushed, fcfs: notes.map((n) => n.text),
+               note: 'GD&T written as AP242 PMI text — not geometrically verified' };
+    } },
+
+  // Bridged assembly-context op (was bound-not-bridged): pairwise solid-intersection
+  // check across placed instances. Directly relevant to mating parts — confirms a
+  // designed mate does NOT interfere before GD&T is applied. Real boolean volume.
+  { name: 'assembly.detect-interference', discipline: 'assembly', produces: 'report',
+    description: 'Detect interference (overlapping solid volume) between placed assembly instances — the real OCCT boolean-common check, deduplicated + sorted. Returns the interfering instance pairs and the volume of intersection (mm³). Use to verify a designed mate/fit before annotating it with GD&T.',
+    parameters: { instances: P('array', 'instance ids to check, e.g. [1,2,3]', { required: true }),
+                  tolerance: P('number', 'AABB inflation in mm — near-misses within this are also evaluated', { default: 0 }) },
+    run: ({ instances, tolerance }, forge) => {
+      if (!forge.assembly || typeof forge.assembly.detectInterference !== 'function') {
+        throw new Error('forge.assembly.detectInterference unavailable — build the kernel with Forge-35');
+      }
+      const ids = (Array.isArray(instances) ? instances : []).map((x) => x >>> 0);
+      if (ids.length < 2) throw new Error('assembly.detect-interference: at least two instance ids are required');
+      const pairs = forge.assembly.detectInterference(ids, Number(tolerance) > 0 ? Number(tolerance) : 0);
+      const list = Array.from(pairs || []).map((p) => ({ instA: p.instA, instB: p.instB, volume: p.volume }));
+      return { op: 'detect-interference', checked: ids.length, interferingPairs: list.length, pairs: list,
+               clear: list.length === 0 };
     } },
 
   // ============================================================ ASSETS

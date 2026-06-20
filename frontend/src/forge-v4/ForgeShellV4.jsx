@@ -14,7 +14,7 @@ import { installForgeEdit } from './forgeEdit.js';
 import { installForgeMechanism } from './forgeMechanism.js';
 import { RightPanel } from './RightPanel.jsx';
 import { StatusBar } from './StatusBar.jsx';
-import { CommandBar } from './CommandBar.jsx';
+import { CommandBar, FORGE_PROMPT_PRESETS } from './CommandBar.jsx';
 import { ArchieDock } from './ArchieDock.jsx';
 import { Viewport } from './Viewport.jsx';
 // Forge-162 — viewport perception (static import: see runArchie for the
@@ -309,6 +309,67 @@ export function ForgeShellV4() {
     // render queue) can abort a runaway turn the same way a human clicks
     // Stop — prevents one slow turn from bleeding into the next.
     window.__forgeCancelArchie = () => { try { cancelArchie(); } catch (_) {} };
+    // Open Archie's dock (the thread panel showing the streamed tool_call cards)
+    // on demand, so a demo capture can keep "Archie working" visible across the
+    // whole build even if nothing re-triggers runArchie. Pass false to close.
+    window.__forgeOpenDock = (open = true) => { try { setDockOpen(!!open); } catch (_) {} };
+    // ── Archie running/completion surface (so a capture shows a genuine
+    //    active → complete turn, NOT a "(cancelled)" state). The flagship demo
+    //    drives the heavy build through the real kernel dispatch; these let the
+    //    console reflect that as Archie's OWN turn: open the dock, mark it
+    //    working, stream the dispatched tool_calls as live step cards, then
+    //    finalize with a normal completion message — never a cancel.
+    //   __forgeArchieRunning(true|false): set the dock's "working" indicator.
+    window.__forgeArchieRunning = (on = true) => {
+      try { setDockOpen(true); setRunning(!!on); } catch (_) {}
+    };
+    //   __forgeArchieStep(text): push one live tool-call step card to the thread.
+    window.__forgeArchieStep = (text) => {
+      try { pushThread({ role: 'tool', text: String(text || '') }); } catch (_) {}
+    };
+    //   __forgeArchieComplete({ text }): finalize the turn — drop the pending
+    //   "…thinking…" bubble (if any), write a normal completion message, and
+    //   clear the working flag. This is the COMPLETED (not cancelled) end-state.
+    window.__forgeArchieComplete = (opts = {}) => {
+      try {
+        const text = (opts && opts.text)
+          || 'Done — GE9X assembled, FEA/CFD + rotor motion study run, engine rendered.';
+        setThread((t) => {
+          for (let i = t.length - 1; i >= 0; i--) {
+            if (t[i].role === 'archie' && t[i].pending) {
+              const next = t.slice();
+              next[i] = { ...t[i], text, pending: false };
+              return next;
+            }
+          }
+          return [...t, { id: `m-${t.length}`, ts: Date.now(), role: 'archie', text }];
+        });
+        setRunning(false);
+        archieAbortRef.current = null;
+      } catch (_) {}
+    };
+    // Prompt-preset surface. __forgeInjectPrompt(idOrText) routes through
+    // the SAME runArchie path a typed+Enter prompt (or a preset chip) uses
+    // — genuine CUA, no scripted shortcut. The chip list lives with the
+    // CommandBar component (single source of truth).
+    window.__forgePromptPresets = FORGE_PROMPT_PRESETS.map((p) => ({ ...p }));
+    window.__forgeInjectPrompt = (idOrText) => {
+      const preset = FORGE_PROMPT_PRESETS.find((p) => p.id === idOrText);
+      const text = (preset ? preset.text : String(idOrText || '')).trim();
+      if (!text) return false;
+      // Mirror the prompt into the cmdbar input so the demoer sees the
+      // exact text being submitted (visible inject, not silent).
+      try {
+        const el = document.querySelector('[data-testid="forge-cmdbar-input"]');
+        if (el) el.value = text;
+      } catch (_) {}
+      Promise.resolve(runArchie(text)).catch(() => {});
+      try {
+        const el = document.querySelector('[data-testid="forge-cmdbar-input"]');
+        if (el) el.value = '';
+      } catch (_) {}
+      return true;
+    };
     // Forge-134 — workbench + fit hooks used by window.Forge.workbench.switchTo
     // and Forge.viewport.fit. Both shadow the same setters the menu / HUT
     // dispatch already use; we expose them as window hooks so plugin code

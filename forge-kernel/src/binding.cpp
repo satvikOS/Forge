@@ -20,6 +20,7 @@
 #include "forge/AssemblyHierarchy.hpp"
 #include "forge/InterferenceDetection.hpp"
 #include "forge/MotionStudy.hpp"
+#include "forge/MultibodyDynamics.hpp"
 #include "forge/MateLibrary.hpp"
 #include "forge/Drawings.hpp"
 #include "forge/Sketcher.hpp"
@@ -2969,6 +2970,182 @@ Napi::Value CfdSolveSteadyNS(const Napi::CallbackInfo& info) {
     });
 }
 
+// ------------------------------------------------- Multibody dynamics
+// Real constrained inertial multibody integrator (HHT-α + Baumgarte) —
+// supersedes the kinematic MotionStudy. Exposed as
+// forge.simulate.multibodyDynamics(cfg). See MultibodyDynamics.hpp for the
+// closed-form-validated equations of motion.
+namespace mbd_bind {
+
+// Read a fixed-length number array (JS Array or TypedArray) into a buffer.
+// Missing/short -> zero-filled; extra entries ignored.
+inline void readNums(const Napi::Env& env, const Napi::Value& v,
+                     double* out, std::size_t n, const char* what) {
+    for (std::size_t i = 0; i < n; ++i) out[i] = 0.0;
+    if (v.IsUndefined() || v.IsNull()) return;
+    if (!v.IsArray() && !v.IsTypedArray()) {
+        throw Napi::TypeError::New(env,
+            std::string("forge.simulate.multibodyDynamics: ") + what + " must be an array");
+    }
+    auto a = v.As<Napi::Array>();
+    const uint32_t len = a.Length();
+    for (std::size_t i = 0; i < n && i < len; ++i) {
+        Napi::Value e = a.Get((uint32_t)i);
+        out[i] = e.IsNumber() ? e.As<Napi::Number>().DoubleValue() : 0.0;
+    }
+}
+
+inline std::array<double, 3> readVec3(const Napi::Env& env, const Napi::Object& o,
+                                      const char* key) {
+    std::array<double, 3> r{0, 0, 0};
+    if (o.Has(key)) readNums(env, o.Get(key), r.data(), 3, key);
+    return r;
+}
+
+inline Napi::Array vec3Array(const Napi::Env& env, const std::array<double, 3>& v) {
+    auto a = Napi::Array::New(env, 3);
+    a.Set((uint32_t)0, Napi::Number::New(env, v[0]));
+    a.Set((uint32_t)1, Napi::Number::New(env, v[1]));
+    a.Set((uint32_t)2, Napi::Number::New(env, v[2]));
+    return a;
+}
+
+} // namespace mbd_bind
+
+Napi::Value SimulateMultibodyDynamics(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.simulate.multibodyDynamics: cfg must be an object");
+        }
+        auto co = info[0].As<Napi::Object>();
+
+        // --- bodies ---
+        std::vector<forge::MbdBody> bodies;
+        if (co.Has("bodies") && co.Get("bodies").IsArray()) {
+            auto ba = co.Get("bodies").As<Napi::Array>();
+            for (uint32_t i = 0; i < ba.Length(); ++i) {
+                if (!ba.Get(i).IsObject()) {
+                    throw Napi::TypeError::New(env,
+                        "forge.simulate.multibodyDynamics: each body must be an object");
+                }
+                auto bo = ba.Get(i).As<Napi::Object>();
+                forge::MbdBody b;
+                b.mass = bo.Has("mass") ? bo.Get("mass").As<Napi::Number>().DoubleValue() : 1.0;
+                mbd_bind::readNums(env, bo.Has("inertia") ? bo.Get("inertia") : env.Undefined(),
+                                   b.inertia.data(), 9, "body.inertia");
+                // Default identity inertia if none supplied.
+                bool anyI = false;
+                for (double x : b.inertia) if (x != 0.0) { anyI = true; break; }
+                if (!anyI) b.inertia = {1,0,0, 0,1,0, 0,0,1};
+                b.position    = mbd_bind::readVec3(env, bo, "position");
+                b.orientation = mbd_bind::readVec3(env, bo, "orientation");
+                b.linVel      = mbd_bind::readVec3(env, bo, "linVel");
+                b.angVel      = mbd_bind::readVec3(env, bo, "angVel");
+                bodies.push_back(b);
+            }
+        }
+        if (bodies.empty()) {
+            throw Napi::TypeError::New(env,
+                "forge.simulate.multibodyDynamics: cfg.bodies must be a non-empty array");
+        }
+
+        // --- constraints ---
+        std::vector<forge::MbdConstraint> constraints;
+        if (co.Has("constraints") && co.Get("constraints").IsArray()) {
+            auto ca = co.Get("constraints").As<Napi::Array>();
+            for (uint32_t i = 0; i < ca.Length(); ++i) {
+                auto cobj = ca.Get(i).As<Napi::Object>();
+                forge::MbdConstraint c;
+                std::string kind = cobj.Has("kind") && cobj.Get("kind").IsString()
+                    ? cobj.Get("kind").As<Napi::String>().Utf8Value() : "ballJoint";
+                if (kind == "ballJoint" || kind == "BallJoint")
+                    c.kind = forge::MbdConstraintKind::BallJoint;
+                else if (kind == "axisLock" || kind == "AxisLock")
+                    c.kind = forge::MbdConstraintKind::AxisLock;
+                else if (kind == "distance" || kind == "Distance")
+                    c.kind = forge::MbdConstraintKind::Distance;
+                else
+                    throw Napi::TypeError::New(env,
+                        "forge.simulate.multibodyDynamics: unknown constraint kind '" + kind + "'");
+                c.bodyA = cobj.Has("bodyA") ? cobj.Get("bodyA").As<Napi::Number>().Uint32Value() : 0;
+                c.bodyB = cobj.Has("bodyB") ? cobj.Get("bodyB").As<Napi::Number>().Uint32Value() : 0;
+                c.pointA = mbd_bind::readVec3(env, cobj, "pointA");
+                c.pointB = mbd_bind::readVec3(env, cobj, "pointB");
+                c.anchor = mbd_bind::readVec3(env, cobj, "anchor");
+                c.axis   = mbd_bind::readVec3(env, cobj, "axis");
+                if (cobj.Has("value")) c.value = cobj.Get("value").As<Napi::Number>().DoubleValue();
+                constraints.push_back(c);
+            }
+        }
+
+        // --- loads ---
+        std::vector<forge::MbdLoad> loads;
+        if (co.Has("loads") && co.Get("loads").IsArray()) {
+            auto la = co.Get("loads").As<Napi::Array>();
+            for (uint32_t i = 0; i < la.Length(); ++i) {
+                auto lo = la.Get(i).As<Napi::Object>();
+                forge::MbdLoad ld;
+                ld.body   = lo.Has("body") ? lo.Get("body").As<Napi::Number>().Uint32Value() : 0;
+                ld.force  = mbd_bind::readVec3(env, lo, "force");
+                ld.torque = mbd_bind::readVec3(env, lo, "torque");
+                loads.push_back(ld);
+            }
+        }
+
+        // --- gravity ---
+        forge::MbdGravity gravity;
+        if (co.Has("gravity"))
+            mbd_bind::readNums(env, co.Get("gravity"), gravity.g.data(), 3, "gravity");
+
+        // --- config ---
+        forge::MbdConfig cfg;
+        if (co.Has("dt"))             cfg.dt             = co.Get("dt").As<Napi::Number>().DoubleValue();
+        if (co.Has("steps"))          cfg.steps          = co.Get("steps").As<Napi::Number>().Uint32Value();
+        if (co.Has("alpha"))          cfg.alpha          = co.Get("alpha").As<Napi::Number>().DoubleValue();
+        if (co.Has("baumgarteOmega")) cfg.baumgarteOmega = co.Get("baumgarteOmega").As<Napi::Number>().DoubleValue();
+        if (co.Has("baumgarteZeta"))  cfg.baumgarteZeta  = co.Get("baumgarteZeta").As<Napi::Number>().DoubleValue();
+        if (co.Has("sampleStride"))   cfg.sampleStride   = co.Get("sampleStride").As<Napi::Number>().Uint32Value();
+
+        auto r = forge::simulateMultibody(bodies, constraints, loads, gravity, cfg);
+
+        // --- marshal result back to JS ---
+        auto out = Napi::Object::New(env);
+        auto samples = Napi::Array::New(env, r.samples.size());
+        for (std::size_t s = 0; s < r.samples.size(); ++s) {
+            const auto& sm = r.samples[s];
+            auto so = Napi::Object::New(env);
+            so.Set("t", Napi::Number::New(env, sm.t));
+            auto pos = Napi::Array::New(env, sm.position.size());
+            auto ori = Napi::Array::New(env, sm.orientation.size());
+            auto lv  = Napi::Array::New(env, sm.linVel.size());
+            auto av  = Napi::Array::New(env, sm.angVel.size());
+            for (std::size_t b = 0; b < sm.position.size(); ++b)
+                pos.Set((uint32_t)b, mbd_bind::vec3Array(env, sm.position[b]));
+            for (std::size_t b = 0; b < sm.orientation.size(); ++b)
+                ori.Set((uint32_t)b, mbd_bind::vec3Array(env, sm.orientation[b]));
+            for (std::size_t b = 0; b < sm.linVel.size(); ++b)
+                lv.Set((uint32_t)b, mbd_bind::vec3Array(env, sm.linVel[b]));
+            for (std::size_t b = 0; b < sm.angVel.size(); ++b)
+                av.Set((uint32_t)b, mbd_bind::vec3Array(env, sm.angVel[b]));
+            so.Set("position", pos);
+            so.Set("orientation", ori);
+            so.Set("linVel", lv);
+            so.Set("angVel", av);
+            so.Set("constraintResidual", Napi::Number::New(env, sm.constraintResidual));
+            so.Set("energy", Napi::Number::New(env, sm.energy));
+            samples.Set((uint32_t)s, so);
+        }
+        out.Set("samples", samples);
+        out.Set("maxConstraintDrift", Napi::Number::New(env, r.maxConstraintDrift));
+        out.Set("energyDrift", Napi::Number::New(env, r.energyDrift));
+        out.Set("stepsTaken", Napi::Number::New(env, r.stepsTaken));
+        out.Set("stable", Napi::Boolean::New(env, r.stable));
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- IO (Forge-21)
 namespace io_bind {
 std::string requirePath(const Napi::CallbackInfo& info, std::size_t idx) {
@@ -4912,6 +5089,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     auto cfd = Napi::Object::New(env);
     cfd.Set("solveSteadyNS", Napi::Function::New(env, CfdSolveSteadyNS));
     exports.Set("cfd", cfd);
+
+    // -------- multibody dynamics (real inertial DAE, HHT-α) -------------
+    auto simulate = Napi::Object::New(env);
+    simulate.Set("multibodyDynamics",
+                 Napi::Function::New(env, SimulateMultibodyDynamics));
+    exports.Set("simulate", simulate);
 
     // -------- part features (Forge-22) ----------------------------------
     auto part = Napi::Object::New(env);

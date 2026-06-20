@@ -1208,6 +1208,14 @@ const forgeApi = {
     compute: (cfg) => kernel.tolerance.compute(cfg),
   } : null,
 
+  // simulate (Push-36) — rigorous constrained multibody dynamics (HHT-α +
+  // Baumgarte). The bridge's simulate.multibody-dynamics verb calls
+  // forge.simulate.multibodyDynamics(cfg); forward the native op so Archie can
+  // drive the real inertial motion solver from the live app.
+  simulate: kernel && kernel.simulate ? {
+    multibodyDynamics: (cfg) => kernel.simulate.multibodyDynamics(cfg),
+  } : null,
+
   // duct (Forge-186) — HVAC ductwork sizing + pressure-drop.
   duct: kernel && kernel.duct ? {
     compute:               (cfg) => kernel.duct.compute(cfg),

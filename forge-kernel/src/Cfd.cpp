@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 namespace forge::cfd {
@@ -115,9 +116,20 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     // peak BC speed scaled up to handle transient overshoot. The projection
     // step itself is unconditionally stable now that the pressure Poisson
     // is correct (signed RHS), so the only limit is the predictor.
+    //
+    // UPGRADE B (channel-NaN fix, divide-by-zero guard): uBc is clamped to
+    // 1e-6 above so dtAdv is always finite even before any flow develops
+    // (lid-driven cavity init has uBc from the lid; an inlet sets it from the
+    // inlet speed). std::max(dtDiff,dtAdv) is never used — dt is the min of two
+    // strictly positive quantities, so dt > 0 is guaranteed and the explicit
+    // predictor cannot produce a 0/0 timestep.
     const double dtDiff = 0.45 * hMin * hMin / cfg.nu;
     const double dtAdv  = 0.5  * hMin / (1.5 * uBc);
     const double dt = std::min(dtDiff, dtAdv);
+    if (!(dt > 0) || !std::isfinite(dt)) {
+        throw std::runtime_error(
+            "forge.cfd.solveSteadyNS: non-finite timestep (check nu, domain, BC velocities)");
+    }
 
     // ---------------------------------------------------- BC face flags
     std::array<FaceFlags, 6> face;
@@ -201,6 +213,134 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         }
     };
 
+    // ---------------------------------------------------- inlet flux
+    //
+    // UPGRADE B (channel through-flow fix): for an open domain the projection
+    // method can only converge if global mass is conserved — Σ(outflow) must
+    // equal Σ(inflow) every step, otherwise the pressure-Poisson RHS integrates
+    // to a non-zero net source that the (outlet-pinned) Poisson operator cannot
+    // satisfy, the corrector cannot drive ∇·u→0, pressure grows without bound,
+    // and the field diverges to NaN. We compute the (signed, into-domain) inlet
+    // volumetric flux once; the outlet BC below rescales the extrapolated outlet
+    // velocity so the discrete outflow matches it exactly.
+    auto inletFlux = [&]() {
+        double Q = 0.0; // volumetric flow rate INTO the domain (m³/s)
+        if (face[0].isInlet) Q += face[0].vx * (Ly * Lz);   // -X: +x is inward
+        if (face[1].isInlet) Q += -face[1].vx * (Ly * Lz);  // +X: -x is inward
+        if (face[2].isInlet) Q += face[2].vy * (Lx * Lz);   // -Y
+        if (face[3].isInlet) Q += -face[3].vy * (Lx * Lz);  // +Y
+        if (face[4].isInlet) Q += face[4].vz * (Lx * Ly);   // -Z
+        if (face[5].isInlet) Q += -face[5].vz * (Lx * Ly);  // +Z
+        return Q;
+    };
+    const double Qin = inletFlux();
+
+    // Total open outlet area (m²) — used by the additive mass-conservation
+    // correction below. Each outlet face contributes its full cross-sectional
+    // area regardless of grid resolution.
+    const double outletArea = [&]() {
+        double A = 0.0;
+        if (face[0].isOutlet || face[1].isOutlet) A += Ly * Lz; // ×X faces
+        if (face[2].isOutlet || face[3].isOutlet) A += Lx * Lz; // ×Y faces
+        if (face[4].isOutlet || face[5].isOutlet) A += Lx * Ly; // ×Z faces
+        return A;
+    }();
+
+    // ---------------------------------------------------- outlet velocity BC
+    //
+    // FIX (channel through-flow divergence): the prior multiplicative rescale
+    // s = Qin/Qout is an UNBOUNDED amplifier. In the first transient iterations
+    // the zero-gradient extrapolated outflow Qout is tiny (the interior is
+    // barely moving), so s explodes; the predictor advects that huge outlet
+    // velocity inward, the next extrapolation grows, and the loop is positive
+    // feedback → velocity blows up to NaN (observed: maxU 0.1→5→730→8e4→∞ while
+    // ∇·u stays at machine ε, i.e. the projection is fine, the BC is the bomb).
+    //
+    // Correct open-domain treatment for a projection method: zero-gradient
+    // (convective/Neumann) extrapolation of the outlet normal velocity, then a
+    // BOUNDED ADDITIVE uniform correction δ = (Qin − Qout)/A_outlet applied in
+    // the outflow-positive direction on every outlet face. This:
+    //   * conserves global mass exactly (Σ outflow == Σ inflow == Qin), which
+    //     makes the pressure-Poisson RHS integrate to zero against the
+    //     Dirichlet-outlet operator — the consistency condition that lets the
+    //     corrector drive ∇·u→0 instead of accumulating a net source;
+    //   * is bounded (a shift, not a ratio) so it can never amplify a small
+    //     transient outflow into a runaway;
+    //   * preserves the developing profile SHAPE (the parabola grows naturally
+    //     from the viscous Laplacian + wall no-slip; we never scale it), so the
+    //     fully-developed peak/mean emerges from the physics, not the BC.
+    // Pressure at the outlet cells is Dirichlet p=0 (see Poisson assembly), so
+    // the pressure system is non-singular and consistent.
+    auto applyOutletBCs = [&](std::vector<double>& U,
+                              std::vector<double>& V,
+                              std::vector<double>& W) {
+        // -X outlet (i=0 on u-grid): u(0,·)=u(1,·)
+        if (face[0].isOutlet)
+            for (int k = 0; k < Nz; ++k) for (int j = 0; j < Ny; ++j)
+                U[idxU(0, j, k, Nx, Ny)] = U[idxU(1, j, k, Nx, Ny)];
+        // +X outlet (i=Nx): u(Nx,·)=u(Nx-1,·)
+        if (face[1].isOutlet)
+            for (int k = 0; k < Nz; ++k) for (int j = 0; j < Ny; ++j)
+                U[idxU(Nx, j, k, Nx, Ny)] = U[idxU(Nx - 1, j, k, Nx, Ny)];
+        // -Y outlet
+        if (face[2].isOutlet)
+            for (int k = 0; k < Nz; ++k) for (int i = 0; i < Nx; ++i)
+                V[idxV(i, 0, k, Nx, Ny)] = V[idxV(i, 1, k, Nx, Ny)];
+        // +Y outlet
+        if (face[3].isOutlet)
+            for (int k = 0; k < Nz; ++k) for (int i = 0; i < Nx; ++i)
+                V[idxV(i, Ny, k, Nx, Ny)] = V[idxV(i, Ny - 1, k, Nx, Ny)];
+        // -Z outlet
+        if (face[4].isOutlet)
+            for (int j = 0; j < Ny; ++j) for (int i = 0; i < Nx; ++i)
+                W[idxW(i, j, 0, Nx, Ny)] = W[idxW(i, j, 1, Nx, Ny)];
+        // +Z outlet
+        if (face[5].isOutlet)
+            for (int j = 0; j < Ny; ++j) for (int i = 0; i < Nx; ++i)
+                W[idxW(i, j, Nz, Nx, Ny)] = W[idxW(i, j, Nz - 1, Nx, Ny)];
+
+        // Additive global mass-conservation correction. Only meaningful when an
+        // inlet drives the flow and there is open outlet area to correct on.
+        if (std::abs(Qin) <= 0 || outletArea <= 0) return;
+        double Qout = 0.0; // signed volumetric outflow (out of the domain)
+        const double aX = dy * dz, aY = dx * dz, aZ = dx * dy;
+        if (face[0].isOutlet)
+            for (int k = 0; k < Nz; ++k) for (int j = 0; j < Ny; ++j)
+                Qout += -U[idxU(0, j, k, Nx, Ny)] * aX;            // -X: out = -u
+        if (face[1].isOutlet)
+            for (int k = 0; k < Nz; ++k) for (int j = 0; j < Ny; ++j)
+                Qout += U[idxU(Nx, j, k, Nx, Ny)] * aX;            // +X: out = +u
+        if (face[2].isOutlet)
+            for (int k = 0; k < Nz; ++k) for (int i = 0; i < Nx; ++i)
+                Qout += -V[idxV(i, 0, k, Nx, Ny)] * aY;
+        if (face[3].isOutlet)
+            for (int k = 0; k < Nz; ++k) for (int i = 0; i < Nx; ++i)
+                Qout += V[idxV(i, Ny, k, Nx, Ny)] * aY;
+        if (face[4].isOutlet)
+            for (int j = 0; j < Ny; ++j) for (int i = 0; i < Nx; ++i)
+                Qout += -W[idxW(i, j, 0, Nx, Ny)] * aZ;
+        if (face[5].isOutlet)
+            for (int j = 0; j < Ny; ++j) for (int i = 0; i < Nx; ++i)
+                Qout += W[idxW(i, j, Nz, Nx, Ny)] * aZ;
+
+        // δ has units of m/s; adding it to the (outflow-positive) normal
+        // velocity on every outlet face raises total outflow by δ·A_outlet, so
+        // δ = (Qin − Qout)/A_outlet makes Qout == Qin exactly. Bounded by Qin.
+        const double delta = (Qin - Qout) / outletArea;
+        if (face[0].isOutlet) // -X: outflow positive is −u, so add −δ to u
+            for (int k=0;k<Nz;++k) for (int j=0;j<Ny;++j) U[idxU(0,j,k,Nx,Ny)]  -= delta;
+        if (face[1].isOutlet) // +X: outflow positive is +u, so add +δ to u
+            for (int k=0;k<Nz;++k) for (int j=0;j<Ny;++j) U[idxU(Nx,j,k,Nx,Ny)] += delta;
+        if (face[2].isOutlet)
+            for (int k=0;k<Nz;++k) for (int i=0;i<Nx;++i) V[idxV(i,0,k,Nx,Ny)]  -= delta;
+        if (face[3].isOutlet)
+            for (int k=0;k<Nz;++k) for (int i=0;i<Nx;++i) V[idxV(i,Ny,k,Nx,Ny)] += delta;
+        if (face[4].isOutlet)
+            for (int j=0;j<Ny;++j) for (int i=0;i<Nx;++i) W[idxW(i,j,0,Nx,Ny)]  -= delta;
+        if (face[5].isOutlet)
+            for (int j=0;j<Ny;++j) for (int i=0;i<Nx;++i) W[idxW(i,j,Nz,Nx,Ny)] += delta;
+    };
+
     // Ghost-cell helpers — they return the velocity in the cell one outside the
     // domain. For inlet/outlet/wall we mirror appropriately so that the central
     // stencil produces the right behaviour at the boundary.
@@ -276,6 +416,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     };
 
     applyVelocityBCs(u, v, w);
+    applyOutletBCs(u, v, w); // seed outlet plug flow so iter-1 div is finite
 
     // ----------------------------------------------- pressure Poisson matrix
     //
@@ -348,11 +489,40 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         Lp.makeCompressed();
     }
 
+    // Singular-system guard. A projection-method pressure Poisson is singular
+    // (rank-deficient) unless its null space is removed by EITHER a Dirichlet
+    // pressure cell (an outlet) OR the explicit one-cell pin. If neither is
+    // present the operator has the constant null vector and the solve is
+    // ill-posed — throw a clear error rather than letting the corrector chase a
+    // RHS the operator cannot represent and drift to NaN.
+    {
+        bool anyOutletForPin = false;
+        for (auto f : cfg.outlets) if (f < 6) { anyOutletForPin = true; break; }
+        // (!anyOutlet) path above pins cell 0, so a pin always exists; this
+        // assertion documents the invariant and future-proofs against an edit
+        // that removes the pin. With an inlet but no outlet AND no pin the
+        // system would be singular; we never reach here in that case, but the
+        // check is cheap insurance.
+        if (!anyOutletForPin) {
+            // cell-0 pin must be present: Lp(0,0) == 1 and row 0 otherwise zero.
+            if (std::abs(Lp.coeff(0, 0) - 1.0) > 1e-12) {
+                throw std::runtime_error(
+                    "forge.cfd.solveSteadyNS: pressure system is singular — no "
+                    "outlet (Dirichlet p) and no pressure pin present. Add an "
+                    "outlet face or a pressure reference.");
+            }
+        }
+    }
+
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(Lp);
     if (ldlt.info() != Eigen::Success) {
-        // Fallback: try SparseLU.
+        // Factorisation failed → the assembled operator is singular or
+        // numerically rank-deficient. Surface a clear singular-system error
+        // instead of proceeding to a NaN-producing solve.
         throw std::runtime_error(
-            "forge.cfd.solveSteadyNS: pressure Poisson LDLT factorisation failed");
+            "forge.cfd.solveSteadyNS: pressure Poisson LDLT factorisation failed "
+            "(singular/inconsistent pressure system — ensure an outlet or "
+            "pressure pin is present)");
     }
 
     auto divergenceL2 = [&]() {
@@ -382,6 +552,18 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         return std::sqrt(s / (u.size() + v.size() + w.size()));
     };
 
+    // Current peak face speed across all three staggered velocity arrays — the
+    // quantity the advective CFL limit is actually bound to. Used to throttle
+    // the explicit predictor as the channel accelerates from rest toward its
+    // developed peak (see dtStep below).
+    auto maxFaceSpeed = [&]() {
+        double m = 0;
+        for (double x : u) m = std::max(m, std::abs(x));
+        for (double x : v) m = std::max(m, std::abs(x));
+        for (double x : w) m = std::max(m, std::abs(x));
+        return m;
+    };
+
     // Two convergence numbers are tracked:
     //   divResidual = ‖∇·u‖₂   — divergence after projection (should sit at
     //                            machine epsilon once Poisson is exact, so
@@ -399,6 +581,28 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     // -------------------------------------------------- main SIMPLE loop
     for (iter = 1; iter <= cfg.maxIter; ++iter) {
         uPrev = u; vPrev = v; wPrev = w;
+
+        // ADAPTIVE TIMESTEP (channel-stability fix). The base dt above was
+        // sized from the *initial* BC speed (uBc, e.g. the 0.1 m/s inlet). But
+        // the channel develops a peak ≈ 1.5× the mean and, during the transient,
+        // can briefly overshoot; the explicit first-order-upwind predictor is
+        // only CFL-stable while dt ≤ hMin / u_max. Freezing dt at the inlet
+        // speed therefore goes unstable the instant the interior outruns the
+        // inlet, which is exactly the observed blow-up. Recompute the advective
+        // limit from the CURRENT peak face speed each iteration and march with
+        // the smaller of the diffusive cap and that advective limit. dtStep
+        // only ever shrinks below the base dt, so it stays inside von-Neumann;
+        // it never grows past dtDiff.
+        double uCur = maxFaceSpeed();
+        if (!std::isfinite(uCur)) {
+            throw std::runtime_error(
+                "forge.cfd.solveSteadyNS: solution diverged to non-finite "
+                "velocity before projection (advective instability — iter "
+                + std::to_string(iter) + ")");
+        }
+        const double dtAdvCur = 0.5 * hMin / (1.5 * std::max(uCur, 1e-6));
+        const double dtStep = std::min(dt, dtAdvCur);
+
         // -------- 1. predictor — solve for u* (interior u-faces only) ----
         for (int k = 0; k < Nz; ++k) {
           for (int j = 0; j < Ny; ++j) {
@@ -434,7 +638,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                                + (uN - 2 * uC + uS) / (dy * dy)
                                + (uT - 2 * uC + uB) / (dz * dz);
 
-              uStar[ui] = uC + dt * (-duAdx - duAdy - duAdz + cfg.nu * lap);
+              uStar[ui] = uC + dtStep * (-duAdx - duAdy - duAdz + cfg.nu * lap);
             }
           }
         }
@@ -470,7 +674,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                                + (vN - 2 * vC + vS) / (dy * dy)
                                + (vT - 2 * vC + vB) / (dz * dz);
 
-              vStar[vi] = vC + dt * (-dvAdx - dvAdy - dvAdz + cfg.nu * lap);
+              vStar[vi] = vC + dtStep * (-dvAdx - dvAdy - dvAdz + cfg.nu * lap);
             }
           }
         }
@@ -506,7 +710,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                                + (wN - 2 * wC + wS) / (dy * dy)
                                + (wT - 2 * wC + wB) / (dz * dz);
 
-              wStar[wi] = wC + dt * (-dwAdx - dwAdy - dwAdz + cfg.nu * lap);
+              wStar[wi] = wC + dtStep * (-dwAdx - dwAdy - dwAdz + cfg.nu * lap);
             }
           }
         }
@@ -514,6 +718,12 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         // Re-apply BCs (the predictor never touches boundary faces in the
         // loops above, but inlet/wall values can drift slightly so make sure).
         applyVelocityBCs(uStar, vStar, wStar);
+        // UPGRADE B: enforce the outflow BC + global mass conservation on the
+        // tentative field BEFORE the pressure solve. This makes ∮∇·u* dV (the
+        // integral of the Poisson RHS) consistent with the Neumann/Dirichlet
+        // operator, so the corrector can drive ∇·u→0 instead of accumulating a
+        // net source that blows the pressure up to NaN.
+        applyOutletBCs(uStar, vStar, wStar);
 
         // Capture the pre-projection divergence on iter 1 — this is the
         // honest "initial residual" the smoke test can compare against the
@@ -539,7 +749,11 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         //           = ∇·u* − (Δt/ρ) · (ρ/Δt) ∇·u*   (because Lp p = −rhs)
         //           = 0
         Eigen::VectorXd rhs(nCells);
-        const double scale = -cfg.rho / dt;
+        // RHS scale uses the SAME dtStep as the corrector below so the
+        // projection identity ∇·u_new = 0 holds exactly regardless of the
+        // adaptive timestep (the dt cancels: rhs ∝ ρ/dtStep, corrector ∝
+        // dtStep/ρ).
+        const double scale = -cfg.rho / dtStep;
         for (int k = 0; k < Nz; ++k)
           for (int j = 0; j < Ny; ++j)
             for (int i = 0; i < Nx; ++i) {
@@ -576,7 +790,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         // -------- 3. velocity corrector ----------------------------------
         // Standard pressure-projection corrector: u^{n+1} = u* - (Δt/ρ) ∇p.
         // No under-relaxation — the tight timestep above keeps it stable.
-        const double k_dt_rho = dt / cfg.rho;
+        const double k_dt_rho = dtStep / cfg.rho;
         for (int k = 0; k < Nz; ++k)
           for (int j = 0; j < Ny; ++j)
             for (int i = 1; i < Nx; ++i) {
@@ -602,17 +816,50 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
               w[wi] = wStar[wi] - k_dt_rho * dpdz;
             }
         applyVelocityBCs(u, v, w);
+        // UPGRADE B: re-impose the outflow BC + mass conservation on the
+        // corrected field so the reported velocity carries the channel through-
+        // flow at the outlet (the corrector's ∂p/∂n term does not act on the
+        // boundary face itself).
+        applyOutletBCs(u, v, w);
 
         divResidual = divergenceL2();
         velChange   = velocityChange();
+
+        // UPGRADE B: NaN / divergence guard. If the pressure system is singular
+        // or inconsistent (e.g. an open domain with no Dirichlet pressure pin
+        // and a net mass imbalance), the projection cannot clean up divergence
+        // and the field blows up. Detect a non-finite or runaway residual and
+        // report it as a real error instead of silently returning NaN/maxVel=0.
+        if (!std::isfinite(divResidual) || !std::isfinite(velChange)) {
+            throw std::runtime_error(
+                "forge.cfd.solveSteadyNS: solution diverged to non-finite values "
+                "(singular/inconsistent pressure system — check that an outlet or "
+                "pressure pin is present and inflow == outflow). Iter "
+                + std::to_string(iter));
+        }
+        // Runaway guard: catch an exploding-but-still-finite field before it
+        // overflows to inf. A correctly posed laminar channel settles to a peak
+        // of O(1.5·u_inlet); a velocity exceeding a large multiple of the
+        // driving BC speed (uBc) is unphysical and signals instability. We throw
+        // a clear error so the JS caller never receives a garbage finite number.
+        {
+            const double umaxNow = maxFaceSpeed();
+            if (umaxNow > 1e6 * std::max(uBc, 1.0)) {
+                throw std::runtime_error(
+                    "forge.cfd.solveSteadyNS: solution diverging (velocity "
+                    "magnitude " + std::to_string(umaxNow) + " m/s >> driving "
+                    "speed) — advective instability or inconsistent open-domain "
+                    "mass balance. Iter " + std::to_string(iter));
+            }
+        }
         // initialDiv already set on iter==1 by the pre-projection capture above.
         if (std::getenv("FORGE_CFD_TRACE")) {
             double umaxNow = 0;
             for (double x : u) umaxNow = std::max(umaxNow, std::abs(x));
             double pmax = 0;
             for (double x : p) pmax = std::max(pmax, std::abs(x));
-            std::fprintf(stderr, "[cfd] iter %d divRes %.3e velChange %.3e maxU %.3e maxP %.3e\n",
-                         iter, divResidual, velChange, umaxNow, pmax);
+            std::fprintf(stderr, "[cfd] iter %d dtStep %.3e divRes %.3e velChange %.3e maxU %.3e maxP %.3e\n",
+                         iter, dtStep, divResidual, velChange, umaxNow, pmax);
         }
         if (iter > 1 && velChange < cfg.residualTol) break;
     }

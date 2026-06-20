@@ -197,7 +197,7 @@ function ViewportScene({ bundle, steps, selection, onSelect,
 
   return (
     <Canvas
-      camera={{ position: cameraFor(viewName), fov: 45, near: 0.1, far: 5000 }}
+      camera={{ position: cameraFor(viewName), fov: 45, near: 0.1, far: 200000 }}
       gl={{ antialias: true, alpha: false, localClippingEnabled: true }}
       onCreated={({ gl }) => { gl.clippingPlanes = clippingPlanes; gl.localClippingEnabled = true; }}
       onPointerMissed={() => aisOnMissed()}
@@ -243,7 +243,7 @@ function ViewportScene({ bundle, steps, selection, onSelect,
         />
       )}
       <OrbitControls ref={orbitRef} makeDefault enableDamping dampingFactor={0.08}
-                     minDistance={5} maxDistance={300}
+                     minDistance={5} maxDistance={80000}
                      enabled={!gizmoBusy} />
       <CameraCenterEffect orbitRef={orbitRef} bundle={bundle}
                           viewName={viewName} centerToken={centerToken} />
@@ -540,7 +540,7 @@ function getBgColor(state, theme) {
     if (state === 'wireframe') return [1.0, 1.0, 1.0];
     return [0.92, 0.93, 0.95];   // greyish off-white viewport
   }
-  if (theme === 'contrast') return [0, 0, 0];
+  if (theme === 'high-contrast') return [0, 0, 0];
   if (state === 'wireframe') return [0, 0, 0];
   return [0.04, 0.05, 0.07];
 }
@@ -734,11 +734,33 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
                   }}>
               {displayState === 'wireframe'
                 ? <meshBasicMaterial color={sel ? '#ffffff' : colorForBody(m.body)} wireframe />
-                : <meshStandardMaterial
-                    color={sel ? '#ffffff' : colorForBody(m.body)}
-                    roughness={0.42} metalness={0.18}
-                    transparent={displayState === 'transparent'}
-                    opacity={displayState === 'transparent' ? 0.5 : 1} />}
+                : (() => {
+                    // Forge flagship photoreal: when a per-body PBR preset is
+                    // assigned (window.__forgeBodyPBR), drive metalness/roughness/
+                    // envMapIntensity/clearcoat from the REAL material class
+                    // (titanium / nickel superalloy / CFRP / …) via a
+                    // meshPhysicalMaterial; otherwise keep the neutral default.
+                    const pbr = pbrPropsForBody(m.body);
+                    if (pbr && displayState !== 'transparent') {
+                      return (
+                        <meshPhysicalMaterial
+                          color={sel ? '#ffffff' : colorForBody(m.body)}
+                          metalness={pbr.metalness ?? 1.0}
+                          roughness={pbr.roughness ?? 0.4}
+                          envMapIntensity={pbr.envMapIntensity ?? 1.0}
+                          clearcoat={pbr.clearcoat ?? 0}
+                          clearcoatRoughness={pbr.clearcoatRoughness ?? 0}
+                          sheen={pbr.sheen ?? 0} />
+                      );
+                    }
+                    return (
+                      <meshStandardMaterial
+                        color={sel ? '#ffffff' : colorForBody(m.body)}
+                        roughness={0.42} metalness={0.18}
+                        transparent={displayState === 'transparent'}
+                        opacity={displayState === 'transparent' ? 0.5 : 1} />
+                    );
+                  })()}
             </mesh>
           );
         }
@@ -758,6 +780,23 @@ function SceneMeshes({ THREE, bundle, steps, selection, onSelect, displayState, 
 // into HSL space.
 function colorForBody(body) {
   if (!body) return '#c4ccd6';
+  // PUSH-59/71 contract (finally wired): an explicit per-body colour override in
+  // window.__forgeBodyColors (Map<handle,'#rrggbb'>) wins over every heuristic.
+  // This is the surface BodyColorsPanel + the CAE-in-motion stress colormap
+  // overlay write into, so an FEA von-Mises tint paints the real body.
+  if (typeof window !== 'undefined' && window.__forgeBodyColors instanceof Map
+      && typeof body.handle === 'number') {
+    const ov = window.__forgeBodyColors.get(body.handle);
+    if (ov) return ov;
+  }
+  // Forge flagship photoreal: a per-body material preset (window.__forgeBodyPBR,
+  // Map<handle, {color,...}>) drives the base colour so a tagged engine body
+  // (titanium / nickel superalloy / CFRP …) reads with its real albedo.
+  if (typeof window !== 'undefined' && window.__forgeBodyPBR instanceof Map
+      && typeof body.handle === 'number') {
+    const pbr = window.__forgeBodyPBR.get(body.handle);
+    if (pbr && pbr.color) return pbr.color;
+  }
   // Role-based colors when the body's name/toolId hints at the kind.
   const name = (body.name || body.toolId || '').toLowerCase();
   // PUSH-31 — recognize V12 / general mech-assembly part roles so a
@@ -781,6 +820,18 @@ function colorForBody(body) {
   );
   const hue = (Math.abs(h) * 37) % 360;
   return `hsl(${hue}, 45%, 60%)`;
+}
+
+// Forge flagship photoreal — return the per-body PBR preset (metalness,
+// roughness, envMapIntensity, clearcoat …) from window.__forgeBodyPBR
+// (Map<handle, preset>) so the SceneMeshes single-mesh path can render a body
+// with its real engineering reflectance. Returns null when no preset is
+// assigned (keeps the neutral default look for ordinary modelling bodies).
+function pbrPropsForBody(body) {
+  if (!body || typeof window === 'undefined') return null;
+  if (!(window.__forgeBodyPBR instanceof Map)) return null;
+  if (typeof body.handle !== 'number') return null;
+  return window.__forgeBodyPBR.get(body.handle) || null;
 }
 
 // Forge-125 — synthetic spec helper. Returns a copy with the segment
@@ -839,6 +890,15 @@ function AnimationPoseTicker({ bundle }) {
           Number(p.pos[1]) || 0,
           Number(p.pos[2]) || 0);
         applied += 1;
+      }
+      // Flagship rotor-spin: when the pose carries a quaternion (set by
+      // forgeFlagshipRender.setRotorSpin) apply it so a rotating body actually
+      // turns about the engine axis. Absent quat → orientation untouched.
+      if (p && p.quat && typeof p.quat.length === 'number' && p.quat.length === 4) {
+        obj.quaternion.set(
+          Number(p.quat[0]) || 0, Number(p.quat[1]) || 0,
+          Number(p.quat[2]) || 0, Number(p.quat[3]) || 1);
+        if (!(p.pos && p.pos.length >= 3)) applied += 1;
       }
     });
     diagRef.current.lastApplied = applied;
