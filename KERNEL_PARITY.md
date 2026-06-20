@@ -50,6 +50,32 @@ cites a public URL; anything not built / unverified is marked as such.
 
 ---
 
+## 0. In-house pure-C++ native kernel (`forge::native`) — first increments [2026-06-20]
+
+Per the user directive (ONE native, in-house, pure-C++, no-deps, no-WASM kernel carrying the
+unified power of all five classes — `KERNEL_UNIFICATION.md §0/§4` + `KERNEL_INHOUSE_ROADMAP.md`),
+the in-house kernel is built bottom-up ALONGSIDE the OCCT-backed kernel (OCCT stays the working
+foundation + parity oracle until each capability reaches parity). These are the first **real,
+compiled, validated** increments — pure C++20, zero dependencies, no WASM, one shared predicate
+engine (no duplicates). Run: `npm run forge:native` (151 tests; CI: `kernel-tests.yml` `native` job).
+
+| Module (`forge::native::`) | Class re-implemented | Status | Validated gate (real, this commit) |
+|---|---|---|---|
+| `Predicates` | CGAL robustness substrate | PARTIAL | 39/39 — orient2d/3d, incircle/insphere; proven-exact in normal binary64 range (subnormal boundary noted) |
+| `brep` (Topology+Nurbs) | OCCT B-rep/NURBS | PARTIAL | 33/33 — box Euler V−E+F=2; Cox-de Boor rational NURBS + Bézier eval to 1e-9 |
+| `mesh` (HalfEdge+Boolean) | Manifold mesh booleans | PARTIAL | 25/25 — 2-manifold/watertight audit; plane-clip volume exact via real `orient3d` |
+| `geom` (Hull+Intersect) | CGAL robust geometry | PARTIAL | 30/30 — robust 2D/3D convex hull + segment intersection, degenerate-proof |
+| `implicit` (Sdf+IsoMesher) | libfive F-rep/SDF | PARTIAL | 15/15 — SDF tree + marching cubes; sphere → 4/3·π·r³ convergence |
+| `voxel` (VoxelGrid+Tpms) | PicoGK voxel/lattice | PARTIAL | 9/9 — sphere vol error shrinks 1660×; gyroid volume-fraction 0.5; percolation |
+
+**Honest status:** these are *first increments*, NOT parity, and NOT yet wired into `binding.cpp` /
+the live kernel (validated only via standalone gates). The hard remainders — general mesh booleans,
+curve-curve / surface-surface intersection, B-rep boolean + features (the OCCT replacement, longest
+pole) — are TARGETED per `KERNEL_INHOUSE_ROADMAP.md` Stages 2/4/5/6 and marked in each module header.
+Robustness ceiling is *robust-in-practice* (predicates + snap-rounding), NOT CGAL-exact/Nef.
+
+---
+
 ## 1. Geometry primitives & exact B-rep core
 
 | Row | Status | Evidence (file:line) | Validation (test run 2026-06-20) |

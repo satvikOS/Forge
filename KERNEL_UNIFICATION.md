@@ -1,6 +1,8 @@
 # KERNEL_UNIFICATION.md
 
-**One native Forge kernel with the unified power of OCCT + Manifold + CGAL + libfive + PicoGK — no duplicate engines, no external runtime dependencies beyond the OCCT foundation already vendored/linked.**
+**GOAL (user, crystallized 2026-06-20): ONE native, in-house, pure-C++ B-rep kernel carrying the unified power of all five capability classes — B-rep/NURBS (OCCT-class) + manifold mesh booleans (Manifold-class) + robust exact computational geometry (CGAL-class) + implicit/F-rep/SDF (libfive-class) + voxel/lattice (PicoGK-class) — ALL re-implemented IN-HOUSE (studying OCCT + other kernels as reference), no dependencies, no WASM, no duplicate engines.**
+
+Honest transition (Bible §0): OCCT is retained as the **working foundation AND the parity oracle** during the multi-year build, retired capability-by-capability as the in-house kernel reaches parity (§4). The currently-built kernel is OCCT-anchored; the in-house replacement is built **bottom-up** (exact predicates → robust mesh/half-edge → manifold booleans → implicit/SDF → voxel/lattice → B-rep topology + NURBS, the OCCT replacement and longest pole). Build order + per-capability validation gates: see `KERNEL_INHOUSE_ROADMAP.md`.
 
 Status: ARCHITECTURE + PHASED BUILD PLAN. This document separates **built & validated** (verified against the repo today) from **targeted** (not yet built — marked TODO/UNVERIFIED). Per Forge Engineering Bible rules 0/9: every external claim cites a real URL; every repo claim cites `file:line`; nothing is fabricated; a correct "not implemented" beats a fake "working".
 

@@ -40,6 +40,16 @@ jobs:
         working-directory: frontend
         run: npm test
 
+  native:
+    # In-house pure-C++ kernel gates (forge::native) — NO OCCT, NO deps, NO WASM,
+    # so this runs fast on ubuntu with just a C++20 compiler.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build + run in-house native kernel gates (151 tests, pure C++)
+        run: bash forge-kernel/test/native/run_native.sh
+
   kernel:
     runs-on: macos-latest
     timeout-minutes: 40
