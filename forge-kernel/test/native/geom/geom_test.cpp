@@ -145,8 +145,16 @@ int main() {
         // Truth is ZERO by construction (all points on y=x).
         check(robust == Sign::ZERO,
               "(b) robust orient2d returns exact ZERO on the on-line point");
-        check(naive != Sign::ZERO,
-              "(b) naive float orient2d is demonstrably WRONG (nonzero) here");
+        // NOTE: whether the NAIVE determinant is wrong on a given point is
+        // compiler/FMA-contraction dependent — it may fuse to a single rounding
+        // on some targets (e.g. Apple arm64) and round step-by-step on others
+        // (e.g. x86-64), so the same input can be "wrong" on one and exact on
+        // another. We therefore REPORT the naive result but do NOT assert it; the
+        // kernel guarantee is that OUR robust predicate is exact, asserted below.
+        std::printf("    (informational) naive orient2d here = %d%s\n",
+                    signValue(naive),
+                    naive != Sign::ZERO ? " (wrong, as expected on this target)"
+                                        : " (happened to be exact on this target)");
 
         // Sweep many ULP-spaced on-line points: robust must be ZERO on EVERY
         // one; naive must be wrong on at least one (we already know it is).
@@ -163,8 +171,9 @@ int main() {
                     swept, robustWrong, naiveWrong);
         check(robustWrong == 0,
               "(b) robust predicate is exactly correct on ALL on-line points");
-        check(naiveWrong > 0,
-              "(b) naive predicate fails on some on-line points");
+        // Informational only (compiler/FMA-dependent, not a kernel property):
+        std::printf("    (informational) naive predicate wrong on %d/%d on-line points\n",
+                    naiveWrong, swept);
 
         // Hull-level consequence: the three points are collinear, so the robust
         // hull must collapse to the 2 extreme endpoints. A naive hull, fooled by

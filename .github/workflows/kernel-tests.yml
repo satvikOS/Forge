@@ -47,7 +47,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Build + run in-house native kernel gates (151 tests, pure C++)
+      - name: Build + run in-house native kernel gates (pure C++, no deps, no WASM)
         run: bash forge-kernel/test/native/run_native.sh
 
   kernel:

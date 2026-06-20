@@ -36,7 +36,7 @@ run_test() {
     if "/tmp/forge_native_$safe" >"/tmp/forge_native_$safe.out" 2>&1; then
       echo "[native:$name] PASS — $(grep -iE 'passed|RESULT|PASS' "/tmp/forge_native_$safe.out" | tail -1)"
     else
-      echo "[native:$name] TEST FAIL"; tail -6 "/tmp/forge_native_$safe.out"; fail=1
+      echo "[native:$name] TEST FAIL — full output:"; cat "/tmp/forge_native_$safe.out"; fail=1
     fi
   else
     echo "[native:$name] BUILD FAIL"; tail -12 "/tmp/forge_native_$safe.err"; fail=1
