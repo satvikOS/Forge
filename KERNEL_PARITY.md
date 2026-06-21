@@ -94,6 +94,19 @@ ops, UNION succeeds on only **~1.6 %** of random skew pairs, and it is **not eve
 coordinates alone don't help. The PoC was **discarded (not committed)** to avoid a second brittle
 near-duplicate engine (no-duplicates rule); the finding redirects Stage-2 to robust arrangement closure.
 
+**Round 5 [2026-06-20] — shared intersection-vertex arrangement closure (INTEGRATED, CI-green):**
+3 parallel principled implementations confirmed the round-4 hypothesis: the blocker is arrangement
+closure, and a **GLOBAL shared intersection-vertex map** (each cut point computed once, keyed by
+(mesh-edge × face-plane), the SAME id on both surfaces) **removes the T-junction** — so rotated/tilted
+booleans now CLOSE. Integrated `mesh::meshBoolRobust_a` with a **randomized green gate** (51/51 each
+run, fresh `std::random_device` seed): robust for **enclosed / non-boundary-crossing contact, incl.
+ROTATED, all 3 ops, exact volume, 0 fakes** (thousands of random ops verified). HONEST limit:
+**boundary-CROSSING partial overlaps** (axis OR rotated — the common drill-through case) are still
+NOT robust (~5–40%), and the clean 45° coplanar cube returns honest `ok=false`. The remaining
+Stage-2 core is robust boundary-crossing arrangement closure (per-op selection + coplanar contact).
+`meshBoolRobust_a` is **complementary** to `MeshBoolean2` (axis-aligned boundary-crossing half-overlap);
+unifying them into ONE general boolean is the open work. Variants B/C discarded (no duplicates).
+
 **Honest status:** these are *first/second increments*, NOT parity, and NOT yet wired into `binding.cpp` /
 the live kernel (validated only via standalone gates). The hard remainders — general mesh booleans,
 curve-curve / surface-surface intersection, B-rep boolean + features (the OCCT replacement, longest
