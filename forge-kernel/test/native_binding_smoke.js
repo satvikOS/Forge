@@ -192,9 +192,10 @@ function sphere(cx, cy, cz, r, nlat, nlon) {
     + `D=${diff.volume.toFixed(4)}) OK`);
 }
 
-// (2) Clean 45° coplanar cube (shares faces): A honestly CANNOT close this, so it
-// MUST return ok=false with an honest reason — NEVER a fake. This is the
-// documented honest ceiling (KERNEL_PARITY / MeshBoolRobust_a.hpp).
+// (2) Exactly-45° coplanar cube (shares faces): a measure-zero degeneracy the
+// canonical boolean honestly CANNOT close, so it MUST return ok=false with an
+// honest reason — NEVER a fake. This is the documented honest ceiling
+// (KERNEL_PARITY / MeshBooleanNative.hpp).
 {
   const A = cube(-0.5, -0.5, -0.5, 1.0);
   const B = cube(-0.5, -0.5, -0.5, 1.0);

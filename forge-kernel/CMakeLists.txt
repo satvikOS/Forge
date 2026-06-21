@@ -441,8 +441,7 @@ add_library(forge_kernel SHARED
     src/native/mesh/HalfEdgeMesh.cpp
     src/native/mesh/TriTriIntersect.cpp
     src/native/mesh/MeshBoolean.cpp
-    src/native/mesh/MeshBoolean2.cpp
-    src/native/mesh/MeshBoolRobust_a.cpp
+    src/native/mesh/MeshBooleanNative.cpp
     src/native/implicit/SdfTree.cpp
     src/native/implicit/IsoMesher.cpp
     src/native/implicit/DualContour.cpp

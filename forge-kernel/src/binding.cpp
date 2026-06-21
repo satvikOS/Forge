@@ -307,7 +307,7 @@
 #include "forge/native/implicit/SdfTree.hpp"
 #include "forge/native/implicit/IsoMesher.hpp"
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
-#include "forge/native/mesh/MeshBoolRobust_a.hpp"
+#include "forge/native/mesh/MeshBooleanNative.hpp"
 
 #include <array>
 
@@ -15825,13 +15825,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
           });
         }));
 
-      // -- robust general mesh boolean (Variant A) -----------------------
+      // -- canonical general mesh boolean (meshBooleanNative) -------------
       // meshBoolean(aPos, aIdx, bPos, bIdx, op)
       //   op : "union"|"intersection"|"difference".
       //   -> { ok, reason, volume, area, vertexCount, faceCount,
       //        positions: Float64Array, indices: Uint32Array }.
-      //   When ok=false (boundary-crossing / coplanar / non-manifold) the
-      //   honest reason is returned and NO geometry — never a fake result.
+      //   When ok=false (measure-zero degeneracy / non-manifold) the honest
+      //   reason is returned and NO geometry — never a fake result.
       nativeNs.Set("meshBoolean", Napi::Function::New(env,
         [readDoubleVec, readU32Vec](const Napi::CallbackInfo& info) -> Napi::Value {
           return safe(info, [&]() -> Napi::Value {
@@ -15844,12 +15844,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
             auto bPos = readDoubleVec(e2, info[2], "bPos");
             auto bIdx = readU32Vec(e2, info[3], "bIdx");
             using namespace forge::native::mesh;
-            BoolOpA op = BoolOpA::UNION;
+            BoolOpN op = BoolOpN::UNION;
             if (info[4].IsString()) {
               std::string s = info[4].As<Napi::String>().Utf8Value();
-              if      (s == "union")        op = BoolOpA::UNION;
-              else if (s == "intersection") op = BoolOpA::INTERSECTION;
-              else if (s == "difference")   op = BoolOpA::DIFFERENCE;
+              if      (s == "union")        op = BoolOpN::UNION;
+              else if (s == "intersection") op = BoolOpN::INTERSECTION;
+              else if (s == "difference")   op = BoolOpN::DIFFERENCE;
               else throw Napi::TypeError::New(e2,
                   "forge.native.meshBoolean: op must be "
                   "'union'|'intersection'|'difference'");
@@ -15858,7 +15858,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
                   "forge.native.meshBoolean: op must be a string");
             }
 
-            BoolResultA r = meshBoolRobust_a(aPos, aIdx, bPos, bIdx, op);
+            BoolResultN r = meshBooleanNative(aPos, aIdx, bPos, bIdx, op);
             auto o = Napi::Object::New(e2);
             o.Set("ok",     Napi::Boolean::New(e2, r.ok));
             o.Set("reason", Napi::String::New(e2, r.reason ? r.reason : ""));

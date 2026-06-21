@@ -107,7 +107,20 @@ Stage-2 core is robust boundary-crossing arrangement closure (per-op selection +
 `meshBoolRobust_a` is **complementary** to `MeshBoolean2` (axis-aligned boundary-crossing half-overlap);
 unifying them into ONE general boolean is the open work. Variants B/C discarded (no duplicates).
 
-**Honest status:** these are *first/second increments*, NOT parity, and NOT yet wired into `binding.cpp` /
+**Round 6 [2026-06-20] — GENERAL boundary-crossing boolean SOLVED + UNIFIED (CI-green, wired in-platform):**
+2 parallel strategies attacked the round-5 selection+stitch wall; the winner (combined-arrangement
+interior-face removal + a relative-area degenerate-sliver drop `area² < 1e-9·faceArea²`) **closes the
+general boolean**: ~**98–100%** of random general-position partial-overlap cube pairs, **all 3 ops,
+rotated/tilted**, exact volumes, **0 fakes** (the ≤2% are measure-zero degeneracies — exactly-45°
+edge-on-face, near-vertex pins — returned honest `ok=false`). Integrated as the CANONICAL
+`forge::native::mesh::meshBooleanNative`, **superseding `MeshBoolean2` (axis-only) + `meshBoolRobust_a`
+(enclosed-only)** which were DELETED (no duplicates), wired into `binding.cpp` (`forge.native.meshBoolean`)
++ `native_binding_smoke` + the 13-gate native suite. Robustness ceiling: Manifold-class (exact
+combinatorial core, double-precision shared coords), NOT CGAL-exact rationals. **This opens the path to
+retiring `manifold-3d`** (the no-WASM goal): remaining = route the frontend `manifold-3d` call sites
+through the native boolean, then delete the dep.
+
+**Honest status:** the in-house native kernel is NOW partly wired into `binding.cpp` (`forge.native.*`); these are still increments, NOT full parity /
 the live kernel (validated only via standalone gates). The hard remainders — general mesh booleans,
 curve-curve / surface-surface intersection, B-rep boolean + features (the OCCT replacement, longest
 pole) — are TARGETED per `KERNEL_INHOUSE_ROADMAP.md` Stages 2/4/5/6 and marked in each module header.
