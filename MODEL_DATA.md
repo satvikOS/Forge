@@ -156,6 +156,7 @@ atomic shards below + foundational anchors; row counts overlap.)
 | `forge/simulation` | 460 | FEA/CFD verbs | `synth_forge_simulation.py` |
 | `forge/sim_plus_context` | 1,150 | sim + surrounding assembly context | `build_sim_plus_context.py` |
 | `forge/multibody` | 228 | HHT-α multibody dynamics | `synth_forge_multibody.py` |
+| **`forge/dynamic_structures`** | **TARGETED — 24B run** | **mechanisms / linkages / kinematics, rotating machinery, vibration / modal / transient structural dynamics** (expands the 228-sample multibody seed) — **user directive 2026-06-20: ADD to the 24B training list** | `synth_forge_dynamic_structures.py` (TODO) |
 | `forge/multimodal` | 1,350 | drawing-image → build (multimodal) | `synth_forge_multimodal.py` |
 | `forge/standard_parts` | 310 | ISO/ANSI standard parts | `synth_forge_standard_parts.py` |
 | `forge/assembly_context` | 2,869 | full-assembly-context geometry | `synth_forge_assembly_context.py` |

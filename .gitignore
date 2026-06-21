@@ -45,6 +45,12 @@ yarn-debug.log*
 yarn-error.log*
 *.backup
 .serverless/
+
+# Test render / screenshot artifacts (regenerated each run; never committed)
+test-results/
+e2e/forge/shots/
+e2e/demo/shots/
+forge-kernel/test/_turbofan_out/
 lambda-deployment.zip
 *.zip
 .serverless/
