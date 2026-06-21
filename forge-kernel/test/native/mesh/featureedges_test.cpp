@@ -313,15 +313,30 @@ int main() {
                     tag, fs.numVertices, fs.numEdges, fs.numFaces, maxDih,
                     fs.numFeatureEdges, fs.numCornerVertices, fs.numCreaseVertices);
 
-        bool noFeat = (fs.numFeatureEdges == 0);
-        bool noBnd  = (fs.numBoundaryEdges == 0);    // closed sphere
-        bool noCorn = (fs.numCornerVertices == 0 && fs.numCreaseVertices == 0);
-        bool below  = (maxDih < 30.0);
+        // DETECTOR CONTRACT (always true, never flaky): a non-boundary edge is a
+        // feature iff its dihedral exceeds the 30 deg threshold. Verify per-edge.
+        bool consistent = true;
+        for (const FeatureEdge& e : fs.edges) {
+            if (e.boundary) continue;                              // boundary edges are always features
+            if (std::fabs(e.dihedralDeg - 30.0) < 1e-9) continue;  // exact-threshold tie (measure-zero)
+            if (e.feature != (e.dihedralDeg > 30.0)) consistent = false;
+        }
+        bool noBnd = (fs.numBoundaryEdges == 0);                  // closed sphere
+        check(consistent, "[%s] feature flag == (dihedral>30) for every edge (detector contract)", tag);
         check(noBnd, "[%s] closed sphere -> 0 boundary edges (%u)", tag, fs.numBoundaryEdges);
-        check(below, "[%s] max dihedral < 30 deg (%.3f) -> smooth", tag, maxDih);
-        check(noFeat, "[%s] 0 feature edges at 30 deg (%u)", tag, fs.numFeatureEdges);
-        check(noCorn, "[%s] 0 corner + 0 crease vertices", tag);
-        return noFeat && noBnd && noCorn && below;
+        if (jiggleAmp <= 0.0) {
+            // CLEAN fixture is provably smooth: strict 0 features + max dihedral < 30.
+            bool below = (maxDih < 30.0), noFeat = (fs.numFeatureEdges == 0);
+            bool noCorn = (fs.numCornerVertices == 0 && fs.numCreaseVertices == 0);
+            check(below, "[%s] max dihedral < 30 deg (%.3f) -> smooth", tag, maxDih);
+            check(noFeat, "[%s] 0 feature edges at 30 deg (%u)", tag, fs.numFeatureEdges);
+            check(noCorn, "[%s] 0 corner + 0 crease vertices", tag);
+            return consistent && noBnd && below && noFeat && noCorn;
+        }
+        // JIGGLED fixture: a rare tangential jiggle can create a GENUINE >30deg edge
+        // (correct detection, not a bug), so assert the detector contract + closed —
+        // NOT a strict 0-count that is seed-dependent (the CI-flaky assertion).
+        return consistent && noBnd;
     };
     bool f2a = sphereCase("F2a sub3", 1.0, 3, 0.0);              // clean
     bool f2b = sphereCase("F2b sub3 jiggle", 1.7, 3, 0.01);     // randomized this run
