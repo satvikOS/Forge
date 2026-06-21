@@ -39,6 +39,8 @@ jobs:
       - name: Brand-guard + dep-allowlist + bridge↔prompt contract
         working-directory: frontend
         run: npm test
+      - name: ForgeCADScore v2 canonical-formula self-test (kernel-free)
+        run: node forge-kernel/test/cadscore_v2_selftest.mjs
 
   native:
     # In-house pure-C++ kernel gates (forge::native) — NO OCCT, NO deps, NO WASM,
