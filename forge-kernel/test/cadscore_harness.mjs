@@ -2,19 +2,25 @@
 /**
  * ForgeCADScore — headless, dependency-free geometry-truth scorer for ArchDisc Forge.
  *
- * Implements the CADGenBench "CAD Score":
+ * Implements the CADGenBench "CAD Score" (v2 — aligned 1:1 to the verified canonical
+ * forms in CADGENBENCH_SPEC.md / the leaderboard Space metrics_page.py):
  *   cad_score = gate * (0.4*shape + 0.4*interface + 0.2*topology)   [generation fixtures]
+ *   cad_score = gate * (0.6*s_renorm + 0.3*interface + 0.1*topology) [editing fixtures]
  *
  *   gate      — hard binary validity (closed && manifold && oriented && !self-intersect
  *               && no bad faces) on the final body, via kernel heal.checkValidity.
- *   shape     — mean of { volume-IoU proxy, bbox match, surface-F1 (Chamfer @0.5mm) }.
- *   interface — keep-in / keep-out "jig" test on named features (holes/bosses/slots),
- *               point-in-solid by ray-parity on the tessellation. (assembly / GD&T axis)
- *   topology  — Betti numbers (b0 = connected components via union-find on shared verts;
- *               b1,b2 via Euler characteristic per component) matched multiplicatively.
+ *   shape     — CANONICAL 0.5*(surface_distance_F1 + volume_IoU). Surface-F1 uses a
+ *               size-proportional tolerance = 0.5% of the GT bbox DIAGONAL; volume_IoU
+ *               is a TRUE Monte-Carlo |A∩B|/|A∪B| (not the old vol-difference proxy).
+ *   interface — per mating feature, VOLUMETRIC IoU = TP/(TP+FP+FN) of candidate material
+ *               vs the authored keep-in(filled)/keep-out(empty) sub-volume, then the
+ *               ramp (IoU>=0.95->1, <=0.80->0, linear), worst-feature per group / mean.
+ *               (assembly / GD&T interface axis — "a sloppy fit scores 0".)
+ *   topology  — Betti (b0,b1,b2); per-axis credit ((min+1)/(max+1))^2, axes MULTIPLIED.
  *
  *   dimension-L1 — relative L1 error on every numeric the prompt/fixture names vs emitted args.
- *               (reported as a separate diagnostic axis; not folded into cad_score.)
+ *               (reported as a separate diagnostic axis; NOT folded into cad_score — CADGenBench
+ *               has no such axis. v2 self-test: forge-kernel/test/cadscore_v2_selftest.mjs.)
  *
  * HEADLESS STRATEGY (per the preload API map): the native kernel
  * forge-kernel/build/Release/forge-kernel.node loads cleanly in plain Node and
@@ -284,12 +290,17 @@ function nnDist(px, py, pz, cloud, grid) {
  * penalised by discretisation noise (a 150 mm plate sampled at N points has
  * ~1 mm point spacing — a fixed 0.5 mm tol would mark identical surfaces wrong).
  */
-function surfaceF1(tA, tB, n = 8000, tauFloor = 0.5) {
+function surfaceF1(tA, tB, n = 8000, tauAbs = 0.5) {
   const ca = samplePoints(tA, n, 11);
   const cb = samplePoints(tB, n, 23);
   const areaA = triAreas(tA).total;
   const spacing = Math.sqrt(Math.max(areaA, 1) / n);
-  const tau = Math.max(tauFloor, 2.5 * spacing);
+  // CADGenBench: the match tolerance is 0.5% of the GT bbox DIAGONAL (size-
+  // proportional), supplied as tauAbs by the caller. The 2.5×spacing term is a
+  // finite-sampling FLOOR so two independent point clouds of the SAME surface
+  // still score ≈1.0 (without it, discretisation noise penalises identical
+  // surfaces). The floor only ever RAISES tau, never below the relative value.
+  const tau = Math.max(tauAbs, 2.5 * spacing);
   const cell = Math.max(tau * 2, 1.0);
   const gA = buildGrid(ca, cell);
   const gB = buildGrid(cb, cell);
@@ -302,6 +313,64 @@ function surfaceF1(tA, tB, n = 8000, tauFloor = 0.5) {
   const recall = hitB / (cb.length / 3);
   if (precision + recall === 0) return 0;
   return (2 * precision * recall) / (precision + recall);
+}
+
+/** Diagonal length of an axis-aligned bbox {min:[3],max:[3]}. */
+function bboxDiag(bb) {
+  return Math.hypot(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]);
+}
+
+/**
+ * TRUE volumetric IoU between two solids = |A∩B| / |A∪B|, estimated by
+ * deterministic Monte-Carlo over the padded union AABB with ray-parity
+ * point-in-solid on each tessellation. This REPLACES the v1 volume proxy
+ * (1−|Δvol|/max), which scored ~1.0 for two equal-volume solids that don't
+ * overlap at all. It is the CADGenBench "volume IoU" term of
+ *   shape_similarity = 0.5·(surface_distance_F1 + volume_IoU).
+ */
+function volumeIoU(tA, tB, n = 30000, seed = 99173) {
+  const ba = bboxOf(tA), bb = bboxOf(tB);
+  const lo = [0, 0, 0], hi = [0, 0, 0];
+  for (let a = 0; a < 3; a++) {
+    lo[a] = Math.min(ba.min[a], bb.min[a]);
+    hi[a] = Math.max(ba.max[a], bb.max[a]);
+    const pad = 0.01 * (hi[a] - lo[a]) + 1e-6; // avoid boundary bias
+    lo[a] -= pad; hi[a] += pad;
+  }
+  if (hi[0] <= lo[0] || hi[1] <= lo[1] || hi[2] <= lo[2]) return 1;
+  const rng = mulberry32(seed);
+  let inter = 0, uni = 0;
+  for (let i = 0; i < n; i++) {
+    const x = lo[0] + rng() * (hi[0] - lo[0]);
+    const y = lo[1] + rng() * (hi[1] - lo[1]);
+    const z = lo[2] + rng() * (hi[2] - lo[2]);
+    const inA = pointInSolid(x, y, z, tA);
+    const inB = pointInSolid(x, y, z, tB);
+    if (inA && inB) inter++;
+    if (inA || inB) uni++;
+  }
+  return uni === 0 ? 1 : inter / uni;
+}
+
+/**
+ * CADGenBench per-axis topology credit (VERIFIED canonical form, verbatim from the
+ * leaderboard Space's metrics_page.py):  s_i = ((min(cand,gt)+1)/(max(cand,gt)+1))².
+ * The three Betti axes are MULTIPLIED, not averaged. Worked example: b1 2 vs 4 →
+ * ((2+1)/(4+1))² = (3/5)² = 0.36. This replaces the v1 1/(1+|Δ|) falloff.
+ */
+function topologyCredit(got, want) {
+  const r = (Math.min(got, want) + 1) / (Math.max(got, want) + 1);
+  return r * r;
+}
+
+/**
+ * CADGenBench interface ramp: a per-feature volumetric IoU ≥ 0.95 → 1, ≤ 0.80 → 0,
+ * linear between ("a sloppy fit scores 0").
+ */
+function interfaceRamp(iou) {
+  if (iou >= 0.95) return 1;
+  if (iou <= 0.80) return 0;
+  return (iou - 0.80) / 0.15;
 }
 
 /**
@@ -466,12 +535,16 @@ function scoreShape(forge, h, gt) {
   const t = tess(forge, h);
   const bb = bboxOf(t);
 
-  // (1) volume-IoU proxy
-  const vol = Math.max(mp.volume, 0);
-  const gv = Math.max(gt.volume, 0);
-  const volScore = (vol === 0 && gv === 0) ? 1 : 1 - Math.abs(vol - gv) / Math.max(vol, gv, 1e-9);
+  // CADGenBench shape_similarity = 0.5·(surface_distance_F1 + volume_IoU).
+  // (1) TRUE volume IoU via Monte-Carlo over the union AABB (not the v1 proxy).
+  const volIoU = gt._tess ? volumeIoU(t, gt._tess) : 1;
+  // (2) surface-F1 with a size-proportional tolerance = 0.5% of the GT bbox diagonal.
+  const tauAbs = gt.bbox ? 0.005 * bboxDiag(gt.bbox) : 0.5;
+  const f1 = gt._tess ? surfaceF1(t, gt._tess, 8000, tauAbs) : 1;
 
-  // (2) bbox match: per-axis size IoU on extents, averaged
+  const shape = 0.5 * (f1 + volIoU);
+
+  // bbox extent-IoU + raw volume ratio kept as DIAGNOSTICS only (not in the score).
   let bboxScore = 0;
   for (let a = 0; a < 3; a++) {
     const lo1 = bb.min[a], hi1 = bb.max[a];
@@ -481,13 +554,8 @@ function scoreShape(forge, h, gt) {
     bboxScore += uni > 1e-9 ? inter / uni : 1;
   }
   bboxScore /= 3;
-
-  // (3) surface-F1 (Chamfer, 0.5mm floor scaled by sample spacing) vs gt tessellation
-  let f1 = 1;
-  if (gt._tess) f1 = surfaceF1(t, gt._tess, 8000, 0.5);
-
-  const shape = (volScore + bboxScore + f1) / 3;
-  return { shape, volScore, bboxScore, surfaceF1: f1, vol, bbox: bb };
+  const vol = Math.max(mp.volume, 0);
+  return { shape, volIoU, surfaceF1: f1, bboxScore, vol, bbox: bb };
 }
 
 /**
@@ -502,9 +570,13 @@ function scoreShape(forge, h, gt) {
  * moves the body away from the input ⇒ shape(edit) ≫ b_shape.
  */
 function shapeFromTess(a, b) {
-  const va = Math.max(a.volume || 0, 0);
-  const vb = Math.max(b.volume || 0, 0);
-  const volScore = (va === 0 && vb === 0) ? 1 : 1 - Math.abs(va - vb) / Math.max(va, vb, 1e-9);
+  // Same CADGenBench shape_similarity = 0.5·(surface_F1 + volume_IoU) as scoreShape,
+  // but over two labelled tessellation snapshots (no live kernel handle). Used for
+  // the editing no-op baseline b_shape = shapeFromTess(gt_input, gt_target).
+  const volIoU = (a.tess && b.tess) ? volumeIoU(a.tess, b.tess) : 1;
+  const tauAbs = b.bbox ? 0.005 * bboxDiag(b.bbox) : 0.5;
+  const f1 = (a.tess && b.tess) ? surfaceF1(a.tess, b.tess, 8000, tauAbs) : 1;
+  const shape = 0.5 * (f1 + volIoU);
 
   let bboxScore = 0;
   for (let ax = 0; ax < 3; ax++) {
@@ -515,19 +587,22 @@ function shapeFromTess(a, b) {
     bboxScore += uni > 1e-9 ? inter / uni : 1;
   }
   bboxScore /= 3;
-
-  let f1 = 1;
-  if (a.tess && b.tess) f1 = surfaceF1(a.tess, b.tess, 8000, 0.5);
-
-  const shape = (volScore + bboxScore + f1) / 3;
-  return { shape, volScore, bboxScore, surfaceF1: f1 };
+  return { shape, volIoU, surfaceF1: f1, bboxScore };
 }
 
 /**
  * Interface jig: each feature { kind:'hole'|'boss'|'slot', center:[x,y,z], r, axis, keepIn[], keepOut[] }.
- * keepIn  points must be cavity (hole/slot) or solid (boss);
- * keepOut points must be the opposite (i.e. the part must NOT intrude there).
- * Score per feature = worst of (keepIn pass-rate, keepOut pass-rate); averaged over features.
+ * CADGenBench scores each mating feature by the VOLUMETRIC IoU of the candidate's
+ * material vs the IDEAL (keep-in filled, keep-out empty), applies a ramp
+ * (IoU ≥ 0.95 → 1, ≤ 0.80 → 0, linear), takes the worst feature per group and the
+ * mean over groups. We estimate the IoU from the authored keep-in/keep-out sample
+ * points (a Monte-Carlo volume estimate over the feature's region): with occ*(p) the
+ * ideal occupancy and occ(p)=pointInSolid(p) the candidate's,
+ *   IoU = TP / (TP + FP + FN)
+ * where TP=occ&occ*, FP=occ&¬occ* (intruding material), FN=¬occ&occ* (missing
+ * material). This replaces the v1 raw point pass-rate min(inRate,outRate) — it
+ * penalises BOTH under-fill and intrusion and matches the CADGenBench ramp.
+ * (Features map 1:1 to groups here; refine to multi-feature groups when authored.)
  */
 function scoreInterface(forge, h, features) {
   if (!features || features.length === 0) return { interface: 1, perFeature: [] };
@@ -536,22 +611,20 @@ function scoreInterface(forge, h, features) {
   let sum = 0;
   for (const ft of features) {
     const wantInsideForKeepIn = ft.kind === 'boss'; // boss keep-in = solid; hole/slot keep-in = cavity
-    let inPass = 0, inTot = 0, outPass = 0, outTot = 0;
-    for (const p of ft.keepIn || []) {
-      inTot++;
-      const inside = pointInSolid(p[0], p[1], p[2], t);
-      if (inside === wantInsideForKeepIn) inPass++;
-    }
-    for (const p of ft.keepOut || []) {
-      outTot++;
-      const inside = pointInSolid(p[0], p[1], p[2], t);
-      // keep-out: the part must respect this region → opposite of keep-in expectation
-      if (inside === !wantInsideForKeepIn) outPass++;
-    }
-    const inRate = inTot ? inPass / inTot : 1;
-    const outRate = outTot ? outPass / outTot : 1;
-    const fscore = Math.min(inRate, outRate);
-    perFeature.push({ kind: ft.kind, inRate, outRate, score: fscore });
+    let tp = 0, fp = 0, fn = 0;
+    const tally = (p, idealInside) => {
+      const occ = pointInSolid(p[0], p[1], p[2], t);
+      if (occ && idealInside) tp++;
+      else if (occ && !idealInside) fp++;
+      else if (!occ && idealInside) fn++;
+      // (!occ && !idealInside) is a true-negative (correctly empty) — not in IoU.
+    };
+    for (const p of ft.keepIn || []) tally(p, wantInsideForKeepIn);
+    for (const p of ft.keepOut || []) tally(p, !wantInsideForKeepIn);
+    const denom = tp + fp + fn;
+    const iou = denom === 0 ? 1 : tp / denom;
+    const fscore = interfaceRamp(iou);
+    perFeature.push({ kind: ft.kind, iou, score: fscore });
     sum += fscore;
   }
   return { interface: sum / features.length, perFeature };
@@ -695,13 +768,12 @@ function scoreMate(forge, spec) {
 }
 const kRingEps = 1e-6;
 
-/** Multiplicative Betti match with partial-credit falloff (1 / (1+|Δ|)). */
+/** Multiplicative Betti match using the CADGenBench squared (min+1)/(max+1) credit. */
 function scoreTopology(forge, h, gtBetti) {
   const b = bettiNumbers(tess(forge, h));
-  const credit = (got, want) => 1 / (1 + Math.abs(got - want));
-  const c0 = credit(b.b0, gtBetti.b0);
-  const c1 = credit(b.b1, gtBetti.b1);
-  const c2 = credit(b.b2, gtBetti.b2);
+  const c0 = topologyCredit(b.b0, gtBetti.b0);
+  const c1 = topologyCredit(b.b1, gtBetti.b1);
+  const c2 = topologyCredit(b.b2, gtBetti.b2);
   return { topology: c0 * c1 * c2, betti: b, c0, c1, c2 };
 }
 
@@ -1693,7 +1765,8 @@ async function main() {
 // Exporting named function DECLARATIONS does not change the CLI behavior below.
 export { makeHeadlessForge, tess, bboxOf, bettiNumbers, checkValid, dimsFromCalls, parseRow, runJobInChild,
          postToModel, callsFromAssistant, CANONICAL_SYSTEM,
-         scoreShape, shapeFromTess, scoreInterface, scoreMate };
+         scoreShape, shapeFromTess, scoreInterface, scoreMate, scoreTopology,
+         surfaceF1, volumeIoU, bboxDiag, topologyCredit, interfaceRamp };
 
 // Entry: worker vs orchestrator. Only fires when this file is the program entry
 // point — when imported as a module (e.g. by label_rows.mjs) nothing auto-runs.

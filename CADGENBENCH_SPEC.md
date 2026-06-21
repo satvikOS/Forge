@@ -241,6 +241,21 @@ module). It was written **against this exact benchmark** — its header docstrin
 > `forge-kernel/test/cadscore_harness.mjs:5` — "Implements the CADGenBench 'CAD Score':"
 > `:6` — `cad_score = gate * (0.4*shape + 0.4*interface + 0.2*topology)   [generation fixtures]`
 
+> **v2 UPDATE (2026-06-21) — the four sub-formula gaps below are now CLOSED.** The scorer
+> was upgraded to align 1:1 with the verified canonical forms: (1) **shape** is now the
+> 2-way `0.5·(surface_F1 + volume_IoU)` with a **TRUE Monte-Carlo volume IoU**
+> (`volumeIoU()`) replacing the old vol-difference proxy and the bbox term dropped to a
+> diagnostic; (2) **surface-F1** tolerance is now **0.5% of the GT bbox diagonal** (with a
+> finite-sampling floor) instead of an absolute 0.5 mm; (3) **interface** is now a
+> **volumetric IoU `TP/(TP+FP+FN)` + the 0.95→0.80 ramp** instead of a raw point pass-rate;
+> (4) **topology** per-axis credit is now `((min+1)/(max+1))²`. Evidence: kernel-free
+> `forge-kernel/test/cadscore_v2_selftest.mjs` (20/20 canonical checks, incl. the verbatim
+> topology worked example = 0.36), and the full harness still proves discrimination
+> (replay mean CAD **1.000**, corrupted **0.385**, margin **0.615** — *sharper* than v1's
+> 0.456). The `:line` refs in the tables below predate v2 and have shifted. The one
+> remaining non-match is structural, not a formula: Forge self-scores its own corpus, not
+> the private 81 CADGenBench fixtures (see "Critical limitation").
+
 ### What aligns (strong)
 
 | CADGenBench (verified) | Forge `cadscore_harness.mjs` (file:line) | Status |
