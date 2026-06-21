@@ -72,3 +72,5 @@ jobs:
         run: npm run forge:kernel:test
       - name: Bridge smoke
         run: npm run forge:bridge:test
+      - name: Coherence + logic scorer (random scenes each run)
+        run: npm run forge:coherence
