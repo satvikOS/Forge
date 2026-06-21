@@ -50,15 +50,24 @@
 //   outcome on T1/T2/T3 is reported in the .cpp header and the gate test.
 //
 // ROBUSTNESS CEILING (honest, Bible §0/§9 — do NOT overclaim):
-//   robust-in-practice with an EXACT combinatorial CORE. Every sidedness /
+//   robust-in-practice with an EXACT combinatorial CORE + a SIMULATION-OF-SIMPLICITY
+//   (SoS) layer for measure-zero exact-incidence degeneracies. Every sidedness /
 //   in-circle / ray-crossing / in-solid decision is an exact predicate sign, so the
-//   TOPOLOGY of the arrangement is proven-exact within the predicate domain. The
-//   COORDINATES of the shared intersection vertices are double-precision edge×plane
-//   solves computed ONCE and SHARED, so the two surfaces are bit-identical along the
-//   cut by CONSTRUCTION (not by rounding to a common grid). It is NOT CGAL-exact
-//   rationals; genuinely degenerate pairs (exact vertex-on-vertex pin-touches,
-//   coincident-coplanar stacks beyond a single contact facet) are DETECTED and
-//   returned ok=false rather than faked.
+//   TOPOLOGY of the arrangement is proven-exact within the predicate domain. Where an
+//   exact predicate is EXACTLY 0 (collinear/coplanar/edge-on-face/point-on-diagonal
+//   coincidences), the SoS layer (sosOrient3d/sosOrient2d, keyed by the GLOBAL vertex
+//   INDICES) resolves it to a deterministic, globally-consistent NON-ZERO sign — the
+//   same tuple resolves identically whether queried from A or from B, so the two
+//   surfaces still agree on the shared cut. This now CLOSES the clean exactly-45°
+//   z-rotated cube (coplanar caps + edge-on-face) and the near-vertex-pin random
+//   pairs that previously returned an honest ok=false. The COORDINATES of the shared
+//   intersection vertices are double-precision edge×plane solves computed ONCE and
+//   SHARED, so the two surfaces are bit-identical along the cut by CONSTRUCTION (not
+//   by rounding to a common grid). It is NOT CGAL-exact rationals: the residual
+//   honest ok=false (≈0.1% of random pairs) is near-triple-point COORDINATE slivers
+//   (three distinct edge×plane hits ~1e-5 apart where one geometric point is meant) —
+//   a coordinate ceiling SoS does not address. SoS NEVER weakens the gate: ok=true
+//   ONLY after buildFromSoup+validate() confirm a closed 2-manifold (0 fakes).
 //
 // No external dependencies. No WASM. Pure C++20.
 

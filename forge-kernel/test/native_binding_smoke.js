@@ -192,10 +192,15 @@ function sphere(cx, cy, cz, r, nlat, nlon) {
     + `D=${diff.volume.toFixed(4)}) OK`);
 }
 
-// (2) Exactly-45° coplanar cube (shares faces): a measure-zero degeneracy the
-// canonical boolean honestly CANNOT close, so it MUST return ok=false with an
-// honest reason — NEVER a fake. This is the documented honest ceiling
-// (KERNEL_PARITY / MeshBooleanNative.hpp).
+// (2) Exactly-45° coplanar cube (shares top/bottom faces): a measure-zero
+// exact-incidence degeneracy that the SoS layer (sosOrient2d/3d — an
+// Edelsbrunner–Mücke lexicographic perturbation keyed to GLOBAL vertex indices,
+// proven never-zero + antisymmetric) now CLOSES deterministically. All three
+// ops MUST be genuine closed 2-manifolds (ok=true) at the analytic volumes of
+// two unit squares (axis-aligned ∩ 45°-rotated), extruded h=1:
+//   intersection 2√2−2 ≈ 0.82842712, union 4−2√2 ≈ 1.17157288,
+//   difference (A−B) 3−2√2 ≈ 0.17157288.  Still 0 fakes: ok=true only after
+// buildFromSoup + validate() (MeshBooleanNative.hpp SoS section).
 {
   const A = cube(-0.5, -0.5, -0.5, 1.0);
   const B = cube(-0.5, -0.5, -0.5, 1.0);
@@ -205,16 +210,21 @@ function sphere(cx, cy, cz, r, nlat, nlon) {
     B.pos[i] = c * x - s * y;
     B.pos[i + 1] = s * x + c * y;   // coplanar in z (shares top/bottom faces)
   }
+  const truth = {
+    intersection: 2 * Math.SQRT2 - 2,
+    union:        4 - 2 * Math.SQRT2,
+    difference:   3 - 2 * Math.SQRT2,
+  };
   for (const op of ['union', 'intersection', 'difference']) {
     const res = N.meshBoolean(A.pos, A.idx, B.pos, B.idx, op);
-    assert.strictEqual(res.ok, false,
-      `meshBoolean ${op} on 45° coplanar cube MUST be ok=false (honest), not faked`);
-    assert.ok(typeof res.reason === 'string' && res.reason.length > 0,
-      'an honest failure must carry a non-empty reason');
-    assert.ok(res.positions === undefined && res.indices === undefined,
-      'a failed boolean must NOT return geometry (no fake result)');
+    assert.strictEqual(res.ok, true,
+      `meshBoolean ${op} on 45° coplanar cube must now CLOSE (ok=true) via SoS, got: ${res.reason}`);
+    assert.ok(res.positions.length > 0 && res.indices.length > 0,
+      `a closed ${op} must return real geometry`);
+    assert.ok(Math.abs(res.volume - truth[op]) < 1e-4,
+      `meshBoolean ${op} 45° volume ${res.volume} must equal analytic ${truth[op].toFixed(8)}`);
   }
-  console.log('[native-smoke] meshBoolean 45° coplanar cube: ok=false honestly (no fake) OK');
+  console.log('[native-smoke] meshBoolean 45° coplanar cube: ok=true via SoS at analytic volumes OK');
 }
 
 console.log('\n[native-smoke] ALL forge.native binding assertions PASS');
