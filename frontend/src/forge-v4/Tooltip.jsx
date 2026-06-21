@@ -1,15 +1,25 @@
 // Forge-67 — positioned tooltip primitive.
 //
-// 350 ms hover delay; Esc dismisses; clamped to viewport.
-// Replaces native `title` for every tool button so we get consistent
-// positioning + the shortcut hint in mono.
+// 350 ms hover delay; Esc dismisses; clamped to the viewport. Replaces the
+// native `title` for every tool button so we get consistent positioning, the
+// shortcut hint in mono, and (optionally) a richer title + description form
+// for ribbon / hero buttons.
+//
+// Styling comes entirely from the design-system `.fds-tooltip` / `.fds-kbd`
+// classes + `--fds-*` tokens (theme/forge-base.css §9, §13) — no ad-hoc
+// colours / sizes — so it themes automatically (dark / light / sepia / HC).
+//
+// API (backwards-compatible):
+//   <Tooltip label="Extrude" hint="E"><button …/></Tooltip>          // 1-line
+//   <Tooltip title="Extruded Boss/Base" description="Pull a sketch profile
+//            into a solid." hint="E"><button …/></Tooltip>           // rich
 
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const DELAY = 350;
 const PAD = 8;
 
-export function Tooltip({ label, hint, placement = 'bottom', children }) {
+export function Tooltip({ label, hint, title, description, placement = 'bottom', children }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const triggerRef = useRef(null);
@@ -46,9 +56,15 @@ export function Tooltip({ label, hint, placement = 'bottom', children }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [open]);
 
+  // A single element child is required; guard so a missing / multiple child
+  // fails loudly in dev instead of silently dropping the trigger handlers.
+  const child = React.Children.only(children);
+  const isRich = !!(title || description);
+  const headLabel = title || label;
+
   return (
     <>
-      {React.cloneElement(children, {
+      {React.cloneElement(child, {
         ref: triggerRef,
         onMouseEnter: onEnter,
         onMouseLeave: onLeave,
@@ -59,36 +75,25 @@ export function Tooltip({ label, hint, placement = 'bottom', children }) {
         <div ref={tipRef}
              role="tooltip"
              data-testid="forge-tooltip"
+             className={`fds-tooltip${isRich ? ' fds-tooltip--rich' : ''}`}
              style={{
                position: 'fixed',
                left: pos?.x ?? -9999,
                top: pos?.y ?? -9999,
-               pointerEvents: 'none',
-               background: 'var(--forge-canvas-3)',
-               color: 'var(--forge-ink)',
-               border: '1px solid var(--forge-rail-edge)',
-               borderRadius: 4,
-               padding: '4px 8px',
-               fontSize: 11,
-               lineHeight: 1.3,
-               boxShadow: '0 8px 24px rgba(0,0,0,0.55)',
-               zIndex: 1500,
-               whiteSpace: 'nowrap',
-               display: 'flex',
-               alignItems: 'baseline',
-               gap: 10,
              }}>
-          <span>{label}</span>
-          {hint && (
-            <kbd style={{
-              fontFamily: 'var(--forge-mono)',
-              fontSize: 10,
-              color: 'var(--forge-ink-mute)',
-              background: 'var(--forge-surface)',
-              border: '1px solid var(--forge-rail-edge)',
-              padding: '1px 4px',
-              borderRadius: 3,
-            }}>{hint}</kbd>
+          {isRich ? (
+            <>
+              <div className="fds-tooltip-head">
+                <span className="fds-tooltip-title">{headLabel}</span>
+                {hint && <kbd className="fds-kbd">{hint}</kbd>}
+              </div>
+              {description && <div className="fds-tooltip-desc">{description}</div>}
+            </>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--fds-space-4)' }}>
+              <span>{label}</span>
+              {hint && <kbd className="fds-kbd">{hint}</kbd>}
+            </div>
           )}
         </div>
       )}

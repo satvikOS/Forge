@@ -1,0 +1,277 @@
+/* ============================================================================
+ * Forge v4 — RIBBON / COMMAND-BAND  (forge-v4/theme/forge-ribbon.css)
+ * ----------------------------------------------------------------------------
+ * Owned by the ribbon-toolbars area. Imported by Toolbar.jsx (the only renderer
+ * of these classes), so it loads exactly once with the component and never
+ * collides with the shell's shared tokens.css edits.
+ *
+ * Upgrades the single flat 48px icon strip into a pro MCAD CommandManager:
+ *   • left TAB cluster (per-workbench command sets) + accent underline
+ *   • grouped clusters with under-labels + 1px separators
+ *   • primary (large, labeled) + secondary (compact icon) tool sizing
+ *   • split-button flyouts for related ops
+ *   • overflow "⋯" tail instead of a sideways scroll
+ *
+ * REFINED-NEUTRAL / MONOCHROME: derives from the live --forge-* theme vars so
+ * dark / light / sepia / high-contrast all keep working. The accent appears
+ * ONLY on the active tab underline and the toggled-on tool fill. These rules
+ * are scoped under .forge-toolbar so they restyle nothing outside this surface.
+ * ==========================================================================*/
+
+/* Scoped by the always-present testid so this wins over the base
+   single-class .forge-toolbar rule regardless of stylesheet load order. */
+.forge-toolbar[data-testid="forge-toolbar"] {
+  position: relative;
+  align-items: stretch;
+  padding: 0 var(--forge-space-2) 0 var(--forge-space-3);
+  gap: 0;
+  overflow-x: hidden;          /* overflow handled by the ⋯ menu, never scroll */
+  overflow-y: hidden;
+}
+
+/* ---- Tab cluster (left) ---- */
+.forge-toolbar .forge-ribbon-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: var(--forge-space-2);
+  flex-shrink: 0;
+}
+.forge-toolbar .forge-ribbon-tab {
+  position: relative;
+  height: 24px;
+  display: inline-flex; align-items: center;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  border-radius: var(--forge-radius);
+  color: var(--forge-ink-mute);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+}
+.forge-toolbar .forge-ribbon-tab:hover { background: var(--forge-surface); color: var(--forge-ink); }
+.forge-toolbar .forge-ribbon-tab[data-active="true"] { color: var(--forge-ink); }
+.forge-toolbar .forge-ribbon-tab[data-active="true"]::after {
+  content: '';
+  position: absolute;
+  left: 8px; right: 8px; bottom: -3px;
+  height: 2px;
+  background: var(--forge-accent);
+  border-radius: 2px 2px 0 0;
+}
+.forge-toolbar .forge-ribbon-tab:focus-visible {
+  outline: 2px solid var(--forge-accent-rim);
+  outline-offset: 1px;
+}
+.forge-toolbar .forge-ribbon-tabs-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 8px 2px 8px 6px;
+  background: var(--forge-rail-edge);
+}
+
+/* ---- Group strip (right of the tabs) ---- */
+.forge-toolbar .forge-ribbon-strip {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.forge-toolbar .forge-ribbon-group-wrap { display: flex; align-items: stretch; }
+
+/* Off-screen measurement row — lays out every group at intrinsic width but
+   never paints or intercepts pointer events. */
+.forge-toolbar .forge-ribbon-measure {
+  position: absolute;
+  top: 0; left: 0;
+  display: flex;
+  align-items: stretch;
+  height: var(--forge-toolbar-h, 48px);
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.forge-toolbar .forge-toolbar-group {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: 4px var(--forge-space-3) 3px;
+  border-right: 1px solid var(--forge-rail-edge);
+  height: 100%;
+}
+.forge-toolbar .forge-ribbon-group-wrap:last-child .forge-toolbar-group { border-right: none; }
+.forge-toolbar .forge-toolbar-group-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--forge-tool-gap);
+}
+.forge-toolbar .forge-toolbar-group-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 500;
+  color: var(--forge-ink-mute);
+  user-select: none;
+  line-height: 1;
+  margin: 0;
+  min-width: 0;
+  padding-left: 1px;
+  align-self: center;
+}
+
+/* ---- Tools: secondary (icon) + primary (large, labeled) ---- */
+.forge-toolbar .forge-tool {
+  width: var(--forge-tool-size);
+  height: var(--forge-tool-size);
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px;
+  border: 1px solid transparent;
+  border-radius: var(--forge-radius);
+  background: transparent;
+  color: var(--forge-ink-2);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--forge-motion-fast),
+              color var(--forge-motion-fast),
+              border-color var(--forge-motion-fast);
+}
+.forge-toolbar .forge-tool:hover {
+  background: var(--forge-surface);
+  color: var(--forge-ink);
+  border-color: var(--forge-rail-edge);
+}
+.forge-toolbar .forge-tool:active { background: var(--forge-surface-2, var(--forge-surface)); }
+.forge-toolbar .forge-tool[data-active="true"] {
+  background: var(--forge-accent-mute);
+  color: var(--forge-accent);
+  border-color: var(--forge-accent-rim);
+}
+.forge-toolbar .forge-tool[disabled] {
+  color: var(--forge-ink-faint);
+  cursor: not-allowed;
+}
+.forge-toolbar .forge-tool[disabled]:hover { background: transparent; border-color: transparent; }
+.forge-toolbar .forge-tool:focus-visible {
+  outline: 2px solid var(--forge-accent-rim);
+  outline-offset: 1px;
+}
+
+/* Primary hero button — taller, icon + label, reads first in a group. */
+.forge-toolbar .forge-tool--primary {
+  width: auto;
+  height: 34px;
+  padding: 0 9px 0 7px;
+  color: var(--forge-ink);
+}
+.forge-toolbar .forge-tool--primary .forge-tool-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+}
+
+/* ---- Split button: primary + chevron sharing one rounded shell ---- */
+.forge-toolbar .forge-ribbon-split { position: relative; display: inline-flex; align-items: stretch; }
+.forge-toolbar .forge-ribbon-split .forge-tool--primary {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  padding-right: 4px;
+}
+.forge-toolbar .forge-ribbon-split-caret {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px;
+  align-self: stretch;
+  border: 1px solid transparent;
+  border-left: 1px solid var(--forge-rail-edge);
+  border-top-right-radius: var(--forge-radius);
+  border-bottom-right-radius: var(--forge-radius);
+  background: transparent;
+  color: var(--forge-ink-mute);
+  cursor: pointer;
+  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+}
+.forge-toolbar .forge-ribbon-split:hover .forge-tool--primary,
+.forge-toolbar .forge-ribbon-split:hover .forge-ribbon-split-caret {
+  background: var(--forge-surface);
+}
+.forge-toolbar .forge-ribbon-split-caret:hover { color: var(--forge-ink); }
+.forge-toolbar .forge-ribbon-split-caret[data-active="true"] {
+  background: var(--forge-accent-mute);
+  color: var(--forge-accent);
+}
+.forge-toolbar .forge-ribbon-split-caret:focus-visible {
+  outline: 2px solid var(--forge-accent-rim);
+  outline-offset: 1px;
+}
+
+/* ---- Flyout / overflow popovers (portalled to <body>; positioned inline) ---- */
+.forge-ribbon-flyout,
+.forge-ribbon-overflow-menu {
+  min-width: 184px;
+  padding: 4px;
+  background: var(--forge-canvas-3);
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: var(--forge-radius-lg);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.40);
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.forge-ribbon-overflow-menu { min-width: 240px; max-height: 60vh; overflow-y: auto; }
+.forge-ribbon-flyout-item {
+  display: flex; align-items: center; gap: 9px;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: none;
+  border-radius: var(--forge-radius);
+  background: transparent;
+  color: var(--forge-ink-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+}
+.forge-ribbon-flyout-item:hover { background: var(--forge-surface); color: var(--forge-ink); }
+.forge-ribbon-flyout-item[data-active="true"] { background: var(--forge-accent-mute); color: var(--forge-accent); }
+.forge-ribbon-flyout-item:focus-visible {
+  outline: 2px solid var(--forge-accent-rim);
+  outline-offset: -1px;
+}
+.forge-ribbon-flyout-label { flex: 1; white-space: nowrap; }
+.forge-ribbon-flyout-hint {
+  font-family: var(--forge-mono);
+  font-size: 10px;
+  color: var(--forge-ink-faint);
+  padding: 1px 4px;
+  border: 1px solid var(--forge-rail-edge);
+  border-radius: 3px;
+}
+
+/* ---- Overflow tail ---- */
+.forge-toolbar .forge-ribbon-overflow { position: relative; display: flex; align-items: center; padding: 0 var(--forge-space-2); }
+.forge-toolbar .forge-ribbon-overflow-btn { color: var(--forge-ink-mute); }
+.forge-ribbon-overflow-group { padding: 4px 2px; }
+.forge-ribbon-overflow-group + .forge-ribbon-overflow-group { border-top: 1px solid var(--forge-rail-edge); }
+.forge-ribbon-overflow-group-label {
+  display: block;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  color: var(--forge-ink-mute);
+  padding: 2px 8px 4px;
+  user-select: none;
+}
+.forge-ribbon-overflow-grid { display: flex; flex-direction: column; gap: 1px; }

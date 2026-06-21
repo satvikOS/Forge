@@ -43,6 +43,7 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './icons/Icon.jsx';
+import { ensureTreeStyles, TreeChevron } from './treeStyles.jsx';
 
 // ─────────────────────────────────────────────────────────────────────
 // Persistence — sub-assembly node set + body→parent map live in
@@ -215,87 +216,54 @@ function subAssemblyMassGrams(nodeId, store, bodies) {
 // Styles — right-docked rail, 360 px wide so the tree has room for
 // nested indents + the trailing mass column.
 
+const INDENT_PX = 14; // per-depth indentation step
+
 const PANEL_STYLE = {
   position: 'fixed',
   top: 'calc(var(--forge-topbar-h, 40px) + var(--forge-qat-h, 32px))',
   right: 0,
   bottom: 'var(--forge-statusbar-h, 24px)',
   width: 360,
-  zIndex: 1330,
-  background: 'var(--forge-canvas-2, #161b22)',
-  borderLeft: '1px solid var(--forge-rail-edge, #2a2d34)',
-  padding: 'var(--forge-space-3, 12px)',
-  display: 'flex', flexDirection: 'column', gap: 'var(--forge-space-2, 8px)',
-  color: 'var(--forge-ink, #dadde2)', fontSize: 12,
-  overflowY: 'auto',
-};
-const HEADER_ROW = {
-  display: 'flex', alignItems: 'center', gap: 8,
-};
-const CLOSE_BTN = {
-  background: 'transparent',
-  border: '1px solid var(--forge-rail-edge, #2a2d34)',
-  color: 'var(--forge-ink, #dadde2)', cursor: 'pointer',
-  padding: '2px 6px', borderRadius: 3,
-};
-const PLUS_BTN = {
-  background: 'var(--forge-surface, #1f242c)',
-  border: '1px solid var(--forge-rail-edge, #2a2d34)',
-  color: 'var(--forge-ink, #dadde2)', cursor: 'pointer',
-  padding: '4px 10px', borderRadius: 3,
-  fontSize: 11, fontWeight: 600,
-};
-const SECTION_TITLE = {
-  fontSize: 10,
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-  color: 'var(--forge-ink-mute, #9aa1ab)',
-  margin: '8px 0 4px',
+  zIndex: 'var(--fds-z-drawer, 1280)',
+  background: 'var(--fds-surface-panel, #161b22)',
+  borderLeft: 'var(--fds-border-w, 1px) solid var(--fds-border, #2a2d34)',
+  boxShadow: 'var(--fds-elev-3)',
+  display: 'flex', flexDirection: 'column',
+  color: 'var(--fds-text-secondary, #dadde2)',
+  fontFamily: 'var(--fds-font-ui)',
+  fontSize: 'var(--fds-fs-small, 12px)',
 };
 const NODE_ROW = (depth, dragOver) => ({
   display: 'grid',
-  gridTemplateColumns: `${14 + depth * 14}px 14px 1fr 90px 20px`,
+  gridTemplateColumns: `${INDENT_PX + depth * INDENT_PX}px var(--fds-icon-sm) 1fr 76px var(--fds-control-h-xs)`,
   alignItems: 'center',
-  gap: 4,
-  padding: '3px 6px 3px 4px',
-  borderRadius: 3,
-  background: dragOver
-    ? 'var(--forge-accent-mute, #2a3744)'
-    : 'var(--forge-surface, #1f242c)',
-  border: '1px solid var(--forge-rail-edge, #2a2d34)',
-  marginBottom: 2,
-  cursor: 'grab',
+  gap: 'var(--fds-space-2)',
+  height: 'var(--fds-row-h-compact)',
+  padding: '0 var(--fds-space-2)',
+  borderRadius: 'var(--fds-radius-sm)',
+  background: dragOver ? 'var(--fds-state-selected)' : 'transparent',
+  borderLeft: dragOver
+    ? 'var(--fds-border-w-2) solid var(--fds-accent)'
+    : 'var(--fds-border-w-2) solid transparent',
+  cursor: 'pointer',
 });
 const BODY_ROW = (depth) => ({
   display: 'grid',
-  gridTemplateColumns: `${14 + depth * 14}px 1fr 90px 20px`,
+  gridTemplateColumns: `${INDENT_PX + depth * INDENT_PX}px 1fr 76px var(--fds-control-h-xs)`,
   alignItems: 'center',
-  gap: 4,
-  padding: '2px 6px',
-  fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
-  fontSize: 11,
-  borderBottom: '1px dashed var(--forge-rail-edge, #2a2d34)',
-  cursor: 'grab',
-});
-const ORPHAN_ROW = (dragOver) => ({
-  marginTop: 6,
-  padding: '6px 6px 4px',
-  border: '1px dashed var(--forge-rail-edge, #2a2d34)',
-  borderRadius: 3,
-  background: dragOver
-    ? 'var(--forge-accent-mute, #2a3744)'
-    : 'transparent',
+  gap: 'var(--fds-space-2)',
+  height: 'var(--fds-row-h-compact)',
+  padding: '0 var(--fds-space-2)',
+  cursor: 'pointer',
 });
 const ICON_BTN = {
   background: 'transparent',
   border: 'none',
-  color: 'var(--forge-ink-mute, #9aa1ab)',
+  color: 'var(--fds-text-tertiary, #9aa1ab)',
   cursor: 'pointer',
   padding: 0,
-  width: 14, height: 14,
+  width: 'var(--fds-icon-sm)', height: 'var(--fds-icon-sm)',
   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
-  fontSize: 10,
 };
 
 // ─────────────────────────────────────────────────────────────────────
@@ -308,6 +276,7 @@ const MIME_NODE = 'application/x-forge-sub-assembly-node-id';
 // ─────────────────────────────────────────────────────────────────────
 
 export function SubAssemblyTreePanel({ open, onClose }) {
+  ensureTreeStyles();
   const [store, setStore]   = useState(() => loadSubAssemblyStore());
   const [bodies, setBodies] = useState(() => readNativeBodies());
   const [collapsed, setCollapsed] = useState(() => new Set());
@@ -514,7 +483,9 @@ export function SubAssemblyTreePanel({ open, onClose }) {
           data-mass-grams={mass.toFixed(3)}
           style={{ listStyle: 'none' }}>
         <div
+          className="fds-ft-row"
           data-testid={`forge-subasm-row-${node.id}`}
+          data-drag-over={isDragOver ? 'true' : undefined}
           draggable
           onDragStart={(e) => handleNodeDragStart(e, node)}
           onDragOver={(e) => handleDragOver(e, node.id)}
@@ -530,14 +501,13 @@ export function SubAssemblyTreePanel({ open, onClose }) {
                   }}
                   data-testid={`forge-subasm-toggle-${node.id}`}
                   aria-label={isCollapsed ? 'Expand' : 'Collapse'}
-                  style={{
-                    ...ICON_BTN,
-                    justifySelf: 'end',
-                    visibility: hasContent ? 'visible' : 'hidden',
-                  }}>
-            {isCollapsed ? '▶' : '▼'}
+                  className="fds-ft-twisty"
+                  data-expanded={!isCollapsed ? 'true' : undefined}
+                  data-leaf={!hasContent ? 'true' : undefined}
+                  style={{ justifySelf: 'end' }}>
+            <TreeChevron size={12} />
           </button>
-          <Icon name="wb.mech" size={11} />
+          <span className="fds-ft-icon"><Icon name="wb.mech" size={12} /></span>
           {renaming === node.id ? (
             <input type="text"
                    autoFocus
@@ -551,15 +521,7 @@ export function SubAssemblyTreePanel({ open, onClose }) {
                      if (e.key === 'Escape') setRenaming(null);
                    }}
                    data-testid={`forge-subasm-rename-${node.id}`}
-                   style={{
-                     background: 'var(--forge-canvas, #0d1117)',
-                     border: '1px solid var(--forge-accent, #58a6ff)',
-                     borderRadius: 2,
-                     color: 'var(--forge-ink, #dadde2)',
-                     font: 'inherit',
-                     fontSize: 11,
-                     padding: '1px 4px',
-                   }}
+                   className="fds-ft-rename"
                    onClick={(e) => e.stopPropagation()} />
           ) : (
             <button type="button"
@@ -567,43 +529,34 @@ export function SubAssemblyTreePanel({ open, onClose }) {
                     onDoubleClick={() => setRenaming(node.id)}
                     onClick={() => setRenaming(node.id)}
                     title="Click to rename"
+                    className="fds-ft-label"
                     style={{
                       background: 'transparent', border: 'none',
-                      color: 'var(--forge-ink, #dadde2)',
+                      color: 'inherit',
                       textAlign: 'left',
                       cursor: 'text',
                       font: 'inherit',
-                      fontSize: 11,
+                      fontWeight: 'var(--fds-fw-medium)',
                       padding: 0,
-                      fontWeight: 600,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
                     }}>
               {node.name}
             </button>
           )}
           <span data-testid={`forge-subasm-mass-${node.id}`}
-                style={{
-                  fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
-                  fontSize: 10,
-                  color: 'var(--forge-ink-mute, #9aa1ab)',
-                  textAlign: 'right',
-                }}>
+                className="fds-ft-value">
             {mass > 0 ? `${mass.toFixed(2)} g` : '—'}
           </span>
           <button type="button"
                   onClick={() => deleteNode(node.id)}
                   data-testid={`forge-subasm-delete-${node.id}`}
                   title="Delete sub-assembly (children fall back to parent)"
-                  style={{
-                    ...ICON_BTN,
-                    color: 'var(--forge-err, #ff6b6b)',
-                    fontSize: 12,
-                  }}>×</button>
+                  aria-label="Delete sub-assembly"
+                  style={{ ...ICON_BTN, color: 'var(--fds-signal-error)' }}>
+            <Icon name="edit.delete" size={12} />
+          </button>
         </div>
         {!isCollapsed && hasContent && (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          <ul className="fds-ft-children" style={{ paddingLeft: 0 }}>
             {children.map((c) => renderNode(c, depth + 1))}
             {memberBodies.map((b) => {
               const m = bodyMassGrams(b);
@@ -615,34 +568,29 @@ export function SubAssemblyTreePanel({ open, onClose }) {
                     data-body-handle={b.handle}
                     data-parent={node.id}
                     style={{ listStyle: 'none' }}>
-                  <div draggable
+                  <div className="fds-ft-row"
+                       draggable
                        onDragStart={(e) => handleBodyDragStart(e, b)}
                        style={BODY_ROW(depth + 1)}
                        data-testid={`forge-subasm-body-row-${b.handle}`}>
                     <span />
-                    <span style={{
-                      color: 'var(--forge-ink, #dadde2)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
+                    <span className="fds-ft-label"
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--fds-space-2)' }}
                           title={`Body ${b.handle} → ${node.name}`}>
-                      <Icon name="select.body" size={10} />
-                      {' '}{b.name || b.toolId || `handle ${b.handle}`}
+                      <span className="fds-ft-icon"><Icon name="select.body" size={12} /></span>
+                      {b.name || b.toolId || `handle ${b.handle}`}
                     </span>
-                    <span style={{
-                      fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
-                      fontSize: 10,
-                      color: 'var(--forge-ink-mute, #9aa1ab)',
-                      textAlign: 'right',
-                    }}>
+                    <span className="fds-ft-value">
                       {m > 0 ? `${m.toFixed(2)} g` : '—'}
                     </span>
                     <button type="button"
                             onClick={() => moveBodyToNode(k, null)}
                             data-testid={`forge-subasm-body-eject-${b.handle}`}
                             title="Move back to Unassigned"
-                            style={{ ...ICON_BTN, fontSize: 11 }}>↑</button>
+                            aria-label="Move body to Unassigned"
+                            style={ICON_BTN}>
+                      <Icon name="misc.expand_r" size={12} />
+                    </button>
                   </div>
                 </li>
               );
@@ -661,149 +609,138 @@ export function SubAssemblyTreePanel({ open, onClose }) {
          aria-label="Sub-assembly hierarchy"
          data-testid="forge-subassemblies-panel"
          style={PANEL_STYLE}>
-      <header style={HEADER_ROW}>
-        <Icon name="wb.mech" size={14} />
-        <strong style={{ fontSize: 13 }}>Sub-assemblies</strong>
-        <span data-testid="forge-subasm-count"
-              style={{
-                fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
-                fontSize: 10,
-                color: 'var(--forge-ink-mute, #9aa1ab)',
-                padding: '1px 6px', borderRadius: 'var(--forge-radius-pill, 10px)',
-                border: '1px solid var(--forge-rail-edge, #2a2d34)',
-              }}>
+      <header className="fds-ft-dock-head" style={{ flexShrink: 0 }}>
+        <span className="fds-ft-dock-title">
+          <Icon name="wb.mech" size={14} />
+          <span>Sub-assemblies</span>
+        </span>
+        <span className="fds-ft-count" data-testid="forge-subasm-count">
           {store.nodes.length}
         </span>
-        <span style={{ flex: 1 }} />
+        <span className="fds-ft-head-spacer" />
         <button type="button"
                 onClick={() => createSubAssembly(null)}
                 title="Create a new top-level sub-assembly"
+                aria-label="New root sub-assembly"
                 data-testid="forge-subasm-new-root"
-                style={PLUS_BTN}>
-          + Root
+                className="fds-ft-menu-item"
+                style={{
+                  width: 'auto', height: 'var(--fds-control-h-sm)',
+                  gap: 'var(--fds-space-2)',
+                  border: 'var(--fds-border-w) solid var(--fds-border)',
+                  background: 'var(--fds-surface-overlay)',
+                  color: 'var(--fds-text-primary)',
+                  fontWeight: 'var(--fds-fw-medium)',
+                }}>
+          <Icon name="file.new" size={12} />
+          <span>New root</span>
         </button>
         <button type="button"
                 onClick={() => onClose?.()}
                 aria-label="Close sub-assembly tree"
                 data-testid="forge-subasm-close"
-                style={CLOSE_BTN}>×</button>
+                className="fds-ft-iconbtn">
+          <Icon name="select.clear" size={12} />
+        </button>
       </header>
 
-      <div style={SECTION_TITLE}>
-        Tree ({store.nodes.length} sub-assemblies · {bodies.length} bodies
-        {totalMass > 0 && ` · ${totalMass.toFixed(2)} g total`})
+      <div className="fds-ft-subhead">
+        <span>Tree</span>
+        <span className="fds-ft-subhead-rule" />
+        <span className="fds-ft-value" style={{ textTransform: 'none', letterSpacing: 0 }}>
+          {store.nodes.length} asm · {bodies.length} bodies
+          {totalMass > 0 && ` · ${totalMass.toFixed(2)} g`}
+        </span>
       </div>
 
-      {/* Root drop zone — drag a sub-assembly here to detach it back to
-          the top level. Drag a body here to remove it from its current
-          parent (orphans go to the Unassigned tray below). */}
-      <div onDragOver={(e) => handleDragOver(e, null)}
-           onDragLeave={handleDragLeave}
-           onDrop={(e) => handleDrop(e, null)}
-           data-testid="forge-subasm-root-dropzone"
-           data-drag-over={dragOverRoot ? 'true' : 'false'}
-           style={{
-             padding: '4px 6px',
-             border: '1px dashed var(--forge-rail-edge, #2a2d34)',
-             borderRadius: 3,
-             marginBottom: 4,
-             color: 'var(--forge-ink-mute, #9aa1ab)',
-             fontSize: 10,
-             textAlign: 'center',
-             background: dragOverRoot
-               ? 'var(--forge-accent-mute, #2a3744)'
-               : 'transparent',
-           }}>
-        ↑ drop here to detach to top-level
-      </div>
-
-      {store.nodes.length === 0 ? (
-        <div data-testid="forge-subasm-empty"
-             style={{
-               padding: '12px 0',
-               fontStyle: 'italic',
-               color: 'var(--forge-ink-mute, #9aa1ab)',
-               fontSize: 11,
-             }}>
-          Tree is empty. Click <strong>+ Root</strong> to create your first
-          sub-assembly, then drag bodies into it from the Unassigned tray.
+      <div className="fds-ft-body">
+        {/* Root drop zone — drag a sub-assembly here to detach it back to
+            the top level. Drag a body here to remove it from its current
+            parent (orphans go to the Unassigned tray below). */}
+        <div onDragOver={(e) => handleDragOver(e, null)}
+             onDragLeave={handleDragLeave}
+             onDrop={(e) => handleDrop(e, null)}
+             data-testid="forge-subasm-root-dropzone"
+             data-drag-over={dragOverRoot ? 'true' : 'false'}
+             className="fds-ft-dropzone">
+          Drop here to detach to top-level
         </div>
-      ) : (
-        <ul data-testid="forge-subasm-tree"
-            style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {rootNodes.map((n) => renderNode(n, 0))}
-        </ul>
-      )}
 
-      <div style={SECTION_TITLE}>
-        Unassigned bodies ({orphanBodies.length})
-      </div>
-      <div data-testid="forge-subasm-orphans"
-           onDragOver={(e) => handleDragOver(e, null)}
-           onDragLeave={handleDragLeave}
-           onDrop={(e) => handleDrop(e, null)}
-           style={ORPHAN_ROW(dragOverRoot)}>
-        {orphanBodies.length === 0 ? (
-          <div style={{
-            color: 'var(--forge-ink-mute, #9aa1ab)',
-            fontStyle: 'italic',
-            fontSize: 11,
-          }}>
-            All bodies are assigned to a sub-assembly.
+        {store.nodes.length === 0 ? (
+          <div data-testid="forge-subasm-empty" className="fds-ft-empty">
+            Tree is empty. Click <strong>New root</strong> to create your first
+            sub-assembly, then drag bodies into it from the Unassigned tray.
           </div>
         ) : (
-          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-            {orphanBodies.map((b) => {
-              const m = bodyMassGrams(b);
-              const k = bodyKey(b);
-              return (
-                <li key={`orphan-${k}`}
-                    data-testid="forge-subasm-orphan-body"
-                    data-body-id={b.id}
-                    data-body-handle={b.handle}
-                    style={{ listStyle: 'none' }}>
-                  <div draggable
-                       onDragStart={(e) => handleBodyDragStart(e, b)}
-                       style={{
-                         ...BODY_ROW(0),
-                         gridTemplateColumns: '14px 1fr 90px 20px',
-                       }}
-                       data-testid={`forge-subasm-orphan-row-${b.handle}`}>
-                    <span />
-                    <span style={{
-                      color: 'var(--forge-ink, #dadde2)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                          title={`Body ${b.handle} (unassigned)`}>
-                      <Icon name="select.body" size={10} />
-                      {' '}{b.name || b.toolId || `handle ${b.handle}`}
-                    </span>
-                    <span style={{
-                      fontFamily: 'var(--forge-mono, ui-monospace, monospace)',
-                      fontSize: 10,
-                      color: 'var(--forge-ink-mute, #9aa1ab)',
-                      textAlign: 'right',
-                    }}>
-                      {m > 0 ? `${m.toFixed(2)} g` : '—'}
-                    </span>
-                    <span />
-                  </div>
-                </li>
-              );
-            })}
+          <ul data-testid="forge-subasm-tree" className="fds-ft-list">
+            {rootNodes.map((n) => renderNode(n, 0))}
           </ul>
         )}
+
+        <div className="fds-ft-subhead">
+          <span>Unassigned</span>
+          <span className="fds-ft-subhead-rule" />
+          <span className="fds-ft-value" style={{ textTransform: 'none', letterSpacing: 0 }}>
+            {orphanBodies.length}
+          </span>
+        </div>
+        <div data-testid="forge-subasm-orphans"
+             onDragOver={(e) => handleDragOver(e, null)}
+             onDragLeave={handleDragLeave}
+             onDrop={(e) => handleDrop(e, null)}
+             data-drag-over={dragOverRoot ? 'true' : undefined}
+             className="fds-ft-dropzone"
+             style={{ textAlign: 'left' }}>
+          {orphanBodies.length === 0 ? (
+            <div style={{ color: 'var(--fds-text-tertiary)', fontSize: 'var(--fds-fs-micro)' }}>
+              All bodies are assigned to a sub-assembly.
+            </div>
+          ) : (
+            <ul className="fds-ft-list">
+              {orphanBodies.map((b) => {
+                const m = bodyMassGrams(b);
+                const k = bodyKey(b);
+                return (
+                  <li key={`orphan-${k}`}
+                      data-testid="forge-subasm-orphan-body"
+                      data-body-id={b.id}
+                      data-body-handle={b.handle}
+                      style={{ listStyle: 'none' }}>
+                    <div className="fds-ft-row"
+                         draggable
+                         onDragStart={(e) => handleBodyDragStart(e, b)}
+                         style={{
+                           ...BODY_ROW(0),
+                           gridTemplateColumns: `var(--fds-icon-sm) 1fr 76px var(--fds-control-h-xs)`,
+                         }}
+                         data-testid={`forge-subasm-orphan-row-${b.handle}`}>
+                      <span />
+                      <span className="fds-ft-label"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--fds-space-2)' }}
+                            title={`Body ${b.handle} (unassigned)`}>
+                        <span className="fds-ft-icon"><Icon name="select.body" size={12} /></span>
+                        {b.name || b.toolId || `handle ${b.handle}`}
+                      </span>
+                      <span className="fds-ft-value">
+                        {m > 0 ? `${m.toFixed(2)} g` : '—'}
+                      </span>
+                      <span />
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
       </div>
 
       <footer style={{
-        padding: '8px 0 0',
-        borderTop: '1px solid var(--forge-rail-edge, #2a2d34)',
-        color: 'var(--forge-ink-mute, #9aa1ab)',
-        fontSize: 10,
-        lineHeight: 1.4,
-        marginTop: 'auto',
+        flexShrink: 0,
+        padding: 'var(--fds-space-3)',
+        borderTop: 'var(--fds-border-w) solid var(--fds-border)',
+        color: 'var(--fds-text-tertiary)',
+        fontSize: 'var(--fds-fs-micro)',
+        lineHeight: 'var(--fds-lh-micro)',
       }}>
         Sub-assemblies persist across sessions
         (<code>forge.v4.subAssemblies</code>). Sub-assembly mass = sum

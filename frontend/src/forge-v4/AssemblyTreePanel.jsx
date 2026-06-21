@@ -23,8 +23,10 @@ import {
   worldTransform,
 } from './assemblyHierarchy.js';
 import { FlexibleComponentToggle } from './FlexibleComponentToggle.jsx';
+import { ensureTreeStyles, TreeChevron } from './treeStyles.jsx';
 
 const PANEL_W = 340;
+const INDENT_PX = 14; // per-depth indentation step
 
 function panelStyle() {
   return {
@@ -34,26 +36,16 @@ function panelStyle() {
     width: PANEL_W,
     maxWidth: '96vw',
     height: 'calc(100vh - var(--forge-topbar-h) - var(--forge-qat-h) - var(--forge-cmdbar-h))',
-    background: 'var(--forge-canvas-2)',
-    borderLeft: '1px solid var(--forge-rail-edge)',
-    boxShadow: '-12px 0 32px rgba(0,0,0,0.45)',
+    background: 'var(--fds-surface-panel)',
+    borderLeft: 'var(--fds-border-w) solid var(--fds-border)',
+    boxShadow: 'var(--fds-elev-3)',
     display: 'flex', flexDirection: 'column',
-    fontSize: 13,
-    color: 'var(--forge-ink)',
-    zIndex: 1295,
+    fontFamily: 'var(--fds-font-ui)',
+    fontSize: 'var(--fds-fs-small)',
+    color: 'var(--fds-text-secondary)',
+    zIndex: 'var(--fds-z-drawer)',
   };
 }
-
-const ROW_BTN = {
-  background: 'transparent',
-  border: 'none',
-  color: 'var(--forge-ink-mute)',
-  cursor: 'pointer',
-  padding: 2,
-  display: 'inline-flex',
-  alignItems: 'center',
-  borderRadius: 2,
-};
 
 // ─────────────────────────────────────────────────────────────────────
 
@@ -64,6 +56,7 @@ export function AssemblyTreePanel({
   selection,
   onSelect,
 }) {
+  ensureTreeStyles();
   // Re-render tick — bumped after every mutation that touches the
   // module-level cache so the tree re-reads its source of truth.
   const [tick, setTick] = useState(0);
@@ -114,47 +107,35 @@ export function AssemblyTreePanel({
 
       <Header onClose={onClose} count={listInstances().length} />
 
-      <div style={{
-        padding: '6px 8px',
-        borderBottom: '1px solid var(--forge-rail-edge)',
-        display: 'flex', gap: 6, alignItems: 'center',
-      }}>
+      <div className="fds-ft-search" style={{ gap: 'var(--fds-space-2)' }}>
         <button type="button"
                 onClick={handleCreateRoot}
                 data-testid="forge-asm-add-root"
+                className="fds-ft-menu-item"
                 style={{
-                  background: 'var(--forge-surface)',
-                  border: '1px solid var(--forge-rail-edge)',
-                  borderRadius: 3,
-                  color: 'var(--forge-ink)',
-                  fontSize: 11, padding: '3px 8px',
-                  cursor: 'pointer',
+                  width: 'auto', height: 'var(--fds-control-h-sm)',
+                  border: 'var(--fds-border-w) solid var(--fds-border)',
+                  background: 'var(--fds-surface-overlay)',
+                  color: 'var(--fds-text-primary)',
+                  fontWeight: 'var(--fds-fw-medium)',
                 }}>
-          + Sub-assembly
+          <Icon name="wb.mech" size={12} />
+          <span>New sub-assembly</span>
         </button>
         <span style={{ flex: 1 }} />
-        <span style={{
-          fontFamily: 'var(--forge-mono)', fontSize: 10,
-          color: 'var(--forge-ink-mute)',
-        }}>
+        <span className="fds-ft-value">
           {roots.length} root{roots.length === 1 ? '' : 's'}
         </span>
       </div>
 
-      <div style={{
-        flex: 1, overflowY: 'auto',
-        padding: '4px 0',
-      }}>
+      <div className="fds-ft-body">
         {roots.length === 0 && (
-          <div style={{
-            padding: 16, fontStyle: 'italic',
-            color: 'var(--forge-ink-mute)', fontSize: 12,
-          }}>
+          <div className="fds-ft-empty">
             Tree is empty. Insert parts via the standard parts library, or
-            create a sub-assembly above.
+            create a <strong>sub-assembly</strong> above.
           </div>
         )}
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}
+        <ul className="fds-ft-list"
             data-testid="forge-asm-root-list">
           {roots.map((inst) => (
             <TreeNode
@@ -208,33 +189,18 @@ export function AssemblyTreePanel({
 
 function Header({ onClose, count }) {
   return (
-    <header style={{
-      display: 'flex', alignItems: 'center', gap: 'var(--forge-space-2)',
-      padding: 'var(--forge-space-3) var(--forge-space-4)',
-      borderBottom: '1px solid var(--forge-rail-edge)',
-      background: 'var(--forge-canvas)',
-      fontSize: 12, fontWeight: 600, flexShrink: 0,
-    }}>
-      <Icon name="wb.mech" size={14} />
-      <span>Assembly tree</span>
-      <span style={{
-        fontFamily: 'var(--forge-mono)', fontSize: 10,
-        color: 'var(--forge-ink-mute)',
-        padding: '1px 6px', borderRadius: 'var(--forge-radius-pill)',
-        border: '1px solid var(--forge-rail-edge)',
-      }}>
-        {count}
+    <header className="fds-ft-dock-head" style={{ flexShrink: 0 }}>
+      <span className="fds-ft-dock-title">
+        <Icon name="wb.mech" size={14} />
+        <span>Assembly Tree</span>
       </span>
-      <span style={{ flex: 1 }} />
+      <span className="fds-ft-count">{count}</span>
+      <span className="fds-ft-head-spacer" />
       <button type="button"
               onClick={onClose}
               aria-label="Close assembly tree"
               data-testid="forge-asm-close"
-              style={{
-                background: 'transparent', border: 'none',
-                color: 'var(--forge-ink-mute)', cursor: 'pointer',
-                display: 'inline-flex', padding: 2,
-              }}>
+              className="fds-ft-iconbtn">
         <Icon name="select.clear" size={12} />
       </button>
     </header>
@@ -290,25 +256,17 @@ function TreeNode({
     onMutate();
   };
 
-  const rowStyle = {
-    display: 'flex', alignItems: 'center', gap: 4,
-    padding: `2px 8px 2px ${8 + depth * 14}px`,
-    cursor: 'pointer',
-    background: isSelected ? 'var(--forge-accent-mute)' : 'transparent',
-    borderLeft: isSelected
-      ? '2px solid var(--forge-accent)'
-      : '2px solid transparent',
-    opacity: instance.hidden || instance.suppressed ? 0.45 : 1,
-    fontSize: 12,
-  };
-
   return (
     <li data-testid="forge-asm-node"
         data-instance-id={instance.id}
         data-depth={depth}
         data-hidden={String(!!instance.hidden)}
         data-suppressed={String(!!instance.suppressed)}>
-      <div style={rowStyle}
+      <div className="fds-ft-row"
+           data-selected={isSelected ? 'true' : undefined}
+           data-hidden={instance.hidden ? 'true' : undefined}
+           data-suppressed={instance.suppressed ? 'true' : undefined}
+           style={{ '--ft-indent': `calc(var(--fds-space-3) + ${depth * INDENT_PX}px)` }}
            onClick={handleClick}
            onContextMenu={(e) => onContext(e, instance.id)}
            draggable
@@ -320,17 +278,14 @@ function TreeNode({
                 aria-label={isCollapsed ? 'Expand' : 'Collapse'}
                 data-testid="forge-asm-toggle"
                 data-collapsed={String(isCollapsed)}
-                style={{
-                  ...ROW_BTN,
-                  visibility: hasChildren ? 'visible' : 'hidden',
-                  width: 14,
-                  color: 'var(--forge-ink-2)',
-                  fontFamily: 'var(--forge-mono)',
-                  fontSize: 10,
-                }}>
-          {isCollapsed ? '▶' : '▼'}
+                className="fds-ft-twisty"
+                data-expanded={!isCollapsed ? 'true' : undefined}
+                data-leaf={!hasChildren ? 'true' : undefined}>
+          <TreeChevron size={12} />
         </button>
-        <Icon name={hasChildren ? 'wb.mech' : 'select.body'} size={11} />
+        <span className="fds-ft-icon">
+          <Icon name={hasChildren ? 'wb.mech' : 'select.body'} size={12} />
+        </span>
 
         {renaming === instance.id ? (
           <input type="text"
@@ -348,30 +303,14 @@ function TreeNode({
                    }
                  }}
                  data-testid="forge-asm-rename"
-                 style={{
-                   flex: 1,
-                   background: 'var(--forge-canvas)',
-                   border: '1px solid var(--forge-accent-rim)',
-                   borderRadius: 2,
-                   color: 'var(--forge-ink)',
-                   font: 'inherit',
-                   padding: '1px 4px',
-                 }}
+                 className="fds-ft-rename"
                  onClick={(e) => e.stopPropagation()} />
         ) : (
-          <span style={{
-            flex: 1, overflow: 'hidden',
-            textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            color: 'var(--forge-ink)',
-            fontFamily: 'var(--forge-mono)',
-            fontSize: 11,
-          }} title={body ? `${instance.name} → ${body.name || body.id}` : instance.name}>
+          <span className="fds-ft-label"
+                title={body ? `${instance.name} → ${body.name || body.id}` : instance.name}>
             {instance.name}
             {instance.qty > 1 && (
-              <span style={{
-                color: 'var(--forge-ink-mute)', marginLeft: 4,
-                fontSize: 10,
-              }}>×{instance.qty}</span>
+              <span className="fds-ft-qty">×{instance.qty}</span>
             )}
           </span>
         )}
@@ -387,7 +326,7 @@ function TreeNode({
       </div>
 
       {hasChildren && !isCollapsed && (
-        <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+        <ul className="fds-ft-children">
           {children.map((child) => (
             <TreeNode
               key={child.id}
@@ -413,7 +352,8 @@ function TreeNode({
 
 function NodeControls({ instance, onChange }) {
   return (
-    <span style={{ display: 'inline-flex', gap: 2 }}
+    <span className="fds-ft-row-actions"
+          data-pinned={(instance.hidden || instance.isolated || instance.suppressed) ? 'true' : undefined}
           onClick={(e) => e.stopPropagation()}>
       <button type="button"
               onClick={() => {
@@ -423,11 +363,8 @@ function NodeControls({ instance, onChange }) {
               aria-label={instance.hidden ? 'Show' : 'Hide'}
               data-testid="forge-asm-hide"
               title="Hide / show"
-              style={{
-                ...ROW_BTN,
-                color: instance.hidden ? 'var(--forge-warn)' : 'var(--forge-ink-mute)',
-              }}>
-        <Icon name={instance.hidden ? 'view.iso' : 'view.front'} size={11} />
+              data-signal={instance.hidden ? 'warn' : undefined}>
+        <Icon name={instance.hidden ? 'misc.eye_off' : 'misc.eye'} size={12} />
       </button>
       <button type="button"
               onClick={() => {
@@ -441,11 +378,8 @@ function NodeControls({ instance, onChange }) {
               aria-label="Isolate"
               data-testid="forge-asm-isolate"
               title="Isolate this subassembly"
-              style={{
-                ...ROW_BTN,
-                color: instance.isolated ? 'var(--forge-accent)' : 'var(--forge-ink-mute)',
-              }}>
-        <Icon name="select.body" size={11} />
+              data-signal={instance.isolated ? 'accent' : undefined}>
+        <Icon name="view.iso" size={12} />
       </button>
       <button type="button"
               onClick={() => {
@@ -455,11 +389,8 @@ function NodeControls({ instance, onChange }) {
               aria-label={instance.suppressed ? 'Unsuppress' : 'Suppress'}
               data-testid="forge-asm-suppress"
               title="Suppress (skip in solve + BOM)"
-              style={{
-                ...ROW_BTN,
-                color: instance.suppressed ? 'var(--forge-err)' : 'var(--forge-ink-mute)',
-              }}>
-        <Icon name="select.clear" size={11} />
+              data-signal={instance.suppressed ? 'error' : undefined}>
+        <Icon name="select.clear" size={12} />
       </button>
     </span>
   );
@@ -472,37 +403,29 @@ function ContextMenu({ ctx, bodies, onClose, onRename, onDelete }) {
   const bounds = subassemblyBounds(inst.id, bodies);
   const wt = worldTransform(inst.id);
   return (
-    <div style={{
-      position: 'fixed',
-      left: Math.min(ctx.x, window.innerWidth - 220),
-      top: Math.min(ctx.y, window.innerHeight - 200),
-      width: 210,
-      background: 'var(--forge-canvas-3)',
-      border: '1px solid var(--forge-rail-edge)',
-      borderRadius: 'var(--forge-radius)',
-      boxShadow: '0 6px 24px rgba(0,0,0,0.55)',
-      zIndex: 1340,
-      fontSize: 11,
-    }}
+    <div className="fds-ft-menu"
+         style={{
+           position: 'fixed',
+           left: Math.min(ctx.x, window.innerWidth - 220),
+           top: Math.min(ctx.y, window.innerHeight - 200),
+           width: 210,
+           zIndex: 'var(--fds-z-popover)',
+         }}
          data-testid="forge-asm-context"
          onMouseDown={(e) => e.stopPropagation()}>
       <MenuItem
+        icon="edit.copy"
         label="Rename"
         testid="forge-asm-ctx-rename"
         onClick={() => onRename(inst.id)} />
       <MenuItem
+        icon="edit.delete"
         label="Delete"
         testid="forge-asm-ctx-delete"
         kind="danger"
         onClick={() => onDelete(inst.id)} />
-      <div style={{
-        borderTop: '1px solid var(--forge-rail-edge)',
-        padding: '6px 8px',
-        color: 'var(--forge-ink-mute)',
-        fontFamily: 'var(--forge-mono)',
-        fontSize: 10,
-        lineHeight: 1.5,
-      }} data-testid="forge-asm-ctx-props">
+      <div className="fds-ft-menu-sep" role="separator" />
+      <div className="fds-ft-menu-meta" data-testid="forge-asm-ctx-props">
         <div>id: {inst.id}</div>
         <div>body: {body?.name || (inst.bodyId == null ? '—' : `#${inst.bodyId}`)}</div>
         <div>qty: {inst.qty}</div>
@@ -516,39 +439,26 @@ function ContextMenu({ ctx, bodies, onClose, onRename, onDelete }) {
           </div>
         )}
       </div>
+      <div className="fds-ft-menu-sep" role="separator" />
       <button type="button"
               onClick={onClose}
-              style={{
-                ...ROW_BTN,
-                width: '100%',
-                padding: '4px 8px',
-                color: 'var(--forge-ink-mute)',
-                borderTop: '1px solid var(--forge-rail-edge)',
-                justifyContent: 'center',
-              }}>
-        close
+              className="fds-ft-menu-item"
+              style={{ justifyContent: 'center', color: 'var(--fds-text-tertiary)' }}>
+        Close
       </button>
     </div>
   );
 }
 
-function MenuItem({ label, onClick, testid, kind }) {
+function MenuItem({ icon, label, onClick, testid, kind }) {
   return (
     <button type="button"
             onClick={onClick}
             data-testid={testid}
-            style={{
-              display: 'block', width: '100%',
-              textAlign: 'left',
-              padding: '5px 10px',
-              background: 'transparent',
-              border: 'none',
-              color: kind === 'danger' ? 'var(--forge-err)' : 'var(--forge-ink)',
-              cursor: 'pointer',
-              fontSize: 11,
-              font: 'inherit',
-            }}>
-      {label}
+            className="fds-ft-menu-item"
+            data-danger={kind === 'danger' ? 'true' : undefined}>
+      {icon && <Icon name={icon} size={12} />}
+      <span>{label}</span>
     </button>
   );
 }

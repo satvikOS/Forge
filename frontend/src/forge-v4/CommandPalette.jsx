@@ -23,12 +23,20 @@
 //   - body → pick via window.__forgeSelection.
 //
 // Strict: manual clicks here NEVER write to Archie's thread.
+//
+// The palette UI is built entirely on the Forge design-system tokens
+// (--fds-*) and the refined-neutral / monochrome aesthetic: a crisp
+// search field, kind-grouped sections with category labels + per-row
+// icons + keyboard hints, a clear accent active-row highlight, and a
+// keyboard-shortcuts reference overlay (`?` inside the palette, or
+// window.__forgeOpenShortcuts).
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MENU_SPEC, MENU_KEYS } from './Menus.jsx';
 import { WORKBENCHES } from './WorkbenchRail.jsx';
 import { CALCULATOR_TREE } from './toolRegistry.js';
+import { Icon } from './icons/Icon.jsx';
 
 // We avoid importing Toolbar's SPEC directly to keep the dependency
 // graph minimal; instead, toolsForWorkbench is the public access.
@@ -247,63 +255,389 @@ function executeEntry(entry) {
   }
 }
 
+// ─────────────────────────── grouping ────────────────────────────────
+//
+// Results are grouped into labelled sections (CATIA / SW command-search
+// idiom). Order is stable & deterministic; within each section the order
+// is preserved from the (already score-sorted) results array.
+
+const KIND_META = {
+  menu:      { label: 'Commands',   icon: 'misc.search',  order: 0 },
+  tool:      { label: 'Tools',      icon: 'gizmo.transform', order: 1 },
+  workbench: { label: 'Workbenches', icon: 'wb.mech',     order: 2 },
+  feature:   { label: 'Features',   icon: 'select.body',  order: 3 },
+  body:      { label: 'Bodies',     icon: 'select.body',  order: 4 },
+};
+
+function groupResults(results) {
+  const buckets = new Map();
+  for (const r of results) {
+    const k = r.kind || 'menu';
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push(r);
+  }
+  const sections = [];
+  for (const [kind, items] of buckets.entries()) {
+    const meta = KIND_META[kind] || { label: kind, icon: 'misc.search', order: 9 };
+    sections.push({ kind, label: meta.label, icon: meta.icon,
+                    order: meta.order, items });
+  }
+  sections.sort((a, b) => a.order - b.order);
+  return sections;
+}
+
+// ─────────────────────────── shortcuts reference ─────────────────────
+//
+// A static, curated map of the application-global shortcuts wired in
+// ForgeShellV4's keydown handler + the palette itself. Read-only
+// reference overlay — purely informational, dispatches nothing.
+
+const SHORTCUT_GROUPS = [
+  {
+    label: 'General',
+    items: [
+      { keys: ['⌘', 'K'], desc: 'Open command palette' },
+      { keys: ['⌘', '/'], desc: 'Toggle Archie dock' },
+      { keys: ['⌘', 'T'], desc: 'Toggle theme (dark / light)' },
+      { keys: ['⌘', ','], desc: 'Settings' },
+      { keys: ['F1'],      desc: 'Help & documentation' },
+      { keys: ['Esc'],     desc: 'Cancel tool / close overlay' },
+    ],
+  },
+  {
+    label: 'Edit',
+    items: [
+      { keys: ['⌘', 'Z'],      desc: 'Undo' },
+      { keys: ['⌘', '⇧', 'Z'], desc: 'Redo' },
+      { keys: ['⌘', 'A'],      desc: 'Select all' },
+      { keys: ['⌘', '⇧', 'A'], desc: 'Select none' },
+      { keys: ['⌫'],           desc: 'Delete selection' },
+    ],
+  },
+  {
+    label: 'View',
+    items: [
+      { keys: ['1'], desc: 'Isometric view' },
+      { keys: ['2'], desc: 'Front view' },
+      { keys: ['3'], desc: 'Top view' },
+      { keys: ['4'], desc: 'Right view' },
+      { keys: ['H'], desc: 'Centre model' },
+      { keys: ['⌘', 'D'], desc: 'Cycle display (shaded / wire / section)' },
+    ],
+  },
+  {
+    label: 'Modelling',
+    items: [
+      { keys: ['T'],      desc: 'Move (translate) gizmo' },
+      { keys: ['R'],      desc: 'Rotate gizmo' },
+      { keys: ['Y'],      desc: 'Scale gizmo' },
+      { keys: ['⌘', 'E'], desc: 'Equation manager' },
+      { keys: ['⌘', 'I'], desc: 'Topology inspector' },
+      { keys: ['⌘', 'P'], desc: 'Toggle preview panels' },
+    ],
+  },
+];
+
 // ─────────────────────────── UI ──────────────────────────────────────
 
 const overlayStyle = {
-  position: 'fixed', inset: 0, zIndex: 1470,
-  background: 'rgba(8,9,12,0.50)',
+  position: 'fixed', inset: 0, zIndex: 'var(--fds-z-popover, 1500)',
+  background: 'var(--fds-scrim, rgba(8,9,12,0.50))',
+  backdropFilter: 'blur(2px)',
+  WebkitBackdropFilter: 'blur(2px)',
   display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-  paddingTop: '12vh',
+  paddingTop: '11vh',
+  animation: 'fds-fade-in var(--fds-dur-fast, 120ms) var(--fds-ease, ease)',
 };
 const panelStyle = {
-  width: 640, maxWidth: '90vw',
-  background: 'var(--forge-canvas-2)',
-  border: '1px solid var(--forge-rail-edge)',
-  borderRadius: 'var(--forge-radius)',
-  boxShadow: '0 32px 80px rgba(0,0,0,0.7)',
+  width: 660, maxWidth: '92vw',
+  background: 'var(--fds-surface-panel)',
+  border: 'var(--fds-border-w) solid var(--fds-border)',
+  borderRadius: 'var(--fds-radius-lg)',
+  boxShadow: 'var(--fds-elev-3)',
   display: 'flex', flexDirection: 'column',
-  color: 'var(--forge-ink)',
+  color: 'var(--fds-text-secondary)',
   overflow: 'hidden',
+  fontFamily: 'var(--fds-font-ui)',
+};
+
+// ── search field ──
+const searchWrapStyle = {
+  display: 'flex', alignItems: 'center', gap: 'var(--fds-space-3)',
+  padding: '0 var(--fds-space-5)',
+  height: 52,
+  borderBottom: 'var(--fds-border-w) solid var(--fds-border)',
+  background: 'var(--fds-surface-raised)',
+};
+const searchIconStyle = {
+  color: 'var(--fds-accent)',
+  display: 'flex', alignItems: 'center', flex: '0 0 auto',
 };
 const inputStyle = {
-  width: '100%',
+  flex: 1,
   background: 'transparent',
   border: 'none',
   outline: 'none',
-  color: 'var(--forge-ink)',
-  fontSize: 16,
-  padding: '14px 16px',
-  borderBottom: '1px solid var(--forge-rail-edge)',
+  color: 'var(--fds-text-primary)',
+  fontSize: 'var(--fds-fs-large)',
+  lineHeight: 'var(--fds-lh-large)',
+  fontFamily: 'var(--fds-font-ui)',
+  padding: 0,
+  caretColor: 'var(--fds-accent)',
 };
-const rowStyle = (active) => ({
-  display: 'flex', alignItems: 'center', gap: 8,
-  padding: '8px 14px',
-  background: active ? 'var(--forge-accent-mute)' : 'transparent',
-  cursor: 'pointer',
-  fontSize: 13,
-  borderBottom: '1px solid var(--forge-canvas)',
-});
-const kindBadgeStyle = (kind) => ({
-  fontFamily: 'var(--forge-mono)',
-  fontSize: 9,
-  padding: '2px 5px',
-  borderRadius: 3,
-  background: 'var(--forge-surface)',
-  color: 'var(--forge-ink-mute)',
-});
-const shortcutStyle = {
-  fontFamily: 'var(--forge-mono)',
-  fontSize: 11,
-  color: 'var(--forge-ink-mute)',
-  marginLeft: 8,
+const countChipStyle = {
+  flex: '0 0 auto',
+  fontFamily: 'var(--fds-font-num)',
+  fontVariantNumeric: 'tabular-nums lining-nums',
+  fontSize: 'var(--fds-fs-micro)',
+  color: 'var(--fds-text-tertiary)',
+  background: 'var(--fds-surface-overlay)',
+  border: 'var(--fds-border-w) solid var(--fds-border-subtle)',
+  borderRadius: 'var(--fds-radius-pill)',
+  padding: '1px var(--fds-space-3)',
+  whiteSpace: 'nowrap',
 };
 
+// ── section header ──
+const sectionHeadStyle = {
+  display: 'flex', alignItems: 'center', gap: 'var(--fds-space-2)',
+  padding: 'var(--fds-space-3) var(--fds-space-5) var(--fds-space-1)',
+  color: 'var(--fds-text-tertiary)',
+  fontSize: 'var(--fds-fs-micro)',
+  lineHeight: 'var(--fds-lh-micro)',
+  fontWeight: 'var(--fds-fw-semibold)',
+  letterSpacing: 'var(--fds-tracking-label)',
+  textTransform: 'uppercase',
+  position: 'sticky', top: 0,
+  background: 'var(--fds-surface-panel)',
+  zIndex: 1,
+  userSelect: 'none',
+};
+const sectionCountStyle = {
+  marginLeft: 'auto',
+  fontFamily: 'var(--fds-font-num)',
+  fontVariantNumeric: 'tabular-nums lining-nums',
+  fontWeight: 'var(--fds-fw-regular)',
+  letterSpacing: 0,
+  color: 'var(--fds-text-disabled)',
+};
+
+// ── result row ──
+const rowStyle = (active) => ({
+  display: 'flex', alignItems: 'center', gap: 'var(--fds-space-3)',
+  padding: '0 var(--fds-space-4)',
+  margin: '0 var(--fds-space-2)',
+  height: 34,
+  borderRadius: 'var(--fds-radius-md)',
+  background: active ? 'var(--fds-state-selected)' : 'transparent',
+  boxShadow: active
+    ? 'inset 0 0 0 var(--fds-border-w) var(--fds-state-selected-bd)'
+    : 'none',
+  color: active ? 'var(--fds-text-primary)' : 'var(--fds-text-secondary)',
+  cursor: 'pointer',
+  fontSize: 'var(--fds-fs-base)',
+  transition: 'background var(--fds-motion-fast), box-shadow var(--fds-motion-fast)',
+});
+const rowIconStyle = (active) => ({
+  flex: '0 0 auto',
+  width: 'var(--fds-icon-md)', height: 'var(--fds-icon-md)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  color: active ? 'var(--fds-accent)' : 'var(--fds-text-tertiary)',
+});
+const rowLabelStyle = (active) => ({
+  flex: '0 1 auto',
+  fontWeight: active ? 'var(--fds-fw-medium)' : 'var(--fds-fw-regular)',
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+});
+const breadcrumbStyle = {
+  flex: '1 1 auto',
+  color: 'var(--fds-text-tertiary)',
+  fontSize: 'var(--fds-fs-small)',
+  whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  minWidth: 0,
+};
+const shortcutWrapStyle = {
+  flex: '0 0 auto',
+  display: 'flex', alignItems: 'center', gap: 'var(--fds-space-1)',
+  marginLeft: 'var(--fds-space-3)',
+};
+
+// ── footer ──
+const footerStyle = {
+  display: 'flex', alignItems: 'center', gap: 'var(--fds-space-4)',
+  padding: 'var(--fds-space-2) var(--fds-space-5)',
+  borderTop: 'var(--fds-border-w) solid var(--fds-border)',
+  background: 'var(--fds-surface-raised)',
+  fontSize: 'var(--fds-fs-micro)',
+  lineHeight: 'var(--fds-lh-micro)',
+  color: 'var(--fds-text-tertiary)',
+};
+const hintGroupStyle = {
+  display: 'flex', alignItems: 'center', gap: 'var(--fds-space-2)',
+};
+const shortcutsBtnStyle = {
+  display: 'inline-flex', alignItems: 'center', gap: 'var(--fds-space-2)',
+  background: 'transparent',
+  border: 'var(--fds-border-w) solid var(--fds-border-subtle)',
+  borderRadius: 'var(--fds-radius-sm)',
+  color: 'var(--fds-text-tertiary)',
+  font: 'inherit',
+  padding: '2px var(--fds-space-3)',
+  cursor: 'pointer',
+  transition: 'background var(--fds-motion-fast), color var(--fds-motion-fast)',
+};
+
+// A keycap rendered with the shared design-system kbd treatment.
+function Kbd({ children }) {
+  return <kbd className="fds-kbd">{children}</kbd>;
+}
+
 const MAX_RESULTS = 60;
+
+// ─────────────────────────── shortcuts overlay ───────────────────────
+
+const shortcutsOverlayStyle = {
+  position: 'fixed', inset: 0, zIndex: 'var(--fds-z-popover, 1500)',
+  background: 'var(--fds-scrim, rgba(8,9,12,0.50))',
+  backdropFilter: 'blur(2px)',
+  WebkitBackdropFilter: 'blur(2px)',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  animation: 'fds-fade-in var(--fds-dur-fast, 120ms) var(--fds-ease, ease)',
+};
+const shortcutsPanelStyle = {
+  width: 640, maxWidth: '92vw', maxHeight: '82vh',
+  background: 'var(--fds-surface-panel)',
+  border: 'var(--fds-border-w) solid var(--fds-border)',
+  borderRadius: 'var(--fds-radius-lg)',
+  boxShadow: 'var(--fds-elev-3)',
+  display: 'flex', flexDirection: 'column',
+  color: 'var(--fds-text-secondary)',
+  overflow: 'hidden',
+  fontFamily: 'var(--fds-font-ui)',
+};
+const shortcutsHeaderStyle = {
+  display: 'flex', alignItems: 'center', gap: 'var(--fds-space-3)',
+  padding: '0 var(--fds-space-5)',
+  height: 48,
+  borderBottom: 'var(--fds-border-w) solid var(--fds-border)',
+  background: 'var(--fds-surface-raised)',
+};
+const shortcutsTitleStyle = {
+  fontSize: 'var(--fds-fs-medium)',
+  lineHeight: 'var(--fds-lh-medium)',
+  fontWeight: 'var(--fds-fw-semibold)',
+  color: 'var(--fds-text-primary)',
+};
+const shortcutsBodyStyle = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 'var(--fds-space-6)',
+  padding: 'var(--fds-space-5)',
+  overflowY: 'auto',
+};
+const shortcutsGroupHeadStyle = {
+  color: 'var(--fds-text-tertiary)',
+  fontSize: 'var(--fds-fs-micro)',
+  lineHeight: 'var(--fds-lh-micro)',
+  fontWeight: 'var(--fds-fw-semibold)',
+  letterSpacing: 'var(--fds-tracking-label)',
+  textTransform: 'uppercase',
+  margin: '0 0 var(--fds-space-3)',
+  paddingBottom: 'var(--fds-space-2)',
+  borderBottom: 'var(--fds-border-w) solid var(--fds-border-subtle)',
+};
+const shortcutRowStyle = {
+  display: 'flex', alignItems: 'center', gap: 'var(--fds-space-3)',
+  height: 'var(--fds-row-h)',
+  fontSize: 'var(--fds-fs-small)',
+};
+const closeBtnStyle = {
+  marginLeft: 'auto',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  width: 'var(--fds-control-h-sm)', height: 'var(--fds-control-h-sm)',
+  borderRadius: 'var(--fds-radius-sm)',
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--fds-text-tertiary)',
+  cursor: 'pointer',
+  transition: 'background var(--fds-motion-fast), color var(--fds-motion-fast)',
+};
+
+export function ShortcutsOverlay({ open, onClose }) {
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose?.(); }
+    };
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div style={shortcutsOverlayStyle}
+         data-testid="forge-shortcuts-overlay"
+         onMouseDown={(e) => { if (e.target === e.currentTarget) onClose?.(); }}>
+      <section style={shortcutsPanelStyle}
+               role="dialog"
+               aria-label="Keyboard shortcuts"
+               onMouseDown={(e) => e.stopPropagation()}>
+        <header style={shortcutsHeaderStyle}>
+          <span style={searchIconStyle}>
+            <Icon name="misc.kbd" size={16} />
+          </span>
+          <span style={shortcutsTitleStyle}>Keyboard Shortcuts</span>
+          <button type="button"
+                  aria-label="Close"
+                  onClick={onClose}
+                  data-testid="forge-shortcuts-close"
+                  style={closeBtnStyle}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--fds-state-hover)';
+                    e.currentTarget.style.color = 'var(--fds-text-primary)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = 'var(--fds-text-tertiary)';
+                  }}>
+            <Icon name="archie.cancel" size={14} />
+          </button>
+        </header>
+        <div style={shortcutsBodyStyle}>
+          {SHORTCUT_GROUPS.map((grp) => (
+            <div key={grp.label}>
+              <div style={shortcutsGroupHeadStyle}>{grp.label}</div>
+              {grp.items.map((sc, i) => (
+                <div key={i} style={shortcutRowStyle}>
+                  <span style={{ flex: 1, color: 'var(--fds-text-secondary)' }}>
+                    {sc.desc}
+                  </span>
+                  <span style={{ display: 'flex', alignItems: 'center',
+                                 gap: 'var(--fds-space-1)', flex: '0 0 auto' }}>
+                    {sc.keys.map((k, j) => <Kbd key={j}>{k}</Kbd>)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        <footer style={footerStyle}>
+          <span style={hintGroupStyle}><Kbd>esc</Kbd> close</span>
+          <span style={{ flex: 1 }} />
+          <span>Application shortcuts</span>
+        </footer>
+      </section>
+    </div>
+  );
+}
 
 export function CommandPalette({ open, onClose }) {
   const [query, setQuery] = useState('');
   const [activeIdx, setActiveIdx] = useState(0);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const inputRef = useRef(null);
+  const listRef = useRef(null);
   // Rebuild on open so feature tree / body list reflect latest state.
   const catalogue = useMemo(() => open ? buildCatalogue() : [], [open]);
 
@@ -319,8 +653,14 @@ export function CommandPalette({ open, onClose }) {
     return scored.slice(0, MAX_RESULTS).map((x) => x.e);
   }, [open, query, catalogue]);
 
+  // Sectioned view of the same (flat, score-ordered) results. The flat
+  // `results` array remains the source of truth for keyboard nav + the
+  // testid result-count, so index math stays identical to before.
+  const sections = useMemo(() => groupResults(results), [results]);
+
   // Reset on open / query change.
   useEffect(() => { if (open) setActiveIdx(0); }, [open, query]);
+  useEffect(() => { if (!open) setShowShortcuts(false); }, [open]);
   useEffect(() => {
     if (open) {
       const id = setTimeout(() => inputRef.current?.focus(), 30);
@@ -328,10 +668,20 @@ export function CommandPalette({ open, onClose }) {
     }
   }, [open]);
 
-  // Esc closes; arrow keys + enter navigate.
+  // Keep the active row scrolled into view as the user arrows through.
+  useEffect(() => {
+    if (!open || !listRef.current) return;
+    const el = listRef.current.querySelector('[data-cmd-active="true"]');
+    if (el && el.scrollIntoView) {
+      try { el.scrollIntoView({ block: 'nearest' }); } catch {}
+    }
+  }, [activeIdx, open, results.length]);
+
+  // Esc closes; arrow keys + enter navigate; '?' opens the shortcuts ref.
   useEffect(() => {
     if (!open) return;
     const onKey = (e) => {
+      if (showShortcuts) return; // overlay owns keys while open
       if (e.key === 'Escape') { e.preventDefault(); onClose?.(); return; }
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -343,11 +693,14 @@ export function CommandPalette({ open, onClose }) {
         e.preventDefault();
         const entry = results[activeIdx];
         if (entry) { executeEntry(entry); onClose?.(); }
+      } else if (e.key === '?' && !query) {
+        e.preventDefault();
+        setShowShortcuts(true);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, results, activeIdx, onClose]);
+  }, [open, results, activeIdx, onClose, showShortcuts, query]);
 
   if (!open) return null;
 
@@ -360,64 +713,108 @@ export function CommandPalette({ open, onClose }) {
                role="dialog"
                aria-label="Command palette"
                onMouseDown={(e) => e.stopPropagation()}>
-        <input ref={inputRef}
-               type="text"
-               value={query}
-               placeholder="Search every menu, tool, workbench, feature, body…"
-               data-testid="forge-cmd-palette-input"
-               onChange={(e) => setQuery(e.target.value)}
-               spellCheck={false}
-               autoComplete="off"
-               style={inputStyle} />
+        <div style={searchWrapStyle}>
+          <span style={searchIconStyle} aria-hidden="true">
+            <Icon name="misc.search" size={16} />
+          </span>
+          <input ref={inputRef}
+                 type="text"
+                 value={query}
+                 placeholder="Search every menu, tool, workbench, feature, body…"
+                 data-testid="forge-cmd-palette-input"
+                 onChange={(e) => setQuery(e.target.value)}
+                 spellCheck={false}
+                 autoComplete="off"
+                 aria-label="Command search"
+                 style={inputStyle} />
+          <span style={countChipStyle} aria-hidden="true">
+            {results.length}{results.length >= MAX_RESULTS ? '+' : ''}
+          </span>
+        </div>
         <ul role="listbox"
+            ref={listRef}
             data-testid="forge-cmd-palette-results"
             data-result-count={results.length}
-            style={{ listStyle: 'none', margin: 0, padding: 0,
+            style={{ listStyle: 'none', margin: 0,
+                     padding: 'var(--fds-space-2) 0',
                      maxHeight: '52vh', overflowY: 'auto' }}>
           {results.length === 0 && (
-            <li style={{ padding: 14, color: 'var(--forge-ink-mute)',
-                         fontStyle: 'italic', fontSize: 12 }}>
-              No matches.
+            <li style={{ padding: 'var(--fds-space-5)',
+                         color: 'var(--fds-text-tertiary)',
+                         fontStyle: 'italic',
+                         fontSize: 'var(--fds-fs-small)',
+                         textAlign: 'center' }}>
+              No matches for “{query}”.
             </li>
           )}
-          {results.map((r, i) => (
-            <li key={r.id}
-                role="option"
-                aria-selected={i === activeIdx}
-                data-cmd-id={r.id}
-                data-cmd-kind={r.kind}
-                style={rowStyle(i === activeIdx)}
-                onMouseEnter={() => setActiveIdx(i)}
-                onClick={() => { executeEntry(r); onClose?.(); }}>
-              <span style={kindBadgeStyle(r.kind)}>{r.kind}</span>
-              <span style={{ flex: 1 }}>
-                <span style={{ fontWeight: 600 }}>{r.label}</span>
-                <span style={{ color: 'var(--forge-ink-mute)',
-                               marginLeft: 8, fontSize: 11 }}>
-                  {r.breadcrumb}
-                </span>
-              </span>
-              {r.shortcut && (<span style={shortcutStyle}>{r.shortcut}</span>)}
-            </li>
+          {sections.map((section) => (
+            <React.Fragment key={section.kind}>
+              <li role="presentation" style={sectionHeadStyle}>
+                <span>{section.label}</span>
+                <span style={sectionCountStyle}>{section.items.length}</span>
+              </li>
+              {section.items.map((r) => {
+                // Flat index drives keyboard nav + active highlight.
+                const i = results.indexOf(r);
+                const active = i === activeIdx;
+                return (
+                  <li key={r.id}
+                      role="option"
+                      aria-selected={active}
+                      data-cmd-id={r.id}
+                      data-cmd-kind={r.kind}
+                      data-cmd-active={active ? 'true' : 'false'}
+                      style={rowStyle(active)}
+                      onMouseEnter={() => setActiveIdx(i)}
+                      onClick={() => { executeEntry(r); onClose?.(); }}>
+                    <span style={rowIconStyle(active)} aria-hidden="true">
+                      <Icon name={r.icon || section.icon || 'misc.search'} size={16} />
+                    </span>
+                    <span style={rowLabelStyle(active)}>{r.label}</span>
+                    <span style={breadcrumbStyle}>{r.breadcrumb}</span>
+                    {r.shortcut && (
+                      <span style={shortcutWrapStyle}>
+                        <Kbd>{r.shortcut}</Kbd>
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </React.Fragment>
           ))}
         </ul>
-        <footer style={{ display: 'flex', alignItems: 'center', gap: 12,
-                         padding: '8px 14px',
-                         borderTop: '1px solid var(--forge-rail-edge)',
-                         fontSize: 10, color: 'var(--forge-ink-mute)' }}>
-          <span><kbd>↑↓</kbd> navigate</span>
-          <span><kbd>↵</kbd> execute</span>
-          <span><kbd>esc</kbd> close</span>
+        <footer style={footerStyle}>
+          <span style={hintGroupStyle}><Kbd>↑</Kbd><Kbd>↓</Kbd> navigate</span>
+          <span style={hintGroupStyle}><Kbd>↵</Kbd> execute</span>
+          <span style={hintGroupStyle}><Kbd>esc</Kbd> close</span>
           <span style={{ flex: 1 }} />
-          <span>{results.length} results</span>
+          <button type="button"
+                  data-testid="forge-cmd-palette-shortcuts"
+                  onClick={() => setShowShortcuts(true)}
+                  style={shortcutsBtnStyle}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'var(--fds-state-hover)';
+                    e.currentTarget.style.color = 'var(--fds-text-secondary)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'transparent';
+                    e.currentTarget.style.color = 'var(--fds-text-tertiary)';
+                  }}>
+            <Icon name="misc.kbd" size={12} />
+            <span>Shortcuts</span>
+            <Kbd>?</Kbd>
+          </button>
         </footer>
       </section>
+      <ShortcutsOverlay open={showShortcuts}
+                        onClose={() => setShowShortcuts(false)} />
     </div>
   );
 }
 
 export function CommandPaletteHost() {
   const [open, setOpen] = useState(false);
+  const [shortcutsOnly, setShortcutsOnly] = useState(false);
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const onKey = (e) => {
@@ -433,14 +830,23 @@ export function CommandPaletteHost() {
     window.addEventListener('keydown', onKey, true);
     window.__forgeOpenCommandPalette = (v) =>
       setOpen(typeof v === 'boolean' ? v : !open);
+    // Standalone shortcuts-reference launcher (menu / help / status bar can
+    // call this without opening the full palette).
+    window.__forgeOpenShortcuts = (v) =>
+      setShortcutsOnly(typeof v === 'boolean' ? v : true);
     return () => {
       window.removeEventListener('keydown', onKey, true);
       try { delete window.__forgeOpenCommandPalette; } catch {}
+      try { delete window.__forgeOpenShortcuts; } catch {}
     };
   }, [open]);
   if (typeof document === 'undefined') return null;
   return createPortal(
-    <CommandPalette open={open} onClose={() => setOpen(false)} />,
+    <>
+      <CommandPalette open={open} onClose={() => setOpen(false)} />
+      <ShortcutsOverlay open={shortcutsOnly}
+                        onClose={() => setShortcutsOnly(false)} />
+    </>,
     document.body,
   );
 }

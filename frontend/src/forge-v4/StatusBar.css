@@ -1,0 +1,185 @@
+/* ============================================================================
+ * Forge v4 — STATUS BAR  (forge-v4/StatusBar.css)
+ * ----------------------------------------------------------------------------
+ * Component-scoped styles for the bottom status bar (the "status-bar" area).
+ * Imported once by StatusBar.jsx. Loads AFTER the design-system sheets, so it
+ * layers cleanly on top of the shell's frame-chrome treatment of
+ * `.forge-statusbar` (background / seam / border are owned by the frame chrome
+ * and intentionally NOT redeclared here — this file owns the CONTENT layout).
+ *
+ * Professional three-zone instrument strip (CATIA / SolidWorks / NX grade):
+ *   LEFT  = context / selection + mode
+ *   CENTER= measurement / coordinate readout (optically centered, tabular)
+ *   RIGHT = units · snap · grid + slim activity indicator
+ *
+ * Refined-neutral monochrome only; hairline dividers; tabular figures
+ * everywhere. All spacing / size / type / color come from --fds-* tokens.
+ * ==========================================================================*/
+
+.forge-statusbar {
+  /* Upgrade the strip to a three-column grid so the CENTER measurement
+     readout stays optically centered regardless of left/right width. The
+     frame chrome still owns background, seam, border and z-index. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0;
+  font-family: var(--fds-font-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--fds-font-feature-num);
+  font-size: var(--fds-fs-micro);
+  line-height: var(--fds-lh-micro);
+  color: var(--fds-text-tertiary);
+  user-select: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+/* --- zones --- */
+.forge-statusbar-zone {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-3);
+  min-width: 0;
+  height: 100%;
+}
+.forge-statusbar-zone--left   { justify-content: flex-start; }
+.forge-statusbar-zone--center { justify-content: center; padding: 0 var(--fds-space-4); }
+.forge-statusbar-zone--right  { justify-content: flex-end; }
+
+/* Hairline vertical divider between adjacent groups within a zone. */
+.forge-statusbar-div {
+  width: var(--fds-border-w);
+  height: 12px;
+  background: var(--fds-border);
+  flex: 0 0 auto;
+}
+
+/* Label / value primitives. KEY is muted + tracked; VALUE is ink tabular
+   figures so columns never reflow. */
+.forge-statusbar-key {
+  color: var(--fds-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--fds-tracking-label);
+  font-family: var(--fds-font-ui);
+  font-size: 10px;
+  font-weight: var(--fds-fw-medium);
+}
+.forge-statusbar-val {
+  color: var(--fds-text-secondary);
+  font-weight: var(--fds-fw-medium);
+}
+.forge-statusbar-unit {
+  color: var(--fds-text-tertiary);
+  font-family: var(--fds-font-ui);
+  font-size: 10px;
+}
+.forge-statusbar-muted {
+  color: var(--fds-text-disabled);
+  font-family: var(--fds-font-ui);
+}
+
+/* LEFT — mode chip + selection */
+.forge-statusbar-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+}
+.forge-statusbar-mode-label {
+  color: var(--fds-text-primary);
+  font-family: var(--fds-font-ui);
+  font-weight: var(--fds-fw-medium);
+  letter-spacing: var(--fds-tracking-tight);
+}
+.forge-statusbar-sel {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* CENTER — measurement readouts */
+.forge-statusbar-readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--fds-space-2);
+}
+.forge-statusbar-ready {
+  letter-spacing: var(--fds-tracking-label);
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+/* RIGHT — toggles (snap / grid) read as state cells, not buttons */
+.forge-statusbar-toggle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--fds-space-2);
+}
+.forge-statusbar-state {
+  color: var(--fds-text-disabled);
+  font-weight: var(--fds-fw-medium);
+}
+.forge-statusbar-toggle[data-on="true"] .forge-statusbar-state {
+  color: var(--fds-text-primary);
+}
+
+/* RIGHT — slim activity / progress indicator */
+.forge-statusbar-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+  min-width: 116px;
+}
+.forge-statusbar-activity-label {
+  color: var(--fds-text-tertiary);
+  font-family: var(--fds-font-ui);
+  font-size: 10px;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.forge-statusbar-activity[data-busy="true"] .forge-statusbar-activity-label {
+  color: var(--fds-text-secondary);
+}
+.forge-statusbar-activity-track {
+  position: relative;
+  width: 48px;
+  height: 3px;
+  border-radius: var(--fds-radius-pill);
+  background: var(--fds-surface-overlay);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.forge-statusbar-activity-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: var(--fds-accent);
+  border-radius: inherit;
+  transition: width var(--fds-motion-base);
+}
+/* Busy with an indeterminate (no inline width) job: a slim sweep so the user
+   sees life. A supplied inline `width` overrides this rule. */
+.forge-statusbar-activity[data-busy="true"] .forge-statusbar-activity-fill:not([style*="width"]) {
+  width: 35%;
+  animation: forge-statusbar-sweep 1.1s var(--fds-ease) infinite;
+}
+@keyframes forge-statusbar-sweep {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(330%); }
+}
+.forge-statusbar-activity-pct {
+  color: var(--fds-text-tertiary);
+  min-width: 34px;
+  text-align: right;
+}
+.forge-statusbar-activity[data-busy="true"] .forge-statusbar-activity-pct {
+  color: var(--fds-text-secondary);
+}
+@media (prefers-reduced-motion: reduce) {
+  .forge-statusbar-activity-fill { animation: none !important; }
+}

@@ -629,12 +629,15 @@ export function MenuBar({ onAction }) {
                               display: 'flex',
                               alignItems: 'center',
                               width: '100%',
-                              gap: 10,
-                              padding: '5px 10px',
+                              gap: 'var(--forge-space-2)',
+                              padding: '4px 8px',
+                              minHeight: 'var(--fds-control-h-sm)',
                               background: 'transparent',
                               border: 'none',
                               color: 'var(--forge-ink)',
-                              font: 'inherit', fontSize: 12,
+                              font: 'inherit',
+                              fontSize: 'var(--fds-fs-small)',
+                              lineHeight: 'var(--fds-lh-small)',
                               textAlign: 'left',
                               cursor: 'pointer',
                               borderRadius: 3,
@@ -645,15 +648,25 @@ export function MenuBar({ onAction }) {
                         width: 16, height: 16,
                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                         color: 'var(--forge-ink-2)',
+                        flexShrink: 0,
                       }}>
                         {it.icon ? <Icon name={it.icon} size={14} /> : null}
                       </span>
-                      <span style={{ flex: 1 }}>{it.label}</span>
+                      <span style={{
+                        flex: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}>{it.label}</span>
                       {it.shortcut && (
                         <span style={{
+                          marginLeft: 'var(--forge-space-3)',
                           fontFamily: 'var(--forge-mono)',
-                          fontSize: 10,
+                          fontSize: 'var(--fds-fs-micro)',
+                          fontVariantNumeric: 'tabular-nums lining-nums',
+                          letterSpacing: 0,
                           color: 'var(--forge-ink-mute)',
+                          flexShrink: 0,
                         }}>{it.shortcut}</span>
                       )}
                     </button>

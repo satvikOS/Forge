@@ -5,6 +5,12 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import './tokens.css';
+// Forge-v4 DESIGN SYSTEM (additive layer): --fds-* tokens + reusable base
+// control styles built on top of tokens.css. Loaded after tokens.css so the
+// design-system vocabulary resolves against the live theme vars. Purely
+// visual; no logic, no overrides of existing .forge-* shell classes.
+import './theme/forge-tokens.css';
+import './theme/forge-base.css';
 import { TopBar } from './TopBar.jsx';
 import { WorkbenchRail } from './WorkbenchRail.jsx';
 import { Toolbar, toolsForWorkbench } from './Toolbar.jsx';
@@ -2975,6 +2981,9 @@ export function ForgeShellV4() {
   return (
     <div className="forge-app"
          data-testid="forge-app"
+         role="application"
+         aria-label="ArchDisc Forge"
+         data-frame="v4"
          data-archie-open={String(dockOpen)}>
       <TopBar activeWb={activeWb} onMenuAction={(id) => handleMenuAction(id)} />
       <QuickAccessBar onInvoke={(id) => handleMenuAction(id)} />

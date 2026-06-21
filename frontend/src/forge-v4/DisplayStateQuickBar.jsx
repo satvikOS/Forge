@@ -211,42 +211,49 @@ function useFps() {
 
 // ────────────── styles ──────────────
 
-// Bottom-right corner. z-index just above the viewport's overlays so it
-// always wins, but below modal dialogs (z-index 2000+). Sits clear of
-// the StatusBar (which uses position:fixed bottom:0 height:24px).
+// Bottom-right corner. z-index on the viewport-HUD layer so it sits above
+// the scene but below modal dialogs. Sits clear of the StatusBar (which is
+// position:fixed bottom:0). Refined onto the --fds-* design tokens:
+// hairline-framed translucent panel, tabular-numeric readouts, one
+// restrained accent on the active state, grey-tinted signal dots only.
 const barStyle = {
   position: 'fixed',
-  right: 12,
-  bottom: 'calc(var(--forge-statusbar-h, 24px) + 12px)',
-  zIndex: 1350,
+  right: 'var(--fds-space-4, 12px)',
+  bottom: 'calc(var(--forge-statusbar-h, 26px) + var(--fds-space-4, 12px))',
+  zIndex: 'var(--fds-z-viewport-hud, 5)',
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
-  padding: '6px 10px',
-  background: 'var(--forge-canvas-2, rgba(20, 24, 28, 0.92))',
-  border: '1px solid var(--forge-rail-edge, rgba(255,255,255,0.12))',
-  borderRadius: 6,
-  color: 'var(--forge-ink, #d8e0ea)',
-  fontFamily: 'var(--forge-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
-  fontSize: 10,
-  letterSpacing: '0.04em',
+  gap: 'var(--fds-space-3, 8px)',
+  height: 'var(--fds-control-h-lg, 32px)',
+  padding: '0 var(--fds-space-3, 8px)',
+  background: 'color-mix(in srgb, var(--fds-surface-panel) 78%, transparent)',
+  WebkitBackdropFilter: 'blur(10px) saturate(1.1)',
+  backdropFilter: 'blur(10px) saturate(1.1)',
+  border: '1px solid var(--fds-border)',
+  borderRadius: 'var(--fds-radius-md, 4px)',
+  color: 'var(--fds-text-secondary)',
+  fontFamily: 'var(--fds-font-ui)',
+  fontSize: 'var(--fds-fs-micro, 11px)',
+  lineHeight: 'var(--fds-lh-micro, 14px)',
   userSelect: 'none',
   pointerEvents: 'auto',
-  boxShadow: '0 8px 18px rgba(0,0,0,0.45)',
+  boxShadow: 'var(--fds-elev-1)',
   whiteSpace: 'nowrap',
 };
 
 const stateChipStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 4,
-  padding: '2px 6px',
-  background: 'var(--forge-accent-mute, rgba(70, 130, 200, 0.20))',
-  border: '1px solid var(--forge-rail-edge, rgba(255,255,255,0.12))',
-  borderRadius: 3,
-  fontSize: 10,
-  fontWeight: 600,
-  color: 'var(--forge-ink, #d8e0ea)',
+  gap: 'var(--fds-space-2, 4px)',
+  height: 'var(--fds-control-h-xs, 22px)',
+  padding: '0 var(--fds-space-3, 8px)',
+  background: 'var(--fds-state-selected)',
+  border: '1px solid var(--fds-state-selected-bd)',
+  borderRadius: 'var(--fds-radius-sm, 3px)',
+  fontSize: 'var(--fds-fs-micro, 11px)',
+  fontWeight: 'var(--fds-fw-medium, 500)',
+  letterSpacing: 'var(--fds-tracking-caps, 0.08em)',
+  color: 'var(--fds-text-primary)',
   textTransform: 'uppercase',
 };
 
@@ -254,64 +261,74 @@ const buttonStyle = (active) => ({
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: 24,
-  height: 22,
+  width: 'var(--fds-control-h-sm, 24px)',
+  height: 'var(--fds-control-h-sm, 24px)',
   padding: 0,
-  background: active
-    ? 'var(--forge-accent, rgba(70, 130, 200, 0.45))'
-    : 'transparent',
-  border: '1px solid ' + (active
-    ? 'var(--forge-accent, rgba(70, 130, 200, 0.80))'
-    : 'var(--forge-rail-edge, rgba(255,255,255,0.18))'),
-  color: active ? '#ffffff' : 'var(--forge-ink-mute, #9aa3ad)',
+  background: active ? 'var(--fds-state-selected)' : 'transparent',
+  border: '1px solid ' + (active ? 'var(--fds-state-selected-bd)' : 'transparent'),
+  color: active ? 'var(--fds-text-primary)' : 'var(--fds-text-tertiary)',
   cursor: 'pointer',
-  borderRadius: 3,
+  borderRadius: 'var(--fds-radius-sm, 3px)',
   outline: 'none',
+  transition: 'background var(--fds-motion-fast), color var(--fds-motion-fast), border-color var(--fds-motion-fast)',
 });
 
 const buttonGroupStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 3,
-  paddingLeft: 6,
-  borderLeft: '1px solid var(--forge-rail-edge, rgba(255,255,255,0.18))',
+  gap: 'var(--fds-space-1, 2px)',
+  paddingLeft: 'var(--fds-space-3, 8px)',
+  borderLeft: '1px solid var(--fds-border)',
 };
 
 const sepStyle = {
   display: 'inline-block',
   width: 1,
-  height: 14,
-  background: 'var(--forge-rail-edge, rgba(255,255,255,0.18))',
+  height: 'var(--fds-icon-sm, 14px)',
+  background: 'var(--fds-border)',
 };
 
 const axisChipStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 3,
-  padding: '2px 6px',
+  gap: 'var(--fds-space-2, 4px)',
+  height: 'var(--fds-control-h-xs, 22px)',
+  padding: '0 var(--fds-space-3, 8px)',
   background: 'transparent',
-  border: '1px solid var(--forge-rail-edge, rgba(255,255,255,0.18))',
-  borderRadius: 3,
-  color: 'var(--forge-ink-mute, #9aa3ad)',
-  fontSize: 10,
-  fontWeight: 500,
+  border: '1px solid var(--fds-border)',
+  borderRadius: 'var(--fds-radius-sm, 3px)',
+  color: 'var(--fds-text-secondary)',
+  fontSize: 'var(--fds-fs-micro, 11px)',
+  fontWeight: 'var(--fds-fw-regular, 400)',
 };
 
-const fpsStyle = (fps) => ({
+// FPS readout — monochrome value with a grey-tinted signal DOT (never a
+// garish coloured fill). Dot: ok > 50 · warn 30-50 · error < 30 · idle pre-warmup.
+const fpsStyle = {
   display: 'inline-flex',
   alignItems: 'center',
-  gap: 3,
-  padding: '2px 6px',
+  gap: 'var(--fds-space-2, 4px)',
+  height: 'var(--fds-control-h-xs, 22px)',
+  padding: '0 var(--fds-space-3, 8px)',
   background: 'transparent',
-  border: '1px solid var(--forge-rail-edge, rgba(255,255,255,0.18))',
-  borderRadius: 3,
-  // Color-code: green for >50, amber for 30-50, red for <30, neutral pre-warmup.
-  color: fps <= 0 ? 'var(--forge-ink-mute, #9aa3ad)'
-       : fps < 30 ? '#e07a7a'
-       : fps < 50 ? '#e0c87a'
-       : '#7ae09c',
-  fontSize: 10,
-  fontWeight: 600,
+  border: '1px solid var(--fds-border)',
+  borderRadius: 'var(--fds-radius-sm, 3px)',
+  color: 'var(--fds-text-primary)',
+  fontFamily: 'var(--fds-font-num)',
+  fontVariantNumeric: 'tabular-nums lining-nums',
+  fontSize: 'var(--fds-fs-micro, 11px)',
+  fontWeight: 'var(--fds-fw-medium, 500)',
+};
+
+const fpsDotStyle = (fps) => ({
+  width: 7,
+  height: 7,
+  borderRadius: 'var(--fds-radius-pill, 999px)',
+  flexShrink: 0,
+  background: fps <= 0 ? 'var(--fds-text-disabled)'
+            : fps < 30 ? 'var(--fds-signal-error)'
+            : fps < 50 ? 'var(--fds-signal-warn)'
+            : 'var(--fds-signal-ok)',
 });
 
 // ────────────── component ──────────────
@@ -455,12 +472,15 @@ export function DisplayStateQuickBar() {
 
       {/* FPS counter — populated by the rAF loop. Shows "--" until the
           first 1-second window completes so the user sees the counter
-          warming up rather than a spurious 0. */}
-      <span style={fpsStyle(fps)}
+          warming up rather than a spurious 0. The grey-tinted signal dot
+          (ok / warn / error / idle) carries the health cue; the number
+          itself stays monochrome per the design system. */}
+      <span style={fpsStyle}
             data-testid="forge-display-quickbar-fps"
             data-fps={String(fps)}
             title="Live frame rate (1-second window)">
-        <span style={{ opacity: 0.7 }}>FPS</span>
+        <span style={fpsDotStyle(fps)} aria-hidden="true" />
+        <span style={{ color: 'var(--fds-text-tertiary)' }}>FPS</span>
         <span>{fps > 0 ? fps : '--'}</span>
       </span>
     </div>,

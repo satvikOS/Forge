@@ -156,7 +156,11 @@
 
 /* Geometry — consistent everywhere */
 :root {
-  /* zone heights */
+  /* zone heights — precise pro-MCAD chrome ladder.
+     Top chrome (topbar 40 + qat 32 + toolbar 48 = 120) sits above the body
+     row; status (26) + cmdbar (52) close it below. Every value is on the
+     established 4px grid and is consumed by the fixed-panel calc() chains
+     (tool dock / preview / help / topology), so the NAMES must not change. */
   --forge-topbar-h:    40px;
   --forge-qat-h:       32px;
   --forge-toolbar-h:   48px;
@@ -170,6 +174,13 @@
   --forge-space-6: 32px;
   --forge-statusbar-h: 26px;
   --forge-cmdbar-h:    52px;
+
+  /* frame seams + body inset — one authority so every zone border reads as a
+     single 1px hairline and the viewport sits in a crisp engineering frame. */
+  --forge-seam:        var(--forge-rail-edge);   /* the universal 1px seam   */
+  --forge-frame-inset-shadow:
+    inset 1px 0 0 var(--forge-rail-edge),
+    inset -1px 0 0 var(--forge-rail-edge);
 
   /* rails */
   --forge-wb-rail-w:   72px;     /* left workbench rail */
@@ -210,19 +221,33 @@ html, body, #root {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ============ App root ============ */
+/* ============ App root ============
+ * Precise pro-MCAD frame. A fixed CSS grid with NO overlap and a single
+ * 1px hairline on every seam:
+ *
+ *   topbar  ── app/menu bar (40)
+ *   qat     ── command band / quick-access (32)
+ *   toolbar ── ribbon / contextual toolbar (48)
+ *   ┌ wb-rail (72) │ viewport (fills) │ right dock (auto, resizable) ┐
+ *   │                statusbar (26, spans rail→right)                │
+ *   cmdbar  ── always-on Archie band (52, full width)
+ *
+ * The body row (wb-rail / viewport / right) is bounded above by the toolbar's
+ * bottom hairline and below by the status bar, so the viewport reads as one
+ * crisp inset surface framed by the rail, ribbon, dock, and status strip.
+ */
 .forge-app {
   display: grid;
   grid-template-rows:
     var(--forge-topbar-h)
     var(--forge-qat-h)
     var(--forge-toolbar-h)
-    1fr
+    minmax(0, 1fr)
     var(--forge-statusbar-h)
     var(--forge-cmdbar-h);
   grid-template-columns:
     var(--forge-wb-rail-w)
-    1fr
+    minmax(0, 1fr)
     auto;
   grid-template-areas:
     "topbar    topbar    topbar"
@@ -233,28 +258,35 @@ html, body, #root {
     "cmdbar    cmdbar    cmdbar";
   width: 100vw;
   height: 100vh;
+  background: var(--forge-canvas);
+  isolation: isolate;     /* contain frame stacking; HUD/docks keep their z */
 }
 .forge-app[data-archie-open="true"] {
-  grid-template-columns: var(--forge-wb-rail-w) 1fr var(--forge-archie-w);
+  grid-template-columns: var(--forge-wb-rail-w) minmax(0, 1fr) var(--forge-archie-w);
 }
 
-.forge-topbar    { grid-area: topbar; }
-.forge-qat       { grid-area: qat; }
-.forge-wb-rail   { grid-area: wb-rail; }
-.forge-toolbar   { grid-area: toolbar; }
-.forge-viewport  { grid-area: viewport; position: relative; overflow: hidden; }
-.forge-right     { grid-area: right; }
-.forge-statusbar { grid-area: statusbar; }
-.forge-cmdbar    { grid-area: cmdbar; }
+/* Every frame zone carries its own single seam; container backgrounds map to
+   the design-system elevation ladder (sunken rail → raised ribbon → base
+   bands → panel docks) so the chrome reads as one calm, layered tool. */
+.forge-topbar    { grid-area: topbar;   z-index: 4; }
+.forge-qat       { grid-area: qat;      z-index: 4; }
+.forge-wb-rail   { grid-area: wb-rail;  z-index: 3; }
+.forge-toolbar   { grid-area: toolbar;  z-index: 3; }
+.forge-viewport  { grid-area: viewport; position: relative; overflow: hidden;
+                   z-index: 0; }
+.forge-right     { grid-area: right;    z-index: 3; }
+.forge-statusbar { grid-area: statusbar; z-index: 3; }
+.forge-cmdbar    { grid-area: cmdbar;   z-index: 4; }
 
-/* ============ Quick-Access Toolbar ============ */
+/* ============ Quick-Access / command band ============ */
 .forge-qat {
   background: var(--forge-canvas);
-  border-bottom: 1px solid var(--forge-rail-edge);
+  border-bottom: 1px solid var(--forge-seam);
   display: flex;
   align-items: center;
   padding: 0 12px;
   gap: 2px;
+  flex-shrink: 0;
 }
 .forge-qat-btn {
   width: 22px; height: 22px;
@@ -282,94 +314,194 @@ html, body, #root {
   margin: 0 6px;
 }
 
-/* ============ NavSphere ============ */
+/* ============ NavSphere / ViewCube ============ *
+ * Clickable iso view-cube + named-view chip strip. Monochrome, hairline
+ * framed, one restrained accent on the active face/chip — built on the
+ * --fds-* design tokens so it tracks every theme.                         */
 .forge-navsphere {
   position: absolute;
-  top: 8px; right: 12px;
+  top: var(--fds-space-3, 8px); right: var(--fds-space-4, 12px);
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 3px;
-  background: rgba(0,0,0,0.40);
-  backdrop-filter: blur(4px);
-  border: 1px solid var(--forge-rail-edge);
-  border-radius: var(--forge-radius);
-  padding: 5px;
-  z-index: 5;
+  gap: var(--fds-space-2, 4px);
+  background: color-mix(in srgb, var(--fds-surface-panel) 78%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  backdrop-filter: blur(10px) saturate(1.1);
+  border: var(--fds-border-w, 1px) solid var(--fds-border);
+  border-radius: var(--fds-radius-md, 4px);
+  box-shadow: var(--fds-elev-2);
+  padding: var(--fds-space-2, 4px);
+  z-index: var(--fds-z-viewport-hud, 5);
   pointer-events: auto;
+}
+/* Cube faces — neutral hover wash, accent on the active orthographic view. */
+.forge-navsphere-face path {
+  transition: fill var(--fds-motion-fast), stroke var(--fds-motion-fast);
+}
+.forge-navsphere-face:hover path {
+  fill: var(--fds-state-active);
+  stroke: var(--fds-border-strong);
+}
+.forge-navsphere-face[data-active="true"]:hover path {
+  fill: var(--fds-accent-soft);
+  stroke: var(--fds-accent-rim);
+}
+/* Corner iso pickers — invisible until hovered, then a faint accent ring. */
+.forge-navsphere-corner {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 1;
+  transition: fill var(--fds-motion-fast), stroke var(--fds-motion-fast);
+}
+.forge-navsphere-corner:hover {
+  fill: var(--fds-accent-soft);
+  stroke: var(--fds-accent-rim);
 }
 .forge-navsphere-chips {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 2px;
+  gap: var(--fds-space-1, 2px);
 }
 .forge-navsphere-chip {
-  background: var(--forge-surface);
-  border: 1px solid var(--forge-rail-edge);
-  border-radius: 2px;
-  color: var(--forge-ink-2);
-  font: 9px/1.2 var(--forge-mono);
-  padding: 2px 4px;
+  background: var(--fds-surface-overlay);
+  border: var(--fds-border-w, 1px) solid var(--fds-border);
+  border-radius: var(--fds-radius-xs, 2px);
+  color: var(--fds-text-secondary);
+  font-family: var(--fds-font-num);
+  font-size: var(--fds-fs-micro, 11px);
+  line-height: var(--fds-lh-micro, 14px);
+  font-variant-numeric: tabular-nums lining-nums;
+  padding: var(--fds-space-1, 2px) var(--fds-space-2, 4px);
   cursor: pointer;
-  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+  transition: background var(--fds-motion-fast),
+              color var(--fds-motion-fast),
+              border-color var(--fds-motion-fast);
 }
 .forge-navsphere-chip:hover {
-  background: var(--forge-surface-2);
-  color: var(--forge-ink);
+  background: var(--fds-state-hover);
+  color: var(--fds-text-primary);
+  border-color: var(--fds-border-strong);
 }
 .forge-navsphere-chip[data-active="true"] {
-  background: var(--forge-accent-mute);
-  color: var(--forge-ink);
-  border-color: var(--forge-accent);
+  background: var(--fds-state-selected);
+  color: var(--fds-text-primary);
+  border-color: var(--fds-state-selected-bd);
 }
 
-/* ============ Heads-Up Toolbar ============ */
+/* ============ Heads-Up Toolbar (viewport command pill) ============ *
+ * Engineering-grade segmented control: 1px hairline shell, hairline group
+ * dividers, one restrained accent on the active segment. Built on the
+ * --fds-* design-system tokens so it tracks every Forge theme.            */
 .forge-hut {
   position: absolute;
-  top: 8px; left: 50%; transform: translateX(-50%);
+  top: var(--fds-space-3, 8px); left: 50%; transform: translateX(-50%);
   display: flex;
   align-items: center;
-  gap: 2px;
-  background: rgba(0,0,0,0.40);
-  backdrop-filter: blur(4px);
-  border: 1px solid var(--forge-rail-edge);
-  border-radius: var(--forge-radius-pill);
-  padding: 3px 6px;
-  z-index: 5;
+  gap: var(--fds-space-1, 2px);
+  background: color-mix(in srgb, var(--fds-surface-panel) 78%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  backdrop-filter: blur(10px) saturate(1.1);
+  border: var(--fds-border-w, 1px) solid var(--fds-border);
+  border-radius: var(--fds-radius-md, 4px);
+  padding: var(--fds-space-1, 2px) var(--fds-space-2, 4px);
+  box-shadow: var(--fds-elev-2);
+  z-index: var(--fds-z-viewport-hud, 5);
 }
 .forge-hut-btn {
-  width: 22px; height: 22px;
+  width: var(--fds-control-h-md, 28px); height: var(--fds-control-h-md, 28px);
   display: flex; align-items: center; justify-content: center;
   background: transparent;
-  border: none;
-  border-radius: var(--forge-radius-pill);
-  color: var(--forge-ink-2);
+  border: var(--fds-border-w, 1px) solid transparent;
+  border-radius: var(--fds-radius-sm, 3px);
+  color: var(--fds-text-secondary);
   cursor: pointer;
-  transition: background var(--forge-motion-fast), color var(--forge-motion-fast);
+  transition: background var(--fds-motion-fast),
+              color var(--fds-motion-fast),
+              border-color var(--fds-motion-fast);
 }
+.forge-hut-btn svg { width: var(--fds-icon-md, 16px); height: var(--fds-icon-md, 16px); }
 .forge-hut-btn:hover {
-  background: var(--forge-surface);
-  color: var(--forge-ink);
+  background: var(--fds-state-hover);
+  border-color: var(--fds-border);
+  color: var(--fds-text-primary);
 }
+.forge-hut-btn:active { background: var(--fds-state-pressed); }
 .forge-hut-btn[data-active="true"] {
-  background: var(--forge-accent-mute);
-  color: var(--forge-ink);
+  background: var(--fds-state-selected);
+  border-color: var(--fds-state-selected-bd);
+  color: var(--fds-text-primary);
 }
 .forge-hut-sep {
-  width: 1px;
-  height: 14px;
-  background: var(--forge-rail-edge);
-  margin: 0 3px;
+  width: var(--fds-border-w, 1px);
+  height: var(--fds-icon-md, 16px);
+  background: var(--fds-border);
+  margin: 0 var(--fds-space-2, 4px);
 }
 
-/* ============ Top bar ============ */
+/* ============ Viewport HUD (selection · coordinate · units) ============ *
+ * Subtle bottom-left read-only readout. Tabular-numeric values, hairline
+ * dividers, blurred translucent backdrop — pinned to the viewport edge so
+ * it never obstructs the model centre.                                    */
+.forge-viewport-hud {
+  position: absolute;
+  left: var(--fds-space-4, 12px);
+  bottom: var(--fds-space-4, 12px);
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-3, 8px);
+  height: var(--fds-control-h-md, 28px);
+  padding: 0 var(--fds-space-3, 8px);
+  background: color-mix(in srgb, var(--fds-surface-panel) 78%, transparent);
+  -webkit-backdrop-filter: blur(10px) saturate(1.1);
+  backdrop-filter: blur(10px) saturate(1.1);
+  border: var(--fds-border-w, 1px) solid var(--fds-border);
+  border-radius: var(--fds-radius-md, 4px);
+  box-shadow: var(--fds-elev-1);
+  z-index: var(--fds-z-viewport-hud, 5);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+.forge-viewport-hud-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--fds-space-2, 4px);
+}
+.forge-viewport-hud-key {
+  font-family: var(--fds-font-ui);
+  font-size: var(--fds-fs-micro, 11px);
+  line-height: var(--fds-lh-micro, 14px);
+  font-weight: var(--fds-fw-medium, 500);
+  letter-spacing: var(--fds-tracking-caps, 0.08em);
+  text-transform: uppercase;
+  color: var(--fds-text-tertiary);
+}
+.forge-viewport-hud-val {
+  font-size: var(--fds-fs-small, 12px);
+  line-height: var(--fds-lh-small, 16px);
+  color: var(--fds-text-primary);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.forge-viewport-hud[data-has-selection="false"] .forge-viewport-hud-val {
+  color: var(--fds-text-tertiary);
+}
+.forge-viewport-hud-div {
+  width: var(--fds-border-w, 1px);
+  height: var(--fds-icon-sm, 14px);
+  background: var(--fds-border);
+  flex-shrink: 0;
+}
+
+/* ============ Top bar (app / menu bar) ============ */
 .forge-topbar {
   display: flex;
   align-items: center;
   padding: 0 12px;
   background: var(--forge-canvas);
-  border-bottom: 1px solid var(--forge-rail-edge);
+  border-bottom: 1px solid var(--forge-seam);
   gap: 14px;
+  flex-shrink: 0;
   -webkit-app-region: drag;
 }
 .forge-topbar-brand {
@@ -416,15 +548,17 @@ html, body, #root {
 }
 .forge-topbar-wb-chip strong { color: var(--forge-ink); font-weight: 500; }
 
-/* ============ Workbench rail ============ */
+/* ============ Workbench rail (left mode strip — deepest surface) ============ */
 .forge-wb-rail {
   background: var(--forge-rail);
-  border-right: 1px solid var(--forge-rail-edge);
+  border-right: 1px solid var(--forge-seam);
   display: flex;
   flex-direction: column;
   align-items: stretch;
   padding: 8px 0;
   gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .forge-wb-tab {
   position: relative;
@@ -468,15 +602,17 @@ html, body, #root {
   color: inherit;
 }
 
-/* ============ Toolbar ============ */
+/* ============ Toolbar / ribbon (raised surface; tops the viewport frame) ============ */
 .forge-toolbar {
   background: var(--forge-canvas-2);
-  border-bottom: 1px solid var(--forge-rail-edge);
+  border-bottom: 1px solid var(--forge-seam);
   display: flex;
   align-items: center;
   padding: 0 var(--forge-space-3);
   gap: var(--forge-space-2);
   overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 0;
 }
 .forge-toolbar-group {
   display: flex;
@@ -525,10 +661,13 @@ html, body, #root {
   cursor: not-allowed;
 }
 
-/* ============ Viewport ============ */
+/* ============ Viewport (central inset surface) ============ */
 .forge-viewport {
   background:
     radial-gradient(ellipse at 50% 35%, #0d1015 0%, var(--forge-canvas) 70%);
+  /* A faint inner top edge separates the focal surface from the ribbon
+     above without a second hairline (the toolbar already owns that seam). */
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--forge-rail-edge) 60%, transparent);
 }
 :root[data-forge-theme="light"] .forge-viewport {
   background:
@@ -907,16 +1046,23 @@ html, body, #root {
   z-index: 1280;
 }
 
-/* ============ Right panel ============ */
+/* ============ Right dock (context / properties — panel surface) ============ */
 .forge-right {
   background: var(--forge-canvas-2);
-  border-left: 1px solid var(--forge-rail-edge);
+  border-left: 1px solid var(--forge-seam);
   display: flex; flex-direction: column;
   width: var(--forge-right-w);
+  min-width: var(--forge-right-collapsed-w);
   transition: width var(--forge-motion-base);
 }
 .forge-right[data-collapsed="true"] {
   width: var(--forge-right-collapsed-w);
+}
+/* Frame-level resize affordance: the dock owns its own drag handle
+   (forge-right-resize). Give the seam a hover cue so the splitter reads as a
+   real, grabbable boundary — pure visual, no behavior change. */
+.forge-right [data-testid="forge-right-resize"]:hover {
+  background: var(--forge-accent-rim);
 }
 .forge-right-section {
   display: flex; flex-direction: column;
@@ -945,11 +1091,12 @@ html, body, #root {
   color: var(--forge-ink-2);
 }
 
-/* ============ Status bar ============ */
+/* ============ Status bar (instrument strip — single seam each side) ============ */
 .forge-statusbar {
   background: var(--forge-canvas);
-  border-top: 1px solid var(--forge-rail-edge);
-  border-bottom: 1px solid var(--forge-rail-edge);
+  /* One hairline above (closes the body row) — the cmd band below owns its
+     own top seam, so a bottom border here would double the divider. */
+  border-top: 1px solid var(--forge-seam);
   display: flex;
   align-items: center;
   padding: 0 var(--forge-space-4);
@@ -957,19 +1104,26 @@ html, body, #root {
   font-size: 11px;
   color: var(--forge-ink-mute);
   font-family: var(--forge-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  flex-shrink: 0;
 }
 .forge-statusbar strong { color: var(--forge-ink-2); font-weight: 500; }
 .forge-statusbar-spacer { flex: 1; }
 
-/* ============ Command bar (always on) ============ */
+/* ============ Command bar (always-on Archie band — anchors the frame) ============ */
 .forge-cmdbar {
   background: var(--forge-canvas);
-  border-top: 1px solid var(--forge-rail-edge);
+  /* Single hairline seam above; a hairline accent rule sits just inside it so
+     the always-on command band reads as the app's primary input anchor. This
+     is the one restrained accent locus permitted on the frame chrome. */
+  border-top: 1px solid var(--forge-seam);
+  box-shadow: inset 0 1px 0 var(--forge-accent-rim);
   display: flex;
   align-items: center;
   padding: 0 14px;
   gap: 10px;
   position: relative;
+  flex-shrink: 0;
 }
 /* Prompt-preset "Try:" row — floats just above the cmdbar so the 52px
    bar keeps its full-width input. */
@@ -1062,8 +1216,9 @@ html, body, #root {
   grid-area: right;        /* overlays the right panel slot when open */
   width: var(--forge-archie-w);
   background: var(--forge-canvas-2);
-  border-left: 1px solid var(--forge-rail-edge);
+  border-left: 1px solid var(--forge-seam);
   display: flex; flex-direction: column;
+  z-index: 3;
 }
 .forge-archie-header {
   display: flex;
@@ -1114,3 +1269,199 @@ html, body, #root {
   border-radius: 2px;
 }
 .forge-app :focus:not(:focus-visible) { outline: none; }
+
+/* ============================================================================
+ * RIGHT-PROPS UPGRADE — pro PropertyManager (forge-right-props-upgrade)
+ * Sectioned/collapsible label+value inspector with aligned columns, tabular
+ * numerics + unit suffixes, and a clean dock header. Built only on --fds-*
+ * design-system tokens. Appended at EOF so these refined rules win over the
+ * earlier baseline .forge-right-* declarations at equal specificity. Visual /
+ * UX only — no testid, hook, or behavior change.
+ * ==========================================================================*/
+
+/* Pro dock header (replaces the old inline-styled "Inspector" header). */
+.forge-right-dock-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-3);
+  height: var(--forge-topbar-h, 40px);
+  flex-shrink: 0;
+  padding: 0 var(--fds-space-4);
+  background: var(--fds-surface-base);
+  border-bottom: var(--fds-border-w) solid var(--fds-border);
+  color: var(--fds-text-secondary);
+  user-select: none;
+}
+.forge-right-dock-head > svg { color: var(--fds-text-tertiary); flex-shrink: 0; }
+.forge-right-dock-title {
+  font-size: var(--fds-fs-medium);
+  font-weight: var(--fds-fw-semibold);
+  letter-spacing: var(--fds-tracking-tight);
+  color: var(--fds-text-primary);
+}
+
+/* Section header — design-system uppercase label + sticky + count pill. */
+.forge-right-section-header {
+  gap: var(--fds-space-3);
+  height: var(--fds-control-h-sm);
+  padding: 0 var(--fds-space-4);
+  font-size: var(--fds-fs-micro);
+  font-weight: var(--fds-fw-medium);
+  letter-spacing: var(--fds-tracking-label);
+  color: var(--fds-text-tertiary);
+  background: var(--fds-surface-raised);
+  border-bottom: var(--fds-border-w) solid var(--fds-border);
+  position: sticky;
+  top: 0;
+  z-index: var(--fds-z-sticky);
+  user-select: none;
+}
+.forge-right-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+  min-width: 0;
+}
+.forge-right-section-title svg { color: var(--fds-text-tertiary); flex-shrink: 0; }
+.forge-right-section-title > span {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.forge-right-count {
+  min-width: 18px;
+  padding: 0 var(--fds-space-2);
+  height: 16px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--fds-radius-pill);
+  background: var(--fds-surface-overlay);
+  border: var(--fds-border-w) solid var(--fds-border);
+  color: var(--fds-text-secondary);
+  font-size: var(--fds-fs-micro);
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.forge-right-section-body {
+  padding: var(--fds-space-3);
+  font-size: var(--fds-fs-small);
+  color: var(--fds-text-secondary);
+}
+.forge-right-empty {
+  color: var(--fds-text-disabled);
+  font-style: italic;
+  font-size: var(--fds-fs-small);
+  line-height: var(--fds-lh-small);
+  padding: var(--fds-space-3) var(--fds-space-2);
+}
+
+/* Body list rows. */
+.forge-body-list {
+  list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 1px;
+}
+.forge-body-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+  height: var(--fds-row-h-compact);
+  padding: 0 var(--fds-space-2);
+  border: var(--fds-border-w) solid transparent;
+  border-radius: var(--fds-radius-sm);
+  transition: background var(--fds-motion-fast);
+}
+.forge-body-row:hover { background: var(--fds-state-hover); }
+.forge-body-eye {
+  width: 18px; height: 18px;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent; border: none;
+  color: var(--fds-text-secondary);
+  cursor: pointer; flex-shrink: 0;
+  border-radius: var(--fds-radius-sm);
+  transition: color var(--fds-motion-fast), background var(--fds-motion-fast);
+}
+.forge-body-eye:hover { background: var(--fds-state-hover); color: var(--fds-text-primary); }
+.forge-body-eye[data-on="false"] { color: var(--fds-text-disabled); }
+.forge-body-name {
+  flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fds-fs-small);
+  color: var(--fds-text-secondary);
+  cursor: pointer;
+}
+.forge-body-name:hover { color: var(--fds-text-primary); }
+.forge-body-name[data-hidden="true"] {
+  color: var(--fds-text-disabled);
+  text-decoration: line-through;
+}
+
+/* PropertyManager — selection badge + collapsible groups + aligned rows. */
+.forge-prop-badge {
+  display: inline-flex; align-items: center;
+  height: 16px; padding: 0 var(--fds-space-2);
+  border-radius: var(--fds-radius-xs);
+  background: var(--fds-state-selected);
+  border: var(--fds-border-w) solid var(--fds-state-selected-bd);
+  color: var(--fds-text-primary);
+  font-size: var(--fds-fs-micro);
+  font-weight: var(--fds-fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+  flex-shrink: 0;
+}
+.forge-prop-manager {
+  display: flex; flex-direction: column;
+  gap: var(--fds-space-3);
+}
+.forge-prop-group { display: flex; flex-direction: column; }
+.forge-prop-group-head {
+  display: flex; align-items: center; gap: var(--fds-space-2);
+  width: 100%;
+  height: var(--fds-row-h-compact);
+  padding: 0 var(--fds-space-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--fds-radius-sm);
+  color: var(--fds-text-tertiary);
+  font-family: var(--fds-font-ui);
+  font-size: var(--fds-fs-micro);
+  font-weight: var(--fds-fw-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--fds-tracking-label);
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--fds-motion-fast), background var(--fds-motion-fast);
+}
+.forge-prop-group-head:hover { color: var(--fds-text-secondary); background: var(--fds-state-hover); }
+.forge-prop-twisty {
+  width: 0; height: 0; flex-shrink: 0;
+  margin-left: 1px; margin-right: var(--fds-space-1);
+  border-left: 4px solid currentColor;
+  border-top: 3px solid transparent;
+  border-bottom: 3px solid transparent;
+  transition: transform var(--fds-motion-fast);
+}
+.forge-prop-group[data-open="true"] .forge-prop-twisty { transform: rotate(90deg); }
+.forge-prop-group-title { flex: 1; text-align: left; }
+.forge-prop-group-count {
+  color: var(--fds-text-disabled);
+  letter-spacing: 0;
+  font-weight: var(--fds-fw-regular);
+}
+.forge-prop-group-body {
+  display: flex; flex-direction: column;
+  padding: var(--fds-space-1) 0 var(--fds-space-2);
+}
+.forge-prop-group-body .fds-prop-row { border-radius: var(--fds-radius-sm); }
+.forge-prop-group-body .fds-prop-row:hover { background: var(--fds-state-hover); }
+.forge-prop-group-body .fds-prop-val {
+  display: inline-flex; align-items: baseline; justify-content: flex-end; gap: 0;
+}
+.forge-prop-group-body .fds-prop-val[data-mono="false"] {
+  font-family: var(--fds-font-ui);
+  font-variant-numeric: normal;
+}
+.forge-prop-num { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.forge-prop-unit {
+  margin-left: var(--fds-space-2);
+  color: var(--fds-text-tertiary);
+  font-size: var(--fds-fs-micro);
+  flex-shrink: 0;
+}

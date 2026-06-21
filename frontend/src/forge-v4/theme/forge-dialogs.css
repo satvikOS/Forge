@@ -1,0 +1,394 @@
+/* ============================================================================
+ * Forge v4 — DIALOGS & FORMS  (forge-v4/theme/forge-dialogs.css)
+ * ----------------------------------------------------------------------------
+ * Engineering-grade dialog / parameter-form chrome for the Forge Tool Param
+ * Dock (ToolParamDialog) and its Confirmation Corner. Built ENTIRELY on the
+ * design-system tokens (forge-tokens.css `--fds-*`); no ad-hoc colours / sizes.
+ *
+ * These `fds-*` classes are applied ALONGSIDE the legacy `forge-tool-*` /
+ * `forge-confirmation-*` classes (which keep their data-testids + base layout
+ * from tokens.css). The rules below refine, in a non-destructive layer:
+ *   - the dialog frame (consistent header / body / footer)
+ *   - an aligned label : control grid
+ *   - compact inputs / steppers / selects / vec3 / toggles / ref-pickers
+ *   - focus rings + inline validation states
+ *   - a clear primary / secondary button hierarchy
+ *
+ * Scope: this stylesheet is imported once, by ToolParamDialog.jsx (the dialog
+ * surface that owns it), so it never collides with the shared base sheet.
+ * Aesthetic: refined neutral / monochrome, dense, precise. CATIA / SW / NX grade.
+ * ==========================================================================*/
+
+/* ---- Dialog frame: consistent header / body / footer -------------------- */
+.fds-tool-dock {
+  box-shadow: var(--fds-elev-4);
+  font-family: var(--fds-font-ui);
+}
+.fds-tool-dock-header {
+  height: var(--fds-control-h-lg);
+  padding: 0 var(--fds-space-3) 0 var(--fds-space-4);
+  background: var(--fds-surface-raised);
+  border-bottom: var(--fds-border-w) solid var(--fds-border);
+}
+.fds-tool-dock-title {
+  font-size: var(--fds-fs-small);
+  font-weight: var(--fds-fw-semibold);
+  color: var(--fds-text-primary);
+  letter-spacing: var(--fds-tracking-tight);
+}
+.fds-tool-dock-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--fds-control-h-xs);
+  height: var(--fds-control-h-xs);
+  padding: 0;
+  background: transparent;
+  border: var(--fds-border-w) solid transparent;
+  border-radius: var(--fds-radius-sm);
+  color: var(--fds-text-tertiary);
+  cursor: pointer;
+  transition: background var(--fds-motion-fast),
+              color var(--fds-motion-fast),
+              border-color var(--fds-motion-fast);
+}
+.fds-tool-dock-close:hover {
+  background: var(--fds-state-hover);
+  color: var(--fds-text-primary);
+  border-color: var(--fds-border);
+}
+.fds-tool-dock-close:focus-visible {
+  outline: var(--fds-focus-ring-width) solid var(--fds-focus-ring);
+  outline-offset: var(--fds-focus-ring-offset);
+}
+.fds-tool-dock-body {
+  padding: var(--fds-space-4);
+  background: var(--fds-surface-panel);
+}
+.fds-tool-empty {
+  font-size: var(--fds-fs-small);
+  line-height: var(--fds-lh-small);
+  color: var(--fds-text-tertiary);
+}
+
+/* ---- Aligned field grid: each field is a label row + control row -------- */
+.fds-form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fds-space-4);
+}
+.fds-field-block {
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: var(--fds-space-2);
+  align-items: center;
+}
+/* Inline variant (booleans): label left, control right, on one row. */
+.fds-field-block--inline {
+  grid-template-columns: 1fr auto;
+  column-gap: var(--fds-space-3);
+  min-height: var(--fds-control-h-sm);
+}
+.fds-field-label {
+  font-size: var(--fds-fs-micro);
+  line-height: var(--fds-lh-micro);
+  font-weight: var(--fds-fw-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--fds-tracking-label);
+  color: var(--fds-text-tertiary);
+  user-select: none;
+}
+.fds-field-block--inline .fds-field-label {
+  text-transform: none;
+  letter-spacing: var(--fds-tracking-normal);
+  font-size: var(--fds-fs-small);
+  font-weight: var(--fds-fw-regular);
+  color: var(--fds-text-secondary);
+}
+.fds-field-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+  width: 100%;
+}
+.fds-field-error {
+  grid-column: 1 / -1;
+  font-size: var(--fds-fs-micro);
+  line-height: var(--fds-lh-micro);
+  color: var(--fds-signal-error);
+  user-select: none;
+}
+
+/* ---- Compact inputs / selects shared in the dock ----------------------- */
+.fds-tool-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: var(--fds-control-h-md);
+  padding: 0 var(--fds-space-3);
+  background: var(--fds-surface-base);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-sm);
+  color: var(--fds-text-primary);
+  font-family: var(--fds-font-ui);
+  font-size: var(--fds-fs-small);
+  line-height: var(--fds-control-h-md);
+  outline: none;
+  transition: border-color var(--fds-motion-fast),
+              background var(--fds-motion-fast),
+              box-shadow var(--fds-motion-fast);
+}
+.fds-tool-input::placeholder { color: var(--fds-text-disabled); }
+.fds-tool-input:hover { border-color: var(--fds-border-strong); }
+.fds-tool-input:focus,
+.fds-tool-input:focus-visible {
+  border-color: var(--fds-accent);
+  box-shadow: 0 0 0 var(--fds-border-w) var(--fds-accent-rim);
+  outline: none;
+}
+.fds-tool-input[aria-invalid="true"] {
+  border-color: var(--fds-signal-error);
+}
+.fds-tool-input[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 var(--fds-border-w)
+    color-mix(in srgb, var(--fds-signal-error) 55%, transparent);
+}
+/* Numeric inputs: tabular figures, right-aligned for dimension entry. */
+.fds-tool-input--num {
+  font-family: var(--fds-font-num);
+  font-feature-settings: var(--fds-font-feature-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+}
+/* Quiet the native number spinners — engineering forms type values. */
+.fds-tool-input--num::-webkit-outer-spin-button,
+.fds-tool-input--num::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.fds-tool-input--num { -moz-appearance: textfield; }
+
+/* Select: custom monochrome caret, matching the fds-select treatment. */
+.fds-tool-select {
+  padding-right: var(--fds-space-6);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fds-text-tertiary) 50%),
+    linear-gradient(135deg, var(--fds-text-tertiary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 13px) center,
+    calc(100% - 8px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* Unit suffix chip — tabular, muted, sits to the right of a value. */
+.fds-field-unit {
+  flex-shrink: 0;
+  min-width: 18px;
+  padding: 0 var(--fds-space-1);
+  font-family: var(--fds-font-num);
+  font-size: var(--fds-fs-micro);
+  color: var(--fds-text-tertiary);
+  text-align: center;
+  user-select: none;
+}
+
+/* ---- Vec3: three labelled axis cells (X / Y / Z) ----------------------- */
+.fds-vec3 { gap: var(--fds-space-2); }
+.fds-vec3-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1 1 0;
+  min-width: 0;
+}
+.fds-vec3-axis {
+  position: absolute;
+  left: var(--fds-space-2);
+  font-family: var(--fds-font-num);
+  font-size: 9px;
+  font-weight: var(--fds-fw-medium);
+  color: var(--fds-text-disabled);
+  pointer-events: none;
+  user-select: none;
+}
+.fds-vec3-cell .fds-tool-input {
+  padding-left: 15px;
+  text-align: right;
+}
+
+/* ---- Toggle (boolean) — compact monochrome switch ---------------------- */
+.fds-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.fds-toggle-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.fds-toggle-track {
+  display: inline-flex;
+  align-items: center;
+  width: 30px;
+  height: 16px;
+  padding: 2px;
+  background: var(--fds-surface-overlay);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-pill);
+  transition: background var(--fds-motion-fast),
+              border-color var(--fds-motion-fast);
+}
+.fds-toggle-thumb {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--fds-radius-pill);
+  background: var(--fds-text-tertiary);
+  transition: transform var(--fds-motion-fast),
+              background var(--fds-motion-fast);
+}
+.fds-toggle[data-on="true"] .fds-toggle-track {
+  background: var(--fds-accent-soft);
+  border-color: var(--fds-accent-rim);
+}
+.fds-toggle[data-on="true"] .fds-toggle-thumb {
+  transform: translateX(14px);
+  background: var(--fds-accent);
+}
+.fds-toggle-input:hover + .fds-toggle-track { border-color: var(--fds-border-strong); }
+.fds-toggle-input:focus-visible + .fds-toggle-track {
+  outline: var(--fds-focus-ring-width) solid var(--fds-focus-ring);
+  outline-offset: var(--fds-focus-ring-offset);
+}
+
+/* ---- Reference pick button (collect-in-viewport surrogate) ------------- */
+.fds-tool-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+  justify-content: flex-start;
+  text-align: left;
+  cursor: pointer;
+  color: var(--fds-text-secondary);
+}
+.fds-tool-pick:hover {
+  background: var(--fds-surface-overlay);
+  border-color: var(--fds-border-strong);
+  color: var(--fds-text-primary);
+}
+.fds-tool-pick svg { flex-shrink: 0; color: var(--fds-text-tertiary); }
+.fds-tool-pick-label {
+  font-family: var(--fds-font-num);
+  font-size: var(--fds-fs-micro);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fds-tool-pick--set {
+  background: var(--fds-state-selected);
+  border-color: var(--fds-state-selected-bd);
+  color: var(--fds-text-primary);
+}
+.fds-tool-pick--set svg { color: var(--fds-accent); }
+
+/* ---- Footer: primary / secondary button hierarchy --------------------- */
+.fds-tool-dock-footer {
+  height: auto;
+  padding: var(--fds-space-3) var(--fds-space-4);
+  gap: var(--fds-space-3);
+  background: var(--fds-surface-raised);
+  border-top: var(--fds-border-w) solid var(--fds-border);
+}
+.fds-tool-dock-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fds-space-2);
+  height: var(--fds-control-h-md);
+  padding: 0 var(--fds-space-3);
+  border-radius: var(--fds-radius-md);
+  font-family: var(--fds-font-ui);
+  font-size: var(--fds-fs-small);
+  font-weight: var(--fds-fw-medium);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--fds-motion-fast),
+              color var(--fds-motion-fast),
+              border-color var(--fds-motion-fast);
+}
+/* Secondary (Cancel) — neutral ghost-bordered. */
+.fds-tool-dock-btn[data-kind="cancel"] {
+  background: var(--fds-surface-overlay);
+  border: var(--fds-border-w) solid var(--fds-border);
+  color: var(--fds-text-secondary);
+}
+.fds-tool-dock-btn[data-kind="cancel"]:hover {
+  background: var(--fds-surface-overlay-2);
+  border-color: var(--fds-border-strong);
+  color: var(--fds-text-primary);
+}
+/* Primary (Confirm) — the single restrained accent CTA. */
+.fds-tool-dock-btn[data-kind="confirm"] {
+  background: var(--fds-accent-soft);
+  border: var(--fds-border-w) solid var(--fds-accent-rim);
+  color: var(--fds-text-primary);
+}
+.fds-tool-dock-btn[data-kind="confirm"]:hover {
+  background: var(--fds-accent-soft);
+  border-color: var(--fds-accent);
+}
+.fds-tool-dock-btn:active { background: var(--fds-state-pressed); }
+.fds-tool-dock-btn:focus-visible {
+  outline: var(--fds-focus-ring-width) solid var(--fds-focus-ring);
+  outline-offset: var(--fds-focus-ring-offset);
+}
+.fds-tool-dock-kbd {
+  display: inline-block;
+  padding: 0 var(--fds-space-2);
+  border: var(--fds-border-w) solid var(--fds-border-subtle);
+  border-radius: var(--fds-radius-xs);
+  color: var(--fds-text-tertiary);
+  font-family: var(--fds-font-num);
+  font-size: 10px;
+  line-height: 1.5;
+  user-select: none;
+}
+
+/* ---- Confirmation Corner — viewport HUD confirm / cancel pill ---------- */
+.fds-confirm-corner {
+  gap: var(--fds-space-3);
+  padding: var(--fds-space-1) var(--fds-space-2) var(--fds-space-1) var(--fds-space-3);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-md);
+  box-shadow: var(--fds-elev-2);
+  font-family: var(--fds-font-ui);
+  font-size: var(--fds-fs-micro);
+}
+.fds-confirm-label {
+  font-weight: var(--fds-fw-medium);
+  color: var(--fds-text-secondary);
+  user-select: none;
+}
+.fds-confirm-btn {
+  width: var(--fds-control-h-xs);
+  height: var(--fds-control-h-xs);
+  border-radius: var(--fds-radius-sm);
+  border: var(--fds-border-w) solid var(--fds-border);
+  color: var(--fds-text-secondary);
+  transition: background var(--fds-motion-fast),
+              color var(--fds-motion-fast),
+              border-color var(--fds-motion-fast);
+}
+.fds-confirm-btn:focus-visible {
+  outline: var(--fds-focus-ring-width) solid var(--fds-focus-ring);
+  outline-offset: var(--fds-focus-ring-offset);
+}

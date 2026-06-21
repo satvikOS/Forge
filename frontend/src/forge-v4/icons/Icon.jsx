@@ -26,6 +26,7 @@
 // hover / active / disabled states automatically).
 
 import React from 'react';
+import ICON_REGISTRY from './index.js';
 
 const PATHS = {
   // ──────────────── workbench rail glyphs ────────────────
@@ -97,6 +98,38 @@ const PATHS = {
       <path d="M2 8l6 -5l6 5v6H2z" />
       <path d="M7 14v-4h2v4" />
       <path d="M2 8l6 -5l6 5" />
+    </>
+  ),
+  'wb.part': (
+    // single solid part — chamfered block with a visible front face,
+    // distinct from wb.mech (which carries the gear-tooth split line)
+    <>
+      <path d="M3 6l5 -3 5 3v6l-5 3 -5 -3z" />
+      <path d="M3 6l5 3 5 -3" />
+      <path d="M8 9v6" />
+    </>
+  ),
+  'wb.sketch': (
+    // 2D profile on a plane + pencil tip — the sketcher
+    <>
+      <path d="M2 12h9" />
+      <path d="M4 12V7l3 -3h4" />
+      <path d="M10 4l3 3 -3.5 3.5 -3 .5 .5 -3z" />
+    </>
+  ),
+  'wb.draft': (
+    // drafting set-square + ruled edge — Draft / drafting workbench
+    <>
+      <path d="M2 13L13 2v11z" />
+      <path d="M5 13v-2M8 13v-3M11 13v-4" />
+    </>
+  ),
+  'wb.mesh': (
+    // faceted sphere wireframe — Mesh / tessellation workbench
+    <>
+      <circle cx="8" cy="8" r="5.5" />
+      <path d="M3 6h10M3 10h10M8 2.5v11" />
+      <path d="M4 4l8 8M12 4l-8 8" opacity="0.55" />
     </>
   ),
 
@@ -256,15 +289,37 @@ export function Icon({
   label,
   ...rest
 }) {
+  // Prefer the comprehensive per-tool professional glyph library (24x24, NX/CATIA
+  // grade) when it has this id; fall back to the legacy 16x16 PATHS otherwise.
+  const RegComp = ICON_REGISTRY[name];
+  if (typeof RegComp === 'function') {
+    return (
+      <RegComp
+        size={size}
+        strokeWidth={strokeWidth}
+        stroke={accent || 'currentColor'}
+        role={decorative ? 'presentation' : 'img'}
+        aria-hidden={decorative ? 'true' : undefined}
+        aria-label={!decorative ? (label || name) : undefined}
+        {...rest}
+      />
+    );
+  }
   const d = PATHS[name];
   if (!d) {
-    // Defensive: missing icons render an outlined square so the layout
-    // doesn't collapse but the gap is visible.
+    // Defensive: a missing icon renders a quiet dashed placeholder (not a
+    // solid square that reads as a real filled glyph). It keeps the layout
+    // intact while clearly signalling an unmapped name to a developer.
+    if (process.env.NODE_ENV !== 'production' && typeof console !== 'undefined') {
+      console.warn(`[forge-v4/Icon] unmapped icon name: "${name}"`);
+    }
     return (
       <svg width={size} height={size} viewBox="0 0 16 16"
            fill="none" stroke="currentColor" strokeWidth={strokeWidth}
-           {...rest}>
-        <path d="M2 2h12v12H2z" />
+           strokeLinecap="round" strokeLinejoin="round"
+           opacity="0.5" aria-hidden="true" {...rest}>
+        <rect x="2.5" y="2.5" width="11" height="11" rx="2"
+              strokeDasharray="2 2" />
       </svg>
     );
   }

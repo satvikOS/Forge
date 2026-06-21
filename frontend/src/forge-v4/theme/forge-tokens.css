@@ -1,0 +1,184 @@
+/* ============================================================================
+ * Forge v4 — DESIGN-SYSTEM TOKENS  (forge-v4/theme/forge-tokens.css)
+ * ----------------------------------------------------------------------------
+ * ADDITIVE layer on top of forge-v4/tokens.css. It does NOT redefine the
+ * existing --forge-* shell variables (canvas/ink/accent/zone-heights, etc.);
+ * it adds a PRECISE, NAMED design-system vocabulary in a separate --fds-*
+ * ("Forge Design System") namespace so area agents reference ONE stable set
+ * of names that never collide with shell internals.
+ *
+ * Aesthetic contract (unchanged): REFINED NEUTRAL / MONOCHROME. Graphite, ink,
+ * paper greys; exactly ONE restrained neutral accent (inherited from the
+ * shell's --forge-accent so theme switching keeps working). Professional
+ * density + clear hierarchy, CATIA / SolidWorks / NX grade. No chromatic theme.
+ *
+ * All --fds-* values are theme-agnostic structure (scale/space/radii/type) OR
+ * derive from the live shell theme vars, so dark / light / sepia / high-contrast
+ * all keep working with zero extra work.
+ * ==========================================================================*/
+
+:root {
+  /* ------------------------------------------------------------------ *
+   *  1. NEUTRAL / MONOCHROME SURFACE + INK RAMP
+   *  Mapped onto the live shell theme vars so every Forge theme is honored.
+   *  Use these names in new components; never hard-code a hex grey.
+   * ------------------------------------------------------------------ */
+
+  /* Surfaces — back-to-front elevation ladder */
+  --fds-surface-sunken:   var(--forge-rail);        /* deepest: rails, wells   */
+  --fds-surface-base:     var(--forge-canvas);      /* app background          */
+  --fds-surface-raised:   var(--forge-canvas-2);    /* toolbars, headers       */
+  --fds-surface-panel:    var(--forge-canvas-3);    /* panels, docks, popovers */
+  --fds-surface-overlay:  var(--forge-surface);     /* inset fields, list rows */
+  --fds-surface-overlay-2:var(--forge-surface-2);   /* hovered/nested surface  */
+  --fds-scrim:            var(--forge-overlay);      /* modal / dropdown scrim  */
+
+  /* Borders / hairlines — engineering precision = 1px hairlines everywhere */
+  --fds-border:           var(--forge-rail-edge);    /* default 1px divider     */
+  --fds-border-strong:    var(--forge-ink-faint);    /* emphasized separator    */
+  --fds-border-subtle:    color-mix(in srgb, var(--forge-rail-edge) 55%, transparent);
+
+  /* Text */
+  --fds-text-primary:     var(--forge-ink);          /* values, active labels   */
+  --fds-text-secondary:   var(--forge-ink-2);        /* default body / controls */
+  --fds-text-tertiary:    var(--forge-ink-mute);     /* captions, section heads */
+  --fds-text-disabled:    var(--forge-ink-faint);    /* disabled / placeholder  */
+  --fds-text-on-accent:   var(--forge-canvas);       /* text inside accent fill */
+
+  /* Interaction state fills (monochrome, additive over any surface) */
+  --fds-state-hover:      color-mix(in srgb, var(--forge-ink) 8%,  transparent);
+  --fds-state-active:     color-mix(in srgb, var(--forge-ink) 14%, transparent);
+  --fds-state-selected:   var(--forge-accent-mute);  /* selected row / tool     */
+  --fds-state-selected-bd:var(--forge-accent-rim);   /* selected border         */
+  --fds-state-pressed:    color-mix(in srgb, var(--forge-ink) 18%, transparent);
+
+  /* Accent (single, restrained, neutral — inherited from shell theme) */
+  --fds-accent:           var(--forge-accent);
+  --fds-accent-hover:     var(--forge-accent-hover);
+  --fds-accent-press:     var(--forge-accent-press);
+  --fds-accent-soft:      var(--forge-accent-mute);
+  --fds-accent-rim:       var(--forge-accent-rim);
+
+  /* Focus ring — keyboard/AT only; 2px, accent-rim, 1px offset */
+  --fds-focus-ring:       var(--forge-accent-rim, var(--forge-ink-faint));
+  --fds-focus-ring-width: 2px;
+  --fds-focus-ring-offset:1px;
+
+  /* Status signals — grey-tinted, NEVER primary saturated color */
+  --fds-signal-ok:        var(--forge-ok);
+  --fds-signal-warn:      var(--forge-warn);
+  --fds-signal-error:     var(--forge-err);
+
+  /* ------------------------------------------------------------------ *
+   *  2. ELEVATION — subtle, engineering-grade shadows (not soft UI blobs)
+   * ------------------------------------------------------------------ */
+  --fds-elev-0: none;
+  --fds-elev-1: 0 1px 2px rgba(0,0,0,0.28);                        /* chips        */
+  --fds-elev-2: 0 4px 12px rgba(0,0,0,0.36);                       /* popovers     */
+  --fds-elev-3: 0 12px 32px rgba(0,0,0,0.45);                      /* drawers      */
+  --fds-elev-4: 0 16px 48px rgba(0,0,0,0.55);                      /* tool docks   */
+  --fds-elev-up:0 -8px 24px rgba(0,0,0,0.40);                      /* bottom dock  */
+
+  /* ------------------------------------------------------------------ *
+   *  3. TYPE SCALE
+   *  UI stack = clean technical sans (Inter / system). NUM stack = tabular
+   *  numeric for dimensions, coordinates, units, status readouts.
+   * ------------------------------------------------------------------ */
+  --fds-font-ui:   var(--forge-font,
+                   'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                   system-ui, 'Helvetica Neue', Arial, sans-serif);
+  --fds-font-num:  var(--forge-mono,
+                   'JetBrains Mono', 'SF Mono', 'Roboto Mono',
+                   ui-monospace, 'Cascadia Code', Menlo, Consolas, monospace);
+  /* Apply on numeric fields to force tabular, lined figures. */
+  --fds-font-feature-num: "tnum" 1, "lnum" 1, "zero" 1;
+
+  /* size / line-height / weight triplets — reference by role, not by px */
+  --fds-fs-micro:    11px;   --fds-lh-micro:    14px;   /* status, captions, kbd   */
+  --fds-fs-small:    12px;   --fds-lh-small:    16px;   /* default control / body  */
+  --fds-fs-base:     13px;   --fds-lh-base:     18px;   /* primary body / inputs   */
+  --fds-fs-medium:   14px;   --fds-lh-medium:   20px;   /* panel titles, prominent */
+  --fds-fs-large:    16px;   --fds-lh-large:    22px;   /* dialog headers          */
+  --fds-fs-display:  20px;   --fds-lh-display:  26px;   /* welcome / empty states  */
+
+  --fds-fw-regular:  400;
+  --fds-fw-medium:   500;    /* labels, active items, headers (preferred weight) */
+  --fds-fw-semibold: 600;    /* titles only — used sparingly for hierarchy       */
+
+  --fds-tracking-tight:  -0.005em;
+  --fds-tracking-normal:  0;
+  --fds-tracking-label:   0.06em;   /* UPPERCASE section labels                  */
+  --fds-tracking-caps:    0.08em;   /* toolbar group labels                      */
+
+  /* ------------------------------------------------------------------ *
+   *  4. SPACING — strict 8px base, with a 4px half-step for dense controls
+   * ------------------------------------------------------------------ */
+  --fds-space-0:  0;
+  --fds-space-1:  2px;    /* hairline gaps (icon button clusters)  */
+  --fds-space-2:  4px;    /* dense control padding / half-step     */
+  --fds-space-3:  8px;    /* BASE unit                              */
+  --fds-space-4:  12px;   /* control horizontal padding            */
+  --fds-space-5:  16px;   /* panel padding                         */
+  --fds-space-6:  24px;   /* section gaps                          */
+  --fds-space-7:  32px;   /* major separation                      */
+  --fds-space-8:  48px;   /* layout-scale spacing                  */
+
+  /* ------------------------------------------------------------------ *
+   *  5. RADII + BORDER WIDTHS
+   * ------------------------------------------------------------------ */
+  --fds-radius-xs:   2px;   /* chips, swatches, inline tags          */
+  --fds-radius-sm:   3px;   /* inputs, small buttons                 */
+  --fds-radius-md:   4px;   /* buttons, tools, cards (default)       */
+  --fds-radius-lg:   8px;   /* docks, popovers, dialogs              */
+  --fds-radius-pill: 999px; /* chips, segmented toggles              */
+
+  --fds-border-w:     1px;  /* default hairline                      */
+  --fds-border-w-2:   2px;  /* active tab underline / focus emphasis */
+
+  /* ------------------------------------------------------------------ *
+   *  6. CONTROL HEIGHTS — dense pro UI ladder
+   * ------------------------------------------------------------------ */
+  --fds-control-h-xs:  22px;  /* QAT icons, inline pickers, mini chips */
+  --fds-control-h-sm:  24px;  /* compact buttons, tree rows            */
+  --fds-control-h-md:  28px;  /* default input / select / button      */
+  --fds-control-h-lg:  32px;  /* primary tool buttons, ribbon icons    */
+  --fds-row-h:         24px;  /* tree / list / property row height     */
+  --fds-row-h-compact: 22px;  /* densest tree rows                     */
+
+  /* Icon sizing inside controls */
+  --fds-icon-sm:  14px;
+  --fds-icon-md:  16px;
+  --fds-icon-lg:  20px;
+  --fds-icon-xl:  24px;       /* workbench rail glyphs                  */
+
+  /* ------------------------------------------------------------------ *
+   *  7. Z-INDEX LAYERS — single authority, no ad-hoc magic numbers
+   * ------------------------------------------------------------------ */
+  --fds-z-base:        0;
+  --fds-z-viewport-hud:5;     /* nav sphere, HUT, confirmation corner   */
+  --fds-z-sticky:      50;    /* sticky panel headers                   */
+  --fds-z-dock:        600;   /* tool param dock, bottom preview        */
+  --fds-z-library:     700;   /* floating standard-parts library        */
+  --fds-z-drawer:      1280;  /* right slide-in drawers                  */
+  --fds-z-overlay:     1300;  /* help drawer / large overlays           */
+  --fds-z-popover:     1500;  /* menus, dropdowns, command palette      */
+  --fds-z-tooltip:     1800;  /* tooltips (always on top of popovers)   */
+  --fds-z-toast:       2000;  /* transient notifications                */
+
+  /* ------------------------------------------------------------------ *
+   *  8. MOTION — fast & restrained; engineering UI does not bounce
+   * ------------------------------------------------------------------ */
+  --fds-ease:          cubic-bezier(.22, 1, .36, 1);   /* shared easing  */
+  --fds-dur-fast:      120ms;   /* hover / press / color feedback        */
+  --fds-dur-base:      180ms;   /* panel reveal, width transitions       */
+  --fds-motion-fast:   var(--fds-dur-fast) var(--fds-ease);
+  --fds-motion-base:   var(--fds-dur-base) var(--fds-ease);
+}
+
+/* Honor reduced-motion at the token layer too. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --fds-dur-fast: 1ms;
+    --fds-dur-base: 1ms;
+  }
+}

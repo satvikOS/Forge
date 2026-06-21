@@ -31,27 +31,28 @@ const STEPS = [
           'H frames the camera on the origin.',
   },
   {
-    targetSelector: '[data-testid="forge-cmd-bar"]',
+    targetSelector: '[data-testid="forge-cmdbar"]',
     placement: 'top',
-    title: 'Command bar (Cmd+K)',
-    body: 'Tell Forge what to do in natural language. Press Cmd+K from ' +
-          'anywhere to focus the bar. Archie streams its plan into the ' +
-          'sidebar on the right.',
+    title: 'Command bar',
+    body: 'Tell Forge what to do in natural language. Press Cmd+K to open ' +
+          'the command palette and search every tool, or just type here. ' +
+          'Archie streams its plan into the sidebar on the right.',
   },
   {
     targetSelector: '[data-testid="forge-archie"]',
     placement: 'left',
     title: 'Archie sidebar',
     body: 'The persistent AI assistant thread. Conversations survive ' +
-          'reload (per-thread localStorage). Cmd+N starts a fresh thread.',
+          'reload (per-thread localStorage). Reopen it any time from the ' +
+          'command bar toggle.',
   },
   {
-    targetSelector: '[data-testid="forge-timeline"]',
+    targetSelector: '[data-testid="forge-rollback"]',
     placement: 'bottom',
     title: 'Parametric timeline',
-    body: 'Every operation lands here in order. Shift+click to roll the ' +
-          'design back to that step, double-click to inspect, Backspace ' +
-          'to truncate the history at that point.',
+    body: 'Every operation lands here in order. Click a step to roll the ' +
+          'design back to that point, or right-click a step for more ' +
+          'options. The model regenerates from the history.',
   },
   {
     targetSelector: '[data-testid="forge-aero-panel"], [data-testid="forge-cost-panel"], [data-testid="forge-tol-panel"], [data-testid="forge-app"]',
@@ -63,21 +64,23 @@ const STEPS = [
 ];
 
 const tooltipStyle = {
-  position: 'fixed', zIndex: 5500,
-  background: 'var(--forge-canvas-2)',
-  border: '1px solid var(--forge-accent)',
-  borderRadius: 4,
-  padding: '10px 14px',
-  fontSize: 12, fontFamily: 'var(--forge-mono)',
-  color: 'var(--forge-ink)',
+  position: 'fixed', zIndex: 'var(--fds-z-overlay)',
+  background: 'var(--fds-surface-panel)',
+  border: 'var(--fds-border-w) solid var(--fds-accent-rim)',
+  borderRadius: 'var(--fds-radius-lg)',
+  padding: 'var(--fds-space-4)',
+  fontSize: 'var(--fds-fs-small)',
+  lineHeight: 'var(--fds-lh-small)',
+  fontFamily: 'var(--fds-font-ui)',
+  color: 'var(--fds-text-secondary)',
   maxWidth: 360,
-  boxShadow: '0 6px 22px rgba(0,0,0,0.4)',
+  boxShadow: 'var(--fds-elev-3)',
 };
 
 const overlayStyle = {
   position: 'fixed', inset: 0,
-  background: 'rgba(8, 12, 18, 0.55)',
-  zIndex: 5400,
+  background: 'var(--fds-scrim)',
+  zIndex: 'calc(var(--fds-z-overlay) - 2)',
   pointerEvents: 'auto',
 };
 
@@ -85,11 +88,11 @@ const highlightStyle = (rect) => rect ? ({
   position: 'fixed',
   top: rect.top - 4, left: rect.left - 4,
   width: rect.width + 8, height: rect.height + 8,
-  border: '2px solid var(--forge-accent)',
-  borderRadius: 4,
+  border: 'var(--fds-border-w-2) solid var(--fds-accent)',
+  borderRadius: 'var(--fds-radius-md)',
   pointerEvents: 'none',
-  zIndex: 5450,
-  boxShadow: '0 0 0 9999px rgba(8,12,18,0.55)',
+  zIndex: 'calc(var(--fds-z-overlay) - 1)',
+  boxShadow: '0 0 0 9999px var(--fds-scrim)',
 }) : null;
 
 function placeTooltip(rect, placement) {
@@ -174,34 +177,36 @@ export function OnboardingTourHost() {
       )}
       <div style={placeTooltip(rect, step.placement)}
            data-testid="forge-tour-tooltip">
-        <div style={{ fontWeight: 600, marginBottom: 4 }}>
-          {stepIdx + 1}/{STEPS.length}  ·  {step.title}
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--fds-space-3)',
+                      marginBottom: 'var(--fds-space-3)' }}>
+          <span style={{ fontFamily: 'var(--fds-font-num)', fontSize: 'var(--fds-fs-micro)',
+                         color: 'var(--fds-text-tertiary)', letterSpacing: 'var(--fds-tracking-label)' }}>
+            {stepIdx + 1} / {STEPS.length}
+          </span>
+          <span style={{ fontWeight: 'var(--fds-fw-semibold)', fontSize: 'var(--fds-fs-medium)',
+                         lineHeight: 'var(--fds-lh-medium)', color: 'var(--fds-text-primary)' }}>
+            {step.title}
+          </span>
         </div>
-        <div style={{ lineHeight: 1.45, marginBottom: 10 }}>
+        <div style={{ lineHeight: 'var(--fds-lh-base)', fontSize: 'var(--fds-fs-base)',
+                      color: 'var(--fds-text-secondary)', marginBottom: 'var(--fds-space-4)' }}>
           {step.body}
         </div>
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', gap: 'var(--fds-space-2)', justifyContent: 'flex-end' }}>
           {stepIdx > 0 && (
             <button onClick={onPrev}
-                    style={{ background: 'transparent', border: '1px solid var(--forge-rail-edge)',
-                             color: 'var(--forge-ink)', padding: '4px 10px',
-                             cursor: 'pointer', fontFamily: 'var(--forge-mono)', fontSize: 11 }}
+                    className="fds-btn fds-btn--sm fds-btn--ghost"
                     data-testid="forge-tour-prev">
               Back
             </button>
           )}
           <button onClick={finish}
-                  style={{ background: 'transparent', border: '1px solid var(--forge-rail-edge)',
-                           color: 'var(--forge-ink-mute)', padding: '4px 10px',
-                           cursor: 'pointer', fontFamily: 'var(--forge-mono)', fontSize: 11 }}
+                  className="fds-btn fds-btn--sm fds-btn--ghost"
                   data-testid="forge-tour-skip">
             Skip
           </button>
           <button onClick={onNext}
-                  style={{ background: 'var(--forge-accent)', border: 'none',
-                           color: '#0a0e14', padding: '4px 12px',
-                           cursor: 'pointer', fontFamily: 'var(--forge-mono)',
-                           fontSize: 11, fontWeight: 600 }}
+                  className="fds-btn fds-btn--sm fds-btn--primary"
                   data-testid="forge-tour-next">
             {stepIdx + 1 >= STEPS.length ? 'Done' : 'Next'}
           </button>

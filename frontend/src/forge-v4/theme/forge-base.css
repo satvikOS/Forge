@@ -1,0 +1,1142 @@
+/* ============================================================================
+ * Forge v4 — DESIGN-SYSTEM BASE STYLES  (forge-v4/theme/forge-base.css)
+ * ----------------------------------------------------------------------------
+ * Built ON forge-tokens.css. Provides the canonical, reusable control surface
+ * for NEW Forge components: buttons, inputs/selects, panels, dock headers,
+ * toolbars, ribbon, tree rows, status bar, thin scrollbars, tooltips,
+ * focus-visible rings, tabular numerals for numeric fields.
+ *
+ * SAFETY / NON-REGRESSION CONTRACT:
+ *   - Every rule is class-based under the `fds-` prefix, OR a narrowly-scoped
+ *     enhancement under `.forge-app`. It deliberately does NOT restyle the
+ *     existing `.forge-*` shell classes (those keep their established look from
+ *     tokens.css) — it only refines app-wide primitives (scrollbars, numeric
+ *     fields, focus ring, selection) and offers an opt-in `fds-*` kit that area
+ *     agents apply to NEW markup. No existing testid, handler, or layout moves.
+ *
+ * Aesthetic: refined neutral / monochrome, dense, precise. CATIA/SW/NX grade.
+ * ==========================================================================*/
+
+/* ---------------------------------------------------------------------------
+ * 0. APP-WIDE REFINEMENTS (scoped to .forge-app — additive, low-risk)
+ * ------------------------------------------------------------------------- */
+
+/* Crisper text rendering for a technical UI. */
+.forge-app {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "kern" 1, "liga" 1;
+}
+
+/* Monochrome text-selection highlight (never the OS blue). */
+.forge-app ::selection {
+  background: var(--fds-accent-soft);
+  color: var(--fds-text-primary);
+}
+
+/* Thin, grey, polite scrollbars everywhere inside the app. */
+.forge-app *::-webkit-scrollbar { width: 8px; height: 8px; }
+.forge-app *::-webkit-scrollbar-track { background: transparent; }
+.forge-app *::-webkit-scrollbar-thumb {
+  background: var(--fds-border);
+  border-radius: var(--fds-radius-md);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+.forge-app *::-webkit-scrollbar-thumb:hover { background: var(--fds-border-strong); }
+.forge-app *::-webkit-scrollbar-corner { background: transparent; }
+.forge-app * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fds-border) transparent;
+}
+
+/* Reduced-motion: kill transitions inside the app shell. */
+@media (prefers-reduced-motion: reduce) {
+  .forge-app *, .forge-app *::before, .forge-app *::after {
+    transition-duration: 1ms !important;
+    animation-duration: 1ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * 1. TYPOGRAPHY PRIMITIVES (opt-in)
+ * ------------------------------------------------------------------------- */
+.fds-text         { font-family: var(--fds-font-ui); color: var(--fds-text-secondary); }
+.fds-text-primary { color: var(--fds-text-primary); }
+.fds-text-secondary { color: var(--fds-text-secondary); }
+.fds-text-tertiary  { color: var(--fds-text-tertiary); }
+.fds-text-disabled  { color: var(--fds-text-disabled); }
+
+.fds-micro   { font-size: var(--fds-fs-micro);   line-height: var(--fds-lh-micro);   }
+.fds-small   { font-size: var(--fds-fs-small);   line-height: var(--fds-lh-small);   }
+.fds-body    { font-size: var(--fds-fs-base);    line-height: var(--fds-lh-base);    }
+.fds-medium  { font-size: var(--fds-fs-medium);  line-height: var(--fds-lh-medium);  font-weight: var(--fds-fw-medium); }
+.fds-title   { font-size: var(--fds-fs-large);   line-height: var(--fds-lh-large);   font-weight: var(--fds-fw-semibold); color: var(--fds-text-primary); }
+.fds-display { font-size: var(--fds-fs-display); line-height: var(--fds-lh-display); font-weight: var(--fds-fw-semibold); color: var(--fds-text-primary); }
+
+/* Section / group label — the uppercase tracked micro-caption used in panels. */
+.fds-label {
+  font-size: var(--fds-fs-micro);
+  line-height: var(--fds-lh-micro);
+  font-weight: var(--fds-fw-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--fds-tracking-label);
+  color: var(--fds-text-tertiary);
+  user-select: none;
+}
+
+/* Tabular numerals — apply to ANY element holding a dimension / coordinate /
+ * unit / count so columns of numbers align and digits never reflow. */
+.fds-num,
+.forge-app input[type="number"],
+.forge-app [data-numeric="true"] {
+  font-family: var(--fds-font-num);
+  font-feature-settings: var(--fds-font-feature-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0;
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. BUTTONS
+ * ------------------------------------------------------------------------- */
+.fds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fds-space-2);
+  height: var(--fds-control-h-md);
+  padding: 0 var(--fds-space-4);
+  background: var(--fds-surface-overlay);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-md);
+  color: var(--fds-text-secondary);
+  font-family: var(--fds-font-ui);
+  font-size: var(--fds-fs-small);
+  font-weight: var(--fds-fw-medium);
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background var(--fds-motion-fast),
+              color var(--fds-motion-fast),
+              border-color var(--fds-motion-fast);
+}
+.fds-btn:hover {
+  background: var(--fds-surface-overlay-2);
+  color: var(--fds-text-primary);
+  border-color: var(--fds-border-strong);
+}
+.fds-btn:active { background: var(--fds-state-pressed); }
+.fds-btn[disabled],
+.fds-btn:disabled {
+  color: var(--fds-text-disabled);
+  cursor: not-allowed;
+  background: var(--fds-surface-overlay);
+  border-color: var(--fds-border-subtle);
+}
+
+/* Size variants */
+.fds-btn--sm { height: var(--fds-control-h-sm); padding: 0 var(--fds-space-3); font-size: var(--fds-fs-micro); }
+.fds-btn--lg { height: var(--fds-control-h-lg); padding: 0 var(--fds-space-5); }
+
+/* Primary (the one restrained accent CTA) */
+.fds-btn--primary {
+  background: var(--fds-accent-soft);
+  border-color: var(--fds-accent-rim);
+  color: var(--fds-text-primary);
+}
+.fds-btn--primary:hover {
+  background: var(--fds-accent-soft);
+  border-color: var(--fds-accent);
+}
+
+/* Ghost (toolbar / inline — transparent until hovered) */
+.fds-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.fds-btn--ghost:hover {
+  background: var(--fds-state-hover);
+  border-color: var(--fds-border);
+}
+
+/* Icon-only square button */
+.fds-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--fds-control-h-md);
+  height: var(--fds-control-h-md);
+  padding: 0;
+  background: transparent;
+  border: var(--fds-border-w) solid transparent;
+  border-radius: var(--fds-radius-md);
+  color: var(--fds-text-secondary);
+  cursor: pointer;
+  transition: background var(--fds-motion-fast),
+              color var(--fds-motion-fast),
+              border-color var(--fds-motion-fast);
+}
+.fds-icon-btn:hover {
+  background: var(--fds-state-hover);
+  color: var(--fds-text-primary);
+  border-color: var(--fds-border);
+}
+.fds-icon-btn[data-active="true"],
+.fds-icon-btn[aria-pressed="true"] {
+  background: var(--fds-state-selected);
+  color: var(--fds-text-primary);
+  border-color: var(--fds-state-selected-bd);
+}
+.fds-icon-btn[disabled] { color: var(--fds-text-disabled); cursor: not-allowed; }
+.fds-icon-btn--xs { width: var(--fds-control-h-xs); height: var(--fds-control-h-xs); border-radius: var(--fds-radius-sm); }
+.fds-icon-btn--lg { width: var(--fds-control-h-lg); height: var(--fds-control-h-lg); }
+.fds-icon-btn svg { width: var(--fds-icon-md); height: var(--fds-icon-md); }
+
+/* ---------------------------------------------------------------------------
+ * 3. INPUTS / SELECTS / TEXTAREA
+ * ------------------------------------------------------------------------- */
+.fds-input,
+.fds-select,
+.fds-textarea {
+  height: var(--fds-control-h-md);
+  width: 100%;
+  padding: 0 var(--fds-space-3);
+  background: var(--fds-surface-base);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-sm);
+  color: var(--fds-text-primary);
+  font-family: var(--fds-font-ui);
+  font-size: var(--fds-fs-small);
+  line-height: var(--fds-control-h-md);
+  outline: none;
+  transition: border-color var(--fds-motion-fast), background var(--fds-motion-fast);
+}
+.fds-textarea {
+  height: auto;
+  min-height: calc(var(--fds-control-h-md) * 2);
+  padding: var(--fds-space-2) var(--fds-space-3);
+  line-height: var(--fds-lh-base);
+  resize: vertical;
+}
+.fds-input::placeholder,
+.fds-textarea::placeholder { color: var(--fds-text-disabled); }
+.fds-input:hover,
+.fds-select:hover,
+.fds-textarea:hover { border-color: var(--fds-border-strong); }
+.fds-input:focus,
+.fds-select:focus,
+.fds-textarea:focus {
+  border-color: var(--fds-accent);
+  background: var(--fds-surface-base);
+}
+.fds-input[disabled],
+.fds-select[disabled],
+.fds-textarea[disabled] {
+  color: var(--fds-text-disabled);
+  background: var(--fds-surface-overlay);
+  cursor: not-allowed;
+}
+/* Numeric input: tabular figures, right-aligned for dimension fields. */
+.fds-input--num {
+  font-family: var(--fds-font-num);
+  font-feature-settings: var(--fds-font-feature-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+}
+.fds-select {
+  padding-right: var(--fds-space-6);
+  appearance: none;
+  -webkit-appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fds-text-tertiary) 50%),
+    linear-gradient(135deg, var(--fds-text-tertiary) 50%, transparent 50%);
+  background-position:
+    calc(100% - 13px) center,
+    calc(100% - 8px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+/* Inline field: label + control + unit suffix, common in tool param docks. */
+.fds-field { display: flex; flex-direction: column; gap: var(--fds-space-2); }
+.fds-field-row { display: inline-flex; align-items: center; gap: var(--fds-space-2); }
+.fds-field-unit {
+  font-family: var(--fds-font-num);
+  font-size: var(--fds-fs-micro);
+  color: var(--fds-text-tertiary);
+  padding: 0 var(--fds-space-2);
+  user-select: none;
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. PANELS / CARDS / DOCK HEADERS
+ * ------------------------------------------------------------------------- */
+.fds-panel {
+  background: var(--fds-surface-panel);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-lg);
+  box-shadow: var(--fds-elev-2);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.fds-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fds-space-3);
+  height: var(--fds-control-h-lg);
+  padding: 0 var(--fds-space-4);
+  background: var(--fds-surface-raised);
+  border-bottom: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-lg) var(--fds-radius-lg) 0 0;
+  font-size: var(--fds-fs-small);
+  font-weight: var(--fds-fw-semibold);
+  color: var(--fds-text-primary);
+  flex-shrink: 0;
+  user-select: none;
+}
+.fds-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--fds-space-4);
+  font-size: var(--fds-fs-small);
+  color: var(--fds-text-secondary);
+}
+.fds-panel-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-3);
+  padding: var(--fds-space-3) var(--fds-space-4);
+  background: var(--fds-surface-raised);
+  border-top: var(--fds-border-w) solid var(--fds-border);
+  border-radius: 0 0 var(--fds-radius-lg) var(--fds-radius-lg);
+  flex-shrink: 0;
+}
+
+/* Section grouping inside a panel body. */
+.fds-section { display: flex; flex-direction: column; gap: var(--fds-space-3); }
+.fds-section + .fds-section { margin-top: var(--fds-space-5); }
+.fds-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  height: var(--fds-control-h-sm);
+  font-size: var(--fds-fs-micro);
+  font-weight: var(--fds-fw-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--fds-tracking-label);
+  color: var(--fds-text-tertiary);
+}
+
+/* Hairline divider. */
+.fds-divider { height: var(--fds-border-w); background: var(--fds-border); margin: var(--fds-space-3) 0; }
+.fds-divider--v { width: var(--fds-border-w); height: 60%; background: var(--fds-border); margin: 0 var(--fds-space-3); align-self: center; }
+
+/* ---------------------------------------------------------------------------
+ * 5. TOOLBARS / RIBBON
+ * ------------------------------------------------------------------------- */
+.fds-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-3);
+  height: var(--forge-toolbar-h, 48px);
+  padding: 0 var(--fds-space-4);
+  background: var(--fds-surface-raised);
+  border-bottom: var(--fds-border-w) solid var(--fds-border);
+  overflow-x: auto;
+}
+.fds-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-1);
+  height: 100%;
+  padding: 0 var(--fds-space-4);
+  border-right: var(--fds-border-w) solid var(--fds-border);
+}
+.fds-toolbar-group:last-child { border-right: none; }
+.fds-toolbar-group-label {
+  font-size: 10px;
+  font-weight: var(--fds-fw-medium);
+  text-transform: uppercase;
+  letter-spacing: var(--fds-tracking-caps);
+  color: var(--fds-text-tertiary);
+  margin-right: var(--fds-space-3);
+  user-select: none;
+  white-space: nowrap;
+}
+
+/* Ribbon: a tabbed toolbar surface (tabs row + active group strip). */
+.fds-ribbon {
+  display: flex;
+  flex-direction: column;
+  background: var(--fds-surface-raised);
+  border-bottom: var(--fds-border-w) solid var(--fds-border);
+}
+.fds-ribbon-tabs {
+  display: flex;
+  align-items: stretch;
+  height: var(--fds-control-h-md);
+  padding: 0 var(--fds-space-3);
+  gap: var(--fds-space-1);
+  background: var(--fds-surface-base);
+  border-bottom: var(--fds-border-w) solid var(--fds-border);
+}
+.fds-ribbon-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--fds-space-4);
+  background: transparent;
+  border: none;
+  border-bottom: var(--fds-border-w-2) solid transparent;
+  color: var(--fds-text-secondary);
+  font-family: var(--fds-font-ui);
+  font-size: var(--fds-fs-small);
+  font-weight: var(--fds-fw-medium);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--fds-motion-fast), border-color var(--fds-motion-fast);
+}
+.fds-ribbon-tab:hover { color: var(--fds-text-primary); }
+.fds-ribbon-tab[data-active="true"],
+.fds-ribbon-tab[aria-selected="true"] {
+  color: var(--fds-text-primary);
+  border-bottom-color: var(--fds-accent);
+}
+
+/* Segmented toggle (e.g. view / snap modes). */
+.fds-segmented {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  background: var(--fds-surface-overlay);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-md);
+  gap: 2px;
+}
+.fds-segmented-item {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: var(--fds-control-h-xs);
+  padding: 0 var(--fds-space-3);
+  border: none;
+  border-radius: var(--fds-radius-sm);
+  background: transparent;
+  color: var(--fds-text-secondary);
+  font-size: var(--fds-fs-micro);
+  font-weight: var(--fds-fw-medium);
+  cursor: pointer;
+  transition: background var(--fds-motion-fast), color var(--fds-motion-fast);
+}
+.fds-segmented-item:hover { color: var(--fds-text-primary); }
+.fds-segmented-item[data-active="true"] {
+  background: var(--fds-state-selected);
+  color: var(--fds-text-primary);
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. TREE / LIST ROWS  (feature tree, body list, BOM)
+ * ------------------------------------------------------------------------- */
+.fds-tree { display: flex; flex-direction: column; }
+.fds-tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+  height: var(--fds-row-h);
+  padding: 0 var(--fds-space-3);
+  border: var(--fds-border-w) solid transparent;
+  border-radius: var(--fds-radius-sm);
+  color: var(--fds-text-secondary);
+  font-size: var(--fds-fs-small);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition: background var(--fds-motion-fast), color var(--fds-motion-fast);
+}
+.fds-tree-row:hover { background: var(--fds-state-hover); color: var(--fds-text-primary); }
+.fds-tree-row[data-selected="true"],
+.fds-tree-row[aria-selected="true"] {
+  background: var(--fds-state-selected);
+  color: var(--fds-text-primary);
+  border-color: var(--fds-state-selected-bd);
+}
+.fds-tree-row[data-suppressed="true"] { opacity: 0.5; }
+.fds-tree-row--compact { height: var(--fds-row-h-compact); }
+.fds-tree-twisty {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: var(--fds-icon-sm); height: var(--fds-icon-sm);
+  color: var(--fds-text-tertiary);
+  flex-shrink: 0;
+}
+.fds-tree-icon { width: var(--fds-icon-sm); height: var(--fds-icon-sm); flex-shrink: 0; color: var(--fds-text-tertiary); }
+.fds-tree-label { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.fds-tree-value {
+  font-family: var(--fds-font-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: var(--fds-fs-micro);
+  color: var(--fds-text-tertiary);
+  flex-shrink: 0;
+}
+.fds-tree-children { padding-left: var(--fds-space-5); }
+
+/* Two-column property row (key : value). */
+.fds-prop-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: var(--fds-space-3);
+  min-height: var(--fds-row-h-compact);
+  padding: var(--fds-space-1) var(--fds-space-3);
+  font-size: var(--fds-fs-small);
+}
+.fds-prop-row > .fds-prop-key { color: var(--fds-text-tertiary); overflow: hidden; text-overflow: ellipsis; }
+.fds-prop-row > .fds-prop-val {
+  color: var(--fds-text-primary);
+  font-family: var(--fds-font-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-align: right;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. STATUS BAR
+ * ------------------------------------------------------------------------- */
+.fds-statusbar {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-6);
+  height: var(--forge-statusbar-h, 26px);
+  padding: 0 var(--fds-space-5);
+  background: var(--fds-surface-base);
+  border-top: var(--fds-border-w) solid var(--fds-border);
+  font-family: var(--fds-font-num);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: var(--fds-fs-micro);
+  color: var(--fds-text-tertiary);
+  user-select: none;
+}
+.fds-statusbar-item { display: inline-flex; align-items: center; gap: var(--fds-space-2); }
+.fds-statusbar-item strong { color: var(--fds-text-secondary); font-weight: var(--fds-fw-medium); }
+.fds-statusbar-spacer { flex: 1; }
+
+/* ---------------------------------------------------------------------------
+ * 8. CHIPS / TAGS / BADGES
+ * ------------------------------------------------------------------------- */
+.fds-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fds-space-2);
+  height: var(--fds-control-h-xs);
+  padding: 0 var(--fds-space-3);
+  background: var(--fds-surface-overlay);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-pill);
+  color: var(--fds-text-secondary);
+  font-size: var(--fds-fs-micro);
+  font-weight: var(--fds-fw-medium);
+  white-space: nowrap;
+  cursor: default;
+}
+.fds-chip--interactive { cursor: pointer; transition: border-color var(--fds-motion-fast), color var(--fds-motion-fast); }
+.fds-chip--interactive:hover { border-color: var(--fds-accent); color: var(--fds-text-primary); }
+.fds-chip[data-active="true"] { background: var(--fds-state-selected); border-color: var(--fds-state-selected-bd); color: var(--fds-text-primary); }
+
+.fds-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: var(--fds-radius-pill);
+  background: var(--fds-accent-soft);
+  color: var(--fds-text-primary);
+  font-family: var(--fds-font-num);
+  font-size: 10px; font-weight: var(--fds-fw-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Status dots (monochrome-friendly signal colors, used sparingly). */
+.fds-dot { width: 7px; height: 7px; border-radius: var(--fds-radius-pill); flex-shrink: 0; }
+.fds-dot--ok    { background: var(--fds-signal-ok); }
+.fds-dot--warn  { background: var(--fds-signal-warn); }
+.fds-dot--error { background: var(--fds-signal-error); }
+.fds-dot--idle  { background: var(--fds-text-disabled); }
+
+/* ---------------------------------------------------------------------------
+ * 9. TOOLTIPS
+ * ------------------------------------------------------------------------- */
+.fds-tooltip {
+  position: absolute;
+  z-index: var(--fds-z-tooltip);
+  max-width: 240px;
+  padding: var(--fds-space-2) var(--fds-space-3);
+  background: var(--fds-surface-panel);
+  border: var(--fds-border-w) solid var(--fds-border-strong);
+  border-radius: var(--fds-radius-sm);
+  box-shadow: var(--fds-elev-2);
+  color: var(--fds-text-primary);
+  font-size: var(--fds-fs-micro);
+  line-height: var(--fds-lh-micro);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.fds-tooltip kbd,
+.fds-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-sm);
+  background: var(--fds-surface-overlay);
+  color: var(--fds-text-secondary);
+  font-family: var(--fds-font-num);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+/* ---------------------------------------------------------------------------
+ * 10. MENUS / POPOVERS  (dropdowns, context menus, command palette host)
+ * ------------------------------------------------------------------------- */
+.fds-menu {
+  min-width: 200px;
+  padding: var(--fds-space-2);
+  background: var(--fds-surface-panel);
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-md);
+  box-shadow: var(--fds-elev-2);
+  z-index: var(--fds-z-popover);
+}
+.fds-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--fds-space-3);
+  height: var(--fds-control-h-sm);
+  padding: 0 var(--fds-space-3);
+  border-radius: var(--fds-radius-sm);
+  color: var(--fds-text-secondary);
+  font-size: var(--fds-fs-small);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fds-menu-item:hover { background: var(--fds-state-hover); color: var(--fds-text-primary); }
+.fds-menu-item[data-active="true"] { background: var(--fds-state-selected); color: var(--fds-text-primary); }
+.fds-menu-item[disabled] { color: var(--fds-text-disabled); cursor: not-allowed; }
+.fds-menu-item-shortcut { margin-left: auto; color: var(--fds-text-tertiary); font-family: var(--fds-font-num); font-size: var(--fds-fs-micro); }
+.fds-menu-sep { height: var(--fds-border-w); background: var(--fds-border); margin: var(--fds-space-2) 0; }
+
+/* ---------------------------------------------------------------------------
+ * 11. FOCUS-VISIBLE RING  (keyboard / AT only — reinforces tokens.css)
+ * ------------------------------------------------------------------------- */
+.forge-app :focus-visible,
+.fds-btn:focus-visible,
+.fds-icon-btn:focus-visible,
+.fds-input:focus-visible,
+.fds-select:focus-visible,
+.fds-tree-row:focus-visible,
+.fds-menu-item:focus-visible {
+  outline: var(--fds-focus-ring-width) solid var(--fds-focus-ring);
+  outline-offset: var(--fds-focus-ring-offset);
+  border-radius: var(--fds-radius-sm);
+}
+.forge-app :focus:not(:focus-visible) { outline: none; }
+
+/* ---------------------------------------------------------------------------
+ * 12. EMPTY STATES  (no model / empty tree / empty list / blank panel)
+ * ---------------------------------------------------------------------------
+ * One calm, consistent empty-state language everywhere a surface has no
+ * content. Monochrome, centred, quiet — an inset glyph, a short title, an
+ * even shorter hint, and (optionally) one ghost action. Used by the feature
+ * tree, the bodies list, the Properties panel and the blank-document viewport.
+ * ------------------------------------------------------------------------- */
+.fds-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--fds-space-3);
+  padding: var(--fds-space-6) var(--fds-space-4);
+  text-align: center;
+  color: var(--fds-text-tertiary);
+  user-select: none;
+}
+/* Compact variant for narrow dock sections (tree / bodies / properties). */
+.fds-empty--inline {
+  gap: var(--fds-space-2);
+  padding: var(--fds-space-5) var(--fds-space-3);
+}
+.fds-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: var(--fds-border-w) solid var(--fds-border);
+  border-radius: var(--fds-radius-lg);
+  background: var(--fds-surface-overlay);
+  color: var(--fds-text-tertiary);
+}
+.fds-empty--inline .fds-empty-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--fds-radius-md);
+}
+.fds-empty-title {
+  font-size: var(--fds-fs-small);
+  line-height: var(--fds-lh-small);
+  font-weight: var(--fds-fw-medium);
+  color: var(--fds-text-secondary);
+}
+.fds-empty--inline .fds-empty-title { font-size: var(--fds-fs-micro); line-height: var(--fds-lh-micro); }
+.fds-empty-hint {
+  max-width: 30ch;
+  font-size: var(--fds-fs-micro);
+  line-height: var(--fds-lh-micro);
+  color: var(--fds-text-tertiary);
+}
+.fds-empty-actions {
+  display: flex;
+  gap: var(--fds-space-2);
+  margin-top: var(--fds-space-1);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Blank-document welcome — larger, viewport-centred, but the same family. */
+.fds-empty--viewport {
+  position: absolute;
+  inset: 0;
+  z-index: var(--fds-z-viewport-hud);
+  gap: var(--fds-space-4);
+  pointer-events: none;          /* never block orbit / canvas interaction   */
+}
+.fds-empty--viewport .fds-empty-icon {
+  width: 56px;
+  height: 56px;
+  background: color-mix(in srgb, var(--fds-surface-panel) 70%, transparent);
+  backdrop-filter: blur(8px);
+}
+.fds-empty--viewport .fds-empty-title {
+  font-size: var(--fds-fs-large);
+  line-height: var(--fds-lh-large);
+  font-weight: var(--fds-fw-semibold);
+  color: var(--fds-text-primary);
+}
+.fds-empty--viewport .fds-empty-hint { max-width: 38ch; font-size: var(--fds-fs-small); line-height: var(--fds-lh-small); }
+.fds-empty--viewport .fds-empty-actions { pointer-events: auto; }   /* but the buttons are clickable */
+
+/* ---------------------------------------------------------------------------
+ * 13. RICH TOOLTIP  (title + description form for ribbon / hero buttons)
+ * ---------------------------------------------------------------------------
+ * Extends .fds-tooltip with an optional 2-line layout: a bold title row and a
+ * wrapping description paragraph. The base single-line label+kbd form is
+ * unchanged; .fds-tooltip--rich opts a tip into the wider, wrapped variant.
+ * ------------------------------------------------------------------------- */
+.fds-tooltip--rich {
+  max-width: 248px;
+  white-space: normal;
+  padding: var(--fds-space-3);
+}
+.fds-tooltip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--fds-space-3);
+}
+.fds-tooltip-title {
+  font-size: var(--fds-fs-small);
+  line-height: var(--fds-lh-small);
+  font-weight: var(--fds-fw-medium);
+  color: var(--fds-text-primary);
+}
+.fds-tooltip-desc {
+  margin-top: var(--fds-space-2);
+  font-size: var(--fds-fs-micro);
+  line-height: var(--fds-lh-micro);
+  color: var(--fds-text-tertiary);
+}
+
+/* ===========================================================================
+ * 12. MOTION & INTERACTION STATES  (shared micro-interaction utility kit)
+ * ---------------------------------------------------------------------------
+ * Restrained, engineering-grade micro-interactions built ONLY on the motion
+ * tokens (--fds-motion-fast 120ms / --fds-motion-base 180ms / --fds-ease).
+ * These are OPT-IN utility classes any area can apply to its own markup to get
+ * one consistent state language (hover / active / pressed / selected / disabled
+ * / focus) and smooth dock / panel / tooltip transitions — without each area
+ * re-authoring transitions. Subtle + precise: no bounce, no spring, no
+ * decorative animation. Nothing here restyles existing .forge-* shell classes
+ * or any data-testid'd node; it only adds behavior where a class is applied.
+ * Respects prefers-reduced-motion via the token collapse + the §0 guard above.
+ * ========================================================================= */
+
+/* --- 12.1 Transition primitives ------------------------------------------ *
+ * Drop one of these on an element to opt it into the canonical easing/timing.
+ * `.fds-transition` animates the common state properties; the scoped variants
+ * keep paint cheap when only one property changes. */
+.fds-transition {
+  transition:
+    background-color var(--fds-motion-fast),
+    border-color     var(--fds-motion-fast),
+    color            var(--fds-motion-fast),
+    box-shadow       var(--fds-motion-fast),
+    opacity          var(--fds-motion-fast);
+}
+.fds-transition-colors {
+  transition:
+    background-color var(--fds-motion-fast),
+    border-color     var(--fds-motion-fast),
+    color            var(--fds-motion-fast);
+}
+.fds-transition-transform { transition: transform var(--fds-motion-base); }
+.fds-transition-base      { transition: all var(--fds-motion-base); }
+.fds-transition-none      { transition: none !important; }
+
+/* --- 12.2 Interactive surface --------------------------------------------- *
+ * `.fds-interactive` is the base for any clickable element that should answer
+ * to the cursor: pointer + canonical transition + restrained hover/active/
+ * pressed/disabled washes. Pair with the state modifiers below as needed.
+ * Neutral ink washes only — the accent never fills a hovered control. */
+.fds-interactive {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    background-color var(--fds-motion-fast),
+    border-color     var(--fds-motion-fast),
+    color            var(--fds-motion-fast),
+    box-shadow       var(--fds-motion-fast);
+}
+.fds-interactive:hover  { background-color: var(--fds-state-hover);  color: var(--fds-text-primary); }
+.fds-interactive:active { background-color: var(--fds-state-pressed); }
+.fds-interactive[aria-disabled="true"],
+.fds-interactive[data-disabled="true"],
+.fds-interactive:disabled {
+  cursor: not-allowed;
+  color: var(--fds-text-disabled);
+  background-color: transparent;
+  pointer-events: none;
+}
+
+/* Standalone state modifiers — compose onto any element (control, row, chip).
+ * Use these when an element is not a full .fds-interactive but still needs one
+ * specific behavior. */
+.fds-hoverable {
+  transition: background-color var(--fds-motion-fast), color var(--fds-motion-fast);
+}
+.fds-hoverable:hover { background-color: var(--fds-state-hover); color: var(--fds-text-primary); }
+
+/* Ghost control: invisible until hovered, then a 1px hairline appears — the
+ * canonical toolbar / icon-button reveal from the design system §9. */
+.fds-ghost {
+  background-color: transparent;
+  border: var(--fds-border-w) solid transparent;
+  transition:
+    background-color var(--fds-motion-fast),
+    border-color     var(--fds-motion-fast),
+    color            var(--fds-motion-fast);
+}
+.fds-ghost:hover {
+  background-color: var(--fds-state-hover);
+  border-color: var(--fds-border);
+  color: var(--fds-text-primary);
+}
+.fds-ghost:active { background-color: var(--fds-state-pressed); }
+
+/* Pressable: a precise, non-bouncy tactile dip on press. 1px translate, no
+ * scale jelly — reads as a real button under a precision tool. */
+.fds-pressable { transition: transform var(--fds-motion-fast), background-color var(--fds-motion-fast); }
+.fds-pressable:active:not([disabled]):not([aria-disabled="true"]) { transform: translateY(0.5px); }
+
+/* Selected / toggled-on — the ONLY place the accent appears as a control fill.
+ * Works via class, [data-active], [data-selected], aria-pressed, aria-selected
+ * so it drops onto whatever attribute an area already drives. */
+.fds-selectable {
+  transition:
+    background-color var(--fds-motion-fast),
+    border-color     var(--fds-motion-fast),
+    color            var(--fds-motion-fast);
+}
+.fds-selectable.is-selected,
+.fds-selectable[data-active="true"],
+.fds-selectable[data-selected="true"],
+.fds-selectable[aria-pressed="true"],
+.fds-selectable[aria-selected="true"] {
+  background-color: var(--fds-state-selected);
+  border-color: var(--fds-state-selected-bd);
+  color: var(--fds-text-primary);
+}
+
+/* Generic disabled affordance — apply when an element lacks a native :disabled. */
+.fds-disabled,
+[data-disabled="true"].fds-interactive {
+  color: var(--fds-text-disabled) !important;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+/* --- 12.3 Focus ring utilities -------------------------------------------- *
+ * Keyboard/AT only. `.fds-focus-ring` opts an element into the canonical 2px
+ * accent ring on :focus-visible; `.fds-focus-ring--inset` draws it inward via
+ * box-shadow for elements that must not bleed outside a clipped container
+ * (rows inside an overflow:hidden dock, inset fields). */
+.fds-focus-ring:focus-visible {
+  outline: var(--fds-focus-ring-width) solid var(--fds-focus-ring);
+  outline-offset: var(--fds-focus-ring-offset);
+  border-radius: var(--fds-radius-sm);
+}
+.fds-focus-ring--inset:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 var(--fds-focus-ring-width) var(--fds-focus-ring);
+}
+.fds-focus-ring:focus:not(:focus-visible),
+.fds-focus-ring--inset:focus:not(:focus-visible) { outline: none; box-shadow: none; }
+
+/* --- 12.4 Dock / panel / drawer transitions ------------------------------- *
+ * Smooth, 180ms reveal for floating surfaces. `.fds-enter` is the mounted
+ * resting state; pair with the `*--from` starting class an area toggles, or use
+ * the keyframe utilities in 12.6 for fire-and-forget reveals. */
+.fds-surface-anim {
+  transition:
+    opacity   var(--fds-motion-base),
+    transform var(--fds-motion-base),
+    box-shadow var(--fds-motion-base);
+  will-change: opacity, transform;
+}
+
+/* Collapsible width/height (right dock, rail, sections). Animate the box metric
+ * an area drives inline; the easing/timing is standardized here. */
+.fds-collapsible       { transition: width var(--fds-motion-base), height var(--fds-motion-base); overflow: hidden; }
+.fds-collapsible--w    { transition: width var(--fds-motion-base); }
+.fds-collapsible--h    { transition: height var(--fds-motion-base); }
+
+/* --- 12.5 Tooltip / popover reveal ---------------------------------------- *
+ * A tooltip should appear instantly-but-softly: fast fade + a 2px settle, no
+ * slide-in theatrics. Apply `.fds-pop-reveal` to a tooltip/popover root that is
+ * mounted in its shown state. */
+.fds-pop-reveal { animation: fds-pop-in var(--fds-dur-fast) var(--fds-ease) both; }
+
+/* --- 12.6 Keyframe utilities (fire-and-forget reveals) -------------------- *
+ * Single, non-looping reveals only — engineering UI does not idle-animate. */
+@keyframes fds-pop-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fds-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes fds-slide-in-right {
+  from { opacity: 0; transform: translateX(8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes fds-slide-in-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fds-anim-fade-in        { animation: fds-fade-in        var(--fds-dur-base) var(--fds-ease) both; }
+.fds-anim-pop-in         { animation: fds-pop-in         var(--fds-dur-fast) var(--fds-ease) both; }
+.fds-anim-slide-in-right { animation: fds-slide-in-right var(--fds-dur-base) var(--fds-ease) both; }
+.fds-anim-slide-in-up    { animation: fds-slide-in-up    var(--fds-dur-base) var(--fds-ease) both; }
+
+/* --- 12.7 Indeterminate / working signal ---------------------------------- *
+ * A single restrained pulse for "Archie is working" / regen-in-flight cues.
+ * Opacity-only breathe — no color shift, no rotation. The one allowed loop,
+ * reserved for active-process indication. */
+@keyframes fds-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+.fds-pulse { animation: fds-pulse 1.4s var(--fds-ease) infinite; }
+
+@keyframes fds-spin { to { transform: rotate(360deg); } }
+.fds-spin { animation: fds-spin 0.9s linear infinite; }
+
+/* --- 12.8 Scrollbar utilities --------------------------------------------- *
+ * App-wide thin scrollbars are already set in §0. These let a specific surface
+ * opt into a quieter (auto-hiding feel) or fully hidden scrollbar without
+ * touching global rules. */
+.fds-scroll-thin::-webkit-scrollbar { width: 8px; height: 8px; }
+.fds-scroll-thin::-webkit-scrollbar-track { background: transparent; }
+.fds-scroll-thin::-webkit-scrollbar-thumb {
+  background: var(--fds-border);
+  border-radius: var(--fds-radius-md);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  transition: background-color var(--fds-motion-fast);
+}
+.fds-scroll-thin:hover::-webkit-scrollbar-thumb { background: var(--fds-border-strong); }
+.fds-scroll-thin { scrollbar-width: thin; scrollbar-color: var(--fds-border) transparent; }
+
+.fds-scroll-hidden { scrollbar-width: none; -ms-overflow-style: none; }
+.fds-scroll-hidden::-webkit-scrollbar { width: 0; height: 0; display: none; }
+
+/* --- 12.9 Reduced-motion final guard -------------------------------------- *
+ * The token layer already collapses durations to 1ms; this also disables the
+ * looping/keyframe utilities entirely so nothing animates for users who opt
+ * out. (App-wide transition kill lives in §0.) */
+@media (prefers-reduced-motion: reduce) {
+  .fds-pulse, .fds-spin,
+  .fds-pop-reveal,
+  .fds-anim-fade-in, .fds-anim-pop-in,
+  .fds-anim-slide-in-right, .fds-anim-slide-in-up {
+    animation: none !important;
+  }
+  .fds-pressable:active { transform: none !important; }
+}
+
+/* ===========================================================================
+ * 13. GLOBAL TYPOGRAPHY + SPACING PASS  (shared chrome text — area: typography)
+ * ---------------------------------------------------------------------------
+ * A precise, CATIA/SW/NX-grade typographic finish for every GENERIC, SHARED
+ * text surface that no structural area owns: top-menu dropdowns, section /
+ * group labels, captions, status-bar readouts, badges & count chips, kbd /
+ * shortcut hints, tab labels, tooltip text, tree numeric values, and generic
+ * data tables / grids.
+ *
+ * STRICTLY TYPOGRAPHIC + RHYTHM. Every rule here touches ONLY
+ * font-family / font-variant-numeric / font-feature-settings / letter-spacing
+ * / font-weight / line-height alignment — never color logic, never the layout
+ * grid, never a handler, never a data-testid'd structure. It therefore layers
+ * cleanly under any other area's structural restyle (they own boxes &
+ * behaviour; this owns the type). Scoped under .forge-app, built only on the
+ * shell --forge-* and design-system --fds-* tokens. No off-ladder values.
+ *
+ * TABULAR-NUMERAL CONTRACT: any dimension / coordinate / unit / count / id /
+ * status digit in shared chrome uses lining tabular figures so columns align
+ * and numbers never reflow on update.
+ * ========================================================================= */
+
+/* --- 13.0 Shared numeric utility (apply to any chrome digit cluster) ------- *
+ * A class areas can hang on bespoke numeric spans, plus the canonical mono
+ * feature set. Equivalent to .fds-num but available app-wide by intent. */
+.forge-app .forge-num,
+.forge-app [data-numeric="true"] {
+  font-family: var(--forge-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--fds-font-feature-num);
+  letter-spacing: 0;
+}
+
+/* --- 13.1 Top menu bar + dropdowns ---------------------------------------- *
+ * The menu trigger words, item labels, and right-aligned shortcut hints. Keeps
+ * menu rows on the small (12/16) scale with a steady baseline and forces the
+ * shortcut clusters to tabular figures so ⌘1 / ⌘12 align. The dropdown
+ * <ul>/<li>/<button> are inline-styled in Menus.jsx; we only refine the type. */
+.forge-app .forge-topbar-menu {
+  font-size: var(--fds-fs-small);
+  line-height: var(--fds-lh-small);
+  letter-spacing: var(--fds-tracking-normal);
+}
+/* Menu dropdown item label + shortcut (selectors match Menus.jsx markup). */
+.forge-app [data-testid^="forge-menu-"] [data-menu-item] {
+  font-size: var(--fds-fs-small);
+  line-height: var(--fds-lh-small);
+  letter-spacing: var(--fds-tracking-normal);
+}
+/* The right-aligned keyboard-shortcut span inside a menu item — tabular mono,
+ * so multi-key combos align in a clean column down the menu. */
+.forge-app [data-testid^="forge-menu-"] [data-menu-item] > span:last-child {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--fds-font-feature-num);
+  letter-spacing: 0;
+}
+
+/* --- 13.2 Section / group / field labels --------------------------------- *
+ * Uppercase tracked micro-captions used across the right-dock section headers,
+ * toolbar group labels, tool-param field labels, and the cmd-bar presets label.
+ * Unify their tracking + weight so every label reads as one type style (the
+ * audit flagged inconsistent casing/tracking here). */
+.forge-app .forge-right-section-header,
+.forge-app .forge-toolbar-group-label,
+.forge-app .forge-tool-field-label,
+.forge-app .forge-cmdbar-presets-label {
+  font-weight: var(--fds-fw-medium);
+  letter-spacing: var(--fds-tracking-label);
+}
+/* Section-header trailing count ("Feature Tree · 12", "Bodies · 3") → tabular
+ * so the count never nudges the label when it ticks 9 → 10. */
+.forge-app .forge-right-section-header span {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* --- 13.3 Status bar ------------------------------------------------------ *
+ * Already mono; lock tabular + lining figures so units / fps / selection counts
+ * / save-time digits sit in a fixed grid and never jitter as values update. */
+.forge-app .forge-statusbar {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--fds-font-feature-num);
+  letter-spacing: 0;
+}
+.forge-app .forge-statusbar strong { font-weight: var(--fds-fw-medium); }
+
+/* --- 13.4 Keyboard hints / kbd chrome ------------------------------------- *
+ * One consistent kbd treatment across the cmd-bar hint, tooltips, and any
+ * inline <kbd>: tabular mono so ⌘K / ⇧⌘Z render with even glyph metrics. */
+.forge-app .forge-cmdbar-hint,
+.forge-app kbd {
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0;
+}
+
+/* --- 13.5 Chips, badges, pills (shared, non-structural) ------------------- *
+ * Workbench chip, command-bar preset chips, nav-sphere / cull chips, rollback
+ * card labels: keep their type on the micro/small scale with steady tracking;
+ * route any embedded digit (counts, "12 / 480 visible") to tabular figures. */
+.forge-app .forge-topbar-wb-chip,
+.forge-app .forge-cmdbar-preset-chip,
+.forge-app .forge-rollback-card {
+  letter-spacing: var(--fds-tracking-normal);
+}
+.forge-app .forge-topbar-wb-chip strong { font-weight: var(--fds-fw-medium); }
+.forge-app .forge-navsphere-chip,
+.forge-app .forge-viewport-cullchip {
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--fds-font-feature-num);
+}
+
+/* --- 13.6 Workbench-rail tab labels --------------------------------------- *
+ * The 9px uppercase rail labels read cramped on a high-DPI remote desktop
+ * (audit §3/§12). Tighten the tracking a touch and pin a 12px line-box for an
+ * even vertical rhythm under the glyph — purely typographic, no size/layout
+ * change to the rail box. */
+.forge-app .forge-wb-tab-label {
+  letter-spacing: 0.04em;
+  line-height: 12px;
+  font-weight: var(--fds-fw-medium);
+}
+
+/* --- 13.7 Tooltip text ---------------------------------------------------- *
+ * Tooltip label + its mono shortcut share one micro scale; tabular figures on
+ * the shortcut so the key hint aligns with the label baseline. */
+.forge-app [data-testid="forge-tooltip"] {
+  font-size: var(--fds-fs-micro);
+  line-height: var(--fds-lh-micro);
+}
+.forge-app [data-testid="forge-tooltip"] kbd {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* --- 13.8 Generic data tables / grids (shared chrome) --------------------- *
+ * BOM, PDM, batch, calculator-result and other tabular panels render plain
+ * <table>/<th>/<td>. Give every shared table ONE professional finish:
+ *   · headers → uppercase-weight tracked caption (matches section labels)
+ *   · numeric cells → tabular lining figures so columns of numbers align
+ * Header weight/tracking and cell tabular-figures are typographic only; we do
+ * NOT touch borders, padding boxes, colors, or any per-panel layout. */
+.forge-app table th {
+  font-weight: var(--fds-fw-medium);
+  letter-spacing: var(--fds-tracking-label);
+}
+.forge-app table td {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+/* A cell can opt back out of tabular spacing when it holds prose. */
+.forge-app table td[data-text="true"] { font-variant-numeric: normal; }
+
+/* --- 13.9 Feature-tree / list numeric values ------------------------------ *
+ * Trailing numeric values on tree/list rows (dimensions, ids, counts) → mono
+ * tabular so a column of values reads as a clean ledger. Targets the canonical
+ * value spans without disturbing the row label type. */
+.forge-app .forge-num-value,
+.forge-app [data-tree-value="true"] {
+  font-family: var(--forge-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-feature-settings: var(--fds-font-feature-num);
+  font-size: var(--fds-fs-micro);
+  letter-spacing: 0;
+}
