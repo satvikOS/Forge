@@ -231,7 +231,13 @@ async function archieComplete({ messages, discipline,
   // 'archie-7b-base' id hit HF, got 401, and the request 404'd).
   // Omitting the field uses the server's loaded model; per-request
   // `adapters` does the actual routing — same contract Studio uses.
-  const adapter = HERMES_FORGE_ADAPTER;
+  // Default route is the shipped 8B Forge driver. A test/eval harness may set
+  // window.__FORGE_ADAPTER_OVERRIDE to A/B a different fold (e.g. the 14B v2
+  // reasoning-merged adapter) WITHOUT touching the shipped default — the
+  // override never persists and is ignored when unset.
+  const adapter =
+    (typeof window !== 'undefined' && window.__FORGE_ADAPTER_OVERRIDE) ||
+    HERMES_FORGE_ADAPTER;
   const res = await fetch(`${baseUrl}/v1/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

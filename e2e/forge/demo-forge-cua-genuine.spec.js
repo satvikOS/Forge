@@ -79,6 +79,12 @@ const PROMPT = process.env.FORGE_CUA_PROMPT
    + 'break the outer edges with a 2 mm chamfer.';
 const ADAPTER_LABEL = process.env.FORGE_CUA_ADAPTER
   || 'adapters/archie/hermes_forge-capstack-20260617'; // ForgeRunner HERMES_FORGE_ADAPTER
+// When FORGE_CUA_ADAPTER is explicitly set, ACTUALLY route the live console to
+// that fold via window.__FORGE_ADAPTER_OVERRIDE (the non-breaking hook added in
+// ForgeRunner.js) — this lets the genuine-CUA harness A/B a non-default adapter
+// (e.g. the 14B v2 reasoning-merged fold) WITHOUT editing the shipped
+// HERMES_FORGE_ADAPTER default. Unset ⇒ no override ⇒ the shipped 8B drives.
+const ADAPTER_OVERRIDE = process.env.FORGE_CUA_ADAPTER || '';
 const BUILD_MS = Number(process.env.FORGE_CUA_BUILD_MS || 300000); // 5 min watch window
 const FLAGSHIP_ENV = process.env.FORGE_CUA_ENV || 'studio';
 
@@ -217,6 +223,14 @@ test('GENUINE-CUA — type a CAD prompt → live Forge model drives Forge → bu
     }
   });
   await page.waitForLoadState('domcontentloaded');
+  // Route the live console to the requested fold (no-op when unset). addInitScript
+  // re-applies it on every navigation, so it survives the reload below and is in
+  // place before the FIRST runArchie fetch reads window.__FORGE_ADAPTER_OVERRIDE.
+  if (ADAPTER_OVERRIDE) {
+    await page.addInitScript((a) => { try { window.__FORGE_ADAPTER_OVERRIDE = a; } catch (_) {} }, ADAPTER_OVERRIDE);
+    await page.evaluate((a) => { try { window.__FORGE_ADAPTER_OVERRIDE = a; } catch (_) {} }, ADAPTER_OVERRIDE).catch(() => {});
+    console.log(`[forge-cua] routing live console to OVERRIDE adapter: ${ADAPTER_OVERRIDE}`);
+  }
   await page.evaluate(() => {
     try { window.localStorage.setItem('forge.v4.onboarded', '1'); } catch (_) {}
   }).catch(() => {});
