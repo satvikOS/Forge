@@ -44,6 +44,7 @@
 #include "forge/native/mesh/Smooth.hpp"
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdarg>
