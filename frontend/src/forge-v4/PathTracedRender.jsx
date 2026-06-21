@@ -325,6 +325,14 @@ export async function runPathTracedRender({
   const env = buildEnvTexture(envPresetId, renderer);
   scene.environment = env.tex;
   scene.background  = env.tex;
+  // Flagship exports came out near-black: the GPU tracer lights from the
+  // environment and applies the renderer's tone mapping on blit, but this
+  // headless path never set ACES exposure / IBL intensity (the realtime path
+  // does, line ~149), so dark composite materials read as a featureless blob.
+  // Lift the IBL and apply ACES filmic exposure so metal reads as metal.
+  if ('environmentIntensity' in scene) scene.environmentIntensity = 1.8;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.5;
 
   const pt = new WebGLPathTracer(renderer);
   pt.tiles.set(2, 2);
