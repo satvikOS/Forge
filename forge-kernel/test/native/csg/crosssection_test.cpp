@@ -21,6 +21,7 @@
 //   (F) honest-envelope guard: a self-intersecting (bow-tie) operand returns
 //       ok=false (never a fake loop)
 
+#include <cstdint>
 #include "forge/native/csg/MeshCrossSection.hpp"
 
 #include <cstdio>

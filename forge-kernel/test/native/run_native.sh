@@ -22,6 +22,12 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 cd "$ROOT"
 
+# pre-flight: catch missing standard #includes (libstdc++/CI) that the Mac's
+# Apple-clang/libc++ silently provides — a local compile would pass but CI fails.
+if ! bash forge-kernel/test/native/check_includes.sh >/tmp/forge_native_incl.log 2>&1; then
+  cat /tmp/forge_native_incl.log; echo "[native] missing-include preflight FAILED"; exit 1
+fi
+
 CXX="${CXX:-clang++}"
 INC="forge-kernel/include"
 FLAGS="-std=c++20 -O2"

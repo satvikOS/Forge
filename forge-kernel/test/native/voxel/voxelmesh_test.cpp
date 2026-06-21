@@ -26,6 +26,7 @@
 //       src/native/Predicates.cpp \
 //       test/native/voxel/voxelmesh_test.cpp -o /tmp/voxelmesh_test && /tmp/voxelmesh_test
 
+#include <cstdint>
 #include "forge/native/voxel/VoxelMesh.hpp"
 #include "forge/native/voxel/Tpms.hpp"
 

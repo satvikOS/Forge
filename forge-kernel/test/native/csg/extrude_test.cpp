@@ -21,6 +21,7 @@
 // HONEST: degenerate / unsupported inputs MUST return ok=false (never a
 // self-intersecting fake). Several such cases are asserted to FAIL cleanly.
 
+#include <cstdint>
 #include "forge/native/csg/Extrude.hpp"
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
 

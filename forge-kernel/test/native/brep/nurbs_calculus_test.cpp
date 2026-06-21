@@ -23,6 +23,7 @@
 //       control-point count increases by exactly 1.
 // Plus cross-checks: ders[0] == basisFunctions(); surface normal of a saddle.
 
+#include <algorithm>
 #include "forge/native/brep/Nurbs.hpp"
 #include "forge/native/brep/NurbsCalculus.hpp"
 

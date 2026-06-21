@@ -44,6 +44,7 @@
 // Fresh std::random_device seed each run (printed below).
 // ─────────────────────────────────────────────────────────────────────────────
 
+#include <algorithm>
 #include "forge/native/mesh/Subdivide.hpp"
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
 

@@ -41,6 +41,7 @@
 //       forge-kernel/test/native/voxel/voxelboolean_test.cpp \
 //       -o /tmp/k2_VoxelBoolean && /tmp/k2_VoxelBoolean
 
+#include <algorithm>
 #include "forge/native/voxel/VoxelBoolean.hpp"
 
 #include <cstdio>

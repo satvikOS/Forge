@@ -17,6 +17,7 @@
 // skipped only when it provably cannot improve the answer), so the tree returns
 // the SAME answer as an O(n) scan — which the standalone gate verifies.
 
+#include <cstdint>
 #include "forge/native/geom/AABBTree.hpp"
 
 #include <algorithm>

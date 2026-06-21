@@ -37,6 +37,8 @@
 //
 //   A fresh std::random_device seed is printed so any failure reproduces.
 
+#include <cstdint>
+#include <algorithm>
 #include "forge/native/geom/OBB.hpp"
 #include "forge/native/geom/Geom.hpp"
 

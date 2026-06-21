@@ -30,6 +30,7 @@
 //
 // Prints a FRESH std::random_device seed and ends with "RESULT: P / T passed".
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <limits>

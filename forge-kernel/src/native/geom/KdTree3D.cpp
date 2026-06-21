@@ -4,6 +4,7 @@
 // See KdTree3D.hpp for the honest scope / correctness posture / edge-case
 // contract. Nothing here re-implements a point type or a predicate.
 
+#include <cstdint>
 #include "forge/native/geom/KdTree3D.hpp"
 
 #include <algorithm>  // std::nth_element, std::sort, std::min/max, std::push_heap/pop_heap

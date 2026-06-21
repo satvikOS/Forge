@@ -28,6 +28,7 @@
 //
 // The fresh std::random_device seed is PRINTED so a failure is reproducible.
 
+#include <cstdint>
 #include "forge/native/geom/Delaunay3D.hpp"
 #include "forge/native/geom/Geom.hpp"   // convexHull3D cross-check
 
