@@ -297,6 +297,18 @@
 #include "forge/VarFillet.hpp"
 #include "forge/LoftGuide.hpp"
 
+// ---------------------------------------------------------------- forge::native
+// In-house, pure-C++20 unified-kernel modules (NO OCCT / WASM / external deps).
+// These are the VALIDATED increments compiled by test/native/run_native.sh and,
+// from this slice, INTO forge-kernel.node — exposed below under exports.native.
+#include "forge/native/Predicates.hpp"
+#include "forge/native/geom/Geom.hpp"
+#include "forge/native/gdt/Gdt.hpp"
+#include "forge/native/implicit/SdfTree.hpp"
+#include "forge/native/implicit/IsoMesher.hpp"
+#include "forge/native/mesh/HalfEdgeMesh.hpp"
+#include "forge/native/mesh/MeshBoolRobust_a.hpp"
+
 #include <array>
 
 #include <Standard_Version.hxx>
@@ -15548,6 +15560,340 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
       }));
 
     exports.Set("camx", camxNs);
+
+    // ====================================================================
+    // forge::native — in-house pure-C++20 unified-kernel ops (no OCCT/WASM).
+    //
+    // A representative set of the VALIDATED native increments
+    // (KERNEL_INHOUSE_ROADMAP), now callable in-platform. The robust
+    // predicates return an exact sign (-1/0/+1); the mesh boolean returns
+    // its HONEST {ok, reason} — ok=false on a boundary-crossing / coplanar
+    // case it cannot close, NEVER a fake. Bible §0/§9.
+    // ====================================================================
+    {
+      auto nativeNs = Napi::Object::New(env);
+
+      // -- helpers (Init-body-local) -------------------------------------
+      // Read a flat numeric sequence (Float64Array or plain Array) -> doubles.
+      auto readDoubleVec = [](Napi::Env e2, Napi::Value v, const char* what)
+          -> std::vector<double> {
+        std::vector<double> out;
+        if (v.IsTypedArray() && v.As<Napi::TypedArray>().TypedArrayType()
+                                  == napi_float64_array) {
+          auto a = v.As<Napi::Float64Array>();
+          out.assign(a.Data(), a.Data() + a.ElementLength());
+          return out;
+        }
+        if (v.IsArray()) {
+          auto a = v.As<Napi::Array>();
+          out.reserve(a.Length());
+          for (uint32_t i = 0; i < a.Length(); ++i)
+            out.push_back(a.Get(i).As<Napi::Number>().DoubleValue());
+          return out;
+        }
+        throw Napi::TypeError::New(e2,
+            std::string("forge.native: ") + what +
+            " must be a Float64Array or number[]");
+      };
+      // Read a flat index sequence (Uint32Array / Float64Array / Array) -> u32.
+      auto readU32Vec = [](Napi::Env e2, Napi::Value v, const char* what)
+          -> std::vector<std::uint32_t> {
+        std::vector<std::uint32_t> out;
+        if (v.IsTypedArray() && v.As<Napi::TypedArray>().TypedArrayType()
+                                  == napi_uint32_array) {
+          auto a = v.As<Napi::Uint32Array>();
+          out.assign(a.Data(), a.Data() + a.ElementLength());
+          return out;
+        }
+        if (v.IsArray()) {
+          auto a = v.As<Napi::Array>();
+          out.reserve(a.Length());
+          for (uint32_t i = 0; i < a.Length(); ++i)
+            out.push_back(a.Get(i).As<Napi::Number>().Uint32Value());
+          return out;
+        }
+        throw Napi::TypeError::New(e2,
+            std::string("forge.native: ") + what +
+            " must be a Uint32Array or number[]");
+      };
+
+      // -- robust predicates (exact sign -1/0/+1) ------------------------
+      nativeNs.Set("orient2d", Napi::Function::New(env,
+        [](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 6)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.orient2d(ax,ay,bx,by,cx,cy)");
+            auto s = forge::native::orient2d(
+                requireNumber(info,0,"ax"), requireNumber(info,1,"ay"),
+                requireNumber(info,2,"bx"), requireNumber(info,3,"by"),
+                requireNumber(info,4,"cx"), requireNumber(info,5,"cy"));
+            return Napi::Number::New(e2, forge::native::signValue(s));
+          });
+        }));
+
+      nativeNs.Set("orient3d", Napi::Function::New(env,
+        [](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 12)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.orient3d(ax,ay,az,bx,by,bz,cx,cy,cz,dx,dy,dz)");
+            auto s = forge::native::orient3d(
+                requireNumber(info,0,"ax"), requireNumber(info,1,"ay"), requireNumber(info,2,"az"),
+                requireNumber(info,3,"bx"), requireNumber(info,4,"by"), requireNumber(info,5,"bz"),
+                requireNumber(info,6,"cx"), requireNumber(info,7,"cy"), requireNumber(info,8,"cz"),
+                requireNumber(info,9,"dx"), requireNumber(info,10,"dy"), requireNumber(info,11,"dz"));
+            return Napi::Number::New(e2, forge::native::signValue(s));
+          });
+        }));
+
+      nativeNs.Set("incircle", Napi::Function::New(env,
+        [](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 8)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.incircle(ax,ay,bx,by,cx,cy,dx,dy)");
+            auto s = forge::native::incircle(
+                requireNumber(info,0,"ax"), requireNumber(info,1,"ay"),
+                requireNumber(info,2,"bx"), requireNumber(info,3,"by"),
+                requireNumber(info,4,"cx"), requireNumber(info,5,"cy"),
+                requireNumber(info,6,"dx"), requireNumber(info,7,"dy"));
+            return Napi::Number::New(e2, forge::native::signValue(s));
+          });
+        }));
+
+      // -- robust computational geometry ---------------------------------
+      // convexHull2D(points: number[] flat xy pairs) -> Float64Array (CCW xy).
+      nativeNs.Set("convexHull2D", Napi::Function::New(env,
+        [readDoubleVec](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.convexHull2D(flatXY: number[])");
+            auto flat = readDoubleVec(e2, info[0], "points");
+            if (flat.size() % 2 != 0)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.convexHull2D: points length must be a multiple of 2");
+            std::vector<forge::native::geom::Point2> pts;
+            pts.reserve(flat.size() / 2);
+            for (std::size_t i = 0; i + 1 < flat.size(); i += 2)
+              pts.push_back({flat[i], flat[i + 1]});
+            auto hull = forge::native::geom::convexHull2D(pts);
+            auto out = Napi::Float64Array::New(e2, hull.size() * 2);
+            for (std::size_t i = 0; i < hull.size(); ++i) {
+              out[2 * i]     = hull[i].x;
+              out[2 * i + 1] = hull[i].y;
+            }
+            return out;
+          });
+        }));
+
+      // convexHull3D(points: number[] flat xyz triples)
+      //   -> { ok, reason, faces: Uint32Array (CCW-outward index triples) }.
+      nativeNs.Set("convexHull3D", Napi::Function::New(env,
+        [readDoubleVec](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.convexHull3D(flatXYZ: number[])");
+            auto flat = readDoubleVec(e2, info[0], "points");
+            if (flat.size() % 3 != 0)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.convexHull3D: points length must be a multiple of 3");
+            std::vector<forge::native::geom::Point3> pts;
+            pts.reserve(flat.size() / 3);
+            for (std::size_t i = 0; i + 2 < flat.size(); i += 3)
+              pts.push_back({flat[i], flat[i + 1], flat[i + 2]});
+            auto hull = forge::native::geom::convexHull3D(pts);
+            auto o = Napi::Object::New(e2);
+            o.Set("ok", Napi::Boolean::New(e2, hull.ok));
+            o.Set("reason", Napi::String::New(e2, hull.reason ? hull.reason : ""));
+            auto faces = Napi::Uint32Array::New(e2, hull.faces.size() * 3);
+            for (std::size_t i = 0; i < hull.faces.size(); ++i) {
+              faces[3 * i]     = static_cast<std::uint32_t>(hull.faces[i][0]);
+              faces[3 * i + 1] = static_cast<std::uint32_t>(hull.faces[i][1]);
+              faces[3 * i + 2] = static_cast<std::uint32_t>(hull.faces[i][2]);
+            }
+            o.Set("faces", faces);
+            o.Set("faceCount", Napi::Number::New(e2,
+                static_cast<double>(hull.faces.size())));
+            return o;
+          });
+        }));
+
+      // -- implicit / SDF ------------------------------------------------
+      // sdfSphereVolume(radius, n) -> marching-cubes meshed volume of a sphere
+      //   SDF on an n^3 grid; converges to 4/3·π·r³. (Validated convergence.)
+      nativeNs.Set("sdfSphereVolume", Napi::Function::New(env,
+        [](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            double r = requireNumber(info, 0, "radius");
+            int n = info.Length() > 1 && info[1].IsNumber()
+                      ? info[1].As<Napi::Number>().Int32Value() : 48;
+            if (r <= 0.0)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.sdfSphereVolume: radius must be > 0");
+            if (n < 2) n = 2;
+            namespace impl = forge::native::implicit;
+            impl::Sdf s = impl::sphere(impl::Vec3{0, 0, 0}, r);
+            double b = r * 1.25;  // bbox padding so the surface is interior
+            impl::Mesh m = impl::IsoMesher::marchCubic(
+                s, impl::Vec3{-b, -b, -b}, impl::Vec3{b, b, b}, n);
+            return Napi::Number::New(e2, m.volume());
+          });
+        }));
+
+      // -- GD&T (geometric, ASME Y14.5 math) -----------------------------
+      // gdtTruePosition(actualX,actualY, trueX,trueY, actualSize,
+      //                 materialLimit, positionTolDia, mc, ft)
+      //   mc : "RFS"|"MMC"|"LMC"  ft : "HOLE"|"PIN"
+      //   -> { deviation, bonus, allowedZoneDia, pass }.
+      nativeNs.Set("gdtTruePosition", Napi::Function::New(env,
+        [](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 7)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.gdtTruePosition(ax,ay,tx,ty,actualSize,"
+                  "materialLimit,positionTolDia[,mc='RFS'][,ft='HOLE'])");
+            using namespace forge::native::gdt;
+            Point2D actual{requireNumber(info,0,"actualX"), requireNumber(info,1,"actualY")};
+            Point2D trueLoc{requireNumber(info,2,"trueX"),  requireNumber(info,3,"trueY")};
+            double actualSize    = requireNumber(info,4,"actualSize");
+            double materialLimit = requireNumber(info,5,"materialLimit");
+            double posTolDia     = requireNumber(info,6,"positionTolDia");
+            MaterialCondition mc = MaterialCondition::RFS;
+            if (info.Length() > 7 && info[7].IsString()) {
+              std::string s = info[7].As<Napi::String>().Utf8Value();
+              if      (s == "RFS") mc = MaterialCondition::RFS;
+              else if (s == "MMC") mc = MaterialCondition::MMC;
+              else if (s == "LMC") mc = MaterialCondition::LMC;
+              else throw Napi::TypeError::New(e2,
+                  "forge.native.gdtTruePosition: mc must be 'RFS'|'MMC'|'LMC'");
+            }
+            FeatureType ft = FeatureType::HOLE;
+            if (info.Length() > 8 && info[8].IsString()) {
+              std::string s = info[8].As<Napi::String>().Utf8Value();
+              if      (s == "HOLE") ft = FeatureType::HOLE;
+              else if (s == "PIN")  ft = FeatureType::PIN;
+              else throw Napi::TypeError::New(e2,
+                  "forge.native.gdtTruePosition: ft must be 'HOLE'|'PIN'");
+            }
+            TruePositionResult r = evaluateTruePosition(
+                actual, trueLoc, actualSize, materialLimit, posTolDia, mc, ft);
+            auto o = Napi::Object::New(e2);
+            o.Set("deviation",      Napi::Number::New(e2, r.deviation));
+            o.Set("bonus",          Napi::Number::New(e2, r.bonus));
+            o.Set("allowedZoneDia", Napi::Number::New(e2, r.allowedZoneDia));
+            o.Set("pass",           Napi::Boolean::New(e2, r.pass));
+            return o;
+          });
+        }));
+
+      // gdtFlatness(points: number[] flat xyz triples, tol)
+      //   -> { ok, reason, flatness, maxAbsDeviation, pass }.
+      nativeNs.Set("gdtFlatness", Napi::Function::New(env,
+        [readDoubleVec](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 2)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.gdtFlatness(flatXYZ: number[], tol)");
+            auto flat = readDoubleVec(e2, info[0], "points");
+            if (flat.size() % 3 != 0)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.gdtFlatness: points length must be a multiple of 3");
+            double tol = requireNumber(info, 1, "tol");
+            std::vector<forge::native::gdt::Vec3> pts;
+            pts.reserve(flat.size() / 3);
+            for (std::size_t i = 0; i + 2 < flat.size(); i += 3)
+              pts.push_back({flat[i], flat[i + 1], flat[i + 2]});
+            auto r = forge::native::gdt::evaluateFlatness(pts, tol);
+            auto o = Napi::Object::New(e2);
+            o.Set("ok",              Napi::Boolean::New(e2, r.ok));
+            o.Set("reason",          Napi::String::New(e2, r.reason ? r.reason : ""));
+            o.Set("flatness",        Napi::Number::New(e2, r.flatness));
+            o.Set("maxAbsDeviation", Napi::Number::New(e2, r.maxAbsDeviation));
+            o.Set("pass",            Napi::Boolean::New(e2, r.pass));
+            return o;
+          });
+        }));
+
+      // -- robust general mesh boolean (Variant A) -----------------------
+      // meshBoolean(aPos, aIdx, bPos, bIdx, op)
+      //   op : "union"|"intersection"|"difference".
+      //   -> { ok, reason, volume, area, vertexCount, faceCount,
+      //        positions: Float64Array, indices: Uint32Array }.
+      //   When ok=false (boundary-crossing / coplanar / non-manifold) the
+      //   honest reason is returned and NO geometry — never a fake result.
+      nativeNs.Set("meshBoolean", Napi::Function::New(env,
+        [readDoubleVec, readU32Vec](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 5)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.meshBoolean(aPos, aIdx, bPos, bIdx, op)");
+            auto aPos = readDoubleVec(e2, info[0], "aPos");
+            auto aIdx = readU32Vec(e2, info[1], "aIdx");
+            auto bPos = readDoubleVec(e2, info[2], "bPos");
+            auto bIdx = readU32Vec(e2, info[3], "bIdx");
+            using namespace forge::native::mesh;
+            BoolOpA op = BoolOpA::UNION;
+            if (info[4].IsString()) {
+              std::string s = info[4].As<Napi::String>().Utf8Value();
+              if      (s == "union")        op = BoolOpA::UNION;
+              else if (s == "intersection") op = BoolOpA::INTERSECTION;
+              else if (s == "difference")   op = BoolOpA::DIFFERENCE;
+              else throw Napi::TypeError::New(e2,
+                  "forge.native.meshBoolean: op must be "
+                  "'union'|'intersection'|'difference'");
+            } else {
+              throw Napi::TypeError::New(e2,
+                  "forge.native.meshBoolean: op must be a string");
+            }
+
+            BoolResultA r = meshBoolRobust_a(aPos, aIdx, bPos, bIdx, op);
+            auto o = Napi::Object::New(e2);
+            o.Set("ok",     Napi::Boolean::New(e2, r.ok));
+            o.Set("reason", Napi::String::New(e2, r.reason ? r.reason : ""));
+            if (r.ok) {
+              // 0-fakes guard: NEVER report ok=true on a non-2-manifold result.
+              ValidityReport v = r.mesh.validate();
+              if (!v.isValid()) {
+                o.Set("ok", Napi::Boolean::New(e2, false));
+                o.Set("reason", Napi::String::New(e2,
+                    "internal: ok=true but result is not a closed 2-manifold "
+                    "(refused as a fake)"));
+                return o;
+              }
+              std::vector<double> pos;
+              std::vector<std::uint32_t> idx;
+              r.mesh.toSoup(pos, idx);
+              o.Set("volume",      Napi::Number::New(e2, r.mesh.signedVolume()));
+              o.Set("area",        Napi::Number::New(e2, r.mesh.surfaceArea()));
+              o.Set("vertexCount", Napi::Number::New(e2,
+                  static_cast<double>(r.mesh.vertexCount())));
+              o.Set("faceCount",   Napi::Number::New(e2,
+                  static_cast<double>(r.mesh.faceCount())));
+              auto posArr = Napi::Float64Array::New(e2, pos.size());
+              std::copy(pos.begin(), pos.end(), posArr.Data());
+              o.Set("positions", posArr);
+              auto idxArr = Napi::Uint32Array::New(e2, idx.size());
+              std::copy(idx.begin(), idx.end(), idxArr.Data());
+              o.Set("indices", idxArr);
+            }
+            return o;
+          });
+        }));
+
+      exports.Set("native", nativeNs);
+    }
 
     return exports;
 }

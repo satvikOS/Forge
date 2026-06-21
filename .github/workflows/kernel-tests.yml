@@ -74,3 +74,5 @@ jobs:
         run: npm run forge:bridge:test
       - name: Coherence + logic scorer (random scenes each run)
         run: npm run forge:coherence
+      - name: Native binding smoke (forge.native.* callable in-platform)
+        run: node forge-kernel/test/native_binding_smoke.js

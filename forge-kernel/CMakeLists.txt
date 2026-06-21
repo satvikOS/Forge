@@ -429,6 +429,29 @@ add_library(forge_kernel SHARED
     src/LoftGuide.cpp
     src/MateLibrary.cpp
     src/CamExtended.cpp
+    # ---------------------------------------------------------------- forge::native
+    # In-house, pure-C++20 unified-kernel modules (KERNEL_INHOUSE_ROADMAP Stage 0
+    # wiring). NO OCCT / WASM / external deps — stdlib only — so they need no new
+    # link libs. Previously compiled ONLY by test/native/run_native.sh; now built
+    # INTO forge-kernel.node so the validated ops are callable in-platform.
+    src/native/Predicates.cpp
+    src/native/geom/Geom.cpp
+    src/native/geom/Delaunay.cpp
+    src/native/gdt/Gdt.cpp
+    src/native/mesh/HalfEdgeMesh.cpp
+    src/native/mesh/TriTriIntersect.cpp
+    src/native/mesh/MeshBoolean.cpp
+    src/native/mesh/MeshBoolean2.cpp
+    src/native/mesh/MeshBoolRobust_a.cpp
+    src/native/implicit/SdfTree.cpp
+    src/native/implicit/IsoMesher.cpp
+    src/native/implicit/DualContour.cpp
+    src/native/voxel/VoxelGrid.cpp
+    src/native/voxel/VoxelMesh.cpp
+    src/native/voxel/Tpms.cpp
+    src/native/brep/Nurbs.cpp
+    src/native/brep/NurbsCalculus.cpp
+    src/native/brep/Topology.cpp
     ${PLANEGCS_SRC}
 )
 
