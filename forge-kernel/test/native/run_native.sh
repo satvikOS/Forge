@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
 # run_native.sh — build + run the in-house pure-C++ native-kernel gates
-# (forge::native::{predicates,brep,mesh,geom,implicit,voxel}).
+# (forge::native::{predicates,brep,mesh,geom,implicit,voxel,gdt}).
 #
 # These are the validated increments of the in-house unified kernel
 # (KERNEL_INHOUSE_ROADMAP.md): NO external dependencies, NO OCCT, NO WASM —
@@ -44,7 +44,7 @@ run_test() {
 }
 
 run_test predicates forge-kernel/test/native/predicates_test.cpp
-for d in brep mesh geom implicit voxel; do
+for d in brep mesh geom implicit voxel gdt; do
   for test in forge-kernel/test/native/$d/*.cpp; do
     [ -e "$test" ] || continue
     run_test "$d/$(basename "$test" .cpp)" "$test"
