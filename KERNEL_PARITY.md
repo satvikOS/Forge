@@ -84,6 +84,16 @@ T-junctions) and are DETECTED and returned `ok=false`. **`manifold-3d` CANNOT be
 increment** — a drop-in replacement needs exact-rational cut coordinates or a global snap-rounding pass
 (TARGETED, `KERNEL_INHOUSE_ROADMAP.md` Stage 2). The "general" naming overclaim was corrected in the header.
 
+**Round 4 attempt [2026-06-20] — exact / double-double cut coords (NOT integrated):** built a
+`meshBooleanExact` PoC to break the snap-rounding wall via double-double weld coordinates, then
+adversarially stress-tested (**1,500+ ops**). **0 fakes** (every `ok=true` a real closed manifold
+with correct volume), but the headline failed honestly: the clean 45° rotated cube still fails all
+ops, UNION succeeds on only **~1.6 %** of random skew pairs, and it is **not even a superset of
+`MeshBoolean2`**. **Key finding: the real Stage-2 blocker is the surface-ARRANGEMENT / CDT-closure
+(re-triangulating + closing the imprinted surface), NOT cut-coordinate precision** — exact
+coordinates alone don't help. The PoC was **discarded (not committed)** to avoid a second brittle
+near-duplicate engine (no-duplicates rule); the finding redirects Stage-2 to robust arrangement closure.
+
 **Honest status:** these are *first/second increments*, NOT parity, and NOT yet wired into `binding.cpp` /
 the live kernel (validated only via standalone gates). The hard remainders — general mesh booleans,
 curve-curve / surface-surface intersection, B-rep boolean + features (the OCCT replacement, longest
