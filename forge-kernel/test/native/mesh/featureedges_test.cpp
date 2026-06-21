@@ -367,23 +367,26 @@ int main() {
         std::vector<double> sp; std::vector<std::uint32_t> si; icosphere(1.3, 3, sp, si); jiggleOnSphere(sp, 1.3, 0.02, rng);
         bool mc = monotone("F3 cube", cp, ci);
         bool ms = monotone("F3 sphere", sp, si);
-        // Boundary probes on the cube. At thr=0 EVERY edge with a non-zero
-        // dihedral is a feature: after a random rigid+scale pose the 6 face
-        // diagonals carry a ~1e-13-deg floating residue (geometrically 0, but
-        // strictly > 0), so HONESTLY all 18 edges trip at thr=0 — we assert that
-        // truthfully rather than pretend the residue rounds away. Stepping the
-        // threshold just past that residue (1 deg, far below 90) drops the 6
-        // near-coplanar diagonals and leaves EXACTLY the 12 genuine 90-deg edges;
-        // it stays 12 up to 89, then 0 once the threshold passes 90.
+        // Boundary probes on the cube. The 12 genuine 90-deg edges ALWAYS trip.
+        // The 6 face diagonals are geometrically coplanar (dihedral 0); a random
+        // rigid+scale pose is affine and PRESERVES coplanarity, so each diagonal
+        // carries a floating residue in [0, ~1e-13] deg — usually strictly >0,
+        // but for some poses it rounds to EXACTLY 0 (pose-dependent, e.g. seed
+        // 811448259 left one diagonal at 0). So at thr=0 the honest count is in
+        // [12,18]: the 12 sharp edges plus however many diagonals carry a >0
+        // residue. Stepping the threshold just past that residue (1 deg, far
+        // below 90) drops ALL 6 near-coplanar diagonals and leaves EXACTLY the
+        // 12 genuine 90-deg edges; it stays 12 up to 89, then 0 once past 90.
         FeatureSet at0  = detectFeatureEdges(cp, ci, 0.0);
         FeatureSet at1  = detectFeatureEdges(cp, ci, 1.0);
         FeatureSet at89 = detectFeatureEdges(cp, ci, 89.0);
         FeatureSet at91 = detectFeatureEdges(cp, ci, 91.0);
-        check(at0.ok && at0.numFeatureEdges == 18, "[F3] cube @thr=0: all 18 edges (diagonal residue >0) (%u)", at0.numFeatureEdges);
+        bool at0ok = at0.ok && at0.numFeatureEdges >= 12 && at0.numFeatureEdges <= 18;
+        check(at0ok, "[F3] cube @thr=0: 12 sharp + 0..6 residual diagonals = [12,18] (%u)", at0.numFeatureEdges);
         check(at1.ok && at1.numFeatureEdges == 12, "[F3] cube @thr=1: 12 sharp edges (coplanar diagonals dropped) (%u)", at1.numFeatureEdges);
         check(at89.ok && at89.numFeatureEdges == 12, "[F3] cube @thr=89: still 12 (90>89) (%u)", at89.numFeatureEdges);
         check(at91.ok && at91.numFeatureEdges == 0, "[F3] cube @thr=91: 0 (90<91) (%u)", at91.numFeatureEdges);
-        f3 = mc && ms && at0.ok && (at0.numFeatureEdges == 18) && at1.ok && (at1.numFeatureEdges == 12) &&
+        f3 = mc && ms && at0ok && at1.ok && (at1.numFeatureEdges == 12) &&
              at89.ok && (at89.numFeatureEdges == 12) && at91.ok && (at91.numFeatureEdges == 0);
     }
 
