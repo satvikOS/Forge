@@ -218,9 +218,11 @@ test.describe.serial('GE9X · marketing exterior beauty pass (shell-on, path-tra
     // angle 'hero' = 3/4-front [1.55,1.2,1.75]. We render at 4K hero + a 1080p
     // pair (front + iso) so the deck has options.
     const ptJobs = [
-      { angle: 'hero',  samples: 220, resolutionId: '4K',    envPresetId: 'warehouse', tag: 'hero_4k' },
+      { angle: 'endA',  samples: 220, resolutionId: '4K',    envPresetId: 'studio',    tag: 'hero_4k' },
       { angle: 'hero',  samples: 192, resolutionId: '1080p', envPresetId: 'studio',    tag: 'hero_1080_studio' },
       { angle: 'front', samples: 160, resolutionId: '1080p', envPresetId: 'warehouse', tag: 'front_1080' },
+      { angle: 'endA',  samples: 140, resolutionId: '1080p', envPresetId: 'studio',    tag: 'endA' },
+      { angle: 'endB',  samples: 140, resolutionId: '1080p', envPresetId: 'studio',    tag: 'endB' },
     ];
     facts.ptResults = [];
     let heroWritten = false;

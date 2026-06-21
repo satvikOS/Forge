@@ -181,7 +181,7 @@ export function renderAssemblyInstances(instances = [], opts = {}) {
       color: new THREE.Color(baseColor),
       metalness: preset?.metalness ?? 0.9,
       roughness: preset?.roughness ?? 0.45,
-      envMapIntensity: preset?.envMapIntensity ?? 1.0,
+      envMapIntensity: (preset?.envMapIntensity ?? 1.0) * 1.35,
       clearcoat: preset?.clearcoat ?? 0,
       clearcoatRoughness: preset?.clearcoatRoughness ?? 0,
       sheen: preset?.sheen ?? 0,

@@ -271,6 +271,8 @@ const FORGE_ANGLE_DIRS = {
   front:   [0.05, 0.5, 1.9],
   profile: [1.9, 0.5, 0.12],
   top:     [0.5, 2.1, 0.6],
+  endA:    [-1.8, 0.7, 0.9],
+  endB:    [1.8, 0.7, 0.9],
 };
 
 function frameCameraForScene(scene, aspect, angle = 'hero') {
