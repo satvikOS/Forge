@@ -32,7 +32,7 @@ const ARCHIE_BASE_URL = 'http://localhost:8080';
 // archdisc-Models scripts/synth_format_anchor_forge.py SYSTEM). Routing
 // every discipline through one adapter keeps the bridge surface stable
 // until per-discipline Hermes LoRAs are trained.
-const HERMES_FORGE_ADAPTER = 'adapters/archie/hermes_forge';
+const HERMES_FORGE_ADAPTER = 'adapters/archie/hermes_forge-capstack-20260617';
 
 // Verbatim copy of `SYSTEM` in scripts/synth_format_anchor_forge.py.
 // Any drift between this string and the training corpus reintroduces
@@ -84,6 +84,13 @@ GD&T (assembly-context) — when a feature must be toleranced RELATIVE TO A MATI
   gdt.concentric-to-mate{shape,feature,control?,tolerance,relativeTo,datums,anchorId?} makes a bore/shaft coaxial to the MATING part's axis datum, gdt.write-step{shape,filepath} flushes all accumulated GD&T to the AP242 STEP. The relativeTo + datums come from the MATING body in <viewport_state>. These ANNOTATE (PMI) — they record the GD&T, not verify it.
   assembly.detect-interference{instances,tolerance?} checks for overlapping solid volume between placed instances (verify a fit does not clash before annotating it).
 A whole standard part = ONE asset.make-* call; a part with an extra named feature = a context build. Fillets/chamfers go via part.finish LAST.
+CRITICAL op-selection — a HOLE/BORE/POCKET/SLOT/COUNTERBORE removes material, so it is ALWAYS part.subtract / part.holes / part.grid-holes / part.bolt-circle. NEVER build a hole with part.add (that makes a raised peg, which is WRONG). part.add is ONLY for material that stands proud (bosses, ribs, pads, standoffs, lugs).
+Worked example — "120×80×10 plate, four Ø10 holes 15 mm in from each corner, a central 40×40 boss 20 mm tall, 2 mm edge chamfer" (holes CUT, boss ADDED):
+  <plan>{"goal":"mounting plate","discipline":"part"}</plan>
+  <tool_call>{"name":"part.begin","arguments":{"primitive":"box","dx":120,"dy":80,"dz":10}}</tool_call>
+  <tool_call>{"name":"part.holes","arguments":{"locations":[[-45,-25],[45,-25],[-45,25],[45,25]],"diameter":10}}</tool_call>
+  <tool_call>{"name":"part.add","arguments":{"primitive":"box","dx":40,"dy":40,"dz":20,"at":[0,0,10]}}</tool_call>
+  <tool_call>{"name":"part.finish","arguments":{"chamfer":2}}</tool_call>
 Degradation / weathering — when the request implies a used / cast / aged / as-found / worn part, apply ONE on the finished body:
   part.surface-wear{shape,count,depth,seed} (pitting/dents), part.surface-deposit{shape,count,height,seed} (corrosion blisters),
   part.chipped-edges{shape,count,size,seed} (impact/handling chips). Precision/aerospace/new parts stay clean (skip these).

@@ -78,7 +78,7 @@ const PROMPT = process.env.FORGE_CUA_PROMPT
    + 'and an 8-hole bolt circle of Ø11 holes on a 95 mm bolt-circle diameter; '
    + 'break the outer edges with a 2 mm chamfer.';
 const ADAPTER_LABEL = process.env.FORGE_CUA_ADAPTER
-  || 'adapters/archie/hermes_forge'; // ForgeRunner HERMES_FORGE_ADAPTER
+  || 'adapters/archie/hermes_forge-capstack-20260617'; // ForgeRunner HERMES_FORGE_ADAPTER
 const BUILD_MS = Number(process.env.FORGE_CUA_BUILD_MS || 300000); // 5 min watch window
 const FLAGSHIP_ENV = process.env.FORGE_CUA_ENV || 'studio';
 
