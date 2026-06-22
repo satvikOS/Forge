@@ -525,13 +525,22 @@ bool imprintFace(const Face* parent, bool fromA,
     // curved face is NOT a constant-v line (e.g. an oblique-plane ellipse), we
     // DEFER (return false) — honest, the mesh fallback then takes it.
     if (angular) {
-        // sector parameter extent from the boundary ring
+        // sector parameter extent from the boundary ring. A CONE apex ring vertex
+        // lies ON the axis (radius 0), so its angular coordinate u = atan2(0,0) is
+        // undefined/garbage and must NOT pollute the sector's [su0,su1] range — it
+        // would otherwise stretch the band to a wrong azimuth and weld corners to the
+        // wrong rim vertices. We accumulate u only from non-apex (radius>tol) ring
+        // points, but accumulate v (the axial coordinate) from all points.
         double su0 = 1e300, su1 = -1e300, sv0 = 1e300, sv1 = -1e300;
         for (const Vec3& p : ring) {
             double u, v; if (!toParam(p, u, v)) return false;
-            su0 = std::min(su0, u); su1 = std::max(su1, u);
             sv0 = std::min(sv0, v); sv1 = std::max(sv1, v);
+            // radial distance from the surface axis (0 at the cone apex).
+            Vec3 rel = vsub(p, s->origin);
+            Vec3 radial = vsub(rel, vscale(s->axis, vdot(rel, s->axis)));
+            if (vlen(radial) > 1e-9) { su0 = std::min(su0, u); su1 = std::max(su1, u); }
         }
+        if (su0 > su1) { su0 = parent->u0; su1 = parent->u1; } // all-apex guard
         const double vspan = std::max(1e-12, sv1 - sv0);
         // collect distinct cut v-levels strictly inside (sv0,sv1)
         std::vector<double> cutsV;
@@ -555,18 +564,41 @@ bool imprintFace(const Face* parent, bool fromA,
             if (vc - levels.back() > 1e-7 * vspan) levels.push_back(vc);
         if (sv1 - levels.back() > 1e-7 * vspan) levels.push_back(sv1);
 
+        // A CONE band whose top or bottom v-level sits at the apex (cone radius
+        // r(v)=r1+(r2-r1)v == 0) degenerates: the two corners on that v-edge
+        // collapse to the single apex point. Emit a TRIANGLE there (the parametric
+        // integration domain stays the full [u,v] rectangle, so the mass integral —
+        // which already accounts for the radius taper — remains EXACT; only the
+        // welded topology ring drops the duplicated apex vertex).
+        auto coneRadiusAt = [&](double vlvl) -> double {
+            if (s->kind != SurfaceKind::Cone) return 1.0; // cylinder: never apex
+            return s->r1 + (s->r2 - s->r1) * vlvl;
+        };
         for (std::size_t b = 0; b + 1 < levels.size(); ++b) {
             double vb0 = levels[b], vb1 = levels[b + 1];
             SubFace sf = makeSubFromSurface(s, fromA);
             sf.u0 = su0; sf.u1 = su1; sf.v0 = vb0; sf.v1 = vb1;
             sf.paramTri = false;  // RECTANGLE band -> standard parametric integral
             sf.isDisk = false;
-            // 4 corners (CCW in (u,v)) evaluated on the EXACT surface.
-            const double uu[4] = {su0, su1, su1, su0};
-            const double vv[4] = {vb0, vb0, vb1, vb1};
-            for (int k = 0; k < 4; ++k) {
-                sf.vertexUV.push_back({uu[k], vv[k]});
-                sf.ring.push_back(s->evaluate(uu[k], vv[k]));
+            const bool botApex = std::fabs(coneRadiusAt(vb0)) < 1e-12;
+            const bool topApex = std::fabs(coneRadiusAt(vb1)) < 1e-12;
+            // Build the ring CCW in (u,v), collapsing the apex edge to one vertex.
+            std::vector<std::array<double,2>> corners;
+            if (botApex && !topApex) {
+                // triangle: apex (one corner at vb0) + two top corners.
+                corners = {{0.5*(su0+su1), vb0}, {su1, vb1}, {su0, vb1}};
+            } else if (topApex && !botApex) {
+                // triangle: two bottom corners + apex.
+                corners = {{su0, vb0}, {su1, vb0}, {0.5*(su0+su1), vb1}};
+            } else {
+                // full quad (or, if both edges are at the apex, a degenerate sliver
+                // that the degeneracy check below will reject — but that cannot
+                // happen for a genuine band with vb0<vb1).
+                corners = {{su0, vb0}, {su1, vb0}, {su1, vb1}, {su0, vb1}};
+            }
+            for (const auto& c : corners) {
+                sf.vertexUV.push_back(c);
+                sf.ring.push_back(s->evaluate(c[0], c[1]));
             }
             out.push_back(std::move(sf));
         }
@@ -765,14 +797,29 @@ bool imprintFace(const Face* parent, bool fromA,
     return true;
 }
 
-// Classify a sub-face's interior sample point against the OTHER solid's soup.
+// Classify a sub-face against the OTHER solid's soup by a MAJORITY VOTE over
+// several interior sample points (centroid + points pulled from the centroid
+// toward each ring vertex). A single centroid sample is fragile when the centroid
+// happens to land exactly on the other solid's boundary — e.g. a box top face whose
+// centroid coincides with a tangent cone apex on the axis: the lone centroid sits on
+// the cone tip and classifies unstably with tessellation density, while the bulk of
+// the face is clearly outside the cone. The vote over interior points (each strictly
+// inside the sub-face, none of them the special centroid) is robust to that.
 void classify(SubFace& sf, const SoupCache& other) {
-    // Interior sample = centroid of the triangle in (u,v) -> surface, nudged a
-    // hair toward the centroid in 3-D so it is never on the boundary.
     Vec3 c{0, 0, 0};
     for (const Vec3& p : sf.ring) c = vadd(c, p);
     c = vscale(c, 1.0 / sf.ring.size());
-    sf.insideOther = pointInSoup(other, c);
+
+    int votesIn = 0, votes = 0;
+    // centroid (weight 1)
+    if (pointInSoup(other, c)) ++votesIn; ++votes;
+    // a sample partway from the centroid to each ring vertex (interior of the face).
+    for (const Vec3& p : sf.ring) {
+        Vec3 s = vadd(c, vscale(vsub(p, c), 0.6)); // 60% toward the corner, still interior
+        if (pointInSoup(other, s)) ++votesIn;
+        ++votes;
+    }
+    sf.insideOther = (2 * votesIn > votes);
 }
 
 // Build the final Solid from selected, correctly-oriented sub-faces. Welds
@@ -851,8 +898,29 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
         bool minusInside = material(vsub(c, vscale(nRaw, eps)));
         bool outwardIsPlus;
         if (plusInside == minusInside) {
-            // ambiguous (both same) — fall back to the sub-face's recorded flag
-            outwardIsPlus = !sf.reversedFlag; // reversedFlag=true => outward is -nRaw
+            // Both material probes at the centroid agree => the centroid is not on a
+            // material/empty boundary. For a PLANAR sub-face this can mean either (a)
+            // a genuine COINCIDENT-FACE net-cancellation (e.g. a cone base disk lying
+            // exactly on the cut solid's face — its WHOLE area is non-boundary, so it
+            // must drop, leaving the rim shared by exactly two faces), or (b) a fragile
+            // centroid that happens to sit on a tangent feature (e.g. a box top face
+            // whose centroid coincides with a tangent cone apex on the axis) while the
+            // face as a whole IS a real boundary. To tell them apart we VOTE over
+            // interior points: only drop when the face is non-boundary EVERYWHERE.
+            // Curved faces never net-cancel here (a narrow tip probe is unreliable).
+            bool drop = false;
+            if (sf.kind == SurfaceKind::Plane) {
+                int bndy = 0, both = 0;
+                for (const Vec3& rp : sf.ring) {
+                    Vec3 cp = vadd(c, vscale(vsub(rp, c), 0.6)); // interior sample
+                    bool pi = material(vadd(cp, vscale(nRaw, eps)));
+                    bool mi = material(vsub(cp, vscale(nRaw, eps)));
+                    if (pi == mi) ++both; else ++bndy;
+                }
+                if (bndy == 0 && both > 0) drop = true; // non-boundary everywhere
+            }
+            if (drop) continue;                  // coincident-face net-cancellation
+            outwardIsPlus = !sf.reversedFlag;    // reversedFlag=true => outward is -nRaw
         } else {
             outwardIsPlus = (!plusInside && minusInside);
         }

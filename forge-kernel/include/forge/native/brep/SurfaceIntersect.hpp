@@ -24,16 +24,27 @@
 //   * plane ∩ sphere         -> Circle / point / empty
 //   * plane ∩ cylinder       -> 2 Lines (∥ axis) / Circle (⊥) / Ellipse (oblique)
 //   * sphere ∩ sphere        -> Circle / point / empty
+//   * plane ∩ cone           -> DANDELIN conic: Circle (⊥ axis) / Ellipse (cuts all
+//                                generators, |n·axis|>sinα) / Parabola (∥ one
+//                                generator) / Hyperbola (∥ axis / both nappes) /
+//                                Line-pair or Point (through the apex). Exact by the
+//                                generator-plane construction (every point on both).
 //   * cylinder ∩ cylinder    -> Circle (coaxial-equal-r degenerate) / 2 Ellipses
-//                                (equal-radius intersecting axes = Steinmetz) —
-//                                the general SKEW case is DEFERRED (marched)
-//   * cylinder ∩ sphere      -> Circle (axis through centre) — general DEFERRED
+//                                (equal-radius intersecting axes = Steinmetz); the
+//                                general SKEW / unequal-radius case is MARCHED.
+//   * cylinder ∩ sphere      -> Circle (axis through centre); the general offset case
+//                                is MARCHED.
 //
-// DEFERRED (honestly reported, closedForm=false, marched or handed to the mesh
-//  boolean): plane∩cone (Dandelin conic — NOT yet implemented), general skew
-//  cyl∩cyl, general cyl∩sphere, cone∩(cyl/cone/sphere/
-//  torus), every torus pair, anything involving a NURBS face. These are the
-//  quartic / higher-degree intersections with no elementary closed form.
+// MARCHED PAIRS (no low-degree closed form; traced by adaptive Newton-on-both with
+//  curvature-adaptive arc-stepping + closed-loop / branch detection; flagged
+//  closedForm=true ONLY when every traced vertex meets the <1e-9 residual on BOTH
+//  surfaces — see native_ssi_test.cpp): general/skew cylinder∩cylinder, general
+//  (offset) cylinder∩sphere.
+//
+// STILL DEFERRED (honestly reported ok=false, handed to the mesh boolean):
+//  cone∩(cyl/cone/sphere), every torus pair, anything involving a NURBS face — the
+//  higher-degree intersections with no elementary closed form and no marcher wired
+//  here yet.
 //
 // Pure C++20, ZERO external deps (stdlib + existing forge native brep headers).
 // No OCCT, no WASM. CONVENTIONS: namespace forge::native::brep.

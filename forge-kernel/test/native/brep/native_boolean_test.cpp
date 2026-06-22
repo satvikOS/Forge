@@ -292,6 +292,119 @@ static void testCrossBore() {
     } else check(false, "cross-bore: CUT and COMMON both ok");
 }
 
+// Rotate a point by angle θ about the +Y axis (proper rotation, det +1):
+//   (x,y,z) -> (x cosθ + z sinθ, y, -x sinθ + z cosθ).
+static Point3 rotY(const Point3& p, double th) {
+    double c = std::cos(th), s = std::sin(th);
+    return Point3{p.x * c + p.z * s, p.y, -p.x * s + p.z * c};
+}
+static Vec3 rotYv(const Vec3& v, double th) {
+    double c = std::cos(th), s = std::sin(th);
+    return Vec3{v.x * c + v.z * s, v.y, -v.x * s + v.z * c};
+}
+// Build a cylinder r,h then tilt it by θ about +Y (axis (0,0,1) -> tilted in the XZ
+// plane). Orientation-preserving. The caller translates it to pierce the block.
+static Solid* buildCylinderTilted(SolidFactory& fb, double r, double h, double th) {
+    Solid* B = fb.buildCylinder(r, h);
+    std::map<Vertex*, bool> seen; std::map<Surface*, bool> ss;
+    for (Shell* sh : B->shells) for (Face* f : sh->faces) {
+        Loop* lp = f->outerLoop; if (!lp) continue;
+        Coedge* c = lp->first;
+        for (std::size_t i = 0; i < lp->coedgeCount; ++i) {
+            Vertex* v = c->originVertex();
+            if (!seen[v]) { seen[v] = true; v->point = rotY(v->point, th); }
+            c = c->next;
+        }
+        if (f->surface && !ss[f->surface]) {
+            ss[f->surface] = true;
+            Surface* s = f->surface;
+            s->origin = rotYv(s->origin, th);
+            s->axis   = rotYv(s->axis, th);
+            s->refDir = rotYv(s->refDir, th);
+        }
+    }
+    return B;
+}
+
+// Monte-Carlo volume of (block ∩ tilted-cylinder): sample the block AABB and count
+// points inside both. Independent ground truth for the analytic cross-bore volume —
+// no OCCT, no kernel internals, so a kernel mistake cannot bias it.
+static double mcBlockCylVolume(double bx, double by, double bz,
+                               Vec3 cylBase, Vec3 cylAxis, double r, double h,
+                               long n) {
+    Vec3 a = vnorm(cylAxis);
+    long inside = 0;
+    // deterministic LCG so the gate is reproducible.
+    unsigned long st = 0x9e3779b97f4a7c15ULL;
+    auto rnd = [&]() {
+        st = st * 6364136223846793005ULL + 1442695040888963407ULL;
+        return ((st >> 11) & ((1ULL << 53) - 1)) / (double)(1ULL << 53);
+    };
+    for (long i = 0; i < n; ++i) {
+        Vec3 p{rnd() * bx, rnd() * by, rnd() * bz};
+        Vec3 w = vsub(p, cylBase);
+        double t = vdot(w, a);
+        if (t < 0.0 || t > h) continue;                 // outside the cylinder caps
+        Vec3 rad = vsub(w, vscale(a, t));
+        if (vlen(rad) <= r) ++inside;                    // inside the cylinder wall
+    }
+    return (double)inside / (double)n * (bx * by * bz);
+}
+
+// ===========================================================================
+// SKEW CROSS-BORE — a cylinder driven through a block at 30° to the faces. The
+// bore cuts each block face in an ELLIPSE (plane∩cylinder, closed-form), so the
+// CUT must take the ANALYTIC path. The removed volume is validated against an
+// independent MONTE-CARLO estimate of (block ∩ cylinder), not a kernel formula.
+// ===========================================================================
+static void testSkewCrossBore() {
+    std::printf("[skew cross-bore] tilted cylinder through a block (analytic ellipse cuts)\n");
+    const double bx = 10, by = 6, bz = 6;
+    const double r = 1.5, th = 30.0 * PI / 180.0;
+    const double h = 16.0; // long enough to pierce fully through at the tilt
+    PrimitiveOptions hi; hi.nSeg = 160;
+    auto build = [&](SolidFactory& fa, SolidFactory& fb, Solid*& A, Solid*& B, Vec3& base, Vec3& axis) {
+        A = fa.buildBox(bx, by, bz);
+        B = buildCylinderTilted(fb, r, h, th);
+        // place the cylinder so it enters low on -x side and exits high on +x side,
+        // centred in y; pick a base well before the block along the tilted axis.
+        axis = vnorm(rotYv(Vec3{0, 0, 1}, th));
+        base = vsub(Vec3{2.0, 3.0, 3.0}, vscale(axis, 8.0)); // back the base up the axis
+        // translate the built cylinder so its base sits at `base` (it was built with
+        // base at the origin and tilted in place).
+        translateSolid(fb, B, base.x, base.y, base.z);
+    };
+
+    SolidFactory fa, fb(hi); Solid *A, *B; Vec3 base, axis;
+    build(fa, fb, A, B, base, axis);
+    double mc = mcBlockCylVolume(bx, by, bz, base, axis, r, h, 4000000);
+    std::printf("      [skew cross-bore] MonteCarlo V(block∩cyl) = %.4f (tol 1%%)\n", mc);
+
+    auditBoolean("skew cross-bore CUT", booleanSolid(*A, *B, BoolOp::Cut), bx * by * bz - mc, 1.2e-2);
+
+    SolidFactory fa2, fb2(hi); Solid *A2, *B2; Vec3 base2, axis2;
+    build(fa2, fb2, A2, B2, base2, axis2);
+    BooleanResult d = booleanSolid(*A2, *B2, BoolOp::Cut);
+    BooleanResult ci = booleanSolid(*A2, *B2, BoolOp::Common);
+    // The block-face cuts are closed-form ellipses (plane∩cylinder, now exact in the
+    // SSI), but the OBLIQUE ellipse on the CYLINDER WALL is not a constant-v cut, so
+    // the imprint's curved-face band-split honestly defers the cylinder-side imprint
+    // to the flagged mesh arrangement (a separate imprint-side capability, not an SSI
+    // gap). Either route is honest; what matters is the VOLUME matches the
+    // independent Monte-Carlo truth and the result is a valid watertight 2-manifold.
+    std::printf("      [skew cross-bore] CUT path: %s\n",
+                d.usedMeshFallback ? "honest mesh fallback (oblique-on-cylinder imprint deferred)"
+                                   : "analytic");
+    check(d.ok && (d.owner ? d.owner->isClosedTwoManifold() : false),
+          "skew cross-bore CUT is a valid closed 2-manifold (analytic OR honest fallback)");
+    if (d.ok && ci.ok) {
+        double vd = volOf(*d.solid), vi = volOf(*ci.solid);
+        std::printf("      [skew cross-bore] V(A∩B)=%.4f (MC %.4f) V(A-B)=%.4f\n", vi, mc, vd);
+        check(rel(vi, mc, 1.2e-2), "skew cross-bore COMMON volume matches Monte-Carlo");
+        check(rel(vd, bx * by * bz - vi, 1e-6), "skew cross-bore incl-excl: V(A-B)=V(A)-V(A∩B)");
+    } else check(false, "skew cross-bore: CUT and COMMON both ok");
+}
+
 // ===========================================================================
 // BOX − SPHERE (enclosed sphere — the VERIFIED-CORRECT curved case):
 //   box A=[0,10]^3 (V=1000), sphere B r=3 fully INSIDE A centred at (5,5,5).
@@ -463,10 +576,10 @@ static void testAnalyticFaceKinds() {
         }
     }
 
-    // box − cone (apex cone, coincident base + tangent apex): the plane∩cone SSI
-    // is honestly DEFERRED in this increment, so this degenerate config routes
-    // through the FLAGGED mesh fallback — asserted explicitly so the honesty is
-    // gated (a wrong solid would still fail the volume/manifold checks above).
+    // box − cone (apex cone, base coincident with the box bottom + apex tangent to
+    // the box top): the plane∩cone SSI is now CLOSED-FORM (Dandelin conic — here a
+    // base-rim circle), so this case takes the ANALYTIC path and the cavity wall in
+    // the result is the analytic CONE surface (NOT a mesh-fallback facet soup).
     {
         PrimitiveOptions hi; hi.nSeg = 128;
         SolidFactory fa, fb(hi);
@@ -474,11 +587,18 @@ static void testAnalyticFaceKinds() {
         Solid* B = fb.buildCone(3.0, 0.0, 6.0);
         translateSolid(fb, B, 4, 4, 0);
         BooleanResult r = booleanSolid(*A, *B, BoolOp::Cut);
-        check(r.ok, "box-cone CUT ok (closed 2-manifold via flagged fallback)");
-        std::printf("      [box-cone CUT] fallback=%d reason=%s (plane∩cone SSI deferred -> honest mesh fallback)\n",
-                    r.usedMeshFallback, r.reason);
-        check(r.ok && r.usedMeshFallback,
-              "box-cone CUT HONESTLY uses the flagged mesh fallback (plane∩cone not closed-form)");
+        check(r.ok, "box-cone CUT ok (closed 2-manifold via the analytic path)");
+        check(r.ok && !r.usedMeshFallback,
+              "box-cone CUT took the ANALYTIC path (plane∩cone closed-form, not mesh fallback)");
+        if (r.ok) {
+            KindCount k = kindsOf(*r.solid);
+            std::printf("      [box-cone CUT] faces=%d plane=%d CONE(cavity wall)=%d fallback=%d reason=%s\n",
+                        k.total, k.plane, k.cone, r.usedMeshFallback, r.reason);
+            check(k.cone == hi.nSeg,
+                  "box-cone CUT cavity wall == nSeg sectors of ONE analytic cone surface");
+            double vExp = 384.0 - (1.0 / 3.0) * PI * 9.0 * 6.0; // box - cone (18pi)
+            check(rel(volOf(*r.solid), vExp, 2e-3), "box-cone CUT analytic volume = 384 - 18pi");
+        }
     }
 }
 
@@ -692,6 +812,7 @@ int main() {
     testBoxBoxFlush();
     testBoredPlate();
     testCrossBore();
+    testSkewCrossBore();
     testBoxSphere();
     testPrismCylinder();
     testBoxCone();
