@@ -531,4 +531,123 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
     return wires;
 }
 
+// ------------------------------------------------------- extractProfileRings
+//
+// IN-HOUSE KERNEL STEP 3b — OCCT-FREE. Walk the SAME GCS::Line/Circle/Arc data
+// extractWires reads, but emit ordered geom::Point2 rings (no OCCT). A circle
+// becomes its own sampled ring; lines + arcs (each sampled into chords) are
+// stitched head-to-tail by endpoint matching into one ring per closed loop.
+std::vector<std::vector<native::geom::Point2>>
+extractProfileRings(SketchHandle h, int circleSegments) {
+    using native::geom::Point2;
+    Sketch& s = SketchRegistry::instance().get(h);
+    std::vector<std::vector<Point2>> rings;
+
+    const int segs = circleSegments < 8 ? 8 : circleSegments;
+    constexpr double kTwoPi = 6.28318530717958647692;
+    constexpr double kEps   = 1.0e-5;   // match extractWires' 10 µm stitch tol
+
+    // ---- (A) closed loops: each circle is its own sampled ring -------------
+    for (const auto& cptr : s.circles) {
+        const GCS::Circle& c = *cptr;
+        const double cx = *c.center.x, cy = *c.center.y, r = *c.rad;
+        if (!(r > Precision::Confusion())) continue;
+        std::vector<Point2> ring;
+        ring.reserve(static_cast<std::size_t>(segs));
+        // CCW sampling (positive signed area) — the caller re-orients anyway.
+        for (int i = 0; i < segs; ++i) {
+            const double a = (kTwoPi * i) / segs;
+            ring.push_back(Point2{cx + r * std::cos(a), cy + r * std::sin(a)});
+        }
+        rings.push_back(std::move(ring));
+    }
+
+    // ---- (B) open segments: lines + arcs, each as an ordered polyline ------
+    // Each segment is sampled to >= 2 points; we keep its endpoints exact so
+    // the stitching by endpoint match is robust.
+    struct Seg {
+        std::vector<Point2> pts;  // ordered, >= 2, endpoints == pts.front()/back()
+    };
+    std::vector<Seg> segs2;
+
+    for (const auto& lptr : s.lines) {
+        const GCS::Line& l = *lptr;
+        Point2 a{*l.p1.x, *l.p1.y}, b{*l.p2.x, *l.p2.y};
+        const double dx = b.x - a.x, dy = b.y - a.y;
+        if (std::sqrt(dx*dx + dy*dy) < Precision::Confusion()) continue;
+        segs2.push_back(Seg{{a, b}});
+    }
+
+    for (const auto& aptr : s.arcs) {
+        const GCS::Arc& ar = *aptr;
+        const double cx = *ar.center.x, cy = *ar.center.y, r = *ar.rad;
+        double sa = *ar.startAngle, ea = *ar.endAngle;
+        if (r < Precision::Confusion() || std::abs(ea - sa) < 1e-9) continue;
+        // Sample the arc at the same angular resolution as a full circle.
+        const double sweep = ea - sa;
+        int n = static_cast<int>(std::ceil(std::abs(sweep) / kTwoPi * segs));
+        if (n < 1) n = 1;
+        std::vector<Point2> pts;
+        pts.reserve(static_cast<std::size_t>(n) + 1);
+        // Exact endpoints from the stored start/end points (so stitching is
+        // robust against startAngle/endAngle rounding); interior from angles.
+        pts.push_back(Point2{*ar.start.x, *ar.start.y});
+        for (int i = 1; i < n; ++i) {
+            const double a = sa + sweep * (static_cast<double>(i) / n);
+            pts.push_back(Point2{cx + r * std::cos(a), cy + r * std::sin(a)});
+        }
+        pts.push_back(Point2{*ar.end.x, *ar.end.y});
+        segs2.push_back(Seg{std::move(pts)});
+    }
+
+    // ---- (C) stitch segments into rings by endpoint matching ---------------
+    auto near = [&](const Point2& p, const Point2& q) {
+        const double dx = p.x - q.x, dy = p.y - q.y;
+        return std::sqrt(dx*dx + dy*dy) < kEps;
+    };
+    std::vector<bool> used(segs2.size(), false);
+    for (std::size_t i = 0; i < segs2.size(); ++i) {
+        if (used[i]) continue;
+        used[i] = true;
+        // Start the chain with segment i (front -> back).
+        std::vector<Point2> chain = segs2[i].pts;
+        bool grew = true;
+        while (grew) {
+            grew = false;
+            for (std::size_t j = 0; j < segs2.size(); ++j) {
+                if (used[j]) continue;
+                const Point2& chFront = chain.front();
+                const Point2& chBack  = chain.back();
+                const auto& sp = segs2[j].pts;
+                const Point2& sF = sp.front();
+                const Point2& sB = sp.back();
+                if (near(chBack, sF)) {                       // append forward
+                    for (std::size_t k = 1; k < sp.size(); ++k) chain.push_back(sp[k]);
+                    used[j] = true; grew = true;
+                } else if (near(chBack, sB)) {                // append reversed
+                    for (std::size_t k = sp.size(); k-- > 1; ) chain.push_back(sp[k-1]);
+                    used[j] = true; grew = true;
+                } else if (near(chFront, sB)) {               // prepend forward
+                    for (std::size_t k = sp.size() - 1; k-- > 0; ) chain.insert(chain.begin(), sp[k]);
+                    used[j] = true; grew = true;
+                } else if (near(chFront, sF)) {               // prepend reversed
+                    for (std::size_t k = 1; k < sp.size(); ++k) chain.insert(chain.begin(), sp[k]);
+                    used[j] = true; grew = true;
+                }
+            }
+        }
+        // Drop a duplicated closing vertex if the chain closed on itself (the
+        // native ring contract is "no repeated closing vertex").
+        if (chain.size() >= 3 && near(chain.front(), chain.back())) {
+            chain.pop_back();
+        }
+        // Keep chains of >= 2 points: a closed profile loop is >= 3, but an OPEN
+        // path (the sweep spine) is legitimately a 2-point straight segment.
+        // Profile callers filter by signedArea/size >= 3; path callers accept 2.
+        if (chain.size() >= 2) rings.push_back(std::move(chain));
+    }
+
+    return rings;
+}
+
 }  // namespace forge

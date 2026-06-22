@@ -493,6 +493,17 @@ add_library(forge_kernel SHARED
     src/native/geom/Delaunay3D.cpp
     src/native/brep/Fillet.cpp
     src/native/brep/Chamfer.cpp
+    # IN-HOUSE KERNEL STEP 3b — route the SKETCH-BASED feature ops (extrude /
+    # revolve / sweep / loft) through the in-house native sweep/revolve/loft
+    # (all emit a watertight HalfEdgeMesh -> NativeMesh handle). Always compiled;
+    # the live ops in src/Features.cpp only call into these under FORGE_NATIVE_BREP
+    # + the runtime gate. These were previously built ONLY by run_native.sh; without
+    # listing them here the routing in Features.cpp would not link into the addon
+    # (same lesson as Fillet/Chamfer above). Their only deps — Predicates / Geom /
+    # HalfEdgeMesh — are already linked.
+    src/native/brep/Sweep.cpp
+    src/native/brep/Loft.cpp
+    src/native/csg/Revolve.cpp
     # Task #46 — bind the remaining forge::native engines into the addon so
     # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).
     # geom/AABBTree + voxel/VoxelBoolean are cam's #include dependencies; list

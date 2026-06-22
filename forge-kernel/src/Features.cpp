@@ -21,6 +21,11 @@
 #include "forge/native/brep/SolidTessellate.hpp"
 #include "forge/native/brep/Fillet.hpp"
 #include "forge/native/brep/Chamfer.hpp"
+// IN-HOUSE KERNEL STEP 3b — native sketch-feature ops (extrude/revolve/sweep/loft).
+#include "forge/native/brep/Sweep.hpp"        // brep::Profile, sweep(), prism()
+#include "forge/native/brep/Loft.hpp"         // brep::LoftSection, loftSections()
+#include "forge/native/csg/Revolve.hpp"       // csg::revolve()
+#include "forge/Sketcher.hpp"                 // extractProfileRings (OCCT-free)
 #include <memory>
 #endif
 
@@ -157,6 +162,73 @@ double volumeOf(const TopoDS_Shape& s) {
     return g.Mass();
 }
 
+#ifdef FORGE_NATIVE_BREP
+// ---- IN-HOUSE KERNEL STEP 3b native-routing helpers ----------------------
+// All of these are OCCT-free: they convert the OCCT-free sketch profile rings
+// (extractProfileRings) into the native feature-op input reps.
+
+namespace nb  = ::forge::native::brep;
+namespace ncs = ::forge::native::csg;
+
+// Pick the largest-|area| ring as the OUTER loop; every other ring is treated
+// as a HOLE. Orient outer CCW (signedArea > 0) and each hole CW (< 0), as the
+// native Profile contract requires (Sweep.hpp). Returns false if there is no
+// usable outer ring (< 3 vertices / zero area on the largest).
+bool ringsToProfile(const std::vector<std::vector<native::geom::Point2>>& rings,
+                    nb::Profile& out) {
+    if (rings.empty()) return false;
+    std::size_t outerIdx = 0;
+    double bestAbsArea = 0.0;
+    for (std::size_t i = 0; i < rings.size(); ++i) {
+        if (rings[i].size() < 3) continue;
+        const double a = std::abs(nb::signedArea(rings[i]));
+        if (a > bestAbsArea) { bestAbsArea = a; outerIdx = i; }
+    }
+    if (bestAbsArea <= 0.0) return false;
+
+    auto orientCCW = [](std::vector<native::geom::Point2> r) {
+        if (nb::signedArea(r) < 0.0) std::reverse(r.begin(), r.end());
+        return r;
+    };
+    auto orientCW = [](std::vector<native::geom::Point2> r) {
+        if (nb::signedArea(r) > 0.0) std::reverse(r.begin(), r.end());
+        return r;
+    };
+    out.outer = orientCCW(rings[outerIdx]);
+    out.holes.clear();
+    for (std::size_t i = 0; i < rings.size(); ++i) {
+        if (i == outerIdx || rings[i].size() < 3) continue;
+        out.holes.push_back(orientCW(rings[i]));
+    }
+    return true;
+}
+
+// Build a native Profile from a sketch's first (largest) closed loop + holes.
+bool nativeProfileFromSketch(SketchHandle sk, nb::Profile& out) {
+    return ringsToProfile(extractProfileRings(sk), out);
+}
+
+// The native linear sweep builds its section's in-plane basis (U0,V0) from the
+// spine tangent: for a +Z spine, U0 = (0,-1,0), V0 = (1,0,0), so a profile coord
+// (u,v) lands in world at u*U0 + v*V0 = (v, -u, 0) — a -90° rotation of the
+// (x,y) footprint. To make a +Z extrude land the footprint EXACTLY at world
+// (x,y) (so it is byte-identical to OCCT MakePrism), pre-rotate every profile
+// point (x,y) -> (-y, x): then native maps it to (v,-u) = (x, y). Applied to a
+// COPY of the rings before orientation.
+bool nativeProfileFromSketchZAligned(SketchHandle sk, nb::Profile& out) {
+    auto rings = extractProfileRings(sk);
+    for (auto& ring : rings)
+        for (auto& p : ring) { const double x = p.x, y = p.y; p.x = -y; p.y = x; }
+    return ringsToProfile(rings, out);
+}
+
+// Wrap a successful native mesh result into a NativeMesh registry handle.
+ShapeHandle storeNativeMesh(::forge::native::mesh::HalfEdgeMesh&& m) {
+    auto mp = std::make_shared<::forge::native::mesh::HalfEdgeMesh>(std::move(m));
+    return ShapeRegistry::instance().addNativeMesh(std::move(mp));
+}
+#endif  // FORGE_NATIVE_BREP
+
 }  // namespace
 
 // ============================================================ extrudeProfile
@@ -167,6 +239,40 @@ ShapeHandle extrudeProfile(SketchHandle sketch, double distance,
     if (dl < Precision::Confusion()) {
         throw std::invalid_argument("forge.part.extrudeProfile: direction is zero");
     }
+#ifdef FORGE_NATIVE_BREP
+    // IN-HOUSE KERNEL STEP 3b — route the linear extrude (BRepPrimAPI_MakePrism
+    // of a Z=0 profile) through the native linear sweep. The sketch profile lives
+    // on Z=0 (extractProfileRings gives (x,y) there); the native solid is built by
+    // sweeping along the path {(0,0,0) -> dir*distance}. HONEST: the native result
+    // is a watertight MESH (NativeMesh handle), not an analytic Solid. On any input
+    // the native path cannot do, we surface the native reason — never a fake.
+    if (nb::forgeNativeBrepEnabled()) {
+        const double ux = dirX / dl, uy = dirY / dl, uz = dirZ / dl;
+        // A pure +Z extrude is exactly the native PRISM, with the profile pre-
+        // rotated so its footprint lands at world (x,y) — byte-identical to OCCT
+        // MakePrism (same footprint, COM, AABB). For any other direction we fall to
+        // the general linear sweep along {(0,0,0) -> dir*distance} (the section is
+        // reoriented onto the spine tangent, as OCCT MakePipe also does).
+        const bool plusZ = (std::abs(ux) < 1e-12 && std::abs(uy) < 1e-12 && uz > 0.0);
+        nb::Profile prof;
+        const bool gotProfile = plusZ ? nativeProfileFromSketchZAligned(sketch, prof)
+                                      : nativeProfileFromSketch(sketch, prof);
+        if (!gotProfile) {
+            throw std::runtime_error(
+                "forge.part.extrudeProfile (native): sketch has no extractable closed profile");
+        }
+        nb::SweepResult r = plusZ
+            ? nb::prism(prof, distance)
+            : nb::sweep(prof,
+                { native::geom::Point3{0.0, 0.0, 0.0},
+                  native::geom::Point3{ux * distance, uy * distance, uz * distance} });
+        if (!r.ok) {
+            throw std::runtime_error(std::string("forge native extrude: ") +
+                (r.reason && *r.reason ? r.reason : "linear sweep failed"));
+        }
+        return storeNativeMesh(std::move(r.solid));
+    }
+#endif
     TopoDS_Wire w = firstWire(sketch, "extrudeProfile");
     TopoDS_Face f = faceFromWire(w);
     gp_Vec dir(dirX / dl * distance, dirY / dl * distance, dirZ / dl * distance);
@@ -269,6 +375,79 @@ ShapeHandle revolveProfile(SketchHandle sketch,
     if (dl < Precision::Confusion()) {
         throw std::invalid_argument("forge.part.revolveProfile: axis direction is zero");
     }
+#ifdef FORGE_NATIVE_BREP
+    // IN-HOUSE KERNEL STEP 3b — route the rotational sweep (BRepPrimAPI_MakeRevol)
+    // through the native solid-of-revolution. The sketch profile lives on Z=0 in
+    // world (x,y); the native revolve wants it as (u = along-axis, v = radial). We
+    // map every sketch vertex into the SAME axis frame (w, e1, e2) the native
+    // builder uses, so the native body is geometrically identical to OCCT's (same
+    // start angle = e1, same right-hand sweep sense). Covers full-360 AND partial.
+    // HONEST: the native result is a watertight MESH (NativeMesh handle), and the
+    // profile must sit entirely on one side of the axis (else native ok=false).
+    if (nb::forgeNativeBrepEnabled()) {
+        auto rings = extractProfileRings(sketch);
+        if (rings.empty()) {
+            throw std::runtime_error(
+                "forge.part.revolveProfile (native): sketch has no extractable closed profile");
+        }
+        // Largest-area ring is the profile (native revolve takes one simple ring).
+        std::size_t pi = 0; double bestA = 0.0;
+        for (std::size_t i = 0; i < rings.size(); ++i) {
+            const double a = std::abs(nb::signedArea(rings[i]));
+            if (rings[i].size() >= 3 && a > bestA) { bestA = a; pi = i; }
+        }
+        if (bestA <= 0.0) {
+            throw std::runtime_error(
+                "forge.part.revolveProfile (native): degenerate profile (zero area)");
+        }
+        // Rebuild the native axis frame EXACTLY as csg::revolve does internally,
+        // so (u,v) we feed lines up with its phi=0 radial direction e1.
+        const double L = std::sqrt(dx*dx + dy*dy + dz*dz);
+        const double wx = dx / L, wy = dy / L, wz = dz / L;
+        double rx = (std::abs(wx) < 0.9) ? 1.0 : 0.0;
+        double ry = (std::abs(wx) < 0.9) ? 0.0 : 1.0;
+        double rz = 0.0;
+        double rdotw = rx*wx + ry*wy + rz*wz;
+        double e1x = rx - rdotw*wx, e1y = ry - rdotw*wy, e1z = rz - rdotw*wz;
+        const double e1n = std::sqrt(e1x*e1x + e1y*e1y + e1z*e1z);
+        e1x /= e1n; e1y /= e1n; e1z /= e1n;
+        // e2 = w x e1
+        const double e2x = wy*e1z - wz*e1y;
+        const double e2y = wz*e1x - wx*e1z;
+        const double e2z = wx*e1y - wy*e1x;
+
+        std::vector<native::geom::Point2> uv;
+        uv.reserve(rings[pi].size());
+        for (const auto& p : rings[pi]) {
+            // sketch point on Z=0, relative to axis origin
+            const double qx = p.x - ox, qy = p.y - oy, qz = 0.0 - oz;
+            const double u  = qx*wx + qy*wy + qz*wz;            // along-axis
+            const double v1 = qx*e1x + qy*e1y + qz*e1z;          // radial along e1
+            const double v2 = qx*e2x + qy*e2y + qz*e2z;          // radial along e2
+            // For a planar profile coplanar with the axis, v2 ~ 0; v = signed e1.
+            // Use the e1 component as the (signed) radial coord so the profile is
+            // placed at native phi=0 exactly where OCCT's Z=0 face sits.
+            const double v = (std::abs(v2) > std::abs(v1)) ? v2 : v1;
+            uv.push_back(native::geom::Point2{u, v});
+        }
+        // Resolution: match the angular sampling to a fine facet count so the
+        // faceted Pappus volume is within the mesh tolerance of OCCT's analytic
+        // solid of revolution. 4 segments per degree, clamped [24, 720].
+        const double angleDeg = angleRad * 180.0 / 3.14159265358979323846;
+        int segments = static_cast<int>(std::ceil(std::abs(angleDeg) * 4.0));
+        if (segments < 24) segments = 24;
+        if (segments > 720) segments = 720;
+        ncs::RevolveResult r = ncs::revolve(uv,
+            native::mesh::Vec3{ox, oy, oz},
+            native::mesh::Vec3{dx, dy, dz},
+            angleDeg, segments);
+        if (!r.ok) {
+            throw std::runtime_error(std::string("forge native revolve: ") +
+                (r.reason && *r.reason ? r.reason : "revolve failed"));
+        }
+        return storeNativeMesh(std::move(r.mesh));
+    }
+#endif
     TopoDS_Wire w = firstWire(sketch, "revolveProfile");
     TopoDS_Face f = faceFromWire(w);
     gp_Ax1 ax(gp_Pnt(ox, oy, oz), gp_Dir(dx, dy, dz));
@@ -291,6 +470,47 @@ ShapeHandle sweep(SketchHandle profileSketch, SketchHandle pathSketch,
     if (pathWires.empty()) {
         throw std::invalid_argument("forge.part.sweep: path sketch is empty");
     }
+#ifdef FORGE_NATIVE_BREP
+    // IN-HOUSE KERNEL STEP 3b — route the plain (no-guides) sweep through the
+    // native linear sweep: a closed cross-section profile swept along a 3D
+    // polyline path. The native profile lives in the plane the spine starts
+    // orthogonal to (matching OCCT MakePipe's profile reorientation onto the
+    // spine tangent), so a circle swept along a straight/bent path is the same
+    // pipe both kernels build. Guided sweeps stay on OCCT (native has no guides).
+    // HONEST: native result is a watertight MESH; a self-intersecting / sharp
+    // path or non-simple profile -> native ok=false (never a fake).
+    if (!withGuides && nb::forgeNativeBrepEnabled()) {
+        nb::Profile prof;
+        if (!ringsToProfile(extractProfileRings(profileSketch), prof)) {
+            throw std::runtime_error(
+                "forge.part.sweep (native): profile sketch has no extractable closed loop");
+        }
+        // Path: ordered polyline from the path sketch (open chain). Take the
+        // largest extracted chain as the spine.
+        auto pathRings = extractProfileRings(pathSketch);
+        if (pathRings.empty()) {
+            throw std::runtime_error(
+                "forge.part.sweep (native): path sketch has no extractable polyline");
+        }
+        std::size_t li = 0; std::size_t bestN = 0;
+        for (std::size_t i = 0; i < pathRings.size(); ++i)
+            if (pathRings[i].size() > bestN) { bestN = pathRings[i].size(); li = i; }
+        std::vector<native::geom::Point3> path3;
+        path3.reserve(pathRings[li].size());
+        for (const auto& p : pathRings[li])
+            path3.push_back(native::geom::Point3{p.x, p.y, 0.0});
+        if (path3.size() < 2) {
+            throw std::runtime_error(
+                "forge.part.sweep (native): path needs >= 2 points");
+        }
+        nb::SweepResult r = nb::sweep(prof, path3);
+        if (!r.ok) {
+            throw std::runtime_error(std::string("forge native sweep: ") +
+                (r.reason && *r.reason ? r.reason : "sweep failed"));
+        }
+        return storeNativeMesh(std::move(r.solid));
+    }
+#endif
     const TopoDS_Wire& spine   = pathWires[0];
     const TopoDS_Wire& profile = profWires[0];
 
@@ -476,6 +696,60 @@ ShapeHandle loft(const std::vector<SketchHandle>& sections,
     if (sections.size() < 2) {
         throw std::invalid_argument("forge.part.loft: need at least 2 sections");
     }
+#ifdef FORGE_NATIVE_BREP
+    // IN-HOUSE KERNEL STEP 3b — route the loft through the native skin/loft.
+    //
+    // HONEST ARCHITECTURAL NOTE: the sketch handle is ALWAYS on Z=0, so EVERY
+    // section extracted from a sketch is coplanar. OCCT's BRepOffsetAPI_ThruSections
+    // over coplanar Z=0 wires is degenerate (zero-height -> zero-volume solid — the
+    // SAME limitation that motivated the placed profileWire + loftguide::loft path
+    // in this very file). To produce a REAL lofted solid from coplanar sketch
+    // sections, we stack section k onto the plane z = k (unit spacing, the only
+    // sensible monotonic interpretation), then run the native loft. native
+    // loftSections requires EQUAL vertex count + consistent winding per section; if
+    // the sections disagree in vertex count we surface an honest ok=false (OCCT
+    // auto-reparametrises mismatched sections; the native loft does NOT — stated
+    // plainly). Result is a watertight NativeMesh handle.
+    if (nb::forgeNativeBrepEnabled()) {
+        std::vector<nb::LoftSection> nsec;
+        nsec.reserve(sections.size());
+        std::size_t vcount = 0;
+        for (std::size_t k = 0; k < sections.size(); ++k) {
+            auto rings = extractProfileRings(sections[k]);
+            // Largest-area ring is this section's outer loop.
+            std::size_t bi = 0; double bestA = 0.0; bool any = false;
+            for (std::size_t i = 0; i < rings.size(); ++i) {
+                const double a = std::abs(nb::signedArea(rings[i]));
+                if (rings[i].size() >= 3 && a > bestA) { bestA = a; bi = i; any = true; }
+            }
+            if (!any) {
+                throw std::runtime_error(
+                    "forge.part.loft (native): a section sketch has no extractable loop");
+            }
+            // Orient every section CCW (consistent winding the native loft needs).
+            std::vector<native::geom::Point2> ring = rings[bi];
+            if (nb::signedArea(ring) < 0.0) std::reverse(ring.begin(), ring.end());
+            if (k == 0) vcount = ring.size();
+            else if (ring.size() != vcount) {
+                throw std::runtime_error(
+                    "forge native loft: sections have differing vertex counts "
+                    "(native loft requires equal-count sections; this case is OCCT-only)");
+            }
+            nb::LoftSection ls;
+            ls.points.reserve(ring.size());
+            const double z = static_cast<double>(k);   // stack onto plane z=k
+            for (const auto& p : ring)
+                ls.points.push_back(native::mesh::Vec3{p.x, p.y, z});
+            nsec.push_back(std::move(ls));
+        }
+        nb::LoftResult r = nb::loftSections(nsec, native::mesh::Vec3{0, 0, 1});
+        if (!r.ok) {
+            throw std::runtime_error(std::string("forge native loft: ") +
+                (r.reason.empty() ? "loft failed" : r.reason));
+        }
+        return storeNativeMesh(std::move(r.mesh));
+    }
+#endif
     // BRepOffsetAPI_ThruSections doesn't take guide wires directly; we
     // accept them in the API for future compatibility but ignore for now.
     BRepOffsetAPI_ThruSections mk(/*solid*/ Standard_True,

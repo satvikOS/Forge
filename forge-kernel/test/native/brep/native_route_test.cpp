@@ -18,6 +18,11 @@
 #include "forge/native/brep/MassProps.hpp"
 #include "forge/native/brep/SolidTessellate.hpp"
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
+// IN-HOUSE KERNEL STEP 3b — the native sketch-feature ops (OCCT-free).
+#include "forge/native/brep/Sweep.hpp"
+#include "forge/native/brep/Loft.hpp"
+#include "forge/native/csg/Revolve.hpp"
+#include "forge/native/geom/Geom.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -127,6 +132,87 @@ int main() {
                        std::fabs(mm.inertiaCom[2]) < 1e-6 &&
                        std::fabs(mm.inertiaCom[5]) < 1e-6;
         check(offZero, "meshMass: products of inertia ~ 0 (axis-aligned)");
+    }
+
+    // ======================================================== STEP 3b feature ops
+    // OCCT-free closed-form gate for the native sketch-feature ops that the live
+    // extrude / revolve / sweep / loft route into. Reference = analytic MATH (no
+    // OCCT here). Each must build a watertight 2-manifold solid.
+    {
+        namespace ng = forge::native::geom;
+        namespace nbk = forge::native::brep;
+        namespace ncsg = forge::native::csg;
+
+        // ---- PRISM: square 4x4 swept length 5  -> volume = area * L = 80 -------
+        {
+            nbk::Profile p;
+            p.outer = { {0,0},{4,0},{4,4},{0,4} };   // CCW, area 16
+            nbk::SweepResult r = nbk::prism(p, 5.0);
+            check(r.ok, "3b prism(square4x4, L=5): ok");
+            check(r.ok && r.solid.validate().isValid(), "3b prism: watertight 2-manifold");
+            check(r.ok && rel(r.volume, 16.0 * 5.0, 1e-9), "3b prism: volume = area*L = 80");
+        }
+
+        // ---- LINEAR SWEEP straight: square 2x2 along +X length 7 -> vol = 28 ---
+        {
+            nbk::Profile p;
+            p.outer = { {-1,-1},{1,-1},{1,1},{-1,1} };  // CCW, area 4
+            std::vector<ng::Point3> path = { {0,0,0}, {7,0,0} };
+            nbk::SweepResult r = nbk::sweep(p, path);
+            check(r.ok, "3b sweep(square along +X, L=7): ok");
+            check(r.ok && r.solid.validate().isValid(), "3b sweep: watertight 2-manifold");
+            check(r.ok && rel(r.volume, 4.0 * 7.0, 1e-9), "3b sweep: volume = area*L = 28");
+        }
+
+        // ---- REVOLVE 360: rect profile (u in [0,4], v in [2,3]) about an axis --
+        // through origin along +Z (here u is the along-axis coord, v radial).
+        // Annulus solid of revolution: V = pi*(R_out^2 - R_in^2)*height
+        //   = pi*(9-4)*4 = 20 pi ~= 62.83185.
+        {
+            std::vector<ng::Point2> prof = { {0,2},{4,2},{4,3},{0,3} };  // (u=along, v=radial)
+            ncsg::RevolveResult r = ncsg::revolve(prof, {0,0,0}, {0,0,1}, 360.0, 256);
+            check(r.ok, "3b revolve360(annulus): ok");
+            check(r.ok && r.mesh.validate().isValid(), "3b revolve360: watertight 2-manifold");
+            const double vexp = M_PI * (9.0 - 4.0) * 4.0;
+            check(r.ok && rel(r.mesh.signedVolume() < 0 ? -r.mesh.signedVolume()
+                                                        : r.mesh.signedVolume(),
+                              vexp, 5e-3), "3b revolve360: volume ~ 20*pi (mesh tol)");
+            // Pappus analytic cross-check exposed by the op: theta*Rbar*A.
+            check(r.ok && rel(r.pappusVolume, vexp, 1e-9), "3b revolve360: Pappus ref = 20*pi");
+        }
+
+        // ---- REVOLVE partial 90deg: same profile -> quarter of the annulus -----
+        {
+            std::vector<ng::Point2> prof = { {0,2},{4,2},{4,3},{0,3} };
+            ncsg::RevolveResult r = ncsg::revolve(prof, {0,0,0}, {0,0,1}, 90.0, 64);
+            check(r.ok, "3b revolve90(annulus quarter): ok");
+            check(r.ok && r.mesh.validate().isValid(), "3b revolve90: watertight 2-manifold");
+            const double vexp = M_PI * (9.0 - 4.0) * 4.0 * 0.25;
+            const double vgot = std::fabs(r.mesh.signedVolume());
+            check(r.ok && rel(vgot, vexp, 5e-3), "3b revolve90: volume ~ 5*pi (mesh tol)");
+        }
+
+        // ---- LOFT: square 4x4 (z=0) -> square 2x2 (z=1)  (frustum) -------------
+        // V = h/3 (A0 + A1 + sqrt(A0 A1)) = 1/3 (16 + 4 + 8) = 28/3 ~= 9.33333.
+        {
+            nbk::LoftSection s0, s1;
+            s0.points = { {-2,-2,0},{2,-2,0},{2,2,0},{-2,2,0} };  // 4x4, A=16
+            s1.points = { {-1,-1,1},{1,-1,1},{1,1,1},{-1,1,1} };  // 2x2, A=4
+            nbk::LoftResult r = nbk::loftSections({s0, s1}, {0,0,1});
+            check(r.ok, "3b loft(4x4 -> 2x2 frustum): ok");
+            check(r.ok && r.mesh.validate().isValid(), "3b loft: watertight 2-manifold");
+            const double vexp = (1.0/3.0) * (16.0 + 4.0 + std::sqrt(16.0*4.0));
+            check(r.ok && rel(r.volume, vexp, 1e-9), "3b loft: volume = 28/3 (frustum)");
+        }
+
+        // ---- LOFT honest gap: mismatched vertex counts -> ok=false (no fake) ---
+        {
+            nbk::LoftSection s0, s1;
+            s0.points = { {-2,-2,0},{2,-2,0},{2,2,0},{-2,2,0} };          // 4 verts
+            s1.points = { {-1,-1,1},{1,-1,1},{1,1,1},{0,1.4,1},{-1,1,1} }; // 5 verts
+            nbk::LoftResult r = nbk::loftSections({s0, s1}, {0,0,1});
+            check(!r.ok, "3b loft mismatched-count: honest ok=false (OCCT-only case)");
+        }
     }
 
     std::printf("native_route_test RESULT: %d/%d passed\n", g_pass, g_total);

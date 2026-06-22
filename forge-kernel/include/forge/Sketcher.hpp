@@ -28,6 +28,14 @@
 
 #include <TopoDS_Wire.hxx>
 
+// IN-HOUSE KERNEL STEP 3b — the OCCT-FREE profile bridge feeds the native
+// feature ops (forge::native::brep::sweep/prism/loftSections,
+// forge::native::csg::revolve), which consume an ordered 2D point ring, NOT an
+// OCCT TopoDS_Wire. geom/Geom.hpp is pure C++20 (no OCCT) so it is safe to pull
+// into this header (it is ALWAYS compiled — only the native ROUTING that uses
+// the rings is gated behind FORGE_NATIVE_BREP).
+#include "forge/native/geom/Geom.hpp"   // forge::native::geom::Point2
+
 // Forward-declare planegcs types to avoid bleeding their headers into binding.cpp.
 namespace GCS {
 class System;
@@ -155,5 +163,28 @@ void writePoint(SketchHandle h, SketchParamId pid, double x, double y);
 // closed wire; line + arc segments are stitched into wires by matching
 // shared endpoints within Precision::Confusion.
 std::vector<TopoDS_Wire> extractWires(SketchHandle h);
+
+// IN-HOUSE KERNEL STEP 3b — OCCT-FREE profile bridge.
+//
+// Extract the sketch's closed loops as ordered 2D point RINGS on the local
+// (Z=0) sketch plane — the input form the in-house native feature ops want
+// (forge::native::brep::Profile / LoftSection, forge::native::csg::revolve).
+//
+// This walks the SAME raw GCS::Line / GCS::Circle / GCS::Arc data that
+// extractWires reads, but emits ordered `geom::Point2` rings instead of OCCT
+// wires, so the feature-profile path is genuinely OCCT-free. Each ring is
+// returned WITHOUT a repeated closing vertex.
+//
+//   * A circle becomes its own ring, sampled into `circleSegments` chords.
+//   * Arcs and lines are stitched head-to-tail (endpoint matching within
+//     1e-5, mirroring extractWires) into one ring per closed loop; arcs are
+//     sampled into chords at the same angular resolution as a full circle.
+//
+// Winding is NOT forced here — the caller orients each ring (CCW outer / CW
+// hole) via the native signedArea, exactly as the native Profile contract
+// requires. Open (non-closed) chains are still returned as a ring (the caller
+// decides whether an open chain is valid for its op).
+std::vector<std::vector<native::geom::Point2>>
+extractProfileRings(SketchHandle h, int circleSegments = 96);
 
 }  // namespace forge

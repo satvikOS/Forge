@@ -143,6 +143,96 @@ const cases = [
 // all 12 to OCCT makes the two operate on the SAME edge set for a fair volume A/B.
 function allBoxEdges(f, h) { return [0,1,2,3,4,5,6,7,8,9,10,11]; }
 
+// ===================================================================== STEP 3b
+// SKETCH-BASED FEATURE OPS — extrude / revolve / sweep / loft routed through
+// forge::native. Each builds from the sketcher API (createSketch/addPoint/...).
+// HONEST reference modes:
+//   * 'vs-occt'     — native MUST equal OCCT (mesh tol). Used by extrude (+Z
+//                     prism: exact footprint/COM/AABB) and revolve (360 + partial:
+//                     vol within mesh tol; COM/AABB exact via aligned axis frame).
+//   * 'vs-analytic' — OCCT's sketch-handle path is DEGENERATE here, so OCCT is NOT
+//                     a valid reference: a sweep with a Z=0 path coplanar with the
+//                     Z=0 profile and a loft over coplanar Z=0 sections both give
+//                     OCCT volume == 0 (the same limitation that motivated this
+//                     file's placed profileWire + loftguide path). The native op
+//                     produces the REAL solid; we assert it against the CLOSED-FORM
+//                     analytic volume + watertight + dimension-sensitivity.
+const S = f.sketcher;
+function rectCentered(w, h) {                         // CCW rectangle, centered
+  const s = S.createSketch();
+  const a = S.addPoint(s, -w/2, -h/2), b = S.addPoint(s,  w/2, -h/2);
+  const c = S.addPoint(s,  w/2,  h/2), d = S.addPoint(s, -w/2,  h/2);
+  S.addLine(s, a, b); S.addLine(s, b, c); S.addLine(s, c, d); S.addLine(s, d, a);
+  return s;
+}
+function rectAt(x0, x1, y0, y1) {                    // axis-revolve profile (+x half)
+  const s = S.createSketch();
+  const a = S.addPoint(s, x0, y0), b = S.addPoint(s, x1, y0);
+  const c = S.addPoint(s, x1, y1), d = S.addPoint(s, x0, y1);
+  S.addLine(s, a, b); S.addLine(s, b, c); S.addLine(s, c, d); S.addLine(s, d, a);
+  return s;
+}
+function circleSketch(cx, cy, r) {
+  const s = S.createSketch();
+  S.addCircle(s, S.addPoint(s, cx, cy), r);
+  return s;
+}
+function polylinePath(pts) {                         // open spine [[x,y],...]
+  const s = S.createSketch();
+  const ids = pts.map(([x, y]) => S.addPoint(s, x, y));
+  for (let i = 0; i + 1 < ids.length; i++) S.addLine(s, ids[i], ids[i + 1]);
+  return s;
+}
+// volume of an N-gon-approximated circle of radius r at `seg` segments (the
+// faceted reference the native sweep/revolve actually produces).
+function ngonArea(r, seg) { return 0.5 * seg * r * r * Math.sin(2 * Math.PI / seg); }
+
+const NSEG = 96; // extractProfileRings default circleSegments
+
+const featureCases = [
+  // ---- EXTRUDE (+Z) : native prism == OCCT MakePrism, EXACT footprint/COM/AABB.
+  { name: 'extrude rect(4x3) +Z d=5', mode: 'vs-occt', tol: MESH_TOL, meshBridge: true,
+    build: f => f.part.extrudeProfile(rectCentered(4, 3), 5, [0, 0, 1]) },
+  { name: 'extrude L-profile +Z d=2', mode: 'vs-occt', tol: MESH_TOL, meshBridge: true,
+    build: f => {
+      // L-shape (6 verts): outer CCW. area = 5*5 - 3*3 = 16.  vol = 16*2 = 32.
+      const s = S.createSketch();
+      const p = [[0,0],[5,0],[5,2],[2,2],[2,5],[0,5]].map(([x,y]) => S.addPoint(s, x, y));
+      for (let i = 0; i < p.length; i++) S.addLine(s, p[i], p[(i+1)%p.length]);
+      return f.part.extrudeProfile(s, 2, [0, 0, 1]);
+    } },
+  // ---- REVOLVE (360 + partial) : native == OCCT (vol mesh-tol, COM/AABB exact).
+  { name: 'revolve360 rect[2,3]x[0,4] @Y', mode: 'vs-occt', tol: MESH_TOL, meshBridge: true, curved: true,
+    build: f => f.part.revolveProfile(rectAt(2, 3, 0, 4), [0,0,0], [0,1,0], 2*Math.PI) },
+  { name: 'revolve90  rect[2,3]x[0,4] @Y', mode: 'vs-occt', tol: MESH_TOL, meshBridge: true, curved: true,
+    build: f => f.part.revolveProfile(rectAt(2, 3, 0, 4), [0,0,0], [0,1,0], Math.PI/2) },
+  // ---- SWEEP : OCCT sketch-path is degenerate (vol 0) -> compare native to the
+  // analytic faceted cylinder volume = ngonArea(r,NSEG) * length.
+  { name: 'sweep circle r1 straight L=10', mode: 'vs-analytic', tol: MESH_TOL,
+    refVol: ngonArea(1, NSEG) * 10,
+    build: f => f.part.sweep(circleSketch(0,0,1), polylinePath([[0,0],[10,0]]), false) },
+  // ---- LOFT : OCCT coplanar Z=0 sections are degenerate (vol 0) -> native stacks
+  // section k at z=k; 4x4 -> 2x2 over unit height is a square frustum:
+  //   V = h/3 (A0 + A1 + sqrt(A0 A1)) = 1/3 (16 + 4 + 8) = 28/3.
+  { name: 'loft sq 4x4 -> 2x2 (frustum)', mode: 'vs-analytic', tol: 1e-9,
+    refVol: (1/3) * (16 + 4 + Math.sqrt(16*4)),
+    build: f => f.part.loft([rectCentered(4,4), rectCentered(2,2)], [], false, false) },
+];
+
+// dimension-sensitivity probes: change ONE dimension, the native volume must
+// scale by the analytic factor (proves the op is genuinely re-driven, not cached).
+const sensitivityCases = [
+  { name: 'extrude depth 5->10 doubles vol', factor: 2,
+    a: f => f.part.extrudeProfile(rectCentered(4,3), 5,  [0,0,1]),
+    b: f => f.part.extrudeProfile(rectCentered(4,3), 10, [0,0,1]) },
+  { name: 'sweep r1->r2 quadruples vol', factor: 4,
+    a: f => f.part.sweep(circleSketch(0,0,1), polylinePath([[0,0],[10,0]]), false),
+    b: f => f.part.sweep(circleSketch(0,0,2), polylinePath([[0,0],[10,0]]), false) },
+  { name: 'revolve 90->180 doubles vol', factor: 2,
+    a: f => f.part.revolveProfile(rectAt(2,3,0,4), [0,0,0],[0,1,0], Math.PI/2),
+    b: f => f.part.revolveProfile(rectAt(2,3,0,4), [0,0,0],[0,1,0], Math.PI) },
+];
+
 // --------------------------------------------------------------------- run
 let fail = 0;
 const rows = [];
@@ -232,5 +322,88 @@ console.log('\nflags: V volume  C com  I inertia  B bbox  W watertight (UPPER = 
 console.log(`legend: analytic tol vol≤${ANALYTIC_TOL}, com≤1e-6 (planar) / 5e-4 (curved), I≤1e-5/2e-2, bbox≤1e-4/2e-2`);
 console.log(`        mesh-bridge tol vol≤${MESH_TOL} fillet / 1.5e-2 chamfer, com≤1%, I≤5e-2 (tess+corner ceiling)\n`);
 
-if (fail) { console.log(`[ab] ${fail} GATE FAILURE(S) — native != OCCT on some op`); process.exit(1); }
-console.log(`[ab] ALL ${cases.length} CORE OPS PASS — native == OCCT (within stated tol)`);
+// ===================================================================== STEP 3b
+// FEATURE-OP gate — extrude / revolve / sweep / loft through forge::native.
+console.log(`[ab] STEP 3b — SKETCH FEATURE OPS (extrude / revolve / sweep / loft)\n`);
+const frows = [];
+for (const c of featureCases) {
+  let nat;
+  try { nat = measure(c.build, true); }
+  catch (e) { console.log(`[ab] FAIL ${c.name}: NATIVE build threw — ${e.message}`); fail++; continue; }
+
+  // every feature op routes to a watertight NativeMesh handle.
+  if (nat.kind !== 'nativeMesh') { console.log(`[ab] FAIL ${c.name}: kind=${nat.kind} (expected nativeMesh)`); fail++; }
+
+  let refVol, comErr = 0, inertiaErr = 0, bboxErr = 0, occtVol = NaN;
+  if (c.mode === 'vs-occt') {
+    let occt;
+    try { occt = measure(c.build, false); }
+    catch (e) { console.log(`[ab] FAIL ${c.name}: OCCT build threw — ${e.message}`); fail++; continue; }
+    if (occt.kind !== 'occt') { console.log(`[ab] FAIL ${c.name}: OCCT kind=${occt.kind}`); fail++; }
+    occtVol = occt.mp.volume;
+    refVol  = occt.mp.volume;
+    comErr  = vlen(vsub(nat.mp.centerOfMass, occt.mp.centerOfMass));
+    let inScale = 1e-12;
+    for (const k of [0,4,8]) inScale = Math.max(inScale, Math.abs(occt.mp.inertiaCom[k]));
+    for (let k = 0; k < 9; k++)
+      inertiaErr = Math.max(inertiaErr, Math.abs(nat.mp.inertiaCom[k] - occt.mp.inertiaCom[k]) / inScale);
+    for (let k = 0; k < 3; k++)
+      bboxErr = Math.max(bboxErr, Math.abs(nat.bb.mn[k]-occt.bb.mn[k]), Math.abs(nat.bb.mx[k]-occt.bb.mx[k]));
+  } else {
+    // vs-analytic: OCCT's sketch-handle path is degenerate (vol ~ 0); compare the
+    // native solid to the closed-form reference. COM/inertia/AABB are not checked
+    // against OCCT (no valid OCCT solid) — watertight + volume + sensitivity carry.
+    refVol = c.refVol;
+  }
+
+  const volErr = relErr(nat.mp.volume, refVol);
+  // tolerances: vs-occt revolves are curved (looser COM/inertia/AABB tess ceiling).
+  const comTol = c.curved ? 1e-2 : 5e-3;
+  const inertiaTol = 5e-2, bboxTol = 5e-2;
+  const okVol = volErr <= c.tol;
+  const okCom = c.mode === 'vs-occt' ? comErr <= comTol : true;
+  const okIn  = c.mode === 'vs-occt' ? inertiaErr <= inertiaTol : true;
+  const okBB  = c.mode === 'vs-occt' ? bboxErr <= bboxTol : true;
+  const okWT  = nat.watertight === true;
+  const okKind = nat.kind === 'nativeMesh';
+  const pass = okVol && okCom && okIn && okBB && okWT && okKind;
+  if (!pass) fail++;
+
+  frows.push({ name: c.name, mode: c.mode, refVol, natVol: nat.mp.volume, volErr, comErr, inertiaErr, bboxErr,
+    watertight: nat.watertight,
+    flags: `${okVol?'V':'v'}${okCom?'C':'c'}${okIn?'I':'i'}${okBB?'B':'b'}${okWT?'W':'w'}`, pass });
+}
+
+console.log(pad('FEATURE OP', 38), pad('mode', 12), pad('ref/occtVol', 13), pad('natVol', 12), pad('|dVol|', 10), pad('|dCOM|', 10), pad('|dI|', 9), pad('|dBBox|', 9), 'flags  pass');
+console.log('-'.repeat(150));
+for (const r of frows) {
+  console.log(
+    pad(r.name, 38), pad(r.mode, 12),
+    pad(r.refVol.toFixed(6), 13), pad(r.natVol.toFixed(6), 12),
+    pad(r.volErr.toExponential(2), 10), pad(r.comErr.toExponential(2), 10),
+    pad(r.inertiaErr.toExponential(2), 9), pad(r.bboxErr.toExponential(2), 9),
+    `${r.flags}  ${r.pass ? 'PASS' : 'FAIL'}`);
+}
+
+// ----------------------------------------------- dimension-sensitivity gate
+console.log(`\n[ab] STEP 3b — DIMENSION SENSITIVITY (native re-driven, not cached)\n`);
+for (const c of sensitivityCases) {
+  f.setNativeBrep(true);
+  let va, vb, ok = false, ratio = NaN;
+  try {
+    va = f.massProps(c.a(f)).volume;
+    vb = f.massProps(c.b(f)).volume;
+    ratio = vb / va;
+    ok = relErr(ratio, c.factor) <= 5e-3;
+  } catch (e) { console.log(`[ab] FAIL ${c.name}: threw — ${e.message}`); }
+  if (!ok) fail++;
+  console.log(`  [${ok ? 'PASS' : 'FAIL'}] ${pad(c.name, 36)} ratio=${Number.isFinite(ratio)?ratio.toFixed(4):'NaN'} (expect ${c.factor})`);
+}
+
+console.log('\nflags: V volume  C com  I inertia  B bbox  W watertight (UPPER = pass)');
+console.log(`legend (3b): extrude(+Z prism)/revolve vs OCCT (vol mesh-tol ${MESH_TOL}, COM/AABB tess-tol);`);
+console.log(`             sweep/loft vs CLOSED-FORM (OCCT sketch-path is degenerate vol~0 — native is the real solid).\n`);
+
+const total = cases.length + featureCases.length + sensitivityCases.length;
+if (fail) { console.log(`[ab] ${fail} GATE FAILURE(S) — native != reference on some op`); process.exit(1); }
+console.log(`[ab] ALL ${total} GATES PASS — core (${cases.length}) + features (${featureCases.length}) + sensitivity (${sensitivityCases.length})`);
