@@ -23,6 +23,7 @@
 
 import { getForge } from '../kernel/forge/index.js';
 import { exportRobot } from '../forge-v4/io/robotExport.js';
+import { exportArchival, verifyArchival } from '../forge-v4/io/archivalExport.js';
 import {
   indexVault, findSimilar, findDuplicates, retrieveThenEdit,
 } from '../forge-v4/pdm/partRetrieval.js';
@@ -2283,6 +2284,76 @@ export const FORGE_TOOLS = [
       for (const [name, content] of Object.entries(meshFiles)) writeText(dir + name, content);
       return { op: 'export-robot', ok: true, format: fmt, filepath: fp,
                meshFiles: Object.keys(meshFiles).map(n => dir + n), written };
+    } },
+
+  // LOTAR / AP242 LONG-TERM ARCHIVAL (Task #40) — the 50-year aerospace /
+  // defense archival + certification / traceability gate (EN 9300 / OAIS
+  // ISO 14721). Writes the AP242 STEP container (geometry + semantic PMI +
+  // product structure) PLUS validation properties (per-body kernel
+  // volume/area/centroid/bbox + assembly structure hash) so a future reader can
+  // RE-COMPUTE them and prove the geometry did not drift; OAIS info-package
+  // metadata + a retention-aware audit trail + a whole-package fixity digest.
+  { name: 'io.export-archival', discipline: 'part', produces: 'file',
+    description: 'LOTAR/AP242 long-term-archival export (EN 9300 / OAIS ISO 14721). Writes an AP242 STEP container with semantic PMI + product structure PLUS validation properties (per-body kernel volume/area/centroid/bbox + assembly structure hash) + OAIS info-package metadata + retention-aware audit trail + a whole-package fixity digest, so a future reader can re-compute and prove the geometry did not drift.',
+    parameters: { partOrAssembly: P('object', 'body {id,name,handle} or Assembly(parts[]/mates[])', { required: true }),
+                  retention: P('object', '{years,classification,disposition}', { default: null }),
+                  provenance: P('object', '{agent,organization,why,software}', { default: null }),
+                  filepath: P('string', 'absolute output path for the .step container', { required: true }) },
+    run: (args, forge) => {
+      const fp = args.filepath && String(args.filepath).trim();
+      if (!fp) throw new Error('io.export-archival: filepath required (absolute output path)');
+      if (!args.partOrAssembly || typeof args.partOrAssembly !== 'object') {
+        throw new Error('io.export-archival: a body {id,name,handle} or Assembly (parts[]/mates[]) is required');
+      }
+      const pkg = exportArchival(args.partOrAssembly, {
+        retention: args.retention || undefined,
+        provenance: args.provenance || undefined,
+        forge,
+      });
+      // Write the AP242 container + the OAIS Archival Information Package
+      // (validation properties + metadata + audit + fixity) as a sidecar. Prefer
+      // the kernel/Electron writers used by the other JS exporters; fall back to
+      // Node fs (Electron-main / test). No new deps.
+      const writeText = (path, content) => {
+        if (forge && forge.io && typeof forge.io.writeTextFile === 'function') {
+          forge.io.writeTextFile(path, content);
+        } else if (forge && forge.dialog && typeof forge.dialog.writeBlob === 'function') {
+          forge.dialog.writeBlob(path, content);
+        } else if (typeof require === 'function') {
+          // eslint-disable-next-line global-require
+          require('fs').writeFileSync(path, content);
+        } else {
+          throw new Error('io.export-archival: no file-writer available (forge.dialog.writeBlob / fs)');
+        }
+      };
+      writeText(fp, pkg.ap242);
+      const aip = {
+        formatVersion: pkg.formatVersion,
+        conformance: pkg.conformance,
+        validationProperties: pkg.validationProperties,
+        oaisMetadata: pkg.oaisMetadata,
+        retention: pkg.retention,
+        auditTrail: pkg.auditTrail,
+        fixity: pkg.fixity,
+      };
+      writeText(`${fp}.aip.json`, JSON.stringify(aip, null, 2));
+      return { op: 'export-archival', ok: true, filepath: fp,
+               aip: `${fp}.aip.json`,
+               fixity: pkg.fixity.packageDigest,
+               bodyCount: pkg.validationProperties.bodies.length,
+               structureHash: pkg.validationProperties.structureHash,
+               conformance: pkg.conformance.lotar };
+    } },
+
+  { name: 'io.verify-archival', discipline: 'part', produces: 'report',
+    description: 'Verify a LOTAR archive: re-import the AP242 + re-compute the validation properties + check the fixity digest. Reports {valid, mismatches[]}; a tampered checksum or perturbed geometry is DETECTED.',
+    parameters: { archive: P('object', 'ArchivePackage from io.export-archival (the in-memory package, or {ap242, validationProperties, oaisMetadata, retention, conformance, fixity})', { required: true }) },
+    run: (args, forge) => {
+      const a = args.archive;
+      if (!a || typeof a !== 'object') {
+        throw new Error('io.verify-archival: an ArchivePackage object is required');
+      }
+      return { op: 'verify-archival', ...verifyArchival(a, { forge }) };
     } },
 
   // ============================================================ DRAWING
