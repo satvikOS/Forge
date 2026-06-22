@@ -385,6 +385,239 @@ try {
 }
 
 // =====================================================================
+// 7. CLOSED-LOOP MECHANISMS — the two-moving-body Spherical (ball) joint.
+//    Task #42: a spherical constraint between two MOVING bodies turns the
+//    constraint graph into a CYCLE, enabling real four-bar / slider-crank
+//    solving. The constraint enters the SAME index-3 HHT-α + Baumgarte DAE
+//    as the single-body joints; its 3 rows span the 6 DOFs of BOTH bodies:
+//        C(q) = (r_A + R_A s_A) − (r_B + R_B s_B) = 0
+//    (Shabana, *Computational Dynamics*, spherical pair; index-3 DAE with
+//    Baumgarte/HHT-α per Hairer & Wanner, *Solving Ordinary Differential
+//    Equations II*, §VII.) Validation is decoupled from speed drift: at each
+//    sample we read the SOLVER's actual driven-link angle and compare the
+//    SOLVER's output-link configuration against the closed-form mechanism
+//    relation evaluated at that SAME measured angle.
+//      (7a) SLIDER-CRANK  x_slider(θ) = r cosθ + √(l² − r² sin²θ)   (Norton/Shabana)
+//      (7b) FOUR-BAR      coupler-pin position vs Freudenstein loop closure
+//      (7c) PASSIVE LOOP  energy conserved + ‖C(q)‖ bounded (no drift blow-up)
+// =====================================================================
+try {
+  if (forge.simulate && typeof forge.simulate.multibodyDynamics === 'function') {
+    const planarI = (m, len) => {
+      // Slender-rod inertia about COM: Izz = m L²/12 (in-plane). Ixx,Iyy small
+      // but nonzero so the world inertia stays invertible.
+      const Izz = m * len * len / 12;
+      const Ip = Math.max(Izz * 1e-3, m * 1e-6);
+      return [Ip, 0, 0, 0, Ip, 0, 0, 0, Izz];
+    };
+
+    // -----------------------------------------------------------------
+    // 7a. SLIDER-CRANK.  Crank (body0) pinned to ground at origin; conrod
+    //     (body1) joins crank pin to slider pin via a Spherical (loop) joint;
+    //     slider (body2) constrained to the X-axis. A heavy crank flywheel +
+    //     initial spin coasts (gravity off, frictionless) so θ advances ~uniformly;
+    //     we verify x_slider vs the analytic function of the MEASURED θ.
+    // -----------------------------------------------------------------
+    const rC = 0.10, lR = 0.30;            // crank radius, conrod length (m)
+    // Body COMs at t=0 (θ=0): crank pin at (rC,0); slider pin at (xs0,0).
+    const xs0 = rC + Math.sqrt(lR*lR);     // = rC + lR at θ=0
+    const sliderCrank = forge.simulate.multibodyDynamics({
+      bodies: [
+        // 0: crank — heavy flywheel inertia so it coasts at ~const ω
+        { mass: 50.0, inertia: [1,0,0, 0,1,0, 0,0,2.0],
+          position: [rC/2, 0, 0], orientation: [0,0,0],
+          linVel: [0,0,0], angVel: [0,0, 6.0] },     // ω0 = 6 rad/s about Z
+        // 1: conrod — COM at midpoint of crank-pin→slider-pin
+        { mass: 0.5, inertia: planarI(0.5, lR),
+          position: [(rC + xs0)/2, 0, 0], orientation: [0,0,0],
+          linVel: [0, 0, 0], angVel: [0,0,0] },
+        // 2: slider — point mass riding the X-axis
+        { mass: 1.0, inertia: [1e-3,0,0, 0,1e-3,0, 0,0,1e-3],
+          position: [xs0, 0, 0], orientation: [0,0,0],
+          linVel: [0,0,0], angVel: [0,0,0] },
+      ],
+      constraints: [
+        // crank ground pin at origin (the crank pin at +rC/2 from COM swings)
+        { kind: 'ballJoint', bodyA: 0, pointA: [-rC/2, 0, 0], anchor: [0,0,0] },
+        // crank-pin ↔ conrod-near-end  (loop chain link 1)
+        { kind: 'spherical', bodyA: 0, bodyB: 1,
+          pointA: [ rC/2, 0, 0], pointB: [-lR/2, 0, 0] },
+        // conrod-far-end ↔ slider pin   (the LOOP-CLOSING ball joint)
+        { kind: 'spherical', bodyA: 1, bodyB: 2,
+          pointA: [ lR/2, 0, 0], pointB: [0, 0, 0] },
+        // slider rail: slider COM confined to the world X-axis (prismatic).
+        { kind: 'pointOnLine', bodyA: 2, pointA: [0,0,0],
+          anchor: [0,0,0], axis: [1,0,0] },
+        // keep all links planar (spin axis = Z)
+        { kind: 'axisLock', bodyA: 0, axis: [0,0,1] },
+        { kind: 'axisLock', bodyA: 1, axis: [0,0,1] },
+        { kind: 'axisLock', bodyA: 2, axis: [0,0,1] },
+      ],
+      loads: [],
+      gravity: [0,0,0],
+      dt: 1e-4, steps: 12000, alpha: -0.02,
+      baumgarteOmega: 150, baumgarteZeta: 1.0, sampleStride: 20,
+    });
+    // For each sample read measured crank angle θ (orientation[0][2]) and the
+    // measured slider X (position[2][0]); compare to analytic x(θ).
+    let scMaxErr = 0, scN = 0, scMaxY = 0;
+    for (const s of sliderCrank.samples) {
+      const th = s.orientation[0][2];
+      const xMeas = s.position[2][0];
+      const xRef = rC*Math.cos(th) + Math.sqrt(lR*lR - rC*rC*Math.sin(th)*Math.sin(th));
+      scMaxErr = Math.max(scMaxErr, Math.abs(xMeas - xRef));
+      scMaxY = Math.max(scMaxY, Math.abs(s.position[2][1]));
+      scN++;
+    }
+    const scTotalRot = Math.abs(sliderCrank.samples[sliderCrank.samples.length-1].orientation[0][2]);
+    const scErrPct = 100 * scMaxErr / (rC + lR);
+    console.log(`\n[7a] CLOSED-LOOP SLIDER-CRANK (Spherical loop joint; r=${rC} l=${lR})`);
+    console.log(`     x_slider(θ)=r cosθ+√(l²−r²sin²θ)  [Norton/Shabana]`);
+    console.log(`     samples=${scN}  crank swept=${(scTotalRot*180/Math.PI).toFixed(0)}°  max|x_meas−x_ref|=${scMaxErr.toExponential(3)} m (${scErrPct.toFixed(3)}% of stroke)`);
+    console.log(`     slider off-axis max|y|=${scMaxY.toExponential(2)} m  maxConstraintDrift=${sliderCrank.maxConstraintDrift.toExponential(2)}  energyDrift=${sliderCrank.energyDrift.toExponential(2)}  stable=${sliderCrank.stable}`);
+    assertGate('closed-loop slider-crank x_slider(θ) < 2% of stroke (full rotation)',
+      sliderCrank.stable && scTotalRot > 2*Math.PI && scErrPct < 2.0,
+      `max pos err=${scErrPct.toFixed(3)}% of stroke over ${(scTotalRot*180/Math.PI).toFixed(0)}°; ‖C‖max=${sliderCrank.maxConstraintDrift.toExponential(2)}`);
+
+    // -----------------------------------------------------------------
+    // 7b. FOUR-BAR.  Ground pins O2=(0,0), O4=(r1,0). Crank (body0), coupler
+    //     (body1), rocker (body2). Two ground ballJoints + two Spherical pins;
+    //     the coupler↔rocker Spherical CLOSES the loop. Heavy crank flywheel
+    //     coasts; we compare the measured coupler-pin world position against
+    //     the analytic two-circle loop-closure for the MEASURED crank angle.
+    //     (Freudenstein, "Approximate Synthesis of Four-Bar Linkages", 1955.)
+    // -----------------------------------------------------------------
+    const r1=0.40, r2=0.10, r3=0.35, r4=0.30;   // Grashof crank-rocker
+    // Analytic coupler-pin (joint B) position for crank angle th2, open branch.
+    const fourbarB = (th2) => {
+      const Ax = r2*Math.cos(th2), Ay = r2*Math.sin(th2);        // crank pin A
+      const dx = Ax - r1, dy = Ay;                                // O4 → A
+      const d = Math.hypot(dx, dy);
+      const cosg = (d*d + r4*r4 - r3*r3) / (2*d*r4);
+      if (Math.abs(cosg) > 1) return null;                        // no assembly
+      const g = Math.acos(cosg);
+      const th4 = Math.atan2(dy, dx) + g;                         // rocker angle (open)
+      return [r1 + r4*Math.cos(th4), r4*Math.sin(th4)];          // joint B world pos
+    };
+    // Initial assembly at th2 = 0.
+    const A0 = [r2, 0];
+    const B0 = fourbarB(0);
+    const couplerC0 = [(A0[0]+B0[0])/2, (A0[1]+B0[1])/2];
+    const couplerAng0 = Math.atan2(B0[1]-A0[1], B0[0]-A0[0]);
+    const rockC0 = [(r1 + B0[0])/2, B0[1]/2];
+    const rockAng0 = Math.atan2(B0[1]-0, B0[0]-r1);
+    const fourbar = forge.simulate.multibodyDynamics({
+      bodies: [
+        // 0: crank — heavy flywheel, spins about O2; COM at r2/2 along +X
+        { mass: 80.0, inertia: [1,0,0, 0,1,0, 0,0,3.0],
+          position: [r2/2, 0, 0], orientation: [0,0,0],
+          linVel: [0,0,0], angVel: [0,0, 5.0] },
+        // 1: coupler — COM at midpoint A0→B0, oriented along the link
+        { mass: 0.4, inertia: planarI(0.4, r3),
+          position: [couplerC0[0], couplerC0[1], 0],
+          orientation: [0,0, couplerAng0], linVel: [0,0,0], angVel: [0,0,0] },
+        // 2: rocker — COM at midpoint O4→B0
+        { mass: 0.5, inertia: planarI(0.5, r4),
+          position: [rockC0[0], rockC0[1], 0],
+          orientation: [0,0, rockAng0], linVel: [0,0,0], angVel: [0,0,0] },
+      ],
+      constraints: [
+        // ground pin O2 (crank): crank's −r2/2 end pinned to origin
+        { kind: 'ballJoint', bodyA: 0, pointA: [-r2/2, 0, 0], anchor: [0,0,0] },
+        // ground pin O4 (rocker): rocker's −r4/2 end pinned to (r1,0)
+        { kind: 'ballJoint', bodyA: 2, pointA: [-r4/2, 0, 0], anchor: [r1,0,0] },
+        // crank pin A ↔ coupler near-end
+        { kind: 'spherical', bodyA: 0, bodyB: 1,
+          pointA: [ r2/2, 0, 0], pointB: [-r3/2, 0, 0] },
+        // coupler far-end ↔ rocker far-end  (the LOOP-CLOSING joint B)
+        { kind: 'spherical', bodyA: 1, bodyB: 2,
+          pointA: [ r3/2, 0, 0], pointB: [ r4/2, 0, 0] },
+        // planarity: spin axes = Z
+        { kind: 'axisLock', bodyA: 0, axis: [0,0,1] },
+        { kind: 'axisLock', bodyA: 1, axis: [0,0,1] },
+        { kind: 'axisLock', bodyA: 2, axis: [0,0,1] },
+      ],
+      loads: [],
+      gravity: [0,0,0],
+      dt: 1e-4, steps: 14000, alpha: -0.02,
+      baumgarteOmega: 150, baumgarteZeta: 1.0, sampleStride: 20,
+    });
+    // Measured joint-B world position = coupler far-end = rocker far-end.
+    let fbMaxErr = 0, fbN = 0;
+    const worldEnd = (s, body, localX) => {
+      const c = s.orientation[body][2];
+      const px = s.position[body][0], py = s.position[body][1];
+      return [px + localX*Math.cos(c), py + localX*Math.sin(c)];
+    };
+    for (const s of fourbar.samples) {
+      const th2 = s.orientation[0][2];
+      const ref = fourbarB(th2);
+      if (!ref) continue;                       // skip any non-assembly angle
+      const Bmeas = worldEnd(s, 2, +r4/2);      // rocker far-end = joint B
+      const e = Math.hypot(Bmeas[0]-ref[0], Bmeas[1]-ref[1]);
+      fbMaxErr = Math.max(fbMaxErr, e);
+      fbN++;
+    }
+    const fbTotalRot = Math.abs(fourbar.samples[fourbar.samples.length-1].orientation[0][2]);
+    const fbErrPct = 100 * fbMaxErr / r4;       // relative to rocker length
+    console.log(`\n[7b] CLOSED-LOOP FOUR-BAR (Spherical loop joint; r1=${r1} r2=${r2} r3=${r3} r4=${r4})`);
+    console.log(`     coupler-pin B vs Freudenstein loop closure [Freudenstein 1955]`);
+    console.log(`     samples=${fbN}  crank swept=${(fbTotalRot*180/Math.PI).toFixed(0)}°  max|B_meas−B_ref|=${fbMaxErr.toExponential(3)} m (${fbErrPct.toFixed(3)}% of r4)`);
+    console.log(`     maxConstraintDrift=${fourbar.maxConstraintDrift.toExponential(2)}  energyDrift=${fourbar.energyDrift.toExponential(2)}  stable=${fourbar.stable}`);
+    assertGate('closed-loop four-bar coupler-pin vs Freudenstein < 2% (full crank rotation)',
+      fourbar.stable && fbTotalRot > 2*Math.PI && fbErrPct < 2.0,
+      `max B-pos err=${fbErrPct.toFixed(3)}% of r4 over ${(fbTotalRot*180/Math.PI).toFixed(0)}°; ‖C‖max=${fourbar.maxConstraintDrift.toExponential(2)}`);
+
+    // -----------------------------------------------------------------
+    // 7c. PASSIVE LOOP — the four-bar coasting frictionless with NO driver
+    //     must conserve energy and keep ‖C(q)‖ bounded (no drift blow-up).
+    //     This proves the loop-closing Spherical multiplier+Baumgarte does not
+    //     inject/leak energy nor let the manifold diverge.
+    // -----------------------------------------------------------------
+    const passive = forge.simulate.multibodyDynamics({
+      bodies: [
+        { mass: 2.0, inertia: [1,0,0, 0,1,0, 0,0,0.5],
+          position: [r2/2, 0, 0], orientation: [0,0,0],
+          linVel: [0,0,0], angVel: [0,0, 3.0] },
+        { mass: 0.4, inertia: planarI(0.4, r3),
+          position: [couplerC0[0], couplerC0[1], 0],
+          orientation: [0,0, couplerAng0], linVel: [0,0,0], angVel: [0,0,0] },
+        { mass: 0.5, inertia: planarI(0.5, r4),
+          position: [rockC0[0], rockC0[1], 0],
+          orientation: [0,0, rockAng0], linVel: [0,0,0], angVel: [0,0,0] },
+      ],
+      constraints: [
+        { kind: 'ballJoint', bodyA: 0, pointA: [-r2/2, 0, 0], anchor: [0,0,0] },
+        { kind: 'ballJoint', bodyA: 2, pointA: [-r4/2, 0, 0], anchor: [r1,0,0] },
+        { kind: 'spherical', bodyA: 0, bodyB: 1, pointA: [ r2/2, 0, 0], pointB: [-r3/2, 0, 0] },
+        { kind: 'spherical', bodyA: 1, bodyB: 2, pointA: [ r3/2, 0, 0], pointB: [ r4/2, 0, 0] },
+        { kind: 'axisLock', bodyA: 0, axis: [0,0,1] },
+        { kind: 'axisLock', bodyA: 1, axis: [0,0,1] },
+        { kind: 'axisLock', bodyA: 2, axis: [0,0,1] },
+      ],
+      loads: [], gravity: [0,0,0],
+      dt: 1e-4, steps: 10000, alpha: -0.02,
+      baumgarteOmega: 150, baumgarteZeta: 1.0, sampleStride: 10,
+    });
+    console.log(`\n[7c] PASSIVE CLOSED LOOP — energy + ‖C‖ drift (no driver, frictionless)`);
+    console.log(`     energyDrift=${passive.energyDrift.toExponential(3)}  maxConstraintDrift=${passive.maxConstraintDrift.toExponential(3)}  stable=${passive.stable}`);
+    assertGate('passive four-bar loop: energy conserved < 2% & ‖C‖ bounded < 1e-2',
+      passive.stable && passive.energyDrift < 0.02 && passive.maxConstraintDrift < 1e-2,
+      `energyDrift=${(100*passive.energyDrift).toFixed(3)}%  ‖C‖max=${passive.maxConstraintDrift.toExponential(2)}`);
+  } else {
+    console.log('\n[7] forge.simulate.multibodyDynamics not exposed — cannot run closed-loop gates');
+    assertGate('closed-loop slider-crank x_slider(θ) < 2% of stroke (full rotation)', false, 'verb not exposed');
+    assertGate('closed-loop four-bar coupler-pin vs Freudenstein < 2% (full crank rotation)', false, 'verb not exposed');
+    assertGate('passive four-bar loop: energy conserved < 2% & ‖C‖ bounded < 1e-2', false, 'verb not exposed');
+  }
+} catch (e) {
+  console.log('[7] FAILED:', e.message);
+  assertGate('closed-loop slider-crank x_slider(θ) < 2% of stroke (full rotation)', false, 'threw: ' + e.message);
+  assertGate('closed-loop four-bar coupler-pin vs Freudenstein < 2% (full crank rotation)', false, 'threw: ' + e.message);
+  assertGate('passive four-bar loop: energy conserved < 2% & ‖C‖ bounded < 1e-2', false, 'threw: ' + e.message);
+}
+
+// =====================================================================
 // Rigor-upgrade gate summary (UPGRADE A modal + UPGRADE B channel).
 // Exit non-zero if any gate case failed, so BUILD_AND_VERIFY_RIGOR.sh can
 // report PASS/FAIL deterministically.

@@ -46,6 +46,15 @@
 //   * AxisLock    — pin a body's rotation to a single allowed axis (2 eqs):
 //                   confine spin to one axis (rotor / hinge).
 //   * Distance    — keep two body points a fixed distance apart (1 eq).
+//   * Spherical   — coincide a point on bodyA with a point on bodyB (3 eqs):
+//                   a TWO-MOVING-BODY ball joint. This is the joint that closes
+//                   a kinematic loop (four-bar / slider-crank), turning the set
+//                   of constraints into a cyclic graph. C(q) = (r_A + R_A s_A)
+//                   − (r_B + R_B s_B) = 0  (Shabana, Computational Dynamics,
+//                   §3, eq. of the spherical/ball pair). The constraint enters
+//                   the index-3 DAE through the SAME multiplier/Baumgarte path
+//                   as the single-body joints — the only difference is its
+//                   Jacobian spans the 6 DOFs of BOTH bodies.
 //
 // ----------------------------------------------------------------------------
 // Integrator
@@ -104,18 +113,23 @@ struct MbdGravity {
 // --- constraints ------------------------------------------------------------
 
 enum class MbdConstraintKind : std::uint32_t {
-    BallJoint = 0,   // body point pinned to world anchor (3 scalar eqs)
-    AxisLock  = 1,   // body spin confined to a single world axis (2 eqs)
-    Distance  = 2,   // two body points a fixed distance apart (1 eq)
+    BallJoint  = 0,  // body point pinned to world anchor (3 scalar eqs)
+    AxisLock   = 1,  // body spin confined to a single world axis (2 eqs)
+    Distance   = 2,  // two body points a fixed distance apart (1 eq)
+    Spherical  = 3,  // TWO moving bodies: point on A coincides with point on
+                     // B — the closed-loop ball/revolute joint (3 scalar eqs)
+    PointOnLine = 4, // body point confined to a world line through `anchor`
+                     // along unit `axis` (2 eqs) — the prismatic/slider rail
+                     // that completes a slider-crank loop.
 };
 
 struct MbdConstraint {
     MbdConstraintKind kind = MbdConstraintKind::BallJoint;
     std::uint32_t bodyA = 0;
     std::uint32_t bodyB = 0;               // ignored for BallJoint / AxisLock
-    // Local attachment point on bodyA (BallJoint, Distance) — body frame.
+    // Local attachment point on bodyA (BallJoint, Distance, Spherical) — body frame.
     std::array<double, 3> pointA{0, 0, 0};
-    // Local attachment point on bodyB (Distance) — body frame.
+    // Local attachment point on bodyB (Distance, Spherical) — body frame.
     std::array<double, 3> pointB{0, 0, 0};
     // World anchor (BallJoint) or allowed spin axis (AxisLock, unit) or
     // target separation magnitude in `value` (Distance).

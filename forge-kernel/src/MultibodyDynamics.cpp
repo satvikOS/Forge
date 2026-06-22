@@ -103,15 +103,53 @@ std::size_t evalConstraint(const MbdConstraint& c, const double* q,
             out[row+0] = std::sqrt(dx*dx + dy*dy + dz*dz) - c.value;
             return 1;
         }
+        case MbdConstraintKind::Spherical: {
+            // Two-moving-body ball joint: a point on bodyA must coincide with a
+            // point on bodyB. C(q) = (r_A + R_A s_A) − (r_B + R_B s_B) = 0.
+            // (Shabana, Computational Dynamics, spherical-pair constraint.) This
+            // is the loop-closing joint — its 3 rows span the DOFs of BOTH
+            // bodies, so buildJacobian must perturb bodyA AND bodyB.
+            auto pa = worldPoint(q, a, c.pointA);
+            auto pb = worldPoint(q, c.bodyB * kDof, c.pointB);
+            out[row+0] = pa[0] - pb[0];
+            out[row+1] = pa[1] - pb[1];
+            out[row+2] = pa[2] - pb[2];
+            return 3;
+        }
+        case MbdConstraintKind::PointOnLine: {
+            // Confine a body point to the world line through `anchor` along the
+            // unit `axis`: the component of (p − anchor) perpendicular to axis
+            // must vanish. C = (p − anchor) − [(p − anchor)·n̂] n̂  → project out
+            // along axis to 2 independent rows (the two perp components, chosen
+            // by dropping the axis component with the largest |magnitude|, the
+            // same robust convention as AxisLock). Prismatic/slider rail.
+            auto p = worldPoint(q, a, c.pointA);
+            const std::array<double,3> d{ p[0]-c.anchor[0],
+                                          p[1]-c.anchor[1],
+                                          p[2]-c.anchor[2] };
+            const double dn = d[0]*c.axis[0] + d[1]*c.axis[1] + d[2]*c.axis[2];
+            const std::array<double,3> perp{ d[0] - dn*c.axis[0],
+                                             d[1] - dn*c.axis[1],
+                                             d[2] - dn*c.axis[2] };
+            const double ax = std::abs(c.axis[0]);
+            const double ay = std::abs(c.axis[1]);
+            const double az = std::abs(c.axis[2]);
+            if (az >= ax && az >= ay) { out[row+0] = perp[0]; out[row+1] = perp[1]; }
+            else if (ay >= ax)        { out[row+0] = perp[0]; out[row+1] = perp[2]; }
+            else                      { out[row+0] = perp[1]; out[row+1] = perp[2]; }
+            return 2;
+        }
     }
     return 0;
 }
 
 std::size_t constraintRows(MbdConstraintKind k) {
     switch (k) {
-        case MbdConstraintKind::BallJoint: return 3;
-        case MbdConstraintKind::AxisLock:  return 2;
-        case MbdConstraintKind::Distance:  return 1;
+        case MbdConstraintKind::BallJoint:   return 3;
+        case MbdConstraintKind::AxisLock:    return 2;
+        case MbdConstraintKind::Distance:    return 1;
+        case MbdConstraintKind::Spherical:   return 3;
+        case MbdConstraintKind::PointOnLine: return 2;
     }
     return 0;
 }
@@ -135,7 +173,10 @@ void buildJacobian(const std::vector<MbdConstraint>& cs, const Vec& q,
     for (const auto& c : cs) {
         const std::size_t nr = constraintRows(c.kind);
         std::array<std::uint32_t, 2> bodies{c.bodyA, c.bodyB};
-        const std::size_t nb = (c.kind == MbdConstraintKind::Distance) ? 2 : 1;
+        // Distance and Spherical span TWO bodies — perturb both 6-DOF blocks so
+        // the Jacobian rows couple bodyA and bodyB (required to close a loop).
+        const std::size_t nb = (c.kind == MbdConstraintKind::Distance ||
+                                c.kind == MbdConstraintKind::Spherical) ? 2 : 1;
         for (std::size_t bi = 0; bi < nb; ++bi) {
             const std::size_t base = bodies[bi] * kDof;
             for (std::size_t k = 0; k < kDof; ++k) {

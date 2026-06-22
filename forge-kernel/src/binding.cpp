@@ -3096,6 +3096,17 @@ Napi::Value SimulateMultibodyDynamics(const Napi::CallbackInfo& info) {
                     c.kind = forge::MbdConstraintKind::AxisLock;
                 else if (kind == "distance" || kind == "Distance")
                     c.kind = forge::MbdConstraintKind::Distance;
+                else if (kind == "spherical" || kind == "Spherical" ||
+                         kind == "ball"      || kind == "Ball")
+                    // Two-moving-body ball joint: coincides pointA(bodyA) with
+                    // pointB(bodyB). The closed-loop joint for four-bar /
+                    // slider-crank mechanisms (Shabana spherical pair).
+                    c.kind = forge::MbdConstraintKind::Spherical;
+                else if (kind == "pointOnLine" || kind == "PointOnLine" ||
+                         kind == "prismatic"   || kind == "Prismatic")
+                    // Confine pointA(bodyA) to the world line through `anchor`
+                    // along unit `axis` — the slider rail of a slider-crank.
+                    c.kind = forge::MbdConstraintKind::PointOnLine;
                 else
                     throw Napi::TypeError::New(env,
                         "forge.simulate.multibodyDynamics: unknown constraint kind '" + kind + "'");
