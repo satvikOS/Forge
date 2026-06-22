@@ -177,3 +177,79 @@ test('geometry-based part retrieval over a synthetic kernel vault', { skip: !for
     assert.ok(ranked[dupRank].score < ranked[0].score, 'near-dup score < exact copy score');
   });
 });
+
+// ───────────────────── AUDIT-DEFECT REGRESSIONS (commit 42dc587, #33) ─────────
+// Validated against PUBLISHED references of the field:
+//   • Osada, Funkhouser, Chazelle & Dobkin, "Shape Distributions", ACM TOG
+//     21(4), 2002 — the D2 random-pair distance distribution this module uses.
+//   • Golub & Van Loan, "Matrix Computations" — the eigenvectors of a real
+//     symmetric matrix form a PROPER ORTHONORMAL basis (an orthogonal frame,
+//     |det| = 1), which the principal-axis alignment must reproduce.
+// These exercise the kernel-free inline-mesh path (forge = null).
+
+function boxMeshCentered(dx, dy, dz) {
+  const x = dx / 2, y = dy / 2, z = dz / 2;
+  const v = [[-x, -y, -z], [x, -y, -z], [x, y, -z], [-x, y, -z],
+    [-x, -y, z], [x, -y, z], [x, y, z], [-x, y, z]];
+  const positions = [];
+  for (const p of v) positions.push(p[0], p[1], p[2]);
+  const indices = [0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4,
+    2, 3, 7, 2, 7, 6, 1, 2, 6, 1, 6, 5, 0, 4, 7, 0, 7, 3];
+  return { positions, indices };
+}
+function rotateMeshZ(mesh, theta) {
+  const c = Math.cos(theta), s = Math.sin(theta);
+  const p = mesh.positions, out = new Array(p.length);
+  for (let i = 0; i < p.length; i += 3) {
+    out[i] = c * p[i] - s * p[i + 1];
+    out[i + 1] = s * p[i] + c * p[i + 1];
+    out[i + 2] = p[i + 2];
+  }
+  return { positions: out, indices: mesh.indices };
+}
+
+test('#33 regression (defect 7): symmetric cube → proper orthonormal frame, no throw [Golub & Van Loan]', () => {
+  const cube = boxMeshCentered(20, 20, 20); // three equal covariance eigenvalues
+  const R = __test.eigvecs3sym(__test.covariance3(cube.positions)); // row-major 3×3
+  const row = (i) => [R[i * 3], R[i * 3 + 1], R[i * 3 + 2]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  for (let i = 0; i < 3; i++) assert.ok(Math.abs(dot(row(i), row(i)) - 1) < 1e-9, `axis ${i} is a unit vector`);
+  assert.ok(Math.abs(dot(row(0), row(1))) < 1e-9 && Math.abs(dot(row(0), row(2))) < 1e-9 &&
+    Math.abs(dot(row(1), row(2))) < 1e-9, 'principal axes are mutually orthogonal');
+  const det = R[0] * (R[4] * R[8] - R[5] * R[7]) - R[1] * (R[3] * R[8] - R[5] * R[6]) + R[2] * (R[3] * R[7] - R[4] * R[6]);
+  assert.ok(Math.abs(Math.abs(det) - 1) < 1e-9, `|det| = 1 → non-singular frame (was det≈0 before the fix); got ${det}`);
+  const sim = __test.shapeSimilarityConfirm(cube, cube, null);
+  assert.ok(sim > 0.95, `cube self-similarity ≈ 1 (got ${sim}); the confirm used to THROW and abort the whole scan`);
+});
+
+test('#33 regression (defect 8): in-plane-rotated square prism still confirms as a duplicate [Osada D2 + PCA sweep]', () => {
+  const prism = boxMeshCentered(20, 20, 60);                  // 4-fold cross-section → two equal eigenvalues
+  const rotated = rotateMeshZ(prism, 37 * Math.PI / 180);      // arbitrary in-plane rotation about the long axis
+  const sim = __test.shapeSimilarityConfirm(prism, rotated, null);
+  assert.ok(sim >= CONFIRM_SHAPE_SIMILARITY,
+    `rotated duplicate must confirm ≥ ${CONFIRM_SHAPE_SIMILARITY} (got ${sim}); 90°-quantized sign-flips alone false-negatived it`);
+  const different = boxMeshCentered(20, 40, 60);              // genuinely different proportions
+  const simDiff = __test.shapeSimilarityConfirm(prism, different, null);
+  assert.ok(simDiff < sim, `discrimination preserved: distinct block (${simDiff}) scores below the true duplicate (${sim})`);
+});
+
+test('#33 regression (defect 9): findSimilar is exact (full scan ≤ EXACT_SCAN_MAX) — equals brute-force NN', () => {
+  const specs = [];
+  for (let i = 0; i < 30; i++) {
+    specs.push({ partNumber: `B-${i}`, ...boxMeshCentered(10 + i, 20 + (i % 5) * 3, 30 + (i % 7) * 2) });
+  }
+  const index = indexVault(specs, null, { seed: 12345 });
+  const target = 17;
+  const query = computeFingerprint(
+    { ...boxMeshCentered(10 + target, 20 + (target % 5) * 3, 30 + (target % 7) * 2) }, null, { seed: 12345 });
+  // Ground truth: exact argmin over the FULL descriptor (the NN the prune must not drop).
+  let bruteIdx = -1, bruteBest = Infinity;
+  index.entries.forEach((e, i) => {
+    const d = descriptorDistance(query, e.descriptor);
+    if (d < bruteBest) { bruteBest = d; bruteIdx = i; }
+  });
+  const top = findSimilar(query, 1, index, null);
+  assert.equal(top[0].part.partNumber, index.entries[bruteIdx].part.partNumber,
+    'findSimilar #1 must equal the brute-force full-descriptor nearest neighbour');
+  assert.equal(top[0].part.partNumber, `B-${target}`, 'and that NN is the exact copy');
+});

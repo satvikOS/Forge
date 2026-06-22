@@ -550,15 +550,22 @@ export function findSimilar(query, k, index, forge) {
   const n = index.entries.length;
   if (n === 0) return [];
 
-  // Candidate pruning over the cheap global subspace, then exact re-rank. We
-  // over-fetch candidates (a multiple of k) so the kd prune never starves the
-  // exact stage; for small vaults this collapses to a full scan.
+  // Candidate selection. The kd-tree prunes over the cheap GLOBAL subspace only,
+  // but the final rank uses the FULL descriptor (D2 histogram dominant), so a
+  // global-subspace prune can drop the true full-descriptor nearest neighbour.
+  // To stay recall-correct we do an EXACT full scan for any vault up to
+  // EXACT_SCAN_MAX (a descriptorDistance is a histogram L1 + a few scalars —
+  // sub-millisecond even for thousands of parts). Only above that do we prune,
+  // and then we over-fetch a generous multiple so the miss rate is tiny. The
+  // residual approximation (a global-subspace prune is not provably exact) is
+  // confined to very large vaults and surfaced here rather than hidden.
+  const EXACT_SCAN_MAX = 4096;
   let candidateIdx;
-  const want = Math.min(n, Math.max(k * 4, 16));
-  if (index.kd && want < n) {
+  const want = Math.min(n, Math.max(k * 8, 128));
+  if (index.kd && n > EXACT_SCAN_MAX && want < n) {
     candidateIdx = kdNearest(index.kd, globalVec(qDesc), want);
   } else {
-    candidateIdx = index.entries.map((_, i) => i);
+    candidateIdx = index.entries.map((_, i) => i); // exact full scan
   }
 
   const scored = candidateIdx.map((i) => {
@@ -612,21 +619,81 @@ function shapeSimilarityConfirm(bodyA, bodyB, forge, opts = {}) {
   // kernel-truth volume ratio — the IoU ceiling once surfaces coincide.
   const volRatio = Math.min(ma.volume, mb.volume) / Math.max(ma.volume, mb.volume || 1);
 
-  let best = -1;
-  for (const flip of SIGN_FLIPS) {
-    const Bpos = applyVertexSignFlip(Braw.positions, flip);
+  // Rotational degeneracy: a part with two near-equal covariance eigenvalues
+  // (square prism, hex bolt, any regular-polygon extrusion) has an AMBIGUOUS
+  // in-plane orientation that the 4 discrete sign-flips (90°-quantized) cannot
+  // align. Detect the degenerate axis and SWEEP the in-plane angle about it,
+  // coarse-then-fine, so a true duplicate rotated within the degenerate plane is
+  // not a false negative. Non-degenerate parts skip the sweep (single angle).
+  const degAxis = sharedDegenerateAxis(ma.positions, mb.positions);
+  const evalSim = (Bpos) => {
     const ptsB = sampleSurface(Bpos, Braw.indices, SAMPLES, makeRng(seed ^ 0x55));
-    // surface F1 via point-to-TRIANGLE-SOUP distance (both directions).
     const recall    = meshMatchedFraction(ptsA, Bpos, Braw.indices, tol); // A→B surface
     const precision = meshMatchedFraction(ptsB, A.positions, A.indices, tol); // B→A surface
     const overlap   = Math.min(recall, precision); // conservative surface coincidence
     const f1 = (precision + recall) > 0 ? (2 * precision * recall) / (precision + recall) : 0;
-    // volume IoU: kernel volume ratio attenuated by how coincident the surfaces are.
-    const iou = volRatio * overlap;
-    const sim = 0.5 * (f1 + iou);
+    const iou = volRatio * overlap; // kernel volume ratio attenuated by surface coincidence
+    return 0.5 * (f1 + iou);
+  };
+  const bestOverFlips = (posSet) => {
+    let b = -1;
+    for (const flip of SIGN_FLIPS) {
+      const sim = evalSim(applyVertexSignFlip(posSet, flip));
+      if (sim > b) b = sim;
+    }
+    return b;
+  };
+
+  if (degAxis < 0) return bestOverFlips(Braw.positions); // no in-plane ambiguity
+
+  // Coarse sweep over a full turn, then refine around the best angle.
+  let best = -1, bestTheta = 0;
+  for (let i = 0; i < 12; i++) {
+    const theta = (i / 12) * 2 * Math.PI;
+    const sim = bestOverFlips(rotateAboutAxis(Braw.positions, degAxis, theta));
+    if (sim > best) { best = sim; bestTheta = theta; }
+  }
+  for (let i = -5; i <= 5; i++) {
+    if (i === 0) continue;
+    const theta = bestTheta + (i / 5) * (Math.PI / 6); // ±30° in 6° steps
+    const sim = bestOverFlips(rotateAboutAxis(Braw.positions, degAxis, theta));
     if (sim > best) best = sim;
   }
   return best;
+}
+
+/** Unique principal-axis index (0|1|2) when a part has two near-equal covariance
+ *  eigenvalues, in the aligned-frame order; -1 if neither part is degenerate.
+ *  Three-equal (cube/sphere-like) → best-effort sweep about axis 2. */
+function sharedDegenerateAxis(posA, posB) {
+  const a = degenerateUniqueAxis(eigvals3sym(covariance3(posA)));
+  if (a !== -1) return a === 'all' ? 2 : a;
+  const b = degenerateUniqueAxis(eigvals3sym(covariance3(posB)));
+  if (b !== -1) return b === 'all' ? 2 : b;
+  return -1;
+}
+function degenerateUniqueAxis(ev) {
+  const rel = (x, y) => Math.abs(x - y) / Math.max(Math.abs(x), Math.abs(y), 1e-12);
+  const TH = 1e-2;
+  const eq01 = rel(ev[0], ev[1]) < TH, eq12 = rel(ev[1], ev[2]) < TH, eq02 = rel(ev[0], ev[2]) < TH;
+  if (eq01 && eq12) return 'all';
+  if (eq01) return 2;   // axes 0,1 equal → unique axis is 2
+  if (eq12) return 0;   // axes 1,2 equal → unique axis is 0
+  if (eq02) return 1;   // axes 0,2 equal → unique axis is 1
+  return -1;
+}
+/** Rotate a flat XYZ array by `theta` about aligned-frame axis (0|1|2). */
+function rotateAboutAxis(positions, axis, theta) {
+  const c = Math.cos(theta), s = Math.sin(theta);
+  const i1 = (axis + 1) % 3, i2 = (axis + 2) % 3;
+  const out = new Float64Array(positions.length);
+  for (let i = 0; i < positions.length; i += 3) {
+    const a = positions[i + i1], b = positions[i + i2];
+    out[i + axis] = positions[i + axis];
+    out[i + i1] = c * a - s * b;
+    out[i + i2] = s * a + c * b;
+  }
+  return out;
 }
 
 /** Tessellate-aligned mesh: vertices translated to COM + rotated into PCA axes. */
@@ -763,9 +830,38 @@ function ortho(rows) {
       const d = rows[i][0] * rows[j][0] + rows[i][1] * rows[j][1] + rows[i][2] * rows[j][2];
       rows[i][0] -= d * rows[j][0]; rows[i][1] -= d * rows[j][1]; rows[i][2] -= d * rows[j][2];
     }
-    const nn = norm(rows[i]) || 1;
+    let nn = norm(rows[i]);
+    if (nn < 1e-9) {
+      // Degenerate/collapsed principal axis (a repeated covariance eigenvalue):
+      // nullspaceVec returned the same vector for the degenerate eigenvalues, so
+      // Gram-Schmidt zeroed this row. Replace it with a unit vector orthogonal to
+      // the already-fixed axes so the frame stays a PROPER orthonormal basis.
+      // Without this a fully-symmetric part (cube / equal-extent block) produces a
+      // singular (det=0) rotation that makes shapeSimilarityConfirm throw and
+      // aborts the entire find-duplicates scan.
+      const v = orthogonalComplement(rows, i);
+      rows[i][0] = v[0]; rows[i][1] = v[1]; rows[i][2] = v[2];
+      nn = norm(rows[i]) || 1;
+    }
     rows[i][0] /= nn; rows[i][1] /= nn; rows[i][2] /= nn;
   }
+}
+/** A unit vector orthogonal to the already-orthonormal rows[0..i-1]. */
+function orthogonalComplement(rows, i) {
+  if (i >= 2) {
+    const c = cross(rows[0], rows[1]);
+    if (norm(c) > 1e-9) return c;
+  }
+  const CAN = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  for (const e of CAN) {
+    let vx = e[0], vy = e[1], vz = e[2];
+    for (let j = 0; j < i; j++) {
+      const d = vx * rows[j][0] + vy * rows[j][1] + vz * rows[j][2];
+      vx -= d * rows[j][0]; vy -= d * rows[j][1]; vz -= d * rows[j][2];
+    }
+    if (Math.hypot(vx, vy, vz) > 1e-6) return [vx, vy, vz];
+  }
+  return [1, 0, 0];
 }
 
 function bboxDiag(pts) {
