@@ -2537,34 +2537,64 @@ export const FORGE_TOOLS = [
       };
     } },
 
-  // Parametric regenerate — rebuild the part handle from its {kind,params}
-  // recipe with `changes` applied, then regenerate the drawing. Proves the
-  // dimension VALUES re-derive from new geometry, not a stale manual sheet.
+  // Parametric regenerate (Task #27 recipe path + Task #45 (E) arbitrary
+  // part). Two modes:
+  //   1) RECIPE   — rebuild the part handle from its {kind,params} recipe
+  //      with `changes` applied, then regenerate the drawing.
+  //   2) ARBITRARY — pass a live `shape` handle (any geometry, no recipe);
+  //      the whole sheet — views, dims, sections, details, balloons — reflows
+  //      from the new geometry. `sections`/`details`/`assembly` carry the
+  //      sheet composition so the SAME composition re-emits against the new
+  //      part. Proves the dimension VALUES re-derive from geometry, not a
+  //      stale manual sheet (ISO 129-1 — dims track the model).
   { name: 'drawing.regenerate', discipline: 'drawing', produces: 'file',
-    description: 'Rebuild a part from its {kind, params} recipe with parameter changes applied, then regenerate its 2D drawing. The views + dimension values reflow from the new geometry.',
+    description: 'Regenerate a part\'s 2D drawing parametrically. Either rebuild from a {kind, params} recipe with `changes` applied, OR re-derive from a live `shape` handle (arbitrary changed part). Views + dimension VALUES + sections + details + balloons all reflow from the new geometry.',
     parameters: {
-      kind:    P('enum',   'box|cylinder|plate-hole', { required: true }),
-      params:  P('object', 'base recipe params, e.g. {dx,dy,dz,holeR}', { required: true }),
+      kind:    P('enum',   'box|cylinder|plate-hole (recipe mode)', { default: null }),
+      params:  P('object', 'base recipe params, e.g. {dx,dy,dz,holeR}', { default: null }),
       changes: P('object', 'param overrides, e.g. {dx:120}', { default: {} }),
+      shape:   P('uint',   'live changed shape handle (arbitrary-part mode)', { default: null }),
       bodyId:  P('string', 'body id for PMI lookup', { default: null }),
       sheet:   P('enum',   'A4|A3|A2|A1|A0|A|B|C|D|E', { default: 'A3' }),
       pmi:     P('boolean','place GD&T from PMI', { default: true }),
+      sections: P('array', 'section specs [{plane:{origin,normal},parentDir?,direction?}]', { default: null }),
+      details: P('array',  'detail specs [{sourceDir,center:[x,y],radius,scale?}]', { default: null }),
+      assembly: P('array', 'BOM/balloon instances [{partNumber,qty?,anchor?,view?}]', { default: null }),
       dxf:     P('boolean','also emit a DXF artifact', { default: false }),
     },
-    run: ({ kind, params, changes, bodyId, sheet, pmi, dxf }, forge) => {
+    run: ({ kind, params, changes, shape, bodyId, sheet, pmi, sections, details, assembly, dxf }, forge) => {
       setAutoDrawingKernel(forge);
-      const d = regenerateDrawing(
-        { shape: null, bodyId: bodyId ?? null, kind, params: params || {} },
-        changes || {},
-        { sheet: sheet || 'A3', pmi: pmi !== false, dxf: !!dxf },
-      );
+      const opts = {
+        sheet: sheet || 'A3', pmi: pmi !== false, dxf: !!dxf,
+        ...(Array.isArray(sections) ? { sections } : {}),
+        ...(Array.isArray(details) ? { details } : {}),
+        ...(Array.isArray(assembly) ? { assembly } : {}),
+      };
+      let d;
+      if (kind) {
+        // Recipe mode.
+        d = regenerateDrawing(
+          { shape: null, bodyId: bodyId ?? null, kind, params: params || {} },
+          changes || {}, opts,
+        );
+      } else if (shape != null) {
+        // Arbitrary-part mode — live handle, no recipe.
+        d = regenerateDrawing({ shape, bodyId: bodyId ?? null }, {}, opts);
+      } else {
+        throw new Error('drawing.regenerate: provide either {kind, params} or a live `shape` handle');
+      }
       return {
         op: 'drawing-regenerate',
-        kind,
+        mode: kind ? 'recipe' : 'arbitrary',
+        kind: kind || null,
         changes: changes || {},
         views: d.views.length,
         dimensions: d.dimensions.length,
         gdt: d.gdt.length,
+        sections: d.sections.length,
+        details: d.details.length,
+        balloons: d.balloons.length,
+        bom: d.bom.length,
         sheet: sheet || 'A3',
         svgLength: d.svg.length,
         // Echo the reflowed dimension values so a caller can confirm the
@@ -2572,6 +2602,123 @@ export const FORGE_TOOLS = [
         dimValues: d.dimensions.map((x) => ({ label: x.label, value: x.value, text: x.text })),
         svg: d.svg,
         dxf: d.dxf || null,
+      };
+    } },
+
+  // Task #45 (A) — SECTION VIEW. Cut a part with a plane and place a real
+  // planar-section view (ISO 128-50 hatching: uniform spacing scaled to the
+  // sectioned area; distinct angles per body in a multi-body cut) with the
+  // ASME Y14.2 'SECTION A-A' cutting-plane callout on the parent view.
+  { name: 'drawing.section-view', discipline: 'drawing', produces: 'file',
+    description: 'Generate a 2D drawing with an auto-placed SECTION view: a real planar cut + ISO 128-50 hatching (uniform area-scaled spacing; distinct angles per body in a multi-body cut) + the ASME Y14.2 cutting-plane line and SECTION A-A label on the parent view.',
+    parameters: {
+      shape:       P('uint',   'part shape handle', { required: true }),
+      origin:      P('array',  'cutting-plane origin [x,y,z]', { required: true }),
+      normal:      P('array',  'cutting-plane normal [x,y,z]', { required: true }),
+      direction:   P('enum',   'section projection direction front|top|right', { default: 'front' }),
+      parentDir:   P('enum',   'view to draw the cutting-plane line on', { default: 'front' }),
+      bodies:      P('array',  'multi-body section: [shapeHandle,…] for distinct hatch angles', { default: null }),
+      hatchSpacing: P('number','override hatch spacing in mm', { default: null }),
+      hatchAngle:  P('number', 'override base hatch angle in deg', { default: null }),
+      bodyId:      P('string', 'body id for PMI lookup', { default: null }),
+      sheet:       P('enum',   'A4|A3|A2|A1|A0|A|B|C|D|E', { default: 'A3' }),
+      pmi:         P('boolean','place GD&T from PMI', { default: false }),
+    },
+    run: ({ shape, origin, normal, direction, parentDir, bodies, hatchSpacing, hatchAngle, bodyId, sheet, pmi }, forge) => {
+      setAutoDrawingKernel(forge);
+      const sectionSpec = {
+        plane: { origin, normal },
+        direction: direction || 'front',
+        parentDir: parentDir || 'front',
+      };
+      if (hatchSpacing != null) sectionSpec.hatchSpacing = hatchSpacing;
+      if (hatchAngle != null) sectionSpec.hatchAngle = hatchAngle;
+      if (Array.isArray(bodies) && bodies.length) {
+        sectionSpec.bodies = bodies.map((h) => ({ shape: h }));
+      }
+      const d = generateDrawing(
+        { shape, bodyId: bodyId ?? null },
+        { sheet: sheet || 'A3', pmi: !!pmi, sections: [sectionSpec] },
+      );
+      const sec = d.sections[0] || null;
+      return {
+        op: 'drawing-section',
+        sectionLetter: sec ? sec.letter : null,
+        label: sec ? sec.label : null,
+        parentDir: sec ? sec.parentDir : (parentDir || 'front'),
+        // Per-body hatch report: { body, angleDeg, spacing, count }.
+        hatch: sec ? sec.hatch : [],
+        views: d.views.length,
+        sheet: sheet || 'A3',
+        svgLength: d.svg.length,
+        svg: d.svg,
+      };
+    } },
+
+  // Task #45 (B) — DETAIL VIEW. Draw a dashed focus circle + letter callout
+  // on a source view and emit an enlarged 'DETAIL A SCALE 2:1' view per
+  // ASME Y14.3.
+  { name: 'drawing.detail-view', discipline: 'drawing', produces: 'file',
+    description: 'Generate a 2D drawing with an auto-placed DETAIL view: a dashed focus circle + letter callout on the source view, plus an enlarged "DETAIL A (2:1)" view at the labeled scale (ASME Y14.3).',
+    parameters: {
+      shape:     P('uint',   'part shape handle', { required: true }),
+      sourceDir: P('enum',   'source view the detail circle is drawn on front|top|right', { default: 'front' }),
+      center:    P('array',  'focus-circle centre [x,y] in the source view local coords', { required: true }),
+      radius:    P('number', 'focus-circle radius (model mm)', { required: true }),
+      scale:     P('number', 'enlargement factor, e.g. 2 for 2:1', { default: 2 }),
+      bodyId:    P('string', 'body id for PMI lookup', { default: null }),
+      sheet:     P('enum',   'A4|A3|A2|A1|A0|A|B|C|D|E', { default: 'A3' }),
+      pmi:       P('boolean','place GD&T from PMI', { default: false }),
+    },
+    run: ({ shape, sourceDir, center, radius, scale, bodyId, sheet, pmi }, forge) => {
+      setAutoDrawingKernel(forge);
+      const d = generateDrawing(
+        { shape, bodyId: bodyId ?? null },
+        { sheet: sheet || 'A3', pmi: !!pmi,
+          details: [{ sourceDir: sourceDir || 'front', center, radius, scale: scale || 2 }] },
+      );
+      const det = d.details[0] || null;
+      return {
+        op: 'drawing-detail',
+        detailLetter: det ? det.letter : null,
+        label: det ? det.label : null,
+        sourceDir: det ? det.sourceDir : (sourceDir || 'front'),
+        scale: det ? det.scale : (scale || 2),
+        views: d.views.length,
+        sheet: sheet || 'A3',
+        svgLength: d.svg.length,
+        svg: d.svg,
+      };
+    } },
+
+  // Task #45 (D) — BALLOON ↔ BOM. Build a BOM (ASME Y14.34) from an
+  // assembly instance list and place item-numbered balloons 1:1 with the
+  // BOM rows, each with a leader to a part instance.
+  { name: 'drawing.balloon-bom', discipline: 'drawing', produces: 'file',
+    description: 'Generate an assembly drawing with a BOM table (ASME Y14.34) and item-numbered balloons mapped 1:1 to the BOM rows, each with a leader line to a part instance.',
+    parameters: {
+      shape:    P('uint',  'assembly shape handle (for the views)', { required: true }),
+      assembly: P('array', 'instances [{partNumber,qty?,description?,anchor?:[x,y,z],view?}]', { required: true }),
+      bodyId:   P('string','body id for PMI lookup', { default: null }),
+      sheet:    P('enum',  'A4|A3|A2|A1|A0|A|B|C|D|E', { default: 'A3' }),
+    },
+    run: ({ shape, assembly, bodyId, sheet }, forge) => {
+      setAutoDrawingKernel(forge);
+      const d = generateDrawing(
+        { shape, bodyId: bodyId ?? null },
+        { sheet: sheet || 'A3', pmi: false, assembly: assembly || [] },
+      );
+      return {
+        op: 'drawing-bom',
+        rows: d.bom,
+        balloons: d.balloons.map((b) => ({ item: b.item, partNumber: b.partNumber, view: b.view })),
+        // Confirm the 1:1 invariant in the response.
+        itemNumbers: d.bom.map((r) => r.item),
+        balloonNumbers: d.balloons.map((b) => b.item),
+        views: d.views.length,
+        sheet: sheet || 'A3',
+        svgLength: d.svg.length,
+        svg: d.svg,
       };
     } },
 

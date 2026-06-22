@@ -1,5 +1,5 @@
 /**
- * ArchDisc Forge — AUTO-2D-DRAWING engine (Task #27).
+ * ArchDisc Forge — AUTO-2D-DRAWING engine (Task #27 + Task #45).
  *
  * The #3 most-hated, least-automated MCAD workflow: a 2D drawing that
  * (a) lays out the standard front / top / right / iso HLR views, (b)
@@ -9,6 +9,25 @@
  * (e) REGENERATES the whole drawing (views + dimension VALUES) when a
  * part parameter changes, because every number is re-derived from the
  * live kernel geometry rather than typed in by hand.
+ *
+ * Task #45 COMPLETES the engine (extends, does not duplicate #27):
+ *   (A) sectionView()   — auto-places a real planar cut + ISO 128-50
+ *       hatching (uniform spacing scaled to the sectioned area; distinct
+ *       angles 45/135/30… per body in a multi-body section so adjacent
+ *       solids are visually separable) + the ASME Y14.2 cutting-plane
+ *       chain-line + 'SECTION A-A' label on the parent view.
+ *   (B) detailView()    — the dashed focus circle + letter callout on the
+ *       source view + an enlarged 'DETAIL B  SCALE 2:1' view (ASME Y14.3).
+ *   (C) PMI edge anchors — every FCF/dimension now lands on a SPECIFIC
+ *       projected VISIBLE model edge/vertex (anchor id + 2D landing point),
+ *       chosen by geometry; an FCF never floats free and never attaches to
+ *       a hidden line (ISO 129-1 / ASME Y14.5). Hole position FCFs also get
+ *       ISO-128 centre lines (long-short chain).
+ *   (D) balloon↔BOM     — each balloon item number maps 1:1 to a BOM table
+ *       row (ASME Y14.34) with a real leader to the part instance.
+ *   (E) regenerate()    — re-derives views/dims/sections/details/balloons
+ *       for an ARBITRARY changed part (a live kernel handle — no recipe
+ *       required), so the whole sheet reflows parametrically.
  *
  * Design — REUSE, don't reinvent:
  *   • Standard views come from the kernel HLR primitive
@@ -41,8 +60,11 @@
 import {
   ForgeDrawing,
   DrawingView,
+  SectionView,
+  DetailView,
   DimensionLinear,
   DimensionRadial,
+  Balloon,
   getSheetMm,
   _setForgeKernel,
 } from '../../kernel/forge/Drawings.js';
@@ -80,6 +102,27 @@ function kernel() {
 // → W,H,D are recovered from the 2D bboxes of any two ortho views.
 export const ORTHO_DIRS = Object.freeze(['front', 'top', 'right']);
 export const ALL_DIRS = Object.freeze(['front', 'top', 'right', 'iso']);
+
+// ── 3D → view-local 2D projection (the EXACT kernel convention) ─────
+// Verified against `forge.drawings.projectView` bboxes of a known box:
+//   front bbox = {x:[0,80], y:[-12,0]}  → screenX= worldX, screenY=-worldZ
+//   top   bbox = {x:[0,80], y:[0,60]}   → screenX= worldX, screenY= worldY
+//   right bbox = {x:[0,60], y:[-12,0]}  → screenX= worldY, screenY=-worldZ
+// (the right-hand-rule down-Z sign is why front/right minY are negative).
+// Used to land PMI leaders + balloon arrows on the SAME 2D coordinates the
+// HLR projection produced — so an anchor lands ON a real projected edge,
+// never a guessed bbox corner (Task #45 requirement C / ISO 129-1).
+export function project3dToView(p3, dir) {
+  const x = Number(p3[0]) || 0, y = Number(p3[1]) || 0, z = Number(p3[2]) || 0;
+  switch (dir) {
+    case 'front': return [x, -z];
+    case 'top':   return [x, y];
+    case 'right': return [y, -z];
+    // iso has no closed-form 2D anchor mapping we rely on here; callers
+    // never anchor PMI to the pictorial iso view (it carries no dims).
+    default:      return [x, -z];
+  }
+}
 
 // ── V2 → flat-packed projection adapter ─────────────────────────────
 //
@@ -431,12 +474,20 @@ export function autoDimension(views) {
  * FCF string is rendered by the canonical `annotationToText(a)` (e.g.
  * `[⊕|⌀0.1|A]`). The referenced datums get datum-flag glyphs.
  *
- * HONEST SCOPE: PMI→view-feature binding is anchor/faceTag heuristic
- * (exact subshape↔view-edge binding is a follow-up). We place on the
- * front view when no anchor hint resolves — never fabricate a feature.
+ * Task #45 (C) — EDGE-ANCHORED PMI (ISO 129-1 / ASME Y14.5):
+ *   Every FCF carries an `anchor` to a SPECIFIC projected VISIBLE model
+ *   edge or vertex. The annotation's 3D point (`a.anchor3d`/`a.anchor`, or
+ *   — for a positional FCF with no explicit anchor — the relevant detected
+ *   hole centre) is projected into each candidate view with the EXACT HLR
+ *   convention (`project3dToView`); the view + 2D landing point are then
+ *   chosen as the nearest VISIBLE-edge point (`nearestVisibleEdgePoint`).
+ *   The leader is drawn to THAT point — never a guessed bbox corner, and
+ *   never a hidden line (we scan `visibleEdges` only). The chosen view is
+ *   decided by the geometry, not hardcoded to 'front'.
  *
- * @returns {Array} `{id, characteristic, fcf, datums, view}` records;
- *   each is also pushed onto the view's `decorations` for SVG emission.
+ * @returns {Array} `{id, characteristic, fcf, datums, view, anchorEdge,
+ *   anchorPoint}` records; each is also pushed onto the view's
+ *   `decorations` for SVG emission.
  */
 export function placeGdtFromPmi(views, bodyId, opts = {}) {
   const out = [];
@@ -449,18 +500,21 @@ export function placeGdtFromPmi(views, bodyId, opts = {}) {
   // Stack FCFs on the chosen view so multiple frames never overlap.
   const stackY = new Map();
   for (const a of gdt) {
-    const dir = pickViewForAnnotation(a, views, opts);
-    const view = views[dir] || views.front || firstView(views);
-    if (!view) continue;
-    const fcf = annotationToText(a);    // e.g. "[⊕|⌀0.1|A]"
     const p = a.payload || {};
     const datums = (p.datums || []).map((d) => d.ref).filter(Boolean);
+    const fcf = annotationToText(a);    // e.g. "[⊕|⌀0.1|A|B]"
 
-    // Place the FCF box just below-right of the view's bbox, stacked.
+    // (C) Resolve a REAL edge anchor by geometry.
+    const landing = resolveEdgeAnchor(a, views, opts);
+    const dir = landing.dir;
+    const view = views[dir] || views.front || firstView(views);
+    if (!view) continue;
     const bb = view.bbox || { minX: 0, minY: 0, maxX: 10, maxY: 10 };
     const key = dir;
     const idx = stackY.get(key) || 0;
     stackY.set(key, idx + 1);
+    // The FCF box sits OUTSIDE the silhouette (below the view), offset and
+    // stacked; a real leader connects it to the landed edge point.
     const fx = bb.minX;
     const fy = bb.minY - 14 - idx * 7;   // model coords; renderer flips Y
 
@@ -471,29 +525,163 @@ export function placeGdtFromPmi(views, bodyId, opts = {}) {
       x: fx,
       y: fy,
       datums,
-      anchorX: a.anchor && Number.isFinite(a.anchor[0]) ? a.anchor[0] : (bb.minX + bb.maxX) / 2,
-      anchorY: a.anchor && Number.isFinite(a.anchor[1]) ? a.anchor[1] : bb.minY,
+      anchorX: landing.point[0],
+      anchorY: landing.point[1],
     });
-    out.push({ id: a.id, characteristic: p.characteristic, fcf, datums, view: dir });
+    out.push({
+      id: a.id,
+      characteristic: p.characteristic,
+      fcf,
+      datums,
+      view: dir,
+      // Edge-anchor provenance — proves the leader is bound to real
+      // VISIBLE geometry, not floating (Task #45 (C) contract).
+      anchorEdge: landing.edgeIndex,
+      anchorKind: landing.kind,          // 'edge' | 'hole-center'
+      anchorPoint: [landing.point[0], landing.point[1]],
+      anchorOnHidden: false,             // by construction: we scan visibleEdges only
+    });
   }
   return out;
 }
 
-function pickViewForAnnotation(a, views, opts) {
-  // Explicit per-annotation hint wins.
-  if (a && typeof a.drawingView === 'string' && views[a.drawingView]) return a.drawingView;
-  if (a && typeof a.viewId === 'string' && views[a.viewId]) return a.viewId;
-  // faceTag/anchor heuristics could map to a specific ortho; until exact
-  // subshape↔view binding lands, prefer the front view (most face-on).
-  if (views.front) return 'front';
-  if (views.top) return 'top';
-  if (views.right) return 'right';
-  return Object.keys(views)[0];
+// (C) Resolve a PMI annotation to a real projected VISIBLE edge/vertex.
+//   Priority:
+//     1) explicit per-annotation view hint (drawingView/viewId) restricts
+//        the candidate view; otherwise all ortho views are candidates.
+//     2) a 3D anchor (a.anchor3d, or a.anchor when it is a 3-vector) is
+//        projected into each candidate view; the nearest VISIBLE-edge point
+//        across all candidates wins.
+//     3) a positional/coaxiality FCF with no 3D anchor binds to the nearest
+//        detected HOLE CENTRE (its centre line) in a candidate view — a
+//        position tolerance references a feature axis, so this is the
+//        engineering-correct anchor.
+//     4) fallback: the nearest visible-edge point to the view-bbox centre
+//        (still a REAL edge, never a bare corner).
+function resolveEdgeAnchor(a, views, opts) {
+  const hint = (a && typeof a.drawingView === 'string' && views[a.drawingView]) ? a.drawingView
+    : (a && typeof a.viewId === 'string' && views[a.viewId]) ? a.viewId
+    : null;
+  const dirs = hint ? [hint] : ORTHO_DIRS.filter((d) => views[d]);
+
+  // (2) explicit 3D anchor.
+  const anchor3d = pick3dAnchor(a);
+  if (anchor3d) {
+    let best = null;
+    for (const dir of dirs) {
+      const v2 = views[dir] && views[dir]._v2;
+      if (!v2) continue;
+      const p2 = project3dToView(anchor3d, dir);
+      const hit = nearestVisibleEdgePoint(p2, v2);
+      if (hit && (!best || hit.dist < best.dist)) {
+        best = { dir, point: hit.point, edgeIndex: hit.edgeIndex, dist: hit.dist, kind: 'edge' };
+      }
+    }
+    if (best) return best;
+  }
+
+  // (3) positional family → bind to a detected hole centre (feature axis).
+  const ch = a && a.payload && a.payload.characteristic;
+  const positional = ch === 'position' || ch === 'concentricity'
+    || ch === 'symmetry' || ch === 'coaxiality' || ch === 'circularRunout'
+    || ch === 'totalRunout' || ch === 'runout';
+  if (positional) {
+    for (const dir of dirs) {
+      const v2 = views[dir] && views[dir]._v2;
+      if (!v2) continue;
+      const holes = detectHoles(v2);
+      if (holes.length) {
+        const h = holes[0];
+        return { dir, point: [h.cx, h.cy], edgeIndex: h.edgeIndex, dist: 0, kind: 'hole-center' };
+      }
+    }
+  }
+
+  // (4) fallback — nearest visible edge to the candidate view's bbox centre.
+  for (const dir of dirs) {
+    const v2 = views[dir] && views[dir]._v2;
+    if (!v2) continue;
+    const bb = bboxOfView(v2);
+    if (!bb) continue;
+    const c = [(bb.minX + bb.maxX) / 2, (bb.minY + bb.maxY) / 2];
+    const hit = nearestVisibleEdgePoint(c, v2);
+    if (hit) return { dir, point: hit.point, edgeIndex: hit.edgeIndex, dist: hit.dist, kind: 'edge' };
+  }
+  // Absolute last resort (degenerate view): front bbox min, still a coord.
+  const fb = views.front ? bboxOfView(views.front._v2) : null;
+  return { dir: views.front ? 'front' : (Object.keys(views)[0] || 'front'),
+           point: fb ? [fb.minX, fb.minY] : [0, 0], edgeIndex: -1, dist: Infinity, kind: 'edge' };
+}
+
+// Extract a 3D anchor from an annotation if one is present.
+//   a.anchor3d = [x,y,z]  — preferred (set by the PMI authoring UI).
+//   a.anchor   = [x,y,z]  — accepted when it is a 3-vector (legacy callers
+//                 sometimes stored sheet 2D here, so we require length 3).
+function pick3dAnchor(a) {
+  if (!a) return null;
+  if (Array.isArray(a.anchor3d) && a.anchor3d.length >= 3
+      && a.anchor3d.every((n) => Number.isFinite(n))) return a.anchor3d;
+  if (Array.isArray(a.anchor) && a.anchor.length >= 3
+      && a.anchor.every((n) => Number.isFinite(n))) return a.anchor;
+  return null;
+}
+
+// (C) Find the nearest point ON a VISIBLE projected edge to a 2D query
+// point. Returns the closest point (projected onto the nearest segment),
+// the owning visible-edge polyline index, and the distance. HIDDEN edges
+// are intentionally NOT scanned — a dimension/FCF must never anchor to a
+// hidden line (ISO 129-1).
+export function nearestVisibleEdgePoint(p2d, v2) {
+  const edges = (v2 && Array.isArray(v2.visibleEdges)) ? v2.visibleEdges : [];
+  let best = null;
+  for (let ei = 0; ei < edges.length; ei += 1) {
+    const pl = edges[ei];
+    if (!Array.isArray(pl) || pl.length === 0) continue;
+    for (let i = 0; i < pl.length; i += 1) {
+      const a = pl[i];
+      if (!a || !Number.isFinite(a.x) || !Number.isFinite(a.y)) continue;
+      // Vertex distance.
+      const dv = Math.hypot(a.x - p2d[0], a.y - p2d[1]);
+      if (!best || dv < best.dist) best = { point: [a.x, a.y], edgeIndex: ei, dist: dv };
+      // Segment projection (a→b).
+      const b = pl[i + 1];
+      if (!b || !Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
+      const abx = b.x - a.x, aby = b.y - a.y;
+      const len2 = abx * abx + aby * aby;
+      if (len2 < 1e-12) continue;
+      let t = ((p2d[0] - a.x) * abx + (p2d[1] - a.y) * aby) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const qx = a.x + t * abx, qy = a.y + t * aby;
+      const ds = Math.hypot(qx - p2d[0], qy - p2d[1]);
+      if (!best || ds < best.dist) best = { point: [qx, qy], edgeIndex: ei, dist: ds };
+    }
+  }
+  return best;
 }
 
 function firstView(views) {
   for (const dir of ALL_DIRS) if (views[dir]) return views[dir];
   return null;
+}
+
+// ── ISO 128 centre lines (long-short chain) for detected holes ───────
+// A position FCF references a feature AXIS, so the hole gets a centre mark
+// (ISO 128-24 long-short-long chain) crossing its centre. We emit it as a
+// view decoration so the SVG splicer draws it with the others.
+export function placeCenterMarks(views) {
+  const out = [];
+  for (const dir of ORTHO_DIRS) {
+    const view = views[dir];
+    if (!view || !view._v2) continue;
+    const holes = detectHoles(view._v2);
+    if (!holes.length) continue;
+    view.decorations = view.decorations || [];
+    for (const h of holes) {
+      view.decorations.push({ kind: 'center-mark', cx: h.cx, cy: h.cy, r: h.radius });
+      out.push({ view: dir, cx: h.cx, cy: h.cy, r: h.radius });
+    }
+  }
+  return out;
 }
 
 // ── SVG decoration emission for GD&T (spliced into the sheet SVG) ────
@@ -505,16 +693,38 @@ function firstView(views) {
 // no edits to shared code) while still producing ONE conformant sheet.
 function gdtDecorationsSvg(views) {
   let frames = '';
+  let centers = '';
   for (const dir of ALL_DIRS) {
     const view = views[dir];
     if (!view || !Array.isArray(view.decorations)) continue;
     for (const dec of view.decorations) {
-      if (dec.kind !== 'gdt-fcf') continue;
-      frames += renderFcfBox(dec, view);
+      if (dec.kind === 'gdt-fcf') frames += renderFcfBox(dec, view);
+      else if (dec.kind === 'center-mark') centers += renderCenterMark(dec, view);
     }
   }
-  if (!frames) return '';
-  return `<g data-label="gdt-pmi">${frames}</g>`;
+  let out = '';
+  if (centers) out += `<g data-label="center-lines">${centers}</g>`;
+  if (frames) out += `<g data-label="gdt-pmi">${frames}</g>`;
+  return out;
+}
+
+// ISO 128-24 centre line — long-short-long chain crossing a hole centre,
+// extending one radius + 2 mm beyond the circle on each axis.
+function renderCenterMark(dec, view) {
+  const ext = dec.r + 2;                 // model mm beyond the circle edge
+  const hMin = toSheet([dec.cx - ext, dec.cy], view);
+  const hMax = toSheet([dec.cx + ext, dec.cy], view);
+  const vMin = toSheet([dec.cx, dec.cy - ext], view);
+  const vMax = toSheet([dec.cx, dec.cy + ext], view);
+  // long-short chain dash: 4mm long, 1mm gap, 1mm short, 1mm gap (ISO 128).
+  const dash = 'stroke-dasharray="4 1 1 1"';
+  let s = `<line x1="${hMin[0].toFixed(2)}" y1="${hMin[1].toFixed(2)}" `
+        + `x2="${hMax[0].toFixed(2)}" y2="${hMax[1].toFixed(2)}" `
+        + `stroke="#000" stroke-width="0.25" ${dash}/>`;
+  s += `<line x1="${vMin[0].toFixed(2)}" y1="${vMin[1].toFixed(2)}" `
+     + `x2="${vMax[0].toFixed(2)}" y2="${vMax[1].toFixed(2)}" `
+     + `stroke="#000" stroke-width="0.25" ${dash}/>`;
+  return s;
 }
 
 // Transform a view-local model point → sheet SVG coords (mirrors the
@@ -574,6 +784,428 @@ function injectGdt(svg, views) {
   return svg.slice(0, close) + gdt + svg.slice(close);
 }
 
+// ════════════════════════════════════════════════════════════════════
+// Task #45 (A) — SECTION VIEWS  (ASME Y14.2 / ISO 128-50)
+// ════════════════════════════════════════════════════════════════════
+//
+// A section reuses the kernel's REAL planar cut: `projectSection` returns
+// `cut` (the heavy section-boundary polylines from solid ∩ plane) and
+// `hatch` (thin lines at the requested angle, UNIFORM spacing — verified
+// against the native kernel: gapRange min==max==spacing, angle exact).
+// We:
+//   • scale the hatch SPACING to the sectioned area (ISO 128-50: denser
+//     hatch on small cut faces, coarser on large ones),
+//   • assign DISTINCT angles per body in a multi-body section so adjacent
+//     solids are visually separable (45 / 135 / 30 / 60 / 15 / 120…),
+//   • draw the cutting-plane chain-line + 'SECTION A-A' on the parent view
+//     (the kernel's `addSectionView` paints the Y14.2 callout),
+//   • pin the section view in a free sheet slot (right of the iso column).
+
+// Cycle of hatch angles for multi-body sections (ISO 128-50 "adjacent
+// parts at different angles"). 45° is the canonical single-body angle.
+export const HATCH_ANGLE_CYCLE = Object.freeze([45, 135, 30, 60, 15, 120, 75, 105]);
+
+// ISO 128-50 area-scaled hatch spacing: spacing = clamp(sqrt(area)/K).
+// Small cut faces get tight hatch (≥1.5 mm), large ones coarser (≤6 mm).
+export function hatchSpacingForArea(bbox) {
+  if (!bbox) return 2.5;
+  const w = Math.max(0, (bbox.maxX - bbox.minX));
+  const h = Math.max(0, (bbox.maxY - bbox.minY));
+  const area = w * h;
+  if (!(area > 0)) return 2.5;
+  const K = 12;
+  const s = Math.sqrt(area) / K;
+  return Math.max(1.5, Math.min(6, s));
+}
+
+/**
+ * (A) Place a section view on a placed-drawing.
+ *
+ * @param {object} placed   the `placeStandardViews` result `{drawing, views, v2}`
+ * @param {object} part     `{ shape }` (single body) OR `{ bodies:[{shape},…] }`
+ *                          for a multi-body section (distinct hatch angles).
+ * @param {object} cuttingPlane  `{ origin:[x,y,z], normal:[x,y,z] }`
+ * @param {object} [opts]
+ *   `parentDir`  view the cutting-plane callout is drawn on (default 'front')
+ *   `direction`  projection direction of the section (default 'front')
+ *   `scale`      section view scale (default the sheet scale)
+ *   `hatchSpacing` override the area-scaled spacing
+ *   `hatchAngle`   override the base angle (single-body)
+ * @returns {{ view:SectionView, letter:string, parentDir:string,
+ *             hatch:Array<{angleDeg, spacing, count}>, extraViews:Array }}
+ */
+export function placeSectionView(placed, part, cuttingPlane, opts = {}) {
+  if (!placed || !placed.drawing) throw new Error('placeSectionView: placed drawing required');
+  if (!cuttingPlane || !Array.isArray(cuttingPlane.origin) || !Array.isArray(cuttingPlane.normal)) {
+    throw new Error('placeSectionView: cuttingPlane {origin:[x,y,z], normal:[x,y,z]} required');
+  }
+  const { drawing, views } = placed;
+  const parentDir = (opts.parentDir && views[opts.parentDir]) ? opts.parentDir : 'front';
+  const parentView = views[parentDir] || views.front || firstView(views);
+  const direction = opts.direction || 'front';
+  const scale = opts.scale || placed.scale || 1;
+
+  // Resolve bodies — single shape or an explicit multi-body list.
+  const bodies = Array.isArray(part && part.bodies) && part.bodies.length
+    ? part.bodies
+    : [{ shape: part.shape }];
+
+  const hatchReport = [];
+  const extraViews = [];
+  let primary = null;
+
+  for (let bi = 0; bi < bodies.length; bi += 1) {
+    const body = bodies[bi];
+    if (body == null || body.shape == null) continue;
+    // First pass: a probe projection to size the cut bbox so the spacing
+    // scales to the actual sectioned area (ISO 128-50).
+    const probe = drawingsProjectSection(body.shape, direction, cuttingPlane, {
+      spacing: 2.5, angleDeg: HATCH_ANGLE_CYCLE[bi % HATCH_ANGLE_CYCLE.length],
+    });
+    const cutBbox = cutBboxOf(probe);
+    const spacing = opts.hatchSpacing != null ? opts.hatchSpacing : hatchSpacingForArea(cutBbox);
+    const angleDeg = bodies.length > 1
+      ? HATCH_ANGLE_CYCLE[bi % HATCH_ANGLE_CYCLE.length]
+      : (opts.hatchAngle != null ? opts.hatchAngle : 45);
+
+    const sec = drawing.addSectionView({
+      shape: body.shape,
+      sectionPlane: { origin: cuttingPlane.origin, normal: cuttingPlane.normal },
+      hatchSpec: { spacing, angleDeg },
+      direction,
+      scale,
+      parentView: bi === 0 ? parentView : null,   // callout once per section
+    });
+    sec.anchor.fixed = true;
+    hatchReport.push({ body: bi, angleDeg, spacing, count: sec.projection.hatchCount || 0,
+                       cutCount: sec.projection.cutCount || 0 });
+    if (bi === 0) primary = sec; else extraViews.push(sec);
+  }
+
+  if (!primary) throw new Error('placeSectionView: no body produced a section');
+
+  // Pin the section in a free slot: below the iso / right of the views.
+  layoutSectionSlot(primary, views, { gap: opts.gap || 18, margin: opts.margin || 20 });
+  // Stack any extra-body sections beside the primary so the multi-body cut
+  // reads as ONE composite section (same anchor area, layered geometry).
+  for (const ev of extraViews) {
+    ev.anchor.x = primary.anchor.x;
+    ev.anchor.y = primary.anchor.y;
+  }
+
+  return {
+    view: primary,
+    letter: primary.sectionLetter,
+    label: primary.label,
+    parentDir,
+    hatch: hatchReport,
+    extraViews,
+  };
+}
+
+// Project a section through the engine's resolved kernel.
+function drawingsProjectSection(shape, direction, plane, hatch) {
+  const k = kernel();
+  if (!k || !k.drawings || typeof k.drawings.projectSection !== 'function') {
+    throw new Error('projectSection unavailable on kernel');
+  }
+  const dirArg = typeof direction === 'string' ? direction : Float64Array.from(direction);
+  return k.drawings.projectSection(shape, dirArg, {
+    origin: plane.origin, normal: plane.normal,
+  }, { spacing: hatch.spacing ?? 2.5, angleDeg: hatch.angleDeg ?? 45 });
+}
+
+// Bbox over a flat-packed section projection's cut + visible buckets.
+function cutBboxOf(proj) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const eat = (flat) => {
+    if (!flat) return;
+    for (let i = 0; i < flat.length; i += 2) {
+      const x = flat[i], y = flat[i + 1];
+      if (x < minX) minX = x; if (y < minY) minY = y;
+      if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+    }
+  };
+  eat(proj && proj.cut); eat(proj && proj.visible);
+  if (!Number.isFinite(minX)) return null;
+  return { minX, minY, maxX, maxY };
+}
+
+// Pin a section/detail view in a free sheet slot to the right of the
+// existing ortho group (below the iso), so it never overlaps the views.
+function layoutSectionSlot(view, views, { gap, margin }) {
+  let rightEdge = margin;
+  let bottomEdge = margin;
+  for (const dir of ALL_DIRS) {
+    const v = views[dir];
+    if (!v) continue;
+    rightEdge = Math.max(rightEdge, v.anchor.x + v.scaledWidth);
+    bottomEdge = Math.max(bottomEdge, v.anchor.y + v.scaledHeight);
+  }
+  // Place below the tallest existing view, left-aligned to the front view.
+  const front = views.front;
+  view.anchor.x = (front ? front.anchor.x : margin);
+  view.anchor.y = bottomEdge + gap + 6;   // +6 leaves room for the label
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Task #45 (B) — DETAIL VIEWS  (ASME Y14.3)
+// ════════════════════════════════════════════════════════════════════
+//
+// A detail view: the kernel's `addDetailView` draws the dashed focus
+// circle + letter on the SOURCE view (a 'detail-callout' decoration the
+// kernel renders) and emits the enlarged, pre-scaled detail view labelled
+// 'DETAIL <L> (<scale>:1)'. We pin the enlarged view in a free slot.
+
+/**
+ * (B) Place a detail view.
+ *
+ * @param {object} placed   `placeStandardViews` result
+ * @param {object} part     `{ shape }`
+ * @param {string} sourceDir  the view the detail circle is drawn on
+ * @param {object} focusCircle  `{ x, y, r }` in the source view's local
+ *                  model coords (same frame as that view's projection)
+ * @param {number} [scale=2]  enlargement factor (2:1, 4:1…)
+ * @returns {{ view:DetailView, letter:string, label:string, sourceDir, focusCircle }}
+ */
+export function placeDetailView(placed, part, sourceDir, focusCircle, scale = 2) {
+  if (!placed || !placed.drawing) throw new Error('placeDetailView: placed drawing required');
+  if (!focusCircle || !Number.isFinite(focusCircle.x) || !Number.isFinite(focusCircle.y)
+      || !Number.isFinite(focusCircle.r)) {
+    throw new Error('placeDetailView: focusCircle {x,y,r} required');
+  }
+  const { drawing, views } = placed;
+  const src = (sourceDir && views[sourceDir]) ? sourceDir : 'front';
+  const parentView = views[src] || views.front || firstView(views);
+  const direction = src === 'iso' ? 'front' : src;
+
+  const view = drawing.addDetailView({
+    shape: part.shape,
+    focusCircle: { x: focusCircle.x, y: focusCircle.y, r: focusCircle.r },
+    scale,
+    direction,
+    parentView,
+  });
+  view.anchor.fixed = true;
+  layoutSectionSlot(view, views, { gap: 18, margin: 20 });
+  // Nudge the detail to the right of any section already in that slot.
+  view.anchor.x = (parentView ? parentView.anchor.x : 20) + parentView.scaledWidth + 40;
+
+  return {
+    view,
+    letter: view.detailLetter,
+    label: view.label,
+    sourceDir: src,
+    focusCircle: { x: focusCircle.x, y: focusCircle.y, r: focusCircle.r },
+    scale,
+  };
+}
+
+// ════════════════════════════════════════════════════════════════════
+// Task #45 (D) — BALLOONS ↔ BOM  (ASME Y14.34)
+// ════════════════════════════════════════════════════════════════════
+//
+// Each balloon's item number maps 1:1 to a BOM table row. The BOM is built
+// from the assembly instance list (deduplicated by partNumber → qty); each
+// distinct part is one row + one item number, and a balloon with that
+// number leads to ONE representative instance on the chosen view.
+
+/**
+ * (D) Build an ordered BOM from an assembly instance list.
+ *
+ * @param {Array} assembly  `[{ partNumber, name?, description?, qty?,
+ *                  anchor?:[x,y,z] | anchor2d?:[x,y], view? }, …]`
+ *   Instances sharing a `partNumber` collapse to one row (qty summed).
+ * @returns {{ rows:Array<{item, partNumber, description, qty}>,
+ *             itemOf:Map<string,number> }}
+ */
+export function buildBom(assembly) {
+  const list = Array.isArray(assembly) ? assembly : [];
+  const order = [];
+  const byPn = new Map();
+  for (const inst of list) {
+    if (!inst) continue;
+    const pn = String(inst.partNumber ?? inst.name ?? '').trim() || 'UNNAMED';
+    if (!byPn.has(pn)) {
+      byPn.set(pn, {
+        partNumber: pn,
+        description: inst.description || inst.name || pn,
+        qty: 0,
+      });
+      order.push(pn);
+    }
+    const row = byPn.get(pn);
+    row.qty += Number.isFinite(inst.qty) ? inst.qty : 1;
+  }
+  const rows = [];
+  const itemOf = new Map();
+  order.forEach((pn, i) => {
+    const r = byPn.get(pn);
+    const item = i + 1;                  // 1..N
+    itemOf.set(pn, item);
+    rows.push({ item, partNumber: r.partNumber, description: r.description, qty: r.qty });
+  });
+  return { rows, itemOf };
+}
+
+/**
+ * (D) Place balloons on a placed-drawing whose numbers are 1:1 with the
+ * BOM rows, each with a leader to a representative instance of that part.
+ *
+ * @param {object} placed
+ * @param {Array}  assembly  same as buildBom
+ * @param {object} [bom]     a prebuilt buildBom result (else built here)
+ * @returns {{ bom, balloons:Array<{item, partNumber, view, anchor2d}> }}
+ */
+export function placeBomBalloons(placed, assembly, bom = null) {
+  const { views } = placed;
+  const built = bom || buildBom(assembly);
+  const { itemOf } = built;
+  const list = Array.isArray(assembly) ? assembly : [];
+
+  // One representative instance per part number → one balloon.
+  const repByPn = new Map();
+  for (const inst of list) {
+    if (!inst) continue;
+    const pn = String(inst.partNumber ?? inst.name ?? '').trim() || 'UNNAMED';
+    if (!repByPn.has(pn)) repByPn.set(pn, inst);
+  }
+
+  const placedBalloons = [];
+  // Distribute balloons around the view to avoid overlap (the kernel's
+  // renderBalloons additionally nudges any residual collisions).
+  let k = 0;
+  for (const [pn, inst] of repByPn) {
+    const item = itemOf.get(pn);
+    if (item == null) continue;
+    const dir = (inst.view && views[inst.view]) ? inst.view
+      : (views.iso ? 'iso' : (views.front ? 'front' : firstView(views) && firstView(views)._dir));
+    const view = views[dir] || views.front || firstView(views);
+    if (!view) continue;
+    // Anchor: explicit 2D, else projected 3D, else view-bbox centroid.
+    let anchor2d = null;
+    if (Array.isArray(inst.anchor2d) && inst.anchor2d.length >= 2) {
+      anchor2d = [inst.anchor2d[0], inst.anchor2d[1]];
+    } else if (Array.isArray(inst.anchor) && inst.anchor.length >= 3) {
+      anchor2d = project3dToView(inst.anchor, dir === 'iso' ? 'front' : dir);
+    } else {
+      const bb = view.bbox || { minX: 0, minY: 0, maxX: 10, maxY: 10 };
+      anchor2d = [(bb.minX + bb.maxX) / 2, (bb.minY + bb.maxY) / 2];
+    }
+    // Balloon sits offset radially outward; angle spread by index.
+    const bb = view.bbox || { minX: 0, minY: 0, maxX: 10, maxY: 10 };
+    const span = Math.max(bb.maxX - bb.minX, bb.maxY - bb.minY) || 20;
+    const ang = (k / Math.max(1, repByPn.size)) * Math.PI * 2;
+    const off = span * 0.7 + 8;
+    const balloonAt = [anchor2d[0] + Math.cos(ang) * off, anchor2d[1] + Math.sin(ang) * off];
+    view.addBalloon(Balloon({ anchor: anchor2d, balloonAt, number: item, radius: 3.2 }));
+    placedBalloons.push({ item, partNumber: pn, view: dir, anchor2d, balloonAt });
+    k += 1;
+  }
+  return { bom: built, balloons: placedBalloons };
+}
+
+// (D) BOM table SVG — inline (no new deps), spliced near the title block.
+// Columns: ITEM | PART NO | DESCRIPTION | QTY (ASME Y14.34 field order).
+function bomTableSvg(bom, sheet) {
+  const rows = (bom && bom.rows) || [];
+  if (!rows.length) return '';
+  const colW = [14, 40, 70, 14];          // mm per column
+  const tableW = colW.reduce((a, b) => a + b, 0);
+  const rowH = 6;
+  const headH = 6;
+  // Sit the table ABOVE the title block (bottom-right), growing upward.
+  const x = sheet.w - 10 - tableW;
+  const tbH = 40;                          // title-block height in Drawings.js
+  const baseY = sheet.h - 10 - tbH - 4;    // just above the title block
+  const totalH = headH + rows.length * rowH;
+  const top = baseY - totalH;
+  const headers = ['ITEM', 'PART NO', 'DESCRIPTION', 'QTY'];
+
+  let s = `<g data-label="bom-table">`;
+  // Outer + header.
+  s += `<rect x="${x.toFixed(2)}" y="${top.toFixed(2)}" width="${tableW.toFixed(2)}" `
+     + `height="${totalH.toFixed(2)}" fill="#fff" stroke="#000" stroke-width="0.4"/>`;
+  // Column separators.
+  let cx = x;
+  for (let i = 0; i < colW.length - 1; i += 1) {
+    cx += colW[i];
+    s += `<line x1="${cx.toFixed(2)}" y1="${top.toFixed(2)}" x2="${cx.toFixed(2)}" `
+       + `y2="${(top + totalH).toFixed(2)}" stroke="#000" stroke-width="0.3"/>`;
+  }
+  // Header row text.
+  let hx = x;
+  for (let i = 0; i < headers.length; i += 1) {
+    s += `<text x="${(hx + 2).toFixed(2)}" y="${(top + 4.2).toFixed(2)}" `
+       + `font-family="Helvetica, Arial, sans-serif" font-size="3" font-weight="bold" `
+       + `fill="#000">${escapeXml(headers[i])}</text>`;
+    hx += colW[i];
+  }
+  s += `<line x1="${x.toFixed(2)}" y1="${(top + headH).toFixed(2)}" `
+     + `x2="${(x + tableW).toFixed(2)}" y2="${(top + headH).toFixed(2)}" `
+     + `stroke="#000" stroke-width="0.4"/>`;
+  // Data rows.
+  rows.forEach((r, ri) => {
+    const ry = top + headH + ri * rowH;
+    if (ri > 0) {
+      s += `<line x1="${x.toFixed(2)}" y1="${ry.toFixed(2)}" x2="${(x + tableW).toFixed(2)}" `
+         + `y2="${ry.toFixed(2)}" stroke="#000" stroke-width="0.2"/>`;
+    }
+    const cells = [String(r.item), r.partNumber, r.description, String(r.qty)];
+    let dx = x;
+    for (let ci = 0; ci < cells.length; ci += 1) {
+      s += `<text x="${(dx + 2).toFixed(2)}" y="${(ry + 4.2).toFixed(2)}" `
+         + `font-family="Helvetica, Arial, sans-serif" font-size="2.8" fill="#000" `
+         + `data-bom-item="${r.item}">${escapeXml(cells[ci])}</text>`;
+      dx += colW[ci];
+    }
+  });
+  s += `</g>`;
+  return s;
+}
+
+function injectBom(svg, bom, sheet) {
+  const tbl = bomTableSvg(bom, sheet);
+  if (!tbl) return svg;
+  const close = svg.lastIndexOf('</svg>');
+  if (close < 0) return svg + tbl;
+  return svg.slice(0, close) + tbl + svg.slice(close);
+}
+
+// ── ASME Y14.3 / ISO 5456 projection-symbol glyph (truncated cone) ───
+// Drawn near the title block so the sheet declares its projection method.
+function projectionSymbolSvg(projection, sheet) {
+  const tbH = 40, tbW = 80;
+  // Sit just left of the title block, vertically centred.
+  const x = sheet.w - 10 - tbW - 26;
+  const y = sheet.h - 10 - tbH / 2;
+  // Two concentric circles (the frustum's small/large ends) + the cone
+  // outline; third-angle puts the small circle on the LEFT, first-angle on
+  // the RIGHT (the standard distinguishing convention).
+  const r1 = 3.2, r2 = 5.0;
+  const third = projection !== 'first-angle';
+  const cxBig = third ? x + 14 : x + 4;
+  const cxSm = third ? x + 4 : x + 14;
+  let s = `<g data-label="projection-symbol" data-projection="${projection}">`;
+  // Cone trapezoid.
+  s += `<polygon points="${(cxSm).toFixed(2)},${(y - r1).toFixed(2)} `
+     + `${(cxBig).toFixed(2)},${(y - r2).toFixed(2)} ${(cxBig).toFixed(2)},${(y + r2).toFixed(2)} `
+     + `${(cxSm).toFixed(2)},${(y + r1).toFixed(2)}" fill="none" stroke="#000" stroke-width="0.35"/>`;
+  s += `<circle cx="${cxBig.toFixed(2)}" cy="${y.toFixed(2)}" r="${r2.toFixed(2)}" `
+     + `fill="none" stroke="#000" stroke-width="0.35"/>`;
+  s += `<circle cx="${cxSm.toFixed(2)}" cy="${y.toFixed(2)}" r="${r1.toFixed(2)}" `
+     + `fill="none" stroke="#000" stroke-width="0.35"/>`;
+  s += `</g>`;
+  return s;
+}
+
+function injectProjectionSymbol(svg, projection, sheet) {
+  const sym = projectionSymbolSvg(projection, sheet);
+  const close = svg.lastIndexOf('</svg>');
+  if (close < 0) return svg + sym;
+  return svg.slice(0, close) + sym + svg.slice(close);
+}
+
 // ── DXF bonus (kernel emitDXF over the V2 views) ─────────────────────
 function emitDxf(v2, dims) {
   const k = kernel();
@@ -604,9 +1236,14 @@ function emitDxf(v2, dims) {
  *   `pmi`        place GD&T from PMI (default true)
  *   `title`      title-block label
  *   `dxf`        also emit DXF (default false)
- * @returns {{ sheetModel:ForgeDrawing, svg:string, dxf:?string,
- *             views:Array, dimensions:Array, gdt:Array, scale:number,
- *             projection:string, part:object }}
+ *   `sections`   Array<{ plane:{origin,normal}, parentDir?, direction?,
+ *                scale?, hatchSpacing?, hatchAngle?, bodies?:[{shape}] }>
+ *                — Task #45 (A) auto-placed section views.
+ *   `details`    Array<{ sourceDir, center:[x,y], radius, scale? }>
+ *                — Task #45 (B) auto-placed detail views.
+ *   `assembly`   Array<{ partNumber, qty?, anchor?/anchor2d?, view?, … }>
+ *                — Task #45 (D) BOM + 1:1 balloons.
+ * @returns {object} drawing result (see fields below).
  */
 export function generateDrawing(part, opts = {}) {
   if (!part || part.shape == null) {
@@ -625,10 +1262,44 @@ export function generateDrawing(part, opts = {}) {
   const { drawing, views } = placed;
 
   const dimensions = autoDimension(views);
+  // ISO-128 centre marks for detected holes (referenced by position FCFs).
+  const centerMarks = placeCenterMarks(views);
   const gdt = pmi ? placeGdtFromPmi(views, part.bodyId, opts) : [];
 
-  // Render the conformant sheet (border + title block + views + dims),
-  // then splice in the GD&T decorations.
+  // (A) Section views.
+  const sections = [];
+  for (const spec of (Array.isArray(opts.sections) ? opts.sections : [])) {
+    if (!spec || !spec.plane) continue;
+    const secPart = spec.bodies ? { bodies: spec.bodies } : { shape: part.shape };
+    const sv = placeSectionView(placed, secPart, spec.plane, {
+      parentDir: spec.parentDir, direction: spec.direction, scale: spec.scale,
+      hatchSpacing: spec.hatchSpacing, hatchAngle: spec.hatchAngle,
+    });
+    sections.push({
+      letter: sv.letter, label: sv.label, parentDir: sv.parentDir,
+      hatch: sv.hatch,
+    });
+  }
+
+  // (B) Detail views.
+  const details = [];
+  for (const spec of (Array.isArray(opts.details) ? opts.details : [])) {
+    if (!spec || !Array.isArray(spec.center)) continue;
+    const dv = placeDetailView(placed, { shape: part.shape }, spec.sourceDir,
+      { x: spec.center[0], y: spec.center[1], r: spec.radius }, spec.scale || 2);
+    details.push({ letter: dv.letter, label: dv.label, sourceDir: dv.sourceDir,
+                   focusCircle: dv.focusCircle, scale: dv.scale });
+  }
+
+  // (D) BOM + balloons.
+  let bomResult = null;
+  if (Array.isArray(opts.assembly) && opts.assembly.length) {
+    bomResult = placeBomBalloons(placed, opts.assembly);
+  }
+
+  // Render the conformant sheet (border + title block + views + dims +
+  // sections/details/balloons the kernel already knows), then splice in the
+  // GD&T + centre lines + BOM table + projection symbol.
   let svg = drawing.toSvg(sheet, orientation, {
     titleBlock: SHEET_TO_TEMPLATE[sheet] || null,
     titleBlockFields: {
@@ -637,8 +1308,20 @@ export function generateDrawing(part, opts = {}) {
     },
   });
   svg = injectGdt(svg, views);
+  const sheetMm = getSheetMm(sheet, orientation);
+  if (bomResult) svg = injectBom(svg, bomResult.bom, sheetMm);
+  svg = injectProjectionSymbol(svg, projection, sheetMm);
 
   const dxf = opts.dxf ? emitDxf(placed.v2, dimensions) : null;
+
+  // Self-describing recipe so `regenerate` can reflow the SAME sheet
+  // composition for an arbitrary changed part (Task #45 (E)).
+  const recipe = {
+    sections: Array.isArray(opts.sections) ? opts.sections : [],
+    details: Array.isArray(opts.details) ? opts.details : [],
+    assembly: Array.isArray(opts.assembly) ? opts.assembly : [],
+    projection, sheet, orientation, pmi,
+  };
 
   return {
     sheetModel: drawing,
@@ -656,8 +1339,15 @@ export function generateDrawing(part, opts = {}) {
       text: d.dim ? d.dim.text : undefined,
     })),
     gdt,
+    centerMarks,
+    sections,
+    details,
+    bom: bomResult ? bomResult.bom.rows : [],
+    balloons: bomResult ? bomResult.balloons : [],
     scale: placed.scale,
     projection,
+    recipe,
+    placed,
     part: { shape: part.shape, bodyId: part.bodyId ?? null, kind: part.kind ?? null, params: part.params ?? null },
   };
 }
@@ -676,11 +1366,16 @@ const SHEET_TO_TEMPLATE = Object.freeze({
  * VALUES change because they are re-derived from the new geometry — the
  * drawing is never a stale manual artefact.
  *
- * Supported recipes (primitive + box-with-holes); the same pattern
- * extends to any `{kind, params}` a feature tree can rebuild:
- *   box        { dx, dy, dz }
- *   cylinder   { radius, height }
- *   plate-hole { dx, dy, dz, holeR, holeX, holeY }  (box minus a thru-cyl)
+ * TWO MODES (Task #45 (E) extends the recipe-only #27 path):
+ *   1) RECIPE   — `part.kind` + `part.params` → `rebuildShape(kind, params)`
+ *                  with `changes` applied (box / cylinder / plate-hole).
+ *   2) ARBITRARY — `part.shape` is a LIVE kernel handle of any geometry
+ *                  (no recipe). Pass the changed handle directly; the whole
+ *                  sheet — views, dims, sections, details, balloons — reflows
+ *                  from the new geometry. Use `regenerate()` for this mode
+ *                  with the prior drawing result, which carries `recipe`
+ *                  (the section/detail/assembly composition) so the SAME
+ *                  composition is re-emitted against the new part.
  *
  * @param {object} part   `{ shape, bodyId?, kind, params }`
  * @param {object} changes  param overrides, e.g. `{ dx: 120 }`
@@ -688,13 +1383,56 @@ const SHEET_TO_TEMPLATE = Object.freeze({
  * @returns {object} the generateDrawing result for the rebuilt part.
  */
 export function regenerateDrawing(part, changes = {}, opts = {}) {
-  if (!part || !part.kind) {
-    throw new Error('regenerateDrawing: part.kind + part.params required to rebuild geometry');
+  if (part && part.kind) {
+    const params = { ...(part.params || {}), ...changes };
+    const newShape = rebuildShape(part.kind, params);
+    const newPart = { ...part, shape: newShape, params };
+    return generateDrawing(newPart, opts);
   }
-  const params = { ...(part.params || {}), ...changes };
-  const newShape = rebuildShape(part.kind, params);
-  const newPart = { ...part, shape: newShape, params };
-  return generateDrawing(newPart, opts);
+  // Arbitrary-handle mode: a live changed shape, no recipe.
+  if (part && part.shape != null) {
+    return generateDrawing(part, opts);
+  }
+  throw new Error('regenerateDrawing: either {kind, params} recipe or a live {shape} handle required');
+}
+
+/**
+ * (E) Regenerate a drawing for an ARBITRARY changed part.
+ *
+ * Accepts a prior `generateDrawing` result (which carries `recipe` — the
+ * section/detail/assembly composition + sheet opts) and an updated part
+ * (a live kernel handle of any geometry — no recipe needed), and re-derives
+ * the ENTIRE sheet (views + dims + every recorded section + every recorded
+ * detail + PMI edge anchors + BOM balloons) so the drawing tracks the new
+ * geometry parametrically. The dimension VALUES change because they are
+ * re-projected from the new shape, never edited as text.
+ *
+ * @param {object} drawing     a prior generateDrawing result (for `recipe`)
+ * @param {object} updatedPart `{ shape:<live handle>, bodyId?, title? }`
+ * @param {object} [opts]      overrides merged over the recorded recipe
+ * @returns {object} the regenerated generateDrawing result.
+ */
+export function regenerate(drawing, updatedPart, opts = {}) {
+  if (!updatedPart || updatedPart.shape == null) {
+    throw new Error('regenerate: updatedPart.shape (live kernel handle) required');
+  }
+  const recipe = (drawing && drawing.recipe) || {};
+  const merged = {
+    projection: recipe.projection,
+    sheet: recipe.sheet,
+    orientation: recipe.orientation,
+    pmi: recipe.pmi,
+    sections: recipe.sections || [],
+    details: recipe.details || [],
+    assembly: recipe.assembly || [],
+    ...opts,                                 // explicit opts win
+  };
+  const part = {
+    shape: updatedPart.shape,
+    bodyId: updatedPart.bodyId ?? (drawing && drawing.part && drawing.part.bodyId) ?? null,
+    title: updatedPart.title ?? (drawing && drawing.sheetModel && drawing.sheetModel.title),
+  };
+  return generateDrawing(part, merged);
 }
 
 /** Build a kernel handle from a `{kind, params}` recipe. */
@@ -726,13 +1464,23 @@ export function rebuildShape(kind, params = {}) {
 export default {
   generateDrawing,
   regenerateDrawing,
+  regenerate,
   placeStandardViews,
   autoDimension,
   placeGdtFromPmi,
+  placeCenterMarks,
+  placeSectionView,
+  placeDetailView,
+  buildBom,
+  placeBomBalloons,
+  hatchSpacingForArea,
+  nearestVisibleEdgePoint,
+  project3dToView,
   rebuildShape,
   projectView,
   v2ToFlatProjection,
   setForgeKernel,
+  HATCH_ANGLE_CYCLE,
   ORTHO_DIRS,
   ALL_DIRS,
 };

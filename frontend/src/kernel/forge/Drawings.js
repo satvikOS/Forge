@@ -162,13 +162,13 @@ export class SectionView extends DrawingView {
                 scale = 1, label = null }) {
     const kernel = _kernel();
     const dirArg = typeof direction === 'string' ? direction : Float64Array.from(direction);
-    const projection = kernel.drawings.projectSection(shape, dirArg, {
+    const projection = clipHatchToCutFace(kernel.drawings.projectSection(shape, dirArg, {
       origin: sectionPlane.origin,
       normal: sectionPlane.normal,
     }, {
       spacing:  hatchSpec.spacing  ?? 2.5,
       angleDeg: hatchSpec.angleDeg ?? 45,
-    });
+    }));
     const letter = nextSectionLetter();
     super({
       label: label || `SECTION ${letter}-${letter}`,
@@ -266,6 +266,76 @@ function iteratePolylines(flat, starts, count, cb) {
     for (let k = s; k < e; k += 2) verts.push([flat[k], flat[k + 1]]);
     cb(i, verts);
   }
+}
+
+// ISO 128-50 / ASME Y14.2: section hatching must be confined to the CUT FACE
+// (the material actually intersected) — it must SKIP holes/voids and never leak
+// past a notch or a non-convex boundary. The native kernel currently fills the
+// cut-wire BOUNDING BOX (Drawings.cpp: "for now we just fill the bbox of the cut
+// wires"), which hatches through holes and overshoots concave cuts. We clip each
+// hatch segment to the even-odd interior of the cut loops here in JS (holes
+// counted by parity) — exact and needing no kernel rebuild. Reference: ISO
+// 128-50 (sections & hatching); ASME Y14.2.
+function clipHatchToCutFace(projection) {
+  if (!projection || !projection.hatch || !projection.cut ||
+      !projection.hatchCount || !projection.cutCount) return projection;
+  // The kernel delivers the section outline as an EDGE SOUP (many short
+  // polylines / 2-point segments), not assembled closed loops. The even-odd
+  // crossing test is order-independent, so the soup of the closed boundary's
+  // edges is sufficient for an in-material test and for hatch clipping.
+  const E = []; // each edge: [x0, y0, x1, y1]
+  iteratePolylines(projection.cut, projection.cutStarts, projection.cutCount, (i, verts) => {
+    for (let s = 0; s + 1 < verts.length; s++) {
+      E.push([verts[s][0], verts[s][1], verts[s + 1][0], verts[s + 1][1]]);
+    }
+  });
+  if (!E.length) return projection;
+
+  // Even-odd crossing test against the boundary edges (a point in a hole/void
+  // gets even crossings → OUTSIDE material).
+  const inMaterial = (px, py) => {
+    let c = false;
+    for (const e of E) {
+      const xi = e[0], yi = e[1], xj = e[2], yj = e[3];
+      if (((yi > py) !== (yj > py)) &&
+          (px < (xj - xi) * (py - yi) / ((yj - yi) || 1e-30) + xi)) c = !c;
+    }
+    return c;
+  };
+
+  const EPS = 1e-7;
+  const outFlat = [];
+  const outStarts = [0];
+  let kept = 0;
+  iteratePolylines(projection.hatch, projection.hatchStarts, projection.hatchCount, (i, verts) => {
+    for (let s = 0; s + 1 < verts.length; s++) {
+      const x0 = verts[s][0], y0 = verts[s][1];
+      const dx = verts[s + 1][0] - x0, dy = verts[s + 1][1] - y0;
+      const ts = [0, 1];
+      for (const e of E) {
+        const ex0 = e[0], ey0 = e[1], edx = e[2] - ex0, edy = e[3] - ey0;
+        const den = dx * edy - dy * edx;
+        if (Math.abs(den) < 1e-12) continue;             // parallel
+        const t = ((ex0 - x0) * edy - (ey0 - y0) * edx) / den;
+        const u = ((ex0 - x0) * dy - (ey0 - y0) * dx) / den;
+        if (t > EPS && t < 1 - EPS && u >= -EPS && u <= 1 + EPS) ts.push(t);
+      }
+      ts.sort((p, q) => p - q);
+      for (let j = 0; j + 1 < ts.length; j++) {
+        const ta = ts[j], tb = ts[j + 1];
+        if (tb - ta < EPS) continue;
+        const tm = 0.5 * (ta + tb);
+        if (!inMaterial(x0 + dx * tm, y0 + dy * tm)) continue;
+        outFlat.push(x0 + dx * ta, y0 + dy * ta, x0 + dx * tb, y0 + dy * tb);
+        outStarts.push(outFlat.length / 2);
+        kept++;
+      }
+    }
+  });
+  projection.hatch = Float64Array.from(outFlat);
+  projection.hatchStarts = Uint32Array.from(outStarts);
+  projection.hatchCount = kept;
+  return projection;
 }
 
 function computeBbox(projection) {
