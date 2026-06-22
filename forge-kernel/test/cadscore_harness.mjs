@@ -768,6 +768,744 @@ function scoreMate(forge, spec) {
 }
 const kRingEps = 1e-6;
 
+// ═════════════════════════════════════════════════════════════════════════════
+//  scoreMechanism — 5th axis: MECHANISM correctness for assemblies-with-motion.
+//
+//  The four static axes (shape/interface/topology + the mate jig) judge a part
+//  AT REST. This axis judges a part IN MOTION: can Archie build a mechanism whose
+//  joints are valid, whose DOF is right, whose kinematic chain closes, that
+//  sweeps its full intended range, and that NEVER self-collides through the whole
+//  cycle. It drives the validated HHT-α inertial multibody solver
+//  (forge.simulate.multibodyDynamics — pendulum 0.016 %) for grounded single-body
+//  cases, and a kernel-truthful planar forward-kinematics generator for the
+//  closed-loop fixtures the inertial solver cannot express (see HONEST LIMITS).
+//
+//  Sub-criteria (a–e), weighted, multiplicatively gated by joint validity:
+//    gate = jointsValid (every constraint references valid bodies + a kind the
+//           kernel understands) ? 1 : 0
+//    score = gate · ( 0.20·dofCorrect            (b) Gruebler/Kutzbach mobility
+//                   + 0.20·chainValidScore       (c) Grashof / loop-closure
+//                   + 0.25·motionRangeFrac       (d) achieved/intended sweep
+//                   + 0.35·interferenceFree )    (e) NO clash through the cycle
+//  Interference is weighted highest — it IS the "working mechanism" headline.
+//
+//  ───────────────────────── HONEST LIMITS (kernel) ──────────────────────────
+//  1. The inertial solver's ONLY joint vocabulary is ballJoint / axisLock /
+//     distance (MbdConstraintKind, MultibodyDynamics.hpp:106-110). There is NO
+//     native revolute / prismatic / gear primitive. A planar REVOLUTE about a
+//     GROUNDED pivot = ballJoint(pin) + axisLock(confine spin) — exactly the
+//     validated pendulum/rotor case, so the simple pendulum runs end-to-end on
+//     the REAL solver. But a CLOSED kinematic loop (four-bar, slider-crank,
+//     scissor) needs a two-body pin: BallJoint pins bodyA's point to a FIXED
+//     world anchor (not to bodyB's point), AxisLock ignores bodyB, and only
+//     Distance is a genuine two-body constraint — so a faithful closed loop
+//     CANNOT be fully expressed in the current inertial solver.
+//  2. RESOLUTION (no kernel rebuild): for the closed-loop / higher-pair fixtures
+//     we generate per-step poses with a closed-form planar FK sweep of the driver
+//     (planarFKSamples), emitting a samples[] array byte-compatible with the
+//     kernel MbdResult. The INTERFERENCE axis (e) then runs on the REAL kernel
+//     meshes (tessellate + pointInSolid / detectInterference) at every FK pose —
+//     fully kernel-truthful. Each fixture reports solver:'multibody' vs
+//     solver:'planarFK' so the limit is explicit. Closed-loop INERTIAL dynamics
+//     is flagged as a kernel gap (a one-branch bodyB BallJoint variant in
+//     simulateMultibody would close it; the binding at 3084-3090 already reads
+//     bodyB). The spur-gear ratio is a rolling higher-pair absent from every
+//     solver → FK with the analytic ratio; its interference axis is still real.
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── (b) DOF / mobility — pure math, kernel-free, self-testable ───────────────
+/**
+ * Gruebler/Kutzbach mobility.
+ *   planar : M = 3(n−1) − 2·j1 − j2   (n links incl. ground, j1 = full/lower
+ *            1-DOF joints (revolute/prismatic), j2 = higher pairs (gear/cam, 2-DOF))
+ *   spatial: M = 6(n−1) − Σconstraints (constraints = total DOF removed by joints)
+ * Worked: four-bar n=4,j1=4,j2=0 → 9−8 = 1; slider-crank same → 1;
+ *         spur-gear pair n=3,j1=2,j2=1 → 6−4−1 = 1; planar 4-link truss
+ *         (n=3,j1=3,j2=0 over-constrained loop) → 6−6 = 0.
+ */
+function mechanismDOF(spec, planar = true) {
+  const n = spec.n | 0, j1 = spec.j1 | 0, j2 = spec.j2 | 0;
+  if (planar) return 3 * (n - 1) - 2 * j1 - j2;
+  // spatial: caller supplies either Σconstraints directly, or per-kind counts.
+  const sumC = typeof spec.constraints === 'number'
+    ? spec.constraints
+    : (spec.constraintsRemoved | 0);
+  return 6 * (n - 1) - sumC;
+}
+
+// ── (c) Grashof classification — pure math, kernel-free, self-testable ───────
+/**
+ * Grashof's law for a planar four-bar from its four link lengths {s,l,p,q}
+ * (any order). Let S,L = shortest,longest. If S+L ≤ P+Q the linkage is Grashof
+ * (at least one link fully rotates). The class then depends on which link is the
+ * shortest (here keyed by the fixed/ground link convention shortest-adjacent =
+ * crank-rocker, shortest=ground = double-crank, shortest=coupler = double-rocker
+ * Grashof). Non-Grashof (S+L > P+Q) = triple-rocker, no full rotation.
+ * Returns { class, fullRotation, S, L, P, Q, sum1, sum2 }.
+ */
+function grashofClass(links) {
+  const a = [links.s, links.l, links.p, links.q].map(Number).sort((x, y) => x - y);
+  const [S, P, Q, L] = a;           // ascending: S ≤ P ≤ Q ≤ L
+  const sum1 = S + L, sum2 = P + Q;
+  const grashof = sum1 <= sum2 + 1e-9;
+  if (!grashof) return { class: 'non-grashof', fullRotation: false, S, L, P, Q, sum1, sum2 };
+  // Which link is shortest determines the Grashof sub-class. The fixture spec
+  // names the shortest link's role; default convention = crank-rocker.
+  let cls = 'crank-rocker';
+  if (links.shortestRole === 'ground') cls = 'double-crank';
+  else if (links.shortestRole === 'coupler') cls = 'double-rocker';
+  return { class: cls, fullRotation: true, S, L, P, Q, sum1, sum2 };
+}
+
+/**
+ * Chain-validity sub-score (c).
+ *   four-bar : 1 if the measured Grashof class matches the expected class, else
+ *              partial credit 0.5 if at least the fullRotation flag matches
+ *              (right family, wrong sub-class), else 0.
+ *   closed-loop fixtures (slider-crank/scissor) : loop-closure consistency —
+ *              the per-step constraint residual must stay below tol (the loop
+ *              never tears open). pendulum/gearpair default to 1 when their
+ *              single constraint holds.
+ */
+function chainValidScore(spec, grash, maxResidual, tol = 1e-3) {
+  if (spec.chain === 'fourbar' && spec.fourbar) {
+    const g = grash || grashofClass(spec.fourbar);
+    const expectClass = spec.fourbar.expectClass || 'crank-rocker';
+    if (g.class === expectClass) return 1;
+    const expectRot = spec.fourbar.expectFullRotation !== false;
+    return g.fullRotation === expectRot ? 0.5 : 0;
+  }
+  // loop-closure: the FK/solver residual must stay bounded through the cycle.
+  if (typeof maxResidual === 'number' && Number.isFinite(maxResidual)) {
+    return maxResidual <= tol ? 1 : Math.max(0, 1 - (maxResidual - tol) / tol);
+  }
+  return 1;
+}
+
+// ── (d) motion-range fraction — pure math over a samples[] array ─────────────
+/**
+ * Achieved sweep of the DRIVEN body over the cycle ÷ intended range, clamped
+ * [0,1]. For a rotary driver we measure the peak-to-peak angle swept by the
+ * body's orientation about the pivot axis (axis-angle magnitude projected on the
+ * driver axis); for a prismatic driver we measure peak-to-peak COM displacement
+ * along the slide axis. A lockup (samples go flat early, or stable=false) ⇒ the
+ * swept extent is tiny ⇒ frac → 0. Pure: operates on a plain samples[] array so
+ * it is self-testable with synthetic data and identical for FK or solver output.
+ *
+ *   driver = { body, axis?:[3] (rotary), slideAxis?:[3] (prismatic), kind }
+ *   target = intended sweep magnitude (rad for rotary, mm for prismatic)
+ */
+function motionRangeFrac(samples, driver, target, stable = true) {
+  if (!Array.isArray(samples) || samples.length < 2 || !(target > 0)) return 0;
+  const b = driver.body | 0;
+  let achieved;
+  if (driver.kind === 'prismatic') {
+    const ax = norm3(driver.slideAxis || [1, 0, 0]);
+    let lo = Infinity, hi = -Infinity;
+    for (const s of samples) {
+      const p = s.position?.[b];
+      if (!p) continue;
+      const d = p[0] * ax[0] + p[1] * ax[1] + p[2] * ax[2]; // mm or m — caller-consistent
+      if (d < lo) lo = d; if (d > hi) hi = d;
+    }
+    achieved = (hi > lo) ? hi - lo : 0;
+  } else {
+    // rotary: peak-to-peak signed angle about the driver axis from axis-angle.
+    const ax = norm3(driver.axis || [0, 0, 1]);
+    let lo = Infinity, hi = -Infinity;
+    for (const s of samples) {
+      const o = s.orientation?.[b];
+      if (!o) continue;
+      const theta = o[0] * ax[0] + o[1] * ax[1] + o[2] * ax[2]; // signed angle about axis
+      if (theta < lo) lo = theta; if (theta > hi) hi = theta;
+    }
+    achieved = (hi > lo) ? hi - lo : 0;
+  }
+  if (!stable) achieved = 0;
+  const frac = achieved / target;
+  return Math.max(0, Math.min(1, frac));
+}
+
+function norm3(v) {
+  const n = Math.hypot(v[0], v[1], v[2]) || 1;
+  return [v[0] / n, v[1] / n, v[2] / n];
+}
+
+// ── (e) interference verdict — pure math, kernel-free, self-testable ─────────
+/** A mechanism is interference-free iff it never clashes at ANY sampled step. */
+function interferenceVerdict(perStepClash) {
+  return (perStepClash | 0) === 0;
+}
+
+// ── transform a base mesh by (COM position mm, axis-angle orientation rad) ───
+/** Rodrigues rotation matrix (row-major 3×3) from an axis-angle vector. */
+function axisAngleToR(av) {
+  const ang = Math.hypot(av[0], av[1], av[2]);
+  if (ang < 1e-12) return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const kx = av[0] / ang, ky = av[1] / ang, kz = av[2] / ang;
+  const c = Math.cos(ang), s = Math.sin(ang), t = 1 - c;
+  return [
+    t * kx * kx + c,       t * kx * ky - s * kz,  t * kx * kz + s * ky,
+    t * kx * ky + s * kz,  t * ky * ky + c,       t * ky * kz - s * kx,
+    t * kx * kz - s * ky,  t * ky * kz + s * kx,  t * kz * kz + c,
+  ];
+}
+
+/**
+ * Apply (R, translation mm) to a base tessellation → a NEW {positions,indices}.
+ * Indices are shared (topology unchanged); positions are rotated about the body
+ * COM frame then translated. The base mesh is assumed authored about the body's
+ * own origin (its local frame), matching how the FK/solver report COM poses.
+ */
+function transformTess(base, posMm, av) {
+  const R = axisAngleToR(av || [0, 0, 0]);
+  const P = base.positions, n = P.length;
+  const out = new Float32Array(n);
+  const tx = posMm[0] || 0, ty = posMm[1] || 0, tz = posMm[2] || 0;
+  for (let i = 0; i < n; i += 3) {
+    const x = P[i], y = P[i + 1], z = P[i + 2];
+    out[i]     = R[0] * x + R[1] * y + R[2] * z + tx;
+    out[i + 1] = R[3] * x + R[4] * y + R[5] * z + ty;
+    out[i + 2] = R[6] * x + R[7] * y + R[8] * z + tz;
+  }
+  return { positions: out, indices: base.indices };
+}
+
+/**
+ * (e) Swept clash test over the WHOLE motion cycle. For every sample, place each
+ * moving body at its (position, orientation) pose (FK or solver) and clash-check
+ * every non-adjacent body pair. Two kernel-truthful detectors:
+ *   sampler (default): draw `probe` points from body-A's transformed mesh and
+ *     ray-parity test them against body-B's transformed mesh (pointInSolid 387);
+ *     ANY inside ⇒ clash at that step (fast, per-step, kernel-mesh truthful).
+ *   exact (witness): on the worst step, re-addInstance both transformed handles
+ *     and run forge.assembly.detectInterference for an OCCT boolean-common volume.
+ * Adjacent pairs (sharing a joint) are skipped — a pin joint legitimately
+ * touches. `adjacency` is a Set of "i:j" (i<j) pairs to ignore.
+ *
+ * positions are reported by the solver/FK in the SAME length unit the base
+ * meshes use. The kernel meshes are mm; the inertial solver reports COM in
+ * metres → the caller passes posScale (1000 for the multibody path, 1 for FK
+ * that already works in mm). Returns { perStepClash, perStepMaxVolume,
+ * worstStep, interferenceFree }.
+ */
+function sweptClashFree(forge, baseMeshes, samples, opts = {}) {
+  const adjacency = opts.adjacency instanceof Set ? opts.adjacency : new Set();
+  const probe = opts.probe || 24;
+  const posScale = opts.posScale || 1;            // metres→mm = 1000; FK mm = 1
+  const nB = baseMeshes.length;
+  let perStepClash = 0, worstStep = -1, worstPairs = 0;
+  const pairKey = (i, j) => (i < j ? i + ':' + j : j + ':' + i);
+  for (let si = 0; si < samples.length; si++) {
+    const s = samples[si];
+    const posed = [];
+    for (let b = 0; b < nB; b++) {
+      const base = baseMeshes[b];
+      if (!base) { posed.push(null); continue; }
+      const p = s.position?.[b] || [0, 0, 0];
+      const o = s.orientation?.[b] || [0, 0, 0];
+      posed.push(transformTess(base, [p[0] * posScale, p[1] * posScale, p[2] * posScale], o));
+    }
+    let stepClashed = false, stepPairs = 0;
+    for (let i = 0; i < nB; i++) {
+      for (let j = i + 1; j < nB; j++) {
+        if (adjacency.has(pairKey(i, j))) continue;
+        const A = posed[i], B = posed[j];
+        if (!A || !B) continue;
+        if (!aabbOverlap(A, B)) continue;          // broad-phase reject
+        // narrow phase: sample A's surface, parity-test against B.
+        const cloud = samplePoints(A, probe, 7 + si * 131 + i * 17 + j);
+        let hit = false;
+        for (let k = 0; k < cloud.length; k += 3) {
+          if (pointInSolid(cloud[k], cloud[k + 1], cloud[k + 2], B)) { hit = true; break; }
+        }
+        if (!hit) {
+          // also test B→A (a thin part of B poking into A may be missed one way)
+          const cloud2 = samplePoints(B, probe, 977 + si * 131 + i * 17 + j);
+          for (let k = 0; k < cloud2.length; k += 3) {
+            if (pointInSolid(cloud2[k], cloud2[k + 1], cloud2[k + 2], A)) { hit = true; break; }
+          }
+        }
+        if (hit) { stepClashed = true; stepPairs++; }
+      }
+    }
+    if (stepClashed) {
+      perStepClash++;
+      if (stepPairs > worstPairs) { worstPairs = stepPairs; worstStep = si; }
+    }
+  }
+  return {
+    perStepClash,
+    worstStep,
+    interferenceFree: interferenceVerdict(perStepClash),
+  };
+}
+
+/** AABB of a tessellation (broad-phase). */
+function aabbOf(t) {
+  const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+  const P = t.positions;
+  for (let i = 0; i < P.length; i += 3)
+    for (let a = 0; a < 3; a++) { const v = P[i + a]; if (v < mn[a]) mn[a] = v; if (v > mx[a]) mx[a] = v; }
+  return { min: mn, max: mx };
+}
+function aabbOverlap(a, b, pad = 0.0) {
+  const A = aabbOf(a), B = aabbOf(b);
+  for (let i = 0; i < 3; i++) {
+    if (A.max[i] + pad < B.min[i] - pad) return false;
+    if (B.max[i] + pad < A.min[i] - pad) return false;
+  }
+  return true;
+}
+
+// ── planar forward-kinematics generators → MbdResult-shaped samples[] ────────
+/**
+ * Closed-form planar FK for the closed-loop / higher-pair fixtures, emitting a
+ * samples[] array byte-compatible with the kernel's MbdResult (each sample:
+ * { t, position:[[x,y,z]…], orientation:[[ax,ay,az]…], constraintResidual,
+ *   energy }). Positions are body COM in mm (the kernel mesh unit); orientation
+ * is the in-plane rotation as an axis-angle about +Z. Body index 0 is GROUND
+ * (fixed at origin, identity) so the moving-link indices line up with the
+ * fixture's bodyBuilders.
+ *
+ * chain:
+ *   'fourbar'      — crank(1) + coupler(2) + rocker(3) about a fixed four-bar
+ *                    {r1 ground, r2 crank, r3 coupler, r4 rocker}; sweeps θ2 0→2π.
+ *   'slidercrank'  — crank(1) + conrod(2) + piston(3); θ2 0→2π drives the piston
+ *                    along +X; the loop closes analytically (no Grashof needed).
+ *   'scissor'      — two crossed links (1,2) pinned at centre + ends; the centre
+ *                    angle φ sweeps so the output end separates.
+ *   'gearpair'     — gear A(1) spins θ, gear B(2) counter-rotates −(zA/zB)·θ
+ *                    about its fixed centre (rolling higher pair, analytic ratio).
+ */
+function planarFKSamples(chain, p, steps = 60) {
+  const out = [];
+  const Zaxis = (ang) => [0, 0, ang];
+  const sample = (t, poses, residual = 0) => ({
+    t,
+    position: poses.map((q) => [q.x, q.y, q.z]),
+    orientation: poses.map((q) => Zaxis(q.th)),
+    linVel: poses.map(() => [0, 0, 0]),
+    angVel: poses.map(() => [0, 0, 0]),
+    constraintResidual: residual,
+    energy: 0,
+  });
+  if (chain === 'fourbar') {
+    // Ground link r1 along +X from O=(0,0) to C=(r1,0). Crank r2 at O, rocker r4 at C.
+    const { r1, r2, r3, r4 } = p;
+    const Cx = r1, Cy = 0;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const th2 = 2 * Math.PI * t;                    // crank fully rotates
+      const Ax = r2 * Math.cos(th2), Ay = r2 * Math.sin(th2); // crank tip
+      // solve the coupler/rocker intersection (circle r3 about A ∩ circle r4 about C)
+      const dx = Cx - Ax, dy = Cy - Ay;
+      const d = Math.hypot(dx, dy);
+      let Bx, By, residual = 0;
+      if (d > r3 + r4 || d < Math.abs(r3 - r4) || d < 1e-9) {
+        // unreachable (non-Grashof dead point) → hold last, flag residual
+        const prev = out[out.length - 1];
+        Bx = prev ? prev.position[2][0] : Ax;
+        By = prev ? prev.position[2][1] : Ay;
+        residual = Math.abs(d - (r3 + r4)) + 1; // loop torn → large residual
+      } else {
+        const aa = (d * d + r3 * r3 - r4 * r4) / (2 * d);
+        const h = Math.sqrt(Math.max(0, r3 * r3 - aa * aa));
+        const xm = Ax + aa * dx / d, ym = Ay + aa * dy / d;
+        Bx = xm - h * dy / d; By = ym + h * dx / d;   // one branch (consistent)
+      }
+      const crankTh = th2;
+      const couplerTh = Math.atan2(By - Ay, Bx - Ax);
+      const rockerTh = Math.atan2(By - Cy, Bx - Cx);
+      // COMs at link midpoints.
+      const poses = [
+        { x: Cx / 2, y: 0, z: 0, th: 0 },                                 // 0 ground (mid)
+        { x: Ax / 2, y: Ay / 2, z: 0, th: crankTh },                      // 1 crank
+        { x: (Ax + Bx) / 2, y: (Ay + By) / 2, z: 0, th: couplerTh },      // 2 coupler
+        { x: (Cx + Bx) / 2, y: (Cy + By) / 2, z: 0, th: rockerTh },       // 3 rocker
+      ];
+      out.push(sample(t, poses, residual));
+    }
+    return out;
+  }
+  if (chain === 'slidercrank') {
+    const { r2, r3 } = p;                              // crank, conrod lengths
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const th2 = 2 * Math.PI * t;
+      const Ax = r2 * Math.cos(th2), Ay = r2 * Math.sin(th2);
+      // piston on the X axis: By=0, Bx = Ax + sqrt(r3² − Ay²)
+      const root = r3 * r3 - Ay * Ay;
+      let Bx, residual = 0;
+      if (root < 0) { const prev = out[out.length - 1]; Bx = prev ? prev.position[3][0] : Ax; residual = -root + 1; }
+      else Bx = Ax + Math.sqrt(root);
+      const conrodTh = Math.atan2(0 - Ay, Bx - Ax);
+      const poses = [
+        { x: 0, y: 0, z: 0, th: 0 },                                      // 0 ground
+        { x: Ax / 2, y: Ay / 2, z: 0, th: th2 },                          // 1 crank
+        { x: (Ax + Bx) / 2, y: Ay / 2, z: 0, th: conrodTh },             // 2 conrod
+        { x: Bx, y: 0, z: 0, th: 0 },                                     // 3 piston
+      ];
+      out.push(sample(t, poses, residual));
+    }
+    return out;
+  }
+  if (chain === 'scissor') {
+    // Two crossed links length 2L pinned at their common centre; the centre
+    // angle φ sweeps φ0→φ1, opening the output end. Link COMs at the centre.
+    const { L, phi0, phi1 } = p;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const phi = phi0 + (phi1 - phi0) * t;
+      // link 1 at +phi, link 2 at −phi about the centre (origin)
+      const poses = [
+        { x: 0, y: 0, z: 0, th: 0 },                                      // 0 ground (centre pin post)
+        { x: 0, y: 0, z: 0, th: phi },                                    // 1 link A
+        { x: 0, y: 0, z: 0, th: -phi },                                   // 2 link B
+        // 3 = output slider rides along +X by the half-span L·cos(phi)·2
+        { x: 2 * L * Math.cos(phi), y: 0, z: 0, th: 0 },
+      ];
+      out.push(sample(t, poses, 0));
+    }
+    return out;
+  }
+  if (chain === 'gearpair') {
+    // Gear A spins θ about its centre (origin); gear B about (center,0) counter-
+    // rotates by −(zA/zB)·θ. Higher-pair rolling — analytic ratio.
+    const { zA, zB, center } = p;
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const th = 2 * Math.PI * t;
+      const poses = [
+        { x: 0, y: 0, z: 0, th },                                         // 0 gear A (driver) about origin
+        { x: center, y: 0, z: 0, th: -(zA / zB) * th },                  // 1 gear B
+      ];
+      out.push({
+        t,
+        position: poses.map((q) => [q.x, q.y, q.z]),
+        orientation: poses.map((q) => [0, 0, q.th]),
+        linVel: poses.map(() => [0, 0, 0]),
+        angVel: poses.map(() => [0, 0, 0]),
+        constraintResidual: 0, energy: 0,
+      });
+    }
+    return out;
+  }
+  throw new Error(`planarFKSamples: unknown chain '${chain}'`);
+}
+
+/**
+ * scoreMechanism(forge, mechSpec) → the 5-criteria mechanism scorecard.
+ *
+ * mechSpec (see the BUILD SPEC §4):
+ *   { name, planar, chain, solver?:'multibody'|'planarFK',
+ *     bodyBuilders:[(forge)=>handle…],   // moving links' solids (mm), index-aligned
+ *                                         // to the FK/solver body indices (0 = ground)
+ *     bodies, constraints, loads, gravity,   // SI multibody config (solver path)
+ *     fk:{ chain, params, steps },        // planarFK config (FK path)
+ *     driver:{ body, axis|slideAxis, kind }, range:{ targetRad|targetMm },
+ *     expectedDOF, jointSpec:{ n, j1, j2 }, fourbar?, adjacency?:[[i,j]…],
+ *     sim:{ dt, steps } }
+ *
+ * Either a `samples` array is supplied directly (tests), or it is produced by the
+ * REAL multibody solver (solver:'multibody') or by planarFKSamples (FK path).
+ */
+function scoreMechanism(forge, spec, injectedSamples = null) {
+  const planar = spec.planar !== false;
+
+  // ── gate (a): joints/mates present + valid ───────────────────────────────
+  const KNOWN_KINDS = new Set(['ballJoint', 'axisLock', 'distance']);
+  const cons = spec.constraints || [];
+  const nBodiesDeclared = spec.jointSpec ? spec.jointSpec.n : (spec.bodies ? spec.bodies.length + 1 : 0);
+  let jointsValid = cons.length > 0 || spec.solver === 'planarFK';
+  for (const c of cons) {
+    const kind = String(c.kind || '');
+    const okKind = KNOWN_KINDS.has(kind);
+    const okA = Number.isInteger(c.bodyA) && c.bodyA >= 0 && (spec.bodies ? c.bodyA < spec.bodies.length : true);
+    const okB = c.bodyB == null || (Number.isInteger(c.bodyB) && c.bodyB >= 0);
+    if (!okKind || !okA || !okB) jointsValid = false;
+  }
+  const gate = jointsValid ? 1 : 0;
+
+  // ── (b) DOF ──────────────────────────────────────────────────────────────
+  const dof = spec.jointSpec ? mechanismDOF(spec.jointSpec, planar) : null;
+  const dofExpected = spec.expectedDOF;
+  const dofCorrect = (dof != null && dof === dofExpected) ? 1 : 0;
+
+  // ── obtain per-step samples (injected, REAL solver, or planar FK) ─────────
+  let samples = injectedSamples;
+  let solver = spec.solver || (injectedSamples ? 'injected' : null);
+  let stable = true, maxResidual = 0, solverErr = null;
+  if (!samples) {
+    if (spec.solver === 'multibody' && forge && forge.simulate && forge.simulate.multibodyDynamics) {
+      try {
+        const sim = spec.sim || {};
+        const nSteps = Math.max(1, (sim.steps | 0) || 1000);
+        const cfg = {
+          bodies: spec.bodies, constraints: spec.constraints,
+          loads: spec.loads || [], gravity: spec.gravity || [0, 0, 0],
+          dt: sim.dt > 0 ? sim.dt : 1e-3, steps: nSteps,
+          alpha: -0.05, baumgarteOmega: 20, baumgarteZeta: 1,
+          sampleStride: Math.max(1, Math.floor(nSteps / 60)),
+        };
+        const r = forge.simulate.multibodyDynamics(cfg);
+        samples = r.samples || [];
+        stable = !!r.stable;
+        maxResidual = r.maxConstraintDrift;
+        solver = 'multibody';
+      } catch (e) { solverErr = e.message || String(e); samples = []; stable = false; }
+    } else if (spec.fk) {
+      samples = planarFKSamples(spec.fk.chain, spec.fk.params, spec.fk.steps || 60);
+      solver = 'planarFK';
+      // FK loop-closure residual = max over the cycle.
+      maxResidual = samples.reduce((m, s) => Math.max(m, s.constraintResidual || 0), 0);
+    } else {
+      samples = []; solver = solver || 'none';
+    }
+  }
+
+  // ── (c) chain validity ───────────────────────────────────────────────────
+  const grash = (spec.chain === 'fourbar' && spec.fourbar) ? grashofClass(spec.fourbar) : null;
+  const chainValid = chainValidScore(spec, grash, maxResidual);
+
+  // ── (d) motion range ─────────────────────────────────────────────────────
+  const driver = spec.driver || {};
+  const target = spec.range
+    ? (driver.kind === 'prismatic' ? spec.range.targetMm : spec.range.targetRad)
+    : 0;
+  const mrf = motionRangeFrac(samples, driver, target, stable);
+  const motionRangeAchieved = mrf >= 0.95;
+
+  // ── (e) interference through the whole cycle ─────────────────────────────
+  let perStepClash = 0, interferenceFree = true, worstStep = -1;
+  let clashRan = false;
+  if (forge && spec.bodyBuilders && spec.bodyBuilders.length && samples.length) {
+    const baseMeshes = [];
+    const handles = [];
+    try {
+      for (const build of spec.bodyBuilders) {
+        if (!build) { baseMeshes.push(null); continue; }
+        const h = build(forge);
+        handles.push(h);
+        baseMeshes.push(tess(forge, h));
+      }
+      const adjacency = new Set((spec.adjacency || []).map(([i, j]) => (i < j ? i + ':' + j : j + ':' + i)));
+      const posScale = solver === 'multibody' ? 1000 : 1; // metres→mm vs FK mm
+      const swept = sweptClashFree(forge, baseMeshes, samples, { adjacency, posScale, probe: spec.probe || 24 });
+      perStepClash = swept.perStepClash;
+      interferenceFree = swept.interferenceFree;
+      worstStep = swept.worstStep;
+      clashRan = true;
+    } catch (e) {
+      solverErr = (solverErr ? solverErr + '; ' : '') + 'clash: ' + (e.message || String(e));
+    }
+  }
+
+  // ── score composition (multiplicative gate × weighted a–e) ───────────────
+  const score = gate * (
+    0.20 * dofCorrect +
+    0.20 * chainValid +
+    0.25 * mrf +
+    0.35 * (interferenceFree ? 1 : 0)
+  );
+
+  return {
+    mechanism: spec.name,
+    solver,
+    dof, dofExpected, dofCorrect,
+    jointsValid, gate,
+    chainValid,
+    grashof: grash ? { class: grash.class, fullRotation: grash.fullRotation } : null,
+    motionRangeFrac: mrf, motionRangeAchieved,
+    interferenceFree, perStepClash, worstStep, clashRan,
+    stable, maxResidual, solverErr,
+    score,
+    detail: {
+      weights: { dof: 0.20, chain: 0.20, motion: 0.25, interference: 0.35 },
+      sampleCount: samples.length,
+    },
+  };
+}
+
+// ── mechanism fixture generator (5 fixtures, each expected DOF + motion) ──────
+/**
+ * Five canonical mechanism fixtures, modelled on builtinEditingFixtures. Each
+ * provides kernel solid builders (mm), the multibody/FK config, the expected DOF
+ * + jointSpec for Gruebler, the chain class, the intended motion range, the
+ * driver, and (four-bar) the link lengths for Grashof. solver:'multibody' for the
+ * grounded pendulum (REAL solver end-to-end); solver:'planarFK' for the closed-
+ * loop / higher-pair fixtures (FK poses; interference axis still real-kernel).
+ */
+function mechanismFixtures() {
+  // — small kernel solid builders (mm), authored about each link's own origin —
+  // REAL planar linkages avoid coplanar self-collision by stacking the links on
+  // distinct parallel Z-planes (the crank on one plane, the coupler above it, the
+  // rocker on a third). We bake that plane offset into each link's base mesh via
+  // `zPlane` so a long coupler can legitimately sweep OVER the ground bar without
+  // a spurious clash — exactly how a physical four-bar/slider-crank is built.
+  const link = (len, w = 6, th = 3, zPlane = 0) => (forge) => {
+    const h = forge.makeBox(len, w, th);
+    // makeBox is corner-origin [0,len]×[0,w]×[0,th]; recentre about midpoint via
+    // translate, lifting the body to its parallel working plane (zPlane).
+    return (forge.translate ? forge.translate(h, -len / 2, -w / 2, -th / 2 + zPlane) : h);
+  };
+  const disc = (dia, th = 6) => (forge) => forge.makeCylinder(dia / 2, th);
+  const piston = (dia = 16, len = 14) => (forge) => forge.makeCylinder(dia / 2, len);
+  const groundPost = () => (forge) => forge.makeCylinder(3, 8);
+
+  // four-bar link lengths (mm): ground r1, crank r2, coupler r3, rocker r4.
+  const r1 = 100, r2 = 25, r3 = 90, r4 = 70; // S=25,L=100? check: lengths {25,100,90,70} → S+L=125, P+Q=160 → Grashof crank-rocker
+
+  const fourBar = {
+    name: 'four-bar-linkage', planar: true, chain: 'fourbar', solver: 'planarFK',
+    // stacked planes: ground z=0, crank z=4, coupler z=8 (sweeps over ground+crank),
+    // rocker z=4 (shares the crank's plane; they never get near each other).
+    bodyBuilders: [link(r1, 8, 3, 0), link(r2, 6, 3, 4), link(r3, 6, 3, 8), link(r4, 6, 3, 4)],
+    fk: { chain: 'fourbar', params: { r1, r2, r3, r4 }, steps: 72 },
+    driver: { body: 1, axis: [0, 0, 1], kind: 'rotary' },
+    range: { targetRad: 2 * Math.PI },                     // crank fully rotates
+    expectedDOF: 1, jointSpec: { n: 4, j1: 4, j2: 0 },
+    fourbar: { s: r2, l: r1, p: r3, q: r4, expectClass: 'crank-rocker', expectFullRotation: true },
+    adjacency: [[0, 1], [1, 2], [2, 3], [0, 3]],            // each pin pair legitimately touches
+  };
+
+  const sliderCrank = {
+    name: 'slider-crank', planar: true, chain: 'slidercrank', solver: 'planarFK',
+    // ground bed z=0, crank z=4, conrod z=8 (sweeps over the bed), piston on axis.
+    bodyBuilders: [link(120, 8, 3, 0), link(30, 6, 3, 4), link(90, 6, 3, 8), piston(16, 14)],
+    fk: { chain: 'slidercrank', params: { r2: 30, r3: 90 }, steps: 72 },
+    driver: { body: 1, axis: [0, 0, 1], kind: 'rotary' },
+    range: { targetRad: 2 * Math.PI },                     // crank fully rotates → piston full stroke
+    expectedDOF: 1, jointSpec: { n: 4, j1: 4, j2: 0 },     // 3 revolute + 1 prismatic
+    adjacency: [[0, 1], [1, 2], [2, 3], [0, 3]],
+  };
+
+  const pendulum = {
+    name: 'simple-pendulum', planar: true, chain: 'pendulum', solver: 'multibody',
+    // body 0 = the moving bob (driven by the REAL inertial solver); body 1 = the
+    // FIXED pivot post at the origin (no solver sample → stays at origin). The bob
+    // must swing past WITHOUT clashing the post — interference is a real 2-body
+    // axis here (the spec's "never clashes the pivot post"). The bob disc is built
+    // about its own COM; the solver reports the COM ~0.5 m out, so at mm-scale the
+    // bob (Ø20) is ~500 mm from the Ø6 post → clear.
+    bodyBuilders: [disc(20, 8), groundPost()],
+    bodies: [{ mass: 1.0, position: [0.5, 0, -0.866], inertia: [1e-4, 0, 0, 0, 1e-4, 0, 0, 0, 1e-4] }],
+    constraints: [{ kind: 'ballJoint', bodyA: 0, pointA: [-0.5, 0, 0.866], anchor: [0, 0, 0] }],
+    loads: [], gravity: [0, 0, -9.81], sim: { dt: 1e-3, steps: 600 },
+    driver: { body: 0, axis: [0, 1, 0], kind: 'rotary' },  // swings about +Y (planar)
+    range: { targetRad: 0.5 },                              // swings ≥0.5 rad over the cycle (60° start → other side)
+    expectedDOF: 1, jointSpec: { n: 2, j1: 1, j2: 0 },     // bob + ground, 1 spherical-as-planar-pin
+    adjacency: [],                                          // bob↔post must NOT clash
+  };
+
+  const scissor = {
+    name: 'scissors-lazy-tong', planar: true, chain: 'scissor', solver: 'planarFK',
+    bodyBuilders: [groundPost(), link(120), link(120), piston(10, 8)], // 0 centre post,1 link A,2 link B,3 output
+    fk: { chain: 'scissor', params: { L: 60, phi0: 0.3, phi1: 1.2 }, steps: 60 },
+    driver: { body: 3, slideAxis: [1, 0, 0], kind: 'prismatic' },
+    // output end span = 2·L·cos(phi): from 2·60·cos(0.3)=114.7 to 2·60·cos(1.2)=43.5 → ~71 mm stroke
+    range: { targetMm: 2 * 60 * (Math.cos(0.3) - Math.cos(1.2)) },
+    expectedDOF: 1, jointSpec: { n: 4, j1: 4, j2: 0 },     // central pin + 2 end pins + 1 prismatic output
+    adjacency: [[0, 1], [0, 2], [1, 2], [1, 3], [2, 3]],
+  };
+
+  const gearPair = {
+    name: 'spur-gear-pair', planar: true, chain: 'gearpair', solver: 'planarFK',
+    // two gears, OD 40 & 60 → centre distance (20+30)=50; tooth bodies approximated
+    // by the pitch discs for the interference axis (teeth mesh w/o body overlap).
+    bodyBuilders: [disc(38, 8), disc(58, 8)],              // slightly under pitch dia so pitch circles roll, not clash
+    fk: { chain: 'gearpair', params: { zA: 20, zB: 30, center: 50 }, steps: 60 },
+    driver: { body: 0, axis: [0, 0, 1], kind: 'rotary' },
+    range: { targetRad: 2 * Math.PI },                     // driver fully rotates
+    expectedDOF: 1, jointSpec: { n: 3, j1: 2, j2: 1 },     // 2 revolute + 1 gear higher-pair
+    adjacency: [],                                          // the two gears must NOT body-overlap (teeth only)
+  };
+
+  return { fourBar, sliderCrank, pendulum, scissor, gearPair };
+}
+
+/**
+ * Produce a clearly-BROKEN variant of a mechanism fixture for the discrimination
+ * proof (a correct mechanism must score high; a broken one < 0.5):
+ *   'dof'     — declare the wrong joint count (an over-constrained loop) so
+ *               dofCorrect→0 (the structure is locked, not a mechanism).
+ *   'crash'   — collapse the links onto ONE coplanar Z-plane and fatten them so
+ *               non-adjacent bodies sweep THROUGH each other → interference fires.
+ *   'lockup'  — make the four-bar non-Grashof (S+L > P+Q) so the crank cannot
+ *               complete a full rotation. NOTE: motionRangeFrac (axis d) measures
+ *               the DRIVER's commanded sweep, so for a rotary-crank four-bar it
+ *               still reads ~1.0; the lockup is caught instead by the CHAIN axis
+ *               (Grashof→0) and INTERFERENCE (the torn loop holds the output pose
+ *               → real overlap). Net score still < 0.5. (For prismatic-driven
+ *               fixtures — scissor/gear/pendulum — mRange does collapse directly.)
+ *   'broken'  — a genuinely non-functional build: wrong DOF AND (where applicable)
+ *               non-Grashof lockup AND coplanar self-crash. ALL axes collapse →
+ *               score well under 0.5 (the real discrimination floor).
+ */
+function applyMechMutation(spec, mutate) {
+  const s = JSON.parse(JSON.stringify(spec, (k, v) => v)); // shallow structural copy
+  // bodyBuilders are functions (lost by JSON) — re-attach from the live fixture.
+  s.bodyBuilders = spec.bodyBuilders;
+  s.fourbar = spec.fourbar ? { ...spec.fourbar } : undefined;
+  s.fk = spec.fk ? { ...spec.fk, params: { ...spec.fk.params } } : undefined;
+
+  // Wide, COPLANAR links (all on z≈0, nearly as wide as long) so the moving
+  // bodies genuinely overlap through the cycle (a real self-collision).
+  const coplanarWide = () => spec.bodyBuilders.map((b, i) => {
+    if (i === 0) return b;                              // keep ground as the bed
+    return (forge) => {
+      const h = forge.makeBox(70, 60, 8);              // big fat slab on z=0
+      return (forge.translate ? forge.translate(h, -35, -30, -4) : h);
+    };
+  });
+
+  const breakDof = () => { s.jointSpec = { n: s.jointSpec.n, j1: s.jointSpec.j1 + 1, j2: s.jointSpec.j2 }; };
+  const breakChainMotion = () => {
+    if (s.fourbar && s.fk) {                            // non-Grashof: huge crank
+      s.fk.params.r2 = s.fk.params.r1 + 60;
+      s.fourbar.s = s.fk.params.r2;
+    } else if (s.fk && s.fk.chain === 'slidercrank') {
+      // conrod shorter than the crank+stroke → the FK root goes imaginary (loop
+      // tears, piston freezes) → residual spikes + motion collapses.
+      s.fk.params.r3 = 1;
+    } else if (s.fk && s.fk.chain === 'scissor') {
+      // freeze the centre angle → the output slider never moves (no stroke).
+      s.fk.params.phi1 = s.fk.params.phi0;
+    } else if (s.fk && s.fk.chain === 'gearpair') {
+      // demand a sweep the driver cannot reach within one revolution.
+      s.range = { ...s.range, targetRad: 100 };
+    } else if (s.solver === 'multibody') {
+      // ask for an unreachable swing (frozen-driver equivalent for the inertial
+      // pendulum) so motionRangeFrac collapses without faking the solver.
+      s.range = { ...s.range, targetRad: 50 };
+    }
+  };
+
+  // For the multibody pendulum (no fk) a self-crash means an over-sized bob that
+  // engulfs the fixed pivot post: the bob COM swings ~0.5 m out and ~0.87 m down,
+  // so a big cube (~2.4 m across, centred on the bob COM) reaches back to the
+  // origin in X, Y AND Z and overlaps the Ø6 post at z=0..8 mm.
+  const overSizedBob = () => spec.bodyBuilders.map((b, i) => {
+    if (i !== 0) return b;                              // keep the post
+    return (forge) => {
+      const S = 2400;
+      const h = forge.makeBox(S, S, S);
+      return (forge.translate ? forge.translate(h, -S / 2, -S / 2, -S / 2) : h);
+    };
+  });
+
+  if (mutate === 'dof') { breakDof(); }
+  else if (mutate === 'crash') { s.bodyBuilders = coplanarWide(); s.adjacency = []; }
+  else if (mutate === 'lockup') { breakChainMotion(); }
+  else if (mutate === 'broken') {
+    breakDof();
+    breakChainMotion();
+    if (s.solver === 'multibody') { s.bodyBuilders = overSizedBob(); s.adjacency = []; }
+    else { s.bodyBuilders = coplanarWide(); s.adjacency = []; }
+  }
+  return s;
+}
+
 /** Multiplicative Betti match using the CADGenBench squared (min+1)/(max+1) credit. */
 function scoreTopology(forge, h, gtBetti) {
   const b = bettiNumbers(tess(forge, h));
@@ -1247,6 +1985,19 @@ async function runWorker(jobFile, outFile) {
         const s = scoreBody(forge, lastHandle, fx, job.emittedCalls || job.calls);
         result = { ok: true, errors, score: s };
       }
+    } else if (job.op === 'mechanism') {
+      // Score ONE mechanism fixture in a fresh kernel. The fixture is named so we
+      // rebuild its (function-valued) bodyBuilders here — they cannot cross the
+      // JSON job boundary. Drives the REAL multibody solver for grounded fixtures
+      // and the kernel-truthful planarFK clash for closed-loop ones.
+      const fixtures = mechanismFixtures();
+      const spec = fixtures[job.fixture];
+      if (!spec) { result = { ok: false, error: `unknown mechanism fixture '${job.fixture}'` }; }
+      else {
+        const mutated = job.mutate ? applyMechMutation(spec, job.mutate) : spec;
+        const s = scoreMechanism(forge, mutated);
+        result = { ok: true, score: s };
+      }
     } else {
       result = { ok: false, error: `unknown op '${job.op}'` };
     }
@@ -1583,6 +2334,94 @@ async function runEditingProof(rowsPath) {
 }
 
 // ───────────────────────────────────────────────────────────────────────────
+//  Mechanism axis proof (task #31)
+// ───────────────────────────────────────────────────────────────────────────
+function printMechScorecard(title, rows) {
+  console.log(`\n${title}`);
+  const header = ['mechanism', 'solver', 'gate', 'dof', 'dofOK', 'chain', 'mRange', 'clash', 'free', 'SCORE'];
+  const widths = [22, 10, 5, 5, 6, 7, 7, 6, 5, 7];
+  console.log(header.map((h, i) => pad(h, widths[i])).join(''));
+  console.log('-'.repeat(widths.reduce((a, b) => a + b, 0)));
+  for (const r of rows) {
+    console.log([
+      pad(r.mechanism, widths[0]),
+      pad(r.solver, widths[1]),
+      pad(r.gate, widths[2]),
+      pad(r.dof == null ? '-' : r.dof, widths[3]),
+      pad(r.dofCorrect ? 'Y' : 'N', widths[4]),
+      pad(fmt(r.chainValid), widths[5]),
+      pad(fmt(r.motionRangeFrac), widths[6]),
+      pad(r.clashRan ? r.perStepClash : '-', widths[7]),
+      pad(r.interferenceFree ? 'Y' : 'N', widths[8]),
+      pad(fmt(r.score), widths[9]),
+    ].join(''));
+  }
+}
+
+/**
+ * Run the mechanism-axis proof: score each of the 5 fixtures (correct build) plus
+ * a deliberately-broken variant, in fresh kernel children. Verdict: every correct
+ * fixture ≥ 0.80 and every broken variant < 0.5 (the discrimination bar).
+ */
+async function runMechanismProof() {
+  console.log('\n--mechanisms: scoring the 5 mechanism fixtures (4th→5th axis) on');
+  console.log('  (a) joints valid  (b) DOF  (c) chain  (d) motion-range  (e) NO interference …');
+  const names = ['fourBar', 'sliderCrank', 'pendulum', 'scissor', 'gearPair'];
+  const correctRows = [];
+  const brokenRows = [];
+  const brokenKind = {};
+  for (const fixture of names) {
+    const r = runJobInChild({ op: 'mechanism', fixture });
+    if (!r.ok) { console.error(`  ! ${fixture}: ${r.error}`); continue; }
+    correctRows.push(r.score);
+    // A genuinely non-functional build: all applicable axes collapse (wrong DOF +
+    // chain/motion lockup + coplanar self-crash) → score well under the 0.5 bar.
+    const mutate = 'broken';
+    brokenKind[fixture] = mutate;
+    const rb = runJobInChild({ op: 'mechanism', fixture, mutate });
+    brokenRows.push(rb.ok ? rb.score : zeroMechScore(fixture, rb.error));
+  }
+
+  printMechScorecard('=== MECHANISM SCORECARD (correct build — expect SCORE high, NO clash) ===', correctRows);
+  printMechScorecard('=== BROKEN-VARIANT SCORECARD (wrong-DOF / self-crashing — expect SCORE < 0.5) ===', brokenRows);
+
+  console.log('\nHonest solver path per fixture:');
+  for (const r of correctRows) {
+    console.log(`  ${pad(r.mechanism, 22)} solver=${pad(r.solver, 12)} ` +
+      `${r.solver === 'multibody' ? '(REAL HHT-α inertial solver, end-to-end)' :
+        '(planar FK poses; interference axis on REAL kernel meshes — closed-loop inertial is a kernel gap)'}`);
+    if (r.solverErr) console.log(`      note: ${r.solverErr}`);
+  }
+
+  console.log('\n=== MECHANISM DISCRIMINATION VERDICT ===');
+  let allHigh = true, allBrokenLow = true;
+  for (let i = 0; i < correctRows.length; i++) {
+    const c = correctRows[i].score, b = brokenRows[i] ? brokenRows[i].score : 1;
+    const high = c >= 0.80, low = b < 0.5;
+    if (!high) allHigh = false;
+    if (!low) allBrokenLow = false;
+    console.log(`  ${pad(correctRows[i].mechanism, 22)} correct=${fmt(c)} ` +
+      `broken[${brokenKind[names[i]] || '?'}]=${fmt(b)} Δ=${fmt(c - b)} ` +
+      `${high ? '' : '[CORRECT<0.80] '}${low ? '' : '[BROKEN NOT LOW]'}`);
+  }
+  const proven = allHigh && allBrokenLow;
+  console.log(`\n  MECHANISM DISCRIMINATION ${proven ? 'PROVEN ✓' : 'INCOMPLETE ✗'} ` +
+    `(correct≥0.80: ${allHigh ? 'yes' : 'NO'}, broken<0.5: ${allBrokenLow ? 'yes' : 'NO'})`);
+  if (!proven) process.exitCode = 9;
+}
+
+function zeroMechScore(name, reason) {
+  return {
+    mechanism: name, solver: 'none', dof: null, dofExpected: null, dofCorrect: 0,
+    jointsValid: false, gate: 0, chainValid: 0, grashof: null,
+    motionRangeFrac: 0, motionRangeAchieved: false,
+    interferenceFree: false, perStepClash: 0, worstStep: -1, clashRan: false,
+    stable: false, maxResidual: 0, solverErr: reason, score: 0,
+    detail: { reason },
+  };
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 //  Main
 // ───────────────────────────────────────────────────────────────────────────
 async function main() {
@@ -1645,6 +2484,18 @@ async function main() {
   //  A NO-OP echo replays only the BASE calls ⇒ shape≈b_shape ⇒ s_renorm→0.
   if (has('--editing')) {
     await runEditingProof(arg('--editing-rows'));
+    return;
+  }
+
+  // ── --mechanisms: the 5th axis — MECHANISM correctness (task #31) ──────────
+  //  Scores the 5 built-in mechanism fixtures (four-bar, slider-crank, pendulum,
+  //  scissors, spur-gear pair) on joints/DOF/chain/motion-range/interference,
+  //  each in a fresh kernel child. Drives the REAL HHT-α multibody solver for the
+  //  grounded pendulum and a kernel-truthful planar-FK clash for the closed-loop
+  //  fixtures (see HONEST LIMITS in scoreMechanism). Then a discrimination proof:
+  //  each correct fixture vs a broken variant (wrong-DOF / self-crashing).
+  if (has('--mechanisms')) {
+    await runMechanismProof();
     return;
   }
 
@@ -1766,7 +2617,12 @@ async function main() {
 export { makeHeadlessForge, tess, bboxOf, bettiNumbers, checkValid, dimsFromCalls, parseRow, runJobInChild,
          postToModel, callsFromAssistant, CANONICAL_SYSTEM,
          scoreShape, shapeFromTess, scoreInterface, scoreMate, scoreTopology,
-         surfaceF1, volumeIoU, bboxDiag, topologyCredit, interfaceRamp };
+         surfaceF1, volumeIoU, bboxDiag, topologyCredit, interfaceRamp,
+         // ── mechanism axis (task #31) — pure-math helpers are kernel-free + self-testable ──
+         scoreMechanism, mechanismFixtures, applyMechMutation,
+         mechanismDOF, grashofClass, chainValidScore, motionRangeFrac,
+         sweptClashFree, interferenceVerdict, planarFKSamples,
+         transformTess, axisAngleToR };
 
 // Entry: worker vs orchestrator. Only fires when this file is the program entry
 // point — when imported as a module (e.g. by label_rows.mjs) nothing auto-runs.

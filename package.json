@@ -20,6 +20,7 @@
     "forge:native": "bash forge-kernel/test/native/run_native.sh",
     "forge:coherence": "node forge-kernel/test/coherence_logic_score.mjs",
     "forge:cadscore:selftest": "node forge-kernel/test/cadscore_v2_selftest.mjs",
+    "forge:mechanism:selftest": "node forge-kernel/test/mechanism_axis_selftest.mjs",
     "forge:unit": "node --test frontend/src/kernel/forge/__tests__/*.test.mjs",
     "forge:e2e:features": "npx playwright test e2e/push-32-sketch-on-face.spec.js e2e/push-34-edge-picking.spec.js e2e/push-35-datum-planes.spec.js e2e/push-36-multibody.spec.js e2e/push-37-assembly-mates.spec.js --workers=1 --reporter=line",
     "gate": "npm run forge:kernel:build && npm run forge:kernel:test && npm run forge:bridge:test && npm run forge:unit && cd frontend && npx vite build && cd .. && npm run forge:e2e:features"
