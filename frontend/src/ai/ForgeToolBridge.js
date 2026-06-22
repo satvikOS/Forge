@@ -22,6 +22,7 @@
  */
 
 import { getForge } from '../kernel/forge/index.js';
+import { exportRobot } from '../forge-v4/io/robotExport.js';
 
 // Round ALL edges of a finished asset body so machined parts read as
 // manufactured (broken edges), not raw boolean blocks. Fillets every edge
@@ -2161,6 +2162,58 @@ export const FORGE_TOOLS = [
         op: 'export-stl', ok: true, format: 'stl', filepath: fp,
         linearTol_mm: lin, angularTol_rad: ang, binary: !ascii,
       };
+    } },
+
+  // Task #30 — export the active ASSEMBLY to a robot description (URDF/SDF/
+  // USD/MJCF). Per-link inertia/COM/mass come from the kernel mass-props
+  // (forge.massProps) about the link COM frame, in SI; collision geometry is an
+  // automatic per-link CONVEX HULL (forge.native.convexHull3D) DISTINCT from the
+  // full visual mesh; Forge mates map to revolute/prismatic/fixed/continuous
+  // joints with axis + limits; and closed chains (four-bars / parallel
+  // mechanisms) are preserved — spanning tree + loop closures (SDF extra joint,
+  // MJCF <equality><connect>, USD loop joint, URDF <gazebo> block), never
+  // silently dropped. `assembly` is a Forge Assembly (parts[]/mates[]) or a
+  // normalized spec; meshes + hulls are produced via the kernel binding.
+  { name: 'io.export-robot', discipline: 'part', produces: 'file',
+    description: 'Export the assembly to a robot description (urdf|sdf|usd|mjcf). Kernel-computed COM-frame inertia, separate convex-hull collision vs full visual mesh, mate→joint mapping with limits, and closed-chain loop closures. Writes the document + per-link _visual/_collision .stl sidecars next to filepath.',
+    parameters: { assembly: P('object', 'Forge Assembly (parts[]/mates[]) or normalized robot spec', { required: true }),
+                  format: P('enum', 'urdf|sdf|usd|mjcf', { default: 'urdf' }),
+                  density: P('number', 'material density kg/m³ (used when a link has no explicit mass)', { default: 1000 }),
+                  decimate: P('boolean', 'decimate the visual mesh (LOD1)', { default: false }),
+                  baseLink: P('string', 'id/name of the root/base link (default: a fixed link)', { default: null }),
+                  filepath: P('string', 'absolute output path for the description document', { required: true }) },
+    run: ({ assembly, format, density, decimate, baseLink, filepath }, forge) => {
+      const fp = filepath && String(filepath).trim();
+      if (!fp) throw new Error('io.export-robot: filepath required (absolute output path)');
+      if (!assembly || typeof assembly !== 'object') {
+        throw new Error('io.export-robot: an assembly (parts[]/mates[]) or normalized spec is required');
+      }
+      const fmt = (format || 'urdf').toLowerCase();
+      const { text, meshFiles } = exportRobot(assembly, {
+        format: fmt, density, decimate, baseLink, forge, withMeshFiles: true,
+      });
+      // Write the document + sidecar meshes. Prefer the Electron bridge
+      // (forge.dialog.writeBlob) used by the other JS exporters; fall back to a
+      // kernel text writer or Node fs (Electron-main / test). No new deps.
+      const dir = fp.replace(/[^/\\]*$/, '');
+      const written = [];
+      const writeText = (path, content) => {
+        if (forge && forge.io && typeof forge.io.writeTextFile === 'function') {
+          forge.io.writeTextFile(path, content);
+        } else if (forge && forge.dialog && typeof forge.dialog.writeBlob === 'function') {
+          forge.dialog.writeBlob(path, content);
+        } else if (typeof require === 'function') {
+          // eslint-disable-next-line global-require
+          require('fs').writeFileSync(path, content);
+        } else {
+          throw new Error('io.export-robot: no file-writer available (forge.dialog.writeBlob / fs)');
+        }
+        written.push(path);
+      };
+      writeText(fp, text);
+      for (const [name, content] of Object.entries(meshFiles)) writeText(dir + name, content);
+      return { op: 'export-robot', ok: true, format: fmt, filepath: fp,
+               meshFiles: Object.keys(meshFiles).map(n => dir + n), written };
     } },
 
   // ============================================================ DRAWING

@@ -20,3 +20,8 @@ export {
 export {
   exportGltf, parseGltfSummary,
 } from './GltfExport.js';
+
+// Task #30 — CAD → robot-description exporter (URDF / SDF / USD / MJCF).
+export {
+  exportRobot,
+} from '../../forge-v4/io/robotExport.js';
