@@ -42,6 +42,10 @@ import {
   captureRationale as rtCapture, queryRationale as rtQuery,
   listRationale as rtList, rationaleFromOp as rtFromOp,
 } from '../forge-v4/rationale/designRationale.js';
+// Task #24 — large-assembly incremental rebuild. The assembly.mark-dirty /
+// assembly.rebuild-incremental verbs drive the ONE live AssemblyGraph the shell
+// installs on window.__forgeAssemblyGraph (getAssemblyGraph resolves+installs it).
+import { getAssemblyGraph } from '../forge-v4/assembly/incrementalRebuild.js';
 import {
   trainSurrogate, predictSurrogate,
 } from '../forge-v4/ml/surrogate.js';
@@ -1519,6 +1523,34 @@ export const FORGE_TOOLS = [
       const a = box instanceof Float64Array ? box : Float64Array.from(box);
       const hits = forge.queryAABB(a);
       return { hitCount: hits.length, hits: Array.from(hits.slice(0, 256)) };
+    } },
+
+  // ── Task #24 — large-assembly incremental rebuild ─────────────────────────
+  { name: 'assembly.mark-dirty', discipline: 'assembly', produces: 'report',
+    description: 'Flag an assembly DAG node dirty and topologically propagate to downstream dependents only. Returns how many nodes were dirtied.',
+    parameters: { nodeId: P('string', 'assembly graph node id', { required: true }) },
+    run: ({ nodeId }) => {
+      const { graph } = getAssemblyGraph();
+      if (!graph.byId(nodeId)) return { ok: false, error: `unknown assembly node '${nodeId}'`, dirtyCount: 0 };
+      const flagged = graph.markDirty(nodeId);
+      return { ok: true, nodeId, dirtyCount: flagged.size, dirtyIds: [...flagged] };
+    } },
+
+  { name: 'assembly.rebuild-incremental', discipline: 'assembly', produces: 'report',
+    description: 'Incrementally rebuild the assembly: recompute ONLY dirty nodes (and nodes whose ancestor changed) in topological order, reusing every clean node\'s cached output. Reports recomputed ids, cache hits, and wall-clock ms.',
+    parameters: {},
+    run: () => {
+      const { rebuilder } = getAssemblyGraph();
+      const r = rebuilder.rebuild();
+      return {
+        ranIds: r.ranIds,
+        skippedIds: r.skippedIds,
+        recomputed: r.ranIds.length,
+        cacheHits: r.skippedIds.length,
+        executions: r.stats.executions,
+        elapsedMs: r.elapsedMs,
+        errors: r.errors,
+      };
     } },
 
   // ============================================================ SIMULATE
