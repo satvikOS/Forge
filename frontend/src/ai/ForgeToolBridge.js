@@ -41,6 +41,9 @@ import {
   captureRationale as rtCapture, queryRationale as rtQuery,
   listRationale as rtList, rationaleFromOp as rtFromOp,
 } from '../forge-v4/rationale/designRationale.js';
+import {
+  trainSurrogate, predictSurrogate,
+} from '../forge-v4/ml/surrogate.js';
 
 // Round ALL edges of a finished asset body so machined parts read as
 // manufactured (broken edges), not raw boolean blocks. Fillets every edge
@@ -3087,6 +3090,45 @@ export const FORGE_TOOLS = [
       const records = rtList(partId);
       return { op: 'rationale.list', partId, count: records.length,
                orphanedCount: records.filter((r) => r.orphaned).length, records };
+    } },
+
+  // ============================================================ ML SURROGATE / ROM
+  // Trainable ML surrogate / reduced-order model (Task #29) fitted on Forge's
+  // OWN validated Monte-Carlo tolerance solver (forge-v4/monteCarloMath.js).
+  // The surrogate replaces the expensive 100k-trial solver with a cheap GP
+  // evaluation while shipping HONEST, data-derived predictive error bounds: the
+  // posterior std is the exact GP closed-form (widens away from the data and
+  // out-of-domain), hyperparameters are picked by leave-one-out CV, and the
+  // (1−α) interval is CALIBRATED against a held-out set so its stated coverage
+  // is a MEASURED number. Kernel-free — these verbs ignore `forge`.
+  { name: 'ml.surrogate-train', discipline: 'simulate', produces: 'report',
+    description: 'Train an ML surrogate / reduced-order model on Forge\'s OWN validated Monte-Carlo tolerance solver. Latin-Hypercube samples the design box, runs the REAL solver as ground truth at each point, fits a Gaussian-process (squared-exponential, ARD) interpolant, and returns the model PLUS honest predictive error bounds: leave-one-out CV RMSE, held-out validation RMSE, and the empirically-MEASURED interval coverage. NOT a black box — the bounds are validated against the real solver. Pass the returned model to ml.surrogate-predict to evaluate many designs cheaply.',
+    parameters: {
+      chain: P('array', '[{nominal, plus, minus, dist?}] base tolerance chain (mm); dist "normal"|"uniform"', { required: true }),
+      designVars: P('array', 'which link tolerances to vary: [{ index, lo, hi }] (mm). Defines the surrogate input space.', { required: true }),
+      USL: P('number', 'assembly upper spec limit (mm)', { required: true }),
+      LSL: P('number', 'assembly lower spec limit (mm)', { required: true }),
+      qoi: P('enum', 'quantity to surrogate: cpk|yieldPct', { default: 'cpk' }),
+      nSamples: P('uint', 'training design points (Latin-Hypercube)', { default: 60 }),
+      nVal: P('uint', 'held-out validation points (for RMSE + coverage calibration)', { default: 24 }),
+      nTrials: P('uint', 'Monte-Carlo trials per ground-truth solver evaluation', { default: 100000 }),
+      confidence: P('number', 'target two-sided interval coverage (e.g. 0.95)', { default: 0.95 }),
+      seed: P('uint', 'master RNG seed (deterministic ground truth + DOE)', { default: 12345 }) },
+    run: (args) => {
+      const model = trainSurrogate(args);
+      // Return the full (serialisable) model so the predict verb can consume it,
+      // plus the transparent accuracy report up top.
+      return { op: 'ml.surrogate-train', ...model.report, model };
+    } },
+
+  { name: 'ml.surrogate-predict', discipline: 'simulate', produces: 'report',
+    description: 'Predict the QoI at a design point using a trained Forge surrogate (from ml.surrogate-train), returning the predicted value AND a REAL predictive uncertainty: the GP posterior standard error, a calibrated (1−α) interval [lo,hi], the inDomain flag (false = extrapolation beyond the sampled box) and the extrapolation factor. The error bound WIDENS out-of-domain — it never stays flat. Also echoes the model\'s validated RMSE + empirical coverage so the caller sees the real accuracy.',
+    parameters: {
+      model: P('object', 'trained surrogate model object returned by ml.surrogate-train', { required: true }),
+      x: P('array', 'design vector (the varied tolerances, mm) in the same order as designVars', { required: true }) },
+    run: (args) => {
+      const r = predictSurrogate(args.model, args.x);
+      return { op: 'ml.surrogate-predict', ...r };
     } },
 ];
 
