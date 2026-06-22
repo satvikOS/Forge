@@ -213,6 +213,28 @@ export function parseAssistant(text) {
 }
 
 /**
+ * Re-serialize OpenAI-structured tool_calls back into <tool_call>…</tool_call>
+ * TEXT tags. A tool-aware tokenizer template (e.g. Qwen2.5, used by the 14B v2
+ * reasoning-merged fold) makes mlx_lm.server PARSE the model's <tool_call> tags
+ * OUT of message.content into the structured message.tool_calls field. The rest
+ * of this module (parseAssistant / maybeFlushToolCalls / dispatchToolCall)
+ * consumes <tool_call> TEXT tags, so we normalize structured calls back to tags.
+ * Hermes-3-8B's template leaves the tags in content (tool_calls absent) → no-op.
+ */
+function structuredToolCallText(toolCalls) {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) return '';
+  const parts = [];
+  for (const tc of toolCalls) {
+    const fn = tc && tc.function ? tc.function : {};
+    if (!fn.name) continue;
+    let args = fn.arguments;
+    if (typeof args === 'string') { try { args = JSON.parse(args); } catch (_) { args = {}; } }
+    parts.push('<tool_call>' + JSON.stringify({ name: fn.name, arguments: args || {} }) + '</tool_call>');
+  }
+  return parts.join('\n');
+}
+
+/**
  * One-shot Archie call. Returns the assistant text. The Archie fleet
  * speaks OpenAI-compat at localhost:8080, so we use plain fetch. The
  * adapter is selected per-discipline (see ~/archdisc-Models adapter
@@ -259,7 +281,9 @@ async function archieComplete({ messages, discipline,
   // operate identically on both paths.
   if (!onToken) {
     const j = await res.json();
-    return j.choices?.[0]?.message?.content ?? '';
+    const msg = j.choices?.[0]?.message ?? {};
+    const tags = structuredToolCallText(msg.tool_calls);
+    return (msg.content ?? '') + (tags ? '\n' + tags : '');
   }
   let acc = '';
   // Forge-166 — speculative tool-call dispatch. Tracks how much of acc
@@ -285,10 +309,16 @@ async function archieComplete({ messages, discipline,
     ? res.body.getReader() : null;
   if (!reader) {
     const j = await res.json();
-    return j.choices?.[0]?.message?.content ?? '';
+    const msg = j.choices?.[0]?.message ?? {};
+    const tags = structuredToolCallText(msg.tool_calls);
+    return (msg.content ?? '') + (tags ? '\n' + tags : '');
   }
   const decoder = new TextDecoder('utf-8');
   let buf = '';
+  // Structured tool_calls streamed as deltas (Qwen-served): accumulate per index
+  // (OpenAI sends the `arguments` string in fragments across chunks), then
+  // synthesize <tool_call> tags at stream end so maybeFlushToolCalls dispatches them.
+  const toolAcc = {};
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const { value, done } = await reader.read();
@@ -305,12 +335,33 @@ async function archieComplete({ messages, discipline,
       try { chunk = JSON.parse(payload); } catch (_) { continue; }
       const delta = chunk?.choices?.[0]?.delta;
       if (!delta) continue;
+      if (Array.isArray(delta.tool_calls)) {
+        for (const d of delta.tool_calls) {
+          const idx = typeof d.index === 'number' ? d.index : 0;
+          const slot = (toolAcc[idx] = toolAcc[idx] || { name: '', args: '' });
+          if (d.function && d.function.name) slot.name = d.function.name;
+          if (d.function && typeof d.function.arguments === 'string') slot.args += d.function.arguments;
+        }
+      }
       const dContent = typeof delta.content === 'string' ? delta.content : '';
       if (dContent) acc += dContent;
       try { onToken({ delta_content: dContent, acc_content: acc }); }
       catch (_) { /* downstream UI errors must not stop the stream */ }
       if (dContent) await maybeFlushToolCalls();
     }
+  }
+  // Stream ended: flush any structured (Qwen-served) tool_calls accumulated as
+  // deltas into <tool_call> tags so they dispatch exactly like content-tag calls.
+  const synthTags = structuredToolCallText(
+    Object.keys(toolAcc).sort((a, b) => Number(a) - Number(b)).map((k) => {
+      let args = toolAcc[k].args;
+      try { args = JSON.parse(args || '{}'); } catch (_) { args = {}; }
+      return { function: { name: toolAcc[k].name, arguments: args } };
+    }),
+  );
+  if (synthTags) {
+    acc += (acc.endsWith('\n') || acc === '' ? '' : '\n') + synthTags;
+    await maybeFlushToolCalls();
   }
   return acc;
 }
