@@ -450,7 +450,21 @@ add_library(forge_kernel SHARED
     src/native/voxel/Tpms.cpp
     src/native/brep/Nurbs.cpp
     src/native/brep/NurbsCalculus.cpp
+    src/native/brep/NurbsSurface.cpp   # surfit dep: brep::evaluateWithDerivatives
     src/native/brep/Topology.cpp
+    # Task #46 — bind the remaining forge::native engines into the addon so
+    # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).
+    # geom/AABBTree + voxel/VoxelBoolean are cam's #include dependencies; list
+    # Materials.cpp ONCE (am + composites both #include it, single .o links all).
+    src/native/geom/AABBTree.cpp
+    src/native/voxel/VoxelBoolean.cpp
+    src/native/tolstack/Tolstack.cpp
+    src/native/vvuq/Vvuq.cpp
+    src/native/materials/Materials.cpp
+    src/native/am/Am.cpp
+    src/native/composites/Composites.cpp
+    src/native/surfit/Surfit.cpp
+    src/native/cam/Cam.cpp
     ${PLANEGCS_SRC}
 )
 

@@ -3449,6 +3449,139 @@ export const FORGE_TOOLS = [
       const r = predictSurrogate(args.model, args.x);
       return { op: 'ml.surrogate-predict', ...r };
     } },
+
+  // ════════════════════════════════════════════════════════════════════════
+  // forge::native engines (Task #46) — the in-house, pure-C++20 unified-kernel
+  // analysis engines, bound into forge-kernel.node and exposed at
+  // window.forge.native.* via the preload `native:` block. Each handler calls
+  // the REAL bound native op (no stub); ok=false + reason is surfaced honestly.
+  // ════════════════════════════════════════════════════════════════════════
+
+  // -- tolstack ----------------------------------------------------------
+  { name: 'sim.tolerance-stack', discipline: 'simulate', produces: 'result',
+    description: 'Analyze a 1D dimension-chain tolerance stack with all three industry methods at once (worst-case, RSS-statistical, Monte-Carlo) and the honest RSS-validity verdict. Each contributor has {nominal, plusTol, minusTol, sensitivity (∂gap/∂dim, ±1 for a simple add/subtract), dist}. Returns wcNominal/wcMin/wcMax/wcTol, rssMean/rssSigma/rssYield/cp/cpk, mcMean/mcSigma/mcYield, and rssValid+authoritativeMc (Monte-Carlo becomes the truth when RSS assumptions break). Calls forge.native.tolstackAnalyze.',
+    parameters: {
+      contributors: P('array', 'array of {nominal, plusTol, minusTol, sensitivity, dist:NORMAL|UNIFORM|TRIANGULAR}', { required: true }),
+      LSL: P('number', 'lower spec limit on the gap', { required: true }),
+      USL: P('number', 'upper spec limit on the gap', { required: true }),
+      k: P('number', 'k-sigma for tol→sigma & limits (default 3)', { default: 3 }),
+      mcSamples: P('number', 'Monte-Carlo sample count (default 200000)', { default: 200000 }),
+      cltMinContributors: P('number', 'fewer contributors than this ⇒ rssValid=false (default 4)', { default: 4 }) },
+    run: (a, forge) => {
+      const r = forge.native.tolstackAnalyze({
+        contributors: a.contributors, LSL: a.LSL, USL: a.USL,
+        k: a.k ?? 3, mcSamples: a.mcSamples ?? 200000,
+        cltMinContributors: a.cltMinContributors ?? 4,
+      });
+      return { op: 'sim.tolerance-stack', ...r };
+    } },
+
+  // -- vvuq --------------------------------------------------------------
+  { name: 'sim.mesh-convergence', discipline: 'simulate', produces: 'result',
+    description: 'Classify a mesh-convergence study (≥3 refinement levels of a monitored quantity) via Richardson extrapolation / GCI: CONVERGING (with the extrapolated value + observed order p + a GCI error bar), DIVERGING_SINGULAR (the peak keeps rising because the mesh is refining a stress singularity — not a real number), OSCILLATORY, or INSUFFICIENT. levels = [{h, value}, ...], finest last. Calls forge.native.vvuqConvergence.',
+    parameters: {
+      levels: P('array', 'array of {h (representative mesh size), value (monitored quantity)}, ≥3, finest last', { required: true }),
+      safetyFactor: P('number', 'GCI factor of safety Fs (Roache 1.25 default)', { default: 1.25 }) },
+    run: (a, forge) => {
+      const r = forge.native.vvuqConvergence(a.levels, a.safetyFactor ?? 1.25);
+      return { op: 'sim.mesh-convergence', ...r };
+    } },
+  { name: 'sim.energy-audit', discipline: 'simulate', produces: 'result',
+    description: 'Energy-ratio credibility audit for an explicit-dynamics run: hourglass/artificial strain energy as a fraction of internal energy (RED>10%, the formulation is faking stiffness), kinetic/internal ratio (quasi-static abuse), and contact-stabilization energy. Returns a RED/AMBER/GREEN level WITH reasons — never a bare number. Calls forge.native.vvuqEnergyAudit.',
+    parameters: {
+      internalEnergy: P('number', 'internal energy IE (J)', { required: true }),
+      hourglassEnergy: P('number', 'artificial / hourglass strain energy (J)', { required: true }),
+      kineticEnergy: P('number', 'kinetic energy KE (J)', { default: 0 }),
+      contactStabEnergy: P('number', 'contact-stabilization energy (J)', { default: 0 }),
+      quasiStatic: P('boolean', 'is this a quasi-static run? (KE should be tiny)', { default: true }) },
+    run: (a, forge) => {
+      const r = forge.native.vvuqEnergyAudit({
+        internalEnergy: a.internalEnergy, hourglassEnergy: a.hourglassEnergy,
+        kineticEnergy: a.kineticEnergy ?? 0, contactStabEnergy: a.contactStabEnergy ?? 0,
+        quasiStatic: a.quasiStatic ?? true,
+      });
+      return { op: 'sim.energy-audit', ...r };
+    } },
+
+  // -- materials ---------------------------------------------------------
+  { name: 'material.query', discipline: 'simulate', produces: 'result',
+    description: 'Query the process-aware ANISOTROPIC material database for the effective stiffness/strength along a load direction, WITH a scatter band and an honest confidence flag (HIGH = measured principal axis; MEDIUM = off-axis tensor-rotation prediction; LOW = not in DB, coupon test recommended). Captures the FDM Z-direction knockdown / CFRP fibre-axis anisotropy a single isotropic E/σ hides. Calls forge.native.materialsQuery.',
+    parameters: {
+      material: P('enum', 'ABS|PLA|CFRP_UD_T700|Ti6Al4V', { required: true }),
+      process: P('enum', 'FDM_FFF|LPBF|WROUGHT|PREPREG_AUTOCLAVE', { required: true }),
+      buildOrient: P('enum', 'XY_INPLANE|Z_BUILD|ANGLE_45|NA', { default: 'NA' }),
+      postProcess: P('enum', 'NONE|AS_BUILT|HIP|ANNEAL|NA', { default: 'AS_BUILT' }),
+      loadDir: P('array', '[x,y,z] load direction in the material frame', { required: true }),
+      k: P('number', 'scatter-band multiplier (2σ≈95%, default 2)', { default: 2 }) },
+    run: (a, forge) => {
+      const r = forge.native.materialsQuery({
+        material: a.material, process: a.process,
+        buildOrient: a.buildOrient ?? 'NA', postProcess: a.postProcess ?? 'AS_BUILT',
+        loadDir: a.loadDir, k: a.k ?? 2,
+      });
+      return { op: 'material.query', ...r };
+    } },
+
+  // -- am ----------------------------------------------------------------
+  { name: 'sim.am-warp', discipline: 'simulate', produces: 'result',
+    description: 'Predict the LPBF additive-build residual distortion (inherent-strain method) of a tetrahedral part: assemble the linear-elastic stiffness from the process-aware material DB, apply the CALIBRATED eigenstrain as an equivalent nodal load, clamp the build-plate nodes, and solve for the warp field + a residual-stress proxy. Returns per-node displacement, maxWarp/rmsWarp, maxVonMises, and the calibrated honesty flag. nodes/tets are flat arrays. Calls forge.native.amWarp.',
+    parameters: {
+      nodes: P('array', 'flat node coords [x,y,z,...] in metres, build frame', { required: true }),
+      tets: P('array', 'flat tet node indices [i,j,k,l,...] (length %4)', { required: true }),
+      material: P('object', '{material,process,buildOrient,postProcess} material key', { required: true }),
+      inherent: P('object', '{exx,eyy,ezz,eyz,exz,exy,calibrated} calibrated eigenstrain', { required: true }),
+      orientation: P('array', 'build→part 3x3 direction cosines (row-major 9), default identity', { default: null }),
+      plateZ: P('number', 'build-plate plane z; nodes at/below are clamped (default 0)', { default: 0 }) },
+    run: (a, forge) => {
+      const r = forge.native.amWarp({
+        nodes: a.nodes, tets: a.tets, material: a.material, inherent: a.inherent,
+        orientation: a.orientation ?? [1,0,0, 0,1,0, 0,0,1], plateZ: a.plateZ ?? 0,
+      });
+      return { op: 'sim.am-warp', ...r };
+    } },
+
+  // -- composites --------------------------------------------------------
+  { name: 'sim.composite-clt', discipline: 'simulate', produces: 'result',
+    description: 'Classical Lamination Theory for a composite layup: assemble the ABD stiffness matrices through-thickness about the midplane and derive the effective laminate engineering constants Ex/Ey/Gxy/nuxy. Reports symmetric (the key B==0 verdict for a symmetric layup) and balanced flags. Each ply carries its own orthotropic lamina constants {E1,E2,G12,nu12} + thickness + angle (degrees). Calls forge.native.compositesClt.',
+    parameters: {
+      plies: P('array', 'bottom→top array of {E1,E2,G12,nu12 (Pa), thickness (m), angleDeg}', { required: true }) },
+    run: (a, forge) => {
+      const r = forge.native.compositesClt({ plies: a.plies });
+      return { op: 'sim.composite-clt', ...r };
+    } },
+
+  // -- surfit ------------------------------------------------------------
+  { name: 'kernel.surface-fit', discipline: 'part', produces: 'result',
+    description: 'Fit a single editable NURBS / B-spline surface patch to a 3D point cloud by alternating least-squares on the control net with closest-point re-parameterization. Reports the bidirectional Chamfer distance plus RMS / max point-to-surface residuals (a noisy cloud SMOOTHS — Chamfer ~ noise level, not 0, which is correct). Degenerate / under-determined input → ok=false + reason, never a fabricated surface. points is a flat [x,y,z,...] cloud. Calls forge.native.surfitFit.',
+    parameters: {
+      points: P('array', 'flat point cloud [x,y,z,...] (length %3)', { required: true }),
+      degreeU: P('number', 'spline degree in U (default 3)', { default: 3 }),
+      degreeV: P('number', 'spline degree in V (default 3)', { default: 3 }),
+      nU: P('number', 'control-net size in U (default 6)', { default: 6 }),
+      nV: P('number', 'control-net size in V (default 6)', { default: 6 }),
+      maxIters: P('number', 'reparam↔refit iterations (default 20)', { default: 20 }) },
+    run: (a, forge) => {
+      const r = forge.native.surfitFit(a.points, {
+        degreeU: a.degreeU ?? 3, degreeV: a.degreeV ?? 3,
+        nU: a.nU ?? 6, nV: a.nV ?? 6, maxIters: a.maxIters ?? 20,
+      });
+      return { op: 'kernel.surface-fit', ...r };
+    } },
+
+  // -- cam ---------------------------------------------------------------
+  { name: 'cam.material-removal', discipline: 'manufacture', produces: 'result',
+    description: 'Verify a CAM toolpath GEOMETRICALLY by swept-volume material removal: sweep the tool solid (flat-end / ball-end / toroidal-corner endmill, by cornerRadius) along every cutting segment and subtract it from the stock block, reporting the removed volume, the stock volume before cutting, and the voxel resolution actually used (the discretisation behind the number, never hidden). The removed volume converges to the analytic answer as spacing→0. Bad stock / spacing≤0 / empty path → ok=false (honest). Calls forge.native.camRemoveMaterial.',
+    parameters: {
+      stock: P('object', '{lo:[x,y,z], hi:[x,y,z]} axis-aligned stock block (mm)', { required: true }),
+      tool: P('object', '{radius, length, cornerRadius} — cornerRadius 0=flat, =radius=ball-end', { required: true }),
+      path: P('array', 'toolpath [{p:[x,y,z], rapid}] — rapids cut nothing', { required: true }),
+      spacing: P('number', 'cubic voxel edge length (mm); smaller = more accurate + slower', { required: true }) },
+    run: (a, forge) => {
+      const r = forge.native.camRemoveMaterial({
+        stock: a.stock, tool: a.tool, path: a.path, spacing: a.spacing,
+      });
+      return { op: 'cam.material-removal', ...r };
+    } },
 ];
 
 // ===================================================================

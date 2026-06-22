@@ -1574,6 +1574,35 @@ const forgeApi = {
     trimMember:       (a, b, mode)                      => kernel.weldments.trimMember(a, b, mode ?? 'butt'),
     cutList:          (root)                            => kernel.weldments.cutList(root),
   } : null,
+
+  // forge::native (Task #46) — the in-house, pure-C++20 unified-kernel engines
+  // (NO OCCT / WASM / external deps), exposed under `window.forge.native` so
+  // Archie can reach them via CUA. Each forwarder calls the real bound op on the
+  // addon's `native` namespace. Defensive null guard: an older addon that
+  // predates the binding ships no `native` key and the renderer hides the
+  // surface instead of crashing.
+  native: kernel && kernel.native ? {
+    // --- already-bound predicates / geometry / GD&T / mesh boolean (were
+    //     compiled in but unreachable from the renderer until now) ---
+    orient2d:        (...a)            => kernel.native.orient2d(...a),
+    orient3d:        (...a)            => kernel.native.orient3d(...a),
+    incircle:        (...a)            => kernel.native.incircle(...a),
+    convexHull2D:    (pts)            => kernel.native.convexHull2D(pts),
+    convexHull3D:    (pts)            => kernel.native.convexHull3D(pts),
+    sdfSphereVolume: (r, res)         => kernel.native.sdfSphereVolume(r, res),
+    gdtTruePosition: (...a)           => kernel.native.gdtTruePosition(...a),
+    gdtFlatness:     (pts, tol)       => kernel.native.gdtFlatness(pts, tol),
+    meshBoolean:     (ap, ai, bp, bi, op) => kernel.native.meshBoolean(ap, ai, bp, bi, op),
+    // --- Task #46 newly-bound engines ---
+    tolstackAnalyze:   (spec)         => kernel.native.tolstackAnalyze(spec),
+    vvuqConvergence:   (levels, Fs)   => kernel.native.vvuqConvergence(levels, Fs),
+    vvuqEnergyAudit:   (input)        => kernel.native.vvuqEnergyAudit(input),
+    materialsQuery:    (key)          => kernel.native.materialsQuery(key),
+    amWarp:            (spec)         => kernel.native.amWarp(spec),
+    compositesClt:     (laminate)     => kernel.native.compositesClt(laminate),
+    surfitFit:         (points, opts) => kernel.native.surfitFit(points, opts),
+    camRemoveMaterial: (args)         => kernel.native.camRemoveMaterial(args),
+  } : null,
 };
 
 if (kernel) {

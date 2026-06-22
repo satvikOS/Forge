@@ -308,6 +308,17 @@
 #include "forge/native/implicit/IsoMesher.hpp"
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
 #include "forge/native/mesh/MeshBooleanNative.hpp"
+// Task #46 — the remaining forge::native engines, bound below under exports.native
+// so Archie can call them via CUA. Pure C++20 stdlib (no OCCT/WASM/external deps).
+#include "forge/native/tolstack/Tolstack.hpp"
+#include "forge/native/vvuq/Vvuq.hpp"
+#include "forge/native/materials/Materials.hpp"
+#include "forge/native/am/Am.hpp"
+#include "forge/native/composites/Composites.hpp"
+#include "forge/native/surfit/Surfit.hpp"
+#include "forge/native/cam/Cam.hpp"
+#include <cmath>       // std::fabs (composites Bmax / cam reporting)
+#include <algorithm>   // std::max  (composites Bmax)
 
 #include <array>
 
@@ -15888,6 +15899,570 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
               std::copy(idx.begin(), idx.end(), idxArr.Data());
               o.Set("indices", idxArr);
             }
+            return o;
+          });
+        }));
+
+      // ==================================================================
+      // Task #46 — bind the remaining VALIDATED forge::native engines so
+      // Archie can call them via CUA. Each wrapper calls the REAL native
+      // entry point and marshals its struct result to a JS object faithfully
+      // (the gdt template above: safe()/requireNumber()/readDoubleVec).
+      // 0-fakes: an honest {ok:false, reason} is returned where the engine
+      // itself reports one — never a fabricated success.
+      // ==================================================================
+
+      // -- materials enum parsers (shared by materials / am / composites) --
+      auto parseMaterial = [](Napi::Env e2, Napi::Value v)
+          -> forge::native::materials::Material {
+        using forge::native::materials::Material;
+        std::string s = v.IsString() ? v.As<Napi::String>().Utf8Value() : "ABS";
+        if (s == "ABS")          return Material::ABS;
+        if (s == "PLA")          return Material::PLA;
+        if (s == "CFRP_UD_T700") return Material::CFRP_UD_T700;
+        if (s == "Ti6Al4V")      return Material::Ti6Al4V;
+        throw Napi::TypeError::New(e2,
+            "material must be 'ABS'|'PLA'|'CFRP_UD_T700'|'Ti6Al4V'");
+      };
+      auto parseProcess = [](Napi::Env e2, Napi::Value v)
+          -> forge::native::materials::Process {
+        using forge::native::materials::Process;
+        std::string s = v.IsString() ? v.As<Napi::String>().Utf8Value() : "FDM_FFF";
+        if (s == "FDM_FFF")           return Process::FDM_FFF;
+        if (s == "LPBF")              return Process::LPBF;
+        if (s == "WROUGHT")           return Process::WROUGHT;
+        if (s == "PREPREG_AUTOCLAVE") return Process::PREPREG_AUTOCLAVE;
+        throw Napi::TypeError::New(e2,
+            "process must be 'FDM_FFF'|'LPBF'|'WROUGHT'|'PREPREG_AUTOCLAVE'");
+      };
+      auto parseOrient = [](Napi::Env e2, Napi::Value v)
+          -> forge::native::materials::BuildOrient {
+        using forge::native::materials::BuildOrient;
+        std::string s = v.IsString() ? v.As<Napi::String>().Utf8Value() : "XY_INPLANE";
+        if (s == "XY_INPLANE") return BuildOrient::XY_INPLANE;
+        if (s == "Z_BUILD")    return BuildOrient::Z_BUILD;
+        if (s == "ANGLE_45")   return BuildOrient::ANGLE_45;
+        if (s == "NA")         return BuildOrient::NA;
+        throw Napi::TypeError::New(e2,
+            "buildOrient must be 'XY_INPLANE'|'Z_BUILD'|'ANGLE_45'|'NA'");
+      };
+      auto parsePost = [](Napi::Env e2, Napi::Value v)
+          -> forge::native::materials::PostProcess {
+        using forge::native::materials::PostProcess;
+        std::string s = v.IsString() ? v.As<Napi::String>().Utf8Value() : "AS_BUILT";
+        if (s == "NONE")     return PostProcess::NONE;
+        if (s == "AS_BUILT") return PostProcess::AS_BUILT;
+        if (s == "HIP")      return PostProcess::HIP;
+        if (s == "ANNEAL")   return PostProcess::ANNEAL;
+        if (s == "NA")       return PostProcess::NA;
+        throw Napi::TypeError::New(e2,
+            "postProcess must be 'NONE'|'AS_BUILT'|'HIP'|'ANNEAL'|'NA'");
+      };
+      auto getProp = [](Napi::Object o, const char* k, double dflt) -> double {
+        return (o.Has(k) && o.Get(k).IsNumber())
+                   ? o.Get(k).As<Napi::Number>().DoubleValue() : dflt;
+      };
+
+      // -- tolstack: forge.native.tolstackAnalyze(spec) ------------------
+      //   spec = { contributors:[{nominal,plusTol,minusTol,sensitivity,
+      //            dist:'NORMAL'|'UNIFORM'|'TRIANGULAR'}], LSL, USL, k?,
+      //            mcSamples?, mcSeed?, cltMinContributors? }
+      //   -> { wcNominal,wcMin,wcMax,wcTol, rssMean,rssSigma,rssMin,rssMax,
+      //        rssYield,cp,cpk, mcMean,mcSigma,mcYield,mcP01,mcP99,
+      //        rssValid,authoritativeMc,rssWarning, contributors:[{name,
+      //        varianceShare,sigmaContribution}] }.
+      nativeNs.Set("tolstackAnalyze", Napi::Function::New(env,
+        [getProp](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1 || !info[0].IsObject())
+              throw Napi::TypeError::New(e2,
+                  "forge.native.tolstackAnalyze(spec{contributors[],LSL,USL,...})");
+            using namespace forge::native::tolstack;
+            auto js = info[0].As<Napi::Object>();
+            StackSpec spec;
+            if (!js.Has("contributors") || !js.Get("contributors").IsArray())
+              throw Napi::TypeError::New(e2,
+                  "tolstackAnalyze: spec.contributors must be an array");
+            auto arr = js.Get("contributors").As<Napi::Array>();
+            spec.contributors.reserve(arr.Length());
+            for (uint32_t i = 0; i < arr.Length(); ++i) {
+              if (!arr.Get(i).IsObject())
+                throw Napi::TypeError::New(e2,
+                    "tolstackAnalyze: each contributor must be an object");
+              auto c = arr.Get(i).As<Napi::Object>();
+              Contributor con;
+              con.nominal     = getProp(c, "nominal", 0.0);
+              con.plusTol     = getProp(c, "plusTol", 0.0);
+              con.minusTol    = getProp(c, "minusTol", 0.0);
+              con.sensitivity = getProp(c, "sensitivity", 1.0);
+              if (c.Has("dist") && c.Get("dist").IsString()) {
+                std::string d = c.Get("dist").As<Napi::String>().Utf8Value();
+                if      (d == "NORMAL")     con.dist = DistType::NORMAL;
+                else if (d == "UNIFORM")    con.dist = DistType::UNIFORM;
+                else if (d == "TRIANGULAR") con.dist = DistType::TRIANGULAR;
+                else throw Napi::TypeError::New(e2,
+                    "tolstackAnalyze: dist must be 'NORMAL'|'UNIFORM'|'TRIANGULAR'");
+              }
+              con.sigmaOverride = getProp(c, "sigmaOverride", 0.0);
+              spec.contributors.push_back(con);
+            }
+            spec.LSL = getProp(js, "LSL", 0.0);
+            spec.USL = getProp(js, "USL", 0.0);
+            spec.k   = getProp(js, "k", 3.0);
+            if (js.Has("mcSamples") && js.Get("mcSamples").IsNumber())
+              spec.mcSamples = js.Get("mcSamples").As<Napi::Number>().Int32Value();
+            if (js.Has("mcSeed") && js.Get("mcSeed").IsNumber())
+              spec.mcSeed = js.Get("mcSeed").As<Napi::Number>().Uint32Value();
+            if (js.Has("cltMinContributors") && js.Get("cltMinContributors").IsNumber())
+              spec.cltMinContributors =
+                  js.Get("cltMinContributors").As<Napi::Number>().Int32Value();
+
+            StackResult r = analyzeStack(spec);
+            auto o = Napi::Object::New(e2);
+            o.Set("wcNominal", Napi::Number::New(e2, r.wcNominal));
+            o.Set("wcMin",     Napi::Number::New(e2, r.wcMin));
+            o.Set("wcMax",     Napi::Number::New(e2, r.wcMax));
+            o.Set("wcTol",     Napi::Number::New(e2, r.wcTol));
+            o.Set("rssMean",   Napi::Number::New(e2, r.rssMean));
+            o.Set("rssSigma",  Napi::Number::New(e2, r.rssSigma));
+            o.Set("rssMin",    Napi::Number::New(e2, r.rssMin));
+            o.Set("rssMax",    Napi::Number::New(e2, r.rssMax));
+            o.Set("rssYield",  Napi::Number::New(e2, r.rssYield));
+            o.Set("cp",        Napi::Number::New(e2, r.cp));
+            o.Set("cpk",       Napi::Number::New(e2, r.cpk));
+            o.Set("mcMean",    Napi::Number::New(e2, r.mcMean));
+            o.Set("mcSigma",   Napi::Number::New(e2, r.mcSigma));
+            o.Set("mcYield",   Napi::Number::New(e2, r.mcYield));
+            o.Set("mcP01",     Napi::Number::New(e2, r.mcP01));
+            o.Set("mcP99",     Napi::Number::New(e2, r.mcP99));
+            o.Set("rssValid",        Napi::Boolean::New(e2, r.rssValid));
+            o.Set("authoritativeMc", Napi::Boolean::New(e2, r.authoritativeMc));
+            o.Set("rssWarning", Napi::String::New(e2,
+                r.rssWarning ? r.rssWarning : ""));
+            auto carr = Napi::Array::New(e2, r.contributors.size());
+            for (std::size_t i = 0; i < r.contributors.size(); ++i) {
+              auto co = Napi::Object::New(e2);
+              co.Set("name", Napi::String::New(e2,
+                  r.contributors[i].name ? r.contributors[i].name : ""));
+              co.Set("varianceShare",
+                  Napi::Number::New(e2, r.contributors[i].varianceShare));
+              co.Set("sigmaContribution",
+                  Napi::Number::New(e2, r.contributors[i].sigmaContribution));
+              carr.Set(i, co);
+            }
+            o.Set("contributors", carr);
+            return o;
+          });
+        }));
+
+      // -- vvuq: forge.native.vvuqConvergence(levels) --------------------
+      //   levels = [{h, value}, ...] (>=3, finest last)
+      //   -> { cls:'CONVERGING'|'DIVERGING_SINGULAR'|'OSCILLATORY'|
+      //        'INSUFFICIENT', converging, convergedValue, orderP, gci,
+      //        divergenceExponent, monotone, reason }.
+      nativeNs.Set("vvuqConvergence", Napi::Function::New(env,
+        [getProp](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1 || !info[0].IsArray())
+              throw Napi::TypeError::New(e2,
+                  "forge.native.vvuqConvergence(levels:[{h,value},...][, Fs])");
+            using namespace forge::native::vvuq;
+            auto arr = info[0].As<Napi::Array>();
+            std::vector<ConvergenceLevel> levels;
+            levels.reserve(arr.Length());
+            for (uint32_t i = 0; i < arr.Length(); ++i) {
+              if (!arr.Get(i).IsObject())
+                throw Napi::TypeError::New(e2,
+                    "vvuqConvergence: each level must be {h, value}");
+              auto l = arr.Get(i).As<Napi::Object>();
+              levels.push_back({ getProp(l, "h", 0.0), getProp(l, "value", 0.0) });
+            }
+            double Fs = (info.Length() > 1 && info[1].IsNumber())
+                            ? info[1].As<Napi::Number>().DoubleValue() : 1.25;
+            ConvergenceResult r = classifyConvergence(levels, Fs);
+            const char* clsStr = "INSUFFICIENT";
+            switch (r.cls) {
+              case ConvergenceClass::CONVERGING:         clsStr = "CONVERGING"; break;
+              case ConvergenceClass::DIVERGING_SINGULAR: clsStr = "DIVERGING_SINGULAR"; break;
+              case ConvergenceClass::OSCILLATORY:        clsStr = "OSCILLATORY"; break;
+              case ConvergenceClass::INSUFFICIENT:       clsStr = "INSUFFICIENT"; break;
+            }
+            auto o = Napi::Object::New(e2);
+            o.Set("cls",               Napi::String::New(e2, clsStr));
+            o.Set("converging",        Napi::Boolean::New(e2, r.converging));
+            o.Set("convergedValue",    Napi::Number::New(e2, r.convergedValue));
+            o.Set("orderP",            Napi::Number::New(e2, r.orderP));
+            o.Set("gci",               Napi::Number::New(e2, r.gci));
+            o.Set("divergenceExponent",Napi::Number::New(e2, r.divergenceExponent));
+            o.Set("monotone",          Napi::Boolean::New(e2, r.monotone));
+            o.Set("reason", Napi::String::New(e2, r.reason ? r.reason : ""));
+            return o;
+          });
+        }));
+
+      // -- vvuq: forge.native.vvuqEnergyAudit(input) ---------------------
+      //   input = { internalEnergy, hourglassEnergy, kineticEnergy?,
+      //             contactStabEnergy?, quasiStatic? }
+      //   -> { hourglassPct, keIeRatio, contactStabPct, level:'GREEN'|
+      //        'AMBER'|'RED', reasons:[string] }.
+      nativeNs.Set("vvuqEnergyAudit", Napi::Function::New(env,
+        [getProp](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1 || !info[0].IsObject())
+              throw Napi::TypeError::New(e2,
+                  "forge.native.vvuqEnergyAudit({internalEnergy,hourglassEnergy,...})");
+            using namespace forge::native::vvuq;
+            auto js = info[0].As<Napi::Object>();
+            EnergyInput in;
+            in.internalEnergy    = getProp(js, "internalEnergy", 0.0);
+            in.hourglassEnergy   = getProp(js, "hourglassEnergy", 0.0);
+            in.kineticEnergy     = getProp(js, "kineticEnergy", 0.0);
+            in.contactStabEnergy = getProp(js, "contactStabEnergy", 0.0);
+            if (js.Has("quasiStatic") && js.Get("quasiStatic").IsBoolean())
+              in.quasiStatic = js.Get("quasiStatic").As<Napi::Boolean>().Value();
+            EnergyAudit r = auditEnergy(in);
+            const char* lvl = (r.level == Level::RED) ? "RED"
+                            : (r.level == Level::AMBER) ? "AMBER" : "GREEN";
+            auto o = Napi::Object::New(e2);
+            o.Set("hourglassPct",   Napi::Number::New(e2, r.hourglassPct));
+            o.Set("keIeRatio",      Napi::Number::New(e2, r.keIeRatio));
+            o.Set("contactStabPct", Napi::Number::New(e2, r.contactStabPct));
+            o.Set("level",          Napi::String::New(e2, lvl));
+            auto rs = Napi::Array::New(e2, r.reasons.size());
+            for (std::size_t i = 0; i < r.reasons.size(); ++i)
+              rs.Set(i, Napi::String::New(e2, r.reasons[i] ? r.reasons[i] : ""));
+            o.Set("reasons", rs);
+            return o;
+          });
+        }));
+
+      // -- materials: forge.native.materialsQuery(key) -------------------
+      //   key = { material, process, buildOrient?, postProcess?,
+      //           loadDir:[x,y,z], k? }
+      //   -> { E_eff,G_eff,nu_eff,strength_eff, band_lo,band_hi,k,
+      //        confidence:'HIGH'|'MEDIUM'|'LOW', reason,
+      //        couponTestRecommended, ok }.
+      nativeNs.Set("materialsQuery", Napi::Function::New(env,
+        [parseMaterial, parseProcess, parseOrient, parsePost, getProp]
+        (const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1 || !info[0].IsObject())
+              throw Napi::TypeError::New(e2,
+                  "forge.native.materialsQuery({material,process,buildOrient,"
+                  "postProcess,loadDir:[x,y,z],k})");
+            using namespace forge::native::materials;
+            auto js = info[0].As<Napi::Object>();
+            MatKey key;
+            key.m = parseMaterial(e2, js.Get("material"));
+            key.p = parseProcess(e2, js.Get("process"));
+            key.o = js.Has("buildOrient") ? parseOrient(e2, js.Get("buildOrient"))
+                                          : BuildOrient::NA;
+            key.post = js.Has("postProcess") ? parsePost(e2, js.Get("postProcess"))
+                                             : PostProcess::AS_BUILT;
+            Vec3 loadDir{1, 0, 0};
+            if (js.Has("loadDir") && js.Get("loadDir").IsArray()) {
+              auto la = js.Get("loadDir").As<Napi::Array>();
+              if (la.Length() >= 3) {
+                loadDir.x = la.Get(0u).As<Napi::Number>().DoubleValue();
+                loadDir.y = la.Get(1u).As<Napi::Number>().DoubleValue();
+                loadDir.z = la.Get(2u).As<Napi::Number>().DoubleValue();
+              }
+            }
+            double k = getProp(js, "k", 2.0);
+            MaterialDB db;
+            PropertyQuery r = db.getProperties(key, loadDir, k);
+            const char* conf = (r.confidence == Confidence::HIGH) ? "HIGH"
+                             : (r.confidence == Confidence::MEDIUM) ? "MEDIUM" : "LOW";
+            auto o = Napi::Object::New(e2);
+            o.Set("E_eff",        Napi::Number::New(e2, r.E_eff));
+            o.Set("G_eff",        Napi::Number::New(e2, r.G_eff));
+            o.Set("nu_eff",       Napi::Number::New(e2, r.nu_eff));
+            o.Set("strength_eff", Napi::Number::New(e2, r.strength_eff));
+            o.Set("band_lo",      Napi::Number::New(e2, r.band_lo));
+            o.Set("band_hi",      Napi::Number::New(e2, r.band_hi));
+            o.Set("k",            Napi::Number::New(e2, r.k));
+            o.Set("confidence",   Napi::String::New(e2, conf));
+            o.Set("reason",       Napi::String::New(e2, r.reason));
+            o.Set("couponTestRecommended",
+                Napi::Boolean::New(e2, r.couponTestRecommended));
+            o.Set("ok",           Napi::Boolean::New(e2, r.ok));
+            return o;
+          });
+        }));
+
+      // -- am: forge.native.amWarp(spec) ---------------------------------
+      //   spec = { nodes:[x,y,z,...] flat, tets:[i,j,k,l,...] flat,
+      //            material:{material,process,buildOrient?,postProcess?},
+      //            inherent:{exx,eyy,ezz,eyz?,exz?,exy?,calibrated?},
+      //            orientation?:[9], plateZ? }
+      //   -> { ok, calibrated, maxWarp, rmsWarp, maxVonMises, cgIters,
+      //        cgResidual, note, nodeDisp:Float64Array(3*nNodes) }.
+      nativeNs.Set("amWarp", Napi::Function::New(env,
+        [parseMaterial, parseProcess, parseOrient, parsePost, getProp, readDoubleVec, readU32Vec]
+        (const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1 || !info[0].IsObject())
+              throw Napi::TypeError::New(e2,
+                  "forge.native.amWarp({nodes[],tets[],material,inherent,...})");
+            using namespace forge::native::am;
+            auto js = info[0].As<Napi::Object>();
+            if (!js.Has("nodes") || !js.Has("tets"))
+              throw Napi::TypeError::New(e2,
+                  "amWarp: spec must have flat nodes[] and tets[]");
+            auto nodesF = readDoubleVec(e2, js.Get("nodes"), "nodes");
+            auto tetsI  = readU32Vec(e2, js.Get("tets"), "tets");
+            if (nodesF.size() % 3 != 0)
+              throw Napi::TypeError::New(e2, "amWarp: nodes length must be %3");
+            if (tetsI.size() % 4 != 0)
+              throw Napi::TypeError::New(e2, "amWarp: tets length must be %4");
+            TetMesh mesh;
+            mesh.nodes.reserve(nodesF.size() / 3);
+            for (std::size_t i = 0; i + 2 < nodesF.size(); i += 3)
+              mesh.nodes.push_back({ nodesF[i], nodesF[i+1], nodesF[i+2] });
+            mesh.tets.reserve(tetsI.size() / 4);
+            for (std::size_t i = 0; i + 3 < tetsI.size(); i += 4)
+              mesh.tets.push_back({ (int)tetsI[i], (int)tetsI[i+1],
+                                    (int)tetsI[i+2], (int)tetsI[i+3] });
+            BuildSpec spec;
+            if (js.Has("material") && js.Get("material").IsObject()) {
+              auto mk = js.Get("material").As<Napi::Object>();
+              spec.material.m = parseMaterial(e2, mk.Get("material"));
+              spec.material.p = parseProcess(e2, mk.Get("process"));
+              spec.material.o = mk.Has("buildOrient")
+                  ? parseOrient(e2, mk.Get("buildOrient"))
+                  : forge::native::materials::BuildOrient::NA;
+              spec.material.post = mk.Has("postProcess")
+                  ? parsePost(e2, mk.Get("postProcess"))
+                  : forge::native::materials::PostProcess::HIP;
+            }
+            if (js.Has("orientation") && js.Get("orientation").IsArray()) {
+              auto oa = js.Get("orientation").As<Napi::Array>();
+              for (uint32_t i = 0; i < 9 && i < oa.Length(); ++i)
+                spec.orientation[i] = oa.Get(i).As<Napi::Number>().DoubleValue();
+            }
+            if (js.Has("inherent") && js.Get("inherent").IsObject()) {
+              auto ih = js.Get("inherent").As<Napi::Object>();
+              spec.inherent.exx = getProp(ih, "exx", 0.0);
+              spec.inherent.eyy = getProp(ih, "eyy", 0.0);
+              spec.inherent.ezz = getProp(ih, "ezz", 0.0);
+              spec.inherent.eyz = getProp(ih, "eyz", 0.0);
+              spec.inherent.exz = getProp(ih, "exz", 0.0);
+              spec.inherent.exy = getProp(ih, "exy", 0.0);
+              if (ih.Has("calibrated") && ih.Get("calibrated").IsBoolean())
+                spec.inherent.calibrated =
+                    ih.Get("calibrated").As<Napi::Boolean>().Value();
+            }
+            spec.plateZ = getProp(js, "plateZ", 0.0);
+            forge::native::materials::MaterialDB db;
+            WarpField w = predictInherentStrainWarp(mesh, spec, db);
+            auto o = Napi::Object::New(e2);
+            o.Set("ok",          Napi::Boolean::New(e2, w.ok));
+            o.Set("calibrated",  Napi::Boolean::New(e2, w.calibrated));
+            o.Set("maxWarp",     Napi::Number::New(e2, w.maxWarp));
+            o.Set("rmsWarp",     Napi::Number::New(e2, w.rmsWarp));
+            o.Set("maxVonMises", Napi::Number::New(e2, w.maxVonMises));
+            o.Set("cgIters",     Napi::Number::New(e2, (double)w.cgIters));
+            o.Set("cgResidual",  Napi::Number::New(e2, w.cgResidual));
+            o.Set("note", Napi::String::New(e2, w.note ? w.note : ""));
+            auto disp = Napi::Float64Array::New(e2, w.nodeDisp.size() * 3);
+            for (std::size_t i = 0; i < w.nodeDisp.size(); ++i) {
+              disp[i*3+0] = w.nodeDisp[i].x;
+              disp[i*3+1] = w.nodeDisp[i].y;
+              disp[i*3+2] = w.nodeDisp[i].z;
+            }
+            o.Set("nodeDisp", disp);
+            return o;
+          });
+        }));
+
+      // -- composites: forge.native.compositesClt(laminate) --------------
+      //   laminate = { plies:[{E1,E2,G12,nu12,thickness,angleDeg}] }
+      //   (angle in DEGREES for ergonomics; converted to rad internally)
+      //   -> { ok, symmetric, balanced, Ex,Ey,Gxy,nuxy, Bmax,
+      //        A:[9], B:[9], D:[9] }.
+      nativeNs.Set("compositesClt", Napi::Function::New(env,
+        [getProp](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1 || !info[0].IsObject())
+              throw Napi::TypeError::New(e2,
+                  "forge.native.compositesClt({plies:[{E1,E2,G12,nu12,"
+                  "thickness,angleDeg}]})");
+            using namespace forge::native::composites;
+            auto js = info[0].As<Napi::Object>();
+            if (!js.Has("plies") || !js.Get("plies").IsArray())
+              throw Napi::TypeError::New(e2,
+                  "compositesClt: laminate.plies must be an array");
+            auto arr = js.Get("plies").As<Napi::Array>();
+            Laminate lam;
+            lam.plies.reserve(arr.Length());
+            for (uint32_t i = 0; i < arr.Length(); ++i) {
+              if (!arr.Get(i).IsObject())
+                throw Napi::TypeError::New(e2,
+                    "compositesClt: each ply must be an object");
+              auto p = arr.Get(i).As<Napi::Object>();
+              Ply ply;
+              // Each ply carries its own orthotropic lamina constants (mean
+              // values). Off-axis terms default to the in-plane lamina form.
+              ply.material.E1.mean   = getProp(p, "E1", 0.0);
+              ply.material.E2.mean   = getProp(p, "E2", 0.0);
+              ply.material.E3.mean   = getProp(p, "E3", getProp(p, "E2", 0.0));
+              ply.material.G12.mean  = getProp(p, "G12", 0.0);
+              ply.material.G13.mean  = getProp(p, "G13", getProp(p, "G12", 0.0));
+              ply.material.G23.mean  = getProp(p, "G23", getProp(p, "G12", 0.0));
+              ply.material.nu12.mean = getProp(p, "nu12", 0.0);
+              ply.material.nu13.mean = getProp(p, "nu13", getProp(p, "nu12", 0.0));
+              ply.material.nu23.mean = getProp(p, "nu23", getProp(p, "nu12", 0.0));
+              ply.thickness = getProp(p, "thickness", 0.0);
+              ply.angle     = getProp(p, "angleDeg", 0.0) * 3.14159265358979323846 / 180.0;
+              ply.materialName = "ply";
+              lam.plies.push_back(ply);
+            }
+            CltResult r = buildClt(lam);
+            double Bmax = 0.0;
+            for (int i = 0; i < 9; ++i)
+              Bmax = std::max(Bmax, std::fabs(r.B.a[i]));
+            auto o = Napi::Object::New(e2);
+            o.Set("ok",        Napi::Boolean::New(e2, r.ok));
+            o.Set("symmetric", Napi::Boolean::New(e2, r.symmetric));
+            o.Set("balanced",  Napi::Boolean::New(e2, r.balanced));
+            o.Set("Ex",   Napi::Number::New(e2, r.Ex));
+            o.Set("Ey",   Napi::Number::New(e2, r.Ey));
+            o.Set("Gxy",  Napi::Number::New(e2, r.Gxy));
+            o.Set("nuxy", Napi::Number::New(e2, r.nuxy));
+            o.Set("Bmax", Napi::Number::New(e2, Bmax));
+            auto mat3 = [&](const Mat3& m) {
+              auto a = Napi::Float64Array::New(e2, 9);
+              for (int i = 0; i < 9; ++i) a[i] = m.a[i];
+              return a;
+            };
+            o.Set("A", mat3(r.A));
+            o.Set("B", mat3(r.B));
+            o.Set("D", mat3(r.D));
+            return o;
+          });
+        }));
+
+      // -- surfit: forge.native.surfitFit(points[, opts]) ----------------
+      //   points = flat [x,y,z,...]; opts = { degreeU?,degreeV?,nU?,nV?,
+      //            maxIters?,tol?,lambda? }
+      //   -> { ok, reason, chamfer, rms, maxDist, iters, degreeU, degreeV,
+      //        nU, nV } (the editable control net is summarised; the full
+      //        surface stays in-kernel — its dims are reported).
+      nativeNs.Set("surfitFit", Napi::Function::New(env,
+        [getProp, readDoubleVec](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1)
+              throw Napi::TypeError::New(e2,
+                  "forge.native.surfitFit(pointsXYZ:number[][, opts])");
+            auto flat = readDoubleVec(e2, info[0], "points");
+            if (flat.size() % 3 != 0)
+              throw Napi::TypeError::New(e2,
+                  "surfitFit: points length must be a multiple of 3");
+            using namespace forge::native::surfit;
+            std::vector<Vec3> pts;
+            pts.reserve(flat.size() / 3);
+            for (std::size_t i = 0; i + 2 < flat.size(); i += 3)
+              pts.push_back({ flat[i], flat[i+1], flat[i+2] });
+            FitOptions opt;
+            if (info.Length() > 1 && info[1].IsObject()) {
+              auto js = info[1].As<Napi::Object>();
+              opt.degreeU  = (std::size_t)getProp(js, "degreeU", (double)opt.degreeU);
+              opt.degreeV  = (std::size_t)getProp(js, "degreeV", (double)opt.degreeV);
+              opt.nU       = (std::size_t)getProp(js, "nU", (double)opt.nU);
+              opt.nV       = (std::size_t)getProp(js, "nV", (double)opt.nV);
+              opt.maxIters = (std::size_t)getProp(js, "maxIters", (double)opt.maxIters);
+              opt.tol      = getProp(js, "tol", opt.tol);
+              opt.lambda   = getProp(js, "lambda", opt.lambda);
+            }
+            FitResult r = fitNurbsSurface(pts, opt);
+            auto o = Napi::Object::New(e2);
+            o.Set("ok",      Napi::Boolean::New(e2, r.ok));
+            o.Set("reason",  Napi::String::New(e2, r.reason ? r.reason : ""));
+            o.Set("chamfer", Napi::Number::New(e2, r.chamfer));
+            o.Set("rms",     Napi::Number::New(e2, r.rms));
+            o.Set("maxDist", Napi::Number::New(e2, r.maxDist));
+            o.Set("iters",   Napi::Number::New(e2, (double)r.iters));
+            o.Set("degreeU", Napi::Number::New(e2, (double)r.surface.degreeU));
+            o.Set("degreeV", Napi::Number::New(e2, (double)r.surface.degreeV));
+            o.Set("nU", Napi::Number::New(e2,
+                (double)(r.surface.control.empty() ? 0 : r.surface.control.size())));
+            o.Set("nV", Napi::Number::New(e2,
+                (double)(r.surface.control.empty() ? 0 : r.surface.control[0].size())));
+            return o;
+          });
+        }));
+
+      // -- cam: forge.native.camRemoveMaterial(args) ---------------------
+      //   (named to avoid the OCCT forge.cam collision)
+      //   args = { stock:{lo:[x,y,z],hi:[x,y,z]},
+      //            tool:{radius,length?,cornerRadius?},
+      //            path:[{p:[x,y,z],rapid?}], spacing }
+      //   -> { ok, reason, removedVolume, stockVolume0, voxelResolution }.
+      //   (the in-process VoxelGrid stays in-kernel; the validated measures
+      //    are returned.)
+      nativeNs.Set("camRemoveMaterial", Napi::Function::New(env,
+        [getProp](const Napi::CallbackInfo& info) -> Napi::Value {
+          return safe(info, [&]() -> Napi::Value {
+            auto e2 = info.Env();
+            if (info.Length() < 1 || !info[0].IsObject())
+              throw Napi::TypeError::New(e2,
+                  "forge.native.camRemoveMaterial({stock,tool,path,spacing})");
+            using namespace forge::native::cam;
+            auto js = info[0].As<Napi::Object>();
+            auto readVec3 = [&](Napi::Value v, double dx, double dy, double dz) -> Vec3 {
+              Vec3 out{dx, dy, dz};
+              if (v.IsArray()) {
+                auto a = v.As<Napi::Array>();
+                if (a.Length() >= 3) {
+                  out.x = a.Get(0u).As<Napi::Number>().DoubleValue();
+                  out.y = a.Get(1u).As<Napi::Number>().DoubleValue();
+                  out.z = a.Get(2u).As<Napi::Number>().DoubleValue();
+                }
+              }
+              return out;
+            };
+            Stock stock;
+            if (js.Has("stock") && js.Get("stock").IsObject()) {
+              auto s = js.Get("stock").As<Napi::Object>();
+              stock.lo = readVec3(s.Get("lo"), 0, 0, 0);
+              stock.hi = readVec3(s.Get("hi"), 0, 0, 0);
+            }
+            Tool tool;
+            if (js.Has("tool") && js.Get("tool").IsObject()) {
+              auto t = js.Get("tool").As<Napi::Object>();
+              tool.radius       = getProp(t, "radius", 1.0);
+              tool.length       = getProp(t, "length", 10.0);
+              tool.cornerRadius = getProp(t, "cornerRadius", 0.0);
+            }
+            Toolpath path;
+            if (js.Has("path") && js.Get("path").IsArray()) {
+              auto pa = js.Get("path").As<Napi::Array>();
+              path.reserve(pa.Length());
+              for (uint32_t i = 0; i < pa.Length(); ++i) {
+                if (!pa.Get(i).IsObject()) continue;
+                auto pp = pa.Get(i).As<Napi::Object>();
+                PathPoint point;
+                point.p = readVec3(pp.Get("p"), 0, 0, 0);
+                if (pp.Has("rapid") && pp.Get("rapid").IsBoolean())
+                  point.rapid = pp.Get("rapid").As<Napi::Boolean>().Value();
+                path.push_back(point);
+              }
+            }
+            double spacing = getProp(js, "spacing", 0.5);
+            RemovalResult r = removeMaterial(stock, tool, path, spacing);
+            auto o = Napi::Object::New(e2);
+            o.Set("ok",     Napi::Boolean::New(e2, r.ok));
+            o.Set("reason", Napi::String::New(e2, r.reason ? r.reason : ""));
+            o.Set("removedVolume",   Napi::Number::New(e2, r.removedVolume));
+            o.Set("stockVolume0",    Napi::Number::New(e2, r.stockVolume0));
+            o.Set("voxelResolution", Napi::Number::New(e2, r.voxelResolution));
             return o;
           });
         }));
