@@ -641,3 +641,54 @@ test('#30 regression: planar (zero-volume) movable link gets positive-definite i
   assert.equal(flap.inertia.method, 'approx:degenerate-fallback-box',
     'degenerate hull routed to the positive-definite box fallback');
 });
+
+// ── Task #43: a MOVABLE, kernel-handle link exports KERNEL-TRUTH inertia ─────
+// With the inertia tensor now surfaced from forge.massProps (OCCT GProp
+// MatrixOfInertia, exact about the COM), a handle-backed movable link must:
+//   (1) report method 'kernel:inertiaCom' (the JS hull approximation is OFF), and
+//   (2) carry values matching the analytic box  I = m/12·diag(b²+c², a²+c², a²+b²)
+//       (Mirtich 1996 closed form), with products of inertia ≈ 0.
+test('#43: movable kernel-handle box reports method kernel:inertiaCom matching the analytic box', (t) => {
+  if (!forge || typeof forge.massProps(forge.makeBox(1, 1, 1)).inertiaCom === 'undefined') {
+    t.skip('forge-kernel.node with inertiaCom not available');
+    return;
+  }
+  const dx = 30, dy = 50, dz = 70; // mm — distinct extents so off-diagonals can be checked
+  const density = 2700;            // aluminum kg/m³
+  const spec = {
+    name: 'inertia_arm', baseLink: 'base',
+    links: [
+      { id: 'base', name: 'base', handle: forge.makeBox(20, 20, 10), fixed: true, material: 'steel' },
+      // MOVABLE link, kernel handle, NO inertiaCom on the spec → must be sourced
+      // from the kernel and flip the method off 'approx:hull-inertia'.
+      { id: 'arm', name: 'arm', handle: forge.makeBox(dx, dy, dz), material: 'aluminum',
+        worldTransform: __test.mat4FromEuler(0, 0, 0, 0, 0, 30) },
+    ],
+    joints: [{ name: 'shoulder', mate: 'hinge', parent: 'base', child: 'arm', axis: [0, 0, 1],
+      limit: { lower: -1.57, upper: 1.57, effort: 50, velocity: 3 } }],
+  };
+  const norm = __test.normalize(spec, forge, { density });
+  const arm = norm.links.find(l => l.name === 'arm');
+
+  // (1) METHOD FLIP: kernel truth, not the hull approximation.
+  assert.equal(arm.inertia.method, 'kernel:inertiaCom',
+    `movable handle link must use kernel inertia (got ${arm.inertia.method})`);
+
+  // (2) VALUES: analytic box in SI kg·m² (mass = density·volume).
+  const vol = forge.massProps(forge.makeBox(dx, dy, dz)).volume; // mm³
+  const massKg = density * vol * 1e-9;
+  const exp = boxInertiaSI(dx, dy, dz, massKg);
+
+  const relTol = 1e-4; // OCCT B-rep integral is exact → tight tolerance
+  assert.ok(Math.abs(arm.inertia.ixx - exp.ixx) / exp.ixx < relTol,
+    `Ixx ${arm.inertia.ixx} ≈ ${exp.ixx}`);
+  assert.ok(Math.abs(arm.inertia.iyy - exp.iyy) / exp.iyy < relTol,
+    `Iyy ${arm.inertia.iyy} ≈ ${exp.iyy}`);
+  assert.ok(Math.abs(arm.inertia.izz - exp.izz) / exp.izz < relTol,
+    `Izz ${arm.inertia.izz} ≈ ${exp.izz}`);
+
+  // products of inertia ≈ 0 for an axis-aligned box.
+  assert.ok(Math.abs(arm.inertia.ixy) < exp.ixx * 1e-6, `Ixy ${arm.inertia.ixy} ≈ 0`);
+  assert.ok(Math.abs(arm.inertia.ixz) < exp.ixx * 1e-6, `Ixz ${arm.inertia.ixz} ≈ 0`);
+  assert.ok(Math.abs(arm.inertia.iyz) < exp.ixx * 1e-6, `Iyz ${arm.inertia.iyz} ≈ 0`);
+});

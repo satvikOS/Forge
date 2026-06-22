@@ -516,6 +516,13 @@ Napi::Value MassProps(const Napi::CallbackInfo& info) {
         com.Set(uint32_t{1}, p.cy);
         com.Set(uint32_t{2}, p.cz);
         out.Set("centerOfMass", com);
+        // Inertia tensor about the COM, unit density, row-major 9
+        // [Ixx,Ixy,Ixz, Iyx,Iyy,Iyz, Izx,Izy,Izz] (mass·mm² at mass==volume).
+        auto inertiaCom = Napi::Array::New(env, 9);
+        for (uint32_t k = 0; k < 9; ++k) {
+            inertiaCom.Set(k, p.inertiaCom[k]);
+        }
+        out.Set("inertiaCom", inertiaCom);
         return out;
     });
 }

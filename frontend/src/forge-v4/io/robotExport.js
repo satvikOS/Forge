@@ -21,22 +21,26 @@
  *        USD loop joint, and a <gazebo> loop block on the URDF — so a
  *        four-bar ROUND-TRIPS instead of being dropped.
  *
- * INERTIA SOURCING — kernel gap, honestly labeled
- *   The kernel binding `forge.massProps(handle)` returns only
- *   `{ volume, area, centerOfMass }` (see forge-kernel/src/MassProps.cpp:9 +
- *   binding.cpp:496). The OCCT GProp_GProps object internally HAS the inertia
- *   tensor (MatrixOfInertia / StaticMoments) but it is NOT surfaced to JS.
- *   ==> KERNEL GAP: no inertia tensor binding. Flagged, not stubbed.
+ * INERTIA SOURCING — kernel-truth (Task #43), JS hull as fallback
+ *   The kernel binding `forge.massProps(handle)` now returns
+ *   `{ volume, area, centerOfMass, inertiaCom }` (see
+ *   forge-kernel/src/MassProps.cpp + binding.cpp). `inertiaCom` is the EXACT
+ *   rigid-body inertia tensor of the B-rep solid about its centre of mass,
+ *   computed by OCCT GProp_GProps::MatrixOfInertia() (documented to be in the
+ *   central / COM coordinate system, so no parallel-axis shift is needed). It
+ *   is at UNIT DENSITY (row-major 9, mass·mm² with mass==volume). This module
+ *   reads it onto the link spec (`L.inertiaCom`) and `resolveInertia` Path 1
+ *   converts it to SI kg·m² and applies the real-mass scale `massKg/volume`,
+ *   labeling the result `kernel:inertiaCom`. This is EXACT for any solid —
+ *   convex or concave — because it integrates the true B-rep, not the hull.
  *
- *   Until the binding lands, the exporter computes the COM-frame inertia in
- *   JS from the link's mesh as the inertia of the uniform-density polyhedron
- *   via the signed-tetrahedron-fan covariance integral (Mirtich / Eberly).
- *   This is computed over the CONVEX HULL point set, so it is EXACT for a
- *   convex link and a clearly-labeled approximation (`approx:hull-inertia`)
- *   for a concave one. The mass and COM still come from the kernel
- *   (forge.massProps), so mass + COM are kernel-truth; only the tensor is the
- *   JS path. When the binding lands, pass `inertiaOrigin`/`inertiaCom` on the
- *   part spec (or have the kernel return it) and this module uses it verbatim.
+ *   FALLBACK (kernel tensor genuinely absent, e.g. a kernel-free inline-mesh
+ *   spec): the exporter computes the COM-frame inertia in JS from the link's
+ *   mesh as the inertia of the uniform-density polyhedron via the signed-
+ *   tetrahedron-fan covariance integral (Mirtich 1996 / Eberly). This is
+ *   computed over the CONVEX HULL point set, so it is EXACT for a convex link
+ *   and a clearly-labeled approximation (`approx:hull-inertia`) for a concave
+ *   one. The mass and COM always come from the kernel (forge.massProps).
  *
  * UNITS / NAMING
  *   Forge kernel + UI are millimetres. Robot descriptions are SI:
@@ -588,13 +592,21 @@ function normalize(assembly, forge, opts) {
   for (const L of spec.links) {
     const linkName = nameOf(L.name, `link_${links.length + 1}`);
 
-    // Kernel mass-props (mass + COM are kernel-truth).
+    // Kernel mass-props (mass + COM + inertia tensor are kernel-truth).
     let volume = L.volume;
     let com = L.com;
-    if ((volume == null || com == null) && forge && L.handle != null) {
+    // Query the kernel when we need volume/com OR when a handle is present but
+    // the COM-frame inertia tensor has not been supplied on the spec — so a
+    // real (handle-backed) assembly always exports KERNEL-TRUTH inertia and
+    // auto-switches off the JS hull approximation.
+    if (forge && L.handle != null &&
+        (volume == null || com == null || L.inertiaCom == null)) {
       const mp = forge.massProps(L.handle);
-      volume = mp.volume;
-      com = mp.centerOfMass;
+      if (volume == null) volume = mp.volume;
+      if (com == null) com = mp.centerOfMass;
+      if (L.inertiaCom == null && mp.inertiaCom && mp.inertiaCom.length === 9) {
+        L.inertiaCom = mp.inertiaCom;
+      }
     }
     if (volume == null || com == null) {
       throw new Error(`robotExport: link "${linkName}" missing mass-props (volume/com)`);
@@ -608,7 +620,7 @@ function normalize(assembly, forge, opts) {
       : buildCollisionHull(visual.positions, forge);
 
     // Inertia about COM frame, SI (kg·m²).
-    const inertia = resolveInertia(L, { massKg, com, density, visual, collision });
+    const inertia = resolveInertia(L, { massKg, volume, com, density, visual, collision });
 
     const link = {
       id: L.id != null ? L.id : linkName,
@@ -661,16 +673,24 @@ function degenerateFallbackInertia(positions, massKg) {
 }
 
 function resolveInertia(L, ctx) {
-  const { massKg, com, density, collision } = ctx;
+  const { massKg, volume, com, density, collision } = ctx;
   void density;
-  // Path 1 — kernel COM-frame tensor supplied directly (mass·mm² units): the
-  // kernel already shifted to COM, so we only convert mm² → m² (mass carried).
+  // Path 1 — kernel COM-frame tensor supplied directly: this is the OCCT
+  // GProp MatrixOfInertia, ALREADY about the centre of mass (no parallel-axis
+  // shift) and at UNIT DENSITY (mass·mm² with mass==volume). To convert to SI
+  // kg·m² we (a) carry the real link mass via s = massKg/volume — the same
+  // unit-density→real-mass scale Path 3 applies — and (b) convert mm²→m² via
+  // MMI_TO_MI. When `volume` is unavailable (kernel-free spec that nonetheless
+  // supplied inertiaCom), assume the tensor already carries the real mass
+  // (s = 1), preserving the prior convention for hand-built specs.
   if (L.inertiaCom && L.inertiaCom.length === 9) {
     const i = L.inertiaCom;
+    const s = (volume != null && volume > 0) ? (massKg / volume) : 1;
+    const k = s * MMI_TO_MI;
     return {
       method: 'kernel:inertiaCom',
-      ixx: i[0] * MMI_TO_MI, ixy: i[1] * MMI_TO_MI, ixz: i[2] * MMI_TO_MI,
-      iyy: i[4] * MMI_TO_MI, iyz: i[5] * MMI_TO_MI, izz: i[8] * MMI_TO_MI,
+      ixx: i[0] * k, ixy: i[1] * k, ixz: i[2] * k,
+      iyy: i[4] * k, iyz: i[5] * k, izz: i[8] * k,
     };
   }
   // Path 2 — kernel ORIGIN-frame tensor (mm-mass units): shift to COM in JS.
@@ -725,10 +745,11 @@ function resolveWorldTransform(L) {
 function adaptJsAssembly(asm, forge) {
   const links = asm.parts.map((p) => {
     const handle = p.solid && (p.solid.handle != null ? p.solid.handle : (p.solid._handle));
-    let volume, com;
+    let volume, com, inertiaCom;
     if (forge && handle != null) {
       const mp = forge.massProps(handle);
       volume = mp.volume; com = mp.centerOfMass;
+      if (mp.inertiaCom && mp.inertiaCom.length === 9) inertiaCom = mp.inertiaCom;
     }
     return {
       id: p.id,
@@ -736,10 +757,11 @@ function adaptJsAssembly(asm, forge) {
       material: p.material,
       fixed: p.fixed,
       handle,
+      inertiaCom,
       solid: p.solid,
       position: p.position,
       rotation: p.rotation,
-      volume, com,
+      volume, com, inertiaCom,
     };
   });
   const joints = asm.mates.map((m) => ({
