@@ -250,7 +250,7 @@ function ViewportScene({ bundle, steps, selection, onSelect,
       <RendererPublisher bundle={bundle} />
       {GizmoHelper && GizmoViewport && (
         <GizmoHelper alignment="bottom-left" margin={[80, 80]}>
-          <GizmoViewport axisColors={['#e26a6a', '#5cc88f', '#4aa0e1']}
+          <GizmoViewport axisColors={['#6f7177', '#9a9ca2', '#d7d9de']}
                          labelColor={labelInk} />
         </GizmoHelper>
       )}

@@ -329,8 +329,8 @@ if (typeof window !== 'undefined') {
 
 export const SELECTION_MODES = [...MODES];
 
-export const PRESELECT_COLOR = '#ffd966';   // soft yellow
-export const SELECT_COLOR    = '#ff7a40';   // saturated orange
+export const PRESELECT_COLOR = '#b9bbc0';   // monochrome — light-grey preselect (tone, not hue)
+export const SELECT_COLOR    = '#ffffff';   // monochrome — white select (tone, not hue)
 
 export default {
   getMode, setMode, getSelection, getHovered, clear, subscribe,
