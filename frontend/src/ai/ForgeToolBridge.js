@@ -23,6 +23,10 @@
 
 import { getForge } from '../kernel/forge/index.js';
 import { exportRobot } from '../forge-v4/io/robotExport.js';
+import {
+  indexVault, findSimilar, findDuplicates, retrieveThenEdit,
+} from '../forge-v4/pdm/partRetrieval.js';
+import { listItems } from '../forge-v4/pdmStore.js';
 
 // Round ALL edges of a finished asset body so machined parts read as
 // manufactured (broken edges), not raw boolean blocks. Fillets every edge
@@ -614,6 +618,58 @@ function flushPmi(forge, shape, filepath, notes) {
  */
 function P(type, description, opts = {}) {
   return { type, description, required: !!opts.required, default: opts.default };
+}
+
+// ── PDM part-retrieval vault index (Task #33) ──────────────────────────────
+// Build the fingerprint index from the live PDM vault (pdmStore.listItems())
+// joined to the scene's body registry (window.__forgeBodies) by matching the
+// item's partNumber/name to a body label/name. The index is cached and rebuilt
+// only when the (item-count, body-count) signature changes — fingerprinting
+// every body on every call would be wasteful on a large vault.
+let _pdmIndexCache = null;
+let _pdmIndexSig = '';
+
+function buildPdmVaultIndex(forge) {
+  const bodies = (typeof window !== 'undefined' && Array.isArray(window.__forgeBodies))
+    ? window.__forgeBodies : [];
+  // Join PDM items → bodies by name/label/partNumber. A vault item with no
+  // matching scene body is skipped (it has no geometry to fingerprint here);
+  // a body with no PDM item is still indexed under its own label so the scene
+  // is searchable even before parts are checked into the vault.
+  let items = [];
+  try { items = listItems(); } catch { items = []; }
+  const byKey = new Map();
+  for (const b of bodies) {
+    const key = String(b.label || b.name || b.id || '').toLowerCase();
+    if (key) byKey.set(key, b);
+  }
+  const parts = [];
+  const seen = new Set();
+  for (const it of items) {
+    const cands = [it.partNumber, it.name].map((s) => String(s || '').toLowerCase());
+    const body = cands.map((c) => byKey.get(c)).find(Boolean);
+    if (body && Number.isInteger(body.handle)) {
+      parts.push({ itemId: it.id, partNumber: it.partNumber, name: it.name, handle: body.handle });
+      seen.add(body.id);
+    }
+  }
+  // Add un-vaulted scene bodies so the live scene is always searchable.
+  for (const b of bodies) {
+    if (seen.has(b.id) || !Number.isInteger(b.handle)) continue;
+    parts.push({ itemId: null, partNumber: b.label || b.name || String(b.id),
+                 name: b.name || b.label || String(b.id), handle: b.handle });
+  }
+  const sig = `${items.length}:${bodies.length}:${parts.map((p) => p.handle).join(',')}`;
+  if (_pdmIndexCache && _pdmIndexSig === sig) return _pdmIndexCache;
+  _pdmIndexCache = indexVault(parts, forge);
+  _pdmIndexSig = sig;
+  return _pdmIndexCache;
+}
+
+/** Strip a vault `part` of its (large) cached descriptor for a JSON response. */
+function partSummary(part) {
+  if (!part) return null;
+  return { itemId: part.itemId ?? null, partNumber: part.partNumber, name: part.name };
 }
 
 export const FORGE_TOOLS = [
@@ -2698,6 +2754,60 @@ export const FORGE_TOOLS = [
         body = forge.cut(body, cut);
       }
       return { shape: roundEdges(body, forge, 0.6) };
+    } },
+
+  // ============================================================ PDM RETRIEVAL
+  // Geometry-based part retrieval over the PDM vault (Task #33). The 80/20
+  // reality: ~80 % of engineering REUSES/adapts an existing part, and a 40k-part
+  // vault hides 8-12k duplicates. These verbs let Archie search the vault by
+  // SHAPE (pose- & scale-invariant fingerprint) before generating anything.
+  { name: 'pdm.find-similar', discipline: 'part', produces: 'report',
+    description: 'Find the parts in the PDM vault most geometrically similar to a query body, by a pose- and scale-invariant shape fingerprint (D2 distribution + moment/aspect invariants). Returns the top-k ranked matches with a similarity score (≈1.0 = an identical/transformed copy) PLUS a retrieve-then-edit hand-off to the closest match. Use BEFORE modelling a new part — reuse beats regenerate.',
+    parameters: { shape: P('uint', 'query body handle to search the vault with', { required: true }),
+                  k: P('uint', 'number of matches to return', { default: 5 }) },
+    run: ({ shape, k }, forge) => {
+      if (!Number.isInteger(shape)) throw new Error('pdm.find-similar: a valid query shape handle is required');
+      const index = buildPdmVaultIndex(forge);
+      if (index.entries.length === 0) {
+        return { op: 'find-similar', matches: [], query: shape,
+                 note: 'PDM vault is empty / no scene bodies to fingerprint' };
+      }
+      const kk = Math.max(1, Math.min(Number(k) || 5, index.entries.length));
+      const matches = findSimilar({ handle: shape }, kk, index, forge)
+        .map((m) => ({ ...partSummary(m.part), score: Number(m.score.toFixed(4)),
+                       distance: Number(m.distance.toFixed(4)) }));
+      // The retrieve-then-edit hand-off to the closest match (descriptor only —
+      // ForgeToolBridge does NOT invoke the editor; cad.edit-step consumes this).
+      const rte = retrieveThenEdit({ handle: shape }, index, forge);
+      return { op: 'find-similar', query: shape, matches,
+               editHandoff: rte.editHandoff ? {
+                 verb: rte.editHandoff.verb,
+                 sourceItem: partSummary(rte.editHandoff.sourceItem),
+                 similarity: Number((rte.editHandoff.similarity || 0).toFixed(4)),
+                 queryDelta: rte.editHandoff.queryDelta,
+                 note: rte.editHandoff.note,
+               } : null };
+    } },
+
+  { name: 'pdm.find-duplicates', discipline: 'part', produces: 'report',
+    description: 'Scan the PDM vault for near-duplicate parts: pairs whose shape fingerprints fall below a near-duplicate distance threshold, each CONFIRMED with a tighter geometric check (volume/area within tolerance AND the CADGenBench shape_similarity metric). Surfaces the duplicate debt a real 40k-part vault accumulates so it can be consolidated.',
+    parameters: { threshold: P('number', 'near-duplicate descriptor-distance threshold (smaller = stricter)', { default: 0 }),
+                  confirm: P('boolean', 'run the tighter geometric confirm on candidates', { default: true }) },
+    run: ({ threshold, confirm }, forge) => {
+      const index = buildPdmVaultIndex(forge);
+      if (index.entries.length < 2) {
+        return { op: 'find-duplicates', pairs: [], note: 'need ≥2 fingerprinted parts to compare' };
+      }
+      const opts = { forge, confirm: confirm !== false };
+      if (Number(threshold) > 0) opts.threshold = Number(threshold);
+      const pairs = findDuplicates(index, opts).map((d) => ({
+        a: partSummary(d.a), b: partSummary(d.b),
+        distance: Number(d.distance.toFixed(4)),
+        confirmed: !!d.confirmed,
+        shapeSimilarity: d.shapeSimilarity == null ? null : Number(d.shapeSimilarity.toFixed(4)),
+      }));
+      return { op: 'find-duplicates', count: pairs.length,
+               confirmedCount: pairs.filter((p) => p.confirmed).length, pairs };
     } },
 ];
 
