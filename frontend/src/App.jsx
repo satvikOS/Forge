@@ -119,6 +119,11 @@ import { installForgeAPI } from './forge-v4/forgeAPI.js';
 // downstream subscribers. Highlight stays in sync with the live shell
 // selection.kind via the forge:selection-changed bus.
 import { SelectionFilterStrip } from './forge-v4/SelectionFilterStrip.jsx';
+// Task #21 (Enterprise CAD UI/UX) — sub-entity pre-highlight + QuickPick,
+// measure-on-selection HUD, and active-datum/CSYS + snap-target context.
+import { PreHighlightHost } from './forge-v4/PreHighlightHost.jsx';
+import { MeasureHudHost } from './forge-v4/MeasureHudHost.jsx';
+import { DatumContextHost } from './forge-v4/DatumContextHost.jsx';
 // Forge-135 / 137 / 139 — render room + role switcher + ribbon
 // customiser + universal command palette.
 import { PathTracedRenderHost } from './forge-v4/PathTracedRender.jsx';
@@ -1403,6 +1408,9 @@ function App() {
       <DirectEditTranslatePanelHost />
       <PatternFeaturePanelHost />
       <SelectionFilterStrip />
+      <PreHighlightHost />
+      <MeasureHudHost />
+      <DatumContextHost />
       <StlExportPanelHost />
       <DiagnosticDumpPanelHost />
       <BigSceneStressPanelHost />

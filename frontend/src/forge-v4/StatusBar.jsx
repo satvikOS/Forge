@@ -18,6 +18,11 @@
 import React, { useEffect, useState } from 'react';
 import { computeBodyStats } from './HoverTooltip.jsx';
 import { listJobs } from './progressBus.js';
+import {
+  getActiveDatum, getSnapTarget, datumLabel, snapLabel,
+  DATUM_CONTEXT_EVENT,
+} from './datumContextStore.js';
+import { filterNoun, isFilterKind } from './selectionFilterApi.js';
 import './StatusBar.css';
 
 // Human workbench label for the mode segment (falls back to the raw id).
@@ -93,6 +98,39 @@ export function StatusBar({ units = 'mm', snap = true, ortho = false,
     return () => window.removeEventListener('forge:progress', refresh);
   }, []);
 
+  // ----- active-datum / CSYS + snap-target context (Task #21) -----
+  // Read-only subscription to datumContextStore. The store is mutated by
+  // the imperative window API (DatumContextHost) — never a setter here.
+  const [datum, setDatum] = useState(() => {
+    try { return getActiveDatum(); } catch { return null; }
+  });
+  const [snapTarget, setSnapTargetState] = useState(() => {
+    try { return getSnapTarget(); } catch { return null; }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onCtx = (e) => {
+      setDatum(e?.detail?.datum ?? null);
+      setSnapTargetState(e?.detail?.snap ?? null);
+    };
+    window.addEventListener(DATUM_CONTEXT_EVENT, onCtx);
+    return () => window.removeEventListener(DATUM_CONTEXT_EVENT, onCtx);
+  }, []);
+
+  // ----- active selection-filter kind mirror (Task #21) -----
+  const [filterKind, setFilterKind] = useState(() =>
+    (typeof window !== 'undefined' && isFilterKind(window.__forgeSelectionFilter))
+      ? window.__forgeSelectionFilter : null);
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onFilter = (e) => {
+      const k = e?.detail?.kind;
+      if (isFilterKind(k)) setFilterKind(k);
+    };
+    window.addEventListener('forge:filter-changed', onFilter);
+    return () => window.removeEventListener('forge:filter-changed', onFilter);
+  }, []);
+
   const job = activity[0] || null;
   const jobPct = job ? Math.max(0, Math.min(100, job.pct || 0)) : 0;
   const busy = !!job;
@@ -131,6 +169,57 @@ export function StatusBar({ units = 'mm', snap = true, ortho = false,
             <span className="forge-statusbar-muted">No selection</span>
           )}
         </span>
+
+        {/* Active selection-filter kind (Task #21) — what class of
+            entity picks land on. Mirrors window.__forgeSelectionFilter
+            via the forge:filter-changed bus. */}
+        {filterKind ? (
+          <>
+            <span className="forge-statusbar-div" aria-hidden="true" />
+            <span className="forge-statusbar-toggle"
+                  data-on="true"
+                  data-kind={filterKind}
+                  data-testid="forge-statusbar-filter">
+              <span className="forge-statusbar-key">Filter</span>
+              <span className="forge-statusbar-state fds-num">
+                {filterNoun(filterKind, 0)}
+              </span>
+            </span>
+          </>
+        ) : null}
+
+        {/* Active datum / CSYS (Task #21) — NX WCS / Creo coordinate
+            system footer readout. Only shown when a datum is active. */}
+        {datum ? (
+          <>
+            <span className="forge-statusbar-div" aria-hidden="true" />
+            <span className="forge-statusbar-toggle"
+                  data-on="true"
+                  data-datum={datum.name}
+                  data-datum-type={datum.type}
+                  data-testid="forge-statusbar-datum"
+                  title={`Active datum · ${datumLabel(datum)}`}>
+              <span className="forge-statusbar-key">Datum</span>
+              <span className="forge-statusbar-state fds-num">{datumLabel(datum)}</span>
+            </span>
+          </>
+        ) : null}
+
+        {/* Live snap-target (Task #21) — Creo snap-reference readout.
+            Shows the snap type (+ coords when supplied). */}
+        {snapTarget ? (
+          <>
+            <span className="forge-statusbar-div" aria-hidden="true" />
+            <span className="forge-statusbar-toggle"
+                  data-on="true"
+                  data-snap-type={snapTarget.type}
+                  data-testid="forge-statusbar-snaptarget"
+                  title={`Snap · ${snapLabel(snapTarget)}`}>
+              <span className="forge-statusbar-key">Snap→</span>
+              <span className="forge-statusbar-state fds-num">{snapLabel(snapTarget)}</span>
+            </span>
+          </>
+        ) : null}
       </div>
 
       {/* ---- CENTER · measurement / coordinate readout ---- */}

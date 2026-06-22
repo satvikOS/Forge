@@ -212,7 +212,8 @@ const headerChipStyle = {
   alignItems: 'center',
   gap: 4,
   padding: '2px 6px',
-  background: 'var(--forge-accent-mute, rgba(70, 130, 200, 0.20))',
+  // Monochrome (Task #21 rule fix): grey accent-mute, never chromatic.
+  background: 'var(--forge-accent-mute, rgba(255,255,255,0.08))',
   border: '1px solid var(--forge-rail-edge, rgba(255,255,255,0.12))',
   borderRadius: 3,
   fontSize: 10,
@@ -238,13 +239,18 @@ const chipButtonStyle = (active) => ({
   width: 42,
   minHeight: 38,
   padding: '4px 2px',
+  // Monochrome (Task #21 rule fix): active = filled grey accent with
+  // tone-inverted ink (canvas-on-accent), inactive = transparent + muted
+  // ink. NO chromatic blue anywhere — outline/tone only.
   background: active
-    ? 'var(--forge-accent, rgba(70, 130, 200, 0.45))'
+    ? 'var(--forge-accent, #ebecef)'
     : 'transparent',
   border: '1px solid ' + (active
-    ? 'var(--forge-accent, rgba(70, 130, 200, 0.80))'
+    ? 'var(--forge-accent, #ebecef)'
     : 'var(--forge-rail-edge, rgba(255,255,255,0.18))'),
-  color: active ? '#ffffff' : 'var(--forge-ink-mute, #9aa3ad)',
+  color: active
+    ? 'var(--forge-canvas, #000000)'
+    : 'var(--forge-ink-mute, #9aa3ad)',
   cursor: 'pointer',
   borderRadius: 3,
   outline: 'none',
