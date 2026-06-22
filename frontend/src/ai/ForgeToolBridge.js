@@ -27,6 +27,10 @@ import {
   indexVault, findSimilar, findDuplicates, retrieveThenEdit,
 } from '../forge-v4/pdm/partRetrieval.js';
 import { listItems } from '../forge-v4/pdmStore.js';
+import {
+  generateDrawing, regenerateDrawing,
+  setForgeKernel as setAutoDrawingKernel,
+} from '../forge-v4/drawing/autoDrawing.js';
 
 // Round ALL edges of a finished asset body so machined parts read as
 // manufactured (broken edges), not raw boolean blocks. Fillets every edge
@@ -2283,6 +2287,90 @@ export const FORGE_TOOLS = [
         : view;
       const r = forge.drawings.projectShape(shape, direction);
       return { visibleCount: r.visibleCount, hiddenCount: r.hiddenCount, outlineCount: r.outlineCount };
+    } },
+
+  // AUTO-2D-DRAWING (Task #27). Generate a full Y14.5 sheet — standard
+  // front/top/right/iso HLR views + auto dimensions (overall W/H/D from
+  // the projected bbox + hole Ø/pitch from detected circles) + GD&T from
+  // the part's semantic PMI — and return the SVG artifact. Because every
+  // view + dimension is RE-DERIVED from the live geometry, a parameter
+  // change reflows the whole drawing (the killer "drawings stay manual"
+  // gap, closed). Sections / detail / broken views + balloons exist in
+  // Drawings.js but are NOT auto-placed yet — flagged follow-ups.
+  { name: 'drawing.generate', discipline: 'drawing', produces: 'file',
+    description: 'Generate a full Y14.5 2D drawing sheet (standard front/top/right/iso HLR views + auto dimensions + GD&T from PMI) for a part and return the SVG artifact. Regenerates from current geometry, so a parameter change reflows the views + dimension values.',
+    parameters: {
+      shape:      P('uint',    'part shape handle', { required: true }),
+      bodyId:     P('string',  'body id for PMI lookup', { default: null }),
+      projection: P('enum',    'third-angle|first-angle', { default: 'third-angle' }),
+      sheet:      P('enum',    'A4|A3|A2|A1|A0|A|B|C|D|E', { default: 'A3' }),
+      orientation: P('enum',   'landscape|portrait', { default: 'landscape' }),
+      pmi:        P('boolean', 'place GD&T from PMI', { default: true }),
+      title:      P('string',  'title-block label', { default: null }),
+      dxf:        P('boolean', 'also emit a DXF artifact', { default: false }),
+    },
+    run: ({ shape, bodyId, projection, sheet, orientation, pmi, title, dxf }, forge) => {
+      // Align the drawing engine's kernel with the dispatched `forge` so a
+      // headless replay (or a test) projects against the same registry.
+      setAutoDrawingKernel(forge);
+      const d = generateDrawing(
+        { shape, bodyId: bodyId ?? null, title: title ?? undefined },
+        { projection: projection || 'third-angle', sheet: sheet || 'A3',
+          orientation: orientation || 'landscape', pmi: pmi !== false, dxf: !!dxf },
+      );
+      return {
+        op: 'drawing-generate',
+        views: d.views.length,
+        dimensions: d.dimensions.length,
+        gdt: d.gdt.length,
+        sheet: sheet || 'A3',
+        projection: d.projection,
+        scale: d.scale,
+        svgLength: d.svg.length,
+        dxfLength: d.dxf ? d.dxf.length : 0,
+        // The actual sheet artifact (SVG) is returned for the renderer /
+        // Archie to write to disk or display.
+        svg: d.svg,
+        dxf: d.dxf || null,
+      };
+    } },
+
+  // Parametric regenerate — rebuild the part handle from its {kind,params}
+  // recipe with `changes` applied, then regenerate the drawing. Proves the
+  // dimension VALUES re-derive from new geometry, not a stale manual sheet.
+  { name: 'drawing.regenerate', discipline: 'drawing', produces: 'file',
+    description: 'Rebuild a part from its {kind, params} recipe with parameter changes applied, then regenerate its 2D drawing. The views + dimension values reflow from the new geometry.',
+    parameters: {
+      kind:    P('enum',   'box|cylinder|plate-hole', { required: true }),
+      params:  P('object', 'base recipe params, e.g. {dx,dy,dz,holeR}', { required: true }),
+      changes: P('object', 'param overrides, e.g. {dx:120}', { default: {} }),
+      bodyId:  P('string', 'body id for PMI lookup', { default: null }),
+      sheet:   P('enum',   'A4|A3|A2|A1|A0|A|B|C|D|E', { default: 'A3' }),
+      pmi:     P('boolean','place GD&T from PMI', { default: true }),
+      dxf:     P('boolean','also emit a DXF artifact', { default: false }),
+    },
+    run: ({ kind, params, changes, bodyId, sheet, pmi, dxf }, forge) => {
+      setAutoDrawingKernel(forge);
+      const d = regenerateDrawing(
+        { shape: null, bodyId: bodyId ?? null, kind, params: params || {} },
+        changes || {},
+        { sheet: sheet || 'A3', pmi: pmi !== false, dxf: !!dxf },
+      );
+      return {
+        op: 'drawing-regenerate',
+        kind,
+        changes: changes || {},
+        views: d.views.length,
+        dimensions: d.dimensions.length,
+        gdt: d.gdt.length,
+        sheet: sheet || 'A3',
+        svgLength: d.svg.length,
+        // Echo the reflowed dimension values so a caller can confirm the
+        // change propagated without parsing the SVG.
+        dimValues: d.dimensions.map((x) => ({ label: x.label, value: x.value, text: x.text })),
+        svg: d.svg,
+        dxf: d.dxf || null,
+      };
     } },
 
   // PMI / MBD annotation (Forge-34 kernel exportStepWithPmi). HONEST
