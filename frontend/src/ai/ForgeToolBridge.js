@@ -24,6 +24,7 @@
 import { getForge } from '../kernel/forge/index.js';
 import { exportRobot } from '../forge-v4/io/robotExport.js';
 import { exportArchival, verifyArchival } from '../forge-v4/io/archivalExport.js';
+import { ecadImportBoard, ecadExportBoard, routeHarness as ecadRouteHarness } from '../forge-v4/ecad/ecadBridge.js';
 import {
   indexVault, findSimilar, findDuplicates, retrieveThenEdit,
 } from '../forge-v4/pdm/partRetrieval.js';
@@ -44,6 +45,32 @@ import {
 import {
   trainSurrogate, predictSurrogate,
 } from '../forge-v4/ml/surrogate.js';
+
+// Node `fs` resolver — ESM-safe. In the Electron renderer (nodeIntegration) a
+// global `require` is injected, so the JS exporters fall back to it; but in a
+// plain node-ESM context (node --test) `require` is undefined. We then load the
+// `node:fs` builtin (the same pattern GitLfsBackend.js / FilesystemPartStore.js
+// already use in this frontend) so file-writing verbs are testable outside
+// Electron. Returns null in the browser — callers use forge.io / forge.dialog.
+let _nodeFs = null;
+function nodeFsSync() {
+  if (_nodeFs) return _nodeFs;
+  try {
+    if (typeof require === 'function') { _nodeFs = require('fs'); return _nodeFs; }
+  } catch (_) { /* fall through to dynamic import */ }
+  return null; // synchronous path unavailable; use ensureNodeFs() to preload
+}
+// Preloads node:fs for the node-ESM (test) path. Resolves to fs or null.
+async function ensureNodeFs() {
+  if (_nodeFs) return _nodeFs;
+  const sync = nodeFsSync();
+  if (sync) return sync;
+  try {
+    const isNode = typeof process !== 'undefined' && process.versions && process.versions.node;
+    if (isNode) { _nodeFs = (await import('node:fs')).default; }
+  } catch (_) { /* not in node — stays null */ }
+  return _nodeFs;
+}
 
 // Round ALL edges of a finished asset body so machined parts read as
 // manufactured (broken edges), not raw boolean blocks. Fillets every edge
@@ -2357,6 +2384,98 @@ export const FORGE_TOOLS = [
         throw new Error('io.verify-archival: an ArchivePackage object is required');
       }
       return { op: 'verify-archival', ...verifyArchival(a, { forge }) };
+    } },
+
+  // ============================================================ ECAD ↔ MCAD
+  // ECAD↔MCAD BRIDGE + 3D WIRING-HARNESS ROUTING (Task #36). Bidirectional
+  // board exchange in the published IDF 3.0 interchange (.emn): import lifts a
+  // board (outline + keepouts + drilled holes + component placements) into a
+  // 3D MCAD assembly (extruded board slab + a placed/rotated solid per part);
+  // export recovers a spec-conformant .emn from that assembly so MCAD→ECAD→MCAD
+  // round-trips placements within tolerance. The harness router returns an
+  // arc-length-true 3D centerline (straight=‖B−A‖, circular=r·θ, Catmull-Rom
+  // spline, or free-hanging catenary L=2a·sinh(d/2a)) — the LENGTH feedback the
+  // cut-list / cost model depend on. Delegates routing to the Forge-168
+  // harnessRouter; IDF is hand-written ASCII (no new deps).
+  { name: 'ecad.import-board', discipline: 'part', produces: 'report',
+    description: 'Import an IDF 3.0 .emn board (outline, route/place keepouts, drilled holes, component placements) and LIFT it into a 3D MCAD assembly: an extruded board slab + one placed/rotated solid per component at its package height/side. Returns the parsed board + a normalized assembly (links[]) that feeds io.export-robot / io.export-archival.',
+    parameters: { emnText: P('string', 'IDF 3.0 .emn file contents (or pass filepath)', { default: null }),
+                  filepath: P('string', 'absolute path to a .emn to read (alternative to emnText)', { default: null }),
+                  empText: P('string', 'optional IDF 3.0 .emp library (package outlines/heights for the lift)', { default: null }),
+                  units: P('enum', 'MM|THOU (informational; the .emn header is authoritative)', { default: 'MM' }) },
+    run: async (args, forge) => {
+      let emn = args.emnText && String(args.emnText);
+      if (!emn && args.filepath) {
+        const fp = String(args.filepath).trim();
+        if (forge && forge.io && typeof forge.io.readTextFile === 'function') {
+          emn = forge.io.readTextFile(fp);
+        } else {
+          const fs = await ensureNodeFs();
+          if (!fs) throw new Error('ecad.import-board: no file-reader available (forge.io.readTextFile / fs)');
+          emn = fs.readFileSync(fp, 'utf8');
+        }
+      }
+      if (!emn) throw new Error('ecad.import-board: emnText or filepath required');
+      const { board, assembly, counts } = ecadImportBoard(emn, { empText: args.empText || undefined, forge });
+      return { op: 'import-board', ok: true, board, assembly, counts };
+    } },
+
+  { name: 'ecad.export-board', discipline: 'part', produces: 'file',
+    description: 'Write a spec-conformant IDF 3.0 .emn board file (.HEADER/.BOARD_OUTLINE/.ROUTE_KEEPOUT/.PLACE_KEEPOUT/.DRILLED_HOLES/.PLACEMENT) carrying the outline, keepouts, drilled holes and component placements. Accepts a normalized board spec OR an MCAD assembly from ecad.import-board (placements recovered from the lifted bodies). Round-trips losslessly with ecad.import-board.',
+    parameters: { board: P('object', 'normalized board spec {outline,holes,keepouts,components} OR an MCAD assembly {links[]/parts[]} from ecad.import-board', { required: true }),
+                  units: P('enum', 'MM|THOU', { default: 'MM' }),
+                  filepath: P('string', 'absolute output path for the .emn', { required: true }) },
+    run: async (args, forge) => {
+      const fp = args.filepath && String(args.filepath).trim();
+      if (!fp) throw new Error('ecad.export-board: filepath required (absolute output path)');
+      if (!args.board || typeof args.board !== 'object') {
+        throw new Error('ecad.export-board: a board spec or MCAD assembly is required');
+      }
+      const emn = ecadExportBoard(args.board, { units: args.units, forge });
+      // File-writer cascade — same as io.export-robot/io.export-archival, but
+      // node:fs is loaded via ensureNodeFs() so the verb is testable in ESM.
+      const nfs = await ensureNodeFs();
+      const writeText = (path, content) => {
+        if (forge && forge.io && typeof forge.io.writeTextFile === 'function') {
+          forge.io.writeTextFile(path, content);
+        } else if (forge && forge.dialog && typeof forge.dialog.writeBlob === 'function') {
+          forge.dialog.writeBlob(path, content);
+        } else if (nfs) {
+          nfs.writeFileSync(path, content);
+        } else {
+          throw new Error('ecad.export-board: no file-writer available (forge.dialog.writeBlob / fs)');
+        }
+      };
+      writeText(fp, emn);
+      const counts = {
+        outlinePoints: (args.board.outline || []).length,
+        components: (args.board.components || args.board.links || args.board.parts || []).length,
+      };
+      return { op: 'export-board', ok: true, filepath: fp, counts };
+    } },
+
+  { name: 'ecad.route-harness', discipline: 'part', produces: 'report',
+    description: 'Route a 3D wiring harness through waypoints (mm) and return the centerline, per-segment lengths and total arc-length LENGTH. mode=linear (Σ chords) | spline (centripetal Catmull-Rom) | catenary (free-hanging, L=2a·sinh(d/2a), a=H/w). A straight run gives ‖B−A‖, a circular arc gives r·θ. Bundle radius is explicit or derived from the cable library OD. Delegates spline math to the Forge-168 harness router.',
+    parameters: { waypoints: P('array', 'ordered [[x,y,z],…] route waypoints in mm (≥2)', { required: true }),
+                  mode: P('enum', 'linear|spline|catenary', { default: 'linear' }),
+                  bundleRadius: P('number', 'bundle radius (mm); default derived from cableId or 2 mm', { default: null }),
+                  cableId: P('string', 'cable id (cableLibrary) to derive bundle radius + min-bend radius', { default: null }),
+                  anchorTension: P('number', 'catenary horizontal tension H (N)', { default: 50 }),
+                  weightPerLength: P('number', 'catenary weight per length w (N/m)', { default: 1 }) },
+    run: (args) => {
+      if (!Array.isArray(args.waypoints) || args.waypoints.length < 2) {
+        throw new Error('ecad.route-harness: waypoints[] (≥2 points in mm) is required');
+      }
+      const opts = { mode: args.mode || 'linear' };
+      if (args.bundleRadius != null) opts.bundleRadius = args.bundleRadius;
+      if (args.cableId) opts.cableId = args.cableId;
+      if (args.anchorTension != null) opts.anchorTension = args.anchorTension;
+      if (args.weightPerLength != null) opts.weightPerLength = args.weightPerLength;
+      const r = ecadRouteHarness(args.waypoints, opts);
+      return { op: 'route-harness', ok: true, mode: r.mode, length: r.length,
+               length_m: r.length_m, bundleRadius: r.bundleRadius,
+               minBendRadius: r.minBendRadius, requiredBendRadius: r.requiredBendRadius,
+               segments: r.segments, centerline: r.centerline };
     } },
 
   // ============================================================ DRAWING
