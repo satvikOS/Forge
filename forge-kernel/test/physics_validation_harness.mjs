@@ -618,7 +618,191 @@ try {
 }
 
 // =====================================================================
-// Rigor-upgrade gate summary (UPGRADE A modal + UPGRADE B channel).
+// 8. TRANSIENT STRUCTURAL DYNAMICS — Newmark-β (β=¼, γ=½, average
+//    acceleration; Newmark 1959; Hughes, *The Finite Element Method*, §9.1–9.3;
+//    Chopra, *Dynamics of Structures*, §5.3) integrating
+//        M ü + C u̇ + K u = F(t)
+//    on the SAME assembled M (consistent ρ∫NᵀN), K and pinned-BC machinery the
+//    static/modal solvers use. C = αM + βᵣK (Rayleigh). Four closed-form gates:
+//
+//      [8a] SDOF free vibration — release the first MODE SHAPE (so the response
+//           is genuinely single-DOF, u(t)=φ q(t)). Undamped: every DOF follows
+//           x₀cos(ωt) to <1%. Damped (ζ=0.05 via mass-proportional α=2ζω): the
+//           DAMPED PERIOD 2π/ω_d and the LOG-DECREMENT damping ratio ζ both
+//           match the SDOF closed form x(t)=x₀e^{−ζωt}cos(ω_d t) to <1%
+//           (Chopra §2.2 log-decrement, §3.1 damped free vibration).
+//      [8b] CANTILEVER released from a static tip load oscillates at its FIRST
+//           MODAL frequency — measured period vs 1/f₁ from solveModal to <2%.
+//      [8c] UNDAMPED (C=0) total energy E=½u̇ᵀMu̇+½uᵀKu is conserved (Newmark
+//           average-acceleration is exactly energy-conserving for linear
+//           systems; Hughes §9.3.3) — drift <0.5% over 10 periods; with damping
+//           the energy decays monotonically.
+//      [8d] UNCONDITIONAL STABILITY — integrate at Δt = 5× the SHORTEST modal
+//           period (an explicit scheme would blow up); the response stays
+//           finite & bounded (Newmark β=¼,γ=½ is unconditionally stable).
+// =====================================================================
+const trackPeakPeriod = (times, xs) => {
+  // damped/undamped period from successive positive local maxima.
+  const peaks = [];
+  for (let k = 1; k < xs.length - 1; k++)
+    if (xs[k] > xs[k - 1] && xs[k] >= xs[k + 1] && xs[k] > 0)
+      peaks.push({ t: times[k], x: xs[k] });
+  const Tp = peaks.length >= 2
+    ? (peaks[peaks.length - 1].t - peaks[0].t) / (peaks.length - 1) : 0;
+  let zetaLogDec = 0;
+  if (peaks.length >= 2) {
+    const n = peaks.length - 1;
+    const delta = Math.log(peaks[0].x / peaks[peaks.length - 1].x) / n; // per cycle
+    zetaLogDec = delta / Math.sqrt(4 * Math.PI * Math.PI + delta * delta);
+  }
+  return { Tp, zetaLogDec, nPeaks: peaks.length };
+};
+try {
+  if (!(forge.fea && typeof forge.fea.solveDynamic === 'function')) {
+    throw new Error('forge.fea.solveDynamic not exposed');
+  }
+  const box = forge.makeBox(L, b, b);
+  const mesh = forge.fea.meshFromBrep(box, b);
+  const fixed = bitNodes(mesh, 0);              // -X clamp
+  const loadN = bitNodes(mesh, 1);              // +X tip
+  const bcs = fixed.map(n => ({ nodeId: n, fx: true, fy: true, fz: true }));
+
+  // First mode (consistent mass — same M the transient integrator uses).
+  const md = forge.fea.solveModal(mesh, mat, bcs, 4);
+  const w1 = Math.sqrt(md.eigenvalues[0]);      // rad/s
+  const T1 = 2 * Math.PI / w1;
+  const f1 = w1 / (2 * Math.PI);
+  const phi1 = Array.from(md.eigenvectors[0]);
+  let pk = 0; for (const x of phi1) pk = Math.max(pk, Math.abs(x));
+  const u0mode = Float64Array.from(phi1, x => x * (1e-4 / pk)); // peak 0.1 mm
+  // track the DOF with the largest modal amplitude
+  let trackDof = 0, best = 0;
+  for (let i = 0; i < phi1.length; i++)
+    if (Math.abs(phi1[i]) > best) { best = Math.abs(phi1[i]); trackDof = i; }
+  const x0 = u0mode[trackDof];
+
+  console.log(`\n[8] Transient Newmark-β dynamics (M ü + C u̇ + K u = F(t))`);
+  console.log(`    first mode: f1=${f1.toFixed(2)} Hz  ω1=${w1.toFixed(1)} rad/s  T1=${T1.toExponential(4)} s`);
+
+  // ---- [8a] SDOF free vibration (undamped + damped) ----
+  {
+    const dt = T1 / 400, tEnd = T1 * 6;
+    // undamped: x(t)=x0 cos(ω1 t)
+    const ru = forge.fea.solveDynamic(mesh, mat, [], bcs, tEnd, dt, 0, 0,
+      { u0: u0mode, useConsistentMass: true });
+    const xu = ru.displacements.map(s => s[trackDof]);
+    let maxRelU = 0;
+    for (let k = 0; k < ru.times.length; k++) {
+      const xa = x0 * Math.cos(w1 * ru.times[k]);
+      maxRelU = Math.max(maxRelU, Math.abs(xu[k] - xa) / Math.abs(x0));
+    }
+    // damped: ζ=0.05 via mass-proportional Rayleigh α=2ζω (for this single mode).
+    const zeta = 0.05, alphaR = 2 * zeta * w1, wd = w1 * Math.sqrt(1 - zeta * zeta);
+    const Td = 2 * Math.PI / wd;
+    const rd = forge.fea.solveDynamic(mesh, mat, [], bcs, tEnd, dt, alphaR, 0,
+      { u0: u0mode, useConsistentMass: true });
+    const xd = rd.displacements.map(s => s[trackDof]);
+    const meas = trackPeakPeriod(rd.times, xd);
+    const TdErr = pct(meas.Tp, Td);
+    const zetaErr = pct(meas.zetaLogDec, zeta);
+    console.log(`\n[8a] SDOF free vibration (first mode shape released)`);
+    console.log(`     undamped:  max|x − x0 cos ω1 t| / x0 = ${(100 * maxRelU).toFixed(3)}%  (target <1%)`);
+    console.log(`     damped ζ=0.05: T_d meas=${meas.Tp.toExponential(4)} vs 2π/ω_d=${Td.toExponential(4)} → ${TdErr.toFixed(3)}%`);
+    console.log(`     damped ζ via log-decrement = ${meas.zetaLogDec.toFixed(5)} vs 0.05 → ${zetaErr.toFixed(3)}%`);
+    assertGate('transient SDOF undamped x(t)=x0 cos(ωt) < 1%',
+      maxRelU < 0.01,
+      `max rel err = ${(100 * maxRelU).toFixed(3)}% over 6 periods`);
+    assertGate('transient SDOF damped (ζ=0.05): period & log-dec ζ < 1%',
+      meas.nPeaks >= 2 && TdErr < 1.0 && zetaErr < 1.0,
+      `T_d err=${TdErr.toFixed(3)}%, ζ_logdec=${meas.zetaLogDec.toFixed(4)} (err=${zetaErr.toFixed(2)}%)`);
+  }
+
+  // ---- [8b] cantilever released from static tip load → first-mode period ----
+  {
+    const Pld = 500; // N, -Z tip load
+    const loads = loadN.map(n => ({ nodeId: n, fx: 0, fy: 0, fz: -Pld / loadN.length }));
+    const st = forge.fea.solveStatic(mesh, mat, loads, [], bcs);
+    const u0 = Float64Array.from(st.u);          // static deflected shape
+    const dt = T1 / 400, tEnd = T1 * 6;
+    const r = forge.fea.solveDynamic(mesh, mat, [], bcs, tEnd, dt, 0, 0,
+      { u0, useConsistentMass: true });          // released (F=0), free vibration
+    const tip = loadN[0];
+    const zs = r.displacements.map(s => s[3 * tip + 2]);
+    // free vibration about 0 (no static preload retained): period from up-crossings
+    const tc = []; let prev = zs[0];
+    for (let k = 1; k < zs.length; k++) {
+      if (prev <= 0 && zs[k] > 0) {
+        const t0 = r.times[k - 1], t1 = r.times[k];
+        tc.push(t0 + (t1 - t0) * (0 - prev) / (zs[k] - prev));
+      }
+      prev = zs[k];
+    }
+    const Tmeas = tc.length >= 2 ? (tc[tc.length - 1] - tc[0]) / (tc.length - 1) : 0;
+    const Terr = pct(Tmeas, T1);
+    console.log(`\n[8b] Cantilever released from static tip load → first-mode period`);
+    console.log(`     T_meas=${Tmeas.toExponential(4)} s vs 1/f1=${T1.toExponential(4)} s → ${Terr.toFixed(3)}%  (target <2%)`);
+    assertGate('transient cantilever release period = 1/f1 (modal) < 2%',
+      tc.length >= 2 && Terr < 2.0,
+      `T_meas=${Tmeas.toExponential(4)} vs 1/f1=${T1.toExponential(4)} → err=${Terr.toFixed(3)}%`);
+  }
+
+  // ---- [8c] undamped energy conservation + damped decay ----
+  {
+    const Pld = 500;
+    const loads = loadN.map(n => ({ nodeId: n, fx: 0, fy: 0, fz: -Pld / loadN.length }));
+    const st = forge.fea.solveStatic(mesh, mat, loads, [], bcs);
+    const u0 = Float64Array.from(st.u);
+    const dt = T1 / 200, tEnd = T1 * 10;
+    const r = forge.fea.solveDynamic(mesh, mat, [], bcs, tEnd, dt, 0, 0,
+      { u0, useConsistentMass: true });
+    const E0 = r.totalEnergy[0];
+    const Emax = Math.max(...r.totalEnergy), Emin = Math.min(...r.totalEnergy);
+    const drift = 100 * (Emax - Emin) / E0;
+    // damped: energy must decay (last < first)
+    const rd = forge.fea.solveDynamic(mesh, mat, [], bcs, tEnd, dt, 5.0, 0,
+      { u0, useConsistentMass: true });
+    const Efirst = rd.totalEnergy[0], Elast = rd.totalEnergy[rd.totalEnergy.length - 1];
+    console.log(`\n[8c] Undamped total energy E=½u̇ᵀMu̇+½uᵀKu conservation (10 periods)`);
+    console.log(`     E0=${E0.toExponential(4)} J  drift=${drift.toFixed(5)}%  (KE0=${r.kineticEnergy[0].toExponential(2)} PE0=${r.potentialEnergy[0].toExponential(4)})`);
+    console.log(`     damped (α=5): E_first=${Efirst.toExponential(3)} → E_last=${Elast.toExponential(3)} (ratio ${(Elast / Efirst).toFixed(3)})`);
+    assertGate('transient undamped energy conserved < 0.5% (Newmark avg-accel)',
+      drift < 0.5,
+      `E drift=${drift.toFixed(5)}% over 10 periods`);
+    assertGate('transient damped energy decays monotonically (E_last < E_first)',
+      Elast < Efirst,
+      `E_first=${Efirst.toExponential(3)} → E_last=${Elast.toExponential(3)}`);
+  }
+
+  // ---- [8d] unconditional stability at large Δt ----
+  {
+    const w4 = Math.sqrt(md.eigenvalues[md.eigenvalues.length - 1]); // highest captured mode
+    const Tmin = 2 * Math.PI / w4;
+    const dt = Tmin * 5, tEnd = dt * 500;        // 5× the SHORTEST period → explicit would diverge
+    const Pld = 500;
+    const loads = loadN.map(n => ({ nodeId: n, fx: 0, fy: 0, fz: -Pld / loadN.length }));
+    const r = forge.fea.solveDynamic(mesh, mat, loads, bcs, tEnd, dt, 0, 0,
+      { useConsistentMass: true });
+    const peak = Math.max(...r.maxDisp);
+    const last = r.maxDisp[r.maxDisp.length - 1];
+    const finite = Number.isFinite(peak) && Number.isFinite(last) && peak < 1.0;
+    console.log(`\n[8d] Unconditional stability at Δt = 5× shortest modal period`);
+    console.log(`     Δt=${dt.toExponential(3)} s (Tmin=${Tmin.toExponential(3)}), ${r.times.length} steps  peakDisp=${peak.toExponential(3)} m  lastDisp=${last.toExponential(3)} m`);
+    assertGate('transient unconditional stability at large Δt (no blow-up)',
+      finite,
+      `peakDisp=${peak.toExponential(3)} m, lastDisp=${last.toExponential(3)} m at Δt=5×Tmin`);
+  }
+} catch (e) {
+  console.log('[8] FAILED:', e.message);
+  assertGate('transient SDOF undamped x(t)=x0 cos(ωt) < 1%', false, 'threw: ' + e.message);
+  assertGate('transient SDOF damped (ζ=0.05): period & log-dec ζ < 1%', false, 'threw: ' + e.message);
+  assertGate('transient cantilever release period = 1/f1 (modal) < 2%', false, 'threw: ' + e.message);
+  assertGate('transient undamped energy conserved < 0.5% (Newmark avg-accel)', false, 'threw: ' + e.message);
+  assertGate('transient damped energy decays monotonically (E_last < E_first)', false, 'threw: ' + e.message);
+  assertGate('transient unconditional stability at large Δt (no blow-up)', false, 'threw: ' + e.message);
+}
+
+// =====================================================================
+// Rigor-upgrade gate summary (UPGRADE A modal + UPGRADE B channel + transient).
 // Exit non-zero if any gate case failed, so BUILD_AND_VERIFY_RIGOR.sh can
 // report PASS/FAIL deterministically.
 // =====================================================================

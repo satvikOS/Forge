@@ -75,9 +75,29 @@ struct ModalResult {
 
 struct DynamicResult {
     std::vector<std::vector<double>> displacements; // [step][3N]
+    std::vector<std::vector<double>> velocities;    // [step][3N] — same cadence as displacements
     std::vector<double> times;                       // length = steps+1 (including t=0)
     std::vector<double> maxStressEnvelope;           // per element (Pa) — max over time
+    std::vector<double> maxDisp;                      // per step: max |nodal displacement| (m)
+    std::vector<double> kineticEnergy;                // per step: ½ u̇ᵀ M u̇ (J)
+    std::vector<double> potentialEnergy;              // per step: ½ uᵀ K u (J)
+    std::vector<double> totalEnergy;                  // per step: KE + PE (J)
     double cpuMs;                                    // wall-clock for the integration loop
+};
+
+// Optional configuration for the transient solver. The defaults reproduce the
+// historical behaviour exactly: zero initial conditions, lumped mass.
+//   * u0 / v0: initial nodal displacement / velocity (3N flat). Empty ⇒ zero.
+//     A pinned DOF entry is forced to zero regardless of what is supplied.
+//   * useConsistentMass: when true the Newmark integrator uses the SAME
+//     consistent mass M = ρ∫NᵀN dV the modal solver uses, so a transient
+//     period matches the modal frequency (used by the energy / cantilever
+//     period validation gates). When false (default) the lumped ρV/8 diagonal
+//     is used, preserving the legacy fast path.
+struct DynamicOptions {
+    std::vector<double> u0;             // size 0 or 3N
+    std::vector<double> v0;             // size 0 or 3N
+    bool useConsistentMass = false;
 };
 
 struct Mesh {
@@ -114,6 +134,15 @@ DynamicResult solveDynamic(const Mesh& m, const Material& mat,
                            const std::vector<BCPinned>&  bcs,
                            double tEnd, double dt,
                            double rayleighAlpha, double rayleighBeta);
+
+// Overload with explicit initial conditions / mass choice. The 8-argument
+// form above forwards to this with default options.
+DynamicResult solveDynamic(const Mesh& m, const Material& mat,
+                           const std::vector<LoadNodal>& loads,
+                           const std::vector<BCPinned>&  bcs,
+                           double tEnd, double dt,
+                           double rayleighAlpha, double rayleighBeta,
+                           const DynamicOptions& opts);
 
 // =====================================================================
 // Forge-12b additions: steady thermal, nonlinear-geometric static,

@@ -1676,8 +1676,9 @@ export const FORGE_TOOLS = [
                   force: P('array', '[fx,fy,fz] total force on loadFace (N) when loads empty', { default: [0, 0, -100] }),
                   tEnd: P('number', 'simulation duration in seconds', { required: true }),
                   dt: P('number', 'time step in seconds', { required: true }),
-                  rayleighAlpha: P('number', 'mass-proportional damping', { default: 0 }),
-                  rayleighBeta: P('number', 'stiffness-proportional damping', { default: 0 }),
+                  rayleighAlpha: P('number', 'mass-proportional Rayleigh damping α (C=αM+βK)', { default: 0 }),
+                  rayleighBeta: P('number', 'stiffness-proportional Rayleigh damping β (C=αM+βK)', { default: 0 }),
+                  consistentMass: P('bool', 'use the consistent ρ∫NᵀN mass (period matches modal) instead of lumped', { default: false }),
                   meshSize: P('number', 'target element size in mm', { default: 5 }) },
     run: (a, forge) => {
       if (!forge.fea || typeof forge.fea.solveDynamic !== 'function') {
@@ -1699,26 +1700,47 @@ export const FORGE_TOOLS = [
       }
       const r = forge.fea.solveDynamic(
         mesh, a.material, loads, bcs, tEnd, dt,
-        Number(a.rayleighAlpha) || 0, Number(a.rayleighBeta) || 0);
+        Number(a.rayleighAlpha) || 0, Number(a.rayleighBeta) || 0,
+        { useConsistentMass: !!a.consistentMass });
       const envelope = Array.from(r.maxStressEnvelope || []);
       const peakVonMises = envelope.length ? Math.max(...envelope) : 0;
-      // Peak nodal displacement magnitude across every captured step.
-      let maxDisp = 0;
-      for (const step of (r.displacements || [])) {
-        for (let i = 0; i < mesh.nodeCount; i++) {
-          const dx = step[3 * i] || 0, dy = step[3 * i + 1] || 0, dz = step[3 * i + 2] || 0;
-          const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
-          if (d > maxDisp) maxDisp = d;
+      // Per-step max nodal displacement magnitude (the kernel already tracks
+      // this in r.maxDisp; fall back to scanning the series if absent).
+      const maxDispSeries = Array.from(r.maxDisp || []);
+      let maxDisp = maxDispSeries.length ? Math.max(...maxDispSeries) : 0;
+      if (!maxDispSeries.length) {
+        for (const step of (r.displacements || [])) {
+          for (let i = 0; i < mesh.nodeCount; i++) {
+            const dx = step[3 * i] || 0, dy = step[3 * i + 1] || 0, dz = step[3 * i + 2] || 0;
+            const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            if (d > maxDisp) maxDisp = d;
+          }
         }
       }
+      // Energy time-series (KE+PE) — proof the integration is physical, not
+      // a canned trajectory. Undamped: total energy is conserved.
+      const totalEnergy = Array.from(r.totalEnergy || []);
+      // Normalise drift by the peak energy in the run (robust when the body
+      // starts from rest, E0=0, under a forced load — Max/peak, never ÷0).
+      const Emax = totalEnergy.length ? Math.max(...totalEnergy) : 0;
+      const Emin = totalEnergy.length ? Math.min(...totalEnergy) : 0;
+      const energyDrift = Emax > 0 ? (Emax - Emin) / Emax : 0;
       return {
         op: 'fea-dynamic',
         nodes: mesh.nodeCount, elements: mesh.elemCount,
         steps: r.stepCount,
         tEnd_s: tEnd, dt_s: dt,
+        consistentMass: !!a.consistentMass,
         peakVonMises_Pa: peakVonMises,
         peakVonMises_MPa: peakVonMises / 1e6,
         maxDisplacement_m: maxDisp,
+        // motion time-series (per captured step): time, max-displacement, energy
+        times_s: Array.from(r.times || []),
+        maxDisplacementSeries_m: maxDispSeries,
+        kineticEnergy_J: Array.from(r.kineticEnergy || []),
+        potentialEnergy_J: Array.from(r.potentialEnergy || []),
+        totalEnergy_J: totalEnergy,
+        energyDriftFraction: energyDrift,
         cpuMs: r.cpuMs,
       };
     } },

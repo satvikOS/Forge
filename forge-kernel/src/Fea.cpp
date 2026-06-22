@@ -992,6 +992,19 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
                            double tEnd, double dt,
                            double alpha, double betaR)
 {
+    // Forward to the options overload with historical defaults: zero initial
+    // conditions, lumped mass. (Keeps the existing 8-arg ABI intact.)
+    return solveDynamic(mesh, mat, loads, bcs, tEnd, dt, alpha, betaR,
+                        DynamicOptions{});
+}
+
+DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
+                           const std::vector<LoadNodal>& loads,
+                           const std::vector<BCPinned>&  bcs,
+                           double tEnd, double dt,
+                           double alpha, double betaR,
+                           const DynamicOptions& opts)
+{
     if (!(dt > 0)) {
         throw std::invalid_argument("forge.fea.solveDynamic: dt must be > 0");
     }
@@ -1000,9 +1013,17 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
     }
     auto startWall = std::chrono::steady_clock::now();
 
-    auto sys = assemble(mesh, mat, /*withConsistentMass=*/false,
+    // Assemble K (+ optionally the consistent mass M = ρ∫NᵀN dV used by the
+    // modal solver, so a transient period matches the modal frequency).
+    auto sys = assemble(mesh, mat, /*withConsistentMass=*/opts.useConsistentMass,
                         /*withIncompatOps=*/true);
     const int nDof = static_cast<int>(sys.nDof);
+
+    if ((!opts.u0.empty() && static_cast<int>(opts.u0.size()) != nDof) ||
+        (!opts.v0.empty() && static_cast<int>(opts.v0.size()) != nDof)) {
+        throw std::invalid_argument(
+            "forge.fea.solveDynamic: u0/v0 length must equal 3*nodeCount");
+    }
 
     // External force vector (constant step load throughout the simulation).
     Eigen::VectorXd fStep = Eigen::VectorXd::Zero(nDof);
@@ -1013,22 +1034,30 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
         fStep(base + 2) += L.fz;
     }
 
-    // Apply BCs: zero rows/cols on K and replace Mdiag with 1 on pinned DOFs.
+    // Apply BCs: zero rows/cols on K and replace the mass with 1 on pinned DOFs.
+    // When the consistent mass is in play, eliminate it the same way modal does
+    // so the pinned DOFs decouple identically.
     Eigen::VectorXd dummyF = Eigen::VectorXd::Zero(nDof);
-    auto pinned = applyPinnedBCs(sys.K, dummyF, &sys.Mdiag, mesh, bcs);
+    auto pinned = applyPinnedBCs(
+        sys.K, dummyF, &sys.Mdiag, mesh, bcs,
+        opts.useConsistentMass ? &sys.Mconsistent : nullptr);
     std::vector<bool> isPinned(nDof, false);
     for (int i : pinned) isPinned[i] = true;
     // Zero pinned DOFs in fStep.
     for (int i : pinned) fStep(i) = 0;
 
-    // Build M as sparse diagonal (so the algebra below is uniform).
+    // Build the mass matrix the integrator sees: the eliminated consistent mass
+    // (sparse, off-diagonal coupling) or the lumped diagonal.
     Eigen::SparseMatrix<double> M(nDof, nDof);
-    {
+    if (opts.useConsistentMass) {
+        M = sys.Mconsistent;
+    } else {
         std::vector<Eigen::Triplet<double>> trips;
         trips.reserve(nDof);
         for (int i = 0; i < nDof; ++i) trips.emplace_back(i, i, sys.Mdiag(i));
         M.setFromTriplets(trips.begin(), trips.end());
     }
+    M.makeCompressed();
 
     // C = α M + βR K  (Rayleigh).
     Eigen::SparseMatrix<double> C = alpha * M + betaR * sys.K;
@@ -1046,26 +1075,60 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
             "forge.fea.solveDynamic: Newmark factorisation failed");
     }
 
-    // Initial conditions: u=0, v=0. a₀ from M a₀ = f₀ − C v − K u = f₀.
+    // Initial conditions. Default u0=v0=0; otherwise honour the supplied state
+    // (pinned DOFs always forced to zero). a₀ from M a₀ = f₀ − C v₀ − K u₀.
     Eigen::VectorXd u = Eigen::VectorXd::Zero(nDof);
     Eigen::VectorXd v = Eigen::VectorXd::Zero(nDof);
+    if (!opts.u0.empty())
+        for (int i = 0; i < nDof; ++i) u(i) = opts.u0[i];
+    if (!opts.v0.empty())
+        for (int i = 0; i < nDof; ++i) v(i) = opts.v0[i];
+    for (int i : pinned) { u(i) = 0; v(i) = 0; }
+
+    // a₀ solves M a₀ = f₀ − C v₀ − K u₀ exactly (factorise M once for this).
     Eigen::VectorXd a = Eigen::VectorXd::Zero(nDof);
-    for (int i = 0; i < nDof; ++i) {
-        if (!isPinned[i] && sys.Mdiag(i) > 0) {
-            a(i) = fStep(i) / sys.Mdiag(i);
+    {
+        Eigen::VectorXd rhs0 = fStep - C * v - sys.K * u;
+        for (int i : pinned) rhs0(i) = 0;
+        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldltM(M);
+        if (ldltM.info() == Eigen::Success) {
+            a = ldltM.solve(rhs0);
+            if (ldltM.info() != Eigen::Success) a.setZero();
         }
+        for (int i : pinned) a(i) = 0;
     }
 
     const int steps = static_cast<int>(std::ceil(tEnd / dt));
     DynamicResult result;
     result.displacements.reserve(steps + 1);
+    result.velocities.reserve(steps + 1);
     result.times.reserve(steps + 1);
+    result.maxDisp.reserve(steps + 1);
+    result.kineticEnergy.reserve(steps + 1);
+    result.potentialEnergy.reserve(steps + 1);
+    result.totalEnergy.reserve(steps + 1);
+    const std::size_t nNodes = mesh.nodes.size() / 3;
 
     auto pushSnapshot = [&](double t) {
-        std::vector<double> snap(nDof);
-        for (int i = 0; i < nDof; ++i) snap[i] = u(i);
-        result.displacements.push_back(std::move(snap));
+        std::vector<double> snapU(nDof), snapV(nDof);
+        double mx = 0.0;
+        for (int i = 0; i < nDof; ++i) { snapU[i] = u(i); snapV[i] = v(i); }
+        for (std::size_t n = 0; n < nNodes; ++n) {
+            const double ux = u(3*n+0), uy = u(3*n+1), uz = u(3*n+2);
+            mx = std::max(mx, std::sqrt(ux*ux + uy*uy + uz*uz));
+        }
+        // Energy: KE = ½ vᵀ M v, PE = ½ uᵀ K u. Pinned DOFs carry a unit mass
+        // and a unit stiffness from the BC elimination but their u,v are held
+        // at zero, so they contribute nothing to either form.
+        const double ke = 0.5 * v.dot(M * v);
+        const double pe = 0.5 * u.dot(sys.K * u);
+        result.displacements.push_back(std::move(snapU));
+        result.velocities.push_back(std::move(snapV));
         result.times.push_back(t);
+        result.maxDisp.push_back(mx);
+        result.kineticEnergy.push_back(ke);
+        result.potentialEnergy.push_back(pe);
+        result.totalEnergy.push_back(ke + pe);
     };
     pushSnapshot(0.0);
 

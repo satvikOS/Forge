@@ -1686,9 +1686,18 @@ Napi::Value SketcherLiveCount(const Napi::CallbackInfo& info) {
 //   solveModal(meshObj, materialObj, bcsArr, nModes)
 //     → { eigenvalues: Float64Array, eigenvectors: [Float64Array...], nModes }
 //   solveDynamic(meshObj, materialObj, loadsArr, bcsArr,
-//                tEnd, dt, rayleighAlpha, rayleighBeta)
-//     → { displacements: [Float64Array...], times: Float64Array,
-//         maxStressEnvelope: Float64Array, cpuMs, stepCount }
+//                tEnd, dt, rayleighAlpha, rayleighBeta,
+//                opts?={ u0?:Float64Array, v0?:Float64Array,
+//                        useConsistentMass?:bool })
+//     → { displacements: [Float64Array...], velocities: [Float64Array...],
+//         times: Float64Array, maxStressEnvelope: Float64Array,
+//         maxDisp: Float64Array, kineticEnergy: Float64Array,
+//         potentialEnergy: Float64Array, totalEnergy: Float64Array,
+//         cpuMs, stepCount }
+//     Newmark-β (β=¼, γ=½) average-acceleration, unconditionally stable
+//     (Newmark 1959; Hughes, *The Finite Element Method* §9; Chopra,
+//     *Dynamics of Structures* §5). opts.u0/v0 set the initial state;
+//     opts.useConsistentMass uses the modal M (period matches modal f1).
 //
 // The mesh object can be the literal output of meshFromBrep — we read its
 // `nodes`/`tets`/`nodeToFace`/`elemNodeCount` fields back into the C++
@@ -1912,8 +1921,32 @@ Napi::Value FeaSolveDynamic(const Napi::CallbackInfo& info) {
         const double betaR = info.Length() > 7 && info[7].IsNumber()
             ? info[7].As<Napi::Number>().DoubleValue() : 0.0;
 
+        // Optional 9th argument: { u0?, v0?, useConsistentMass? } for initial
+        // conditions and the consistent-mass integration path. Omitting it
+        // reproduces the historical zero-IC / lumped-mass behaviour exactly.
+        forge::fea::DynamicOptions opts;
+        if (info.Length() > 8 && info[8].IsObject()) {
+            auto o = info[8].As<Napi::Object>();
+            auto readVec = [&](const char* key, std::vector<double>& dst) {
+                if (o.Has(key) && o.Get(key).IsTypedArray()) {
+                    auto ta = o.Get(key).As<Napi::Float64Array>();
+                    dst.assign(ta.Data(), ta.Data() + ta.ElementLength());
+                } else if (o.Has(key) && o.Get(key).IsArray()) {
+                    auto arr = o.Get(key).As<Napi::Array>();
+                    dst.resize(arr.Length());
+                    for (uint32_t i = 0; i < arr.Length(); ++i)
+                        dst[i] = arr.Get(i).As<Napi::Number>().DoubleValue();
+                }
+            };
+            readVec("u0", opts.u0);
+            readVec("v0", opts.v0);
+            if (o.Has("useConsistentMass"))
+                opts.useConsistentMass =
+                    o.Get("useConsistentMass").ToBoolean().Value();
+        }
+
         auto r = forge::fea::solveDynamic(mesh, material, loads, bcs,
-                                          tEnd, dt, alpha, betaR);
+                                          tEnd, dt, alpha, betaR, opts);
         auto out = Napi::Object::New(env);
         auto times = Napi::Float64Array::New(env, r.times.size());
         std::copy(r.times.begin(), r.times.end(), times.Data());
@@ -1928,9 +1961,29 @@ Napi::Value FeaSolveDynamic(const Napi::CallbackInfo& info) {
         }
         out.Set("displacements", disps);
 
+        auto vels = Napi::Array::New(env, r.velocities.size());
+        for (std::size_t i = 0; i < r.velocities.size(); ++i) {
+            auto& vv = r.velocities[i];
+            auto ta = Napi::Float64Array::New(env, vv.size());
+            std::copy(vv.begin(), vv.end(), ta.Data());
+            vels.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("velocities", vels);
+
         auto env_ = Napi::Float64Array::New(env, r.maxStressEnvelope.size());
         std::copy(r.maxStressEnvelope.begin(), r.maxStressEnvelope.end(), env_.Data());
         out.Set("maxStressEnvelope", env_);
+
+        auto copyArr = [&](const char* key, const std::vector<double>& src) {
+            auto ta = Napi::Float64Array::New(env, src.size());
+            std::copy(src.begin(), src.end(), ta.Data());
+            out.Set(key, ta);
+        };
+        copyArr("maxDisp", r.maxDisp);
+        copyArr("kineticEnergy", r.kineticEnergy);
+        copyArr("potentialEnergy", r.potentialEnergy);
+        copyArr("totalEnergy", r.totalEnergy);
+
         out.Set("cpuMs", Napi::Number::New(env, r.cpuMs));
         out.Set("stepCount", Napi::Number::New(env,
             static_cast<double>(r.displacements.size())));
