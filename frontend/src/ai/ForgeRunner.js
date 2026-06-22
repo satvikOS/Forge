@@ -32,7 +32,14 @@ const ARCHIE_BASE_URL = 'http://localhost:8080';
 // archdisc-Models scripts/synth_format_anchor_forge.py SYSTEM). Routing
 // every discipline through one adapter keeps the bridge surface stable
 // until per-discipline Hermes LoRAs are trained.
-const HERMES_FORGE_ADAPTER = 'adapters/archie/hermes_forge-capstack-20260617';
+// 2026-06-21: DEFAULT driver flipped to the 14B v2 reasoning-merged fold
+// (Qwen2.5-14B-Instruct ⊕ DeepSeek-R1-Distill, engineering-LoRA on math/logic +
+// all ~60 fields + Forge CUA). Verified driving the new UI headed (Archie-CUA
+// e2e: 100×70×12 motor-mount plate, exact dims, multi-cam render). REQUIRES the
+// matching serve: archdisc-Models/serve_forge_cua.sh (now defaults to the 14B
+// base+adapter). The prior 8B Forge driver (hermes_forge-capstack-20260617) is
+// still selectable via window.__FORGE_ADAPTER_OVERRIDE + the 8B serve env.
+const HERMES_FORGE_ADAPTER = 'adapters/archie/archie-14b-v2';
 
 // Verbatim copy of `SYSTEM` in scripts/synth_format_anchor_forge.py.
 // Any drift between this string and the training corpus reintroduces
