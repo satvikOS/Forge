@@ -182,11 +182,15 @@ function mat4ToRPY(m) {
     pitch = Math.atan2(-r20, sy);
     yaw = Math.atan2(r10, r00);
   } else {
-    // Gimbal lock (pitch ≈ ±90°).
-    const r01 = m[4], r02 = m[8];
-    roll = Math.atan2(-r01, r02 !== 0 ? r02 : r00);
+    // Gimbal lock (pitch ≈ ±90°): yaw and roll act about the same world axis, so
+    // fix yaw = 0 and recover the combined roll from the (0,1)/(1,1) elements
+    // with the sign demanded by R = Rz(yaw)·Ry(pitch)·Rx(roll). At pitch = +π/2
+    // (r20 < 0): r01 = sin(roll), r11 = cos(roll) → roll = atan2(r01, r11). At
+    // pitch = −π/2 (r20 > 0): r01 = −sin(roll) → roll = atan2(−r01, r11).
+    const r01 = m[4], r11 = m[5];
     pitch = Math.atan2(-r20, sy);
     yaw = 0;
+    roll = (r20 < 0) ? Math.atan2(r01, r11) : Math.atan2(-r01, r11);
   }
   return [roll, pitch, yaw];
 }
@@ -396,7 +400,16 @@ function buildCollisionHull(positions, forge) {
   const flat = Array.from(positions);
   const hull = forge.native.convexHull3D(flat);
   if (!hull.ok) {
-    throw new Error(`robotExport: convexHull3D failed: ${hull.reason || 'degenerate'}`);
+    // Degenerate point set — coplanar (a flat plate / sheet body) or collinear —
+    // has no well-defined 3D hull, but the link MUST still export rather than
+    // crash the whole assembly. Fall back to the JS hull (which tolerates
+    // degeneracy and yields a thin collision proxy); if even that fails (all
+    // points collinear/coincident), use the input point soup directly.
+    try {
+      return jsConvexHull(positions);
+    } catch (_) {
+      return { positions: Array.from(positions), indices: implicitIndices(positions.length / 3) };
+    }
   }
   // hull.faces index into the ORIGINAL point array. Re-index to a compact set
   // of hull-only vertices so the collision geometry is provably distinct data.
@@ -529,16 +542,21 @@ function resolveJointKind(j) {
   return { type: 'fixed', coupler: false };
 }
 
-const DEFAULT_LIMIT = { lower: -Math.PI, upper: Math.PI, effort: 100, velocity: 10 };
+// Defaults are UNIT-AWARE: revolute lower/upper are radians (±180°), prismatic
+// lower/upper are metres of linear travel. Emitting the ±π revolute default on a
+// prismatic joint would mean a 6.28 m rail — wrong by units, not just magnitude.
+const DEFAULT_LIMIT_REVOLUTE = { lower: -Math.PI, upper: Math.PI, effort: 100, velocity: 10 };
+const DEFAULT_LIMIT_PRISMATIC = { lower: -0.1, upper: 0.1, effort: 100, velocity: 1 }; // ±100 mm, 1 m/s
 
 function resolveLimit(j, type) {
   if (type === 'continuous' || type === 'fixed') return null;
+  const D = (type === 'prismatic') ? DEFAULT_LIMIT_PRISMATIC : DEFAULT_LIMIT_REVOLUTE;
   const l = j.limit || {};
   return {
-    lower: l.lower != null ? l.lower : DEFAULT_LIMIT.lower,
-    upper: l.upper != null ? l.upper : DEFAULT_LIMIT.upper,
-    effort: l.effort != null ? l.effort : DEFAULT_LIMIT.effort,
-    velocity: l.velocity != null ? l.velocity : DEFAULT_LIMIT.velocity,
+    lower: l.lower != null ? l.lower : D.lower,
+    upper: l.upper != null ? l.upper : D.upper,
+    effort: l.effort != null ? l.effort : D.effort,
+    velocity: l.velocity != null ? l.velocity : D.velocity,
   };
 }
 
@@ -558,6 +576,9 @@ function normalize(assembly, forge, opts) {
   }
   if (!spec || !Array.isArray(spec.links)) {
     throw new Error('robotExport: assembly must have links[] (or be a JS Assembly with parts[])');
+  }
+  if (spec.links.length === 0) {
+    throw new Error('robotExport: assembly has no links (cannot export an empty robot)');
   }
 
   const nameOf = makeUniqueNamer();
@@ -616,6 +637,29 @@ function normalize(assembly, forge, opts) {
   return { name: spec.name || (assembly && assembly.name) || 'robot', density, links, treeJoints, loopJoints, rootLink };
 }
 
+// Positive-definite solid-box inertia from a link's AABB, used when the convex
+// hull is degenerate (planar / collinear / coincident → ~zero volume). Each
+// extent is floored so no principal axis collapses to a singular moment.
+function degenerateFallbackInertia(positions, massKg) {
+  let mnx = Infinity, mny = Infinity, mnz = Infinity, mxx = -Infinity, mxy = -Infinity, mxz = -Infinity;
+  for (let i = 0; i + 2 < positions.length; i += 3) {
+    const x = positions[i], y = positions[i + 1], z = positions[i + 2];
+    if (x < mnx) mnx = x; if (y < mny) mny = y; if (z < mnz) mnz = z;
+    if (x > mxx) mxx = x; if (y > mxy) mxy = y; if (z > mxz) mxz = z;
+  }
+  let ex = (mxx - mnx) * MM_TO_M, ey = (mxy - mny) * MM_TO_M, ez = (mxz - mnz) * MM_TO_M; // metres
+  if (!Number.isFinite(ex)) ex = 0; if (!Number.isFinite(ey)) ey = 0; if (!Number.isFinite(ez)) ez = 0;
+  const big = Math.max(ex, ey, ez, 0);
+  const eps = Math.max(big * 1e-3, 1e-4); // floor: ≥0.1% of size, ≥0.1 mm — guarantees a non-singular tensor
+  ex = Math.max(ex, eps); ey = Math.max(ey, eps); ez = Math.max(ez, eps);
+  const m = Math.max(massKg, 0);
+  return {
+    ixx: m / 12 * (ey * ey + ez * ez), ixy: 0, ixz: 0,
+    iyy: m / 12 * (ex * ex + ez * ez), iyz: 0,
+    izz: m / 12 * (ex * ex + ey * ey),
+  };
+}
+
 function resolveInertia(L, ctx) {
   const { massKg, com, density, collision } = ctx;
   void density;
@@ -641,6 +685,17 @@ function resolveInertia(L, ctx) {
   // Path 3 — KERNEL GAP: no tensor surfaced. Compute the uniform-density
   // polyhedron inertia of the convex hull (exact for convex links). Labeled.
   const hp = polyhedronInertia(collision.positions, collision.indices);
+  // Degeneracy guard: a planar/collinear/coincident hull has ~zero volume, so
+  // massKg/hp.volume blows up or the unit-density tensor is singular — the old
+  // code silently emitted an all-zero (non-physical) inertia for a MOVABLE link,
+  // which makes any dynamics consumer (PyBullet/MuJoCo/Gazebo) NaN or unstable.
+  // Fall back to a positive-definite solid-box inertia from the link's AABB with
+  // each extent floored so no principal axis is singular. Honestly labeled.
+  if (!Number.isFinite(hp.volume) || hp.volume <= 1e-9 ||
+      !Number.isFinite(hp.I[0]) || !Number.isFinite(hp.I[4]) || !Number.isFinite(hp.I[8])) {
+    const fb = degenerateFallbackInertia(collision.positions, massKg);
+    return { method: 'approx:degenerate-fallback-box', ...fb };
+  }
   // hp.I is at unit density, about the hull centroid, in mm-mass·mm² ≡ mm⁵.
   // Effective density so the polyhedron's mass matches the kernel mass:
   //   ρ_eff = massKg / (hp.volume·MM3_TO_M3)  [kg/m³]; then I_SI = ρ_eff · hp.I · mm⁵→...
@@ -752,21 +807,65 @@ function buildSpanningTree(links, idToLink, rawJoints, baseLinkId, nameOf) {
       }
     }
   }
-  // Any remaining (unused) joints are loop closures (cycle edges or couplers).
+  // Absorb every remaining joint into a SINGLE tree, looping to a fixed point so
+  // a whole disconnected chain is pulled in once any one of its links is reached.
+  // A joint with one endpoint already in the tree becomes a tree edge (oriented
+  // in→out); both-in becomes a loop closure; couplers are always loop closures.
+  // If a fully-disconnected component remains (neither endpoint in the tree),
+  // seed it by anchoring one of its links to the root with a synthetic `fixed`
+  // joint, then keep absorbing. This guarantees EXACTLY ONE root link — a
+  // multi-root URDF is hard-rejected by urdfdom/RViz/MoveIt/PyBullet.
+  const synthFixed = (parentId, childId) =>
+    buildJointRecord({ parent: parentId, child: childId, type: 'fixed' },
+      parentId, childId, idToLink, namer, nameOf, false);
+  let progressed = true;
+  while (progressed) {
+    progressed = false;
+    for (const j of rawJoints) {
+      if (usedJoint.has(j._idx)) continue;
+      const kind = resolveJointKind(j);
+      const pIn = visited.has(j.parent), cIn = visited.has(j.child);
+      if (pIn && cIn) {
+        usedJoint.add(j._idx);
+        loopJoints.push(buildJointRecord(j, j.parent, j.child, idToLink, namer, nameOf, true));
+        progressed = true;
+      } else if ((pIn || cIn) && !kind.coupler) {
+        const parent = pIn ? j.parent : j.child;
+        const child = pIn ? j.child : j.parent;
+        usedJoint.add(j._idx);
+        visited.add(child);
+        parentOf.set(child, parent);
+        treeJoints.push(buildJointRecord(j, parent, child, idToLink, namer, nameOf, false));
+        progressed = true;
+      }
+      // else: a coupler with one endpoint in, or neither endpoint in — defer.
+    }
+    if (!progressed) {
+      // Nothing attachable → seed one fully-stranded component against the root.
+      const stranded = rawJoints.find(j => !usedJoint.has(j._idx) &&
+        !visited.has(j.parent) && !visited.has(j.child));
+      if (stranded) {
+        visited.add(stranded.parent);
+        parentOf.set(stranded.parent, root.id);
+        treeJoints.push(synthFixed(root.id, stranded.parent));
+        progressed = true;
+      }
+    }
+  }
+  // True orphans — links with no joints at all — anchor to the root as fixed so
+  // the model is a single tree rather than N silently-floating root links.
+  for (const L of links) {
+    if (visited.has(L.id)) continue;
+    visited.add(L.id);
+    parentOf.set(L.id, root.id);
+    treeJoints.push(synthFixed(root.id, L.id));
+  }
+  // Everything is now in the tree; any still-unused joint (e.g. a coupler in a
+  // formerly-disconnected component) is emitted as a loop closure, never dropped.
   for (const j of rawJoints) {
     if (usedJoint.has(j._idx)) continue;
-    // Make sure both endpoints are in the tree (connected); if not, attach the
-    // unvisited endpoint as a tree edge first so the URDF stays a single tree.
-    const pIn = visited.has(j.parent), cIn = visited.has(j.child);
-    if (pIn && cIn) {
-      loopJoints.push(buildJointRecord(j, j.parent, j.child, idToLink, namer, nameOf, true));
-    } else {
-      // Dangling component — add as tree edge from whichever endpoint is in.
-      const parent = pIn ? j.parent : j.child;
-      const child = pIn ? j.child : j.parent;
-      visited.add(child);
-      treeJoints.push(buildJointRecord(j, parent, child, idToLink, namer, nameOf, false));
-    }
+    usedJoint.add(j._idx);
+    loopJoints.push(buildJointRecord(j, j.parent, j.child, idToLink, namer, nameOf, true));
   }
 
   return { treeJoints, loopJoints, rootLink: root };
@@ -942,7 +1041,6 @@ function writeSDF(model) {
     const wt = mat4GetTranslation(L.worldTransform).map(v => v * MM_TO_M);
     const wr = mat4ToRPY(L.worldTransform);
     lines.push(`    <link name="${L.name}">`);
-    if (L.fixed) lines.push('      <kinematic>false</kinematic>');
     lines.push(`      <pose>${vec3str(wt)} ${vec3str(wr)}</pose>`);
     lines.push('      <inertial>');
     lines.push(`        <pose>${vec3str(L.comM)} 0 0 0</pose>`);
@@ -959,6 +1057,18 @@ function writeSDF(model) {
     lines.push(`        <geometry><mesh><uri>${cfile}</uri></mesh></geometry>`);
     lines.push('      </collision>');
     lines.push('    </link>');
+  }
+
+  // Anchor each fixed base link to the world with a fixed joint so the model is
+  // genuinely grounded. An SDF <link> alone floats under gravity, and
+  // <kinematic>false</kinematic> is a no-op (false is already the default); the
+  // canonical SDF anchor is a fixed joint whose parent is the reserved 'world'.
+  for (const L of model.links) {
+    if (!L.fixed) continue;
+    lines.push(`    <joint name="${L.name}_world_fixed" type="fixed">`);
+    lines.push('      <parent>world</parent>');
+    lines.push(`      <child>${L.name}</child>`);
+    lines.push('    </joint>');
   }
 
   for (const j of model.treeJoints) {
