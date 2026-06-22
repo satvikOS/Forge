@@ -68,7 +68,7 @@ run_test() {
 }
 
 run_test predicates forge-kernel/test/native/predicates_test.cpp
-for d in brep mesh geom implicit voxel gdt csg tolstack vvuq materials am composites; do
+for d in brep mesh geom implicit voxel gdt csg tolstack vvuq materials am composites surfit; do
   for test in forge-kernel/test/native/$d/*.cpp; do
     [ -e "$test" ] || continue
     run_test "$d/$(basename "$test" .cpp)" "$test"
