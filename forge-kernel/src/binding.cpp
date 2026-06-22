@@ -431,6 +431,44 @@ Napi::Value MakeTorus(const Napi::CallbackInfo& info) {
     });
 }
 
+// Task #16 — canonical solid primitives.
+Napi::Value MakePrism(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makePrism(static_cast<int>(requireNumber(info,0,"nSides")),
+                      requireNumber(info,1,"circumRadius"),
+                      requireNumber(info,2,"height")));
+    });
+}
+Napi::Value MakeWedge(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makeWedge(requireNumber(info,0,"dx"), requireNumber(info,1,"dy"),
+                      requireNumber(info,2,"dz"), requireNumber(info,3,"ltx")));
+    });
+}
+Napi::Value MakePyramid(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makePyramid(requireNumber(info,0,"dx"), requireNumber(info,1,"dy"),
+                        requireNumber(info,2,"height")));
+    });
+}
+Napi::Value MakeEllipsoid(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makeEllipsoid(requireNumber(info,0,"rx"), requireNumber(info,1,"ry"),
+                          requireNumber(info,2,"rz")));
+    });
+}
+Napi::Value MakeTube(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() {
+        return Napi::Number::New(info.Env(),
+            makeTube(requireNumber(info,0,"rOuter"), requireNumber(info,1,"rInner"),
+                     requireNumber(info,2,"height")));
+    });
+}
+
 // ----------------------------------------------------------- booleans
 Napi::Value Fuse(const Napi::CallbackInfo& info) {
     return safe(info, [&]() {
@@ -4897,6 +4935,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("makeSphere",   Napi::Function::New(env, MakeSphere));
     exports.Set("makeCone",     Napi::Function::New(env, MakeCone));
     exports.Set("makeTorus",    Napi::Function::New(env, MakeTorus));
+    exports.Set("makePrism",     Napi::Function::New(env, MakePrism));
+    exports.Set("makeWedge",     Napi::Function::New(env, MakeWedge));
+    exports.Set("makePyramid",   Napi::Function::New(env, MakePyramid));
+    exports.Set("makeEllipsoid", Napi::Function::New(env, MakeEllipsoid));
+    exports.Set("makeTube",      Napi::Function::New(env, MakeTube));
 
     exports.Set("fuse",   Napi::Function::New(env, Fuse));
     exports.Set("cut",    Napi::Function::New(env, Cut));

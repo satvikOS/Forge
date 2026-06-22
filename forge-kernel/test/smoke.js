@@ -44,6 +44,43 @@ assert.ok(holeMp.volume < 1 && holeMp.volume > 0.7,
           `cut volume ${holeMp.volume} out of expected range`);
 console.log('[smoke] cut ok — residual volume', holeMp.volume);
 
+// ----- Task #16 canonical primitives: analytic-volume + validity --------
+function checkSolid(label, h, expectedVol, relTol, expectFaces) {
+  assert.ok(typeof h === 'number' && h > 0, `${label}: bad handle ${h}`);
+  const v = forge.massProps(h).volume;
+  assert.ok(Math.abs(v - expectedVol) / expectedVol < relTol,
+            `${label} volume ${v} != ${expectedVol} (relTol ${relTol})`);
+  const val = forge.heal.checkValidity(h);
+  assert.ok(val.isClosed,   `${label} not closed`);
+  assert.ok(val.isManifold, `${label} not manifold`);
+  assert.ok(!val.hasSelfIntersect, `${label} self-intersects`);
+  const faces = forge.direct.faceCount(h);
+  if (expectFaces !== undefined) {
+    assert.strictEqual(faces, expectFaces, `${label} faceCount ${faces} != ${expectFaces}`);
+  }
+  console.log(`[smoke] ${label} ok — volume ${v.toFixed(6)} faces ${faces} closed=${val.isClosed} manifold=${val.isManifold}`);
+}
+
+// hex prism: n=6, R=10, h=20 → V = 0.5·6·100·sin(60°)·20 = 6000·sin(π/3)
+//            = 6000·0.8660254 = 5196.152; topology = 6 sides + 2 caps = 8 faces.
+checkSolid('prism(hex)', forge.makePrism(6, 10, 20),
+           0.5 * 6 * 100 * Math.sin(Math.PI / 3) * 20, 1e-6, 8);
+// pentagonal prism (n=5) just to exercise the general n-gon path.
+checkSolid('prism(pent)', forge.makePrism(5, 8, 12),
+           0.5 * 5 * 64 * Math.sin(2 * Math.PI / 5) * 12, 1e-6, 7);
+// wedge: dx=10 dy=6 dz=4 ltx=4 → V = 0.5·(10+4)·4·6 = 168.
+checkSolid('wedge', forge.makeWedge(10, 6, 4, 4),
+           0.5 * (10 + 4) * 4 * 6, 1e-6);
+// pyramid: dx=10 dy=8 h=12 → V = (1/3)·10·8·12 = 320; 4 tri sides + 1 base = 5 faces.
+checkSolid('pyramid', forge.makePyramid(10, 8, 12),
+           (1 / 3) * 10 * 8 * 12, 1e-6, 5);
+// ellipsoid: rx=4 ry=3 rz=2 → V = (4/3)·π·24 = 100.5310.
+checkSolid('ellipsoid', forge.makeEllipsoid(4, 3, 2),
+           (4 / 3) * Math.PI * 4 * 3 * 2, 1e-3);
+// tube: rO=5 rI=3 h=10 → V = π·(25-9)·10 = 160π = 502.6548.
+checkSolid('tube', forge.makeTube(5, 3, 10),
+           Math.PI * (25 - 9) * 10, 1e-6);
+
 // ----- tessellate -----------------------------------------------------
 const mesh = forge.tessellate(box, 0.05, 0.5);
 assert.ok(mesh.positions.length > 0, 'tessellate returned empty positions');
