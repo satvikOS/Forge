@@ -4,12 +4,24 @@
 // Pure C++20, no external dependencies. See header for honesty / scope.
 
 #include "forge/native/brep/Topology.hpp"
+#include "forge/native/brep/Surface.hpp"  // complete type for the owned unique_ptr<Surface>
 
 #include <cassert>
 
 namespace forge {
 namespace native {
 namespace brep {
+
+// Out-of-line destructor: here Surface is a complete type, so the unique_ptr
+// deleter in surfaces_ is well-formed (the header only forward-declares it).
+TopologyBuilder::~TopologyBuilder() = default;
+
+Surface* TopologyBuilder::makeSurface() {
+    auto s = std::make_unique<Surface>();
+    Surface* raw = s.get();
+    surfaces_.push_back(std::move(s));
+    return raw;
+}
 
 // ---------------------------------------------------------------------------
 // Element factories

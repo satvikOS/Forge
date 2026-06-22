@@ -48,6 +48,15 @@
 #include <memory>
 #include <vector>
 
+// The analytic surface geometry a Face may optionally carry (Surface.hpp). It is
+// included fully (not just forward-declared) because TopologyBuilder owns
+// std::unique_ptr<Surface>, whose vector destructor needs the complete type in
+// every TU that instantiates a builder. Surface.hpp does NOT include Topology.hpp
+// (it only depends on brep/Nurbs.hpp), so there is no include cycle. This is
+// additive: a Face's surface defaults to null, so the bare-topology box gate is
+// unaffected (Bible §0/§9).
+#include "forge/native/brep/Surface.hpp"
+
 namespace forge {
 namespace native {
 namespace brep {
@@ -130,6 +139,17 @@ struct Face {
     std::uint32_t id = 0;
     Shell* shell = nullptr;
     Loop* outerLoop = nullptr;
+
+    // OPTIONAL analytic geometry (Surface.hpp). Null when the face is bare
+    // topology (the original box gate). When present, `surface` is owned by the
+    // builder and (u0,u1)x(v0,v1) is the parameter-rectangle trim window over
+    // which the face's surface is integrated / tessellated. `vertexUV` carries
+    // the (u,v) parameter of each outer-loop vertex in ring order (so a planar
+    // polygon face knows its own corner parameters); empty for non-planar
+    // analytic faces that use the full rectangle.
+    Surface* surface = nullptr;
+    double u0 = 0.0, u1 = 1.0, v0 = 0.0, v1 = 1.0;
+    std::vector<std::array<double, 2>> vertexUV;
 };
 
 // ----------------------------------------------------------------------------
@@ -190,6 +210,10 @@ public:
     Face*   makeFace();
     Shell*  makeShell();
     Solid*  makeSolid();
+
+    // Allocate a Surface owned by this builder (default-constructed; the caller
+    // fills in the kind/frame/radii). Returns a stable raw pointer.
+    Surface* makeSurface();
 
     // --- Basic Euler operators (the documented "basic" set) ----------------
     //
@@ -260,6 +284,17 @@ private:
     std::vector<std::unique_ptr<Face>>   faces_;
     std::vector<std::unique_ptr<Shell>>  shells_;
     std::vector<std::unique_ptr<Solid>>  solids_;
+    // Surface geometry owned by this builder (unique_ptr so a forward-declared
+    // Surface needs the deleter only in the .cpp, where Surface.hpp is included).
+    std::vector<std::unique_ptr<Surface>> surfaces_;
+
+public:
+    // The builder owns Surface unique_ptrs of an incomplete type at the point of
+    // declaration; the destructor must see the full type — defined out-of-line
+    // in Topology.cpp (which includes Surface.hpp).
+    TopologyBuilder(const TopologyBuilder&) = delete;
+    TopologyBuilder& operator=(const TopologyBuilder&) = delete;
+    ~TopologyBuilder();
 };
 
 } // namespace brep

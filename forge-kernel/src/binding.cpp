@@ -326,6 +326,15 @@
 #include <Standard_Failure.hxx>
 #include <cstring>
 
+// IN-HOUSE KERNEL STEP 1 — the OCCT-free native B-rep path. Headers are pure
+// C++20 (no OCCT), but only pulled in when the addon is built with
+// -DFORGE_NATIVE_BREP so the default build is byte-for-byte unchanged.
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/Primitives.hpp"
+#include "forge/native/brep/MassProps.hpp"
+#include "forge/native/brep/SolidTessellate.hpp"
+#endif
+
 using namespace forge;
 
 namespace {
@@ -564,6 +573,105 @@ Napi::Value MassProps(const Napi::CallbackInfo& info) {
         return out;
     });
 }
+
+// ============================================================================
+// IN-HOUSE KERNEL STEP 1 — parallel OCCT-FREE native B-rep surface.
+//   These run forge::native::brep (pure C++20, no OCCT) and are exposed as
+//   nativeMakeBox/.../nativeMassProps ONLY when the addon is compiled with
+//   -DFORGE_NATIVE_BREP. Every existing OCCT binding (makeBox/massProps/...)
+//   is left completely unchanged; this is additive (Bible §0/§9).
+//
+//   The native solid is built fresh per call (the in-house lineage/registry for
+//   native solids is a later increment), and the JS surface returns the exact
+//   mass-properties + a watertight tessellation so the path is verifiable
+//   end-to-end through the addon, mirroring the OCCT massProps/ tessellate shape.
+// ============================================================================
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// Build the native primitive named by info[0] from info[1..] and return its
+// owning factory (which owns the topology/surfaces). The returned Solid* is
+// written through `outSolid` and is valid for the factory's lifetime. Pure
+// in-house forge::native::brep — no OCCT.
+std::unique_ptr<forge::native::brep::SolidFactory>
+buildNativePrimitive(const Napi::CallbackInfo& info,
+                     forge::native::brep::Solid** outSolid) {
+    using namespace forge::native::brep;
+    std::string kind = info[0].As<Napi::String>().Utf8Value();
+    auto fac = std::make_unique<SolidFactory>();
+    auto N = [&](int i, const char* what) { return requireNumber(info, i + 1, what); };
+    Solid* s = nullptr;
+    if (kind == "box")           s = fac->buildBox(N(0,"dx"), N(1,"dy"), N(2,"dz"));
+    else if (kind == "cylinder") s = fac->buildCylinder(N(0,"r"), N(1,"h"));
+    else if (kind == "cone")     s = fac->buildCone(N(0,"r1"), N(1,"r2"), N(2,"h"));
+    else if (kind == "sphere")   s = fac->buildSphere(N(0,"r"));
+    else if (kind == "torus")    s = fac->buildTorus(N(0,"R"), N(1,"r"));
+    else if (kind == "prism")    s = fac->buildPrism((int)N(0,"n"), N(1,"R"), N(2,"h"));
+    else if (kind == "wedge")    s = fac->buildWedge(N(0,"dx"), N(1,"dy"), N(2,"dz"), N(3,"ltx"));
+    else if (kind == "pyramid")  s = fac->buildPyramid(N(0,"dx"), N(1,"dy"), N(2,"h"));
+    else if (kind == "ellipsoid")s = fac->buildEllipsoid(N(0,"rx"), N(1,"ry"), N(2,"rz"));
+    else if (kind == "tube")     s = fac->buildTube(N(0,"rO"), N(1,"rI"), N(2,"h"));
+    else throw std::invalid_argument("forge: unknown native primitive kind '" + kind + "'");
+    *outSolid = s;
+    return fac;
+}
+
+// nativeMassProps(kind, ...args) -> { volume, area, centerOfMass[3], inertiaCom[9] }
+// mirrors the OCCT massProps JS shape, computed entirely in-house.
+Napi::Value NativeMassProps(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        using namespace forge::native::brep;
+        Solid* s = nullptr;
+        auto fac = buildNativePrimitive(info, &s);
+        // Fully qualify the struct: the unqualified name `MassProps` would
+        // resolve to the OCCT N-API function `MassProps` in this scope.
+        forge::native::brep::MassProps mp = massProperties(*s);
+
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        out.Set("volume", mp.volume);
+        out.Set("area", mp.area);
+        auto com = Napi::Array::New(env, 3);
+        com.Set(uint32_t{0}, mp.com[0]);
+        com.Set(uint32_t{1}, mp.com[1]);
+        com.Set(uint32_t{2}, mp.com[2]);
+        out.Set("centerOfMass", com);
+        auto inertiaCom = Napi::Array::New(env, 9);
+        for (uint32_t k = 0; k < 9; ++k) inertiaCom.Set(k, mp.inertiaCom[k]);
+        out.Set("inertiaCom", inertiaCom);
+        return out;
+    });
+}
+
+// nativeTessellate(kind, ...args) -> { positions, indices, watertight, triangleCount }
+Napi::Value NativeTessellate(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        using namespace forge::native::brep;
+        Solid* s = nullptr;
+        auto fac = buildNativePrimitive(info, &s);
+
+        std::vector<double> pos; std::vector<std::uint32_t> idx;
+        tessellateSolid(*s, pos, idx);
+        bool ok = false;
+        auto m = tessellateSolidToMesh(*s, ok);
+        auto rep = m.validate();
+
+        auto env = info.Env();
+        auto out = Napi::Object::New(env);
+        auto jp = Napi::Array::New(env, pos.size());
+        for (uint32_t i = 0; i < pos.size(); ++i) jp.Set(i, pos[i]);
+        auto ji = Napi::Array::New(env, idx.size());
+        for (uint32_t i = 0; i < idx.size(); ++i) ji.Set(i, idx[i]);
+        out.Set("positions", jp);
+        out.Set("indices", ji);
+        out.Set("watertight", rep.isValid());
+        out.Set("triangleCount", (double)(idx.size() / 3));
+        return out;
+    });
+}
+
+} // namespace
+#endif // FORGE_NATIVE_BREP
 
 // ----------------------------------------------------------- shape lifecycle
 Napi::Value Retain(const Napi::CallbackInfo& info) {
@@ -5046,6 +5154,14 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 
     exports.Set("tessellate",   Napi::Function::New(env, Tessellate));
     exports.Set("massProps",    Napi::Function::New(env, MassProps));
+
+    // IN-HOUSE KERNEL STEP 1 — parallel OCCT-free native B-rep surface, exposed
+    // only when the addon is built with -DFORGE_NATIVE_BREP. The OCCT bindings
+    // above stay the default; these are strictly additive.
+#ifdef FORGE_NATIVE_BREP
+    exports.Set("nativeMassProps",  Napi::Function::New(env, NativeMassProps));
+    exports.Set("nativeTessellate", Napi::Function::New(env, NativeTessellate));
+#endif
 
     exports.Set("retain",    Napi::Function::New(env, Retain));
     exports.Set("release",   Napi::Function::New(env, Release));

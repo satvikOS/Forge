@@ -5,6 +5,16 @@ set(CMAKE_CXX_STANDARD 20)  # planegcs uses <std::numbers> + <std::ranges>
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# ---------------------------------------------------------------- in-house B-rep
+# IN-HOUSE KERNEL STEP 1: native forge::native::brep primitive SOLIDS + exact
+# mass-properties + watertight tessellation, OCCT-free. ADDITIVE — OFF by default
+# so the live OCCT-bound ops (makeBox/massProps/... ) are the default path. When
+# ON, binding.cpp exposes PARALLEL nativeMakeBox/.../nativeMassProps behind
+# #ifdef FORGE_NATIVE_BREP that route to the in-house code, leaving every existing
+# OCCT binding untouched. The native gate validates the code independent of this
+# flag via test/native/run_native.sh (pure C++, no addon path).
+option(FORGE_NATIVE_BREP "build/expose the in-house OCCT-free B-rep primitive path" OFF)
+
 # ---------------------------------------------------------------- N-API
 # cmake-js injects CMAKE_JS_INC + CMAKE_JS_SRC + CMAKE_JS_LIB. When
 # building directly with cmake (no cmake-js) we fall back to node_modules
@@ -452,6 +462,14 @@ add_library(forge_kernel SHARED
     src/native/brep/NurbsCalculus.cpp
     src/native/brep/NurbsSurface.cpp   # surfit dep: brep::evaluateWithDerivatives
     src/native/brep/Topology.cpp
+    # IN-HOUSE KERNEL STEP 1 — OCCT-free primitive B-rep solids + exact
+    # mass-properties + watertight tessellation (pure C++20 stdlib, no new link
+    # libs). Always compiled into the addon; the JS surface is gated behind
+    # FORGE_NATIVE_BREP in binding.cpp so the live OCCT path stays the default.
+    src/native/brep/Surface.cpp
+    src/native/brep/Primitives.cpp
+    src/native/brep/MassProps.cpp
+    src/native/brep/SolidTessellate.cpp
     # Task #46 — bind the remaining forge::native engines into the addon so
     # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).
     # geom/AABBTree + voxel/VoxelBoolean are cam's #include dependencies; list
@@ -488,6 +506,12 @@ target_compile_definitions(forge_kernel PRIVATE
     NAPI_VERSION=8
     NAPI_CPP_EXCEPTIONS
 )
+
+# IN-HOUSE KERNEL STEP 1 — expose the parallel native B-rep JS surface only when
+# explicitly enabled (-DFORGE_NATIVE_BREP=ON). The OCCT bindings are unconditional.
+if(FORGE_NATIVE_BREP)
+    target_compile_definitions(forge_kernel PRIVATE FORGE_NATIVE_BREP=1)
+endif()
 
 target_link_directories(forge_kernel PRIVATE "${OCCT_LIB}")
 target_link_libraries(forge_kernel PRIVATE ${OCCT_LIBS} ${CMAKE_JS_LIB})
