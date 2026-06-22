@@ -134,6 +134,55 @@ void integrateParametric(const Face* f, int gaussN, Accum& acc) {
     }
 }
 
+// Integrate one CURVED analytic face over its PARAMETER TRIANGLE (the (u,v)
+// triangle spanned by the first three vertexUV entries) rather than the axis-
+// aligned rectangle. Used by the native boolean when it splits a curved face
+// along an imprinted cut: the sub-face is a true patch of the SAME quadric, so we
+// integrate the analytic |S_u x S_v| Jacobian over the parameter triangle using a
+// degree-exact triangle quadrature mapped onto the (u,v) triangle. The outward
+// normal honours the surface's `reversed` flag (the in/out side is topological).
+void integrateParametricTri(const Face* f, Accum& acc) {
+    const Surface* s = f->surface;
+    if (f->vertexUV.size() < 3) return;
+    const double u0 = f->vertexUV[0][0], v0 = f->vertexUV[0][1];
+    const double u1 = f->vertexUV[1][0], v1 = f->vertexUV[1][1];
+    const double u2 = f->vertexUV[2][0], v2 = f->vertexUV[2][1];
+
+    // A symmetric degree-5 triangle rule (7-point) in barycentric coords keeps the
+    // (here at most cubic-in-position, but curved-Jacobian) integrand accurate.
+    struct TQ { double a, b, c, w; };
+    static const double w1 = 0.225;
+    static const double wA = 0.13239415278850618;
+    static const double wB = 0.12593918054482715;
+    static const double gA = 0.05971587178976982; // (a,a,1-2a) family A
+    static const double gB = 0.79742698535308720;
+    static const double hA = 0.47014206410511505; // family B
+    static const double hB = 0.10128650732345633;
+    const TQ rule[7] = {
+        {1.0/3, 1.0/3, 1.0/3, w1},
+        {gA, gA, gB, wA}, {gA, gB, gA, wA}, {gB, gA, gA, wA},
+        {hA, hA, hB, wB}, {hA, hB, hA, wB}, {hB, hA, hA, wB},
+    };
+    // Parameter-triangle area Jacobian: the map (b0,b1,b2)->(u,v) is affine with
+    // constant Jacobian = 2*area of the (u,v) triangle. The triangle rule weights
+    // sum to 1 and integrate over the unit-area reference, so multiply by the (u,v)
+    // triangle area to get ∫_T g du dv. |S_u x S_v| already carries the surface
+    // metric, so the surface integral is ∫_T (g * |S_u x S_v|) du dv.
+    double uvArea = 0.5 * std::fabs((u1 - u0) * (v2 - v0) - (u2 - u0) * (v1 - v0));
+    if (uvArea <= 0.0) return;
+    for (const auto& q : rule) {
+        double u = q.a * u0 + q.b * u1 + q.c * u2;
+        double v = q.a * v0 + q.b * v1 + q.c * v2;
+        Vec3 p, su, sv;
+        s->evaluateDeriv(u, v, p, su, sv);
+        double jac = vlen(vcross(su, sv));
+        if (jac <= 0.0) continue;
+        Vec3 n = s->normalAt(u, v);
+        double w = q.w * uvArea * jac;   // dA = |Su x Sv| du dv ; ∫ = Σ w_i area g_i
+        addSample(acc, p, n, w);
+    }
+}
+
 // Integrate one PLANAR face exactly by triangulating its polygon (fan from
 // vertex 0) and applying a degree-3-exact triangle quadrature (the integrands
 // are at most cubic monomials, the Jacobian is constant on a flat triangle, so
@@ -214,6 +263,8 @@ MassProps massProperties(const Solid& solid, int gaussN) {
             if (f->surface->kind == SurfaceKind::Plane) {
                 if (f->surface->isDisk) integrateDiskExact(f, acc);
                 else                    integratePlanarExact(f, acc);
+            } else if (f->paramTri) {
+                integrateParametricTri(f, acc);
             } else {
                 integrateParametric(f, gaussN, acc);
             }

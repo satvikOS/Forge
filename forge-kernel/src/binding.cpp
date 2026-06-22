@@ -333,6 +333,7 @@
 #include "forge/native/brep/Primitives.hpp"
 #include "forge/native/brep/MassProps.hpp"
 #include "forge/native/brep/SolidTessellate.hpp"
+#include "forge/native/brep/Boolean.hpp"          // IN-HOUSE KERNEL STEP 2 — native boolean
 #endif
 
 using namespace forge;
@@ -666,6 +667,100 @@ Napi::Value NativeTessellate(const Napi::CallbackInfo& info) {
         out.Set("indices", ji);
         out.Set("watertight", rep.isValid());
         out.Set("triangleCount", (double)(idx.size() / 3));
+        return out;
+    });
+}
+
+// nativeBoolean(op, kindA, ...argsA, "|", kindB, ...argsB) — IN-HOUSE KERNEL
+// STEP 2. Builds two native primitives, runs the OCCT-free native boolean
+// (forge::native::brep::booleanSolid), and returns the result's exact mass-props
+// + a watertight tessellation (mirroring NativeMassProps/NativeTessellate). The
+// argument vector is split on a "|" string token: everything before it is the
+// kind+args for A, everything after is for B. `op` is "fuse" | "cut" | "common".
+// Returns { ok, reason, volume, area, centerOfMass[3], triangleCount, watertight }.
+Napi::Value NativeBoolean(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        using namespace forge::native::brep;
+        auto env = info.Env();
+        if (info.Length() < 2 || !info[0].IsString())
+            throw std::invalid_argument("forge: nativeBoolean(op, A.. , '|', B..)");
+        std::string opName = info[0].As<Napi::String>().Utf8Value();
+        BoolOp op;
+        if      (opName == "fuse")   op = BoolOp::Fuse;
+        else if (opName == "cut")    op = BoolOp::Cut;
+        else if (opName == "common") op = BoolOp::Common;
+        else throw std::invalid_argument("forge: nativeBoolean op must be fuse|cut|common");
+
+        // Find the "|" splitter among the remaining args.
+        std::size_t split = 0;
+        for (std::size_t i = 1; i < info.Length(); ++i) {
+            if (info[i].IsString() && info[i].As<Napi::String>().Utf8Value() == "|") {
+                split = i; break;
+            }
+        }
+        if (split == 0)
+            throw std::invalid_argument("forge: nativeBoolean needs a '|' between A and B args");
+
+        // Build a primitive from a contiguous slice [begin,end) of info (info[begin]
+        // is the kind string). Reuses the canonical placement of buildNativePrimitive
+        // semantics but indexes a sub-range of the call args.
+        auto buildFromRange = [&](std::size_t begin, std::size_t end,
+                                  std::unique_ptr<SolidFactory>& facOut) -> Solid* {
+            if (begin >= end || !info[begin].IsString())
+                throw std::invalid_argument("forge: nativeBoolean operand missing kind");
+            std::string kind = info[begin].As<Napi::String>().Utf8Value();
+            auto fac = std::make_unique<SolidFactory>(PrimitiveOptions{});
+            auto N = [&](std::size_t k, const char* what) -> double {
+                std::size_t idx = begin + 1 + k;
+                if (idx >= end || !info[idx].IsNumber())
+                    throw std::invalid_argument(std::string("forge: nativeBoolean missing ") + what);
+                return info[idx].As<Napi::Number>().DoubleValue();
+            };
+            Solid* s = nullptr;
+            if (kind == "box")           s = fac->buildBox(N(0,"dx"), N(1,"dy"), N(2,"dz"));
+            else if (kind == "cylinder") s = fac->buildCylinder(N(0,"r"), N(1,"h"));
+            else if (kind == "cone")     s = fac->buildCone(N(0,"r1"), N(1,"r2"), N(2,"h"));
+            else if (kind == "sphere")   s = fac->buildSphere(N(0,"r"));
+            else if (kind == "prism")    s = fac->buildPrism((int)N(0,"n"), N(1,"R"), N(2,"h"));
+            else if (kind == "wedge")    s = fac->buildWedge(N(0,"dx"), N(1,"dy"), N(2,"dz"), N(3,"ltx"));
+            else if (kind == "pyramid")  s = fac->buildPyramid(N(0,"dx"), N(1,"dy"), N(2,"h"));
+            else throw std::invalid_argument("forge: nativeBoolean unsupported operand kind '" + kind + "'");
+            facOut = std::move(fac);
+            return s;
+        };
+
+        std::unique_ptr<SolidFactory> facA, facB;
+        Solid* A = buildFromRange(1, split, facA);
+        Solid* B = buildFromRange(split + 1, info.Length(), facB);
+
+        BooleanResult r = booleanSolid(*A, *B, op);
+        auto out = Napi::Object::New(env);
+        out.Set("ok", r.ok);
+        out.Set("reason", Napi::String::New(env, r.reason ? r.reason : ""));
+        out.Set("usedMeshFallback", r.usedMeshFallback);
+        if (!r.ok) {
+            out.Set("volume", 0.0);
+            out.Set("triangleCount", 0.0);
+            out.Set("watertight", false);
+            return out;
+        }
+        // Exact mass-props of the result solid.
+        forge::native::brep::MassProps mp = massProperties(*r.solid);
+        out.Set("volume", mp.volume);
+        out.Set("area", mp.area);
+        auto com = Napi::Array::New(env, 3);
+        com.Set(uint32_t{0}, mp.com[0]);
+        com.Set(uint32_t{1}, mp.com[1]);
+        com.Set(uint32_t{2}, mp.com[2]);
+        out.Set("centerOfMass", com);
+        // Watertight tessellation of the result.
+        std::vector<double> pos; std::vector<std::uint32_t> idx;
+        tessellateSolid(*r.solid, pos, idx);
+        bool tok = false;
+        auto m = tessellateSolidToMesh(*r.solid, tok);
+        auto rep = m.validate();
+        out.Set("triangleCount", (double)(idx.size() / 3));
+        out.Set("watertight", rep.isValid());
         return out;
     });
 }
@@ -5161,6 +5256,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 #ifdef FORGE_NATIVE_BREP
     exports.Set("nativeMassProps",  Napi::Function::New(env, NativeMassProps));
     exports.Set("nativeTessellate", Napi::Function::New(env, NativeTessellate));
+    exports.Set("nativeBoolean",    Napi::Function::New(env, NativeBoolean)); // STEP 2
 #endif
 
     exports.Set("retain",    Napi::Function::New(env, Retain));

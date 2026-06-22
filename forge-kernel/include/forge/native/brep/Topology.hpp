@@ -150,6 +150,16 @@ struct Face {
     Surface* surface = nullptr;
     double u0 = 0.0, u1 = 1.0, v0 = 0.0, v1 = 1.0;
     std::vector<std::array<double, 2>> vertexUV;
+
+    // ADDITIVE (native boolean STEP 2): when true, this face's CURVED analytic
+    // surface is integrated/tessellated over the PARAMETER TRIANGLE spanned by the
+    // first three `vertexUV` entries (a (u,v) triangle on the surface), NOT over
+    // the axis-aligned rectangle [u0,u1]x[v0,v1]. This lets the boolean split a
+    // curved face along an arbitrary imprinted cut while keeping the EXACT parent
+    // surface (the sub-face is a true patch of the same quadric, integrated over
+    // its real parameter triangle — so a bored cylinder wall's mass is exact).
+    // Default false: every primitive face (full rectangular sector) is unaffected.
+    bool paramTri = false;
 };
 
 // ----------------------------------------------------------------------------

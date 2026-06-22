@@ -470,6 +470,17 @@ add_library(forge_kernel SHARED
     src/native/brep/Primitives.cpp
     src/native/brep/MassProps.cpp
     src/native/brep/SolidTessellate.cpp
+    # IN-HOUSE KERNEL STEP 2 — OCCT-free native B-rep BOOLEAN (fuse/cut/common) +
+    # analytic surface-surface intersection (pure C++20 stdlib, no new link libs).
+    # Always compiled; the JS surface (nativeBoolean) is gated behind
+    # FORGE_NATIVE_BREP in binding.cpp so the live OCCT boolean stays the default.
+    # Boolean.cpp imprints cut curves by triangulating each face in its (u,v)
+    # domain via geom::constrainedDelaunay2D, so that source MUST be linked in too
+    # (otherwise, with macOS -undefined dynamic_lookup, the call resolves to a null
+    # pointer at runtime and crashes — it was previously only pulled by run_native).
+    src/native/geom/ConstrainedDelaunay2D.cpp
+    src/native/brep/SurfaceIntersect.cpp
+    src/native/brep/Boolean.cpp
     # Task #46 — bind the remaining forge::native engines into the addon so
     # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).
     # geom/AABBTree + voxel/VoxelBoolean are cam's #include dependencies; list
