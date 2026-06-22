@@ -28,6 +28,11 @@ import {
 } from '../forge-v4/pdm/partRetrieval.js';
 import { listItems } from '../forge-v4/pdmStore.js';
 import {
+  commit as vcsCommit, branch as vcsBranch, merge as vcsMerge,
+  mergeBranches as vcsMergeBranches, diff as vcsDiff,
+  whereUsed as vcsWhereUsed, impact as vcsImpact,
+} from '../forge-v4/pdm/versionControl.js';
+import {
   generateDrawing, regenerateDrawing,
   setForgeKernel as setAutoDrawingKernel,
 } from '../forge-v4/drawing/autoDrawing.js';
@@ -2896,6 +2901,73 @@ export const FORGE_TOOLS = [
       }));
       return { op: 'find-duplicates', count: pairs.length,
                confirmedCount: pairs.filter((p) => p.confirmed).length, pairs };
+    } },
+
+  // ============================================================ PDM VERSION CONTROL
+  // Local-first "git-for-CAD" (Task #32) — a content-addressed version graph over
+  // the vault: lock-free branch + 3-way merge of the parametric recipe, a 3D
+  // change-diff (recipe diff + real kernel geom delta), and where-used/impact.
+  // Solves the #1 MCAD gripe (version chaos) without six-figure PLM. Engine:
+  // forge-v4/pdm/versionControl.js.
+  { name: 'pdm.commit', discipline: 'part', produces: 'report',
+    description: 'Commit an immutable, content-addressed snapshot of a part (its parametric recipe {kind, params, features} + PMI) onto a branch of the version graph. Lock-free; identical content on the same parent dedupes. Returns the version id (a content hash) and the new branch HEAD. Use to checkpoint a design so it can be branched, merged, and diffed.',
+    parameters: { itemId: P('string', 'PDM item id this version belongs to', { required: true }),
+                  recipe: P('object', 'the parametric recipe { kind, params:{}, features:[] }', { required: true }),
+                  pmi: P('array', 'semantic PMI annotations [] (optional)', { default: [] }),
+                  branch: P('string', 'branch name to advance (default: current branch / main)', { default: null }),
+                  message: P('string', 'commit message', { default: '' }) },
+    run: ({ itemId, recipe, pmi, branch, message }) => {
+      const versionId = vcsCommit({ itemId, recipe, pmi: pmi || [],
+        branch: branch || undefined, message: message || '' });
+      return { op: 'commit', versionId, itemId,
+               branch: branch || undefined, head: versionId };
+    } },
+
+  { name: 'pdm.branch', discipline: 'part', produces: 'report',
+    description: 'Create a named branch of a part at a given version (lock-free — multiple branches share history, so two people can edit the same part in parallel with no check-out blocking). Defaults to branching from the current branch HEAD. Returns the branch name + its head version.',
+    parameters: { name: P('string', 'new branch name', { required: true }),
+                  fromVersion: P('string', 'version id to branch from (default: current HEAD)', { default: null }) },
+    run: ({ name, fromVersion }) => {
+      const b = vcsBranch(name, fromVersion || undefined);
+      return { op: 'branch', branch: b.name, head: b.head };
+    } },
+
+  { name: 'pdm.merge', discipline: 'part', produces: 'report',
+    description: 'Three-way merge two versions/branches of a part. Auto-merges all non-conflicting changes (different params / different features); SURFACES conflicts (same param/feature changed differently) carrying both the ours and theirs values so they can be resolved — an edit is NEVER silently lost. If only ours+theirs are given, the merge base (lowest common ancestor) is found automatically. Returns the merged recipe + a conflicts[] list.',
+    parameters: { ours: P('string', 'our version id (or branch name)', { required: true }),
+                  theirs: P('string', 'their version id (or branch name)', { required: true }),
+                  base: P('string', 'explicit merge-base version id (default: auto LCA)', { default: null }) },
+    run: ({ ours, theirs, base }) => {
+      const res = base
+        ? vcsMerge(base, ours, theirs)
+        : vcsMergeBranches(ours, theirs);
+      return { op: 'merge', merged: res.merged, conflicts: res.conflicts,
+               conflictCount: res.conflicts.length,
+               base: res.base ?? base ?? null, ours: res.ours ?? ours, theirs: res.theirs ?? theirs };
+    } },
+
+  { name: 'pdm.diff', discipline: 'part', produces: 'report',
+    description: 'Change-diff between two part versions: a structured, human-readable recipeDiff (params/features/PMI added · removed · modified, with from→to values) PLUS a 3D geomDelta computed from the REAL kernel (volume / area / bbox-diagonal change, and mass if a density is given) by rebuilding both recipes. Not a binary blob compare. geomDelta is null only when no kernel handle is resolvable (the text recipeDiff still returns).',
+    parameters: { a: P('string', 'version A id (or an inline snapshot object)', { required: true }),
+                  b: P('string', 'version B id (or an inline snapshot object)', { required: true }),
+                  density: P('number', 'material density kg/m³ for the mass delta (optional)', { default: null }) },
+    run: ({ a, b, density }, forge) => {
+      setAutoDrawingKernel(forge); // align the rebuild kernel for the geom delta
+      const opts = density ? { density: Number(density) } : {};
+      const d = vcsDiff(a, b, forge, opts);
+      return { op: 'diff', recipeDiff: d.recipeDiff, geomDelta: d.geomDelta,
+               geomDeltaAvailable: d.geomDeltaAvailable };
+    } },
+
+  { name: 'pdm.where-used', discipline: 'part', produces: 'report',
+    description: 'Where-used + impact analysis for a part: which assemblies/parents reference it (direct, or transitive up the BOM graph) and the downstream impact — every parent assembly that would need rebuild / revalidation if the part changes (transitive closure, deduped). Use before changing a shared part to see the blast radius.',
+    parameters: { itemId: P('string', 'PDM item id to analyse', { required: true }),
+                  transitive: P('boolean', 'walk all ancestors (default: direct parents only)', { default: false }) },
+    run: ({ itemId, transitive }) => {
+      const parents = vcsWhereUsed(itemId, { transitive: !!transitive });
+      const affected = vcsImpact(itemId); // always the full rebuild closure
+      return { op: 'where-used', itemId, transitive: !!transitive,
+               parents, impact: affected, impactCount: affected.length };
     } },
 ];
 
