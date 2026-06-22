@@ -45,6 +45,9 @@ import {
 import {
   trainSurrogate, predictSurrogate,
 } from '../forge-v4/ml/surrogate.js';
+import {
+  mbdCompleteness, prePlmRelease,
+} from '../forge-v4/plm/prerelease.js';
 
 // Node `fs` resolver — ESM-safe. In the Electron renderer (nodeIntegration) a
 // global `require` is injected, so the JS exporters fall back to it; but in a
@@ -3356,6 +3359,56 @@ export const FORGE_TOOLS = [
       const records = rtList(partId);
       return { op: 'rationale.list', partId, count: records.length,
                orphanedCount: records.filter((r) => r.orphaned).length, records };
+    } },
+
+  // ============================================================ AUTO-MBD + PLM RELEASE
+  // AUTO Model-Based-Definition completeness + autonomous pre-manufacturing PLM
+  // release gate (Task #19). PURE ORCHESTRATORS over the shipped engines —
+  // forge-v4/plm/prerelease.js calls the REAL asmeY145Rules validator + PMI
+  // registry + tolerance kernel + partRetrieval duplicate scan + autoDrawing +
+  // archivalExport export/verify + designRationale, folds them into an ASME
+  // Y14.41-2019 / ISO 16792 completeness check and an ECO/ECN-style release gate.
+  { name: 'plm.mbd-check', discipline: 'part', produces: 'report',
+    description: 'AUTO Model-Based-Definition completeness check per ASME Y14.41-2019 / ISO 16792. Walks the part\'s PMI (the registry) + features and reports every way the digital data set is INCOMPLETE: a malformed Feature Control Frame (judged by the REAL ASME Y14.5-2018 validator — datum precedence, Ø-on-axis, material-modifier legality, datum-letter validity), a characteristic that requires a datum reference frame but carries none, a DANGLING datum reference (a letter not defined on the part), an un-toleranced critical feature (hole / driving dimension), and missing material / surface-finish / units+precision. Returns { complete, missing:[{feature, reason, kind}] }. NOT a numeric stub — it runs validateFrames over the part\'s actual stored PMI.',
+    parameters: { shape: P('uint', 'kernel shape handle (for the hole/dimension feature probe)', { default: null }),
+                  bodyId: P('string', 'body id keying the part\'s PMI in the registry', { required: true }),
+                  id: P('string', 'part / PDM item id', { default: null }),
+                  material: P('string', 'material assigned to the part', { default: null }),
+                  surfaceFinish: P('object', 'surface-texture/finish spec (if not carried as a PMI finish annotation)', { default: null }),
+                  units: P('string', 'data-set units (e.g. "mm")', { default: null }),
+                  precision: P('uint', 'default decimal precision of the data set', { default: null }),
+                  criticalFeatures: P('array', 'explicit critical features [{id, kind?, covered?}] that must be toleranced', { default: [] }),
+                  datums: P('array', 'datum letters DEFINED on the part [string] (for dangling-datum detection)', { default: [] }) },
+    run: (args, forge) => {
+      setAutoDrawingKernel(forge);
+      const res = mbdCompleteness({
+        shape: args.shape ?? null, bodyId: args.bodyId, id: args.id ?? args.bodyId,
+        material: args.material, surfaceFinish: args.surfaceFinish,
+        units: args.units, precision: args.precision,
+        criticalFeatures: args.criticalFeatures || [], datums: args.datums || [],
+      }, { forge });
+      return { op: 'mbd-check', standard: 'ASME Y14.41-2019 / ISO 16792', ...res };
+    } },
+
+  { name: 'plm.pre-release', discipline: 'part', produces: 'report',
+    description: 'Autonomous PRE-MANUFACTURING PLM release gate (ECO/ECN semantics). Orchestrates ALL release gates by invoking the REAL shipped engines and collecting every result (never short-circuits): geometry-valid (forge.heal.checkValidity / OCCT), MBD-complete (plm.mbd-check → ASME Y14.41 / Y14.5 validator), tolerance RSS-valid (forge.tolerance.compute — surfaces the RSS-validity warning), no-unresolved-duplicates (partRetrieval.findDuplicates), drawing-generated (autoDrawing.generateDrawing — ≥3 views + dimensions), archival-built-and-verified (archivalExport export+verify — EN 9300 / ISO 14721 / AP242 fixity), rationale-present (designRationale), plus an advisory DFM pass. Returns { releasable, gates:[{name,pass,detail}], blockers:[{gate,reason}] }. releasable = every BLOCKING gate passes.',
+    parameters: { assembly: P('object', 'assembly { name?, parts:[{shape?, bodyId, id, name?, material?, surfaceFinish?, units?, precision?, criticalFeatures?, datums?, tolChain?, tolSpec?}], mates? }', { required: true }),
+                  retention: P('object', 'LOTAR retention {years, classification, disposition}', { default: null }),
+                  provenance: P('object', 'provenance {agent, organization, why, software}', { default: null }),
+                  minCpk: P('number', 'minimum acceptable RSS Cpk for the tolerance gate', { default: 1.0 }),
+                  requireRationale: P('boolean', 'whether the rationale-present gate blocks (default true)', { default: true }),
+                  drawing: P('object', 'drawing options forwarded to autoDrawing.generateDrawing', { default: null }) },
+    run: (args, forge) => {
+      setAutoDrawingKernel(forge);
+      const res = prePlmRelease(args.assembly, {
+        forge,
+        retention: args.retention || undefined,
+        provenance: args.provenance || undefined,
+        minCpk: args.minCpk,
+        requireRationale: args.requireRationale !== false,
+        drawing: args.drawing || undefined,
+      });
+      return { op: 'pre-release', ...res };
     } },
 
   // ============================================================ ML SURROGATE / ROM
