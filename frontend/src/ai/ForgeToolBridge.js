@@ -36,6 +36,10 @@ import {
   generateDrawing, regenerateDrawing,
   setForgeKernel as setAutoDrawingKernel,
 } from '../forge-v4/drawing/autoDrawing.js';
+import {
+  captureRationale as rtCapture, queryRationale as rtQuery,
+  listRationale as rtList, rationaleFromOp as rtFromOp,
+} from '../forge-v4/rationale/designRationale.js';
 
 // Round ALL edges of a finished asset body so machined parts read as
 // manufactured (broken edges), not raw boolean blocks. Fillets every edge
@@ -2969,6 +2973,50 @@ export const FORGE_TOOLS = [
       return { op: 'where-used', itemId, transitive: !!transitive,
                parents, impact: affected, impactCount: affected.length };
     } },
+
+  // ============================================================ DESIGN RATIONALE
+  // In-model design-rationale / knowledge capture (Task #39). The most
+  // under-served PLM capability: the geometry/dimensions/tolerances are captured
+  // but the WHY is not — when a senior leaves, the reasoning behind every
+  // non-obvious decision walks out and is rediscovered at cost. These verbs make
+  // the "why" a first-class, PERSISTENT artefact keyed by the stable feature id
+  // (`fid ?? id`) so it survives rebuild. Engine: forge-v4/rationale/designRationale.js.
+  { name: 'rationale.capture', discipline: 'part', produces: 'report',
+    description: 'Capture the DESIGN RATIONALE (the "why") for a feature of a part: its intent, the driving requirement, the binding constraint, the alternatives that were considered and rejected (with reasons), and provenance (who/when/source). Keyed by the PERSISTENT feature id (the recipe feature\'s fid/id, NOT a volatile index) so the rationale survives rebuild and param edits. Use featureId "__part__" for a whole-part why. This is the explicit path; rationale supplied alongside a build op is auto-captured as a byproduct of building.',
+    parameters: { partId: P('string', 'PDM item id this part belongs to', { required: true }),
+                  featureId: P('string', 'persistent feature id (recipe feature fid/id); use "__part__" for a whole-part rationale', { required: true }),
+                  intent: P('string', 'the design goal this feature serves', { default: '' }),
+                  drivingRequirement: P('string', 'the requirement that forced it (e.g. a req id "R-12")', { default: '' }),
+                  constraint: P('string', 'the binding constraint (e.g. "4 mm — moldflow short-shot limit")', { default: '' }),
+                  rejected: P('array', 'alternatives considered & rejected: [string] or [{alternative, reason}]', { default: [] }),
+                  provenance: P('object', 'provenance { who, when, source } (who/when default to archie/now)', { default: {} }),
+                  links: P('object', 'links { requirements:[], tests:[] } into the req/test world', { default: {} }),
+                  feature: P('object', 'the recipe feature snapshot { fid, op, params } so the NL query can resolve it', { default: null }) },
+    run: ({ partId, featureId, intent, drivingRequirement, constraint, rejected, provenance, links, feature }) => {
+      const rec = rtCapture(partId, featureId, {
+        intent, drivingRequirement, constraint,
+        rejected, provenance: provenance || {}, links: links || {}, feature,
+      });
+      return { op: 'rationale.capture', partId, featureId: rec.featureId, record: rec };
+    } },
+
+  { name: 'rationale.query', discipline: 'part', produces: 'report',
+    description: 'Answer a natural-language "why" question about a part ("why is this wall 4mm?") by resolving the referenced feature (by param value, op/param name, or text) and returning its captured intent + driving requirement + binding constraint + the rejected alternative + provenance. Deterministic resolver over the stored rationale; returns { found:false } honestly when nothing matches (an LLM NL layer is a noted enhancement).',
+    parameters: { partId: P('string', 'PDM item id of the part to query', { required: true }),
+                  question: P('string', 'the natural-language why question', { required: true }) },
+    run: ({ partId, question }) => {
+      const ans = rtQuery(partId, question);
+      return { op: 'rationale.query', partId, ...ans };
+    } },
+
+  { name: 'rationale.list', discipline: 'part', produces: 'report',
+    description: 'List every captured design-rationale record for a part (including any flagged orphaned because their feature was removed by a rebuild). Returns the records keyed by persistent feature id.',
+    parameters: { partId: P('string', 'PDM item id of the part', { required: true }) },
+    run: ({ partId }) => {
+      const records = rtList(partId);
+      return { op: 'rationale.list', partId, count: records.length,
+               orphanedCount: records.filter((r) => r.orphaned).length, records };
+    } },
 ];
 
 // ===================================================================
@@ -3014,6 +3062,18 @@ export async function dispatchToolCall({ name, arguments: args }, opts = {}) {
   const ctx = opts.ctx || { current: null };
   try {
     const result = await Promise.resolve(spec.run(args, forge, ctx));
+    // AUTO-CAPTURE design rationale (Task #39): if a build op (any verb other
+    // than the explicit rationale.* verbs) carries a rationale/intent/constraint
+    // alongside it, the "why" is attached to the produced feature automatically —
+    // a byproduct of building, not a separate manual step. partId comes from the
+    // op args or the per-sequence ctx.partId an Archie build binds. No rationale
+    // payload → no-op, so every legacy call is unaffected.
+    if (!name.startsWith('rationale.')) {
+      const partId = args.partId ?? ctx.partId;
+      if (partId) {
+        try { rtFromOp(args, result || {}, { partId }); } catch { /* rationale capture is best-effort, never fails a build */ }
+      }
+    }
     return { ok: true, tool: name, args, produces: spec.produces, result, current: ctx.current };
   } catch (e) {
     return { ok: false, tool: name, args, error: e.message || String(e) };
