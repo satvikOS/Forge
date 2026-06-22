@@ -334,10 +334,17 @@ int main() {
             double refA = boxA * static_cast<double>(inside) / M;
             double rel = std::fabs(got - refA) / refA;
             worstRel = std::max(worstRel, rel);
-            // Monte-Carlo std error ~ sqrt(p(1-p)/M)*boxA/refA ~ 1e-3; allow 6e-3.
-            if (rel <= 6e-3) ++ok;
+            // Tolerance = 6 sigma of THIS sample's Monte-Carlo std error. The
+            // reference is itself an MC estimate (p=inside/M); the relative std of
+            // its area is sqrt(p(1-p)/M)/p (~1.9e-3 here). A 6-sigma bound never
+            // flakes yet still catches a real offset error (>> the MC noise floor).
+            // The old fixed 6e-3 was only ~3 sigma and tripped ~0.5%/run (CI
+            // worstRel 6.633e-3, seed 3692085662570246116).
+            double p = static_cast<double>(inside) / M;
+            double mcRelStd = std::sqrt(p * (1.0 - p) / M) / p;
+            if (rel <= 6.0 * mcRelStd) ++ok;
         }
-        std::printf("    %d/%d within 6e-3 of MC reference, worstRel=%.3e\n",
+        std::printf("    %d/%d within 6-sigma MC reference, worstRel=%.3e\n",
                     ok, N, worstRel);
         check(ok == N, "(f2) non-convex offset matches independent Minkowski area");
     }
