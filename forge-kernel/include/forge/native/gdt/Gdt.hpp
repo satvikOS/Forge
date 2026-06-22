@@ -227,6 +227,215 @@ PerpendicularityResult evaluatePerpendicularity(const Vec3& featureDir,
                                                 double tol,
                                                 double featureLength = 1.0);
 
+// ===========================================================================
+// (5) GEOMETRIC GD&T / FCF VALIDATOR (task #26).
+//
+// The four primitives above evaluate ONE feature's reduced parameters (an axis
+// point, a fit-plane band, a direction). This section closes the rest of the
+// inspection loop the Forge Engineering Bible calls for: it validates a SAMPLED
+// POINT SET (CMM/QIF probe points, QIF MeasurementResults, or tessellation
+// samples) against the actual 3D TOLERANCE ZONE of a characteristic, computes
+// the MMC/LMC geometric BONUS from the feature's actual size, and checks the
+// LEGALITY of a feature-control frame (datums exist + ordered, characteristic
+// legal for the feature, material-condition modifier valid).
+//
+// All point-set validators take points already expressed IN THE DRF (the caller
+// runs transformToDrf() first), matching the convention of (2)/(3)/(4) that
+// tolerances are evaluated in the datum reference frame, never in world space.
+//
+// ASME Y14.5-2018 zone definitions encoded here (verbatim intent):
+//   * POSITION (§7.3): Ø zone = positionTol + bonus, a CYLINDER on the basic
+//     axis; a sample at radius r from that axis contributes diametral 2r.
+//   * FLATNESS (§5.4.2): two parallel planes `tol` apart; value = peak-to-valley
+//     of the LS-plane signed distances. No datum.
+//   * PERPENDICULARITY/PARALLELISM/ANGULARITY (§6.7–6.9): two parallel planes
+//     `tol` apart oriented at the basic angle (90°/0°/θ) to the datum; value =
+//     the band of the points projected on the datum-relative direction.
+//   * CIRCULARITY (§5.4.3): two coaxial circles radially `tol` apart (one cross
+//     section); value = R_max − R_min of the LS circle. No datum, no modifier.
+//   * CYLINDRICITY (§5.4.4): two coaxial cylinders radially `tol` apart over the
+//     whole surface; value = R_max − R_min about the LS axis. No datum, no mod.
+//   * PROFILE-OF-A-SURFACE (§11): a band of width `tol` about the true profile,
+//     NORMAL to it; bilateral = ±tol/2 (default), unilateral = 0..tol; value =
+//     max |signed normal deviation|.
+//   * BONUS (§7.3.3): departure of the actual mating size from the material-
+//     condition boundary toward the opposite limit, clamped >= 0 (mirrors the
+//     branch already inside evaluateTruePosition).
+// ===========================================================================
+
+// The high-value geometric characteristic subset covered by task #26.
+enum class Characteristic {
+    POSITION,
+    FLATNESS,
+    PERPENDICULARITY,
+    PARALLELISM,
+    ANGULARITY,
+    CIRCULARITY,
+    CYLINDRICITY,
+    PROFILE_SURFACE
+};
+
+// The geometry family of the tolerance zone.
+enum class ZoneType {
+    CYLINDRICAL,         // position of an axis: a Ø cylinder zone
+    TWO_PARALLEL_PLANES, // flatness, orientation of a planar feature (total-wide)
+    TWO_COAXIAL_CYL,     // circularity / cylindricity (radial band)
+    BILATERAL_PROFILE,   // profile of a surface, ±tol/2 about the true profile
+    UNILATERAL_PROFILE   // profile of a surface, 0..tol about the true profile
+};
+
+// The kind of feature a characteristic is applied to (for FCF legality).
+enum class ControlledFeature {
+    PLANAR_SURFACE,   // a nominally flat face
+    CYLINDER_AXIS,    // the derived median line / axis of a cylinder
+    CYLINDER_SURFACE, // the cylindrical surface itself
+    FEATURE_OF_SIZE,  // a regular FoS (hole/pin/slot/tab) that has MMC/LMC
+    LINE_ELEMENT      // a single 2D line element / cross-section
+};
+
+// ---------------------------------------------------------------------------
+// (a) The verdict returned by every point-set validator.
+//
+//   allowedZone        : the FULL zone width or diameter AT the material
+//                        condition = stated tol + bonus.
+//   bonus              : MMC/LMC bonus added (0 for RFS or a non-FoS control).
+//   worstDeviationMm   : the worst single value in the zone's own metric
+//                        (diametral 2r for position, the p2v band for a plane
+//                        zone, R_max−R_min for a radial zone, max |normal dev|
+//                        for profile) — directly comparable to allowedZone.
+//   conformingFraction : fraction of sampled points that lie inside the zone.
+// ---------------------------------------------------------------------------
+struct ToleranceZoneVerdict {
+    bool           pass{false};
+    Characteristic characteristic{Characteristic::POSITION};
+    ZoneType       zoneType{ZoneType::CYLINDRICAL};
+    double         allowedZone{0.0};
+    double         bonus{0.0};
+    double         worstDeviationMm{0.0};
+    double         conformingFraction{1.0};
+    bool           ok{true};
+    const char*    reason{""};
+};
+
+// ---------------------------------------------------------------------------
+// (c) MMC / LMC geometric bonus from the actual size vs the material limit.
+//
+// Mirrors evaluateTruePosition's bonus branch (Y14.5 §7.3.3) bit-for-bit:
+//   HOLE@MMC bonus = actualSize − materialLimit;  PIN@MMC = materialLimit − actualSize;
+//   HOLE@LMC bonus = materialLimit − actualSize;   PIN@LMC = actualSize − materialLimit;
+//   RFS bonus = 0. All clamped >= 0 (a feature outside its size limit is a SIZE
+//   reject and earns no position bonus). Numerically equal to
+//   evaluateTruePosition(...).bonus for the same inputs.
+// ---------------------------------------------------------------------------
+double mmcBonus(double actualSize, double materialLimit,
+                MaterialCondition mc, FeatureType ft);
+
+// ---------------------------------------------------------------------------
+// (a) Per-characteristic SAMPLED-POINT-SET validators (points in the DRF).
+// ---------------------------------------------------------------------------
+
+// POSITION of an axis: a cylindrical zone Ø = positionTolDia + bonus, centered
+// on the basic axis (trueLoc in XY, axis along DRF Z). Each sample's radial
+// distance r from the basic axis gives a diametral deviation 2r; the worst is
+// the controlling value. Pass iff worst <= Ø. `actualSize`/`materialLimit`/`mc`/
+// `ft` feed mmcBonus(); pass RFS for no bonus.
+ToleranceZoneVerdict validatePositionPointSet(
+    const std::vector<Vec3>& axisSamplesDrf, const Point2D& trueLoc,
+    double actualSize, double materialLimit, double positionTolDia,
+    MaterialCondition mc, FeatureType ft);
+
+// FLATNESS: two parallel planes `tol` apart (LS plane via evaluateFlatness);
+// worst = the peak-to-valley band.
+ToleranceZoneVerdict validateFlatnessPointSet(
+    const std::vector<Vec3>& pts, double tol);
+
+// PERPENDICULARITY / PARALLELISM / ANGULARITY of a planar surface to a datum
+// whose normal is `datumNormal`: two parallel planes `tol` apart oriented at the
+// basic angle (0° parallel, 90° perp, θ angularity) to the datum. The band is
+// measured along the NOMINAL DATUM-RELATIVE ZONE NORMAL — a FIXED direction the
+// datum + basic angle define, NOT the points' own best-fit normal — so a flat
+// feature MIS-ORIENTED to its datum FAILS (a flat-but-tilted plate has a large
+// band along the fixed nominal normal), per ASME Y14.5-2018 §6.7–6.9.
+//
+// The nominal zone normal is recovered as:
+//   parallelism  (0°)  : datumNormal               (feature ∥ datum).
+//   perpendicularity(90°): the in-plane nominal feature normal — it lies IN the
+//                          datum plane (⊥ datumNormal); the caller MUST supply a
+//                          reference direction in `nominalFeatureNormal` (the
+//                          drawing's nominal feature-surface normal). It is
+//                          projected into the datum plane (Gram-Schmidt), never
+//                          guessed.
+//   angularity   (θ)   : datumNormal rotated by the basic angle θ toward the
+//                          in-plane reference (0°→datumNormal, 90°→in-plane).
+// `nominalFeatureNormal` is REQUIRED for perpendicularity & angularity (any
+// non-zero direction not parallel to datumNormal); it is ignored for parallelism.
+// worst = the peak-to-valley band of the points projected onto that zone normal.
+ToleranceZoneVerdict validateOrientationPointSet(
+    const std::vector<Vec3>& pts, const Vec3& datumNormal,
+    Characteristic c, double basicAngleDeg, double tol,
+    const Vec3& nominalFeatureNormal = Vec3{0, 0, 0});
+
+// CIRCULARITY of ONE cross-section (points in the DRF XY plane): two coaxial
+// circles radially `tol` apart; worst = R_max − R_min about the LS-fit center.
+ToleranceZoneVerdict validateCircularityPointSet(
+    const std::vector<Vec3>& sectionPtsDrf, double tol);
+
+// CYLINDRICITY of a whole surface (points in the DRF, axis ~ Z): two coaxial
+// cylinders radially `tol` apart; worst = R_max − R_min about the LS axis.
+ToleranceZoneVerdict validateCylindricityPointSet(
+    const std::vector<Vec3>& surfacePtsDrf, double tol);
+
+// PROFILE-OF-A-SURFACE: a band about the true profile, normal to it. The true
+// profile is sampled as (truePoint, outwardNormal) pairs aligned index-wise to
+// the measured points. worst = max |signed normal deviation|. Bilateral pass iff
+// worst <= tol/2; unilateral (outward 0..tol) pass iff every dev in [0, tol].
+ToleranceZoneVerdict validateProfilePointSet(
+    const std::vector<Vec3>& measuredPts,
+    const std::vector<Vec3>& trueProfilePts,
+    const std::vector<Vec3>& trueProfileNormals,
+    double profileTol, bool unilateral);
+
+// ---------------------------------------------------------------------------
+// (a') Unified dispatcher.
+//
+// Routes to the correct per-characteristic validator above from a single entry
+// point. `pts` are the sampled feature points IN THE DRF. For POSITION the basic
+// axis location is taken from `featureCenter` (XY) and the bonus from
+// `actualSize`/`mmcSize`/`mc`/`ft`. For orientation `featureAxis` is the datum
+// normal, `basicAngleDeg` the basic angle, and `nominalFeatureNormal` the
+// drawing's nominal feature-surface normal (REQUIRED for perpendicularity &
+// angularity; ignored for parallelism). For profile, pass the true-profile
+// points/normals; otherwise leave them empty.
+ToleranceZoneVerdict validatePointSetAgainstZone(
+    Characteristic c, const std::vector<Vec3>& pts,
+    const Point2D& featureCenter, const Vec3& featureAxis,
+    double tol, double basicAngleDeg,
+    MaterialCondition mc, FeatureType ft, double actualSize, double mmcSize,
+    const std::vector<Vec3>& trueProfilePts = {},
+    const std::vector<Vec3>& trueProfileNormals = {},
+    bool unilateralProfile = false,
+    const Vec3& nominalFeatureNormal = Vec3{0, 0, 0});
+
+// ---------------------------------------------------------------------------
+// (b) FCF LEGALITY checker (geometric feasibility — datum existence/order, the
+// characteristic-vs-feature pairing, and modifier validity — NOT string syntax).
+// ---------------------------------------------------------------------------
+struct FcfLegality {
+    bool        legal{false};
+    const char* reason{""};
+};
+
+// datumRefs       : ordered datum letters actually referenced (e.g. {'A','B','C'}).
+// availableDatums : datum letters that EXIST on the part.
+// Checks: every referenced datum exists; <= 3 refs, no duplicates; the
+// characteristic is legal for `feat` (flatness/circularity take NO datum;
+// position needs a FoS + at least one datum; etc.); the material-condition
+// modifier is valid (MMC/LMC only on a feature-of-size characteristic, RFS
+// otherwise; form/profile controls cannot carry MMC/LMC).
+FcfLegality checkFcfLegality(
+    Characteristic c, ControlledFeature feat, MaterialCondition mc,
+    const std::vector<char>& datumRefs, const std::vector<char>& availableDatums);
+
 } // namespace gdt
 } // namespace native
 } // namespace forge
