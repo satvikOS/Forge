@@ -39,7 +39,7 @@ const ARCHIE_BASE_URL = 'http://localhost:8080';
 // matching serve: archdisc-Models/serve_forge_cua.sh (now defaults to the 14B
 // base+adapter). The prior 8B Forge driver (hermes_forge-capstack-20260617) is
 // still selectable via window.__FORGE_ADAPTER_OVERRIDE + the 8B serve env.
-const HERMES_FORGE_ADAPTER = 'adapters/archie/archie-14b-v2';
+const HERMES_FORGE_ADAPTER = 'adapters/archie/archie-14b-v3';
 
 // Verbatim copy of `SYSTEM` in scripts/synth_format_anchor_forge.py.
 // Any drift between this string and the training corpus reintroduces
