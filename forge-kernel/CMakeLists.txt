@@ -481,6 +481,18 @@ add_library(forge_kernel SHARED
     src/native/geom/ConstrainedDelaunay2D.cpp
     src/native/brep/SurfaceIntersect.cpp
     src/native/brep/Boolean.cpp
+    # IN-HOUSE KERNEL STEP 3a — the live-op ROUTING LAYER (runtime gate +
+    # transformSolid placement fix + native viewport-tessellate + mesh massprops)
+    # and the MESH-BRIDGE feature ops (native fillet/chamfer). Always compiled;
+    # the live ops (src/Primitives|Booleans|Transform|MassProps|Tessellate|
+    # Features.cpp) only call into these under FORGE_NATIVE_BREP + the runtime gate.
+    # Fillet/Chamfer pull FeatureEdges + Delaunay3D (their #include deps) which were
+    # previously only built by run_native.sh — they MUST link into the addon now.
+    src/native/brep/NativeRoute.cpp
+    src/native/mesh/FeatureEdges.cpp
+    src/native/geom/Delaunay3D.cpp
+    src/native/brep/Fillet.cpp
+    src/native/brep/Chamfer.cpp
     # Task #46 — bind the remaining forge::native engines into the addon so
     # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).
     # geom/AABBTree + voxel/VoxelBoolean are cam's #include dependencies; list

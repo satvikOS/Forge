@@ -334,6 +334,7 @@
 #include "forge/native/brep/MassProps.hpp"
 #include "forge/native/brep/SolidTessellate.hpp"
 #include "forge/native/brep/Boolean.hpp"          // IN-HOUSE KERNEL STEP 2 — native boolean
+#include "forge/native/brep/NativeRoute.hpp"      // IN-HOUSE KERNEL STEP 3a — live-op routing/gate
 #endif
 
 using namespace forge;
@@ -762,6 +763,37 @@ Napi::Value NativeBoolean(const Napi::CallbackInfo& info) {
         out.Set("triangleCount", (double)(idx.size() / 3));
         out.Set("watertight", rep.isValid());
         return out;
+    });
+}
+
+// IN-HOUSE KERNEL STEP 3a — toggle the live-op backend at runtime (the A/B
+// gate). setNativeBrep(true) routes makeBox/cut/fillet/massProps/tessellate/...
+// through forge::native; setNativeBrep(false) restores OCCT. Overrides the
+// FORGE_NATIVE_BREP env var for the rest of the process.
+Napi::Value SetNativeBrep(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        bool on = info.Length() > 0 && info[0].IsBoolean()
+                      ? info[0].As<Napi::Boolean>().Value() : true;
+        forge::native::brep::setForgeNativeBrepEnabled(on);
+        return Napi::Boolean::New(info.Env(), on);
+    });
+}
+Napi::Value NativeBrepEnabled(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Boolean::New(info.Env(),
+            forge::native::brep::forgeNativeBrepEnabled());
+    });
+}
+
+// kindOf(handle) -> "occt" | "nativeSolid" | "nativeMesh" — lets the A/B gate
+// assert which backend a handle is actually riding on.
+Napi::Value KindOf(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        ShapeHandle h = requireHandle(info, 0);
+        ShapeKind k = ShapeRegistry::instance().kindOf(h);
+        const char* s = (k == ShapeKind::NativeSolid) ? "nativeSolid"
+                      : (k == ShapeKind::NativeMesh)   ? "nativeMesh" : "occt";
+        return Napi::String::New(info.Env(), s);
     });
 }
 
@@ -5257,6 +5289,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("nativeMassProps",  Napi::Function::New(env, NativeMassProps));
     exports.Set("nativeTessellate", Napi::Function::New(env, NativeTessellate));
     exports.Set("nativeBoolean",    Napi::Function::New(env, NativeBoolean)); // STEP 2
+    // STEP 3a — A/B backend toggle + introspection for the live ops.
+    exports.Set("setNativeBrep",     Napi::Function::New(env, SetNativeBrep));
+    exports.Set("nativeBrepEnabled", Napi::Function::New(env, NativeBrepEnabled));
+    exports.Set("kindOf",            Napi::Function::New(env, KindOf));
 #endif
 
     exports.Set("retain",    Napi::Function::New(env, Retain));

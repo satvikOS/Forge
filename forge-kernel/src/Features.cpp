@@ -10,6 +10,20 @@
 
 #include "forge/Features.hpp"
 
+// IN-HOUSE KERNEL STEP 3a — route part.filletEdges / part.chamferEdges through
+// the native MESH-BRIDGE (tessellate the native analytic Solid -> mesh, then the
+// proven mesh fillet/chamfer) behind FORGE_NATIVE_BREP + the runtime gate.
+// HONEST: the native result is a MESH (NativeMesh handle), not an analytic Solid,
+// and rounds/bevels EVERY sharp convex edge (the native mesh op has no per-edge
+// selection — see NativeRoute.hpp).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"
+#include "forge/native/brep/SolidTessellate.hpp"
+#include "forge/native/brep/Fillet.hpp"
+#include "forge/native/brep/Chamfer.hpp"
+#include <memory>
+#endif
+
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_GTransform.hxx>
@@ -552,6 +566,28 @@ ShapeHandle filletEdges(ShapeHandle shape,
     if (edgeIds.empty()) {
         throw std::invalid_argument("forge.part.filletEdges: no edges supplied");
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        // MESH-BRIDGE (HONEST): tessellate the native analytic Solid to a soup,
+        // then round EVERY sharp convex edge by `radius` (the native mesh op has
+        // no per-edge selection — edgeIds is honored as "fillet this body's sharp
+        // convex edges", not a per-edge subset). Result is a MESH handle.
+        // NB: fully qualify — the enclosing forge::part::chamferEdges name would
+        // otherwise shadow forge::native::brep::chamferEdges via a `using`.
+        namespace nb = ::forge::native::brep;
+        std::vector<double> pos; std::vector<std::uint32_t> idx;
+        nb::tessellateSolid(ShapeRegistry::instance().getNativeSolid(shape), pos, idx);
+        const std::uint32_t nSeg = 24;   // arc segments per fillet strip
+        nb::FilletResult fr = nb::filletConvexEdges(pos, idx, radius, nSeg);
+        if (!fr.ok) {
+            throw std::runtime_error(std::string("forge native fillet: ") +
+                (fr.reason.empty() ? "mesh fillet failed" : fr.reason));
+        }
+        auto m = std::make_shared<::forge::native::mesh::HalfEdgeMesh>(std::move(fr.mesh));
+        return ShapeRegistry::instance().addNativeMesh(std::move(m));
+    }
+#endif
     const auto& src = fetch(shape);
     BRepFilletAPI_MakeFillet mk(src);
     for (auto id : edgeIds) {
@@ -599,6 +635,27 @@ ShapeHandle chamferEdges(ShapeHandle shape,
     if (edgeIds.empty()) {
         throw std::invalid_argument("forge.part.chamferEdges: no edges supplied");
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        // MESH-BRIDGE (HONEST): tessellate the native analytic Solid to a soup,
+        // then bevel EVERY sharp convex edge by setback `distance` (symmetric;
+        // the native mesh chamfer has no per-edge / asymmetric selection — stated
+        // plainly). Result is a MESH handle, not an analytic Solid.
+        // NB: fully qualify nb::chamferEdges — the enclosing forge::part::
+        // chamferEdges (this very function) would shadow it via a `using`.
+        namespace nb = ::forge::native::brep;
+        std::vector<double> pos; std::vector<std::uint32_t> idx;
+        nb::tessellateSolid(ShapeRegistry::instance().getNativeSolid(shape), pos, idx);
+        nb::ChamferResult cr = nb::chamferEdges(pos, idx, distance);
+        if (!cr.ok) {
+            throw std::runtime_error(std::string("forge native chamfer: ") +
+                (cr.reason.empty() ? "mesh chamfer failed" : cr.reason));
+        }
+        auto m = std::make_shared<::forge::native::mesh::HalfEdgeMesh>(std::move(cr.mesh));
+        return ShapeRegistry::instance().addNativeMesh(std::move(m));
+    }
+#endif
     const bool asymmetric = distance2 > Precision::Confusion();
     const auto& src = fetch(shape);
     BRepFilletAPI_MakeChamfer mk(src);

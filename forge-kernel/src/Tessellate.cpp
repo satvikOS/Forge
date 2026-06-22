@@ -1,5 +1,12 @@
 #include "forge/Tessellate.hpp"
 
+// IN-HOUSE KERNEL STEP 3a — native tessellation on a native-backed handle behind
+// FORGE_NATIVE_BREP. NativeSolid -> watertight analytic-face tessellation +
+// smooth normals + per-tri faceIds; NativeMesh -> the fillet/chamfer result soup.
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"
+#endif
+
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Tool.hxx>
 #include <Poly_Triangulation.hxx>
@@ -38,6 +45,24 @@ inline void renormalize(float* n) {
 }
 
 Mesh tessellate(ShapeHandle h, double linearTol, double angularTol) {
+#ifdef FORGE_NATIVE_BREP
+    {
+        auto& reg = ShapeRegistry::instance();
+        ShapeKind k = reg.kindOf(h);
+        if (k == ShapeKind::NativeSolid || k == ShapeKind::NativeMesh) {
+            namespace nb = forge::native::brep;
+            nb::NativeTessOut t = (k == ShapeKind::NativeSolid)
+                ? nb::tessellateSolidForViewport(reg.getNativeSolid(h))
+                : nb::tessellateMeshForViewport(reg.getNativeMesh(h));
+            Mesh out;
+            out.positions = std::move(t.positions);
+            out.normals   = std::move(t.normals);
+            out.indices   = std::move(t.indices);
+            out.faceIds   = std::move(t.faceIds);
+            return out;
+        }
+    }
+#endif
     const auto& shape = ShapeRegistry::instance().get(h);
 
     BRepMesh_IncrementalMesh mesher(shape, linearTol, /*isRelative*/ Standard_False,

@@ -1,6 +1,13 @@
 #include "forge/Primitives.hpp"
 #include "forge/Booleans.hpp"   // forge::cut for the hollow tube
 
+// IN-HOUSE KERNEL STEP 3a — route the live primitives through forge::native
+// behind FORGE_NATIVE_BREP (compile gate) + forgeNativeBrepEnabled() (runtime).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"
+#include <memory>
+#endif
+
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
@@ -31,12 +38,33 @@ inline void requirePositive(double v, const char* what) {
                                     " must be > Precision::Confusion (1e-7)");
     }
 }
+
+#ifdef FORGE_NATIVE_BREP
+// Build a native primitive with `fn(factory) -> Solid*` and register it behind a
+// shared owner so the JS handle holds an analytic native B-rep solid. Returns
+// the registry handle — byte-identical (a JS Number) to the OCCT path.
+template <typename Fn>
+ShapeHandle registerNative(Fn&& fn) {
+    using namespace forge::native::brep;
+    auto fac = std::make_shared<SolidFactory>();
+    Solid* s = fn(*fac);
+    // Wrap the factory's builder lifetime: the SolidFactory owns the
+    // TopologyBuilder; we keep the whole factory alive via an aliasing
+    // shared_ptr to its builder so the Solid* stays valid in the registry.
+    std::shared_ptr<TopologyBuilder> owner(fac, &fac->builder());
+    return ShapeRegistry::instance().addNativeSolid(std::move(owner), s);
+}
+#endif
 }
 
 ShapeHandle makeBox(double dx, double dy, double dz) {
     requirePositive(dx, "box.dx");
     requirePositive(dy, "box.dy");
     requirePositive(dz, "box.dz");
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildBox(dx, dy, dz); });
+#endif
     BRepPrimAPI_MakeBox mk(dx, dy, dz);
     return ShapeRegistry::instance().add(mk.Shape());
 }
@@ -44,12 +72,20 @@ ShapeHandle makeBox(double dx, double dy, double dz) {
 ShapeHandle makeCylinder(double r, double h) {
     requirePositive(r, "cylinder.radius");
     requirePositive(h, "cylinder.height");
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildCylinder(r, h); });
+#endif
     BRepPrimAPI_MakeCylinder mk(r, h);
     return ShapeRegistry::instance().add(mk.Shape());
 }
 
 ShapeHandle makeSphere(double r) {
     requirePositive(r, "sphere.radius");
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildSphere(r); });
+#endif
     BRepPrimAPI_MakeSphere mk(r);
     return ShapeRegistry::instance().add(mk.Shape());
 }
@@ -63,6 +99,10 @@ ShapeHandle makeCone(double r1, double r2, double h) {
     if (std::abs(r1 - r2) < Precision::Confusion()) {
         return makeCylinder(r1, h);
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildCone(r1, r2, h); });
+#endif
     BRepPrimAPI_MakeCone mk(r1, r2, h);
     return ShapeRegistry::instance().add(mk.Shape());
 }
@@ -73,6 +113,10 @@ ShapeHandle makeTorus(double R, double r) {
     if (r >= R) {
         throw std::invalid_argument("forge: torus.minorR must be < majorR (self-intersecting otherwise)");
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildTorus(R, r); });
+#endif
     BRepPrimAPI_MakeTorus mk(R, r);
     return ShapeRegistry::instance().add(mk.Shape());
 }
@@ -90,6 +134,10 @@ ShapeHandle makePrism(int n, double R, double h) {
     }
     requirePositive(R, "prism.circumRadius");
     requirePositive(h, "prism.height");
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildPrism(n, R, h); });
+#endif
     BRepBuilderAPI_MakePolygon poly;
     for (int i = 0; i < n; ++i) {
         const double a = 2.0 * M_PI * static_cast<double>(i) / static_cast<double>(n);
@@ -117,6 +165,10 @@ ShapeHandle makeWedge(double dx, double dy, double dz, double ltx) {
     if (ltx < 0.0 || ltx > dx) {
         throw std::invalid_argument("forge: wedge.ltx must be in [0, dx]");
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildWedge(dx, dy, dz, ltx); });
+#endif
     BRepPrimAPI_MakeWedge mk(dx, dy, dz, ltx);
     return ShapeRegistry::instance().add(mk.Shape());
 }
@@ -128,6 +180,10 @@ ShapeHandle makePyramid(double dx, double dy, double h) {
     requirePositive(dx, "pyramid.dx");
     requirePositive(dy, "pyramid.dy");
     requirePositive(h, "pyramid.height");
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildPyramid(dx, dy, h); });
+#endif
     BRepBuilderAPI_MakePolygon base;
     base.Add(gp_Pnt(-dx / 2.0, -dy / 2.0, 0.0));
     base.Add(gp_Pnt(dx / 2.0, -dy / 2.0, 0.0));
@@ -156,6 +212,10 @@ ShapeHandle makeEllipsoid(double rx, double ry, double rz) {
     requirePositive(rx, "ellipsoid.rx");
     requirePositive(ry, "ellipsoid.ry");
     requirePositive(rz, "ellipsoid.rz");
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildEllipsoid(rx, ry, rz); });
+#endif
     BRepPrimAPI_MakeSphere unit(1.0);
     gp_GTrsf g;  // identity; set the linear diagonal (1-indexed rows/cols).
     g.SetValue(1, 1, rx);
@@ -178,6 +238,10 @@ ShapeHandle makeTube(double rO, double rI, double h) {
     if (rI >= rO) {
         throw std::invalid_argument("forge: tube.rInner must be < rOuter");
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return registerNative([&](native::brep::SolidFactory& f){ return f.buildTube(rO, rI, h); });
+#endif
     return cut(makeCylinder(rO, h), makeCylinder(rI, h));
 }
 

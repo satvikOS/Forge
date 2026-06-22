@@ -5,9 +5,38 @@
 #include <gp_Mat.hxx>
 #include <gp_Pnt.hxx>
 
+// IN-HOUSE KERNEL STEP 3a — native mass-properties on a native-backed handle
+// behind FORGE_NATIVE_BREP. NativeSolid -> exact analytic (divergence theorem);
+// NativeMesh (fillet/chamfer result) -> mesh tetra-decomposition (HONEST: a mesh
+// inertia, not analytic).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"
+#include "forge/native/brep/MassProps.hpp"
+#endif
+
 namespace forge {
 
 MassProperties massProperties(ShapeHandle h) {
+#ifdef FORGE_NATIVE_BREP
+    {
+        auto& reg = ShapeRegistry::instance();
+        ShapeKind k = reg.kindOf(h);
+        if (k == ShapeKind::NativeSolid) {
+            forge::native::brep::MassProps mp =
+                forge::native::brep::massProperties(reg.getNativeSolid(h));
+            MassProperties out{mp.volume, mp.area, mp.com[0], mp.com[1], mp.com[2], {}};
+            for (int i = 0; i < 9; ++i) out.inertiaCom[i] = mp.inertiaCom[i];
+            return out;
+        }
+        if (k == ShapeKind::NativeMesh) {
+            forge::native::brep::MeshMassOut mp =
+                forge::native::brep::meshMassProperties(reg.getNativeMesh(h));
+            MassProperties out{mp.volume, mp.area, mp.com[0], mp.com[1], mp.com[2], {}};
+            for (int i = 0; i < 9; ++i) out.inertiaCom[i] = mp.inertiaCom[i];
+            return out;
+        }
+    }
+#endif
     const auto& shape = ShapeRegistry::instance().get(h);
     GProp_GProps volumeProps;
     BRepGProp::VolumeProperties(shape, volumeProps);

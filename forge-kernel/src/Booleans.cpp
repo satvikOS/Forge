@@ -1,6 +1,13 @@
 #include "forge/Booleans.hpp"
 #include "forge/LineageRegistry.hpp"
 
+// IN-HOUSE KERNEL STEP 3a — route fuse/cut/common through the native analytic
+// B-rep boolean (brep::booleanSolid) behind FORGE_NATIVE_BREP + the runtime gate.
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"
+#include <memory>
+#endif
+
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
@@ -155,10 +162,56 @@ ShapeHandle runBoolean(ShapeHandle a, ShapeHandle b, const char* opName) {
   return hOut;
 }
 
+#ifdef FORGE_NATIVE_BREP
+// Route a boolean through brep::booleanSolid when the gate is on and BOTH
+// operands are native analytic solids. Registers the result as a NativeSolid.
+// HONEST FAILURE MODES (never a wrong result):
+//   * a mixed OCCT/native operand pair -> throw (the gate routes primitives +
+//     transforms natively, so both operands should be NativeSolid; a mix means a
+//     caller bypassed the gate, which we surface rather than guess).
+//   * booleanSolid ok==false -> throw with its reason (no silent empty solid).
+//   * usedMeshFallback is honest (the result IS still a closed solid; the flag is
+//     only diagnostic — high-degree SSI deferral, see Boolean.hpp).
+ShapeHandle runNativeBoolean(ShapeHandle a, ShapeHandle b,
+                             native::brep::BoolOp op, const char* opName) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+    if (reg.kindOf(a) != ShapeKind::NativeSolid || reg.kindOf(b) != ShapeKind::NativeSolid) {
+        throw std::runtime_error(std::string("forge native ") + opName +
+            ": both operands must be native analytic solids (mixed OCCT/native "
+            "boolean is not supported by the native path — no silent wrong result)");
+    }
+    BooleanResult r = booleanSolid(reg.getNativeSolid(a), reg.getNativeSolid(b), op);
+    if (!r.ok || !r.solid || !r.owner) {
+        throw std::runtime_error(std::string("forge native ") + opName +
+            ": " + (r.reason ? r.reason : "boolean failed"));
+    }
+    return reg.addNativeSolid(r.owner, r.solid);
+}
+#endif
+
 }  // namespace
 
-ShapeHandle fuse(ShapeHandle a, ShapeHandle b)   { return runBoolean<BRepAlgoAPI_Fuse>(a, b, "fuse"); }
-ShapeHandle cut(ShapeHandle a, ShapeHandle b)    { return runBoolean<BRepAlgoAPI_Cut>(a, b, "cut"); }
-ShapeHandle common(ShapeHandle a, ShapeHandle b) { return runBoolean<BRepAlgoAPI_Common>(a, b, "common"); }
+ShapeHandle fuse(ShapeHandle a, ShapeHandle b) {
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return runNativeBoolean(a, b, native::brep::BoolOp::Fuse, "fuse");
+#endif
+    return runBoolean<BRepAlgoAPI_Fuse>(a, b, "fuse");
+}
+ShapeHandle cut(ShapeHandle a, ShapeHandle b) {
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return runNativeBoolean(a, b, native::brep::BoolOp::Cut, "cut");
+#endif
+    return runBoolean<BRepAlgoAPI_Cut>(a, b, "cut");
+}
+ShapeHandle common(ShapeHandle a, ShapeHandle b) {
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled())
+        return runNativeBoolean(a, b, native::brep::BoolOp::Common, "common");
+#endif
+    return runBoolean<BRepAlgoAPI_Common>(a, b, "common");
+}
 
 }  // namespace forge

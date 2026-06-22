@@ -1,0 +1,368 @@
+// forge/native/brep/NativeRoute.cpp
+//
+// Implementation of the STEP-3a routing layer (NativeRoute.hpp): the runtime
+// gate + transformSolid (the placement-gap fix). Pure C++20, no external deps.
+
+#include "forge/native/brep/NativeRoute.hpp"
+#include "forge/native/brep/Surface.hpp"
+
+#include <atomic>
+#include <cctype>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
+#include <map>
+#include <string>
+#include <tuple>
+#include <vector>
+
+namespace forge {
+namespace native {
+namespace brep {
+
+// ---------------------------------------------------------------------------
+// Runtime gate.
+// ---------------------------------------------------------------------------
+namespace {
+std::atomic<int> g_override{-1}; // -1 = use env; 0 = off; 1 = on
+
+bool readEnvGate() {
+    const char* v = std::getenv("FORGE_NATIVE_BREP");
+    if (!v) return false;
+    std::string s(v);
+    for (auto& c : s) c = static_cast<char>(std::tolower((unsigned char)c));
+    return s == "1" || s == "on" || s == "true" || s == "yes";
+}
+} // namespace
+
+bool forgeNativeBrepEnabled() {
+    int ov = g_override.load(std::memory_order_relaxed);
+    if (ov >= 0) return ov != 0;
+    // Cache the env read once (first call) but still honor a later override.
+    static const bool envOn = readEnvGate();
+    return envOn;
+}
+
+void setForgeNativeBrepEnabled(bool on) {
+    g_override.store(on ? 1 : 0, std::memory_order_relaxed);
+}
+
+// ---------------------------------------------------------------------------
+// transformSolid — rigid clone (the placement-gap fix).
+// ---------------------------------------------------------------------------
+namespace {
+
+inline Vec3 applyRT(const double R[9], const double t[3], const Vec3& p) {
+    return Vec3{
+        R[0] * p.x + R[1] * p.y + R[2] * p.z + t[0],
+        R[3] * p.x + R[4] * p.y + R[5] * p.z + t[1],
+        R[6] * p.x + R[7] * p.y + R[8] * p.z + t[2],
+    };
+}
+
+// Rotate a DIRECTION (no translation) — for Surface axis/refDir frames.
+inline Vec3 applyR(const double R[9], const Vec3& d) {
+    return Vec3{
+        R[0] * d.x + R[1] * d.y + R[2] * d.z,
+        R[3] * d.x + R[4] * d.y + R[5] * d.z,
+        R[6] * d.x + R[7] * d.y + R[8] * d.z,
+    };
+}
+
+inline long long qz(double v, double tol) {
+    return static_cast<long long>(std::llround(v / tol));
+}
+
+} // namespace
+
+Solid* transformSolid(const Solid& src,
+                      const double R[9], const double t[3],
+                      std::shared_ptr<TopologyBuilder>& outOwner) {
+    auto owner = std::make_shared<TopologyBuilder>();
+    Solid* solid = owner->makeSolid();
+    Shell* shell = owner->makeShell();
+    owner->addShellToSolid(solid, shell);
+
+    // Weld transformed vertex positions so shared edges stay shared (the clone
+    // is closed iff the source was). Tolerance matches SolidTessellate's weld.
+    const double weldTol = 1e-9;
+    std::map<std::tuple<long long, long long, long long>, Vertex*> weld;
+    auto vid = [&](const Vec3& p) -> Vertex* {
+        auto key = std::make_tuple(qz(p.x, weldTol), qz(p.y, weldTol), qz(p.z, weldTol));
+        auto it = weld.find(key);
+        if (it != weld.end()) return it->second;
+        Vertex* v = owner->makeVertex(Point3{p.x, p.y, p.z});
+        weld.emplace(key, v);
+        return v;
+    };
+
+    for (Shell* sh : src.shells) {
+        for (Face* sf : sh->faces) {
+            Loop* lp = sf->outerLoop;
+            if (!lp || lp->coedgeCount < 3) continue;
+
+            // Collect + transform the loop's ordered corner vertices.
+            std::vector<Vertex*> ring;
+            ring.reserve(lp->coedgeCount);
+            Coedge* c = lp->first;
+            for (std::size_t i = 0; i < lp->coedgeCount; ++i) {
+                Vertex* o = c->originVertex();
+                Vec3 p = applyRT(R, t, Vec3{o->point.x, o->point.y, o->point.z});
+                ring.push_back(vid(p));
+                c = c->next;
+            }
+
+            Face* nf = owner->makeFace();
+            owner->addFaceToShell(shell, nf);
+            owner->addOuterLoopToFace(nf, ring);
+
+            // Copy + transform the analytic surface frame (rigid: parameterisation
+            // is unchanged, so trim windows / vertexUV / disk radii copy verbatim).
+            if (sf->surface) {
+                Surface* ns = owner->makeSurface();
+                *ns = *sf->surface;  // copy radii, kind, reversed flag, disk annotation
+                ns->origin = applyRT(R, t, sf->surface->origin);
+                ns->axis   = vnorm(applyR(R, sf->surface->axis));
+                ns->refDir = vnorm(applyR(R, sf->surface->refDir));
+                nf->surface = ns;
+            }
+            nf->u0 = sf->u0; nf->u1 = sf->u1;
+            nf->v0 = sf->v0; nf->v1 = sf->v1;
+            nf->vertexUV = sf->vertexUV;
+            nf->paramTri = sf->paramTri;
+        }
+    }
+
+    outOwner = owner;
+    return solid;
+}
+
+// ---------------------------------------------------------------------------
+// tessellateSolidForViewport — Solid -> OCCT viewport contract (Float32 pos +
+// smooth normals + per-tri faceIds). Mirrors src/Tessellate.cpp's smooth-normal
+// accumulation; faceId is the 1-based analytic-Face index in shell/face order.
+// ---------------------------------------------------------------------------
+NativeTessOut tessellateSolidForViewport(const Solid& solid) {
+    NativeTessOut out;
+
+    const double weldTol = 1e-9;
+    std::map<std::tuple<long long, long long, long long>, std::uint32_t> weld;
+    std::vector<double> nx, ny, nz; // double accumulators per welded vertex
+    auto vid = [&](const Vec3& p) -> std::uint32_t {
+        auto key = std::make_tuple(qz(p.x, weldTol), qz(p.y, weldTol), qz(p.z, weldTol));
+        auto it = weld.find(key);
+        if (it != weld.end()) return it->second;
+        std::uint32_t id = static_cast<std::uint32_t>(out.positions.size() / 3);
+        out.positions.push_back(static_cast<float>(p.x));
+        out.positions.push_back(static_cast<float>(p.y));
+        out.positions.push_back(static_cast<float>(p.z));
+        nx.push_back(0.0); ny.push_back(0.0); nz.push_back(0.0);
+        weld.emplace(key, id);
+        return id;
+    };
+
+    std::uint32_t faceId = 0;
+    for (Shell* sh : solid.shells) {
+        for (Face* f : sh->faces) {
+            Loop* lp = f->outerLoop;
+            if (!lp || lp->coedgeCount < 3) continue;
+            ++faceId; // 1-based, contiguous over analytic faces
+
+            std::vector<Vec3> pts;
+            pts.reserve(lp->coedgeCount);
+            Coedge* c = lp->first;
+            for (std::size_t i = 0; i < lp->coedgeCount; ++i) {
+                Vertex* o = c->originVertex();
+                pts.push_back(Vec3{o->point.x, o->point.y, o->point.z});
+                c = c->next;
+            }
+
+            Vec3 refN{0, 0, 0};
+            if (f->surface)
+                refN = f->surface->normalAt(0.5 * (f->u0 + f->u1),
+                                            0.5 * (f->v0 + f->v1));
+
+            std::uint32_t i0 = vid(pts[0]);
+            for (std::size_t k = 1; k + 1 < pts.size(); ++k) {
+                std::uint32_t i1 = vid(pts[k]);
+                std::uint32_t i2 = vid(pts[k + 1]);
+                if (i0 == i1 || i1 == i2 || i0 == i2) continue;
+                Vec3 a = pts[0], b = pts[k], cc = pts[k + 1];
+                Vec3 triN = vcross(vsub(b, a), vsub(cc, a));
+                bool flip = (f->surface && vdot(triN, refN) < 0.0);
+                std::uint32_t t0 = i0, t1 = i1, t2 = i2;
+                if (flip) { std::swap(t1, t2); triN = vscale(triN, -1.0); }
+                out.indices.push_back(t0);
+                out.indices.push_back(t1);
+                out.indices.push_back(t2);
+                out.faceIds.push_back(faceId);
+                // area-weighted face normal accumulated onto the 3 verts
+                nx[t0] += triN.x; ny[t0] += triN.y; nz[t0] += triN.z;
+                nx[t1] += triN.x; ny[t1] += triN.y; nz[t1] += triN.z;
+                nx[t2] += triN.x; ny[t2] += triN.y; nz[t2] += triN.z;
+            }
+        }
+    }
+
+    const std::size_t nv = out.positions.size() / 3;
+    out.normals.resize(3 * nv, 0.0f);
+    for (std::size_t i = 0; i < nv; ++i) {
+        double l = std::sqrt(nx[i] * nx[i] + ny[i] * ny[i] + nz[i] * nz[i]);
+        if (l > 1e-20) {
+            out.normals[3 * i + 0] = static_cast<float>(nx[i] / l);
+            out.normals[3 * i + 1] = static_cast<float>(ny[i] / l);
+            out.normals[3 * i + 2] = static_cast<float>(nz[i] / l);
+        } else {
+            out.normals[3 * i + 2] = 1.0f;
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// tessellateMeshForViewport — fillet/chamfer RESULT mesh -> viewport contract.
+// faceId = mesh face index + 1 (no analytic-face grouping for a mesh result).
+// ---------------------------------------------------------------------------
+NativeTessOut tessellateMeshForViewport(const mesh::HalfEdgeMesh& m) {
+    NativeTessOut out;
+    std::vector<double> pos;
+    std::vector<std::uint32_t> idx;
+    m.toSoup(pos, idx);
+
+    const std::size_t nv = pos.size() / 3;
+    out.positions.resize(pos.size());
+    for (std::size_t i = 0; i < pos.size(); ++i)
+        out.positions[i] = static_cast<float>(pos[i]);
+
+    std::vector<double> nx(nv, 0.0), nyv(nv, 0.0), nz(nv, 0.0);
+    out.indices.reserve(idx.size());
+    out.faceIds.reserve(idx.size() / 3);
+    for (std::size_t f = 0; f + 2 < idx.size(); f += 3) {
+        std::uint32_t a = idx[f], b = idx[f + 1], cc = idx[f + 2];
+        out.indices.push_back(a);
+        out.indices.push_back(b);
+        out.indices.push_back(cc);
+        out.faceIds.push_back(static_cast<std::uint32_t>(f / 3) + 1);
+        Vec3 pa{pos[3*a], pos[3*a+1], pos[3*a+2]};
+        Vec3 pb{pos[3*b], pos[3*b+1], pos[3*b+2]};
+        Vec3 pc{pos[3*cc], pos[3*cc+1], pos[3*cc+2]};
+        Vec3 nn = vcross(vsub(pb, pa), vsub(pc, pa));
+        nx[a] += nn.x; nyv[a] += nn.y; nz[a] += nn.z;
+        nx[b] += nn.x; nyv[b] += nn.y; nz[b] += nn.z;
+        nx[cc] += nn.x; nyv[cc] += nn.y; nz[cc] += nn.z;
+    }
+    out.normals.resize(3 * nv, 0.0f);
+    for (std::size_t i = 0; i < nv; ++i) {
+        double l = std::sqrt(nx[i]*nx[i] + nyv[i]*nyv[i] + nz[i]*nz[i]);
+        if (l > 1e-20) {
+            out.normals[3*i+0] = static_cast<float>(nx[i] / l);
+            out.normals[3*i+1] = static_cast<float>(nyv[i] / l);
+            out.normals[3*i+2] = static_cast<float>(nz[i] / l);
+        } else {
+            out.normals[3*i+2] = 1.0f;
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// meshMassProperties — volume / area / COM / inertia(about COM) of a closed
+// triangle mesh via signed-tetra decomposition from the origin. Unit density.
+// HONEST: the inertia of a fillet/chamfer RESULT mesh, not an analytic tensor.
+// ---------------------------------------------------------------------------
+MeshMassOut meshMassProperties(const mesh::HalfEdgeMesh& m) {
+    MeshMassOut out;
+    std::vector<double> pos;
+    std::vector<std::uint32_t> idx;
+    m.toSoup(pos, idx);
+
+    // Origin-tetra accumulation of the volume integrals. Standard formulae
+    // (Eberly / Mirtich) for the polyhedron mass tensor at unit density.
+    double vol = 0.0;
+    double mx = 0.0, my = 0.0, mz = 0.0;            // first moments * 6 -> handled below
+    // Second moments accumulators (about the ORIGIN): integrals of x^2, y^2, z^2,
+    // xy, yz, zx over the solid volume.
+    double ixx = 0, iyy = 0, izz = 0, ixy = 0, iyz = 0, izx = 0;
+    double area = 0.0;
+
+    for (std::size_t f = 0; f + 2 < idx.size(); f += 3) {
+        const std::uint32_t ia = idx[f], ib = idx[f + 1], ic = idx[f + 2];
+        const Vec3 a{pos[3*ia], pos[3*ia+1], pos[3*ia+2]};
+        const Vec3 b{pos[3*ib], pos[3*ib+1], pos[3*ib+2]};
+        const Vec3 c{pos[3*ic], pos[3*ic+1], pos[3*ic+2]};
+
+        // signed volume of tetra (O,a,b,c) = det[a b c]/6
+        const double det =
+            a.x * (b.y * c.z - b.z * c.y)
+          - a.y * (b.x * c.z - b.z * c.x)
+          + a.z * (b.x * c.y - b.y * c.x);
+        const double vTet = det / 6.0;
+        vol += vTet;
+
+        // surface area of the triangle
+        Vec3 cr = vcross(vsub(b, a), vsub(c, a));
+        area += 0.5 * std::sqrt(cr.x*cr.x + cr.y*cr.y + cr.z*cr.z);
+
+        // centroid of the tetra (O,a,b,c) is (a+b+c)/4
+        mx += vTet * (a.x + b.x + c.x) / 4.0;
+        my += vTet * (a.y + b.y + c.y) / 4.0;
+        mz += vTet * (a.z + b.z + c.z) / 4.0;
+
+        // Second moments of the tetra (O,a,b,c) about the ORIGIN, unit density.
+        // For a tetra with one vertex at the origin and the others p1,p2,p3,
+        // ∫ x_i x_j dV = (vTet/20) * ( Σ_k p_k.i p_k.j + (Σ p_k.i)(Σ p_k.j) ).
+        auto sec = [&](double a0, double a1, double a2,
+                       double b0, double b1, double b2) {
+            const double sumA = a0 + a1 + a2;
+            const double sumB = b0 + b1 + b2;
+            return (vTet / 20.0) *
+                   (a0*b0 + a1*b1 + a2*b2 + sumA * sumB);
+        };
+        const double Ixx = sec(a.x, b.x, c.x, a.x, b.x, c.x);
+        const double Iyy = sec(a.y, b.y, c.y, a.y, b.y, c.y);
+        const double Izz = sec(a.z, b.z, c.z, a.z, b.z, c.z);
+        const double Ixy = sec(a.x, b.x, c.x, a.y, b.y, c.y);
+        const double Iyz = sec(a.y, b.y, c.y, a.z, b.z, c.z);
+        const double Izx = sec(a.z, b.z, c.z, a.x, b.x, c.x);
+        ixx += Ixx; iyy += Iyy; izz += Izz;
+        ixy += Ixy; iyz += Iyz; izx += Izx;
+    }
+
+    out.volume = vol;
+    out.area = area;
+    if (std::abs(vol) < 1e-300) return out;
+
+    const double cx = mx / vol, cy = my / vol, cz = mz / vol;
+    out.com[0] = cx; out.com[1] = cy; out.com[2] = cz;
+
+    // Inertia tensor about the ORIGIN (mass moments):
+    //   Ixx = ∫(y^2+z^2), Iyy = ∫(x^2+z^2), Izz = ∫(x^2+y^2)
+    //   Ixy = -∫xy, etc.
+    double Oxx = iyy + izz;
+    double Oyy = ixx + izz;
+    double Ozz = ixx + iyy;
+    double Oxy = -ixy;
+    double Oyz = -iyz;
+    double Ozx = -izx;
+
+    // Parallel-axis shift to the COM (mass == vol at unit density). With
+    //   I_xx^O = I_xx^G + m*(cy^2+cz^2)   ->   I_xx^G = I_xx^O - m*(cy^2+cz^2)
+    //   I_xy^O = I_xy^G - m*cx*cy         ->   I_xy^G = I_xy^O + m*cx*cy
+    // (I_xy = -∫xy, so the product-of-inertia shift adds +m*cx*cy at the COM.)
+    const double mtot = vol;
+    Oxx -= mtot * (cy*cy + cz*cz);
+    Oyy -= mtot * (cx*cx + cz*cz);
+    Ozz -= mtot * (cx*cx + cy*cy);
+    Oxy += mtot * (cx*cy);
+    Oyz += mtot * (cy*cz);
+    Ozx += mtot * (cz*cx);
+
+    out.inertiaCom[0] = Oxx; out.inertiaCom[1] = Oxy; out.inertiaCom[2] = Ozx;
+    out.inertiaCom[3] = Oxy; out.inertiaCom[4] = Oyy; out.inertiaCom[5] = Oyz;
+    out.inertiaCom[6] = Ozx; out.inertiaCom[7] = Oyz; out.inertiaCom[8] = Ozz;
+    return out;
+}
+
+} // namespace brep
+} // namespace native
+} // namespace forge
