@@ -491,6 +491,100 @@ Matrix<T> HouseholderQR<T>::matrixQ() const {
 }
 
 // ===========================================================================
+// ColPivHouseholderQR — rank-revealing Householder QR with column pivoting.
+// A P = Q R with non-increasing |R_ii|; solve() returns the basic solution.
+// ===========================================================================
+template <class T>
+void ColPivHouseholderQR<T>::compute(const Matrix<T>& A) {
+    using Real = typename ScalarTraits<T>::Real;
+    const std::size_t m = A.rows(), n = A.cols();
+    m_ = m; n_ = n; ok_ = true; rank_ = 0;
+    qr_ = A;
+    beta_.assign(n, T(0));
+    v0_.assign(n, T(0));
+    perm_.resize(n);
+    for (std::size_t j = 0; j < n; ++j) perm_[j] = j;
+
+    std::vector<Real> colnorm(n, Real(0));
+    for (std::size_t j = 0; j < n; ++j) {
+        Real s = 0; for (std::size_t i = 0; i < m; ++i) { Real a = absT(qr_(i, j)); s += a * a; }
+        colnorm[j] = s;
+    }
+
+    const std::size_t p = (m < n) ? m : n;
+    Real tol = Real(0);
+    for (std::size_t k = 0; k < p; ++k) {
+        // pivot: active column k..n-1 with the largest remaining norm
+        std::size_t c = k; Real best = colnorm[k];
+        for (std::size_t j = k + 1; j < n; ++j) if (colnorm[j] > best) { best = colnorm[j]; c = j; }
+        if (c != k) {
+            for (std::size_t i = 0; i < m; ++i) std::swap(qr_(i, k), qr_(i, c));
+            std::swap(perm_[k], perm_[c]);
+            std::swap(colnorm[k], colnorm[c]);
+        }
+        // Householder reflector zeroing qr_(k+1..m-1, k)
+        Real normx = 0; for (std::size_t i = k; i < m; ++i) { Real a = absT(qr_(i, k)); normx += a * a; }
+        normx = std::sqrt(normx);
+        if (normx == Real(0)) { beta_[k] = T(0); v0_[k] = T(0); continue; }
+        T x0 = qr_(k, k); Real ax0 = absT(x0);
+        T phase = (ax0 > Real(0)) ? (x0 / T(ax0)) : T(1);
+        T alpha = -phase * T(normx);
+        T v0 = x0 - alpha;
+        Real vnorm2 = absT(v0) * absT(v0);
+        for (std::size_t i = k + 1; i < m; ++i) { Real a = absT(qr_(i, k)); vnorm2 += a * a; }
+        if (vnorm2 == Real(0)) { beta_[k] = T(0); v0_[k] = T(0); continue; }
+        T beta = T(2) / T(vnorm2); beta_[k] = beta; v0_[k] = v0;
+        std::vector<T> v(m, T(0)); v[k] = v0;
+        for (std::size_t i = k + 1; i < m; ++i) v[i] = qr_(i, k);
+        for (std::size_t j = k; j < n; ++j) {
+            T s = T(0); for (std::size_t i = k; i < m; ++i) s += ScalarTraits<T>::conj(v[i]) * qr_(i, j);
+            T bs = beta * s;
+            for (std::size_t i = k; i < m; ++i) qr_(i, j) -= bs * v[i];
+        }
+        for (std::size_t i = k + 1; i < m; ++i) qr_(i, k) = v[i];
+        qr_(k, k) = alpha;
+        // rank threshold relative to the first (largest) pivot
+        Real adiag = absT(alpha);
+        if (k == 0) tol = adiag * std::numeric_limits<Real>::epsilon() *
+                          Real((m > n ? m : n)) * Real(16);
+        if (adiag > tol) rank_ = k + 1;
+        // downdate the remaining active column norms
+        for (std::size_t j = k + 1; j < n; ++j) {
+            Real a = absT(qr_(k, j));
+            colnorm[j] -= a * a;
+            if (colnorm[j] < Real(0)) colnorm[j] = Real(0);
+        }
+    }
+}
+
+template <class T>
+std::vector<T> ColPivHouseholderQR<T>::solve(const std::vector<T>& b) const {
+    const std::size_t m = m_, n = n_;
+    const std::size_t p = (m < n) ? m : n;
+    std::vector<T> y(b);  // becomes Qᴴ b
+    for (std::size_t k = 0; k < p; ++k) {
+        if (absT(beta_[k]) == 0) continue;
+        std::vector<T> v(m, T(0)); v[k] = v0_[k];
+        for (std::size_t i = k + 1; i < m; ++i) v[i] = qr_(i, k);
+        T s = T(0); for (std::size_t i = k; i < m; ++i) s += ScalarTraits<T>::conj(v[i]) * y[i];
+        T bs = beta_[k] * s;
+        for (std::size_t i = k; i < m; ++i) y[i] -= bs * v[i];
+    }
+    // back-substitute the leading rank×rank block of R; free columns stay 0
+    std::vector<T> z(n, T(0));
+    for (std::size_t ii = 0; ii < rank_; ++ii) {
+        std::size_t i = rank_ - 1 - ii;
+        T s = y[i];
+        for (std::size_t j = i + 1; j < rank_; ++j) s -= qr_(i, j) * z[j];
+        z[i] = s / qr_(i, i);
+    }
+    // un-permute: x[perm_[k]] = z[k]
+    std::vector<T> x(n, T(0));
+    for (std::size_t k = 0; k < n; ++k) x[perm_[k]] = z[k];
+    return x;
+}
+
+// ===========================================================================
 // SymmetricEigen — Householder tridiagonalization + implicit-shift QL
 // (Numerical Recipes tred2 + tqli, adapted), eigenvectors accumulated, sorted.
 // ===========================================================================
@@ -938,6 +1032,8 @@ template class LLT<std::complex<double>>;
 template class LDLT<double>;
 template class HouseholderQR<double>;
 template class HouseholderQR<std::complex<double>>;
+template class ColPivHouseholderQR<double>;
+template class ColPivHouseholderQR<std::complex<double>>;
 template class SparseCSR<double>;
 template class SparseCSR<std::complex<double>>;
 

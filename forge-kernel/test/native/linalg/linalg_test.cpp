@@ -555,6 +555,61 @@ int main() {
         check(crossErr < 1e-12, "Ext: SparseLU matches dense LU of the same system");
     }
 
+    // =======================================================================
+    // 10. ColPivHouseholderQR — rank-revealing dense QR (the PlaneGCS prereq).
+    // =======================================================================
+    {
+        // (a) full-rank overdetermined least-squares vs a known polynomial fit.
+        const std::size_t m = 8, n = 3;
+        MatrixD A(m, n);
+        std::vector<double> xtrue{1.5, -2.0, 0.75};
+        std::vector<double> b(m, 0.0);
+        for (std::size_t i = 0; i < m; ++i) {
+            double t = 0.2 + 0.3 * static_cast<double>(i);
+            A(i, 0) = 1.0; A(i, 1) = t; A(i, 2) = t * t;
+            for (std::size_t j = 0; j < n; ++j) b[i] += A(i, j) * xtrue[j];
+        }
+        ColPivHouseholderQR<double> qr(A);
+        std::vector<double> x = qr.solve(b);
+        double err = 0.0; for (std::size_t j = 0; j < n; ++j) err = std::max(err, std::abs(x[j] - xtrue[j]));
+        check(qr.rank() == n, "ColPivQR: full column rank detected");
+        check(err < 1e-9, "ColPivQR: least-squares recovers known coefficients");
+
+        // (b) square nonsingular exact solve.
+        MatrixD S(3, 3);
+        S(0,0)=4; S(0,1)=1; S(0,2)=2; S(1,0)=1; S(1,1)=5; S(1,2)=0; S(2,0)=2; S(2,1)=0; S(2,2)=3;
+        std::vector<double> xs{2, -1, 3}, bs(3, 0.0);
+        for (std::size_t i = 0; i < 3; ++i) for (std::size_t j = 0; j < 3; ++j) bs[i] += S(i, j) * xs[j];
+        ColPivHouseholderQR<double> qs(S);
+        std::vector<double> sol = qs.solve(bs);
+        double serr = 0.0; for (std::size_t i = 0; i < 3; ++i) serr = std::max(serr, std::abs(sol[i] - xs[i]));
+        check(qs.rank() == 3, "ColPivQR: nonsingular 3x3 full rank");
+        check(serr < 1e-12, "ColPivQR: square exact solve");
+
+        // (c) rank-deficient: col2 = 2·col0 ⇒ rank 2; solve stays finite (basic soln).
+        MatrixD Rd(4, 3);
+        for (std::size_t i = 0; i < 4; ++i) { double t = 1.0 + static_cast<double>(i); Rd(i,0)=t; Rd(i,1)=t*t; Rd(i,2)=2.0*t; }
+        std::vector<double> rb{3, 5, 7, 9};
+        ColPivHouseholderQR<double> qd(Rd);
+        std::vector<double> rx = qd.solve(rb);
+        bool finite = true; for (double v : rx) if (!std::isfinite(v)) finite = false;
+        check(qd.rank() == 2, "ColPivQR: rank-deficient (col2=2·col0) detects rank 2");
+        check(finite, "ColPivQR: rank-deficient basic solution is finite");
+
+        double errEigen = -1.0;
+#ifdef FORGE_LINALG_ORACLE
+        Eigen::MatrixXd Ae(m, n); Eigen::VectorXd be(m);
+        for (std::size_t i = 0; i < m; ++i) { be(i) = b[i]; for (std::size_t j = 0; j < n; ++j) Ae(i, j) = A(i, j); }
+        Eigen::VectorXd xe = Ae.colPivHouseholderQr().solve(be);
+        errEigen = 0.0; for (std::size_t j = 0; j < n; ++j) errEigen = std::max(errEigen, std::abs(x[j] - xe(j)));
+#endif
+        std::printf("[ColPivQR] ls_err=%.3e square_err=%.3e rankdef=%zu eigen_err=%.3e\n",
+                    err, serr, qd.rank(), errEigen);
+#ifdef FORGE_LINALG_ORACLE
+        check(errEigen < 1e-9, "ColPivQR: full-rank solve matches Eigen colPivHouseholderQr");
+#endif
+    }
+
     std::printf("RESULT: %d / %d passed\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
 }

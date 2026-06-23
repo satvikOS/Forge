@@ -407,6 +407,32 @@ private:
 };
 
 // ===========================================================================
+// ColPivHouseholderQR — RANK-REVEALING Householder QR with column pivoting:
+// A P = Q R, |R₀₀| ≥ |R₁₁| ≥ … . solve() returns the basic least-squares solution
+// (free columns set to 0) for square / over- / under-determined AND rank-deficient
+// A — the robust dense QR the geometric-constraint solver needs.
+//   <- Eigen ColPivHouseholderQR / FullPivHouseholderQR  (PlaneGCS DogLeg/LM/SQP;
+//      also lets AssemblySolver drop its dense-normal-equations workaround)
+// ===========================================================================
+template <class T>
+class ColPivHouseholderQR {
+public:
+    ColPivHouseholderQR() = default;
+    explicit ColPivHouseholderQR(const Matrix<T>& A) { compute(A); }
+    void compute(const Matrix<T>& A);
+    bool ok() const { return ok_; }
+    std::size_t rank() const { return rank_; }     // numerical rank (pivot threshold)
+    std::vector<T> solve(const std::vector<T>& b) const;  // basic min-residual solution
+
+private:
+    Matrix<T> qr_;                     // R on/above diag, reflectors below
+    std::vector<T> beta_, v0_;         // reflector scales + leading components
+    std::vector<std::size_t> perm_;    // column k of qr_ == column perm_[k] of A
+    std::size_t m_ = 0, n_ = 0, rank_ = 0;
+    bool ok_ = false;
+};
+
+// ===========================================================================
 // SymmetricEigen — real symmetric dense eigensolver. Householder
 // tridiagonalization -> implicit-shift QL with Wilkinson shift, eigenvectors
 // accumulated. Eigenvalues ASCENDING, eigenvectors orthonormal (columns of V).
