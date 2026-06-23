@@ -304,8 +304,15 @@ template <class T>
 class LU {
 public:
     LU() = default;
-    explicit LU(const Matrix<T>& A, bool fullPivot = true) { compute(A, fullPivot); }
-    void compute(const Matrix<T>& A, bool fullPivot = true);
+    explicit LU(const Matrix<T>& A, bool fullPivot = true, bool rankRevealing = true) {
+        compute(A, fullPivot, rankRevealing);
+    }
+    // rankRevealing=true (default): a pivot below maxA·eps·n·16 marks the matrix
+    // numerically singular (correct for rank queries on general matrices).
+    // rankRevealing=false: only a near-exact-zero pivot (maxA·1e-30) marks it
+    // singular — the LAPACK/Eigen-SparseLU posture for factoring a well-posed but
+    // wide-dynamic-range system (e.g. a penalty-method FE matrix spanning 1e9..1e20).
+    void compute(const Matrix<T>& A, bool fullPivot = true, bool rankRevealing = true);
 
     bool ok() const { return ok_; }
     std::size_t rank() const { return rank_; }

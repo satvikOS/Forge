@@ -8,9 +8,7 @@
 #include <TopoDS_Shape.hxx>
 #include <gp_Pnt.hxx>
 
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
-#include <Eigen/Eigenvalues>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <array>
@@ -19,9 +17,31 @@
 #include <stdexcept>
 #include <vector>
 
+namespace la = forge::native::linalg;
+
 namespace forge::fea {
 
 namespace {
+
+// ----------------------------------------------------------- dense helpers
+//
+// The in-house la::MatrixD has no Matrix*scalar operator and no in-place
+// scaled-accumulate (Eigen's `A * w` and `C.noalias() += X * w`). These tiny
+// helpers replicate exactly those operations element-wise so the assembled
+// numerics are identical to the prior Eigen expressions. `matScale(A, w)`
+// returns A*w; `addScaled(dst, src, w)` performs dst += src*w in place.
+inline la::MatrixD matScale(const la::MatrixD& A, double w) {
+    la::MatrixD R(A.rows(), A.cols());
+    for (std::size_t i = 0; i < A.rows(); ++i)
+        for (std::size_t j = 0; j < A.cols(); ++j)
+            R(i, j) = A(i, j) * w;
+    return R;
+}
+inline void addScaled(la::MatrixD& dst, const la::MatrixD& src, double w) {
+    for (std::size_t i = 0; i < dst.rows(); ++i)
+        for (std::size_t j = 0; j < dst.cols(); ++j)
+            dst(i, j) += src(i, j) * w;
+}
 
 // ---------------------------------------------------------------- hex element
 //
@@ -131,9 +151,8 @@ inline void inv3(const double J[3][3], double Ji[3][3], double det) {
 
 // ---- material matrix (3D isotropic linear elasticity) ----
 // D is 6×6 in Voigt form (σ_xx, σ_yy, σ_zz, σ_xy, σ_yz, σ_xz).
-Eigen::Matrix<double, 6, 6> buildD(const Material& mat) {
-    Eigen::Matrix<double, 6, 6> D;
-    D.setZero();
+la::MatrixD buildD(const Material& mat) {
+    la::MatrixD D(6, 6);  // zero-initialised
     const double lam = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
     const double mu  = mat.E / (2 * (1 + mat.nu));
     for (int i = 0; i < 3; ++i)
@@ -164,7 +183,7 @@ Eigen::Matrix<double, 6, 6> buildD(const Material& mat) {
 //   positive-definite, which the GeneralizedSelfAdjointEigenSolver (Ax_lBx,
 //   Cholesky on M) requires.
 // Fill the compatible 6×24 strain-displacement matrix Bc from dN/dx (8×3).
-inline void fillBc(const double dNx[8][3], Eigen::Matrix<double, 6, 24>& B) {
+inline void fillBc(const double dNx[8][3], la::MatrixD& B) {
     B.setZero();
     for (int i = 0; i < 8; ++i) {
         const int c = 3 * i;
@@ -182,7 +201,7 @@ inline void fillBc(const double dNx[8][3], Eigen::Matrix<double, 6, 24>& B) {
 
 // Fill the incompatible 6×9 strain-displacement matrix Bi from dP/dx (3×3).
 // Column block m (m=0,1,2) holds the x,y,z DOFs of incompatible mode P_m.
-inline void fillBi(const double dPx[3][3], Eigen::Matrix<double, 6, 9>& Bi) {
+inline void fillBi(const double dPx[3][3], la::MatrixD& Bi) {
     Bi.setZero();
     for (int m = 0; m < 3; ++m) {
         const int c = 3 * m;
@@ -203,7 +222,7 @@ inline void fillBi(const double dPx[3][3], Eigen::Matrix<double, 6, 9>& Bi) {
 // plus the centre Jacobian inverse + det used to map the incompatible natural
 // derivatives to physical space (Taylor's centre-point correction).
 struct IncompatOps {
-    Eigen::Matrix<double, 9, 24> T;        // α = T · d_compatible
+    la::MatrixD T{9, 24};                   // α = T · d_compatible
     double Ji0[3][3];                       // J(0)⁻¹  (element centre)
     double detJ0;                           // det J(0)
     bool   valid = false;
@@ -240,11 +259,11 @@ struct IncompatOps {
 // are quasi-static internal DOFs), so the inertia distribution stays consistent
 // with the displacement interpolation and is SPD for the Ax_lBx Cholesky.
 void buildElement(const double nodeCoords[8][3],
-                  const Eigen::Matrix<double, 6, 6>& D,
+                  const la::MatrixD& D,
                   double rho,
-                  Eigen::Matrix<double, 24, 24>& Ke,
+                  la::MatrixD& Ke,
                   std::array<double, 24>& Me_diag,
-                  Eigen::Matrix<double, 24, 24>& Me_consistent,
+                  la::MatrixD& Me_consistent,
                   IncompatOps* incompat = nullptr) {
     Ke.setZero();
     Me_diag.fill(0);
@@ -263,13 +282,13 @@ void buildElement(const double nodeCoords[8][3],
     double Ji0[3][3];
     inv3(J0, Ji0, detJ0);
 
-    Eigen::Matrix<double, 24, 24> Kcc; Kcc.setZero();
-    Eigen::Matrix<double, 24,  9> Kci; Kci.setZero();
-    Eigen::Matrix<double,  9,  9> Kii; Kii.setZero();
+    la::MatrixD Kcc(24, 24);  // zero-initialised
+    la::MatrixD Kci(24,  9);
+    la::MatrixD Kii( 9,  9);
 
     double elemVolume = 0;
     // Accumulate the 8×8 nodal consistent-mass blocks Mnn(a,b) = ρ∫N_a N_b dV.
-    Eigen::Matrix<double, 8, 8> Mnn = Eigen::Matrix<double, 8, 8>::Zero();
+    la::MatrixD Mnn(8, 8);  // zero-initialised
     for (int g = 0; g < GAUSS_COUNT; ++g) {
         const auto& gp = kGauss[g];
         double dN[8][3];
@@ -295,7 +314,7 @@ void buildElement(const double nodeCoords[8][3],
 
         // Build compatible B: 6 × 24.
         // Voigt layout: rows = [εxx, εyy, εzz, γxy, γyz, γxz]
-        Eigen::Matrix<double, 6, 24> B;
+        la::MatrixD B(6, 24);
         fillBc(dNx, B);
 
         // Build incompatible Bi: 6 × 9. Taylor's correction: map the natural
@@ -311,16 +330,16 @@ void buildElement(const double nodeCoords[8][3],
                 for (int k = 0; k < 3; ++k) s += dP[m][k] * Ji0[k][j];
                 dPx[m][j] = s;
             }
-        Eigen::Matrix<double, 6, 9> Bi;
+        la::MatrixD Bi(6, 9);
         fillBi(dPx, Bi);
 
         const double w  = gp.w * det;       // compatible quadrature weight
         const double wi = gp.w * detJ0;     // incompatible weight (centre detJ)
-        Kcc.noalias() += B.transpose()  * D * B  * w;
+        addScaled(Kcc, B.transpose()  * D * B,  w);
         // Cross + internal blocks use the consistent incompatible weight wi so
         // the patch test holds on distorted (here, perfectly regular) bricks.
-        Kci.noalias() += B.transpose()  * D * Bi * wi;
-        Kii.noalias() += Bi.transpose() * D * Bi * wi;
+        addScaled(Kci, B.transpose()  * D * Bi, wi);
+        addScaled(Kii, Bi.transpose() * D * Bi, wi);
         elemVolume += w;
 
         // Consistent-mass quadrature: accumulate ρ·N_a·N_b·detJ·w_g.
@@ -336,12 +355,13 @@ void buildElement(const double nodeCoords[8][3],
     // Static condensation of the 9 internal incompatible DOFs:
     //   Ke = Kcc - Kci · Kii⁻¹ · Kciᵀ.
     // Kii is SPD (∫ Biᵀ D Bi with D SPD and Bi full-rank), so LLT is stable.
-    Eigen::LLT<Eigen::Matrix<double, 9, 9>> llt(Kii);
-    if (llt.info() == Eigen::Success) {
-        Eigen::Matrix<double, 9, 24> KiiInvKic = llt.solve(Kci.transpose());
-        Ke.noalias() = Kcc - Kci * KiiInvKic;
+    la::LLT<double> llt(Kii);
+    if (llt.ok()) {
+        la::MatrixD KiiInvKic = llt.solve(Kci.transpose());
+        Ke = Kcc - Kci * KiiInvKic;
         if (incompat) {
-            incompat->T = -KiiInvKic;        // α = -Kii⁻¹·Kicᵀ · d
+            // T = -Kii⁻¹·Kicᵀ · d
+            incompat->T = matScale(KiiInvKic, -1.0);
             for (int r = 0; r < 3; ++r)
                 for (int c = 0; c < 3; ++c) incompat->Ji0[r][c] = Ji0[r][c];
             incompat->detJ0 = detJ0;
@@ -378,9 +398,9 @@ void buildElement(const double nodeCoords[8][3],
 // (∂(1-ξ²)/∂ξ = -2ξ = 0 at ξ=0), so Bi(centre)=0 and the bubble contribution to
 // the *centroidal* stress is zero — but evaluating it explicitly keeps the path
 // correct if the sampling point is ever moved off-centre, and documents intent.
-Eigen::Matrix<double, 6, 1> elementStress(
+std::vector<double> elementStress(
     const double nodeCoords[8][3],
-    const Eigen::Matrix<double, 6, 6>& D,
+    const la::MatrixD& D,
     const std::array<double, 24>& uElem,
     const IncompatOps* incompat = nullptr)
 {
@@ -399,11 +419,11 @@ Eigen::Matrix<double, 6, 1> elementStress(
             for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
             dNx[i][j] = s;
         }
-    Eigen::Matrix<double, 6, 24> B;
+    la::MatrixD B(6, 24);
     fillBc(dNx, B);
-    Eigen::Matrix<double, 24, 1> ue;
-    for (int i = 0; i < 24; ++i) ue(i) = uElem[i];
-    Eigen::Matrix<double, 6, 1> eps = B * ue;
+    std::vector<double> ue(24);
+    for (int i = 0; i < 24; ++i) ue[i] = uElem[i];
+    std::vector<double> eps = B * ue;
 
     if (incompat && incompat->valid) {
         // Incompatible derivatives at the centroid, mapped via the centre
@@ -418,17 +438,17 @@ Eigen::Matrix<double, 6, 1> elementStress(
                 for (int k = 0; k < 3; ++k) s += dP[m][k] * incompat->Ji0[k][j];
                 dPx[m][j] = s;
             }
-        Eigen::Matrix<double, 6, 9> Bi;
+        la::MatrixD Bi(6, 9);
         fillBi(dPx, Bi);
-        Eigen::Matrix<double, 9, 1> alpha = incompat->T * ue;
-        eps.noalias() += Bi * alpha;
+        std::vector<double> alpha = incompat->T * ue;
+        la::vaxpy(eps, 1.0, Bi * alpha);    // eps += Bi * alpha
     }
     return D * eps;
 }
 
-inline double vonMisesFromVoigt(const Eigen::Matrix<double, 6, 1>& s) {
-    const double sx = s(0), sy = s(1), sz = s(2);
-    const double txy = s(3), tyz = s(4), txz = s(5);
+inline double vonMisesFromVoigt(const std::vector<double>& s) {
+    const double sx = s[0], sy = s[1], sz = s[2];
+    const double txy = s[3], tyz = s[4], txz = s[5];
     const double dxy = sx - sy;
     const double dyz = sy - sz;
     const double dxz = sx - sz;
@@ -440,16 +460,26 @@ inline double vonMisesFromVoigt(const Eigen::Matrix<double, 6, 1>& s) {
 //
 // Assemble K and lumped M for the whole mesh. `dofMap` is identity
 // (3*nodeId + axis); we only collapse it during the BC-elimination step.
+//
+// la::SparseCSR is assembled once from triplets and exposes no post-assembly
+// mutation API (no InnerIterator / valueRef / coeffRef / prune that Eigen's
+// SparseMatrix offered). The BC-elimination step (applyPinnedBCs) therefore
+// operates on the RAW TRIPLET lists, which we retain here, and rebuilds the CSR
+// from the filtered triplets. setFromTriplets sums duplicates exactly as the
+// element scatter did, so the assembled matrix is numerically identical to the
+// prior Eigen path; we keep the assembled CSR here too for the no-BC consumers.
 struct AssembledSystem {
-    Eigen::SparseMatrix<double> K;
-    Eigen::VectorXd             Mdiag;       // lumped mass vector (full DOF length)
-    Eigen::SparseMatrix<double> Mconsistent; // full consistent mass (only when requested)
-    bool                        hasConsistent = false;
-    std::size_t                 nDof;
+    la::SparseCSR<double>          K;
+    std::vector<la::Triplet<double>> kTrips;       // raw stiffness triplets (for BCs)
+    std::vector<double>            Mdiag;          // lumped mass vector (full DOF length)
+    la::SparseCSR<double>          Mconsistent;    // full consistent mass (only when requested)
+    std::vector<la::Triplet<double>> mTrips;       // raw consistent-mass triplets (for BCs)
+    bool                           hasConsistent = false;
+    std::size_t                    nDof;
     // Per-element incompatible-mode recovery operators (one per element, same
     // order as mesh.tets). Populated only when `withIncompatOps` is requested
     // (the static/dynamic stress-recovery paths); empty otherwise.
-    std::vector<IncompatOps>    incompat;
+    std::vector<IncompatOps>       incompat;
 };
 
 // `withConsistentMass`: when true, additionally assemble the global consistent
@@ -462,20 +492,18 @@ AssembledSystem assemble(const Mesh& mesh, const Material& mat,
     const std::size_t nElems = mesh.tets.size() / mesh.elemNodeCount;
     const std::size_t nDof   = 3 * nNodes;
 
-    Eigen::Matrix<double, 6, 6> D = buildD(mat);
+    la::MatrixD D = buildD(mat);
 
     AssembledSystem sys;
-    sys.K.resize(static_cast<int>(nDof), static_cast<int>(nDof));
-    sys.Mdiag = Eigen::VectorXd::Zero(static_cast<int>(nDof));
+    sys.Mdiag.assign(nDof, 0.0);
     sys.nDof  = nDof;
     sys.hasConsistent = withConsistentMass;
     if (withIncompatOps) sys.incompat.resize(nElems);
 
-    std::vector<Eigen::Triplet<double>> trips;
+    std::vector<la::Triplet<double>>& trips = sys.kTrips;
     trips.reserve(nElems * 24 * 24);
-    std::vector<Eigen::Triplet<double>> mTrips;
+    std::vector<la::Triplet<double>>& mTrips = sys.mTrips;
     if (withConsistentMass) {
-        sys.Mconsistent.resize(static_cast<int>(nDof), static_cast<int>(nDof));
         mTrips.reserve(nElems * 24 * 24);
     }
 
@@ -489,9 +517,9 @@ AssembledSystem assemble(const Mesh& mesh, const Material& mat,
             nodeCoords[i][1] = mesh.nodes[3 * nid + 1];
             nodeCoords[i][2] = mesh.nodes[3 * nid + 2];
         }
-        Eigen::Matrix<double, 24, 24> Ke;
+        la::MatrixD Ke(24, 24);
         std::array<double, 24> Me;
-        Eigen::Matrix<double, 24, 24> Mc;
+        la::MatrixD Mc(24, 24);
         buildElement(nodeCoords, D, mat.rho, Ke, Me, Mc,
                      withIncompatOps ? &sys.incompat[e] : nullptr);
 
@@ -500,7 +528,7 @@ AssembledSystem assemble(const Mesh& mesh, const Material& mat,
             for (int ai = 0; ai < 3; ++ai) {
                 const int gi = 3 * nodeIds[i] + ai;
                 const int li = 3 * i + ai;
-                sys.Mdiag(gi) += Me[li];
+                sys.Mdiag[gi] += Me[li];
                 for (int j = 0; j < 8; ++j) {
                     for (int aj = 0; aj < 3; ++aj) {
                         const int gj = 3 * nodeIds[j] + aj;
@@ -520,11 +548,9 @@ AssembledSystem assemble(const Mesh& mesh, const Material& mat,
             }
         }
     }
-    sys.K.setFromTriplets(trips.begin(), trips.end());
-    sys.K.makeCompressed();
+    sys.K.setFromTriplets(nDof, nDof, trips);
     if (withConsistentMass) {
-        sys.Mconsistent.setFromTriplets(mTrips.begin(), mTrips.end());
-        sys.Mconsistent.makeCompressed();
+        sys.Mconsistent.setFromTriplets(nDof, nDof, mTrips);
     }
     return sys;
 }
@@ -534,13 +560,24 @@ AssembledSystem assemble(const Mesh& mesh, const Material& mat,
 // Replace the row + column of each pinned DOF with the identity, and set the
 // corresponding entry of the RHS to zero (i.e. constraint u = 0 on that DOF).
 //
+// Eigen mutated the assembled SparseMatrix in place (InnerIterator zeroing of
+// pinned rows/cols, coeffRef(i,i)=1, prune+makeCompressed). la::SparseCSR has
+// no such post-assembly mutation, so we perform the IDENTICAL transformation on
+// the RAW TRIPLET lists and rebuild the CSR: drop every triplet whose row OR
+// col is pinned, then append (i,i,1) for each pinned DOF. setFromTriplets sums
+// duplicates exactly as the element scatter did, so the rebuilt matrix has the
+// same nonzero values the Eigen zero+set+prune produced (zeroed entries simply
+// never appear; the pinned diagonal is exactly 1).
+//
 // Returns the set of pinned DOF indices for later residual checking.
-std::vector<int> applyPinnedBCs(Eigen::SparseMatrix<double>& K,
-                                Eigen::VectorXd& f,
-                                Eigen::VectorXd* Mdiag,
+std::vector<int> applyPinnedBCs(la::SparseCSR<double>& K,
+                                std::vector<la::Triplet<double>>& kTrips,
+                                std::vector<double>& f,
+                                std::vector<double>* Mdiag,
                                 const Mesh& mesh,
                                 const std::vector<BCPinned>& bcs,
-                                Eigen::SparseMatrix<double>* Mconsistent = nullptr)
+                                la::SparseCSR<double>* Mconsistent = nullptr,
+                                std::vector<la::Triplet<double>>* mTrips = nullptr)
 {
     std::vector<int> pinned;
     const int nDof = static_cast<int>(K.rows());
@@ -554,37 +591,50 @@ std::vector<int> applyPinnedBCs(Eigen::SparseMatrix<double>& K,
     }
     for (int i = 0; i < nDof; ++i) if (isPinned[i]) pinned.push_back(i);
 
-    // Sparse row/col elimination.
-    for (int k = 0; k < K.outerSize(); ++k) {
-        for (Eigen::SparseMatrix<double>::InnerIterator it(K, k); it; ++it) {
-            const int r = static_cast<int>(it.row());
-            const int c = static_cast<int>(it.col());
-            if (isPinned[r] || isPinned[c]) it.valueRef() = 0;
+    // Sparse row/col elimination — triplet level. Drop every stiffness triplet
+    // touching a pinned row or column (equivalent to Eigen's InnerIterator
+    // valueRef()=0), then append the unit diagonal for each pinned DOF.
+    {
+        std::vector<la::Triplet<double>> kept;
+        kept.reserve(kTrips.size() + pinned.size());
+        for (const auto& t : kTrips) {
+            const int r = static_cast<int>(t.row);
+            const int c = static_cast<int>(t.col);
+            if (isPinned[r] || isPinned[c]) continue;
+            kept.push_back(t);
         }
+        // K.coeffRef(i,i) = 1.0 for each pinned DOF.
+        for (int i : pinned) kept.emplace_back(i, i, 1.0);
+        kTrips.swap(kept);
+        K.setFromTriplets(static_cast<std::size_t>(nDof),
+                          static_cast<std::size_t>(nDof), kTrips);
     }
+
     // Apply the SAME row/col elimination to the consistent mass so the pinned
     // DOFs decouple from the structural modes. Putting 1.0 on the pinned mass
     // diagonal (matching the 1.0 on the K diagonal) yields a spurious eigenvalue
     // of exactly 1 rad²/s² per pinned DOF, which the modal filter discards; it
     // also keeps M symmetric positive-definite so the Ax_lBx Cholesky succeeds.
-    if (Mconsistent) {
-        for (int k = 0; k < Mconsistent->outerSize(); ++k) {
-            for (Eigen::SparseMatrix<double>::InnerIterator it(*Mconsistent, k); it; ++it) {
-                const int r = static_cast<int>(it.row());
-                const int c = static_cast<int>(it.col());
-                if (isPinned[r] || isPinned[c]) it.valueRef() = 0;
-            }
+    if (Mconsistent && mTrips) {
+        std::vector<la::Triplet<double>> kept;
+        kept.reserve(mTrips->size() + pinned.size());
+        for (const auto& t : *mTrips) {
+            const int r = static_cast<int>(t.row);
+            const int c = static_cast<int>(t.col);
+            if (isPinned[r] || isPinned[c]) continue;
+            kept.push_back(t);
         }
+        // Mconsistent->coeffRef(i,i) = 1.0 for each pinned DOF.
+        for (int i : pinned) kept.emplace_back(i, i, 1.0);
+        mTrips->swap(kept);
+        Mconsistent->setFromTriplets(static_cast<std::size_t>(nDof),
+                                     static_cast<std::size_t>(nDof), *mTrips);
     }
+
     for (int i : pinned) {
-        K.coeffRef(i, i) = 1.0;
-        f(i) = 0.0;
-        if (Mdiag) (*Mdiag)(i) = 1.0; // 1 keeps generalised eigenproblem regular
-        if (Mconsistent) Mconsistent->coeffRef(i, i) = 1.0;
+        f[i] = 0.0;
+        if (Mdiag) (*Mdiag)[i] = 1.0; // 1 keeps generalised eigenproblem regular
     }
-    K.prune(0.0);
-    K.makeCompressed();
-    if (Mconsistent) { Mconsistent->prune(0.0); Mconsistent->makeCompressed(); }
     (void)mesh;
     return pinned;
 }
@@ -598,7 +648,7 @@ std::vector<int> applyPinnedBCs(Eigen::SparseMatrix<double>& K,
 // This is a deliberate simplification for the brick-grid mesher; a proper
 // face-integration step is straightforward once the mesher carries explicit
 // surface-element data (follow-up slice).
-void applyPressureLoads(Eigen::VectorXd& f, const Mesh& mesh,
+void applyPressureLoads(std::vector<double>& f, const Mesh& mesh,
                         const std::vector<LoadPressure>& loads) {
     if (loads.empty()) return;
     const std::size_t nNodes = mesh.nodes.size() / 3;
@@ -633,7 +683,7 @@ void applyPressureLoads(Eigen::VectorXd& f, const Mesh& mesh,
         const int    axis = faceAxis[pl.faceId];
         const double dir  = faceSign[pl.faceId]; // outward sign; pressure pushes inward against it
         for (std::size_t i : faceNodes) {
-            f(3*i + axis) += -perNode * dir;
+            f[3*i + axis] += -perNode * dir;
         }
     }
 }
@@ -817,45 +867,45 @@ StaticResult solveStatic(const Mesh& mesh, const Material& mat,
                         /*withIncompatOps=*/true);
     const int nDof = static_cast<int>(sys.nDof);
 
-    Eigen::VectorXd f = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> f(nDof, 0.0);
     for (const auto& L : loads) {
         const int base = 3 * static_cast<int>(L.nodeId);
         if (base + 2 >= nDof) {
             throw std::out_of_range(
                 "forge.fea.solveStatic: nodal load references missing node");
         }
-        f(base + 0) += L.fx;
-        f(base + 1) += L.fy;
-        f(base + 2) += L.fz;
+        f[base + 0] += L.fx;
+        f[base + 1] += L.fy;
+        f[base + 2] += L.fz;
     }
     applyPressureLoads(f, mesh, pressureLoads);
     // Keep an unmodified copy of f for residual reporting.
-    Eigen::VectorXd fOrig = f;
-    auto pinned = applyPinnedBCs(sys.K, f, nullptr, mesh, bcs);
+    std::vector<double> fOrig = f;
+    auto pinned = applyPinnedBCs(sys.K, sys.kTrips, f, nullptr, mesh, bcs);
 
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(sys.K);
-    if (ldlt.info() != Eigen::Success) {
+    la::SparseLDLT ldlt(sys.K);
+    if (!ldlt.ok()) {
         throw std::runtime_error("forge.fea.solveStatic: LDLT factorisation failed");
     }
-    Eigen::VectorXd u = ldlt.solve(f);
-    if (ldlt.info() != Eigen::Success) {
+    std::vector<double> u = ldlt.solve(f);
+    if (!ldlt.ok()) {
         throw std::runtime_error("forge.fea.solveStatic: LDLT solve failed");
     }
 
     // Compute residual on the reduced system (skip pinned rows since we
     // forced them to identity).
-    Eigen::VectorXd r = sys.K * u - f;
-    for (int i : pinned) r(i) = 0;
-    const double residual = r.lpNorm<Eigen::Infinity>();
+    std::vector<double> r = la::vsub(sys.K * u, f);
+    for (int i : pinned) r[i] = 0;
+    const double residual = la::normInf(r);
 
     // ---- per-element von-Mises ----
     StaticResult result;
-    result.u.assign(u.data(), u.data() + nDof);
+    result.u.assign(u.begin(), u.begin() + nDof);
     result.residual = residual;
 
     const std::size_t nElems = mesh.tets.size() / 8;
     result.vonMises.assign(nElems, 0.0);
-    Eigen::Matrix<double, 6, 6> D = buildD(mat);
+    la::MatrixD D = buildD(mat);
     double maxVM = 0;
     std::uint32_t maxAt = 0;
     for (std::size_t e = 0; e < nElems; ++e) {
@@ -866,7 +916,7 @@ StaticResult solveStatic(const Mesh& mesh, const Material& mat,
             nodeCoords[i][0] = mesh.nodes[3 * nid + 0];
             nodeCoords[i][1] = mesh.nodes[3 * nid + 1];
             nodeCoords[i][2] = mesh.nodes[3 * nid + 2];
-            for (int a = 0; a < 3; ++a) ue[3*i + a] = u(3*nid + a);
+            for (int a = 0; a < 3; ++a) ue[3*i + a] = u[3*nid + a];
         }
         const IncompatOps* iop =
             (e < sys.incompat.size()) ? &sys.incompat[e] : nullptr;
@@ -917,37 +967,37 @@ ModalResult solveModal(const Mesh& mesh, const Material& mat,
             "Coarsen the mesh or wait for the subspace-iteration upgrade.");
     }
 
-    Eigen::VectorXd dummyF = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> dummyF(nDof, 0.0);
     auto pinned = applyPinnedBCs(
-        sys.K, dummyF, &sys.Mdiag, mesh, bcs,
-        kUseConsistentMass ? &sys.Mconsistent : nullptr);
+        sys.K, sys.kTrips, dummyF, &sys.Mdiag, mesh, bcs,
+        kUseConsistentMass ? &sys.Mconsistent : nullptr,
+        kUseConsistentMass ? &sys.mTrips : nullptr);
     std::vector<bool> isPinned(nDof, false);
     for (int i : pinned) isPinned[i] = true;
 
-    Eigen::MatrixXd Kd = Eigen::MatrixXd(sys.K);
-    Eigen::MatrixXd Md;
+    la::MatrixD Kd = sys.K.toDense();
+    la::MatrixD Md;
     if (kUseConsistentMass) {
         // Dense consistent mass (SPD after pinning → Ax_lBx Cholesky valid).
-        Md = Eigen::MatrixXd(sys.Mconsistent);
+        Md = sys.Mconsistent.toDense();
     } else {
-        Md = Eigen::MatrixXd::Zero(nDof, nDof);
-        for (int i = 0; i < nDof; ++i) Md(i, i) = sys.Mdiag(i);
+        Md = la::MatrixD(nDof, nDof);  // zero-initialised
+        for (int i = 0; i < nDof; ++i) Md(i, i) = sys.Mdiag[i];
     }
 
-    Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> eig(Kd, Md,
-        Eigen::ComputeEigenvectors | Eigen::Ax_lBx);
-    if (eig.info() != Eigen::Success) {
+    la::GeneralizedSymmetricEigen eig(Kd, Md, /*computeVectors=*/true);
+    if (!eig.ok()) {
         throw std::runtime_error("forge.fea.solveModal: eigensolver failed");
     }
-    const Eigen::VectorXd& vals = eig.eigenvalues();
-    const Eigen::MatrixXd& vecs = eig.eigenvectors();
+    const std::vector<double>& vals = eig.eigenvalues();
+    const la::MatrixD& vecs = eig.eigenvectors();
 
     // Filter spurious pinned-DOF modes: a true structural mode has
     // significant displacement on at least one free DOF.
     ModalResult result;
     result.nModes = 0;
-    for (int m = 0; m < vals.size() && result.nModes < nModes; ++m) {
-        const double lam = vals(m);
+    for (int m = 0; m < static_cast<int>(vals.size()) && result.nModes < nModes; ++m) {
+        const double lam = vals[m];
         if (lam < -1e-3) continue; // negative → numerical noise; skip
         double normFree = 0, normPinned = 0;
         for (int i = 0; i < nDof; ++i) {
@@ -1026,76 +1076,108 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
     }
 
     // External force vector (constant step load throughout the simulation).
-    Eigen::VectorXd fStep = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> fStep(nDof, 0.0);
     for (const auto& L : loads) {
         const int base = 3 * static_cast<int>(L.nodeId);
-        fStep(base + 0) += L.fx;
-        fStep(base + 1) += L.fy;
-        fStep(base + 2) += L.fz;
+        fStep[base + 0] += L.fx;
+        fStep[base + 1] += L.fy;
+        fStep[base + 2] += L.fz;
     }
 
     // Apply BCs: zero rows/cols on K and replace the mass with 1 on pinned DOFs.
     // When the consistent mass is in play, eliminate it the same way modal does
     // so the pinned DOFs decouple identically.
-    Eigen::VectorXd dummyF = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> dummyF(nDof, 0.0);
     auto pinned = applyPinnedBCs(
-        sys.K, dummyF, &sys.Mdiag, mesh, bcs,
-        opts.useConsistentMass ? &sys.Mconsistent : nullptr);
+        sys.K, sys.kTrips, dummyF, &sys.Mdiag, mesh, bcs,
+        opts.useConsistentMass ? &sys.Mconsistent : nullptr,
+        opts.useConsistentMass ? &sys.mTrips : nullptr);
     std::vector<bool> isPinned(nDof, false);
     for (int i : pinned) isPinned[i] = true;
     // Zero pinned DOFs in fStep.
-    for (int i : pinned) fStep(i) = 0;
+    for (int i : pinned) fStep[i] = 0;
 
     // Build the mass matrix the integrator sees: the eliminated consistent mass
     // (sparse, off-diagonal coupling) or the lumped diagonal.
-    Eigen::SparseMatrix<double> M(nDof, nDof);
+    la::SparseCSR<double> M(nDof, nDof);
     if (opts.useConsistentMass) {
         M = sys.Mconsistent;
     } else {
-        std::vector<Eigen::Triplet<double>> trips;
+        std::vector<la::Triplet<double>> trips;
         trips.reserve(nDof);
-        for (int i = 0; i < nDof; ++i) trips.emplace_back(i, i, sys.Mdiag(i));
-        M.setFromTriplets(trips.begin(), trips.end());
+        for (int i = 0; i < nDof; ++i) trips.emplace_back(i, i, sys.Mdiag[i]);
+        M.setFromTriplets(static_cast<std::size_t>(nDof),
+                          static_cast<std::size_t>(nDof), trips);
     }
-    M.makeCompressed();
 
-    // C = α M + βR K  (Rayleigh).
-    Eigen::SparseMatrix<double> C = alpha * M + betaR * sys.K;
-    C.makeCompressed();
+    // C = α M + βR K  (Rayleigh). Assembled at the triplet level — la::SparseCSR
+    // has no operator+/scalar-multiply, so we densify the two operands once,
+    // combine, and re-emit the CSR (the matrices here are the moderate-DOF
+    // dense-eigen-capped systems, so this is exact and bounded). The result is
+    // numerically identical to αM + βR K.
+    la::SparseCSR<double> C(nDof, nDof);
+    {
+        la::MatrixD Mden = M.toDense();
+        la::MatrixD Kden = sys.K.toDense();
+        std::vector<la::Triplet<double>> cTrips;
+        cTrips.reserve(M.nnz() + sys.K.nnz());
+        for (int i = 0; i < nDof; ++i)
+            for (int j = 0; j < nDof; ++j) {
+                const double v = alpha * Mden(i, j) + betaR * Kden(i, j);
+                if (v != 0.0) cTrips.emplace_back(i, j, v);
+            }
+        C.setFromTriplets(static_cast<std::size_t>(nDof),
+                          static_cast<std::size_t>(nDof), cTrips);
+    }
 
     // Effective system A = M + γΔt C + βΔt² K
     const double beta = 0.25, gamma = 0.5;
-    Eigen::SparseMatrix<double> A
-        = M + (gamma * dt) * C + (beta * dt * dt) * sys.K;
-    A.makeCompressed();
+    la::SparseCSR<double> A(nDof, nDof);
+    {
+        la::MatrixD Mden = M.toDense();
+        la::MatrixD Cden = C.toDense();
+        la::MatrixD Kden = sys.K.toDense();
+        std::vector<la::Triplet<double>> aTrips;
+        aTrips.reserve(M.nnz() + C.nnz() + sys.K.nnz());
+        for (int i = 0; i < nDof; ++i)
+            for (int j = 0; j < nDof; ++j) {
+                const double v = Mden(i, j)
+                               + (gamma * dt) * Cden(i, j)
+                               + (beta * dt * dt) * Kden(i, j);
+                if (v != 0.0) aTrips.emplace_back(i, j, v);
+            }
+        A.setFromTriplets(static_cast<std::size_t>(nDof),
+                          static_cast<std::size_t>(nDof), aTrips);
+    }
 
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(A);
-    if (ldlt.info() != Eigen::Success) {
+    la::SparseLDLT ldlt(A);
+    if (!ldlt.ok()) {
         throw std::runtime_error(
             "forge.fea.solveDynamic: Newmark factorisation failed");
     }
 
     // Initial conditions. Default u0=v0=0; otherwise honour the supplied state
     // (pinned DOFs always forced to zero). a₀ from M a₀ = f₀ − C v₀ − K u₀.
-    Eigen::VectorXd u = Eigen::VectorXd::Zero(nDof);
-    Eigen::VectorXd v = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> u(nDof, 0.0);
+    std::vector<double> v(nDof, 0.0);
     if (!opts.u0.empty())
-        for (int i = 0; i < nDof; ++i) u(i) = opts.u0[i];
+        for (int i = 0; i < nDof; ++i) u[i] = opts.u0[i];
     if (!opts.v0.empty())
-        for (int i = 0; i < nDof; ++i) v(i) = opts.v0[i];
-    for (int i : pinned) { u(i) = 0; v(i) = 0; }
+        for (int i = 0; i < nDof; ++i) v[i] = opts.v0[i];
+    for (int i : pinned) { u[i] = 0; v[i] = 0; }
 
     // a₀ solves M a₀ = f₀ − C v₀ − K u₀ exactly (factorise M once for this).
-    Eigen::VectorXd a = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> a(nDof, 0.0);
     {
-        Eigen::VectorXd rhs0 = fStep - C * v - sys.K * u;
-        for (int i : pinned) rhs0(i) = 0;
-        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldltM(M);
-        if (ldltM.info() == Eigen::Success) {
+        // rhs0 = fStep - C*v - K*u
+        std::vector<double> rhs0 = la::vsub(fStep, la::vadd(C * v, sys.K * u));
+        for (int i : pinned) rhs0[i] = 0;
+        la::SparseLDLT ldltM(M);
+        if (ldltM.ok()) {
             a = ldltM.solve(rhs0);
-            if (ldltM.info() != Eigen::Success) a.setZero();
+            if (!ldltM.ok()) std::fill(a.begin(), a.end(), 0.0);
         }
-        for (int i : pinned) a(i) = 0;
+        for (int i : pinned) a[i] = 0;
     }
 
     const int steps = static_cast<int>(std::ceil(tEnd / dt));
@@ -1112,16 +1194,16 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
     auto pushSnapshot = [&](double t) {
         std::vector<double> snapU(nDof), snapV(nDof);
         double mx = 0.0;
-        for (int i = 0; i < nDof; ++i) { snapU[i] = u(i); snapV[i] = v(i); }
+        for (int i = 0; i < nDof; ++i) { snapU[i] = u[i]; snapV[i] = v[i]; }
         for (std::size_t n = 0; n < nNodes; ++n) {
-            const double ux = u(3*n+0), uy = u(3*n+1), uz = u(3*n+2);
+            const double ux = u[3*n+0], uy = u[3*n+1], uz = u[3*n+2];
             mx = std::max(mx, std::sqrt(ux*ux + uy*uy + uz*uz));
         }
         // Energy: KE = ½ vᵀ M v, PE = ½ uᵀ K u. Pinned DOFs carry a unit mass
         // and a unit stiffness from the BC elimination but their u,v are held
         // at zero, so they contribute nothing to either form.
-        const double ke = 0.5 * v.dot(M * v);
-        const double pe = 0.5 * u.dot(sys.K * u);
+        const double ke = 0.5 * la::vdot(v, M * v);
+        const double pe = 0.5 * la::vdot(u, sys.K * u);
         result.displacements.push_back(std::move(snapU));
         result.velocities.push_back(std::move(snapV));
         result.times.push_back(t);
@@ -1135,7 +1217,7 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
     // For envelope: track per-element von-Mises max across all steps.
     const std::size_t nElems = mesh.tets.size() / 8;
     result.maxStressEnvelope.assign(nElems, 0.0);
-    Eigen::Matrix<double, 6, 6> D = buildD(mat);
+    la::MatrixD D = buildD(mat);
 
     auto stressUpdate = [&]() {
         for (std::size_t e = 0; e < nElems; ++e) {
@@ -1146,7 +1228,7 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
                 nodeCoords[i][0] = mesh.nodes[3 * nid + 0];
                 nodeCoords[i][1] = mesh.nodes[3 * nid + 1];
                 nodeCoords[i][2] = mesh.nodes[3 * nid + 2];
-                for (int aa = 0; aa < 3; ++aa) ue[3*i + aa] = u(3*nid + aa);
+                for (int aa = 0; aa < 3; ++aa) ue[3*i + aa] = u[3*nid + aa];
             }
             const IncompatOps* iop =
                 (e < sys.incompat.size()) ? &sys.incompat[e] : nullptr;
@@ -1160,23 +1242,33 @@ DynamicResult solveDynamic(const Mesh& mesh, const Material& mat,
         const double t = step * dt;
 
         // Predictors.
-        Eigen::VectorXd uHat = u + dt * v + (dt * dt * (0.5 - beta)) * a;
-        Eigen::VectorXd vHat = v + (dt * (1.0 - gamma)) * a;
+        // uHat = u + dt*v + dt²(0.5-beta)*a
+        std::vector<double> uHat = u;
+        la::vaxpy(uHat, dt, v);
+        la::vaxpy(uHat, dt * dt * (0.5 - beta), a);
+        // vHat = v + dt(1-gamma)*a
+        std::vector<double> vHat = v;
+        la::vaxpy(vHat, dt * (1.0 - gamma), a);
 
         // Solve for a_{n+1}.
-        Eigen::VectorXd rhs = fStep - C * vHat - sys.K * uHat;
+        // rhs = fStep - C*vHat - K*uHat
+        std::vector<double> rhs = la::vsub(fStep, la::vadd(C * vHat, sys.K * uHat));
         // Pin BCs on rhs (corresponding A row is already identity).
-        for (int i : pinned) rhs(i) = 0;
-        Eigen::VectorXd aNew = ldlt.solve(rhs);
-        if (ldlt.info() != Eigen::Success) {
+        for (int i : pinned) rhs[i] = 0;
+        std::vector<double> aNew = ldlt.solve(rhs);
+        if (!ldlt.ok()) {
             throw std::runtime_error(
                 "forge.fea.solveDynamic: Newmark step solve failed");
         }
 
         // Correctors.
-        Eigen::VectorXd uNew = uHat + (beta * dt * dt) * aNew;
-        Eigen::VectorXd vNew = vHat + (gamma * dt) * aNew;
-        for (int i : pinned) { uNew(i) = 0; vNew(i) = 0; aNew(i) = 0; }
+        // uNew = uHat + beta*dt²*aNew
+        std::vector<double> uNew = uHat;
+        la::vaxpy(uNew, beta * dt * dt, aNew);
+        // vNew = vHat + gamma*dt*aNew
+        std::vector<double> vNew = vHat;
+        la::vaxpy(vNew, gamma * dt, aNew);
+        for (int i : pinned) { uNew[i] = 0; vNew[i] = 0; aNew[i] = 0; }
 
         u = std::move(uNew);
         v = std::move(vNew);

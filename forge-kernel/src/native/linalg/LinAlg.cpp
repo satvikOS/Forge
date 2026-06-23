@@ -43,7 +43,7 @@ typename ScalarTraits<T>::Real absT(const T& x) { return ScalarTraits<T>::absval
 // LU
 // ===========================================================================
 template <class T>
-void LU<T>::compute(const Matrix<T>& A, bool fullPivot) {
+void LU<T>::compute(const Matrix<T>& A, bool fullPivot, bool rankRevealing) {
     const std::size_t n = A.rows();
     n_ = n; full_ = fullPivot; ok_ = (A.rows() == A.cols());
     lu_ = A;
@@ -56,8 +56,13 @@ void LU<T>::compute(const Matrix<T>& A, bool fullPivot) {
     Real maxA = 0;
     for (std::size_t i = 0; i < n; ++i)
         for (std::size_t j = 0; j < n; ++j) maxA = std::max(maxA, absT(lu_(i, j)));
-    const Real tol = (maxA > 0 ? maxA : Real(1)) *
-                     std::numeric_limits<Real>::epsilon() * Real(n) * Real(16);
+    const Real scale = (maxA > 0 ? maxA : Real(1));
+    // rank-revealing: flag numerically-deficient pivots; non-rank-revealing:
+    // only flag a structurally-zero pivot (lets wide-dynamic-range penalty
+    // systems factor, matching Eigen SparseLU / LAPACK getrf).
+    const Real tol = rankRevealing
+        ? scale * std::numeric_limits<Real>::epsilon() * Real(n) * Real(16)
+        : scale * Real(1e-30);
 
     for (std::size_t k = 0; k < n; ++k) {
         // pivot search
@@ -856,7 +861,10 @@ void SparseLU::compute(const SparseCSR<double>& A) {
     n_ = A.rows();
     ok_ = (A.rows() == A.cols());
     if (!ok_) return;
-    lu_.compute(A.toDense(), /*fullPivot=*/true);
+    // Partial pivoting + non-rank-revealing: like Eigen SparseLU, factor any
+    // structurally-nonsingular system (incl. wide-dynamic-range penalty-method
+    // FE matrices); only a near-exact-zero pivot reports failure.
+    lu_.compute(A.toDense(), /*fullPivot=*/false, /*rankRevealing=*/false);
     ok_ = lu_.ok();
 }
 

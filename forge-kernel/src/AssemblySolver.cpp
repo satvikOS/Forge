@@ -1,9 +1,6 @@
 #include "forge/AssemblySolver.hpp"
 
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
-#include <Eigen/SparseQR>
-#include <Eigen/OrderingMethods>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -11,6 +8,8 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
+
+namespace la = forge::native::linalg;
 
 namespace forge {
 
@@ -472,8 +471,8 @@ SolveReport AssemblySolver::solve() {
         return rep;
     }
 
-    Eigen::VectorXd r(nRes);
-    Eigen::VectorXd rTrial(nRes);
+    std::vector<double> r(nRes, 0.0);
+    std::vector<double> rTrial(nRes, 0.0);
     auto evalAll = [&](double* out) {
         std::size_t row = 0;
         for (const auto& m : s.activeMates) {
@@ -482,7 +481,7 @@ SolveReport AssemblySolver::solve() {
     };
 
     evalAll(r.data());
-    double rnorm = r.norm();
+    double rnorm = la::norm2(r);
 
     constexpr int    kMaxIter = 100;
     constexpr double kTolerance = 1e-6;
@@ -497,8 +496,8 @@ SolveReport AssemblySolver::solve() {
         // Each mate touches at most 12 columns; we restrict the
         // perturbation loop to the two involved instances.
         // ----------------------------------------------------
-        Eigen::SparseMatrix<double> J(static_cast<int>(nRes), static_cast<int>(nVar));
-        std::vector<Eigen::Triplet<double>> trips;
+        la::SparseCSR<double> J(nRes, nVar);
+        std::vector<la::Triplet<double>> trips;
         trips.reserve(s.activeMates.size() * kDof * 2 * 6);
 
         // For each variable column, find the rows it might affect by
@@ -550,52 +549,62 @@ SolveReport AssemblySolver::solve() {
                     for (std::size_t rr = 0; rr < sz; ++rr) {
                         const double dval = (rPert[off+rr] - rBuf[off+rr]) / h;
                         if (std::abs(dval) > 1e-12) {
-                            trips.emplace_back(static_cast<int>(off+rr),
-                                               static_cast<int>(col),
-                                               dval);
+                            trips.emplace_back(off+rr, col, dval);
                         }
                     }
                 }
             }
         }
-        J.setFromTriplets(trips.begin(), trips.end());
-        J.makeCompressed();
+        J.setFromTriplets(nRes, nVar, trips);
+        // J.makeCompressed() — SparseCSR::setFromTriplets already yields sorted,
+        // compressed CSR (Eigen setFromTriplets semantics, summing duplicates),
+        // so the explicit compress is a no-op with no separate linalg call.
 
         // ----------------------------------------------------
         // Solve J Δx = -r in least-squares sense via SparseQR.
         // Fall back to a damped step if rank-deficient.
         // ----------------------------------------------------
-        Eigen::VectorXd rhs = -r;
-        Eigen::VectorXd dx(nVar);
+        std::vector<double> rhs = la::vscale(r, -1.0);   // rhs = -r
+        std::vector<double> dx(nVar, 0.0);
         bool solved = false;
 
-        if (static_cast<int>(nRes) >= static_cast<int>(nVar)) {
-            // Over- or square-determined: SparseQR.
-            Eigen::SparseQR<Eigen::SparseMatrix<double>,
-                            Eigen::COLAMDOrdering<int>> qr;
-            qr.compute(J);
-            if (qr.info() == Eigen::Success) {
-                dx = qr.solve(rhs);
-                if (qr.info() == Eigen::Success && dx.allFinite()) solved = true;
+        // Solve J dx = -r as a Gauss-Newton least-squares step. J is the
+        // (nRes x nVar) mate Jacobian — small for an assembly, so densify and
+        // use the dense in-house factorizations. This reproduces the prior Eigen
+        // SparseQR (which returns the minimum-norm least-squares solution in both
+        // the over- and under-determined cases): over-determined -> normal
+        // equations (JtJ + lambda I) dx = Jt(-r); under-determined -> the
+        // minimum-norm step dx = Jt (J Jt + lambda I)^-1 (-r). Both reduced
+        // systems are well-conditioned (full rank + Tikhonov lambda), unlike the
+        // singular JtJ of the under-constrained case. lambda = 1e-8 matches the
+        // original damping.
+        const la::MatrixD Jd = J.toDense();
+        const la::MatrixD Jt = Jd.transpose();
+        auto allFinite = [](const std::vector<double>& v) {
+            for (double e : v) if (!std::isfinite(e)) return false;
+            return true;
+        };
+        if (nRes >= nVar) {
+            la::MatrixD JtJ = Jt * Jd;                       // nVar x nVar
+            for (std::size_t i = 0; i < nVar; ++i) JtJ(i, i) += 1e-8;
+            la::LDLT<double> ldlt(JtJ);
+            if (ldlt.ok()) {
+                std::vector<double> cand = ldlt.solve(Jt * rhs);
+                if (allFinite(cand)) { dx = cand; solved = true; }
+            }
+        } else {
+            la::MatrixD JJt = Jd * Jt;                       // nRes x nRes, SPD
+            for (std::size_t i = 0; i < nRes; ++i) JJt(i, i) += 1e-8;
+            la::LDLT<double> ldlt(JJt);
+            if (ldlt.ok()) {
+                std::vector<double> y = ldlt.solve(rhs);     // (JJt + lambda I)^-1 (-r)
+                std::vector<double> cand = Jt * y;           // dx = Jt y
+                if (allFinite(cand)) { dx = cand; solved = true; }
             }
         }
         if (!solved) {
-            // Under-determined or rank-deficient: solve J^T J Δx = J^T (-r)
-            // with Tikhonov damping. Robust for over-/under-constrained
-            // mate sets — over-shoots are caught by line search below.
-            Eigen::SparseMatrix<double> JTJ = J.transpose() * J;
-            for (int i = 0; i < static_cast<int>(nVar); ++i) {
-                JTJ.coeffRef(i, i) += 1e-8;
-            }
-            Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(JTJ);
-            if (ldlt.info() == Eigen::Success) {
-                dx = ldlt.solve(J.transpose() * rhs);
-                solved = dx.allFinite();
-            }
-        }
-        if (!solved) {
-            // Last-resort: gradient step.
-            dx = -(J.transpose() * r) * 1e-3;
+            // Last resort: scaled steepest-descent step dx = -(Jt r) * 1e-3.
+            dx = la::vscale(Jd.transpose() * r, -1e-3);
         }
 
         // ----------------------------------------------------
@@ -607,10 +616,10 @@ SolveReport AssemblySolver::solve() {
         std::vector<double> snapshot = s.x;
         for (int trial = 0; trial < 8; ++trial) {
             for (std::size_t i = 0; i < nVar; ++i) {
-                s.x[i] = snapshot[i] + alpha * dx[static_cast<int>(i)];
+                s.x[i] = snapshot[i] + alpha * dx[i];
             }
             evalAll(rTrial.data());
-            const double trialNorm = rTrial.norm();
+            const double trialNorm = la::norm2(rTrial);
             if (trialNorm < rnorm) {
                 r = rTrial;
                 rnorm = trialNorm;

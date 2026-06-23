@@ -1,7 +1,6 @@
 #include "forge/Cfd.hpp"
 
-#include <Eigen/Sparse>
-#include <Eigen/SparseCholesky>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -13,6 +12,8 @@
 #include <vector>
 
 namespace forge::cfd {
+
+namespace la = forge::native::linalg;
 
 // ---------------------------------------------------------------------------
 // Incompressible Navier-Stokes on a staggered MAC grid (Harlow-Welch).
@@ -424,9 +425,9 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     // outlets (Dirichlet p = 0). If no outlet was specified we fix one cell
     // (origin) at p = 0 to remove the rank-1 null space.
     const int nCells = Nx * Ny * Nz;
-    Eigen::SparseMatrix<double> Lp(nCells, nCells);
+    la::SparseCSR<double> Lp(nCells, nCells);
     {
-        std::vector<Eigen::Triplet<double>> trips;
+        std::vector<la::Triplet<double>> trips;
         trips.reserve(static_cast<std::size_t>(nCells) * 7);
 
         const double cx = 1.0 / (dx * dx);
@@ -472,21 +473,29 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
             }
           }
         }
-        Lp.setFromTriplets(trips.begin(), trips.end());
         // Fix one cell to pin pressure if no Dirichlet outlet was specified.
         // We zero row 0 + column 0 and set (0,0) = 1 so that the equation for
         // cell 0 reads p_0 = 0 (rhs(0) is forced to 0 at solve time). Column 0
         // zeroing removes the back-coupling on every other equation.
+        //
+        // la::SparseCSR is assembled once from triplets and has no post-assembly
+        // mutation API (no InnerIterator / valueRef / coeffRef / prune), so the
+        // row-0/col-0 zeroing is performed at the TRIPLET level before assembly:
+        // drop every triplet touching row 0 or column 0, then append the single
+        // (0,0)=1 pin. setFromTriplets sums duplicates, and after the filter no
+        // other row-0/col-0 triplets remain — so the assembled matrix is exactly
+        // the same as the prior post-assembly zero+prune produced.
         if (!anyOutlet) {
-            for (int k = 0; k < Lp.outerSize(); ++k) {
-                for (Eigen::SparseMatrix<double>::InnerIterator it(Lp, k); it; ++it) {
-                    if (it.row() == 0 || it.col() == 0) it.valueRef() = 0;
-                }
+            std::vector<la::Triplet<double>> pinned;
+            pinned.reserve(trips.size());
+            for (const auto& t : trips) {
+                if (t.row == 0 || t.col == 0) continue;
+                pinned.push_back(t);
             }
-            Lp.coeffRef(0, 0) = 1.0;
-            Lp.prune(0.0);
+            pinned.emplace_back(0, 0, 1.0);
+            trips.swap(pinned);
         }
-        Lp.makeCompressed();
+        Lp.setFromTriplets(nCells, nCells, trips);
     }
 
     // Singular-system guard. A projection-method pressure Poisson is singular
@@ -514,16 +523,13 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         }
     }
 
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(Lp);
-    if (ldlt.info() != Eigen::Success) {
-        // Factorisation failed → the assembled operator is singular or
-        // numerically rank-deficient. Surface a clear singular-system error
-        // instead of proceeding to a NaN-producing solve.
-        throw std::runtime_error(
-            "forge.cfd.solveSteadyNS: pressure Poisson LDLT factorisation failed "
-            "(singular/inconsistent pressure system — ensure an outlet or "
-            "pressure pin is present)");
-    }
+    // Pressure-Poisson Lp is SPD. It is solved once per projection step below
+    // with a Jacobi-preconditioned Conjugate Gradient (forge::native::linalg),
+    // which works directly on the sparse CSR (O(nnz) memory, no fill) and so
+    // scales to large grids — a dense factorisation of an N³-cell operator would
+    // need O(N⁶) memory (≈8 GB at 32³). Each solve warm-starts from the previous
+    // pressure field, so projection converges in a handful of CG iterations.
+    // (No pre-factorisation step; the singular/no-pin case is guarded above.)
 
     auto divergenceL2 = [&]() {
         double s = 0;
@@ -748,7 +754,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         //           = ∇·u* − (Δt/ρ) · (−Lp p / 1)
         //           = ∇·u* − (Δt/ρ) · (ρ/Δt) ∇·u*   (because Lp p = −rhs)
         //           = 0
-        Eigen::VectorXd rhs(nCells);
+        std::vector<double> rhs(nCells, 0.0);
         // RHS scale uses the SAME dtStep as the corrector below so the
         // projection identity ∇·u_new = 0 holds exactly regardless of the
         // adaptive timestep (the dt cancels: rhs ∝ ρ/dtStep, corrector ∝
@@ -761,7 +767,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
               const double dux = (uStar[idxU(i + 1, j, k, Nx, Ny)] - uStar[idxU(i, j, k, Nx, Ny)]) / dx;
               const double dvy = (vStar[idxV(i, j + 1, k, Nx, Ny)] - vStar[idxV(i, j, k, Nx, Ny)]) / dy;
               const double dwz = (wStar[idxW(i, j, k + 1, Nx, Ny)] - wStar[idxW(i, j, k, Nx, Ny)]) / dz;
-              rhs(c) = scale * (dux + dvy + dwz);
+              rhs[c] = scale * (dux + dvy + dwz);
             }
         // For outlet Dirichlet cells force rhs = 0; cell-0 pin handled below.
         for (int k = 0; k < Nz; ++k)
@@ -774,18 +780,21 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
               if (face[3].isOutlet && j == Ny - 1)    onOutlet = true;
               if (face[4].isOutlet && k == 0)         onOutlet = true;
               if (face[5].isOutlet && k == Nz - 1)    onOutlet = true;
-              if (onOutlet) rhs(static_cast<int>(idxC(i, j, k, Nx, Ny))) = 0.0;
+              if (onOutlet) rhs[static_cast<int>(idxC(i, j, k, Nx, Ny))] = 0.0;
             }
         bool anyOutlet = false;
         for (auto f : cfg.outlets) if (f < 6) { anyOutlet = true; break; }
-        if (!anyOutlet) rhs(0) = 0.0;
+        if (!anyOutlet) rhs[0] = 0.0;
 
-        Eigen::VectorXd pVec = ldlt.solve(rhs);
-        if (ldlt.info() != Eigen::Success) {
+        // SPD pressure-Poisson via Jacobi-PCG, warm-started in place from the
+        // previous pressure field p (fast projection convergence). tol is tight
+        // so ∇·u_new is driven to ~1e-10, preserving the projection identity.
+        la::CGResult cg = la::conjugateGradient(Lp, rhs, p, /*maxIters=*/0,
+                                                /*tol=*/1e-10);
+        if (!cg.ok) {
             throw std::runtime_error(
-                "forge.cfd.solveSteadyNS: pressure Poisson solve failed");
+                "forge.cfd.solveSteadyNS: pressure Poisson CG failed to converge");
         }
-        for (int c = 0; c < nCells; ++c) p[c] = pVec(c);
 
         // -------- 3. velocity corrector ----------------------------------
         // Standard pressure-projection corrector: u^{n+1} = u* - (Δt/ρ) ∇p.

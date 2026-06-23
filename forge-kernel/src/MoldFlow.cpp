@@ -1,7 +1,6 @@
 #include "forge/MoldFlow.hpp"
 
-#include <Eigen/Sparse>
-#include <Eigen/SparseLU>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -10,6 +9,8 @@
 #include <stdexcept>
 #include <unordered_map>
 #include <vector>
+
+namespace la = forge::native::linalg;
 
 namespace forge { namespace mold {
 
@@ -190,9 +191,9 @@ FlowResult heleShawFill(const MeshShell& mesh,
             idxOf[filled[i]] = static_cast<int>(i);
 
         const int nUnknowns = static_cast<int>(filled.size());
-        Eigen::SparseMatrix<double> A(nUnknowns, nUnknowns);
-        Eigen::VectorXd            b = Eigen::VectorXd::Zero(nUnknowns);
-        std::vector<Eigen::Triplet<double>> trips;
+        la::SparseCSR<double> A(nUnknowns, nUnknowns);
+        std::vector<double>   b(nUnknowns, 0.0);
+        std::vector<la::Triplet<double>> trips;
         trips.reserve(nUnknowns * 4);
 
         // Compute conductance K from face geometry + per-cell S = h³/(12·η).
@@ -228,21 +229,21 @@ FlowResult heleShawFill(const MeshShell& mesh,
             trips.emplace_back(row, row, diag + 1.0e-12);
             // Source: at the gate cell only, inject flowRate.
             if (t == gateTri) {
-                b(row) = gate.flowRateM3s;
+                b[row] = gate.flowRateM3s;
             }
         }
-        A.setFromTriplets(trips.begin(), trips.end());
+        A.setFromTriplets(nUnknowns, nUnknowns, trips);
 
-        Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+        la::SparseLU solver;
         solver.compute(A);
-        if (solver.info() != Eigen::Success) break;
-        Eigen::VectorXd P = solver.solve(b);
-        if (solver.info() != Eigen::Success) break;
+        if (!solver.ok()) break;
+        std::vector<double> P = solver.solve(b);
+        if (!solver.ok()) break;
         // Update peak pressures + maxP.
         for (int row = 0; row < nUnknowns; ++row) {
             const uint32_t t = filled[row];
-            if (P(row) > peakP[t]) peakP[t] = P(row);
-            if (P(row) > maxP) maxP = P(row);
+            if (P[row] > peakP[t]) peakP[t] = P[row];
+            if (P[row] > maxP) maxP = P[row];
         }
 
         // 3. Edge fluxes — Q from filled to partial/empty neighbours.
@@ -260,7 +261,7 @@ FlowResult heleShawFill(const MeshShell& mesh,
                                    : 0.0;
                 const double K = S_h * n.edgeLen / std::max(1e-9, n.dCentroid);
                 // Pressure drop drives flux Q (m³/s) from t into n.nb.
-                const double Q = K * P(row);
+                const double Q = K * P[row];
                 if (Q > 0) {
                     influxToPartial[n.nb] += Q;
                     if (upstream[n.nb] == -1) upstream[n.nb] = static_cast<int>(t);
@@ -315,8 +316,8 @@ FlowResult heleShawFill(const MeshShell& mesh,
             // approximate γ̇ from |∇P| × h / (2η). |∇P| ≈ |ΔP|_max over neighbours / d_centroid.
             double gradPmax = 0.0;
             for (const auto& n : adj[t]) {
-                const double Pn = (idxOf.count(n.nb) ? P(idxOf[n.nb]) : 0.0);
-                const double Pt = (idxOf.count(t)    ? P(idxOf[t])    : 0.0);
+                const double Pn = (idxOf.count(n.nb) ? P[idxOf[n.nb]] : 0.0);
+                const double Pt = (idxOf.count(t)    ? P[idxOf[t]]    : 0.0);
                 const double g = std::abs(Pt - Pn) / std::max(1e-9, n.dCentroid);
                 if (g > gradPmax) gradPmax = g;
             }

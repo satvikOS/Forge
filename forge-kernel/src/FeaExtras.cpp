@@ -11,9 +11,7 @@
 
 #include "forge/Fea.hpp"
 
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
-#include <Eigen/SparseCholesky>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <array>
@@ -27,6 +25,8 @@
 #include <vector>
 
 namespace forge::fea {
+
+namespace la = forge::native::linalg;
 
 namespace {
 
@@ -124,10 +124,9 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
         throw std::invalid_argument("forge.fea.solveThermal: k must be > 0");
     }
 
-    Eigen::SparseMatrix<double> K(static_cast<int>(nNodes), static_cast<int>(nNodes));
-    Eigen::VectorXd              f = Eigen::VectorXd::Zero(static_cast<int>(nNodes));
+    std::vector<double> f(nNodes, 0.0);
 
-    std::vector<Eigen::Triplet<double>> trips;
+    std::vector<la::Triplet<double>> trips;
     trips.reserve(nElems * 8 * 8);
 
     // Map elemId → bit-mask of node ids on the +X face, etc. — used by the
@@ -149,7 +148,7 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
             nodeCoords[i][2] = mesh.nodes[3 * nid + 2];
         }
 
-        Eigen::Matrix<double, 8, 8> Ke = Eigen::Matrix<double, 8, 8>::Zero();
+        la::MatrixD Ke(8, 8);
         double elemVolume = 0;
         for (int g = 0; g < kGaussCount; ++g) {
             const auto& gp = kGauss[g];
@@ -191,11 +190,19 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
         auto srcIt = elemSource.find(static_cast<std::uint32_t>(e));
         if (srcIt != elemSource.end()) {
             const double per = srcIt->second * elemVolume / 8.0;
-            for (int i = 0; i < 8; ++i) f(nodeIds[i]) += per;
+            for (int i = 0; i < 8; ++i) f[nodeIds[i]] += per;
         }
     }
-    K.setFromTriplets(trips.begin(), trips.end());
-    K.makeCompressed();
+    // Convection (Robin) diagonal/RHS contributions are appended to `trips` (for
+    // the diagonal) below before assembly: la::SparseCSR is assembled once from
+    // triplets and has no post-assembly mutation API (no coeffRef / InnerIterator
+    // / valueRef / prune), so what Eigen did with K.coeffRef(i,i) += ... on the
+    // already-compressed matrix is instead expressed as an additional
+    // (i, i, c.h*per) triplet — setFromTriplets sums duplicates, giving the
+    // identical assembled diagonal. The Dirichlet row/col elimination that Eigen
+    // performed by walking InnerIterator + prune is likewise reproduced at the
+    // CSR level after this assembly, by reading the assembled entries and
+    // re-assembling a filtered triplet list (see below).
 
     // ---- convective BCs on AABB faces -------------------------------------
     //
@@ -227,12 +234,17 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
             if (faceNodes.empty()) continue;
             const double per = faceArea[c.faceId] / static_cast<double>(faceNodes.size());
             for (std::size_t i : faceNodes) {
-                K.coeffRef(static_cast<int>(i), static_cast<int>(i)) += c.h * per;
-                f(static_cast<int>(i)) += c.h * c.Tinf * per;
+                trips.emplace_back(i, i, c.h * per);
+                f[i] += c.h * c.Tinf * per;
             }
         }
-        K.makeCompressed();
     }
+
+    // Assemble the (element + convection-diagonal) triplets into the global K.
+    // setFromTriplets sums duplicates exactly as Eigen's setFromTriplets +
+    // coeffRef(+=) sequence did, so K0 here equals the post-convection matrix.
+    la::SparseCSR<double> K0;
+    K0.setFromTriplets(nNodes, nNodes, trips);
 
     // ---- Dirichlet elimination --------------------------------------------
     std::vector<bool> isFixed(nNodes, false);
@@ -245,36 +257,54 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
     }
     // Substitute fixed values into f, then zero rows/cols and place 1 on
     // diagonal with rhs = fixedVal.
-    for (int k = 0; k < K.outerSize(); ++k) {
-        for (Eigen::SparseMatrix<double>::InnerIterator it(K, k); it; ++it) {
-            const int r = static_cast<int>(it.row());
-            const int c = static_cast<int>(it.col());
-            if (isFixed[c] && !isFixed[r]) {
-                f(r) -= it.value() * fixedVal[c];
+    //
+    // The Eigen version walked the assembled matrix with InnerIterator and
+    // mutated it in place (valueRef=0 / coeffRef=1 / prune). la::SparseCSR is
+    // immutable post-assembly, so the IDENTICAL transformation is reproduced by
+    // (a) reading the assembled entries of K0 (read-only CSR accessors) to do
+    // the f-substitution, then (b) rebuilding a filtered triplet list — keeping
+    // every entry NOT touching a fixed row/col, dropping (== zeroing+pruning)
+    // the rest, and appending (i,i,1.0) for each fixed dof — and re-assembling.
+    {
+        const auto& rowPtr = K0.rowPtr();
+        const auto& colIdx = K0.colIdx();
+        const auto& vals   = K0.values();
+        // (a) f(r) -= K(r,c)*fixedVal[c] for fixed c, free r — same iteration
+        //     order over stored entries as Eigen's column-walk (order-invariant
+        //     since each (r,c) entry is unique post-assembly).
+        for (std::size_t r = 0; r < nNodes; ++r) {
+            for (std::size_t p = rowPtr[r]; p < rowPtr[r + 1]; ++p) {
+                const std::size_t c = colIdx[p];
+                if (isFixed[c] && !isFixed[r]) {
+                    f[r] -= vals[p] * fixedVal[c];
+                }
             }
         }
-    }
-    for (int k = 0; k < K.outerSize(); ++k) {
-        for (Eigen::SparseMatrix<double>::InnerIterator it(K, k); it; ++it) {
-            const int r = static_cast<int>(it.row());
-            const int c = static_cast<int>(it.col());
-            if (isFixed[r] || isFixed[c]) it.valueRef() = 0;
+        // (b) rebuild filtered triplets: drop entries on a fixed row/col, add
+        //     unit diagonal for each fixed dof, set f(i)=fixedVal[i].
+        std::vector<la::Triplet<double>> ktrips;
+        ktrips.reserve(vals.size());
+        for (std::size_t r = 0; r < nNodes; ++r) {
+            for (std::size_t p = rowPtr[r]; p < rowPtr[r + 1]; ++p) {
+                const std::size_t c = colIdx[p];
+                if (isFixed[r] || isFixed[c]) continue;
+                ktrips.emplace_back(r, c, vals[p]);
+            }
         }
-    }
-    for (std::size_t i = 0; i < nNodes; ++i) {
-        if (isFixed[i]) {
-            K.coeffRef(static_cast<int>(i), static_cast<int>(i)) = 1.0;
-            f(static_cast<int>(i)) = fixedVal[i];
+        for (std::size_t i = 0; i < nNodes; ++i) {
+            if (isFixed[i]) {
+                ktrips.emplace_back(i, i, 1.0);
+                f[i] = fixedVal[i];
+            }
         }
+        K0.setFromTriplets(nNodes, nNodes, ktrips);
     }
-    K.prune(0.0);
-    K.makeCompressed();
 
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(K);
-    if (ldlt.info() != Eigen::Success) {
+    la::SparseLDLT ldlt(K0);
+    if (!ldlt.ok()) {
         throw std::runtime_error("forge.fea.solveThermal: LDLT factorisation failed");
     }
-    Eigen::VectorXd T = ldlt.solve(f);
+    std::vector<double> T = ldlt.solve(f);
 
     // ---- output -----------------------------------------------------------
     ThermalResult out;
@@ -315,8 +345,8 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
         out.elemFluxMag[e] = std::sqrt(qx*qx + qy*qy + qz*qz);
     }
     // Residual (post-elimination).
-    Eigen::VectorXd r = K * T - f;
-    out.residual = r.lpNorm<Eigen::Infinity>();
+    std::vector<double> r = la::vsub(K0 * T, f);
+    out.residual = la::normInf(r);
     return out;
 }
 
@@ -353,7 +383,7 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
     const int nDof = static_cast<int>(3 * nNodes);
 
     // ---- material 6×6 D ----------------------------------------------------
-    Eigen::Matrix<double, 6, 6> D = Eigen::Matrix<double, 6, 6>::Zero();
+    la::MatrixD D(6, 6);
     {
         const double lam = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
         const double mu  = mat.E / (2 * (1 + mat.nu));
@@ -373,17 +403,17 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
     }
 
     // ---- external load vector (full at load step = loadSteps) -------------
-    Eigen::VectorXd fFull = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> fFull(nDof, 0.0);
     for (const auto& L : loads) {
         const int base = 3 * static_cast<int>(L.nodeId);
         if (base + 2 < nDof) {
-            fFull(base + 0) += L.fx;
-            fFull(base + 1) += L.fy;
-            fFull(base + 2) += L.fz;
+            fFull[base + 0] += L.fx;
+            fFull[base + 1] += L.fy;
+            fFull[base + 2] += L.fz;
         }
     }
-    for (int i = 0; i < nDof; ++i) if (isPinned[i]) fFull(i) = 0;
-    const double fNorm = std::max(1e-12, fFull.norm());
+    for (int i = 0; i < nDof; ++i) if (isPinned[i]) fFull[i] = 0;
+    const double fNorm = std::max(1e-12, la::norm2(fFull));
 
     NonlinearResult out;
     out.stepDisplacements.reserve(cfg.loadSteps);
@@ -391,7 +421,7 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
     out.stepIterations.reserve(cfg.loadSteps);
     out.converged = true;
 
-    Eigen::VectorXd u = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> u(nDof, 0.0);
 
     // Reference nodal coords (undeformed).
     std::vector<double> Xref = mesh.nodes;
@@ -399,17 +429,16 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
     // -------- per-load-step Newton loop ------------------------------------
     for (int step = 1; step <= cfg.loadSteps; ++step) {
         const double lambda = static_cast<double>(step) / cfg.loadSteps;
-        Eigen::VectorXd fExt = lambda * fFull;
+        std::vector<double> fExt = la::vscale(fFull, lambda);
 
         int iter = 0;
         double relRes = 0;
         for (iter = 0; iter < cfg.maxNewton; ++iter) {
             // Build K_T and internal force at current u using the geometric
             // stiffness on the deformed coords X = X_ref + u.
-            Eigen::SparseMatrix<double> Kt(nDof, nDof);
-            Eigen::VectorXd fInt = Eigen::VectorXd::Zero(nDof);
+            std::vector<double> fInt(nDof, 0.0);
 
-            std::vector<Eigen::Triplet<double>> trips;
+            std::vector<la::Triplet<double>> trips;
             trips.reserve(nElems * 24 * 24);
 
             for (std::size_t e = 0; e < nElems; ++e) {
@@ -419,13 +448,13 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
                 for (int i = 0; i < 8; ++i) {
                     const std::uint32_t nid = mesh.tets[e * 8 + i];
                     nodeIds[i] = nid;
-                    Xdef[i][0] = Xref[3*nid + 0] + u(3*nid + 0);
-                    Xdef[i][1] = Xref[3*nid + 1] + u(3*nid + 1);
-                    Xdef[i][2] = Xref[3*nid + 2] + u(3*nid + 2);
-                    for (int a = 0; a < 3; ++a) ue[3*i + a] = u(3*nid + a);
+                    Xdef[i][0] = Xref[3*nid + 0] + u[3*nid + 0];
+                    Xdef[i][1] = Xref[3*nid + 1] + u[3*nid + 1];
+                    Xdef[i][2] = Xref[3*nid + 2] + u[3*nid + 2];
+                    for (int a = 0; a < 3; ++a) ue[3*i + a] = u[3*nid + a];
                 }
-                Eigen::Matrix<double, 24, 24> Ke = Eigen::Matrix<double, 24, 24>::Zero();
-                Eigen::Matrix<double, 24, 1>  fInt_e = Eigen::Matrix<double, 24, 1>::Zero();
+                la::MatrixD Ke(24, 24);
+                std::vector<double> fInt_e(24, 0.0);
 
                 for (int g = 0; g < kGaussCount; ++g) {
                     const auto& gp = kGauss[g];
@@ -446,8 +475,7 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
                             for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
                             dNx[i][j] = s;
                         }
-                    Eigen::Matrix<double, 6, 24> B;
-                    B.setZero();
+                    la::MatrixD B(6, 24);
                     for (int i = 0; i < 8; ++i) {
                         const int c = 3 * i;
                         const double bx = dNx[i][0];
@@ -460,19 +488,27 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
                         B(4, c + 1) = bz; B(4, c + 2) = by;
                         B(5, c    ) = bz; B(5, c + 2) = bx;
                     }
-                    Eigen::Matrix<double, 24, 1> ueV;
-                    for (int i = 0; i < 24; ++i) ueV(i) = ue[i];
-                    Eigen::Matrix<double, 6, 1> eps = B * ueV;
-                    Eigen::Matrix<double, 6, 1> sigma = D * eps;
+                    std::vector<double> ueV(24);
+                    for (int i = 0; i < 24; ++i) ueV[i] = ue[i];
+                    std::vector<double> eps = B * ueV;
+                    std::vector<double> sigma = D * eps;
 
                     const double wScale = gp.w * det;
-                    Ke.noalias()       += B.transpose() * D * B * wScale;
-                    fInt_e.noalias()   += B.transpose() * sigma * wScale;
+                    // Ke += (Bᵀ D B) * wScale  (scalar fold into the entrywise add,
+                    // since la::MatrixD has no scalar operator* / .noalias()).
+                    const la::MatrixD BtDB = B.transpose() * D * B;
+                    for (int ii = 0; ii < 24; ++ii)
+                        for (int jj = 0; jj < 24; ++jj)
+                            Ke(ii, jj) += BtDB(ii, jj) * wScale;
+                    // fInt_e += (Bᵀ σ) * wScale.
+                    const std::vector<double> Bts = B.transpose() * sigma;
+                    for (int ii = 0; ii < 24; ++ii)
+                        fInt_e[ii] += Bts[ii] * wScale;
 
                     // Geometric stiffness K_σ:
                     //   K_σ = ∫ G^T S G dΩ where G is the 9×24 nodal gradient
                     //   matrix and S is a 9×9 block-diagonal of σ.
-                    Eigen::Matrix<double, 9, 24> G = Eigen::Matrix<double, 9, 24>::Zero();
+                    la::MatrixD G(9, 24);
                     for (int i = 0; i < 8; ++i) {
                         const int c = 3 * i;
                         G(0, c    ) = dNx[i][0];
@@ -485,22 +521,26 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
                         G(7, c + 2) = dNx[i][1];
                         G(8, c + 2) = dNx[i][2];
                     }
-                    Eigen::Matrix<double, 3, 3> S;
-                    S(0,0) = sigma(0); S(0,1) = sigma(3); S(0,2) = sigma(5);
-                    S(1,0) = sigma(3); S(1,1) = sigma(1); S(1,2) = sigma(4);
-                    S(2,0) = sigma(5); S(2,1) = sigma(4); S(2,2) = sigma(2);
-                    Eigen::Matrix<double, 9, 9> SBlock = Eigen::Matrix<double, 9, 9>::Zero();
-                    SBlock.block<3,3>(0,0) = S;
-                    SBlock.block<3,3>(3,3) = S;
-                    SBlock.block<3,3>(6,6) = S;
-                    Ke.noalias() += G.transpose() * SBlock * G * wScale;
+                    la::MatrixD S(3, 3);
+                    S(0,0) = sigma[0]; S(0,1) = sigma[3]; S(0,2) = sigma[5];
+                    S(1,0) = sigma[3]; S(1,1) = sigma[1]; S(1,2) = sigma[4];
+                    S(2,0) = sigma[5]; S(2,1) = sigma[4]; S(2,2) = sigma[2];
+                    la::MatrixD SBlock(9, 9);
+                    SBlock.setBlock(0, 0, S);
+                    SBlock.setBlock(3, 3, S);
+                    SBlock.setBlock(6, 6, S);
+                    // Ke += (Gᵀ SBlock G) * wScale.
+                    const la::MatrixD GtSG = G.transpose() * SBlock * G;
+                    for (int ii = 0; ii < 24; ++ii)
+                        for (int jj = 0; jj < 24; ++jj)
+                            Ke(ii, jj) += GtSG(ii, jj) * wScale;
                 }
                 // Scatter into K_t and f_int.
                 for (int i = 0; i < 8; ++i) {
                     for (int ai = 0; ai < 3; ++ai) {
                         const int gi = 3 * nodeIds[i] + ai;
                         const int li = 3 * i + ai;
-                        fInt(gi) += fInt_e(li);
+                        fInt[gi] += fInt_e[li];
                         for (int j = 0; j < 8; ++j) {
                             for (int aj = 0; aj < 3; ++aj) {
                                 const int gj = 3 * nodeIds[j] + aj;
@@ -512,35 +552,46 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
                     }
                 }
             }
-            Kt.setFromTriplets(trips.begin(), trips.end());
-            Kt.makeCompressed();
-
-            Eigen::VectorXd r = fInt - fExt;
+            std::vector<double> r = la::vsub(fInt, fExt);
             // Apply pinned BCs to residual + Kt.
-            for (int i = 0; i < nDof; ++i) if (isPinned[i]) r(i) = 0;
-            relRes = r.norm() / fNorm;
+            for (int i = 0; i < nDof; ++i) if (isPinned[i]) r[i] = 0;
+            relRes = la::norm2(r) / fNorm;
             if (relRes < cfg.residualTol && iter > 0) break;
 
             // Apply pinned BCs to Kt: zero rows/cols + diag = 1.
-            for (int k = 0; k < Kt.outerSize(); ++k) {
-                for (Eigen::SparseMatrix<double>::InnerIterator it(Kt, k); it; ++it) {
-                    const int rr = static_cast<int>(it.row());
-                    const int cc = static_cast<int>(it.col());
-                    if (isPinned[rr] || isPinned[cc]) it.valueRef() = 0;
+            //
+            // Eigen did this on the assembled matrix (InnerIterator valueRef=0,
+            // coeffRef=1, prune). la::SparseCSR is immutable post-assembly, so the
+            // identical transformation is performed at the TRIPLET level before
+            // assembly: drop every triplet touching a pinned row/col (== the
+            // valueRef=0 + prune), then append (i,i,1.0) per pinned dof (==
+            // coeffRef=1). setFromTriplets sums duplicates — and no other entry
+            // on a pinned row/col survives the filter — so the assembled Kt is
+            // exactly what the prior post-assembly mutation produced. No
+            // f-substitution is done here (the Eigen code did none either).
+            {
+                std::vector<la::Triplet<double>> ktrips;
+                ktrips.reserve(trips.size());
+                for (const auto& t : trips) {
+                    if (isPinned[t.row] || isPinned[t.col]) continue;
+                    ktrips.push_back(t);
                 }
+                for (int i = 0; i < nDof; ++i)
+                    if (isPinned[i]) ktrips.emplace_back(i, i, 1.0);
+                trips.swap(ktrips);
             }
-            for (int i = 0; i < nDof; ++i) if (isPinned[i]) Kt.coeffRef(i, i) = 1.0;
-            Kt.prune(0.0); Kt.makeCompressed();
+            la::SparseCSR<double> Kt;
+            Kt.setFromTriplets(nDof, nDof, trips);
 
-            Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(Kt);
-            if (ldlt.info() != Eigen::Success) {
+            la::SparseLDLT ldlt(Kt);
+            if (!ldlt.ok()) {
                 throw std::runtime_error(
                     "forge.fea.solveNonlinearStatic: tangent LDLT factorisation failed");
             }
-            Eigen::VectorXd du = ldlt.solve(-r);
+            std::vector<double> du = ldlt.solve(la::vscale(r, -1.0));
             // Pinned DOFs stay at 0.
-            for (int i = 0; i < nDof; ++i) if (isPinned[i]) du(i) = 0;
-            u += du;
+            for (int i = 0; i < nDof; ++i) if (isPinned[i]) du[i] = 0;
+            la::vaxpy(u, 1.0, du);  // u += du
         }
         out.stepResiduals.push_back(relRes);
         out.stepIterations.push_back(iter);
@@ -548,7 +599,7 @@ NonlinearResult solveNonlinearStatic(const Mesh& mesh, const Material& mat,
             out.converged = false;
         }
         std::vector<double> snap(nDof);
-        for (int i = 0; i < nDof; ++i) snap[i] = u(i);
+        for (int i = 0; i < nDof; ++i) snap[i] = u[i];
         out.stepDisplacements.push_back(std::move(snap));
     }
 

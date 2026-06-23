@@ -1,9 +1,6 @@
 #include "forge/WeldingFea.hpp"
 
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
-#include <Eigen/SparseCholesky>
-#include <Eigen/SparseLU>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -12,6 +9,8 @@
 #include <vector>
 
 namespace forge { namespace welding {
+
+namespace la = forge::native::linalg;
 
 namespace {
 
@@ -25,17 +24,18 @@ inline std::size_t T3(std::size_t t, int i) { return 4 * t + i; }
 //   the 4×4 system [1 x y z] of the tet vertices.
 // Returns volume V (signed; we keep |V|).
 double tetGrads(const double n[12], double grads[12], double& volOut) {
-    Eigen::Matrix4d M;
+    la::MatrixD M(4, 4);
     for (int i = 0; i < 4; ++i) {
         M(i, 0) = 1.0;
         M(i, 1) = n[3 * i + 0];
         M(i, 2) = n[3 * i + 1];
         M(i, 3) = n[3 * i + 2];
     }
-    const double det = M.determinant();
+    la::LU<double> luM(M);
+    const double det = luM.determinant();
     const double V = std::abs(det) / 6.0;
     if (V < 1e-20) { volOut = 0.0; return 0.0; }
-    Eigen::Matrix4d Minv = M.inverse();
+    la::MatrixD Minv = luM.inverse();
     // ∂N_i/∂x_d = Minv(d+1, i)  for d = 0..2, i = 0..3
     for (int i = 0; i < 4; ++i) {
         grads[3 * i + 0] = Minv(1, i);
@@ -48,7 +48,7 @@ double tetGrads(const double n[12], double grads[12], double& volOut) {
 
 // 6 × 12 strain-displacement matrix B for a linear tet, packed in row-major.
 // Strain order: εxx, εyy, εzz, γxy, γyz, γzx.
-void buildB(const double grads[12], Eigen::Matrix<double, 6, 12>& B) {
+void buildB(const double grads[12], la::MatrixD& B) {
     B.setZero();
     for (int i = 0; i < 4; ++i) {
         const double dx = grads[3 * i + 0];
@@ -65,8 +65,8 @@ void buildB(const double grads[12], Eigen::Matrix<double, 6, 12>& B) {
 }
 
 // 6 × 6 elastic constitutive matrix D (isotropic).
-Eigen::Matrix<double, 6, 6> elasticD(double E, double nu) {
-    Eigen::Matrix<double, 6, 6> D = Eigen::Matrix<double, 6, 6>::Zero();
+la::MatrixD elasticD(double E, double nu) {
+    la::MatrixD D(6, 6);
     const double c = E / ((1.0 + nu) * (1.0 - 2.0 * nu));
     D(0, 0) = c * (1.0 - nu); D(1, 1) = c * (1.0 - nu); D(2, 2) = c * (1.0 - nu);
     D(0, 1) = c * nu; D(0, 2) = c * nu;
@@ -169,8 +169,8 @@ WeldResult simulateWeld(const TetMesh& mesh,
     // ----------------------- per-tet geometry + B matrix + volumes
     std::vector<double> tetGradsArr(M * 12);
     std::vector<double> tetVol(M, 0.0);
-    std::vector<Eigen::Matrix<double, 6, 12>> tetBmat(M);
-    Eigen::Matrix<double, 6, 6> Delast = elasticD(mat.E, mat.nu);
+    std::vector<la::MatrixD> tetBmat(M, la::MatrixD(6, 12));
+    la::MatrixD Delast = elasticD(mat.E, mat.nu);
     for (std::size_t t = 0; t < M; ++t) {
         double n[12];
         for (int i = 0; i < 4; ++i) {
@@ -225,17 +225,16 @@ WeldResult simulateWeld(const TetMesh& mesh,
 
     // Plastic strain history (accumulated over snapshots).
     std::vector<double> ePeq(M, 0.0);   // equivalent plastic strain
-    std::vector<Eigen::Matrix<double, 6, 1>> ePlastic(M, Eigen::Matrix<double, 6, 1>::Zero());
+    std::vector<std::vector<double>> ePlastic(M, std::vector<double>(6, 0.0));
     std::vector<double> misesOut(M, 0.0);
 
     // Build the mechanical stiffness matrix K (constant under linear
     // elasticity assumption — we update the right-hand side each snapshot).
-    Eigen::SparseMatrix<double> K(3 * N, 3 * N);
-    std::vector<Eigen::Triplet<double>> trips;
+    la::SparseCSR<double> K(3 * N, 3 * N);
+    std::vector<la::Triplet<double>> trips;
     trips.reserve(M * 144);
     for (std::size_t t = 0; t < M; ++t) {
-        Eigen::Matrix<double, 12, 12> Ke = tetBmat[t].transpose() * Delast * tetBmat[t]
-                                         * tetVol[t];
+        la::MatrixD Ke = tetBmat[t].transpose() * Delast * tetBmat[t];
         uint32_t ids[4] = { mesh.tets[4*t], mesh.tets[4*t+1],
                             mesh.tets[4*t+2], mesh.tets[4*t+3] };
         for (int a = 0; a < 4; ++a) {
@@ -243,28 +242,31 @@ WeldResult simulateWeld(const TetMesh& mesh,
                 for (int i = 0; i < 3; ++i) {
                     for (int j = 0; j < 3; ++j) {
                         trips.emplace_back(3 * ids[a] + i, 3 * ids[b] + j,
-                                           Ke(3 * a + i, 3 * b + j));
+                                           Ke(3 * a + i, 3 * b + j) * tetVol[t]);
                     }
                 }
             }
         }
     }
-    K.setFromTriplets(trips.begin(), trips.end());
 
     // Apply Dirichlet BC: zero rows + cols for fixed dofs (penalty method
-    // — set K_ii = penalty and f_i = 0 instead of removing).
+    // — set K_ii = penalty and f_i = 0 instead of removing). Folded into the
+    // triplet list as a duplicate diagonal entry; setFromTriplets SUMS
+    // duplicates, which is numerically identical to K_ii += penalty on the
+    // assembled matrix (la::SparseCSR has no post-assembly coeffRef mutation).
     const double penalty = 1e20;
     for (std::size_t i = 0; i < 3 * N; ++i) {
-        if (mesh.fixedDof[i]) K.coeffRef(i, i) += penalty;
+        if (mesh.fixedDof[i]) trips.emplace_back(i, i, penalty);
     }
+    K.setFromTriplets(3 * N, 3 * N, trips);
 
-    Eigen::SparseLU<Eigen::SparseMatrix<double>> mechSolver;
+    la::SparseLU mechSolver;
     mechSolver.compute(K);
-    if (mechSolver.info() != Eigen::Success) {
+    if (!mechSolver.ok()) {
         throw std::runtime_error("forge.welding: mechanical K factorisation failed");
     }
 
-    Eigen::VectorXd uTotal = Eigen::VectorXd::Zero(3 * N);
+    std::vector<double> uTotal(3 * N, 0.0);
     int snapIdx = 0;
     int thermalSteps = 0;
 
@@ -324,82 +326,83 @@ WeldResult simulateWeld(const TetMesh& mesh,
         if (snapIdx < snapshotCount && step + 1 == snapStep[snapIdx]) {
             // ---------------------- mechanical solve at this snapshot
             // Right-hand side: f_th = ∫ B^T D ε_th dV summed per element.
-            Eigen::VectorXd rhs = Eigen::VectorXd::Zero(3 * N);
+            std::vector<double> rhs(3 * N, 0.0);
             for (std::size_t t = 0; t < M; ++t) {
                 const uint32_t* ids = &mesh.tets[4 * t];
                 double Tmid = 0;
                 for (int i = 0; i < 4; ++i) Tmid += Tnow[ids[i]];
                 Tmid /= 4.0;
                 const double dT = Tmid - mat.Tref;
-                Eigen::Matrix<double, 6, 1> epsTh = Eigen::Matrix<double, 6, 1>::Zero();
-                epsTh(0) = mat.alpha * dT;
-                epsTh(1) = mat.alpha * dT;
-                epsTh(2) = mat.alpha * dT;
+                std::vector<double> epsTh(6, 0.0);
+                epsTh[0] = mat.alpha * dT;
+                epsTh[1] = mat.alpha * dT;
+                epsTh[2] = mat.alpha * dT;
                 // f_e_th = B^T · D · epsTh · V — but subtract plastic strain too
-                Eigen::Matrix<double, 6, 1> epsLoad = epsTh + ePlastic[t];
-                Eigen::Matrix<double, 12, 1> fe =
-                    tetBmat[t].transpose() * Delast * epsLoad * tetVol[t];
+                std::vector<double> epsLoad = la::vadd(epsTh, ePlastic[t]);
+                std::vector<double> fe =
+                    la::vscale(tetBmat[t].transpose() * Delast * epsLoad, tetVol[t]);
                 for (int a = 0; a < 4; ++a) {
                     for (int i = 0; i < 3; ++i) {
-                        rhs(3 * ids[a] + i) += fe(3 * a + i);
+                        rhs[3 * ids[a] + i] += fe[3 * a + i];
                     }
                 }
             }
             // Apply Dirichlet via penalty (already added to K diagonal)
-            Eigen::VectorXd u = mechSolver.solve(rhs);
-            if (mechSolver.info() == Eigen::Success) {
+            std::vector<double> u = mechSolver.solve(rhs);
+            if (mechSolver.ok()) {
                 uTotal = u;
                 // Per-element radial-return update for J2 plasticity.
                 const double G = mat.E / (2.0 * (1.0 + mat.nu));
                 const double H = mat.Etan * mat.E / std::max(1.0, mat.E - mat.Etan);
                 for (std::size_t t = 0; t < M; ++t) {
                     const uint32_t* ids = &mesh.tets[4 * t];
-                    Eigen::Matrix<double, 12, 1> ue;
+                    std::vector<double> ue(12, 0.0);
                     for (int a = 0; a < 4; ++a) {
                         for (int i = 0; i < 3; ++i) {
-                            ue(3 * a + i) = u(3 * ids[a] + i);
+                            ue[3 * a + i] = u[3 * ids[a] + i];
                         }
                     }
-                    Eigen::Matrix<double, 6, 1> eps = tetBmat[t] * ue;
+                    std::vector<double> eps = tetBmat[t] * ue;
                     double Tmid = 0;
                     for (int i = 0; i < 4; ++i) Tmid += Tnow[ids[i]];
                     Tmid /= 4.0;
-                    Eigen::Matrix<double, 6, 1> epsTh = Eigen::Matrix<double, 6, 1>::Zero();
-                    epsTh(0) = mat.alpha * (Tmid - mat.Tref);
-                    epsTh(1) = epsTh(0); epsTh(2) = epsTh(0);
-                    Eigen::Matrix<double, 6, 1> epsE = eps - epsTh - ePlastic[t];
-                    Eigen::Matrix<double, 6, 1> sigmaTrial = Delast * epsE;
+                    std::vector<double> epsTh(6, 0.0);
+                    epsTh[0] = mat.alpha * (Tmid - mat.Tref);
+                    epsTh[1] = epsTh[0]; epsTh[2] = epsTh[0];
+                    std::vector<double> epsE = la::vsub(la::vsub(eps, epsTh), ePlastic[t]);
+                    std::vector<double> sigmaTrial = Delast * epsE;
                     // Deviator (note γ-strain convention for shears, but D
                     // already handles factor-of-2; we use σ directly).
-                    const double sm = (sigmaTrial(0) + sigmaTrial(1) + sigmaTrial(2)) / 3.0;
-                    Eigen::Matrix<double, 6, 1> s = sigmaTrial;
-                    s(0) -= sm; s(1) -= sm; s(2) -= sm;
+                    const double sm = (sigmaTrial[0] + sigmaTrial[1] + sigmaTrial[2]) / 3.0;
+                    std::vector<double> s = sigmaTrial;
+                    s[0] -= sm; s[1] -= sm; s[2] -= sm;
                     const double sNorm = std::sqrt(
-                        s(0)*s(0) + s(1)*s(1) + s(2)*s(2)
-                      + 2.0 * (s(3)*s(3) + s(4)*s(4) + s(5)*s(5)));
+                        s[0]*s[0] + s[1]*s[1] + s[2]*s[2]
+                      + 2.0 * (s[3]*s[3] + s[4]*s[4] + s[5]*s[5]));
                     const double sigmaYcur = mat.sigmaY0 + H * ePeq[t];
                     const double f = sNorm - std::sqrt(2.0 / 3.0) * sigmaYcur;
-                    Eigen::Matrix<double, 6, 1> sigma = sigmaTrial;
+                    std::vector<double> sigma = sigmaTrial;
                     if (f > 0) {
                         // Δλ for radial return
                         const double dLambda = f / (2.0 * G + (2.0 / 3.0) * H);
-                        const Eigen::Matrix<double, 6, 1> n_dev =
-                            (sNorm > 0) ? (s / sNorm).eval()
-                                        : Eigen::Matrix<double, 6, 1>::Zero();
+                        std::vector<double> n_dev(6, 0.0);
+                        if (sNorm > 0) {
+                            for (int c = 0; c < 6; ++c) n_dev[c] = s[c] / sNorm;
+                        }
                         // Plastic strain increment is sqrt(3/2)·dλ·n in
                         // stress space → equivalent plastic strain += dλ·√(2/3).
                         ePeq[t] += dLambda * std::sqrt(2.0 / 3.0);
-                        Eigen::Matrix<double, 6, 1> dEpsP = std::sqrt(3.0 / 2.0)
-                                                          * dLambda * n_dev;
-                        ePlastic[t] += dEpsP;
-                        sigma -= 2.0 * G * dEpsP;
+                        std::vector<double> dEpsP = la::vscale(n_dev,
+                                                              std::sqrt(3.0 / 2.0) * dLambda);
+                        la::vaxpy(ePlastic[t], 1.0, dEpsP);
+                        la::vaxpy(sigma, -(2.0 * G), dEpsP);
                     }
                     // Mises stress
-                    const double sm2 = (sigma(0) + sigma(1) + sigma(2)) / 3.0;
-                    Eigen::Matrix<double, 6, 1> sD = sigma;
-                    sD(0) -= sm2; sD(1) -= sm2; sD(2) -= sm2;
-                    misesOut[t] = std::sqrt(1.5 * (sD(0)*sD(0) + sD(1)*sD(1) + sD(2)*sD(2)
-                                                 + 2.0 * (sD(3)*sD(3) + sD(4)*sD(4) + sD(5)*sD(5))));
+                    const double sm2 = (sigma[0] + sigma[1] + sigma[2]) / 3.0;
+                    std::vector<double> sD = sigma;
+                    sD[0] -= sm2; sD[1] -= sm2; sD[2] -= sm2;
+                    misesOut[t] = std::sqrt(1.5 * (sD[0]*sD[0] + sD[1]*sD[1] + sD[2]*sD[2]
+                                                 + 2.0 * (sD[3]*sD[3] + sD[4]*sD[4] + sD[5]*sD[5])));
                 }
             }
             ++snapIdx;

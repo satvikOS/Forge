@@ -13,10 +13,7 @@
 
 #include "forge/FeaContact.hpp"
 
-#include <Eigen/Dense>
-#include <Eigen/Eigenvalues>
-#include <Eigen/Sparse>
-#include <Eigen/SparseCholesky>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <array>
@@ -29,7 +26,18 @@
 
 namespace forge::fea {
 
+namespace la = forge::native::linalg;
+
 namespace {
+
+// Scale every entry of a dense matrix by a scalar (the Eigen `M * s` analog used
+// only inside the FE element-stiffness accumulation; preserves multiply order).
+inline la::MatrixD matScale(const la::MatrixD& A, double s) {
+    la::MatrixD C(A.rows(), A.cols());
+    for (std::size_t i = 0; i < A.rows(); ++i)
+        for (std::size_t j = 0; j < A.cols(); ++j) C(i, j) = A(i, j) * s;
+    return C;
+}
 
 // ----------------------------- hex shape kernels (local) -----------------
 
@@ -88,8 +96,8 @@ inline void inv3x3(const double J[3][3], double Ji[3][3], double det) {
     Ji[2][2] =  (J[0][0]*J[1][1] - J[0][1]*J[1][0]) * inv;
 }
 
-inline Eigen::Matrix<double, 6, 6> isotropicD(double E, double nu) {
-    Eigen::Matrix<double, 6, 6> D = Eigen::Matrix<double, 6, 6>::Zero();
+inline la::MatrixD isotropicD(double E, double nu) {
+    la::MatrixD D(6, 6);   // zero-init
     const double lam = E * nu / ((1 + nu) * (1 - 2 * nu));
     const double mu  = E / (2 * (1 + nu));
     for (int i = 0; i < 3; ++i)
@@ -98,9 +106,9 @@ inline Eigen::Matrix<double, 6, 6> isotropicD(double E, double nu) {
     return D;
 }
 
-inline double vonMisesVoigt(const Eigen::Matrix<double, 6, 1>& s) {
-    const double sx = s(0), sy = s(1), sz = s(2);
-    const double txy = s(3), tyz = s(4), txz = s(5);
+inline double vonMisesVoigt(const std::vector<double>& s) {
+    const double sx = s[0], sy = s[1], sz = s[2];
+    const double txy = s[3], tyz = s[4], txz = s[5];
     const double dxy = sx - sy;
     const double dyz = sy - sz;
     const double dxz = sx - sz;
@@ -109,7 +117,7 @@ inline double vonMisesVoigt(const Eigen::Matrix<double, 6, 1>& s) {
 }
 
 // Build the standard B (6 × 24) at one set of dN/dx.
-inline void buildB(const double dNx[8][3], Eigen::Matrix<double, 6, 24>& B) {
+inline void buildB(const double dNx[8][3], la::MatrixD& B) {
     B.setZero();
     for (int i = 0; i < 8; ++i) {
         const int c = 3 * i;
@@ -127,7 +135,7 @@ inline void buildB(const double dNx[8][3], Eigen::Matrix<double, 6, 24>& B) {
 
 // G matrix (9 × 24) for geometric stress stiffness: row blocks (3 per disp
 // component) hold the spatial gradients of that component's shape functions.
-inline void buildG(const double dNx[8][3], Eigen::Matrix<double, 9, 24>& G) {
+inline void buildG(const double dNx[8][3], la::MatrixD& G) {
     G.setZero();
     for (int i = 0; i < 8; ++i) {
         const int c = 3 * i;
@@ -143,22 +151,22 @@ inline void buildG(const double dNx[8][3], Eigen::Matrix<double, 9, 24>& G) {
     }
 }
 
-inline Eigen::Matrix<double, 9, 9> sigmaBlock(const Eigen::Matrix<double, 6, 1>& s) {
-    Eigen::Matrix<double, 3, 3> S;
-    S(0,0) = s(0); S(0,1) = s(3); S(0,2) = s(5);
-    S(1,0) = s(3); S(1,1) = s(1); S(1,2) = s(4);
-    S(2,0) = s(5); S(2,1) = s(4); S(2,2) = s(2);
-    Eigen::Matrix<double, 9, 9> SB = Eigen::Matrix<double, 9, 9>::Zero();
-    SB.block<3,3>(0,0) = S;
-    SB.block<3,3>(3,3) = S;
-    SB.block<3,3>(6,6) = S;
+inline la::MatrixD sigmaBlock(const std::vector<double>& s) {
+    la::MatrixD S(3, 3);
+    S(0,0) = s[0]; S(0,1) = s[3]; S(0,2) = s[5];
+    S(1,0) = s[3]; S(1,1) = s[1]; S(1,2) = s[4];
+    S(2,0) = s[5]; S(2,1) = s[4]; S(2,2) = s[2];
+    la::MatrixD SB(9, 9);   // zero-init
+    SB.setBlock(0,0, S);
+    SB.setBlock(3,3, S);
+    SB.setBlock(6,6, S);
     return SB;
 }
 
 // Assemble K from a hex mesh into a (preallocated) sparse matrix returned by
 // value. Also returns the diagonal-magnitude sum for auto-scaling penalties.
 struct LinearAssembly {
-    Eigen::SparseMatrix<double> K;
+    la::SparseCSR<double> K;
     std::vector<double>         elemVol;   // volume per element
     double                      diagAvg = 0;
     std::size_t                 nDof = 0;
@@ -171,11 +179,10 @@ LinearAssembly assembleLinearK(const Mesh& mesh, const Material& mat) {
     auto D = isotropicD(mat.E, mat.nu);
 
     LinearAssembly out;
-    out.K.resize(static_cast<int>(nDof), static_cast<int>(nDof));
     out.nDof = nDof;
     out.elemVol.assign(nElems, 0.0);
 
-    std::vector<Eigen::Triplet<double>> trips;
+    std::vector<la::Triplet<double>> trips;
     trips.reserve(nElems * 24 * 24);
 
     for (std::size_t e = 0; e < nElems; ++e) {
@@ -187,7 +194,7 @@ LinearAssembly assembleLinearK(const Mesh& mesh, const Material& mat) {
             X[i][1] = mesh.nodes[3 * nid[i] + 1];
             X[i][2] = mesh.nodes[3 * nid[i] + 2];
         }
-        Eigen::Matrix<double, 24, 24> Ke = Eigen::Matrix<double, 24, 24>::Zero();
+        la::MatrixD Ke(24, 24);   // zero-init
         double vol = 0;
         for (int g = 0; g < kGaussCount; ++g) {
             const auto& gp = kGauss[g];
@@ -206,9 +213,10 @@ LinearAssembly assembleLinearK(const Mesh& mesh, const Material& mat) {
                     for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
                     dNx[i][j] = s;
                 }
-            Eigen::Matrix<double, 6, 24> B; buildB(dNx, B);
+            la::MatrixD B(6, 24); buildB(dNx, B);
             const double w = gp.w * det;
-            Ke.noalias() += B.transpose() * D * B * w;
+            la::MatrixD keG = matScale(B.transpose() * D * B, w);
+            Ke = Ke + keG;
             vol += w;
         }
         out.elemVol[e] = vol;
@@ -225,8 +233,7 @@ LinearAssembly assembleLinearK(const Mesh& mesh, const Material& mat) {
                     }
             }
     }
-    out.K.setFromTriplets(trips.begin(), trips.end());
-    out.K.makeCompressed();
+    out.K.setFromTriplets(nDof, nDof, trips);
 
     double diagSum = 0;
     int    nDiag   = 0;
@@ -239,8 +246,8 @@ LinearAssembly assembleLinearK(const Mesh& mesh, const Material& mat) {
 }
 
 // Apply pinned BCs by row/col elimination; returns the list of pinned DOFs.
-std::vector<int> applyPinBCs(Eigen::SparseMatrix<double>& K,
-                             Eigen::VectorXd& f,
+std::vector<int> applyPinBCs(la::SparseCSR<double>& K,
+                             std::vector<double>& f,
                              const std::vector<BCPinned>& bcs,
                              int nDof) {
     std::vector<bool> isPinned(nDof, false);
@@ -253,34 +260,44 @@ std::vector<int> applyPinBCs(Eigen::SparseMatrix<double>& K,
     }
     for (int i = 0; i < nDof; ++i) if (isPinned[i]) pinned.push_back(i);
 
-    for (int k = 0; k < K.outerSize(); ++k) {
-        for (Eigen::SparseMatrix<double>::InnerIterator it(K, k); it; ++it) {
-            const int r = static_cast<int>(it.row());
-            const int c = static_cast<int>(it.col());
-            if (isPinned[r] || isPinned[c]) it.valueRef() = 0;
+    // Eigen path: iterate the sparse entries, zero any whose row OR col is
+    // pinned, set a 1.0 on each pinned diagonal, then prune the explicit zeros.
+    // SparseCSR is immutable in-place, so rebuild it from triplets, dropping the
+    // would-be-zeroed entries (the prune) and forcing the unit pinned diagonal.
+    std::vector<la::Triplet<double>> trips;
+    trips.reserve(K.nnz() + pinned.size());
+    const auto& rowPtr = K.rowPtr();
+    const auto& colIdx = K.colIdx();
+    const auto& vals   = K.values();
+    for (std::size_t r = 0; r < K.rows(); ++r) {
+        for (std::size_t idx = rowPtr[r]; idx < rowPtr[r + 1]; ++idx) {
+            const std::size_t c = colIdx[idx];
+            if (isPinned[static_cast<int>(r)] || isPinned[static_cast<int>(c)])
+                continue;                       // zeroed → pruned
+            trips.emplace_back(r, c, vals[idx]);
         }
     }
     for (int i : pinned) {
-        K.coeffRef(i, i) = 1.0;
-        f(i) = 0;
+        trips.emplace_back(static_cast<std::size_t>(i),
+                           static_cast<std::size_t>(i), 1.0);
+        f[i] = 0;
     }
-    K.prune(0.0);
-    K.makeCompressed();
+    K.setFromTriplets(K.rows(), K.cols(), trips);
     return pinned;
 }
 
 // Per-element centroid stress for a given global displacement vector.
-Eigen::Matrix<double, 6, 1> elemCentroidStress(const Mesh& mesh, std::size_t e,
-                                               const Eigen::Matrix<double, 6, 6>& D,
-                                               const Eigen::VectorXd& u)
+std::vector<double> elemCentroidStress(const Mesh& mesh, std::size_t e,
+                                       const la::MatrixD& D,
+                                       const std::vector<double>& u)
 {
-    double X[8][3]; Eigen::Matrix<double, 24, 1> ue;
+    double X[8][3]; std::vector<double> ue(24, 0.0);
     for (int i = 0; i < 8; ++i) {
         const std::uint32_t nid = mesh.tets[e * 8 + i];
         X[i][0] = mesh.nodes[3 * nid + 0];
         X[i][1] = mesh.nodes[3 * nid + 1];
         X[i][2] = mesh.nodes[3 * nid + 2];
-        for (int a = 0; a < 3; ++a) ue(3 * i + a) = u(3 * nid + a);
+        for (int a = 0; a < 3; ++a) ue[3 * i + a] = u[3 * nid + a];
     }
     double dN[8][3]; shapeDerivs(0, 0, 0, dN);
     double J[3][3];  jacobian3(dN, X, J);
@@ -293,8 +310,8 @@ Eigen::Matrix<double, 6, 1> elemCentroidStress(const Mesh& mesh, std::size_t e,
             for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
             dNx[i][j] = s;
         }
-    Eigen::Matrix<double, 6, 24> B; buildB(dNx, B);
-    Eigen::Matrix<double, 6, 1> eps = B * ue;
+    la::MatrixD B(6, 24); buildB(dNx, B);
+    std::vector<double> eps = B * ue;
     return D * eps;
 }
 
@@ -306,15 +323,15 @@ Eigen::Matrix<double, 6, 1> elemCentroidStress(const Mesh& mesh, std::size_t e,
 // supplies an axial *compressive* preload, so σ comes out negative on the
 // loaded axis, K_g ends up negative on that block, and the lowest positive
 // eigenvalue is the critical load multiplier.
-Eigen::SparseMatrix<double> assembleKgeom(const Mesh& mesh,
-                                          const std::vector<Eigen::Matrix<double, 6, 1>>& sigma)
+la::SparseCSR<double> assembleKgeom(const Mesh& mesh,
+                                    const std::vector<std::vector<double>>& sigma)
 {
     const std::size_t nNodes = mesh.nodes.size() / 3;
     const std::size_t nElems = mesh.tets.size() / mesh.elemNodeCount;
     const std::size_t nDof   = 3 * nNodes;
 
-    Eigen::SparseMatrix<double> Kg(static_cast<int>(nDof), static_cast<int>(nDof));
-    std::vector<Eigen::Triplet<double>> trips;
+    la::SparseCSR<double> Kg(nDof, nDof);
+    std::vector<la::Triplet<double>> trips;
     trips.reserve(nElems * 24 * 24);
 
     for (std::size_t e = 0; e < nElems; ++e) {
@@ -327,7 +344,7 @@ Eigen::SparseMatrix<double> assembleKgeom(const Mesh& mesh,
             X[i][2] = mesh.nodes[3 * nid[i] + 2];
         }
         const auto SB = sigmaBlock(sigma[e]);
-        Eigen::Matrix<double, 24, 24> Kge = Eigen::Matrix<double, 24, 24>::Zero();
+        la::MatrixD Kge(24, 24);   // zero-init
         for (int g = 0; g < kGaussCount; ++g) {
             const auto& gp = kGauss[g];
             double dN[8][3]; shapeDerivs(gp.xi, gp.eta, gp.zeta, dN);
@@ -342,8 +359,9 @@ Eigen::SparseMatrix<double> assembleKgeom(const Mesh& mesh,
                     for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
                     dNx[i][j] = s;
                 }
-            Eigen::Matrix<double, 9, 24> G; buildG(dNx, G);
-            Kge.noalias() += G.transpose() * SB * G * (gp.w * det);
+            la::MatrixD G(9, 24); buildG(dNx, G);
+            la::MatrixD kgeG = matScale(G.transpose() * SB * G, gp.w * det);
+            Kge = Kge + kgeG;
         }
         for (int i = 0; i < 8; ++i)
             for (int ai = 0; ai < 3; ++ai) {
@@ -358,8 +376,7 @@ Eigen::SparseMatrix<double> assembleKgeom(const Mesh& mesh,
                     }
             }
     }
-    Kg.setFromTriplets(trips.begin(), trips.end());
-    Kg.makeCompressed();
+    Kg.setFromTriplets(nDof, nDof, trips);
     return Kg;
 }
 
@@ -406,31 +423,31 @@ BucklingResult solveBuckling(const Mesh& mesh, const Material& mat,
     }
 
     // ---- 2. static solve under the supplied preload ---------------------
-    Eigen::VectorXd f = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> f(nDof, 0.0);
     for (const auto& L : staticLoads) {
         const int base = 3 * static_cast<int>(L.nodeId);
         if (base + 2 < nDof) {
-            f(base + 0) += L.fx;
-            f(base + 1) += L.fy;
-            f(base + 2) += L.fz;
+            f[base + 0] += L.fx;
+            f[base + 1] += L.fy;
+            f[base + 2] += L.fz;
         }
     }
-    Eigen::SparseMatrix<double> Kpin = lin.K;     // copy — we'll modify
-    Eigen::VectorXd fPin = f;
+    la::SparseCSR<double> Kpin = lin.K;     // copy — we'll modify
+    std::vector<double> fPin = f;
     auto pinned = applyPinBCs(Kpin, fPin, bcs, nDof);
     std::vector<bool> isPinned(nDof, false);
     for (int i : pinned) isPinned[i] = true;
 
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(Kpin);
-    if (ldlt.info() != Eigen::Success) {
+    la::SparseLDLT ldlt(Kpin);
+    if (!ldlt.ok()) {
         throw std::runtime_error("forge.fea.solveBuckling: pre-load LDLT failed");
     }
-    Eigen::VectorXd u0 = ldlt.solve(fPin);
+    std::vector<double> u0 = ldlt.solve(fPin);
 
     // ---- 3. centroid stress per element ---------------------------------
     auto D = isotropicD(mat.E, mat.nu);
     const std::size_t nElems = mesh.tets.size() / 8;
-    std::vector<Eigen::Matrix<double, 6, 1>> sigma(nElems);
+    std::vector<std::vector<double>> sigma(nElems);
     for (std::size_t e = 0; e < nElems; ++e) {
         sigma[e] = elemCentroidStress(mesh, e, D, u0);
     }
@@ -440,15 +457,25 @@ BucklingResult solveBuckling(const Mesh& mesh, const Material& mat,
 
     // ---- 5. dense generalised eigenproblem K φ = λ (−K_g) φ -------------
     //
-    // Apply BCs to K_g: zero rows/cols + 0 diag for pinned DOFs.
-    for (int k = 0; k < Kg.outerSize(); ++k) {
-        for (Eigen::SparseMatrix<double>::InnerIterator it(Kg, k); it; ++it) {
-            const int r = static_cast<int>(it.row());
-            const int c = static_cast<int>(it.col());
-            if (isPinned[r] || isPinned[c]) it.valueRef() = 0;
+    // Apply BCs to K_g: zero rows/cols + 0 diag for pinned DOFs. SparseCSR is
+    // immutable in-place, so rebuild from triplets dropping the pinned entries
+    // (matches the original zero + prune semantics).
+    {
+        std::vector<la::Triplet<double>> kgTrips;
+        kgTrips.reserve(Kg.nnz());
+        const auto& rp = Kg.rowPtr();
+        const auto& ci = Kg.colIdx();
+        const auto& vv = Kg.values();
+        for (std::size_t r = 0; r < Kg.rows(); ++r) {
+            for (std::size_t idx = rp[r]; idx < rp[r + 1]; ++idx) {
+                const std::size_t c = ci[idx];
+                if (isPinned[static_cast<int>(r)] || isPinned[static_cast<int>(c)])
+                    continue;
+                kgTrips.emplace_back(r, c, vv[idx]);
+            }
         }
+        Kg.setFromTriplets(Kg.rows(), Kg.cols(), kgTrips);
     }
-    Kg.prune(0.0); Kg.makeCompressed();
 
     // Reduce: rank-eliminate pinned rows entirely so the dense eigen problem
     // operates on the free DOFs.
@@ -456,20 +483,20 @@ BucklingResult solveBuckling(const Mesh& mesh, const Material& mat,
     for (int i = 0; i < nDof; ++i) if (!isPinned[i]) freeDof.push_back(i);
     const int nFree = static_cast<int>(freeDof.size());
 
-    Eigen::MatrixXd Kfull  = Eigen::MatrixXd(lin.K);
-    Eigen::MatrixXd KgFull = Eigen::MatrixXd(Kg);
-    Eigen::MatrixXd Kred(nFree, nFree);
-    Eigen::MatrixXd KgRed(nFree, nFree);
+    la::MatrixD Kfull  = lin.K.toDense();
+    la::MatrixD KgFull = Kg.toDense();
+    la::MatrixD Kred(nFree, nFree);
+    la::MatrixD KgRed(nFree, nFree);
     for (int a = 0; a < nFree; ++a)
         for (int b = 0; b < nFree; ++b) {
             Kred (a, b) = Kfull (freeDof[a], freeDof[b]);
             KgRed(a, b) = KgFull(freeDof[a], freeDof[b]);
         }
     // K φ = λ (−K_g) φ  ⇒ define M = −K_g and solve K φ = λ M φ.
-    Eigen::MatrixXd M = -KgRed;
+    la::MatrixD M = matScale(KgRed, -1.0);
     // Symmetrise (numerical drift from sparse triplet sums):
-    Kred = 0.5 * (Kred + Kred.transpose());
-    M    = 0.5 * (M    + M.transpose());
+    Kred = matScale(Kred + Kred.transpose(), 0.5);
+    M    = matScale(M    + M.transpose(),    0.5);
 
     // M = -K_g is INDEFINITE in general (the elastic stress solution has
     // tensile + compressive + shear components; only the dominant axial
@@ -481,37 +508,37 @@ BucklingResult solveBuckling(const Mesh& mesh, const Material& mat,
     // Fix: solve the *inverted* problem `M φ = (1/λ) K φ`. K is SPD on the
     // free DOFs, so Cholesky on K is sound. The eigenvalues we get are
     // β = 1/λ; we invert + filter to recover the physical λ.
-    Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> eig(
-        M, Kred, Eigen::ComputeEigenvectors | Eigen::Ax_lBx);
-    if (eig.info() != Eigen::Success) {
+    la::GeneralizedSymmetricEigen eig(M, Kred, /*computeVectors=*/true);
+    if (!eig.ok()) {
         throw std::runtime_error("forge.fea.solveBuckling: eigensolver failed");
     }
     // β returned ascending. Largest β > 0 → smallest positive λ (= 1/β). For
     // a stable column at the applied preload, only a finite number of β
     // are positive; the rest correspond to tensile / shear contributions
     // that DON'T produce buckling and we filter them out.
-    const Eigen::VectorXd& beta = eig.eigenvalues();
-    const Eigen::MatrixXd& vecsAll = eig.eigenvectors();
+    const std::vector<double>& beta = eig.eigenvalues();
+    const la::MatrixD& vecsAll = eig.eigenvectors();
     // Walk β descending to surface the lowest positive λ first.
-    Eigen::VectorXd vals(beta.size());
-    Eigen::MatrixXd vecs(vecsAll.rows(), vecsAll.cols());
+    std::vector<double> vals(beta.size(), 0.0);
+    la::MatrixD vecs(vecsAll.rows(), vecsAll.cols());
     int outIdx = 0;
     for (int m = static_cast<int>(beta.size()) - 1; m >= 0; --m) {
-        if (beta(m) <= 0) break; // all remaining are negative or zero
-        vals(outIdx) = 1.0 / beta(m);
-        vecs.col(outIdx) = vecsAll.col(m);
+        if (beta[m] <= 0) break; // all remaining are negative or zero
+        vals[outIdx] = 1.0 / beta[m];
+        vecs.setCol(outIdx, vecsAll.col(m));
         ++outIdx;
     }
-    vals.conservativeResize(outIdx);
-    vecs.conservativeResize(vecs.rows(), outIdx);
+    // (vals/vecs are logically truncated to outIdx columns; the loop below
+    //  only reads the first outIdx entries, so no physical resize is needed.)
+    const int nVals = outIdx;
 
     // vals comes back ascending in λ (already inverted from β above). Skip
     // any non-finite or sub-threshold value — those are projections of
     // spurious modes that survived the β > 0 filter.
     BucklingResult out;
     out.nModes = 0;
-    for (int m = 0; m < vals.size() && out.nModes < nModes; ++m) {
-        const double lam = vals(m);
+    for (int m = 0; m < nVals && out.nModes < nModes; ++m) {
+        const double lam = vals[m];
         if (!std::isfinite(lam) || lam < 1e-9) continue;
         out.loadFactors.push_back(lam);
         std::vector<double> phi(nDof, 0.0);
@@ -623,35 +650,41 @@ ContactResult solveContact(const Mesh& meshA, const Mesh& meshB,
     // Merge K_A and K_B into one block-diagonal sparse matrix on which we'll
     // add penalty contributions every iteration.
     auto buildMerged = [&]() {
-        Eigen::SparseMatrix<double> K(nDof, nDof);
-        std::vector<Eigen::Triplet<double>> trips;
-        trips.reserve(static_cast<std::size_t>(linA.K.nonZeros() + linB.K.nonZeros()));
-        for (int k = 0; k < linA.K.outerSize(); ++k) {
-            for (Eigen::SparseMatrix<double>::InnerIterator it(linA.K, k); it; ++it) {
-                trips.emplace_back(static_cast<int>(it.row()),
-                                   static_cast<int>(it.col()), it.value());
-            }
+        la::SparseCSR<double> K(nDof, nDof);
+        std::vector<la::Triplet<double>> trips;
+        trips.reserve(static_cast<std::size_t>(linA.K.nnz() + linB.K.nnz()));
+        {
+            const auto& rp = linA.K.rowPtr();
+            const auto& ci = linA.K.colIdx();
+            const auto& vv = linA.K.values();
+            for (std::size_t r = 0; r < linA.K.rows(); ++r)
+                for (std::size_t idx = rp[r]; idx < rp[r + 1]; ++idx)
+                    trips.emplace_back(r, ci[idx], vv[idx]);
         }
-        for (int k = 0; k < linB.K.outerSize(); ++k) {
-            for (Eigen::SparseMatrix<double>::InnerIterator it(linB.K, k); it; ++it) {
-                trips.emplace_back(nDofA + static_cast<int>(it.row()),
-                                   nDofA + static_cast<int>(it.col()), it.value());
-            }
+        {
+            const auto& rp = linB.K.rowPtr();
+            const auto& ci = linB.K.colIdx();
+            const auto& vv = linB.K.values();
+            for (std::size_t r = 0; r < linB.K.rows(); ++r)
+                for (std::size_t idx = rp[r]; idx < rp[r + 1]; ++idx)
+                    trips.emplace_back(static_cast<std::size_t>(nDofA) + r,
+                                       static_cast<std::size_t>(nDofA) + ci[idx],
+                                       vv[idx]);
         }
-        K.setFromTriplets(trips.begin(), trips.end());
-        K.makeCompressed();
+        K.setFromTriplets(static_cast<std::size_t>(nDof),
+                          static_cast<std::size_t>(nDof), trips);
         return K;
     };
 
     // Loads + BCs combined.
-    Eigen::VectorXd f = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> f(nDof, 0.0);
     for (const auto& L : loadsA) {
         const int b = 3 * static_cast<int>(L.nodeId);
-        if (b + 2 < nDofA) { f(b) += L.fx; f(b + 1) += L.fy; f(b + 2) += L.fz; }
+        if (b + 2 < nDofA) { f[b] += L.fx; f[b + 1] += L.fy; f[b + 2] += L.fz; }
     }
     for (const auto& L : loadsB) {
         const int b = nDofA + 3 * static_cast<int>(L.nodeId);
-        if (b + 2 < nDof) { f(b) += L.fx; f(b + 1) += L.fy; f(b + 2) += L.fz; }
+        if (b + 2 < nDof) { f[b] += L.fx; f[b + 1] += L.fy; f[b + 2] += L.fz; }
     }
     std::vector<BCPinned> bcsMerged = bcsA;
     bcsMerged.reserve(bcsA.size() + bcsB.size());
@@ -701,7 +734,7 @@ ContactResult solveContact(const Mesh& meshA, const Mesh& meshB,
     out.contactPressure.assign(contactPairs.size(), 0.0);
     out.penaltyUsed = alpha;
 
-    Eigen::VectorXd u = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> u(nDof, 0.0);
     std::vector<bool> activePrev(contactPairs.size(), false);
     std::vector<bool> active(contactPairs.size(), false);
 
@@ -715,7 +748,7 @@ ContactResult solveContact(const Mesh& meshA, const Mesh& meshB,
             if (pr.nodeA >= nNodesA || pr.faceB >= 6) { active[p] = false; continue; }
             const int ax = faceAxis(pr.faceB);
             const auto n = faceNormal(pr.faceB);
-            const double posA = meshA.nodes[3 * pr.nodeA + ax] + u(3 * pr.nodeA + ax);
+            const double posA = meshA.nodes[3 * pr.nodeA + ax] + u[3 * pr.nodeA + ax];
             // For the cube-on-cube smoke meshB is below meshA, contact face
             // of B is +Z (faceId=5). gap measures how far A's bottom node is
             // below B's top plane: gap = (posA - plane) · n. For first
@@ -733,8 +766,8 @@ ContactResult solveContact(const Mesh& meshA, const Mesh& meshB,
         if (!anyActive) { for (std::size_t p = 0; p < active.size(); ++p) active[p] = true; }
 
         // Build K_global = K_diag + Σ α (N N^T)
-        Eigen::SparseMatrix<double> Kg = buildMerged();
-        std::vector<Eigen::Triplet<double>> penTrips;
+        la::SparseCSR<double> Kg = buildMerged();
+        std::vector<la::Triplet<double>> penTrips;
         penTrips.reserve(active.size() * 64);
         for (std::size_t p = 0; p < contactPairs.size(); ++p) {
             if (!active[p]) continue;
@@ -771,26 +804,33 @@ ContactResult solveContact(const Mesh& meshA, const Mesh& meshB,
             }
         }
         if (!penTrips.empty()) {
-            Eigen::SparseMatrix<double> Kpen(nDof, nDof);
-            Kpen.setFromTriplets(penTrips.begin(), penTrips.end());
-            Kpen.makeCompressed();
-            Kg = Kg + Kpen;
-            Kg.makeCompressed();
+            // Kg = Kg + Kpen: re-assemble the merged-K entries together with the
+            // penalty entries in ONE triplet set. setFromTriplets sums duplicate
+            // (row,col) entries — exactly the sparse-add semantics of Kg + Kpen.
+            std::vector<la::Triplet<double>> sumTrips;
+            sumTrips.reserve(Kg.nnz() + penTrips.size());
+            const auto& rp = Kg.rowPtr();
+            const auto& ci = Kg.colIdx();
+            const auto& vv = Kg.values();
+            for (std::size_t r = 0; r < Kg.rows(); ++r)
+                for (std::size_t idx = rp[r]; idx < rp[r + 1]; ++idx)
+                    sumTrips.emplace_back(r, ci[idx], vv[idx]);
+            for (const auto& t : penTrips) sumTrips.push_back(t);
+            Kg.setFromTriplets(static_cast<std::size_t>(nDof),
+                               static_cast<std::size_t>(nDof), sumTrips);
         }
 
-        Eigen::VectorXd fStep = f;
+        std::vector<double> fStep = f;
         applyPinBCs(Kg, fStep, bcsMerged, nDof);
 
-        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(Kg);
-        if (ldlt.info() != Eigen::Success) {
+        la::SparseLDLT ldlt(Kg);
+        if (!ldlt.ok()) {
             out.converged = false;
             break;
         }
         u = ldlt.solve(fStep);
-        if (ldlt.info() != Eigen::Success) {
-            out.converged = false;
-            break;
-        }
+        // (the LinAlg SparseLDLT solve carries no separate post-solve status;
+        //  the factorization's ok() above is the success gate.)
 
         // Active-set convergence check.
         bool changed = false;
@@ -806,8 +846,8 @@ ContactResult solveContact(const Mesh& meshA, const Mesh& meshB,
     out.iterations = it;
 
     // Pack outputs.
-    for (int i = 0; i < nDofA; ++i) out.uA[i] = u(i);
-    for (int i = 0; i < nDofB; ++i) out.uB[i] = u(nDofA + i);
+    for (int i = 0; i < nDofA; ++i) out.uA[i] = u[i];
+    for (int i = 0; i < nDofB; ++i) out.uB[i] = u[nDofA + i];
 
     // Per-pair contact pressure: alpha × max(0, −gap) / A_node.
     for (std::size_t p = 0; p < contactPairs.size(); ++p) {
@@ -815,13 +855,13 @@ ContactResult solveContact(const Mesh& meshA, const Mesh& meshB,
         if (pr.nodeA >= nNodesA || pr.faceB >= 6) continue;
         const int ax = faceAxis(pr.faceB);
         const auto n = faceNormal(pr.faceB);
-        const double posA = meshA.nodes[3 * pr.nodeA + ax] + u(3 * pr.nodeA + ax);
+        const double posA = meshA.nodes[3 * pr.nodeA + ax] + u[3 * pr.nodeA + ax];
         const auto& masterNodes = masterNodesByFace[pr.faceB];
         double meanMasterDisp = 0;
         if (!masterNodes.empty()) {
             double s = 0;
             for (auto mid : masterNodes) {
-                s += u(nDofA + 3 * static_cast<int>(mid) + ax);
+                s += u[nDofA + 3 * static_cast<int>(mid) + ax];
             }
             meanMasterDisp = s / static_cast<double>(masterNodes.size());
         }
@@ -865,16 +905,16 @@ ContactResult solveContact(const Mesh& meshA, const Mesh& meshB,
 
 namespace {
 
-inline Eigen::Matrix<double, 6, 1> deviator(const Eigen::Matrix<double, 6, 1>& s) {
-    const double p = (s(0) + s(1) + s(2)) / 3.0;
-    Eigen::Matrix<double, 6, 1> d = s;
-    d(0) -= p; d(1) -= p; d(2) -= p;
+inline std::vector<double> deviator(const std::vector<double>& s) {
+    const double p = (s[0] + s[1] + s[2]) / 3.0;
+    std::vector<double> d = s;
+    d[0] -= p; d[1] -= p; d[2] -= p;
     return d;
 }
-inline double normVoigtDev(const Eigen::Matrix<double, 6, 1>& d) {
+inline double normVoigtDev(const std::vector<double>& d) {
     // ‖s‖² = s11² + s22² + s33² + 2(s12² + s23² + s13²) (engineering shear)
-    return std::sqrt(d(0)*d(0) + d(1)*d(1) + d(2)*d(2)
-                   + 2.0 * (d(3)*d(3) + d(4)*d(4) + d(5)*d(5)));
+    return std::sqrt(d[0]*d[0] + d[1]*d[1] + d[2]*d[2]
+                   + 2.0 * (d[3]*d[3] + d[4]*d[4] + d[5]*d[5]));
 }
 
 } // namespace
@@ -909,20 +949,20 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
         if (bc.fy && base + 1 < nDof) isPinned[base + 1] = true;
         if (bc.fz && base + 2 < nDof) isPinned[base + 2] = true;
     }
-    Eigen::VectorXd fFull = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> fFull(nDof, 0.0);
     for (const auto& L : loads) {
         const int b = 3 * static_cast<int>(L.nodeId);
-        if (b + 2 < nDof) { fFull(b) += L.fx; fFull(b + 1) += L.fy; fFull(b + 2) += L.fz; }
+        if (b + 2 < nDof) { fFull[b] += L.fx; fFull[b + 1] += L.fy; fFull[b + 2] += L.fz; }
     }
-    for (int i = 0; i < nDof; ++i) if (isPinned[i]) fFull(i) = 0;
-    const double fNorm = std::max(1e-12, fFull.norm());
+    for (int i = 0; i < nDof; ++i) if (isPinned[i]) fFull[i] = 0;
+    const double fNorm = std::max(1e-12, la::norm2(fFull));
 
     // History per Gauss point: ε_p (scalar) + σ (Voigt). Use centroid (1 GP)
     // for simplicity to keep this slice compact — the brick-grid mesh has
     // few elements anyway.
     std::vector<double> epEq(nElems, 0.0);                          // ε_p
-    std::vector<Eigen::Matrix<double, 6, 1>> sigPrev(
-        nElems, Eigen::Matrix<double, 6, 1>::Zero());
+    std::vector<std::vector<double>> sigPrev(
+        nElems, std::vector<double>(6, 0.0));
 
     PlasticResult out;
     out.stepDisplacements.reserve(loadSteps);
@@ -932,7 +972,7 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
     out.stepResiduals.reserve(loadSteps);
     out.converged = true;
 
-    Eigen::VectorXd u = Eigen::VectorXd::Zero(nDof);
+    std::vector<double> u(nDof, 0.0);
     // Slow convergence under elastic tangent — bump iter cap. 200 iters
     // stays well under a second per load step on the brick-grid smoke mesh.
     const int maxNewton = 200;
@@ -940,14 +980,14 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
 
     for (int step = 1; step <= loadSteps; ++step) {
         const double lambda = static_cast<double>(step) / loadSteps;
-        Eigen::VectorXd fExt = lambda * fFull;
+        std::vector<double> fExt = la::vscale(fFull, lambda);
 
         // Cache previous displacement so trial strain uses Δu = u^k − u_prev.
-        Eigen::VectorXd uStepStart = u;
+        std::vector<double> uStepStart = u;
         // Snapshot history so we can re-evaluate from the same starting
         // state in every Newton iteration within this step.
         std::vector<double> epSnap = epEq;
-        std::vector<Eigen::Matrix<double, 6, 1>> sigSnap = sigPrev;
+        std::vector<std::vector<double>> sigSnap = sigPrev;
 
         // Per-element trial state we re-compute each iteration; we only
         // commit it to epEq/sigPrev when the step converges.
@@ -955,42 +995,42 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
         double relRes = 0;
         for (iter = 0; iter < maxNewton; ++iter) {
             // Assemble K_T and f_int from current u.
-            Eigen::SparseMatrix<double> Kt(nDof, nDof);
-            Eigen::VectorXd fInt = Eigen::VectorXd::Zero(nDof);
-            std::vector<Eigen::Triplet<double>> trips;
+            la::SparseCSR<double> Kt(nDof, nDof);
+            std::vector<double> fInt(nDof, 0.0);
+            std::vector<la::Triplet<double>> trips;
             trips.reserve(nElems * 24 * 24);
 
             // Working buffer for the step's committed history (rolled back if
             // Newton fails).
             std::vector<double> epWork = epSnap;
-            std::vector<Eigen::Matrix<double, 6, 1>> sigWork = sigSnap;
+            std::vector<std::vector<double>> sigWork = sigSnap;
 
             for (std::size_t e = 0; e < nElems; ++e) {
                 double X[8][3];
                 std::uint32_t nid[8];
-                Eigen::Matrix<double, 24, 1> ueStart, ueNow;
+                std::vector<double> ueStart(24, 0.0), ueNow(24, 0.0);
                 for (int i = 0; i < 8; ++i) {
                     nid[i] = mesh.tets[e * 8 + i];
                     X[i][0] = mesh.nodes[3 * nid[i] + 0];
                     X[i][1] = mesh.nodes[3 * nid[i] + 1];
                     X[i][2] = mesh.nodes[3 * nid[i] + 2];
                     for (int a = 0; a < 3; ++a) {
-                        ueStart(3 * i + a) = uStepStart(3 * nid[i] + a);
-                        ueNow  (3 * i + a) = u         (3 * nid[i] + a);
+                        ueStart[3 * i + a] = uStepStart[3 * nid[i] + a];
+                        ueNow  [3 * i + a] = u         [3 * nid[i] + a];
                     }
                 }
 
-                Eigen::Matrix<double, 24, 24> Ke = Eigen::Matrix<double, 24, 24>::Zero();
-                Eigen::Matrix<double, 24, 1>  fIntE = Eigen::Matrix<double, 24, 1>::Zero();
+                la::MatrixD Ke(24, 24);            // zero-init
+                std::vector<double> fIntE(24, 0.0);
 
                 // We integrate at the 8 Gauss points but carry only one
                 // history per element (centroid). That's the documented
                 // simplification — accurate enough for the smoke test.
-                Eigen::Matrix<double, 6, 1> sigStepStart = sigSnap[e];
+                std::vector<double> sigStepStart = sigSnap[e];
                 double epStepStart = epSnap[e];
-                Eigen::Matrix<double, 6, 1> sigNew = sigStepStart;
+                std::vector<double> sigNew = sigStepStart;
                 double epNew = epStepStart;
-                Eigen::Matrix<double, 6, 6> Dep = D;
+                la::MatrixD Dep = D;
 
                 for (int g = 0; g < kGaussCount; ++g) {
                     const auto& gp = kGauss[g];
@@ -1009,19 +1049,19 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
                             for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
                             dNx[i][j] = s;
                         }
-                    Eigen::Matrix<double, 6, 24> B; buildB(dNx, B);
+                    la::MatrixD B(6, 24); buildB(dNx, B);
 
-                    Eigen::Matrix<double, 6, 1> dEps = B * (ueNow - ueStart);
-                    Eigen::Matrix<double, 6, 1> sigTrial = sigStepStart + D * dEps;
+                    std::vector<double> dEps = B * la::vsub(ueNow, ueStart);
+                    std::vector<double> sigTrial = la::vadd(sigStepStart, D * dEps);
 
-                    Eigen::Matrix<double, 6, 1> sDev = deviator(sigTrial);
+                    std::vector<double> sDev = deviator(sigTrial);
                     double sNorm = normVoigtDev(sDev);
                     double sigEqTrial = std::sqrt(1.5) * sNorm;
                     double yieldStress = mat.sigmaY + mat.hardening * epStepStart;
                     double phi = sigEqTrial - yieldStress;
 
-                    Eigen::Matrix<double, 6, 1> sigGp;
-                    Eigen::Matrix<double, 6, 6> DepGp = D;
+                    std::vector<double> sigGp;
+                    la::MatrixD DepGp = D;
                     if (phi <= 0 || sNorm < 1e-30) {
                         sigGp = sigTrial;
                     } else {
@@ -1032,8 +1072,9 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
                         //   ε_p_new = ε_p + Δγ
                         // where n̂ = s_trial / ‖s_trial‖ is the unit dev dir.
                         const double dGamma = phi / (3.0 * mu + mat.hardening);
-                        Eigen::Matrix<double, 6, 1> nHat = sDev / sNorm;
-                        sigGp = sigTrial - (std::sqrt(6.0) * mu * dGamma) * nHat;
+                        std::vector<double> nHat = la::vscale(sDev, 1.0 / sNorm);
+                        sigGp = la::vsub(sigTrial,
+                                         la::vscale(nHat, std::sqrt(6.0) * mu * dGamma));
                         epNew = epStepStart + dGamma;
 
                         // Honest scope note: we use the *elastic* tangent
@@ -1057,8 +1098,9 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
                     Dep = DepGp;
 
                     const double wScale = gp.w * det;
-                    Ke.noalias()   += B.transpose() * Dep * B * wScale;
-                    fIntE.noalias()+= B.transpose() * sigGp * wScale;
+                    la::MatrixD keG = matScale(B.transpose() * Dep * B, wScale);
+                    Ke = Ke + keG;
+                    la::vaxpy(fIntE, wScale, B.transpose() * sigGp);
                 }
                 sigWork[e] = sigNew;
                 epWork[e]  = epNew;
@@ -1068,7 +1110,7 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
                     for (int ai = 0; ai < 3; ++ai) {
                         const int gi = 3 * nid[i] + ai;
                         const int li = 3 * i + ai;
-                        fInt(gi) += fIntE(li);
+                        fInt[gi] += fIntE[li];
                         for (int j = 0; j < 8; ++j)
                             for (int aj = 0; aj < 3; ++aj) {
                                 const int gj = 3 * nid[j] + aj;
@@ -1078,12 +1120,12 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
                             }
                     }
             }
-            Kt.setFromTriplets(trips.begin(), trips.end());
-            Kt.makeCompressed();
+            Kt.setFromTriplets(static_cast<std::size_t>(nDof),
+                               static_cast<std::size_t>(nDof), trips);
 
-            Eigen::VectorXd r = fInt - fExt;
-            for (int i = 0; i < nDof; ++i) if (isPinned[i]) r(i) = 0;
-            relRes = r.norm() / fNorm;
+            std::vector<double> r = la::vsub(fInt, fExt);
+            for (int i = 0; i < nDof; ++i) if (isPinned[i]) r[i] = 0;
+            relRes = la::norm2(r) / fNorm;
             if (relRes < resTol && iter > 0) {
                 // Commit history.
                 epEq    = epWork;
@@ -1091,24 +1133,40 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
                 break;
             }
 
-            for (int k = 0; k < Kt.outerSize(); ++k) {
-                for (Eigen::SparseMatrix<double>::InnerIterator it(Kt, k); it; ++it) {
-                    const int rr = static_cast<int>(it.row());
-                    const int cc = static_cast<int>(it.col());
-                    if (isPinned[rr] || isPinned[cc]) it.valueRef() = 0;
+            // Apply pinned BCs to K_T: zero pinned rows/cols + unit diagonal.
+            // SparseCSR is immutable in-place → rebuild from triplets dropping
+            // the would-be-zeroed entries (the prune) and forcing K(i,i)=1.0.
+            {
+                std::vector<la::Triplet<double>> ktTrips;
+                ktTrips.reserve(Kt.nnz() + nDof);
+                const auto& rp = Kt.rowPtr();
+                const auto& ci = Kt.colIdx();
+                const auto& vv = Kt.values();
+                for (std::size_t rrr = 0; rrr < Kt.rows(); ++rrr) {
+                    for (std::size_t idx = rp[rrr]; idx < rp[rrr + 1]; ++idx) {
+                        const std::size_t ccc = ci[idx];
+                        if (isPinned[static_cast<int>(rrr)] ||
+                            isPinned[static_cast<int>(ccc)])
+                            continue;
+                        ktTrips.emplace_back(rrr, ccc, vv[idx]);
+                    }
                 }
+                for (int i = 0; i < nDof; ++i)
+                    if (isPinned[i])
+                        ktTrips.emplace_back(static_cast<std::size_t>(i),
+                                             static_cast<std::size_t>(i), 1.0);
+                Kt.setFromTriplets(static_cast<std::size_t>(nDof),
+                                   static_cast<std::size_t>(nDof), ktTrips);
             }
-            for (int i = 0; i < nDof; ++i) if (isPinned[i]) Kt.coeffRef(i, i) = 1.0;
-            Kt.prune(0.0); Kt.makeCompressed();
 
-            Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt(Kt);
-            if (ldlt.info() != Eigen::Success) {
+            la::SparseLDLT ldlt(Kt);
+            if (!ldlt.ok()) {
                 throw std::runtime_error(
                     "forge.fea.solveNonlinearPlastic: tangent LDLT failed");
             }
-            Eigen::VectorXd du = ldlt.solve(-r);
-            for (int i = 0; i < nDof; ++i) if (isPinned[i]) du(i) = 0;
-            u += du;
+            std::vector<double> du = ldlt.solve(la::vscale(r, -1.0));
+            for (int i = 0; i < nDof; ++i) if (isPinned[i]) du[i] = 0;
+            la::vaxpy(u, 1.0, du);
 
             // If this is the last iteration, commit the trial history we
             // computed (even if Newton didn't strictly converge — we still
@@ -1123,7 +1181,7 @@ PlasticResult solveNonlinearPlastic(const Mesh& mesh,
         out.stepResiduals.push_back(relRes);
 
         std::vector<double> snap(nDof);
-        for (int i = 0; i < nDof; ++i) snap[i] = u(i);
+        for (int i = 0; i < nDof; ++i) snap[i] = u[i];
         out.stepDisplacements.push_back(std::move(snap));
 
         std::vector<double> epSnapOut(nElems);
