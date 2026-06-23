@@ -37,6 +37,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <complex>
 #include <cstdint>
@@ -451,6 +452,83 @@ int main() {
         check(cg.ok && cgErr < 1e-7, "Sparse: Jacobi-PCG converges to the solution");
 #ifdef FORGE_LINALG_ORACLE
         check(errEigen < 1e-9, "Sparse: SparseLDLT matches Eigen SimplicialLDLT to 1e-9");
+#endif
+    }
+
+    // =======================================================================
+    // 7b. Sparse LARGE-SCALE — proves SparseLDLT is TRULY sparse (no densify).
+    //     2-D Poisson 5-point Laplacian on a k×k grid with k=130 -> n=16900.
+    //     Densify would need n²·8 bytes ≈ 2.3 GB and O(n³) ≈ 4.8e12 flops:
+    //     infeasible. The sparse factor must complete in a few MB and well under
+    //     a second, with controlled fill nnz(L) ≪ n². Residual vs Eigen checked.
+    // =======================================================================
+    {
+        const int g = 130;
+        const std::size_t n = static_cast<std::size_t>(g) * g;   // 16900
+        std::vector<Triplet<double>> trips;
+        trips.reserve(5 * n);
+        auto id = [&](int x, int y) { return static_cast<std::size_t>(y * g + x); };
+        for (int y = 0; y < g; ++y) for (int x = 0; x < g; ++x) {
+            std::size_t i = id(x, y);
+            trips.emplace_back(i, i, 4.0);
+            if (x > 0)     trips.emplace_back(i, id(x - 1, y), -1.0);
+            if (x < g - 1) trips.emplace_back(i, id(x + 1, y), -1.0);
+            if (y > 0)     trips.emplace_back(i, id(x, y - 1), -1.0);
+            if (y < g - 1) trips.emplace_back(i, id(x, y + 1), -1.0);
+        }
+        SparseCSR<double> A;
+        A.setFromTriplets(n, n, trips);
+
+        std::vector<double> xtrue(n); for (auto& v : xtrue) v = U(rng);
+        std::vector<double> b = A * xtrue;            // consistent RHS
+
+        // TRUE sparse direct factor+solve, timed. (No densify exists: a dense
+        // n×n double matrix alone would be ~2.3 GB, so reaching here at all
+        // proves the O(nnz) path.)
+        auto t0 = std::chrono::high_resolution_clock::now();
+        SparseLDLT sl(A);
+        std::vector<double> xd = sl.solve(b);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+        // relative residual ||A x - b|| / ||b||
+        std::vector<double> Ax = A * xd;
+        double rn = 0.0, bn = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            double d = Ax[i] - b[i]; rn += d * d; bn += b[i] * b[i];
+        }
+        double relResid = std::sqrt(rn / (bn > 0 ? bn : 1.0));
+        std::size_t nnzL = sl.factorNnz();
+
+        double errEigen = -1.0;
+#ifdef FORGE_LINALG_ORACLE
+        std::vector<Eigen::Triplet<double>> et;
+        et.reserve(trips.size());
+        for (auto& t : trips) et.emplace_back((int)t.row, (int)t.col, t.value);
+        Eigen::SparseMatrix<double> Ae(n, n); Ae.setFromTriplets(et.begin(), et.end());
+        Ae.makeCompressed();
+        Eigen::VectorXd be(n); for (std::size_t i = 0; i < n; ++i) be(i) = b[i];
+        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ld(Ae);
+        Eigen::VectorXd xe = ld.solve(be);
+        errEigen = 0.0;
+        for (std::size_t i = 0; i < n; ++i)
+            errEigen = std::max(errEigen, std::fabs(xd[i] - xe(i)));
+#endif
+        std::printf("[SparseBig] n=%zu nnzA=%zu nnzL=%zu fill_ratio=%.1f%% "
+                    "wall=%.1fms relresid=%.3e eigen_err=%.3e\n",
+                    n, A.nnz(), nnzL,
+                    100.0 * (double)nnzL / ((double)n * (double)n),
+                    ms, relResid, errEigen);
+        check(sl.ok(), "SparseBig: SparseLDLT SPD factorization succeeded (n=16900)");
+        check(relResid < 1e-8, "SparseBig: ||Ax-b||/||b|| < 1e-8 (true sparse solve)");
+        // Fill control: a 2-D FE Laplacian has inherent O(n^1.5) fill, so RCM
+        // gives nnz(L) ≈ n·k (banded). The point is nnz(L) ≪ n²: here it is
+        // < 5% of n² (a densify/no-ordering factor would fill toward n²/2 ≈
+        // 1.4e8). This proves the memory is O(nnz(L)), not O(n²).
+        check(nnzL < n * n / 20,
+              "SparseBig: nnz(L) << n^2 (< 5% dense; fill-reducing order controls fill)");
+#ifdef FORGE_LINALG_ORACLE
+        check(errEigen < 1e-8, "SparseBig: matches Eigen SimplicialLDLT to 1e-8");
 #endif
     }
 

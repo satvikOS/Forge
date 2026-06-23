@@ -607,12 +607,24 @@ public:
     bool ok() const { return ok_; }              // false if not SPD
     std::vector<double> solve(const std::vector<double>& b) const;
 
+    // Diagnostic (for the large-scale test): number of stored nonzeros in the
+    // strictly-lower factor L. Memory footprint is O(nnz(L)), NOT O(n²).
+    std::size_t factorNnz() const { return Lx_.size(); }
+
 private:
-    // dense-column factor of the (assumed moderate-bandwidth) FE matrix:
-    // we factor on a dense lower-triangular L for robustness + simplicity,
-    // which is exact and stable; the CSR is the assembly/interchange format.
-    Matrix<double> L_;
-    std::vector<double> d_;
+    // TRUE sparse LDLᵀ. The matrix is reordered by a fill-reducing permutation
+    // (Reverse Cuthill-McKee), symbolically analyzed (elimination tree + column
+    // counts give the exact fill), then factored up-looking. L is stored in
+    // compressed-sparse-COLUMN form (strictly lower, unit diagonal implicit);
+    // D is the diagonal of the LDLᵀ decomposition of the PERMUTED matrix.
+    //
+    // perm_[k]  = original index placed at permuted position k  (P: new<-old)
+    // iperm_[i] = permuted position of original index i          (Pᵀ)
+    std::vector<std::size_t> perm_, iperm_;
+    std::vector<std::size_t> Lp_;   // column pointers into Li_/Lx_  (size n+1)
+    std::vector<std::size_t> Li_;   // row indices of L (strictly lower)
+    std::vector<double>      Lx_;   // numeric values of L
+    std::vector<double>      d_;    // diagonal D of the permuted factorization
     std::size_t n_ = 0;
     bool ok_ = false;
 };
