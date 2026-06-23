@@ -5,7 +5,9 @@
 #include <stdexcept>
 #include <vector>
 
-#include <Eigen/Dense>
+#include "forge/native/linalg/LinAlg.hpp"
+
+namespace la = forge::native::linalg;
 
 namespace forge { namespace frame {
 
@@ -15,8 +17,8 @@ Outputs solve(const Inputs& in) {
     if (in.elements.empty()) throw std::invalid_argument("frame.solve: no elements");
 
     const std::uint32_t dofs = nNodes * 3;
-    Eigen::MatrixXd K = Eigen::MatrixXd::Zero(dofs, dofs);
-    Eigen::VectorXd F = Eigen::VectorXd::Zero(dofs);
+    la::MatrixD K(dofs, dofs);
+    std::vector<double> F(dofs, 0.0);
 
     Outputs out{};
     out.axialForce.resize(in.elements.size(), 0.0);
@@ -59,9 +61,9 @@ Outputs solve(const Inputs& in) {
 
     for (const auto& ld : in.loads) {
         if (ld.node >= nNodes) throw std::invalid_argument("frame.solve: bad load node");
-        F(ld.node * 3 + 0) += ld.force[0];
-        F(ld.node * 3 + 1) += ld.force[1];
-        F(ld.node * 3 + 2) += ld.force[2];
+        F[ld.node * 3 + 0] += ld.force[0];
+        F[ld.node * 3 + 1] += ld.force[1];
+        F[ld.node * 3 + 2] += ld.force[2];
     }
 
     // Build free / constrained partitions.
@@ -81,32 +83,36 @@ Outputs solve(const Inputs& in) {
 
     if (!freeDofs.empty()) {
         const std::uint32_t nFree = static_cast<std::uint32_t>(freeDofs.size());
-        Eigen::MatrixXd Kff(nFree, nFree);
-        Eigen::VectorXd Ff(nFree);
+        la::MatrixD Kff(nFree, nFree);
+        std::vector<double> Ff(nFree, 0.0);
         for (std::uint32_t i = 0; i < nFree; ++i) {
-            Ff(i) = F(freeDofs[i]);
+            Ff[i] = F[freeDofs[i]];
             for (std::uint32_t j = 0; j < nFree; ++j) {
                 Kff(i, j) = K(freeDofs[i], freeDofs[j]);
             }
         }
-        Eigen::LDLT<Eigen::MatrixXd> ldlt(Kff);
-        if (ldlt.info() != Eigen::Success) {
+        la::LDLT<double> ldlt(Kff);
+        if (!ldlt.ok()) {
             out.singular = true;
         } else {
-            Eigen::VectorXd uf = ldlt.solve(Ff);
-            if ((Kff * uf - Ff).norm() > 1e-6 * std::max(1.0, Ff.norm())) {
+            std::vector<double> uf = ldlt.solve(Ff);
+            // residual = Kff * uf - Ff
+            std::vector<double> resid = Kff * uf;
+            for (std::uint32_t i = 0; i < nFree; ++i) resid[i] -= Ff[i];
+            if (la::norm2(resid) > 1e-6 * std::max(1.0, la::norm2(Ff))) {
                 out.singular = true;
             }
             for (std::uint32_t i = 0; i < nFree; ++i) {
-                out.displacements[freeDofs[i]] = uf(i);
+                out.displacements[freeDofs[i]] = uf[i];
             }
         }
     }
 
-    Eigen::VectorXd uVec(dofs);
-    for (std::uint32_t i = 0; i < dofs; ++i) uVec(i) = out.displacements[i];
-    Eigen::VectorXd R = K * uVec - F;
-    for (std::uint32_t d : fixedDofs) out.reactions[d] = R(d);
+    std::vector<double> uVec(dofs, 0.0);
+    for (std::uint32_t i = 0; i < dofs; ++i) uVec[i] = out.displacements[i];
+    std::vector<double> R = K * uVec;       // R = K * uVec - F
+    for (std::uint32_t i = 0; i < dofs; ++i) R[i] -= F[i];
+    for (std::uint32_t d : fixedDofs) out.reactions[d] = R[d];
 
     // Member axial forces.
     for (std::size_t e = 0; e < in.elements.size(); ++e) {
@@ -133,8 +139,8 @@ ModalOutputs modal(const ModalInputs& in) {
     if (in.kModes == 0)         throw std::invalid_argument("frame.modal: kModes > 0");
 
     const std::uint32_t dofs = nNodes * 3;
-    Eigen::MatrixXd K = Eigen::MatrixXd::Zero(dofs, dofs);
-    Eigen::MatrixXd M = Eigen::MatrixXd::Zero(dofs, dofs);
+    la::MatrixD K(dofs, dofs);
+    la::MatrixD M(dofs, dofs);
 
     for (const auto& el : in.elements) {
         if (el.a >= nNodes || el.b >= nNodes || el.a == el.b)
@@ -175,15 +181,15 @@ ModalOutputs modal(const ModalInputs& in) {
 
     const std::uint32_t nFree = static_cast<std::uint32_t>(freeDofs.size());
     if (nFree == 0) throw std::invalid_argument("frame.modal: all DOFs are fixed");
-    Eigen::MatrixXd Kff(nFree, nFree), Mff(nFree, nFree);
+    la::MatrixD Kff(nFree, nFree), Mff(nFree, nFree);
     for (std::uint32_t i = 0; i < nFree; ++i)
         for (std::uint32_t j = 0; j < nFree; ++j) {
             Kff(i, j) = K(freeDofs[i], freeDofs[j]);
             Mff(i, j) = M(freeDofs[i], freeDofs[j]);
         }
 
-    Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Kff, Mff);
-    if (es.info() != Eigen::Success)
+    la::GeneralizedSymmetricEigen es(Kff, Mff);
+    if (!es.ok())
         throw std::runtime_error("frame.modal: eigenvalue solve failed");
 
     ModalOutputs out{};
@@ -191,15 +197,22 @@ ModalOutputs modal(const ModalInputs& in) {
     out.frequenciesHz.resize(take, 0.0);
     out.modeShapes.resize(take, std::vector<double>(dofs, 0.0));
     for (std::uint32_t k = 0; k < take; ++k) {
-        const double lambda = es.eigenvalues()(k);
+        const double lambda = es.eigenvalues()[k];
         const double omega  = (lambda > 0) ? std::sqrt(lambda) : 0.0;
         out.frequenciesHz[k] = omega / (2.0 * 3.14159265358979323846);
-        Eigen::VectorXd phi = es.eigenvectors().col(k);
+        // phi = column k of the eigenvector matrix.
+        std::vector<double> phi(nFree, 0.0);
+        for (std::uint32_t i = 0; i < nFree; ++i) phi[i] = es.eigenvectors()(i, k);
         // Normalise so the largest |component| is 1.
-        double maxAbs = phi.cwiseAbs().maxCoeff();
-        if (maxAbs > 1e-30) phi /= maxAbs;
+        double maxAbs = 0.0;
+        for (std::uint32_t i = 0; i < nFree; ++i) {
+            const double a = std::abs(phi[i]);
+            if (a > maxAbs) maxAbs = a;
+        }
+        if (maxAbs > 1e-30)
+            for (std::uint32_t i = 0; i < nFree; ++i) phi[i] /= maxAbs;
         for (std::uint32_t i = 0; i < nFree; ++i)
-            out.modeShapes[k][freeDofs[i]] = phi(i);
+            out.modeShapes[k][freeDofs[i]] = phi[i];
     }
     return out;
 }

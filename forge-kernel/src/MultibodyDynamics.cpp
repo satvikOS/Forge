@@ -1,11 +1,13 @@
 #include "forge/MultibodyDynamics.hpp"
 
-#include <Eigen/Dense>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <cmath>
 
 namespace forge {
+
+namespace la = forge::native::linalg;
 
 // ============================================================================
 // Constrained multibody dynamics — index-3 DAE, HHT-α + Baumgarte.
@@ -35,8 +37,27 @@ namespace {
 
 constexpr std::size_t kDof = 6; // 3 trans + 3 rot per body
 
-using Vec = Eigen::VectorXd;
-using Mat = Eigen::MatrixXd;
+using Vec = std::vector<double>;
+using Mat = la::MatrixD;
+
+// --- small vector-arithmetic helpers (Eigen +,-,*scalar replacements) -------
+// These reproduce Eigen's element-wise VectorXd operators exactly. Same length
+// is assumed (as the original code guarantees).
+inline Vec vadd(const Vec& a, const Vec& b) {
+    Vec r(a.size());
+    for (std::size_t i = 0; i < a.size(); ++i) r[i] = a[i] + b[i];
+    return r;
+}
+inline Vec vsub(const Vec& a, const Vec& b) {
+    Vec r(a.size());
+    for (std::size_t i = 0; i < a.size(); ++i) r[i] = a[i] - b[i];
+    return r;
+}
+inline Vec vscale(double s, const Vec& a) {
+    Vec r(a.size());
+    for (std::size_t i = 0; i < a.size(); ++i) r[i] = s * a[i];
+    return r;
+}
 
 inline std::array<double, 3> cross3(const std::array<double, 3>& a,
                                     const std::array<double, 3>& b) {
@@ -165,6 +186,7 @@ void evalAll(const std::vector<MbdConstraint>& cs, const Vec& q, Vec& phi) {
 void buildJacobian(const std::vector<MbdConstraint>& cs, const Vec& q,
                    const Vec& phi0, Mat& J) {
     const std::size_t nDof = static_cast<std::size_t>(q.size());
+    (void)nDof;
     J.setZero();
     Vec qp = q;
     std::vector<double> rp(static_cast<std::size_t>(phi0.size()));
@@ -187,9 +209,9 @@ void buildJacobian(const std::vector<MbdConstraint>& cs, const Vec& q,
                 evalConstraint(c, qp.data(), rp.data(), row);
                 qp[col] = orig;
                 for (std::size_t rr = 0; rr < nr; ++rr) {
-                    const double d = (rp[row+rr] - phi0[static_cast<int>(row+rr)]) / h;
+                    const double d = (rp[row+rr] - phi0[static_cast<std::size_t>(row+rr)]) / h;
                     if (std::abs(d) > 1e-14)
-                        J(static_cast<int>(row+rr), static_cast<int>(col)) = d;
+                        J(static_cast<std::size_t>(row+rr), static_cast<std::size_t>(col)) = d;
                 }
             }
         }
@@ -204,41 +226,46 @@ void buildForce(const std::vector<MbdBody>& bodies,
                 const std::vector<MbdLoad>& loads,
                 const MbdGravity& grav,
                 const Vec& q, const Vec& qd, Vec& Q) {
-    Q.setZero();
+    std::fill(Q.begin(), Q.end(), 0.0);
     for (std::size_t b = 0; b < bodies.size(); ++b) {
         const std::size_t base = b * kDof;
         const double m = bodies[b].mass;
-        Q[static_cast<int>(base+0)] += m * grav.g[0];
-        Q[static_cast<int>(base+1)] += m * grav.g[1];
-        Q[static_cast<int>(base+2)] += m * grav.g[2];
+        Q[static_cast<std::size_t>(base+0)] += m * grav.g[0];
+        Q[static_cast<std::size_t>(base+1)] += m * grav.g[1];
+        Q[static_cast<std::size_t>(base+2)] += m * grav.g[2];
         // Gyroscopic −ω × (J_world ω). J_world = R J_body Rᵀ.
         const double* rot = q.data() + base + 3;
         Transform4x4 x = makeTransform(0, 0, 0, rot[0], rot[1], rot[2]);
-        Eigen::Matrix3d R;
-        R << x.m[0], x.m[1], x.m[2],
-             x.m[4], x.m[5], x.m[6],
-             x.m[8], x.m[9], x.m[10];
-        Eigen::Matrix3d Jb;
-        Jb << bodies[b].inertia[0], bodies[b].inertia[1], bodies[b].inertia[2],
-              bodies[b].inertia[3], bodies[b].inertia[4], bodies[b].inertia[5],
-              bodies[b].inertia[6], bodies[b].inertia[7], bodies[b].inertia[8];
-        Eigen::Matrix3d Jw = R * Jb * R.transpose();
-        Eigen::Vector3d w(qd[static_cast<int>(base+3)],
-                          qd[static_cast<int>(base+4)],
-                          qd[static_cast<int>(base+5)]);
-        Eigen::Vector3d gyro = w.cross(Jw * w);
-        Q[static_cast<int>(base+3)] -= gyro[0];
-        Q[static_cast<int>(base+4)] -= gyro[1];
-        Q[static_cast<int>(base+5)] -= gyro[2];
+        Mat R(3, 3);
+        R(0,0)=x.m[0]; R(0,1)=x.m[1]; R(0,2)=x.m[2];
+        R(1,0)=x.m[4]; R(1,1)=x.m[5]; R(1,2)=x.m[6];
+        R(2,0)=x.m[8]; R(2,1)=x.m[9]; R(2,2)=x.m[10];
+        Mat Jb(3, 3);
+        Jb(0,0)=bodies[b].inertia[0]; Jb(0,1)=bodies[b].inertia[1]; Jb(0,2)=bodies[b].inertia[2];
+        Jb(1,0)=bodies[b].inertia[3]; Jb(1,1)=bodies[b].inertia[4]; Jb(1,2)=bodies[b].inertia[5];
+        Jb(2,0)=bodies[b].inertia[6]; Jb(2,1)=bodies[b].inertia[7]; Jb(2,2)=bodies[b].inertia[8];
+        Mat Jw = R * Jb * R.transpose();
+        std::array<double,3> w{ qd[static_cast<std::size_t>(base+3)],
+                                qd[static_cast<std::size_t>(base+4)],
+                                qd[static_cast<std::size_t>(base+5)] };
+        // Jw * w  (3x3 times 3-vector).
+        std::array<double,3> Jww{
+            Jw(0,0)*w[0] + Jw(0,1)*w[1] + Jw(0,2)*w[2],
+            Jw(1,0)*w[0] + Jw(1,1)*w[1] + Jw(1,2)*w[2],
+            Jw(2,0)*w[0] + Jw(2,1)*w[1] + Jw(2,2)*w[2] };
+        std::array<double,3> gyro = cross3(w, Jww); // w × (Jw w)
+        Q[static_cast<std::size_t>(base+3)] -= gyro[0];
+        Q[static_cast<std::size_t>(base+4)] -= gyro[1];
+        Q[static_cast<std::size_t>(base+5)] -= gyro[2];
     }
     for (const auto& ld : loads) {
         const std::size_t base = ld.body * kDof;
-        Q[static_cast<int>(base+0)] += ld.force[0];
-        Q[static_cast<int>(base+1)] += ld.force[1];
-        Q[static_cast<int>(base+2)] += ld.force[2];
-        Q[static_cast<int>(base+3)] += ld.torque[0];
-        Q[static_cast<int>(base+4)] += ld.torque[1];
-        Q[static_cast<int>(base+5)] += ld.torque[2];
+        Q[static_cast<std::size_t>(base+0)] += ld.force[0];
+        Q[static_cast<std::size_t>(base+1)] += ld.force[1];
+        Q[static_cast<std::size_t>(base+2)] += ld.force[2];
+        Q[static_cast<std::size_t>(base+3)] += ld.torque[0];
+        Q[static_cast<std::size_t>(base+4)] += ld.torque[1];
+        Q[static_cast<std::size_t>(base+5)] += ld.torque[2];
     }
 }
 
@@ -251,21 +278,26 @@ void buildMass(const std::vector<MbdBody>& bodies, const Vec& q, Mat& M) {
     for (std::size_t b = 0; b < bodies.size(); ++b) {
         const std::size_t base = b * kDof;
         const double m = bodies[b].mass;
-        M(static_cast<int>(base+0), static_cast<int>(base+0)) = m;
-        M(static_cast<int>(base+1), static_cast<int>(base+1)) = m;
-        M(static_cast<int>(base+2), static_cast<int>(base+2)) = m;
+        M(static_cast<std::size_t>(base+0), static_cast<std::size_t>(base+0)) = m;
+        M(static_cast<std::size_t>(base+1), static_cast<std::size_t>(base+1)) = m;
+        M(static_cast<std::size_t>(base+2), static_cast<std::size_t>(base+2)) = m;
         const double* rot = q.data() + base + 3;
         Transform4x4 x = makeTransform(0, 0, 0, rot[0], rot[1], rot[2]);
-        Eigen::Matrix3d R;
-        R << x.m[0], x.m[1], x.m[2],
-             x.m[4], x.m[5], x.m[6],
-             x.m[8], x.m[9], x.m[10];
-        Eigen::Matrix3d Jb;
-        Jb << bodies[b].inertia[0], bodies[b].inertia[1], bodies[b].inertia[2],
-              bodies[b].inertia[3], bodies[b].inertia[4], bodies[b].inertia[5],
-              bodies[b].inertia[6], bodies[b].inertia[7], bodies[b].inertia[8];
-        Eigen::Matrix3d Jw = R * Jb * R.transpose();
-        M.block(static_cast<int>(base+3), static_cast<int>(base+3), 3, 3) = Jw;
+        Mat R(3, 3);
+        R(0,0)=x.m[0]; R(0,1)=x.m[1]; R(0,2)=x.m[2];
+        R(1,0)=x.m[4]; R(1,1)=x.m[5]; R(1,2)=x.m[6];
+        R(2,0)=x.m[8]; R(2,1)=x.m[9]; R(2,2)=x.m[10];
+        Mat Jb(3, 3);
+        Jb(0,0)=bodies[b].inertia[0]; Jb(0,1)=bodies[b].inertia[1]; Jb(0,2)=bodies[b].inertia[2];
+        Jb(1,0)=bodies[b].inertia[3]; Jb(1,1)=bodies[b].inertia[4]; Jb(1,2)=bodies[b].inertia[5];
+        Jb(2,0)=bodies[b].inertia[6]; Jb(2,1)=bodies[b].inertia[7]; Jb(2,2)=bodies[b].inertia[8];
+        Mat Jw = R * Jb * R.transpose();
+        // M.block(base+3, base+3, 3, 3) = Jw  — place the 3x3 world inertia at
+        // the rotational diagonal block (offsets base+3 in both row and col).
+        const std::size_t off = static_cast<std::size_t>(base + 3);
+        for (std::size_t i = 0; i < 3; ++i)
+            for (std::size_t j = 0; j < 3; ++j)
+                M(off + i, off + j) = Jw(i, j);
     }
 }
 
@@ -276,29 +308,36 @@ double totalEnergy(const std::vector<MbdBody>& bodies, const MbdGravity& grav,
     for (std::size_t b = 0; b < bodies.size(); ++b) {
         const std::size_t base = b * kDof;
         const double m = bodies[b].mass;
-        Eigen::Vector3d v(qd[static_cast<int>(base+0)],
-                          qd[static_cast<int>(base+1)],
-                          qd[static_cast<int>(base+2)]);
-        E += 0.5 * m * v.squaredNorm();
+        std::array<double,3> v{ qd[static_cast<std::size_t>(base+0)],
+                                qd[static_cast<std::size_t>(base+1)],
+                                qd[static_cast<std::size_t>(base+2)] };
+        const double vsq = v[0]*v[0] + v[1]*v[1] + v[2]*v[2]; // v.squaredNorm()
+        E += 0.5 * m * vsq;
         const double* rot = q.data() + base + 3;
         Transform4x4 x = makeTransform(0, 0, 0, rot[0], rot[1], rot[2]);
-        Eigen::Matrix3d R;
-        R << x.m[0], x.m[1], x.m[2],
-             x.m[4], x.m[5], x.m[6],
-             x.m[8], x.m[9], x.m[10];
-        Eigen::Matrix3d Jb;
-        Jb << bodies[b].inertia[0], bodies[b].inertia[1], bodies[b].inertia[2],
-              bodies[b].inertia[3], bodies[b].inertia[4], bodies[b].inertia[5],
-              bodies[b].inertia[6], bodies[b].inertia[7], bodies[b].inertia[8];
-        Eigen::Matrix3d Jw = R * Jb * R.transpose();
-        Eigen::Vector3d w(qd[static_cast<int>(base+3)],
-                          qd[static_cast<int>(base+4)],
-                          qd[static_cast<int>(base+5)]);
-        E += 0.5 * w.dot(Jw * w);
+        Mat R(3, 3);
+        R(0,0)=x.m[0]; R(0,1)=x.m[1]; R(0,2)=x.m[2];
+        R(1,0)=x.m[4]; R(1,1)=x.m[5]; R(1,2)=x.m[6];
+        R(2,0)=x.m[8]; R(2,1)=x.m[9]; R(2,2)=x.m[10];
+        Mat Jb(3, 3);
+        Jb(0,0)=bodies[b].inertia[0]; Jb(0,1)=bodies[b].inertia[1]; Jb(0,2)=bodies[b].inertia[2];
+        Jb(1,0)=bodies[b].inertia[3]; Jb(1,1)=bodies[b].inertia[4]; Jb(1,2)=bodies[b].inertia[5];
+        Jb(2,0)=bodies[b].inertia[6]; Jb(2,1)=bodies[b].inertia[7]; Jb(2,2)=bodies[b].inertia[8];
+        Mat Jw = R * Jb * R.transpose();
+        std::array<double,3> w{ qd[static_cast<std::size_t>(base+3)],
+                                qd[static_cast<std::size_t>(base+4)],
+                                qd[static_cast<std::size_t>(base+5)] };
+        // Jw * w then w.dot(Jw w).
+        std::array<double,3> Jww{
+            Jw(0,0)*w[0] + Jw(0,1)*w[1] + Jw(0,2)*w[2],
+            Jw(1,0)*w[0] + Jw(1,1)*w[1] + Jw(1,2)*w[2],
+            Jw(2,0)*w[0] + Jw(2,1)*w[1] + Jw(2,2)*w[2] };
+        const double wJw = w[0]*Jww[0] + w[1]*Jww[1] + w[2]*Jww[2]; // w.dot(Jw w)
+        E += 0.5 * wJw;
         // Potential energy (gravity points along grav.g; PE = −m g·r).
-        E -= m * (grav.g[0]*q[static_cast<int>(base+0)] +
-                  grav.g[1]*q[static_cast<int>(base+1)] +
-                  grav.g[2]*q[static_cast<int>(base+2)]);
+        E -= m * (grav.g[0]*q[static_cast<std::size_t>(base+0)] +
+                  grav.g[1]*q[static_cast<std::size_t>(base+1)] +
+                  grav.g[2]*q[static_cast<std::size_t>(base+2)]);
     }
     return E;
 }
@@ -308,25 +347,41 @@ double totalEnergy(const std::vector<MbdBody>& bodies, const MbdGravity& grav,
 //   [ J  0  ][ λ ] = [ rhsBot ]
 // Returns the acceleration `a` (λ discarded by the caller).
 Vec solveKKT(const Mat& M, const Mat& J, const Vec& rhsTop, const Vec& rhsBot) {
-    const int n = static_cast<int>(M.rows());
-    const int m = static_cast<int>(J.rows());
+    const std::size_t n = M.rows();
+    const std::size_t m = J.rows();
     if (m == 0) {
-        // Unconstrained: M a = rhsTop.
-        return M.ldlt().solve(rhsTop);
+        // Unconstrained: M a = rhsTop.  (was M.ldlt().solve)
+        return la::LDLT<double>(M).solve(rhsTop);
     }
     Mat K(n + m, n + m);
     K.setZero();
-    K.topLeftCorner(n, n)      = M;
-    K.topRightCorner(n, m)     = J.transpose();
-    K.bottomLeftCorner(m, n)   = J;
+    // K.topLeftCorner(n, n)      = M        — block at (0, 0), size n x n.
+    for (std::size_t i = 0; i < n; ++i)
+        for (std::size_t j = 0; j < n; ++j)
+            K(0 + i, 0 + j) = M(i, j);
+    // K.topRightCorner(n, m)     = J.transpose()  — block at (0, n), n x m,
+    // value Jᵀ so K(i, n+j) = J(j, i).
+    for (std::size_t i = 0; i < n; ++i)
+        for (std::size_t j = 0; j < m; ++j)
+            K(0 + i, n + j) = J(j, i);
+    // K.bottomLeftCorner(m, n)   = J        — block at (n, 0), m x n.
+    for (std::size_t i = 0; i < m; ++i)
+        for (std::size_t j = 0; j < n; ++j)
+            K(n + i, 0 + j) = J(i, j);
     // Tiny regularisation on the λ block guards against redundant constraints
     // (rank-deficient J) — standard for an over-constrained mate set.
-    K.bottomRightCorner(m, m)  = -1e-9 * Mat::Identity(m, m);
-    Vec rhs(n + m);
-    rhs.head(n) = rhsTop;
-    rhs.tail(m) = rhsBot;
-    Vec sol = K.fullPivLu().solve(rhs);
-    return sol.head(n);
+    // K.bottomRightCorner(m, m)  = -1e-9 * Identity(m)  — block at (n, n), m x m.
+    for (std::size_t i = 0; i < m; ++i)
+        K(n + i, n + i) = -1e-9;
+    Vec rhs(n + m, 0.0);
+    // rhs.head(n) = rhsTop;  rhs.tail(m) = rhsBot;
+    for (std::size_t i = 0; i < n; ++i) rhs[i]     = rhsTop[i];
+    for (std::size_t i = 0; i < m; ++i) rhs[n + i] = rhsBot[i];
+    Vec sol = la::LU<double>(K).solve(rhs); // was K.fullPivLu().solve (full pivot)
+    // return sol.head(n)
+    Vec a(n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) a[i] = sol[i];
+    return a;
 }
 
 } // namespace
@@ -347,15 +402,14 @@ MbdResult simulateMultibody(const std::vector<MbdBody>& bodies,
     for (const auto& c : constraints) nC += constraintRows(c.kind);
 
     // --- state vectors ---
-    Vec q(static_cast<int>(nDof)), qd(static_cast<int>(nDof)), qdd(static_cast<int>(nDof));
-    q.setZero(); qd.setZero(); qdd.setZero();
+    Vec q(nDof, 0.0), qd(nDof, 0.0), qdd(nDof, 0.0);
     for (std::size_t b = 0; b < nB; ++b) {
         const std::size_t base = b * kDof;
-        for (int i = 0; i < 3; ++i) {
-            q[static_cast<int>(base+i)]   = bodies[b].position[i];
-            q[static_cast<int>(base+3+i)] = bodies[b].orientation[i];
-            qd[static_cast<int>(base+i)]   = bodies[b].linVel[i];
-            qd[static_cast<int>(base+3+i)] = bodies[b].angVel[i];
+        for (std::size_t i = 0; i < 3; ++i) {
+            q[static_cast<std::size_t>(base+i)]   = bodies[b].position[i];
+            q[static_cast<std::size_t>(base+3+i)] = bodies[b].orientation[i];
+            qd[static_cast<std::size_t>(base+i)]   = bodies[b].linVel[i];
+            qd[static_cast<std::size_t>(base+3+i)] = bodies[b].angVel[i];
         }
     }
 
@@ -367,10 +421,10 @@ MbdResult simulateMultibody(const std::vector<MbdBody>& bodies,
     const double bOm = cfg.baumgarteOmega;
     const double bZ  = cfg.baumgarteZeta;
 
-    Mat M(static_cast<int>(nDof), static_cast<int>(nDof));
-    Mat J(static_cast<int>(nC), static_cast<int>(nDof));
-    Vec phi(static_cast<int>(nC)), phidot(static_cast<int>(nC));
-    Vec Q(static_cast<int>(nDof));
+    Mat M(nDof, nDof);
+    Mat J(nC, nDof);
+    Vec phi(nC, 0.0), phidot(nC, 0.0);
+    Vec Q(nDof, 0.0);
 
     // --- consistent initial acceleration: solve KKT at t=0 ---
     auto computeAccel = [&](const Vec& qc, const Vec& qdc) -> Vec {
@@ -388,15 +442,16 @@ MbdResult simulateMultibody(const std::vector<MbdBody>& bodies,
             // J·a = −(2ξω Φ̇ + ω² Φ) − γ_accel, with γ_accel ≈ J̇ q̇.
             // Estimate J̇ q̇ by finite difference of (J q̇) along the flow.
             const double eps = 1e-6;
-            Vec qf = qc + eps * qdc;
-            Vec phif(static_cast<int>(nC));
+            Vec qf = vadd(qc, vscale(eps, qdc));           // qc + eps * qdc
+            Vec phif(nC, 0.0);
             evalAll(constraints, qf, phif);
-            Mat Jf(static_cast<int>(nC), static_cast<int>(nDof));
+            Mat Jf(nC, nDof);
             buildJacobian(constraints, qf, phif, Jf);
-            Vec jdotqd = (Jf * qdc - J * qdc) / eps; // (J̇)·q̇
-            Vec rhsBot = -jdotqd
-                         - (2.0 * bZ * bOm) * phidot
-                         - (bOm * bOm) * phi;
+            Vec jdotqd = vscale(1.0 / eps, vsub(Jf * qdc, J * qdc)); // (J̇)·q̇ = (Jf*qdc - J*qdc)/eps
+            // rhsBot = -jdotqd - (2 bZ bOm) phidot - (bOm^2) phi
+            Vec rhsBot = vsub(vsub(vscale(-1.0, jdotqd),
+                                   vscale(2.0 * bZ * bOm, phidot)),
+                              vscale(bOm * bOm, phi));
             return solveKKT(M, J, Q, rhsBot);
         }
         return solveKKT(M, J, Q, Q); // rhsBot unused when nC==0
@@ -417,16 +472,16 @@ MbdResult simulateMultibody(const std::vector<MbdBody>& bodies,
         s.angVel.resize(nB);
         for (std::size_t b = 0; b < nB; ++b) {
             const std::size_t base = b * kDof;
-            for (int i = 0; i < 3; ++i) {
-                s.position[b][i]    = q[static_cast<int>(base+i)];
-                s.orientation[b][i] = q[static_cast<int>(base+3+i)];
-                s.linVel[b][i]      = qd[static_cast<int>(base+i)];
-                s.angVel[b][i]      = qd[static_cast<int>(base+3+i)];
+            for (std::size_t i = 0; i < 3; ++i) {
+                s.position[b][i]    = q[static_cast<std::size_t>(base+i)];
+                s.orientation[b][i] = q[static_cast<std::size_t>(base+3+i)];
+                s.linVel[b][i]      = qd[static_cast<std::size_t>(base+i)];
+                s.angVel[b][i]      = qd[static_cast<std::size_t>(base+3+i)];
             }
         }
         if (nC > 0) {
             evalAll(constraints, q, phi);
-            s.constraintResidual = phi.norm();
+            s.constraintResidual = la::norm2(phi); // phi.norm()
         }
         s.energy = totalEnergy(bodies, gravity, q, qd);
         res.samples.push_back(std::move(s));
@@ -451,26 +506,40 @@ MbdResult simulateMultibody(const std::vector<MbdBody>& bodies,
         // Predictor with q̈_{n+1} ≈ q̈_n.
         Vec qddNew = qdd_n;
         for (int it = 0; it < 2; ++it) {
-            Vec qNew  = q_n + dt * qd_n
-                        + dt*dt*(0.5 - beta) * qdd_n
-                        + dt*dt*beta * qddNew;
-            Vec qdNew = qd_n + dt*(1.0 - gamma) * qdd_n + dt*gamma * qddNew;
+            // qNew = q_n + dt*qd_n + dt*dt*(0.5-beta)*qdd_n + dt*dt*beta*qddNew
+            Vec qNew = vadd(vadd(vadd(q_n, vscale(dt, qd_n)),
+                                 vscale(dt*dt*(0.5 - beta), qdd_n)),
+                            vscale(dt*dt*beta, qddNew));
+            // qdNew = qd_n + dt*(1-gamma)*qdd_n + dt*gamma*qddNew
+            Vec qdNew = vadd(vadd(qd_n, vscale(dt*(1.0 - gamma), qdd_n)),
+                             vscale(dt*gamma, qddNew));
             // HHT α-weighted state for the force/constraint evaluation.
-            Vec qEval  = (1.0 + alpha) * qNew  - alpha * q_n;
-            Vec qdEval = (1.0 + alpha) * qdNew - alpha * qd_n;
+            // qEval  = (1+alpha)*qNew  - alpha*q_n
+            Vec qEval  = vsub(vscale(1.0 + alpha, qNew),  vscale(alpha, q_n));
+            // qdEval = (1+alpha)*qdNew - alpha*qd_n
+            Vec qdEval = vsub(vscale(1.0 + alpha, qdNew), vscale(alpha, qd_n));
             qddNew = computeAccel(qEval, qdEval);
         }
         // Corrector at the resolved q̈_{n+1}.
-        q  = q_n + dt * qd_n + dt*dt*(0.5 - beta) * qdd_n + dt*dt*beta * qddNew;
-        qd = qd_n + dt*(1.0 - gamma) * qdd_n + dt*gamma * qddNew;
+        // q  = q_n + dt*qd_n + dt*dt*(0.5-beta)*qdd_n + dt*dt*beta*qddNew
+        q = vadd(vadd(vadd(q_n, vscale(dt, qd_n)),
+                      vscale(dt*dt*(0.5 - beta), qdd_n)),
+                 vscale(dt*dt*beta, qddNew));
+        // qd = qd_n + dt*(1-gamma)*qdd_n + dt*gamma*qddNew
+        qd = vadd(vadd(qd_n, vscale(dt*(1.0 - gamma), qdd_n)),
+                  vscale(dt*gamma, qddNew));
         qdd = qddNew;
 
-        if (!q.allFinite() || !qd.allFinite()) { res.stable = false; break; }
+        // !q.allFinite() || !qd.allFinite()
+        bool qFinite = true, qdFinite = true;
+        for (std::size_t i = 0; i < q.size();  ++i) if (!std::isfinite(q[i]))  { qFinite = false;  break; }
+        for (std::size_t i = 0; i < qd.size(); ++i) if (!std::isfinite(qd[i])) { qdFinite = false; break; }
+        if (!qFinite || !qdFinite) { res.stable = false; break; }
 
         // Track constraint drift every step (cheap).
         if (nC > 0) {
             evalAll(constraints, q, phi);
-            res.maxConstraintDrift = std::max(res.maxConstraintDrift, phi.norm());
+            res.maxConstraintDrift = std::max(res.maxConstraintDrift, la::norm2(phi)); // phi.norm()
         }
 
         res.stepsTaken = step + 1;
