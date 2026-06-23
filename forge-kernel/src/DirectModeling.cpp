@@ -47,6 +47,13 @@
 #include <sstream>
 #include <stdexcept>
 
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/SolidTessellate.hpp"   // tessellateSolid (native edge picking)
+#include "forge/native/brep/Fillet.hpp"            // enumerateSharpConvexEdges
+#include <cstdint>
+#include <vector>
+#endif
+
 namespace forge::direct {
 
 namespace {
@@ -168,6 +175,30 @@ std::size_t edgeCount(ShapeHandle shape) {
 // `deflection` controls polyline density (chord tolerance, mm). Returns a
 // flat list: for each edge, { id, points:[x,y,z,...] }.
 std::vector<EdgePolyline> edgeSegments(ShapeHandle shape, double deflection) {
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE handle: a forge::native::brep::Solid has no OCCT TopExp edge stream, so
+    // edge picking uses the SAME canonical sharp-CONVEX-edge enumeration the native
+    // fillet routing maps part.filletEdges ids through (enumerateSharpConvexEdges).
+    // Each pickable edge becomes a 2-point polyline tagged with that canonical id —
+    // so a viewport (or the A/B harness) selects native edges by the EXACT ids
+    // part.filletEdges honors, derived from native geometry (no OCCT/native id
+    // coincidence). NativeMesh handles have no analytic edges -> empty (as before).
+    if (ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        namespace nb = ::forge::native::brep;
+        std::vector<double> pos; std::vector<std::uint32_t> idx;
+        nb::tessellateSolid(ShapeRegistry::instance().getNativeSolid(shape), pos, idx);
+        std::vector<EdgePolyline> out;
+        for (const nb::SharpConvexEdge& e : nb::enumerateSharpConvexEdges(pos, idx)) {
+            EdgePolyline poly;
+            poly.id = e.id;
+            poly.points = {
+                static_cast<float>(e.ax), static_cast<float>(e.ay), static_cast<float>(e.az),
+                static_cast<float>(e.bx), static_cast<float>(e.by), static_cast<float>(e.bz)};
+            out.push_back(std::move(poly));
+        }
+        return out;
+    }
+#endif
     const auto& s = ShapeRegistry::instance().get(shape);
     std::vector<EdgePolyline> out;
     if (!(deflection > 1e-6)) deflection = 0.25;

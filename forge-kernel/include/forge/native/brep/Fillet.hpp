@@ -162,6 +162,73 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
                                double r, std::uint32_t nSeg,
                                double thresholdDeg = 30.0);
 
+// ===========================================================================
+// PER-EDGE SELECTION (subset fillet) — round ONLY chosen sharp convex edges.
+// ===========================================================================
+// A geometric key identifying ONE sharp convex edge to round, plus its radius.
+// We match by GEOMETRY (a point ON the edge + the edge direction) rather than by
+// any mesh-internal index, because the caller (Features.cpp) derives the edge set
+// from a DIFFERENT enumeration (OCCT TopExp edge ids via direct::edgeSegments) —
+// the same per-kernel-geometry approach the native DRAFT routing uses for faces.
+// An internal sharp convex edge matches this selector iff its midpoint lies on the
+// selector's line (within posTol) AND its direction is parallel to dir (within an
+// angular tolerance). `radius` is this edge's own fillet radius (per-edge radii).
+struct EdgeSel {
+    double px = 0.0, py = 0.0, pz = 0.0;   // a point ON the edge (e.g. its midpoint)
+    double dx = 0.0, dy = 0.0, dz = 0.0;   // the edge direction (need not be unit)
+    double radius = 0.0;                   // this edge's fillet radius (> 0)
+};
+
+// Fillet ONLY the sharp convex edges that match an entry in `sel`, each by its own
+// `radius`. Mixed corners are handled where each rounded edge terminates against a
+// flat face (the strip ends in a planar arc on the cap) AND where all three of a
+// 3-region corner's convex edges are rounded (the full spherical-cap corner, the
+// same construction filletConvexEdges uses). A corner that is NOT a full rounded
+// corner but has >= 2 incident ROUNDED edges (e.g. two edges of a face's perimeter
+// meeting at a vertex) needs a torus-blend corner this increment does NOT build:
+// the op DETECTS that case and returns ok == false (never a self-intersecting or
+// non-manifold mesh). Any unmatched (un-selected) sharp convex edge is left sharp.
+//
+//   posTol : max distance from an edge midpoint to a selector line to match it
+//            (default 1e-6 * model scale handled internally if <= 0).
+//
+// Returns ok == false (with `reason`) when: the input is not a buildable closed
+// 2-manifold; any radius <= 0 / nSeg == 0 / non-finite input; r too large for a
+// selected edge's face; an unsupported (>=2-rounded) non-full corner is present;
+// or the emitted solid fails validate(). `filletConvexEdges` behavior (round ALL
+// convex edges) is recoverable by passing a selector for every convex edge, and is
+// kept as its own entry point (unchanged) for the all-edges path.
+FilletResult filletConvexEdgesSelected(const std::vector<double>& positions,
+                                       const std::vector<std::uint32_t>& indices,
+                                       const std::vector<EdgeSel>& sel,
+                                       std::uint32_t nSeg,
+                                       double thresholdDeg = 30.0,
+                                       double posTol = 0.0);
+
+// One sharp CONVEX feature edge of a tessellated solid, in canonical order. This
+// is the EDGE-selection enumeration the native fillet routing maps part.filletEdges
+// `edgeIds` through (the edge analogue of the per-triangle faceId stream the native
+// DRAFT routing uses). Each entry carries the edge midpoint + unit direction so a
+// caller can build the EdgeSel geometric key filletConvexEdgesSelected matches, and
+// a 0-based `id` (its index in this list). The list is sorted deterministically by
+// (midpoint, direction) so the id assignment is stable and traversal-independent.
+struct SharpConvexEdge {
+    std::uint32_t id = 0;             // 0-based, == index in the returned vector
+    double mx = 0.0, my = 0.0, mz = 0.0;   // edge midpoint
+    double dx = 0.0, dy = 0.0, dz = 0.0;   // unit edge direction
+    double length = 0.0;              // edge length (for picking polylines)
+    double ax = 0.0, ay = 0.0, az = 0.0;   // endpoint A
+    double bx = 0.0, by = 0.0, bz = 0.0;   // endpoint B
+};
+
+// Enumerate the sharp CONVEX feature edges of a closed-2-manifold triangle soup in
+// the canonical, deterministic order described on SharpConvexEdge. Returns an empty
+// vector if the soup is not a buildable closed 2-manifold. Pure, allocation-only.
+std::vector<SharpConvexEdge> enumerateSharpConvexEdges(
+        const std::vector<double>& positions,
+        const std::vector<std::uint32_t>& indices,
+        double thresholdDeg = 30.0);
+
 // Build the 12-triangle (two-per-face) closed soup of an axis-aligned cube of
 // side `L` placed with its min corner at `origin`, all faces CCW-wound as seen
 // from OUTSIDE. Exposed for testing / reuse (the canonical fillet seed target).

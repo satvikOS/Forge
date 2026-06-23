@@ -324,6 +324,97 @@ static void testFuzz(std::mt19937& rng) {
 }
 
 // ===========================================================================
+// (6) PER-EDGE SELECTION (subset fillet): round only a chosen subset of sharp
+//     convex edges. The 4 vertical edges of a box give MIXED corners (each box
+//     corner has 1 rounded + 2 sharp incident convex edges) — the terminal-corner
+//     construction. Validate watertight genus-0 + volume vs the analytic value
+//     L^3 - n*(1 - pi/4) r^2 * edgeLen. Also assert the honest refusal of a
+//     2-rounded-per-corner subset (the top ring) — left to OCCT, never faked.
+// ===========================================================================
+static void boxSoup(double Lx, double Ly, double Lz,
+                    std::vector<double>& P, std::vector<std::uint32_t>& I) {
+    P.clear(); I.clear();
+    const double V[8][3] = {{0,0,0},{Lx,0,0},{Lx,Ly,0},{0,Ly,0},
+                            {0,0,Lz},{Lx,0,Lz},{Lx,Ly,Lz},{0,Ly,Lz}};
+    for (auto& v : V) { P.push_back(v[0]); P.push_back(v[1]); P.push_back(v[2]); }
+    const std::uint32_t Q[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{1,2,6,5},{2,3,7,6},{3,0,4,7}};
+    for (auto& q : Q) {
+        I.push_back(q[0]); I.push_back(q[1]); I.push_back(q[2]);
+        I.push_back(q[0]); I.push_back(q[2]); I.push_back(q[3]);
+    }
+}
+
+static void testSubsetSelection() {
+    std::printf("[6] per-edge selection (subset fillet) — mixed/terminal corners\n");
+    const double Lx = 2.0, Ly = 3.0, Lz = 4.0, r = 0.3;
+    std::vector<double> P; std::vector<std::uint32_t> I;
+    boxSoup(Lx, Ly, Lz, P, I);
+
+    // (6a) the 4 VERTICAL edges (parallel to Z): midpoints (0,0,Lz/2) etc.
+    std::vector<EdgeSel> vsel;
+    const double cx[4] = {0, Lx, Lx, 0}, cy[4] = {0, 0, Ly, Ly};
+    for (int k = 0; k < 4; ++k) {
+        EdgeSel s; s.px = cx[k]; s.py = cy[k]; s.pz = Lz / 2.0;
+        s.dx = 0; s.dy = 0; s.dz = 1; s.radius = r; vsel.push_back(s);
+    }
+    FilletResult vr = filletConvexEdgesSelected(P, I, vsel, 24);
+    check(vr.ok, "4 vertical-edge subset fillet ok");
+    if (vr.ok) {
+        auto rep = vr.mesh.validate();
+        check(rep.isValid(), "subset fillet is a closed 2-manifold");
+        check(rep.eulerChar == 2, "subset fillet Euler == 2 (genus 0)");
+        check(vr.numConvexEdgesRounded == 4, "exactly 4 edges rounded (subset honored)");
+        const double Vexp = Lx*Ly*Lz - 4.0*(1.0 - kPi/4.0)*r*r*Lz;
+        std::printf("      V=%.6f  Vexp(analytic)=%.6f  relErr=%.3e\n",
+                    vr.outputVolume, Vexp, std::fabs(vr.outputVolume - Vexp)/Vexp);
+        check(approx(vr.outputVolume, Vexp, 5e-3 * Vexp),
+              "subset-fillet volume within MESH_TOL (0.5%) of the analytic value");
+    } else {
+        std::printf("      reason: %s\n", vr.reason.c_str());
+    }
+
+    // (6b) a SINGLE vertical edge.
+    {
+        std::vector<EdgeSel> one(1, vsel[0]);
+        FilletResult sr = filletConvexEdgesSelected(P, I, one, 24);
+        check(sr.ok && sr.mesh.validate().isValid() && sr.numConvexEdgesRounded == 1,
+              "single-edge subset fillet ok + exactly 1 rounded");
+        const double Vexp = Lx*Ly*Lz - (1.0 - kPi/4.0)*r*r*Lz;
+        check(sr.ok && approx(sr.outputVolume, Vexp, 5e-3 * Vexp),
+              "single-edge subset volume within MESH_TOL of analytic");
+    }
+
+    // (6c) HONEST refusal: the 4 TOP edges (z=Lz ring) put TWO rounded edges at each
+    // top corner — a torus-blend corner this increment does not build. Must refuse.
+    {
+        std::vector<EdgeSel> top;
+        // top edges: (Lx/2,0,Lz)+x, (Lx,Ly/2,Lz)+y, (Lx/2,Ly,Lz)+x, (0,Ly/2,Lz)+y
+        EdgeSel a; a.px=Lx/2; a.py=0;   a.pz=Lz; a.dx=1; a.dy=0; a.dz=0; a.radius=r; top.push_back(a);
+        EdgeSel b; b.px=Lx;   b.py=Ly/2;b.pz=Lz; b.dx=0; b.dy=1; b.dz=0; b.radius=r; top.push_back(b);
+        EdgeSel c; c.px=Lx/2; c.py=Ly;  c.pz=Lz; c.dx=1; c.dy=0; c.dz=0; c.radius=r; top.push_back(c);
+        EdgeSel d; d.px=0;    d.py=Ly/2;d.pz=Lz; d.dx=0; d.dy=1; d.dz=0; d.radius=r; top.push_back(d);
+        FilletResult tr = filletConvexEdgesSelected(P, I, top, 24);
+        std::printf("      top-ring subset: ok=%d (reason:%s)\n", tr.ok?1:0, tr.reason.c_str());
+        check(!tr.ok, "2-rounded-per-corner subset (top ring) -> ok == false (honest refusal)");
+    }
+
+    // (6d) HONEST refusal: a selector that matches nothing on the body.
+    {
+        std::vector<EdgeSel> miss(1, vsel[0]);
+        miss[0].px = 99.0;  // off the body
+        FilletResult mr = filletConvexEdgesSelected(P, I, miss, 24);
+        check(!mr.ok, "off-body edge selector -> ok == false (no silent drop)");
+    }
+
+    // (6e) HONEST refusal: variable per-edge radii on one solid (out of envelope).
+    {
+        std::vector<EdgeSel> vary = vsel; vary[1].radius = r * 1.5;
+        FilletResult xr = filletConvexEdgesSelected(P, I, vary, 24);
+        check(!xr.ok, "variable per-edge radii -> ok == false (not faked)");
+    }
+}
+
+// ===========================================================================
 int main() {
     std::random_device rd;
     const unsigned seed = rd();
@@ -337,6 +428,7 @@ int main() {
     testConvergence();
     testRefusalsAndConcave(rng);
     testFuzz(rng);
+    testSubsetSelection();
 
     std::printf("\n=== RESULT: %d / %d passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;

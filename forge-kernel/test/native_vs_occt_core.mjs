@@ -131,6 +131,19 @@ const cases = [
   // Fillet: native rolling-ball strip vs OCCT analytic blend agree to ~0.5%.
   { name: 'fillet ALL box edges (mesh-bridge)', tol: MESH_TOL, meshBridge: true, curved: true,
     build: f => { const b=f.makeBox(3,3,3); return f.part.filletEdges(b, allBoxEdges(f,b), 0.3); } },
+  // PER-EDGE SUBSET fillet: round ONLY the 4 VERTICAL (Z-parallel) edges of a box by
+  // r=0.3 — a MIXED-corner case (each box corner has 1 rounded + 2 sharp incident
+  // convex edges; the rounded strip terminates against the flat cap as a planar arc,
+  // NOT a spherical corner). The edge set is derived from EACH kernel's OWN geometry
+  // (boxVerticalEdges: |dir·Z|≈1 via direct.edgeSegments, deduped by midpoint), so
+  // OCCT and native operate on the SAME 4 geometric edges without relying on
+  // edge-id-order coincidence (the EDGE analogue of the draft case's boxSideFaces).
+  // OCCT's analytic per-edge fillet and the native rolling-ball mesh strip agree on
+  // volume removed = 4·(1−π/4)·r²·H to ~0.5% (the same mesh-bridge ceiling as the
+  // all-edges case). Result is a NativeMesh handle.
+  { name: 'fillet 4 VERTICAL box edges (subset)', tol: MESH_TOL, meshBridge: true, curved: true,
+    build: f => { const b=f.makeBox(3,3,3);
+      return f.part.filletEdges(b, boxVerticalEdges(f, b), 0.3); } },
   // Chamfer: native vertex-split corner-fan vs OCCT analytic corner faces differ
   // in the CORNER treatment (8 octant corners), so the volume agrees to ~1% — the
   // honest mesh-bridge-vs-analytic ceiling for a beveled corner, stated plainly.
@@ -185,6 +198,32 @@ function boxSideFaces(f, h, pull) {
 // mesh op ignores the id list and rounds every sharp convex edge anyway; passing
 // all 12 to OCCT makes the two operate on the SAME edge set for a fair volume A/B.
 function allBoxEdges(f, h) { return [0,1,2,3,4,5,6,7,8,9,10,11]; }
+
+// The 4 VERTICAL (Z-parallel) edges of a box, returned as THIS kernel's own edge
+// ids — derived from each kernel's OWN edge enumeration (direct.edgeSegments) so
+// OCCT and native fillet the SAME geometric edges (never relying on edge-id-order
+// coincidence; the EDGE analogue of boxSideFaces). OCCT's TopExp explorer can list
+// a shared edge more than once and the native enumeration is a different order, so
+// we DEDUP by edge midpoint and keep ONE id per distinct vertical edge. The native
+// branch resolves each id back to its edge geometry; OCCT's MakeFillet dedups too.
+function boxVerticalEdges(f, h) {
+  const segs = f.direct.edgeSegments(h, 0.25);
+  const seen = new Map();             // midpoint key -> chosen edge id
+  for (const s of segs) {
+    const p = s.points;
+    if (p.length < 6) continue;
+    const a = [p[0], p[1], p[2]];
+    const b = [p[p.length-3], p[p.length-2], p[p.length-1]];
+    const d = [b[0]-a[0], b[1]-a[1], b[2]-a[2]];
+    const L = Math.hypot(...d) || 1;
+    const dir = [d[0]/L, d[1]/L, d[2]/L];
+    if (Math.abs(Math.abs(dir[2]) - 1) > 1e-6) continue;   // not Z-parallel
+    const mid = [(a[0]+b[0])/2, (a[1]+b[1])/2, (a[2]+b[2])/2];
+    const key = `${Math.round(mid[0]/1e-6)},${Math.round(mid[1]/1e-6)},${Math.round(mid[2]/1e-6)}`;
+    if (!seen.has(key)) seen.set(key, s.id);               // first id for this edge
+  }
+  return [...seen.values()];
+}
 
 // ===================================================================== STEP 3b
 // SKETCH-BASED FEATURE OPS — extrude / revolve / sweep / loft routed through

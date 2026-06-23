@@ -27,7 +27,15 @@
 #include "forge/native/brep/Loft.hpp"         // brep::LoftSection, loftSections()
 #include "forge/native/csg/Revolve.hpp"       // csg::revolve()
 #include "forge/Sketcher.hpp"                 // extractProfileRings (OCCT-free)
+#include "forge/native/mesh/HalfEdgeMesh.hpp"   // sharp-convex-edge enumeration
+#include "forge/native/mesh/FeatureEdges.hpp"   // detectFeatureEdges
+#include "forge/native/Predicates.hpp"          // orient3d convex test
+#include <array>                                // edge enumeration
+#include <cmath>                                // std::sqrt for edge dirs
+#include <cstdint>
+#include <map>                                  // canonical edge ordering
 #include <memory>
+#include <unordered_map>                        // edge->faces map
 #include <unordered_set>                      // selected-face id set (draftFaces)
 #endif
 
@@ -229,6 +237,7 @@ ShapeHandle storeNativeMesh(::forge::native::mesh::HalfEdgeMesh&& m) {
     auto mp = std::make_shared<::forge::native::mesh::HalfEdgeMesh>(std::move(m));
     return ShapeRegistry::instance().addNativeMesh(std::move(mp));
 }
+
 #endif  // FORGE_NATIVE_BREP
 
 }  // namespace
@@ -845,17 +854,48 @@ ShapeHandle filletEdges(ShapeHandle shape,
 #ifdef FORGE_NATIVE_BREP
     if (native::brep::forgeNativeBrepEnabled() &&
         ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
-        // MESH-BRIDGE (HONEST): tessellate the native analytic Solid to a soup,
-        // then round EVERY sharp convex edge by `radius` (the native mesh op has
-        // no per-edge selection — edgeIds is honored as "fillet this body's sharp
-        // convex edges", not a per-edge subset). Result is a MESH handle.
-        // NB: fully qualify — the enclosing forge::part::chamferEdges name would
-        // otherwise shadow forge::native::brep::chamferEdges via a `using`.
+        // MESH-BRIDGE (HONEST): tessellate the native analytic Solid to a soup, then
+        // round the SELECTED subset of sharp convex edges by `radius`. PER-EDGE
+        // SELECTION: edgeIds index THIS solid's own canonical sharp-convex-edge
+        // enumeration (nativeSharpConvexEdges — the EDGE analogue of the per-triangle
+        // faceId stream the native DRAFT routing maps faces with). We resolve each id
+        // to its edge midpoint+direction and build an EdgeSel geometric key that the
+        // native op matches against the same enumeration inside the kernel — so the
+        // A/B harness drives the SAME geometric edge set on both backends without
+        // relying on OCCT/native edge-order coincidence. A partial edgeList rounds
+        // ONLY those edges; passing every id rounds all (the former all-edges path).
+        // Result is a MESH handle (not an analytic Solid), like draft/chamfer.
+        // NB: fully qualify — the enclosing forge::part name would otherwise shadow
+        // forge::native::brep via a `using`.
         namespace nb = ::forge::native::brep;
         std::vector<double> pos; std::vector<std::uint32_t> idx;
         nb::tessellateSolid(ShapeRegistry::instance().getNativeSolid(shape), pos, idx);
         const std::uint32_t nSeg = 24;   // arc segments per fillet strip
-        nb::FilletResult fr = nb::filletConvexEdges(pos, idx, radius, nSeg);
+
+        const std::vector<nb::SharpConvexEdge> sharp = nb::enumerateSharpConvexEdges(pos, idx);
+        if (sharp.empty()) {
+            throw std::runtime_error(
+                "forge native fillet: this solid has no sharp convex edges to fillet");
+        }
+        // Map the requested edgeIds -> EdgeSel geometric keys (dedup; range-check).
+        std::vector<nb::EdgeSel> sel;
+        std::unordered_set<std::uint32_t> seen;
+        for (std::uint32_t id : edgeIds) {
+            if (id >= sharp.size()) {
+                throw std::runtime_error(
+                    "forge native fillet: edge id " + std::to_string(id) +
+                    " out of range (only " + std::to_string(sharp.size()) +
+                    " sharp convex edges on this native solid)");
+            }
+            if (!seen.insert(id).second) continue;
+            const nb::SharpConvexEdge& e = sharp[id];
+            nb::EdgeSel s;
+            s.px = e.mx; s.py = e.my; s.pz = e.mz;
+            s.dx = e.dx; s.dy = e.dy; s.dz = e.dz;
+            s.radius = radius;
+            sel.push_back(s);
+        }
+        nb::FilletResult fr = nb::filletConvexEdgesSelected(pos, idx, sel, nSeg);
         if (!fr.ok) {
             throw std::runtime_error(std::string("forge native fillet: ") +
                 (fr.reason.empty() ? "mesh fillet failed" : fr.reason));

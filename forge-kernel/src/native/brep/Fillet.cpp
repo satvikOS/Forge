@@ -211,10 +211,21 @@ void makeCubeSoupForFillet(double L, const mesh::Vec3& origin,
     }
 }
 
-FilletResult filletConvexEdges(const std::vector<double>& positions,
-                               const std::vector<std::uint32_t>& indices,
-                               double r, std::uint32_t nSeg,
-                               double thresholdDeg) {
+namespace {
+
+// Shared core for both the all-edges (filletConvexEdges) and the per-edge subset
+// (filletConvexEdgesSelected) paths. `selectAll` rounds every sharp convex edge;
+// otherwise only edges whose undirected key is in `roundedKeys` are rounded (the
+// rest of the sharp convex edges are left sharp). A SUBSET fillet adds mixed /
+// terminal corner handling on top of the all-edges full-corner construction; the
+// all-edges path (selectAll==true) is geometrically IDENTICAL to the original
+// implementation (every convex edge rounded => every 3-region corner is a full
+// rounded corner => the spherical-cap path), so it is unchanged byte-for-byte.
+FilletResult filletCore(const std::vector<double>& positions,
+                        const std::vector<std::uint32_t>& indices,
+                        double r, std::uint32_t nSeg, double thresholdDeg,
+                        bool selectAll,
+                        const std::unordered_set<std::uint64_t>& roundedKeys) {
     // ---- input screening ---------------------------------------------------
     if (!(r > 0.0) || !std::isfinite(r)) return fail("radius must be positive and finite");
     if (nSeg == 0) return fail("nSeg must be >= 1");
@@ -507,8 +518,11 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
     // polygon stays correctly wound (positive area, same normal). The strict
     // check is done per face when we build the flat tops.
 
-    auto edgeIsConvex = [&](std::uint32_t a, std::uint32_t b) -> bool {
-        return convexKeySet.count(undirKey(a, b)) != 0;
+    // A convex edge is ROUNDED iff it is selected (all-edges: every convex edge).
+    auto edgeIsRounded = [&](std::uint32_t a, std::uint32_t b) -> bool {
+        const std::uint64_t k = undirKey(a, b);
+        if (convexKeySet.count(k) == 0) return false;       // only convex edges round
+        return selectAll || roundedKeys.count(k) != 0;
     };
 
     // incident convex edges per vertex (list of indices into convexEdges).
@@ -516,6 +530,11 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
     for (std::uint32_t i = 0; i < convexEdges.size(); ++i) {
         vConvex[convexEdges[i].v0].push_back(i);
         vConvex[convexEdges[i].v1].push_back(i);
+    }
+    // Per-vertex count of incident ROUNDED convex edges (for corner classification).
+    std::vector<int> nRoundedAt(nv, 0);
+    for (const auto& ce : convexEdges) {
+        if (edgeIsRounded(ce.v0, ce.v1)) { ++nRoundedAt[ce.v0]; ++nRoundedAt[ce.v1]; }
     }
     // A vertex is a ROUNDED CORNER iff it lies on exactly 3 planar regions and has
     // exactly 3 incident convex edges (the canonical convex corner this envelope
@@ -525,6 +544,11 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
     std::vector<V3>   cornerCentre(nv);     // sphere centre C_v (valid if isCorner)
     for (std::uint32_t v = 0; v < nv; ++v) {
         if (vConvex[v].size() != 3 || vRegions[v].size() != 3) continue;
+        // A FULL rounded corner requires ALL 3 incident convex edges to be rounded
+        // (for the all-edges path this is always true). With a subset, a 3-convex
+        // vertex with only 1 rounded edge is a TERMINAL corner (handled by the
+        // cap-plane arc), not a sphere corner.
+        if (nRoundedAt[v] != 3) continue;
         const V3 P = toV3(Vpos[v].position);
         const V3 n0 = regNormal[vRegions[v][0]];
         const V3 n1 = regNormal[vRegions[v][1]];
@@ -547,6 +571,20 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
         if (!finite3(C)) continue;
         isCorner[v] = true;
         cornerCentre[v] = C;
+    }
+
+    // ---- UNSUPPORTED-CORNER REFUSAL (0 FAKES) ------------------------------
+    // A vertex that is NOT a full rounded corner but has >= 2 incident ROUNDED
+    // edges (e.g. two perimeter edges of one face meeting at a corner) needs a
+    // TORUS-BLEND corner this increment does not construct. Detect and refuse
+    // honestly — never emit a self-intersecting / non-manifold mesh. (For the
+    // all-edges path every 3-convex corner is a full corner, so this never trips.)
+    for (std::uint32_t v = 0; v < nv; ++v) {
+        if (isCorner[v]) continue;
+        if (nRoundedAt[v] >= 2)
+            return failDiag("a non-full corner has >=2 rounded edges meeting "
+                            "(torus-blend corner not supported by this fillet "
+                            "increment) — left on OCCT, not faked");
     }
 
     // --- flat-top contact corner T(g,v): region g shrunk at boundary vertex v --
@@ -574,8 +612,8 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
         if (dot(inA, sub(Pp, corner)) < 0.0) inA = mul(inA, -1.0);
         V3 inB = normalize(cross(eB, nrm));
         if (dot(inB, sub(Pn, corner)) < 0.0) inB = mul(inB, -1.0);
-        const double offA = edgeIsConvex(v, vn) ? r : 0.0;
-        const double offB = edgeIsConvex(v, vp) ? r : 0.0;
+        const double offA = edgeIsRounded(v, vn) ? r : 0.0;
+        const double offB = edgeIsRounded(v, vp) ? r : 0.0;
         return solveContact(corner, eA, inA, offA, inB, offB, out);
     };
 
@@ -618,6 +656,51 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
         return regOf[side == 0 ? ce.f0 : ce.f1];
     };
 
+    // ---- rolling-ball AXIS point at vertex v for a rounded edge ei ----------
+    // For a rounded edge between regions g0,g1 (with unit normals n0,n1), the
+    // rolling-ball centre is the locus a distance r inside BOTH region planes,
+    // parallel to the edge. At a TERMINAL corner v (the strip ends against a third,
+    // flat cap region) the strip's end-ring is the circular arc of radius r about
+    // the axis point in the plane through v perpendicular to the edge. We solve for
+    // Q = v + a*n0 + b*n1 + c*e with dot(Q-v,n0) = -r, dot(Q-v,n1) = -r, and
+    // dot(Q-v,e) = 0 (the perpendicular plane through v). e is the edge direction.
+    auto edgeAxisAt = [&](std::uint32_t v, std::uint32_t ei, V3& out) -> bool {
+        const ConvexEdge& ce = convexEdges[ei];
+        const V3 P = toV3(Vpos[v].position);
+        const V3 A = toV3(Vpos[ce.v0].position);
+        const V3 B = toV3(Vpos[ce.v1].position);
+        const V3 e = normalize(sub(B, A));
+        const V3 n0 = regNormal[regOf[ce.f0]];
+        const V3 n1 = regNormal[regOf[ce.f1]];
+        // 3x3 system in basis (n0,n1,e).
+        const double m00 = dot(n0, n0), m01 = dot(n0, n1), m02 = dot(n0, e);
+        const double m10 = dot(n1, n0), m11 = dot(n1, n1), m12 = dot(n1, e);
+        const double m20 = dot(e, n0),  m21 = dot(e, n1),  m22 = dot(e, e);
+        const double r0 = -r, r1 = -r, r2 = 0.0;
+        auto det = [](double a, double b, double c, double d, double e2, double f2,
+                      double g, double h, double i) {
+            return a * (e2 * i - f2 * h) - b * (d * i - f2 * g) + c * (d * h - e2 * g);
+        };
+        const double D = det(m00, m01, m02, m10, m11, m12, m20, m21, m22);
+        if (std::fabs(D) < 1e-14) return false;
+        const double a = det(r0, m01, m02, r1, m11, m12, r2, m21, m22) / D;
+        const double b = det(m00, r0, m02, m10, r1, m12, m20, r2, m22) / D;
+        const double c = det(m00, m01, r0, m10, m11, r1, m20, m21, r2) / D;
+        out = add(P, add(add(mul(n0, a), mul(n1, b)), mul(e, c)));
+        return finite3(out);
+    };
+    // Find the single rounded edge incident to a TERMINAL vertex v whose two faces
+    // are regions ga,gb (the edge whose strip ends at v). Returns kInvalid if none.
+    auto roundedEdgeOf = [&](std::uint32_t v, std::uint32_t ga, std::uint32_t gb) -> std::uint32_t {
+        for (std::uint32_t ei : vConvex[v]) {
+            const ConvexEdge& ce = convexEdges[ei];
+            if (!edgeIsRounded(ce.v0, ce.v1)) continue;
+            const std::uint32_t e0 = regOf[ce.f0], e1 = regOf[ce.f1];
+            if ((e0 == ga && e1 == gb) || (e0 == gb && e1 == ga)) return ei;
+        }
+        return kInvalid;
+    };
+
     // ---- CANONICAL equal-angle arc on the sphere about C -------------------
     // Returns nSeg+1 points sweeping from unit dir d0 to unit dir d1 by equal
     // angle (cos/sin in the (d0,e2) orthonormal basis), each at radius r about C.
@@ -654,7 +737,18 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
         flipped = (ga > gb);
         const std::uint32_t lo = flipped ? gb : ga;
         const std::uint32_t hi = flipped ? ga : gb;
-        const V3 C = cornerCentre[v];
+        // Arc CENTRE: a FULL rounded corner uses its sphere centre (the existing
+        // all-edges path). A TERMINAL corner (strip ends against a flat cap) uses
+        // the rolling-ball AXIS point of the single rounded edge between ga,gb, so
+        // the end-ring is the cylinder cross-section arc on the cap plane.
+        V3 C;
+        if (isCorner[v]) {
+            C = cornerCentre[v];
+        } else {
+            const std::uint32_t ei = roundedEdgeOf(v, ga, gb);
+            if (ei == kInvalid) return false;
+            if (!edgeAxisAt(v, ei, C)) return false;
+        }
         V3 Tlo, Thi;
         if (!contactCorner(lo, v, Tlo)) return false;
         if (!contactCorner(hi, v, Thi)) return false;
@@ -765,19 +859,20 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
         }
     }
 
-    // ---- (b) FILLET STRIPS along each convex edge --------------------------
+    // ---- (b) FILLET STRIPS along each ROUNDED convex edge ------------------
     // The strip's two end rings are the corner arcs cornerEdgeArc(v0,ei) and
     // cornerEdgeArc(v1,ei) — both ordered region(f0)->region(f1), and both shared
     // (bit-identical, via the canonical region-pair arc) with the adjacent corner
-    // sphere patches. We stitch the two rings into nSeg quad rings. (This envelope
-    // requires BOTH endpoints to be rounded corners — a non-corner convex vertex
-    // is outside the validated envelope and surfaced via the final validate().)
+    // (a FULL sphere patch, or — for a terminal corner — the flat cap that closes
+    // around the same end-ring arc). We stitch the two rings into nSeg quad rings.
+    // Each endpoint must be EITHER a full rounded corner OR a terminal corner whose
+    // single rounded edge is this one; a non-corner, non-terminal convex vertex is
+    // outside the validated envelope and surfaced via the final validate().
     for (std::uint32_t ei = 0; ei < convexEdges.size(); ++ei) {
         const ConvexEdge& ce = convexEdges[ei];
+        if (!edgeIsRounded(ce.v0, ce.v1)) continue;  // only round SELECTED edges
         const V3 A = toV3(Vpos[ce.v0].position);
         const V3 B = toV3(Vpos[ce.v1].position);
-        if (!isCorner[ce.v0] || !isCorner[ce.v1])
-            return failDiag("convex edge endpoint is not a 3-region corner (outside envelope)");
 
         std::vector<V3> ring0, ring1;
         if (!cornerEdgeArc(ce.v0, ei, ring0)) return fail("corner arc unsolvable at v0");
@@ -803,32 +898,83 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
 
     // ---- (c) FLAT TOPS: shrink each region to its contact polygon ----------
     // For each planar region, the contact polygon is its boundary loop with every
-    // vertex pulled to its contact corner T(region,v). It is planar and convex for
-    // the box envelope, so a triangle fan from vertex 0 is valid. Reject the whole
-    // op if the contact polygon inverts (r too large -> the region collapses).
+    // vertex pulled to its contact corner T(region,v). At a TERMINAL rounded-edge
+    // endpoint (a region that is the flat CAP a strip ends against) the single
+    // contact corner is REPLACED by that strip's end-ring ARC, so the cap welds to
+    // the strip and the rounded corner of the cap is chamfered. The result is planar
+    // and convex for the box envelope. Reject if the contact polygon inverts.
     for (std::uint32_t g = 0; g < nreg; ++g) {
         if (!regBound[g].simple) return fail("region boundary loop not simple (unsupported topology)");
         const auto& loop = regBound[g].loop;
         const std::uint32_t L = static_cast<std::uint32_t>(loop.size());
         if (L < 3) return fail("region boundary too small");
-        std::vector<V3> T(L);
-        for (std::uint32_t i = 0; i < L; ++i)
-            if (!contactCorner(g, loop[i], T[i]))
-                return fail("region contact polygon unsolvable (r too large)");
-        // Verify the shrunk polygon keeps the region's orientation (no inversion):
-        // its Newell normal must face the same way as the region normal, and every
-        // fan triangle must be non-degenerate and same-facing.
+
+        // Build the contact polygon, inserting the end-ring arc at any boundary
+        // vertex where a rounded edge TERMINATES against this (cap) region — i.e.
+        // a non-full corner with a rounded edge whose two faces are NOT this region.
+        std::vector<V3> poly;
+        bool hasArc = false;
+        for (std::uint32_t i = 0; i < L; ++i) {
+            const std::uint32_t v = loop[i];
+            // Is there a rounded edge incident to v whose two regions are both != g?
+            // (That edge's strip ends against region g — its arc is the cap boundary.)
+            std::uint32_t termEi = kInvalid;
+            if (!isCorner[v]) {
+                for (std::uint32_t ei : vConvex[v]) {
+                    const ConvexEdge& ce = convexEdges[ei];
+                    if (!edgeIsRounded(ce.v0, ce.v1)) continue;
+                    if (regOf[ce.f0] != g && regOf[ce.f1] != g) { termEi = ei; break; }
+                }
+            }
+            if (termEi != kInvalid) {
+                std::vector<V3> arc;
+                if (!cornerEdgeArc(v, termEi, arc))
+                    return fail("terminal corner cap arc unsolvable (r too large)");
+                // Orient the arc to the loop walk: first point nearest the PREV
+                // boundary vertex, last nearest the NEXT (so the polygon stays simple).
+                const std::uint32_t vn = loop[(i + 1) % L];
+                const std::uint32_t vp = loop[(i + L - 1) % L];
+                const V3 Pn = toV3(Vpos[vn].position);
+                const V3 Pp = toV3(Vpos[vp].position);
+                (void)Pn;
+                if (norm(sub(arc.front(), Pp)) > norm(sub(arc.back(), Pp)))
+                    std::reverse(arc.begin(), arc.end());
+                for (const V3& p : arc) poly.push_back(p);
+                hasArc = true;
+            } else {
+                V3 T;
+                if (!contactCorner(g, v, T))
+                    return fail("region contact polygon unsolvable (r too large)");
+                poly.push_back(T);
+            }
+        }
+        const std::uint32_t Lp = static_cast<std::uint32_t>(poly.size());
+        if (Lp < 3) return fail("region contact polygon too small");
+        // Verify the shrunk polygon keeps the region's orientation (no inversion).
         const V3& nrmOrig = regNormal[g];
-        // Newell area vector of the contact loop.
         V3 area{0, 0, 0};
-        for (std::uint32_t i = 0; i < L; ++i) area = add(area, cross(T[i], T[(i + 1) % L]));
+        for (std::uint32_t i = 0; i < Lp; ++i) area = add(area, cross(poly[i], poly[(i + 1) % Lp]));
         if (dot(area, nrmOrig) <= 0.0)
             return fail("contact polygon inverted (r too large for a region)");
-        // Fan-triangulate from vertex 0 (orientation by the global centroid rule).
-        const std::uint32_t a0 = idxOf(T[0]);
-        for (std::uint32_t i = 1; i + 1 < L; ++i) {
-            const std::uint32_t bi = idxOf(T[i]), ci = idxOf(T[i + 1]);
-            emitOriented(a0, bi, ci);
+        if (!hasArc) {
+            // No arc: keep the ORIGINAL vertex-0 fan (the all-edges path, unchanged).
+            const std::uint32_t a0 = idxOf(poly[0]);
+            for (std::uint32_t i = 1; i + 1 < Lp; ++i) {
+                const std::uint32_t bi = idxOf(poly[i]), ci = idxOf(poly[i + 1]);
+                emitOriented(a0, bi, ci);
+            }
+        } else {
+            // Arc(s) present: fan from the polygon CENTROID (a vertex-0 fan can clip a
+            // chamfered cap). The centroid is interior to the convex cap polygon.
+            V3 cen{0, 0, 0};
+            for (const V3& p : poly) cen = add(cen, p);
+            cen = mul(cen, 1.0 / static_cast<double>(Lp));
+            const std::uint32_t ci = idxOf(cen);
+            for (std::uint32_t i = 0; i < Lp; ++i) {
+                const std::uint32_t a = idxOf(poly[i]);
+                const std::uint32_t b = idxOf(poly[(i + 1) % Lp]);
+                emitOriented(ci, a, b);
+            }
         }
     }
 
@@ -859,6 +1005,236 @@ FilletResult filletConvexEdges(const std::vector<double>& positions,
     res.analyticTargetVolume =
         res.inputVolume - (1.0 - kPi / 4.0) * r * r * totalConvexLen;
     return res;
+}
+
+} // namespace (filletCore)
+
+// ===========================================================================
+//  PUBLIC ENTRY POINTS
+// ===========================================================================
+
+// All-edges fillet: round EVERY sharp convex edge by a single radius r. Delegates
+// to the shared core with selectAll==true (geometrically identical to the original
+// implementation: every convex edge rounded => every corner is a full corner).
+FilletResult filletConvexEdges(const std::vector<double>& positions,
+                               const std::vector<std::uint32_t>& indices,
+                               double r, std::uint32_t nSeg,
+                               double thresholdDeg) {
+    static const std::unordered_set<std::uint64_t> kEmpty;
+    return filletCore(positions, indices, r, nSeg, thresholdDeg,
+                      /*selectAll=*/true, kEmpty);
+}
+
+// Canonical sharp-convex-edge enumeration (shared by the native fillet routing
+// and the viewport edge-picking path). Builds the mesh, detects feature edges,
+// keeps the CONVEX ones (orient3d apex test), and returns them sorted by
+// (midpoint, direction) with a stable 0-based id.
+std::vector<SharpConvexEdge> enumerateSharpConvexEdges(
+        const std::vector<double>& positions,
+        const std::vector<std::uint32_t>& indices,
+        double thresholdDeg) {
+    std::vector<SharpConvexEdge> out;
+    if (positions.empty() || indices.empty()) return out;
+    if (positions.size() % 3 != 0 || indices.size() % 3 != 0) return out;
+    for (double p : positions) if (!std::isfinite(p)) return out;
+    HalfEdgeMesh in;
+    if (!in.buildFromSoup(positions, indices) || !in.validate().isValid()) return out;
+    mesh::FeatureSet feat = mesh::detectFeatureEdges(in, thresholdDeg);
+    if (!feat.ok) return out;
+
+    const auto& Vp = in.vertices();
+    const std::uint32_t nf = static_cast<std::uint32_t>(in.faceCount());
+    const auto& HE = in.halfEdges();
+    const auto& F  = in.faces();
+    std::vector<std::array<std::uint32_t, 3>> fv(nf);
+    for (std::uint32_t f = 0; f < nf; ++f) {
+        const std::uint32_t h0 = F[f].halfEdge, h1 = HE[h0].next, h2 = HE[h1].next;
+        fv[f] = {HE[h0].origin, HE[h1].origin, HE[h2].origin};
+    }
+    std::unordered_map<std::uint64_t, std::array<std::uint32_t, 2>> ef;
+    for (std::uint32_t f = 0; f < nf; ++f)
+        for (int e = 0; e < 3; ++e) {
+            const std::uint64_t k = undirKey(fv[f][e], fv[f][(e + 1) % 3]);
+            auto it = ef.find(k);
+            if (it == ef.end()) ef[k] = {f, kInvalid};
+            else it->second[1] = f;
+        }
+    auto apexOf = [&](std::uint32_t f, std::uint32_t a, std::uint32_t b) -> std::uint32_t {
+        for (std::uint32_t v : fv[f]) if (v != a && v != b) return v;
+        return kInvalid;
+    };
+    for (const auto& fe : feat.edges) {
+        if (!fe.feature || fe.boundary) continue;
+        auto it = ef.find(undirKey(fe.v0, fe.v1));
+        if (it == ef.end() || it->second[0] == kInvalid || it->second[1] == kInvalid) continue;
+        const std::uint32_t apB = apexOf(it->second[1], fe.v0, fe.v1);
+        if (apB == kInvalid) continue;
+        const V3 A = toV3(Vp[fe.v0].position), B = toV3(Vp[fe.v1].position), PB = toV3(Vp[apB].position);
+        const auto& f0 = fv[it->second[0]];
+        const V3 q0 = toV3(Vp[f0[0]].position), q1 = toV3(Vp[f0[1]].position), q2 = toV3(Vp[f0[2]].position);
+        const forge::native::Sign s = forge::native::orient3d(
+            q0.x, q0.y, q0.z, q1.x, q1.y, q1.z, q2.x, q2.y, q2.z, PB.x, PB.y, PB.z);
+        if (s != forge::native::Sign::POSITIVE) continue;
+        const V3 d = sub(B, A);
+        const double L = norm(d);
+        if (!(L > 0.0)) continue;
+        SharpConvexEdge se;
+        se.mx = 0.5 * (A.x + B.x); se.my = 0.5 * (A.y + B.y); se.mz = 0.5 * (A.z + B.z);
+        se.dx = d.x / L; se.dy = d.y / L; se.dz = d.z / L; se.length = L;
+        se.ax = A.x; se.ay = A.y; se.az = A.z; se.bx = B.x; se.by = B.y; se.bz = B.z;
+        out.push_back(se);
+    }
+    std::sort(out.begin(), out.end(), [](const SharpConvexEdge& a, const SharpConvexEdge& b) {
+        if (a.mx != b.mx) return a.mx < b.mx;
+        if (a.my != b.my) return a.my < b.my;
+        if (a.mz != b.mz) return a.mz < b.mz;
+        if (a.dx != b.dx) return a.dx < b.dx;
+        if (a.dy != b.dy) return a.dy < b.dy;
+        return a.dz < b.dz;
+    });
+    for (std::uint32_t i = 0; i < out.size(); ++i) out[i].id = i;
+    return out;
+}
+
+// Per-edge (subset) fillet. Each EdgeSel identifies ONE sharp convex edge to round
+// by GEOMETRY (a point on the edge + direction) plus its own radius. We first
+// enumerate this mesh's sharp convex edges, match each selector to one of them
+// (midpoint on the selector line + parallel direction), build the rounded-edge key
+// set, then delegate to the shared core. HONEST limits:
+//   * All matched radii must be EQUAL (the mesh rolling-ball core is a single-r
+//     construction; mixed per-edge radii on one solid is out of this increment's
+//     envelope and is refused, not faked). The EdgeSel.radius field carries the
+//     per-edge value so a future variable-radius core can honor it.
+//   * A selector that matches NO sharp convex edge is reported (ok==false) rather
+//     than silently dropped.
+FilletResult filletConvexEdgesSelected(const std::vector<double>& positions,
+                                       const std::vector<std::uint32_t>& indices,
+                                       const std::vector<EdgeSel>& sel,
+                                       std::uint32_t nSeg,
+                                       double thresholdDeg,
+                                       double posTol) {
+    if (sel.empty()) return fail("no edges selected");
+    if (nSeg == 0) return fail("nSeg must be >= 1");
+    if (!(thresholdDeg >= 0.0 && thresholdDeg <= 180.0)) return fail("threshold out of range [0,180]");
+    if (positions.empty() || indices.empty()) return fail("empty soup");
+    if (positions.size() % 3 != 0) return fail("positions length not a multiple of 3");
+    if (indices.size() % 3 != 0) return fail("indices length not a multiple of 3");
+    for (double p : positions) if (!std::isfinite(p)) return fail("non-finite vertex coordinate");
+
+    // Uniform-radius check + validity of each selector.
+    double r = -1.0;
+    for (const EdgeSel& s : sel) {
+        if (!(s.radius > 0.0) || !std::isfinite(s.radius))
+            return fail("edge selector radius must be positive and finite");
+        if (r < 0.0) r = s.radius;
+        else if (std::fabs(s.radius - r) > 1e-9 * std::max(1.0, r))
+            return fail("per-edge variable radii on one solid are not supported by "
+                        "this mesh-fillet increment (all selected radii must match)");
+        if (!(std::isfinite(s.px) && std::isfinite(s.py) && std::isfinite(s.pz) &&
+              std::isfinite(s.dx) && std::isfinite(s.dy) && std::isfinite(s.dz)))
+            return fail("non-finite edge selector");
+        if (!((s.dx * s.dx + s.dy * s.dy + s.dz * s.dz) > 0.0))
+            return fail("edge selector has zero direction");
+    }
+
+    // Build the mesh + enumerate sharp convex edges (REUSE the detection the core
+    // also uses, so the geometry matches exactly).
+    HalfEdgeMesh in;
+    if (!in.buildFromSoup(positions, indices))
+        return fail("kernel could not build a closed 2-manifold from the soup");
+    if (!in.validate().isValid()) return fail("input is not a closed 2-manifold");
+    mesh::FeatureSet feat = mesh::detectFeatureEdges(in, thresholdDeg);
+    if (!feat.ok) return fail("feature detection failed (boundary / non-manifold input)");
+
+    const auto& Vp = in.vertices();
+    // Per-face data needed for the convex test (mirror the core's classification).
+    const std::uint32_t nf2 = static_cast<std::uint32_t>(in.faceCount());
+    std::vector<std::array<std::uint32_t, 3>> fv(nf2);
+    {
+        const auto& HE = in.halfEdges();
+        const auto& F = in.faces();
+        for (std::uint32_t f = 0; f < nf2; ++f) {
+            const std::uint32_t h0 = F[f].halfEdge, h1 = HE[h0].next, h2 = HE[h1].next;
+            fv[f] = {HE[h0].origin, HE[h1].origin, HE[h2].origin};
+        }
+    }
+    std::unordered_map<std::uint64_t, std::array<std::uint32_t, 2>> ef2;
+    for (std::uint32_t f = 0; f < nf2; ++f)
+        for (int e = 0; e < 3; ++e) {
+            const std::uint64_t k = undirKey(fv[f][e], fv[f][(e + 1) % 3]);
+            auto it = ef2.find(k);
+            if (it == ef2.end()) ef2[k] = {f, kInvalid};
+            else it->second[1] = f;
+        }
+    auto apexOf2 = [&](std::uint32_t f, std::uint32_t a, std::uint32_t b) -> std::uint32_t {
+        for (std::uint32_t vid : fv[f]) if (vid != a && vid != b) return vid;
+        return kInvalid;
+    };
+
+    // Collect (midpoint, dir, key) of every SHARP CONVEX edge.
+    struct SharpConvex { V3 mid; V3 dir; std::uint64_t key; };
+    std::vector<SharpConvex> convex;
+    for (const auto& fe : feat.edges) {
+        if (!fe.feature) continue;
+        if (fe.boundary) return fail("input has a boundary edge (open mesh)");
+        const std::uint64_t k = undirKey(fe.v0, fe.v1);
+        auto efit = ef2.find(k);
+        if (efit == ef2.end() || efit->second[0] == kInvalid || efit->second[1] == kInvalid)
+            return fail("sharp edge is not shared by exactly two faces");
+        const std::uint32_t apB = apexOf2(efit->second[1], fe.v0, fe.v1);
+        if (apB == kInvalid) return fail("could not find edge apex");
+        const V3 A = toV3(Vp[fe.v0].position);
+        const V3 B = toV3(Vp[fe.v1].position);
+        const V3 PB = toV3(Vp[apB].position);
+        const auto& f0v = fv[efit->second[0]];
+        const V3 q0 = toV3(Vp[f0v[0]].position), q1 = toV3(Vp[f0v[1]].position), q2 = toV3(Vp[f0v[2]].position);
+        const forge::native::Sign s = forge::native::orient3d(
+            q0.x, q0.y, q0.z, q1.x, q1.y, q1.z, q2.x, q2.y, q2.z, PB.x, PB.y, PB.z);
+        if (s != forge::native::Sign::POSITIVE) continue;  // concave/flat — not roundable here
+        SharpConvex sc;
+        sc.mid = mul(add(A, B), 0.5);
+        sc.dir = normalize(sub(B, A));
+        sc.key = k;
+        convex.push_back(sc);
+    }
+    if (convex.empty()) return fail("no sharp convex edges to fillet");
+
+    // Model scale (for the default geometric tolerance).
+    V3 lo{ 1e300,  1e300,  1e300}, hi{-1e300, -1e300, -1e300};
+    for (std::size_t i = 0; i < positions.size(); i += 3) {
+        lo.x = std::min(lo.x, positions[i]);   hi.x = std::max(hi.x, positions[i]);
+        lo.y = std::min(lo.y, positions[i+1]); hi.y = std::max(hi.y, positions[i+1]);
+        lo.z = std::min(lo.z, positions[i+2]); hi.z = std::max(hi.z, positions[i+2]);
+    }
+    const double scale = std::max({hi.x - lo.x, hi.y - lo.y, hi.z - lo.z, 1.0});
+    const double ptol = (posTol > 0.0) ? posTol : 1e-6 * scale;
+
+    // Match each selector to exactly one sharp convex edge (midpoint on the line,
+    // direction parallel). Build the rounded-edge key set.
+    std::unordered_set<std::uint64_t> roundedKeys;
+    for (const EdgeSel& es : sel) {
+        const V3 P{es.px, es.py, es.pz};
+        const V3 D = normalize(V3{es.dx, es.dy, es.dz});
+        std::uint64_t best = 0; bool found = false; double bestD = 1e300;
+        for (const SharpConvex& sc : convex) {
+            // distance from sc.mid to the selector line (P, D).
+            const V3 w = sub(sc.mid, P);
+            const V3 perp = sub(w, mul(D, dot(w, D)));
+            const double dist = norm(perp);
+            // direction parallelism (|cross| ~ 0).
+            const double par = norm(cross(D, sc.dir));
+            if (dist <= ptol && par <= 1e-6 && dist < bestD) {
+                bestD = dist; best = sc.key; found = true;
+            }
+        }
+        if (!found)
+            return fail("an edge selector matched no sharp convex edge of this solid "
+                        "(selection off the body, on a concave/smooth edge, or tol too tight)");
+        roundedKeys.insert(best);
+    }
+
+    return filletCore(positions, indices, r, nSeg, thresholdDeg,
+                      /*selectAll=*/false, roundedKeys);
 }
 
 } // namespace brep
