@@ -88,21 +88,11 @@ if(NOT OCCT_VERSION_MAJORMINOR STREQUAL EXPECTED_OCCT_VERSION)
         "-DEXPECTED_OCCT_VERSION=${OCCT_VERSION_MAJORMINOR} once you have verified the TKDE* toolkits link.")
 endif()
 
-# ---------------------------------------------------------------- Eigen
-# Header-only template library; brew-installed. Override via OCCT-style env.
-if(DEFINED ENV{EIGEN_INC} AND NOT DEFINED EIGEN_INC)
-    set(EIGEN_INC "$ENV{EIGEN_INC}")
-endif()
-if(NOT DEFINED EIGEN_INC)
-    set(EIGEN_INC "/opt/homebrew/opt/eigen/include/eigen3")
-endif()
-if(NOT EXISTS "${EIGEN_INC}/Eigen/Dense"
-   AND EXISTS "/usr/local/opt/eigen/include/eigen3/Eigen/Dense")
-    set(EIGEN_INC "/usr/local/opt/eigen/include/eigen3")
-endif()
-if(NOT EXISTS "${EIGEN_INC}/Eigen/Dense")
-    message(FATAL_ERROR "Eigen not found at ${EIGEN_INC}. Install with `brew install eigen` or set -DEIGEN_INC=...")
-endif()
+# ---------------------------------------------------------------- Eigen: REMOVED
+# Eigen is no longer a dependency. The kernel's own solvers use the in-house
+# forge::native::linalg; the vendored PlaneGCS sketch solver compiles against the
+# drop-in <Eigen/...> shim (3rdParty/planegcs_eigen_shim), itself backed by
+# forge::native::linalg. No real Eigen package is required — zero find_package.
 
 # OCCT 7.9 reorganises the Data Exchange toolkits: TKSTEP / TKSTEPBase /
 # TKSTEPAttr / TKSTEP209 / TKSTEP214 are merged into TKDESTEP, TKSTL → TKDESTL,
@@ -118,13 +108,6 @@ set(OCCT_LIBS
     TKHLR TKMesh
     TKDE TKDESTEP TKDEIGES TKDESTL TKDEVRML TKXSBase
 )
-
-# ---------------------------------------------------------------- Eigen
-# Header-only; planegcs and the wider Forge kernel both rely on it.
-set(EIGEN_INC "/opt/homebrew/opt/eigen/include/eigen3")
-if(NOT EXISTS "${EIGEN_INC}/Eigen/Sparse")
-    message(FATAL_ERROR "Eigen not found at ${EIGEN_INC}. Install with `brew install eigen`.")
-endif()
 
 # ---------------------------------------------------------------- Boost
 # planegcs uses boost::graph (connected_components) + boost::math::constants.
@@ -542,7 +525,11 @@ target_include_directories(forge_kernel PRIVATE
     ${CMAKE_JS_INC}
     "${NODE_ADDON_API_DIR}"
     "${OCCT_INC}"
-    "${EIGEN_INC}"
+    # In-house drop-in <Eigen/...> shim backed by forge::native::linalg — NO real
+    # Eigen. The kernel's own solvers are Eigen-free; the only <Eigen/...> includes
+    # left are in the vendored PlaneGCS sketch solver, which this shim satisfies
+    # byte-identically. Must precede any system include that could carry eigen3.
+    "${CMAKE_SOURCE_DIR}/3rdParty/planegcs_eigen_shim"
     "${BOOST_INC}"
     "${PLANEGCS_DIR}"
     "${CMAKE_SOURCE_DIR}/include"
