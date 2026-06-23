@@ -257,7 +257,7 @@ ShapeHandle extrudeProfile(SketchHandle sketch, double distance,
     // sweeping along the path {(0,0,0) -> dir*distance}. HONEST: the native result
     // is a watertight MESH (NativeMesh handle), not an analytic Solid. On any input
     // the native path cannot do, we surface the native reason — never a fake.
-    if (nb::forgeNativeBrepEnabled()) {
+    if (nb::forgeNativeFeaturesEnabled()) {
         const double ux = dirX / dl, uy = dirY / dl, uz = dirZ / dl;
         // A pure +Z extrude is exactly the native PRISM, with the profile pre-
         // rotated so its footprint lands at world (x,y) — byte-identical to OCCT
@@ -395,7 +395,7 @@ ShapeHandle revolveProfile(SketchHandle sketch,
     // start angle = e1, same right-hand sweep sense). Covers full-360 AND partial.
     // HONEST: the native result is a watertight MESH (NativeMesh handle), and the
     // profile must sit entirely on one side of the axis (else native ok=false).
-    if (nb::forgeNativeBrepEnabled()) {
+    if (nb::forgeNativeFeaturesEnabled()) {
         auto rings = extractProfileRings(sketch);
         if (rings.empty()) {
             throw std::runtime_error(
@@ -490,7 +490,7 @@ ShapeHandle sweep(SketchHandle profileSketch, SketchHandle pathSketch,
     // pipe both kernels build. Guided sweeps stay on OCCT (native has no guides).
     // HONEST: native result is a watertight MESH; a self-intersecting / sharp
     // path or non-simple profile -> native ok=false (never a fake).
-    if (!withGuides && nb::forgeNativeBrepEnabled()) {
+    if (!withGuides && nb::forgeNativeFeaturesEnabled()) {
         nb::Profile prof;
         if (!ringsToProfile(extractProfileRings(profileSketch), prof)) {
             throw std::runtime_error(
@@ -721,7 +721,7 @@ ShapeHandle loft(const std::vector<SketchHandle>& sections,
     // the sections disagree in vertex count we surface an honest ok=false (OCCT
     // auto-reparametrises mismatched sections; the native loft does NOT — stated
     // plainly). Result is a watertight NativeMesh handle.
-    if (nb::forgeNativeBrepEnabled()) {
+    if (nb::forgeNativeFeaturesEnabled()) {
         std::vector<nb::LoftSection> nsec;
         nsec.reserve(sections.size());
         std::size_t vcount = 0;
@@ -852,7 +852,7 @@ ShapeHandle filletEdges(ShapeHandle shape,
         throw std::invalid_argument("forge.part.filletEdges: no edges supplied");
     }
 #ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled() &&
+    if (native::brep::forgeNativeFeaturesEnabled() &&
         ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
         // MESH-BRIDGE (HONEST): tessellate the native analytic Solid to a soup, then
         // round the SELECTED subset of sharp convex edges by `radius`. PER-EDGE
@@ -952,7 +952,7 @@ ShapeHandle chamferEdges(ShapeHandle shape,
         throw std::invalid_argument("forge.part.chamferEdges: no edges supplied");
     }
 #ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled() &&
+    if (native::brep::forgeNativeFeaturesEnabled() &&
         ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
         // MESH-BRIDGE (HONEST): tessellate the native analytic Solid to a soup,
         // then bevel EVERY sharp convex edge by setback `distance` (symmetric;
@@ -1015,7 +1015,7 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
         throw std::invalid_argument("forge.part.draftFaces: no faces supplied");
     }
 #ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled() &&
+    if (native::brep::forgeNativeFeaturesEnabled() &&
         ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
         // MESH-BRIDGE (HONEST): tessellate the native analytic Solid to a soup, map
         // the user-selected analytic faces to that soup's triangles, then apply the

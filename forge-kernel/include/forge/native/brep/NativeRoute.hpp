@@ -57,8 +57,18 @@ namespace brep {
 // ---------------------------------------------------------------------------
 bool forgeNativeBrepEnabled();
 
+// Per-capability sub-gates (the migration enables native one PROVEN capability at
+// a time). FEATURES = mesh-bridge/feature ops (fillet/chamfer/draft/loft/...) that
+// return a NativeMesh — Wave 2; STEP = native STEP import/export — Wave 3. Both
+// DEFAULT OFF (their own env opt-ins FORGE_NATIVE_FEATURES / FORGE_NATIVE_STEP),
+// so the Wave-1 production default (FORGE_NATIVE_BREP=1) runs analytic-core native
+// while features + STEP stay on OCCT. (See NativeRoute.cpp.)
+bool forgeNativeFeaturesEnabled();
+bool forgeNativeStepEnabled();
+
 // Force the runtime gate (overrides the env var for the rest of the process).
 // Used by the A/B gate harness to toggle backends per-op deterministically.
+// Sets CORE + FEATURES + STEP together so the harness can A/B every op.
 void setForgeNativeBrepEnabled(bool on);
 
 // ---------------------------------------------------------------------------

@@ -23,11 +23,24 @@ namespace brep {
 // ---------------------------------------------------------------------------
 // Runtime gate.
 // ---------------------------------------------------------------------------
+// PER-CAPABILITY gates (the migration flips native ON one PROVEN capability at a
+// time). -1 = use env; 0 = off; 1 = on.
+//   * CORE   = the analytic-exact ops (primitives minus ellipsoid, booleans with
+//              OCCT fallback, transforms, massProps, tessellate). A/B-verified
+//              (native_vs_occt 33/33). Default ON when compiled+env'd. — Wave 1.
+//   * FEAT   = mesh-bridge / feature ops (fillet/chamfer/draft/loft/revolve/...)
+//              that return a NativeMesh (a representation change). Default OFF. — Wave 2.
+//   * STEP   = native STEP import/export. Default OFF. — Wave 3.
+// setForgeNativeBrepEnabled(on) sets ALL THREE so the native_vs_occt A/B harness
+// still exercises fillet/chamfer/draft/STEP natively; the PRODUCTION default (env
+// FORGE_NATIVE_BREP=1, no setter) turns on CORE only, leaving FEAT/STEP on OCCT.
 namespace {
-std::atomic<int> g_override{-1}; // -1 = use env; 0 = off; 1 = on
+std::atomic<int> g_coreOverride{-1};
+std::atomic<int> g_featOverride{-1};
+std::atomic<int> g_stepOverride{-1};
 
-bool readEnvGate() {
-    const char* v = std::getenv("FORGE_NATIVE_BREP");
+bool readEnvFlag(const char* name) {
+    const char* v = std::getenv(name);
     if (!v) return false;
     std::string s(v);
     for (auto& c : s) c = static_cast<char>(std::tolower((unsigned char)c));
@@ -36,15 +49,39 @@ bool readEnvGate() {
 } // namespace
 
 bool forgeNativeBrepEnabled() {
-    int ov = g_override.load(std::memory_order_relaxed);
+    int ov = g_coreOverride.load(std::memory_order_relaxed);
     if (ov >= 0) return ov != 0;
-    // Cache the env read once (first call) but still honor a later override.
-    static const bool envOn = readEnvGate();
+    // WAVE-1 FLIP (2026-06-23): analytic-core native is the PRODUCTION DEFAULT —
+    // A/B-verified (native_vs_occt 33/33) + full kernel suite green. The env can
+    // still force it either way: FORGE_NATIVE_BREP=0/off = OCCT baseline / rollback,
+    // =1/on = native; UNSET = native (the new default). FEAT/STEP stay OFF (Wave 2/3).
+    static const bool envSet = (std::getenv("FORGE_NATIVE_BREP") != nullptr);
+    static const bool envOn  = readEnvFlag("FORGE_NATIVE_BREP");
+    return envSet ? envOn : true;
+}
+
+bool forgeNativeFeaturesEnabled() {
+    int ov = g_featOverride.load(std::memory_order_relaxed);
+    if (ov >= 0) return ov != 0;
+    // NOT triggered by FORGE_NATIVE_BREP — its own opt-in (kept OFF in Wave 1).
+    static const bool envOn = readEnvFlag("FORGE_NATIVE_FEATURES");
+    return envOn;
+}
+
+bool forgeNativeStepEnabled() {
+    int ov = g_stepOverride.load(std::memory_order_relaxed);
+    if (ov >= 0) return ov != 0;
+    static const bool envOn = readEnvFlag("FORGE_NATIVE_STEP");
     return envOn;
 }
 
 void setForgeNativeBrepEnabled(bool on) {
-    g_override.store(on ? 1 : 0, std::memory_order_relaxed);
+    // The A/B harness toggles the WHOLE native surface (core + features + step) so
+    // native_vs_occt can compare every op; production never calls this.
+    const int v = on ? 1 : 0;
+    g_coreOverride.store(v, std::memory_order_relaxed);
+    g_featOverride.store(v, std::memory_order_relaxed);
+    g_stepOverride.store(v, std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------

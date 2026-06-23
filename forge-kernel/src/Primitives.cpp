@@ -212,10 +212,12 @@ ShapeHandle makeEllipsoid(double rx, double ry, double rz) {
     requirePositive(rx, "ellipsoid.rx");
     requirePositive(ry, "ellipsoid.ry");
     requirePositive(rz, "ellipsoid.rz");
-#ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled())
-        return registerNative([&](native::brep::SolidFactory& f){ return f.buildEllipsoid(rx, ry, rz); });
-#endif
+    // NOT native-routed (Bible §0: native-where-PROVEN only). A general 3-axis
+    // ellipsoid is a quadric but NOT a surface of revolution, so it is outside the
+    // native analytic surface set (plane/cylinder/cone/sphere/torus) — the native
+    // buildEllipsoid is a faceted approximation (~0.1% volume error, fails the
+    // analytic A/B gate). Stays on the EXACT OCCT GTransform path until native has
+    // general-quadric support (a later wave), then re-enable behind the A/B gate.
     BRepPrimAPI_MakeSphere unit(1.0);
     gp_GTrsf g;  // identity; set the linear diagonal (1-indexed rows/cols).
     g.SetValue(1, 1, rx);

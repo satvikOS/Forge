@@ -1,5 +1,9 @@
 #include "forge/ShapeRegistry.hpp"
 
+#ifdef FORGE_NATIVE_BREP
+#include "forge/NativeOcctBridge.hpp"   // occtFromNativeSolid — lazy native→OCCT
+#endif
+
 #include <cstdlib>
 #include <stdexcept>
 
@@ -55,12 +59,28 @@ const TopoDS_Shape& ShapeRegistry::get(ShapeHandle h) const {
     if (it == entries_.end()) {
         throw std::runtime_error("ShapeRegistry::get — invalid handle");
     }
-    if (it->second.kind != ShapeKind::Occt) {
-        throw std::runtime_error(
-            "ShapeRegistry::get — handle is native-backed (no TopoDS_Shape); "
-            "branch on kindOf() / use getNativeSolid|getNativeMesh");
+    Entry& e = it->second;
+    if (e.kind == ShapeKind::Occt) {
+        return e.shape;
     }
-    return it->second.shape;
+#ifdef FORGE_NATIVE_BREP
+    // LAZY native→OCCT BRIDGE. An OCCT-only op (heal/sheet-metal/weldments/...)
+    // asked for the TopoDS_Shape of a native analytic handle. Materialize it ONCE
+    // via the validated analytic STEP round-trip and cache it in e.shape, so a
+    // native body flows transparently through every OCCT-only op without that op
+    // knowing the backend. Bible §0: native-where-proven, OCCT everywhere else,
+    // never a hard failure on a valid modelling request. occtFromNativeSolid does
+    // NOT touch the registry, so calling it under mtx_ cannot deadlock.
+    if (e.kind == ShapeKind::NativeSolid) {
+        if (e.shape.IsNull()) {
+            e.shape = occtFromNativeSolid(*e.solid);  // throws only on genuine failure
+        }
+        return e.shape;
+    }
+#endif
+    throw std::runtime_error(
+        "ShapeRegistry::get — handle is native-mesh-backed (a faceted feature "
+        "result has no analytic TopoDS_Shape); branch on kindOf() / use getNativeMesh");
 }
 
 std::size_t ShapeRegistry::liveCount() const {

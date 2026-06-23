@@ -109,7 +109,9 @@ private:
     };
 
     mutable std::mutex mtx_;
-    std::unordered_map<ShapeHandle, Entry> entries_;
+    // mutable: get() lazily materializes + caches a native handle's OCCT shape
+    // (the native→OCCT bridge) on first OCCT-only access — a const-logical memo.
+    mutable std::unordered_map<ShapeHandle, Entry> entries_;
     ShapeHandle next_ = 1;
     std::size_t totalEverIssued_ = 0;
 };

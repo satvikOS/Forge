@@ -6,6 +6,9 @@
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"
 #include <memory>
+// NOTE: the OCCT fallback below passes the ORIGINAL handles to runBoolean<> —
+// ShapeRegistry::get() lazily bridges any native operand to OCCT on demand
+// (see ShapeRegistry::get / NativeOcctBridge), so no explicit conversion is needed.
 #endif
 
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -163,30 +166,27 @@ ShapeHandle runBoolean(ShapeHandle a, ShapeHandle b, const char* opName) {
 }
 
 #ifdef FORGE_NATIVE_BREP
-// Route a boolean through brep::booleanSolid when the gate is on and BOTH
-// operands are native analytic solids. Registers the result as a NativeSolid.
-// HONEST FAILURE MODES (never a wrong result):
-//   * a mixed OCCT/native operand pair -> throw (the gate routes primitives +
-//     transforms natively, so both operands should be NativeSolid; a mix means a
-//     caller bypassed the gate, which we surface rather than guess).
-//   * booleanSolid ok==false -> throw with its reason (no silent empty solid).
-//   * usedMeshFallback is honest (the result IS still a closed solid; the flag is
-//     only diagnostic — high-degree SSI deferral, see Boolean.hpp).
-ShapeHandle runNativeBoolean(ShapeHandle a, ShapeHandle b,
-                             native::brep::BoolOp op, const char* opName) {
+// Try the native analytic boolean (brep::booleanSolid). Returns true + sets `out`
+// on success; returns false (NEVER throws) when the native path HONESTLY DEFERS,
+// so the caller can fall back to OCCT on bridged operands.
+//
+// Deferral cases (Bible §0 — native-where-valid, OCCT otherwise, never a hard
+// failure on a valid modelling request):
+//   * a mixed OCCT/native operand pair (a caller built one operand on OCCT).
+//   * booleanSolid ok==false — the analytic SSI AND the flagged mesh fallback
+//     both deferred (e.g. a degenerate coincident-face cut). OCCT handles it.
+//   * usedMeshFallback==true is NOT a deferral (the result IS a closed solid).
+bool tryNativeBoolean(ShapeHandle a, ShapeHandle b,
+                      native::brep::BoolOp op, ShapeHandle& out) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
-    if (reg.kindOf(a) != ShapeKind::NativeSolid || reg.kindOf(b) != ShapeKind::NativeSolid) {
-        throw std::runtime_error(std::string("forge native ") + opName +
-            ": both operands must be native analytic solids (mixed OCCT/native "
-            "boolean is not supported by the native path — no silent wrong result)");
-    }
+    if (reg.kindOf(a) != ShapeKind::NativeSolid || reg.kindOf(b) != ShapeKind::NativeSolid)
+        return false;
     BooleanResult r = booleanSolid(reg.getNativeSolid(a), reg.getNativeSolid(b), op);
-    if (!r.ok || !r.solid || !r.owner) {
-        throw std::runtime_error(std::string("forge native ") + opName +
-            ": " + (r.reason ? r.reason : "boolean failed"));
-    }
-    return reg.addNativeSolid(r.owner, r.solid);
+    if (!r.ok || !r.solid || !r.owner)
+        return false;
+    out = reg.addNativeSolid(r.owner, r.solid);
+    return true;
 }
 #endif
 
@@ -194,22 +194,31 @@ ShapeHandle runNativeBoolean(ShapeHandle a, ShapeHandle b,
 
 ShapeHandle fuse(ShapeHandle a, ShapeHandle b) {
 #ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled())
-        return runNativeBoolean(a, b, native::brep::BoolOp::Fuse, "fuse");
+    if (native::brep::forgeNativeBrepEnabled()) {
+        ShapeHandle out = kInvalidHandle;
+        if (tryNativeBoolean(a, b, native::brep::BoolOp::Fuse, out)) return out;
+        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+    }
 #endif
     return runBoolean<BRepAlgoAPI_Fuse>(a, b, "fuse");
 }
 ShapeHandle cut(ShapeHandle a, ShapeHandle b) {
 #ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled())
-        return runNativeBoolean(a, b, native::brep::BoolOp::Cut, "cut");
+    if (native::brep::forgeNativeBrepEnabled()) {
+        ShapeHandle out = kInvalidHandle;
+        if (tryNativeBoolean(a, b, native::brep::BoolOp::Cut, out)) return out;
+        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+    }
 #endif
     return runBoolean<BRepAlgoAPI_Cut>(a, b, "cut");
 }
 ShapeHandle common(ShapeHandle a, ShapeHandle b) {
 #ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled())
-        return runNativeBoolean(a, b, native::brep::BoolOp::Common, "common");
+    if (native::brep::forgeNativeBrepEnabled()) {
+        ShapeHandle out = kInvalidHandle;
+        if (tryNativeBoolean(a, b, native::brep::BoolOp::Common, out)) return out;
+        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+    }
 #endif
     return runBoolean<BRepAlgoAPI_Common>(a, b, "common");
 }

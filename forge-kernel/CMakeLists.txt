@@ -6,14 +6,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ---------------------------------------------------------------- in-house B-rep
-# IN-HOUSE KERNEL STEP 1: native forge::native::brep primitive SOLIDS + exact
-# mass-properties + watertight tessellation, OCCT-free. ADDITIVE — OFF by default
-# so the live OCCT-bound ops (makeBox/massProps/... ) are the default path. When
-# ON, binding.cpp exposes PARALLEL nativeMakeBox/.../nativeMassProps behind
-# #ifdef FORGE_NATIVE_BREP that route to the in-house code, leaving every existing
-# OCCT binding untouched. The native gate validates the code independent of this
-# flag via test/native/run_native.sh (pure C++, no addon path).
-option(FORGE_NATIVE_BREP "build/expose the in-house OCCT-free B-rep primitive path" OFF)
+# IN-HOUSE KERNEL: native forge::native::brep analytic-core (primitives−ellipsoid,
+# booleans, transforms, massProps, tessellate) + the native↔OCCT bridge.
+# WAVE-1 FLIP (2026-06-23): ON by default — analytic-core native is the PRODUCTION
+# path (A/B-verified native_vs_occt 33/33 + full kernel suite green). The runtime
+# gate forgeNativeBrepEnabled() also defaults ON; FORGE_NATIVE_BREP=0/off rolls
+# back to the OCCT baseline. Mesh-bridge FEATURES + native STEP stay OFF behind
+# forgeNativeFeaturesEnabled()/forgeNativeStepEnabled() (Wave 2/3). OCCT remains
+# compiled as the fallback + A/B oracle until the migration completes (Phase D).
+option(FORGE_NATIVE_BREP "build/expose the in-house OCCT-free B-rep primitive path" ON)
 
 # ---------------------------------------------------------------- N-API
 # cmake-js injects CMAKE_JS_INC + CMAKE_JS_SRC + CMAKE_JS_LIB. When
@@ -133,6 +134,7 @@ add_library(forge_kernel SHARED
     ${CMAKE_JS_SRC}
     src/binding.cpp
     src/ShapeRegistry.cpp
+    src/NativeOcctBridge.cpp
     src/Primitives.cpp
     src/Booleans.cpp
     src/LineageRegistry.cpp

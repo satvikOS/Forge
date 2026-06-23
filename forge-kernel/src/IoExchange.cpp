@@ -22,7 +22,7 @@
 #include <cstring>
 
 // IN-HOUSE KERNEL STEP 3c — gated native STEP route. Compiled in only under
-// -DFORGE_NATIVE_BREP; taken at runtime only when forgeNativeBrepEnabled().
+// -DFORGE_NATIVE_BREP; taken at runtime only when forgeNativeStepEnabled().
 // The OCCT path below stays the default (flag OFF -> byte-identical behaviour).
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"        // forgeNativeBrepEnabled
@@ -54,7 +54,7 @@ void spillFile(const std::string& filepath, const std::string& text) {
 
 ShapeHandle importStep(const std::string& filepath) {
 #ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled()) {
+    if (native::brep::forgeNativeStepEnabled()) {
         // Native analytic route: parse the part-21 into an in-house Solid. On any
         // unsupported feature (a surface entity the native reader can't rebuild)
         // we fall back to the OCCT importer below — preserving the "imports any
@@ -95,7 +95,7 @@ ShapeHandle importStep(const std::string& filepath) {
 
 bool exportStep(ShapeHandle h, const std::string& filepath) {
 #ifdef FORGE_NATIVE_BREP
-    if (native::brep::forgeNativeBrepEnabled()) {
+    if (native::brep::forgeNativeStepEnabled()) {
         auto& reg = ShapeRegistry::instance();
         const ShapeKind k = reg.kindOf(h);
         if (k == ShapeKind::NativeSolid) {
