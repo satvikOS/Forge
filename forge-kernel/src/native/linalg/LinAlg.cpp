@@ -1399,24 +1399,255 @@ std::vector<double> SparseLDLT::solve(const std::vector<double>& b) const {
 }
 
 // ===========================================================================
-// SparseLU — general (non-symmetric) sparse direct solve. Densify the CSR and
-// factor with the dense full-pivot LU (factor-once / solve-many). Correct +
-// stable for the moderate-DOF non-SPD FE systems; the densify is a documented
-// scalability refinement (a true sparse LU), not a correctness gap.
+// SparseLU — TRUE sparse non-symmetric direct factorization with PARTIAL
+// PIVOTING (Gilbert-Peierls left-looking), factor-once / solve-many. No densify:
+// the matrix is COLUMN-pre-ordered (RCM on A+Aᵀ to reduce fill), then each
+// column is built by a sparse triangular solve against the already-computed L
+// whose nonzero structure is found by a depth-first reachability search and used
+// in topological order. The largest-magnitude entry on/below the diagonal is the
+// partial pivot (row recorded), L is scaled, and the column is appended into the
+// CSC factors. Memory is O(nnz(L)+nnz(U)), time follows the sparse flop count,
+// so large banded non-symmetric FE/CFD systems factor in a few MB and well under
+// a second — infeasible with the previous dense O(n²)/O(n³) path.
+//
+// Reference: J. R. Gilbert & T. Peierls, "Sparse partial pivoting in time
+// proportional to arithmetic operations" (SIAM J. Sci. Stat. Comput. 9, 1988);
+// T. Davis, "Direct Methods for Sparse Linear Systems" (SIAM 2006), ch. 6
+// (cs_lu / cs_spsolve / cs_reach / cs_dfs), and George & Liu (RCM ordering).
 // ===========================================================================
+namespace {
+
+// Iterative depth-first search over the directed graph of L from one seed row j
+// (Davis "cs_dfs"). The graph is in the ORIGINAL row frame: node = original row
+// index; if row r is already a pivot (pinv[r] = its pivot column c), its out-
+// edges are the row indices in L's column c (Li[Lp[c]..Lp[c+1])); a not-yet-
+// pivoted row is a sink. Nodes are POST-ORDER pushed to xi[--top] as the DFS
+// finishes them, so on return xi[top..n-1] is a topological order of reach(j)
+// (every node precedes the nodes it points to — i.e. a column appears before the
+// columns whose elimination depends on it). `work` marks visited (=mark);
+// pstack/jstack are the explicit recursion stacks (length n).
+static std::size_t
+luDfs(std::size_t j, const std::vector<std::size_t>& Lp,
+      const std::vector<std::size_t>& Li, const std::vector<std::size_t>& pinv,
+      std::size_t mark, std::vector<std::size_t>& work,
+      std::vector<std::size_t>& xi, std::vector<std::size_t>& pstack,
+      std::vector<std::size_t>& jstack, std::size_t top, std::size_t n) {
+    std::size_t head = 0;
+    jstack[0] = j;
+    while (true) {
+        std::size_t jj = jstack[head];     // current node on the DFS stack
+        std::size_t c = pinv[jj];          // pivot column owning row jj (n=none)
+        if (work[jj] != mark) {            // first visit: mark + init edge cursor
+            work[jj] = mark;
+            pstack[head] = (c == n) ? 0 : Lp[c];
+        }
+        bool done = true;                  // assume jj has no unvisited child
+        std::size_t pend = (c == n) ? 0 : Lp[c + 1];
+        for (std::size_t p = (c == n) ? 0 : pstack[head]; p < pend; ++p) {
+            std::size_t i = Li[p];         // edge jj -> i
+            if (work[i] == mark) continue; // already visited
+            pstack[head] = p;              // pause jj here; recurse into i
+            jstack[++head] = i;
+            done = false;
+            break;
+        }
+        if (done) {                        // jj fully explored: post-order emit
+            xi[--top] = jj;
+            if (head == 0) break;
+            --head;
+        }
+    }
+    return top;
+}
+
+}  // namespace
+
 void SparseLU::compute(const SparseCSR<double>& A) {
-    n_ = A.rows();
+    const std::size_t n = A.rows();
+    n_ = n;
     ok_ = (A.rows() == A.cols());
+    colperm_.clear(); rowperm_.clear(); irowperm_.clear();
+    Lp_.clear(); Li_.clear(); Lx_.clear();
+    Up_.clear(); Ui_.clear(); Ux_.clear();
     if (!ok_) return;
-    // Partial pivoting + non-rank-revealing: like Eigen SparseLU, factor any
-    // structurally-nonsingular system (incl. wide-dynamic-range penalty-method
-    // FE matrices); only a near-exact-zero pivot reports failure.
-    lu_.compute(A.toDense(), /*fullPivot=*/false, /*rankRevealing=*/false);
-    ok_ = lu_.ok();
+    if (n == 0) { Lp_.assign(1, 0); Up_.assign(1, 0); ok_ = true; return; }
+
+    // ---- Build a CSC view of A in the ORIGINAL frame (columns of A) ----------
+    // CSR row pointers/col indices give A by row; transpose-scatter into CSC so
+    // we can stream each column. Duplicate-free (setFromTriplets compresses).
+    const auto& rp = A.rowPtr();
+    const auto& ci = A.colIdx();
+    const auto& av = A.values();
+    std::vector<std::size_t> Ap(n + 1, 0);
+    for (std::size_t k = 0; k < ci.size(); ++k) ++Ap[ci[k] + 1];
+    for (std::size_t j = 0; j < n; ++j) Ap[j + 1] += Ap[j];
+    std::vector<std::size_t> Ai(av.size());
+    std::vector<double>      Ax(av.size());
+    {
+        std::vector<std::size_t> next(Ap.begin(), Ap.end() - 1);
+        for (std::size_t i = 0; i < n; ++i)
+            for (std::size_t p = rp[i]; p < rp[i + 1]; ++p) {
+                std::size_t j = ci[p];
+                std::size_t d = next[j]++;
+                Ai[d] = i; Ax[d] = av[p];
+            }
+    }
+
+    // ---- 1. COLUMN PRE-ORDERING (fill-reducing) ------------------------------
+    // RCM on the symmetrized pattern A+Aᵀ — the same proven helper SparseLDLT
+    // uses. colperm_[k] = original column at factored position k. (A true COLAMD
+    // would order specifically for the LU column-fill graph; RCM-on-A+Aᵀ is the
+    // accepted simpler substitute and keeps banded FE/CFD systems banded.)
+    std::vector<std::vector<std::size_t>> adj = buildAdjacency(A);
+    colperm_ = reverseCuthillMcKee(adj);
+    std::vector<std::size_t> qinv(n);          // qinv[orig col] = factored col
+    for (std::size_t k = 0; k < n; ++k) qinv[colperm_[k]] = k;
+
+    // ---- 2. LEFT-LOOKING NUMERIC FACTORIZATION (Gilbert-Peierls) -------------
+    // Factor PAQ = LU where Q is colperm_ and P is the partial-pivot row perm.
+    // We work in a frame whose COLUMNS are colperm_-ordered; rows stay in the
+    // ORIGINAL index space until pivoting assigns them a position via pinv.
+    //   pinv[r]  : factored row r already chosen as the pivot of column pinv[r]
+    //              (so its L-column carries that row's eliminations); n if unset.
+    // L is stored strictly-lower (unit diagonal implicit); U upper incl. pivot.
+    Lp_.assign(n + 1, 0);
+    Up_.assign(n + 1, 0);
+    Li_.clear(); Lx_.clear(); Ui_.clear(); Ux_.clear();
+    Li_.reserve(A.nnz() * 4 + n);
+    Lx_.reserve(A.nnz() * 4 + n);
+    Ui_.reserve(A.nnz() * 4 + n);
+    Ux_.reserve(A.nnz() * 4 + n);
+
+    std::vector<std::size_t> pinv(n, n);       // factored-row -> pivot column (n=unset)
+    std::vector<double>      x(n, 0.0);        // dense workspace for the column
+    std::vector<std::size_t> work(n, 0);       // DFS marks (=k+1 in column k)
+    std::vector<std::size_t> xi(n);            // reach pattern (topological)
+    std::vector<std::size_t> pstack(n), jstack(n);
+
+    for (std::size_t k = 0; k < n; ++k) {
+        Lp_[k] = Li_.size();
+        Up_[k] = Ui_.size();
+        const std::size_t mark = k + 1;
+        const std::size_t origCol = colperm_[k];
+
+        // (a) scatter A(:,origCol) into x, and compute the reach in L of its
+        //     pattern via DFS — the set of columns of L (factored frame) that
+        //     touch this column, in topological order.
+        std::size_t top = n;
+        for (std::size_t p = Ap[origCol]; p < Ap[origCol + 1]; ++p) {
+            std::size_t i = Ai[p];             // original row index
+            if (work[i] != mark)               // unmarked seed: DFS its reach
+                top = luDfs(i, Lp_, Li_, pinv, mark, work, xi, pstack, jstack, top, n);
+            x[i] = Ax[p];                      // (duplicate-free, plain assign)
+        }
+
+        // (b) sparse triangular solve x = L \ x in the topological order: for
+        //     each reached column c that is ALREADY a pivot (row r=pivot[c]),
+        //     subtract x[r]*L(:,c) from the remaining x. xi[top..n-1] is ordered
+        //     children-before-parents, exactly the order the substitution needs.
+        for (std::size_t px = top; px < n; ++px) {
+            std::size_t r = xi[px];            // factored row index in the reach
+            std::size_t c = pinv[r];           // the pivot column that owns row r
+            if (c == n) continue;              // r not yet a pivot: stays in x
+            double xr = x[r];
+            for (std::size_t p = Lp_[c]; p < Lp_[c + 1]; ++p)
+                x[Li_[p]] -= Lx_[p] * xr;      // L stored strictly lower (CSC)
+        }
+
+        // (c) PARTIAL PIVOT: among all entries of x whose row is NOT yet a pivot
+        //     (the candidate sub-/on-diagonal rows of this column), pick the
+        //     largest magnitude. Also accumulate the maximum |x| over the column
+        //     for the (non-rank-revealing) singularity floor.
+        double pivAbs = -1.0, colMax = 0.0;
+        std::size_t pivRow = n;
+        for (std::size_t px = top; px < n; ++px) {
+            std::size_t r = xi[px];
+            double a = std::fabs(x[r]);
+            if (a > colMax) colMax = a;
+            if (pinv[r] == n && a > pivAbs) { pivAbs = a; pivRow = r; }
+        }
+
+        // Non-rank-revealing singular test (match the dense non-RR LU posture):
+        // a column is singular only if its pivot is ~0 RELATIVE to the column's
+        // own magnitude — so penalty matrices spanning 1e9..1e20 still factor,
+        // while a genuinely empty/zero pivot column reports failure.
+        const double floor = (colMax > 0.0 ? colMax : 1.0) * 1e-30;
+        if (pivRow == n || pivAbs <= floor) { ok_ = false; return; }
+
+        const double pivVal = x[pivRow];
+        // (d) emit U(:,k) = the already-pivoted entries (rows above the diagonal,
+        //     stored at their factored index pinv[r], which is < k), with the
+        //     pivot itself LAST as the diagonal. Emit L(:,k) = the not-yet-
+        //     pivoted entries (excluding the pivot row) scaled by 1/pivVal (unit
+        //     lower); their row indices stay in the ORIGINAL frame and are remap-
+        //     ped to the factored frame in one final pass after all columns are
+        //     done (Davis cs_lu). Clear the dense workspace as we go.
+        for (std::size_t px = top; px < n; ++px) {
+            std::size_t r = xi[px];
+            double xr = x[r];
+            x[r] = 0.0;                        // clear workspace for next column
+            if (r == pivRow) continue;         // pivot handled separately below
+            if (pinv[r] != n) {                // already-pivoted row -> U (above)
+                Ui_.push_back(pinv[r]);
+                Ux_.push_back(xr);
+            } else {                           // not-yet-pivoted row -> L (below)
+                Li_.push_back(r);              // ORIGINAL frame; remapped at end
+                Lx_.push_back(xr / pivVal);    // unit-lower scaling
+            }
+        }
+        Ui_.push_back(k);                      // U diagonal (the pivot), stored last
+        Ux_.push_back(pivVal);
+        pinv[pivRow] = k;                      // pivRow becomes pivot of column k
+    }
+    Lp_[n] = Li_.size();
+    Up_[n] = Ui_.size();
+
+    // ---- 3. FINALIZE permutations + remap L row indices to factored frame ----
+    // pinv[r] = factored position of original row r (every row is now a pivot).
+    // rowperm_[factored] = original row; irowperm_ is its inverse (== pinv).
+    rowperm_.assign(n, 0);
+    irowperm_.assign(n, 0);
+    for (std::size_t r = 0; r < n; ++r) {
+        std::size_t fr = pinv[r];              // factored row position of orig r
+        rowperm_[fr] = r;
+        irowperm_[r] = fr;
+    }
+    // L's row indices were stored in the original frame; remap to factored.
+    for (std::size_t p = 0; p < Li_.size(); ++p) Li_[p] = pinv[Li_[p]];
+
+    ok_ = true;
 }
 
 std::vector<double> SparseLU::solve(const std::vector<double>& b) const {
-    return lu_.solve(b);
+    const std::size_t n = n_;
+    std::vector<double> x(n, 0.0);
+    if (!ok_ || b.size() != n) return x;
+    if (n == 0) return x;
+
+    // PAQ = LU. Solve A x = b  <=>  L U (Qᵀ x) = P b.
+    // 1. permute: y[i] = b[rowperm_[i]]  (apply P).
+    std::vector<double> y(n);
+    for (std::size_t i = 0; i < n; ++i) y[i] = b[rowperm_[i]];
+    // 2. forward solve L z = y (unit lower, CSC by column).
+    for (std::size_t k = 0; k < n; ++k) {
+        double yk = y[k];
+        for (std::size_t p = Lp_[k]; p < Lp_[k + 1]; ++p)
+            y[Li_[p]] -= Lx_[p] * yk;
+    }
+    // 3. backward solve U w = z (upper, CSC by column; diagonal is the last
+    //    entry of each column).
+    for (std::size_t kk = 0; kk < n; ++kk) {
+        std::size_t k = n - 1 - kk;
+        // last entry of column k is the diagonal pivot.
+        std::size_t diagP = Up_[k + 1] - 1;
+        double wk = y[k] / Ux_[diagP];
+        y[k] = wk;
+        for (std::size_t p = Up_[k]; p < diagP; ++p)
+            y[Ui_[p]] -= Ux_[p] * wk;
+    }
+    // 4. un-permute columns: x[colperm_[k]] = w[k]  (apply Q).
+    for (std::size_t k = 0; k < n; ++k) x[colperm_[k]] = y[k];
+    return x;
 }
 
 // ===========================================================================

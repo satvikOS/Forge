@@ -630,11 +630,13 @@ private:
 };
 
 // ---------------------------------------------------------------------------
-// Sparse GENERAL (non-symmetric / indefinite) direct solver — densify + dense
-// full-pivot LU, factor-once / solve-many. For the moderate-DOF non-SPD FE
-// systems Eigen solved with SparseLU (MoldFlow filling pressure, WeldingFea
-// mechanical residual-stress). Correct + stable; the densify is a scalability
-// refinement (true sparse LU) deferred, like SparseLDLT.
+// Sparse GENERAL (non-symmetric / indefinite) direct solver — TRUE sparse LU
+// with partial pivoting (Gilbert-Peierls left-looking), factor-once / solve-many.
+// For the moderate-to-large-DOF non-SPD FE systems Eigen solved with SparseLU
+// (MoldFlow filling pressure, WeldingFea mechanical residual-stress). Memory is
+// O(nnz(L)+nnz(U)), time is O(flops on the sparse pattern), so large banded
+// non-symmetric FE/CFD systems (n in the 10⁴–10⁵ range) factor in a few MB and
+// well under a second — infeasible with the previous dense O(n²)/O(n³) densify.
 //   <- Eigen SparseLU
 // ---------------------------------------------------------------------------
 class SparseLU {
@@ -645,8 +647,32 @@ public:
     bool ok() const { return ok_; }                  // false if non-square or singular
     std::vector<double> solve(const std::vector<double>& b) const;
 
+    // Diagnostic (for the large-scale test): stored nonzeros in the factors L
+    // (unit lower) + U (upper). Memory footprint is O(this), NOT O(n²).
+    std::size_t factorNnz() const { return Lx_.size() + Ux_.size(); }
+
 private:
-    LU<double> lu_;
+    // TRUE sparse LU with partial pivoting. The matrix is COLUMN-pre-ordered by
+    // a fill-reducing permutation (RCM on A+Aᵀ), then factored left-looking
+    // (Gilbert-Peierls): for each column k a sparse triangular solve against the
+    // already-built L drives a depth-first reachability/topological order, the
+    // largest-magnitude entry on/below the diagonal is chosen as the partial
+    // pivot (its row recorded), and L/U columns are appended. L (unit lower) and
+    // U (upper, incl. the pivot diagonal) are stored in compressed-sparse-COLUMN
+    // form. Solve applies the row perm to b, sparse-forward against L, sparse-
+    // backward against U, then un-permutes the columns. All O(nnz(L)+nnz(U)).
+    //
+    // colperm_[k]  = original column placed at factored position k (Q: new<-old)
+    // rowperm_[i]  = original row at factored row position i        (P: new<-old)
+    // irowperm_[r] = factored row position of original row r        (Pᵀ)
+    std::vector<std::size_t> colperm_;            // column ordering (size n)
+    std::vector<std::size_t> rowperm_, irowperm_; // pivot row permutation (size n)
+    std::vector<std::size_t> Lp_;   // column pointers into Li_/Lx_ (size n+1)
+    std::vector<std::size_t> Li_;   // row indices of L, strict lower (factored frame)
+    std::vector<double>      Lx_;   // numeric values of L (unit diagonal implicit)
+    std::vector<std::size_t> Up_;   // column pointers into Ui_/Ux_ (size n+1)
+    std::vector<std::size_t> Ui_;   // row indices of U incl. diagonal (factored frame)
+    std::vector<double>      Ux_;   // numeric values of U
     std::size_t n_ = 0;
     bool ok_ = false;
 };

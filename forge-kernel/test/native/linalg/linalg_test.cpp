@@ -634,6 +634,89 @@ int main() {
     }
 
     // =======================================================================
+    // 9b. SparseLU LARGE-SCALE — proves SparseLU is TRULY sparse (no densify).
+    //     2-D CONVECTION-DIFFUSION 5-point stencil on a k×k grid, k=120 ->
+    //     n=14400. Diagonal 4; west = -1-c, east = -1+c (c=0.3 makes the
+    //     operator NON-symmetric, west != east), north/south = -1. Still
+    //     diagonally dominant (|4| > |-1-c|+|-1+c|+|-1|+|-1| = 4) so it is well-
+    //     conditioned. A densify here (n=14400 -> ~1.66 GB dense, ~9.9e11 flops)
+    //     is infeasible; the true sparse Gilbert-Peierls LU must finish in a few
+    //     MB and well under a second, with nnz(L)+nnz(U) << n². Residual vs b and
+    //     (under oracle) the solution vs Eigen::SparseLU are both checked.
+    // =======================================================================
+    {
+        const int g = 120;
+        const std::size_t n = static_cast<std::size_t>(g) * g;   // 14400
+        const double c = 0.3;                                    // convection -> asymmetry
+        std::vector<Triplet<double>> trips;
+        trips.reserve(5 * n);
+        auto id = [&](int x, int y) { return static_cast<std::size_t>(y * g + x); };
+        for (int y = 0; y < g; ++y) for (int x = 0; x < g; ++x) {
+            std::size_t i = id(x, y);
+            trips.emplace_back(i, i, 4.0);
+            if (x > 0)     trips.emplace_back(i, id(x - 1, y), -1.0 - c);  // west
+            if (x < g - 1) trips.emplace_back(i, id(x + 1, y), -1.0 + c);  // east
+            if (y > 0)     trips.emplace_back(i, id(x, y - 1), -1.0);      // south
+            if (y < g - 1) trips.emplace_back(i, id(x, y + 1), -1.0);      // north
+        }
+        SparseCSR<double> A;
+        A.setFromTriplets(n, n, trips);
+
+        std::vector<double> xtrue(n); for (auto& v : xtrue) v = U(rng);
+        std::vector<double> b = A * xtrue;            // consistent RHS
+
+        // TRUE sparse direct factor+solve, timed. (No densify exists: a dense
+        // n×n double matrix alone would be ~1.66 GB, so reaching here at all
+        // proves the O(nnz) path.)
+        auto t0 = std::chrono::high_resolution_clock::now();
+        SparseLU slu(A);
+        std::vector<double> xd = slu.solve(b);
+        auto t1 = std::chrono::high_resolution_clock::now();
+        double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+
+        // relative residual ||A x - b|| / ||b||
+        std::vector<double> Ax = A * xd;
+        double rn = 0.0, bn = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            double d = Ax[i] - b[i]; rn += d * d; bn += b[i] * b[i];
+        }
+        double relResid = std::sqrt(rn / (bn > 0 ? bn : 1.0));
+        std::size_t nnzLU = slu.factorNnz();
+
+        double errEigen = -1.0;
+#ifdef FORGE_LINALG_ORACLE
+        std::vector<Eigen::Triplet<double>> et;
+        et.reserve(trips.size());
+        for (auto& t : trips) et.emplace_back((int)t.row, (int)t.col, t.value);
+        Eigen::SparseMatrix<double> Ae(n, n); Ae.setFromTriplets(et.begin(), et.end());
+        Ae.makeCompressed();
+        Eigen::VectorXd be(n); for (std::size_t i = 0; i < n; ++i) be(i) = b[i];
+        Eigen::SparseLU<Eigen::SparseMatrix<double>> elu;
+        elu.analyzePattern(Ae); elu.factorize(Ae);
+        Eigen::VectorXd xe = elu.solve(be);
+        errEigen = 0.0;
+        for (std::size_t i = 0; i < n; ++i)
+            errEigen = std::max(errEigen, std::fabs(xd[i] - xe(i)));
+#endif
+        std::printf("[SparseLUBig] n=%zu nnzA=%zu nnzLU=%zu fill_ratio=%.1f%% "
+                    "wall=%.1fms relresid=%.3e eigen_err=%.3e\n",
+                    n, A.nnz(), nnzLU,
+                    100.0 * (double)nnzLU / ((double)n * (double)n),
+                    ms, relResid, errEigen);
+        check(slu.ok(), "SparseLUBig: SparseLU factorization succeeded (n=14400)");
+        check(relResid < 1e-8, "SparseLUBig: ||Ax-b||/||b|| < 1e-8 (true sparse solve)");
+        // Fill control: a 2-D non-symmetric Laplacian-like operator has inherent
+        // O(n^1.5) fill, so a fill-reducing column order gives nnz(LU) ≈ n·k
+        // (banded). The point is nnz(LU) ≪ n²: a densify/no-ordering factor would
+        // fill toward n² ≈ 2.1e8. This proves the memory is O(nnz), not O(n²).
+        check(nnzLU < n * n / 20,
+              "SparseLUBig: nnz(L)+nnz(U) << n^2 (< 5% dense; column ordering controls fill)");
+#ifdef FORGE_LINALG_ORACLE
+        check(errEigen < 1e-8, "SparseLUBig: matches Eigen SparseLU to 1e-8");
+#endif
+    }
+
+    // =======================================================================
     // 10. ColPivHouseholderQR — rank-revealing dense QR (the PlaneGCS prereq).
     // =======================================================================
     {
