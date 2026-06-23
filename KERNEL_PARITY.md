@@ -9,7 +9,13 @@ cites a public URL; anything not built / unverified is marked as such.
   (`.node`) addon that links **OpenCASCADE Technology (OCCT) 7.9.3** as its
   geometry/topology engine (real, exact B-rep — `Geom_BSplineSurface`,
   `TopoDS_*`, `BRepAlgoAPI_*`), plus a **vendored planegcs** 2D constraint
-  solver and **Eigen** for the in-house FEA/numeric paths. This is NOT a
+  solver. **Eigen has been FULLY REMOVED (2026-06-23):** all FEA/numeric paths
+  now use the in-house `forge::native::linalg` (dense LU/LLT/LDLT/QR + ColPiv &
+  FullPiv Householder QR + eigensolvers + true-sparse Cholesky/LU), and planegcs
+  compiles against an in-house `<Eigen/...>` shim backed by that same library —
+  the kernel builds with zero `find_package` for numerics (CMakeLists has no
+  Eigen find block; validated vs the Eigen oracle to ~1e-14 at scale, CI-green).
+  OCCT is now the *only* external geometry dependency. This is NOT a
   WASM / `manifold-3d` / pure-JS kernel — those references in
   `docs/kernel-audit.md` (dated 2026-05-10) and
   `docs/parasolid-parity-plan.md` predate the OCCT-native rebrand and are
