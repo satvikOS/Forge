@@ -476,6 +476,7 @@ add_library(forge_kernel SHARED
     src/native/geom/Delaunay3D.cpp
     src/native/brep/Fillet.cpp
     src/native/brep/Chamfer.cpp
+    src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)
     # IN-HOUSE KERNEL STEP 3b — route the SKETCH-BASED feature ops (extrude /
     # revolve / sweep / loft) through the in-house native sweep/revolve/loft
     # (all emit a watertight HalfEdgeMesh -> NativeMesh handle). Always compiled;

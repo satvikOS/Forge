@@ -21,12 +21,14 @@
 #include "forge/native/brep/SolidTessellate.hpp"
 #include "forge/native/brep/Fillet.hpp"
 #include "forge/native/brep/Chamfer.hpp"
+#include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
 // IN-HOUSE KERNEL STEP 3b — native sketch-feature ops (extrude/revolve/sweep/loft).
 #include "forge/native/brep/Sweep.hpp"        // brep::Profile, sweep(), prism()
 #include "forge/native/brep/Loft.hpp"         // brep::LoftSection, loftSections()
 #include "forge/native/csg/Revolve.hpp"       // csg::revolve()
 #include "forge/Sketcher.hpp"                 // extractProfileRings (OCCT-free)
 #include <memory>
+#include <unordered_set>                      // selected-face id set (draftFaces)
 #endif
 
 #include <BRepAlgoAPI_Cut.hxx>
@@ -972,6 +974,65 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
     if (faceIds.empty()) {
         throw std::invalid_argument("forge.part.draftFaces: no faces supplied");
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        // MESH-BRIDGE (HONEST): tessellate the native analytic Solid to a soup, map
+        // the user-selected analytic faces to that soup's triangles, then apply the
+        // native taper (forge::native::brep::applyDraft) — a displacement-field draft
+        // that slides each selected wall's vertices tangent to the neutral plane by
+        // -h*tan(angle)*t̂ (h = signed height above the neutral plane). This is the
+        // SAME linear-taper draft OCCT's BRepOffsetAPI_DraftAngle produces, so the
+        // drafted solid matches OCCT (volume/COM/inertia/AABB) to mesh tolerance.
+        // Result is a NativeMesh handle (not an analytic Solid), like fillet/chamfer.
+        //
+        // FACE SELECTION: faceIds index THIS (native) solid's analytic faces in its
+        // own 1-based shell/face order — exactly the per-triangle faceId stream that
+        // tessellateSolidForViewport already emits (the native faceId↔triangle map
+        // the viewport/selection path uses). We reuse that map verbatim: a triangle
+        // is selected iff its native faceId-1 is in `faceIds`. (The native and OCCT
+        // face ORDER differ, so a caller selecting "the side walls" passes each
+        // kernel its own side-face ids — the A/B harness does exactly this.)
+        namespace nb = ::forge::native::brep;
+        const nb::Solid& sol = ShapeRegistry::instance().getNativeSolid(shape);
+
+        // Geometry (double positions + indices) for the draft op.
+        std::vector<double> pos;
+        std::vector<std::uint32_t> idx;
+        nb::tessellateSolid(sol, pos, idx);
+        // Per-triangle native analytic-face id (1-based), SAME traversal + weld + fan
+        // order as tessellateSolid, so faceIds.faceIds[k] tags triangle k of idx.
+        nb::NativeTessOut tv = nb::tessellateSolidForViewport(sol);
+        if (tv.faceIds.size() * 3 != idx.size()) {
+            throw std::runtime_error(
+                "forge.part.draftFaces (native): tessellation faceId/triangle "
+                "count mismatch — cannot map selected faces to triangles");
+        }
+        std::unordered_set<std::uint32_t> want(faceIds.begin(), faceIds.end());
+        std::vector<std::uint32_t> triFaceIdx;     // selected TRIANGLE indices
+        triFaceIdx.reserve(tv.faceIds.size());
+        for (std::size_t t = 0; t < tv.faceIds.size(); ++t) {
+            const std::uint32_t fid0 = tv.faceIds[t] - 1u;  // 1-based -> 0-based
+            if (want.count(fid0)) triFaceIdx.push_back(static_cast<std::uint32_t>(t));
+        }
+        if (triFaceIdx.empty()) {
+            throw std::runtime_error(
+                "forge.part.draftFaces (native): no triangles matched the selected "
+                "face ids (id out of range for this native solid)");
+        }
+        nb::DraftResult dr = nb::applyDraft(
+            pos, idx, triFaceIdx,
+            native::mesh::Vec3{neutral.nx, neutral.ny, neutral.nz},
+            native::mesh::Vec3{neutral.ox, neutral.oy, neutral.oz},
+            angleRad * 180.0 / M_PI);
+        if (!dr.ok) {
+            throw std::runtime_error(std::string("forge native draft: ") +
+                (dr.reason.empty() ? "draft failed" : dr.reason));
+        }
+        auto m = std::make_shared<::forge::native::mesh::HalfEdgeMesh>(std::move(dr.mesh));
+        return ShapeRegistry::instance().addNativeMesh(std::move(m));
+    }
+#endif
     const auto& src = fetch(shape);
     BRepOffsetAPI_DraftAngle mk(src);
     gp_Pln plane(gp_Pnt(neutral.ox, neutral.oy, neutral.oz),

@@ -136,7 +136,50 @@ const cases = [
   // honest mesh-bridge-vs-analytic ceiling for a beveled corner, stated plainly.
   { name: 'chamfer ALL box edges (mesh-bridge)', tol: 1.5e-2, meshBridge: true,
     build: f => { const b=f.makeBox(3,3,3); return f.part.chamferEdges(b, allBoxEdges(f,b), 0.3, -1); } },
+  // DRAFT (taper): draft the 4 SIDE walls of a box by +5° about the BOTTOM neutral
+  // plane (z=0, pull=+Z). OCCT's BRepOffsetAPI_DraftAngle and the native mesh-bridge
+  // applyDraft both apply the SAME linear-taper draft — the top ring shrinks inward
+  // by H·tan(5°) per side while the bottom ring is fixed — so for PLANAR box walls
+  // they agree to floating-point noise (the faces stay planar; no faceting error).
+  // The drafted-box (square-frustum) analytic volume is 22.55117 for a 3×3×3 box at
+  // +5°, which BOTH kernels reproduce. faceIds select the 4 side walls in EACH
+  // kernel's own face order (boxSideFaces: normal ⟂ pull), since OCCT and native
+  // enumerate the box's faces in a different order. Result is a NativeMesh handle.
+  { name: 'draft 4 sides +5deg (mesh-bridge)', tol: MESH_TOL, meshBridge: true,
+    build: f => { const b=f.makeBox(3,3,3);
+      return f.part.draftFaces(b, { origin:[0,0,0], normal:[0,0,1] },
+                               boxSideFaces(f, b, [0,0,1]), 5*Math.PI/180); } },
 ];
+
+// The 4 SIDE walls of a box (faces whose outward normal is PERPENDICULAR to the
+// pull/neutral-plane normal), returned as THIS kernel's own 0-based face ids. OCCT
+// and the native solid enumerate box faces in a DIFFERENT order, so "the side
+// walls" is the same GEOMETRIC set but a different id list per kernel — we derive
+// it from each kernel's own tessellation faceIds so the A/B drafts the SAME walls.
+function boxSideFaces(f, h, pull) {
+  const t = f.tessellate(h, 0.05, 0.3);
+  const pos = t.positions, idx = t.indices, fid = t.faceIds;
+  const acc = new Map();               // faceId -> accumulated normal + count
+  for (let tri = 0; tri < idx.length / 3; tri++) {
+    const id = fid[tri];
+    const a = idx[3*tri], b = idx[3*tri+1], c = idx[3*tri+2];
+    const A = [pos[3*a],pos[3*a+1],pos[3*a+2]];
+    const B = [pos[3*b],pos[3*b+1],pos[3*b+2]];
+    const C = [pos[3*c],pos[3*c+1],pos[3*c+2]];
+    const u = [B[0]-A[0],B[1]-A[1],B[2]-A[2]], v = [C[0]-A[0],C[1]-A[1],C[2]-A[2]];
+    const n = [u[1]*v[2]-u[2]*v[1], u[2]*v[0]-u[0]*v[2], u[0]*v[1]-u[1]*v[0]];
+    const L = Math.hypot(...n) || 1;
+    if (!acc.has(id)) acc.set(id, [0,0,0]);
+    const e = acc.get(id); e[0]+=n[0]/L; e[1]+=n[1]/L; e[2]+=n[2]/L;
+  }
+  const sides = [];
+  for (const [id, e] of [...acc.entries()].sort((a,b)=>a[0]-b[0])) {
+    const L = Math.hypot(...e) || 1;
+    const dotPull = Math.abs((e[0]*pull[0]+e[1]*pull[1]+e[2]*pull[2]) / L);
+    if (dotPull < 0.5) sides.push(id - 1);  // ⟂ to pull => side wall; id is 1-based
+  }
+  return sides;
+}
 
 // All 12 edge ids of a box (OCCT enumerates exactly 12 TopAbs_EDGE). The native
 // mesh op ignores the id list and rounds every sharp convex edge anyway; passing
