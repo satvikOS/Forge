@@ -433,6 +433,77 @@ private:
 };
 
 // ===========================================================================
+// FullPivHouseholderQR — RANK-REVEALING Householder QR with FULL pivoting
+// (both rows AND columns). At each step k the entry of largest magnitude in the
+// active trailing submatrix qr_(k:m, k:n) is brought to position (k,k) by a row
+// transposition AND a column transposition before the reflector is built. This
+// is the most numerically prudent (and rank-faithful) dense QR, and is an exact
+// 1:1 reimplementation of Eigen's FullPivHouseholderQR semantics — including the
+// packed-matrix layout (R on/above the diagonal, the Householder essential part
+// below, the new pivot/diagonal stored on the diagonal), the tail-only row swap,
+// the τ ("hCoeffs") reflector scaling, the cols-permutation built from the raw
+// column transpositions, and the row-transposition-aware explicit Q. It is the
+// keystone for removing the last Eigen dependency: PlaneGCS reconstructs
+// Aᵀ = Q·R·Pᵀ from exactly this decomposition and its null/range split depends
+// on the precise full pivoting.
+//
+//   Reconstruction identity (verified to machine precision vs Eigen):
+//       matrixQ() * R_upper * Pᵀ == A
+//   where R_upper is the m×n upper-triangular part of matrixQR(), P is
+//   colsPermutation(), and matrixQ() already folds in the row transpositions.
+//
+//   <- Eigen FullPivHouseholderQR  (PlaneGCS sketch solver: it uses
+//      Eigen::FullPivHouseholderQR; replacing it removes the last Eigen include)
+// ===========================================================================
+template <class T>
+class FullPivHouseholderQR {
+public:
+    FullPivHouseholderQR() = default;
+    explicit FullPivHouseholderQR(const Matrix<T>& A) { compute(A); }
+    void compute(const Matrix<T>& A);
+
+    bool ok() const { return ok_; }                 // false if non-finite input or m==0
+    std::size_t rows() const { return m_; }          // ORIGINAL dims of A
+    std::size_t cols() const { return n_; }
+    std::size_t rank() const;                        // numerical rank (uses threshold)
+
+    // Prescribed rank threshold (the Eigen setThreshold analog). 0 (default) =>
+    // use eps*min(m,n) automatically. Stored; rank() recomputes from it, so it
+    // may be set before OR after compute().
+    void setThreshold(double t) { prescribed_ = t; }
+
+    // Packed factor: R on/above the diagonal, Householder essential parts below,
+    // the new pivot on each diagonal entry (Eigen matrixQR() layout).
+    const Matrix<T>& matrixQR() const { return qr_; }
+
+    // Explicit m×m orthogonal/unitary Q INCLUDING the row transpositions, so that
+    // matrixQ() * R_upper * Pᵀ == A.
+    Matrix<T> matrixQ() const;
+
+    // Column permutation P: column k of qr_ == column perm_[k] of A, i.e. A·P
+    // brings A's column perm_[k] into position k (Eigen colsPermutation indices).
+    const std::vector<std::size_t>& colsPermutation() const { return perm_; }
+
+    // rowTrans_[k] = the row swapped to position k at step k (Eigen
+    // rowsTranspositions); length min(m,n).
+    const std::vector<std::size_t>& rowsTranspositions() const { return rowTrans_; }
+
+    // min-residual / basic solution (exact for square nonsingular, least-squares
+    // for full column rank, free columns zeroed for rank-deficient A).
+    std::vector<T> solve(const std::vector<T>& b) const;
+
+private:
+    Matrix<T> qr_;                      // packed reflectors + R (Eigen layout)
+    std::vector<T> hcoeffs_;            // τ per reflector step (Eigen hCoeffs)
+    std::vector<std::size_t> rowTrans_; // raw row transpositions, length min(m,n)
+    std::vector<std::size_t> colTrans_; // raw column transpositions, length min(m,n)
+    std::vector<std::size_t> perm_;     // column permutation (derived from colTrans_)
+    std::size_t m_ = 0, n_ = 0, nonzero_ = 0;
+    double prescribed_ = 0.0;
+    bool ok_ = false;
+};
+
+// ===========================================================================
 // SymmetricEigen — real symmetric dense eigensolver. Householder
 // tridiagonalization -> implicit-shift QL with Wilkinson shift, eigenvectors
 // accumulated. Eigenvalues ASCENDING, eigenvectors orthonormal (columns of V).

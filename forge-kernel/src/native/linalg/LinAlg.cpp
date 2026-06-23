@@ -585,6 +585,214 @@ std::vector<T> ColPivHouseholderQR<T>::solve(const std::vector<T>& b) const {
 }
 
 // ===========================================================================
+// FullPivHouseholderQR — rank-revealing Householder QR with FULL (row+column)
+// pivoting. An exact reimplementation of Eigen's FullPivHouseholderQR: same
+// packed layout, same tail-only row swap, same τ ("hCoeffs") reflector scaling,
+// same column-permutation construction, same row-transposition-aware Q.
+// ===========================================================================
+namespace {
+
+// Eigen-convention Householder on a column segment x (length L). On exit x[0]
+// holds the new pivot β (the resulting diagonal entry), x[1..L-1] holds the
+// "essential" part of the reflector vector v = [1, x[1..L-1]], and tau is the
+// scaling such that H = I - tau·v·vᴴ satisfies H·x_in = [β, 0, …, 0]ᵀ. Mirrors
+// Eigen Householder.h makeHouseholder.
+template <class T>
+void makeHouseholderEigen(std::vector<T>& x, T& tau) {
+    using Real = typename ScalarTraits<T>::Real;
+    const std::size_t L = x.size();
+    Real tailSq = 0;
+    for (std::size_t i = 1; i < L; ++i) { Real a = absT(x[i]); tailSq += a * a; }
+    const T c0 = x[0];
+    const Real c0im = ScalarTraits<T>::absval(c0 - T(ScalarTraits<T>::realpart(c0)));  // |Im(c0)|
+    if (tailSq == Real(0) && c0im == Real(0)) {
+        // tail is zero and c0 is purely real -> the reflector is the identity:
+        // β = c0, τ = 0, essential part empty (Eigen makeHouseholder special case).
+        tau = T(0);
+        for (std::size_t i = 1; i < L; ++i) x[i] = T(0);
+        // x[0] (β) already equals c0.
+        return;
+    }
+    // General case (covers all real T, and complex with nonzero tail or imag part).
+    const Real ax0 = absT(c0);
+    Real beta = std::sqrt(ax0 * ax0 + tailSq);
+    // Eigen: if numext::real(c0) >= 0 then beta = -beta (so c0 - beta != 0).
+    if (ScalarTraits<T>::realpart(c0) >= Real(0)) beta = -beta;
+    const T bden = c0 - T(beta);
+    for (std::size_t i = 1; i < L; ++i) x[i] = x[i] / bden;
+    // Eigen: tau = conj((beta - c0) / beta)  (the conj is a no-op for real T but
+    // is REQUIRED for complex so that H = I - tau v vᴴ zeros the tail of x).
+    tau = ScalarTraits<T>::conj((T(beta) - c0) / T(beta));
+    x[0] = T(beta);
+}
+
+}  // namespace
+
+template <class T>
+void FullPivHouseholderQR<T>::compute(const Matrix<T>& A) {
+    using Real = typename ScalarTraits<T>::Real;
+    const std::size_t m = A.rows(), n = A.cols();
+    m_ = m; n_ = n;
+    qr_ = A;
+    const std::size_t size = (m < n) ? m : n;
+    hcoeffs_.assign(size, T(0));
+    rowTrans_.assign(size, 0);
+    colTrans_.assign(size, 0);
+    perm_.resize(n);
+    for (std::size_t j = 0; j < n; ++j) perm_[j] = j;
+    nonzero_ = size;
+    ok_ = A.allFinite() && m > 0;
+    if (!ok_) return;
+    if (size == 0) return;
+
+    const Real prec = std::numeric_limits<Real>::epsilon() * Real(size);
+    Real biggest = Real(0);
+
+    for (std::size_t k = 0; k < size; ++k) {
+        // scan the active trailing submatrix qr_(k:m, k:n) for the largest |.|
+        std::size_t rb = k, cb = k;
+        Real best = Real(-1);
+        for (std::size_t i = k; i < m; ++i)
+            for (std::size_t j = k; j < n; ++j) {
+                Real v = absT(qr_(i, j));
+                if (v > best) { best = v; rb = i; cb = j; }
+            }
+        const Real bic = best;
+        if (k == 0) biggest = bic;
+
+        // if the corner is negligible we are below full rank: stop reflecting,
+        // leave the rest as identity transpositions (Eigen's early finish).
+        if (bic <= prec * biggest) {
+            nonzero_ = k;
+            for (std::size_t i = k; i < size; ++i) {
+                rowTrans_[i] = i;
+                colTrans_[i] = i;
+                hcoeffs_[i] = T(0);
+            }
+            break;
+        }
+
+        rowTrans_[k] = rb;
+        colTrans_[k] = cb;
+        // tail-only row swap (columns k..n-1) — leaves stored reflectors intact.
+        if (rb != k)
+            for (std::size_t j = k; j < n; ++j) std::swap(qr_(k, j), qr_(rb, j));
+        // full column swap.
+        if (cb != k)
+            for (std::size_t i = 0; i < m; ++i) std::swap(qr_(i, k), qr_(i, cb));
+
+        // Householder reflector on column k, rows k..m-1.
+        std::vector<T> x(m - k);
+        for (std::size_t i = 0; i < m - k; ++i) x[i] = qr_(k + i, k);
+        T tau;
+        makeHouseholderEigen(x, tau);
+        qr_(k, k) = x[0];  // β (new pivot / diagonal entry)
+        for (std::size_t i = 1; i < m - k; ++i) qr_(k + i, k) = x[i];  // essential part
+        hcoeffs_[k] = tau;
+
+        // apply H = I - τ v vᴴ (v = [1, essential]) to the trailing columns k+1..n-1
+        if (ScalarTraits<T>::absval(tau) != Real(0)) {
+            for (std::size_t j = k + 1; j < n; ++j) {
+                T s = qr_(k, j);  // v[0] = 1
+                for (std::size_t i = k + 1; i < m; ++i)
+                    s += ScalarTraits<T>::conj(qr_(i, k)) * qr_(i, j);
+                T t = tau * s;
+                qr_(k, j) -= t;
+                for (std::size_t i = k + 1; i < m; ++i) qr_(i, j) -= t * qr_(i, k);
+            }
+        }
+    }
+
+    // build the column permutation: identity, then applyTranspositionOnTheRight.
+    for (std::size_t j = 0; j < n; ++j) perm_[j] = j;
+    for (std::size_t k = 0; k < size; ++k) std::swap(perm_[k], perm_[colTrans_[k]]);
+}
+
+template <class T>
+std::size_t FullPivHouseholderQR<T>::rank() const {
+    using Real = typename ScalarTraits<T>::Real;
+    if (!ok_) return 0;
+    Real maxpiv = Real(0);
+    for (std::size_t i = 0; i < nonzero_; ++i) {
+        Real a = absT(qr_(i, i));
+        if (a > maxpiv) maxpiv = a;
+    }
+    const Real thr = maxpiv * Real(prescribed_ > 0.0
+                                   ? prescribed_
+                                   : static_cast<double>(std::numeric_limits<Real>::epsilon())
+                                         * static_cast<double>((m_ < n_) ? m_ : n_));
+    std::size_t r = 0;
+    for (std::size_t i = 0; i < nonzero_; ++i)
+        if (absT(qr_(i, i)) > thr) ++r;
+    return r;
+}
+
+template <class T>
+Matrix<T> FullPivHouseholderQR<T>::matrixQ() const {
+    using Real = typename ScalarTraits<T>::Real;
+    const std::size_t m = m_, n = n_;
+    const std::size_t size = (m < n) ? m : n;
+    Matrix<T> Q = Matrix<T>::Identity(m);
+    // Q = product of H'_0 … H'_{size-1} with the row transpositions interleaved,
+    // accumulated from the last reflector backwards (Eigen evalTo).
+    for (std::size_t kk = 0; kk < size; ++kk) {
+        const std::size_t k = size - 1 - kk;
+        const T tau = hcoeffs_[k];
+        if (ScalarTraits<T>::absval(tau) != Real(0)) {
+            // apply (I - conj(τ) v vᴴ) on the left to rows k..m-1, all m columns.
+            const T ctau = ScalarTraits<T>::conj(tau);
+            for (std::size_t j = 0; j < m; ++j) {
+                T s = Q(k, j);  // v[0] = 1
+                for (std::size_t i = k + 1; i < m; ++i)
+                    s += ScalarTraits<T>::conj(qr_(i, k)) * Q(i, j);
+                T t = ctau * s;
+                Q(k, j) -= t;
+                for (std::size_t i = k + 1; i < m; ++i) Q(i, j) -= t * qr_(i, k);
+            }
+        }
+        // full row swap k <-> rowTrans_[k].
+        if (rowTrans_[k] != k)
+            for (std::size_t j = 0; j < m; ++j) std::swap(Q(k, j), Q(rowTrans_[k], j));
+    }
+    return Q;
+}
+
+template <class T>
+std::vector<T> FullPivHouseholderQR<T>::solve(const std::vector<T>& b) const {
+    using Real = typename ScalarTraits<T>::Real;
+    const std::size_t m = m_, n = n_;
+    const std::size_t r = rank();
+    std::vector<T> x(n, T(0));
+    if (!ok_ || r == 0) return x;
+
+    // c = b; apply the row transpositions + reflectors of the leading r steps.
+    std::vector<T> c(b);
+    if (c.size() < m) c.resize(m, T(0));
+    for (std::size_t k = 0; k < r; ++k) {
+        if (rowTrans_[k] != k) std::swap(c[k], c[rowTrans_[k]]);
+        const T tau = hcoeffs_[k];
+        if (ScalarTraits<T>::absval(tau) != Real(0)) {
+            T s = c[k];  // v[0] = 1
+            for (std::size_t i = k + 1; i < m; ++i)
+                s += ScalarTraits<T>::conj(qr_(i, k)) * c[i];
+            T t = tau * s;
+            c[k] -= t;
+            for (std::size_t i = k + 1; i < m; ++i) c[i] -= t * qr_(i, k);
+        }
+    }
+    // back-substitute the leading r×r upper-triangular block of R.
+    for (std::size_t ii = 0; ii < r; ++ii) {
+        const std::size_t i = r - 1 - ii;
+        T s = c[i];
+        for (std::size_t j = i + 1; j < r; ++j) s -= qr_(i, j) * c[j];
+        c[i] = s / qr_(i, i);
+    }
+    // scatter through the column permutation: x[perm_[i]] = c[i] for i<r, else 0.
+    for (std::size_t i = 0; i < r; ++i) x[perm_[i]] = c[i];
+    return x;
+}
+
+// ===========================================================================
 // SymmetricEigen — Householder tridiagonalization + implicit-shift QL
 // (Numerical Recipes tred2 + tqli, adapted), eigenvectors accumulated, sorted.
 // ===========================================================================
@@ -1034,6 +1242,8 @@ template class HouseholderQR<double>;
 template class HouseholderQR<std::complex<double>>;
 template class ColPivHouseholderQR<double>;
 template class ColPivHouseholderQR<std::complex<double>>;
+template class FullPivHouseholderQR<double>;
+template class FullPivHouseholderQR<std::complex<double>>;
 template class SparseCSR<double>;
 template class SparseCSR<std::complex<double>>;
 

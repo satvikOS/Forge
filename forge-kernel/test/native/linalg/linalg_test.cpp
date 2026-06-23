@@ -610,6 +610,157 @@ int main() {
 #endif
     }
 
+    // =======================================================================
+    // 11. FullPivHouseholderQR — rank-revealing dense QR with FULL (row+column)
+    //     pivoting. The keystone for removing the last Eigen dependency (PlaneGCS
+    //     uses Eigen::FullPivHouseholderQR). Must match Eigen's semantics exactly:
+    //     reconstruction matrixQ()·R·Pᵀ == A (with the row transpositions folded
+    //     into Q), QᵀQ = I, numerical rank, and solve()/rank() vs the oracle.
+    // =======================================================================
+    {
+        // A battery: a full-rank TALL matrix, a SQUARE matrix, and a
+        // RANK-DEFICIENT matrix (col2 = 3·col0). For each: reconstruction, QᵀQ=I,
+        // and rank. The full-rank tall case additionally cross-checks solve().
+        struct Case { const char* tag; std::size_t m, n; int rk; };
+        std::vector<MatrixD> mats;
+        std::vector<Case> cases;
+
+        // (a) full-rank tall 9x4 (random, well-conditioned).
+        {
+            const std::size_t m = 9, n = 4;
+            MatrixD A(m, n);
+            for (std::size_t i = 0; i < m; ++i)
+                for (std::size_t j = 0; j < n; ++j) A(i, j) = U(rng);
+            mats.push_back(A);
+            cases.push_back({"FullPivQR(tall full-rank)", m, n, (int)n});
+        }
+        // (b) square 6x6 (random, well-conditioned).
+        {
+            const std::size_t m = 6, n = 6;
+            MatrixD A(m, n);
+            for (std::size_t i = 0; i < m; ++i) {
+                for (std::size_t j = 0; j < n; ++j) A(i, j) = U(rng);
+                A(i, i) += static_cast<double>(n);  // well-conditioned
+            }
+            mats.push_back(A);
+            cases.push_back({"FullPivQR(square full-rank)", m, n, (int)n});
+        }
+        // (c) rank-deficient 7x4 with col2 = 3·col0 ⇒ rank 3.
+        {
+            const std::size_t m = 7, n = 4;
+            MatrixD A(m, n);
+            for (std::size_t i = 0; i < m; ++i)
+                for (std::size_t j = 0; j < n; ++j) A(i, j) = U(rng);
+            for (std::size_t i = 0; i < m; ++i) A(i, 2) = 3.0 * A(i, 0);
+            mats.push_back(A);
+            cases.push_back({"FullPivQR(rank-deficient col2=3*col0)", m, n, 3});
+        }
+
+        double worstRecon = 0.0, worstOrth = 0.0;
+        for (std::size_t ci = 0; ci < mats.size(); ++ci) {
+            const MatrixD& A = mats[ci];
+            const std::size_t m = cases[ci].m, n = cases[ci].n;
+            FullPivHouseholderQR<double> qr(A);
+
+            // (a) reconstruction ‖matrixQ()·R·Pᵀ − A‖_max. Build R as the m×n
+            //     upper-triangular of matrixQR(); apply P by columns: column
+            //     perm[k] of (R·Pᵀ) is column k of R, i.e. (R·Pᵀ)(:, perm[k]) = R(:, k).
+            MatrixD Q = qr.matrixQ();
+            const MatrixD& QR = qr.matrixQR();
+            MatrixD R(m, n, 0.0);
+            for (std::size_t i = 0; i < m; ++i)
+                for (std::size_t j = i; j < n; ++j) if (i < n) R(i, j) = QR(i, j);
+            // RP = R · Pᵀ : place column k of R into column perm[k].
+            const std::vector<std::size_t>& perm = qr.colsPermutation();
+            MatrixD RP(m, n, 0.0);
+            for (std::size_t k = 0; k < n; ++k)
+                for (std::size_t i = 0; i < m; ++i) RP(i, perm[k]) = R(i, k);
+            MatrixD recon = Q * RP;
+            double reconErr = 0.0;
+            for (std::size_t i = 0; i < m; ++i)
+                for (std::size_t j = 0; j < n; ++j)
+                    reconErr = std::max(reconErr, std::fabs(recon(i, j) - A(i, j)));
+
+            // (b) QᵀQ = I (m×m).
+            MatrixD QtQ = Q.transpose() * Q;
+            double orthErr = 0.0;
+            for (std::size_t i = 0; i < m; ++i)
+                for (std::size_t j = 0; j < m; ++j)
+                    orthErr = std::max(orthErr, std::fabs(QtQ(i, j) - (i == j ? 1.0 : 0.0)));
+
+            worstRecon = std::max(worstRecon, reconErr);
+            worstOrth = std::max(worstOrth, orthErr);
+
+            check(qr.ok(), cases[ci].tag);
+            check(qr.rows() == m && qr.cols() == n, "FullPivQR: rows()/cols() = original dims");
+            check(qr.rowsTranspositions().size() == ((m < n) ? m : n),
+                  "FullPivQR: rowsTranspositions length = min(m,n)");
+            check(reconErr < 1e-11, "FullPivQR: matrixQ()·R·Pᵀ reconstructs A");
+            check(orthErr < 1e-11, "FullPivQR: QᵀQ = I");
+            check(qr.rank() == static_cast<std::size_t>(cases[ci].rk),
+                  "FullPivQR: numerical rank correct");
+        }
+
+        // (d) oracle cross-checks on the full-rank tall case: rank() == Eigen's
+        //     and solve() matches Eigen's fullPivHouseholderQr().solve().
+        const MatrixD& A0 = mats[0];
+        const std::size_t m0 = cases[0].m, n0 = cases[0].n;
+        std::vector<double> b0(m0);
+        for (std::size_t i = 0; i < m0; ++i) b0[i] = U(rng);
+        FullPivHouseholderQR<double> qr0(A0);
+        std::vector<double> x0 = qr0.solve(b0);
+
+        // also verify a rank-deficient solve stays finite (basic solution).
+        FullPivHouseholderQR<double> qrd(mats[2]);
+        std::vector<double> bd(cases[2].m);
+        for (std::size_t i = 0; i < cases[2].m; ++i) bd[i] = U(rng);
+        std::vector<double> xd = qrd.solve(bd);
+        bool rdFinite = true; for (double v : xd) if (!std::isfinite(v)) rdFinite = false;
+        check(rdFinite, "FullPivQR: rank-deficient basic solution is finite");
+
+        double solveEigenErr = -1.0, rankEigenDiff = -1.0;
+#ifdef FORGE_LINALG_ORACLE
+        Eigen::MatrixXd Ae(m0, n0); Eigen::VectorXd be(m0);
+        for (std::size_t i = 0; i < m0; ++i) {
+            be(i) = b0[i];
+            for (std::size_t j = 0; j < n0; ++j) Ae(i, j) = A0(i, j);
+        }
+        Eigen::FullPivHouseholderQR<Eigen::MatrixXd> qe(Ae);
+        Eigen::VectorXd xe = Ae.fullPivHouseholderQr().solve(be);
+        solveEigenErr = 0.0;
+        for (std::size_t j = 0; j < n0; ++j)
+            solveEigenErr = std::max(solveEigenErr, std::fabs(x0[j] - xe(j)));
+
+        // rank() equality across the whole battery, incl. the rank-deficient case,
+        // under the default threshold AND a prescribed one.
+        rankEigenDiff = 0.0;
+        for (std::size_t ci = 0; ci < mats.size(); ++ci) {
+            const MatrixD& A = mats[ci];
+            const std::size_t m = cases[ci].m, n = cases[ci].n;
+            Eigen::MatrixXd Aci(m, n);
+            for (std::size_t i = 0; i < m; ++i)
+                for (std::size_t j = 0; j < n; ++j) Aci(i, j) = A(i, j);
+            FullPivHouseholderQR<double> qci(A);
+            Eigen::FullPivHouseholderQR<Eigen::MatrixXd> qeci(Aci);
+            rankEigenDiff = std::max(rankEigenDiff,
+                std::fabs((double)qci.rank() - (double)qeci.rank()));
+            // prescribed threshold 1e-6.
+            FullPivHouseholderQR<double> qpr(A); qpr.setThreshold(1e-6);
+            Eigen::FullPivHouseholderQR<Eigen::MatrixXd> qepr(Aci); qepr.setThreshold(1e-6);
+            rankEigenDiff = std::max(rankEigenDiff,
+                std::fabs((double)qpr.rank() - (double)qepr.rank()));
+        }
+        check(rankEigenDiff == 0.0, "FullPivQR: rank() matches Eigen FullPivHouseholderQR (default + prescribed)");
+        check(solveEigenErr < 1e-9, "FullPivQR: solve() matches Eigen fullPivHouseholderQr().solve()");
+#endif
+        std::printf("[FullPivQR] recon_err=%.3e QtQ_err=%.3e ranks=%zu/%zu/%zu eigen_solve_err=%.3e eigen_rank_diff=%.0f\n",
+                    worstRecon, worstOrth,
+                    FullPivHouseholderQR<double>(mats[0]).rank(),
+                    FullPivHouseholderQR<double>(mats[1]).rank(),
+                    FullPivHouseholderQR<double>(mats[2]).rank(),
+                    solveEigenErr, rankEigenDiff);
+    }
+
     std::printf("RESULT: %d / %d passed\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
 }
