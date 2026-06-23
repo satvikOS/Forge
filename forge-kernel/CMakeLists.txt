@@ -528,6 +528,7 @@ add_library(forge_kernel SHARED
     src/native/composites/Composites.cpp
     src/native/surfit/Surfit.cpp
     src/native/cam/Cam.cpp
+    src/native/linalg/LinAlg.cpp        # in-house Eigen-free linear algebra (numerics track)
     ${PLANEGCS_SRC}
 )
 

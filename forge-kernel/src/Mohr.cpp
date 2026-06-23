@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include <Eigen/Dense>
+#include "forge/native/linalg/LinAlg.hpp"  // in-house symmetric eigensolver (was Eigen)
 
 namespace forge { namespace mohr {
 
@@ -31,17 +31,17 @@ StressOnPlane stressAtAngle(const Stress2D& s, double theta) {
 }
 
 Principal3D principal3D(const Stress3D& s) {
-    Eigen::Matrix3d T;
-    T <<
-        s.sx,  s.txy, s.tzx,
-        s.txy, s.sy,  s.tyz,
-        s.tzx, s.tyz, s.sz;
-    Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> es(T);
-    auto e = es.eigenvalues();   // ascending
+    namespace la = forge::native::linalg;
+    la::MatrixD T(3, 3);
+    T(0, 0) = s.sx;  T(0, 1) = s.txy; T(0, 2) = s.tzx;
+    T(1, 0) = s.txy; T(1, 1) = s.sy;  T(1, 2) = s.tyz;
+    T(2, 0) = s.tzx; T(2, 1) = s.tyz; T(2, 2) = s.sz;
+    la::SymmetricEigen es(T, /*computeVectors=*/false);
+    const auto& e = es.eigenvalues();   // ascending
     Principal3D out{};
-    out.sigma3 = e(0);
-    out.sigma2 = e(1);
-    out.sigma1 = e(2);
+    out.sigma3 = e[0];
+    out.sigma2 = e[1];
+    out.sigma1 = e[2];
     return out;
 }
 
