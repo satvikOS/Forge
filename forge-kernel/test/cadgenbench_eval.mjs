@@ -54,6 +54,7 @@ const HOST = getFlag('--host', '127.0.0.1');
 const PORT = parseInt(getFlag('--port', '8080'), 10);
 const REPLAY = has('--replay');
 const LIMIT = getFlag('--limit', null) ? parseInt(getFlag('--limit'), 10) : null;
+const OFFSET = parseInt(getFlag('--offset', '0'), 10) || 0;
 const EDIT_ONLY = has('--edit-only');
 const GEN_ONLY = has('--gen-only');
 const GATE = parseFloat(getFlag('--gate', '0.85'));
@@ -430,6 +431,9 @@ async function main() {
   let editCases = EDIT_ONLY || !GEN_ONLY ? EDIT_CASES : [];
   if (GEN_ONLY) editCases = [];
   if (EDIT_ONLY) genCases = [];
+  // --offset N + --limit M select cases [N, N+M) — lets a multi-case run be split
+  // into small fresh-serve batches (mlx_lm.server degrades over a long session).
+  if (OFFSET) { genCases = genCases.slice(OFFSET); editCases = editCases.slice(OFFSET); }
   if (LIMIT) { genCases = genCases.slice(0, LIMIT); editCases = editCases.slice(0, LIMIT); }
 
   console.log(`\n test set : ${genCases.length} generation + ${editCases.length} edit cases`);
