@@ -424,12 +424,11 @@ const stepParts = [
   { name: 'box(3,2,4)',         build: f => f.makeBox(3, 2, 4),                          ntol: 1e-6, otol: 1e-4 },
   { name: 'cylinder(1.5,4)',    build: f => f.makeCylinder(1.5, 4),                      ntol: 1e-6, otol: 5e-3, curved: true },
   { name: 'cone(2,0.8,4)',      build: f => f.makeCone(2, 0.8, 4),                       ntol: 1e-6, otol: 5e-3, curved: true },
-  // SPHERE: native round-trip + OCCT->native are exact; OCCT importing OUR sphere
-  // STEP is an HONEST KNOWN GAP — OCCT's strict reader mis-bounds the spherical
-  // sectors whose meridian edges we emit as straight chords (no pcurves), so the
-  // occt<-nat direction is reported but NOT gated for the sphere. The quadrics with
-  // circular boundary loops (cyl/cone/tube/bore) ARE fully OCCT-interoperable.
-  { name: 'sphere(2.1)',        build: f => f.makeSphere(2.1),                           ntol: 1e-6, otol: 5e-3, curved: true, occtExportGap: true },
+  // SPHERE: a whole closed sphere is now exported in the COMPACT OCCT-canonical
+  // analytic form — ONE SPHERICAL_SURFACE + ONE ADVANCED_FACE bounded by a
+  // degenerate VERTEX_LOOP (no tessellated patches) — so OCCT re-integrates it to
+  // the true sphere volume and the occt<-nat direction is fully gated.
+  { name: 'sphere(2.1)',        build: f => f.makeSphere(2.1),                           ntol: 1e-6, otol: 5e-3, curved: true },
   { name: 'tube(2,1,3)',        build: f => f.makeTube(2, 1, 3),                         ntol: 1e-6, otol: 5e-3, curved: true },
   { name: 'bored-plate',        ntol: 1e-6, otol: 5e-3, curved: true,
     build: f => { const b = f.makeBox(4, 4, 2); let c = f.makeCylinder(0.8, 6); c = f.translate(c, 2, 2, -2); return f.cut(b, c); } },

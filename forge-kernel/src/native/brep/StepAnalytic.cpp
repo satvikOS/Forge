@@ -277,6 +277,59 @@ bool circleForEdge(const Surface& s, const Vec3& a, const Vec3& b,
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// CLOSED-SPHERE DETECTION (compact analytic export).
+//
+// The native sphere primitive (Primitives.cpp buildSphere) is a SINGLE closed
+// analytic spherical surface tiled into N*M angular/latitude SECTOR faces, all
+// of which share ONE Surface* (kind Sphere, same centre+radius). Writing each
+// sector as its own SPHERICAL_SURFACE + ADVANCED_FACE bounded by tiny chord/arc
+// edges produced ~8192 patches that a strict third-party reader (OCCT) cannot
+// re-integrate into the true sphere (it mis-bounded the periodic sectors and
+// reported ~8192x the volume). The correct STEP form — the one OCCT itself
+// emits — is ONE SPHERICAL_SURFACE + ONE ADVANCED_FACE whose bound is a
+// DEGENERATE VERTEX_LOOP (a closed periodic sphere has no real edges; the whole
+// surface IS the face).
+//
+// This returns the shared spherical Surface* IFF the solid is exactly one such
+// closed sphere: every face references the SAME Surface*, that surface is a
+// Sphere, and the union of the face trim windows covers the full closed domain
+// theta in [0,2pi], phi in [0,pi]. A boolean-cut / partial sphere never matches
+// (the boolean re-creates a distinct Surface* per output face — see
+// Boolean.cpp), so OPEN/partial spherical faces keep their exact edge-loop form.
+const Surface* closedSphereSurface(const Solid& solid) {
+    const Surface* shared = nullptr;
+    bool first = true;
+    double uMin = 0, uMax = 0, vMin = 0, vMax = 0;
+    std::size_t faceCount = 0;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) {
+            if (!f || !f->surface) return nullptr;
+            const Surface* s = f->surface;
+            if (s->kind != SurfaceKind::Sphere) return nullptr;
+            if (first) { shared = s; first = false; }
+            else if (s != shared) return nullptr;   // not a single shared surface
+            // accumulate trim coverage over the (theta,phi) parameter rectangle
+            double fu0 = std::min(f->u0, f->u1), fu1 = std::max(f->u0, f->u1);
+            double fv0 = std::min(f->v0, f->v1), fv1 = std::max(f->v0, f->v1);
+            if (faceCount == 0) { uMin = fu0; uMax = fu1; vMin = fv0; vMax = fv1; }
+            else {
+                uMin = std::min(uMin, fu0); uMax = std::max(uMax, fu1);
+                vMin = std::min(vMin, fv0); vMax = std::max(vMax, fv1);
+            }
+            ++faceCount;
+        }
+    }
+    if (!shared || faceCount == 0) return nullptr;
+    const double PI = 3.14159265358979323846;
+    const double tol = 1e-6;
+    // full closed sphere: theta sweeps a full 2*pi, phi the full meridian 0..pi.
+    if (std::fabs((uMax - uMin) - 2.0 * PI) > tol) return nullptr;
+    if (std::fabs(vMin - 0.0) > tol || std::fabs(vMax - PI) > tol) return nullptr;
+    return shared;
+}
+
 } // namespace
 
 // =====================================================================
@@ -362,6 +415,34 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
 
     std::vector<std::uint64_t> faceIds;
 
+    // ---- COMPACT CLOSED-SPHERE PATH ---------------------------------------
+    // A whole, un-cut sphere is emitted as ONE SPHERICAL_SURFACE + ONE
+    // ADVANCED_FACE bounded by a DEGENERATE VERTEX_LOOP (the OCCT-canonical form),
+    // instead of thousands of tessellated patches. This is the analytic
+    // representation a strict reader re-integrates to the true sphere volume.
+    if (const Surface* sph = closedSphereSurface(solid)) {
+        std::uint64_t surfId = emitSurface(E, *sph);
+        if (surfId == 0)
+            return writeFail("StepAnalytic.write: closed sphere surface emit failed");
+        // A single VERTEX_POINT at the -axis pole (matching OCCT's pole vertex).
+        const Vec3 pole = vsub(sph->origin, vscale(vnorm(sph->axis), sph->r1));
+        std::uint64_t poleCp = E.emitPoint(pole);
+        std::uint64_t poleVp = E.alloc();
+        E.appendId(poleVp); E.data += "=VERTEX_POINT('',#";
+        E.data += std::to_string(poleCp); E.data += ");\n";
+        std::uint64_t vloop = E.alloc();
+        E.appendId(vloop); E.data += "=VERTEX_LOOP('',#";
+        E.data += std::to_string(poleVp); E.data += ");\n";
+        std::uint64_t bound = E.alloc();
+        E.appendId(bound); E.data += "=FACE_BOUND('',#";
+        E.data += std::to_string(vloop); E.data += ",.T.);\n";
+        std::uint64_t faceId = E.alloc();
+        E.appendId(faceId); E.data += "=ADVANCED_FACE('',(#";
+        E.data += std::to_string(bound); E.data += "),#";
+        E.data += std::to_string(surfId);
+        E.data += sph->reversed ? ",.F.);\n" : ",.T.);\n";
+        faceIds.push_back(faceId);
+    } else
     for (const Shell* shell : solid.shells) {
         if (!shell) continue;
         for (const Face* f : shell->faces) {
@@ -924,6 +1005,87 @@ bool attachTrim(Face* f, Surface* surf, const std::vector<Vertex*>& ring,
     return true;
 }
 
+// Re-tessellate a CLOSED analytic sphere (read from the compact one-face form:
+// SPHERICAL_SURFACE bounded by a degenerate VERTEX_LOOP) back into the SAME
+// N*M sector topology the sphere primitive emits, into `tb`/`shell`. Each sector
+// face carries a trim window over the SHARED analytic surface, so the divergence
+// integrator recovers the EXACT sphere volume/COM/inertia (a single full-sphere
+// face under-resolves the periodic theta sweep; the sectors integrate exactly —
+// proven by step_analytic_test). The mesh is watertight (shared rim/seam verts).
+// `proto` carries the analytic centre (origin), axis, refDir, radius, reversed.
+//
+// Returns the number of faces created (0 on failure).
+std::size_t refacetClosedSphere(TopologyBuilder& tb, Shell* shell,
+                                const Surface& proto) {
+    const double PI = 3.14159265358979323846;
+    const int N = 32;   // theta sectors
+    const int M = 16;   // phi bands  (32x16 = 512 faces; vol exact to ~1e-15)
+    const double r = proto.r1;
+    const Vec3 c  = proto.origin;
+    const Vec3 ax = vnorm(proto.axis);
+    const Vec3 rd = vnorm(proto.refDir);
+    const Vec3 bd = vcross(ax, rd);   // binormal (+Y of the local frame)
+
+    auto P = [&](double th, double phi) -> Point3 {
+        double sp = std::sin(phi), cp = std::cos(phi);
+        Vec3 p = vadd(c, vadd(vscale(rd, r * sp * std::cos(th)),
+                      vadd(vscale(bd, r * sp * std::sin(th)),
+                           vscale(ax, r * cp))));
+        return Point3{p.x, p.y, p.z};
+    };
+
+    // ONE shared analytic surface for every sector (matches the primitive).
+    Surface* surf = tb.makeSurface();
+    surf->kind = SurfaceKind::Sphere;
+    surf->origin = c; surf->axis = ax; surf->refDir = rd;
+    surf->r1 = r; surf->reversed = proto.reversed;
+
+    // poles + interior-row vertices (deduped per row so rims are shared).
+    Vertex* north = tb.makeVertex(P(0.0, 0.0));
+    Vertex* south = tb.makeVertex(P(0.0, PI));
+    std::vector<std::vector<Vertex*>> rows(M + 1);
+    for (int row = 1; row < M; ++row) {
+        double phi = PI * row / M;
+        rows[row].resize(N);
+        for (int i = 0; i < N; ++i)
+            rows[row][i] = tb.makeVertex(P(2.0 * PI * i / N, phi));
+    }
+    auto uvAt = [&](int i, int row) -> std::array<double, 2> {
+        return {2.0 * PI * i / N, PI * row / M};
+    };
+
+    std::size_t made = 0;
+    for (int row = 0; row < M; ++row) {
+        for (int i = 0; i < N; ++i) {
+            int j = (i + 1) % N;
+            double u0 = 2.0 * PI * i / N, u1 = 2.0 * PI * (i + 1) / N;
+            double v0 = PI * row / M, v1 = PI * (row + 1) / M;
+            Face* f = tb.makeFace();
+            tb.addFaceToShell(shell, f);
+            std::vector<std::array<double, 2>> uv;
+            if (row == 0) {
+                std::vector<Vertex*> ring = {north, rows[1][j], rows[1][i]};
+                tb.addOuterLoopToFace(f, ring);
+                uv = {{u0, 0.0}, uvAt(j, 1), uvAt(i, 1)};
+            } else if (row == M - 1) {
+                std::vector<Vertex*> ring = {rows[M - 1][i], rows[M - 1][j], south};
+                tb.addOuterLoopToFace(f, ring);
+                uv = {uvAt(i, M - 1), uvAt(j, M - 1), {u0, PI}};
+            } else {
+                std::vector<Vertex*> ring = {rows[row][i], rows[row][j],
+                                             rows[row + 1][j], rows[row + 1][i]};
+                tb.addOuterLoopToFace(f, ring);
+                uv = {uvAt(i, row), uvAt(j, row), uvAt(j, row + 1), uvAt(i, row + 1)};
+            }
+            f->surface = surf;
+            f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
+            f->vertexUV = std::move(uv);
+            ++made;
+        }
+    }
+    return made;
+}
+
 } // namespace
 
 AnalyticReadResult StepAnalytic::read(const std::string& text) {
@@ -1030,7 +1192,31 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
             return readFail("StepAnalytic.read: ADVANCED_FACE has no usable bound loop");
 
         auto lit = tab.find(loopId);
-        if (lit == tab.end() || lit->second.type != "EDGE_LOOP")
+        if (lit == tab.end())
+            return readFail("StepAnalytic.read: bound loop ref dangling");
+
+        // COMPACT CLOSED-SPHERE FACE: a periodic spherical surface whose bound is a
+        // DEGENERATE VERTEX_LOOP (the OCCT-canonical single-face form) has NO edges.
+        // Rebuild the closed analytic surface, then re-facet it into N*M sector faces
+        // (sharing one surface) so the mass integrator + watertight tessellation get
+        // the EXACT sphere. (Both directions of the round-trip are supported: the new
+        // compact form here, and the legacy edge-loop sectors below.)
+        if (lit->second.type == "VERTEX_LOOP") {
+            Surface compact;
+            std::string sw;
+            if (!buildSurface(tab, surfRef, sameSense, compact, sw))
+                return readFail("StepAnalytic.read: " + sw);
+            if (compact.kind != SurfaceKind::Sphere)
+                return readFail("StepAnalytic.read: VERTEX_LOOP bound on a non-sphere "
+                                "surface (only closed spheres use the degenerate loop)");
+            std::size_t made = refacetClosedSphere(tb, shell, compact);
+            if (made == 0)
+                return readFail("StepAnalytic.read: failed to re-facet closed sphere");
+            nAnalytic += made;
+            continue;   // this ADVANCED_FACE is fully handled
+        }
+
+        if (lit->second.type != "EDGE_LOOP")
             return readFail("StepAnalytic.read: bound is not an EDGE_LOOP");
         auto lp = splitTopLevel(lit->second.params);
         std::vector<std::string> oeRefs;

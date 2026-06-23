@@ -63,6 +63,21 @@ static std::size_t faceCount(const Solid& s) {
     return n;
 }
 
+// Count occurrences of an entity keyword in the form "=KEYWORD(" (or "=(...KEYWORD(")
+// across the emitted STEP text — i.e. how many instances declare that entity type.
+static std::size_t countEntity(const std::string& text, const std::string& keyword) {
+    std::size_t n = 0, pos = 0;
+    const std::string needle = keyword + "(";
+    while ((pos = text.find(needle, pos)) != std::string::npos) {
+        // require the char before the keyword to be '=' '(' or whitespace so a
+        // longer keyword that merely ends with `keyword` doesn't false-match.
+        char prev = (pos == 0) ? '=' : text[pos - 1];
+        if (prev == '=' || prev == '(' || prev == ' ' || prev == '\n') ++n;
+        pos += needle.size();
+    }
+    return n;
+}
+
 // Watertight check via the native tessellator -> HalfEdgeMesh::validate.
 static bool watertight(const Solid& s) {
     bool ok = false;
@@ -99,8 +114,14 @@ static bool parsesWithNoDangling(const std::string& text, std::string& why) {
 
 // One round-trip case: write `src`, assert the keyword is present, read it back,
 // and compare mass props + face count + watertightness.
+//
+// `refacet` = true for a CLOSED analytic surface (whole sphere) that is exported
+// in the COMPACT single-face form and re-faceted on read: its round-trip is
+// GEOMETRY-exact (volume/COM/inertia/watertight) but does NOT preserve the source
+// tessellation's face count (the reader re-facets at its own resolution), so the
+// exact face-count identity is replaced by a "watertight, ≥4 faces" check.
 static void roundTrip(const std::string& label, const Solid& src,
-                      const std::string& surfaceKeyword) {
+                      const std::string& surfaceKeyword, bool refacet = false) {
     MassProps mp0 = massProperties(src);
     auto wr = StepAnalytic::write(src, label);
     check(wr.ok, label + ": write ok");
@@ -121,7 +142,10 @@ static void roundTrip(const std::string& label, const Solid& src,
     check(rr.ok && rr.solid, label + ": read ok" + (rr.ok ? "" : " — " + rr.reason));
     if (!rr.ok || !rr.solid) return;
 
-    check(faceCount(*rr.solid) == faceCount(src), label + ": face count preserved");
+    if (refacet)
+        check(faceCount(*rr.solid) >= 4, label + ": re-faceted solid has faces");
+    else
+        check(faceCount(*rr.solid) == faceCount(src), label + ": face count preserved");
     check(watertight(*rr.solid), label + ": reconstructed solid is watertight");
 
     MassProps mp1 = massProperties(*rr.solid);
@@ -161,7 +185,52 @@ int main() {
     }
     {
         SolidFactory fac;
-        roundTrip("sphere(2.1)", *fac.buildSphere(2.1), "SPHERICAL_SURFACE");
+        roundTrip("sphere(2.1)", *fac.buildSphere(2.1), "SPHERICAL_SURFACE",
+                  /*refacet=*/true);
+    }
+    // COMPACT CLOSED-SPHERE FORM: a whole sphere must export as the OCCT-canonical
+    // single analytic face — exactly ONE SPHERICAL_SURFACE + ONE ADVANCED_FACE
+    // bounded by a degenerate VERTEX_LOOP — NOT thousands of tessellated patches
+    // (the patch soup is what a strict third-party reader (OCCT) mis-integrated to
+    // ~8192x the volume). The reader re-facets it back to the EXACT sphere.
+    {
+        SolidFactory fac;
+        Solid* sph = fac.buildSphere(2.1);
+        MassProps mp0 = massProperties(*sph);
+        auto wr = StepAnalytic::write(*sph, "sphere_compact");
+        check(wr.ok, "sphere-compact: write ok");
+        if (wr.ok) {
+            std::size_t nSph  = countEntity(wr.text, "SPHERICAL_SURFACE");
+            std::size_t nFace = countEntity(wr.text, "ADVANCED_FACE");
+            std::size_t nVL   = countEntity(wr.text, "VERTEX_LOOP");
+            check(nSph == 1, "sphere-compact: exactly ONE SPHERICAL_SURFACE (got " +
+                  std::to_string(nSph) + ")");
+            check(nFace == 1, "sphere-compact: exactly ONE ADVANCED_FACE (got " +
+                  std::to_string(nFace) + ")");
+            check(nVL == 1, "sphere-compact: degenerate VERTEX_LOOP bound (got " +
+                  std::to_string(nVL) + ")");
+            // Re-import the compact form and confirm watertight + EXACT mass props.
+            auto rr = StepAnalytic::read(wr.text);
+            check(rr.ok && rr.solid, std::string("sphere-compact: read ok") +
+                  (rr.ok ? "" : " — " + rr.reason));
+            if (rr.ok && rr.solid) {
+                check(watertight(*rr.solid), "sphere-compact: re-faceted solid watertight");
+                MassProps mp1 = massProperties(*rr.solid);
+                check(rel(mp1.volume, mp0.volume, 1e-6),
+                      "sphere-compact: volume preserved (1e-6)");
+                bool com = rel(mp1.com[0], mp0.com[0], 1e-6) &&
+                           rel(mp1.com[1], mp0.com[1], 1e-6) &&
+                           rel(mp1.com[2], mp0.com[2], 1e-6);
+                check(com, "sphere-compact: COM preserved (1e-6)");
+                bool inertia = true;
+                for (int k = 0; k < 9; ++k) {
+                    double scale = std::max(1.0, std::fabs(mp0.inertiaCom[k]));
+                    if (std::fabs(mp1.inertiaCom[k] - mp0.inertiaCom[k]) > 1e-6 * scale)
+                        inertia = false;
+                }
+                check(inertia, "sphere-compact: inertia tensor preserved (1e-6)");
+            }
+        }
     }
     {
         SolidFactory fac;
