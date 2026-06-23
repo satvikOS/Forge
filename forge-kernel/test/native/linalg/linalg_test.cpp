@@ -492,6 +492,69 @@ int main() {
 #endif
     }
 
+    // =======================================================================
+    // 9. Extension helpers — dense row/col/block + std::vector ops + general
+    //    SparseLU (the FE-assembly surface for the Fea/Cfd/MoldFlow/Welding swap).
+    // =======================================================================
+    {
+        MatrixD A(4, 4);
+        for (std::size_t i = 0; i < 4; ++i)
+            for (std::size_t j = 0; j < 4; ++j) A(i, j) = static_cast<double>(10 * i + j);
+        auto r1 = A.row(1);   // {10,11,12,13}
+        auto c2 = A.col(2);   // {2,12,22,32}
+        check(r1[0] == 10 && r1[1] == 11 && r1[2] == 12 && r1[3] == 13, "Ext: Matrix::row");
+        check(c2[0] == 2 && c2[1] == 12 && c2[2] == 22 && c2[3] == 32, "Ext: Matrix::col");
+        MatrixD B(4, 4);
+        B.setRow(2, std::vector<double>{1, 2, 3, 4});
+        B.setCol(0, std::vector<double>{5, 6, 7, 8});  // overrides B(2,0) -> 7
+        check(B(2, 1) == 2 && B(2, 3) == 4 && B(0, 0) == 5 && B(3, 0) == 8 && B(2, 0) == 7,
+              "Ext: setRow/setCol");
+        auto blk = A.block(1, 1, 2, 2);  // {{11,12},{21,22}}
+        check(blk.rows() == 2 && blk.cols() == 2 && blk(0, 0) == 11 && blk(1, 1) == 22,
+              "Ext: Matrix::block");
+        MatrixD C(4, 4);
+        C.setBlock(2, 2, blk);
+        check(C(2, 2) == 11 && C(3, 3) == 22 && C(2, 3) == 12, "Ext: setBlock");
+        C.addBlock(2, 2, blk);
+        check(C(2, 2) == 22 && C(3, 3) == 44, "Ext: addBlock accumulates");
+
+        std::vector<double> u{1, 2, 3, 4, 5}, v{10, 20, 30, 40, 50};
+        auto seg = vseg(u, 1, 3);  // {2,3,4}
+        check(seg.size() == 3 && seg[0] == 2 && seg[2] == 4, "Ext: vseg");
+        std::vector<double> w(5, 0.0);
+        vsetseg(w, 2, std::vector<double>{7, 8});   // {0,0,7,8,0}
+        vaddseg(w, 1, std::vector<double>{1, 1, 1}); // {0,1,8,9,0}
+        check(w[2] == 8 && w[3] == 9 && w[1] == 1, "Ext: vsetseg/vaddseg");
+        auto sps = vadd(u, v); auto dff = vsub(v, u); auto scl = vscale(u, 2.0);
+        check(sps[0] == 11 && dff[0] == 9 && scl[4] == 10, "Ext: vadd/vsub/vscale");
+        check(std::abs(vdot(u, v) - 550.0) < 1e-12, "Ext: vdot");
+        std::vector<double> y{1, 1, 1, 1, 1};
+        vaxpy(y, 2.0, u);  // {3,5,7,9,11}
+        check(y[0] == 3 && y[4] == 11, "Ext: vaxpy y += a*x");
+
+        // SparseLU on a NON-symmetric sparse system (super=+1, sub=-2): vs known x + dense LU.
+        const std::size_t n = 5;
+        std::vector<Triplet<double>> trips;
+        for (std::size_t i = 0; i < n; ++i) {
+            trips.emplace_back(i, i, 4.0);
+            if (i + 1 < n) trips.emplace_back(i, i + 1, 1.0);
+            if (i > 0)     trips.emplace_back(i, i - 1, -2.0);
+        }
+        SparseCSR<double> S; S.setFromTriplets(n, n, trips);
+        std::vector<double> xtrue(n);
+        for (std::size_t i = 0; i < n; ++i) xtrue[i] = 1.0 + 0.3 * static_cast<double>(i);
+        std::vector<double> b = S * xtrue;
+        SparseLU slu(S);
+        std::vector<double> x = slu.solve(b);
+        double luErr = 0.0; for (std::size_t i = 0; i < n; ++i) luErr = std::max(luErr, std::abs(x[i] - xtrue[i]));
+        std::vector<double> xd = LU<double>(S.toDense()).solve(b);
+        double crossErr = 0.0; for (std::size_t i = 0; i < n; ++i) crossErr = std::max(crossErr, std::abs(x[i] - xd[i]));
+        std::printf("[Ext]   sparseLU_err=%.3e  vs_denseLU=%.3e\n", luErr, crossErr);
+        check(slu.ok(), "Ext: SparseLU factorization succeeded (non-symmetric)");
+        check(luErr < 1e-9, "Ext: SparseLU solve matches known solution");
+        check(crossErr < 1e-12, "Ext: SparseLU matches dense LU of the same system");
+    }
+
     std::printf("RESULT: %d / %d passed\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
 }

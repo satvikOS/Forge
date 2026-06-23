@@ -184,6 +184,41 @@ public:
         return true;
     }
 
+    // --- row / column / block accessors (the Eigen .row()/.col()/.block() analogs
+    //     the FE assembly loops use; explicit copies, no expression-template view).
+    std::vector<T> row(std::size_t i) const {
+        std::vector<T> v(c_);
+        for (std::size_t j = 0; j < c_; ++j) v[j] = (*this)(i, j);
+        return v;
+    }
+    std::vector<T> col(std::size_t j) const {
+        std::vector<T> v(r_);
+        for (std::size_t i = 0; i < r_; ++i) v[i] = (*this)(i, j);
+        return v;
+    }
+    void setRow(std::size_t i, const std::vector<T>& v) {
+        for (std::size_t j = 0; j < c_; ++j) (*this)(i, j) = v[j];
+    }
+    void setCol(std::size_t j, const std::vector<T>& v) {
+        for (std::size_t i = 0; i < r_; ++i) (*this)(i, j) = v[i];
+    }
+    // p×q submatrix whose top-left is (i0,j0).
+    Matrix block(std::size_t i0, std::size_t j0, std::size_t p, std::size_t q) const {
+        Matrix s(p, q);
+        for (std::size_t i = 0; i < p; ++i)
+            for (std::size_t j = 0; j < q; ++j) s(i, j) = (*this)(i0 + i, j0 + j);
+        return s;
+    }
+    // write / accumulate a sub-block at (i0,j0): the Eigen `block(...) = X` / `+= X`.
+    void setBlock(std::size_t i0, std::size_t j0, const Matrix& s) {
+        for (std::size_t i = 0; i < s.rows(); ++i)
+            for (std::size_t j = 0; j < s.cols(); ++j) (*this)(i0 + i, j0 + j) = s(i, j);
+    }
+    void addBlock(std::size_t i0, std::size_t j0, const Matrix& s) {
+        for (std::size_t i = 0; i < s.rows(); ++i)
+            for (std::size_t j = 0; j < s.cols(); ++j) (*this)(i0 + i, j0 + j) += s(i, j);
+    }
+
 private:
     std::size_t r_, c_;
     std::vector<T> a_;
@@ -214,6 +249,52 @@ inline std::array<double, 3> cross3(const std::array<double, 3>& a,
              a[0] * b[1] - a[1] * b[0]}};
 }
 
+// --- std::vector arithmetic helpers (the Eigen VectorXd op analogs the FE loops
+//     use; explicit, allocation-light). vdot is the PLAIN (non-conjugated) dot —
+//     correct for the real-double FE/CFD systems; complex callers must conjugate
+//     explicitly. vseg/vsetseg/vaddseg are the .segment()/.head()/.tail() analogs.
+template <class T>
+std::vector<T> vseg(const std::vector<T>& v, std::size_t i, std::size_t k) {
+    return std::vector<T>(v.begin() + static_cast<std::ptrdiff_t>(i),
+                          v.begin() + static_cast<std::ptrdiff_t>(i + k));
+}
+template <class T>
+void vsetseg(std::vector<T>& v, std::size_t i, const std::vector<T>& s) {
+    for (std::size_t j = 0; j < s.size(); ++j) v[i + j] = s[j];
+}
+template <class T>
+void vaddseg(std::vector<T>& v, std::size_t i, const std::vector<T>& s) {
+    for (std::size_t j = 0; j < s.size(); ++j) v[i + j] += s[j];
+}
+template <class T>
+std::vector<T> vadd(const std::vector<T>& a, const std::vector<T>& b) {
+    std::vector<T> r(a.size());
+    for (std::size_t i = 0; i < a.size(); ++i) r[i] = a[i] + b[i];
+    return r;
+}
+template <class T>
+std::vector<T> vsub(const std::vector<T>& a, const std::vector<T>& b) {
+    std::vector<T> r(a.size());
+    for (std::size_t i = 0; i < a.size(); ++i) r[i] = a[i] - b[i];
+    return r;
+}
+template <class T>
+std::vector<T> vscale(const std::vector<T>& a, const T& s) {
+    std::vector<T> r(a.size());
+    for (std::size_t i = 0; i < a.size(); ++i) r[i] = a[i] * s;
+    return r;
+}
+template <class T>
+T vdot(const std::vector<T>& a, const std::vector<T>& b) {
+    T s = T(0);
+    for (std::size_t i = 0; i < a.size(); ++i) s += a[i] * b[i];
+    return s;
+}
+template <class T>
+void vaxpy(std::vector<T>& y, const T& a, const std::vector<T>& x) {  // y += a*x
+    for (std::size_t i = 0; i < y.size(); ++i) y[i] += a * x[i];
+}
+
 // ===========================================================================
 // LU — partial-pivot LU with optional full pivoting. General dense A x = b,
 // inverse, determinant. Works for real and complex T.
@@ -222,6 +303,7 @@ inline std::array<double, 3> cross3(const std::array<double, 3>& a,
 template <class T>
 class LU {
 public:
+    LU() = default;
     explicit LU(const Matrix<T>& A, bool fullPivot = true) { compute(A, fullPivot); }
     void compute(const Matrix<T>& A, bool fullPivot = true);
 
@@ -427,6 +509,28 @@ private:
     // which is exact and stable; the CSR is the assembly/interchange format.
     Matrix<double> L_;
     std::vector<double> d_;
+    std::size_t n_ = 0;
+    bool ok_ = false;
+};
+
+// ---------------------------------------------------------------------------
+// Sparse GENERAL (non-symmetric / indefinite) direct solver — densify + dense
+// full-pivot LU, factor-once / solve-many. For the moderate-DOF non-SPD FE
+// systems Eigen solved with SparseLU (MoldFlow filling pressure, WeldingFea
+// mechanical residual-stress). Correct + stable; the densify is a scalability
+// refinement (true sparse LU) deferred, like SparseLDLT.
+//   <- Eigen SparseLU
+// ---------------------------------------------------------------------------
+class SparseLU {
+public:
+    SparseLU() = default;
+    explicit SparseLU(const SparseCSR<double>& A) { compute(A); }
+    void compute(const SparseCSR<double>& A);
+    bool ok() const { return ok_; }                  // false if non-square or singular
+    std::vector<double> solve(const std::vector<double>& b) const;
+
+private:
+    LU<double> lu_;
     std::size_t n_ = 0;
     bool ok_ = false;
 };

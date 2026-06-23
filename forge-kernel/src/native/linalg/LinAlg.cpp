@@ -847,6 +847,24 @@ std::vector<double> SparseLDLT::solve(const std::vector<double>& b) const {
 }
 
 // ===========================================================================
+// SparseLU — general (non-symmetric) sparse direct solve. Densify the CSR and
+// factor with the dense full-pivot LU (factor-once / solve-many). Correct +
+// stable for the moderate-DOF non-SPD FE systems; the densify is a documented
+// scalability refinement (a true sparse LU), not a correctness gap.
+// ===========================================================================
+void SparseLU::compute(const SparseCSR<double>& A) {
+    n_ = A.rows();
+    ok_ = (A.rows() == A.cols());
+    if (!ok_) return;
+    lu_.compute(A.toDense(), /*fullPivot=*/true);
+    ok_ = lu_.ok();
+}
+
+std::vector<double> SparseLU::solve(const std::vector<double>& b) const {
+    return lu_.solve(b);
+}
+
+// ===========================================================================
 // Jacobi-preconditioned Conjugate Gradient.
 // ===========================================================================
 CGResult conjugateGradient(const SparseCSR<double>& A,
