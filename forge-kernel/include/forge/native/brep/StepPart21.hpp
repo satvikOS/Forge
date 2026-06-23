@@ -33,10 +33,13 @@
 #ifndef FORGE_NATIVE_BREP_STEPPART21_HPP
 #define FORGE_NATIVE_BREP_STEPPART21_HPP
 
-#include <charconv>
+#include <cerrno>
+#include <charconv>   // integer to/from_chars only (float charconv is unavailable on libc++)
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>     // snprintf — portable double formatting
+#include <cstdlib>    // strtod — portable double parsing
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -50,10 +53,12 @@ namespace p21 {
 // Locale-independent REAL formatting / parsing. Bit-identical round trip.
 // ---------------------------------------------------------------------------
 inline std::string stepFmt(double v) {
+    // libc++ (Apple clang) deletes float std::to_chars; snprintf("%.17g") gives a
+    // locale-C, bit-exact-round-trip representation of any IEEE double (17 sig
+    // digits uniquely identify the value; strtod parses it back exactly).
     char buf[64];
-    auto res = std::to_chars(buf, buf + sizeof(buf), v);
-    if (res.ec != std::errc()) return std::string("0.");
-    std::string s(buf, res.ptr);
+    std::snprintf(buf, sizeof(buf), "%.17g", v);
+    std::string s(buf);
     bool hasDotOrExp = false;
     for (char c : s) {
         if (c == '.' || c == 'e' || c == 'E') { hasDotOrExp = true; break; }
@@ -64,12 +69,15 @@ inline std::string stepFmt(double v) {
 
 inline bool stepNum(const std::string& token, double& out) {
     if (token.empty()) return false;
-    const char* first = token.data();
-    const char* last  = token.data() + token.size();
-    double value = 0.0;
-    auto res = std::from_chars(first, last, value);
-    if (res.ec != std::errc()) return false;
-    if (res.ptr != last) return false;
+    // strtod (portable; float from_chars is deleted on libc++). token is a
+    // std::string -> NUL-terminated at [size()], so strtod stops at the NUL; we
+    // require it consumed the WHOLE token.
+    const char* first = token.c_str();
+    char* end = nullptr;
+    errno = 0;
+    const double value = std::strtod(first, &end);
+    if (end != first + token.size()) return false;
+    if (errno == ERANGE) return false;
     if (!std::isfinite(value)) return false;
     out = value;
     return true;

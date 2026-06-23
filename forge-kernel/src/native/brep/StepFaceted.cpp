@@ -42,10 +42,13 @@
 // set; repeated here so the .cpp is self-sufficient on libstdc++ as well).
 #include <algorithm>
 #include <array>
-#include <charconv>
+#include <cerrno>     // errno, ERANGE — strtod range check
+#include <charconv>   // integer from_chars only (float charconv is deleted on libc++)
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>     // snprintf — portable double formatting
+#include <cstdlib>    // strtod — portable double parsing
 #include <cstring>
 #include <limits>
 #include <map>
@@ -61,18 +64,13 @@ namespace brep {
 // Locale-independent float formatting / parsing
 // ===========================================================================
 std::string stepFormatDouble(double v) {
-    // Shortest representation that round-trips to the identical double. We force
-    // a decimal point or exponent so the value is unambiguously a REAL in STEP
-    // (a bare integer-looking token like "3" is still a valid REAL, but emitting
-    // "3." keeps us aligned with Part-21 REAL lexing and our own parser).
+    // Bit-exact-round-trip REAL. libc++ (Apple clang) deletes float std::to_chars,
+    // so use snprintf("%.17g") — locale-C, 17 sig digits uniquely identify any
+    // IEEE double; strtod parses it back exactly. Force a '.'/'e' so it lexes as
+    // a Part-21 REAL.
     char buf[64];
-    auto res = std::to_chars(buf, buf + sizeof(buf), v);
-    if (res.ec != std::errc()) {
-        return std::string("0.");  // non-finite is rejected upstream
-    }
-    std::string s(buf, res.ptr);
-    // Ensure it reads as a REAL (contains '.' or 'e'/'E'). std::to_chars may emit
-    // e.g. "3" for 3.0; append ".".
+    std::snprintf(buf, sizeof(buf), "%.17g", v);
+    std::string s(buf);
     bool hasDotOrExp = false;
     for (char c : s) {
         if (c == '.' || c == 'e' || c == 'E') { hasDotOrExp = true; break; }
@@ -83,13 +81,15 @@ std::string stepFormatDouble(double v) {
 
 bool stepParseDouble(const std::string& token, double& out) {
     if (token.empty()) return false;
-    const char* first = token.data();
-    const char* last  = token.data() + token.size();
-    double value = 0.0;
-    auto res = std::from_chars(first, last, value);
-    if (res.ec != std::errc()) return false;
-    if (res.ptr != last) return false;        // trailing garbage => reject
-    if (!std::isfinite(value)) return false;  // NaN / inf are not valid coords
+    // strtod (portable; libc++ deletes float from_chars). std::string is
+    // NUL-terminated at [size()]; require the whole token consumed.
+    const char* first = token.c_str();
+    char* end = nullptr;
+    errno = 0;
+    const double value = std::strtod(first, &end);
+    if (end != first + token.size()) return false;  // trailing garbage => reject
+    if (errno == ERANGE) return false;
+    if (!std::isfinite(value)) return false;         // NaN / inf are not valid coords
     out = value;
     return true;
 }
