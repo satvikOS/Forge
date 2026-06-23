@@ -55,9 +55,10 @@
 //   (no duplicate type, no duplicate solver — `am` links against Materials.o).
 //
 // SELF-CONTAINED FE (no OCCT / Eigen / WASM):
-//   The production FEA (src/Fea*.cpp, WeldingFea.cpp) all #include <Eigen/...> and
-//   <BRep*.hxx> and live at top-level src/, so they CANNOT link into the
-//   dependency-free native gate (Materials.hpp note (a) flags this severance).
+//   The production FEA (src/Fea*.cpp, WeldingFea.cpp) now use the in-house
+//   forge::native::linalg (Eigen-free) but still #include <BRep*.hxx> and live at
+//   top-level src/, so they CANNOT link into the dependency-free native gate
+//   (Materials.hpp note (a) flags this severance).
 //   This module therefore carries its own minimal, self-contained linear-elastic
 //   FE: a tet4 constant-strain (CST) assembly and a hex8 trilinear assembly, each
 //   solved by a Jacobi-preconditioned conjugate gradient — the same math template
