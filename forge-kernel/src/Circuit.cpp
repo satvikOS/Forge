@@ -1,9 +1,11 @@
 #include "forge/Circuit.hpp"
 
-#include <Eigen/Dense>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <complex>
 #include <stdexcept>
+
+namespace la = forge::native::linalg;
 
 namespace forge { namespace circuit {
 
@@ -28,8 +30,8 @@ int countVSources(const std::vector<Component>& comps) {
 // first non-ground node).
 template <typename Scalar>
 void buildMNA(const DCInputs& in,
-              Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>& A,
-              Eigen::Matrix<Scalar, Eigen::Dynamic, 1>& rhs,
+              la::Matrix<Scalar>& A,
+              std::vector<Scalar>& rhs,
               double omega,
               bool isAC) {
     if (in.nodeCount < 1) {
@@ -38,8 +40,8 @@ void buildMNA(const DCInputs& in,
     const int N = static_cast<int>(in.nodeCount) - 1;   // non-ground node count
     const int M = countVSources(in.comps);
     if (N < 1) throw std::invalid_argument("forge.circuit: need at least 1 non-ground node");
-    A = Eigen::Matrix<Scalar, Eigen::Dynamic, Eigen::Dynamic>::Zero(N + M, N + M);
-    rhs = Eigen::Matrix<Scalar, Eigen::Dynamic, 1>::Zero(N + M);
+    A = la::Matrix<Scalar>(N + M, N + M, Scalar(0));
+    rhs = std::vector<Scalar>(N + M, Scalar(0));
 
     int vIdx = 0;
     for (const auto& c : in.comps) {
@@ -111,7 +113,7 @@ void buildMNA(const DCInputs& in,
                     A(b - 1, idx) -= Scalar(1.0);
                     A(idx, b - 1) -= Scalar(1.0);
                 }
-                rhs(idx) = Scalar(c.value);
+                rhs[idx] = Scalar(c.value);
                 ++vIdx;
                 break;
             }
@@ -121,8 +123,8 @@ void buildMNA(const DCInputs& in,
                 // flows OUT of nB and INTO nA, so J[nA] += value and
                 // J[nB] −= value (currents INTO the node are positive
                 // in the MNA right-hand side).
-                if (a != 0) rhs(a - 1) += Scalar(c.value);
-                if (b != 0) rhs(b - 1) -= Scalar(c.value);
+                if (a != 0) rhs[a - 1] += Scalar(c.value);
+                if (b != 0) rhs[b - 1] -= Scalar(c.value);
                 break;
             }
         }
@@ -133,19 +135,19 @@ void buildMNA(const DCInputs& in,
 } // anonymous namespace
 
 DCResult dcAnalysis(const DCInputs& in) {
-    Eigen::MatrixXd A;
-    Eigen::VectorXd rhs;
+    la::MatrixD A;
+    std::vector<double> rhs;
     buildMNA<double>(in, A, rhs, 0.0, /*isAC*/ false);
     if (A.rows() == 0) throw std::runtime_error("forge.circuit: empty system");
-    Eigen::VectorXd x = A.colPivHouseholderQr().solve(rhs);
+    std::vector<double> x = la::HouseholderQR<double>(A).solve(rhs);
     const int N = static_cast<int>(in.nodeCount) - 1;
     DCResult R;
     R.nodeVoltages.assign(in.nodeCount, 0.0);
-    for (int i = 0; i < N; ++i) R.nodeVoltages[i + 1] = x(i);
+    for (int i = 0; i < N; ++i) R.nodeVoltages[i + 1] = x[i];
     int vIdx = 0;
     for (const auto& c : in.comps) {
         if (c.kind == Kind::VoltageSource) {
-            R.vSourceCurrents.push_back(x(N + vIdx));
+            R.vSourceCurrents.push_back(x[N + vIdx]);
             ++vIdx;
         }
     }
@@ -160,14 +162,14 @@ ACResult acAnalysis(const DCInputs& in, const std::vector<double>& freqs) {
     using C = std::complex<double>;
     for (double f : freqs) {
         const double omega = 2.0 * 3.14159265358979323846 * f;
-        Eigen::Matrix<C, Eigen::Dynamic, Eigen::Dynamic> A;
-        Eigen::Matrix<C, Eigen::Dynamic, 1> rhs;
+        la::MatrixC A;
+        std::vector<C> rhs;
         buildMNA<C>(in, A, rhs, omega, /*isAC*/ true);
-        Eigen::Matrix<C, Eigen::Dynamic, 1> x =
-            A.colPivHouseholderQr().solve(rhs);
+        std::vector<C> x =
+            la::HouseholderQR<C>(A).solve(rhs);
         const int N = static_cast<int>(in.nodeCount) - 1;
         std::vector<C> V(in.nodeCount, C(0.0, 0.0));
-        for (int i = 0; i < N; ++i) V[i + 1] = x(i);
+        for (int i = 0; i < N; ++i) V[i + 1] = x[i];
         R.nodeVoltages.push_back(std::move(V));
     }
     return R;

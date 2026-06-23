@@ -2,7 +2,7 @@
 
 #include "forge/PowerFlow.hpp"
 
-#include <Eigen/Dense>
+#include "forge/native/linalg/LinAlg.hpp"
 #include <cmath>
 #include <complex>
 #include <limits>
@@ -10,6 +10,8 @@
 #include <stdexcept>
 
 namespace forge::powerflow {
+
+namespace la = forge::native::linalg;
 
 namespace {
 constexpr double pi = std::numbers::pi;
@@ -28,7 +30,7 @@ Result solve(const std::vector<Bus>& buses,
     if (s.maxIterations <= 0) throw std::invalid_argument("maxIterations must be positive");
 
     // Build Y_bus.
-    Eigen::MatrixXcd Y = Eigen::MatrixXcd::Zero(N, N);
+    la::MatrixC Y(N, N);  // zero-initialized
     for (const auto& br : branches) {
         if (br.from == br.to) continue;
         if (br.from < 0 || br.to < 0 || br.from >= N || br.to >= N)
@@ -43,31 +45,31 @@ Result solve(const std::vector<Bus>& buses,
     }
 
     // Initial state vectors.
-    Eigen::VectorXd V(N), theta(N);
+    std::vector<double> V(N, 0.0), theta(N, 0.0);
     std::vector<int> slack_idx;
     std::vector<int> pv_idx;
     std::vector<int> pq_idx;
     for (int i = 0; i < N; ++i) {
-        V(i) = buses[i].V_init;
-        theta(i) = buses[i].angleDegInit * pi / 180.0;
+        V[i] = buses[i].V_init;
+        theta[i] = buses[i].angleDegInit * pi / 180.0;
         if      (buses[i].kind == BusKind::Slack) slack_idx.push_back(i);
         else if (buses[i].kind == BusKind::PV)    pv_idx.push_back(i);
         else                                       pq_idx.push_back(i);
     }
 
     // P/Q specified vectors (for non-slack).
-    auto computePQ = [&](Eigen::VectorXd& P, Eigen::VectorXd& Q) {
+    auto computePQ = [&](std::vector<double>& P, std::vector<double>& Q) {
         for (int i = 0; i < N; ++i) {
             double Pi = 0.0, Qi = 0.0;
             for (int k = 0; k < N; ++k) {
                 const double G = Y(i, k).real();
                 const double B = Y(i, k).imag();
-                const double th = theta(i) - theta(k);
-                Pi += V(i) * V(k) * (G * std::cos(th) + B * std::sin(th));
-                Qi += V(i) * V(k) * (G * std::sin(th) - B * std::cos(th));
+                const double th = theta[i] - theta[k];
+                Pi += V[i] * V[k] * (G * std::cos(th) + B * std::sin(th));
+                Qi += V[i] * V[k] * (G * std::sin(th) - B * std::cos(th));
             }
-            P(i) = Pi;
-            Q(i) = Qi;
+            P[i] = Pi;
+            Q[i] = Qi;
         }
     };
 
@@ -85,21 +87,22 @@ Result solve(const std::vector<Bus>& buses,
         theta_idx.push_back(i);
 
     for (int iter = 0; iter < s.maxIterations; ++iter) {
-        Eigen::VectorXd P_calc(N), Q_calc(N);
+        std::vector<double> P_calc(N, 0.0), Q_calc(N, 0.0);
         computePQ(P_calc, Q_calc);
 
         // Mismatch.
-        Eigen::VectorXd mismatch = Eigen::VectorXd::Zero(dim);
+        std::vector<double> mismatch(dim, 0.0);
         for (int j = 0; j < N_theta; ++j) {
             const int i = theta_idx[j];
-            mismatch(j) = buses[i].P_specified - P_calc(i);
+            mismatch[j] = buses[i].P_specified - P_calc[i];
         }
         for (int j = 0; j < N_v; ++j) {
             const int i = pq_idx[j];
-            mismatch(N_theta + j) = buses[i].Q_specified - Q_calc(i);
+            mismatch[N_theta + j] = buses[i].Q_specified - Q_calc[i];
         }
 
-        r.finalMaxMismatch = mismatch.cwiseAbs().maxCoeff();
+        // cwiseAbs().maxCoeff() == max of |mismatch_j| == normInf.
+        r.finalMaxMismatch = la::normInf(mismatch);
         if (r.finalMaxMismatch < s.tolerance) {
             r.converged = true;
             r.iterations = iter;
@@ -107,7 +110,7 @@ Result solve(const std::vector<Bus>& buses,
         }
 
         // Build Jacobian.
-        Eigen::MatrixXd J = Eigen::MatrixXd::Zero(dim, dim);
+        la::MatrixD J(dim, dim);  // zero-initialized
         // dP/dθ block (N_theta × N_theta).
         for (int a = 0; a < N_theta; ++a) {
             const int i = theta_idx[a];
@@ -116,10 +119,10 @@ Result solve(const std::vector<Bus>& buses,
                 const double G = Y(i, k).real();
                 const double B = Y(i, k).imag();
                 if (i == k) {
-                    J(a, b) = -Q_calc(i) - V(i) * V(i) * B;
+                    J(a, b) = -Q_calc[i] - V[i] * V[i] * B;
                 } else {
-                    const double th = theta(i) - theta(k);
-                    J(a, b) = V(i) * V(k) * (G * std::sin(th) - B * std::cos(th));
+                    const double th = theta[i] - theta[k];
+                    J(a, b) = V[i] * V[k] * (G * std::sin(th) - B * std::cos(th));
                 }
             }
         }
@@ -131,10 +134,10 @@ Result solve(const std::vector<Bus>& buses,
                 const double G = Y(i, k).real();
                 const double B = Y(i, k).imag();
                 if (i == k) {
-                    J(a, N_theta + b) = P_calc(i) / V(i) + V(i) * G;
+                    J(a, N_theta + b) = P_calc[i] / V[i] + V[i] * G;
                 } else {
-                    const double th = theta(i) - theta(k);
-                    J(a, N_theta + b) = V(i) * (G * std::cos(th) + B * std::sin(th));
+                    const double th = theta[i] - theta[k];
+                    J(a, N_theta + b) = V[i] * (G * std::cos(th) + B * std::sin(th));
                 }
             }
         }
@@ -146,10 +149,10 @@ Result solve(const std::vector<Bus>& buses,
                 const double G = Y(i, k).real();
                 const double B = Y(i, k).imag();
                 if (i == k) {
-                    J(N_theta + a, b) = P_calc(i) - V(i) * V(i) * G;
+                    J(N_theta + a, b) = P_calc[i] - V[i] * V[i] * G;
                 } else {
-                    const double th = theta(i) - theta(k);
-                    J(N_theta + a, b) = -V(i) * V(k) * (G * std::cos(th) + B * std::sin(th));
+                    const double th = theta[i] - theta[k];
+                    J(N_theta + a, b) = -V[i] * V[k] * (G * std::cos(th) + B * std::sin(th));
                 }
             }
         }
@@ -161,38 +164,38 @@ Result solve(const std::vector<Bus>& buses,
                 const double G = Y(i, k).real();
                 const double B = Y(i, k).imag();
                 if (i == k) {
-                    J(N_theta + a, N_theta + b) = Q_calc(i) / V(i) - V(i) * B;
+                    J(N_theta + a, N_theta + b) = Q_calc[i] / V[i] - V[i] * B;
                 } else {
-                    const double th = theta(i) - theta(k);
+                    const double th = theta[i] - theta[k];
                     J(N_theta + a, N_theta + b) =
-                        V(i) * (G * std::sin(th) - B * std::cos(th));
+                        V[i] * (G * std::sin(th) - B * std::cos(th));
                 }
             }
         }
 
-        // Solve J · Δx = mismatch.
-        Eigen::VectorXd delta = J.fullPivLu().solve(mismatch);
+        // Solve J · Δx = mismatch.  (Eigen fullPivLu -> la::LU full pivot, default)
+        std::vector<double> delta = la::LU<double>(J).solve(mismatch);
 
         // Apply updates.
         for (int j = 0; j < N_theta; ++j) {
-            theta(theta_idx[j]) += delta(j);
+            theta[theta_idx[j]] += delta[j];
         }
         for (int j = 0; j < N_v; ++j) {
-            V(pq_idx[j]) += delta(N_theta + j);
+            V[pq_idx[j]] += delta[N_theta + j];
         }
 
         r.iterations = iter + 1;
     }
 
     // Compute final P/Q and pack results.
-    Eigen::VectorXd P_final(N), Q_final(N);
+    std::vector<double> P_final(N, 0.0), Q_final(N, 0.0);
     computePQ(P_final, Q_final);
     r.buses.resize(N);
     for (int i = 0; i < N; ++i) {
-        r.buses[i].V = V(i);
-        r.buses[i].angleDeg = theta(i) * 180.0 / pi;
-        r.buses[i].P = P_final(i);
-        r.buses[i].Q = Q_final(i);
+        r.buses[i].V = V[i];
+        r.buses[i].angleDeg = theta[i] * 180.0 / pi;
+        r.buses[i].P = P_final[i];
+        r.buses[i].Q = Q_final[i];
     }
     return r;
 }

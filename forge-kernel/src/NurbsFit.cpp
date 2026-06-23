@@ -1,6 +1,6 @@
 #include "forge/NurbsFit.hpp"
 
-#include <Eigen/Dense>
+#include "forge/native/linalg/LinAlg.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -8,6 +8,8 @@
 #include <vector>
 
 namespace forge { namespace nurbsfit {
+
+namespace la = forge::native::linalg;
 
 namespace {
 
@@ -94,8 +96,9 @@ FitResult fitSurface(const FitInputs& in) {
     const auto kV = openUniformKnots(in.vCount);
 
     const int K = in.uCount * in.vCount;
-    Eigen::MatrixXd B = Eigen::MatrixXd::Zero(static_cast<int>(N), K);
-    Eigen::VectorXd Z = Eigen::VectorXd::Zero(static_cast<int>(N));
+    la::MatrixD B = la::MatrixD::Zero(static_cast<std::size_t>(N),
+                                      static_cast<std::size_t>(K));
+    std::vector<double> Z(static_cast<std::size_t>(N), 0.0);
 
     double NU[DEGREE + 1];
     double NV[DEGREE + 1];
@@ -117,14 +120,16 @@ FitResult fitSurface(const FitInputs& in) {
                 if (colU < 0 || colU >= in.uCount) continue;
                 if (colV < 0 || colV >= in.vCount) continue;
                 const int col = colV * in.uCount + colU;
-                B(static_cast<int>(pIdx), col) += NU[i] * NV[j];
+                B(static_cast<std::size_t>(pIdx),
+                  static_cast<std::size_t>(col)) += NU[i] * NV[j];
             }
         }
-        Z(static_cast<int>(pIdx)) = z;
+        Z[static_cast<std::size_t>(pIdx)] = z;
     }
 
     // Least squares solve: minimise ||B·P − Z||².
-    Eigen::VectorXd P = B.colPivHouseholderQr().solve(Z);
+    // Single RHS column (the fitted control-point Z values), so one QR solve.
+    std::vector<double> P = la::HouseholderQR<double>(B).solve(Z);
 
     FitResult R;
     R.uCount = in.uCount;
@@ -139,8 +144,13 @@ FitResult fitSurface(const FitInputs& in) {
     double rss = 0.0;
     double maxAbs = 0.0;
     for (std::size_t pIdx = 0; pIdx < N; ++pIdx) {
-        const double zFit = B.row(static_cast<int>(pIdx)).dot(P);
-        const double r = zFit - Z(static_cast<int>(pIdx));
+        // zFit = B.row(pIdx) · P  (explicit dot product over the K columns).
+        double zFit = 0.0;
+        for (int col = 0; col < K; ++col) {
+            zFit += B(pIdx, static_cast<std::size_t>(col)) *
+                    P[static_cast<std::size_t>(col)];
+        }
+        const double r = zFit - Z[pIdx];
         R.residuals[pIdx] = r;
         rss += r * r;
         if (std::abs(r) > maxAbs) maxAbs = std::abs(r);

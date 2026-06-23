@@ -2,13 +2,15 @@
 
 #include "forge/ShortCircuit.hpp"
 
-#include <Eigen/Dense>
+#include "forge/native/linalg/LinAlg.hpp"
 #include <cmath>
 #include <complex>
 #include <numbers>
 #include <stdexcept>
 
 namespace forge::shortcircuit {
+
+namespace la = forge::native::linalg;
 
 namespace {
 constexpr double pi = std::numbers::pi;
@@ -21,7 +23,7 @@ Result analyse(const Input& in) {
     if (in.prefaultVoltagePu <= 0.0)
         throw std::invalid_argument("V_prefault must be positive");
 
-    Eigen::MatrixXcd Y = Eigen::MatrixXcd::Zero(N, N);
+    la::MatrixC Y(N, N);  // was Eigen::MatrixXcd::Zero(N, N) — Matrix ctor zero-inits
     for (const auto& g : in.generators) {
         if (g.busIndex < 0 || g.busIndex >= N)
             throw std::invalid_argument("generator bus out of range");
@@ -44,10 +46,10 @@ Result analyse(const Input& in) {
     }
 
     // Z_bus = Y_bus^-1.  Must be invertible (no isolated buses).
-    Eigen::MatrixXcd Z;
+    la::MatrixC Z;
     {
-      Eigen::FullPivLU<Eigen::MatrixXcd> lu(Y);
-      if (!lu.isInvertible())
+      la::LU<cd> lu(Y);  // was Eigen::FullPivLU<Eigen::MatrixXcd> — full pivot by default
+      if (!lu.ok())  // was !lu.isInvertible()
           throw std::invalid_argument("Y_bus is singular — verify generators and branches connect every bus");
       Z = lu.inverse();
     }
