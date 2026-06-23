@@ -504,6 +504,17 @@ add_library(forge_kernel SHARED
     src/native/brep/Sweep.cpp
     src/native/brep/Loft.cpp
     src/native/csg/Revolve.cpp
+    # IN-HOUSE KERNEL STEP 3c — native STEP data-exchange codecs (OCCT-free):
+    #   StepFaceted  — tessellated MANIFOLD_SOLID_BREP (PLANE triangles), for the
+    #                  NativeMesh handles (fillet/chamfer/sweep/loft results).
+    #   StepAnalytic — analytic ADVANCED_BREP_SHAPE_REPRESENTATION with real
+    #                  CYLINDRICAL/CONICAL/SPHERICAL/TOROIDAL/PLANE surfaces +
+    #                  LINE/CIRCLE edges, for the NativeSolid handles.
+    # Both were previously built ONLY by run_native.sh; listing them here links the
+    # codecs into the addon so src/IoExchange.cpp's gated STEP route resolves.
+    # Their only deps (Predicates/Geom/HalfEdgeMesh/Topology/Surface) already link.
+    src/native/brep/StepFaceted.cpp
+    src/native/brep/StepAnalytic.cpp
     # Task #46 — bind the remaining forge::native engines into the addon so
     # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).
     # geom/AABBTree + voxel/VoxelBoolean are cam's #include dependencies; list

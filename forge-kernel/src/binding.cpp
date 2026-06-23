@@ -3548,6 +3548,12 @@ Napi::Value IoExportBrep(const Napi::CallbackInfo& info) {
             forge::io::exportBrep(requireHandle(info, 0), io_bind::requirePath(info, 1)));
     });
 }
+Napi::Value IoExportIges(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Boolean::New(info.Env(),
+            forge::io::exportIges(requireHandle(info, 0), io_bind::requirePath(info, 1)));
+    });
+}
 Napi::Value IoImportStl(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         return Napi::Number::New(info.Env(),
@@ -5530,6 +5536,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     io.Set("importStl",  Napi::Function::New(env, IoImportStl));
     io.Set("exportStl",  Napi::Function::New(env, IoExportStl));
     // Forge-34: IGES + JT/Parasolid stubs + PMI/MBD STEP AP242 export.
+    io.Set("exportIges",       Napi::Function::New(env, IoExportIges));
     io.Set("importIges",       Napi::Function::New(env, IoImportIges));
     io.Set("importJt",         Napi::Function::New(env, IoImportJt));
     io.Set("importParasolid",  Napi::Function::New(env, IoImportParasolid));

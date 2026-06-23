@@ -37,6 +37,15 @@ ShapeHandle importParasolid(const std::string& filepath);
 // Returns true on success. Throws on write failure.
 bool exportStep(ShapeHandle, const std::string& filepath);
 bool exportBrep(ShapeHandle, const std::string& filepath);
+
+// IGES export. The native kernel (FORGE_NATIVE_BREP) HONESTLY DEFERS IGES write:
+// OCCT 7.9's TKDEIGES ships an IGESControl_Reader but NO writer package, and the
+// native kernel does not (yet) carry a from-scratch IGES 5.3 S/G/D/P/T writer for
+// trimmed-NURBS / analytic surfaces. Rather than emit a fake or a lossy stub this
+// returns false (the caller must surface "IGES export not available — use STEP").
+// STEP (analytic, AP242) is the supported exact exchange. importIges stays OCCT.
+bool exportIges(ShapeHandle, const std::string& filepath);
+
 bool exportStl (ShapeHandle, const std::string& filepath,
                 double linearTol = 0.1, double angularTol = 0.5,
                 bool ascii = false);

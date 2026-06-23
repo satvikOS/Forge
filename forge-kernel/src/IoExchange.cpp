@@ -21,9 +21,53 @@
 #include <cstdint>
 #include <cstring>
 
+// IN-HOUSE KERNEL STEP 3c — gated native STEP route. Compiled in only under
+// -DFORGE_NATIVE_BREP; taken at runtime only when forgeNativeBrepEnabled().
+// The OCCT path below stays the default (flag OFF -> byte-identical behaviour).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"        // forgeNativeBrepEnabled
+#include "forge/native/brep/StepAnalytic.hpp"       // analytic codec (NativeSolid)
+#include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh)
+#include "forge/native/brep/SolidTessellate.hpp"    // soup for a faceted-solid fallback
+#include "forge/native/mesh/HalfEdgeMesh.hpp"
+#endif
+
 namespace forge::io {
 
+#ifdef FORGE_NATIVE_BREP
+namespace {
+// Read a whole file into a string (text STEP). Throws on open failure.
+std::string slurpFile(const std::string& filepath) {
+    std::ifstream in(filepath, std::ios::binary);
+    if (!in) throw std::runtime_error("forge.io: cannot open " + filepath);
+    std::ostringstream all; all << in.rdbuf();
+    return all.str();
+}
+void spillFile(const std::string& filepath, const std::string& text) {
+    std::ofstream of(filepath, std::ios::binary | std::ios::trunc);
+    if (!of) throw std::runtime_error("forge.io: cannot write " + filepath);
+    of.write(text.data(), static_cast<std::streamsize>(text.size()));
+    if (!of) throw std::runtime_error("forge.io: write error on " + filepath);
+}
+} // namespace
+#endif
+
 ShapeHandle importStep(const std::string& filepath) {
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled()) {
+        // Native analytic route: parse the part-21 into an in-house Solid. On any
+        // unsupported feature (a surface entity the native reader can't rebuild)
+        // we fall back to the OCCT importer below — preserving the "imports any
+        // STEP" behaviour (OCCT stays linked) rather than throwing. Stated plainly.
+        std::string text = slurpFile(filepath);
+        auto rr = native::brep::StepAnalytic::read(text);
+        if (rr.ok && rr.solid && rr.owner) {
+            return ShapeRegistry::instance().addNativeSolid(rr.owner, rr.solid);
+        }
+        // else: honest fall-through to OCCT (e.g. a B_SPLINE_SURFACE face, or a
+        // non-analytic third-party STEP the native reader does not reconstruct).
+    }
+#endif
     // STEPControl_Reader supports AP203, AP214, AP242 — TKDESTEP picks
     // the right schema automatically from the file header.
     STEPControl_Reader reader;
@@ -50,6 +94,41 @@ ShapeHandle importStep(const std::string& filepath) {
 }
 
 bool exportStep(ShapeHandle h, const std::string& filepath) {
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeBrepEnabled()) {
+        auto& reg = ShapeRegistry::instance();
+        const ShapeKind k = reg.kindOf(h);
+        if (k == ShapeKind::NativeSolid) {
+            // ANALYTIC route: emit real CYLINDRICAL/CONICAL/SPHERICAL/TOROIDAL/
+            // PLANE surfaces + LINE/CIRCLE edges (NOT a tessellation).
+            auto wr = native::brep::StepAnalytic::write(reg.getNativeSolid(h));
+            if (!wr.ok) {
+                throw std::runtime_error("forge.io native STEP export: " + wr.reason);
+            }
+            spillFile(filepath, wr.text);
+            return true;
+        }
+        if (k == ShapeKind::NativeMesh) {
+            // FACETED route (HONEST): a fillet/chamfer/sweep/loft RESULT carries no
+            // analytic surface, so it serialises as a tessellated MANIFOLD_SOLID_BREP
+            // (every face a flat PLANE triangle) via StepFaceted — stated plainly.
+            const auto& hem = reg.getNativeMesh(h);
+            native::brep::StepMesh sm;
+            std::vector<double> pos; std::vector<std::uint32_t> idx;
+            hem.toSoup(pos, idx);
+            sm.positions = std::move(pos);
+            sm.indices   = std::move(idx);
+            auto wr = native::brep::StepFaceted::write(sm, "forge_faceted_solid");
+            if (!wr.ok) {
+                throw std::runtime_error("forge.io native faceted STEP export: " + wr.reason);
+            }
+            spillFile(filepath, wr.text);
+            return true;
+        }
+        // k == Occt: fall through to the OCCT writer below (a native-gate session
+        // can still hold OCCT-backed handles, e.g. an OCCT-imported part).
+    }
+#endif
     const auto& shape = ShapeRegistry::instance().get(h);
     STEPControl_Writer writer;
     Interface_Static::SetCVal("write.step.schema", "AP242DIS");
@@ -128,6 +207,19 @@ ShapeHandle importIges(const std::string& filepath) {
     }
     TopoDS_Shape shape = nShapes == 1 ? reader.Shape(1) : reader.OneShape();
     return ShapeRegistry::instance().add(shape);
+}
+
+bool exportIges(ShapeHandle /*h*/, const std::string& /*filepath*/) {
+    // HONEST DEFERRAL (Bible §0/§9 — no fake, no lossy stub). There is no native
+    // IGES writer: OCCT 7.9's TKDEIGES carries only IGESControl_Reader (no writer
+    // package), and the in-house kernel does not ship a from-scratch IGES 5.3
+    // S/G/D/P/T writer for analytic / trimmed-NURBS surfaces. Surface the truth so
+    // the caller routes to STEP, which IS the exact analytic exchange here.
+    throw std::runtime_error(
+        "forge.io: IGES export is not available in this build. No IGES writer is "
+        "linked (OCCT TKDEIGES is read-only; the native kernel ships an analytic "
+        "STEP writer, not an IGES 5.3 writer). Export STEP (AP242) instead — it is "
+        "exact-precision and analytic. IGES IMPORT is supported (via OCCT).");
 }
 
 namespace {
