@@ -29,15 +29,24 @@
 //   moments; the cylinder face exact-to-rounding Gauss-Legendre over the quadric).
 //
 // HONEST SCOPE (Bible §0/§9 — REAL, no MVP/stub/fake; explicit boundary):
-//   THIS INCREMENT: a single CONVEX, AXIS-ALIGNED-FREE but STRAIGHT edge shared by
-//   exactly two PLANAR faces, constant radius R, with R small enough that both
-//   tangent lines stay strictly inside their faces (no overflow). The two faces
-//   may meet at ANY convex dihedral; the canonical gate is the 90° box edge.
+//   THIS FAMILY NOW COVERS (each REAL, exact-mass-validated):
+//     * a single CONVEX straight edge between two PLANAR faces (the original gate)
+//       — fillet REMOVES (1 - pi/4) R^2 L of material;
+//     * a single CONCAVE (reflex) straight edge between two PLANAR faces (an L-block
+//       inner edge) — the rolling ball sits on the OUTSIDE of the corner, so the
+//       fillet ADDS (1 - pi/4) R^2 L of material; convex-vs-concave is decided from
+//       the face normals + a material-side reference, then the cylinder centre and
+//       the re-trim flip side accordingly;
+//     * an EDGE CHAIN — a connected set of box edges filleted in ONE call; each
+//       edge gets its own cylindrical patch + exact quarter-disk caps, sewn into one
+//       closed solid. Where two filleted edges meet at a SHARED VERTEX this pass
+//       does NOT fabricate a (subtly-wrong) corner blend: the per-edge caps keep the
+//       corner watertight and the vertex is reported HONESTLY in `unblendedCorners`
+//       (its position + the meeting edges) for a later setback/spherical-corner pass.
 //   EXPLICIT FOLLOW-UPS (NOT built here, surfaced in `reason`, never faked):
-//     * concave (reflex) edges,
+//     * the spherical / setback VERTEX BLEND at a shared chain corner,
 //     * curved adjacent faces (cylinder/cone/sphere/NURBS — the contact becomes a
 //       torus/pipe surface, not a cylinder),
-//     * edge CHAINS and the corner SETBACK / vertex-blend where three fillets meet,
 //     * variable / law-controlled radius.
 //
 // Pure C++20, ZERO external dependencies (stdlib + existing forge native brep
@@ -47,6 +56,8 @@
 
 #ifndef FORGE_NATIVE_BREP_FILLETANALYTIC_HPP
 #define FORGE_NATIVE_BREP_FILLETANALYTIC_HPP
+
+#include <vector>
 
 #include "forge/native/brep/Topology.hpp"   // Point3, Solid, TopologyBuilder, Surface
 #include "forge/native/brep/Surface.hpp"    // Vec3 helpers, SurfaceKind
@@ -103,6 +114,68 @@ struct AnalyticFilletResult {
 AnalyticFilletResult filletBoxEdgeAnalytic(TopologyBuilder& tb,
                                            double L, double R,
                                            int edgeIndex = 4);
+
+// ---------------------------------------------------------------------------
+// filletLBlockEdgeAnalytic — CONCAVE (reflex) constant-radius rolling-ball fillet.
+//
+// Builds the canonical L-PRISM: the L-shaped cross-section
+//     (0,0) (W,0) (W,h) (t,h) (t,D) (0,D)
+// (a width-W, depth-D rectangle with the top-right (x>t, y>h) notch removed)
+// extruded along +Z by Lz. Its single REFLEX (interior 270°) edge runs along Z at
+// (t,h) and is shared by the planar face A (y = h, x in [t,W], outward +Y) and the
+// planar face B (x = t, y in [h,D], outward +X). Because the dihedral is reflex,
+// the rolling ball of radius R sits in the EMPTY notch on the OUTSIDE of the corner
+// (centre at (t+R, h+R)); the concave cylindrical fillet patch ADDS the quarter-
+// round of material between the sharp notch and the rolled ball:
+//     filleted volume = V_Lblock + (1 - pi/4) R^2 Lz   (material ADDED).
+// The two adjacent faces are re-trimmed OUTWARD to their tangent lines, the two
+// end cross-sections get an L-polygon + quarter-disk fill, and everything is sewn
+// into a closed 2-manifold whose mass the analytic integrator measures EXACTLY.
+//
+// Requires W,D,Lz > 0; 0 < t < W; 0 < h < D; and R > 0 with R <= W - t, R <= D - h
+// (the fillet must fit inside the notch) and R <= t, R <= h (the tangent lines stay
+// on the L's legs). `ok` is false with a `reason` for any out-of-scope input.
+// ---------------------------------------------------------------------------
+AnalyticFilletResult filletLBlockEdgeAnalytic(TopologyBuilder& tb,
+                                              double W, double D, double t, double h,
+                                              double Lz, double R);
+
+// ---------------------------------------------------------------------------
+// AnalyticChainFilletResult — output of filleting a CONNECTED SET of box edges in
+// one call. Each requested edge becomes its own cylindrical patch + quarter-disk
+// caps; the whole assembly is sewn into one closed solid. A SHARED VERTEX where two
+// filleted edges meet is NOT blended this pass (an honest scope boundary): it is
+// reported in `unblendedCorners` for a later setback/spherical-corner increment.
+// ---------------------------------------------------------------------------
+struct UnblendedCorner {
+    Vec3 position{};            // the shared box corner where >=2 filleted edges meet
+    int  cornerIndex = -1;      // box corner index 0..7
+    int  edgeA = -1, edgeB = -1; // two of the meeting filleted edge indices
+    int  meetingFilletCount = 0; // how many requested edges touch this corner
+};
+
+struct AnalyticChainFilletResult {
+    bool   ok = false;
+    Solid* solid = nullptr;     // the filleted closed 2-manifold solid (owned by tb)
+
+    int    filletedEdgeCount = 0;          // how many edges were filleted
+    std::vector<Face*> filletFaces;        // one cylinder patch per filleted edge
+    std::vector<UnblendedCorner> unblendedCorners; // shared vertices left sharp (honest)
+
+    double radius = 0.0;        // R
+    double removedVolume = 0.0; // total (1 - pi/4) R^2 (sum of edge lengths) removed
+    const char* reason = "";
+};
+
+// filletBoxEdgeChainAnalytic — fillet a connected SET of CONVEX box edges (indices
+// into the 0..11 enumeration) in one call. The edges should form a connected chain
+// (e.g. {4,5} share top corner v5); disjoint edges are also accepted (then there
+// are no shared vertices to report). All edges are CONVEX box edges (the concave
+// case has its own L-block entry point). Each requested edge is re-trimmed + capped
+// exactly like the single-edge path; shared vertices are reported, not faked.
+AnalyticChainFilletResult filletBoxEdgeChainAnalytic(TopologyBuilder& tb,
+                                                     double L, double R,
+                                                     const std::vector<int>& edgeIndices);
 
 } // namespace brep
 } // namespace native
