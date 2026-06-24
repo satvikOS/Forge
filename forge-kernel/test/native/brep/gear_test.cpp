@@ -156,9 +156,116 @@ int main() {
               "volume re-measure consistent");
     }
 
+    // =======================================================================
+    // (5) INTERNAL / RING GEAR — m=2, N=40. Teeth point INWARD. pitch dia == m*N
+    //     exactly; addendum radius < pitch radius; 40 internal tooth spaces; closed
+    //     2-manifold.
+    // =======================================================================
+    std::printf("\n== INTERNAL (ring) gear: m=2, N=40 ==\n");
+    GearSpec ispec;
+    ispec.gearType      = GearType::Internal;
+    ispec.module        = 2.0;
+    ispec.teeth         = 40;
+    ispec.pressureAngle = 20.0 * PI / 180.0;
+    ispec.faceWidth     = 10.0;
+    ispec.boreRadius    = 0.0;        // a ring gear: no central bore (the toothed bore IS the hole)
+    ispec.rimOuterRadius= 0.0;        // default rp + 2.5*m rim wall
+    ispec.flankSamples  = 24;
+
+    GearGeometry ig = gearDimensions(ispec);
+    const double iDExpect = ispec.module * (double)ispec.teeth; // 2*40 = 80
+    std::printf("  pitch diameter d = m*N = %.17g  (expect %.17g)\n",
+                ig.pitchDiameter, iDExpect);
+    check(ig.pitchDiameter == iDExpect, "internal: pitch diameter == m*N exactly");
+    check(ig.pitchDiameter == 80.0,     "internal: pitch diameter == 80 exactly");
+    std::printf("  inner-tip(addendum) r=%.6f  pitch r=%.6f  outer-root(dedendum) r=%.6f  rim r=%.6f\n",
+                ig.addendumRadius, ig.pitchRadius, ig.rootRadius, ig.rimOuterRadius);
+    check(ig.addendumRadius < ig.pitchRadius,
+          "internal: teeth point INWARD (addendum radius < pitch radius)");
+    check(ig.rootRadius > ig.pitchRadius,
+          "internal: dedendum (outer root) radius > pitch radius");
+    check(ig.rimOuterRadius > ig.rootRadius,
+          "internal: solid rim outside the dedendum");
+
+    GearResult IR = buildInternalGear(ispec);
+    std::printf("  buildInternalGear ok=%d reason=\"%s\"\n", (int)IR.ok, IR.reason);
+    check(IR.ok, "internal: buildInternalGear succeeded (ok)");
+    std::printf("  internal tooth count = %d  (expect %d)\n", IR.toothCount, ispec.teeth);
+    check(IR.toothCount == ispec.teeth, "internal: exactly N=40 internal tooth spaces");
+    if (IR.ok) {
+        check(IR.closedManifold, "internal: ring gear solid is a closed 2-manifold");
+        std::printf("  internal V=%zu E=%zu F=%zu  volume=%.6f\n",
+                    IR.vertices, IR.edges, IR.faces, IR.volume);
+        // Volume sanity: a solid annulus rim minus the toothed bore is bracketed by
+        //   lower = (rim disk - dedendum-circle disk) * w   (no inward teeth at all)
+        //   upper = (rim disk - addendum-circle disk) * w   (bore down to the tips)
+        const double w = ispec.faceWidth;
+        const double vLower = (PI*ig.rimOuterRadius*ig.rimOuterRadius - PI*ig.rootRadius*ig.rootRadius)*w;
+        const double vUpper = (PI*ig.rimOuterRadius*ig.rimOuterRadius - PI*ig.addendumRadius*ig.addendumRadius)*w;
+        std::printf("  internal volume band [%.6f, %.6f]\n", vLower, vUpper);
+        check(IR.volume > vLower && IR.volume < vUpper,
+              "internal: volume within [rim-dedendum, rim-addendum] band");
+        MassProps imp = massProperties(*IR.solid, 8);
+        check(std::fabs(imp.volume - IR.volume) <= 1e-6 * IR.volume,
+              "internal: volume re-measure consistent");
+    }
+
+    // =======================================================================
+    // (6) BEVEL GEAR — m=3, N=20, pitch-cone angle 45 deg. Back-cone pitch dia ==
+    //     m*N; teeth taper toward the apex; closed 2-manifold.
+    // =======================================================================
+    std::printf("\n== BEVEL gear: m=3, N=20, cone angle 45 deg ==\n");
+    GearSpec bspec;
+    bspec.gearType       = GearType::Bevel;
+    bspec.module         = 3.0;
+    bspec.teeth          = 20;
+    bspec.pressureAngle  = 20.0 * PI / 180.0;
+    bspec.faceWidth      = 8.0;            // slant band of the teeth (< cone distance)
+    bspec.boreRadius     = 0.0;
+    bspec.pitchConeAngle = 45.0 * PI / 180.0;
+    bspec.flankSamples   = 24;
+
+    GearGeometry bg = gearDimensions(bspec);
+    const double bDExpect = bspec.module * (double)bspec.teeth; // 3*20 = 60
+    std::printf("  back-cone pitch diameter d = m*N = %.17g  (expect %.17g)\n",
+                bg.pitchDiameter, bDExpect);
+    check(bg.pitchDiameter == bDExpect, "bevel: back-cone pitch diameter == m*N exactly");
+    check(bg.pitchDiameter == 60.0,     "bevel: back-cone pitch diameter == 60 exactly");
+    std::printf("  back-cone pitch r=%.6f  addendum r=%.6f  root r=%.6f  cone angle=%.6f rad  coneDist R=%.6f\n",
+                bg.pitchRadius, bg.addendumRadius, bg.rootRadius, bg.pitchConeAngle, bg.coneDistance);
+    check(bg.addendumRadius > bg.rootRadius, "bevel: addendum radius > root radius (teeth point out)");
+    check(bg.coneDistance > 0.0, "bevel: positive cone distance R = rp/sin(gamma)");
+
+    GearResult BR = buildBevelGear(bspec);
+    std::printf("  buildBevelGear ok=%d reason=\"%s\"\n", (int)BR.ok, BR.reason);
+    check(BR.ok, "bevel: buildBevelGear succeeded (ok)");
+    std::printf("  bevel tooth count = %d  (expect %d)\n", BR.toothCount, bspec.teeth);
+    check(BR.toothCount == bspec.teeth, "bevel: exactly N=20 teeth on the back cone");
+    if (BR.ok) {
+        check(BR.closedManifold, "bevel: bevel gear solid is a closed 2-manifold");
+        std::printf("  bevel V=%zu E=%zu F=%zu  volume=%.6f\n",
+                    BR.vertices, BR.edges, BR.faces, BR.volume);
+        // TAPER check: the small-end ring radius is strictly smaller than the back
+        // ring radius at every matched vertex (the cone-similar shrink). Re-derive
+        // the scale and assert 0 < scale < 1 (teeth taper toward the apex).
+        const double Rcone = bg.coneDistance;
+        const double scale = (Rcone - bspec.faceWidth) / Rcone;
+        std::printf("  bevel taper scale (small/back) = %.6f  (0<scale<1 => teeth taper)\n", scale);
+        check(scale > 0.0 && scale < 1.0, "bevel: teeth taper toward the apex (0 < scale < 1)");
+        MassProps bmp = massProperties(*BR.solid, 8);
+        check(std::fabs(bmp.volume - BR.volume) <= 1e-6 * BR.volume,
+              "bevel: volume re-measure consistent");
+    }
+
     std::printf("\n== gear_test: %d/%d checks passed ==\n", g_pass, g_total);
-    // Literal report line the parent asked for:
-    std::printf("REPORT  pitchDia=%.17g  teeth=%d  involuteResidual=%.3e\n",
-                g.pitchDiameter, R.toothCount, maxResid);
+    // Literal report lines the parent asked for (one per gear family):
+    std::printf("REPORT  external  pitchDia=%.17g  teeth=%d  manifold=%d  involuteResidual=%.3e\n",
+                g.pitchDiameter, R.toothCount, (int)R.closedManifold, maxResid);
+    std::printf("REPORT  internal  pitchDia=%.17g  teeth=%d  manifold=%d  addendumR=%.6f<pitchR=%.6f=%d\n",
+                ig.pitchDiameter, IR.toothCount, (int)IR.closedManifold,
+                ig.addendumRadius, ig.pitchRadius, (int)(ig.addendumRadius < ig.pitchRadius));
+    std::printf("REPORT  bevel     backConePitchDia=%.17g  teeth=%d  manifold=%d  coneAngle=%.6f  taper=%.6f\n",
+                bg.pitchDiameter, BR.toothCount, (int)BR.closedManifold,
+                bg.pitchConeAngle, (bg.coneDistance - bspec.faceWidth) / bg.coneDistance);
     return (g_pass == g_total) ? 0 : 1;
 }

@@ -104,9 +104,32 @@ namespace native {
 namespace brep {
 
 // ---------------------------------------------------------------------------
+// GearType — the gear FAMILY this spec describes (ADDITIVE; External is the
+// original, unchanged behaviour and the default so every existing caller is
+// byte-identical). The gear-family completion for the CADGenBench planetary-gear
+// part type adds the two meshing partners of a planet:
+//   * External — a standard external involute spur gear (teeth point OUTWARD).
+//   * Internal — a RING gear: an annular rim whose teeth point INWARD; the tooth
+//                space is the external-tooth shape, the rim is solid OUTSIDE the
+//                (inward) addendum. This is the ring that a planet meshes against.
+//   * Bevel    — a STRAIGHT bevel gear: the involute profile lies on the BACK
+//                CONE (pitch-cone angle) and the teeth taper toward the apex.
+//
+// HONEST SCOPE of this increment: straight bevel + internal spur. SPIRAL bevel,
+// HELICAL-internal and HYPOID are named follow-ups (not faked here).
+// ---------------------------------------------------------------------------
+enum class GearType {
+    External = 0,  // original external involute spur gear (unchanged)
+    Internal = 1,  // ring / annulus gear (teeth point inward)
+    Bevel    = 2   // straight bevel gear (teeth on the back cone, taper to apex)
+};
+
+// ---------------------------------------------------------------------------
 // GearSpec — the defining parameters of a standard external involute spur gear.
 // ---------------------------------------------------------------------------
 struct GearSpec {
+    GearType gearType   = GearType::External; // ADDITIVE; default keeps External
+
     double module       = 2.0;   // m  (mm of pitch diameter per tooth)
     int    teeth        = 20;    // N  (tooth count, >= 4 for a sane involute gear)
     double pressureAngle = 0.34906585039886591; // alpha (rad) = 20 degrees
@@ -118,6 +141,19 @@ struct GearSpec {
     // involute-equation residual is checked on the analytic samples, independent of
     // this count). The mass/volume is exact for the extruded prism regardless.
     int    flankSamples = 24;
+
+    // INTERNAL (ring) gear only: the OUTER rim radius of the annulus (the rim OD/2).
+    // The teeth (the inner toothed bore) point inward; the rim is solid from the
+    // (outward) dedendum circle out to rimOuterRadius. Must exceed the internal
+    // dedendum radius (rp + 1.25*m). 0 => default rp + 2.5*m (a sane rim wall).
+    double rimOuterRadius = 0.0;
+
+    // BEVEL gear only: the PITCH-CONE ANGLE gamma (rad) measured from the gear axis
+    // to the pitch cone. A 45-degree pitch-cone bevel meshing an equal mate uses
+    // gamma = pi/4. The back-cone pitch radius equals m*N/2 (so the back-cone pitch
+    // diameter == m*N exactly); faceWidth is the cone-distance band of the teeth
+    // (the slant extent from the back cone toward the apex).
+    double pitchConeAngle = 0.78539816339744831; // pi/4 = 45 degrees
 };
 
 // ---------------------------------------------------------------------------
@@ -128,10 +164,23 @@ struct GearGeometry {
     double pitchDiameter = 0.0;  // d  = m*N         (EXACT)
     double pitchRadius   = 0.0;  // rp = d/2
     double baseRadius    = 0.0;  // r_base = rp*cos(alpha)
-    double addendumRadius= 0.0;  // ra = rp + m
-    double rootRadius    = 0.0;  // rf = rp - 1.25*m
+    double addendumRadius= 0.0;  // ra = rp + m       (External/Bevel: outward tip)
+                                 //                   (Internal: rp - m, INWARD tip)
+    double rootRadius    = 0.0;  // rf = rp - 1.25*m  (External/Bevel: inward root)
+                                 //                   (Internal: rp + 1.25*m, OUTWARD root)
     double circularPitch = 0.0;  // p  = pi*m
     double toothAngle    = 0.0;  // 2*pi/N  (angular pitch per tooth)
+
+    // INTERNAL (ring) gear: the solid annular rim's outer radius (rim OD/2). 0 for
+    // External/Bevel. For an Internal gear addendumRadius < pitchRadius < rootRadius
+    // (the teeth point inward) and rimOuterRadius > rootRadius.
+    double rimOuterRadius = 0.0;
+
+    // BEVEL gear: the pitch-cone half-angle gamma (rad). 0 for External/Internal.
+    // The BACK-CONE pitch radius equals pitchRadius (so the back-cone pitch diameter
+    // == m*N exactly); coneDistance is the slant length from apex to the back cone.
+    double pitchConeAngle = 0.0;
+    double coneDistance   = 0.0; // R = pitchRadius / sin(gamma)  (apex->back-cone)
 };
 
 // Derive the standard full-depth involute-gear dimensions from a spec. Pure math,
@@ -206,20 +255,42 @@ struct GearResult {
 };
 
 // ===========================================================================
-// buildGear — the part op. Build the standard external involute spur gear solid.
-// ===========================================================================
-//
-// 1. derive the standard dimensions (gearDimensions),
-// 2. assemble the full toothed outer rim from N involute-tooth profiles placed by
-//    the EXACT circular-pattern rotations (Pattern::patternTransforms, Circular),
-// 3. extrude that closed profile to the face width as a prism: bottom + top
-//    ANNULAR caps (the bore is an inner loop on each cap), and one planar side
-//    wall per outer-profile edge (analytic Plane) + one Cylinder bore wall,
-// 4. validate closed-2-manifold + strictly-positive divergence-theorem volume.
+// buildGear — the part op. Dispatches on spec.gearType:
+//   External (default, unchanged) — the standard external involute spur gear:
+//     1. derive the standard dimensions (gearDimensions),
+//     2. assemble the full toothed outer rim from N involute-tooth profiles placed
+//        by the EXACT circular-pattern rotations (Pattern, Circular),
+//     3. extrude that closed profile to the face width as a prism: bottom + top
+//        ANNULAR caps (bore as inner loop), planar flank side walls + Cylinder bore,
+//     4. validate closed-2-manifold + strictly-positive divergence-theorem volume.
+//   Internal — buildInternalGear (ring gear; teeth point inward).
+//   Bevel    — buildBevelGear (straight bevel; teeth on the back cone, taper).
 //
 // Returns GearResult; on the first structural failure returns ok=false with the
 // failing reason (never a wrong solid).
 GearResult buildGear(const GearSpec& spec);
+
+// ---------------------------------------------------------------------------
+// buildInternalGear — the RING (internal/annulus) gear. The teeth point INWARD:
+// the inner toothed boundary is the involute tooth profile with the addendum at the
+// SMALLER radius (ra = rp - m, toward the axis) and the dedendum at the LARGER
+// radius (rf = rp + 1.25*m, away from the axis); the rim is SOLID from rf out to
+// rimOuterRadius. Built as a prism whose OUTER loop is the plain rim circle and
+// whose INNER loop is the N-tooth-space toothed profile, with planar caps, a
+// Cylinder rim wall and planar inner toothed walls (normals facing into the void).
+// Equivalent to: (rim cylinder of rimOuterRadius) MINUS (N internal-tooth-space
+// profile extruded). pitchDiameter == m*N exactly; addendumRadius < pitchRadius.
+GearResult buildInternalGear(const GearSpec& spec);
+
+// ---------------------------------------------------------------------------
+// buildBevelGear — a STRAIGHT bevel gear. The involute tooth profile lies on the
+// BACK CONE at pitch radius rp = m*N/2 (back-cone pitch diameter == m*N exactly),
+// and the teeth TAPER toward the apex along the pitch cone (pitchConeAngle gamma).
+// Built as a lofted toothed frustum: the back-cone toothed cross-section (large)
+// and a geometrically-similar toothed cross-section scaled toward the apex (small)
+// are joined by ruled planar side walls, with planar caps + a Cylinder/cone bore.
+// The teeth shrink in proportion to the cone radius, so they taper to the apex side.
+GearResult buildBevelGear(const GearSpec& spec);
 
 } // namespace brep
 } // namespace native

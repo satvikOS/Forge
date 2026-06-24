@@ -450,6 +450,7 @@ add_library(forge_kernel SHARED
     src/native/brep/NurbsCalculus.cpp
     src/native/brep/NurbsSurface.cpp   # surfit dep: brep::evaluateWithDerivatives
     src/native/brep/SurfaceFill.cpp     # class-A surface fill — G1 bicubic Coons/Gordon patch (4-sided, exact boundary + cross-tangent interpolation)
+    src/native/brep/GregoryFill.cpp     # class-A n-sided G1 Gregory hole-fill (3/5/6-sided, Boolean-sum Coons sub-patches, watertight + G1)
     src/native/brep/Topology.cpp
     src/native/brep/Curve.cpp           # K0 — tagged Curve/PCurve geometry + tolerance attrs (Wave-1)
     src/native/brep/NurbsAlgebra.cpp    # K1.1 — NURBS algebra: elevate/knot-ops/curvature/iso/projection (Wave-1)
@@ -539,6 +540,7 @@ add_library(forge_kernel SHARED
     # Materials.cpp ONCE (am + composites both #include it, single .o links all).
     src/native/geom/AABBTree.cpp
     src/native/voxel/VoxelBoolean.cpp
+    src/native/voxel/VoxelFieldOps.cpp      # PicoGK — voxel-field ops: SDF offset/grow-shrink + shell/hollow + smooth-union(metaball fillet) + mesh<->SDF
     src/native/tolstack/Tolstack.cpp
     src/native/vvuq/Vvuq.cpp
     src/native/materials/Materials.cpp
@@ -562,6 +564,7 @@ add_library(forge_kernel SHARED
     src/native/implicit/SdfLibrary.cpp
     src/native/implicit/SdfOps.cpp
     src/native/implicit/FRepTree.cpp
+    src/native/implicit/IntervalMesh.cpp    # libfive — interval-arithmetic guaranteed meshing: interval-pruned octree + topology-aware dual contour (no missed thin features)
     src/native/implicit/MeshToFRep.cpp
     src/native/voxel/Lattice.cpp
     src/native/voxel/Morphology.cpp

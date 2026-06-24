@@ -775,10 +775,9 @@ static void testBicubicExport() {
     check(worst <= 1e-9, "exported bicubic Bezier == analytic Coons patch (<=1e-9)");
 }
 
-int main() {
-    std::random_device rd;
-    const std::uint64_t seed =
-        (static_cast<std::uint64_t>(rd()) << 32) ^ static_cast<std::uint64_t>(rd());
+#include <cstdlib>
+int main(int argc, char** argv) {
+    const std::uint64_t seed = (argc > 1) ? static_cast<std::uint64_t>(std::strtoull(argv[1], nullptr, 10)) : 20260624ull;
     std::printf("=== CLASS-A surface fill (G1 Coons) gate ===  seed=%llu\n",
                 static_cast<unsigned long long>(seed));
 

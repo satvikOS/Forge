@@ -211,6 +211,115 @@ std::vector<Vec3> oneToothCCW(const GearSpec& spec, const GearGeometry& g) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// oneInternalToothCCW — ONE tooth period of an INTERNAL (ring) gear's inner
+// toothed boundary, centred on +X, traversed CCW (so concatenating N circular-
+// pattern copies makes one closed CCW ring used as the cap's INNER loop). The
+// teeth point INWARD: the addendum (tip) sits at the SMALLER radius ra (toward the
+// axis), the dedendum (root) at the LARGER radius rf (away from the axis). The
+// involute flank still satisfies the exact closed-form involute of the base circle
+// (same parametric x(t),y(t)); only the radial band it spans is inverted (it runs
+// from the inner tip up to the outer root). Mirrors oneToothCCW's structure with
+// ra<->rf swapped so the same circular-pattern + extrude machinery applies.
+// ---------------------------------------------------------------------------
+std::vector<Vec3> oneInternalToothCCW(const GearSpec& spec, const GearGeometry& g) {
+    const double rBase = g.baseRadius;
+    const double raTip = g.addendumRadius;   // INNER tip (small, < rp)
+    const double rfRoot= g.rootRadius;        // OUTER root (large, > rp)
+    const double rp    = g.pitchRadius;
+    const int    Nsamp = std::max(4, spec.flankSamples);
+
+    // The involute flank exists only for r >= rBase. The inner tip ra may dip below
+    // the base circle (rp - m can be < rp*cos(alpha) for small alpha); in that case
+    // the involute begins at the base circle and a short radial segment completes
+    // down to the tip arc. flankStartR is where the involute begins (the inner end).
+    const double flankStartR = std::max(rBase, raTip);
+
+    const double tStart = involuteParamForRadius(rBase, flankStartR); // inner end
+    const double tTip   = involuteParamForRadius(rBase, rfRoot);      // OUTER (root) end
+
+    auto invAngle = [](double t) -> double { return t - std::atan(t); };
+    const double tp        = involuteParamForRadius(rBase, rp);
+    const double halfTooth = kPi / (2.0 * spec.teeth);
+    const double rRot      = -halfTooth - invAngle(tp);
+
+    auto rightFlankPt = [&](double t) -> Vec3 {
+        Vec3 p = involutePoint(rBase, t);
+        return rotZ(p, rRot);
+    };
+    auto leftFlankPt = [&](double t) -> Vec3 {
+        Vec3 p = rightFlankPt(t);
+        return Vec3{p.x, -p.y, 0.0};
+    };
+
+    std::vector<Vec3> out;
+    out.reserve(static_cast<std::size_t>(2 * Nsamp + 6));
+
+    // (0) If the tip ra is BELOW the base circle, prepend a short radial run on the
+    //     right side from the true inner tip (ra) up to where the involute starts.
+    const bool tipBelowBase = (raTip < rBase - 1e-12);
+    auto rightTipRadial = rightFlankPt(tStart); // involute start point on right side
+    double rightTipAngle = std::atan2(rightTipRadial.y, rightTipRadial.x);
+
+    // (1) RIGHT flank: from the INNER tip (tStart) out to the OUTER root (tTip).
+    if (tipBelowBase) {
+        // radial point at the tip radius on the same ray as the involute start.
+        out.push_back(Vec3{raTip * std::cos(rightTipAngle),
+                           raTip * std::sin(rightTipAngle), 0.0});
+    }
+    for (int i = 0; i <= Nsamp; ++i) {
+        double t = tStart + (tTip - tStart) * (double)i / Nsamp;
+        out.push_back(rightFlankPt(t));
+    }
+    // (2) OUTER ROOT arc (at rf) across the back of the tooth space, right->left.
+    {
+        Vec3 rEnd = rightFlankPt(tTip);
+        Vec3 lEnd = leftFlankPt(tTip);
+        double aR = std::atan2(rEnd.y, rEnd.x);
+        double aL = std::atan2(lEnd.y, lEnd.x);
+        if (aL < aR) aL += 2.0 * kPi;
+        const int arcSeg = std::max(2, Nsamp / 3);
+        for (int i = 1; i < arcSeg; ++i) {
+            double a = aR + (aL - aR) * (double)i / arcSeg;
+            out.push_back(Vec3{rfRoot * std::cos(a), rfRoot * std::sin(a), 0.0});
+        }
+    }
+    // (3) LEFT flank: OUTER root (tTip) back down to the INNER tip (tStart).
+    for (int i = 0; i <= Nsamp; ++i) {
+        double t = tTip - (tTip - tStart) * (double)i / Nsamp;
+        out.push_back(leftFlankPt(t));
+    }
+    if (tipBelowBase) {
+        Vec3 lStart = leftFlankPt(tStart);
+        double aL = std::atan2(lStart.y, lStart.x);
+        out.push_back(Vec3{raTip * std::cos(aL), raTip * std::sin(aL), 0.0});
+    }
+    // (4) INNER TIP arc (at ra) from the left tip of THIS tooth to the right tip of
+    //     the NEXT tooth (the inward-pointing tooth crest between two spaces).
+    {
+        Vec3 lTip = tipBelowBase
+                        ? Vec3{raTip * std::cos(std::atan2(leftFlankPt(tStart).y,
+                                                           leftFlankPt(tStart).x)),
+                               raTip * std::sin(std::atan2(leftFlankPt(tStart).y,
+                                                           leftFlankPt(tStart).x)), 0.0}
+                        : leftFlankPt(tStart);
+        double aFrom = std::atan2(lTip.y, lTip.x);
+        Vec3 rTipNext = rotZ(tipBelowBase
+                                 ? Vec3{raTip * std::cos(rightTipAngle),
+                                        raTip * std::sin(rightTipAngle), 0.0}
+                                 : rightFlankPt(tStart),
+                             g.toothAngle);
+        double aTo = std::atan2(rTipNext.y, rTipNext.x);
+        if (aTo < aFrom) aTo += 2.0 * kPi;
+        const int tipSeg = std::max(2, Nsamp / 3);
+        for (int i = 1; i < tipSeg; ++i) {
+            double a = aFrom + (aTo - aFrom) * (double)i / tipSeg;
+            out.push_back(Vec3{raTip * std::cos(a), raTip * std::sin(a), 0.0});
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 // ===========================================================================
@@ -220,13 +329,35 @@ GearGeometry gearDimensions(const GearSpec& spec) {
     GearGeometry g;
     const double m = spec.module;
     const int    N = spec.teeth;
-    g.pitchDiameter = m * (double)N;              // d = m*N  (EXACT)
+    g.pitchDiameter = m * (double)N;              // d = m*N  (EXACT) — all families
     g.pitchRadius   = 0.5 * g.pitchDiameter;      // rp
     g.baseRadius    = g.pitchRadius * std::cos(spec.pressureAngle); // r_base
-    g.addendumRadius= g.pitchRadius + m;          // ra = rp + 1*m
-    g.rootRadius    = g.pitchRadius - 1.25 * m;   // rf = rp - 1.25*m
     g.circularPitch = kPi * m;                    // p = pi*m
     g.toothAngle    = 2.0 * kPi / (double)N;      // angular pitch
+
+    if (spec.gearType == GearType::Internal) {
+        // INTERNAL (ring) gear: the teeth point INWARD, so the addendum (tip) is the
+        // SMALLER radius (toward the axis) and the dedendum (root) the LARGER. The
+        // standard internal-gear proportions swap the addendum/dedendum sense:
+        //   addendum radius  ra = rp - m       (the inward tip; < rp)
+        //   dedendum radius  rf = rp + 1.25*m  (the outward root; > rp)
+        g.addendumRadius = g.pitchRadius - m;
+        g.rootRadius     = g.pitchRadius + 1.25 * m;
+        // The solid rim extends from the (outward) dedendum out to the rim OD.
+        g.rimOuterRadius = (spec.rimOuterRadius > 0.0)
+                               ? spec.rimOuterRadius
+                               : g.pitchRadius + 2.5 * m; // sane default wall
+    } else {
+        // EXTERNAL and BEVEL share the outward-tooth full-depth proportions. For a
+        // bevel these are the BACK-CONE (large-end) dimensions.
+        g.addendumRadius = g.pitchRadius + m;         // ra = rp + 1*m
+        g.rootRadius     = g.pitchRadius - 1.25 * m;  // rf = rp - 1.25*m
+        if (spec.gearType == GearType::Bevel) {
+            g.pitchConeAngle = spec.pitchConeAngle;
+            const double sg = std::sin(spec.pitchConeAngle);
+            g.coneDistance = (sg > 1e-12) ? (g.pitchRadius / sg) : 0.0; // R=rp/sin(gamma)
+        }
+    }
     return g;
 }
 
@@ -303,6 +434,10 @@ std::vector<Vec3> gearOuterProfile2D(const GearSpec& spec, const GearGeometry& g
 // Public: buildGear
 // ===========================================================================
 GearResult buildGear(const GearSpec& spec) {
+    // Dispatch on the gear FAMILY (External is the original path, byte-identical).
+    if (spec.gearType == GearType::Internal) return buildInternalGear(spec);
+    if (spec.gearType == GearType::Bevel)    return buildBevelGear(spec);
+
     GearResult R;
 
     // --- validate the spec honestly ----------------------------------------
@@ -494,6 +629,325 @@ GearResult buildGear(const GearSpec& spec) {
     R.faces = c.faces;
     R.closedManifold = true;
     R.reason = "";
+    return R;
+}
+
+namespace {
+// Shared small helpers re-used by the internal/bevel builders (same orientation
+// conventions as buildGear's local lambdas; kept here so the new builders are
+// self-contained without touching the External path).
+
+// Full toothed INNER ring of an internal gear (CCW about +Z): N internal-tooth
+// profiles placed by the EXACT circular-pattern rotations (k*toothAngle about +Z).
+std::vector<Vec3> internalInnerProfile2D(const GearSpec& spec, const GearGeometry& g) {
+    std::vector<Vec3> tooth = oneInternalToothCCW(spec, g);
+    std::vector<RigidTransform> xf = circularPatternTransforms(
+        spec.teeth, Vec3{0, 0, 0}, Vec3{0, 0, 1}, g.toothAngle);
+    std::vector<Vec3> ring;
+    ring.reserve(tooth.size() * spec.teeth);
+    for (const RigidTransform& T : xf)
+        for (const Vec3& p : tooth) ring.push_back(T.applyPoint(p));
+    return ring;
+}
+} // namespace
+
+// ===========================================================================
+// buildInternalGear — the RING gear (teeth point INWARD).
+// ===========================================================================
+GearResult buildInternalGear(const GearSpec& spec) {
+    GearResult R;
+
+    if (!(spec.module > 0.0)) { R.reason = "internal gear: module must be > 0"; return R; }
+    if (spec.teeth < 4)       { R.reason = "internal gear: tooth count must be >= 4"; return R; }
+    if (!(spec.pressureAngle > 0.0 && spec.pressureAngle < 0.5 * kPi)) {
+        R.reason = "internal gear: pressure angle must be in (0, pi/2)"; return R; }
+    if (!(spec.faceWidth > 0.0)) { R.reason = "internal gear: face width must be > 0"; return R; }
+
+    GearGeometry g = gearDimensions(spec);
+    R.geometry = g;
+
+    // Internal: ra (inner tip) < rp < rf (outer root) < rimOuter.
+    if (!(g.addendumRadius > 0.0 && g.addendumRadius < g.pitchRadius)) {
+        R.reason = "internal gear: inner addendum radius must be in (0, pitchRadius)"; return R; }
+    if (!(g.rootRadius > g.pitchRadius)) {
+        R.reason = "internal gear: outer dedendum radius must exceed pitchRadius"; return R; }
+    if (!(g.rimOuterRadius > g.rootRadius)) {
+        R.reason = "internal gear: rim outer radius must exceed the dedendum radius"; return R; }
+
+    const double w = spec.faceWidth;
+    const double rOut = g.rimOuterRadius;
+
+    // INNER toothed boundary (CCW), and an angle-matched OUTER rim circle (one rim
+    // vertex per inner vertex at the SAME polar angle) — the exact equal-count
+    // angle-matched-ring trick the External bore uses, so every cap quad is a clean
+    // radial trapezoid (never twisted) -> closed 2-manifold.
+    std::vector<Vec3> inner2D = internalInnerProfile2D(spec, g);
+    const std::size_t P = inner2D.size();
+    if (P < 3) { R.reason = "internal gear: degenerate inner profile"; return R; }
+    R.toothCount = spec.teeth;
+
+    std::vector<Vec3> outer2D; outer2D.reserve(P);
+    for (std::size_t i = 0; i < P; ++i) {
+        double a = std::atan2(inner2D[i].y, inner2D[i].x);
+        outer2D.push_back(Vec3{rOut * std::cos(a), rOut * std::sin(a), 0.0});
+    }
+
+    R.owner = std::make_shared<SolidFactory>();
+    TopologyBuilder& tb = R.owner->builder();
+    Solid* solid = tb.makeSolid();
+    Shell* shell = tb.makeShell();
+    tb.addShellToSolid(solid, shell);
+
+    std::vector<Vertex*> oBot(P), oTop(P), iBot(P), iTop(P);
+    for (std::size_t i = 0; i < P; ++i) {
+        oBot[i] = tb.makeVertex(P3(Vec3{outer2D[i].x, outer2D[i].y, 0.0}));
+        oTop[i] = tb.makeVertex(P3(Vec3{outer2D[i].x, outer2D[i].y, w}));
+        iBot[i] = tb.makeVertex(P3(Vec3{inner2D[i].x, inner2D[i].y, 0.0}));
+        iTop[i] = tb.makeVertex(P3(Vec3{inner2D[i].x, inner2D[i].y, w}));
+    }
+
+    // OUTER rim wall — analytic Cylinder, P angle-matched sectors, OUTWARD normal.
+    {
+        Surface* rimSurf = tb.makeSurface();
+        rimSurf->kind = SurfaceKind::Cylinder;
+        rimSurf->origin = {0, 0, 0};
+        rimSurf->axis = {0, 0, 1};
+        rimSurf->refDir = {1, 0, 0};
+        rimSurf->r1 = rOut; rimSurf->param = w;
+        rimSurf->reversed = false; // faces away from the axis (outward)
+        for (std::size_t i = 0; i < P; ++i) {
+            std::size_t j = (i + 1) % P;
+            double a0 = std::atan2(outer2D[i].y, outer2D[i].x);
+            double a1 = std::atan2(outer2D[j].y, outer2D[j].x);
+            while (a1 <= a0) a1 += 2.0 * kPi;
+            Face* f = tb.makeFace(); tb.addFaceToShell(shell, f);
+            // forward winding (i,j,...) for an outward wall.
+            std::vector<Vertex*> ring = {oBot[i], oBot[j], oTop[j], oTop[i]};
+            tb.addOuterLoopToFace(f, ring);
+            f->surface = rimSurf;
+            f->u0 = a0; f->u1 = a1; f->v0 = 0.0; f->v1 = w;
+            f->vertexUV = {{a0, 0.0}, {a1, 0.0}, {a1, w}, {a0, w}};
+        }
+    }
+
+    // INNER toothed wall — one planar quad per inner-ring edge, normal facing INTO
+    // the central void (toward the axis), split into two exact triangles.
+    for (std::size_t i = 0; i < P; ++i) {
+        std::size_t j = (i + 1) % P;
+        Vertex* a = iBot[i]; Vertex* b = iBot[j];
+        Vertex* c = iTop[j]; Vertex* d = iTop[i];
+        Vec3 mid{0.5 * (inner2D[i].x + inner2D[j].x),
+                 0.5 * (inner2D[i].y + inner2D[j].y), 0.0};
+        Vec3 inward = vnorm(Vec3{-mid.x, -mid.y, 0.0}); // toward the axis
+        // reversed winding so the wall faces inward (mirror of the outer-wall sense).
+        addTri(tb, shell, b, a, d, inward);
+        addTri(tb, shell, b, d, c, inward);
+    }
+
+    // CAPS — annular quad band between the outer rim circle and the inner toothed
+    // ring (radial trapezoids), bottom -Z and top +Z.
+    auto buildCap = [&](const std::vector<Vertex*>& rim,
+                        const std::vector<Vertex*>& inner,
+                        const Vec3& outward, bool flip) {
+        for (std::size_t i = 0; i < P; ++i) {
+            std::size_t j = (i + 1) % P;
+            Vertex* r0 = rim[i];   Vertex* r1 = rim[j];
+            Vertex* n0 = inner[i]; Vertex* n1 = inner[j];
+            if (!flip) {
+                addTri(tb, shell, r0, r1, n1, outward);
+                addTri(tb, shell, r0, n1, n0, outward);
+            } else {
+                addTri(tb, shell, r1, r0, n0, outward);
+                addTri(tb, shell, r1, n0, n1, outward);
+            }
+        }
+    };
+    buildCap(oBot, iBot, Vec3{0, 0, -1}, /*flip=*/true);
+    buildCap(oTop, iTop, Vec3{0, 0,  1}, /*flip=*/false);
+
+    if (!tb.isClosedTwoManifold()) {
+        R.reason = "internal gear: assembled solid is not a closed 2-manifold";
+        return R;
+    }
+    MassProps mp = massProperties(*solid, 8);
+    if (!(mp.volume > 0.0)) {
+        R.reason = "internal gear: non-positive volume (inverted shell)";
+        return R;
+    }
+
+    EulerCounts c = tb.counts();
+    R.ok = true; R.solid = solid; R.volume = mp.volume; R.area = mp.area;
+    R.vertices = c.vertices; R.edges = c.edges; R.faces = c.faces;
+    R.closedManifold = true; R.reason = "";
+    return R;
+}
+
+// ===========================================================================
+// buildBevelGear — a STRAIGHT bevel gear (teeth on the back cone, taper to apex).
+// ===========================================================================
+//
+// The back-cone toothed cross-section (the standard external involute profile at
+// the back-cone pitch radius rp = m*N/2) is the LARGE end; a geometrically-similar
+// profile scaled by the cone radius ratio is the SMALL end (toward the apex). The
+// two parallel rings (at z=0 and z=w along the gear axis) are joined by ruled
+// planar side walls -> a closed toothed frustum. The teeth shrink in proportion to
+// the cone radius, so they TAPER toward the apex. (Straight bevel: the SCOPE; the
+// flank lies on the back cone and is scaled radially, an honest straight-bevel
+// approximation of the spherical-involute octoid — named follow-up: true octoid.)
+GearResult buildBevelGear(const GearSpec& spec) {
+    GearResult R;
+
+    if (!(spec.module > 0.0)) { R.reason = "bevel gear: module must be > 0"; return R; }
+    if (spec.teeth < 4)       { R.reason = "bevel gear: tooth count must be >= 4"; return R; }
+    if (!(spec.pressureAngle > 0.0 && spec.pressureAngle < 0.5 * kPi)) {
+        R.reason = "bevel gear: pressure angle must be in (0, pi/2)"; return R; }
+    if (!(spec.faceWidth > 0.0)) { R.reason = "bevel gear: face width must be > 0"; return R; }
+    if (!(spec.pitchConeAngle > 0.0 && spec.pitchConeAngle < 0.5 * kPi)) {
+        R.reason = "bevel gear: pitch-cone angle must be in (0, pi/2)"; return R; }
+
+    GearGeometry g = gearDimensions(spec);
+    R.geometry = g;
+
+    if (!(g.addendumRadius > g.rootRadius)) {
+        R.reason = "bevel gear: addendum radius must exceed root radius"; return R; }
+    if (!(g.coneDistance > 0.0)) {
+        R.reason = "bevel gear: degenerate cone distance"; return R; }
+
+    // The BACK-CONE profile is the standard external involute tooth ring at the
+    // large end. Its EXACT circular-pattern assembly is reused unchanged.
+    int arcCount = 0;
+    std::vector<Vec3> back2D = gearOuterProfile2D(spec, g, &arcCount);
+    const std::size_t P = back2D.size();
+    if (P < 3) { R.reason = "bevel gear: degenerate back-cone profile"; return R; }
+    R.toothCount = arcCount;
+
+    // The face width is the slant band of the teeth measured along the cone; the
+    // SMALL-end radius scale = (R - faceWidth)/R (cone-similar shrink toward apex).
+    // The two rings are placed at z=0 (back/large) and z=w along the gear axis (we
+    // model the bevel as a finite frustum so it is a closed solid; the axial gap is
+    // the projection of the face band onto the axis = faceWidth * cos(gamma)).
+    const double Rcone = g.coneDistance;
+    const double faceBand = spec.faceWidth; // slant extent of the toothed band
+    if (!(faceBand < Rcone)) {
+        R.reason = "bevel gear: face width must be < cone distance (would pass the apex)";
+        return R; }
+    const double scale = (Rcone - faceBand) / Rcone;       // similar-triangle shrink
+    const double axialGap = faceBand * std::cos(spec.pitchConeAngle); // z separation
+
+    // SMALL-end ring: the back-cone ring scaled radially about the axis by `scale`.
+    std::vector<Vec3> small2D; small2D.reserve(P);
+    for (std::size_t i = 0; i < P; ++i)
+        small2D.push_back(Vec3{back2D[i].x * scale, back2D[i].y * scale, 0.0});
+
+    const bool hasBore = (spec.boreRadius > 0.0) && (spec.boreRadius < g.rootRadius * scale);
+    const double rBore = spec.boreRadius;
+
+    R.owner = std::make_shared<SolidFactory>();
+    TopologyBuilder& tb = R.owner->builder();
+    Solid* solid = tb.makeSolid();
+    Shell* shell = tb.makeShell();
+    tb.addShellToSolid(solid, shell);
+
+    // Back (large) ring at z=0, small ring at z=axialGap.
+    std::vector<Vertex*> bBack(P), bSmall(P);
+    for (std::size_t i = 0; i < P; ++i) {
+        bBack[i]  = tb.makeVertex(P3(Vec3{back2D[i].x,  back2D[i].y,  0.0}));
+        bSmall[i] = tb.makeVertex(P3(Vec3{small2D[i].x, small2D[i].y, axialGap}));
+    }
+    std::vector<Vertex*> boreBack, boreSmall;
+    if (hasBore) {
+        boreBack.resize(P); boreSmall.resize(P);
+        for (std::size_t i = 0; i < P; ++i) {
+            double a = std::atan2(back2D[i].y, back2D[i].x);
+            boreBack[i]  = tb.makeVertex(P3(Vec3{rBore * std::cos(a),
+                                                 rBore * std::sin(a), 0.0}));
+            boreSmall[i] = tb.makeVertex(P3(Vec3{rBore * std::cos(a),
+                                                 rBore * std::sin(a), axialGap}));
+        }
+    }
+
+    // TAPERED OUTER SIDE WALLS — one ruled quad per profile edge connecting the
+    // large back ring (z=0) to the small ring (z=axialGap). The cone-similar shrink
+    // makes the teeth taper toward the apex side. Planar tris => mass-exact.
+    for (std::size_t i = 0; i < P; ++i) {
+        std::size_t j = (i + 1) % P;
+        Vertex* a = bBack[i];  Vertex* b = bBack[j];
+        Vertex* c = bSmall[j]; Vertex* d = bSmall[i];
+        // outward normal ~ radial+axial; use the radial midpoint direction (the
+        // cross-product in addTri gives the exact per-tri normal; this only orients).
+        Vec3 mid{0.25 * (back2D[i].x + back2D[j].x + small2D[i].x + small2D[j].x),
+                 0.25 * (back2D[i].y + back2D[j].y + small2D[i].y + small2D[j].y),
+                 0.0};
+        Vec3 outward = vnorm(Vec3{mid.x, mid.y, 0.0});
+        addTri(tb, shell, a, b, c, outward);
+        addTri(tb, shell, a, c, d, outward);
+    }
+
+    // BORE WALL (optional) — Cylinder through the axis, INWARD normal, P sectors.
+    if (hasBore) {
+        Surface* boreSurf = tb.makeSurface();
+        boreSurf->kind = SurfaceKind::Cylinder;
+        boreSurf->origin = {0, 0, 0};
+        boreSurf->axis = {0, 0, 1};
+        boreSurf->refDir = {1, 0, 0};
+        boreSurf->r1 = rBore; boreSurf->param = axialGap;
+        boreSurf->reversed = true;
+        for (std::size_t i = 0; i < P; ++i) {
+            std::size_t j = (i + 1) % P;
+            double a0 = std::atan2(back2D[i].y, back2D[i].x);
+            double a1 = std::atan2(back2D[j].y, back2D[j].x);
+            while (a1 <= a0) a1 += 2.0 * kPi;
+            Face* f = tb.makeFace(); tb.addFaceToShell(shell, f);
+            std::vector<Vertex*> ring = {boreBack[j], boreBack[i], boreSmall[i], boreSmall[j]};
+            tb.addOuterLoopToFace(f, ring);
+            f->surface = boreSurf;
+            f->u0 = a0; f->u1 = a1; f->v0 = 0.0; f->v1 = axialGap;
+            f->vertexUV = {{a1, 0.0}, {a0, 0.0}, {a0, axialGap}, {a1, axialGap}};
+        }
+    }
+
+    // CAPS — back (z=0, -Z) and small (z=axialGap, +Z). With a bore each cap is the
+    // angle-matched annular band rim->bore; without a bore a fan from vertex 0.
+    auto annCap = [&](const std::vector<Vertex*>& rim, const std::vector<Vertex*>& bore,
+                      const Vec3& outward, bool flip) {
+        for (std::size_t i = 0; i < P; ++i) {
+            std::size_t j = (i + 1) % P;
+            Vertex* r0 = rim[i];  Vertex* r1 = rim[j];
+            Vertex* b0 = bore[i]; Vertex* b1 = bore[j];
+            if (!flip) { addTri(tb, shell, r0, r1, b1, outward);
+                         addTri(tb, shell, r0, b1, b0, outward); }
+            else       { addTri(tb, shell, r1, r0, b0, outward);
+                         addTri(tb, shell, r1, b0, b1, outward); }
+        }
+    };
+    auto fanCap = [&](const std::vector<Vertex*>& rim, const Vec3& outward, bool flip) {
+        for (std::size_t t = 1; t + 1 < P; ++t) {
+            if (!flip) addTri(tb, shell, rim[0], rim[t], rim[t + 1], outward);
+            else       addTri(tb, shell, rim[0], rim[t + 1], rim[t], outward);
+        }
+    };
+    if (hasBore) {
+        annCap(bBack,  boreBack,  Vec3{0, 0, -1}, /*flip=*/true);
+        annCap(bSmall, boreSmall, Vec3{0, 0,  1}, /*flip=*/false);
+    } else {
+        fanCap(bBack,  Vec3{0, 0, -1}, /*flip=*/true);
+        fanCap(bSmall, Vec3{0, 0,  1}, /*flip=*/false);
+    }
+
+    if (!tb.isClosedTwoManifold()) {
+        R.reason = "bevel gear: assembled solid is not a closed 2-manifold";
+        return R;
+    }
+    MassProps mp = massProperties(*solid, 8);
+    if (!(mp.volume > 0.0)) {
+        R.reason = "bevel gear: non-positive volume (inverted shell)";
+        return R;
+    }
+
+    EulerCounts c = tb.counts();
+    R.ok = true; R.solid = solid; R.volume = mp.volume; R.area = mp.area;
+    R.vertices = c.vertices; R.edges = c.edges; R.faces = c.faces;
+    R.closedManifold = true; R.reason = "";
     return R;
 }
 
