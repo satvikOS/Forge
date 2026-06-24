@@ -29,12 +29,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   runJobInChild, callsFromAssistant, surfaceF1, volumeIoU, bboxDiag,
 } from './cadscore_harness.mjs';
-import { GEN_CASES, EDIT_CASES } from './cadgenbench_set.mjs';
+// Default case set. An optional `--case-set <path>` flag (parsed below) swaps in a
+// different module exporting the IDENTICAL { GEN_CASES, EDIT_CASES } shape — used to
+// point the same harness at the held-out generalization set. No flag = unchanged.
+import { GEN_CASES as DEFAULT_GEN_CASES, EDIT_CASES as DEFAULT_EDIT_CASES } from './cadgenbench_set.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -57,6 +60,12 @@ const LIMIT = getFlag('--limit', null) ? parseInt(getFlag('--limit'), 10) : null
 const OFFSET = parseInt(getFlag('--offset', '0'), 10) || 0;
 const EDIT_ONLY = has('--edit-only');
 const GEN_ONLY = has('--gen-only');
+// --json-out <file>: APPEND one JSONL record per case (gen+edit) so a multi-batch
+// fresh-serve run (--offset/--limit splitting, to dodge mlx_lm.server degradation)
+// can be re-aggregated faithfully by cadgen_aggregate.mjs. Append-mode = safe to
+// point every batch at the same file; caller truncates it once before the batches.
+const JSON_OUT = getFlag('--json-out', null);
+const CASE_SET = getFlag('--case-set', null);   // optional alt case module (held-out set); null → default benchmark
 const GATE = parseFloat(getFlag('--gate', '0.85'));
 const SOTA = 0.45;   // public CADGenBench SOTA reference — UNVERIFIED (see CADGENBENCH_SPEC.md)
 
@@ -418,6 +427,19 @@ async function main() {
   console.log('║  CADGenBench end-to-end eval harness — Task #15 increment 1                   ║');
   console.log('╚══════════════════════════════════════════════════════════════════════════════╝');
 
+  // Resolve the case set: --case-set <path> dynamically imports an alternate module
+  // (identical { GEN_CASES, EDIT_CASES } shape); absent → the default benchmark import.
+  let GEN_CASES = DEFAULT_GEN_CASES, EDIT_CASES = DEFAULT_EDIT_CASES;
+  if (CASE_SET) {
+    const abs = path.isAbsolute(CASE_SET) ? CASE_SET : path.resolve(process.cwd(), CASE_SET);
+    const mod = await import(pathToFileURL(abs).href);
+    if (!Array.isArray(mod.GEN_CASES) || !Array.isArray(mod.EDIT_CASES)) {
+      throw new Error(`--case-set module ${abs} must export GEN_CASES[] and EDIT_CASES[]`);
+    }
+    GEN_CASES = mod.GEN_CASES; EDIT_CASES = mod.EDIT_CASES;
+    console.log(`\n case set : ${abs}  (${GEN_CASES.length} gen + ${EDIT_CASES.length} edit, HELD-OUT)`);
+  }
+
   let liveSystem = null;
   if (!REPLAY) {
     liveSystem = loadLiveSystem();
@@ -454,6 +476,23 @@ async function main() {
     for (let i = 0; i < editCases.length; i++) {
       editRows.push(await evalEditCase(editCases[i], liveSystem, i + 1, editCases.length));
     }
+  }
+
+  // ── machine-readable per-case dump (append-mode JSONL for batched aggregation) ──
+  if (JSON_OUT) {
+    const recs = [];
+    for (const r of genRows) recs.push(JSON.stringify({
+      kind: 'gen', id: r.id, category: r.category, transport: r.transport, nCalls: r.nCalls ?? 0,
+      gate: !!r.gate, validity_axis: r.validity_axis || 0, shape: r.shape || 0,
+      interface: r.interface || 0, topology: r.topology || 0, dimL1: r.dimL1 || 0, cad_score: r.cad_score || 0,
+    }));
+    for (const r of editRows) recs.push(JSON.stringify({
+      kind: 'edit', id: r.id, transport: r.transport, nCalls: r.nCalls ?? 0, built: !!r.built,
+      sRenorm: r.sRenorm || 0, interface: r.interface || 0, topology: r.topology || 0,
+      editing_cad_score: r.editing_cad_score || 0,
+    }));
+    if (recs.length) fs.appendFileSync(JSON_OUT, recs.join('\n') + '\n');
+    console.log(`\n [json-out] appended ${recs.length} case records → ${JSON_OUT}`);
   }
 
   // ── report ──
