@@ -57,6 +57,16 @@
 // unaffected (Bible §0/§9).
 #include "forge/native/brep/Surface.hpp"
 
+// K0 FOUNDATION (additive): the tagged 3D Curve a tolerant Edge follows, and the
+// 2D PCurve a Coedge follows in its Face's surface parameter plane. Included
+// fully (not forward-declared) because the builder owns std::unique_ptr<Curve>
+// and std::unique_ptr<PCurve>, whose vector destructors need the complete type
+// in every TU that instantiates a builder. Curve.hpp depends only on
+// brep/Nurbs.hpp (no cycle through Topology.hpp). Every Edge/Coedge defaults its
+// geometry pointer to null, so the original bare-topology box gate is unaffected
+// (Bible §0/§9).
+#include "forge/native/brep/Curve.hpp"
+
 namespace forge {
 namespace native {
 namespace brep {
@@ -80,6 +90,12 @@ struct Solid;
 struct Vertex {
     std::uint32_t id = 0;
     Point3 point;
+
+    // K0 TOLERANT-ENTITY semantics (additive): the vertex's true position is
+    // `point` within +/- `tolerance` model-space units. A coincidence test
+    // between two tolerant vertices passes when |p_a - p_b| <= tol_a + tol_b.
+    // Default 0 == an EXACT vertex, so the existing exact box gate is unchanged.
+    double tolerance = 0.0;
 };
 
 // ----------------------------------------------------------------------------
@@ -94,6 +110,16 @@ struct Edge {
     // slots are filled with opposite-sense coedges.
     Coedge* coedgeA = nullptr;
     Coedge* coedgeB = nullptr;
+
+    // K0 GEOMETRY (additive): the EXACT 3D curve this edge follows, parameterised
+    // start->end over its own [t0,t1] trim. Owned by the builder; null when the
+    // edge is bare topology (the original box gate). When present, the edge runs
+    // from curve.evaluate(t0) at `start` to curve.evaluate(t1) at `end`.
+    Curve* curve = nullptr;
+
+    // K0 TOLERANT-ENTITY semantics (additive): the edge's true curve lies within
+    // +/- `tolerance` of `curve`. Default 0 == an EXACT edge.
+    double tolerance = 0.0;
 };
 
 // ----------------------------------------------------------------------------
@@ -112,6 +138,17 @@ struct Coedge {
     Coedge* prev  = nullptr; // previous coedge around the loop
     Coedge* mate  = nullptr; // opposite-sense coedge on the same edge
 
+    // K0 GEOMETRY (additive): the 2D PARAMETER-SPACE curve this coedge follows in
+    // its Face's surface (u,v) plane. Owned by the builder; null when no surface
+    // is attached. Parameterised in the COEDGE's traversal sense (origin->dest),
+    // so composing P(t) with the Face's Surface S(u,v) reproduces the 3D edge
+    // curve walked in this coedge's direction (the K0 consistency invariant).
+    PCurve* pcurve = nullptr;
+
+    // K0 TOLERANT-ENTITY semantics (additive): the coedge's true 2D curve lies
+    // within +/- `tolerance` (parameter-space units) of `pcurve`. Default 0.
+    double tolerance = 0.0;
+
     Vertex* originVertex() const {
         return forward ? edge->start : edge->end;
     }
@@ -129,6 +166,12 @@ struct Loop {
     Face* face = nullptr;
     Coedge* first = nullptr;
     std::size_t coedgeCount = 0;
+
+    // K0 (additive): true for a Face's single outer (peripheral) loop, false for
+    // an inner (hole) loop. Lets the validity re-derivation count rings without
+    // re-scanning Face::innerLoops. Defaults true so existing single-loop faces
+    // (every box face) are reported as outer, unchanged.
+    bool isOuter = true;
 };
 
 // ----------------------------------------------------------------------------
@@ -139,6 +182,21 @@ struct Face {
     std::uint32_t id = 0;
     Shell* shell = nullptr;
     Loop* outerLoop = nullptr;
+
+    // K0 INNER/HOLE LOOPS (additive): a face may now carry zero or more inner
+    // (hole) loops in addition to its single outer loop. Each inner loop is a
+    // closed coedge ring bounding a hole cut out of the face; its coedges are
+    // oriented OPPOSITE to the outer loop (clockwise when the outer is CCW as
+    // seen along the surface normal) so the material side is consistently on the
+    // left of every coedge. Empty by default, so every existing single-loop face
+    // (the box gate) is unchanged. The general loop set of the face is
+    // {outerLoop} U innerLoops.
+    std::vector<Loop*> innerLoops;
+
+    // Total bounding-loop count of this face = 1 (outer, if set) + inner count.
+    std::size_t loopCount() const {
+        return (outerLoop ? 1u : 0u) + innerLoops.size();
+    }
 
     // OPTIONAL analytic geometry (Surface.hpp). Null when the face is bare
     // topology (the original box gate). When present, `surface` is owned by the
@@ -192,14 +250,46 @@ struct EulerCounts {
     std::size_t vertices = 0;
     std::size_t edges    = 0;
     std::size_t faces    = 0;
-    std::size_t loops    = 0;
+    std::size_t loops    = 0;   // TOTAL loops (outer + inner) over all faces
     std::size_t shells   = 0;
+
+    // K0 (additive): of the `loops` above, how many are INNER (hole) loops, i.e.
+    // rings. innerLoops == loops - faces when every face has exactly one outer
+    // loop (the normal case). Defaults 0 so the classic gate is unchanged.
+    std::size_t innerLoops = 0;
 
     // V - E + F for the classic (single-loop-per-face) characteristic.
     long long characteristic() const {
         return static_cast<long long>(vertices)
              - static_cast<long long>(edges)
              + static_cast<long long>(faces);
+    }
+
+    // K0 GENERAL Euler-Poincare validity re-derivation (additive). The full
+    // formula for a B-rep solid is:
+    //
+    //     V - E + F - R = 2 (S - G)
+    //
+    // where R = number of inner rings (hole loops) and S = shell count, G =
+    // genus (number of through-holes / handles), per the standard B-rep
+    // Euler-Poincare-Masuda relation (a.k.a. V - E + 2F - L - 2S + 2G - ... in
+    // some texts; here R = L_total - F so 2F - L = F - R). Returns true iff the
+    // counts are consistent with the supplied (shells, genus). For the classic
+    // genus-0 single-shell box (R = 0, S = 1) this reduces to V - E + F == 2.
+    //
+    // NOTE: this is a SINGLE-PIECE-of-shell-per-face check on a manifold solid;
+    // it does NOT itself prove 2-manifoldness (TopologyBuilder::isClosedTwoManifold
+    // does that structurally). It is the arithmetic invariant the K0 gate asserts
+    // for a face-with-hole and for the box.
+    bool eulerPoincareValid(std::size_t shellCount, std::size_t genus) const {
+        const long long V = static_cast<long long>(vertices);
+        const long long E = static_cast<long long>(edges);
+        const long long F = static_cast<long long>(faces);
+        const long long R = static_cast<long long>(innerLoops);
+        const long long S = static_cast<long long>(shellCount);
+        const long long G = static_cast<long long>(genus);
+        // V - E + F - R - 2(S - G) == 0
+        return (V - E + F - R - 2 * (S - G)) == 0;
     }
 };
 
@@ -225,6 +315,12 @@ public:
     // fills in the kind/frame/radii). Returns a stable raw pointer.
     Surface* makeSurface();
 
+    // K0 (additive): allocate a Curve / PCurve owned by this builder. Pass a
+    // fully-formed value (e.g. Curve::makeCircle(...)) and receive a stable raw
+    // pointer to attach to an Edge / Coedge.
+    Curve*  makeCurve(const Curve& c = Curve{});
+    PCurve* makePcurve(const PCurve& p = PCurve{});
+
     // --- Basic Euler operators (the documented "basic" set) ----------------
     //
     // MEV  (Make Edge & Vertex): from an existing vertex, create a new vertex
@@ -248,6 +344,18 @@ public:
     // demand and SHARED: if an edge between two vertices already exists it is
     // reused and the second coedge becomes the mate.
     Loop* addOuterLoopToFace(Face* face,
+                             const std::vector<Vertex*>& ring);
+
+    // K0 INNER/HOLE LOOP (additive): assemble a closed coedge ring over an
+    // ordered vertex `ring` and attach it to `face` as an INNER (hole) loop. The
+    // ring is given in the loop's own traversal order; edges are created on
+    // demand and SHARED with prior uses exactly like addOuterLoopToFace (so a
+    // hole shared between two faces reuses its edges and mates its coedges). The
+    // returned Loop has isOuter == false and is appended to face->innerLoops.
+    // The caller is responsible for orienting the inner ring opposite to the
+    // outer loop (material on the left of every coedge); this routine performs
+    // the same structural wiring as the outer path without imposing a winding.
+    Loop* addInnerLoopToFace(Face* face,
                              const std::vector<Vertex*>& ring);
 
     // Insert a fully-built face into a shell.
@@ -285,6 +393,11 @@ private:
     // Find an existing edge between two vertices (either orientation), or null.
     Edge* findEdge(Vertex* a, Vertex* b) const;
 
+    // K0 (additive): shared coedge-ring assembly used by both the outer- and
+    // inner-loop builders (creates/shares edges, wires next/prev/mate, points
+    // every coedge at `loop`, sets loop->first/coedgeCount).
+    void buildCoedgeRing(Loop* loop, const std::vector<Vertex*>& ring);
+
     std::uint32_t nextId_ = 1;
 
     std::vector<std::unique_ptr<Vertex>> vertices_;
@@ -297,6 +410,9 @@ private:
     // Surface geometry owned by this builder (unique_ptr so a forward-declared
     // Surface needs the deleter only in the .cpp, where Surface.hpp is included).
     std::vector<std::unique_ptr<Surface>> surfaces_;
+    // K0 (additive): Curve / PCurve geometry owned by this builder.
+    std::vector<std::unique_ptr<Curve>>  curves_;
+    std::vector<std::unique_ptr<PCurve>> pcurves_;
 
 public:
     // The builder owns Surface unique_ptrs of an incomplete type at the point of

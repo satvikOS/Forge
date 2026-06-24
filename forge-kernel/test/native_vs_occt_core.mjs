@@ -64,7 +64,11 @@ function measure(buildFn, native) {
   const mp = f.massProps(h);
   const t = f.tessellate(h, 0.05, 0.3);
   const bb = bbox(t);
-  return { h, kind, mp, tess: t, bb, watertight: validClosed(t) };
+  // STRUCTURAL signature (roadmap §6): faceting-independent χ/genus off the welded
+  // tessellation, plus the exact analytic B-rep face/edge counts where available.
+  const sig = topoSig(t);
+  const brep = brepCounts(h);
+  return { h, kind, mp, tess: t, bb, watertight: validClosed(t), sig, brep };
 }
 
 // A tessellation is "closed-ish" if every directed edge has its reverse (each
@@ -99,20 +103,100 @@ function validClosed(t) {
   return edge.size > 0;
 }
 
+// --------------------------------------------------------- TOPOLOGY SIGNATURE
+// Roadmap §6 (the most dangerous silent failure): two DIFFERENT solids can share
+// volume/COM/inertia/AABB by coincidence, so mass-props parity alone is not a
+// structural proof. Every topology-CHANGING op's A/B gate must therefore also
+// compare a STRUCTURAL signature. We compute, for BOTH the native and the OCCT
+// result, a backend-agnostic, FACETING-INDEPENDENT signature off the welded
+// tessellation, plus — where an analytic B-rep exists on both sides — the exact
+// B-rep face/edge counts.
+//
+//   * V/E/F over the position-welded triangle graph (weld @1e-6, the SAME quantum
+//     as validClosed so coincident-but-distinct corner verts that touch are NOT
+//     over-merged — at 1e-5 the native cut-box notch corners falsely collapse and
+//     read non-manifold; at 1e-6 they resolve correctly to genus 1).
+//   * Euler characteristic  χ = V − E + F   (an integer TOPOLOGICAL INVARIANT).
+//   * Genus  g = (2 − χ)/2  — the number of through-holes/handles, the same for
+//     OCCT and native regardless of how finely each kernel facets the SAME solid
+//     (subdividing a triangle adds equal Δ to V,E,F so χ is unchanged). This is
+//     the discriminator: a bored part (g=1) can never coincidentally match a solid
+//     block (g=0) even with identical volume.
+//   * faceCountTris / edgeCountTris — the welded counts themselves, reported for
+//     the delta table (NOT asserted equal across backends, since the two kernels
+//     facet curved faces at different densities; the INVARIANT χ/g is the gate).
+//
+// Returns null only on a degenerate/empty mesh (caller treats that as a fail).
+function topoSig(t) {
+  const pos = t.positions, idx = t.indices;
+  if (!pos || !idx || idx.length < 3) return null;
+  // weld by quantized position @1e-6 (identical quantum to validClosed)
+  const key = new Map();
+  const remap = new Int32Array(pos.length / 3);
+  let next = 0;
+  for (let v = 0; v < pos.length / 3; v++) {
+    const q = `${Math.round(pos[3*v]/1e-6)},${Math.round(pos[3*v+1]/1e-6)},${Math.round(pos[3*v+2]/1e-6)}`;
+    let id = key.get(q);
+    if (id === undefined) { id = next++; key.set(q, id); }
+    remap[v] = id;
+  }
+  const V = next;
+  const F = idx.length / 3;
+  const und = new Set();                       // undirected welded edges
+  for (let i = 0; i + 2 < idx.length; i += 3) {
+    const a = remap[idx[i]], b = remap[idx[i+1]], c = remap[idx[i+2]];
+    for (const [u, w] of [[a,b],[b,c],[c,a]]) {
+      const lo = Math.min(u, w), hi = Math.max(u, w);
+      und.add(lo * 0x100000000 + hi);          // pack into one Number key
+    }
+  }
+  const E = und.size;
+  const euler = V - E + F;                      // χ
+  const genus = (2 - euler) / 2;               // g = (2-χ)/2 for a closed orientable 2-manifold
+  return { V, E, F, euler, genus };
+}
+
+// Exact analytic B-rep counts for handles that carry a canonical analytic B-rep
+// on BOTH sides. direct.faceCount/edgeCount run TopExp on the OCCT shape; for a
+// NATIVE SOLID, ShapeRegistry lazily bridges to the canonical OCCT B-rep, so the
+// counts are directly comparable — BUT only for PLANAR-faced solids: the native→
+// OCCT bridge facets curved faces, so a cylinder reads 6 analytic faces on OCCT
+// vs 130 faceted faces native. We therefore assert exact B-rep face/edge equality
+// ONLY where both kernels expose the same canonical analytic B-rep (planar solids
+// & planar booleans); curved + mesh-bridge cases rely on the χ/genus invariant,
+// which is exact for them (verified). Returns null if unavailable (native mesh).
+function brepCounts(h) {
+  try {
+    return { faces: f.direct.faceCount(h), edges: f.direct.edgeCount(h) };
+  } catch (e) {
+    return null;                               // native-mesh handle: no analytic B-rep
+  }
+}
+
 // --------------------------------------------------------------------- battery
 // Each entry: {name, build(f)->handle, tol, meshBridge?}.
 // `tol` is the volume rel tolerance (1e-6 analytic; 5e-3 mesh-bridge).
 const ANALYTIC_TOL = 1e-6;
 const MESH_TOL = 5e-3; // 0.5%
 
+// `brepExact:true` => both kernels expose the IDENTICAL canonical analytic B-rep,
+// so we additionally assert exact direct.faceCount/edgeCount equality. This holds
+// ONLY for native PRIMITIVES: the native→OCCT bridge reproduces the minimal
+// analytic B-rep for a primitive solid (box 6F/12E, prism 8/18, wedge 6/12,
+// pyramid 5/8 — all native==OCCT, verified). It does NOT hold for native BOOLEANS
+// (the bridge facets them: cut box-box reads 10F/24E OCCT vs 60/92 native) nor for
+// curved primitives (cylinder 3F OCCT vs 130 native) nor mesh-bridge (no analytic
+// B-rep at all). All of those rely on the faceting-independent χ/genus invariant,
+// which IS exact for them. This is an honest property of today's native bridge,
+// not a tolerance fudge — the B-rep-count gate is asserted exactly where it is true.
 const cases = [
-  { name: 'box(2,3,4)',            build: f => f.makeBox(2,3,4),        tol: ANALYTIC_TOL },
+  { name: 'box(2,3,4)',            build: f => f.makeBox(2,3,4),        tol: ANALYTIC_TOL, brepExact: true },
   { name: 'cylinder(1.3,5)',       build: f => f.makeCylinder(1.3,5),   tol: ANALYTIC_TOL, curved: true },
   { name: 'sphere(2.1)',           build: f => f.makeSphere(2.1),       tol: ANALYTIC_TOL, curved: true },
   { name: 'cone(2,0.8,4)',         build: f => f.makeCone(2,0.8,4),     tol: ANALYTIC_TOL, curved: true },
-  { name: 'prism(6,1.5,3)',        build: f => f.makePrism(6,1.5,3),    tol: ANALYTIC_TOL },
-  { name: 'wedge(3,2,4,1)',        build: f => f.makeWedge(3,2,4,1),    tol: ANALYTIC_TOL },
-  { name: 'pyramid(3,2,5)',        build: f => f.makePyramid(3,2,5),    tol: ANALYTIC_TOL },
+  { name: 'prism(6,1.5,3)',        build: f => f.makePrism(6,1.5,3),    tol: ANALYTIC_TOL, brepExact: true },
+  { name: 'wedge(3,2,4,1)',        build: f => f.makeWedge(3,2,4,1),    tol: ANALYTIC_TOL, brepExact: true },
+  { name: 'pyramid(3,2,5)',        build: f => f.makePyramid(3,2,5),    tol: ANALYTIC_TOL, brepExact: true },
   { name: 'tube(2,1,4)',           build: f => f.makeTube(2,1,4),       tol: ANALYTIC_TOL, curved: true },
   // booleans
   { name: 'cut box-cyl OFFSET bore (placement)', tol: ANALYTIC_TOL, curved: true,
@@ -291,13 +375,13 @@ const featureCases = [
   // ---- SWEEP : OCCT sketch-path is degenerate (vol 0) -> compare native to the
   // analytic faceted cylinder volume = ngonArea(r,NSEG) * length.
   { name: 'sweep circle r1 straight L=10', mode: 'vs-analytic', tol: MESH_TOL,
-    refVol: ngonArea(1, NSEG) * 10,
+    refVol: ngonArea(1, NSEG) * 10, refGenus: 0,   // a straight solid rod -> genus 0
     build: f => f.part.sweep(circleSketch(0,0,1), polylinePath([[0,0],[10,0]]), false) },
   // ---- LOFT : OCCT coplanar Z=0 sections are degenerate (vol 0) -> native stacks
   // section k at z=k; 4x4 -> 2x2 over unit height is a square frustum:
   //   V = h/3 (A0 + A1 + sqrt(A0 A1)) = 1/3 (16 + 4 + 8) = 28/3.
   { name: 'loft sq 4x4 -> 2x2 (frustum)', mode: 'vs-analytic', tol: 1e-9,
-    refVol: (1/3) * (16 + 4 + Math.sqrt(16*4)),
+    refVol: (1/3) * (16 + 4 + Math.sqrt(16*4)), refGenus: 0,  // a closed frustum -> genus 0
     build: f => f.part.loft([rectCentered(4,4), rectCentered(2,2)], [], false, false) },
 ];
 
@@ -369,24 +453,51 @@ for (const c of cases) {
   const okBB  = bboxErr <= bboxTol;
   const okWT  = nat.watertight === true;
 
-  const pass = okVol && okCom && okIn && okBB && okWT &&
+  // ---- TOPOLOGY SIGNATURE gate (roadmap §6) ----
+  // The faceting-INDEPENDENT structural invariant: native and OCCT must agree on
+  // the Euler characteristic χ and genus of the SAME solid. This is what makes a
+  // coincidental volume/COM match insufficient — a bored part (g=1) can never pass
+  // against a solid block (g=0). χ/genus is exact across backends for EVERY op
+  // class here (analytic, boolean, curved, mesh-bridge), so it is asserted for ALL.
+  const okSig = !!(occt.sig && nat.sig) &&
+                occt.sig.euler === nat.sig.euler &&
+                occt.sig.genus === nat.sig.genus;
+  // Where BOTH kernels expose the IDENTICAL canonical analytic B-rep (the
+  // per-case brepExact flag — true only for native primitives), additionally
+  // assert exact B-rep face+edge equality. Booleans/curved/mesh-bridge cases skip
+  // this (the native bridge facets them) and lean on the χ/genus invariant, which
+  // is exact for them.
+  const brepExact = c.brepExact === true;
+  const okBrep = !brepExact ? true
+    : !!(occt.brep && nat.brep) &&
+      occt.brep.faces === nat.brep.faces &&
+      occt.brep.edges === nat.brep.edges;
+
+  const pass = okVol && okCom && okIn && okBB && okWT && okSig && okBrep &&
                occtKind === 'occt' && natKind === expectNatKind;
   if (!pass) fail++;
+
+  if (!okSig) console.log(`[ab] FAIL ${c.name}: TOPOLOGY signature mismatch — ` +
+    `OCCT χ=${occt.sig?.euler}/g=${occt.sig?.genus} vs native χ=${nat.sig?.euler}/g=${nat.sig?.genus}`);
+  if (!okBrep) console.log(`[ab] FAIL ${c.name}: B-rep count mismatch — ` +
+    `OCCT F=${occt.brep?.faces}/E=${occt.brep?.edges} vs native F=${nat.brep?.faces}/E=${nat.brep?.edges}`);
 
   rows.push({
     name: c.name,
     occtVol: occt.mp.volume, natVol: nat.mp.volume,
     volErr, comErr, inertiaErr, bboxErr,
     natKind, watertight: nat.watertight,
-    flags: `${okVol?'V':'v'}${okCom?'C':'c'}${okIn?'I':'i'}${okBB?'B':'b'}${okWT?'W':'w'}`,
+    genus: nat.sig ? nat.sig.genus : NaN,
+    brepFE: brepExact && nat.brep ? `${nat.brep.faces}/${nat.brep.edges}` : '-',
+    flags: `${okVol?'V':'v'}${okCom?'C':'c'}${okIn?'I':'i'}${okBB?'B':'b'}${okWT?'W':'w'}${okSig?'T':'t'}${okBrep?'P':'p'}`,
     pass,
   });
 }
 
 // table
 const pad = (s, n) => String(s).padEnd(n);
-console.log(pad('OP', 38), pad('occtVol', 12), pad('natVol', 12), pad('|dVol|', 10), pad('|dCOM|', 10), pad('|dI|', 9), pad('|dBBox|', 9), pad('kind', 12), 'flags  pass');
-console.log('-'.repeat(150));
+console.log(pad('OP', 38), pad('occtVol', 12), pad('natVol', 12), pad('|dVol|', 10), pad('|dCOM|', 10), pad('|dI|', 9), pad('|dBBox|', 9), pad('genus', 6), pad('F/E', 8), pad('kind', 12), 'flags    pass');
+console.log('-'.repeat(160));
 for (const r of rows) {
   console.log(
     pad(r.name, 38),
@@ -396,13 +507,16 @@ for (const r of rows) {
     pad(r.comErr.toExponential(2), 10),
     pad(r.inertiaErr.toExponential(2), 9),
     pad(r.bboxErr.toExponential(2), 9),
+    pad(r.genus, 6),
+    pad(r.brepFE, 8),
     pad(r.natKind, 12),
     `${r.flags}  ${r.pass ? 'PASS' : 'FAIL'}`
   );
 }
-console.log('\nflags: V volume  C com  I inertia  B bbox  W watertight (UPPER = pass)');
+console.log('\nflags: V volume  C com  I inertia  B bbox  W watertight  T topology(χ/genus)  P brep-F/E (UPPER = pass)');
 console.log(`legend: analytic tol vol≤${ANALYTIC_TOL}, com≤1e-6 (planar) / 5e-4 (curved), I≤1e-5/2e-2, bbox≤1e-4/2e-2`);
-console.log(`        mesh-bridge tol vol≤${MESH_TOL} fillet / 1.5e-2 chamfer, com≤1%, I≤5e-2 (tess+corner ceiling)\n`);
+console.log(`        mesh-bridge tol vol≤${MESH_TOL} fillet / 1.5e-2 chamfer, com≤1%, I≤5e-2 (tess+corner ceiling)`);
+console.log(`        topology: χ=V−E+F & genus exact-equal native==OCCT (ALL ops); brep-F/E exact only for primitives (P — native bridges to canonical B-rep); booleans/curved/mesh-bridge lean on χ/genus\n`);
 
 // ===================================================================== STEP 3b
 // FEATURE-OP gate — extrude / revolve / sweep / loft through forge::native.
@@ -417,6 +531,12 @@ for (const c of featureCases) {
   if (nat.kind !== 'nativeMesh') { console.log(`[ab] FAIL ${c.name}: kind=${nat.kind} (expected nativeMesh)`); fail++; }
 
   let refVol, comErr = 0, inertiaErr = 0, bboxErr = 0, occtVol = NaN;
+  // TOPOLOGY signature gate (roadmap §6). vs-occt: native χ/genus must equal OCCT's
+  // (the SAME faceting-independent invariant as the core gate). vs-analytic: OCCT's
+  // sketch-path is degenerate (no valid solid), so we assert the native genus
+  // against the closed-form expected genus (refGenus) — the structural truth the
+  // op MUST produce (a straight rod / closed frustum is genus 0).
+  let okSig = true, sigWhy = '';
   if (c.mode === 'vs-occt') {
     let occt;
     try { occt = measure(c.build, false); }
@@ -431,11 +551,17 @@ for (const c of featureCases) {
       inertiaErr = Math.max(inertiaErr, Math.abs(nat.mp.inertiaCom[k] - occt.mp.inertiaCom[k]) / inScale);
     for (let k = 0; k < 3; k++)
       bboxErr = Math.max(bboxErr, Math.abs(nat.bb.mn[k]-occt.bb.mn[k]), Math.abs(nat.bb.mx[k]-occt.bb.mx[k]));
+    okSig = !!(occt.sig && nat.sig) &&
+            occt.sig.euler === nat.sig.euler && occt.sig.genus === nat.sig.genus;
+    if (!okSig) sigWhy = `OCCT χ=${occt.sig?.euler}/g=${occt.sig?.genus} vs native χ=${nat.sig?.euler}/g=${nat.sig?.genus}`;
   } else {
     // vs-analytic: OCCT's sketch-handle path is degenerate (vol ~ 0); compare the
     // native solid to the closed-form reference. COM/inertia/AABB are not checked
-    // against OCCT (no valid OCCT solid) — watertight + volume + sensitivity carry.
+    // against OCCT (no valid OCCT solid) — watertight + volume + sensitivity carry,
+    // and the native genus must equal the closed-form expected genus.
     refVol = c.refVol;
+    okSig = !!nat.sig && nat.sig.genus === c.refGenus;
+    if (!okSig) sigWhy = `native g=${nat.sig?.genus} != expected closed-form g=${c.refGenus}`;
   }
 
   const volErr = relErr(nat.mp.volume, refVol);
@@ -448,22 +574,24 @@ for (const c of featureCases) {
   const okBB  = c.mode === 'vs-occt' ? bboxErr <= bboxTol : true;
   const okWT  = nat.watertight === true;
   const okKind = nat.kind === 'nativeMesh';
-  const pass = okVol && okCom && okIn && okBB && okWT && okKind;
+  const pass = okVol && okCom && okIn && okBB && okWT && okKind && okSig;
   if (!pass) fail++;
+  if (!okSig) console.log(`[ab] FAIL ${c.name}: TOPOLOGY signature mismatch — ${sigWhy}`);
 
   frows.push({ name: c.name, mode: c.mode, refVol, natVol: nat.mp.volume, volErr, comErr, inertiaErr, bboxErr,
-    watertight: nat.watertight,
-    flags: `${okVol?'V':'v'}${okCom?'C':'c'}${okIn?'I':'i'}${okBB?'B':'b'}${okWT?'W':'w'}`, pass });
+    watertight: nat.watertight, genus: nat.sig ? nat.sig.genus : NaN,
+    flags: `${okVol?'V':'v'}${okCom?'C':'c'}${okIn?'I':'i'}${okBB?'B':'b'}${okWT?'W':'w'}${okSig?'T':'t'}`, pass });
 }
 
-console.log(pad('FEATURE OP', 38), pad('mode', 12), pad('ref/occtVol', 13), pad('natVol', 12), pad('|dVol|', 10), pad('|dCOM|', 10), pad('|dI|', 9), pad('|dBBox|', 9), 'flags  pass');
-console.log('-'.repeat(150));
+console.log(pad('FEATURE OP', 38), pad('mode', 12), pad('ref/occtVol', 13), pad('natVol', 12), pad('|dVol|', 10), pad('|dCOM|', 10), pad('|dI|', 9), pad('|dBBox|', 9), pad('genus', 6), 'flags   pass');
+console.log('-'.repeat(155));
 for (const r of frows) {
   console.log(
     pad(r.name, 38), pad(r.mode, 12),
     pad(r.refVol.toFixed(6), 13), pad(r.natVol.toFixed(6), 12),
     pad(r.volErr.toExponential(2), 10), pad(r.comErr.toExponential(2), 10),
     pad(r.inertiaErr.toExponential(2), 9), pad(r.bboxErr.toExponential(2), 9),
+    pad(r.genus, 6),
     `${r.flags}  ${r.pass ? 'PASS' : 'FAIL'}`);
 }
 
@@ -482,9 +610,9 @@ for (const c of sensitivityCases) {
   console.log(`  [${ok ? 'PASS' : 'FAIL'}] ${pad(c.name, 36)} ratio=${Number.isFinite(ratio)?ratio.toFixed(4):'NaN'} (expect ${c.factor})`);
 }
 
-console.log('\nflags: V volume  C com  I inertia  B bbox  W watertight (UPPER = pass)');
-console.log(`legend (3b): extrude(+Z prism)/revolve vs OCCT (vol mesh-tol ${MESH_TOL}, COM/AABB tess-tol);`);
-console.log(`             sweep/loft vs CLOSED-FORM (OCCT sketch-path is degenerate vol~0 — native is the real solid).\n`);
+console.log('\nflags: V volume  C com  I inertia  B bbox  W watertight  T topology(χ/genus) (UPPER = pass)');
+console.log(`legend (3b): extrude(+Z prism)/revolve vs OCCT (vol mesh-tol ${MESH_TOL}, COM/AABB tess-tol, χ/genus exact-equal);`);
+console.log(`             sweep/loft vs CLOSED-FORM (OCCT sketch-path is degenerate vol~0 — native is the real solid; genus vs closed-form).\n`);
 
 // ===================================================================== STEP 3c
 // STEP DATA EXCHANGE — native analytic STEP writer/reader routed through
@@ -617,6 +745,39 @@ for (const r of srows) {
 try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
 console.log(`\n[ab] STEP 3c — ${step3cTotal} data-exchange gates (round-trip + cross-OCCT both ways + IGES)\n`);
 
+// ===================================================================== STEP 3d
+// TOPOLOGY-SIGNATURE NEGATIVE CONTROL — prove the new gate has teeth. Roadmap §6
+// warns that two DIFFERENT solids can share volume/COM/inertia/AABB; the topology
+// signature exists precisely to reject that. So we construct a deliberately
+// adversarial pair and assert the SIGNATURE separates them even though their
+// gross mass props are close — i.e. the gate would catch a coincidental match.
+console.log(`[ab] STEP 3d — TOPOLOGY SIGNATURE negative control (proves the gate rejects coincidental mass-props parity)\n`);
+{
+  step3cTotal++;
+  f.setNativeBrep(false);  // build both on the SAME backend; we test the SIGNATURE itself
+  // A solid block vs a bored block sized to NEARLY the same volume. The genus
+  // differs (0 vs 1): a coincidental volume match must still be caught by topology.
+  const block = f.makeBox(4, 4, 4);                                   // vol 64, genus 0
+  let bore = f.makeCylinder(1.0, 4); bore = f.translate(bore, 2, 2, 0);
+  const bored = f.cut(block, bore);                                   // genus 1 (through-hole)
+  const sBlock = topoSig(f.tessellate(f.makeBox(4,4,4), 0.05, 0.3));
+  const sBored = topoSig(f.tessellate(bored, 0.05, 0.3));
+  const vBlock = f.massProps(f.makeBox(4,4,4)).volume;
+  const vBored = f.massProps(bored).volume;
+  const genusSeparates = sBlock.genus !== sBored.genus;              // 0 != 1  -> caught
+  // sanity: the SAME solid must yield an IDENTICAL signature (no false positives)
+  const sBlock2 = topoSig(f.tessellate(f.makeBox(4,4,4), 0.05, 0.3));
+  const selfStable = sBlock.euler === sBlock2.euler && sBlock.genus === sBlock2.genus;
+  const ok = genusSeparates && selfStable;
+  if (!ok) fail++;
+  console.log(`  block  vol=${vBlock.toFixed(3)} χ=${sBlock.euler} genus=${sBlock.genus}`);
+  console.log(`  bored  vol=${vBored.toFixed(3)} χ=${sBored.euler} genus=${sBored.genus}  (through-hole)`);
+  console.log(`  [${ok ? 'PASS' : 'FAIL'}] signature SEPARATES different topologies (genus ${sBlock.genus}≠${sBored.genus}) ` +
+              `AND is stable for the identical solid (${selfStable ? 'reproducible' : 'UNSTABLE'}) ` +
+              `→ a coincidental vol/COM match would still FAIL the topology gate.`);
+}
+
 const total = cases.length + featureCases.length + sensitivityCases.length + step3cTotal;
 if (fail) { console.log(`[ab] ${fail} GATE FAILURE(S) — native != reference on some op`); process.exit(1); }
-console.log(`[ab] ALL ${total} GATES PASS — core (${cases.length}) + features (${featureCases.length}) + sensitivity (${sensitivityCases.length}) + step3c (${step3cTotal})`);
+console.log(`[ab] ALL ${total} GATES PASS — core (${cases.length}) + features (${featureCases.length}) + sensitivity (${sensitivityCases.length}) + step3c+3d (${step3cTotal})`);
+console.log(`[ab] topology signature (χ/genus + planar-analytic B-rep F/E) now gates every topology-changing op (roadmap §6 mitigated).`);

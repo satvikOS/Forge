@@ -23,6 +23,21 @@ Surface* TopologyBuilder::makeSurface() {
     return raw;
 }
 
+// K0 (additive): Curve / PCurve geometry factories.
+Curve* TopologyBuilder::makeCurve(const Curve& c) {
+    auto p = std::make_unique<Curve>(c);
+    Curve* raw = p.get();
+    curves_.push_back(std::move(p));
+    return raw;
+}
+
+PCurve* TopologyBuilder::makePcurve(const PCurve& pc) {
+    auto p = std::make_unique<PCurve>(pc);
+    PCurve* raw = p.get();
+    pcurves_.push_back(std::move(p));
+    return raw;
+}
+
 // ---------------------------------------------------------------------------
 // Element factories
 // ---------------------------------------------------------------------------
@@ -127,18 +142,14 @@ Edge* TopologyBuilder::mev(Vertex* from, const Point3& newPos,
 }
 
 // ---------------------------------------------------------------------------
-// addOuterLoopToFace — assemble a closed coedge ring over an ordered vertex
-// loop, sharing edges with previously built faces. This is the validated
-// face-assembly path used by the box builder.
+// buildCoedgeRing — shared assembly of a closed coedge ring over an ordered
+// vertex loop, sharing edges with previously built faces (first use orients the
+// edge a->b; a reuse mates the second coedge). Wires next/prev and points every
+// coedge at `loop`. Used by both addOuterLoopToFace and addInnerLoopToFace so
+// the inner-loop path is structurally identical to the (validated) outer path.
 // ---------------------------------------------------------------------------
-Loop* TopologyBuilder::addOuterLoopToFace(Face* face,
-                                          const std::vector<Vertex*>& ring) {
-    assert(ring.size() >= 3 && "a face loop needs at least 3 vertices");
-
-    Loop* loop = makeLoop();
-    loop->face = face;
-    face->outerLoop = loop;
-
+void TopologyBuilder::buildCoedgeRing(Loop* loop,
+                                      const std::vector<Vertex*>& ring) {
     const std::size_t n = ring.size();
     std::vector<Coedge*> ces;
     ces.reserve(n);
@@ -170,6 +181,40 @@ Loop* TopologyBuilder::addOuterLoopToFace(Face* face,
     }
     loop->first = ces.empty() ? nullptr : ces[0];
     loop->coedgeCount = n;
+}
+
+// ---------------------------------------------------------------------------
+// addOuterLoopToFace — assemble the face's single OUTER coedge ring.
+// ---------------------------------------------------------------------------
+Loop* TopologyBuilder::addOuterLoopToFace(Face* face,
+                                          const std::vector<Vertex*>& ring) {
+    assert(ring.size() >= 3 && "a face outer loop needs at least 3 vertices");
+
+    Loop* loop = makeLoop();
+    loop->face = face;
+    loop->isOuter = true;
+    face->outerLoop = loop;
+
+    buildCoedgeRing(loop, ring);
+    return loop;
+}
+
+// ---------------------------------------------------------------------------
+// addInnerLoopToFace — assemble an INNER (hole) coedge ring and append it to the
+// face's innerLoops. Structurally identical to the outer path; the only
+// differences are isOuter = false and that the loop is appended (not assigned as
+// outerLoop). The caller orients the ring opposite to the outer loop.
+// ---------------------------------------------------------------------------
+Loop* TopologyBuilder::addInnerLoopToFace(Face* face,
+                                          const std::vector<Vertex*>& ring) {
+    assert(ring.size() >= 3 && "a face inner loop needs at least 3 vertices");
+
+    Loop* loop = makeLoop();
+    loop->face = face;
+    loop->isOuter = false;
+    face->innerLoops.push_back(loop);
+
+    buildCoedgeRing(loop, ring);
     return loop;
 }
 
@@ -245,6 +290,15 @@ EulerCounts TopologyBuilder::counts() const {
     c.faces    = faces_.size();
     c.loops    = loops_.size();
     c.shells   = shells_.size();
+    // K0 (additive): count INNER (hole) loops so the general Euler-Poincare
+    // re-derivation (V-E+F-R-2(S-G)=0) has its ring term R. A loop is inner iff
+    // isOuter==false; every pre-K0 single-loop face stays isOuter==true, so this
+    // reports 0 for the box and the classic gate is unchanged.
+    std::size_t inner = 0;
+    for (const auto& l : loops_) {
+        if (!l->isOuter) ++inner;
+    }
+    c.innerLoops = inner;
     return c;
 }
 

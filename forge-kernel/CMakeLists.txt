@@ -447,6 +447,8 @@ add_library(forge_kernel SHARED
     src/native/brep/NurbsCalculus.cpp
     src/native/brep/NurbsSurface.cpp   # surfit dep: brep::evaluateWithDerivatives
     src/native/brep/Topology.cpp
+    src/native/brep/Curve.cpp           # K0 — tagged Curve/PCurve geometry + tolerance attrs (Wave-1)
+    src/native/brep/NurbsAlgebra.cpp    # K1.1 — NURBS algebra: elevate/knot-ops/curvature/iso/projection (Wave-1)
     # IN-HOUSE KERNEL STEP 1 — OCCT-free primitive B-rep solids + exact
     # mass-properties + watertight tessellation (pure C++20 stdlib, no new link
     # libs). Always compiled into the addon; the JS surface is gated behind
