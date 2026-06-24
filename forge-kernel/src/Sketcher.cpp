@@ -56,6 +56,57 @@ inline std::uint32_t indexOf   (std::uint32_t id ) { return id & kIndexMask; }
 // Tag 0 is reserved by planegcs ("no tag" sentinel).
 inline int nextTag(int& counter) { return ++counter; }
 
+// ---------------------------------------------------------------- shared stitch
+//
+// OCCT_ZERO_ROADMAP W2.5 — the ONE endpoint-stitching state machine shared by
+// BOTH extractWires (OCCT geometry) and extractProfileRings (native polylines),
+// retiring the duplicated stitch loops the two previously carried. It is purely
+// 2D + OCCT-free: it consumes only each open segment's (start,end) 2D endpoints
+// and returns ordered CHAINS of (segmentIndex, reversed) so the caller can
+// assemble its own per-segment geometry (an OCCT edge or a sampled polyline) in
+// loop order, flipping the segment when `reversed`. The 1e-5 (10 µm) coincidence
+// tolerance is the shared contract both paths used before this dedup.
+struct StitchEnd { double x, y; };
+struct ChainLink { std::size_t seg; bool reversed; };
+
+inline std::vector<std::vector<ChainLink>>
+stitchSegments(const std::vector<std::pair<StitchEnd, StitchEnd>>& ends) {
+    constexpr double kStitchEps = 1.0e-5;
+    auto nearXY = [](const StitchEnd& p, const StitchEnd& q) {
+        const double dx = p.x - q.x, dy = p.y - q.y;
+        return std::sqrt(dx * dx + dy * dy) < kStitchEps;
+    };
+    std::vector<std::vector<ChainLink>> chains;
+    std::vector<bool> used(ends.size(), false);
+    for (std::size_t i = 0; i < ends.size(); ++i) {
+        if (used[i]) continue;
+        used[i] = true;
+        std::vector<ChainLink> chain{ ChainLink{ i, false } };
+        StitchEnd frontPt = ends[i].first;   // open end at the chain's head
+        StitchEnd backPt  = ends[i].second;  // open end at the chain's tail
+        bool grew = true;
+        while (grew) {
+            grew = false;
+            for (std::size_t j = 0; j < ends.size(); ++j) {
+                if (used[j]) continue;
+                const StitchEnd& a = ends[j].first;
+                const StitchEnd& b = ends[j].second;
+                if (nearXY(backPt, a)) {              // append j forward at tail
+                    chain.push_back({ j, false }); backPt = b; used[j] = true; grew = true;
+                } else if (nearXY(backPt, b)) {        // append j reversed at tail
+                    chain.push_back({ j, true });  backPt = a; used[j] = true; grew = true;
+                } else if (nearXY(frontPt, b)) {       // prepend j forward at head
+                    chain.insert(chain.begin(), { j, false }); frontPt = a; used[j] = true; grew = true;
+                } else if (nearXY(frontPt, a)) {       // prepend j reversed at head
+                    chain.insert(chain.begin(), { j, true });  frontPt = b; used[j] = true; grew = true;
+                }
+            }
+        }
+        chains.push_back(std::move(chain));
+    }
+    return chains;
+}
+
 }  // namespace
 
 // Enum class for entity kinds so we can route addConstraint correctly.
@@ -487,41 +538,22 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
         segs.push_back({e, sp, ep});
     }
 
-    // ---- (C) stitch segments into wires by endpoint matching -------------
-    std::vector<bool> used(segs.size(), false);
-    auto coincident = [](const gp_Pnt& p, const gp_Pnt& q) {
-        return p.Distance(q) < 1.0e-5;  // 10 µm — looser than Precision::Confusion
-    };
-
-    for (std::size_t i = 0; i < segs.size(); ++i) {
-        if (used[i]) continue;
-        used[i] = true;
-        BRepBuilderAPI_MakeWire mkw(segs[i].edge);
-        gp_Pnt frontPt = segs[i].a;
-        gp_Pnt backPt  = segs[i].b;
-        bool grew = true;
-        while (grew) {
-            grew = false;
-            for (std::size_t j = 0; j < segs.size(); ++j) {
-                if (used[j]) continue;
-                if (coincident(backPt, segs[j].a)) {
-                    mkw.Add(segs[j].edge);
-                    backPt = segs[j].b;
-                    used[j] = true; grew = true;
-                } else if (coincident(backPt, segs[j].b)) {
-                    mkw.Add(segs[j].edge);
-                    backPt = segs[j].a;
-                    used[j] = true; grew = true;
-                } else if (coincident(frontPt, segs[j].b)) {
-                    mkw.Add(segs[j].edge);
-                    frontPt = segs[j].a;
-                    used[j] = true; grew = true;
-                } else if (coincident(frontPt, segs[j].a)) {
-                    mkw.Add(segs[j].edge);
-                    frontPt = segs[j].b;
-                    used[j] = true; grew = true;
-                }
-            }
+    // ---- (C) stitch segments into wires via the SHARED stitcher -----------
+    // W2.5: the endpoint-matching state machine lives ONCE in stitchSegments
+    // (shared with extractProfileRings). Here we feed it each open segment's 2D
+    // endpoints, then assemble an OCCT wire per returned chain by adding the
+    // ordered edges (BRepBuilderAPI_MakeWire connects them by shared vertices).
+    std::vector<std::pair<StitchEnd, StitchEnd>> ends;
+    ends.reserve(segs.size());
+    for (const auto& sg : segs) {
+        ends.push_back({ StitchEnd{ sg.a.X(), sg.a.Y() },
+                         StitchEnd{ sg.b.X(), sg.b.Y() } });
+    }
+    for (const auto& chain : stitchSegments(ends)) {
+        if (chain.empty()) continue;
+        BRepBuilderAPI_MakeWire mkw;
+        for (const auto& link : chain) {
+            mkw.Add(segs[link.seg].edge);
         }
         if (mkw.IsDone()) {
             wires.push_back(mkw.Wire());
@@ -600,40 +632,32 @@ extractProfileRings(SketchHandle h, int circleSegments) {
         segs2.push_back(Seg{std::move(pts)});
     }
 
-    // ---- (C) stitch segments into rings by endpoint matching ---------------
+    // ---- (C) stitch segments into rings via the SHARED stitcher ------------
+    // W2.5: the SAME stitchSegments state machine extractWires uses (10 µm tol).
+    // We feed each polyline's two ENDPOINTS, then rebuild each ring by walking
+    // the returned ordered (seg, reversed) chain — concatenating each segment's
+    // sampled points (reversed when flagged) and dropping the shared joint vertex
+    // between consecutive links so interior arc samples are preserved exactly.
     auto near = [&](const Point2& p, const Point2& q) {
         const double dx = p.x - q.x, dy = p.y - q.y;
         return std::sqrt(dx*dx + dy*dy) < kEps;
     };
-    std::vector<bool> used(segs2.size(), false);
-    for (std::size_t i = 0; i < segs2.size(); ++i) {
-        if (used[i]) continue;
-        used[i] = true;
-        // Start the chain with segment i (front -> back).
-        std::vector<Point2> chain = segs2[i].pts;
-        bool grew = true;
-        while (grew) {
-            grew = false;
-            for (std::size_t j = 0; j < segs2.size(); ++j) {
-                if (used[j]) continue;
-                const Point2& chFront = chain.front();
-                const Point2& chBack  = chain.back();
-                const auto& sp = segs2[j].pts;
-                const Point2& sF = sp.front();
-                const Point2& sB = sp.back();
-                if (near(chBack, sF)) {                       // append forward
-                    for (std::size_t k = 1; k < sp.size(); ++k) chain.push_back(sp[k]);
-                    used[j] = true; grew = true;
-                } else if (near(chBack, sB)) {                // append reversed
-                    for (std::size_t k = sp.size(); k-- > 1; ) chain.push_back(sp[k-1]);
-                    used[j] = true; grew = true;
-                } else if (near(chFront, sB)) {               // prepend forward
-                    for (std::size_t k = sp.size() - 1; k-- > 0; ) chain.insert(chain.begin(), sp[k]);
-                    used[j] = true; grew = true;
-                } else if (near(chFront, sF)) {               // prepend reversed
-                    for (std::size_t k = 1; k < sp.size(); ++k) chain.insert(chain.begin(), sp[k]);
-                    used[j] = true; grew = true;
-                }
+    std::vector<std::pair<StitchEnd, StitchEnd>> ends2;
+    ends2.reserve(segs2.size());
+    for (const auto& sg : segs2) {
+        ends2.push_back({ StitchEnd{ sg.pts.front().x, sg.pts.front().y },
+                          StitchEnd{ sg.pts.back().x,  sg.pts.back().y  } });
+    }
+    for (const auto& links : stitchSegments(ends2)) {
+        std::vector<Point2> chain;
+        for (const auto& link : links) {
+            const auto& sp = segs2[link.seg].pts;
+            if (!link.reversed) {
+                for (std::size_t k = (chain.empty() ? 0 : 1); k < sp.size(); ++k)
+                    chain.push_back(sp[k]);
+            } else {
+                for (std::size_t k = (chain.empty() ? sp.size() : sp.size() - 1); k-- > 0; )
+                    chain.push_back(sp[k]);
             }
         }
         // Drop a duplicated closing vertex if the chain closed on itself (the

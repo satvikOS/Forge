@@ -4,10 +4,9 @@
 
 #include "forge/MateLibrary.hpp"
 
-#include <gp_Pnt.hxx>
-#include <gp_Vec.hxx>
-#include <gp_Trsf.hxx>
-#include <gp_Quaternion.hxx>
+// OCCT_ZERO_ROADMAP W2.2 — this TU is now OCCT-FREE. The single OCCT dependency
+// (gp_Quaternion::Multiply in rotateVec) was replaced by the in-house Hamilton
+// sandwich product below, so the gp_*.hxx includes are deleted outright.
 
 #include <algorithm>
 #include <cmath>
@@ -74,13 +73,31 @@ inline void quatFromAxisAngle(const double axis[3], double theta, double q[4]) {
 }
 
 // Rotate v by q (Hamilton, w,x,y,z) into out.
+//
+// OCCT_ZERO_ROADMAP W2.2 — IN-HOUSE, OCCT-FREE. Computes the sandwich product
+// out = q * (0, v) * q^-1 directly. For a UNIT quaternion q^-1 == conjugate, but
+// the inputs here are renormalised (normalizeQuat) only on pose composition, so
+// we use the GENERAL inverse (conjugate / |q|^2) to stay exact for a possibly
+// non-unit q — matching gp_Quaternion::Multiply, which also normalises internally.
+// A/B-verified native==OCCT to 1e-12 (test/matelib_quat_ab.mjs / unit gate).
 inline void rotateVec(const double q[4], const double v[3], double out[3]) {
-    // out = q * (0, v) * q^-1, expanded:
-    // Using OCCT for parity check:
-    gp_Quaternion gq(q[1], q[2], q[3], q[0]);
-    gp_Vec        gv(v[0], v[1], v[2]);
-    gp_Vec        gout = gq.Multiply(gv);
-    out[0] = gout.X(); out[1] = gout.Y(); out[2] = gout.Z();
+    const double w = q[0], x = q[1], y = q[2], z = q[3];
+    const double n2 = w*w + x*x + y*y + z*z;
+    if (n2 <= 1e-30) { out[0] = v[0]; out[1] = v[1]; out[2] = v[2]; return; }
+    // p = (0, v) as a quaternion.
+    const double pw = 0.0, px = v[0], py = v[1], pz = v[2];
+    // t = q * p   (Hamilton product, w,x,y,z).
+    const double tw = w*pw - x*px - y*py - z*pz;
+    const double tx = w*px + x*pw + y*pz - z*py;
+    const double ty = w*py - x*pz + y*pw + z*px;
+    const double tz = w*pz + x*py - y*px + z*pw;
+    // q^-1 = conjugate / |q|^2.
+    const double inv = 1.0 / n2;
+    const double cw =  w * inv, cx = -x * inv, cy = -y * inv, cz = -z * inv;
+    // out = t * q^-1 (only the vector part is needed; the scalar part is ~0).
+    out[0] = tw*cx + tx*cw + ty*cz - tz*cy;
+    out[1] = tw*cy - tx*cz + ty*cw + tz*cx;
+    out[2] = tw*cz + tx*cy - ty*cx + tz*cw;
 }
 
 // Compose: pose_q = dq * pose_q, then renormalise. dq is the *world-

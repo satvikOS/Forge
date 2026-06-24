@@ -449,6 +449,7 @@ add_library(forge_kernel SHARED
     src/native/brep/Topology.cpp
     src/native/brep/Curve.cpp           # K0 — tagged Curve/PCurve geometry + tolerance attrs (Wave-1)
     src/native/brep/NurbsAlgebra.cpp    # K1.1 — NURBS algebra: elevate/knot-ops/curvature/iso/projection (Wave-1)
+    src/native/brep/TrimmedFace.cpp     # K1.2 — trimmed-NURBS B-rep face: point-in-trim + trim-respecting tessellation + trimmed mass-props (Wave-1 keystone)
     # IN-HOUSE KERNEL STEP 1 — OCCT-free primitive B-rep solids + exact
     # mass-properties + watertight tessellation (pure C++20 stdlib, no new link
     # libs). Always compiled into the addon; the JS surface is gated behind
@@ -456,6 +457,11 @@ add_library(forge_kernel SHARED
     src/native/brep/Surface.cpp
     src/native/brep/Primitives.cpp
     src/native/brep/MassProps.cpp
+    # OCCT_ZERO_ROADMAP W2.1 — native EXACT analytic AABB (replaces ComponentRegistry's
+    # sole OCCT call, BRepBndLib+Bnd_Box, on native-backed handles). Deps: Topology +
+    # Surface (already linked above). Live route in src/ComponentRegistry.cpp is gated
+    # behind FORGE_NATIVE_BREP + the runtime flag; OCCT stays the default + fallback.
+    src/native/brep/Aabb.cpp
     src/native/brep/SolidTessellate.cpp
     # IN-HOUSE KERNEL STEP 2 — OCCT-free native B-rep BOOLEAN (fuse/cut/common) +
     # analytic surface-surface intersection (pure C++20 stdlib, no new link libs).

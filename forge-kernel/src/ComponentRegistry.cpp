@@ -7,6 +7,17 @@
 #include <limits>
 #include <stdexcept>
 
+// IN-HOUSE KERNEL — OCCT_ZERO_ROADMAP W2.1: native exact analytic AABB on a
+// native-backed handle, replacing this file's sole OCCT call (BRepBndLib +
+// Bnd_Box) for NativeSolid/NativeMesh handles. Gated behind FORGE_NATIVE_BREP +
+// the runtime gate; OCCT stays the default + fallback (Bible §0). A/B-verified
+// native==OCCT::AddOptimal to 1e-9 (test/native/brep/aabb_test.cpp).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeBrepEnabled()
+#include "forge/native/brep/Aabb.hpp"          // brep::computeAabb(Solid)
+#include "forge/native/mesh/HalfEdgeMesh.hpp"  // mesh vertex bounds (NativeMesh)
+#endif
+
 namespace forge {
 
 ComponentRegistry::ComponentRegistry() = default;
@@ -199,6 +210,45 @@ std::size_t ComponentRegistry::bytesUsed() const {
 // ---------------------------------------------------------------- AABB
 
 AABB ComponentRegistry::computeAABB(ShapeHandle component, const Transform4x4& xform) const {
+#ifdef FORGE_NATIVE_BREP
+    // W2.1 — native exact analytic AABB for native-backed handles (no OCCT). Gated
+    // by the runtime flag; OCCT remains the default + fallback for OCCT handles.
+    if (forge::native::brep::forgeNativeBrepEnabled()) {
+        auto& reg = ShapeRegistry::instance();
+        const ShapeKind k = reg.kindOf(component);
+        if (k == ShapeKind::NativeSolid) {
+            const auto bb = forge::native::brep::computeAabb(reg.getNativeSolid(component));
+            if (bb.void_) return AABB{0, 0, 0, 0, 0, 0};
+            return transformLocalAABB(bb.minX, bb.minY, bb.minZ,
+                                      bb.maxX, bb.maxY, bb.maxZ, xform);
+        }
+        if (k == ShapeKind::NativeMesh) {
+            // A fillet/chamfer/sweep RESULT mesh has no analytic surface — bound it
+            // by its (welded) vertex positions. Exact for a mesh (its convex hull
+            // and AABB are vertex-defined), matching how OCCT would box the bridged
+            // tessellation.
+            const auto& m = reg.getNativeMesh(component);
+            double mn[3] = { std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::infinity(),
+                             std::numeric_limits<double>::infinity() };
+            double mx[3] = { -std::numeric_limits<double>::infinity(),
+                             -std::numeric_limits<double>::infinity(),
+                             -std::numeric_limits<double>::infinity() };
+            bool any = false;
+            for (const auto& v : m.vertices()) {
+                const double c[3] = { v.position.x, v.position.y, v.position.z };
+                for (int j = 0; j < 3; ++j) {
+                    if (c[j] < mn[j]) mn[j] = c[j];
+                    if (c[j] > mx[j]) mx[j] = c[j];
+                }
+                any = true;
+            }
+            if (!any) return AABB{0, 0, 0, 0, 0, 0};
+            return transformLocalAABB(mn[0], mn[1], mn[2], mx[0], mx[1], mx[2], xform);
+        }
+        // k == Occt: fall through to the OCCT path below (default + fallback).
+    }
+#endif
     const auto& shape = ShapeRegistry::instance().get(component);
     Bnd_Box local;
     BRepBndLib::Add(shape, local);
@@ -211,7 +261,12 @@ AABB ComponentRegistry::transformAABB(const Bnd_Box& local, const Transform4x4& 
     }
     double xmin, ymin, zmin, xmax, ymax, zmax;
     local.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    return transformLocalAABB(xmin, ymin, zmin, xmax, ymax, zmax, x);
+}
 
+AABB ComponentRegistry::transformLocalAABB(double xmin, double ymin, double zmin,
+                                           double xmax, double ymax, double zmax,
+                                           const Transform4x4& x) const {
     // Transform 8 corners and take the new min/max — cheap and exact
     // enough for axis-aligned culling. SIMD this later if profile says so.
     const double corners[8][3] = {

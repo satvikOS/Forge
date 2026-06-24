@@ -90,3 +90,4 @@ dist-electron/
 *.AppImage
 *.zip
 *.exe
+forge-kernel/build-native/

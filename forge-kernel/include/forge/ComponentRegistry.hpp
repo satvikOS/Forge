@@ -110,6 +110,12 @@ private:
 
     AABB computeAABB(ShapeHandle component, const Transform4x4& xform) const;
     AABB transformAABB(const Bnd_Box& local, const Transform4x4& x) const;
+    // Transform a model-space AABB (6 doubles) by `x` and return the world AABB
+    // of the 8 transformed corners. Shared by the OCCT (Bnd_Box) and the native
+    // (brep::computeAabb) paths so both box-to-world transforms are identical.
+    AABB transformLocalAABB(double xmin, double ymin, double zmin,
+                            double xmax, double ymax, double zmax,
+                            const Transform4x4& x) const;
     void markBvhDirty();
     void ensureBvhLocked() const;
 
