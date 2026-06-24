@@ -454,6 +454,8 @@ add_library(forge_kernel SHARED
     src/native/brep/NurbsAlgebra.cpp    # K1.1 — NURBS algebra: elevate/knot-ops/curvature/iso/projection (Wave-1)
     src/native/brep/TrimmedFace.cpp     # K1.2 — trimmed-NURBS B-rep face: point-in-trim + trim-respecting tessellation + trimmed mass-props (Wave-1 keystone)
     src/native/brep/Sew.cpp             # K1.4 — sew/heal faces into a connected shell (weld verts, merge coedge pairs, free-edge/Euler diagnose)
+    src/native/brep/Check.cpp           # K5 — native B-rep validator (BRepCheck-class): 21 topology/geometry/orientation predicates naming offending entities
+    src/native/brep/Heal.cpp            # heal — ShapeFix-class: gap-fill, small-edge collapse, sliver-face removal, duplicate/degenerate cleanup (honest unfixed report)
     # IN-HOUSE KERNEL STEP 1 — OCCT-free primitive B-rep solids + exact
     # mass-properties + watertight tessellation (pure C++20 stdlib, no new link
     # libs). Always compiled into the addon; the JS surface is gated behind
@@ -490,6 +492,7 @@ add_library(forge_kernel SHARED
     src/native/mesh/FeatureEdges.cpp
     src/native/geom/Delaunay3D.cpp
     src/native/brep/Fillet.cpp
+    src/native/brep/FilletAnalytic.cpp  # analytic rolling-ball constant-radius fillet on a convex straight edge between two planar faces (true cylinder blend surface)
     src/native/brep/Chamfer.cpp
     src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)
     # IN-HOUSE KERNEL STEP 3b — route the SKETCH-BASED feature ops (extrude /
