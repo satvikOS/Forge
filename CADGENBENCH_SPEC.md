@@ -121,12 +121,29 @@ model (`build123d`, Autodesk Fusion, Onshape)." It does **not** require a featur
 or a parametric script as the submission — only the resulting solid (preferably STEP/BREP;
 meshes accepted but must already be watertight/manifold/orientable).
 
-**Submission packaging:** zip (`submission.zip`) with one folder per sample plus a
-root `meta.json`; upload via the Space's **Submit** tab. Rows publish "unvalidated";
-promotion to a "validated tier" is a separate maintainer methodology review
-(`docs/benchmark/validation.md`). A `sanity_check_submission.py` helper ships with the
-public dataset to run the validity gate locally before upload. Source: README "How to
-submit."
+**Submission packaging:** zip (`submission.zip`) with one folder per sample (folder
+named exactly by the sample id, e.g. `101/output.step`) plus a root `meta.json`;
+upload via the Space's **Submit** tab. `meta.json` required fields (README "meta.json
+Structure"): `submitter` (string), `name` (string), `agree_to_publish` (boolean — true
+only with `--agree`). Rows publish "unvalidated"; promotion to a "validated tier" is a
+separate maintainer methodology review (`docs/benchmark/validation.md`). A
+`sanity_check_submission.py` helper **ships with the public dataset** (not the repo
+root) — it validates a SINGLE candidate STEP: exists (exit 2 if missing) → loads (exit
+1 on exception) → `validation.is_valid` + `validation.is_watertight` +
+`validation.topology_errors==[]`, printing solid/shell/face counts, volume, bbox, and
+`defl_used = deflection_for_bbox(bbox.diagonal)`; exit 0 pass / 1 fail. Source: README
+"How to submit".
+
+> **Forge submission packer (NEW 2026-06-24 — closes gap G4).**
+> `forge-kernel/test/cadgenbench_submission_packer.mjs` produces this exact artifact
+> from Forge-exported STEP files: a pure-Node STORE-mode `submission.zip` with root
+> `meta.json` (the three required fields + benign provenance extras) and one
+> `<id>/output.step` per sample, mirroring `sanity_check_submission.py`'s single-STEP
+> validity gate in-process via the native kernel's `heal.checkValidity` (refuses to
+> pack an invalid candidate unless `allowInvalid`). Verified cross-tool: the emitted
+> zip passes system `unzip -l` and Python `zipfile.testzip()` (all CRCs valid — the
+> grader's own reader). Self-test: `node cadgenbench_submission_packer.mjs --selftest`
+> (24/24).
 
 ---
 
@@ -264,10 +281,10 @@ module). It was written **against this exact benchmark** — its header docstrin
 | Validity gate zeroes the score | `:1014-1020` `if (!gate.valid) { return { cad_score: 0, ... } }`; gate in `checkValid()` `:433-440` (isClosed && isManifold && isOriented && !hasSelfIntersect && badFaces===0) | **MATCH (concept)** |
 | `shape = 0.5·(surface_F1 + volume_IoU)` | Forge uses a 3-way mean: volume-IoU proxy + bbox extent-IoU + surface-F1 (`scoreShape` `:464-491`, `shape = (volScore + bboxScore + f1)/3`) | **PARTIAL** — Forge adds a bbox-IoU term and equal-weights three sub-scores; CADGenBench is a 2-way mean (no explicit bbox term). |
 | Surface-F1 tolerance proportional to part size | `surfaceF1()` `:287-305` uses a **0.5 mm floor** scaled to ~2.5× sample spacing | **PARTIAL** — Forge's floor is **0.5 mm absolute**; CADGenBench's is **0.5% of the GT bbox** (relative). Different basis. |
-| Interface = keep-in / keep-out sub-volumes | `scoreInterface()` `:532-558`, ray-parity point-in-solid keep-in/keep-out | **MATCH (concept)** — but Forge scores **point pass-rate** (min of in/out rates), NOT the **volumetric-IoU ramp (≥0.95→1, ≤0.80→0)** CADGenBench uses. |
-| Interface group = worst feature, fixture = mean over groups | `:553` `Math.min(inRate, outRate)` per feature; `:557` `sum / features.length` mean | **MATCH (aggregation shape)** |
-| Topology = Betti `(b0,b1,b2)`, axes **multiplied** | `scoreTopology()` `:699-706` `topology = c0 * c1 * c2`; Betti via `bettiNumbers()` `:358-419` | **MATCH (multiplicative)** |
-| Topology per-axis falloff | `:701` `credit = 1/(1+|Δ|)` | **DIFFERS** — for b1 `2 vs 4`, Forge = `1/3 ≈ 0.333`; CADGenBench's verified canonical form is `((min+1)/(max+1))²` → `(3/5)² = 0.36`. Close but not identical; **TODO** to switch Forge to the squared (min+1)/(max+1) ratio to match exactly. |
+| Interface = keep-in / keep-out sub-volumes, **volumetric-IoU ramp** | `scoreInterface()` `:607-631`, ray-parity point-in-solid TP/FP/FN volumetric IoU `iou = tp/(tp+fp+fn)` (`:624-625`) → `interfaceRamp()` `:370-374` | **MATCH (RECONCILED 2026-06-24)** — `interfaceRamp` is now the verbatim CADGenBench ramp **`IoU≥0.95→1, ≤0.80→0, linear`** (`if iou>=0.95 return 1; if iou<=0.80 return 0; return (iou-0.80)/0.15`). The stale v1 row described a point pass-rate `min(inRate,outRate)`; that form is GONE from the file. |
+| Interface group = worst feature, fixture = mean over groups | `:627-630` per-feature `fscore = interfaceRamp(iou)`; `:630` `sum / features.length` mean | **MATCH (aggregation shape)** |
+| Topology = Betti `(b0,b1,b2)`, axes **multiplied** | `scoreTopology()` `:1510-1516` `topology = c0 * c1 * c2`; Betti via `bettiNumbers()` `:427-489` | **MATCH (multiplicative)** |
+| Topology per-axis falloff | `topologyCredit()` `:361-364` `r = (min(got,want)+1)/(max(got,want)+1); return r*r` | **MATCH (RECONCILED 2026-06-24)** — now the verbatim canonical `s_i = ((min(cand,gt)+1)/(max(cand,gt)+1))²`; for b1 `2 vs 4` → `(3/5)² = 0.36` (was the v1 `1/(1+|Δ|) = 0.333`). Citation: `metrics_page.py`, <https://huggingface.co/spaces/HuggingAI4Engineering/CADGenBench/resolve/main/metrics_page.py>. The v1 `1/(1+|Δ|)` falloff is GONE from the file. |
 | Editing `0.6·s_renorm + 0.3·interface + 0.1·topology`, `s_renorm = max(0,(shape−b)/(1−b))` | Editing path present: `shapeFromTess()` `:504-524` computes `b_shape` from input-vs-target; built-in editing fixtures `builtinEditingFixtures()` `:1214-1306`; (renorm + 0.6/0.3/0.1 reweight applied in the editing scorer further down the file, same module) | **MATCH (concept + baseline definition)** |
 | STEP round-trip validity | `stepRoundTrip()` `:443-459` exports + re-imports + re-checks | **EXTRA** — Forge adds a STEP export/import round-trip beyond the gate; a useful superset. |
 
@@ -342,14 +359,24 @@ genuinely non-public items, and the things worth asking for directly:
 - **No verified leaderboard numbers.** The "~0.39 top score" is **UNVERIFIED** (search
   summary only; HF Space leaderboard is JS-rendered, X launch post is HTTP-402 paywalled).
   Marked accordingly throughout. Real numbers require a browser or a Mecado ask.
-- **Exact topology per-axis formula — RESOLVED (was: not transcribed).** `metrics_page.py`
+- **Exact topology per-axis formula — RESOLVED + RECONCILED (2026-06-24).** `metrics_page.py`
   states it verbatim: `s_i = ((min(cand,gt)+1) / (max(cand,gt)+1))²`, multiplied across the
-  three Betti axes. It is **not** a deferred "log-ratio." Forge currently uses `1/(1+|Δ|)`
-  (TODO: switch Forge's per-axis credit to the squared (min+1)/(max+1) ratio to match exactly).
+  three Betti axes. It is **not** a deferred "log-ratio." Forge's `topologyCredit()`
+  (`cadscore_harness.mjs:361-364`) **now implements exactly this** (`r = (min+1)/(max+1);
+  return r*r`); the v1 `1/(1+|Δ|)` falloff has been removed. Pinned by
+  `cadscore_v2_selftest.mjs` (the verbatim worked example `(1,2,0)v(1,4,0) = 0.36`).
+- **Interface IoU ramp — RESOLVED + RECONCILED (2026-06-24).** `metrics_page.py` states the
+  per-feature ramp verbatim: **`IoU≥0.95→1, ≤0.80→0, linear between`.** Forge's
+  `interfaceRamp()` (`cadscore_harness.mjs:370-374`) **now implements exactly this**
+  (`if iou>=0.95 return 1; if iou<=0.80 return 0; return (iou-0.80)/0.15`), over a volumetric
+  IoU `tp/(tp+fp+fn)` (`scoreInterface()` `:607-631`); the v1 point pass-rate
+  `min(inRate,outRate)` has been removed. Pinned by `cadscore_v2_selftest.mjs`.
 - **Surface-F1 tolerance basis — RESOLVED (was: not transcribed).** `metrics_page.py` states
   the tolerance is **0.5% of the GT bounding-box DIAGONAL** (not per-axis, not a fixed mm).
-  The exact point-sample budget is still not stated in the public Space source. Forge uses a
-  0.5 mm absolute floor + 8000 samples — a **different basis** (absolute mm vs relative diagonal).
+  Forge's `surfaceF1()` now takes `tauAbs = 0.005·bboxDiag(gt.bbox)` from the caller
+  (`scoreShape()` `:542`), with a finite-sampling `2.5×spacing` floor that only ever RAISES
+  tau. The exact point-sample budget (Forge uses 8000) is still not stated in the public
+  Space source — the one remaining unverified rubric constant.
 - **Mecado landing page content** (`mecado.com/benchmark`) is JS-rendered and returned an empty
   shell to a plain fetch; its substantive content mirrors the GitHub/Space sources used here.
   Not a gap in facts, just a note on why that URL isn't quoted directly.

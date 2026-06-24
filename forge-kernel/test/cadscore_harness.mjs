@@ -353,10 +353,20 @@ function volumeIoU(tA, tB, n = 30000, seed = 99173) {
 }
 
 /**
- * CADGenBench per-axis topology credit (VERIFIED canonical form, verbatim from the
- * leaderboard Space's metrics_page.py):  s_i = ((min(cand,gt)+1)/(max(cand,gt)+1))².
- * The three Betti axes are MULTIPLIED, not averaged. Worked example: b1 2 vs 4 →
- * ((2+1)/(4+1))² = (3/5)² = 0.36. This replaces the v1 1/(1+|Δ|) falloff.
+ * CADGenBench per-axis TOPOLOGY credit — RECONCILED to the verbatim published form.
+ *
+ *   SOURCE (verbatim): the leaderboard Space's `metrics_page.py`,
+ *     <https://huggingface.co/spaces/HuggingAI4Engineering/CADGenBench/resolve/main/metrics_page.py>
+ *     s_i            = ((min(cand, gt) + 1) / (max(cand, gt) + 1)) ^ 2
+ *     topology_match = s_0 * s_1 * s_2          (the three Betti axes MULTIPLIED)
+ *
+ *   BEFORE (v1, removed):   credit = 1 / (1 + |got − want|)
+ *                           → for b1 (2 vs 4): 1/(1+2) = 0.333…
+ *   AFTER  (this form):     credit = ((min+1)/(max+1))²
+ *                           → for b1 (2 vs 4): ((2+1)/(4+1))² = (3/5)² = 0.36  ✓
+ *
+ *   The published worked example GT (1,2,0) vs cand (1,4,0) reproduces exactly:
+ *   s_0=1 · s_1=0.36 · s_2=1 = 0.36. Pinned by cadscore_v2_selftest.mjs.
  */
 function topologyCredit(got, want) {
   const r = (Math.min(got, want) + 1) / (Math.max(got, want) + 1);
@@ -364,8 +374,18 @@ function topologyCredit(got, want) {
 }
 
 /**
- * CADGenBench interface ramp: a per-feature volumetric IoU ≥ 0.95 → 1, ≤ 0.80 → 0,
- * linear between ("a sloppy fit scores 0").
+ * CADGenBench INTERFACE ramp — RECONCILED to the verbatim published form.
+ *
+ *   SOURCE (verbatim): `metrics_page.py` (same URL as above) —
+ *     per-feature volumetric IoU: "IoU ≥ 0.95 → 1, ≤ 0.80 → 0, linear between;
+ *     a sloppy fit scores 0."
+ *
+ *   BEFORE (v1, removed):   raw point pass-rate  min(inRate, outRate)
+ *   AFTER  (this form):     iou≥0.95 → 1 ; iou≤0.80 → 0 ; else (iou−0.80)/0.15
+ *                           → ramp(0.875) = 0.5, ramp(0.90) = 0.6667.
+ *
+ *   Fed by a true volumetric IoU = TP/(TP+FP+FN) over the authored keep-in/keep-out
+ *   sub-volume (scoreInterface, below). Pinned by cadscore_v2_selftest.mjs.
  */
 function interfaceRamp(iou) {
   if (iou >= 0.95) return 1;

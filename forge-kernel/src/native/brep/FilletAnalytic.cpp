@@ -1006,6 +1006,269 @@ AnalyticChainFilletResult filletBoxEdgeChainAnalytic(TopologyBuilder& tb,
     return out;
 }
 
+// ===========================================================================
+// CURVED-FACE fillet: the CONVEX CIRCULAR edge where a cylinder's CYLINDRICAL
+// side (radius Rc, axis +Z, z in [0,H]) meets its FLAT TOP CAP (plane z=H).
+//
+// Because one contact face is a CYLINDER and the other a PLANE, the rolling-ball
+// blend is a TORUS — the ball centre sweeps the SPINE circle of radius (Rc-R) at
+// z = H-R, so the blend surface has tube (minor) radius r2 = R and ring (major)
+// radius r1 = Rc-R. The two tangent contact circles (radius Rc at z=H-R on the
+// wall; radius Rc-R at z=H on the cap) become the new trim boundaries.
+//
+// Assembly (axisymmetric, sewn from independent fragments like the L-block path):
+// per angular segment k over [theta_k, theta_{k+1}] we emit four fragments —
+//   * a WALL quad on the cylinder radius Rc, z in [0, H-R] (re-trimmed wall),
+//   * a TORUS blend quad, theta in segment, phi in [0, pi/2]
+//        (phi=0 -> radius Rc, z=H-R touches the wall; phi=pi/2 -> radius Rc-R,
+//         z=H touches the cap), with its phi=0 and phi=pi/2 boundary edges bound
+//        to their exact contact CIRCLES so the sewer welds them to the wall top
+//        rim and the shrunk cap rim,
+//   * a TOP-CAP sector (axis centre -> shrunk rim radius Rc-R at z=H), and
+//   * a BOTTOM-CAP sector (axis centre -> rim radius Rc at z=0).
+// All fragments are sewn into one closed genus-0 2-manifold.
+//
+// EXACT removed corner volume (revolved quarter-round, Pappus + 2nd radial moment):
+//     removed = 2*pi*(Rc-R)*(1 - pi/4)*R^2 + (pi/3)*R^3
+// so the filleted volume == pi*Rc^2*H - removed, measured EXACTLY by the analytic
+// integrator (the torus patch via its analytic |S_u x S_v| quadrature).
+// ===========================================================================
+AnalyticTorusFilletResult filletCylinderTopEdgeAnalytic(TopologyBuilder& tb,
+                                                        double Rc, double H, double R,
+                                                        int nSeg) {
+    AnalyticTorusFilletResult out;
+    auto bad = [&](const char* why) { out.ok = false; out.reason = why; return out; };
+    if (!(Rc > 0.0) || !std::isfinite(Rc)) return bad("cylinder radius Rc must be positive finite");
+    if (!(H  > 0.0) || !std::isfinite(H )) return bad("cylinder height H must be positive finite");
+    if (!(R  > 0.0) || !std::isfinite(R )) return bad("fillet radius R must be positive finite");
+    if (!(R < Rc)) return bad("fillet radius R must be < Rc (the spine radius Rc-R must stay positive)");
+    if (!(R < H )) return bad("fillet radius R must be < H (the wall re-trim must stay above z=0)");
+    if (nSeg < 8)  return bad("nSeg must be >= 8 for a faithful revolution");
+
+    const double ringR = Rc - R;          // torus major / spine-circle radius
+    const double zSpine = H - R;           // spine-circle plane height
+    const Vec3 ZP{0, 0, 1};
+
+    // One SHARED torus surface for every blend segment (centre = spine plane centre).
+    // S(theta,phi) = origin + (r1 + r2 cos phi)(cos th refDir + sin th binorm)
+    //              + r2 sin phi * axis,  origin=(0,0,zSpine), r1=ringR, r2=R.
+    // phi in [0,pi/2]: phi=0 -> radius Rc,z=zSpine (wall); phi=pi/2 -> radius ringR,z=H (cap).
+    Surface* torus = tb.makeSurface();
+    torus->kind = SurfaceKind::Torus;
+    torus->origin = {0, 0, zSpine};
+    torus->axis = {0, 0, 1};
+    torus->refDir = {1, 0, 0};
+    torus->r1 = ringR;   // major
+    torus->r2 = R;       // minor (tube)
+    {
+        // Orient the stored normal OUTWARD (away from the spine circle): at the
+        // arc midpoint (phi=pi/4) the geometric (Su x Sv) normal points radially-
+        // outward+up; set `reversed` so it agrees with that outward direction.
+        Vec3 sp, du, dv;
+        torus->evaluateDeriv(0.0, 0.25 * kPi, sp, du, dv);   // theta=0, phi=pi/4
+        Vec3 nrm = vnorm(vcross(du, dv));
+        // outward at theta=0, phi=pi/4 has +x and +z components (away from spine).
+        Vec3 wantOut = vnorm(Vec3{std::cos(0.25 * kPi), 0.0, std::sin(0.25 * kPi)});
+        torus->reversed = (vdot(nrm, wantOut) < 0.0);
+    }
+
+    // One SHARED cylinder surface for the re-trimmed wall (radius Rc, z in [0,zSpine]).
+    Surface* wall = tb.makeSurface();
+    wall->kind = SurfaceKind::Cylinder;
+    wall->origin = {0, 0, 0};
+    wall->axis = {0, 0, 1};
+    wall->refDir = {1, 0, 0};
+    wall->r1 = Rc;
+    wall->param = zSpine;
+    {
+        Vec3 sp, du, dv;
+        wall->evaluateDeriv(0.0, 0.5 * zSpine, sp, du, dv);
+        Vec3 nrm = vnorm(vcross(du, dv));
+        wall->reversed = (vdot(nrm, Vec3{1, 0, 0}) < 0.0);   // outward == +radial
+    }
+
+    std::vector<Face*> frags;
+
+    // Per-angular-segment fragments. Each segment owns its own vertices; the sewer
+    // welds coincident boundaries (the arc edges are bound to their exact circles).
+    auto ringPt = [&](double r, double th, double z) -> Vec3 {
+        return Vec3{r * std::cos(th), r * std::sin(th), z};
+    };
+
+    // Bind the coedge whose endpoints are {va,vb} (an arc at constant z on the
+    // circle of radius `cr` in the plane z=cz) to its EXACT Circle curve, in the
+    // coedge's start->end sense. The circle uses the GLOBAL +X refDir so its angle
+    // parameter equals the world azimuth (the sewer maps f in [0,1] over [t0,t1]),
+    // and t0/t1 are the world azimuths of the start/end vertices so the sampled
+    // mid-points of two coincident arcs (from neighbouring fragments) agree.
+    auto azim = [](const Vec3& p) { return std::atan2(p.y, p.x); };
+    auto bindArc = [&](Coedge* ce, Vertex* va, Vertex* vb,
+                       double cr, double cz, double tA, double tB) {
+        Vertex* o = ce->originVertex();
+        const bool startIsA = (o == va);
+        double t0c = startIsA ? tA : tB;
+        double t1c = startIsA ? tB : tA;
+        // Keep the parameter monotone in the start->end direction; the two
+        // neighbouring segments share azimuths exactly so no wrap arises within
+        // a single sub-2*pi segment.
+        ce->edge->curve = tb.makeCurve(
+            Curve::makeCircle(Vec3{0, 0, cz}, Vec3{1, 0, 0}, ZP, cr, t0c, t1c));
+        (void)va; (void)vb;
+    };
+
+    for (int k = 0; k < nSeg; ++k) {
+        const double t0 = 2.0 * kPi * k / nSeg;
+        const double t1 = 2.0 * kPi * (k + 1) / nSeg;
+
+        // --- WALL quad (cylinder Rc, z in [0,zSpine]), outward radial ----------
+        {
+            Vertex* v00 = tb.makeVertex(V2P(ringPt(Rc, t0, 0.0)));
+            Vertex* v10 = tb.makeVertex(V2P(ringPt(Rc, t1, 0.0)));
+            Vertex* v11 = tb.makeVertex(V2P(ringPt(Rc, t1, zSpine)));
+            Vertex* v01 = tb.makeVertex(V2P(ringPt(Rc, t0, zSpine)));
+            std::vector<Vertex*> ring = {v00, v10, v11, v01};
+            Face* f = tb.makeFace();
+            tb.addOuterLoopToFace(f, ring);
+            // Bind the two z-constant arc edges (v00-v10 at z=0; v01-v11 at z=zSpine).
+            Coedge* ce = f->outerLoop->first;
+            for (std::size_t s = 0; s < f->outerLoop->coedgeCount; ++s) {
+                Vertex* o = ce->originVertex(); Vertex* d = ce->destVertex();
+                auto isE = [&](Vertex* a, Vertex* b){ return (o==a&&d==b)||(o==b&&d==a); };
+                if (isE(v00, v10))      bindArc(ce, v00, v10, Rc, 0.0,    t0, t1);
+                else if (isE(v01, v11)) bindArc(ce, v01, v11, Rc, zSpine, t0, t1);
+                ce = ce->next;
+            }
+            f->surface = wall;
+            f->paramTri = false;
+            f->u0 = t0; f->u1 = t1; f->v0 = 0.0; f->v1 = zSpine;
+            f->vertexUV = {{t0,0.0},{t1,0.0},{t1,zSpine},{t0,zSpine}};
+            frags.push_back(f);
+        }
+
+        // --- TORUS blend quad (theta in [t0,t1], phi in [0,pi/2]) --------------
+        {
+            // phi=0 -> radius Rc, z=zSpine ; phi=pi/2 -> radius ringR, z=H.
+            Vertex* p00 = tb.makeVertex(V2P(ringPt(Rc,    t0, zSpine))); // (t0,phi0)
+            Vertex* p10 = tb.makeVertex(V2P(ringPt(Rc,    t1, zSpine))); // (t1,phi0)
+            Vertex* p11 = tb.makeVertex(V2P(ringPt(ringR, t1, H)));      // (t1,phi1)
+            Vertex* p01 = tb.makeVertex(V2P(ringPt(ringR, t0, H)));      // (t0,phi1)
+            std::vector<Vertex*> ring = {p00, p10, p11, p01};
+            Face* f = tb.makeFace();
+            tb.addOuterLoopToFace(f, ring);
+            // Bind the two phi-constant arc edges to their exact contact circles so
+            // they weld to the wall top rim (phi=0, radius Rc, z=zSpine) and to the
+            // shrunk top-cap rim (phi=pi/2, radius ringR, z=H).
+            Coedge* ce = f->outerLoop->first;
+            for (std::size_t s = 0; s < f->outerLoop->coedgeCount; ++s) {
+                Vertex* o = ce->originVertex(); Vertex* d = ce->destVertex();
+                auto isE = [&](Vertex* a, Vertex* b){ return (o==a&&d==b)||(o==b&&d==a); };
+                if (isE(p00, p10))      bindArc(ce, p00, p10, Rc,    zSpine, t0, t1);
+                else if (isE(p01, p11)) bindArc(ce, p01, p11, ringR, H,      t0, t1);
+                ce = ce->next;
+            }
+            f->surface = torus;
+            f->paramTri = false;
+            f->u0 = t0; f->u1 = t1; f->v0 = 0.0; f->v1 = 0.5 * kPi;  // phi in [0,pi/2]
+            f->vertexUV = {{t0,0.0},{t1,0.0},{t1,0.5*kPi},{t0,0.5*kPi}};
+            frags.push_back(f);
+            out.blendFaces.push_back(f);
+            if (out.filletFace == nullptr) out.filletFace = f;
+        }
+
+        // --- TOP-CAP sector (axis centre -> shrunk rim radius ringR at z=H) ----
+        // Outward +Z. Ring: centre -> rim@t0 -> (arc) -> rim@t1. To mate the torus
+        // cap rim (which welds at phi=pi/2), the cap's outer arc is the SAME circle.
+        {
+            const Vec3 ctr{0, 0, H};
+            Vertex* vc = tb.makeVertex(V2P(ctr));
+            Vertex* vA = tb.makeVertex(V2P(ringPt(ringR, t0, H)));
+            Vertex* vB = tb.makeVertex(V2P(ringPt(ringR, t1, H)));
+            std::vector<Vertex*> ring = {vc, vA, vB};
+            orientRingCCW(ring, ZP);
+            Face* f = tb.makeFace();
+            tb.addOuterLoopToFace(f, ring);
+            Coedge* ce = f->outerLoop->first;
+            for (std::size_t s = 0; s < f->outerLoop->coedgeCount; ++s) {
+                Vertex* o = ce->originVertex(); Vertex* d = ce->destVertex();
+                if ((o==vA&&d==vB)||(o==vB&&d==vA)) bindArc(ce, vA, vB, ringR, H, t0, t1);
+                ce = ce->next;
+            }
+            Surface* sd = tb.makeSurface();
+            sd->kind = SurfaceKind::Plane;
+            sd->origin = ctr;
+            sd->refDir = {1, 0, 0};
+            sd->axis = {0, 0, 1};
+            sd->reversed = (vdot(sd->axis, ZP) < 0.0);
+            sd->isDisk = true;
+            sd->diskOuter = ringR;
+            sd->diskInner = 0.0;
+            f->surface = sd;
+            f->u0 = t0; f->u1 = t1;
+            f->v0 = 0.0; f->v1 = ringR;
+            frags.push_back(f);
+        }
+
+        // --- BOTTOM-CAP sector (axis centre -> rim radius Rc at z=0) -----------
+        // Outward -Z. CCW as seen from below.
+        {
+            const Vec3 ctr{0, 0, 0};
+            Vertex* vc = tb.makeVertex(V2P(ctr));
+            Vertex* vA = tb.makeVertex(V2P(ringPt(Rc, t0, 0.0)));
+            Vertex* vB = tb.makeVertex(V2P(ringPt(Rc, t1, 0.0)));
+            std::vector<Vertex*> ring = {vc, vA, vB};
+            orientRingCCW(ring, Vec3{0, 0, -1});
+            Face* f = tb.makeFace();
+            tb.addOuterLoopToFace(f, ring);
+            Coedge* ce = f->outerLoop->first;
+            for (std::size_t s = 0; s < f->outerLoop->coedgeCount; ++s) {
+                Vertex* o = ce->originVertex(); Vertex* d = ce->destVertex();
+                if ((o==vA&&d==vB)||(o==vB&&d==vA)) bindArc(ce, vA, vB, Rc, 0.0, t0, t1);
+                ce = ce->next;
+            }
+            Surface* sd = tb.makeSurface();
+            sd->kind = SurfaceKind::Plane;
+            sd->origin = ctr;
+            sd->refDir = {1, 0, 0};
+            sd->axis = {0, 0, 1};
+            sd->reversed = (vdot(sd->axis, Vec3{0,0,-1}) < 0.0);
+            sd->isDisk = true;
+            sd->diskOuter = Rc;
+            sd->diskInner = 0.0;
+            f->surface = sd;
+            f->u0 = t0; f->u1 = t1;
+            f->v0 = 0.0; f->v1 = Rc;
+            frags.push_back(f);
+        }
+    }
+    (void)azim;
+
+    // -- sew all fragments into one closed shell ------------------------------
+    Solid* solid = tb.makeSolid();
+    SewOptions so; so.tol = 1e-7; so.midSamples = 3; so.weldVertices = true;
+    SewResult sr = sewFaces(tb, frags, so);
+    for (Shell* sh : sr.shells) tb.addShellToSolid(solid, sh);
+
+    out.solid = solid;
+    out.radius = R;
+    out.tubeRadius = R;
+    out.ringRadius = ringR;
+    out.spineCenter = Vec3{0, 0, zSpine};
+    out.cylinderRadius = Rc;
+    out.height = H;
+    // EXACT toroidal-corner removed volume (derived in the header):
+    //   2*pi*(Rc-R)*(1 - pi/4)*R^2  +  (pi/3)*R^3.
+    out.removedVolume = 2.0 * kPi * ringR * (1.0 - kPi / 4.0) * R * R
+                      + (kPi / 3.0) * R * R * R;
+    const bool closed = sr.ok && sr.diagnosis.closed;
+    out.ok = closed;
+    out.reason = out.ok
+        ? "ok (analytic constant-radius rolling-ball fillet, CONVEX circular edge "
+          "between a PLANAR cap and a CYLINDRICAL wall; blend surface is a TORUS of "
+          "tube radius R and ring radius Rc-R; watertight closed genus-0 2-manifold)"
+        : "cylinder-top fillet assembly did not sew into a closed shell";
+    return out;
+}
+
 } // namespace brep
 } // namespace native
 } // namespace forge

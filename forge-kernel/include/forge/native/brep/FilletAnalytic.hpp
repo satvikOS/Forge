@@ -177,6 +177,66 @@ AnalyticChainFilletResult filletBoxEdgeChainAnalytic(TopologyBuilder& tb,
                                                      double L, double R,
                                                      const std::vector<int>& edgeIndices);
 
+// ---------------------------------------------------------------------------
+// filletCylinderTopEdgeAnalytic — CURVED-FACE rolling-ball fillet increment.
+//
+// The first member of the family where ONE adjacent face is CURVED: the constant-
+// radius rolling-ball fillet on the CONVEX CIRCULAR edge where a cylinder's
+// CYLINDRICAL side (radius Rc, axis +Z, z in [0,H]) meets its FLAT TOP CAP (the
+// plane z=H). Because one contact face is a cylinder and the other a plane, the
+// rolling-ball blend is NOT a cylinder — its centre sweeps a CIRCLE (the spine) of
+// radius (Rc - R) at height z = H - R, so the blend surface is a TORUS of:
+//     minor (tube) radius  r2 = R           (the constant ball radius),
+//     major (ring) radius  r1 = Rc - R      (the spine-circle radius).
+// The two TANGENT CONTACT CIRCLES are the new trim boundaries:
+//   * on the cylinder wall: the circle at radius Rc, z = H - R (phi = 0 of the
+//     torus, where the ball touches the wall), so the wall is re-trimmed to
+//     z in [0, H - R];
+//   * on the top plane: the circle at radius Rc - R, z = H (phi = pi/2, where the
+//     ball touches the cap), so the top cap shrinks to the disk of radius Rc - R.
+// The torus patch spans the quarter tube-arc phi in [0, pi/2] over the full 2*pi
+// revolution; it is carried as an analytic SurfaceKind::Torus face. The re-trimmed
+// wall + shrunk cap + torus blend + bottom cap are SEWN into one closed genus-0
+// 2-manifold whose mass the analytic integrator measures EXACTLY (the torus patch
+// via the analytic |S_u x S_v| Gauss-Legendre quadrature).
+//
+// EXACT REMOVED VOLUME (the toroidal-corner material). The removed corner cross-
+// section in the (radius rho, z) half-plane is the R x R square corner minus the
+// quarter-disk of radius R centred at the spine point (Rc - R, H - R) — area
+// (1 - pi/4) R^2 — REVOLVED about the axis (Pappus + the off-axis area moment):
+//     removed = 2*pi*(Rc - R)*(1 - pi/4)*R^2   +   (pi/3)*R^3
+// (the first term is the thin-shell Pappus term at the spine radius; the second is
+// the exact second-radial-moment correction, integral of 2*pi*a over the corner).
+// So the filleted volume is  pi*Rc^2*H  -  that removed corner, measured EXACTLY by
+// the analytic mass integrator. Requires Rc > 0, H > 0, R > 0, R < Rc (so the spine
+// radius Rc - R stays positive) and R < H (the wall re-trim stays above z=0). `ok`
+// is false with a `reason` for any out-of-scope input (never a faked solid).
+//
+// HONEST SCOPE of THIS increment: planar + cylinder CONVEX edge, CONSTANT radius.
+// Cylinder+cylinder / cone / sphere / NURBS contact and variable radius are
+// explicit follow-ups (the contact stops being a single torus there).
+// ---------------------------------------------------------------------------
+struct AnalyticTorusFilletResult {
+    bool   ok = false;
+    Solid* solid = nullptr;       // the filleted closed genus-0 2-manifold (owned by tb)
+
+    Face*  filletFace = nullptr;  // ONE representative torus blend patch (SurfaceKind::Torus)
+    std::vector<Face*> blendFaces; // all angular segments of the torus blend
+
+    double radius = 0.0;          // R (== torus minor/tube radius)
+    double tubeRadius = 0.0;      // r2 == R
+    double ringRadius = 0.0;      // r1 == Rc - R (the spine-circle / torus major radius)
+    Vec3   spineCenter{};         // centre of the spine circle (0,0,H-R)
+    double cylinderRadius = 0.0;  // Rc
+    double height = 0.0;          // H
+    double removedVolume = 0.0;   // 2*pi*(Rc-R)*(1-pi/4)*R^2 + (pi/3)*R^3 (exact)
+    const char* reason = "";
+};
+
+AnalyticTorusFilletResult filletCylinderTopEdgeAnalytic(TopologyBuilder& tb,
+                                                        double Rc, double H, double R,
+                                                        int nSeg = 64);
+
 } // namespace brep
 } // namespace native
 } // namespace forge
