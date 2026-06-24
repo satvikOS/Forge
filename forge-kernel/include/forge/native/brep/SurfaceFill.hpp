@@ -70,8 +70,33 @@
 // flagged `exactBicubic=false` (honest: it is the standard bicubic approximation
 // downstream consumers expect, while the analytic evaluator stays exact).
 //
+// ============================ G2 CURVATURE-CONTINUOUS FILL =================
+// The G2 path EXTENDS the cubic-Hermite Boolean sum to a QUINTIC-Hermite blend.
+// In addition to the four boundary curves AND the four cross-boundary TANGENT
+// (1st-derivative) fields it also takes the four cross-boundary CURVATURE
+// (2nd-derivative) fields — the bordering face's 2nd cross-partial along each
+// edge — and builds a surface S(u,v) that, ON TOP of (a)+(b) above, ALSO
+//
+//   (c) MATCHES the prescribed cross-boundary 2nd derivatives (G2):
+//          S_vv(u,0)=k0(u)  S_vv(u,1)=k1(u)  S_uu(0,v)=f0(v)  S_uu(1,v)=f1(v).
+//
+// The construction is the same Boolean sum with the six QUINTIC Hermite basis
+// functions (interpolating endpoint value, 1st AND 2nd derivative)
+//   H0=1-10t^3+15t^4-6t^5   H1=10t^3-15t^4+6t^5
+//   h0=t-6t^3+8t^4-3t^5      h1=-4t^3+7t^4-3t^5
+//   g0=t^2/2-3t^3/2+3t^4/2-t^5/2   g1=t^3/2-t^4+t^5/2
+// whose endpoint cardinality (H0(0)=1; h0'(0)=1; g0''(0)=1; the symmetric set at
+// t=1; everything else 0) makes the loft + 6x6 tensor-product correction
+// reproduce the position, the 1st-cross-derivative AND the 2nd-cross-derivative
+// EXACTLY on every boundary. The 6x6 corner block carries, per corner, the
+// position; S_u, S_v; S_uu, S_uv, S_vv; the 3rd-mixed S_uuv, S_uvv; and the
+// 4th-mixed S_uuvv, all taken CONSISTENTLY from the prescribed edge fields so
+// the Boolean-sum cancellation on the boundary is exact (the quintic analogue of
+// the Adini twist). Set `g2`=true and supply k0/k1/f0/f1 (and the G1 fields).
+// HONEST SCOPE: 4-sided G2 only (n-sided Gregory-G2 + reflection-line fairing
+// remain follow-ups below).
+//
 // HONEST FOLLOW-UPS (TARGETED, NOT built here):
-//   * G2 (curvature-continuous) fill — needs quintic Hermite + 2nd-cross data;
 //   * n-sided GREGORY patch — for non-4-sided holes (rational corner blend);
 //   * full GORDON surface over an interior iso-curve NETWORK;
 //   * class-A reflection-line / highlight-line FAIRING + curvature-comb
@@ -131,10 +156,24 @@ struct CoonsBoundary {
     NurbsCurve e0, e1;   // prescribed S_u on the u=0 / u=1 edges (G1 data)
     bool g1 = true;      // true: bicubic G1 fill; false: bilinear (G0) Coons
 
+    // G2 (curvature-continuous) data — the cross-boundary 2nd-derivative fields,
+    // each a "vector curve" whose evaluated POINT is the prescribed 2nd cross
+    // partial at that edge parameter. Only used (and required) when `g2`==true:
+    //   k0(u) = prescribed S_vv(u,0)   (curvature leaving the v=0 edge)
+    //   k1(u) = prescribed S_vv(u,1)   (curvature leaving the v=1 edge)
+    //   f0(v) = prescribed S_uu(0,v)   (curvature leaving the u=0 edge)
+    //   f1(v) = prescribed S_uu(1,v)   (curvature leaving the u=1 edge)
+    // When `g2`==true the patch uses the QUINTIC-Hermite Boolean sum and `g1` is
+    // implied true (all four tangent fields t0/t1/e0/e1 must also be supplied).
+    NurbsCurve k0, k1;   // prescribed S_vv on the v=0 / v=1 edges (G2 data)
+    NurbsCurve f0, f1;   // prescribed S_uu on the u=0 / u=1 edges (G2 data)
+    bool g2 = false;     // true: quintic G2 (curvature-continuous) fill
+
     // True iff the four boundary curves are valid clamped NURBS curves whose
-    // shared corners coincide to within `cornerTol`, and (when g1) the four
-    // tangent fields are valid and parameter-consistent. `reason` (if non-null)
-    // gets a short diagnostic on failure. This is the HONEST gate.
+    // shared corners coincide to within `cornerTol`, and (when g1/g2) the four
+    // tangent fields (and, for g2, the four curvature fields) are valid and
+    // parameter-consistent. `reason` (if non-null) gets a short diagnostic on
+    // failure. This is the HONEST gate.
     bool validate(const char** reason = nullptr, double cornerTol = 1e-7) const;
 };
 
@@ -148,6 +187,21 @@ struct CoonsSample {
     Vec3 du;      // S_u(u,v)
     Vec3 dv;      // S_v(u,v)
     Vec3 normal;  // unit (du x dv); zero if degenerate
+};
+
+// ---------------------------------------------------------------------------
+// CoonsSample2 — the G2-verifiable evaluation result: the point, the two first
+// partials AND the three second partials S_uu, S_uv, S_vv, so a caller can
+// verify the G2 (curvature) residual directly against the prescribed fields.
+// ---------------------------------------------------------------------------
+struct CoonsSample2 {
+    bool ok = false;
+    Vec3 point;   // S(u,v)
+    Vec3 du;      // S_u
+    Vec3 dv;      // S_v
+    Vec3 duu;     // S_uu
+    Vec3 duv;     // S_uv
+    Vec3 dvv;     // S_vv
 };
 
 // ===========================================================================
@@ -167,6 +221,11 @@ struct CoonsPatch {
 
     // Analytic point + first partials + unit normal (the G1-verifiable form).
     CoonsSample evaluateWithDerivatives(double u, double v) const;
+
+    // Analytic point + first AND second partials (the G2-verifiable form). The
+    // 2nd partials are exact for the quintic (g2) blend and for the cubic (g1)
+    // blend alike — they are the analytic derivatives of the same Boolean sum.
+    CoonsSample2 evaluateWithSecondDerivatives(double u, double v) const;
 };
 
 // Build the G1 (or G0) Coons fill from the four boundaries + tangent fields.

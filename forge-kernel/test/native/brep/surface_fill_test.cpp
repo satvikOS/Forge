@@ -29,9 +29,15 @@
 //   (2) A flat BILINEAR Coons of 4 STRAIGHT edges -> exact plane (<= 1e-12).
 //   (3) G1 check: the patch's cross-boundary tangent matches the PRESCRIBED
 //       tangent to <= 1e-6 along each of the four edges.
+//   (3b) G2 check (curvature-continuous quintic fill): fill the 4 iso-boundaries
+//       of a KNOWN quintic surface + its cross tangents AND curvatures ->
+//       (i) reproduces the surface to <= 1e-3 (machine precision here, the data
+//       is exact) AND (ii) the cross-boundary 2nd derivative (curvature) matches
+//       the prescribed to <= 1e-6 (the G2 residual). The G1 path is unchanged.
 //
-// Plus honesty gates: malformed boundary (open corner / invalid curve) ->
-// ok=false; the bicubic NurbsSurface export agrees with the analytic patch.
+// Plus honesty gates: malformed boundary (open corner / invalid curve / missing
+// G1 tangent / missing G2 curvature field) -> ok=false; the bicubic NurbsSurface
+// export agrees with the analytic patch.
 
 #include <algorithm>
 #include <cmath>
@@ -74,6 +80,16 @@ static NurbsCurve bezier3(const Vec3& p0, const Vec3& p1,
     c.controlPoints = {p0, p1, p2, p3};
     c.weights = {1, 1, 1, 1};
     c.knots = {0, 0, 0, 0, 1, 1, 1, 1};
+    return c;
+}
+
+// Degree-5 polynomial Bezier curve from 6 control points over [0,1].
+static NurbsCurve bezier5(const Vec3 cp[6]) {
+    NurbsCurve c;
+    c.degree = 5;
+    c.controlPoints = {cp[0], cp[1], cp[2], cp[3], cp[4], cp[5]};
+    c.weights = {1, 1, 1, 1, 1, 1};
+    c.knots = {0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
     return c;
 }
 
@@ -179,6 +195,118 @@ struct KnownBicubic {
     }
     NurbsCurve fieldE1() const { // S_u on u=1, param v
         Vec3 v[4]; for (int k=0;k<4;++k) v[k]=evalU(1.0, k/3.0); return fitVec(v);
+    }
+};
+
+// ===========================================================================
+// A KNOWN analytic QUINTIC surface S(u,v) from a 6x6 degree-5 Bezier net. The
+// four boundary curves, the four cross-boundary TANGENT (1st-deriv) fields AND
+// the four cross-boundary CURVATURE (2nd-deriv) fields are all EXACT degree-5
+// Beziers derived from the net by the closed-form Bezier endpoint-derivative
+// rule (no fitting / no inversion) — so the G2 quintic fill must reproduce this
+// surface to MACHINE PRECISION, and the prescribed 2nd-cross-derivative is a
+// genuinely non-trivial curvature signal a CUBIC G1 fill could not match.
+//
+// Degree-5 Bezier derivative facts used (P&T): for f(t)=sum B_i^5(t) P_i,
+//   f'(0)  = 5 (P_1 - P_0)
+//   f''(0) = 5*4 (P_2 - 2 P_1 + P_0)
+//   f'(1)  = 5 (P_5 - P_4)
+//   f''(1) = 5*4 (P_5 - 2 P_4 + P_3)
+// The cross fields along an edge are themselves degree-5 in the along-edge
+// parameter, with control points obtained by the SAME rule applied across the
+// transverse control rows/columns of the 6x6 net.
+// ===========================================================================
+struct KnownQuintic {
+    Vec3 P[6][6];
+
+    KnownQuintic() {
+        // A genuinely curved, twisted degree-5 height field over a unit square.
+        // Deliberately NOT a bicubic (the degree-5 Bernstein content is real), so
+        // the quintic g0/g1 (2nd-derivative) blend terms are exercised and a cubic
+        // G1 fill cannot reproduce it.
+        for (int i = 0; i < 6; ++i)
+            for (int j = 0; j < 6; ++j) {
+                const double u = i / 5.0, v = j / 5.0;
+                const double x = u;
+                const double y = v;
+                const double z = 0.8 * std::sin(M_PI * u) * std::sin(M_PI * v)
+                               + 0.30 * (u - 0.5) * (v - 0.5)
+                               + 0.20 * std::sin(2 * M_PI * u) * (v - 0.5)
+                               + 0.18 * u * u * v
+                               - 0.12 * u * v * v * v;
+                P[i][j] = Vec3{x, y, z};
+            }
+    }
+
+    static void bern5(double t, double b[6]) {
+        const double s = 1 - t;
+        const double s2=s*s, s3=s2*s, s4=s3*s, s5=s4*s;
+        const double t2=t*t, t3=t2*t, t4=t3*t, t5=t4*t;
+        b[0]=s5; b[1]=5*s4*t; b[2]=10*s3*t2; b[3]=10*s2*t3; b[4]=5*s*t4; b[5]=t5;
+    }
+    Vec3 eval(double u, double v) const {
+        double bu[6], bv[6]; bern5(u, bu); bern5(v, bv);
+        Vec3 r{0,0,0};
+        for (int i=0;i<6;++i) for (int j=0;j<6;++j)
+            r = Vec3{r.x+bu[i]*bv[j]*P[i][j].x,
+                     r.y+bu[i]*bv[j]*P[i][j].y,
+                     r.z+bu[i]*bv[j]*P[i][j].z};
+        return r;
+    }
+
+    // ----- the four boundary curves (exact degree-5 Beziers) -----------------
+    NurbsCurve edgeC0() const { Vec3 c[6]; for(int i=0;i<6;++i) c[i]=P[i][0]; return bezier5(c); } // v=0
+    NurbsCurve edgeC1() const { Vec3 c[6]; for(int i=0;i<6;++i) c[i]=P[i][5]; return bezier5(c); } // v=1
+    NurbsCurve edgeD0() const { Vec3 c[6]; for(int j=0;j<6;++j) c[j]=P[0][j]; return bezier5(c); } // u=0
+    NurbsCurve edgeD1() const { Vec3 c[6]; for(int j=0;j<6;++j) c[j]=P[5][j]; return bezier5(c); } // u=1
+
+    // Second-difference helper for the degree-5 curvature control points.
+    static Vec3 d2(const Vec3& a, const Vec3& b, const Vec3& c) {
+        return Vec3{c.x - 2*b.x + a.x, c.y - 2*b.y + a.y, c.z - 2*b.z + a.z};
+    }
+
+    // ----- cross TANGENT fields (exact degree-5 Beziers) ---------------------
+    NurbsCurve fieldT0() const {  // S_v on v=0 (param u): 5*(P[i][1]-P[i][0])
+        Vec3 c[6];
+        for (int i=0;i<6;++i) c[i]=scl(sub(P[i][1],P[i][0]),5.0);
+        return bezier5(c);
+    }
+    NurbsCurve fieldT1() const {  // S_v on v=1 (param u): 5*(P[i][5]-P[i][4])
+        Vec3 c[6];
+        for (int i=0;i<6;++i) c[i]=scl(sub(P[i][5],P[i][4]),5.0);
+        return bezier5(c);
+    }
+    NurbsCurve fieldE0() const {  // S_u on u=0 (param v): 5*(P[1][j]-P[0][j])
+        Vec3 c[6];
+        for (int j=0;j<6;++j) c[j]=scl(sub(P[1][j],P[0][j]),5.0);
+        return bezier5(c);
+    }
+    NurbsCurve fieldE1() const {  // S_u on u=1 (param v): 5*(P[5][j]-P[4][j])
+        Vec3 c[6];
+        for (int j=0;j<6;++j) c[j]=scl(sub(P[5][j],P[4][j]),5.0);
+        return bezier5(c);
+    }
+
+    // ----- cross CURVATURE fields (exact degree-5 Beziers, G2 data) ----------
+    NurbsCurve fieldK0() const {  // S_vv on v=0 (param u): 20*d2(P[i][0..2])
+        Vec3 c[6];
+        for (int i=0;i<6;++i) c[i]=scl(d2(P[i][0],P[i][1],P[i][2]),20.0);
+        return bezier5(c);
+    }
+    NurbsCurve fieldK1() const {  // S_vv on v=1 (param u): 20*d2(P[i][3..5])
+        Vec3 c[6];
+        for (int i=0;i<6;++i) c[i]=scl(d2(P[i][3],P[i][4],P[i][5]),20.0);
+        return bezier5(c);
+    }
+    NurbsCurve fieldF0() const {  // S_uu on u=0 (param v): 20*d2(P[0..2][j])
+        Vec3 c[6];
+        for (int j=0;j<6;++j) c[j]=scl(d2(P[0][j],P[1][j],P[2][j]),20.0);
+        return bezier5(c);
+    }
+    NurbsCurve fieldF1() const {  // S_uu on u=1 (param v): 20*d2(P[3..5][j])
+        Vec3 c[6];
+        for (int j=0;j<6;++j) c[j]=scl(d2(P[3][j],P[4][j],P[5][j]),20.0);
+        return bezier5(c);
     }
 };
 
@@ -458,6 +586,129 @@ static void testG1TangentRecovery() {
 }
 
 // ===========================================================================
+// (3b) G2 CURVATURE-CONTINUOUS fill of a KNOWN QUINTIC surface.
+//
+// The task's G2 gate: fill the 4 iso-boundaries of a known quintic patch + its
+// cross tangents AND curvatures -> (i) the patch reproduces the known surface to
+// <= 1e-3 (in fact machine precision, since the data is exact), AND (ii) the
+// cross-boundary 2nd derivative (curvature) matches the prescribed to <= 1e-6
+// (the G2 residual) along all four edges.
+// ===========================================================================
+static void testKnownQuinticG2() {
+    std::printf("[3b] G2 quintic Coons fill of a KNOWN quintic surface\n");
+    KnownQuintic Q;
+    CoonsBoundary b;
+    b.c0 = Q.edgeC0(); b.c1 = Q.edgeC1();
+    b.d0 = Q.edgeD0(); b.d1 = Q.edgeD1();
+    b.t0 = Q.fieldT0(); b.t1 = Q.fieldT1();
+    b.e0 = Q.fieldE0(); b.e1 = Q.fieldE1();
+    b.k0 = Q.fieldK0(); b.k1 = Q.fieldK1();
+    b.f0 = Q.fieldF0(); b.f1 = Q.fieldF1();
+    b.g1 = true;
+    b.g2 = true;
+
+    const char* why = nullptr;
+    check(b.validate(&why), "quintic G2 boundary validates (closed loop + curvature fields)");
+    if (why && *why) std::printf("       (validate reason: %s)\n", why);
+    CoonsPatch patch = fillCoonsPatch(b);
+    check(patch.ok, "quintic G2 fillCoonsPatch ok");
+
+    // (i) LITERAL surface recovery over an interior grid.
+    double worst = 0.0;
+    bool okPt = true;
+    for (double u = 0.0; u <= 1.0 + 1e-12; u += 0.05) {
+        for (double v = 0.0; v <= 1.0 + 1e-12; v += 0.05) {
+            Vec3 got = patch.evaluate(u, v);
+            Vec3 want = Q.eval(u, v);
+            const double e = nrm(sub(got, want));
+            worst = std::max(worst, e);
+            okPt = okPt && (e <= 1e-3);
+        }
+    }
+    std::printf("       LITERAL worst |S_fill - S_quintic| = %.6e  (gate 1e-3)\n", worst);
+    std::printf("       (exact-recovery class: worst = %.3e, machine-eps %s)\n",
+                worst, (worst < 1e-9 ? "YES" : "no"));
+    check(okPt, "G2 fill recovers the known quintic surface to <= 1e-3 everywhere");
+
+    // (ii) G2 residual: the patch's cross-boundary 2nd derivative == prescribed.
+    //   v=0 edge: S_vv(u,0) should equal k0(u)
+    //   v=1 edge: S_vv(u,1) should equal k1(u)
+    //   u=0 edge: S_uu(0,v) should equal f0(v)
+    //   u=1 edge: S_uu(1,v) should equal f1(v)
+    double rV0=0, rV1=0, rU0=0, rU1=0;
+    bool okG2 = true;
+    for (double t = 0.0; t <= 1.0 + 1e-12; t += 0.025) {
+        {
+            CoonsSample2 s = patch.evaluateWithSecondDerivatives(t, 0.0);
+            Vec3 want = Q.fieldK0().evaluate(t);
+            const double e = nrm(sub(s.dvv, want));
+            rV0 = std::max(rV0, e); okG2 = okG2 && (e <= 1e-6);
+        }
+        {
+            CoonsSample2 s = patch.evaluateWithSecondDerivatives(t, 1.0);
+            Vec3 want = Q.fieldK1().evaluate(t);
+            const double e = nrm(sub(s.dvv, want));
+            rV1 = std::max(rV1, e); okG2 = okG2 && (e <= 1e-6);
+        }
+        {
+            CoonsSample2 s = patch.evaluateWithSecondDerivatives(0.0, t);
+            Vec3 want = Q.fieldF0().evaluate(t);
+            const double e = nrm(sub(s.duu, want));
+            rU0 = std::max(rU0, e); okG2 = okG2 && (e <= 1e-6);
+        }
+        {
+            CoonsSample2 s = patch.evaluateWithSecondDerivatives(1.0, t);
+            Vec3 want = Q.fieldF1().evaluate(t);
+            const double e = nrm(sub(s.duu, want));
+            rU1 = std::max(rU1, e); okG2 = okG2 && (e <= 1e-6);
+        }
+    }
+    std::printf("       LITERAL G2 residual  v=0:%.3e v=1:%.3e u=0:%.3e u=1:%.3e\n",
+                rV0, rV1, rU0, rU1);
+    std::printf("       LITERAL G2 residual  worst = %.6e  (gate 1e-6)\n",
+                std::max(std::max(rV0,rV1), std::max(rU0,rU1)));
+    check(okG2, "all four cross-boundary 2nd derivatives match the prescribed G2 data");
+
+    // Also confirm G1 (tangent) still holds exactly under the quintic blend.
+    double g1res = 0.0;
+    for (double t = 0.0; t <= 1.0 + 1e-12; t += 0.025) {
+        CoonsSample sv0 = patch.evaluateWithDerivatives(t, 0.0);
+        g1res = std::max(g1res, nrm(sub(sv0.dv, Q.fieldT0().evaluate(t))));
+        CoonsSample sv1 = patch.evaluateWithDerivatives(t, 1.0);
+        g1res = std::max(g1res, nrm(sub(sv1.dv, Q.fieldT1().evaluate(t))));
+        CoonsSample su0 = patch.evaluateWithDerivatives(0.0, t);
+        g1res = std::max(g1res, nrm(sub(su0.du, Q.fieldE0().evaluate(t))));
+        CoonsSample su1 = patch.evaluateWithDerivatives(1.0, t);
+        g1res = std::max(g1res, nrm(sub(su1.du, Q.fieldE1().evaluate(t))));
+    }
+    std::printf("       LITERAL G1-under-quintic tangent residual = %.6e  (gate 1e-6)\n", g1res);
+    check(g1res <= 1e-6, "quintic blend also matches the prescribed G1 tangents (<=1e-6)");
+
+    // And exact boundary interpolation (G0) under the quintic blend.
+    double g0res = 0.0;
+    for (double t = 0.0; t <= 1.0 + 1e-12; t += 0.025) {
+        g0res = std::max(g0res, nrm(sub(patch.evaluate(t,0.0), Q.edgeC0().evaluate(t))));
+        g0res = std::max(g0res, nrm(sub(patch.evaluate(t,1.0), Q.edgeC1().evaluate(t))));
+        g0res = std::max(g0res, nrm(sub(patch.evaluate(0.0,t), Q.edgeD0().evaluate(t))));
+        g0res = std::max(g0res, nrm(sub(patch.evaluate(1.0,t), Q.edgeD1().evaluate(t))));
+    }
+    std::printf("       LITERAL boundary-interp residual (quintic) = %.3e\n", g0res);
+    check(g0res <= 1e-9, "quintic patch interpolates all 4 boundary curves exactly (<=1e-9)");
+
+    // Honest negative: a CUBIC G1 fill of the SAME boundaries + tangents canNOT
+    // reproduce this quintic surface (proves the quintic terms are load-bearing).
+    CoonsBoundary bc = b; bc.g2 = false; bc.g1 = true;
+    CoonsPatch cubicPatch = fillCoonsPatch(bc);
+    double cubicWorst = 0.0;
+    for (double u = 0.0; u <= 1.0 + 1e-12; u += 0.1)
+        for (double v = 0.0; v <= 1.0 + 1e-12; v += 0.1)
+            cubicWorst = std::max(cubicWorst, nrm(sub(cubicPatch.evaluate(u,v), Q.eval(u,v))));
+    std::printf("       (control: CUBIC-G1 fill of same data worst err = %.3e -> quintic terms matter)\n",
+                cubicWorst);
+    check(cubicWorst > 1e-3, "cubic G1 fill genuinely fails this quintic (G2 is load-bearing)");
+}
+
+// ===========================================================================
 // (4) Honest rejection: open loop / invalid curve -> ok=false.
 // ===========================================================================
 static void testHonestRejection() {
@@ -483,6 +734,15 @@ static void testHonestRejection() {
         b.c0=K.edgeC0(); b.c1=K.edgeC1(); b.d0=K.edgeD0(); b.d1=K.edgeD1();
         b.g1 = true;   // but t0/t1/e0/e1 left default (invalid)
         check(!b.validate(), "G1 with missing tangent field rejected");
+    }
+    // (c) G2 requested but a curvature field missing -> rejected.
+    {
+        KnownQuintic Q;
+        CoonsBoundary b;
+        b.c0=Q.edgeC0(); b.c1=Q.edgeC1(); b.d0=Q.edgeD0(); b.d1=Q.edgeD1();
+        b.t0=Q.fieldT0(); b.t1=Q.fieldT1(); b.e0=Q.fieldE0(); b.e1=Q.fieldE1();
+        b.g1 = true; b.g2 = true;   // but k0/k1/f0/f1 left default (invalid)
+        check(!b.validate(), "G2 with missing curvature field rejected");
     }
 }
 
@@ -526,6 +786,7 @@ int main() {
     testSpherePatchRecovery();
     testFlatBilinearPlane();
     testG1TangentRecovery();
+    testKnownQuinticG2();
     testHonestRejection();
     testBicubicExport();
 

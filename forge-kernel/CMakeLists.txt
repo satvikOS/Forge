@@ -464,6 +464,8 @@ add_library(forge_kernel SHARED
     src/native/brep/IgesRead.cpp        # foreign IGES (ASCII) read: 144 trimmed-surface / 186 manifold-solid-brep / 128 NURBS -> native TrimmedFace -> sew -> shell/solid
     src/native/brep/Hlr.cpp             # hidden-line removal for drawings: orthographic project + z-buffer occlusion split of B-rep edges into visible/hidden spans
     src/native/brep/Section.cpp         # planar section / cut views: plane-solid SSI section wires + filled cross-section area + centroid (section properties)
+    src/native/brep/Query.cpp           # geometric queries: min-distance/clearance between solids + point-in-solid classification (BRepExtrema/SolidClassifier)
+    src/native/brep/Gear.cpp            # involute spur gear: exact-involute tooth flank + circular pattern + bore -> gear solid
     # IN-HOUSE KERNEL STEP 1 — OCCT-free primitive B-rep solids + exact
     # mass-properties + watertight tessellation (pure C++20 stdlib, no new link
     # libs). Always compiled into the addon; the JS surface is gated behind
@@ -552,6 +554,7 @@ add_library(forge_kernel SHARED
     src/native/geom/PolygonBoolean2D.cpp
     src/native/geom/PolygonOffset2D.cpp
     src/native/geom/ConvexDecomposition.cpp
+    src/native/geom/ConvexHull3D.cpp        # exact 3D convex hull (Quickhull, exact orient3D — robust face orientation, no degenerate flips)
     src/native/geom/MinkowskiSum3D.cpp
     src/native/mesh/SelfIntersect.cpp
     # Wave-0 — implicit/voxel/F-rep field-design stack (implicit-frep.md + voxel-lattice.md Phase A)

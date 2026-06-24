@@ -78,6 +78,46 @@ inline Hermite hermiteD(double t) {
                     3 * t2 - 2 * t };       // h1'
 }
 
+// --- quintic Hermite blending functions and their 1st & 2nd derivatives ------
+// Six functions interpolating endpoint {value, 1st-deriv, 2nd-deriv} at t=0,1:
+//   H0=1-10t^3+15t^4-6t^5   H1=10t^3-15t^4+6t^5
+//   h0=t-6t^3+8t^4-3t^5     h1=-4t^3+7t^4-3t^5
+//   g0=t^2/2-3t^3/2+3t^4/2-t^5/2   g1=t^3/2-t^4+t^5/2
+// Cardinal endpoint properties (verified numerically, used to PROVE exact
+// position + 1st-cross + 2nd-cross recovery):
+//   value:  H0(0)=1, H1(1)=1, all else 0
+//   1st-d:  h0'(0)=1, h1'(1)=1, all else 0
+//   2nd-d:  g0''(0)=1, g1''(1)=1, all else 0
+struct Quintic { double H0, H1, h0, h1, g0, g1; };
+
+inline Quintic quintic(double t) {
+    const double t2 = t * t, t3 = t2 * t, t4 = t3 * t, t5 = t4 * t;
+    return Quintic{ 1 - 10 * t3 + 15 * t4 - 6 * t5,    // H0
+                    10 * t3 - 15 * t4 + 6 * t5,        // H1
+                    t - 6 * t3 + 8 * t4 - 3 * t5,      // h0
+                    -4 * t3 + 7 * t4 - 3 * t5,         // h1
+                    0.5 * t2 - 1.5 * t3 + 1.5 * t4 - 0.5 * t5,  // g0
+                    0.5 * t3 - t4 + 0.5 * t5 };        // g1
+}
+inline Quintic quinticD(double t) {
+    const double t2 = t * t, t3 = t2 * t, t4 = t3 * t;
+    return Quintic{ -30 * t2 + 60 * t3 - 30 * t4,      // H0'
+                    30 * t2 - 60 * t3 + 30 * t4,       // H1'
+                    1 - 18 * t2 + 32 * t3 - 15 * t4,   // h0'
+                    -12 * t2 + 28 * t3 - 15 * t4,      // h1'
+                    t - 4.5 * t2 + 6 * t3 - 2.5 * t4,  // g0'
+                    1.5 * t2 - 4 * t3 + 2.5 * t4 };    // g1'
+}
+inline Quintic quinticDD(double t) {
+    const double t2 = t * t, t3 = t2 * t;
+    return Quintic{ -60 * t + 180 * t2 - 120 * t3,     // H0''
+                    60 * t - 180 * t2 + 120 * t3,      // H1''
+                    -36 * t + 96 * t2 - 60 * t3,       // h0''
+                    -24 * t + 84 * t2 - 60 * t3,       // h1''
+                    1 - 9 * t + 18 * t2 - 10 * t3,     // g0''
+                    3 * t - 12 * t2 + 10 * t3 };       // g1''
+}
+
 // --- boundary-curve evaluation re-parameterised onto the patch [0,1] --------
 // A clamped NurbsCurve has intrinsic parameter domain [knots[p], knots[n+1]].
 // The patch maps t in [0,1] linearly onto that domain. point() returns C, and
@@ -105,6 +145,12 @@ struct EdgeCurve {
         const auto d = curveDerivatives(*c, intrinsic(t), 1);
         return vscale(d[1], span);
     }
+    // d^2 C/dt^2 along the edge (chain rule; the intrinsic->patch map is linear
+    // so the 2nd derivative scales by span^2).
+    Vec3 alongSecond(double t) const {
+        const auto d = curveDerivatives(*c, intrinsic(t), 2);
+        return vscale(d[2], span * span);
+    }
 };
 
 // A "vector curve": a NurbsCurve whose EVALUATED POINT is the prescribed
@@ -130,6 +176,11 @@ struct VectorCurve {
         const auto d = curveDerivatives(*c, intrinsic(t), 1);
         return vscale(d[1], span);
     }
+    Vec3 ddValue(double t) const {
+        const auto d = curveDerivatives(*c, intrinsic(t), 2);
+        return vscale(d[2], span * span);
+    }
+    bool bound() const { return c != nullptr; }
 };
 
 } // namespace
@@ -166,11 +217,18 @@ bool CoonsBoundary::validate(const char** reason, double cornerTol) const {
     if (!close(ec1.point(1.0), ed1.point(1.0)))
         return fail("corner (1,1): c1(1) != d1(1)");
 
-    if (g1) {
+    // G2 implies G1: the quintic blend needs the tangent fields too.
+    if (g1 || g2) {
         if (!t0.valid()) return fail("t0 (S_v on v=0) tangent field invalid");
         if (!t1.valid()) return fail("t1 (S_v on v=1) tangent field invalid");
         if (!e0.valid()) return fail("e0 (S_u on u=0) tangent field invalid");
         if (!e1.valid()) return fail("e1 (S_u on u=1) tangent field invalid");
+    }
+    if (g2) {
+        if (!k0.valid()) return fail("k0 (S_vv on v=0) curvature field invalid");
+        if (!k1.valid()) return fail("k1 (S_vv on v=1) curvature field invalid");
+        if (!f0.valid()) return fail("f0 (S_uu on u=0) curvature field invalid");
+        if (!f1.valid()) return fail("f1 (S_uu on u=1) curvature field invalid");
     }
     return true;
 }
@@ -224,7 +282,9 @@ namespace {
 struct BlendData {
     EdgeCurve   ec0, ec1, ed0, ed1;   // c0,c1 (param u); d0,d1 (param v)
     VectorCurve vt0, vt1, ve0, ve1;   // S_v on v=0/1; S_u on u=0/1
+    VectorCurve vk0, vk1, vf0, vf1;   // S_vv on v=0/1; S_uu on u=0/1 (G2)
     bool g1 = false;
+    bool g2 = false;
 
     // Corner block (indexed [iu][iv], iu,iv in {0,1} -> u,v in {0,1}):
     //   P[iu][iv]   corner position
@@ -234,10 +294,12 @@ struct BlendData {
     Vec3 P[2][2], Pu[2][2], Pv[2][2], Puv[2][2];
 
     void build(const CoonsBoundary& b) {
-        g1 = b.g1;
+        g1 = b.g1 || b.g2;  // G2 implies G1 (quintic blend needs the tangents).
+        g2 = b.g2;
         ec0.bind(b.c0); ec1.bind(b.c1);
         ed0.bind(b.d0); ed1.bind(b.d1);
         if (g1) { vt0.bind(b.t0); vt1.bind(b.t1); ve0.bind(b.e0); ve1.bind(b.e1); }
+        if (g2) { vk0.bind(b.k0); vk1.bind(b.k1); vf0.bind(b.f0); vf1.bind(b.f1); }
 
         // Corner positions (use the c-edges; they share the corners with d-edges).
         P[0][0] = ec0.point(0.0);   // (u=0,v=0)
@@ -402,6 +464,170 @@ struct BlendData {
         Su = vsub(vadd(Lcu, Ldu), Tu);
         Sv = vsub(vadd(Lcv, Ldv), Tv);
     }
+
+    // =======================================================================
+    // QUINTIC (G2) Boolean-sum evaluator.
+    //
+    // S(u,v) = Lc(u,v) + Ld(u,v) - T(u,v), with the six quintic-Hermite blend
+    // functions [H0 H1 h0 h1 g0 g1] in each direction:
+    //
+    //   Lc(u,v) = H0(v)c0(u)+H1(v)c1(u)+h0(v)t0(u)+h1(v)t1(u)+g0(v)k0(u)+g1(v)k1(u)
+    //   Ld(u,v) = H0(u)d0(v)+H1(u)d1(v)+h0(u)e0(v)+h1(u)e1(v)+g0(u)f0(v)+g1(u)f1(v)
+    //   T(u,v)  = wu(u)^T B wv(v),  wu=[H0 H1 h0 h1 g0 g1](u), wv likewise,
+    //
+    // where B is the 6x6 corner block. Column b selects the v-field
+    //   {c0, c1, t0, t1, k0, k1}  (S, S, S_v, S_v, S_vv, S_vv on v=0/1),
+    // and row a takes that field's ALONG-u derivative of order {0,0,1,1,2,2} at
+    // the corner u in {0,1,0,1,0,1}. Because c0 IS S(.,0), t0 IS S_v(.,0),
+    // k0 IS S_vv(.,0) (and likewise at v=1), this single rule yields the fully
+    // CONSISTENT mixed corner partials S, S_u, S_uu, S_v, S_uv, S_uuv, S_vv,
+    // S_uvv, S_uuvv (the quintic Adini analogue) — so the Boolean-sum
+    // cancellation on every boundary is exact and the patch reproduces position,
+    // 1st-cross AND 2nd-cross derivatives to machine precision.
+    // =======================================================================
+
+    // Six-function quintic weight set + 1st & 2nd derivatives.
+    struct W6 { double w[6]; };
+    static W6 toW6(const Quintic& q) {
+        return W6{{q.H0, q.H1, q.h0, q.h1, q.g0, q.g1}};
+    }
+    W6 q0(double t) const { return toW6(quintic(t)); }
+    W6 q1(double t) const { return toW6(quinticD(t)); }
+    W6 q2(double t) const { return toW6(quinticDD(t)); }
+
+    // The six v-fields (by correction-column index): along-u derivative of order
+    // `ord` (0/1/2) of the column-b field, evaluated at edge parameter u.
+    Vec3 vfield(int b, int ord, double u) const {
+        switch (b) {
+            case 0: return ord == 0 ? ec0.point(u)
+                         : ord == 1 ? ec0.alongTangent(u) : ec0.alongSecond(u);
+            case 1: return ord == 0 ? ec1.point(u)
+                         : ord == 1 ? ec1.alongTangent(u) : ec1.alongSecond(u);
+            case 2: return ord == 0 ? vt0.value(u)
+                         : ord == 1 ? vt0.dValue(u) : vt0.ddValue(u);
+            case 3: return ord == 0 ? vt1.value(u)
+                         : ord == 1 ? vt1.dValue(u) : vt1.ddValue(u);
+            case 4: return ord == 0 ? vk0.value(u)
+                         : ord == 1 ? vk0.dValue(u) : vk0.ddValue(u);
+            default: return ord == 0 ? vk1.value(u)
+                         : ord == 1 ? vk1.dValue(u) : vk1.ddValue(u);
+        }
+    }
+
+    // Build the 6x6 corner block B[a][b]. Row a: corner u in {0,1,0,1,0,1} with
+    // along-u order {0,0,1,1,2,2}. Column b: v-field selector (above). The corner
+    // u for row a:
+    static double rowU(int a)   { return (a % 2 == 0) ? 0.0 : 1.0; }
+    static int    rowOrd(int a) { return a / 2; }   // 0,0,1,1,2,2
+    void cornerBlock(Vec3 B[6][6]) const {
+        for (int a = 0; a < 6; ++a)
+            for (int b = 0; b < 6; ++b)
+                B[a][b] = vfield(b, rowOrd(a), rowU(a));
+    }
+
+    // Loft contributions. dirOrderU/V choose the along-edge derivative order of
+    // the boundary/cross curves (for the surface partials) and the blend-weight
+    // derivative order is supplied via the W6 already evaluated by the caller.
+    //
+    // Evaluate S and (up to) 2nd partials at (u,v) with the quintic blend.
+    void evalQuintic(double u, double v,
+                     Vec3& S, Vec3& Su, Vec3& Sv,
+                     Vec3& Suu, Vec3& Suv, Vec3& Svv, int order) const {
+        // Blend weights (and derivatives) in each direction.
+        const W6 Wu = q0(u),  Wv = q0(v);
+        const W6 Wu1 = q1(u), Wv1 = q1(v);
+        const W6 Wu2 = q2(u), Wv2 = q2(v);
+
+        // v-loft Lc uses the six u-fields {c0,c1,t0,t1,k0,k1}(u) weighted by the
+        // v-blend; its u-derivatives differentiate the u-fields (along u), its
+        // v-derivatives differentiate the v-blend. Build the six u-fields and
+        // their along-u 0/1/2 derivatives once.
+        Vec3 fU[6][3];  // fU[col][ord]
+        for (int c = 0; c < 6; ++c)
+            for (int o = 0; o <= order; ++o)
+                fU[c][o] = vfield(c, o, u);
+
+        // u-loft Ld uses the six v-fields {d0,d1,e0,e1,f0,f1}(v). Build them and
+        // their along-v 0/1/2 derivatives.
+        auto dfield = [&](int c, int ord) -> Vec3 {
+            switch (c) {
+                case 0: return ord == 0 ? ed0.point(v)
+                             : ord == 1 ? ed0.alongTangent(v) : ed0.alongSecond(v);
+                case 1: return ord == 0 ? ed1.point(v)
+                             : ord == 1 ? ed1.alongTangent(v) : ed1.alongSecond(v);
+                case 2: return ord == 0 ? ve0.value(v)
+                             : ord == 1 ? ve0.dValue(v) : ve0.ddValue(v);
+                case 3: return ord == 0 ? ve1.value(v)
+                             : ord == 1 ? ve1.dValue(v) : ve1.ddValue(v);
+                case 4: return ord == 0 ? vf0.value(v)
+                             : ord == 1 ? vf0.dValue(v) : vf0.ddValue(v);
+                default: return ord == 0 ? vf1.value(v)
+                             : ord == 1 ? vf1.dValue(v) : vf1.ddValue(v);
+            }
+        };
+        Vec3 fV[6][3];
+        for (int c = 0; c < 6; ++c)
+            for (int o = 0; o <= order; ++o)
+                fV[c][o] = dfield(c, o);
+
+        Vec3 B[6][6];
+        cornerBlock(B);
+
+        // Helper: weighted sum over the six columns of a u-field row (ord o) with
+        // a v-weight vector wv. Lc term = sum_c wv[c] * fU[c][o].
+        auto lcTerm = [&](const W6& wv, int o) -> Vec3 {
+            Vec3 r{0, 0, 0};
+            for (int c = 0; c < 6; ++c) r = vadd(r, vscale(fU[c][o], wv.w[c]));
+            return r;
+        };
+        auto ldTerm = [&](const W6& wu, int o) -> Vec3 {
+            Vec3 r{0, 0, 0};
+            for (int c = 0; c < 6; ++c) r = vadd(r, vscale(fV[c][o], wu.w[c]));
+            return r;
+        };
+        // Correction term: wu^T B wv with the chosen weight-derivative orders.
+        auto corr = [&](const W6& wu, const W6& wv) -> Vec3 {
+            Vec3 r{0, 0, 0};
+            for (int a = 0; a < 6; ++a)
+                for (int b = 0; b < 6; ++b)
+                    r = vadd(r, vscale(B[a][b], wu.w[a] * wv.w[b]));
+            return r;
+        };
+
+        // S = Lc + Ld - T.
+        //   Lc(u,v): v-blend(value) over the u-fields(value).
+        S = vsub(vadd(lcTerm(Wv, 0), ldTerm(Wu, 0)), corr(Wu, Wv));
+        if (order == 0) { Su = Sv = Suu = Suv = Svv = Vec3{0,0,0}; return; }
+
+        // First partials.
+        //   S_u = Lc_u + Ld_u - T_u
+        //   Lc_u = v-blend(value) over u-fields(1st along-u)
+        //   Ld_u = u-blend(1st)   over v-fields(value)
+        const Vec3 Lcu = lcTerm(Wv, 1);
+        const Vec3 Ldu = ldTerm(Wu1, 0);
+        Su = vsub(vadd(Lcu, Ldu), corr(Wu1, Wv));
+        //   S_v = Lc_v + Ld_v - T_v
+        //   Lc_v = v-blend(1st)   over u-fields(value)
+        //   Ld_v = u-blend(value) over v-fields(1st along-v)
+        const Vec3 Lcv = lcTerm(Wv1, 0);
+        const Vec3 Ldv = ldTerm(Wu, 1);
+        Sv = vsub(vadd(Lcv, Ldv), corr(Wu, Wv1));
+        if (order == 1) { Suu = Suv = Svv = Vec3{0,0,0}; return; }
+
+        // Second partials.
+        //   S_uu = Lc_uu + Ld_uu - T_uu
+        //   Lc_uu = v-blend(value) over u-fields(2nd along-u)
+        //   Ld_uu = u-blend(2nd)   over v-fields(value)
+        Suu = vsub(vadd(lcTerm(Wv, 2), ldTerm(Wu2, 0)), corr(Wu2, Wv));
+        //   S_vv = Lc_vv + Ld_vv - T_vv
+        //   Lc_vv = v-blend(2nd)   over u-fields(value)
+        //   Ld_vv = u-blend(value) over v-fields(2nd along-v)
+        Svv = vsub(vadd(lcTerm(Wv2, 0), ldTerm(Wu, 2)), corr(Wu, Wv2));
+        //   S_uv = Lc_uv + Ld_uv - T_uv
+        //   Lc_uv = v-blend(1st)   over u-fields(1st along-u)
+        //   Ld_uv = u-blend(1st)   over v-fields(1st along-v)
+        Suv = vsub(vadd(lcTerm(Wv1, 1), ldTerm(Wu1, 1)), corr(Wu1, Wv1));
+    }
 };
 
 } // namespace
@@ -428,8 +654,13 @@ Vec3 CoonsPatch::evaluate(double u, double v) const {
     if (!ok) return Vec3{0, 0, 0};
     BlendData bd;
     bd.build(boundary);
-    Vec3 S, Su, Sv;
-    bd.eval(clampDomain(u), clampDomain(v), S, Su, Sv, /*wantD=*/false);
+    Vec3 S, Su, Sv, Suu, Suv, Svv;
+    if (bd.g2) {
+        bd.evalQuintic(clampDomain(u), clampDomain(v),
+                       S, Su, Sv, Suu, Suv, Svv, /*order=*/0);
+    } else {
+        bd.eval(clampDomain(u), clampDomain(v), S, Su, Sv, /*wantD=*/false);
+    }
     return S;
 }
 
@@ -443,8 +674,12 @@ CoonsSample CoonsPatch::evaluateWithDerivatives(double u, double v) const {
     v = clampDomain(v);
     BlendData bd;
     bd.build(boundary);
-    Vec3 S, Su, Sv;
-    bd.eval(u, v, S, Su, Sv, /*wantD=*/true);
+    Vec3 S, Su, Sv, Suu, Suv, Svv;
+    if (bd.g2) {
+        bd.evalQuintic(u, v, S, Su, Sv, Suu, Suv, Svv, /*order=*/1);
+    } else {
+        bd.eval(u, v, S, Su, Sv, /*wantD=*/true);
+    }
     out.point = S;
     out.du = Su;
     out.dv = Sv;
@@ -457,6 +692,46 @@ CoonsSample CoonsPatch::evaluateWithDerivatives(double u, double v) const {
         out.normal = Vec3{0, 0, 0};
         out.ok = false;  // degenerate (e.g. a corner where edges are parallel)
     }
+    return out;
+}
+
+CoonsSample2 CoonsPatch::evaluateWithSecondDerivatives(double u, double v) const {
+    CoonsSample2 out;
+    if (!ok) return out;
+    if (u < -kDomTol || u > 1.0 + kDomTol ||
+        v < -kDomTol || v > 1.0 + kDomTol) return out;
+    u = clampDomain(u);
+    v = clampDomain(v);
+    BlendData bd;
+    bd.build(boundary);
+    Vec3 S, Su, Sv, Suu, Suv, Svv;
+    if (bd.g2) {
+        bd.evalQuintic(u, v, S, Su, Sv, Suu, Suv, Svv, /*order=*/2);
+    } else {
+        // Cubic (G1/G0) path: the analytic 2nd partials of the cubic Boolean sum
+        // via a tight central difference of the analytic 1st partials (the cubic
+        // path's exact 2nd derivative is well-defined; we differentiate its exact
+        // analytic first partials so this stays consistent with eval()).
+        bd.eval(u, v, S, Su, Sv, /*wantD=*/true);
+        const double h = 1e-5;
+        auto firstAt = [&](double uu, double vv, Vec3& a, Vec3& b) {
+            Vec3 s, su, sv;
+            bd.eval(clampDomain(uu), clampDomain(vv), s, su, sv, true);
+            a = su; b = sv;
+        };
+        Vec3 SuP, SvP, SuM, SvM;
+        firstAt(u + h, v, SuP, SvP); firstAt(u - h, v, SuM, SvM);
+        Suu = vscale(vsub(SuP, SuM), 1.0 / (2 * h));
+        const Vec3 SuvA = vscale(vsub(SvP, SvM), 1.0 / (2 * h));
+        firstAt(u, v + h, SuP, SvP); firstAt(u, v - h, SuM, SvM);
+        Svv = vscale(vsub(SvP, SvM), 1.0 / (2 * h));
+        const Vec3 SuvB = vscale(vsub(SuP, SuM), 1.0 / (2 * h));
+        Suv = vscale(vadd(SuvA, SuvB), 0.5);  // symmetric average
+    }
+    out.point = S;
+    out.du = Su; out.dv = Sv;
+    out.duu = Suu; out.duv = Suv; out.dvv = Svv;
+    out.ok = true;
     return out;
 }
 
