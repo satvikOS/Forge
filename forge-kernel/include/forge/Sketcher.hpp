@@ -187,4 +187,95 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h);
 std::vector<std::vector<native::geom::Point2>>
 extractProfileRings(SketchHandle h, int circleSegments = 96);
 
+// ===================================================================
+// Constraint DIAGNOSTICS — sketcher-constraints.md "Phase A".
+//
+// These SURFACE the diagnose pipeline that planegcs's GCS::System already
+// computes (GCS.h: diagnose(), getConflicting/getRedundant/
+// getPartiallyRedundant/getDependentParams(Groups), dofsNumber(),
+// calculateConstraintErrorByTag()) but which the original 3-state `solve()`
+// status dropped on the floor. No new numerics — pure facade exposure.
+//
+// They are bound to JS under `forge.sketch.diagnose.*` by
+// src/binding_sketchdiag.cpp.
+
+// What kind of geometry parameter a dependent param maps back to.
+enum class SketchParamRole : std::uint8_t {
+    PointX = 0,
+    PointY = 1,
+    CircleRadius = 2,
+    ArcRadius = 3,
+    ArcStartAngle = 4,
+    ArcEndAngle = 5,
+    Unknown = 255,
+};
+
+// A dependent (still-free) geometry parameter the solver flagged as a remaining
+// degree of freedom — mapped back from the raw double* to the owning point /
+// entity ID the JS caller knows.
+struct SketchDependentParam {
+    SketchParamRole role;
+    std::uint32_t   ownerId;   // SketchParamId (PointX/Y) or SketchEntityId (radius/angles)
+    int             group;     // index into getDependentParamsGroups(), or -1 if ungrouped
+};
+
+// Per-constraint residual: how far the constraint is from satisfied, by tag.
+struct SketchConstraintResidual {
+    int    tag;       // the tag returned by addConstraint()
+    double residual;  // RMS error from GCS::calculateConstraintErrorByTag (NaN if no such tag)
+};
+
+// The full solver-backed diagnosis of a sketch.
+struct SketchDiagnostics {
+    int                 dof;                    // dofsNumber(): remaining DOF, or -1 if not diagnosable
+    bool                emptyDiagnoseMatrix;    // isEmptyDiagnoseMatrix(): no driving constraints
+    bool                hasConflicting;
+    bool                hasRedundant;
+    bool                hasPartiallyRedundant;
+    std::vector<int>    conflicting;            // constraint TAGS that are mutually inconsistent
+    std::vector<int>    redundant;              // constraint TAGS removable with no info lost
+    std::vector<int>    partiallyRedundant;     // constraint TAGS over-determining a sub-DOF
+    std::vector<SketchDependentParam> dependentParams;  // which geometry is still free
+    int                 dependentParamGroupCount;
+    // Classification derived from the above (DCM-style):
+    //   "well"       — dof == 0, no conflicts/redundancy
+    //   "under"      — dof  > 0
+    //   "over"       — has conflicting tags (structurally inconsistent)
+    //   "redundant"  — consistent but has redundant/partially-redundant tags
+    //   "empty"      — no driving constraints to diagnose
+    std::string         classification;
+};
+
+// Run a real solver-backed diagnose on the live sketch and return the full
+// conflicting / redundant / partially-redundant / dependent-param report plus
+// the rank-based DOF. Re-declares unknowns + initSolution(diagnose) so the
+// report is valid even if the caller never called solve(). Does NOT mutate
+// geometry (diagnose is a Jacobian-rank analysis, not a solve).
+SketchDiagnostics diagnoseSketch(SketchHandle h);
+
+// Residual of the constraint(s) carrying `tag`, via
+// GCS::calculateConstraintErrorByTag (RMS of the per-solver-constraint errors;
+// NaN if no constraint has that tag).
+double constraintResidual(SketchHandle h, int tag);
+
+// Residuals for EVERY tag the JS caller has added (1..nextConstraintTag).
+std::vector<SketchConstraintResidual> allConstraintResiduals(SketchHandle h);
+
+// SOLVER-BACKED replacement for the static src/SketchDof.cpp counting table.
+// Builds nothing new — it diagnoses the live sketch and returns a DOF/health
+// report whose `dof` is the true Jacobian-rank DOF (correct for coupled/looped
+// systems, where the static count is wrong). `staticEstimate` carries the old
+// counting value alongside, for a pre-solve UX hint only.
+struct SketchAuditResult {
+    int          totalEntities;
+    int          totalConstraints;
+    int          staticEstimate;   // legacy counting-table freeDof (pre-solve hint)
+    int          solverDof;        // dofsNumber() — the SOURCE OF TRUTH
+    std::string  status;           // SketchDiagnostics::classification
+    bool         hasConflicting;
+    bool         hasRedundant;
+    bool         hasPartiallyRedundant;
+};
+SketchAuditResult auditSketch(SketchHandle h);
+
 }  // namespace forge

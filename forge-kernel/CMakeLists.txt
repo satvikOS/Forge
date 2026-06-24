@@ -515,6 +515,25 @@ add_library(forge_kernel SHARED
     src/native/surfit/Surfit.cpp
     src/native/cam/Cam.cpp
     src/native/linalg/LinAlg.cpp        # in-house Eigen-free linear algebra (numerics track)
+    # Phase A1 (predicates-geom.md) — bridge the DARK geom engines to JS.
+    src/binding_geom.cpp
+    src/native/geom/Voronoi3D.cpp
+    src/native/geom/AlphaShape3D.cpp
+    src/native/geom/PolygonBoolean2D.cpp
+    src/native/geom/PolygonOffset2D.cpp
+    src/native/geom/ConvexDecomposition.cpp
+    src/native/geom/MinkowskiSum3D.cpp
+    src/native/mesh/SelfIntersect.cpp
+    # Wave-0 — implicit/voxel/F-rep field-design stack (implicit-frep.md + voxel-lattice.md Phase A)
+    src/binding_field.cpp
+    src/native/implicit/SdfLibrary.cpp
+    src/native/implicit/SdfOps.cpp
+    src/native/implicit/FRepTree.cpp
+    src/native/implicit/MeshToFRep.cpp
+    src/native/voxel/Lattice.cpp
+    src/native/voxel/Morphology.cpp
+    # Wave-0 — PlaneGCS constraint diagnostics (sketcher-constraints.md Phase A)
+    src/binding_sketchdiag.cpp
     ${PLANEGCS_SRC}
 )
 

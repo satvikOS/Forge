@@ -650,4 +650,159 @@ extractProfileRings(SketchHandle h, int circleSegments) {
     return rings;
 }
 
+// =================================================================== diagnostics
+//
+// Phase A of sketcher-constraints.md — surface the planegcs diagnose pipeline.
+// All numerics already exist in GCS::System; these functions only re-package the
+// engine's own getters and map the raw double* dependent-parameter pointers back
+// to the point / entity IDs the JS caller holds.
+
+namespace {
+
+// Map a raw parameter pointer (as returned by GCS::System::getDependentParams)
+// back to the owning geometry. The Sketch owns every double the engine touches:
+//   - point x/y          → gcsPoints[i].x / .y      → SketchParamId i
+//   - circle rad         → circles[i]->rad          → SketchEntityId for that circle
+//   - arc rad/start/end  → arcs[i]->rad/startAngle/endAngle → SketchEntityId for that arc
+// Returns true on a hit and fills role + ownerId.
+bool mapParamToGeometry(const Sketch& s, const double* p,
+                        SketchParamRole& role, std::uint32_t& ownerId) {
+    // Points first (the common case).
+    for (std::uint32_t i = 0; i < s.gcsPoints.size(); ++i) {
+        if (s.gcsPoints[i].x == p) { role = SketchParamRole::PointX; ownerId = toParamId(i); return true; }
+        if (s.gcsPoints[i].y == p) { role = SketchParamRole::PointY; ownerId = toParamId(i); return true; }
+    }
+    // Entity-intrinsic params: walk the flat entityIndex so ownerId is the SketchEntityId.
+    for (std::uint32_t e = 0; e < s.entityIndex.size(); ++e) {
+        const auto& rec = s.entityIndex[e];
+        if (rec.kind == SketchEntityKind::Circle) {
+            const GCS::Circle& c = *s.circles[rec.typedIndex];
+            if (c.rad == p) { role = SketchParamRole::CircleRadius; ownerId = toEntityId(e); return true; }
+        } else if (rec.kind == SketchEntityKind::Arc) {
+            const GCS::Arc& a = *s.arcs[rec.typedIndex];
+            if (a.rad == p)        { role = SketchParamRole::ArcRadius;      ownerId = toEntityId(e); return true; }
+            if (a.startAngle == p) { role = SketchParamRole::ArcStartAngle;  ownerId = toEntityId(e); return true; }
+            if (a.endAngle == p)   { role = SketchParamRole::ArcEndAngle;    ownerId = toEntityId(e); return true; }
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+SketchDiagnostics diagnoseSketch(SketchHandle h) {
+    Sketch& s = SketchRegistry::instance().get(h);
+
+    // Make sure the engine has a fresh diagnosis even if solve() was never
+    // called. declareUnknowns + initSolution(DogLeg) runs diagnose() internally
+    // (GCS::System::initSolution → diagnose). diagnose is a Jacobian-rank
+    // analysis: it does NOT move geometry.
+    GCS::VEC_pD unknowns;
+    s.collectUnknowns(unknowns);
+    s.gcs.declareUnknowns(unknowns);
+    s.gcs.initSolution(GCS::DogLeg);
+    s.gcs.diagnose(GCS::DogLeg);
+
+    SketchDiagnostics d{};
+    d.dof                  = s.gcs.dofsNumber();
+    d.emptyDiagnoseMatrix  = s.gcs.isEmptyDiagnoseMatrix();
+    d.hasConflicting       = s.gcs.hasConflicting();
+    d.hasRedundant         = s.gcs.hasRedundant();
+    d.hasPartiallyRedundant= s.gcs.hasPartiallyRedundant();
+
+    GCS::VEC_I conflicting, redundant, partiallyRedundant;
+    s.gcs.getConflicting(conflicting);
+    s.gcs.getRedundant(redundant);
+    s.gcs.getPartiallyRedundant(partiallyRedundant);
+    d.conflicting        = std::vector<int>(conflicting.begin(), conflicting.end());
+    d.redundant          = std::vector<int>(redundant.begin(), redundant.end());
+    d.partiallyRedundant = std::vector<int>(partiallyRedundant.begin(), partiallyRedundant.end());
+
+    // Dependent params (still-free geometry). getDependentParamsGroups gives the
+    // coupling groups; we map each pointer to its geometry and record its group.
+    GCS::VEC_pD dependent;
+    s.gcs.getDependentParams(dependent);
+    std::vector<std::vector<double*>> groups;
+    s.gcs.getDependentParamsGroups(groups);
+    d.dependentParamGroupCount = static_cast<int>(groups.size());
+
+    auto groupOf = [&](const double* p) -> int {
+        for (std::size_t g = 0; g < groups.size(); ++g) {
+            for (const double* q : groups[g]) {
+                if (q == p) return static_cast<int>(g);
+            }
+        }
+        return -1;
+    };
+    for (const double* p : dependent) {
+        SketchDependentParam dp{};
+        dp.role  = SketchParamRole::Unknown;
+        dp.ownerId = 0;
+        SketchParamRole role; std::uint32_t owner;
+        if (mapParamToGeometry(s, p, role, owner)) { dp.role = role; dp.ownerId = owner; }
+        dp.group = groupOf(p);
+        d.dependentParams.push_back(dp);
+    }
+
+    // DCM-style classification.
+    if (d.emptyDiagnoseMatrix) {
+        d.classification = "empty";
+    } else if (d.hasConflicting) {
+        d.classification = "over";
+    } else if (d.dof > 0) {
+        d.classification = "under";
+    } else if (d.hasRedundant || d.hasPartiallyRedundant) {
+        d.classification = "redundant";
+    } else {
+        d.classification = "well";
+    }
+    return d;
+}
+
+double constraintResidual(SketchHandle h, int tag) {
+    Sketch& s = SketchRegistry::instance().get(h);
+    return s.gcs.calculateConstraintErrorByTag(tag);
+}
+
+std::vector<SketchConstraintResidual> allConstraintResiduals(SketchHandle h) {
+    Sketch& s = SketchRegistry::instance().get(h);
+    std::vector<SketchConstraintResidual> out;
+    out.reserve(static_cast<std::size_t>(s.nextConstraintTag));
+    // Tags are monotonic positive ints 1..nextConstraintTag (Sketcher.cpp::nextTag).
+    for (int t = 1; t <= s.nextConstraintTag; ++t) {
+        out.push_back(SketchConstraintResidual{t, s.gcs.calculateConstraintErrorByTag(t)});
+    }
+    return out;
+}
+
+SketchAuditResult auditSketch(SketchHandle h) {
+    Sketch& s = SketchRegistry::instance().get(h);
+
+    // Legacy static counting estimate (pre-solve UX hint only — NOT the truth).
+    // entity DOF: point 2, line 4, circle 3, arc 5. We can recover the entity
+    // breakdown from the Sketch's own storage.
+    auto staticEstimate = [&]() -> int {
+        int totalDof = 2 * static_cast<int>(s.gcsPoints.size())
+                     + 1 * static_cast<int>(s.circles.size())   // radius (centre is a point already counted)
+                     + 3 * static_cast<int>(s.arcs.size());      // radius + 2 angles
+        // We cannot recover per-constraint static cost without the original kind
+        // list, so we approximate "removed DOF" by (totalParams - solverDof);
+        // the solver value below is the real one anyway.
+        return totalDof;  // raw parameter count; solverDof is the source of truth
+    };
+
+    SketchDiagnostics diag = diagnoseSketch(h);
+
+    SketchAuditResult r{};
+    r.totalEntities = static_cast<int>(s.entityIndex.size());
+    r.totalConstraints = s.nextConstraintTag;
+    r.staticEstimate = staticEstimate();
+    r.solverDof = diag.dof;
+    r.status = diag.classification;
+    r.hasConflicting = diag.hasConflicting;
+    r.hasRedundant = diag.hasRedundant;
+    r.hasPartiallyRedundant = diag.hasPartiallyRedundant;
+    return r;
+}
+
 }  // namespace forge

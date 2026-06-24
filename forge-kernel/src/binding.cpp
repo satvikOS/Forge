@@ -5223,6 +5223,15 @@ Napi::Value Version(const Napi::CallbackInfo& info) {
 
 } // namespace
 
+// Wave-0 dark-engine harvest — register the self-contained binding TUs that expose
+// the native geom predicates, the implicit/voxel/F-rep field stack, and the
+// PlaneGCS constraint diagnostics (binding_geom/field/sketchdiag.cpp).
+namespace forge { namespace bind {
+void InitGeom(Napi::Env, Napi::Object);
+void InitField(Napi::Env, Napi::Object);
+void InitSketchdiag(Napi::Env, Napi::Object);
+} }  // namespace forge::bind
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("makeBox",      Napi::Function::New(env, MakeBox));
     exports.Set("makeCylinder", Napi::Function::New(env, MakeCylinder));
@@ -16838,6 +16847,13 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 
       exports.Set("native", nativeNs);
     }
+
+    // Wave-0 dark-engine harvest (geom predicates / implicit-voxel-frep field stack /
+    // PlaneGCS constraint diagnostics) — now reachable by Archie as forge.geom.*,
+    // forge.implicit.*/lattice.*/tpms.*, forge.sketch.diagnose.*.
+    forge::bind::InitGeom(env, exports);
+    forge::bind::InitField(env, exports);
+    forge::bind::InitSketchdiag(env, exports);
 
     return exports;
 }
