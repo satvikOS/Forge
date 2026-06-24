@@ -6,26 +6,48 @@ const W = 1280, H = 800;
 const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
 renderer.setSize(W, H); renderer.setPixelRatio(1); document.body.appendChild(renderer.domElement);
 const scene = new THREE.Scene(); scene.background = new THREE.Color(0x2b2f36);
-const cam = new THREE.PerspectiveCamera(38, W / H, 0.01, 1e5);
+const cam = new THREE.PerspectiveCamera(38, W / H, 0.001, 1e5);
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444455, 1.1));
 const key = new THREE.DirectionalLight(0xffffff, 1.6); key.position.set(1, 1.4, 1.2); scene.add(key);
 const fill = new THREE.DirectionalLight(0xbcd0ff, 0.5); fill.position.set(-1, 0.3, -0.8); scene.add(fill);
 
-window.__loadMesh = (pos, idx, color) => {
+const group = new THREE.Group(); scene.add(group);
+function recomputeBounds() {
+  const box = new THREE.Box3().setFromObject(group);
+  const s = new THREE.Sphere(); box.getBoundingSphere(s);
+  window.__bs = s; return s;
+}
+// Add a triangle mesh. opts: {opacity, metalness, roughness}. Additive (call many).
+window.__loadMesh = (pos, idx, color, opts = {}) => {
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
   if (idx && idx.length) g.setIndex(new THREE.BufferAttribute(new Uint32Array(idx), 1));
   g.computeVertexNormals();
-  const m = new THREE.MeshStandardMaterial({ color: color || 0x9fb4cc, metalness: 0.35, roughness: 0.45, flatShading: false });
-  const mesh = new THREE.Mesh(g, m); scene.add(mesh);
-  g.computeBoundingSphere(); window.__bs = g.boundingSphere; window.__mesh = mesh;
-  return { verts: pos.length / 3, tris: (idx ? idx.length : 0) / 3, center: window.__bs.center.toArray(), radius: window.__bs.radius };
+  const m = new THREE.MeshStandardMaterial({
+    color: color || 0x9fb4cc, metalness: opts.metalness ?? 0.35, roughness: opts.roughness ?? 0.45,
+    flatShading: false, transparent: (opts.opacity ?? 1) < 1, opacity: opts.opacity ?? 1,
+    side: THREE.DoubleSide,
+  });
+  group.add(new THREE.Mesh(g, m));
+  const bs = recomputeBounds();
+  return { verts: pos.length / 3, tris: (idx ? idx.length : 0) / 3, center: bs.center.toArray(), radius: bs.radius };
+};
+// Add a 3D polyline as a tube (radius in world units). pts = flat [x,y,z,...].
+window.__loadLine = (pts, color, radius = 0.05) => {
+  const v = []; for (let i = 0; i < pts.length; i += 3) v.push(new THREE.Vector3(pts[i], pts[i + 1], pts[i + 2]));
+  if (v.length < 2) return { pts: v.length };
+  const curve = new THREE.CatmullRomCurve3(v, false);
+  const tube = new THREE.TubeGeometry(curve, Math.max(8, v.length), radius, 12, false);
+  const m = new THREE.MeshStandardMaterial({ color: color ?? 0xff5a3c, metalness: 0.2, roughness: 0.3, emissive: color ?? 0xff5a3c, emissiveIntensity: 0.25 });
+  group.add(new THREE.Mesh(tube, m));
+  recomputeBounds();
+  return { pts: v.length };
 };
 window.__shoot = (dir) => {
-  const bs = window.__bs; const c = bs.center, r = bs.radius || 1;
+  const bs = window.__bs || recomputeBounds(); const c = bs.center, r = bs.radius || 1;
   const d = r / Math.sin(THREE.MathUtils.degToRad(38) / 2) * 1.15;
-  const v = { iso: [1, 0.8, 1], front: [0, 0, 1], top: [0, 1, 0.001], right: [1, 0, 0] }[dir] || [1, 0.8, 1];
-  const n = new THREE.Vector3(...v).normalize();
+  const vv = { iso: [1, 0.8, 1], front: [0, 0, 1], top: [0, 1, 0.001], right: [1, 0, 0] }[dir] || [1, 0.8, 1];
+  const n = new THREE.Vector3(...vv).normalize();
   cam.position.copy(c).addScaledVector(n, d); cam.lookAt(c); cam.updateProjectionMatrix();
   renderer.render(scene, cam);
   return renderer.domElement.toDataURL('image/png');

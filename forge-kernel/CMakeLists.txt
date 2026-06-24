@@ -450,6 +450,7 @@ add_library(forge_kernel SHARED
     src/native/brep/Curve.cpp           # K0 — tagged Curve/PCurve geometry + tolerance attrs (Wave-1)
     src/native/brep/NurbsAlgebra.cpp    # K1.1 — NURBS algebra: elevate/knot-ops/curvature/iso/projection (Wave-1)
     src/native/brep/TrimmedFace.cpp     # K1.2 — trimmed-NURBS B-rep face: point-in-trim + trim-respecting tessellation + trimmed mass-props (Wave-1 keystone)
+    src/native/brep/Sew.cpp             # K1.4 — sew/heal faces into a connected shell (weld verts, merge coedge pairs, free-edge/Euler diagnose)
     # IN-HOUSE KERNEL STEP 1 — OCCT-free primitive B-rep solids + exact
     # mass-properties + watertight tessellation (pure C++20 stdlib, no new link
     # libs). Always compiled into the addon; the JS surface is gated behind
@@ -473,6 +474,7 @@ add_library(forge_kernel SHARED
     # pointer at runtime and crashes — it was previously only pulled by run_native).
     src/native/geom/ConstrainedDelaunay2D.cpp
     src/native/brep/SurfaceIntersect.cpp
+    src/native/brep/NurbsSurfaceIntersect.cpp   # K1.3 — NURBS-aware SSI: subdivision-localize + marching intersector + pcurves (removes the NURBS-face deferral)
     src/native/brep/Boolean.cpp
     # IN-HOUSE KERNEL STEP 3a — the live-op ROUTING LAYER (runtime gate +
     # transformSolid placement fix + native viewport-tessellate + mesh massprops)
