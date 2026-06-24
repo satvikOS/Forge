@@ -68,6 +68,37 @@
 //       (free-edge count, manifold/non-manifold counts, closed flag, V/E/F, Euler,
 //       genus) taken from diagnoseShell — plus the ids of any defect left UNFIXED.
 //
+// THE HARDER DEFECT CLASSES (additive, the multi-million-LOC ShapeFix/ShapeUpgrade
+// standard — implemented honestly, large/structural cases reported unfixed):
+//
+//   (6) FACE-ORIENTATION REPAIR. After sewing, the face-adjacency graph is
+//       2-coloured by ORIENTATION PROPAGATION across shared edges (a consistent
+//       shared edge keeps a neighbour's sense; a mis-oriented shared edge — both
+//       coedges agreeing — flips it). The minority colour is REVERSED so every
+//       shared edge becomes a clean opposite-sense manifold pair, then the whole
+//       shell is gauged to the OUTWARD sense by the sign of its divergence-theorem
+//       volume (a globally-inverted shell is flipped wholesale). This is the
+//       in-house ShapeFix_Shape::FixFaceOrientation. Reuses Check.cpp's robust
+//       signed-volume outward test for the global gauge.
+//
+//   (7) SELF-INTERSECTION REPAIR. Every face's outer ring is fan-tessellated and
+//       the non-adjacent triangle pairs across DIFFERENT faces are classified by the
+//       EXACT triangle-triangle predicate (ExactPredicates3D::segmentTriangleClassify
+//       — the same exact arithmetic SelfIntersect.cpp uses). Where a self-overlap
+//       exists AND one offender is a small/removable sliver (area below a fraction
+//       of the largest face), that sliver is DROPPED (the honest "trim a tiny self-
+//       overlap away" case). A self-intersection between two full-size faces is a
+//       structural modelling error and is reported UNFIXED with the face-id pair
+//       (the general self-intersection ARRANGEMENT is the documented follow-up).
+//
+//   (8) NON-MANIFOLD RESOLUTION. After sewing, an edge shared by 3+ coedges
+//       (non-manifold edge) and a non-manifold VERTEX (a vertex whose incident-face
+//       fan is not a single cycle — two cones touching at a point) are DETECTED.
+//       Where the 3rd+ use is an EXACT DUPLICATE face (same vertex ring) the
+//       duplicate is REMOVED, restoring a manifold edge; a genuine non-manifold join
+//       the 2-manifold model cannot represent is reported UNFIXED (edge ids +
+//       non-manifold vertex ids) — never force-split into a wrong topology.
+//
 // CONVENTIONS: namespace forge::native::brep. Tolerance is model-space distance.
 // Faces are POLYGONAL (their boundary geometry is taken from the loop vertex
 // positions — the box / imported-faceted gate); the area / volume invariants are
@@ -78,6 +109,7 @@
 #ifndef FORGE_NATIVE_BREP_HEAL_HPP
 #define FORGE_NATIVE_BREP_HEAL_HPP
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <vector>
@@ -113,6 +145,29 @@ struct HealOptions {
     bool removeSliverFaces      = true; // (3) sliver-face drop + hole heal
     bool fillGaps               = true; // (1) free-endpoint snap + re-sew
 
+    // ---- HARDER defect classes (the multi-million-LOC standard, additive) -----
+    // (6) FACE-ORIENTATION REPAIR. Inconsistently-oriented faces (one or more
+    //     faces of a closeable shell wound the wrong way) are flipped so every
+    //     shared edge's two coedges run opposite, and the whole shell is gauged to
+    //     the OUTWARD sense via its signed volume. ON by default.
+    bool repairOrientation = true;
+    // (7) SELF-INTERSECTION REPAIR. A face whose tessellated outer ring penetrates
+    //     another face's (a small self-overlapping sliver) is detected by an EXACT
+    //     triangle-triangle test and, when the offender is a small/removable sliver,
+    //     dropped. A large/structural self-intersection is reported UNFIXED (honest).
+    bool repairSelfIntersection = true;
+    // A self-intersecting face is "small/removable" (trim-able away) when its
+    // polygonal area is below this multiple of the shell's largest-face area. The
+    // honest line: a tiny intersecting patch is a defect we can drop; a full-size
+    // face that interpenetrates is a real modelling error we will NOT silently fix.
+    double selfIntersectSmallFrac = 1e-3;
+    // (8) NON-MANIFOLD RESOLUTION. An edge shared by 3+ faces and a non-manifold
+    //     vertex (two cones touching at a single point) are DETECTED and reported;
+    //     where the 3rd use is an exact DUPLICATE face it is removed to restore a
+    //     manifold edge, otherwise the defect is reported UNFIXED (honest — the
+    //     2-manifold model cannot split an arbitrary non-manifold join). ON.
+    bool resolveNonManifold = true;
+
     // Interior mid-curve samples handed to the re-sew step (Sew's confirm match).
     std::size_t sewMidSamples = 3;
 };
@@ -130,6 +185,9 @@ struct HealReport {
     std::size_t shortEdgesCollapsed = 0; // (2) sub-tol edges removed
     std::size_t sliverFacesRemoved = 0;  // (3) sliver faces dropped
     std::size_t edgePairsMerged    = 0;  // shared edges re-mated by the re-sew (gap-fill result)
+    std::size_t facesFlipped       = 0;  // (6) mis-oriented faces flipped to match the shell
+    std::size_t selfIntersectingFacesRemoved = 0; // (7) small self-overlapping slivers dropped
+    std::size_t duplicateFacesRemoved        = 0; // (8) exact-duplicate faces dropped (de-manifold)
 
     // ---- before / after topology+manifold signature (from diagnoseShell) ------
     SewDiagnosis before;   // signature of the defective input shell
@@ -158,6 +216,21 @@ struct HealReport {
     // hole. Reported so the caller knows the geometry is still dirty there.
     std::vector<std::uint32_t> keptSliverFaceIds;
 
+    // ---- HARDER defect classes left UNFIXED (honest, no fabrication) ----------
+    // (7) Self-intersecting face PAIRS we could NOT safely repair: each entry is a
+    //     pair of FACE ids whose tessellated boundaries interpenetrate where NEITHER
+    //     offender is a small/removable sliver (a structural self-intersection — a
+    //     general arrangement repair is the follow-up). Reported, never papered over.
+    std::vector<std::array<std::uint32_t, 2>> unfixedSelfIntersectionFacePairs;
+    // (8) Non-manifold EDGES that remain after duplicate-face removal (an edge still
+    //     shared by 3+ genuinely-distinct faces — the manifold model cannot split it).
+    std::vector<std::uint32_t> unfixedNonManifoldEdgeReport;
+    // (8) Non-manifold VERTICES detected: a vertex where the face fan is not a single
+    //     cycle (two cones / sheets touching at one point). Reported as the offending
+    //     vertex POSITION ids of the rebuilt shell; the 2-manifold model leaves these
+    //     for a non-manifold-aware split (follow-up).
+    std::vector<std::uint32_t> nonManifoldVertexIds;
+
     // The faces of the healed shell (the input faces minus removed slivers). This is
     // the live face set the caller re-shells / re-diagnoses; `shell` is the (re-sewn)
     // primary connected shell when one was built.
@@ -169,7 +242,10 @@ struct HealReport {
         return after.closed &&
                unfixedFreeEdgeIds.empty() &&
                unfixedNonManifoldEdgeIds.empty() &&
-               keptSliverFaceIds.empty();
+               keptSliverFaceIds.empty() &&
+               unfixedSelfIntersectionFacePairs.empty() &&
+               unfixedNonManifoldEdgeReport.empty() &&
+               nonManifoldVertexIds.empty();
     }
 };
 

@@ -14,8 +14,9 @@
 //   #=LINE('',#pt,#vector) | #=CIRCLE('',#ax2,r)   -- edge geometry
 //   #=EDGE_CURVE('',#vS,#vE,#curve,.T.);      -- one per topological Edge
 //   #=ORIENTED_EDGE('',*,*,#edge,.T./.F.);    -- per coedge use
-//   #=EDGE_LOOP('',(#oe,...));                -- one per face loop
-//   #=FACE_OUTER_BOUND('',#loop,.T.);
+//   #=EDGE_LOOP('',(#oe,...));                -- one per face loop (outer + holes)
+//   #=FACE_OUTER_BOUND('',#loop,.T.);         -- the peripheral loop
+//   #=FACE_BOUND('',#loop,.T.);               -- one per inner (hole) loop
 //   #=AXIS2_PLACEMENT_3D('',#origin,#axisDir,#refDir);
 //   #=PLANE|CYLINDRICAL_SURFACE|CONICAL_SURFACE|SPHERICAL_SURFACE|
 //     TOROIDAL_SURFACE|B_SPLINE_SURFACE_WITH_KNOTS('',#ax2,...);
@@ -453,41 +454,67 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
                                  "(faceted-only handles route through StepFaceted)");
             const Surface& surf = *f->surface;
 
-            // 1) Walk the outer loop's coedges -> ORIENTED_EDGE list (ring order).
-            std::vector<std::uint64_t> orientedIds;
-            const Coedge* start = f->outerLoop->first;
-            const Coedge* ce = start;
-            std::size_t guard = 0;
-            const std::size_t maxRing = f->outerLoop->coedgeCount + 4;
-            do {
-                if (!ce || !ce->edge)
-                    return writeFail("StepAnalytic.write: broken coedge ring");
-                std::uint64_t ec = edgeCurveFor(ce);
-                // ORIENTED_EDGE sense: .T. iff this coedge runs the Edge's
-                // stored start->end direction (i.e. ce->forward).
-                std::uint64_t oid = E.alloc();
-                E.appendId(oid); E.data += "=ORIENTED_EDGE('',*,*,#";
-                E.data += std::to_string(ec);
-                E.data += ce->forward ? ",.T.);\n" : ",.F.);\n";
-                orientedIds.push_back(oid);
-                ce = ce->next;
-                if (++guard > maxRing)
-                    return writeFail("StepAnalytic.write: loop does not close");
-            } while (ce && ce != start);
-            if (orientedIds.size() < 3)
-                return writeFail("StepAnalytic.write: degenerate face loop (<3 edges)");
+            // Emit ONE EDGE_LOOP + bound entity for a coedge ring. `boundKw` is
+            // FACE_OUTER_BOUND for the peripheral loop, FACE_BOUND for a hole. Walks
+            // the ring in coedge order, emitting an ORIENTED_EDGE per coedge (sense
+            // .T. iff the coedge runs its Edge's stored start->end). Returns the
+            // bound id, or 0 on a broken / degenerate ring (the caller fails).
+            //
+            // FACE_BOUND for an inner (hole) loop is the round-trip sibling of the
+            // FOREIGN readers (StepRead / IgesRead), which build inner rings via
+            // TopologyBuilder::addInnerLoopToFace from every additional FACE_BOUND;
+            // without emitting them a bored / holed face would silently lose its
+            // hole on write (the coverage gap this closes).
+            auto emitLoopBound = [&](const Loop* lp, bool outerLoop,
+                                     std::uint64_t& boundOut) -> bool {
+                if (!lp || !lp->first) return false;
+                std::vector<std::uint64_t> orientedIds;
+                const Coedge* start = lp->first;
+                const Coedge* ce = start;
+                std::size_t guard = 0;
+                const std::size_t maxRing = lp->coedgeCount + 4;
+                do {
+                    if (!ce || !ce->edge) return false;
+                    std::uint64_t ec = edgeCurveFor(ce);
+                    std::uint64_t oid = E.alloc();
+                    E.appendId(oid); E.data += "=ORIENTED_EDGE('',*,*,#";
+                    E.data += std::to_string(ec);
+                    E.data += ce->forward ? ",.T.);\n" : ",.F.);\n";
+                    orientedIds.push_back(oid);
+                    ce = ce->next;
+                    if (++guard > maxRing) return false;   // loop does not close
+                } while (ce && ce != start);
+                if (orientedIds.size() < 3) return false;  // degenerate ring
+                std::uint64_t loopId = E.alloc();
+                E.appendId(loopId); E.data += "=EDGE_LOOP('',(";
+                for (std::size_t k = 0; k < orientedIds.size(); ++k) {
+                    if (k) E.data += ',';
+                    E.data += '#'; E.data += std::to_string(orientedIds[k]);
+                }
+                E.data += "));\n";
+                boundOut = E.alloc();
+                E.appendId(boundOut);
+                E.data += outerLoop ? "=FACE_OUTER_BOUND('',#" : "=FACE_BOUND('',#";
+                E.data += std::to_string(loopId); E.data += ",.T.);\n";
+                return true;
+            };
 
-            // 2) EDGE_LOOP + FACE_OUTER_BOUND.
-            std::uint64_t loopId = E.alloc();
-            E.appendId(loopId); E.data += "=EDGE_LOOP('',(";
-            for (std::size_t k = 0; k < orientedIds.size(); ++k) {
-                if (k) E.data += ',';
-                E.data += '#'; E.data += std::to_string(orientedIds[k]);
+            // 1+2) Outer loop -> EDGE_LOOP + FACE_OUTER_BOUND, then every inner
+            //       (hole) loop -> EDGE_LOOP + FACE_BOUND. The ADVANCED_FACE bound
+            //       list is {outer} U inner, matching what the readers reconstruct.
+            std::vector<std::uint64_t> boundIds;
+            std::uint64_t outerBound = 0;
+            if (!emitLoopBound(f->outerLoop, /*outerLoop=*/true, outerBound))
+                return writeFail("StepAnalytic.write: degenerate / non-closing face "
+                                 "outer loop (<3 edges)");
+            boundIds.push_back(outerBound);
+            for (const Loop* hole : f->innerLoops) {
+                std::uint64_t innerBound = 0;
+                if (!emitLoopBound(hole, /*outerLoop=*/false, innerBound))
+                    return writeFail("StepAnalytic.write: degenerate / non-closing "
+                                     "inner (hole) loop");
+                boundIds.push_back(innerBound);
             }
-            E.data += "));\n";
-            std::uint64_t boundId = E.alloc();
-            E.appendId(boundId); E.data += "=FACE_OUTER_BOUND('',#";
-            E.data += std::to_string(loopId); E.data += ",.T.);\n";
 
             // 3) Surface entity (analytic; 0 means we could not emit it).
             std::uint64_t surfId = emitSurface(E, surf);
@@ -495,13 +522,17 @@ AnalyticWriteResult StepAnalytic::write(const Solid& solid, const std::string& n
                 return writeFail("StepAnalytic.write: unsupported NURBS face "
                                  "(incomplete surface data — no analytic emit)");
 
-            // 4) ADVANCED_FACE. same_sense = .T. iff the surface normal already
-            //    points OUT of the solid. Our Surface.reversed flips the natural
-            //    (du x dv) normal to outward; so same_sense w.r.t. the STORED
-            //    surface == NOT reversed.
+            // 4) ADVANCED_FACE over the full bound list. same_sense = .T. iff the
+            //    surface normal already points OUT of the solid. Our Surface.reversed
+            //    flips the natural (du x dv) normal to outward; so same_sense w.r.t.
+            //    the STORED surface == NOT reversed.
             std::uint64_t faceId = E.alloc();
-            E.appendId(faceId); E.data += "=ADVANCED_FACE('',(#";
-            E.data += std::to_string(boundId); E.data += "),#";
+            E.appendId(faceId); E.data += "=ADVANCED_FACE('',(";
+            for (std::size_t k = 0; k < boundIds.size(); ++k) {
+                if (k) E.data += ',';
+                E.data += '#'; E.data += std::to_string(boundIds[k]);
+            }
+            E.data += "),#";
             E.data += std::to_string(surfId);
             E.data += surf.reversed ? ",.F.);\n" : ",.T.);\n";
             faceIds.push_back(faceId);

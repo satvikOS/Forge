@@ -501,6 +501,7 @@ add_library(forge_kernel SHARED
     src/native/brep/FilletAnalytic.cpp  # analytic rolling-ball constant-radius fillet on a convex straight edge between two planar faces (true cylinder blend surface); + concave (reflex) edges + edge-chains (shared-vertex corners honestly reported)
     src/native/brep/ChamferAnalytic.cpp # analytic symmetric flat-bevel chamfer on a convex straight edge between two planar faces (true plane bevel face)
     src/native/brep/Shell.cpp           # offset/shell: hollow a solid to a uniform wall (analytic face offset + SSI re-trim + sew), open or closed
+    src/native/brep/OffsetShape.cpp     # offset-shape: grow/shrink a solid by offsetting all faces +/-t (MakeOffsetShape, intersection join)
     src/native/brep/Chamfer.cpp
     src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)
     # IN-HOUSE KERNEL STEP 3b — route the SKETCH-BASED feature ops (extrude /
@@ -525,6 +526,7 @@ add_library(forge_kernel SHARED
     # Their only deps (Predicates/Geom/HalfEdgeMesh/Topology/Surface) already link.
     src/native/brep/StepFaceted.cpp
     src/native/brep/StepAnalytic.cpp
+    src/native/brep/IgesWrite.cpp       # native IGES write: 186 manifold-solid-brep + 108 plane + 128 NURBS (round-trip sibling of IgesRead)
     src/native/brep/StepRead.cpp        # K6 — foreign STEP AP203/214 read: EXPRESS instance graph -> analytic+B-spline ADVANCED_FACE -> TrimmedFace -> sew -> native shell/solid
     # Task #46 — bind the remaining forge::native engines into the addon so
     # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).

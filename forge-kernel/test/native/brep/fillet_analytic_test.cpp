@@ -249,6 +249,79 @@ int main() {
         check(!ch.ok, "connected chain: honestly NOT closed (vertex blend is a documented follow-up)");
     }
 
+    // ========================================================================
+    // (7) VARIABLE-RADIUS fillet — LINEAR law R(t)=R0+(R1-R0)t/L on a convex
+    //     straight box edge (L=10, R0=1, R1=2). Blend is an EXACT rational NURBS
+    //     sweep of the varying quarter-arc; material REMOVED.
+    // ========================================================================
+    std::printf("\n--- VARIABLE-RADIUS fillet (linear law, box top edge, R0=1 R1=2) ---\n");
+    {
+        const double Lv = 10.0, R0 = 1.0, R1 = 2.0;
+        TopologyBuilder tbv;
+        AnalyticVariableFilletResult vf = filletBoxEdgeVariable(tbv, Lv, R0, R1, /*edgeIndex=*/4);
+        std::printf("[variable] %s\n", vf.reason);
+        check(vf.ok, "variable fillet op ok");
+        if (vf.ok) {
+            // (7a) closed 2-manifold
+            std::vector<Face*> vfaces;
+            for (Shell* sh : vf.solid->shells)
+                for (Face* f : sh->faces) vfaces.push_back(f);
+            SewDiagnosis vd = diagnoseShell(vfaces);
+            std::printf("      -> V=%zu E=%zu F=%zu  free=%zu  nonmanifold=%zu  %s  chi=%lld genus=%lld\n",
+                        vd.vertices, vd.edges, vd.faces, vd.freeEdges, vd.nonManifoldEdges,
+                        vd.closed ? "CLOSED" : "OPEN", vd.eulerCharacteristic, vd.genus);
+            check(vd.freeEdges == 0, "variable: 0 FREE edges (watertight)");
+            check(vd.nonManifoldEdges == 0, "variable: 0 non-manifold edges");
+            check(vd.closed, "variable: shell CLOSED (watertight)");
+
+            // (7b) volume == box - (1 - pi/4) * L * (R0^2 + R0*R1 + R1^2)/3.
+            const double removedClosed =
+                (1.0 - kPi / 4.0) * Lv * (R0 * R0 + R0 * R1 + R1 * R1) / 3.0;
+            const double expectedVol = Lv * Lv * Lv - removedClosed;
+            // Higher Gauss order for the (non-polynomial) rational-NURBS metric.
+            MassProps mpv = massProperties(*vf.solid, /*gaussN=*/10);
+            const double vErr = std::fabs(mpv.volume - expectedVol);
+            std::printf("      -> removed-integral (1-pi/4)*L*(R0^2+R0R1+R1^2)/3 = %.15f\n", removedClosed);
+            std::printf("      -> volume  = %.15f   expected = %.15f   |err| = %.3e\n",
+                        mpv.volume, expectedVol, vErr);
+            std::printf("      -> measured removed = %.15f   reported removed = %.15f\n",
+                        (Lv * Lv * Lv - mpv.volume), vf.removedVolume);
+            check(std::fabs(vf.removedVolume - removedClosed) <= 1e-12,
+                  "variable: reported removed == closed-form removed-integral");
+            check(vErr <= 1e-6,
+                  "variable: filleted volume == box - (1-pi/4)L(R0^2+R0R1+R1^2)/3  to <= 1e-6");
+
+            // (7c) the blend surface is the EXACT variable-radius NURBS sweep: sample
+            // it and confirm each point lies distance R(t) from the SPINE at that t.
+            check(vf.filletFace != nullptr && vf.filletFace->surface != nullptr,
+                  "variable: blend face carries a surface");
+            Surface* bs = vf.filletFace->surface;
+            check(bs->kind == SurfaceKind::Nurbs,
+                  "variable: blend surface kind == Nurbs (exact rational sweep)");
+            // The spine runs from axisStart (t=0) to axisEnd (t=L); at NURBS V-param
+            // v the station is t = v*L, and R(t) = R0 + (R1-R0)*v. Sample the (u,v)
+            // domain and check |point - spine(v)| == R(v) for every sample.
+            const Vec3 sp0 = vf.axisStart, sp1 = vf.axisEnd;
+            double maxRadErr = 0.0;
+            for (int iu = 0; iu <= 8; ++iu) {
+                for (int iv = 0; iv <= 8; ++iv) {
+                    const double u = iu / 8.0;       // arc param (NURBS domain)
+                    const double v = iv / 8.0;       // edge param (NURBS domain)
+                    Vec3 p = bs->evaluate(u, v);
+                    // spine point at this v (linear between the two axis feet):
+                    Vec3 spineP = vadd(vscale(sp0, 1.0 - v), vscale(sp1, v));
+                    const double Rt = R0 + (R1 - R0) * v;
+                    const double dd = dist(p, spineP);
+                    maxRadErr = std::max(maxRadErr, std::fabs(dd - Rt));
+                }
+            }
+            std::printf("      -> max |dist(sample, spine(t)) - R(t)| over 9x9 grid = %.3e\n", maxRadErr);
+            check(maxRadErr <= 1e-9,
+                  "variable: every blend sample is exactly R(t) from the spine (<= 1e-9)");
+            check(std::fabs(vf.dihedralDeg - 90.0) <= 1e-9, "variable: interior dihedral = 90 degrees");
+        }
+    }
+
     std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
 }

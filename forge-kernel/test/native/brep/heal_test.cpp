@@ -7,7 +7,9 @@
 // harness that prints PASS/FAIL and exits non-zero on any failure (mirrors
 // sew_test.cpp / k0_topology_test.cpp / trimmed_face_test.cpp).
 //
-// Build + run (run_native.sh discovers this automatically; manual line below):
+// Build + run (run_native.sh discovers this automatically; manual line below).
+// The HARDER defect classes (self-intersection (7)) pull in the EXACT predicate
+// layer, so ExactPredicates3D.cpp + ExactReal.cpp + HalfEdgeMesh.cpp are now linked:
 //   clang++ -std=c++20 -O2 \
 //     -I /Users/account_clawteam1/archdisc-Mech/forge-kernel/include \
 //     forge-kernel/src/native/brep/Heal.cpp \
@@ -17,6 +19,9 @@
 //     forge-kernel/src/native/brep/Curve.cpp \
 //     forge-kernel/src/native/brep/Nurbs.cpp \
 //     forge-kernel/src/native/brep/NurbsSurface.cpp \
+//     forge-kernel/src/native/mesh/HalfEdgeMesh.cpp \
+//     forge-kernel/src/native/ExactPredicates3D.cpp \
+//     forge-kernel/src/native/ExactReal.cpp \
 //     forge-kernel/test/native/brep/heal_test.cpp \
 //     -o /tmp/heal_test && /tmp/heal_test
 //
@@ -47,6 +52,7 @@
 #include "forge/native/brep/Sew.hpp"
 #include "forge/native/brep/Topology.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -249,11 +255,200 @@ static void testHealHonestUnfixed() {
                 r.after.freeEdges, r.unfixedFreeEdgeIds.size());
 }
 
+// ===========================================================================
+// (4) FACE-ORIENTATION REPAIR (heal pass 6): a box with ONE face wound the wrong
+// way (its ring reversed) is an inconsistently-oriented shell — sewing alone
+// re-mates the edges but leaves that face's two coedges agreeing in sense with
+// its neighbours (a mis-orientation). The heal's orientation propagation must
+// FLIP the offender so EVERY shared edge is a clean opposite-sense manifold pair,
+// gauge the whole shell OUTWARD, and the result is a clean closed solid of the
+// correct (positive) volume.
+// ===========================================================================
+static void testHealOrientationRepair() {
+    std::printf("[4] one reversed face -> heal flips it -> consistent closed shell\n");
+    TopologyBuilder tb;
+    const double L = 5.0, tol = 1e-6;
+    const double a = 0.0, b = L;
+    const Point3 P[8] = {
+        {a, a, a}, {b, a, a}, {b, b, a}, {a, b, a},
+        {a, a, b}, {b, a, b}, {b, b, b}, {a, b, b},
+    };
+    // The six correctly-wound box rings (CCW seen from outside).
+    const int rings[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{0,4,7,3},{1,2,6,5}};
+    std::vector<Face*> faces;
+    for (int fi = 0; fi < 6; ++fi) {
+        std::vector<Point3> ring = {P[rings[fi][0]], P[rings[fi][1]], P[rings[fi][2]], P[rings[fi][3]]};
+        // REVERSE the FRONT face (index 2): wind it the wrong way (inward normal).
+        if (fi == 2) std::reverse(ring.begin(), ring.end());
+        faces.push_back(faceFromRing(tb, ring));
+    }
+
+    HealOptions opt; opt.tol = tol;
+    HealReport r = healBRep(tb, faces, opt);
+    check(r.ok, "orient heal ok");
+
+    const SewDiagnosis& A = r.after;
+    std::printf("      AFTER : V=%zu E=%zu F=%zu  free=%zu  manifold=%zu  nonmanifold=%zu  shell %s  vol=%.6f  flipped=%zu\n",
+                A.vertices, A.edges, A.faces, A.freeEdges, A.manifoldEdges, A.nonManifoldEdges,
+                A.closed ? "CLOSED" : "OPEN", r.volumeAfter, r.facesFlipped);
+
+    check(A.closed,                "orient: shell CLOSED after flip");
+    check(A.faces == 6,            "orient: 6 faces (none dropped)");
+    check(A.freeEdges == 0,        "orient: 0 free edges");
+    check(A.manifoldEdges == 12,   "orient: 12 manifold edges");
+    check(A.nonManifoldEdges == 0, "orient: 0 non-manifold edges");
+    check(r.facesFlipped >= 1,     "orient: at least one face flipped to consistency");
+    // Manifold + closed under THIS sewer means every 2-coedge edge is opposite-sense
+    // (the sewer's misoriented list would otherwise have left the edge unmated/free);
+    // a closed 2-manifold polygonal shell with chi=2 is orientation-consistent.
+    check(A.eulerCharacteristic == 2, "orient: Euler chi = 2 (consistent 2-manifold)");
+    check(r.fullyHealed(),         "orient: fullyHealed() == true");
+
+    const double expected = L * L * L;
+    const double measured = std::fabs(r.volumeAfter);
+    std::printf("      VOLUME: measured=%.9f  expected=%.9f  |err|=%.3e\n",
+                measured, expected, std::fabs(measured - expected));
+    check(std::fabs(measured - expected) <= 1e-6, "orient: volume == L^3 to tol");
+    // Outward gauge: a correctly-healed solid winds so the divergence-theorem volume
+    // is POSITIVE (outward normals). Assert the sign, not just the magnitude.
+    check(r.volumeAfter > 0.0,     "orient: signed volume POSITIVE (outward-gauged)");
+}
+
+// ===========================================================================
+// (5) SELF-INTERSECTION REPAIR (heal pass 7): a clean closed box PLUS a tiny
+// extra face that pokes THROUGH the box wall (a small self-overlapping sliver
+// whose interior properly interpenetrates a box face) must be detected by the
+// EXACT triangle-triangle test and DROPPED, leaving the watertight box. The box
+// itself is built so its faces share corners (so the box's own faces are NOT
+// flagged — only the rogue interpenetrating patch is).
+// ===========================================================================
+static void testHealSelfIntersectionRepair() {
+    std::printf("[5] tiny self-overlapping sliver -> heal removes it -> watertight\n");
+    TopologyBuilder tb;
+    const double L = 10.0, tol = 1e-6;
+    const double a = 0.0, b = L;
+    const Point3 P[8] = {
+        {a, a, a}, {b, a, a}, {b, b, a}, {a, b, a},
+        {a, a, b}, {b, a, b}, {b, b, b}, {a, b, b},
+    };
+    const int rings[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{0,4,7,3},{1,2,6,5}};
+    std::vector<Face*> faces;
+    for (const auto& rr : rings)
+        faces.push_back(faceFromRing(tb, {P[rr[0]], P[rr[1]], P[rr[2]], P[rr[3]]}));
+
+    // A tiny rogue triangle straddling the FRONT wall (y=0 plane): two corners just
+    // inside the box (y=+d) and one just outside (y=-d), centred mid-wall — so its
+    // interior PROPERLY pierces the front face. Its area ~ (small)^2 is far below the
+    // box-face area, so it is a small/removable sliver. It does NOT share any box
+    // corner, so it is a genuine non-adjacent interpenetration.
+    const double cx = L * 0.5, cz = L * 0.5, s = L * 0.02, d = L * 0.01;
+    faces.push_back(faceFromRing(tb, {
+        {cx - s, +d, cz}, {cx + s, +d, cz}, {cx, -d, cz + s}}));
+
+    check(faces.size() == 7, "selfx input: 6 box faces + 1 interpenetrating sliver");
+
+    HealOptions opt; opt.tol = tol;
+    HealReport r = healBRep(tb, faces, opt);
+    check(r.ok, "selfx heal ok");
+
+    const SewDiagnosis& A = r.after;
+    std::printf("      AFTER : F=%zu  free=%zu  nonmanifold=%zu  shell %s  vol=%.6f  selfxRemoved=%zu  unfixedPairs=%zu\n",
+                A.faces, A.freeEdges, A.nonManifoldEdges, A.closed ? "CLOSED" : "OPEN",
+                r.volumeAfter, r.selfIntersectingFacesRemoved,
+                r.unfixedSelfIntersectionFacePairs.size());
+
+    check(r.selfIntersectingFacesRemoved == 1, "selfx: exactly 1 interpenetrating sliver removed");
+    check(r.unfixedSelfIntersectionFacePairs.empty(), "selfx: no structural self-intersection left unfixed");
+    check(A.faces == 6,    "selfx: back to 6 box faces");
+    check(A.closed,        "selfx: shell CLOSED (watertight) after removal");
+    check(A.freeEdges == 0, "selfx: 0 free edges");
+    check(A.nonManifoldEdges == 0, "selfx: 0 non-manifold edges");
+    check(r.fullyHealed(), "selfx: fullyHealed() == true");
+    check(std::fabs(std::fabs(r.volumeAfter) - L*L*L) <= 1e-6, "selfx: volume == L^3");
+}
+
+// ===========================================================================
+// (6) NON-MANIFOLD RESOLUTION (heal pass 8): a closed box PLUS a flap face that
+// shares ONE box edge makes that edge shared by 3 faces (non-manifold). The flap
+// is NOT a duplicate of any box face, so it cannot be dropped — the heal must
+// DETECT the non-manifold edge and report it UNFIXED (honest: the 2-manifold model
+// cannot split an arbitrary non-manifold join). We also assert a SEPARATE clean box
+// + an EXACT-duplicate face IS de-manifolded by dropping the duplicate.
+// ===========================================================================
+static void testHealNonManifold() {
+    std::printf("[6] non-manifold edge (3 faces) -> detected + reported UNFIXED (honest)\n");
+    TopologyBuilder tb;
+    const double L = 6.0, tol = 1e-6;
+    const double a = 0.0, b = L;
+    const Point3 P[8] = {
+        {a, a, a}, {b, a, a}, {b, b, a}, {a, b, a},
+        {a, a, b}, {b, a, b}, {b, b, b}, {a, b, b},
+    };
+    const int rings[6][4] = {{0,3,2,1},{4,5,6,7},{0,1,5,4},{2,3,7,6},{0,4,7,3},{1,2,6,5}};
+    std::vector<Face*> faces;
+    for (const auto& rr : rings)
+        faces.push_back(faceFromRing(tb, {P[rr[0]], P[rr[1]], P[rr[2]], P[rr[3]]}));
+
+    // FLAP: a face that re-uses the box bottom-front edge (0)->(1) i.e. (a,a,a)->(b,a,a)
+    // and stands up out of the box (into +Z, -Y so it does not coincide with any wall).
+    // That edge is now shared by 3 faces (bottom + front + flap) -> non-manifold.
+    const Point3 q0{a, -L * 0.5, L * 0.5};
+    const Point3 q1{b, -L * 0.5, L * 0.5};
+    faces.push_back(faceFromRing(tb, {P[0], P[1], q1, q0}));
+
+    check(faces.size() == 7, "nonman input: closed box + 1 flap sharing one edge");
+
+    HealOptions opt; opt.tol = tol;
+    HealReport r = healBRep(tb, faces, opt);
+    check(r.ok, "nonman heal ok");
+
+    const SewDiagnosis& A = r.after;
+    std::printf("      AFTER : F=%zu  free=%zu  manifold=%zu  nonmanifold=%zu  shell %s  dupRemoved=%zu  nmEdgesReport=%zu  nmVerts=%zu\n",
+                A.faces, A.freeEdges, A.manifoldEdges, A.nonManifoldEdges,
+                A.closed ? "CLOSED" : "OPEN", r.duplicateFacesRemoved,
+                r.unfixedNonManifoldEdgeReport.size(), r.nonManifoldVertexIds.size());
+
+    // The sewer mates only TWO coedges per Edge, so a 3rd face on an edge does NOT
+    // surface as a 3-coedge Edge — it surfaces GEOMETRICALLY (3 faces sharing one
+    // welded endpoint-position pair). The heal detects that join and reports it.
+    check(r.duplicateFacesRemoved == 0,         "nonman: flap is NOT a duplicate (not dropped)");
+    check(!r.unfixedNonManifoldEdgeReport.empty(), "nonman: 3-faces-on-an-edge join REPORTED unfixed");
+    check(!r.nonManifoldVertexIds.empty(),      "nonman: non-manifold vertices detected (pinch corners)");
+    check(!r.fullyHealed(),                     "nonman: fullyHealed() == false (honest, unfixed remains)");
+    std::printf("      -> honest: 3-faces-on-an-edge DETECTED (%zu edge ids, %zu pinch verts), NOT force-split\n",
+                r.unfixedNonManifoldEdgeReport.size(), r.nonManifoldVertexIds.size());
+
+    // ---- de-manifold by EXACT-DUPLICATE drop: a box + a perfect copy of one face. --
+    std::printf("    [6b] exact-duplicate face -> dropped to restore manifold\n");
+    TopologyBuilder tb2;
+    std::vector<Face*> faces2;
+    for (const auto& rr : rings)
+        faces2.push_back(faceFromRing(tb2, {P[rr[0]], P[rr[1]], P[rr[2]], P[rr[3]]}));
+    // Exact duplicate of the bottom face (same ring) -> its 4 edges each become 3-coedge.
+    faces2.push_back(faceFromRing(tb2, {P[rings[0][0]], P[rings[0][1]], P[rings[0][2]], P[rings[0][3]]}));
+    check(faces2.size() == 7, "dup input: closed box + 1 exact-duplicate face");
+
+    HealReport r2 = healBRep(tb2, faces2, opt);
+    check(r2.ok, "dup heal ok");
+    const SewDiagnosis& A2 = r2.after;
+    std::printf("      AFTER : F=%zu  free=%zu  nonmanifold=%zu  shell %s  dupRemoved=%zu\n",
+                A2.faces, A2.freeEdges, A2.nonManifoldEdges, A2.closed ? "CLOSED" : "OPEN",
+                r2.duplicateFacesRemoved);
+    check(r2.duplicateFacesRemoved == 1, "dup: exactly 1 duplicate face dropped");
+    check(A2.faces == 6,                 "dup: back to 6 faces");
+    check(A2.nonManifoldEdges == 0,      "dup: 0 non-manifold edges after drop");
+    check(A2.closed,                     "dup: shell CLOSED (manifold restored)");
+    check(r2.fullyHealed(),              "dup: fullyHealed() == true");
+}
+
 int main() {
     std::printf("=== forge::native::brep — K5 HEAL (ShapeFix/ShapeUpgrade) gate ===\n");
     testHealDefectiveBox();
     testHealCleanIdempotent();
     testHealHonestUnfixed();
+    testHealOrientationRepair();
+    testHealSelfIntersectionRepair();
+    testHealNonManifold();
     std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
 }

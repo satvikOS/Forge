@@ -39,12 +39,17 @@
 
 #include "forge/native/brep/Sew.hpp"        // sewFaces, diagnoseShell, weldNearVertices
 #include "forge/native/brep/Topology.hpp"
+#include "forge/native/ExactPredicates3D.hpp" // exact triangle/segment tests for self-intersection (7)
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <queue>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace forge {
@@ -158,6 +163,51 @@ bool degenerateAspect(const std::vector<Point3>& ring, double area, double aspec
     if (longest <= 0.0) return true;
     const double meanAltitude = (2.0 * area) / longest;  // area = 0.5 * longest * altitude
     return (longest / meanAltitude) > aspectMax;
+}
+
+// ---- (7) self-intersection helpers ---------------------------------------
+// A fan-triangulated outer ring (each tri = ring[0], ring[i], ring[i+1]) as the
+// tessellated boundary the EXACT tri-tri test runs against.
+using Tri3 = std::array<Point3, 3>;
+void fanTriangulate(const std::vector<Point3>& ring, std::vector<Tri3>& out) {
+    if (ring.size() < 3) return;
+    for (std::size_t i = 1; i + 1 < ring.size(); ++i)
+        out.push_back({ring[0], ring[i], ring[i + 1]});
+}
+
+inline forge::native::ExactPoint3 EP(const Point3& p) {
+    return forge::native::ExactPoint3(forge::native::ExactReal(p.x),
+                                      forge::native::ExactReal(p.y),
+                                      forge::native::ExactReal(p.z));
+}
+
+// Do triangles A and B PROPERLY interpenetrate? True iff some edge of one
+// triangle pierces the OTHER triangle's interior in a single point (the exact
+// `crosses` verdict of segmentTriangleClassify). Coplanar/edge-on contact (two
+// faces meeting cleanly along a shared boundary) is deliberately NOT counted —
+// only a transversal interior pierce, which is a real interpenetration. The signs
+// are all taken through ExactReal, so the verdict is exact (never a float tie).
+bool trisInterpenetrate(const Tri3& A, const Tri3& B) {
+    const forge::native::ExactPoint3 a0 = EP(A[0]), a1 = EP(A[1]), a2 = EP(A[2]);
+    const forge::native::ExactPoint3 b0 = EP(B[0]), b1 = EP(B[1]), b2 = EP(B[2]);
+    auto edgePierces = [](const forge::native::ExactPoint3& p0,
+                          const forge::native::ExactPoint3& p1,
+                          const forge::native::ExactPoint3& q0,
+                          const forge::native::ExactPoint3& q1,
+                          const forge::native::ExactPoint3& q2) -> bool {
+        forge::native::SegTriResult r =
+            forge::native::segmentTriangleClassify(p0, p1, q0, q1, q2);
+        return r.crosses;  // strict interior pierce in ONE point
+    };
+    // Three edges of A against triangle B.
+    if (edgePierces(a0, a1, b0, b1, b2)) return true;
+    if (edgePierces(a1, a2, b0, b1, b2)) return true;
+    if (edgePierces(a2, a0, b0, b1, b2)) return true;
+    // Three edges of B against triangle A.
+    if (edgePierces(b0, b1, a0, a1, a2)) return true;
+    if (edgePierces(b1, b2, a0, a1, a2)) return true;
+    if (edgePierces(b2, b0, a0, a1, a2)) return true;
+    return false;
 }
 
 } // anonymous namespace
@@ -377,28 +427,130 @@ HealReport healBRep(TopologyBuilder& tb,
             if (frs[fi].outer.size() < 3) { removed[fi] = 1; rep.keptSliverFaceIds.push_back(frs[fi].src ? frs[fi].src->id : 0); }
     }
 
+    // --- (7) SELF-INTERSECTION REPAIR (runs on the cleaned rings, before rebuild). --
+    // Fan-tessellate every surviving face's outer ring; classify each non-adjacent
+    // triangle pair across DIFFERENT faces with the EXACT tri-tri test. Where a face
+    // PROPERLY interpenetrates another:
+    //   * if one offender is a small/removable sliver (area below selfIntersectSmallFrac
+    //     of the largest face) -> drop that sliver (honest "trim a tiny self-overlap"),
+    //   * else -> report the FACE-ID pair UNFIXED (a structural self-intersection the
+    //     general arrangement repair — the follow-up — must handle; never papered over).
+    // Adjacency: faces that share ANY welded ring-corner position are NOT tested
+    // against each other (a fan meeting cleanly along a shared boundary is legitimate),
+    // mirroring SelfIntersect.cpp's shared-vertex skip rule.
+    if (opt.repairSelfIntersection) {
+        // Build per-face tessellations + a coarse area for the small/large gauge,
+        // and the set of welded corner positions per face (adjacency key).
+        struct FaceTess { std::vector<Tri3> tris; double area; bool live; };
+        std::vector<FaceTess> ft(frs.size());
+        std::vector<std::unordered_set<long long>> cornerKeys(frs.size());
+        double maxArea = 0.0;
+        const double keyCell = (tol > 0.0) ? tol : 1e-12;
+        auto cornerKey = [&](const Point3& p) -> long long {
+            // Hash the tol-snapped lattice cell to an id; coincident corners share it.
+            const long long cx = qcell(p.x, keyCell), cy = qcell(p.y, keyCell), cz = qcell(p.z, keyCell);
+            std::uint64_t h = 1469598103934665603ull;
+            auto mix = [&](long long v) { h ^= static_cast<std::uint64_t>(v) + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2); };
+            mix(cx); mix(cy); mix(cz);
+            return static_cast<long long>(h);
+        };
+        for (std::size_t fi = 0; fi < frs.size(); ++fi) {
+            ft[fi].live = (!removed[fi] && frs[fi].outer.size() >= 3);
+            ft[fi].area = ft[fi].live ? polyArea(frs[fi].outer) : 0.0;
+            if (ft[fi].live) {
+                fanTriangulate(frs[fi].outer, ft[fi].tris);
+                for (const Point3& p : frs[fi].outer) cornerKeys[fi].insert(cornerKey(p));
+                maxArea = std::max(maxArea, ft[fi].area);
+            }
+        }
+        const double smallAreaCut = maxArea * opt.selfIntersectSmallFrac;
+        auto sharesCorner = [&](std::size_t i, std::size_t j) -> bool {
+            const auto& a = cornerKeys[i]; const auto& b = cornerKeys[j];
+            const auto& small = (a.size() <= b.size()) ? a : b;
+            const auto& big   = (a.size() <= b.size()) ? b : a;
+            for (long long k : small) if (big.count(k)) return true;
+            return false;
+        };
+        for (std::size_t i = 0; i < frs.size(); ++i) {
+            if (!ft[i].live) continue;
+            for (std::size_t j = i + 1; j < frs.size(); ++j) {
+                if (!ft[j].live) continue;
+                if (sharesCorner(i, j)) continue;          // legitimate shared boundary
+                bool hit = false;
+                for (const Tri3& ta : ft[i].tris) {
+                    for (const Tri3& tb2 : ft[j].tris) {
+                        if (trisInterpenetrate(ta, tb2)) { hit = true; break; }
+                    }
+                    if (hit) break;
+                }
+                if (!hit) continue;
+                // A real interpenetration. Is EITHER offender a small/removable sliver?
+                const bool iSmall = (ft[i].area <= smallAreaCut);
+                const bool jSmall = (ft[j].area <= smallAreaCut);
+                if (iSmall || jSmall) {
+                    const std::size_t drop = (iSmall && (!jSmall || ft[i].area <= ft[j].area)) ? i : j;
+                    removed[drop] = 1;
+                    ft[drop].live = false;
+                    rep.selfIntersectingFacesRemoved++;
+                } else {
+                    // Structural self-intersection between two full-size faces: honest.
+                    rep.unfixedSelfIntersectionFacePairs.push_back(
+                        {frs[i].src ? frs[i].src->id : 0u, frs[j].src ? frs[j].src->id : 0u});
+                }
+            }
+        }
+    }
+
     // --- 5. REBUILD fresh independent faces from the cleaned outer rings + SEW. ---
     // Each surviving face becomes a brand-new Face with PRIVATE vertices/edges built
     // from its cleaned outer ring (inner rings re-added as inner loops). Then the
     // PROVEN sewer (sewFaces) re-mates the coincident boundaries. This is the single
     // site of new-topology minting and it goes through the validated matcher.
-    auto buildRingVerts = [&](const std::vector<Point3>& ring) -> std::vector<Vertex*> {
+    //
+    // To support the ORIENTATION (6) and NON-MANIFOLD (8) passes — each of which must
+    // re-sew after flipping / dropping rings — the rebuild+sew is a reusable closure
+    // over a per-ring FLIP flag (reverse the outer ring's corner order). flip[fi] only
+    // ever applies to a surviving face.
+    SewOptions sopt;
+    sopt.tol = tol;
+    sopt.midSamples = opt.sewMidSamples;
+    sopt.weldVertices = true;
+
+    auto buildRingVerts = [&](const std::vector<Point3>& ring, bool flip) -> std::vector<Vertex*> {
         std::vector<Vertex*> vs; vs.reserve(ring.size());
-        for (const Point3& p : ring) vs.push_back(tb.makeVertex(p));
+        if (!flip) { for (const Point3& p : ring) vs.push_back(tb.makeVertex(p)); }
+        else       { for (std::size_t k = ring.size(); k-- > 0; ) vs.push_back(tb.makeVertex(ring[k])); }
         return vs;
     };
-    std::vector<Face*> healed;
-    healed.reserve(frs.size());
-    for (std::size_t fi = 0; fi < frs.size(); ++fi) {
-        if (removed[fi]) continue;
-        if (frs[fi].outer.size() < 3) continue;  // safety (cannot face a <3-gon)
-        Face* nf = tb.makeFace();
-        tb.addOuterLoopToFace(nf, buildRingVerts(frs[fi].outer));
-        for (const auto& ir : frs[fi].inners) {
-            if (ir.size() >= 3) tb.addInnerLoopToFace(nf, buildRingVerts(ir));
+    // Rebuild every surviving (non-removed, >=3-gon) ring into a fresh face and sew.
+    // `flip` is indexed by frs position; `faceOfRing` maps each built face back to its
+    // frs index so the orientation/non-manifold passes can act per source ring.
+    auto rebuildAndSew = [&](const std::vector<char>& flip,
+                             std::vector<Face*>& healedOut,
+                             std::vector<std::size_t>& faceOfRing) -> SewResult {
+        healedOut.clear(); faceOfRing.clear();
+        healedOut.reserve(frs.size());
+        for (std::size_t fi = 0; fi < frs.size(); ++fi) {
+            if (removed[fi]) continue;
+            if (frs[fi].outer.size() < 3) continue;
+            const bool fl = (fi < flip.size()) ? (flip[fi] != 0) : false;
+            Face* nf = tb.makeFace();
+            tb.addOuterLoopToFace(nf, buildRingVerts(frs[fi].outer, fl));
+            for (const auto& ir : frs[fi].inners) {
+                // inner loops are oriented opposite the outer, so flip them WITH it.
+                if (ir.size() >= 3) tb.addInnerLoopToFace(nf, buildRingVerts(ir, fl));
+            }
+            healedOut.push_back(nf);
+            faceOfRing.push_back(fi);
         }
-        healed.push_back(nf);
-    }
+        if (healedOut.empty()) return SewResult{};
+        return sewFaces(tb, healedOut, sopt);
+    };
+
+    std::vector<char> flip(frs.size(), 0);   // per-ring orientation flip (pass 6/8 mutate)
+    std::vector<Face*> healed;
+    std::vector<std::size_t> faceOfRing;
+    SewResult sr = rebuildAndSew(flip, healed, faceOfRing);
 
     if (healed.empty()) {
         // Everything was a sliver — honest report, nothing to sew.
@@ -409,11 +561,310 @@ HealReport healBRep(TopologyBuilder& tb,
         return rep;
     }
 
-    SewOptions sopt;
-    sopt.tol = tol;
-    sopt.midSamples = opt.sewMidSamples;
-    sopt.weldVertices = true;
-    SewResult sr = sewFaces(tb, healed, sopt);
+    // --- (6) FACE-ORIENTATION REPAIR. ----------------------------------------------
+    // Across the sewn shell, 2-colour the face-adjacency graph by ORIENTATION
+    // PROPAGATION: walking a CONSISTENT shared edge (its two coedges run opposite)
+    // keeps a neighbour's colour; walking a MIS-ORIENTED shared edge (both coedges
+    // agree in sense — the misoriented signal the sewer reports) flips it. The
+    // resulting colour partitions each connected component into {keep, flip}; the
+    // minority colour is the wrongly-wound set. Reversing those rings makes every
+    // shared edge a clean opposite-sense manifold pair. Then gauge the whole shell to
+    // the OUTWARD sense via the sign of its divergence-theorem volume (Check.cpp's
+    // robust global outward test): a globally-inverted-but-consistent shell is flipped
+    // wholesale. Reuses sewFaces only — no second matcher.
+    if (opt.repairOrientation && !healed.empty()) {
+        const std::size_t nF = healed.size();
+        std::unordered_map<Face*, std::size_t> faceIndex;
+        for (std::size_t k = 0; k < nF; ++k) faceIndex[healed[k]] = k;
+
+        // Adjacency over shared (2-coedge) edges: (neighbour, sameOrientation?).
+        // sameOrientation == true when the edge is already CONSISTENT (coedges
+        // opposite); false when MIS-ORIENTED (coedges agree -> neighbour must flip).
+        std::vector<std::vector<std::pair<std::size_t, bool>>> adj(nF);
+        std::unordered_set<Edge*> seenE;
+        auto coedgeFace = [](Coedge* c) -> Face* { return (c && c->loop) ? c->loop->face : nullptr; };
+        for (Face* f : healed) {
+            std::vector<Coedge*> ces;
+            // walk outer + inner loops to reach every shared edge of this face.
+            auto walk = [&](Loop* lp) {
+                if (!lp || !lp->first) return;
+                Coedge* c = lp->first;
+                for (std::size_t i = 0; i < lp->coedgeCount && c; ++i) { ces.push_back(c); c = c->next; }
+            };
+            walk(f->outerLoop);
+            for (Loop* il : f->innerLoops) walk(il);
+            for (Coedge* c : ces) {
+                Edge* e = c->edge;
+                if (!e || !e->coedgeA || !e->coedgeB) continue;   // free / non-manifold: skip here
+                if (!seenE.insert(e).second) continue;
+                Face* fa = coedgeFace(e->coedgeA);
+                Face* fb = coedgeFace(e->coedgeB);
+                auto ia = faceIndex.find(fa), ib = faceIndex.find(fb);
+                if (ia == faceIndex.end() || ib == faceIndex.end() || ia->second == ib->second) continue;
+                const bool consistent = (e->coedgeA->forward != e->coedgeB->forward);
+                adj[ia->second].push_back({ib->second, consistent});
+                adj[ib->second].push_back({ia->second, consistent});
+            }
+        }
+
+        // BFS 2-colour: colour[k] == 0 keep, 1 flip-relative-to-root. A consistent
+        // edge keeps the neighbour's colour; a mis-oriented edge flips it.
+        std::vector<int> colour(nF, -1);
+        bool consistentColourable = true;
+        for (std::size_t s = 0; s < nF; ++s) {
+            if (colour[s] != -1) continue;
+            colour[s] = 0;
+            std::queue<std::size_t> q; q.push(s);
+            while (!q.empty()) {
+                std::size_t u = q.front(); q.pop();
+                for (auto [v, consistent] : adj[u]) {
+                    const int want = consistent ? colour[u] : (colour[u] ^ 1);
+                    if (colour[v] == -1) { colour[v] = want; q.push(v); }
+                    else if (colour[v] != want) consistentColourable = false; // odd cycle: unresolvable
+                }
+            }
+        }
+
+        if (consistentColourable) {
+            // Within each connected component flip the MINORITY colour (fewest faces),
+            // so the smallest set of rings is reversed. Component id via union of the
+            // adjacency (a second BFS over the same graph, ignoring orientation).
+            std::vector<int> comp(nF, -1);
+            int nComp = 0;
+            for (std::size_t s = 0; s < nF; ++s) {
+                if (comp[s] != -1) continue;
+                std::queue<std::size_t> q; q.push(s); comp[s] = nComp;
+                while (!q.empty()) { std::size_t u = q.front(); q.pop();
+                    for (auto [v, c] : adj[u]) { (void)c; if (comp[v] == -1) { comp[v] = nComp; q.push(v); } } }
+                ++nComp;
+            }
+            // Per component, tally colour-0 vs colour-1 face counts.
+            std::vector<std::array<std::size_t,2>> tally(nComp, {0,0});
+            for (std::size_t k = 0; k < nF; ++k) tally[comp[k]][colour[k]]++;
+            std::vector<char> wantFlip(nF, 0);
+            for (std::size_t k = 0; k < nF; ++k) {
+                const int mino = (tally[comp[k]][1] < tally[comp[k]][0]) ? 1 : 0;
+                if (colour[k] == mino && tally[comp[k]][0] != tally[comp[k]][1]) wantFlip[k] = 1;
+                // exact tie (a 2-face component split 1-1): flip colour-1 deterministically.
+                else if (tally[comp[k]][0] == tally[comp[k]][1] && colour[k] == 1) wantFlip[k] = 1;
+            }
+            // Translate per-face flips back to per-RING flips and rebuild+resew.
+            bool anyFlip = false;
+            std::vector<char> ringFlip(frs.size(), 0);
+            for (std::size_t k = 0; k < nF; ++k) {
+                if (wantFlip[k]) { ringFlip[faceOfRing[k]] = 1; anyFlip = true; }
+            }
+            if (anyFlip) {
+                std::vector<Face*> healed2; std::vector<std::size_t> for2;
+                SewResult sr2 = rebuildAndSew(ringFlip, healed2, for2);
+                if (!healed2.empty()) {
+                    healed.swap(healed2); faceOfRing.swap(for2); sr = sr2;
+                    for (char c : ringFlip) if (c) ++rep.facesFlipped;
+                    flip = ringFlip;
+                }
+            }
+            // GLOBAL outward gauge: if the (now consistent) shell winds INWARD
+            // (signed volume < 0), reverse EVERY surviving ring so the outward normal
+            // sense is correct, then rebuild+resew once more. Only meaningful for a
+            // CLOSED shell (outward sense is undefined for an open sheet with boundary),
+            // so we gate the wholesale flip on closure — an open shell is left as-is.
+            const double vol = shellSignedVolume(healed);
+            if (sr.diagnosis.closed && vol < 0.0) {
+                std::vector<char> allFlip = flip;
+                for (std::size_t fi = 0; fi < frs.size(); ++fi)
+                    if (!removed[fi] && frs[fi].outer.size() >= 3) allFlip[fi] ^= 1;
+                std::vector<Face*> healed3; std::vector<std::size_t> for3;
+                SewResult sr3 = rebuildAndSew(allFlip, healed3, for3);
+                if (!healed3.empty()) {
+                    healed.swap(healed3); faceOfRing.swap(for3); sr = sr3; flip = allFlip;
+                    // facesFlipped counts faces whose FINAL orientation differs from input.
+                    rep.facesFlipped = 0;
+                    for (char c : flip) if (c) ++rep.facesFlipped;
+                }
+            }
+        }
+    }
+
+    // --- (8) NON-MANIFOLD RESOLUTION (detect + duplicate-face drop + report). -------
+    // After the (possibly re-oriented) sew, an edge with 3+ coedges is non-manifold.
+    // Where the surplus use is an EXACT DUPLICATE face (same welded outer ring up to
+    // rotation/reflection) the duplicate is dropped to restore a manifold edge, then
+    // we rebuild+resew. Any remaining 3+-coedge edge, and any non-manifold VERTEX
+    // (incident-face fan not a single cycle), is reported UNFIXED (honest: the
+    // 2-manifold model cannot represent the join).
+    if (opt.resolveNonManifold && !healed.empty()) {
+        // Detect duplicate source rings among the SURVIVING faces (canonical key of
+        // the welded outer-ring corner multiset, rotation/reflection invariant).
+        auto canonKeyOfRing = [&](const std::vector<Point3>& ring) -> std::string {
+            // Quantise every corner to the tol lattice, build the rotation/reflection-
+            // canonical string so two identical rings (any start, either winding) match.
+            const double cell = (tol > 0.0) ? tol : 1e-12;
+            std::vector<std::array<long long,3>> q; q.reserve(ring.size());
+            for (const Point3& p : ring) q.push_back({qcell(p.x, cell), qcell(p.y, cell), qcell(p.z, cell)});
+            const std::size_t n = q.size();
+            if (n == 0) return std::string();
+            auto serialise = [&](const std::vector<std::array<long long,3>>& v) -> std::string {
+                std::string s; s.reserve(v.size() * 24);
+                for (auto& a : v) { s += std::to_string(a[0]); s += ','; s += std::to_string(a[1]); s += ','; s += std::to_string(a[2]); s += ';'; }
+                return s;
+            };
+            std::string best;
+            for (int refl = 0; refl < 2; ++refl) {
+                std::vector<std::array<long long,3>> base = q;
+                if (refl) std::reverse(base.begin(), base.end());
+                for (std::size_t r = 0; r < n; ++r) {
+                    std::vector<std::array<long long,3>> rot; rot.reserve(n);
+                    for (std::size_t i = 0; i < n; ++i) rot.push_back(base[(r + i) % n]);
+                    std::string s = serialise(rot);
+                    if (best.empty() || s < best) best = s;
+                }
+            }
+            return best;
+        };
+        // Map canonical-ring-key -> surviving frs indices carrying that ring.
+        std::unordered_map<std::string, std::vector<std::size_t>> byRing;
+        for (std::size_t fi = 0; fi < frs.size(); ++fi) {
+            if (removed[fi] || frs[fi].outer.size() < 3) continue;
+            byRing[canonKeyOfRing(frs[fi].outer)].push_back(fi);
+        }
+        bool droppedDup = false;
+        for (auto& kv : byRing) {
+            // keep the first, drop the rest (exact-duplicate faces).
+            for (std::size_t k = 1; k < kv.second.size(); ++k) {
+                removed[kv.second[k]] = 1;
+                rep.duplicateFacesRemoved++;
+                droppedDup = true;
+            }
+        }
+        if (droppedDup) {
+            std::vector<Face*> healed4; std::vector<std::size_t> for4;
+            SewResult sr4 = rebuildAndSew(flip, healed4, for4);
+            if (!healed4.empty()) { healed.swap(healed4); faceOfRing.swap(for4); sr = sr4; }
+        }
+
+        // Report any REMAINING non-manifold edges (genuine 3+-face joins) — detected
+        // GEOMETRICALLY rather than via the sewer's coedge count. The sewer mates only
+        // TWO coedges per Edge (a 3rd coincident boundary is left as a distinct unmerged
+        // free Edge), so a 3-faces-on-an-edge join shows up as several Edges sharing one
+        // welded endpoint-position pair, NOT as a single 3-coedge Edge. We group every
+        // surviving boundary edge by the unordered pair of its welded endpoint lattice
+        // cells; any position-edge carried by 3+ distinct faces is non-manifold. We emit
+        // the surviving Edge ids on that join so the caller can locate it. This is the
+        // honest "cannot represent in a 2-manifold" report — never a forced split.
+        {
+            const double cell = (tol > 0.0) ? tol : 1e-12;
+            auto vkey = [&](const Point3& p) -> std::array<long long,3> {
+                return {qcell(p.x, cell), qcell(p.y, cell), qcell(p.z, cell)};
+            };
+            // position-edge key (unordered endpoint cell pair) -> {faces, edgeIds}.
+            struct Join { std::unordered_set<Face*> faces; std::vector<std::uint32_t> edgeIds; };
+            std::unordered_map<std::string, Join> joins;
+            auto pairKey = [&](const std::array<long long,3>& A, const std::array<long long,3>& B) -> std::string {
+                const std::array<long long,3>* lo = &A; const std::array<long long,3>* hi = &B;
+                if (B < A) { lo = &B; hi = &A; }
+                std::string s;
+                for (long long v : *lo) { s += std::to_string(v); s += ','; }
+                s += '|';
+                for (long long v : *hi) { s += std::to_string(v); s += ','; }
+                return s;
+            };
+            std::unordered_set<Edge*> seenE;
+            for (Face* f : healed) {
+                auto walk = [&](Loop* lp) {
+                    if (!lp || !lp->first) return;
+                    Coedge* c = lp->first;
+                    for (std::size_t i = 0; i < lp->coedgeCount && c; ++i) {
+                        Edge* e = c->edge;
+                        if (e && e->start && e->end) {
+                            const std::string k = pairKey(vkey(e->start->point), vkey(e->end->point));
+                            Join& j = joins[k];
+                            j.faces.insert(f);
+                            if (seenE.insert(e).second) j.edgeIds.push_back(e->id);
+                        }
+                        c = c->next;
+                    }
+                };
+                walk(f->outerLoop);
+                for (Loop* il : f->innerLoops) walk(il);
+            }
+            for (auto& kv : joins) {
+                if (kv.second.faces.size() >= 3) {
+                    for (std::uint32_t id : kv.second.edgeIds)
+                        rep.unfixedNonManifoldEdgeReport.push_back(id);
+                }
+            }
+            std::sort(rep.unfixedNonManifoldEdgeReport.begin(), rep.unfixedNonManifoldEdgeReport.end());
+            rep.unfixedNonManifoldEdgeReport.erase(
+                std::unique(rep.unfixedNonManifoldEdgeReport.begin(), rep.unfixedNonManifoldEdgeReport.end()),
+                rep.unfixedNonManifoldEdgeReport.end());
+            // Also fold in any genuine 3-coedge Edges the sewer DID flag (defensive).
+            for (std::uint32_t id : sr.diagnosis.nonManifoldEdgeIds)
+                rep.unfixedNonManifoldEdgeReport.push_back(id);
+            std::sort(rep.unfixedNonManifoldEdgeReport.begin(), rep.unfixedNonManifoldEdgeReport.end());
+            rep.unfixedNonManifoldEdgeReport.erase(
+                std::unique(rep.unfixedNonManifoldEdgeReport.begin(), rep.unfixedNonManifoldEdgeReport.end()),
+                rep.unfixedNonManifoldEdgeReport.end());
+        }
+
+        // Non-manifold VERTEX detection: a vertex of the rebuilt shell whose incident
+        // boundary/edge fan is not a single cycle (two cones / sheets touching at one
+        // point). We build, per vertex, the graph whose nodes are the incident faces
+        // and whose links join two faces sharing a manifold edge AT that vertex; a
+        // single connected fan is manifold, >1 component is a non-manifold pinch.
+        {
+            // For each vertex, collect the faces touching it and the (vertex-local)
+            // manifold-edge links between consecutive coedges.
+            std::unordered_map<Vertex*, std::vector<Coedge*>> vertCoedges;
+            for (Face* f : healed) {
+                auto walk = [&](Loop* lp) {
+                    if (!lp || !lp->first) return;
+                    Coedge* c = lp->first;
+                    for (std::size_t i = 0; i < lp->coedgeCount && c; ++i) {
+                        if (c->originVertex()) vertCoedges[c->originVertex()].push_back(c);
+                        c = c->next;
+                    }
+                };
+                walk(f->outerLoop);
+                for (Loop* il : f->innerLoops) walk(il);
+            }
+            for (auto& kv : vertCoedges) {
+                Vertex* v = kv.first;
+                const auto& ces = kv.second;
+                if (ces.size() < 3) continue;   // a 2-edge corner cannot pinch
+                // Faces incident at v.
+                std::vector<Face*> incFaces;
+                for (Coedge* c : ces) if (c->loop && c->loop->face) incFaces.push_back(c->loop->face);
+                std::sort(incFaces.begin(), incFaces.end());
+                incFaces.erase(std::unique(incFaces.begin(), incFaces.end()), incFaces.end());
+                if (incFaces.size() < 3) continue;
+                std::unordered_map<Face*, int> fidx;
+                for (std::size_t i = 0; i < incFaces.size(); ++i) fidx[incFaces[i]] = static_cast<int>(i);
+                DSU d; d.init(incFaces.size());
+                // Link two faces that share a MANIFOLD edge incident to v.
+                for (Coedge* c : ces) {
+                    Edge* e = c->edge;
+                    if (!e || !e->coedgeA || !e->coedgeB) continue;
+                    Face* fa = (e->coedgeA->loop) ? e->coedgeA->loop->face : nullptr;
+                    Face* fb = (e->coedgeB->loop) ? e->coedgeB->loop->face : nullptr;
+                    if (!fa || !fb) continue;
+                    auto ia = fidx.find(fa), ib = fidx.find(fb);
+                    if (ia != fidx.end() && ib != fidx.end()) d.unite(ia->second, ib->second);
+                }
+                // Count components of the incident-face graph.
+                std::unordered_set<int> roots;
+                for (std::size_t i = 0; i < incFaces.size(); ++i) roots.insert(d.find(static_cast<int>(i)));
+                if (roots.size() > 1) {
+                    // The fan splits into >1 cone -> non-manifold vertex (honest report).
+                    rep.nonManifoldVertexIds.push_back(v->id);
+                }
+            }
+            std::sort(rep.nonManifoldVertexIds.begin(), rep.nonManifoldVertexIds.end());
+            rep.nonManifoldVertexIds.erase(
+                std::unique(rep.nonManifoldVertexIds.begin(), rep.nonManifoldVertexIds.end()),
+                rep.nonManifoldVertexIds.end());
+        }
+    }
+
     rep.edgePairsMerged = sr.mergedEdgePairs;
     rep.shell = sr.shell;
 
@@ -433,14 +884,15 @@ HealReport healBRep(TopologyBuilder& tb,
     // healed/no-sliver shell when both close.)
     if (opt.removeSliverFaces && rep.sliverFacesRemoved > 0 &&
         rep.before.closed && !rep.after.closed) {
-        // Re-build including the slivers and re-diagnose.
+        // Re-build including the slivers and re-diagnose (respecting the final flips).
         std::vector<Face*> withSlivers;
         for (std::size_t fi = 0; fi < frs.size(); ++fi) {
             if (frs[fi].outer.size() < 3) continue;
+            const bool fl = (fi < flip.size()) ? (flip[fi] != 0) : false;
             Face* nf = tb.makeFace();
-            tb.addOuterLoopToFace(nf, buildRingVerts(frs[fi].outer));
+            tb.addOuterLoopToFace(nf, buildRingVerts(frs[fi].outer, fl));
             for (const auto& ir : frs[fi].inners)
-                if (ir.size() >= 3) tb.addInnerLoopToFace(nf, buildRingVerts(ir));
+                if (ir.size() >= 3) tb.addInnerLoopToFace(nf, buildRingVerts(ir, fl));
             withSlivers.push_back(nf);
         }
         if (!withSlivers.empty()) {

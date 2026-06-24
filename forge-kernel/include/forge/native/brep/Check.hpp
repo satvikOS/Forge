@@ -247,6 +247,52 @@ CheckReport checkBRep(const Shell* shell, const CheckOptions& opt = {});
 // predicates need — T7 connectivity will then report the shell count honestly).
 CheckReport checkBRep(const Solid* solid, const CheckOptions& opt = {});
 
+// ===========================================================================
+// G4-TRIMMED — TRIMMED-NURBS FACE self-intersection (the exhaustive G4 case)
+// ===========================================================================
+//
+// The G4 predicate inside checkBRep checks only the OUTER-loop polygon of each
+// TOPOLOGY Face in 3D. A real trimmed-NURBS face (TrimmedFace.hpp) is bounded by
+// arbitrary CURVED pcurves over an outer loop PLUS inner (hole) loops, so its
+// "simple wire" condition is richer:
+//
+//   * a single loop's flattened pcurve polyline may self-cross (a curved pcurve
+//     that loops back over itself), and
+//   * an inner (hole) loop may IMBRICATE the outer loop — its boundary pokes
+//     OUTSIDE the outer loop (a hole partly or wholly outside the material), or
+//     two holes overlap. Either makes the trimmed region ill-defined.
+//
+// This routine runs the FULL battery over ALL flattened trim pcurves (not just the
+// outer loop): an EXACT-predicate proper segment-segment crossing test within each
+// loop and across every loop pair, plus an even-odd containment test that flags a
+// hole vertex lying OUTSIDE the outer loop (the wholly-outside-hole case a pure
+// crossing test would miss). The combinatorial crossing decision is taken with the
+// exact 3D orientation predicate (exactOrient3D), lifted from the (u,v) plane, so
+// the in/out verdict is never a float tie-break — matching the rest of the battery.
+//
+// HONEST SCOPE: the boundary is tested on the chordal-adaptive FLATTENING of each
+// pcurve (the same polyline classifyPointInTrim / the trim mesher consume), with
+// the crossing signs taken exactly. A full curved-pcurve EXACT arrangement (arc×arc
+// tangency, exact rational pcurve self-tangency) is the follow-up; this routine is
+// the exhaustive POLYLINE-exact case the validator gates on today.
+struct TrimSelfIntersectResult {
+    bool        selfIntersects = false;  // true iff a defect was found
+    CheckStatus status = CheckStatus::SelfIntersectingWire;
+    // 0-based loop indices into TrimmedFace::loops that participate in the defect
+    // (one for an intra-loop self-cross, two for an inter-loop imbrication).
+    std::vector<std::size_t> loops;
+    std::string detail;                  // human note (which case tripped)
+};
+
+// Run the exhaustive trimmed-face self-intersection / imbrication test on a
+// geometry-bearing TrimmedFace. `loopSamples` is the base chord density per pcurve
+// (passed through to the same flattener classifyPointInTrim uses); `onTol` the
+// parameter-space on-boundary band for the containment classification.
+TrimSelfIntersectResult checkTrimmedFaceSelfIntersection(
+    const struct TrimmedFace& face,
+    std::size_t loopSamples = 64,
+    double onTol = 1e-9);
+
 } // namespace brep
 } // namespace native
 } // namespace forge

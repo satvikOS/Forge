@@ -137,6 +137,92 @@ int main() {
     check(std::fabs(cr.tangentB.y - 0.0) <= 1e-12, "setback B lies on face B plane (y = 0)");
     check(std::fabs(cr.dihedralDeg - 90.0) <= 1e-9, "interior dihedral = 90 degrees");
 
+    // =======================================================================
+    // ASYMMETRIC TWO-DISTANCE CHAMFER GATE
+    // box L=10, dA=1.5 (on face A, z=L), dB=2.5 (on face B, y=0), top-front edge.
+    //   (1) closed 2-manifold;
+    //   (2) volume == L^3 - (1/2) dA dB L = 1000 - 0.5*1.5*2.5*10 = 981.25 to <=1e-9
+    //       (the right-triangle prism with legs dA, dB the tilted bevel removes);
+    //   (3) the bevel surface is a PLANE (a single tilted plane, NOT the bisector),
+    //       meeting face A at atan(dB/dA) and face B at atan(dA/dB).
+    // =======================================================================
+    std::printf("\n=== ASYMMETRIC TWO-DISTANCE CHAMFER gate (dA=1.5, dB=2.5) ===\n");
+    const double dA = 1.5;
+    const double dB = 2.5;
+
+    TopologyBuilder tb2;
+    AnalyticChamferResult ar = chamferBoxEdgeAsymmetric(tb2, L, dA, dB, /*edgeIndex=*/4);
+    std::printf("[chamfer] %s\n", ar.reason);
+    check(ar.ok, "asymmetric chamfer op ok");
+
+    if (ar.ok) {
+        // ---- (1) closed 2-manifold -----------------------------------------
+        check(tb2.isClosedTwoManifold(),
+              "asymmetric topology is a closed 2-manifold");
+        std::vector<Face*> faces2;
+        for (Shell* sh : ar.solid->shells)
+            for (Face* f : sh->faces) faces2.push_back(f);
+        SewDiagnosis dg2 = diagnoseShell(faces2);
+        std::printf("      -> V=%zu E=%zu F=%zu  free=%zu  nonmanifold=%zu  shell %s  chi=%lld genus=%lld\n",
+                    dg2.vertices, dg2.edges, dg2.faces, dg2.freeEdges, dg2.nonManifoldEdges,
+                    dg2.closed ? "CLOSED" : "OPEN", dg2.eulerCharacteristic, dg2.genus);
+        check(dg2.freeEdges == 0, "asym: 0 FREE edges (watertight)");
+        check(dg2.nonManifoldEdges == 0, "asym: 0 non-manifold edges");
+        check(dg2.closed, "asym: shell CLOSED (watertight)");
+
+        // ---- (2) volume == box - (1/2) dA dB L -----------------------------
+        const double expRemovedA = 0.5 * dA * dB * L;
+        const double expVolA = L * L * L - expRemovedA;
+        MassProps mp2 = massProperties(*ar.solid, /*gaussN=*/8);
+        const double volErrA = std::fabs(mp2.volume - expVolA);
+        std::printf("      -> volume = %.15f   expected = %.15f   |err| = %.3e\n",
+                    mp2.volume, expVolA, volErrA);
+        std::printf("      -> removed = %.15f   (1/2) dA dB L = %.15f\n",
+                    (L * L * L - mp2.volume), expRemovedA);
+        check(volErrA <= 1e-9, "asym chamfered volume == box - (1/2) dA dB L to <= 1e-9");
+
+        // ---- (3) bevel surface is a single tilted PLANE --------------------
+        check(ar.bevelFace != nullptr && ar.bevelFace->surface != nullptr,
+              "asym bevel face carries a surface");
+        Surface* s2 = ar.bevelFace->surface;
+        check(s2->kind == SurfaceKind::Plane, "asym bevel surface kind == Plane");
+
+        double maxPlaneErrA = 0.0;
+        Loop* lp2 = ar.bevelFace->outerLoop;
+        Coedge* ce2 = lp2->first;
+        for (std::size_t i = 0; i < lp2->coedgeCount; ++i) {
+            Vertex* o = ce2->originVertex();
+            Vec3 p{o->point.x, o->point.y, o->point.z};
+            const double sd = vdot(vsub(p, s2->origin), s2->axis);
+            maxPlaneErrA = std::max(maxPlaneErrA, std::fabs(sd));
+            ce2 = ce2->next;
+        }
+        std::printf("      -> asym bevel max |(p - origin).axis| = %.3e\n", maxPlaneErrA);
+        check(maxPlaneErrA <= 1e-12, "asym: all bevel-face vertices coplanar to <= 1e-12 (single tilted PLANE)");
+
+        // The bevel meets face A at atan(dB/dA) and face B at atan(dA/dB).
+        const double expAngA = std::atan2(dB, dA) * 180.0 / M_PI;  // ~59.0362435 deg
+        const double expAngB = std::atan2(dA, dB) * 180.0 / M_PI;  // ~30.9637565 deg
+        std::printf("      -> bevel angle vs face A = %.12f deg (expect atan(dB/dA) = %.12f)\n",
+                    ar.chamferAngleADeg, expAngA);
+        std::printf("      -> bevel angle vs face B = %.12f deg (expect atan(dA/dB) = %.12f)\n",
+                    ar.chamferAngleBDeg, expAngB);
+        check(std::fabs(ar.chamferAngleADeg - expAngA) <= 1e-9,
+              "asym bevel meets face A at atan(dB/dA)");
+        check(std::fabs(ar.chamferAngleBDeg - expAngB) <= 1e-9,
+              "asym bevel meets face B at atan(dA/dB)");
+        check(std::fabs((ar.chamferAngleADeg + ar.chamferAngleBDeg) - 90.0) <= 1e-9,
+              "asym bevel angles sum to 90 (right-triangle cross-section)");
+        check(ar.chamferAngleADeg > 45.0 + 1e-6 && ar.chamferAngleBDeg < 45.0 - 1e-6,
+              "asym bevel is TILTED off the 45-degree bisector (dB > dA)");
+
+        // Setback contacts lie on their faces' planes (A on z=L, B on y=0).
+        check(std::fabs(ar.tangentA.z - L) <= 1e-12, "asym setback A on face A plane (z = L)");
+        check(std::fabs(ar.tangentB.y - 0.0) <= 1e-12, "asym setback B on face B plane (y = 0)");
+        check(std::fabs(ar.setbackA - dA) <= 1e-12 && std::fabs(ar.setbackB - dB) <= 1e-12,
+              "asym setbacks reported as (dA, dB)");
+    }
+
     std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
 }

@@ -25,6 +25,10 @@
 //                            populated; otherwise the face is HONESTLY faceted
 //                            (the rest of the solid stays analytic).
 //
+// LOOP MAP: a face's peripheral loop -> FACE_OUTER_BOUND; every inner (hole) loop
+// (Face::innerLoops) -> a FACE_BOUND on the same ADVANCED_FACE, so a bored / holed
+// face round-trips its holes (the readers rebuild them via addInnerLoopToFace).
+//
 // EDGE MAP: a straight coedge -> EDGE_CURVE(LINE); an arc lying on the boundary
 // of a curved face -> EDGE_CURVE(CIRCLE) when the two endpoints + the parent
 // surface frame pin an exact circle; otherwise -> EDGE_CURVE with no geometry

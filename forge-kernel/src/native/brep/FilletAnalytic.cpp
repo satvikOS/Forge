@@ -1269,6 +1269,281 @@ AnalyticTorusFilletResult filletCylinderTopEdgeAnalytic(TopologyBuilder& tb,
     return out;
 }
 
+// ===========================================================================
+// VARIABLE-RADIUS fillet: a LINEAR radius law R(t) = R0 + (R1-R0)*(t/L) along a
+// CONVEX STRAIGHT planar-planar box edge (length L).
+//
+// THE VARYING ROLLING BALL. The spine is still the edge line, but the ball radius
+// varies linearly. At station t in [0,L] the ball of radius R(t) sits tangent to
+// both planes from the material side, so its centre (axis foot) is
+//     F(t) = P0 + t*e + R(t)*(-nA) + R(t)*(-nB).
+// The blend cross-section at t is the quarter circle of radius R(t) centred at
+// F(t), running from the +nA radial (contact on face A) to the +nB radial (contact
+// on face B). Because R(t) AND F(t) are both LINEAR in t, the swept surface is
+// represented EXACTLY by a rational NURBS:
+//   * a quarter circle is the degree-2 rational Bezier with control points
+//       Q0 = F + R*nA          (weight 1),
+//       Q1 = F + R*(nA + nB)    (weight cos45 = sqrt(2)/2),   [the square corner]
+//       Q2 = F + R*nB          (weight 1);
+//   * each Qi(t) is linear in t (F linear, R linear), so V is degree 1 (2 rows).
+// Hence degreeU=2 (arc) x degreeV=1 (edge), weights {1, s2/2, 1} on both rows — an
+// EXACT sweep, not a tessellation. Mass is measured by the analytic Nurbs
+// |S_u x S_v| quadrature.
+//
+// RE-TRIM. The tangent lines are now NON-PARALLEL: on face A the line runs from
+// F(0)+R0*nA to F(L)+R1*nA; on face B from F(0)+R0*nB to F(L)+R1*nB. Each adjacent
+// face becomes a TRAPEZOID (the box face minus the varying-width strip). The two
+// end caps gain a quarter-disk of radius R0 (t=0) and R1 (t=L). All fragments are
+// sewn into one closed 2-manifold.
+//
+// REMOVED VOLUME (exact). Per unit edge length the removed cross-section is
+// (1 - pi/4) R(t)^2, so
+//     removed = (1 - pi/4) INT_0^L R(t)^2 dt
+//             = (1 - pi/4) * L * (R0^2 + R0*R1 + R1^2) / 3
+// (closed form of INT (R0 + (R1-R0)t/L)^2 dt over [0,L]).
+// ===========================================================================
+namespace {
+
+constexpr double kSqrt2Over2 = 0.70710678118654752440;  // cos(45 deg), quarter-circle mid weight
+
+// Build the EXACT variable-radius quarter-arc-sweep blend as a rational NURBS face.
+// The arc runs from +dirA to +dirB; centre F(t) and radius R(t) are sampled at the
+// two ends (t=0 -> F0,R0 ; t=L -> F1,R1) and the surface is the linear loft between
+// the two quarter-circle Bezier rows. Boundary edges are bound to their exact
+// curves so the sewer welds them: the two end arcs to their Circle curves, the two
+// arc-end rails (theta=0 and theta=pi/2) to their Line curves.
+Face* emitVariableArcSweep(TopologyBuilder& tb,
+                           const Vec3& F0, double R0, const Vec3& F1, double R1,
+                           const Vec3& dirA, const Vec3& dirB, const Vec3& edgeDir,
+                           const Vec3& surfNormalDir, const Vec3& ringOrient) {
+    // Quarter-circle Bezier control rows at each end.
+    const Vec3 Q0_0 = vadd(F0, vscale(dirA, R0));               // (theta0, t0)
+    const Vec3 Q1_0 = vadd(F0, vscale(vadd(dirA, dirB), R0));   // (square corner, t0)
+    const Vec3 Q2_0 = vadd(F0, vscale(dirB, R0));               // (theta pi/2, t0)
+    const Vec3 Q0_1 = vadd(F1, vscale(dirA, R1));               // (theta0, t1)
+    const Vec3 Q1_1 = vadd(F1, vscale(vadd(dirA, dirB), R1));   // (square corner, t1)
+    const Vec3 Q2_1 = vadd(F1, vscale(dirB, R1));               // (theta pi/2, t1)
+
+    Surface* s = tb.makeSurface();
+    s->kind = SurfaceKind::Nurbs;
+    NurbsSurface& ns = s->nurbs;
+    ns.degreeU = 2;   // arc (theta)
+    ns.degreeV = 1;   // edge (t)
+    // control[i][j]: i over U (theta, 0..2), j over V (t, 0..1).
+    ns.control = {
+        { Q0_0, Q0_1 },
+        { Q1_0, Q1_1 },
+        { Q2_0, Q2_1 },
+    };
+    ns.weights = {
+        { 1.0,          1.0          },
+        { kSqrt2Over2,  kSqrt2Over2  },
+        { 1.0,          1.0          },
+    };
+    ns.knotsU = {0.0, 0.0, 0.0, 1.0, 1.0, 1.0};  // clamped degree-2 Bezier
+    ns.knotsV = {0.0, 0.0, 1.0, 1.0};            // clamped degree-1
+
+    // Orient the stored normal so it points OUT of the solid. For a CONVEX valley
+    // the outward direction is the +radial bisector (across the valley).
+    {
+        Vec3 sp, du, dv;
+        s->evaluateDeriv(0.5, 0.5, sp, du, dv);   // mid arc, mid edge
+        Vec3 nrm = vnorm(vcross(du, dv));
+        s->reversed = (vdot(nrm, surfNormalDir) < 0.0);
+    }
+
+    // The four ring corners (NURBS domain corners) in 3D.
+    Vertex* vA0 = tb.makeVertex(V2P(Q0_0));   // (theta0, t0) contact on A at t0
+    Vertex* vB0 = tb.makeVertex(V2P(Q2_0));   // (thetaPi/2, t0) contact on B at t0
+    Vertex* vB1 = tb.makeVertex(V2P(Q2_1));   // (thetaPi/2, t1) contact on B at t1
+    Vertex* vA1 = tb.makeVertex(V2P(Q0_1));   // (theta0, t1) contact on A at t1
+
+    // Ring walk A0 -> B0 (start arc) -> B1 (rail on B) -> A1 (end arc) -> A0.
+    std::vector<Vertex*> ring = {vA0, vB0, vB1, vA1};
+    orientRingCCW(ring, ringOrient);
+    Face* f = tb.makeFace();
+    tb.addOuterLoopToFace(f, ring);
+
+    // Bind boundary edges to their exact curves so the sewer welds them.
+    Coedge* ce = f->outerLoop->first;
+    for (std::size_t k = 0; k < f->outerLoop->coedgeCount; ++k) {
+        Vertex* o = ce->originVertex();
+        Vertex* d = ce->destVertex();
+        auto is = [&](Vertex* a, Vertex* b){ return (o==a&&d==b)||(o==b&&d==a); };
+        if (is(vA0, vB0)) {            // start quarter arc, radius R0, centre F0
+            if (o == vA0) ce->edge->curve = tb.makeCurve(quarterArc(F0, R0, dirA, dirB));
+            else          ce->edge->curve = tb.makeCurve(quarterArc(F0, R0, dirB, dirA));
+        } else if (is(vA1, vB1)) {     // end quarter arc, radius R1, centre F1
+            if (o == vA1) ce->edge->curve = tb.makeCurve(quarterArc(F1, R1, dirA, dirB));
+            else          ce->edge->curve = tb.makeCurve(quarterArc(F1, R1, dirB, dirA));
+        } else if (is(vA0, vA1)) {     // rail on face A (theta=0): straight line
+            ce->edge->curve = tb.makeCurve(Curve::makeLine(P2V(o->point), P2V(d->point)));
+        } else if (is(vB0, vB1)) {     // rail on face B (theta=pi/2): straight line
+            ce->edge->curve = tb.makeCurve(Curve::makeLine(P2V(o->point), P2V(d->point)));
+        }
+        ce = ce->next;
+    }
+
+    f->surface = s;
+    f->paramTri = false;
+    f->u0 = 0.0; f->u1 = 1.0;   // NURBS domain (theta normalised)
+    f->v0 = 0.0; f->v1 = 1.0;   // NURBS domain (edge normalised)
+    (void)edgeDir;
+    return f;
+}
+
+} // namespace
+
+AnalyticVariableFilletResult filletBoxEdgeVariable(TopologyBuilder& tb,
+                                                   double L, double R0, double R1,
+                                                   int edgeIndex) {
+    AnalyticVariableFilletResult res;
+    auto bail = [&](const char* why) { res.ok = false; res.reason = why; return res; };
+
+    if (!(L > 0.0) || !std::isfinite(L)) return bail("box edge length L must be positive finite");
+    if (!(R0 > 0.0) || !std::isfinite(R0)) return bail("start radius R0 must be positive finite");
+    if (!(R1 > 0.0) || !std::isfinite(R1)) return bail("end radius R1 must be positive finite");
+    if (edgeIndex < 0 || edgeIndex > 11) return bail("edgeIndex out of range [0,11]");
+    if (!(R0 < L) || !(R1 < L)) return bail("radii R0,R1 must be < L (tangent line would overflow the face)");
+
+    const std::vector<Vec3> C = boxCorners(L);
+    const BoxEdge be = boxEdge(edgeIndex);
+    const Vec3 P0 = C[be.c0];
+    const Vec3 P1 = C[be.c1];
+    Vec3 e = vsub(P1, P0);
+    const double edgeLen = vlen(e);
+    if (!(edgeLen > 0.0)) return bail("degenerate (zero-length) edge");
+    e = vscale(e, 1.0 / edgeLen);
+
+    const Vec3 nA = vnorm(be.nA);
+    const Vec3 nB = vnorm(be.nB);
+    const double ndot = vdot(nA, nB);
+    if (std::fabs(ndot) > 1e-9)
+        return bail("adjacent face normals are not orthogonal (only the 90-degree "
+                    "convex box edge is in this increment's scope)");
+
+    // Rolling-ball spine (axis feet) at the two ends, with the linear radius law.
+    // F(t) = P0 + t*e + R(t)*(-nA) + R(t)*(-nB).
+    const Vec3 iAB = vscale(vadd(nA, nB), -1.0);
+    const Vec3 F0 = vadd(P0, vscale(iAB, R0));              // axis foot @ t=0
+    const Vec3 F1 = vadd(vadd(P0, vscale(e, edgeLen)),
+                         vscale(iAB, R1));                  // axis foot @ t=L
+    // Tangent contacts at each end.
+    const Vec3 TA0 = vadd(F0, vscale(nA, R0));   // contact on face A @ t=0
+    const Vec3 TB0 = vadd(F0, vscale(nB, R0));   // contact on face B @ t=0
+    const Vec3 TA1 = vadd(F1, vscale(nA, R1));   // contact on face A @ t=L
+    const Vec3 TB1 = vadd(F1, vscale(nB, R1));   // contact on face B @ t=L
+
+    // The convex-valley outward direction (and the ring/disk winding side).
+    const Vec3 bisector = vnorm(vadd(nA, nB));
+
+    std::vector<Face*> frags;
+
+    // -- the two adjacent faces, re-trimmed to the (non-parallel) tangent lines --
+    // Each is a TRAPEZOID. Walk the original box face's ring, replacing the two
+    // sharp-edge corners (be.c0, be.c1) with the matching tangent contacts.
+    for (const auto& d : kBoxFaces) {
+        const Vec3 fn = vnorm(d.normal);
+        const bool isFaceA = veq(fn, nA);
+        const bool isFaceB = veq(fn, nB);
+        int sharpCount = 0;
+        for (int k = 0; k < 4; ++k)
+            if (d.idx[k] == be.c0 || d.idx[k] == be.c1) ++sharpCount;
+
+        if (sharpCount == 0) {
+            // Untouched original quad face.
+            frags.push_back(emitPlanarPolygon(tb,
+                {C[d.idx[0]], C[d.idx[1]], C[d.idx[2]], C[d.idx[3]]}, fn));
+            continue;
+        }
+        if (isFaceA || isFaceB) {
+            std::vector<Vec3> ring;
+            for (int k = 0; k < 4; ++k) {
+                const int ci = d.idx[k];
+                if (ci == be.c0)      ring.push_back(isFaceA ? TA0 : TB0);
+                else if (ci == be.c1) ring.push_back(isFaceA ? TA1 : TB1);
+                else                  ring.push_back(C[ci]);
+            }
+            Face* f = emitPlanarPolygon(tb, ring, fn);
+            frags.push_back(f);
+            if (isFaceA) res.trimmedFaceA = f; else res.trimmedFaceB = f;
+            continue;
+        }
+
+        // PERPENDICULAR END FACE (the cap holding exactly one sharp corner).
+        // Re-trim into an L-polygon (square minus the R x R corner) triangulated as a
+        // fan from the axis foot + a quarter-disk cap of radius R(end). The cap radius
+        // is R0 at the be.c0 end and R1 at the be.c1 end.
+        int sharpAt = -1, sharpCorner = -1;
+        for (int k = 0; k < 4; ++k)
+            if (d.idx[k] == be.c0 || d.idx[k] == be.c1) { sharpAt = k; sharpCorner = d.idx[k]; }
+        const bool atStart = (sharpCorner == be.c0);
+        const double Rend = atStart ? R0 : R1;
+        const Vec3 center = atStart ? F0 : F1;
+        const Vec3 tA = atStart ? TA0 : TA1;
+        const Vec3 tB = atStart ? TB0 : TB1;
+
+        const int prevCi = d.idx[(sharpAt + 3) % 4];
+        const Vec3 prevPos = C[prevCi];
+        const double dA = vlen(vsub(tA, prevPos));
+        const double dB = vlen(vsub(tB, prevPos));
+        const Vec3 nearPrev = (dA <= dB) ? tA : tB;
+        const Vec3 nearNext = (dA <= dB) ? tB : tA;
+
+        // L-polygon ring: box ring with the sharp corner replaced by [nearPrev, center, nearNext].
+        std::vector<Vec3> Lring;
+        for (int k = 0; k < 4; ++k) {
+            if (k == sharpAt) { Lring.push_back(nearPrev); Lring.push_back(center); Lring.push_back(nearNext); }
+            else              { Lring.push_back(C[d.idx[k]]); }
+        }
+        // Fan the (non-convex) L-polygon from `center` (it is star-shaped from the
+        // notch corner) into convex triangles, one planar face each.
+        std::size_t ci = 0;
+        for (std::size_t k = 0; k < Lring.size(); ++k)
+            if (veq(Lring[k], center)) { ci = k; break; }
+        const std::size_t Ln = Lring.size();
+        for (std::size_t step = 1; step + 1 < Ln; ++step) {
+            const Vec3 a = center;
+            const Vec3 b = Lring[(ci + step) % Ln];
+            const Vec3 c = Lring[(ci + step + 1) % Ln];
+            frags.push_back(emitPlanarPolygon(tb, {a, b, c}, fn));
+        }
+        // Quarter-disk cap of radius Rend (radial dirs nA -> nB), outward == fn.
+        frags.push_back(emitQuarterDisk(tb, center, Rend, nA, nB, e, fn));
+    }
+
+    // -- the VARIABLE-RADIUS blend patch (exact rational NURBS sweep) ----------
+    Face* blend = emitVariableArcSweep(tb, F0, R0, F1, R1, nA, nB, e,
+                                       /*surfNormalDir=*/bisector,
+                                       /*ringOrient=*/bisector);
+    frags.push_back(blend);
+
+    // -- sew all fragments into one closed shell -------------------------------
+    Solid* solid = tb.makeSolid();
+    SewOptions so; so.tol = 1e-7; so.midSamples = 3; so.weldVertices = true;
+    SewResult sr = sewFaces(tb, frags, so);
+    for (Shell* sh : sr.shells) tb.addShellToSolid(solid, sh);
+
+    res.solid       = solid;
+    res.filletFace  = blend;
+    res.radius0     = R0;
+    res.radius1     = R1;
+    res.edgeLength  = edgeLen;
+    res.dihedralDeg = 90.0;
+    res.axisStart   = F0;
+    res.axisEnd     = F1;
+    res.axisDir     = e;
+    res.removedVolume = (1.0 - kPi / 4.0) * edgeLen * (R0 * R0 + R0 * R1 + R1 * R1) / 3.0;
+    const bool closed = sr.ok && sr.diagnosis.closed;
+    res.ok = closed;
+    res.reason = res.ok
+        ? "ok (analytic VARIABLE-radius rolling-ball fillet, LINEAR law R(t)=R0+(R1-R0)t/L, "
+          "CONVEX straight planar-planar box edge; blend is an EXACT rational NURBS sweep of "
+          "the varying quarter-arc; watertight closed 2-manifold)"
+        : "variable-radius fillet assembly did not sew into a closed shell";
+    return res;
+}
+
 } // namespace brep
 } // namespace native
 } // namespace forge

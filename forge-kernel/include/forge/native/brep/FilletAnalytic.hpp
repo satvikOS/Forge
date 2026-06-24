@@ -237,6 +237,65 @@ AnalyticTorusFilletResult filletCylinderTopEdgeAnalytic(TopologyBuilder& tb,
                                                         double Rc, double H, double R,
                                                         int nSeg = 64);
 
+// ---------------------------------------------------------------------------
+// AnalyticVariableFilletResult — output of a VARIABLE-RADIUS rolling-ball fillet
+// of ONE CONVEX straight edge between two PLANAR faces, where the ball radius
+// follows a LINEAR law R(t) = R0 + (R1 - R0) * (t / L) along the edge length L.
+// ---------------------------------------------------------------------------
+struct AnalyticVariableFilletResult {
+    bool   ok = false;
+    Solid* solid = nullptr;       // the filleted closed 2-manifold solid (owned by tb)
+
+    // The variable-radius blend patch (carried as an EXACT rational NURBS surface:
+    // a quarter-circle of radius R(t) swept linearly along the edge — degree 2 in
+    // the arc parameter (rational quarter circle), degree 1 along the edge).
+    Face*  filletFace = nullptr;
+    Face*  trimmedFaceA = nullptr; // adjacent planar face A, re-trimmed (now a trapezoid)
+    Face*  trimmedFaceB = nullptr; // adjacent planar face B, re-trimmed (now a trapezoid)
+
+    double radius0 = 0.0;          // R0 (radius at the edge start, t = 0)
+    double radius1 = 0.0;          // R1 (radius at the edge end,   t = L)
+    double edgeLength = 0.0;       // L
+    double dihedralDeg = 0.0;      // interior dihedral of the two faces at the edge
+    Vec3   axisStart{};            // spine (axis-foot) point at t = 0
+    Vec3   axisEnd{};              // spine (axis-foot) point at t = L
+    Vec3   axisDir{};              // unit edge direction
+    // Exact removed material: (1 - pi/4) * L * (R0^2 + R0*R1 + R1^2) / 3
+    // = (1 - pi/4) * INT_0^L R(t)^2 dt, the varying quarter-round prism removed.
+    double removedVolume = 0.0;
+    const char* reason = "";
+};
+
+// ---------------------------------------------------------------------------
+// filletBoxEdgeVariable — VARIABLE-RADIUS rolling-ball fillet of one CONVEX
+// straight edge of an axis-aligned box [0,L]^3, with a LINEAR radius law
+//     R(t) = R0 + (R1 - R0) * (t / L)        (t in [0, L] along the edge)
+// on the native ANALYTIC B-rep. The rolling-ball SPINE is still the edge line,
+// but the ball radius varies, so at each station t the cross-section is a
+// quarter-circle of radius R(t) tangent to both planes, its centre offset R(t)
+// into the solid. The blend surface is therefore NOT a cylinder: it is the
+// VARIABLE-RADIUS surface that sweeps that varying quarter-arc — built here as an
+// EXACT rational NURBS (the quarter circle is a degree-2 rational Bezier whose
+// three control points move LINEARLY in t, so the surface is degree 2 x degree 1
+// and represents the swept arc exactly, NOT a tessellation). The two adjacent
+// planes are re-trimmed to the (now non-parallel) tangent lines and everything is
+// sewn into a closed 2-manifold whose mass the analytic integrator measures.
+//
+// filleted volume = V_box - (1 - pi/4) * L * (R0^2 + R0*R1 + R1^2) / 3
+// (the removed quarter-round prism with varying R, == (1 - pi/4) INT_0^L R(t)^2 dt).
+//
+// Requires L > 0, R0 > 0, R1 > 0, both R0,R1 < L (tangent lines stay on the faces),
+// and the same orthogonal-convex-box-edge scope as filletBoxEdgeAnalytic.
+//
+// HONEST SCOPE: LINEAR radius law on a CONVEX STRAIGHT planar-planar box edge.
+// A GENERAL (non-linear) law, curved adjacent faces, and setback are explicit
+// follow-ups (the swept arc stops being degree-2 x degree-1 there). `ok` is false
+// with a `reason` for any out-of-scope input (never a faked/broken solid).
+// ---------------------------------------------------------------------------
+AnalyticVariableFilletResult filletBoxEdgeVariable(TopologyBuilder& tb,
+                                                   double L, double R0, double R1,
+                                                   int edgeIndex = 4);
+
 } // namespace brep
 } // namespace native
 } // namespace forge

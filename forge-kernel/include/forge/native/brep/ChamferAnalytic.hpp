@@ -36,11 +36,16 @@
 //
 // HONEST SCOPE (Bible §0/§9 — REAL, no MVP/stub/fake; explicit boundary):
 //   THIS INCREMENT: a single CONVEX, STRAIGHT edge shared by exactly two PLANAR
-//   faces, SYMMETRIC setback d, with d small enough that both setback lines stay
-//   strictly inside their faces (no overflow). The canonical gate is the 90-degree
-//   box edge.
+//   faces, with each setback small enough that both setback lines stay strictly
+//   inside their faces (no overflow). The canonical gate is the 90-degree box edge.
+//   Both the SYMMETRIC setback d (chamferBoxEdgeAnalytic) AND the ASYMMETRIC
+//   TWO-DISTANCE setbacks dA != dB (chamferBoxEdgeAsymmetric) are built here: the
+//   asymmetric bevel is still a SINGLE PLANE, but tilted (not the 45-degree
+//   bisector) — it cuts face A back by dA and face B back by dB, so it meets face A
+//   at atan(dB/dA) and face B at atan(dA/dB), and removes the right-triangle prism
+//   with legs dA, dB (cross-section area (1/2) dA dB over length L).
 //   EXPLICIT FOLLOW-UPS (NOT built here, surfaced in `reason`, never faked):
-//     * ASYMMETRIC chamfer (two different setbacks dA != dB, or distance+angle),
+//     * the DISTANCE+ANGLE chamfer variant (setback + explicit bevel angle),
 //     * concave (reflex) edges,
 //     * curved adjacent faces (cylinder/cone/sphere/NURBS — the bevel becomes a
 //       developable/ruled strip, not a single plane),
@@ -76,11 +81,16 @@ struct AnalyticChamferResult {
     Face*  trimmedFaceB = nullptr;  // the face on side 1 of the edge
 
     // The analytic bevel geometry, reported for verification.
-    double setback = 0.0;       // d (symmetric setback on each face)
+    double setback = 0.0;       // d (symmetric setback) — equals setbackA in the symmetric path
+    double setbackA = 0.0;      // dA: setback on face A (== d for the symmetric path)
+    double setbackB = 0.0;      // dB: setback on face B (== d for the symmetric path)
     double edgeLength = 0.0;    // L
     double dihedralDeg = 0.0;   // interior dihedral angle of the two faces at the edge
-    double chamferAngleDeg = 0.0; // bevel angle vs each face (45 for the 90-degree edge)
-    Vec3   bevelNormal{};       // unit OUTWARD normal of the bevel plane (bisects nA,nB)
+    double chamferAngleDeg = 0.0; // bevel angle vs face A (45 for the symmetric 90-degree edge;
+                                  // atan(dB/dA) for the asymmetric two-distance bevel)
+    double chamferAngleADeg = 0.0; // bevel angle vs face A = atan(dB/dA)
+    double chamferAngleBDeg = 0.0; // bevel angle vs face B = atan(dA/dB)
+    Vec3   bevelNormal{};       // unit OUTWARD normal of the bevel plane (bisects nA,nB when dA==dB)
     Vec3   tangentA{};          // setback point on face A at the edge's start
     Vec3   tangentB{};          // setback point on face B at the edge's start
 
@@ -109,6 +119,25 @@ struct AnalyticChamferResult {
 AnalyticChamferResult chamferBoxEdgeAnalytic(TopologyBuilder& tb,
                                              double L, double d,
                                              int edgeIndex = 4);
+
+// ---------------------------------------------------------------------------
+// chamferBoxEdgeAsymmetric — the ASYMMETRIC TWO-DISTANCE flat-bevel chamfer of ONE
+// convex straight edge of an axis-aligned box [0,L]^3, on the analytic B-rep. Same
+// edge enumeration and same closed-2-manifold/exact-mass discipline as the
+// symmetric path, but face A is cut back by `dA` and face B by `dB` (dA may differ
+// from dB). The bevel is STILL A SINGLE PLANE — tilted off the 45-degree bisector
+// — through the setback line on A (at dA along -nB) and the setback line on B (at
+// dB along -nA). Each setback must be > 0 and < L. The bevel meets face A at
+// atan(dB/dA) and face B at atan(dA/dB); it removes the right-triangle prism with
+// legs dA, dB, so the chamfered volume is V_box - (1/2) dA dB L, measured EXACTLY
+// by the analytic MassProps integrator (every face is planar). Passing dA == dB
+// reproduces chamferBoxEdgeAnalytic's symmetric 45-degree bevel exactly. Returns
+// the closed chamfered Solid + the contact diagnostics; `ok` is false (with a
+// `reason`) for any out-of-scope input — never a faked/broken solid.
+// ---------------------------------------------------------------------------
+AnalyticChamferResult chamferBoxEdgeAsymmetric(TopologyBuilder& tb,
+                                               double L, double dA, double dB,
+                                               int edgeIndex = 4);
 
 } // namespace brep
 } // namespace native

@@ -167,13 +167,22 @@ const FaceDef kBoxFaces[6] = {
 
 } // namespace
 
-AnalyticChamferResult chamferBoxEdgeAnalytic(TopologyBuilder& tb,
-                                             double L, double d, int edgeIndex) {
+// Shared core for both the SYMMETRIC (dA == dB) and ASYMMETRIC (dA != dB)
+// two-distance flat-bevel chamfer. Face A is cut back by dA (along -nB, in plane
+// A), face B by dB (along -nA, in plane B); the bevel is a SINGLE PLANE through the
+// two setback lines, tilted off the 45-degree bisector when dA != dB. Removed
+// volume = (1/2) dA dB L (the right-triangle prism with legs dA, dB), measured
+// EXACTLY by the planar polygon-moment MassProps path.
+static AnalyticChamferResult chamferBoxEdgeTwoDistance(TopologyBuilder& tb,
+                                                       double L, double dA, double dB,
+                                                       int edgeIndex) {
     // -------- input screening (honest refusal, never a faked solid) ----------
     if (!(L > 0.0) || !std::isfinite(L)) return fail("box edge length L must be positive and finite");
-    if (!(d > 0.0) || !std::isfinite(d)) return fail("chamfer setback d must be positive and finite");
+    if (!(dA > 0.0) || !std::isfinite(dA)) return fail("chamfer setback dA must be positive and finite");
+    if (!(dB > 0.0) || !std::isfinite(dB)) return fail("chamfer setback dB must be positive and finite");
     if (edgeIndex < 0 || edgeIndex > 11) return fail("edgeIndex out of range [0,11]");
-    if (!(d < L)) return fail("chamfer setback d must be < L (setback line would overflow the face)");
+    if (!(dA < L)) return fail("chamfer setback dA must be < L (setback line would overflow the face)");
+    if (!(dB < L)) return fail("chamfer setback dB must be < L (setback line would overflow the face)");
 
     const std::vector<Vec3> C = boxCorners(L);
     const BoxEdge be = boxEdge(edgeIndex);
@@ -198,20 +207,31 @@ AnalyticChamferResult chamferBoxEdgeAnalytic(TopologyBuilder& tb,
 
     // -------- the flat bevel (analytic) --------------------------------------
     // "into-A" (in plane A, perpendicular to e, away from the edge) == -nB;
-    // "into-B" == -nA. The setback lines: TA = P + d*(-nB) on A, TB = P + d*(-nA)
-    // on B. (Exact for the orthogonal box: nA ⟂ nB, so -nB lies in plane A and
-    // -nA lies in plane B.)
+    // "into-B" == -nA. The setback lines: TA = P + dA*(-nB) on A (cut back by dA),
+    // TB = P + dB*(-nA) on B (cut back by dB). (Exact for the orthogonal box:
+    // nA ⟂ nB, so -nB lies in plane A and -nA lies in plane B.)
     const Vec3 iA = vscale(nA, -1.0);   // -nA: into-B direction (lies in plane B)
     const Vec3 iB = vscale(nB, -1.0);   // -nB: into-A direction (lies in plane A)
-    const Vec3 TA0 = vadd(P0, vscale(iB, d));   // setback on face A @ start
-    const Vec3 TB0 = vadd(P0, vscale(iA, d));   // setback on face B @ start
-    const Vec3 TA1 = vadd(P1, vscale(iB, d));   // setback on face A @ far
-    const Vec3 TB1 = vadd(P1, vscale(iA, d));   // setback on face B @ far
+    const Vec3 TA0 = vadd(P0, vscale(iB, dA));  // setback on face A @ start (dA along -nB)
+    const Vec3 TB0 = vadd(P0, vscale(iA, dB));  // setback on face B @ start (dB along -nA)
+    const Vec3 TA1 = vadd(P1, vscale(iB, dA));  // setback on face A @ far
+    const Vec3 TB1 = vadd(P1, vscale(iA, dB));  // setback on face B @ far
 
-    const Vec3 bevelN = vnorm(vadd(nA, nB));    // bevel outward normal (bisector)
-    // bevel angle vs each face plane: acos(nA . bevelN).
-    const double chamferAngleDeg =
+    // The bevel plane contains the edge direction e and the bevel chord
+    // (TB - TA) = dB*(-nA) - dA*(-nB) = dA*nB - dB*nA. Its OUTWARD normal is
+    // perpendicular to both, oriented to point away from the solid (positive dot
+    // with nA + nB). For dA == dB this reduces exactly to normalize(nA + nB).
+    const Vec3 chord = vsub(TB0, TA0);          // dA*nB - dB*nA, lies in the cross-section
+    Vec3 bevelN = vnorm(vcross(chord, e));
+    if (vdot(bevelN, vadd(nA, nB)) < 0.0) bevelN = vscale(bevelN, -1.0);
+    // bevel angle vs each face plane = angle between the bevel plane and that face.
+    // The bevel meets face A at atan(dB/dA) and face B at atan(dA/dB) — equivalently
+    // acos(nA . bevelN) and acos(nB . bevelN) (the angle between the plane normals).
+    const double chamferAngleADeg =
         std::acos(std::max(-1.0, std::min(1.0, vdot(nA, bevelN)))) * 180.0 / kPi;
+    const double chamferAngleBDeg =
+        std::acos(std::max(-1.0, std::min(1.0, vdot(nB, bevelN)))) * 180.0 / kPi;
+    const double chamferAngleDeg = chamferAngleADeg;
 
     // -------- assemble the chamfered solid on the analytic B-rep -------------
     Solid* solid = tb.makeSolid();
@@ -299,10 +319,10 @@ AnalyticChamferResult chamferBoxEdgeAnalytic(TopologyBuilder& tb,
         // pentagon stays simple (no self-crossing) in this face's CCW order.
         const int prevCi = dd.idx[(sharpAt + 3) % 4];
         const Vec3 prevPos = C[prevCi];     // a perpendicular face's neighbours are never sharp
-        const double dA = vlen(vsub(P2V(vtA->point), prevPos));
-        const double dB = vlen(vsub(P2V(vtB->point), prevPos));
-        Vertex* nearPrev = (dA <= dB) ? vtA : vtB;
-        Vertex* nearNext = (dA <= dB) ? vtB : vtA;
+        const double distA = vlen(vsub(P2V(vtA->point), prevPos));
+        const double distB = vlen(vsub(P2V(vtB->point), prevPos));
+        Vertex* nearPrev = (distA <= distB) ? vtA : vtB;
+        Vertex* nearNext = (distA <= distB) ? vtB : vtA;
 
         std::vector<Vertex*> ring;
         for (int k = 0; k < 4; ++k) {
@@ -343,18 +363,44 @@ AnalyticChamferResult chamferBoxEdgeAnalytic(TopologyBuilder& tb,
         res.bevelFace = f;
     }
 
-    res.ok              = true;
-    res.solid           = solid;
-    res.setback         = d;
-    res.edgeLength      = edgeLen;
-    res.dihedralDeg     = interiorDihedralDeg;
-    res.chamferAngleDeg = chamferAngleDeg;
-    res.bevelNormal     = bevelN;
-    res.tangentA        = TA0;
-    res.tangentB        = TB0;
-    res.reason          = "ok (analytic symmetric flat-bevel chamfer, "
-                          "planar-planar convex straight edge)";
+    const bool symmetric = (std::fabs(dA - dB) <= 1e-12);
+
+    res.ok               = true;
+    res.solid            = solid;
+    res.setback          = dA;   // == dB on the symmetric path
+    res.setbackA         = dA;
+    res.setbackB         = dB;
+    res.edgeLength       = edgeLen;
+    res.dihedralDeg      = interiorDihedralDeg;
+    res.chamferAngleDeg  = chamferAngleDeg;
+    res.chamferAngleADeg = chamferAngleADeg;
+    res.chamferAngleBDeg = chamferAngleBDeg;
+    res.bevelNormal      = bevelN;
+    res.tangentA         = TA0;
+    res.tangentB         = TB0;
+    res.reason           = symmetric
+        ? "ok (analytic symmetric flat-bevel chamfer, "
+          "planar-planar convex straight edge)"
+        : "ok (analytic asymmetric two-distance flat-bevel chamfer, "
+          "planar-planar convex straight edge; single tilted plane)";
     return res;
+}
+
+AnalyticChamferResult chamferBoxEdgeAnalytic(TopologyBuilder& tb,
+                                             double L, double d, int edgeIndex) {
+    // Symmetric chamfer: equal setbacks on both faces (the 45-degree bisector bevel).
+    if (!(d > 0.0) || !std::isfinite(d))
+        return fail("chamfer setback d must be positive and finite");
+    return chamferBoxEdgeTwoDistance(tb, L, d, d, edgeIndex);
+}
+
+AnalyticChamferResult chamferBoxEdgeAsymmetric(TopologyBuilder& tb,
+                                               double L, double dA, double dB,
+                                               int edgeIndex) {
+    // Asymmetric TWO-DISTANCE chamfer: face A cut back by dA, face B by dB; the
+    // bevel is a single PLANE tilted off the bisector, meeting face A at atan(dB/dA)
+    // and face B at atan(dA/dB).
+    return chamferBoxEdgeTwoDistance(tb, L, dA, dB, edgeIndex);
 }
 
 } // namespace brep

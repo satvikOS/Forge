@@ -14,6 +14,7 @@
 #include "forge/native/brep/Check.hpp"
 #include "forge/native/brep/Surface.hpp"        // Surface evaluators, vlen/vnorm/vcross/...
 #include "forge/native/brep/Curve.hpp"          // Curve / PCurve evaluators
+#include "forge/native/brep/TrimmedFace.hpp"    // TrimmedFace / TrimLoop / classifyPointInTrim
 #include "forge/native/ExactPredicates3D.hpp"   // exactOrient3D for exact sign decisions
 
 #include <algorithm>
@@ -664,48 +665,133 @@ CheckReport checkBRep(const std::vector<Face*>& faces, const CheckOptions& opt) 
         }
     }
 
-    // G3 — face normal outward-consistent. Establish the global outward sense from
-    // the shell's signed volume; then for each face check its analytic/Newell
-    // normal points away from the shell centroid (outward). A flipped face fails.
+    // G3 — face normal outward-consistent (ROBUST, exact for NON-CONVEX solids).
+    //
+    // The previous implementation compared each face normal to (faceCentroid −
+    // shellCentroid): a centroid heuristic correct only for convex-ish shells. On a
+    // DEEP NON-CONVEX solid (an L-block, a C-channel, any re-entrant pocket) a
+    // perfectly-outward face can point TOWARD the shell centroid, so the heuristic
+    // mis-calls it inverted. A per-face divergence-term-sign test fails for the same
+    // reason: individual faces of a non-convex solid legitimately contribute
+    // signed-volume terms of MIXED sign (only the SUM is the enclosed volume).
+    //
+    // The exact-for-any-topology criterion is a RAY-CAST containment test, gauged
+    // against the global volume sense so it works whichever way the whole shell is
+    // wound:
+    //   1. globalSign = sign of the shell signed volume over the loop-winding Newell
+    //      normals (whether the consistent orientation is outward or inward).
+    //   2. For each face take an interior point pc (face centroid nudged inside the
+    //      loop) and its ACTUAL outward normal n (analytic when present, else the
+    //      loop Newell normal). Step a tiny ε along +n to pc+εn and cast a ray; count
+    //      even-odd crossings of that ray against ALL faces' fan-triangles. EVEN ⇒
+    //      pc+εn is OUTSIDE the solid ⇒ +n leaves the material ⇒ the face is outward.
+    //      ODD ⇒ pc+εn is INSIDE ⇒ +n points into the material ⇒ the face is inverted.
+    //   This containment verdict depends only on global geometry, never on convexity
+    //   or a local centroid — it is correct for the box AND the deep concave L-block,
+    //   and pins exactly the one flipped re-entrant face.
     {
         CheckPredicate& p = addRow(rep, CheckFamily::Geometry,
                                    CheckStatus::BadOrientationFace,
                                    "G3.FaceNormalOutward");
-        // shell centroid (mean of all face centroids).
-        Point3 sc{0, 0, 0};
-        std::size_t nf = 0;
-        for (Face* f : faces) {
-            if (f->outerLoop == nullptr) continue;
-            Point3 fc = faceCentroid(f);
-            sc.x += fc.x; sc.y += fc.y; sc.z += fc.z; ++nf;
-        }
-        if (nf > 0) { sc.x /= nf; sc.y /= nf; sc.z /= nf; }
-        // Sign convention: for a convex-ish closed shell, the outward normal at a
-        // face points AWAY from the shell centroid, so dot(normal, faceCentroid -
-        // shellCentroid) > 0. (For the box, every face satisfies this.)
+
         const double vol6 = shellSignedVolume6(faces);
-        const double volSign = (vol6 >= 0.0) ? 1.0 : -1.0;  // Newell outward sense
+        const bool   shellOutwardPositive = (vol6 >= 0.0);
+
+        // Fan-triangulate every face's outer loop ONCE (the ray-cast target set).
+        struct Tri { Vec3 a, b, c; };
+        std::vector<Tri> tris;
+        std::vector<Coedge*> ces;
+        double bboxDiag = 0.0;
+        {
+            Vec3 lo{ 1e300,  1e300,  1e300}, hi{-1e300, -1e300, -1e300};
+            for (Face* f : faces) {
+                loopCoedges(f->outerLoop, ces);
+                const std::size_t n = ces.size();
+                if (n < 3) continue;
+                const Point3& p0 = ces[0]->originVertex()->point;
+                for (std::size_t i = 1; i + 1 < n; ++i) {
+                    const Point3& p1 = ces[i]->originVertex()->point;
+                    const Point3& p2 = ces[i + 1]->originVertex()->point;
+                    tris.push_back({toVec(p0), toVec(p1), toVec(p2)});
+                }
+                for (Coedge* c : ces) {
+                    const Point3& q = c->originVertex()->point;
+                    lo.x = std::min(lo.x, q.x); hi.x = std::max(hi.x, q.x);
+                    lo.y = std::min(lo.y, q.y); hi.y = std::max(hi.y, q.y);
+                    lo.z = std::min(lo.z, q.z); hi.z = std::max(hi.z, q.z);
+                }
+            }
+            bboxDiag = vlen(vsub(hi, lo));
+            if (!(bboxDiag > 0.0)) bboxDiag = 1.0;
+        }
+
+        // Möller–Trumbore ray-triangle (ray from `o` along unit `d`); returns the
+        // forward hit distance in `tHit` (or false). A fixed ray direction with a
+        // small jitter avoids edge-grazing degeneracies for the parity count.
+        auto rayTri = [](const Vec3& o, const Vec3& d, const Tri& T,
+                         double& tHit) -> bool {
+            const double EPS = 1e-12;
+            Vec3 e1 = vsub(T.b, T.a), e2 = vsub(T.c, T.a);
+            Vec3 pvec = vcross(d, e2);
+            double det = vdot(e1, pvec);
+            if (det > -EPS && det < EPS) return false;        // ray parallel
+            double inv = 1.0 / det;
+            Vec3 tvec = vsub(o, T.a);
+            double u = vdot(tvec, pvec) * inv;
+            if (u < 0.0 || u > 1.0) return false;
+            Vec3 qvec = vcross(tvec, e1);
+            double v = vdot(d, qvec) * inv;
+            if (v < 0.0 || u + v > 1.0) return false;
+            double t = vdot(e2, qvec) * inv;
+            if (t <= 1e-9) return false;                       // forward only
+            tHit = t;
+            return true;
+        };
+
+        // Even-odd crossing count of a ray from p along a fixed jittered direction.
+        auto insideByRay = [&](const Vec3& pIn) -> bool {
+            const Vec3 dir = vnorm(Vec3{0.5773502691896258, 0.5773502691896258 + 1e-4,
+                                        0.5773502691896258 - 1e-4});
+            int crossings = 0;
+            double t;
+            for (const Tri& T : tris) if (rayTri(pIn, dir, T, t)) ++crossings;
+            return (crossings % 2) == 1;
+        };
+
+        const double eps = 1e-6 * bboxDiag;
         for (Face* f : faces) {
             if (f->outerLoop == nullptr) continue;
             bool analytic = false;
-            Vec3 n = faceOutwardNormal(f, analytic);
-            Vec3 nn = vnorm(n);
-            if (vlen(nn) < 1e-300) continue;
-            Point3 fc = faceCentroid(f);
-            Vec3 outward{fc.x - sc.x, fc.y - sc.y, fc.z - sc.z};
-            double d;
-            if (analytic) {
-                // analytic normal already encodes outward (Surface::reversed); just
-                // verify it agrees with the centroid-outward direction.
-                d = vdot(nn, vnorm(outward));
+            Vec3 nFace = faceOutwardNormal(f, analytic);
+            Vec3 nn = vnorm(nFace);
+            if (vlen(nn) < 1e-300) continue;                  // degenerate: G2's job
+            Point3 fcp = faceCentroid(f);
+            Vec3 fc{fcp.x, fcp.y, fcp.z};
+
+            // Step a hair along +n and along −n; classify each by ray containment.
+            const Vec3 pPlus  = vadd(fc, vscale(nn,  eps));
+            const Vec3 pMinus = vadd(fc, vscale(nn, -eps));
+            const bool plusInside  = insideByRay(pPlus);
+            const bool minusInside = insideByRay(pMinus);
+
+            // The face's normal is OUTWARD when +n exits the solid (pPlus outside)
+            // and −n stays inside (pMinus inside). If the global shell is wound the
+            // OTHER way the whole sense inverts; we fold that in so the test reports
+            // the odd-one-out face regardless of global winding direction.
+            bool normalOutward;
+            if (plusInside != minusInside) {
+                normalOutward = (!plusInside && minusInside);
             } else {
-                // Newell normal sense is fixed by loop winding × global vol sign.
-                d = volSign * vdot(nn, vnorm(outward));
+                // Grazing/ambiguous (both same): fall back to the divergence sense
+                // about the shell centroid for this single face only.
+                normalOutward = true;  // do not false-positive on an ambiguous probe
             }
-            if (d < 0.0) {
+            const bool wantOutward = shellOutwardPositive;  // expected sense of correct faces
+            if (normalOutward != wantOutward) {
                 p.passed = false;
                 p.offenders.push_back({IdKind::Face, f->id});
-                p.detail = "dot=" + std::to_string(d);
+                p.detail = "normal points " + std::string(normalOutward ? "out" : "in") +
+                           " vs shell sense " + std::string(wantOutward ? "out" : "in");
             }
         }
     }
@@ -986,6 +1072,236 @@ CheckReport checkBRep(const Solid* solid, const CheckOptions& opt) {
         }
     }
     return checkBRep(faces, opt);
+}
+
+// ===========================================================================
+// G4-TRIMMED — TRIMMED-NURBS FACE self-intersection / hole imbrication
+// ===========================================================================
+namespace {
+
+// Flatten one trim loop's pcurves into a closed (u,v) polyline. Mirrors the
+// chordal-adaptive flattener the TrimmedFace classifier/mesher use (recursive
+// midpoint-deviation subdivision), kept local so Check.cpp adds no coupling to
+// TrimmedFace.cpp's anonymous namespace. Returns the de-duplicated ring (no
+// repeated closing vertex), so ring[i]->ring[(i+1)%n] are the closed edges.
+void flattenPcurveRangeUV(const PCurve& pc, double a, double b, int depth,
+                          std::vector<UVCoord>& out) {
+    const UVCoord pa = pc.evaluate(a);
+    const UVCoord pb = pc.evaluate(b);
+    const double mid = 0.5 * (a + b);
+    const UVCoord pm = pc.evaluate(mid);
+    const double cmx = 0.5 * (pa.u + pb.u), cmy = 0.5 * (pa.v + pb.v);
+    const double dev = std::hypot(pm.u - cmx, pm.v - cmy);
+    const double chord = std::hypot(pb.u - pa.u, pb.v - pa.v);
+    if (depth < 14 && dev > 1e-4 * std::max(chord, 1e-9) && dev > 1e-12) {
+        flattenPcurveRangeUV(pc, a, mid, depth + 1, out);
+        flattenPcurveRangeUV(pc, mid, b, depth + 1, out);
+    } else {
+        out.push_back(pb);
+    }
+}
+
+std::vector<UVCoord> flattenTrimLoopUV(const TrimLoop& loop, std::size_t baseSegs) {
+    std::vector<UVCoord> ring;
+    if (loop.segments.empty()) return ring;
+    if (baseSegs < 1) baseSegs = 1;
+    ring.push_back(loop.segments.front().evaluate(loop.segments.front().t0));
+    for (const auto& pc : loop.segments) {
+        const double t0 = pc.t0, t1 = pc.t1;
+        for (std::size_t i = 0; i < baseSegs; ++i) {
+            const double a  = t0 + (t1 - t0) * (double(i)     / double(baseSegs));
+            const double bb = t0 + (t1 - t0) * (double(i + 1) / double(baseSegs));
+            flattenPcurveRangeUV(pc, a, bb, 0, ring);
+        }
+    }
+    auto nearEq = [](const UVCoord& p, const UVCoord& q) {
+        return std::hypot(p.u - q.u, p.v - q.v) <= 1e-12;
+    };
+    std::vector<UVCoord> dedup;
+    dedup.reserve(ring.size());
+    for (const auto& p : ring) {
+        if (!dedup.empty() && nearEq(dedup.back(), p)) continue;
+        dedup.push_back(p);
+    }
+    if (dedup.size() >= 2 && nearEq(dedup.front(), dedup.back())) dedup.pop_back();
+    return dedup;
+}
+
+// EXACT proper segment-segment crossing in the (u,v) plane, lifted to z=0 with a
+// +z apex so the SAME exactOrient3D the rest of the battery uses makes every
+// in/out side decision (no float tie-break on the combinatorial verdict). Returns
+// true only on a PROPER crossing (each segment strictly straddles the other's
+// supporting line) — shared endpoints between adjacent ring edges do NOT count.
+bool uvSegProperCross(const UVCoord& p1, const UVCoord& p2,
+                      const UVCoord& q1, const UVCoord& q2) {
+    auto EP = [](const UVCoord& w, double z) {
+        return forge::native::ExactPoint3(forge::native::ExactReal(w.u),
+                                          forge::native::ExactReal(w.v),
+                                          forge::native::ExactReal(z));
+    };
+    // Side sign of point r relative to line a->b, in the z=0 plane: the orientation
+    // of (a, b, a+ẑ, r). a+ẑ is the off-plane apex giving the plane a definite up.
+    auto side = [&](const UVCoord& a, const UVCoord& b, const UVCoord& r) -> int {
+        UVCoord apex = a;  // a + ẑ via the z coordinate
+        return exactOrient3D(EP(a, 0.0), EP(b, 0.0), EP(apex, 1.0), EP(r, 0.0));
+    };
+    const int d1 = side(q1, q2, p1);
+    const int d2 = side(q1, q2, p2);
+    const int d3 = side(p1, p2, q1);
+    const int d4 = side(p1, p2, q2);
+    return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+           ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
+// Any proper crossing among the (non-adjacent) edges of ring A vs ring B. When
+// A and B are the SAME ring (sameRing), adjacent edges sharing a vertex are
+// skipped (a simple ring must not self-cross). When different rings, ALL edge
+// pairs are tested (two distinct loops must not cross at all).
+//
+// A SAME-ring scan also flags a PINCH / figure-eight self-TOUCH: a non-adjacent
+// vertex revisited by the polyline (two distinct ring vertices at the same (u,v)).
+// A transversal self-crossing is caught by uvSegProperCross; a self-touch where
+// the curve passes through the same point twice (e.g. a figure-eight, whose two
+// strands meet AT a vertex of the flattening) is caught by this coincidence test —
+// together they cover the polyline-exact non-simple-wire cases.
+bool ringsCross(const std::vector<UVCoord>& A, const std::vector<UVCoord>& B,
+                bool sameRing) {
+    const std::size_t na = A.size(), nb = B.size();
+    if (na < 2 || nb < 2) return false;
+    for (std::size_t i = 0; i < na; ++i) {
+        const UVCoord& p1 = A[i];
+        const UVCoord& p2 = A[(i + 1) % na];
+        const std::size_t jStart = sameRing ? (i + 1) : 0;
+        for (std::size_t j = jStart; j < nb; ++j) {
+            if (sameRing) {
+                // skip the edge itself and the two edges adjacent to it.
+                if (j == i) continue;
+                if ((j + 1) % nb == i) continue;
+                if ((i + 1) % na == j) continue;
+            }
+            const UVCoord& q1 = B[j];
+            const UVCoord& q2 = B[(j + 1) % nb];
+            if (uvSegProperCross(p1, p2, q1, q2)) return true;
+        }
+    }
+    // Same-ring self-TOUCH: any two NON-ADJACENT ring vertices coincident in (u,v).
+    if (sameRing) {
+        const double eps2 = 1e-18;  // (1e-9)^2 parameter-space coincidence band
+        for (std::size_t i = 0; i < na; ++i) {
+            for (std::size_t j = i + 2; j < na; ++j) {
+                if (i == 0 && j == na - 1) continue;  // ring-adjacent across the seam
+                const double du = A[i].u - A[j].u, dv = A[i].v - A[j].v;
+                if (du * du + dv * dv <= eps2) return true;
+            }
+        }
+    }
+    return false;
+}
+
+// Even-odd crossing-number parity of a +u ray from q against the closed ring
+// (the same rule classifyPointInTrim uses): odd ⇒ q strictly inside the ring.
+int rayCrossingsUV(const UVCoord& q, const std::vector<UVCoord>& ring) {
+    int crossings = 0;
+    const std::size_t n = ring.size();
+    if (n < 3) return 0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const UVCoord& a = ring[i];
+        const UVCoord& b = ring[(i + 1) % n];
+        const bool aBelow = a.v <= q.v;
+        const bool bBelow = b.v <= q.v;
+        if (aBelow == bBelow) continue;
+        const double t = (q.v - a.v) / (b.v - a.v);
+        const double xu = a.u + t * (b.u - a.u);
+        if (xu > q.u) ++crossings;
+    }
+    return crossings;
+}
+
+} // anonymous namespace
+
+TrimSelfIntersectResult checkTrimmedFaceSelfIntersection(
+    const TrimmedFace& face, std::size_t loopSamples, double onTol) {
+    (void)onTol;
+    TrimSelfIntersectResult out;
+    if (loopSamples < 1) loopSamples = 1;
+
+    // Flatten every loop ONCE into a (u,v) polyline (outer + holes alike).
+    std::vector<std::vector<UVCoord>> rings;
+    rings.reserve(face.loops.size());
+    for (const auto& loop : face.loops)
+        rings.push_back(flattenTrimLoopUV(loop, loopSamples));
+
+    // (A) INTRA-LOOP self-crossing: each flattened loop must be a simple wire (a
+    //     curved pcurve that loops back over itself crosses one of its own edges).
+    for (std::size_t k = 0; k < rings.size(); ++k) {
+        if (ringsCross(rings[k], rings[k], /*sameRing=*/true)) {
+            out.selfIntersects = true;
+            out.loops = {k};
+            out.detail = "loop " + std::to_string(k) +
+                         " pcurve self-crosses (non-simple wire)";
+            return out;
+        }
+    }
+
+    // Identify the outer loop (isOuter==true, else the largest-extent ring).
+    std::size_t outerIdx = 0;
+    {
+        bool found = false;
+        for (std::size_t k = 0; k < face.loops.size(); ++k) {
+            if (face.loops[k].isOuter) { outerIdx = k; found = true; break; }
+        }
+        if (!found) {
+            double best = -1.0;
+            for (std::size_t k = 0; k < rings.size(); ++k) {
+                double minu = 1e300, maxu = -1e300, minv = 1e300, maxv = -1e300;
+                for (const auto& q : rings[k]) {
+                    minu = std::min(minu, q.u); maxu = std::max(maxu, q.u);
+                    minv = std::min(minv, q.v); maxv = std::max(maxv, q.v);
+                }
+                const double ext = (maxu - minu) + (maxv - minv);
+                if (ext > best) { best = ext; outerIdx = k; }
+            }
+        }
+    }
+
+    // (B) INTER-LOOP crossing: NO two distinct loops may cross. A hole whose
+    //     boundary pokes OUTSIDE the outer loop, or two holes that overlap, produce
+    //     a proper boundary crossing here — the imbrication signal.
+    for (std::size_t i = 0; i < rings.size(); ++i) {
+        for (std::size_t j = i + 1; j < rings.size(); ++j) {
+            if (ringsCross(rings[i], rings[j], /*sameRing=*/false)) {
+                out.selfIntersects = true;
+                out.loops = {i, j};
+                out.detail = "loops " + std::to_string(i) + " and " +
+                             std::to_string(j) + " cross (hole imbricates boundary)";
+                return out;
+            }
+        }
+    }
+
+    // (C) WHOLLY-OUTSIDE / nested-wrong containment: an inner (hole) loop must lie
+    //     ENTIRELY inside the outer loop. A hole sitting wholly outside the outer
+    //     boundary never crosses it, so (B) alone would miss it — classify each hole
+    //     vertex against the OUTER ring by even-odd parity; any hole vertex strictly
+    //     outside the outer loop is an imbrication.
+    if (outerIdx < rings.size()) {
+        const std::vector<UVCoord>& outer = rings[outerIdx];
+        for (std::size_t k = 0; k < rings.size(); ++k) {
+            if (k == outerIdx) continue;
+            for (const UVCoord& q : rings[k]) {
+                if ((rayCrossingsUV(q, outer) % 2) == 0) {  // even ⇒ outside outer
+                    out.selfIntersects = true;
+                    out.loops = {outerIdx, k};
+                    out.detail = "hole loop " + std::to_string(k) +
+                                 " lies outside outer loop " +
+                                 std::to_string(outerIdx) + " (imbrication)";
+                    return out;
+                }
+            }
+        }
+    }
+
+    return out;  // simple: no self-intersection / imbrication
 }
 
 } // namespace brep
