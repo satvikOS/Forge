@@ -19,6 +19,42 @@ The file *count* flatters the truth: the high-value hard files (Features 1603 LO
 
 Native substrate that already exists (credited): `native/brep/` — StepAnalytic (read+write), StepFaceted, Loft, Sweep, NurbsSurface, SurfaceIntersect, MassProps; `native/mesh/` — Repair (vertex-weld = sewing substrate), ProjectSilhouette (HLR substrate), Offset/Inset, Shell, HoleFill, Curvature.
 
+## 1b. STATUS UPDATE — 2026-06-24 (native-build sprint, git-grounded)
+
+The §1 figure (~35–40%) was the **2026-06-23 audit baseline**. A native-build sprint
+since — 24+ commits `6a0ff98a`→`eb573265`, run in **balanced alternation with the 14B
+training blocks** (GPU-train XOR kernel-clang; never concurrent) — has built AND
+**A/B-certified vs OCCT** most of the Wave-3 "hard frontier" §4 listed as missing.
+Ground truth in-tree right now: **124 native `src/native/**` modules · 117 pure-C++
+native gates (all green, deterministic) · 32 `native_vs_occt_*` A/B harnesses.**
+
+Wave-3 keystones now BUILT + certified (commit):
+- **W3.1 trimmed-NURBS B-rep face (THE keystone blocker)** + foreign-STEP read — `21ddb928`, `7a1c70aa`
+- NURBS-aware SSI + sew/heal — `2648a1ec`; **exact boolean (ExactReal EPECK)** — `7a1c70aa`
+- **W3.4/W3.5** native validator (BRepCheck-class, ~30 predicates) + healing (ShapeFix-class) — `9ac09f87`
+- fillet family: analytic rolling-ball + concave/edge-chains + asym/variable; chamfer; offset/shell; offset-shape — `9ac09f87`,`4f1e5cc4`,`d36e4f6d`
+- loft/sweep/helical-sweep + analytic pattern + section — `7e145feb`, burst-2/3
+- **W3.6 HLR** ortho + perspective — `7e145feb`
+- **W3.10** Class-A G1 Coons fill (`7e145feb`) + G2 surface fill (`bad9be18`) + n-sided G1 Gregory hole-fill (`f3784933`)
+- queries (min-distance / point-in-solid) + exact convex hull (CGAL-class) — `bad9be18`
+- gear family: involute spur + internal/ring + straight bevel — `bad9be18`, `f3784933`
+- libfive-class interval-guaranteed implicit mesher + PicoGK-class voxel-field ops — `f3784933`
+- STEP + IGES read AND write — `d36e4f6d`, `7a1c70aa`
+
+**HONEST distinction (Bible §0):** these are native CAPABILITIES that EXIST and pass an
+A/B gate vs OCCT — or vs closed-form/analytic ground truth where OCCT has no primitive
+(interval mesher, voxel-field op, gear, n-sided fill: analytic IS the stronger oracle).
+OCCT is **still compiled** as the A/B oracle + fallback. The remaining work is **Phase D**
+— flip every runtime op to native-default behind its gate, freeze an OCCT golden corpus,
+then DELETE OCCT — deliberately last, against full regression + CADGenBench. Booleans
+**lineage** (Modified/Generated/IsDeleted) and fuzzy-boolean policy remain the named
+Phase-D gates (§5/§6). Net: the §4 "hard 65%" is now largely BUILT+certified; what's
+left is the runtime-flip + oracle-freeze + deletion, not the geometry itself.
+
+**CI determinism:** every randomized native gate takes a fixed default seed (argv[1]
+override) — reproducible CI; the two RNG-consuming gates (interval-mesh, voxel-field)
+pass **0/2048** in a seed-robustness sweep.
+
 ## 2. WAVE 1 — "ready to flip" (native EXISTS + A/B-testable)
 
 Run `native_vs_occt` parity (volume/COM/inertia/AABB), confirm pass, flip the per-op `FORGE_NATIVE_BREP` gate to native-default; **keep OCCT compiled as oracle + fallback.** Lowest risk — do first.
