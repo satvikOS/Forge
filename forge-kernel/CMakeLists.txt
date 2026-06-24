@@ -430,6 +430,8 @@ add_library(forge_kernel SHARED
     # link libs. Previously compiled ONLY by test/native/run_native.sh; now built
     # INTO forge-kernel.node so the validated ops are callable in-platform.
     src/native/Predicates.cpp
+    src/native/ExactReal.cpp            # K2 — in-house EPECK lazy-exact rational (big-int num/den + double interval filter)
+    src/native/ExactPredicates3D.cpp    # K2 — exact orient3D/inSphere + exact edge-plane / seg-seg intersection CONSTRUCTIONS
     src/native/geom/Geom.cpp
     src/native/geom/Delaunay.cpp
     src/native/gdt/Gdt.cpp
@@ -437,6 +439,7 @@ add_library(forge_kernel SHARED
     src/native/mesh/TriTriIntersect.cpp
     src/native/mesh/MeshBoolean.cpp
     src/native/mesh/MeshBooleanNative.cpp
+    src/native/mesh/MeshBooleanExact.cpp   # K2 — robust exact-construction boolean (canonical exact-point weld) for the degenerate sliver/coplanar class
     src/native/implicit/SdfTree.cpp
     src/native/implicit/IsoMesher.cpp
     src/native/implicit/DualContour.cpp
@@ -511,6 +514,7 @@ add_library(forge_kernel SHARED
     # Their only deps (Predicates/Geom/HalfEdgeMesh/Topology/Surface) already link.
     src/native/brep/StepFaceted.cpp
     src/native/brep/StepAnalytic.cpp
+    src/native/brep/StepRead.cpp        # K6 — foreign STEP AP203/214 read: EXPRESS instance graph -> analytic+B-spline ADVANCED_FACE -> TrimmedFace -> sew -> native shell/solid
     # Task #46 — bind the remaining forge::native engines into the addon so
     # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).
     # geom/AABBTree + voxel/VoxelBoolean are cam's #include dependencies; list

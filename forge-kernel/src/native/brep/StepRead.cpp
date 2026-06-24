@@ -1,0 +1,1290 @@
+// forge/native/brep/StepRead.cpp
+//
+// Implementation of the FOREIGN STEP reader (StepRead.hpp). Pure C++20, standard
+// library + forge native headers only. No OCCT, no WASM.
+//
+// PIPELINE
+//   1. Lex the ISO-10303-21 envelope + DATA section into an id->Instance table
+//      (StepPart21.hpp). Complex/combined instances "#id=(A(..)B(..))" are stored
+//      with empty type and the whole "(...)" string as params; this reader DECODES
+//      them (the rational-B-spline + unit complex records that every commercial
+//      exporter emits) by splitting the top-level sub-records.
+//   2. Resolve the length unit from the GEOMETRIC_REPRESENTATION_CONTEXT so every
+//      CARTESIAN_POINT is scaled to millimetres.
+//   3. Walk every shell-bearing root (MANIFOLD_SOLID_BREP / BREP_WITH_VOIDS /
+//      SHELL_BASED_SURFACE_MODEL / MANIFOLD_SURFACE_SHAPE_REPRESENTATION) -> its
+//      CLOSED_SHELL/OPEN_SHELL -> ADVANCED_FACEs.
+//   4. Per ADVANCED_FACE: reconstruct the surface; build the outer + inner loops
+//      as an INDEPENDENT native face (private vertices/edges). Quadric faces are
+//      native analytic Surfaces (EXACT mass props); B-spline faces become a
+//      TrimmedFace + a native Nurbs Surface so the solid integrates and the patch
+//      area round-trips. Unsupported surfaces are RECORDED (never faked/dropped).
+//   5. SEW (Sew.hpp) all faces into a connected shell; diagnose closure + the
+//      V/E/F topology signature.
+
+#include "forge/native/brep/StepRead.hpp"
+
+#include "forge/native/brep/StepPart21.hpp"
+#include "forge/native/brep/Surface.hpp"
+#include "forge/native/brep/Nurbs.hpp"
+#include "forge/native/brep/NurbsSurface.hpp"
+#include "forge/native/brep/Curve.hpp"
+#include "forge/native/brep/Sew.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <cstdint>
+#include <map>
+#include <set>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace forge {
+namespace native {
+namespace brep {
+
+namespace {
+
+using p21::Instance;
+using p21::splitTopLevel;
+using p21::parseRef;
+using p21::parseList;
+using p21::stepNum;
+
+constexpr double PI = 3.14159265358979323846;
+
+inline Vec3 PV(const Point3& p) { return Vec3{p.x, p.y, p.z}; }
+inline Point3 P3(const Vec3& v) { return Point3{v.x, v.y, v.z}; }
+
+ForeignReadResult fail(const std::string& why) {
+    ForeignReadResult r; r.ok = false; r.reason = why; return r;
+}
+
+// ---------------------------------------------------------------------------
+// COMPLEX / SIMPLE instance access. A complex instance "#id=(A(..)B(..))" is
+// stored by the lexer with type "" and params == "(A(..)B(..))" (note the outer
+// parens are part of params because the lexer captured them as the balanced
+// group). We expose the sub-records keyed by their type keyword.
+// ---------------------------------------------------------------------------
+struct SubRecord { std::string type; std::string params; };
+
+// Split a complex-instance param string "(A(..)B(..)C(..))" — or the bare inner
+// "A(..)B(..)C(..)" — into its typed sub-records. Returns empty for a simple one.
+std::vector<SubRecord> splitComplex(const std::string& rawParams) {
+    std::string s = rawParams;
+    // Strip one layer of outer parens if present.
+    {
+        std::size_t b = 0, e = s.size();
+        while (b < e && (s[b] == ' ' || s[b] == '\n' || s[b] == '\t' || s[b] == '\r')) ++b;
+        while (e > b && (s[e-1] == ' ' || s[e-1] == '\n' || s[e-1] == '\t' || s[e-1] == '\r')) --e;
+        s = s.substr(b, e - b);
+        if (!s.empty() && s.front() == '(' && s.back() == ')') s = s.substr(1, s.size() - 2);
+    }
+    std::vector<SubRecord> out;
+    std::size_t i = 0, n = s.size();
+    while (i < n) {
+        while (i < n && (s[i] == ' ' || s[i] == '\n' || s[i] == '\t' || s[i] == '\r')) ++i;
+        if (i >= n) break;
+        // a type keyword [A-Z0-9_]+
+        std::size_t tb = i;
+        while (i < n && (s[i] == '_' || (s[i] >= 'A' && s[i] <= 'Z') ||
+                         (s[i] >= '0' && s[i] <= '9'))) ++i;
+        if (i == tb) break;                 // not a complex record
+        std::string type = s.substr(tb, i - tb);
+        while (i < n && (s[i] == ' ' || s[i] == '\n')) ++i;
+        if (i >= n || s[i] != '(') break;   // malformed
+        // balanced parens
+        int depth = 0; bool inStr = false; std::size_t j = i;
+        for (; j < n; ++j) {
+            char c = s[j];
+            if (inStr) { if (c == '\'') { if (j+1 < n && s[j+1]=='\'') ++j; else inStr=false; } continue; }
+            if (c == '\'') inStr = true;
+            else if (c == '(') ++depth;
+            else if (c == ')') { --depth; if (depth == 0) break; }
+        }
+        if (j >= n) break;
+        std::string params = s.substr(i + 1, j - (i + 1));
+        out.push_back({std::move(type), std::move(params)});
+        i = j + 1;
+    }
+    return out;
+}
+
+// Resolve the EFFECTIVE type + params of an instance id, transparently looking
+// inside a complex record for the sub-record matching `wantedTypes` (any of). For
+// a simple instance, just returns its type/params. Returns false if not found.
+struct Resolver {
+    const std::unordered_map<std::uint64_t, Instance>& tab;
+
+    bool get(std::uint64_t id, Instance& out) const {
+        auto it = tab.find(id);
+        if (it == tab.end()) return false;
+        out = it->second;
+        return true;
+    }
+
+    // Return the simple type (or "" for a complex record).
+    std::string typeOf(std::uint64_t id) const {
+        auto it = tab.find(id);
+        if (it == tab.end()) return "";
+        return it->second.type;
+    }
+};
+
+// Resolve a CARTESIAN_POINT id -> Vec3 (unscaled, raw file units).
+bool getPoint(const Resolver& R, std::uint64_t id, Vec3& out) {
+    Instance ins; if (!R.get(id, ins)) return false;
+    if (ins.type != "CARTESIAN_POINT") return false;
+    auto p = splitTopLevel(ins.params);
+    std::vector<std::string> c;
+    if (p.size() < 2 || !parseList(p[1], c) || c.size() < 3) return false;
+    return stepNum(c[0], out.x) && stepNum(c[1], out.y) && stepNum(c[2], out.z);
+}
+
+// Resolve a DIRECTION id -> Vec3.
+bool getDir(const Resolver& R, std::uint64_t id, Vec3& out) {
+    Instance ins; if (!R.get(id, ins)) return false;
+    if (ins.type != "DIRECTION") return false;
+    auto p = splitTopLevel(ins.params);
+    std::vector<std::string> c;
+    if (p.size() < 2 || !parseList(p[1], c) || c.size() < 3) return false;
+    return stepNum(c[0], out.x) && stepNum(c[1], out.y) && stepNum(c[2], out.z);
+}
+
+// Resolve AXIS2_PLACEMENT_3D -> (origin, axis(+Z), ref(+X)). Ref defaults to a
+// perpendicular of axis when absent ('$'). Origin is left in raw file units.
+bool getAxis2(const Resolver& R, std::uint64_t id, Vec3& origin, Vec3& axis, Vec3& ref) {
+    Instance ins; if (!R.get(id, ins)) return false;
+    if (ins.type != "AXIS2_PLACEMENT_3D") return false;
+    auto p = splitTopLevel(ins.params);
+    if (p.size() < 4) return false;
+    std::uint64_t oId = 0, aId = 0, rId = 0;
+    if (!parseRef(p[1], oId) || !getPoint(R, oId, origin)) return false;
+    if (parseRef(p[2], aId)) { if (!getDir(R, aId, axis)) return false; }
+    else axis = Vec3{0, 0, 1};
+    if (parseRef(p[3], rId)) { if (!getDir(R, rId, ref)) return false; }
+    else {
+        Vec3 a = vnorm(axis);
+        Vec3 t = (std::fabs(a.x) < 0.9) ? Vec3{1, 0, 0} : Vec3{0, 1, 0};
+        ref = vnorm(vsub(t, vscale(a, vdot(t, a))));
+    }
+    axis = vnorm(axis);
+    ref = vnorm(vsub(ref, vscale(axis, vdot(ref, axis))));
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// UNIT context — find the length scale to millimetres.
+// ---------------------------------------------------------------------------
+double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& tab,
+                            std::string& unitNameOut) {
+    // Look for a (LENGTH_UNIT()...SI_UNIT(prefix,.METRE.)) or a
+    // CONVERSION_BASED_UNIT('inch'/'foot',...). Default mm (scale 1).
+    auto siMetreScale = [](const std::string& prefix) -> double {
+        // SI metre prefixes -> scale-to-mm.
+        if (prefix.find("MILLI") != std::string::npos) return 1.0;
+        if (prefix.find("CENTI") != std::string::npos) return 10.0;
+        if (prefix.find("DECI")  != std::string::npos) return 100.0;
+        if (prefix.find("KILO")  != std::string::npos) return 1.0e6;
+        if (prefix.find("MICRO") != std::string::npos) return 1.0e-3;
+        if (prefix.find("$") != std::string::npos || prefix.empty()) return 1000.0; // bare metre
+        return 1000.0; // unknown prefix -> treat as metre
+    };
+    for (const auto& kv : tab) {
+        const Instance& ins = kv.second;
+        // SIMPLE SI length unit only appears as a COMPLEX record:
+        // (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))
+        if (ins.type.empty()) {
+            auto subs = splitComplex(ins.params);
+            bool isLength = false; std::string prefix;
+            for (const auto& s : subs) {
+                if (s.type == "LENGTH_UNIT") isLength = true;
+                if (s.type == "SI_UNIT") {
+                    auto f = splitTopLevel(s.params);
+                    if (f.size() >= 2 && f[1].find("METRE") != std::string::npos) {
+                        prefix = f[0];
+                    }
+                }
+            }
+            if (isLength && !prefix.empty()) {
+                unitNameOut = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE" : "METRE";
+                return siMetreScale(prefix);
+            }
+        }
+        // CONVERSION_BASED_UNIT('inch',#measure) — imperial.
+        if (ins.type == "CONVERSION_BASED_UNIT") {
+            auto p = splitTopLevel(ins.params);
+            if (!p.empty()) {
+                std::string nm = p[0];
+                std::transform(nm.begin(), nm.end(), nm.begin(),
+                               [](unsigned char c){ return (char)std::tolower(c); });
+                if (nm.find("inch") != std::string::npos) { unitNameOut = "INCH"; return 25.4; }
+                if (nm.find("foot") != std::string::npos) { unitNameOut = "FOOT"; return 304.8; }
+            }
+        }
+    }
+    unitNameOut = "MILLIMETRE";
+    return 1.0;
+}
+
+// ---------------------------------------------------------------------------
+// SURFACE reconstruction.
+//   * The 5 quadrics -> native analytic Surface (EXACT mass props path).
+//   * B_SPLINE_SURFACE_WITH_KNOTS (+ rational complex form) -> NurbsSurface.
+// ---------------------------------------------------------------------------
+
+// Expand a (mult,distinct-knot) pair into the full flat knot vector.
+std::vector<double> expandKnots(const std::vector<int>& mult,
+                                const std::vector<double>& vals) {
+    std::vector<double> out;
+    for (std::size_t i = 0; i < vals.size() && i < mult.size(); ++i)
+        for (int k = 0; k < mult[i]; ++k) out.push_back(vals[i]);
+    return out;
+}
+
+// Parse a list of ints "(1,2,3)".
+bool parseIntList(const std::string& tok, std::vector<int>& out) {
+    std::vector<std::string> f;
+    if (!parseList(tok, f)) return false;
+    out.clear();
+    for (const auto& s : f) { double d; if (!stepNum(s, d)) return false; out.push_back((int)std::llround(d)); }
+    return true;
+}
+bool parseRealList(const std::string& tok, std::vector<double>& out) {
+    std::vector<std::string> f;
+    if (!parseList(tok, f)) return false;
+    out.clear();
+    for (const auto& s : f) { double d; if (!stepNum(s, d)) return false; out.push_back(d); }
+    return true;
+}
+
+// Reconstruct a B-spline surface from a B_SPLINE_SURFACE_WITH_KNOTS field set
+// (degreeU, degreeV, control-grid-of-#refs, ..., uMult, vMult, uKnots, vKnots).
+// `fields` are the surface's parameters AFTER the leading "''" name field has been
+// dropped (so fields[0] = degreeU). `rationalWeights` (optional, nU x nV) applies
+// the rational variant. Points are scaled to mm by `scale`.
+bool buildBSplineSurface(const Resolver& R, const std::vector<std::string>& fields,
+                         const std::vector<std::vector<double>>* rationalWeights,
+                         double scale, NurbsSurface& out, std::string& why) {
+    // fields layout for B_SPLINE_SURFACE_WITH_KNOTS (post-name):
+    //   0:uDeg 1:vDeg 2:ctrlGrid 3:surfForm 4:uClosed 5:vClosed 6:selfInt
+    //   7:uMult 8:vMult 9:uKnots 10:vKnots [11:knotSpec]
+    if (fields.size() < 11) { why = "B_SPLINE_SURFACE_WITH_KNOTS arity"; return false; }
+    double du = 0, dv = 0;
+    if (!stepNum(fields[0], du) || !stepNum(fields[1], dv)) { why = "bspline degree"; return false; }
+    out.degreeU = (std::size_t)std::llround(du);
+    out.degreeV = (std::size_t)std::llround(dv);
+
+    // control grid: a list of rows, each row a list of #refs.
+    std::vector<std::string> rows;
+    if (!parseList(fields[2], rows) || rows.empty()) { why = "bspline control grid"; return false; }
+    out.control.clear(); out.weights.clear();
+    out.control.resize(rows.size());
+    out.weights.resize(rows.size());
+    for (std::size_t iu = 0; iu < rows.size(); ++iu) {
+        std::vector<std::string> rowRefs;
+        if (!parseList(rows[iu], rowRefs) || rowRefs.empty()) { why = "bspline row"; return false; }
+        out.control[iu].resize(rowRefs.size());
+        out.weights[iu].assign(rowRefs.size(), 1.0);
+        for (std::size_t iv = 0; iv < rowRefs.size(); ++iv) {
+            std::uint64_t pid = 0;
+            Vec3 cp;
+            if (!parseRef(rowRefs[iv], pid) || !getPoint(R, pid, cp)) { why = "bspline ctrl pt"; return false; }
+            out.control[iu][iv] = vscale(cp, scale);
+            if (rationalWeights && iu < rationalWeights->size() &&
+                iv < (*rationalWeights)[iu].size())
+                out.weights[iu][iv] = (*rationalWeights)[iu][iv];
+        }
+    }
+    std::vector<int> uMult, vMult; std::vector<double> uK, vK;
+    if (!parseIntList(fields[7], uMult) || !parseIntList(fields[8], vMult) ||
+        !parseRealList(fields[9], uK) || !parseRealList(fields[10], vK)) {
+        why = "bspline knot data"; return false;
+    }
+    out.knotsU = expandKnots(uMult, uK);
+    out.knotsV = expandKnots(vMult, vK);
+    return true;
+}
+
+// Read the optional rational weight grid from a complex B-spline-surface record's
+// RATIONAL_B_SPLINE_SURFACE sub-record (its single field is the weight grid).
+bool readRationalWeights(const std::string& weightGridField,
+                         std::vector<std::vector<double>>& out) {
+    std::vector<std::string> rows;
+    if (!parseList(weightGridField, rows)) return false;
+    out.clear();
+    for (const auto& r : rows) {
+        std::vector<double> w;
+        if (!parseRealList(r, w)) return false;
+        out.push_back(std::move(w));
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// QUADRIC face parameterisation. Given the reconstructed quadric Surface and the
+// ordered ring of 3D vertices (already scaled to mm), fill the face trim window
+// (u0..v1) + vertexUV so the EXACT mass integrator runs on it. Mirrors the
+// StepAnalytic::attachTrim logic (anchored theta-unwrap, cone height recovery,
+// disk/annular-sector caps) but local to this TU. Returns false on failure.
+// `ringCircleCentres`/`ringCircleRadii`/`ringHasCircle` describe the boundary
+// CIRCLE of the edge LEAVING ring[i] (for the disk-cap detection on planes).
+bool parameteriseQuadric(Face* f, Surface* surf,
+                         const std::vector<Vertex*>& ring,
+                         const std::vector<bool>& ringHasCircle,
+                         const std::vector<Vec3>& ringCircleCentre,
+                         const std::vector<Vec3>& ringCircleNormal,
+                         const std::vector<double>& ringCircleRadius) {
+    f->vertexUV.clear();
+    f->vertexUV.reserve(ring.size());
+    const Vec3 axis = vnorm(surf->axis);
+    const Vec3 rdir = vnorm(surf->refDir);
+    const Vec3 bdir = surf->binormal();
+
+    const bool angular = (surf->kind == SurfaceKind::Cylinder ||
+                          surf->kind == SurfaceKind::Cone ||
+                          surf->kind == SurfaceKind::Sphere ||
+                          surf->kind == SurfaceKind::Torus);
+
+    std::vector<double> us(ring.size()), vs(ring.size());
+    double anchorTheta = 0.0; bool haveAnchor = false;
+    for (std::size_t i = 0; i < ring.size(); ++i) {
+        Vec3 rel = vsub(PV(ring[i]->point), surf->origin);
+        double x = vdot(rel, rdir), y = vdot(rel, bdir), z = vdot(rel, axis);
+        double pu = 0, pv = 0;
+        switch (surf->kind) {
+        case SurfaceKind::Plane:    pu = x; pv = y; break;
+        case SurfaceKind::Cylinder: pu = std::atan2(y, x); pv = z; break;
+        case SurfaceKind::Cone:     pu = std::atan2(y, x); pv = z; break;
+        case SurfaceKind::Sphere: {
+            pu = std::atan2(y, x);
+            double rr = vlen(rel);
+            pv = (rr > 1e-12) ? std::acos(std::max(-1.0, std::min(1.0, z / rr))) : 0.0;
+            break;
+        }
+        case SurfaceKind::Torus: {
+            pu = std::atan2(y, x);
+            double ringR = std::sqrt(x * x + y * y) - surf->r1;
+            pv = std::atan2(z, ringR);
+            break;
+        }
+        case SurfaceKind::Nurbs: pu = 0; pv = 0; break;
+        }
+        if (angular) {
+            bool radialDefined = (std::sqrt(x * x + y * y) > 1e-9);
+            if (!haveAnchor && radialDefined) { anchorTheta = pu; haveAnchor = true; }
+            if (haveAnchor) {
+                while (pu - anchorTheta >  PI) pu -= 2.0 * PI;
+                while (pu - anchorTheta < -PI) pu += 2.0 * PI;
+            }
+        }
+        us[i] = pu; vs[i] = pv;
+    }
+    if (surf->kind == SurfaceKind::Torus) {
+        double anchorPhi = vs[0];
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            while (vs[i] - anchorPhi >  PI) vs[i] -= 2.0 * PI;
+            while (vs[i] - anchorPhi < -PI) vs[i] += 2.0 * PI;
+        }
+    }
+    // POLE u-collapse.
+    if (angular) {
+        double sumU = 0; int cntU = 0;
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            Vec3 rel = vsub(PV(ring[i]->point), surf->origin);
+            double rad = std::sqrt(vdot(rel, rdir) * vdot(rel, rdir) +
+                                   vdot(rel, bdir) * vdot(rel, bdir));
+            if (rad > 1e-9) { sumU += us[i]; ++cntU; }
+        }
+        if (cntU > 0 && cntU < (int)ring.size()) {
+            double meanU = sumU / cntU;
+            for (std::size_t i = 0; i < ring.size(); ++i) {
+                Vec3 rel = vsub(PV(ring[i]->point), surf->origin);
+                double rad = std::sqrt(vdot(rel, rdir) * vdot(rel, rdir) +
+                                       vdot(rel, bdir) * vdot(rel, bdir));
+                if (rad <= 1e-9) us[i] = meanU;
+            }
+        }
+    }
+    // CONE height recovery.
+    if (surf->kind == SurfaceKind::Cone) {
+        double vmin = vs[0], vmax = vs[0];
+        for (double v : vs) { vmin = std::min(vmin, v); vmax = std::max(vmax, v); }
+        double H = vmax - vmin;
+        if (H < 1e-12) return false;
+        const double refRadius = surf->r1;
+        const double slope = surf->param;
+        surf->origin = vadd(surf->origin, vscale(axis, vmin));
+        surf->r1 = refRadius + slope * vmin;
+        surf->r2 = refRadius + slope * vmax;
+        surf->param = H;
+        for (double& v : vs) v = (v - vmin) / H;
+    }
+
+    double u0 = us[0], u1 = us[0], v0 = vs[0], v1 = vs[0];
+    for (std::size_t i = 0; i < ring.size(); ++i) {
+        f->vertexUV.push_back({us[i], vs[i]});
+        u0 = std::min(u0, us[i]); u1 = std::max(u1, us[i]);
+        v0 = std::min(v0, vs[i]); v1 = std::max(v1, vs[i]);
+    }
+    f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
+
+    // PLANE-as-DISK / ANNULAR-SECTOR (curved-primitive cap bounded by circles).
+    if (surf->kind == SurfaceKind::Plane) {
+        Vec3 centre{0, 0, 0}; bool haveCentre = false;
+        double rInner = 0.0, rOuter = 0.0; int nCircles = 0; bool consistent = true;
+        const Vec3 nAxis = vnorm(surf->axis);
+        for (std::size_t i = 0; i < ring.size(); ++i) {
+            if (!ringHasCircle[i]) continue;
+            if (std::fabs(std::fabs(vdot(vnorm(ringCircleNormal[i]), nAxis)) - 1.0) > 1e-6) continue;
+            if (!haveCentre) { centre = ringCircleCentre[i]; haveCentre = true; }
+            else if (vlen(vsub(ringCircleCentre[i], centre)) > 1e-6 * std::max(1.0, vlen(centre))) {
+                consistent = false; break;
+            }
+            ++nCircles;
+            if (ringCircleRadius[i] > rOuter) rOuter = ringCircleRadius[i];
+            if (rInner == 0.0 || ringCircleRadius[i] < rInner) rInner = ringCircleRadius[i];
+        }
+        bool diskShaped = haveCentre && consistent && nCircles >= 1 && rOuter > 1e-9;
+        if (diskShaped) {
+            const std::size_t n = ring.size();
+            for (std::size_t i = 0; i < n && diskShaped; ++i) {
+                if (ringHasCircle[i]) continue;
+                Vec3 a = vsub(PV(ring[i]->point), centre);
+                Vec3 b = vsub(PV(ring[(i + 1) % n]->point), centre);
+                double ax = vdot(a, rdir), ay = vdot(a, bdir);
+                double bx = vdot(b, rdir), by = vdot(b, bdir);
+                double cross = ax * by - ay * bx;
+                double sc = std::max(1.0, rOuter * rOuter);
+                if (std::fabs(cross) > 1e-6 * sc) diskShaped = false;
+            }
+        }
+        if (diskShaped) {
+            if (rInner >= rOuter - 1e-9) rInner = 0.0;
+            const double TWO_PI = 2.0 * PI;
+            bool allArcs = true;
+            for (bool h : ringHasCircle) if (!h) { allArcs = false; break; }
+            double aMin, aMax;
+            if (allArcs) { aMin = 0.0; aMax = TWO_PI; }
+            else {
+                const std::size_t n = ring.size();
+                Vec3 rel0 = vsub(PV(ring[0]->point), centre);
+                double a0 = std::atan2(vdot(rel0, bdir), vdot(rel0, rdir));
+                double lo = 0, hi = 0;
+                for (std::size_t i = 0; i < n; ++i) {
+                    Vec3 rel = vsub(PV(ring[i]->point), centre);
+                    if (std::sqrt(vdot(rel, rdir) * vdot(rel, rdir) +
+                                  vdot(rel, bdir) * vdot(rel, bdir)) < 1e-9) continue;
+                    double a = std::atan2(vdot(rel, bdir), vdot(rel, rdir)) - a0;
+                    while (a >  PI) a -= TWO_PI;
+                    while (a < -PI) a += TWO_PI;
+                    lo = std::min(lo, a); hi = std::max(hi, a);
+                }
+                aMin = a0 + lo; aMax = a0 + hi;
+            }
+            surf->isDisk = true;
+            surf->diskInner = rInner;
+            surf->diskOuter = rOuter;
+            surf->origin = centre;
+            f->u0 = aMin; f->u1 = aMax;
+            f->v0 = rInner; f->v1 = rOuter;
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// EDGE_CURVE circle geometry (for the disk-cap detection on planar faces).
+// ---------------------------------------------------------------------------
+struct EdgeCircle { bool ok = false; Vec3 centre{}; Vec3 normal{}; double radius = 0; };
+
+EdgeCircle circleOfEdgeCurve(const Resolver& R, std::uint64_t ecId, double scale) {
+    EdgeCircle out;
+    Instance ec; if (!R.get(ecId, ec) || ec.type != "EDGE_CURVE") return out;
+    auto ep = splitTopLevel(ec.params);
+    if (ep.size() < 5) return out;
+    std::uint64_t curveId = 0;
+    if (!parseRef(ep[3], curveId)) return out;
+    Instance ci; if (!R.get(curveId, ci) || ci.type != "CIRCLE") return out;
+    auto cp = splitTopLevel(ci.params);
+    if (cp.size() < 3) return out;
+    std::uint64_t ax = 0;
+    if (!parseRef(cp[1], ax)) return out;
+    Vec3 o, a, rdir;
+    if (!getAxis2(R, ax, o, a, rdir)) return out;
+    double rad;
+    if (!stepNum(cp[2], rad)) return out;
+    out.centre = vscale(o, scale); out.normal = vnorm(a);
+    out.radius = rad * scale; out.ok = true;
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// SURFACE POINT-INVERSION. Map a 3D model-space point P (already scaled to mm)
+// back to the surface (u,v) parameter so a foreign edge can be expressed as a
+// real PCurve in the surface's parameter plane (the trim-loop geometry the
+// kernel actually consumes). REAL inversion — no synthesis:
+//   * Plane:    analytic — (u,v) = ((P-origin)·refDir, (P-origin)·binormal).
+//   * NURBS:    Gauss-Newton minimisation of |S(u,v) - P|^2 using the analytic
+//               partials (evaluateWithDerivatives), seeded from the best point
+//               of a coarse parameter grid, clamped to the clamped knot domain.
+// Returns false honestly if the inversion does not converge to the point.
+// ---------------------------------------------------------------------------
+bool invertPlane(const Surface& s, const Vec3& P, UVCoord& uv) {
+    const Vec3 rel = vsub(P, s.origin);
+    const Vec3 bdir = s.binormal();
+    uv.u = vdot(rel, vnorm(s.refDir));
+    uv.v = vdot(rel, vnorm(bdir));
+    return true;
+}
+
+bool invertNurbs(const NurbsSurface& surf, const Vec3& P, UVCoord& uv,
+                 double tol3d) {
+    if (surf.knotsU.empty() || surf.knotsV.empty()) return false;
+    const double u0 = surf.knotsU.front(), u1 = surf.knotsU.back();
+    const double v0 = surf.knotsV.front(), v1 = surf.knotsV.back();
+    // Coarse grid seed: nearest sample to P.
+    double bu = 0.5 * (u0 + u1), bv = 0.5 * (v0 + v1), bestD2 = 1e300;
+    const int N = 16;
+    for (int i = 0; i <= N; ++i) {
+        for (int j = 0; j <= N; ++j) {
+            const double u = u0 + (u1 - u0) * (double(i) / N);
+            const double v = v0 + (v1 - v0) * (double(j) / N);
+            SurfaceSample s = evaluatePoint(surf, u, v);
+            if (!s.ok) continue;
+            const Vec3 d = vsub(s.point, P);
+            const double d2 = vdot(d, d);
+            if (d2 < bestD2) { bestD2 = d2; bu = u; bv = v; }
+        }
+    }
+    // Gauss-Newton refine: solve [Su·Su Su·Sv; Sv·Su Sv·Sv] [du;dv] = [Su·r; Sv·r]
+    // with r = P - S, to minimise |S-P|^2.
+    double u = bu, v = bv;
+    for (int it = 0; it < 64; ++it) {
+        SurfaceSample s = evaluateWithDerivatives(surf, u, v);
+        if (!s.ok) { SurfaceSample sp = evaluatePoint(surf, u, v); if (!sp.ok) return false;
+                     s.point = sp.point; s.du = Vec3{0,0,0}; s.dv = Vec3{0,0,0}; }
+        const Vec3 r = vsub(P, s.point);
+        const double a11 = vdot(s.du, s.du), a12 = vdot(s.du, s.dv), a22 = vdot(s.dv, s.dv);
+        const double b1 = vdot(s.du, r), b2 = vdot(s.dv, r);
+        const double det = a11 * a22 - a12 * a12;
+        if (std::fabs(det) < 1e-30) break;            // singular -> stop, accept current
+        const double du = (b1 * a22 - b2 * a12) / det;
+        const double dv = (a11 * b2 - a12 * b1) / det;
+        u += du; v += dv;
+        u = std::max(u0, std::min(u1, u));
+        v = std::max(v0, std::min(v1, v));
+        if (std::fabs(du) + std::fabs(dv) < 1e-14) break;
+    }
+    SurfaceSample fin = evaluatePoint(surf, u, v);
+    if (!fin.ok) return false;
+    const Vec3 d = vsub(fin.point, P);
+    if (vlen(d) > tol3d) return false;                // did not converge to the point
+    uv.u = u; uv.v = v;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// EDGE_CURVE 3D GEOMETRY. Resolve the underlying 3D curve of an EDGE_CURVE into a
+// tagged record (LINE / CIRCLE / ELLIPSE / B_SPLINE_CURVE_WITH_KNOTS), with all
+// geometry scaled to mm. The endpoints are taken from the edge's two VERTEX_POINTs
+// (the file's literal vertices), the orientation flag is applied by the caller.
+// ---------------------------------------------------------------------------
+enum class EdgeGeomKind { Line, Circle, Ellipse, BSpline };
+struct EdgeGeom {
+    bool ok = false;
+    EdgeGeomKind kind = EdgeGeomKind::Line;
+    Vec3 v0{}, v1{};                  // the two VERTEX_POINTs (scaled, file sense start->end)
+    // CIRCLE / ELLIPSE
+    Vec3 centre{}, axis{}, refDir{};  // placement frame (axis = plane normal, refDir = +X)
+    double radius = 0.0;              // CIRCLE radius / ELLIPSE semi-major
+    double radius2 = 0.0;             // ELLIPSE semi-minor
+    // B_SPLINE_CURVE_WITH_KNOTS
+    NurbsCurve nurbs;
+    std::string typeKeyword;          // for the honest unsupported report
+};
+
+// Parse a B_SPLINE_CURVE_WITH_KNOTS field set (post-name) into a NurbsCurve.
+// fields: 0:degree 1:ctrlPts 2:form 3:closed 4:selfInt 5:mult 6:knots [7:knotSpec].
+bool buildBSplineCurve(const Resolver& R, const std::vector<std::string>& fields,
+                       const std::vector<double>* rationalWeights,
+                       double scale, NurbsCurve& out) {
+    if (fields.size() < 7) return false;
+    double deg = 0;
+    if (!stepNum(fields[0], deg)) return false;
+    out.degree = (std::size_t)std::llround(deg);
+    std::vector<std::string> cpRefs;
+    if (!parseList(fields[1], cpRefs) || cpRefs.empty()) return false;
+    out.controlPoints.clear(); out.weights.clear();
+    out.controlPoints.reserve(cpRefs.size());
+    for (std::size_t i = 0; i < cpRefs.size(); ++i) {
+        std::uint64_t pid = 0; Vec3 cp;
+        if (!parseRef(cpRefs[i], pid) || !getPoint(R, pid, cp)) return false;
+        out.controlPoints.push_back(vscale(cp, scale));
+        out.weights.push_back((rationalWeights && i < rationalWeights->size())
+                                  ? (*rationalWeights)[i] : 1.0);
+    }
+    std::vector<int> mult; std::vector<double> kv;
+    if (!parseIntList(fields[5], mult) || !parseRealList(fields[6], kv)) return false;
+    out.knots = expandKnots(mult, kv);
+    return out.knots.size() == out.controlPoints.size() + out.degree + 1;
+}
+
+EdgeGeom readEdgeGeom(const Resolver& R, std::uint64_t ecId, double scale) {
+    EdgeGeom g;
+    Instance ec; if (!R.get(ecId, ec) || ec.type != "EDGE_CURVE") { g.typeKeyword = "EDGE_CURVE"; return g; }
+    auto ep = splitTopLevel(ec.params);
+    if (ep.size() < 5) return g;
+    std::uint64_t vS = 0, vE = 0, curveId = 0;
+    if (!parseRef(ep[1], vS) || !parseRef(ep[2], vE)) return g;
+    // endpoint vertices (file sense start->end, before ORIENTED_EDGE flip).
+    auto vertexPos = [&](std::uint64_t vp, Vec3& out) -> bool {
+        Instance vpi;
+        if (!R.get(vp, vpi) || vpi.type != "VERTEX_POINT") return false;
+        auto vpp = splitTopLevel(vpi.params);
+        std::uint64_t cp = 0;
+        if (vpp.size() < 2 || !parseRef(vpp[1], cp)) return false;
+        Vec3 pos; if (!getPoint(R, cp, pos)) return false;
+        out = vscale(pos, scale); return true;
+    };
+    if (!vertexPos(vS, g.v0) || !vertexPos(vE, g.v1)) return g;
+    // The 3D curve geometry may be absent ('*') for a purely topological edge.
+    if (ep[3] == "*" || ep[3] == "$") { g.kind = EdgeGeomKind::Line; g.ok = true; return g; }
+    if (!parseRef(ep[3], curveId)) return g;
+    Instance ci; if (!R.get(curveId, ci)) return g;
+
+    if (ci.type == "LINE") {
+        g.kind = EdgeGeomKind::Line; g.ok = true; return g;
+    }
+    if (ci.type == "CIRCLE") {
+        auto cp = splitTopLevel(ci.params);
+        if (cp.size() < 3) { g.typeKeyword = "CIRCLE"; return g; }
+        std::uint64_t ax = 0; double rad = 0;
+        if (!parseRef(cp[1], ax) || !stepNum(cp[2], rad)) { g.typeKeyword = "CIRCLE"; return g; }
+        Vec3 o, a, rd;
+        if (!getAxis2(R, ax, o, a, rd)) { g.typeKeyword = "CIRCLE"; return g; }
+        g.kind = EdgeGeomKind::Circle;
+        g.centre = vscale(o, scale); g.axis = vnorm(a); g.refDir = vnorm(rd);
+        g.radius = rad * scale; g.ok = true; return g;
+    }
+    if (ci.type == "ELLIPSE") {
+        auto cp = splitTopLevel(ci.params);
+        if (cp.size() < 4) { g.typeKeyword = "ELLIPSE"; return g; }
+        std::uint64_t ax = 0; double r1 = 0, r2 = 0;
+        if (!parseRef(cp[1], ax) || !stepNum(cp[2], r1) || !stepNum(cp[3], r2)) { g.typeKeyword = "ELLIPSE"; return g; }
+        Vec3 o, a, rd;
+        if (!getAxis2(R, ax, o, a, rd)) { g.typeKeyword = "ELLIPSE"; return g; }
+        g.kind = EdgeGeomKind::Ellipse;
+        g.centre = vscale(o, scale); g.axis = vnorm(a); g.refDir = vnorm(rd);
+        g.radius = r1 * scale; g.radius2 = r2 * scale; g.ok = true; return g;
+    }
+    if (ci.type == "B_SPLINE_CURVE_WITH_KNOTS") {
+        std::vector<std::string> fields;
+        auto p = splitTopLevel(ci.params);
+        if (p.size() < 2) { g.typeKeyword = "B_SPLINE_CURVE_WITH_KNOTS"; return g; }
+        fields.assign(p.begin() + 1, p.end());     // drop the leading name field
+        if (!buildBSplineCurve(R, fields, nullptr, scale, g.nurbs)) { g.typeKeyword = "B_SPLINE_CURVE_WITH_KNOTS"; return g; }
+        g.kind = EdgeGeomKind::BSpline; g.ok = true; return g;
+    }
+    if (ci.type.empty()) {
+        // COMPLEX curve record: (BOUNDED_CURVE()B_SPLINE_CURVE(...)
+        //   B_SPLINE_CURVE_WITH_KNOTS(...)(RATIONAL_B_SPLINE_CURVE(...))...)
+        auto subs = splitComplex(ci.params);
+        const SubRecord* base = nullptr; const SubRecord* knots = nullptr; const SubRecord* rational = nullptr;
+        for (const auto& sr : subs) {
+            if (sr.type == "B_SPLINE_CURVE") base = &sr;
+            else if (sr.type == "B_SPLINE_CURVE_WITH_KNOTS") knots = &sr;
+            else if (sr.type == "RATIONAL_B_SPLINE_CURVE") rational = &sr;
+        }
+        if (base && knots) {
+            auto bf = splitTopLevel(base->params);   // degree, ctrlPts, form, closed, selfInt
+            auto kf = splitTopLevel(knots->params);  // mult, knots, knotSpec
+            if (bf.size() >= 5 && kf.size() >= 2) {
+                std::vector<std::string> fields;
+                fields.push_back(bf[0]); fields.push_back(bf[1]); fields.push_back(bf[2]);
+                fields.push_back(bf[3]); fields.push_back(bf[4]);
+                fields.push_back(kf[0]); fields.push_back(kf[1]);
+                std::vector<double> w; const std::vector<double>* wp = nullptr;
+                if (rational) {
+                    auto rf = splitTopLevel(rational->params);
+                    if (!rf.empty() && parseRealList(rf[0], w)) wp = &w;
+                }
+                if (buildBSplineCurve(R, fields, wp, scale, g.nurbs)) {
+                    g.kind = EdgeGeomKind::BSpline; g.ok = true; return g;
+                }
+            }
+        }
+        g.typeKeyword = "COMPLEX_CURVE"; return g;
+    }
+    g.typeKeyword = ci.type;        // honest unsupported edge-curve geometry
+    return g;
+}
+
+} // namespace
+
+// ===========================================================================
+// readForeignStep
+// ===========================================================================
+ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
+    std::size_t dB = 0, dE = 0; std::string why;
+    if (!p21::locateSections(text, dB, dE, why))
+        return fail("readForeignStep: " + why);
+
+    std::unordered_map<std::uint64_t, Instance> tab;
+    if (!p21::parseInstances(text, dB, dE, tab, why))
+        return fail("readForeignStep: " + why);
+    if (tab.empty()) return fail("readForeignStep: empty DATA section");
+
+    Resolver R{tab};
+
+    ForeignReadResult result;
+    result.lengthScaleToMm = resolveLengthScaleMm(tab, result.unitName);
+    const double scale = result.lengthScaleToMm;
+
+    // --- collect every ADVANCED_FACE reachable from a shell root --------------
+    // Roots: MANIFOLD_SOLID_BREP, BREP_WITH_VOIDS, SHELL_BASED_SURFACE_MODEL,
+    // MANIFOLD_SURFACE_SHAPE_REPRESENTATION (its items), and bare CLOSED_SHELL/
+    // OPEN_SHELL if no solid root references them. We gather distinct shell ids,
+    // then the union of their faces.
+    std::vector<std::uint64_t> shellIds;
+    std::set<std::uint64_t> shellSet;
+    auto addShellRef = [&](std::uint64_t sid) {
+        Instance si;
+        if (R.get(sid, si) && (si.type == "CLOSED_SHELL" || si.type == "OPEN_SHELL")) {
+            if (shellSet.insert(sid).second) shellIds.push_back(sid);
+        }
+    };
+    auto addShellsFromList = [&](const std::string& listField) {
+        std::vector<std::string> refs;
+        if (parseList(listField, refs))
+            for (const auto& r : refs) { std::uint64_t id; if (parseRef(r, id)) addShellRef(id); }
+    };
+
+    bool anyRoot = false;
+    for (const auto& kv : tab) {
+        const Instance& ins = kv.second;
+        if (ins.type == "MANIFOLD_SOLID_BREP") {
+            auto p = splitTopLevel(ins.params);
+            if (p.size() >= 2) { std::uint64_t s; if (parseRef(p[1], s)) addShellRef(s); anyRoot = true; }
+        } else if (ins.type == "BREP_WITH_VOIDS") {
+            auto p = splitTopLevel(ins.params);
+            if (p.size() >= 2) { std::uint64_t s; if (parseRef(p[1], s)) addShellRef(s); }
+            if (p.size() >= 3) addShellsFromList(p[2]);   // the void shells
+            anyRoot = true;
+        } else if (ins.type == "SHELL_BASED_SURFACE_MODEL") {
+            auto p = splitTopLevel(ins.params);
+            if (p.size() >= 2) addShellsFromList(p[1]);
+            anyRoot = true;
+        }
+    }
+    // Fallback: if no solid/surface-model root, take every CLOSED_SHELL directly.
+    if (!anyRoot) {
+        for (const auto& kv : tab)
+            if (kv.second.type == "CLOSED_SHELL" || kv.second.type == "OPEN_SHELL")
+                addShellRef(kv.first);
+    }
+    if (shellIds.empty()) return fail("readForeignStep: no shell (CLOSED_SHELL/OPEN_SHELL) found");
+
+    // gather the ADVANCED_FACE ids (preserve order, dedup).
+    std::vector<std::uint64_t> faceIds;
+    std::set<std::uint64_t> faceSet;
+    for (std::uint64_t sid : shellIds) {
+        Instance si; R.get(sid, si);
+        auto sp = splitTopLevel(si.params);
+        if (sp.size() < 2) continue;
+        std::vector<std::string> frefs;
+        if (!parseList(sp[1], frefs)) continue;
+        for (const auto& fr : frefs) {
+            std::uint64_t fid;
+            if (parseRef(fr, fid) && faceSet.insert(fid).second) faceIds.push_back(fid);
+        }
+    }
+    if (faceIds.empty()) return fail("readForeignStep: shells contain no faces");
+
+    // --- build the independent native faces -----------------------------------
+    auto owner = std::make_shared<TopologyBuilder>();
+    TopologyBuilder& tb = *owner;
+    Solid* solid = tb.makeSolid();
+
+    std::vector<Face*> builtFaces;
+    double bboxMin[3] = {1e300, 1e300, 1e300}, bboxMax[3] = {-1e300, -1e300, -1e300};
+    auto growBox = [&](const Vec3& p) {
+        bboxMin[0] = std::min(bboxMin[0], p.x); bboxMax[0] = std::max(bboxMax[0], p.x);
+        bboxMin[1] = std::min(bboxMin[1], p.y); bboxMax[1] = std::max(bboxMax[1], p.y);
+        bboxMin[2] = std::min(bboxMin[2], p.z); bboxMax[2] = std::max(bboxMax[2], p.z);
+    };
+
+    // Build a native quadric Surface from an ADVANCED_FACE surface id. Returns the
+    // simple STEP keyword via `surfType`; sets `isBSpline` and (if so) `nurbsOut`.
+    // For unsupported surfaces returns false with the type recorded by the caller.
+    auto buildSurface = [&](std::uint64_t surfId, bool sameSense, Surface& s,
+                            std::string& surfType, bool& isBSpline,
+                            NurbsSurface& nurbsOut, std::string& localWhy) -> bool {
+        Instance ins;
+        if (!R.get(surfId, ins)) { localWhy = "dangling surface ref"; return false; }
+        isBSpline = false;
+        // COMPLEX surface record: (BOUNDED_SURFACE()B_SPLINE_SURFACE(...)
+        //   B_SPLINE_SURFACE_WITH_KNOTS(...)(RATIONAL_B_SPLINE_SURFACE(...))...)
+        if (ins.type.empty()) {
+            auto subs = splitComplex(ins.params);
+            const SubRecord* base = nullptr;     // B_SPLINE_SURFACE (deg + ctrl + form)
+            const SubRecord* knots = nullptr;    // B_SPLINE_SURFACE_WITH_KNOTS (mult+knots)
+            const SubRecord* rational = nullptr; // RATIONAL_B_SPLINE_SURFACE (weights)
+            for (const auto& sr : subs) {
+                if (sr.type == "B_SPLINE_SURFACE") base = &sr;
+                else if (sr.type == "B_SPLINE_SURFACE_WITH_KNOTS") knots = &sr;
+                else if (sr.type == "RATIONAL_B_SPLINE_SURFACE") rational = &sr;
+            }
+            if (base && knots) {
+                // Assemble the post-name field list expected by buildBSplineSurface:
+                //  B_SPLINE_SURFACE: uDeg,vDeg,ctrlGrid,form,uClosed,vClosed,selfInt
+                //  B_SPLINE_SURFACE_WITH_KNOTS: uMult,vMult,uKnots,vKnots,knotSpec
+                auto bf = splitTopLevel(base->params);
+                auto kf = splitTopLevel(knots->params);
+                if (bf.size() < 7 || kf.size() < 4) { localWhy = "complex bspline arity"; return false; }
+                std::vector<std::string> fields;
+                fields.push_back(bf[0]); fields.push_back(bf[1]); fields.push_back(bf[2]);
+                fields.push_back(bf[3]); fields.push_back(bf[4]); fields.push_back(bf[5]); fields.push_back(bf[6]);
+                fields.push_back(kf[0]); fields.push_back(kf[1]); fields.push_back(kf[2]); fields.push_back(kf[3]);
+                std::vector<std::vector<double>> w;
+                const std::vector<std::vector<double>>* wp = nullptr;
+                if (rational) {
+                    auto rf = splitTopLevel(rational->params);
+                    if (!rf.empty() && readRationalWeights(rf[0], w)) wp = &w;
+                }
+                if (!buildBSplineSurface(R, fields, wp, scale, nurbsOut, localWhy)) return false;
+                isBSpline = true; surfType = "B_SPLINE_SURFACE_WITH_KNOTS";
+                return true;
+            }
+            localWhy = "unsupported complex surface record"; surfType = "COMPLEX_SURFACE";
+            return false;
+        }
+
+        surfType = ins.type;
+        auto p = splitTopLevel(ins.params);
+        auto frame = [&](std::size_t f) -> bool {
+            std::uint64_t ax = 0;
+            if (p.size() <= f || !parseRef(p[f], ax)) { localWhy = surfType + " placement"; return false; }
+            if (!getAxis2(R, ax, s.origin, s.axis, s.refDir)) { localWhy = surfType + " axis2"; return false; }
+            s.origin = vscale(s.origin, scale);     // scale the placement origin
+            return true;
+        };
+        if (ins.type == "PLANE") {
+            s.kind = SurfaceKind::Plane; if (!frame(1)) return false;
+        } else if (ins.type == "CYLINDRICAL_SURFACE") {
+            s.kind = SurfaceKind::Cylinder; if (!frame(1)) return false;
+            if (p.size() < 3 || !stepNum(p[2], s.r1)) { localWhy = "cyl radius"; return false; }
+            s.r1 *= scale;
+        } else if (ins.type == "CONICAL_SURFACE") {
+            s.kind = SurfaceKind::Cone; if (!frame(1)) return false;
+            double refR = 0, half = 0;
+            if (p.size() < 4 || !stepNum(p[2], refR) || !stepNum(p[3], half)) { localWhy = "cone"; return false; }
+            s.r1 = refR * scale; s.param = std::tan(half); s.r2 = refR * scale;
+        } else if (ins.type == "SPHERICAL_SURFACE") {
+            s.kind = SurfaceKind::Sphere; if (!frame(1)) return false;
+            if (p.size() < 3 || !stepNum(p[2], s.r1)) { localWhy = "sphere radius"; return false; }
+            s.r1 *= scale;
+        } else if (ins.type == "TOROIDAL_SURFACE") {
+            s.kind = SurfaceKind::Torus; if (!frame(1)) return false;
+            if (p.size() < 4 || !stepNum(p[2], s.r1) || !stepNum(p[3], s.r2)) { localWhy = "torus"; return false; }
+            s.r1 *= scale; s.r2 *= scale;
+        } else if (ins.type == "B_SPLINE_SURFACE_WITH_KNOTS") {
+            // simple (non-rational) form: drop the leading name field.
+            std::vector<std::string> fields(p.begin() + 1, p.end());
+            if (!buildBSplineSurface(R, fields, nullptr, scale, nurbsOut, localWhy)) return false;
+            isBSpline = true; return true;
+        } else {
+            localWhy = "unsupported surface entity '" + ins.type + "'";
+            return false;
+        }
+        s.reversed = !sameSense;
+        return true;
+    };
+
+    // Resolve a FACE_(OUTER_)BOUND's EDGE_LOOP -> ordered ring of (vertexPos,
+    // hasCircle, circle geometry) in the loop traversal sense.
+    struct LoopRing {
+        std::vector<Vec3> pts;
+        std::vector<bool> hasCircle;
+        std::vector<Vec3> circleCentre, circleNormal;
+        std::vector<double> circleRadius;
+        std::uint64_t loopId = 0;   // the EDGE_LOOP id (so a B-spline face can
+                                    // rebuild the REAL (u,v) trim loop from its edges)
+        bool ok = false;
+    };
+    auto readEdgeLoop = [&](std::uint64_t loopId) -> LoopRing {
+        LoopRing ring;
+        ring.loopId = loopId;
+        Instance li;
+        if (!R.get(loopId, li) || li.type != "EDGE_LOOP") return ring;
+        auto lp = splitTopLevel(li.params);
+        std::vector<std::string> oeRefs;
+        if (lp.size() < 2 || !parseList(lp[1], oeRefs) || oeRefs.size() < 3) return ring;
+        for (const auto& oref : oeRefs) {
+            std::uint64_t oeId = 0;
+            if (!parseRef(oref, oeId)) return LoopRing{};
+            Instance oi;
+            if (!R.get(oeId, oi) || oi.type != "ORIENTED_EDGE") return LoopRing{};
+            auto op = splitTopLevel(oi.params);
+            if (op.size() < 5) return LoopRing{};
+            std::uint64_t ecId = 0;
+            if (!parseRef(op[3], ecId)) return LoopRing{};
+            bool sense = (op[4] == ".T.");
+            Instance ei;
+            if (!R.get(ecId, ei) || ei.type != "EDGE_CURVE") return LoopRing{};
+            auto ep = splitTopLevel(ei.params);
+            if (ep.size() < 5) return LoopRing{};
+            std::uint64_t vS = 0, vE = 0;
+            if (!parseRef(ep[1], vS) || !parseRef(ep[2], vE)) return LoopRing{};
+            std::uint64_t startVp = sense ? vS : vE;
+            // VERTEX_POINT -> CARTESIAN_POINT
+            Instance vpi;
+            if (!R.get(startVp, vpi) || vpi.type != "VERTEX_POINT") return LoopRing{};
+            auto vpp = splitTopLevel(vpi.params);
+            std::uint64_t cp = 0;
+            if (vpp.size() < 2 || !parseRef(vpp[1], cp)) return LoopRing{};
+            Vec3 pos;
+            if (!getPoint(R, cp, pos)) return LoopRing{};
+            pos = vscale(pos, scale);
+            ring.pts.push_back(pos);
+            EdgeCircle ecg = circleOfEdgeCurve(R, ecId, scale);
+            ring.hasCircle.push_back(ecg.ok);
+            ring.circleCentre.push_back(ecg.centre);
+            ring.circleNormal.push_back(ecg.normal);
+            ring.circleRadius.push_back(ecg.radius);
+        }
+        ring.ok = (ring.pts.size() >= 3);
+        return ring;
+    };
+
+    // Build a REAL (u,v) TrimLoop for a NURBS face from an EDGE_LOOP: for every
+    // ORIENTED_EDGE -> EDGE_CURVE, read the literal 3D curve + its two file
+    // vertices, INVERT them onto the surface (u,v) (Plane analytic / NURBS
+    // Gauss-Newton), honour the ORIENTED_EDGE .T./.F. orientation, and emit the
+    // matching PCurve (3D LINE -> Line2; 3D CIRCLE/ELLIPSE/B_SPLINE -> a sampled
+    // BSpline2 in the surface parameter plane). Segments are appended in ring
+    // order so the end of each meets the start of the next. Returns false (with
+    // `unsupportedKw` set) on genuinely unsupported edge geometry — NO fabrication.
+    auto buildTrimLoopNurbs = [&](std::uint64_t loopId, const NurbsSurface& nsurf,
+                                  bool isOuter, TrimLoop& out,
+                                  std::string& unsupportedKw) -> bool {
+        Instance li;
+        if (!R.get(loopId, li) || li.type != "EDGE_LOOP") { unsupportedKw = "EDGE_LOOP"; return false; }
+        auto lp = splitTopLevel(li.params);
+        std::vector<std::string> oeRefs;
+        if (lp.size() < 2 || !parseList(lp[1], oeRefs) || oeRefs.empty()) { unsupportedKw = "EDGE_LOOP"; return false; }
+
+        const double bspTol3d = 1e-6 * std::max(1.0,
+            std::max({std::fabs(nsurf.knotsU.back()), std::fabs(nsurf.knotsV.back()), 1.0}));
+        // 3D convergence tolerance for inversion, scaled to the model bbox diagonal
+        // accumulated so far (fall back to a generous absolute if the box is empty).
+        double diag = 0.0;
+        for (int k = 0; k < 3; ++k) { double d = bboxMax[k]-bboxMin[k]; if (d > 0) diag += d*d; }
+        const double invTol = (diag > 0) ? 1e-7 * std::sqrt(diag) : 1e-6;
+        (void)bspTol3d;
+
+        out.segments.clear();
+        out.isOuter = isOuter;
+        for (const auto& oref : oeRefs) {
+            std::uint64_t oeId = 0;
+            if (!parseRef(oref, oeId)) { unsupportedKw = "ORIENTED_EDGE"; return false; }
+            Instance oi;
+            if (!R.get(oeId, oi) || oi.type != "ORIENTED_EDGE") { unsupportedKw = "ORIENTED_EDGE"; return false; }
+            auto op = splitTopLevel(oi.params);
+            if (op.size() < 5) { unsupportedKw = "ORIENTED_EDGE"; return false; }
+            std::uint64_t ecId = 0;
+            if (!parseRef(op[3], ecId)) { unsupportedKw = "ORIENTED_EDGE"; return false; }
+            const bool sense = (op[4] == ".T.");      // false -> edge is reversed
+
+            EdgeGeom eg = readEdgeGeom(R, ecId, scale);
+            if (!eg.ok) { unsupportedKw = eg.typeKeyword.empty() ? "EDGE_CURVE" : eg.typeKeyword; return false; }
+
+            // Apply ORIENTED_EDGE orientation: the directed edge runs from `pStart`
+            // to `pEnd` in 3D (the loop traversal sense).
+            Vec3 pStart = sense ? eg.v0 : eg.v1;
+            Vec3 pEnd   = sense ? eg.v1 : eg.v0;
+
+            // Invert the endpoints to (u,v).
+            UVCoord uvStart{}, uvEnd{};
+            if (!invertNurbs(nsurf, pStart, uvStart, invTol) ||
+                !invertNurbs(nsurf, pEnd, uvEnd, invTol)) {
+                unsupportedKw = "EDGE_CURVE(uninvertible)"; return false;
+            }
+
+            switch (eg.kind) {
+            case EdgeGeomKind::Line:
+                out.segments.push_back(PCurve::makeLine2(uvStart, uvEnd));
+                break;
+            case EdgeGeomKind::Circle:
+            case EdgeGeomKind::Ellipse:
+            case EdgeGeomKind::BSpline: {
+                // Sample the literal 3D curve from pStart->pEnd and invert each
+                // sample onto (u,v), then carry the (u,v) polyline as an open
+                // BSpline2 (degree-1 interpolating curve through the inverted
+                // samples). This honours the file's actual curved-edge geometry on
+                // an arbitrary (curved or planar) NURBS surface — no synthesis.
+                const int M = (eg.kind == EdgeGeomKind::BSpline) ? 24 : 16;
+                std::vector<Vec3> samples3d;
+                samples3d.reserve(M + 1);
+                if (eg.kind == EdgeGeomKind::BSpline) {
+                    // Find the curve parameters at pStart/pEnd by matching the
+                    // clamped end knots to the directed endpoints.
+                    const double t0 = eg.nurbs.knots.front(), t1 = eg.nurbs.knots.back();
+                    const Vec3 c0 = eg.nurbs.evaluate(t0);
+                    const bool fwd = (vlen(vsub(c0, pStart)) <= vlen(vsub(c0, pEnd)));
+                    for (int i = 0; i <= M; ++i) {
+                        const double a = double(i) / M;
+                        const double t = fwd ? (t0 + (t1 - t0) * a) : (t1 + (t0 - t1) * a);
+                        samples3d.push_back(eg.nurbs.evaluate(t));
+                    }
+                } else {
+                    // CIRCLE / ELLIPSE: parameterise by angle in the placement frame
+                    // from the directed start to the directed end (short or long arc
+                    // resolved by the in-plane winding of the endpoints).
+                    const Vec3 bdir = vcross(eg.axis, eg.refDir);
+                    auto angleOf = [&](const Vec3& P) {
+                        const Vec3 rel = vsub(P, eg.centre);
+                        return std::atan2(vdot(rel, bdir), vdot(rel, eg.refDir));
+                    };
+                    double a0 = angleOf(pStart), a1 = angleOf(pEnd);
+                    while (a1 - a0 >  PI) a1 -= 2.0 * PI;
+                    while (a1 - a0 < -PI) a1 += 2.0 * PI;
+                    if (std::fabs(a1 - a0) < 1e-12) a1 = a0 + 2.0 * PI;   // full circle
+                    for (int i = 0; i <= M; ++i) {
+                        const double t = a0 + (a1 - a0) * (double(i) / M);
+                        Vec3 P;
+                        if (eg.kind == EdgeGeomKind::Circle)
+                            P = vadd(eg.centre, vadd(vscale(eg.refDir, eg.radius * std::cos(t)),
+                                                     vscale(bdir, eg.radius * std::sin(t))));
+                        else
+                            P = vadd(eg.centre, vadd(vscale(eg.refDir, eg.radius * std::cos(t)),
+                                                     vscale(bdir, eg.radius2 * std::sin(t))));
+                        samples3d.push_back(P);
+                    }
+                }
+                // Invert every sample onto (u,v).
+                NurbsCurve pc; pc.degree = 1;
+                pc.controlPoints.reserve(samples3d.size());
+                for (const Vec3& P : samples3d) {
+                    UVCoord uv{};
+                    if (!invertNurbs(nsurf, P, uv, invTol)) { unsupportedKw = "EDGE_CURVE(uninvertible)"; return false; }
+                    pc.controlPoints.push_back(Vec3{uv.u, uv.v, 0.0});
+                }
+                // force the exact directed endpoints (the inversion of a vertex is
+                // exact; clamp interior to avoid drift at the seam).
+                pc.controlPoints.front() = Vec3{uvStart.u, uvStart.v, 0.0};
+                pc.controlPoints.back()  = Vec3{uvEnd.u,   uvEnd.v,   0.0};
+                // clamped degree-1 knot vector over [0,1]: (0,0, 1/(M), ..., 1,1) is
+                // just the chordal parameter; a degree-1 B-spline is the polyline.
+                const std::size_t np = pc.controlPoints.size();
+                pc.weights.assign(np, 1.0);
+                pc.knots.clear(); pc.knots.reserve(np + 2);
+                pc.knots.push_back(0.0);
+                for (std::size_t i = 0; i < np; ++i) pc.knots.push_back(double(i) / double(np - 1));
+                pc.knots.push_back(1.0);
+                out.segments.push_back(PCurve::makeBSpline2(pc));
+                break;
+            }
+            }
+        }
+        return !out.segments.empty();
+    };
+
+    // process each ADVANCED_FACE.
+    for (std::uint64_t fid : faceIds) {
+        Instance fi;
+        if (!R.get(fid, fi) || fi.type != "ADVANCED_FACE")
+            return fail("readForeignStep: shell member #" + std::to_string(fid) + " not ADVANCED_FACE");
+        auto fp = splitTopLevel(fi.params);
+        if (fp.size() < 4) return fail("readForeignStep: ADVANCED_FACE arity");
+        std::vector<std::string> boundRefs;
+        if (!parseList(fp[1], boundRefs) || boundRefs.empty())
+            return fail("readForeignStep: ADVANCED_FACE has no bounds");
+        std::uint64_t surfRef = 0;
+        if (!parseRef(fp[2], surfRef)) return fail("readForeignStep: face surface not a ref");
+        bool sameSense = (fp[3] == ".T.");
+
+        ForeignFaceInfo info;
+
+        // Reconstruct the surface FIRST (so we know quadric vs B-spline).
+        Surface protoSurf;
+        bool isBSpline = false;
+        NurbsSurface nurbs;
+        std::string surfType, localWhy;
+        bool surfOk = buildSurface(surfRef, sameSense, protoSurf, surfType, isBSpline, nurbs, localWhy);
+        info.surfaceType = surfType;
+        if (!surfOk) {
+            // HONEST: record the unsupported surface, do NOT fabricate or drop.
+            info.supported = false;
+            result.unsupported[surfType.empty() ? "COMPLEX_SURFACE" : surfType]++;
+            result.faceInfos.push_back(info);
+            continue;
+        }
+
+        // Read every bound: the FACE_OUTER_BOUND (or first FACE_BOUND) is outer; any
+        // additional FACE_BOUNDs are holes.
+        std::vector<LoopRing> outerRings;     // 0 or 1
+        std::vector<LoopRing> innerRings;
+        for (const auto& bref : boundRefs) {
+            std::uint64_t bId = 0;
+            if (!parseRef(bref, bId)) continue;
+            Instance bi;
+            if (!R.get(bId, bi)) continue;
+            if (bi.type != "FACE_OUTER_BOUND" && bi.type != "FACE_BOUND") continue;
+            auto bp = splitTopLevel(bi.params);
+            if (bp.size() < 3) continue;
+            std::uint64_t lId = 0;
+            if (!parseRef(bp[1], lId)) continue;
+            LoopRing ring = readEdgeLoop(lId);
+            if (!ring.ok) return fail("readForeignStep: face #" + std::to_string(fid) +
+                                      " has an unreadable bound loop");
+            if (bi.type == "FACE_OUTER_BOUND" && outerRings.empty())
+                outerRings.push_back(std::move(ring));
+            else
+                innerRings.push_back(std::move(ring));
+        }
+        if (outerRings.empty()) {
+            // No explicit FACE_OUTER_BOUND: promote the first inner ring to outer.
+            if (innerRings.empty())
+                return fail("readForeignStep: face #" + std::to_string(fid) + " has no usable bound");
+            outerRings.push_back(std::move(innerRings.front()));
+            innerRings.erase(innerRings.begin());
+        }
+
+        // Build the native face with its outer ring (INDEPENDENT vertices/edges).
+        auto makeRingVertices = [&](const LoopRing& ring) {
+            std::vector<Vertex*> vs;
+            vs.reserve(ring.pts.size());
+            for (const Vec3& p : ring.pts) { growBox(p); vs.push_back(tb.makeVertex(P3(p))); }
+            return vs;
+        };
+        std::vector<Vertex*> outerVerts = makeRingVertices(outerRings[0]);
+        // reject a degenerate consecutive repeat
+        for (std::size_t k = 0; k < outerVerts.size(); ++k)
+            if (vlen(vsub(PV(outerVerts[k]->point),
+                         PV(outerVerts[(k+1)%outerVerts.size()]->point))) < 1e-12)
+                return fail("readForeignStep: degenerate outer loop on face #" + std::to_string(fid));
+
+        Face* f = tb.makeFace();
+        tb.addOuterLoopToFace(f, outerVerts);
+        // NOTE: faces are NOT added to a shell here — sewFaces() builds the
+        // connected shells from the independent face list below and attaches each
+        // face to its shell. Pre-attaching would double-register the face.
+
+        // hole loops
+        for (const LoopRing& hr : innerRings) {
+            std::vector<Vertex*> hv = makeRingVertices(hr);
+            tb.addInnerLoopToFace(f, hv);
+        }
+        info.innerLoopCount = innerRings.size();
+
+        Surface* surf = tb.makeSurface();
+        if (isBSpline) {
+            // native Nurbs Surface carrying the reconstructed B-spline (so the
+            // solid integrates via the same divergence path).
+            surf->kind = SurfaceKind::Nurbs;
+            surf->nurbs = nurbs;
+            surf->reversed = !sameSense;
+            // Build a TrimmedFace whose loops are the FILE's REAL boundary loops:
+            // the outer FACE_OUTER_BOUND and every inner FACE_BOUND (hole), each
+            // reconstructed by inverting the literal 3D edges onto the surface
+            // (u,v). The hole therefore has the file's actual shape — NO synthetic
+            // round hole. If any loop carries genuinely unsupported edge geometry,
+            // the face is recorded as unsupported (honest), not fabricated.
+            TrimmedFace tf;
+            tf.surface = nurbs;
+            const double u0 = nurbs.knotsU.front(), u1 = nurbs.knotsU.back();
+            const double v0 = nurbs.knotsV.front(), v1 = nurbs.knotsV.back();
+            bool trimOk = true;
+            std::string unsupKw;
+            TrimLoop outer;
+            if (!buildTrimLoopNurbs(outerRings[0].loopId, nurbs, /*isOuter=*/true,
+                                    outer, unsupKw)) {
+                trimOk = false;
+            } else {
+                tf.loops.push_back(std::move(outer));
+                for (const LoopRing& hr : innerRings) {
+                    TrimLoop hole;
+                    std::string hk;
+                    if (!buildTrimLoopNurbs(hr.loopId, nurbs, /*isOuter=*/false, hole, hk)) {
+                        trimOk = false; unsupKw = hk; break;
+                    }
+                    tf.loops.push_back(std::move(hole));
+                }
+            }
+            if (!trimOk) {
+                // HONEST: a face whose boundary uses unsupported edge geometry is
+                // recorded, not faked or dropped. The face is removed from the build
+                // (its native Face + verts were allocated but never sewn).
+                info.supported = false;
+                info.innerLoopCount = innerRings.size();
+                result.unsupported[unsupKw.empty() ? "EDGE_CURVE" : unsupKw]++;
+                result.faceInfos.push_back(info);
+                continue;
+            }
+            info.trimmedIndex = (long)result.trimmedFaces.size();
+            result.trimmedFaces.push_back(std::move(tf));
+            f->surface = surf;
+            // set a coarse param window over the domain for the divergence path.
+            f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
+        } else {
+            *surf = protoSurf;
+            f->surface = surf;
+            // parameterise over the quadric (trim window + vertexUV + disk caps).
+            const LoopRing& orr = outerRings[0];
+            std::vector<bool> hc = orr.hasCircle;
+            if (!parameteriseQuadric(f, surf, outerVerts, hc,
+                                     orr.circleCentre, orr.circleNormal, orr.circleRadius))
+                return fail("readForeignStep: could not parameterise quadric face #" + std::to_string(fid));
+        }
+
+        info.nativeFace = f;
+        info.supported = true;
+        result.faceInfos.push_back(info);
+        builtFaces.push_back(f);
+    }
+
+    if (builtFaces.empty())
+        return fail("readForeignStep: no supported faces were built (all unsupported)");
+
+    // --- NATIVE SEW the independent faces into a shell (K1.4) ------------------
+    double tol = sewTol;
+    if (tol <= 0.0) {
+        double diag = 0.0;
+        for (int k = 0; k < 3; ++k) {
+            double d = bboxMax[k] - bboxMin[k];
+            diag += d * d;
+        }
+        diag = std::sqrt(std::max(diag, 1.0));
+        tol = 1e-7 * diag;
+        if (tol < 1e-9) tol = 1e-9;
+    } else {
+        tol *= scale;   // sewTol given in file units
+    }
+    SewOptions sopt; sopt.tol = tol; sopt.weldVertices = true;
+    SewResult sr = sewFaces(tb, builtFaces, sopt);
+    if (!sr.ok)
+        return fail(std::string("readForeignStep: sew failed — ") + (sr.reason ? sr.reason : ""));
+
+    // attach the sewn shells to the solid.
+    for (Shell* sh : sr.shells) {
+        if (sh) { tb.addShellToSolid(solid, sh); result.shells.push_back(sh); }
+    }
+    // ensure every built face is owned by some shell (sewFaces builds the shells).
+
+    result.ok = true;
+    result.owner = owner;
+    result.solid = solid;
+    result.closed = sr.diagnosis.closed;
+    result.vertices = sr.diagnosis.vertices;
+    result.edges = sr.diagnosis.edges;
+    result.faces = sr.diagnosis.faces;
+    result.eulerCharacteristic = sr.diagnosis.eulerCharacteristic;
+    return result;
+}
+
+} // namespace brep
+} // namespace native
+} // namespace forge
