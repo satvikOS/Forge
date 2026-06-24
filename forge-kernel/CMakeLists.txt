@@ -449,6 +449,7 @@ add_library(forge_kernel SHARED
     src/native/brep/Nurbs.cpp
     src/native/brep/NurbsCalculus.cpp
     src/native/brep/NurbsSurface.cpp   # surfit dep: brep::evaluateWithDerivatives
+    src/native/brep/SurfaceFill.cpp     # class-A surface fill — G1 bicubic Coons/Gordon patch (4-sided, exact boundary + cross-tangent interpolation)
     src/native/brep/Topology.cpp
     src/native/brep/Curve.cpp           # K0 — tagged Curve/PCurve geometry + tolerance attrs (Wave-1)
     src/native/brep/NurbsAlgebra.cpp    # K1.1 — NURBS algebra: elevate/knot-ops/curvature/iso/projection (Wave-1)
@@ -459,6 +460,7 @@ add_library(forge_kernel SHARED
     src/native/brep/CadScoreGates.cpp   # CADGenBench pre-submit gates: in-kernel Betti b0/b1/b2 + watertight/manifold validity + interface keep-in/keep-out IoU (RL-reward terms)
     src/native/brep/DraftAnalytic.cpp   # analytic face draft about a neutral plane (planar side faces -> frustum), OCCT BRepOffsetAPI_DraftAngle analogue
     src/native/brep/LoftSweep.cpp       # analytic loft through N planar sections + translational sweep along a path -> closed B-rep solid (ThruSections/MakePipe analogue)
+    src/native/brep/HelicalSweep.cpp    # helical sweep: circular profile along a constant-pitch helix -> coil/spring/thread (RMF-transported, MakePipe analogue)
     src/native/brep/IgesRead.cpp        # foreign IGES (ASCII) read: 144 trimmed-surface / 186 manifold-solid-brep / 128 NURBS -> native TrimmedFace -> sew -> shell/solid
     src/native/brep/Hlr.cpp             # hidden-line removal for drawings: orthographic project + z-buffer occlusion split of B-rep edges into visible/hidden spans
     src/native/brep/Section.cpp         # planar section / cut views: plane-solid SSI section wires + filled cross-section area + centroid (section properties)
@@ -487,6 +489,7 @@ add_library(forge_kernel SHARED
     src/native/brep/SurfaceIntersect.cpp
     src/native/brep/NurbsSurfaceIntersect.cpp   # K1.3 — NURBS-aware SSI: subdivision-localize + marching intersector + pcurves (removes the NURBS-face deferral)
     src/native/brep/Boolean.cpp
+    src/native/brep/Pattern.cpp         # analytic feature pattern: linear/circular/mirror array of a tool solid, boolean-merged into one B-rep
     # IN-HOUSE KERNEL STEP 3a — the live-op ROUTING LAYER (runtime gate +
     # transformSolid placement fix + native viewport-tessellate + mesh massprops)
     # and the MESH-BRIDGE feature ops (native fillet/chamfer). Always compiled;

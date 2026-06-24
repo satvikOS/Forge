@@ -37,7 +37,11 @@
 //     cone / sphere / torus) faces, tessellated for the depth test. Freeform
 //     trimmed-NURBS faces are tessellated by their loop polygon only (no smooth
 //     silhouette precision) — a follow-up.
-//   * Views: ORTHOGRAPHIC (parallel projection). Perspective is a follow-up.
+//   * Views: ORTHOGRAPHIC (parallel projection, hiddenLineRemoval) AND
+//     PERSPECTIVE (pin-hole camera, hlrPerspective) — the perspective path
+//     divides the lateral image coordinates by eye-relative depth (foreshortens)
+//     and ray-casts occlusion FROM THE EYE (not parallel). Both share the same
+//     polyhedral + analytic-quadric envelope.
 //   * Occlusion is resolved by adaptive SAMPLING of each edge (span midpoint depth
 //     test), so an occlusion boundary lands within one sample step of the true
 //     crossing; raising `samplesPerEdge` tightens it (the test asserts the classic
@@ -168,6 +172,47 @@ struct HlrOptions {
 HlrResult hiddenLineRemoval(const Solid& solid,
                             const Vec3& viewDir,
                             const HlrOptions& opt = {});
+
+// ===========================================================================
+// PERSPECTIVE HLR (the orthographic follow-up).
+//
+// HlrCamera — a pin-hole perspective camera: you sit at `eye`, look toward
+// `target`, with `up` the rough world-up (re-orthogonalised internally), and
+// `fovYRadians` the FULL vertical field of view. The image plane is a unit
+// focal distance ahead of the eye; the focal length is derived from the fov as
+//   focal = 1 / tan(fovY / 2)
+// so a point one focal-unit deep at the frustum edge maps to v = +-1.
+// ===========================================================================
+struct HlrCamera {
+    Vec3   eye{0, 0, 0};
+    Vec3   target{0, 0, 1};
+    Vec3   up{0, 1, 0};
+    double fovYRadians = 1.0471975511965976;  // 60 degrees default
+};
+
+// ---------------------------------------------------------------------------
+// hlrPerspective — perspective hidden-line removal.
+//
+// Projects each drawable edge of `solid` through the pin-hole `cam` onto the
+// image plane (lateral coordinates divided by eye-relative depth, so farther
+// geometry foreshortens) and resolves occlusion by casting a ray FROM THE EYE
+// through every edge sample against the solid's face triangles: a sample is
+// HIDDEN when a face (other than the edge's own incident faces) is pierced
+// strictly nearer the eye along that ray. Same honest envelope as the
+// orthographic path (polyhedral + analytic-quadric; smooth-silhouette-exact and
+// analytic-exact HLR remain follow-ups).
+//
+// The returned HlrViewFrame's (U,V,N) is the camera basis with origin == eye and
+// N == normalize(target - eye); each HlrSegment's poly2d holds the PERSPECTIVE
+// image coordinates (u/depth*focal, v/depth*focal), and length2d the projected
+// length in that image plane. Returns ok==false with a reason for an empty /
+// degenerate solid, a degenerate camera (eye==target or up parallel to the look
+// direction), or a non-positive / non-finite fov. Geometry behind the eye plane
+// (non-positive depth) cannot be projected and is reported via the reason.
+// ---------------------------------------------------------------------------
+HlrResult hlrPerspective(const Solid& solid,
+                         const HlrCamera& cam,
+                         const HlrOptions& opt = {});
 
 } // namespace brep
 } // namespace native

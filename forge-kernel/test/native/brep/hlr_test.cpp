@@ -33,6 +33,7 @@
 //       hole axis offset isometrically, hides the hole's FAR rim (the back opening)
 //       behind the front face while the near rim stays visible.
 
+#include <algorithm>
 #include "forge/native/brep/Hlr.hpp"
 #include "forge/native/brep/Topology.hpp"
 #include "forge/native/brep/Surface.hpp"
@@ -271,6 +272,149 @@ int main() {
         std::printf("      near-rim (top hole) edges classified visible: %d\n",
                     nearRimVisible);
         check(nearRimVisible == 4, "all 4 near-rim (near hole) edges VISIBLE");
+    }
+
+    // -----------------------------------------------------------------------
+    // (4) PERSPECTIVE: a cube from a known eye -> near face 4 edges fully
+    //     visible, 3 back edges hidden (the textbook 9 solid + 3 dashed, now
+    //     under a pin-hole camera looking down the body diagonal).
+    // -----------------------------------------------------------------------
+    std::printf("\n[4] PERSPECTIVE cube: eye on body diagonal -> 9 solid + 3 dashed\n");
+    {
+        TopologyBuilder tb;
+        Solid* box = tb.buildBox({0, 0, 0}, {1, 1, 1});
+
+        // Eye at (4,4,4) looking at the cube centre (0.5,0.5,0.5): we look ALONG
+        // (-1,-1,-1), so the three faces meeting at the near corner (1,1,1) face
+        // the eye and the rear corner (0,0,0)'s three edges are occluded.
+        HlrCamera cam;
+        cam.eye    = {4, 4, 4};
+        cam.target = {0.5, 0.5, 0.5};
+        cam.up     = {0, 0, 1};
+        cam.fovYRadians = 1.0471975511965976;  // 60 deg
+        HlrResult r = hlrPerspective(*box, cam);
+
+        std::printf("      ok=%d totalEdges=%u  visSeg=%u hidSeg=%u\n",
+                    (int)r.ok, r.totalEdges, r.visibleSegments, r.hiddenSegments);
+        std::printf("      fullyVisibleEdges=%u fullyHiddenEdges=%u partialEdges=%u\n",
+                    r.fullyVisibleEdges, r.fullyHiddenEdges, r.partialEdges);
+        std::printf("      visibleLen2d=%.6f hiddenLen2d=%.6f\n",
+                    r.visibleLength2d, r.hiddenLength2d);
+
+        check(r.ok, "perspective HLR ran ok");
+        check(r.totalEdges == 12, "cube has 12 collected edges");
+        check(r.fullyVisibleEdges == 9, "9 fully-VISIBLE edges (solid lines)");
+        check(r.fullyHiddenEdges == 3, "3 fully-HIDDEN edges (dashed lines)");
+        check(r.partialEdges == 0, "no partially-split edges in this view");
+        check(r.visibleSegments == 9, "9 visible segments");
+        check(r.hiddenSegments == 3, "3 hidden segments");
+
+        // The 3 hidden edges must all touch the back corner (0,0,0).
+        int hiddenCount = 0;
+        bool allHiddenTouchBack = true;
+        for (const auto& s : r.segments) {
+            if (s.visibility != HlrVisibility::Hidden) continue;
+            ++hiddenCount;
+            bool touches = false;
+            for (const Vec3& p : s.poly3d)
+                if (std::fabs(p.x) < 1e-9 && std::fabs(p.y) < 1e-9 &&
+                    std::fabs(p.z) < 1e-9) { touches = true; break; }
+            if (!touches) allHiddenTouchBack = false;
+        }
+        check(hiddenCount == 3 && allHiddenTouchBack,
+              "all 3 hidden edges meet the occluded back corner (0,0,0)");
+    }
+
+    // -----------------------------------------------------------------------
+    // (5) PERSPECTIVE row of two boxes: the near box occludes part of the far
+    //     box (its facing edges classify hidden), AND perspective foreshortening
+    //     makes the far box project SMALLER than the near box.
+    // -----------------------------------------------------------------------
+    std::printf("\n[5] PERSPECTIVE two-box row: near box occludes far box + foreshortening\n");
+    {
+        TopologyBuilder tb;
+        // Two unit cubes along the X (view) axis: NEAR at x in [0,1], y in [0,1];
+        // FAR at x in [3,4] but SHIFTED in +Y to y in [0.6,1.6] so the near box
+        // hides the far box's left/lower portion while its right portion peeks
+        // out and stays visible. Same size -> a clean foreshortening comparison.
+        Solid* nearBox = tb.buildBox({0, 0,   0}, {1, 1,   1});
+        Solid* farBox  = tb.buildBox({3, 0.6, 0}, {4, 1.6, 1});
+
+        // Eye in front on the -X axis at the near box's centre, looking down +X.
+        // The near box (x<=1) sits between the eye and the far box (x in [3,4]);
+        // it occludes the overlapping (lower-y) part of the far box.
+        HlrCamera cam;
+        cam.eye    = {-6, 0.5, 0.5};
+        cam.target = {4, 0.5, 0.5};
+        cam.up     = {0, 0, 1};
+        cam.fovYRadians = 1.0471975511965976;  // 60 deg
+        HlrResult rNear = hlrPerspective(*nearBox, cam);
+        HlrResult rFar  = hlrPerspective(*farBox,  cam);
+        // Combined scene (both boxes in one solid graph) for the occlusion test.
+        TopologyBuilder tb2;
+        Solid* n2 = tb2.buildBox({0, 0,   0}, {1, 1,   1});
+        Solid* f2 = tb2.buildBox({3, 0.6, 0}, {4, 1.6, 1});
+        // Merge f2's shells into n2 so one Solid carries both boxes' faces.
+        for (Shell* sh : f2->shells) n2->shells.push_back(sh);
+        HlrResult r = hlrPerspective(*n2, cam);
+
+        std::printf("      [scene] ok=%d totalEdges=%u visSeg=%u hidSeg=%u partial=%u\n",
+                    (int)r.ok, r.totalEdges, r.visibleSegments, r.hiddenSegments,
+                    r.partialEdges);
+        std::printf("      [scene] fullyVisible=%u fullyHidden=%u\n",
+                    r.fullyVisibleEdges, r.fullyHiddenEdges);
+
+        check(r.ok, "perspective HLR ran ok on the two-box scene");
+        check(r.totalEdges == 24, "two boxes have 24 collected edges");
+
+        // Occlusion: at least some edge spans of the FAR box (x >= 3) must be
+        // hidden behind the near box. Count hidden spans whose 3D points all lie
+        // at x >= 3 - 1e-9 (belong to the far box).
+        int farHiddenSpans = 0;
+        int farVisibleSpans = 0;
+        for (const auto& s : r.segments) {
+            bool farBoxSpan = true;
+            for (const Vec3& p : s.poly3d)
+                if (p.x < 3.0 - 1e-9) { farBoxSpan = false; break; }
+            if (!farBoxSpan) continue;
+            if (s.visibility == HlrVisibility::Hidden) ++farHiddenSpans;
+            else                                       ++farVisibleSpans;
+        }
+        std::printf("      far-box spans: hidden=%d visible=%d\n",
+                    farHiddenSpans, farVisibleSpans);
+        check(farHiddenSpans > 0, "part of the FAR box is occluded by the near box (hidden spans)");
+        check(farVisibleSpans > 0, "part of the FAR box is still visible (around the near box)");
+
+        // The near box (x<=1) facing the eye should be fully visible (front face).
+        // Foreshortening: compare the projected (image-plane) bounding extent of
+        // the NEAR vs FAR box from the SAME camera. Use the per-box results.
+        auto imageExtent = [](const HlrResult& res, double& du, double& dv) {
+            double umin = 1e300, umax = -1e300, vmin = 1e300, vmax = -1e300;
+            for (const auto& s : res.segments)
+                for (const auto& uv : s.poly2d) {
+                    umin = std::min(umin, uv[0]); umax = std::max(umax, uv[0]);
+                    vmin = std::min(vmin, uv[1]); vmax = std::max(vmax, uv[1]);
+                }
+            du = umax - umin; dv = vmax - vmin;
+        };
+        double nu, nv, fu, fv;
+        imageExtent(rNear, nu, nv);
+        imageExtent(rFar,  fu, fv);
+        double nearDiag = std::sqrt(nu * nu + nv * nv);
+        double farDiag  = std::sqrt(fu * fu + fv * fv);
+        double ratio = farDiag / nearDiag;
+        std::printf("      near image diag=%.6f  far image diag=%.6f  far/near=%.6f\n",
+                    nearDiag, farDiag, ratio);
+        check(farDiag < nearDiag,
+              "perspective foreshortening: far box projects SMALLER than near box");
+
+        // Analytic check: a unit box's projected size scales ~1/depth. Near box
+        // front face is at x=1 (depth from eye=-6 -> 7); far box front at x=3
+        // (depth 9). Ratio of front-face apparent size ~ 7/9 ~ 0.778; the box
+        // spans depth so the full-extent ratio sits near that. Assert it is in a
+        // sane perspective band (strictly < 1, and not collapsed).
+        check(ratio > 0.4 && ratio < 1.0,
+              "foreshortening ratio is in the expected perspective band (0.4,1.0)");
     }
 
     std::printf("\n=== %d / %d checks passed ===\n", g_pass, g_total);
