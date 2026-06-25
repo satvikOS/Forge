@@ -62,6 +62,8 @@ OCCT_SRCS=(
   src/InterferenceDetection.cpp
   src/Fea.cpp
   src/FeaTet.cpp
+  src/ShapeCheck.cpp
+  src/ShapeFix.cpp
 )
 compile_occt() { if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" -c "$1" -o "$2" 2>"$2.err"; then echo "OCCT SRC FAIL: $1"; tail -20 "$2.err"; echo x>>"$FAIL"; fi; }
 for src in "${OCCT_SRCS[@]}"; do

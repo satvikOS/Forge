@@ -37,6 +37,7 @@
 #include "forge/native/brep/Aabb.hpp"
 #include "forge/native/brep/CadScoreGates.hpp"
 #include "forge/native/brep/Topology.hpp"
+#include "forge/native/brep/Check.hpp"        // checkBRep — the native B-rep VALIDATOR
 
 // --- OCCT ------------------------------------------------------------------
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -49,6 +50,7 @@
 #include <GProp_GProps.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepCheck_Analyzer.hxx>   // OCCT validity oracle for the native-vs-OCCT verdict A/B
 #include <TopoDS_Shape.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Pnt.hxx>
@@ -144,6 +146,30 @@ void gate(const std::string& name, const TopoDS_Shape& shape,
           " expected=" + std::to_string(expB1));
     check(be.b2 == expB2, "betti b2 native=" + std::to_string(be.b2) +
           " expected=" + std::to_string(expB2));
+
+    // (e) NATIVE VALIDITY VERDICT must MATCH OCCT's (the winding-reconciliation gate).
+    // Before the param-winding reconciliation, checkBRep(importer output) returned
+    // valid=FALSE (a spurious O2.OuterLoopCCW / BadOrientationCCW on every face whose
+    // surface frame's natural normal points INWARD — i.e. reversed==true), while OCCT's
+    // BRepCheck_Analyzer reported the SAME solid valid=TRUE. Now O2 measures the outer
+    // loop's signed param area against the face's OUTWARD normal (it consults the surface
+    // `reversed` flag), so the native verdict equals OCCT's for these analytic solids.
+    bool occtValid = BRepCheck_Analyzer(shape, Standard_True).IsValid();
+    native::brep::CheckReport cr = native::brep::checkBRep(ir.solid);  // expectClosed=true (a solid)
+    // Enumerate any residual native defect so a regression is self-describing.
+    std::string defects;
+    for (const auto& pr : cr.predicates)
+        if (!pr.passed) { defects += " " + pr.name; }
+    check(cr.valid == occtValid,
+          "native validity verdict == OCCT  native=" + std::string(cr.valid ? "true" : "false") +
+          " occt=" + std::string(occtValid ? "true" : "false") +
+          " (predicates " + std::to_string(cr.passed()) + "/" + std::to_string(cr.total()) +
+          (defects.empty() ? "" : ", native defects:" + defects) + ")");
+    // And, for these clean analytic solids, the native verdict must be TRUE outright
+    // (the proof the importer's faces pass the native predicate battery — what BLOCKED
+    // activating the ShapeCheck validity wire on OCCT inputs before this reconciliation).
+    check(cr.valid,
+          "native checkBRep valid=TRUE on imported solid (all 21 predicates pass)");
 }
 
 } // namespace

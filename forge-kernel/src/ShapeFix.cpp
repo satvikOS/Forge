@@ -21,13 +21,22 @@
 // setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP together). PRODUCTION
 // DEFAULT IS OFF: with the gate off, the original OCCT ShapeFix_Shape path below runs
 // byte-for-byte unchanged. This mirrors the just-landed Sewing.cpp wire (commit 19840b66):
-// the native branch is taken only when the input handle is a NativeSolid (so its faces can
-// be decomposed into independent fragments and re-healed); an OCCT-backed input HONESTLY
-// DEFERS to OCCT (there is no OCCT-face -> native-Face importer).
+// the native branch is taken when the input handle is a NativeSolid (so its faces can be
+// decomposed into independent fragments and re-healed).
+//
+// PHASE-D ACTIVATION (2026-06-25): the native heal now ALSO ingests an OCCT-backed
+// (ShapeKind::Occt) analytic solid, by importing it via forge::importOcctSolid
+// (src/OcctImport.cpp) into a native Solid first, then decomposing THAT into fragments
+// for the heal passes. This became possible once the importer's faces validate under the
+// native predicate battery (the same winding reconciliation that activated ShapeCheck —
+// see ShapeCheck.cpp). An OCCT input whose importOcctSolid DEFERS (NURBS/Torus/non-
+// analytic) still falls through to OCCT ShapeFix_Shape unchanged, as does a NativeMesh.
+// NOTHING about the default (gate-OFF) build changes.
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/Heal.hpp"          // healBRep, HealOptions, HealReport (native)
 #include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Shell/Solid/Surface
+#include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
 #include <memory>
 #include <string>
 #include <unordered_set>
@@ -132,24 +141,34 @@ native::brep::Face* cloneFaceIndependent(native::brep::TopologyBuilder& tb,
 // Try the native heal (brep::healBRep). Returns true + sets `out` on success; returns
 // false (NEVER throws) when the native path HONESTLY DEFERS so the caller falls back to
 // OCCT. Deferral cases (Bible §0 — native-where-valid, OCCT otherwise):
-//   * the input handle is NOT a NativeSolid (an OCCT-backed shape — there is no
-//     OCCT-face -> native-Face importer, so we cannot ingest it). Mirrors Sewing.cpp.
+//   * a NativeMesh handle (no analytic Solid topology to decompose).
+//   * an OCCT-backed handle whose importOcctSolid DEFERS (NURBS/Torus/non-analytic).
 //   * no cloneable faces, or healBRep returns ok==false (malformed fragment set).
 bool tryNativeRepair(ShapeHandle shape, double precision, RepairResult& out) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
 
-    // DEFER unless the input is a native analytic solid (the only native shape we can
-    // decompose into faces without an OCCT-face importer). Matches Sewing.cpp's rule.
-    if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
+    // Resolve the native Solid to heal from EITHER a native handle OR an OCCT one.
+    const Solid* src = nullptr;
+    std::shared_ptr<TopologyBuilder> imported;   // keeps an imported topology alive
+    if (reg.kindOf(shape) == ShapeKind::NativeSolid) {
+        src = &reg.getNativeSolid(shape);
+    } else if (reg.kindOf(shape) == ShapeKind::Occt) {
+        // PHASE-D: import the OCCT analytic solid; ok==false (NURBS/Torus) -> defer.
+        ImportResult ir = importOcctSolid(reg.get(shape));
+        if (!ir.ok || ir.solid == nullptr) return false;
+        imported = ir.owner;     // keep the imported source topology alive for the clone
+        src = ir.solid;
+    } else {
+        return false;            // NativeMesh -> no analytic Solid -> defer to OCCT
+    }
 
     // One fresh builder owns the whole cloned-fragment graph + the healed result, so the
     // registered handle keeps its topology alive (same ownership model as Sewing.cpp).
     auto owner = std::make_shared<TopologyBuilder>();
     std::vector<Face*> faces;
     {
-        const Solid& s = reg.getNativeSolid(shape);
-        for (Shell* sh : s.shells) {
+        for (Shell* sh : src->shells) {
             for (Face* sf : sh->faces) {
                 if (Face* nf = cloneFaceIndependent(*owner, sf)) faces.push_back(nf);
             }

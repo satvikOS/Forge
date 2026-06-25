@@ -17,13 +17,19 @@
 //   3) forge::fea::tet::meshShapeFromHandle — native tessellateSolid + computeAabb + pointInSolid
 //      tet build on the imported solid. A/B: node-cloud bbox spans the exact analytic box and
 //      the summed tet volume matches the OCCT-path mesh's summed tet volume within tol.
+//   4) forge::shapecheck::analyse  — native checkBRep (the in-house BRepCheck_Analyzer / K5 H1.1
+//      predicate battery) on the imported solid. A/B: the native VALIDITY VERDICT (valid /
+//      closed-2-manifold) matches OCCT BRepCheck_Analyzer::IsValid() for the OCCT box AND the
+//      bored box. (NEWLY ACTIVATED 2026-06-25: previously deferred because the native O2
+//      orientation predicate false-flagged the importer's reversed-face param winding — now
+//      O2 is reversed-aware, so checkBRep(imported solid) == OCCT's verdict. See ShapeCheck.cpp
+//      PHASE-D ACTIVATION + native_occt_import_test's native-validity proof.)
+//   5) forge::shapefix::repair      — native healBRep on the imported solid (a clean analytic
+//      solid heals to a valid native solid). A/B: the same OCCT box, gate ON, takes the native
+//      import+heal path (importer hit) and yields a valid NativeSolid handle.
 //
 // Each op additionally asserts importOcctSolidCallCount() INCREASED across the gated call —
 // i.e. the OCCT->native importer was genuinely hit (the wire ACTIVATED, not silently deferred).
-//
-// (forge::shapecheck::analyse was evaluated as a 4th candidate and DELIBERATELY left deferring:
-//  the native validator's G3 orientation predicate flags the importer's CW param-space winding
-//  on every face -> a false-negative validity verdict. See ShapeCheck.cpp PHASE-D NOTE.)
 //
 // Inputs are built DIRECTLY with OCCT (BRepPrimAPI_MakeBox / MakeCylinder, BRepAlgoAPI_Cut) and
 // registered as ShapeKind::Occt via ShapeRegistry::add — the FIRST time a Phase-D wire runs the
@@ -39,12 +45,17 @@
 #include "forge/InterferenceDetection.hpp"
 #include "forge/Fea.hpp"
 #include "forge/FeaTet.hpp"
+#include "forge/ShapeCheck.hpp"                 // shapecheck::analyse (validity wire)
+#include "forge/ShapeFix.hpp"                   // shapefix::repair (heal wire)
 #include "forge/native/brep/NativeRoute.hpp"   // setForgeNativeBrepEnabled
+#include "forge/native/brep/Check.hpp"          // checkBRep, CheckReport (validate healed solid)
+#include "forge/native/brep/Topology.hpp"       // Solid (getNativeSolid)
 
 // --- OCCT (build the analytic inputs + the OCCT A/B oracle) -----------------
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepCheck_Analyzer.hxx>               // OCCT validity oracle for the A/B verdict
 #include <gp_Ax2.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Dir.hxx>
@@ -281,11 +292,103 @@ void testFeaTetMeshShape() {
     reg.release(h);
 }
 
+// === 4) shapecheck::analyse ================================================
+// Gate ON -> native checkBRep (the in-house BRepCheck_Analyzer / K5 predicate battery) on the
+// imported solid; importOcctSolidCallCount must rise. The native VALIDITY VERDICT must match
+// OCCT BRepCheck_Analyzer::IsValid() for BOTH the OCCT box AND the bored box (and both are
+// valid, so native valid must be TRUE — the proof the once-blocking O2 winding mismatch is
+// reconciled).
+void testShapeCheckAnalyse() {
+    std::printf("[shapecheck::analyse on OCCT box + bored box]\n");
+    auto& reg = ShapeRegistry::instance();
+
+    struct Case { const char* name; TopoDS_Shape shape; };
+    std::vector<Case> cases;
+    cases.push_back({"box 10x6x4", BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 10.0, 6.0, 4.0).Shape()});
+    cases.push_back({"bored box 20^3 - r4 hole", makeBoredBox()});
+
+    for (auto& c : cases) {
+        ShapeHandle h = reg.add(c.shape);
+
+        // OCCT validity oracle (truth the native verdict must match).
+        bool occtValid = BRepCheck_Analyzer(c.shape, Standard_True).IsValid();
+
+        // --- gate OFF: OCCT BRepCheck_Analyzer path (no import) ---
+        setForgeNativeBrepEnabled(false);
+        unsigned long long before0 = importOcctSolidCallCount();
+        forge::shapecheck::AnalysisReport occt = forge::shapecheck::analyse(h);
+        check(importOcctSolidCallCount() == before0,
+              std::string("[") + c.name + "] gate OFF -> importer NOT hit (pure OCCT)");
+
+        // --- gate ON: native checkBRep via importOcctSolid ---
+        setForgeNativeBrepEnabled(true);
+        unsigned long long before1 = importOcctSolidCallCount();
+        forge::shapecheck::AnalysisReport nat = forge::shapecheck::analyse(h);
+        check(importOcctSolidCallCount() > before1,
+              std::string("[") + c.name + "] gate ON  -> importOcctSolid HIT (validity wire activated)");
+
+        // The native verdict must equal OCCT's, and (these are clean solids) be TRUE.
+        check(nat.valid == occtValid,
+              std::string("[") + c.name + "] native valid == OCCT  native=" +
+              (nat.valid ? "true" : "false") + " occt=" + (occtValid ? "true" : "false"));
+        check(nat.valid,
+              std::string("[") + c.name + "] native checkBRep valid=TRUE (matches OCCT)");
+        // The OCCT-path verdict must also be valid=true (sanity on the A/B oracle).
+        check(occt.valid == occtValid,
+              std::string("[") + c.name + "] gate-OFF OCCT-path verdict == BRepCheck_Analyzer");
+
+        setForgeNativeBrepEnabled(false);
+        reg.release(h);
+    }
+}
+
+// === 5) shapefix::repair ===================================================
+// Gate ON -> native healBRep on the imported solid; importOcctSolidCallCount must rise. A clean
+// analytic OCCT box imports + heals to a VALID native solid handle (the heal wire ingests OCCT
+// inputs through the same importer). gate OFF -> pure OCCT ShapeFix_Shape (importer NOT hit).
+void testShapeFixRepair() {
+    std::printf("[shapefix::repair on OCCT box]\n");
+    auto& reg = ShapeRegistry::instance();
+    ShapeHandle h = reg.add(BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 10.0, 6.0, 4.0).Shape());
+
+    // --- gate OFF: OCCT ShapeFix_Shape path (no import) ---
+    setForgeNativeBrepEnabled(false);
+    unsigned long long before0 = importOcctSolidCallCount();
+    forge::shapefix::RepairResult occt = forge::shapefix::repair(h, 0.0, 0.0, 0.0);
+    check(importOcctSolidCallCount() == before0, "gate OFF -> importer NOT hit (pure OCCT)");
+    check(occt.handle != kInvalidHandle, "gate OFF -> OCCT repair yields a handle");
+    reg.release(occt.handle);
+
+    // --- gate ON: native import + heal ---
+    setForgeNativeBrepEnabled(true);
+    unsigned long long before1 = importOcctSolidCallCount();
+    forge::shapefix::RepairResult nat = forge::shapefix::repair(h, 0.0, 0.0, 0.0);
+    check(importOcctSolidCallCount() > before1,
+          "gate ON  -> importOcctSolid HIT (heal wire activated on OCCT input)");
+    check(nat.handle != kInvalidHandle, "gate ON  -> native heal yields a handle");
+    // The healed handle must be a NATIVE solid (the native path produced it, not OCCT).
+    check(reg.kindOf(nat.handle) == ShapeKind::NativeSolid,
+          "gate ON  -> healed handle is a NativeSolid (native path produced it)");
+    // And that healed native solid must itself be VALID under the native battery.
+    {
+        const forge::native::brep::Solid& hs = reg.getNativeSolid(nat.handle);
+        forge::native::brep::CheckReport cr = forge::native::brep::checkBRep(&hs);
+        check(cr.valid, "gate ON  -> healed native solid is valid (checkBRep)  predicates " +
+              std::to_string(cr.passed()) + "/" + std::to_string(cr.total()));
+    }
+    reg.release(nat.handle);
+
+    setForgeNativeBrepEnabled(false);
+    reg.release(h);
+}
+
 int main() {
     std::printf("=== PHASE-D WIRE-ACTIVATION A/B GATE (OCCT analytic input -> native) ===\n");
     testInterference();
     testMeshFromBRep();
     testFeaTetMeshShape();
+    testShapeCheckAnalyse();
+    testShapeFixRepair();
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

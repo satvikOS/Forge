@@ -28,27 +28,29 @@
 // ONLY when the FEAT gate forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1,
 // or the A/B harness's setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP together).
 // PRODUCTION DEFAULT IS OFF: with the gate off, the original OCCT BRepCheck_Analyzer path
-// below runs byte-for-byte unchanged. This mirrors the just-landed Sewing.cpp (commit
-// 19840b66) + ShapeFix.cpp wires: the native branch is taken only when the input handle is a
-// NativeSolid (so its face set can be validated by the native predicate battery); an
-// OCCT-backed input HONESTLY DEFERS to OCCT (there is no OCCT-shape -> native-topology
-// importer, so we cannot ingest it). NOTHING about the default build changes.
+// below runs byte-for-byte unchanged.
 //
-// PHASE-D NOTE (2026-06-25): an OCCT->native importer (forge::importOcctSolid) now EXISTS,
-// but this op is DELIBERATELY left deferring on OCCT inputs. The native validator's
-// orientation predicate (G3/O-family BadOrientationCCW) checks each face loop's SIGNED
-// PARAMETER-SPACE area, and the importer's triangulated faces wind CW in (u,v) by its own
-// convention — so checkBRep on importer output reports a spurious BadOrientationCCW on
-// EVERY face (verified: a plain imported box -> valid=false vs OCCT valid=true). The
-// geometry imports faithfully (volume/area/bbox/Betti — native_occt_import_test) but the
-// validity VERDICT would be wrong, so activating this wire would be a false negative. It
-// stays deferred until the importer's param-winding is reconciled with the G3 predicate
-// (or the predicate is made orientation-agnostic). The geometry-truth ops (Interference /
-// Fea / FeaTet) DID activate cleanly — see native_occt_wire_activation_test.cpp.
+// PHASE-D ACTIVATION (2026-06-25, winding reconciliation): this wire now takes the native
+// path on BOTH a NativeSolid AND an OCCT-backed (ShapeKind::Occt) analytic solid — the
+// latter by importing it via forge::importOcctSolid (src/OcctImport.cpp) and running the
+// native predicate battery on the imported native Solid. This was previously BLOCKED: the
+// native validator's O2.OuterLoopCCW (BadOrientationCCW) predicate measured each outer
+// loop's signed PARAMETER-SPACE area against the surface's NATURAL normal (S_u x S_v),
+// ignoring the `reversed` flag — so it false-flagged EVERY face whose outward normal is
+// -(S_u x S_v) (reversed==true), which is the convention BOTH the importer AND Boolean.cpp
+// emit. A plain imported box therefore reported valid=false while OCCT reported valid=true.
+// O2 is now reversed-aware (it measures the loop sign against the OUTWARD normal — see
+// Check.cpp O2), so checkBRep(imported solid) == OCCT's verdict for analytic solids
+// (verified: box + bored box native valid=TRUE matching OCCT — native_occt_import_test).
+// HONEST DEFERRAL still applies: an OCCT input whose importOcctSolid defers (NURBS/Torus/
+// non-analytic faces) falls through to the OCCT BRepCheck_Analyzer path unchanged, as does
+// a NativeMesh handle. NOTHING about the default (gate-OFF) build changes.
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/Check.hpp"         // checkBRep, CheckOptions, CheckReport (native)
 #include "forge/native/brep/Topology.hpp"      // Solid (for getNativeSolid)
+#include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
+#include <memory>                              // shared_ptr (keep imported topology alive)
 #endif
 
 namespace forge::shapecheck {
@@ -185,24 +187,39 @@ const char* offenderKindName(native::brep::CheckPredicate::IdKind k) {
 //                                  rows (one per named offender) + the predicate detail,
 //                                  matching src/ShapeCheck.cpp's OCCT fault-string shape
 //                                  ("<kind>#<index>: <StatusName>").
+//
+// Deferral cases (Bible §0 — native-where-valid, OCCT otherwise):
+//   * a NativeMesh handle (no analytic Solid topology to validate);
+//   * an OCCT-backed handle whose importOcctSolid DEFERS (NURBS/Torus/non-analytic
+//     faces) — falls through to OCCT BRepCheck_Analyzer unchanged.
 bool tryNativeAnalyse(ShapeHandle shape, AnalysisReport& out) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
 
-    // DEFER unless the input is a native analytic solid (the only native shape whose
-    // topology the validator can walk without an OCCT importer). Matches ShapeFix.cpp.
-    // (An OCCT->native importer now exists, but is NOT used here — see the file-head
-    // PHASE-D NOTE: the importer's param-space winding trips the native G3 orientation
-    // predicate, so importing OCCT inputs would yield a false-negative validity verdict.)
-    if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
-
-    const Solid& s = reg.getNativeSolid(shape);
+    // Resolve the native Solid to validate from EITHER a native handle OR an OCCT one.
+    const Solid* s = nullptr;
+    std::shared_ptr<TopologyBuilder> keepAlive;   // keeps an imported topology alive
+    if (reg.kindOf(shape) == ShapeKind::NativeSolid) {
+        s = &reg.getNativeSolid(shape);
+    } else if (reg.kindOf(shape) == ShapeKind::Occt) {
+        // PHASE-D: import the OCCT analytic solid into a native Solid and validate THAT.
+        // ok==false (NURBS/Torus/non-analytic) -> defer to OCCT, exactly as before. The
+        // importer's faces wind CCW-about-the-outward-normal with `reversed` set so
+        // normalAt points out — the convention the now-reversed-aware native battery
+        // expects (see file-head PHASE-D ACTIVATION + native_occt_import_test).
+        ImportResult ir = importOcctSolid(reg.get(shape));
+        if (!ir.ok || ir.solid == nullptr) return false;
+        keepAlive = ir.owner;
+        s = ir.solid;
+    } else {
+        return false;  // NativeMesh -> no analytic Solid -> defer to OCCT
+    }
 
     // Run the full predicate battery on the solid (concatenates all its shells' faces;
-    // expectClosed defaults true — a NativeSolid IS a closed body, which is the right
+    // expectClosed defaults true — a solid IS a closed body, which is the right
     // expectation for the T6/T8 closure predicates, same default the A/B harness uses).
     CheckOptions opt;   // tol=1e-6, curveSamples=8, maxTolerance=1.0, expectClosed=true
-    CheckReport rep = checkBRep(&s, opt);
+    CheckReport rep = checkBRep(s, opt);
 
     out.valid = rep.valid;
 

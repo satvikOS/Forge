@@ -1013,22 +1013,57 @@ CheckReport checkBRep(const std::vector<Face*>& faces, const CheckOptions& opt) 
         }
     }
 
-    // O2 — outer loops wound CCW in (u,v) (signed param area > 0); inner loops CW.
+    // O2 — outer loop wound CCW *about the face's OUTWARD normal*; inner loops CW.
+    //
+    // The canonical CAD/ACIS/OCCT convention is "the outer loop runs CCW as seen
+    // from OUTSIDE the solid" — i.e. CCW about the face's OUTWARD normal. The face's
+    // outward normal is normalAt = (reversed ? -1 : +1) * (S_u x S_v). loopSigned-
+    // ParamArea2 measures the shoelace in the RAW (u,v) param plane, whose natural
+    // orientation normal is +(S_u x S_v). So:
+    //   * reversed==false (outward = +S_u x S_v):  CCW-about-outward  <=>  shoelace > 0
+    //   * reversed==true  (outward = -S_u x S_v):  CCW-about-outward  <=>  shoelace < 0
+    // i.e. the EXPECTED outer-loop shoelace SIGN flips with the surface's `reversed`
+    // flag. This is a CORRECTNESS fix, not a relaxation: a face whose surface frame's
+    // natural normal already points OUTWARD (reversed==false — every primitive box
+    // face, every reversed==false boolean/import face) is checked EXACTLY as before
+    // (shoelace must be > 0); a genuinely mis-wound outer loop (CW about its own
+    // outward normal) STILL fails. The previous code ignored `reversed` and so
+    // false-flagged EVERY valid reversed==true face — the faces a hole's inner
+    // cylinder wall, and (verified) the bored-box planar caps, legitimately carry.
+    // Both Boolean.cpp's stitch() and OcctImport.cpp's importer emit outer loops
+    // CCW-about-the-outward-normal with `reversed` set so normalAt points out, so
+    // this predicate now agrees with the kernel's own producers (primitive +
+    // boolean + OCCT import). The inner-loop expectation flips symmetrically.
     {
         CheckPredicate& p = addRow(rep, CheckFamily::Orientation,
                                    CheckStatus::BadOrientationCCW,
                                    "O2.OuterLoopCCW");
         for (Face* f : faces) {
             if (f->outerLoop == nullptr) continue;
+            // outerWantsPositive: with the surface's natural normal OUTWARD
+            // (reversed==false) a CCW-about-outward outer loop has shoelace > 0;
+            // with the natural normal INWARD (reversed==true) it has shoelace < 0.
+            const bool reversedFace = (f->surface != nullptr && f->surface->reversed);
+            const bool outerWantsPositive = !reversedFace;
+
             double a2 = loopSignedParamArea2(f, f->outerLoop);
-            if (a2 <= 0.0) {
+            // Pass iff the outer loop's signed param area has the wanted sign and is
+            // non-degenerate (a2 == 0 is a collapsed loop — caught here as before).
+            const bool outerOk = outerWantsPositive ? (a2 > 0.0) : (a2 < 0.0);
+            if (!outerOk) {
                 p.passed = false;
                 p.offenders.push_back({IdKind::Loop, f->outerLoop->id});
-                p.detail = "outer signed param area=" + std::to_string(a2);
+                p.detail = "outer signed param area=" + std::to_string(a2) +
+                           " (reversed=" + (reversedFace ? std::string("1") : std::string("0")) +
+                           ", wanted " + (outerWantsPositive ? std::string(">0") : std::string("<0")) + ")";
             }
+            // Inner (hole) loops run OPPOSITE the outer loop about the same outward
+            // normal: CW-about-outward (shoelace < 0) when reversed==false, and
+            // CCW-about-outward (shoelace > 0) when reversed==true.
             for (Loop* il : f->innerLoops) {
                 double ai = loopSignedParamArea2(f, il);
-                if (ai >= 0.0) {
+                const bool innerOk = outerWantsPositive ? (ai < 0.0) : (ai > 0.0);
+                if (!innerOk) {
                     p.passed = false;
                     p.offenders.push_back({IdKind::Loop, il->id});
                 }
