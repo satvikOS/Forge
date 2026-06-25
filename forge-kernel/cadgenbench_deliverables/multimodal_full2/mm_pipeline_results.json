@@ -1,0 +1,525 @@
+{
+  "specs": "/Users/account_clawteam1/archdisc-Models/data/forge/cadgen_mm/specs49.jsonl",
+  "rows": [
+    {
+      "id": "101",
+      "variant": "B-imper",
+      "calls": 15,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 2,
+        "b1": 0,
+        "b2": 2
+      },
+      "volume": 120928.00000000009,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/101.step"
+    },
+    {
+      "id": "102",
+      "variant": "A-raw",
+      "calls": 7,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "103",
+      "variant": "A-raw",
+      "calls": 14,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 9891528.020096578,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/103.step"
+    },
+    {
+      "id": "104",
+      "variant": "B-imper",
+      "calls": 7,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "volume": 1276512.5801177789,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/104.step"
+    },
+    {
+      "id": "105",
+      "variant": "A-raw",
+      "calls": 7,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 2,
+        "b1": 0,
+        "b2": 2
+      },
+      "volume": 537639.6757674338,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/105.step"
+    },
+    {
+      "id": "106",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "107",
+      "variant": "A-raw",
+      "calls": 11,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 1664782.8959999997,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/107.step"
+    },
+    {
+      "id": "108",
+      "variant": "A-raw",
+      "calls": 7,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 1940756.976,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/108.step"
+    },
+    {
+      "id": "109",
+      "variant": "A-raw",
+      "calls": 4,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 3991393.4663858367,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/109.step"
+    },
+    {
+      "id": "110",
+      "variant": "B-imper",
+      "calls": 8,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 2,
+        "b1": 0,
+        "b2": 2
+      },
+      "volume": 3937686.242737316,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/110.step"
+    },
+    {
+      "id": "111",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "112",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "113",
+      "variant": "A-raw",
+      "calls": 3,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 8600726.331693884,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/113.step"
+    },
+    {
+      "id": "114",
+      "variant": "A-raw",
+      "calls": 9,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "volume": 12044.649566773722,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/114.step"
+    },
+    {
+      "id": "115",
+      "variant": "A-raw",
+      "calls": 6,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "volume": 400625.0747375326,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/115.step"
+    },
+    {
+      "id": "116",
+      "variant": "B-imper",
+      "calls": 7,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 2748224.233950371,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/116.step"
+    },
+    {
+      "id": "117",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "118",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "119",
+      "variant": "A-raw",
+      "calls": 8,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "120",
+      "variant": "A-raw",
+      "calls": 24,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 10,
+        "b1": 0,
+        "b2": 10
+      },
+      "volume": 9091565.617654745,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/120.step"
+    },
+    {
+      "id": "121",
+      "variant": "A-raw",
+      "calls": 6,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "122",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "123",
+      "variant": "A-raw",
+      "calls": 6,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 18823044.439761,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/123.step"
+    },
+    {
+      "id": "124",
+      "variant": "A-raw",
+      "calls": 8,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 2,
+        "b1": 0,
+        "b2": 2
+      },
+      "volume": 264466.46382637124,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/124.step"
+    },
+    {
+      "id": "125",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "126",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "127",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "128",
+      "variant": "A-raw",
+      "calls": 8,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "129",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "130",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "131",
+      "variant": "A-raw",
+      "calls": 9,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 3,
+        "b1": 0,
+        "b2": 3
+      },
+      "volume": 885047.1261748098,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/131.step"
+    },
+    {
+      "id": "132",
+      "variant": "A-raw",
+      "calls": 10,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "133",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "134",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "135",
+      "variant": "B-imper",
+      "calls": 6,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 409373.755750763,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/135.step"
+    },
+    {
+      "id": "136",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "137",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "138",
+      "variant": "A-raw",
+      "calls": 6,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "139",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "140",
+      "variant": "A-raw",
+      "calls": 8,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 7539822.36861552,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/140.step"
+    },
+    {
+      "id": "141",
+      "variant": "A-raw",
+      "calls": 8,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "142",
+      "variant": "A-raw",
+      "calls": 7,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 2788437.9735344686,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/142.step"
+    },
+    {
+      "id": "143",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "145",
+      "variant": "A-raw",
+      "calls": 2,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "146",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "147",
+      "variant": "B-imper",
+      "calls": 7,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "volume": 2681387.028950727,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/147.step"
+    },
+    {
+      "id": "148",
+      "variant": "none",
+      "calls": 0,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    },
+    {
+      "id": "149",
+      "variant": "B-imper",
+      "calls": 11,
+      "valid": true,
+      "stepOk": true,
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "volume": 439897.82931594417,
+      "outPath": "/Users/account_clawteam1/archdisc-Mech/forge-kernel/cadgenbench_deliverables/multimodal_full2/149.step"
+    },
+    {
+      "id": "150",
+      "variant": "A-raw",
+      "calls": 7,
+      "valid": false,
+      "stepOk": false,
+      "outPath": null
+    }
+  ],
+  "built": 21,
+  "stepped": 21
+}

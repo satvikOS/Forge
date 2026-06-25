@@ -1,0 +1,4 @@
+# Large binary deliverables — kept locally, not committed (bloat).
+*.zip
+submission_staging/
+multimodal_full*/*.step

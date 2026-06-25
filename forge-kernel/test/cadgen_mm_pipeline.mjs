@@ -56,15 +56,27 @@ function extractCalls(text) {
   }
   return calls;
 }
-async function driveBackend(sys, spec) {
-  // A-raw first; if 0 calls, fall back to the imperative wrapper (rescues hard specs).
-  for (const user of [spec, `Build this part in Forge. Emit ONLY tool-calls (no prose). Part: ${spec}`]) {
-    let r; try { r = await post(sys, user); } catch (e) { return { calls: [], err: e.message }; }
+// Try-both-keep-valid: build each prompt variant in the kernel and keep the FIRST
+// that yields a VALID solid (calls that parse ≠ calls that build valid). Among
+// non-valid attempts, keep the one with the most calls as a best-effort STEP.
+async function buildBestVariant(sys, spec, outPath) {
+  const variants = [
+    ['A-raw', spec],
+    ['B-imper', `Build this part in Forge. Emit ONLY tool-calls (no prose). Part: ${spec}`],
+    ['C-stepwise', `Build this part step by step using Forge tool-calls only. Start with the base solid, then add each feature in turn. If exact placement is unspecified, place it sensibly. Part: ${spec}`],
+  ];
+  let best = null;
+  for (const [label, user] of variants) {
+    let r; try { r = await post(sys, user); } catch { continue; }
     const text = r?.choices?.[0]?.message?.content ?? '';
     const calls = extractCalls(text);
-    if (calls.length) return { calls, variant: user === spec ? 'A-raw' : 'B-imper', textLen: text.length };
+    if (!calls.length) continue;
+    const b = runJobInChild({ op: 'buildexport', calls, outPath });
+    const rec = { variant: label, calls: calls.length, valid: !!b.valid, stepOk: !!b.stepOk, betti: b.betti, volume: b.volume };
+    if (rec.valid && rec.stepOk) return rec;                       // first VALID wins (its STEP is at outPath)
+    if (!best || rec.calls > best.calls) best = { ...rec };        // track best-effort
   }
-  return { calls: [], variant: 'none' };
+  return best || { variant: 'none', calls: 0, valid: false, stepOk: false };
 }
 
 (async () => {
@@ -77,14 +89,11 @@ async function driveBackend(sys, spec) {
     const id = String(s.id ?? s.fixture ?? '?');
     const spec = s.spec ?? s.text ?? '';
     process.stdout.write(`  ${id} … `);
-    const d = await driveBackend(sys, spec);
-    if (!d.calls.length) { console.log(`NO CALLS (${d.err || 'empty'})`); rows.push({ id, calls: 0, valid: false, stepOk: false }); continue; }
     const outPath = path.join(OUT, `${id}.step`);
-    const r = runJobInChild({ op: 'buildexport', calls: d.calls, outPath });
-    const valid = !!r.valid, stepOk = !!r.stepOk;
+    const r = await buildBestVariant(sys, spec, outPath);
     const b = r.betti ? `b0=${r.betti.b0} b1=${r.betti.b1} b2=${r.betti.b2}` : 'b=-';
-    console.log(`${d.variant} ${d.calls.length}call valid=${valid ? 'Y' : 'N'} step=${stepOk ? 'Y' : 'N'} ${b} vol=${r.volume ? r.volume.toFixed(0) : '-'}`);
-    rows.push({ id, variant: d.variant, calls: d.calls.length, valid, stepOk, betti: r.betti, volume: r.volume, outPath: stepOk ? outPath : null });
+    console.log(`${r.variant} ${r.calls}call valid=${r.valid ? 'Y' : 'N'} step=${r.stepOk ? 'Y' : 'N'} ${b} vol=${r.volume ? r.volume.toFixed(0) : '-'}`);
+    rows.push({ id, variant: r.variant, calls: r.calls, valid: r.valid, stepOk: r.stepOk, betti: r.betti, volume: r.volume, outPath: (r.valid && r.stepOk) ? outPath : null });
   }
   const built = rows.filter(r => r.valid).length, stepped = rows.filter(r => r.stepOk).length;
   console.log(`\n[mm] valid solids ${built}/${rows.length} · STEP exported ${stepped}/${rows.length}`);
