@@ -56,11 +56,30 @@
 // through brep::curveDerivatives (NurbsCalculus.hpp); the per-sub-patch bicubic
 // Boolean sum reuses the SAME cubic-Hermite blend the 4-sided Coons fill uses.
 //
-// HONEST SCOPE: n-sided G1 Gregory. G2 (curvature-continuous) Gregory and the
-// interior class-A reflection-line FAIRING are the documented follow-ups (the
-// same next pieces SurfaceFill.hpp lists). The central point + radial frame is a
+// G2 (CURVATURE-CONTINUOUS) MODE (additive; set GregoryBoundary::g2 = true and
+// supply GregorySide::curvature on every side). The radial direction is upgraded
+// from a cubic Hermite to a QUINTIC Hermite carrying the prescribed cross-
+// boundary CURVATURE at t=0 (alongside position + cross-tangent), via the same
+// six quintic-Hermite blends SurfaceFill.cpp uses for the 4-sided G2 Coons fill.
+// The g2 sub-patch then (a) interpolates the boundary EXACTLY, (b) matches the
+// prescribed cross-tangent (G1) AND (c) matches the prescribed cross-CURVATURE
+// (G2) along every edge, all to machine precision. The g1-only path is BYTE-FOR-
+// BYTE unchanged when g2 == false.
+//
+// HONEST N!=4 INTERIOR-SEAM LIMIT (a known CAGD result — twist/curvature
+// incompatibility at a singular vertex). The BOUNDARY G2 is exact for any N. The
+// INTERIOR radial seams are kept watertight (C0, exact) and curvature-continuous
+// only to the tolerance the rational n-sided fan allows: for N == 4 the fan IS a
+// regular bi-parametric quad and the interior can be made C2/G2, but for N != 4
+// EXACT G2 at the common central singular point is NOT achievable (the per-sector
+// twists/curvatures meeting at the apex are mutually incompatible — Gregory's
+// twist-compatibility obstruction, the same reason the classical Gregory patch
+// needs a RATIONAL corner blend). This module therefore achieves G2 at the
+// BOUNDARY exactly and REPORTS the residual interior-seam curvature jump as a
+// printed metric rather than faking zero. The central point + radial frame is a
 // reasonable averaged centroid frame (the standard n-sided choice), not a global
-// energy-minimising optimum (that is the fairing follow-up).
+// energy-minimising optimum (that — and the curvature-comb reflection-line
+// FAIRING — remains the documented Class-A follow-up).
 //
 // Pure C++20, ZERO external dependencies (stdlib + existing forge native headers
 // only). No OCCT, no WASM, no third-party libs. namespace forge::native::brep.
@@ -99,6 +118,17 @@ namespace brep {
 struct GregorySide {
     NurbsCurve boundary;   // b_i(t), t in [0,1]; b_i(0) = corner i
     NurbsCurve cross;      // prescribed cross-boundary tangent field c_i(t) (G1)
+
+    // PRESCRIBED cross-boundary CURVATURE field k_i(t) (the G2 data): a "vector
+    // curve" whose evaluated POINT is the prescribed 2nd-order cross-derivative
+    // VECTOR d^2(S)/d(transverse)^2 at that edge parameter, NOT a point on the
+    // surface. It is the bordering face's transverse 2nd-partial along this edge
+    // — what the surface's curvature in the radial (into-the-hole) direction must
+    // be AT the boundary. Same sign/parameterisation convention as `cross` (both
+    // measured in the radial sub-patch coordinate, points INTO the hole). Only
+    // used (and required by validate()) when GregoryBoundary::g2 == true; leave
+    // default-constructed for the g1-only path.
+    NurbsCurve curvature;  // prescribed cross-boundary curvature field k_i(t) (G2)
 };
 
 // ---------------------------------------------------------------------------
@@ -109,10 +139,22 @@ struct GregoryBoundary {
     bool g1 = true;                   // true: G1 fill (cross fields required);
                                       // false: G0 positional fill (planar holes)
 
+    // G2 (curvature-continuous) MODE. When g2 == true the fill ADDITIVELY upgrades
+    // the radial direction from a cubic Hermite to a QUINTIC Hermite that carries
+    // the prescribed cross-boundary CURVATURE (GregorySide::curvature) at t=0, so
+    // the fill matches the bordering face's position, transverse tangent AND
+    // transverse 2nd-derivative along every edge (G2 at the boundary). g2 implies
+    // g1 (the quintic blend needs the tangent fields too); every side's
+    // `curvature` field must then be a valid curve. The g1-only path is UNCHANGED
+    // when g2 == false (purely additive). See the cpp for the exact boundary
+    // algebra and the honest N!=4 interior-seam curvature-jump limit.
+    bool g2 = false;
+
     // True iff there are >= 3 sides, each boundary curve is a valid clamped NURBS
     // curve, the loop CLOSES (b_i(1) == b_{i+1}(0) within cornerTol for all i),
-    // and (when g1) every cross-tangent field is a valid curve. `reason` (if
-    // non-null) gets a short diagnostic on failure. The honest gate.
+    // (when g1/g2) every cross-tangent field is a valid curve, AND (when g2) every
+    // cross-curvature field is a valid curve. `reason` (if non-null) gets a short
+    // diagnostic on failure. The honest gate.
     bool validate(const char** reason = nullptr, double cornerTol = 1e-7) const;
 };
 
@@ -128,6 +170,23 @@ struct GregorySample {
     Vec3 ds;      // dS/ds
     Vec3 dt;      // dS/dt
     Vec3 normal;  // unit (ds x dt); zero if degenerate
+};
+
+// ---------------------------------------------------------------------------
+// GregorySample2 — the G2-verifiable evaluation result on a sub-patch: the
+// point, the two first partials AND the three second partials (S_ss, S_st,
+// S_tt) w.r.t. the sub-patch (s,t) parameters. A caller verifies the prescribed
+// cross-boundary CURVATURE directly by comparing dtt at t=0 (the radial 2nd
+// derivative leaving the boundary) against the prescribed curvature field.
+// ---------------------------------------------------------------------------
+struct GregorySample2 {
+    bool ok = false;
+    Vec3 point;   // S(s,t)
+    Vec3 ds;      // dS/ds
+    Vec3 dt;      // dS/dt
+    Vec3 dss;     // d^2 S/ds^2
+    Vec3 dst;     // d^2 S/ds dt
+    Vec3 dtt;     // d^2 S/dt^2 (the radial 2nd deriv; == prescribed curvature at t=0)
 };
 
 // ===========================================================================
@@ -157,6 +216,14 @@ struct GregoryPatch {
 
     // Evaluate with first partials + unit normal on the i-th sub-patch.
     GregorySample evaluateSubWithDerivatives(std::size_t i, double s, double t) const;
+
+    // Evaluate with first AND second partials on the i-th sub-patch (the
+    // G2-verifiable form). The 2nd partials are the exact analytic derivatives of
+    // the same Boolean sum — quintic-Hermite in the radial t for the g2 fill,
+    // cubic-Hermite (central-differenced) for the g1/g0 fill. The radial 2nd
+    // partial dtt at t=0 equals the prescribed cross-boundary curvature exactly.
+    GregorySample2 evaluateSubWithSecondDerivatives(std::size_t i,
+                                                    double s, double t) const;
 };
 
 // Build the N-sided Gregory G1 (or G0) fill from the boundary loop + cross

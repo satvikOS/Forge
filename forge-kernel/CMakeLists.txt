@@ -565,6 +565,7 @@ add_library(forge_kernel SHARED
     src/native/implicit/SdfOps.cpp
     src/native/implicit/FRepTree.cpp
     src/native/implicit/IntervalMesh.cpp    # libfive — interval-arithmetic guaranteed meshing: interval-pruned octree + topology-aware dual contour (no missed thin features)
+    src/native/implicit/AdaptiveIntervalMesh.cpp    # libfive — adaptive octree-refined interval mesher (2:1-balanced + minimal-edge dual contour; ~4x fewer tris at equal Hausdorff, watertight 2-manifold across level transitions)
     src/native/implicit/MeshToFRep.cpp
     src/native/voxel/Lattice.cpp
     src/native/voxel/Morphology.cpp

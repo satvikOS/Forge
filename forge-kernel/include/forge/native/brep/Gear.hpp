@@ -114,14 +114,23 @@ namespace brep {
 //                (inward) addendum. This is the ring that a planet meshes against.
 //   * Bevel    — a STRAIGHT bevel gear: the involute profile lies on the BACK
 //                CONE (pitch-cone angle) and the teeth taper toward the apex.
+//   * SpiralBevel — a SPIRAL bevel gear: the straight-bevel taper, but the tooth
+//                LENGTHWISE trace is a CIRCULAR-ARC spiral on the pitch cone (the
+//                standard Gleason approximation). The tooth's lengthwise tangent
+//                makes the spiral angle psi_m with the cone radial at the MEAN cone
+//                radius; the transverse profile is still the back-cone involute.
 //
-// HONEST SCOPE of this increment: straight bevel + internal spur. SPIRAL bevel,
-// HELICAL-internal and HYPOID are named follow-ups (not faked here).
+// HONEST SCOPE of this increment: straight bevel + internal spur + SPIRAL bevel.
+// HELICAL-internal and HYPOID remain named follow-ups (not faked here). The spiral
+// bevel uses the CIRCULAR-ARC (Gleason) lengthwise spiral and the radially-scaled
+// back-cone involute transverse profile (an honest approximation of the exact
+// spherical-involute octoid; no crowning / lengthwise tooth-thickness modification).
 // ---------------------------------------------------------------------------
 enum class GearType {
-    External = 0,  // original external involute spur gear (unchanged)
-    Internal = 1,  // ring / annulus gear (teeth point inward)
-    Bevel    = 2   // straight bevel gear (teeth on the back cone, taper to apex)
+    External    = 0,  // original external involute spur gear (unchanged)
+    Internal    = 1,  // ring / annulus gear (teeth point inward)
+    Bevel       = 2,  // straight bevel gear (teeth on the back cone, taper to apex)
+    SpiralBevel = 3   // spiral bevel gear (circular-arc Gleason lengthwise spiral)
 };
 
 // ---------------------------------------------------------------------------
@@ -148,12 +157,21 @@ struct GearSpec {
     // dedendum radius (rp + 1.25*m). 0 => default rp + 2.5*m (a sane rim wall).
     double rimOuterRadius = 0.0;
 
-    // BEVEL gear only: the PITCH-CONE ANGLE gamma (rad) measured from the gear axis
-    // to the pitch cone. A 45-degree pitch-cone bevel meshing an equal mate uses
-    // gamma = pi/4. The back-cone pitch radius equals m*N/2 (so the back-cone pitch
-    // diameter == m*N exactly); faceWidth is the cone-distance band of the teeth
+    // BEVEL / SPIRAL-BEVEL gear: the PITCH-CONE ANGLE gamma (rad) measured from the
+    // gear axis to the pitch cone. A 45-degree pitch-cone bevel meshing an equal mate
+    // uses gamma = pi/4. The back-cone pitch radius equals m*N/2 (so the back-cone
+    // pitch diameter == m*N exactly); faceWidth is the cone-distance band of the teeth
     // (the slant extent from the back cone toward the apex).
     double pitchConeAngle = 0.78539816339744831; // pi/4 = 45 degrees
+
+    // SPIRAL-BEVEL gear ONLY: the MEAN SPIRAL ANGLE psi_m (rad) — the angle between
+    // the tooth's lengthwise tangent and the cone RADIAL direction, measured at the
+    // MEAN cone distance R_m = R - faceWidth/2 (the centre of the toothed band). The
+    // tooth centreline is a CIRCULAR ARC in the back-cone development (the standard
+    // Gleason approximation) whose tangent makes exactly this angle with the radial at
+    // R_m. psi_m = 0 reduces EXACTLY to the straight bevel (the regression anchor).
+    // A 35-degree mean spiral angle (the Gleason default) is psi_m = 0.6108652381980153.
+    double spiralAngle = 0.6108652381980153; // 35 degrees (Gleason default)
 };
 
 // ---------------------------------------------------------------------------
@@ -176,11 +194,18 @@ struct GearGeometry {
     // (the teeth point inward) and rimOuterRadius > rootRadius.
     double rimOuterRadius = 0.0;
 
-    // BEVEL gear: the pitch-cone half-angle gamma (rad). 0 for External/Internal.
-    // The BACK-CONE pitch radius equals pitchRadius (so the back-cone pitch diameter
-    // == m*N exactly); coneDistance is the slant length from apex to the back cone.
+    // BEVEL / SPIRAL-BEVEL gear: the pitch-cone half-angle gamma (rad). 0 for
+    // External/Internal. The BACK-CONE pitch radius equals pitchRadius (so the
+    // back-cone pitch diameter == m*N exactly); coneDistance is the slant length from
+    // apex to the back cone.
     double pitchConeAngle = 0.0;
     double coneDistance   = 0.0; // R = pitchRadius / sin(gamma)  (apex->back-cone)
+
+    // SPIRAL-BEVEL gear: the mean spiral angle psi_m (rad), 0 for the others. The
+    // tooth lengthwise trace is a circular arc in the back-cone development whose
+    // tangent makes psi_m with the cone radial at the mean cone distance R_m. 0 ==
+    // straight bevel.
+    double spiralAngle    = 0.0;
 };
 
 // Derive the standard full-depth involute-gear dimensions from a spec. Pure math,
@@ -263,8 +288,9 @@ struct GearResult {
 //     3. extrude that closed profile to the face width as a prism: bottom + top
 //        ANNULAR caps (bore as inner loop), planar flank side walls + Cylinder bore,
 //     4. validate closed-2-manifold + strictly-positive divergence-theorem volume.
-//   Internal — buildInternalGear (ring gear; teeth point inward).
-//   Bevel    — buildBevelGear (straight bevel; teeth on the back cone, taper).
+//   Internal    — buildInternalGear (ring gear; teeth point inward).
+//   Bevel       — buildBevelGear (straight bevel; teeth on the back cone, taper).
+//   SpiralBevel — buildSpiralBevelGear (bevel taper + circular-arc lengthwise spiral).
 //
 // Returns GearResult; on the first structural failure returns ok=false with the
 // failing reason (never a wrong solid).
@@ -291,6 +317,60 @@ GearResult buildInternalGear(const GearSpec& spec);
 // are joined by ruled planar side walls, with planar caps + a Cylinder/cone bore.
 // The teeth shrink in proportion to the cone radius, so they taper to the apex side.
 GearResult buildBevelGear(const GearSpec& spec);
+
+// ---------------------------------------------------------------------------
+// buildSpiralBevelGear — a SPIRAL bevel gear. It is the straight-bevel taper
+// (buildBevelGear's lofted toothed frustum, teeth on the back cone tapering to the
+// apex) with the tooth LENGTHWISE centreline laid out as a CIRCULAR ARC in the
+// back-cone development — the standard Gleason spiral-bevel approximation.
+//
+// CONSTRUCTION (closed form). Lay the pitch cone flat: a point on the cone at
+// cone-distance rho (slant length from the apex) and gear-axis angle phi maps to the
+// development plane polar point (rho, phi). The tooth lengthwise CENTRELINE is a
+// circular arc of radius `a` in that plane; we choose `a` so the arc's tangent makes
+// exactly the prescribed spiral angle psi_m with the RADIAL (rho) direction at the
+// MEAN cone distance R_m = R - faceWidth/2. For a circular arc, the local spiral
+// angle psi(rho) obeys the exact relation
+//       rho * sin(psi(rho)) = R_m * sin(psi_m)   (== the arc's constant offset c)
+// (the perpendicular distance from the development origin to the arc's tangent line
+// is the invariant c = R_m*sin(psi_m)), and the cumulative lengthwise twist of the
+// tooth between the back cone (rho=R) and a cone distance rho is
+//       Dphi(rho) = ∫_rho^R tan(psi(s))/s ds
+//                 = [ acos(c/R) - acos(c/rho) ]   (closed form, c = R_m*sin psi_m).
+// Each transverse toothed section at cone distance rho is therefore the radially-
+// scaled back-cone involute profile (scale = rho/R, exactly as the straight bevel)
+// RIGIDLY ROTATED about the gear axis by Dphi(rho). The two end sections (back cone
+// rho=R, small end rho=R-faceWidth) are joined by ruled planar side walls; the spiral
+// twist makes the side walls swept rather than straight. psi_m = 0 => c = 0 =>
+// Dphi == 0 => this reduces EXACTLY to buildBevelGear (the regression anchor).
+//
+// The measured spiral angle at the mean cone radius equals the prescribed psi_m to
+// machine precision (the gate asserts this from the actual lengthwise tooth tangent).
+// pitchDiameter == m*N exactly (back cone); closed 2-manifold; teeth taper to apex.
+GearResult buildSpiralBevelGear(const GearSpec& spec);
+
+// ---------------------------------------------------------------------------
+// spiralBevelTwist — the closed-form lengthwise twist Dphi(rho) (rad) of the
+// Gleason circular-arc spiral between the back cone (rho == coneDistance) and the
+// cone distance `rho`, for the SpiralBevel spec/geometry. Dphi(coneDistance) == 0;
+// Dphi grows toward the apex. With c = R_m*sin(psi_m), R_m = R - faceWidth/2:
+//     Dphi(rho) = acos(c/R) - acos(c/rho).
+// Exposed so the gate can MEASURE the spiral angle from the actual lengthwise trace:
+// the tooth centreline at cone distance rho sits on the pitch cone at pitch radius
+// rp*(rho/R) and gear-axis angle (phi0 + Dphi(rho)); numerically differentiating that
+// trace at the MEAN cone distance R_m yields tan(psi) = rho*dphi/drho = c/sqrt(rho^2-c^2),
+// i.e. sin(psi(R_m)) == sin(psi_m) EXACTLY. Returns 0 for a non-spiral spec.
+double spiralBevelTwist(const GearSpec& spec, const GearGeometry& g, double rho);
+
+// spiralBevelCentrelinePoint — the actual 3D point of a tooth's lengthwise pitch
+// centreline at cone distance `rho` (slant from the apex), for the lengthwise angular
+// phase `phi0` (rad) of that tooth on the back cone. The point lies on the pitch cone:
+//   pitch radius r = rp * (rho / R),  z = (R - rho)*cos(gamma) measured from the back
+//   cone (so rho == R gives z == 0, the back-cone section), and gear-axis angle
+//   phi0 + spiralBevelTwist(rho). The gate differentiates this trace at the mean cone
+//   distance to recover the spiral angle. Matches the as-built solid's section placement.
+Vec3 spiralBevelCentrelinePoint(const GearSpec& spec, const GearGeometry& g,
+                                double rho, double phi0);
 
 } // namespace brep
 } // namespace native

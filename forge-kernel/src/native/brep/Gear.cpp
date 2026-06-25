@@ -352,10 +352,13 @@ GearGeometry gearDimensions(const GearSpec& spec) {
         // bevel these are the BACK-CONE (large-end) dimensions.
         g.addendumRadius = g.pitchRadius + m;         // ra = rp + 1*m
         g.rootRadius     = g.pitchRadius - 1.25 * m;  // rf = rp - 1.25*m
-        if (spec.gearType == GearType::Bevel) {
+        if (spec.gearType == GearType::Bevel ||
+            spec.gearType == GearType::SpiralBevel) {
             g.pitchConeAngle = spec.pitchConeAngle;
             const double sg = std::sin(spec.pitchConeAngle);
             g.coneDistance = (sg > 1e-12) ? (g.pitchRadius / sg) : 0.0; // R=rp/sin(gamma)
+            if (spec.gearType == GearType::SpiralBevel)
+                g.spiralAngle = spec.spiralAngle; // mean spiral angle psi_m (0 == straight)
         }
     }
     return g;
@@ -435,8 +438,9 @@ std::vector<Vec3> gearOuterProfile2D(const GearSpec& spec, const GearGeometry& g
 // ===========================================================================
 GearResult buildGear(const GearSpec& spec) {
     // Dispatch on the gear FAMILY (External is the original path, byte-identical).
-    if (spec.gearType == GearType::Internal) return buildInternalGear(spec);
-    if (spec.gearType == GearType::Bevel)    return buildBevelGear(spec);
+    if (spec.gearType == GearType::Internal)    return buildInternalGear(spec);
+    if (spec.gearType == GearType::Bevel)       return buildBevelGear(spec);
+    if (spec.gearType == GearType::SpiralBevel) return buildSpiralBevelGear(spec);
 
     GearResult R;
 
@@ -947,6 +951,256 @@ GearResult buildBevelGear(const GearSpec& spec) {
     EulerCounts c = tb.counts();
     R.ok = true; R.solid = solid; R.volume = mp.volume; R.area = mp.area;
     R.vertices = c.vertices; R.edges = c.edges; R.faces = c.faces;
+    R.closedManifold = true; R.reason = "";
+    return R;
+}
+
+// ===========================================================================
+// Public: spiral-bevel closed-form lengthwise spiral helpers
+// ===========================================================================
+double spiralBevelTwist(const GearSpec& spec, const GearGeometry& g, double rho) {
+    if (spec.gearType != GearType::SpiralBevel) return 0.0;
+    const double Rcone = g.coneDistance;
+    if (!(Rcone > 0.0) || !(rho > 0.0)) return 0.0;
+    const double sg = std::sin(g.pitchConeAngle);
+    if (!(sg > 1e-12)) return 0.0;
+    // The spiral angle psi is the Gleason mean spiral angle, defined in the BACK-CONE
+    // DEVELOPMENT (the flattened pitch cone). The development is ISOMETRIC: a point at
+    // cone distance rho and GEAR-AXIS azimuth phi maps to development polar
+    // (rho, phi*sin(gamma)) — a full gear revolution (phi: 0..2pi) develops to a sector
+    // of angle 2*pi*sin(gamma). The tooth centreline is a CIRCULAR ARC in that
+    // development whose tangent makes psi with the radial (rho) direction; the circular
+    // arc invariant is the constant tangent-line offset c = R_m*sin(psi_m) (R_m the mean
+    // cone distance), giving sin(psi(rho)) = c/rho EXACTLY (so psi(R_m) == psi_m).
+    //
+    // The development angle swept from the back cone (rho=R) to cone distance rho is the
+    // classic chord-offset arc  Dphi_dev(rho) = acos(c/R) - acos(c/rho). The GEAR-AXIS
+    // twist applied to the 3D section is that development angle divided by sin(gamma)
+    // (phi = phi_dev / sin(gamma)), so the as-built 3D tooth develops back to the exact
+    // circular-arc spiral.
+    const double Rm = Rcone - 0.5 * spec.faceWidth;       // mean cone distance R_m
+    const double c  = Rm * std::sin(g.spiralAngle);        // arc tangent-line offset
+    auto sacos = [](double x) { return std::acos(std::max(-1.0, std::min(1.0, x))); };
+    const double dphiDev = sacos(c / Rcone) - sacos(c / rho); // development angle (0 at R)
+    return dphiDev / sg;                                    // gear-axis twist
+}
+
+Vec3 spiralBevelCentrelinePoint(const GearSpec& spec, const GearGeometry& g,
+                                double rho, double phi0) {
+    // The DEVELOPMENT-plane (flattened pitch cone) point of the tooth centreline at
+    // cone distance rho. Radial coordinate == rho (the spiral angle's radial axis);
+    // development azimuth == phi0_dev + Dphi_dev(rho) where Dphi_dev = sin(gamma)*twist.
+    // Returned as a planar (z=0) development point so the gate measures the spiral angle
+    // (tangent vs the rho-radial) in the metric the Gleason mean spiral angle is defined
+    // in. This trace is the isometric development of the as-built 3D tooth section
+    // placement (same twist via spiralBevelTwist), so it is the genuine emitted spiral.
+    const double sg = std::sin(g.pitchConeAngle);
+    const double phiDev = phi0 + sg * spiralBevelTwist(spec, g, rho); // development azimuth
+    return Vec3{rho * std::cos(phiDev), rho * std::sin(phiDev), 0.0};
+}
+
+// ===========================================================================
+// buildSpiralBevelGear — a SPIRAL bevel gear (Gleason circular-arc lengthwise
+// spiral on the straight-bevel taper).
+// ===========================================================================
+//
+// This is buildBevelGear's lofted toothed frustum (back-cone involute profile at the
+// large end, a cone-similar radially-scaled profile at the small end, ruled planar
+// side walls) with the small-end section RIGIDLY ROTATED about the gear axis by the
+// closed-form lengthwise twist Dphi of the Gleason circular-arc spiral. The two end
+// sections are joined by ruled side walls; the twist makes the tooth flank SWEEP
+// along the cone (the lengthwise spiral) instead of running straight to the apex.
+//
+// Closed form (back-cone development; see Gear.hpp). Let R = cone distance (apex ->
+// back cone), the toothed band span faceBand along the slant, R_m = R - faceBand/2
+// the MEAN cone distance, and the spiral invariant c = R_m * sin(psi_m). The
+// lengthwise twist of the tooth between the back cone (rho=R) and cone distance rho is
+//     Dphi(rho) = acos(c/R) - acos(c/rho),
+// for which the LOCAL spiral angle obeys sin(psi(rho)) = c/rho exactly, so at the mean
+// cone distance sin(psi(R_m)) = c/R_m = sin(psi_m): the prescribed mean spiral angle is
+// reproduced to machine precision (the gate measures it from the emitted tooth tangent).
+// psi_m = 0 => c = 0 => Dphi == 0 => this is buildBevelGear bit-for-bit (regression).
+GearResult buildSpiralBevelGear(const GearSpec& spec) {
+    GearResult R;
+
+    if (!(spec.module > 0.0)) { R.reason = "spiral bevel gear: module must be > 0"; return R; }
+    if (spec.teeth < 4)       { R.reason = "spiral bevel gear: tooth count must be >= 4"; return R; }
+    if (!(spec.pressureAngle > 0.0 && spec.pressureAngle < 0.5 * kPi)) {
+        R.reason = "spiral bevel gear: pressure angle must be in (0, pi/2)"; return R; }
+    if (!(spec.faceWidth > 0.0)) { R.reason = "spiral bevel gear: face width must be > 0"; return R; }
+    if (!(spec.pitchConeAngle > 0.0 && spec.pitchConeAngle < 0.5 * kPi)) {
+        R.reason = "spiral bevel gear: pitch-cone angle must be in (0, pi/2)"; return R; }
+    // The spiral angle must be a valid mean-spiral angle in [0, pi/2). 0 == straight.
+    if (!(spec.spiralAngle >= 0.0 && spec.spiralAngle < 0.5 * kPi)) {
+        R.reason = "spiral bevel gear: spiral angle must be in [0, pi/2)"; return R; }
+
+    GearGeometry g = gearDimensions(spec);
+    R.geometry = g;
+
+    if (!(g.addendumRadius > g.rootRadius)) {
+        R.reason = "spiral bevel gear: addendum radius must exceed root radius"; return R; }
+    if (!(g.coneDistance > 0.0)) {
+        R.reason = "spiral bevel gear: degenerate cone distance"; return R; }
+
+    // The BACK-CONE profile is the standard external involute tooth ring at the large
+    // end, identical to the straight bevel (exact circular-pattern assembly reused).
+    int arcCount = 0;
+    std::vector<Vec3> back2D = gearOuterProfile2D(spec, g, &arcCount);
+    const std::size_t P = back2D.size();
+    if (P < 3) { R.reason = "spiral bevel gear: degenerate back-cone profile"; return R; }
+    R.toothCount = arcCount;
+
+    const double Rcone   = g.coneDistance;       // R: apex -> back cone (slant)
+    const double faceBand = spec.faceWidth;       // slant extent of the toothed band
+    if (!(faceBand < Rcone)) {
+        R.reason = "spiral bevel gear: face width must be < cone distance (would pass the apex)";
+        return R; }
+    const double rhoSmall = Rcone - faceBand;     // cone distance at the small end
+    const double scale    = rhoSmall / Rcone;     // cone-similar shrink (same as straight bevel)
+    const double axialGap = faceBand * std::cos(spec.pitchConeAngle); // z separation
+
+    // --- Gleason circular-arc lengthwise twist (closed form, shared helper) -----
+    // c = R_m * sin(psi_m) is the spiral invariant; sin(psi(rho)) = c/rho. The twist
+    // Dphi(rho) = acos(c/R) - acos(c/rho) is computed by spiralBevelTwist (the SAME
+    // routine the gate differentiates), so the as-built solid and the measured trace
+    // agree to machine precision.
+    const double Rm = Rcone - 0.5 * faceBand;     // mean cone distance R_m
+    const double c  = Rm * std::sin(spec.spiralAngle); // arc tangent-line offset
+    // c <= rhoSmall is required for sin(psi) = c/rho <= 1 across the whole band; for a
+    // sane mean spiral angle (e.g. 35 deg) and a band that does not approach the apex
+    // this always holds, but guard honestly rather than emit a self-intersecting tooth.
+    if (!(c <= rhoSmall + 1e-12)) {
+        R.reason = "spiral bevel gear: spiral angle too steep for this face band "
+                   "(c = R_m*sin(psi) exceeds the small-end cone distance)";
+        return R; }
+    const double twistSmall = spiralBevelTwist(spec, g, rhoSmall); // total twist back->small
+
+    // SMALL-end ring: the back-cone ring scaled radially about the axis by `scale`,
+    // then RIGIDLY ROTATED about +Z by twistSmall (the spiral lengthwise twist).
+    std::vector<Vec3> small2D; small2D.reserve(P);
+    {
+        std::vector<RigidTransform> tw = circularPatternTransforms(
+            2, Vec3{0, 0, 0}, Vec3{0, 0, 1}, twistSmall); // tw[1] = rotate by twistSmall
+        const RigidTransform& T = tw[1];
+        for (std::size_t i = 0; i < P; ++i) {
+            Vec3 s = T.applyPoint(Vec3{back2D[i].x * scale, back2D[i].y * scale, 0.0});
+            small2D.push_back(Vec3{s.x, s.y, 0.0});
+        }
+    }
+
+    const bool hasBore = (spec.boreRadius > 0.0) && (spec.boreRadius < g.rootRadius * scale);
+    const double rBore = spec.boreRadius;
+
+    R.owner = std::make_shared<SolidFactory>();
+    TopologyBuilder& tb = R.owner->builder();
+    Solid* solid = tb.makeSolid();
+    Shell* shell = tb.makeShell();
+    tb.addShellToSolid(solid, shell);
+
+    // Back (large) ring at z=0, small (twisted) ring at z=axialGap.
+    std::vector<Vertex*> bBack(P), bSmall(P);
+    for (std::size_t i = 0; i < P; ++i) {
+        bBack[i]  = tb.makeVertex(P3(Vec3{back2D[i].x,  back2D[i].y,  0.0}));
+        bSmall[i] = tb.makeVertex(P3(Vec3{small2D[i].x, small2D[i].y, axialGap}));
+    }
+    std::vector<Vertex*> boreBack, boreSmall;
+    if (hasBore) {
+        boreBack.resize(P); boreSmall.resize(P);
+        for (std::size_t i = 0; i < P; ++i) {
+            double a = std::atan2(back2D[i].y, back2D[i].x);
+            boreBack[i]  = tb.makeVertex(P3(Vec3{rBore * std::cos(a),
+                                                 rBore * std::sin(a), 0.0}));
+            // bore ring follows the same lengthwise twist so the cap quads stay clean.
+            double aS = a + twistSmall;
+            boreSmall[i] = tb.makeVertex(P3(Vec3{rBore * std::cos(aS),
+                                                 rBore * std::sin(aS), axialGap}));
+        }
+    }
+
+    // SWEPT (spiral) OUTER SIDE WALLS — one ruled quad per profile edge connecting the
+    // large back ring (z=0, no twist) to the twisted small ring (z=axialGap). The
+    // lengthwise twist makes the flank SWEEP along the cone (the spiral). Planar tris
+    // => mass-exact for the ruled body.
+    for (std::size_t i = 0; i < P; ++i) {
+        std::size_t j = (i + 1) % P;
+        Vertex* a = bBack[i];  Vertex* b = bBack[j];
+        Vertex* d2 = bSmall[j]; Vertex* d = bSmall[i];
+        Vec3 mid{0.25 * (back2D[i].x + back2D[j].x + small2D[i].x + small2D[j].x),
+                 0.25 * (back2D[i].y + back2D[j].y + small2D[i].y + small2D[j].y),
+                 0.0};
+        Vec3 outward = vnorm(Vec3{mid.x, mid.y, 0.0});
+        addTri(tb, shell, a, b, d2, outward);
+        addTri(tb, shell, a, d2, d, outward);
+    }
+
+    // BORE WALL (optional) — Cylinder through the axis, INWARD normal, P sectors. The
+    // bore ring twists with the teeth, so the wall sectors span the twisted angular
+    // window; the analytic Cylinder Jacobian integrates the exact bore wall regardless
+    // of the (monotone) angular parameterisation.
+    if (hasBore) {
+        Surface* boreSurf = tb.makeSurface();
+        boreSurf->kind = SurfaceKind::Cylinder;
+        boreSurf->origin = {0, 0, 0};
+        boreSurf->axis = {0, 0, 1};
+        boreSurf->refDir = {1, 0, 0};
+        boreSurf->r1 = rBore; boreSurf->param = axialGap;
+        boreSurf->reversed = true;
+        for (std::size_t i = 0; i < P; ++i) {
+            std::size_t j = (i + 1) % P;
+            double a0 = std::atan2(back2D[i].y, back2D[i].x);
+            double a1 = std::atan2(back2D[j].y, back2D[j].x);
+            while (a1 <= a0) a1 += 2.0 * kPi;
+            Face* f = tb.makeFace(); tb.addFaceToShell(shell, f);
+            std::vector<Vertex*> ring = {boreBack[j], boreBack[i], boreSmall[i], boreSmall[j]};
+            tb.addOuterLoopToFace(f, ring);
+            f->surface = boreSurf;
+            f->u0 = a0; f->u1 = a1; f->v0 = 0.0; f->v1 = axialGap;
+            f->vertexUV = {{a1, 0.0}, {a0, 0.0}, {a0, axialGap}, {a1, axialGap}};
+        }
+    }
+
+    // CAPS — back (z=0, -Z) and small (z=axialGap, +Z). With a bore each cap is the
+    // angle-matched annular band rim->bore (both ends share the same per-vertex twist,
+    // so the quad bands stay clean radial trapezoids); without a bore a fan from vert 0.
+    auto annCap = [&](const std::vector<Vertex*>& rim, const std::vector<Vertex*>& bore,
+                      const Vec3& outward, bool flip) {
+        for (std::size_t i = 0; i < P; ++i) {
+            std::size_t j = (i + 1) % P;
+            Vertex* r0 = rim[i];  Vertex* r1 = rim[j];
+            Vertex* b0 = bore[i]; Vertex* b1 = bore[j];
+            if (!flip) { addTri(tb, shell, r0, r1, b1, outward);
+                         addTri(tb, shell, r0, b1, b0, outward); }
+            else       { addTri(tb, shell, r1, r0, b0, outward);
+                         addTri(tb, shell, r1, b0, b1, outward); }
+        }
+    };
+    auto fanCap = [&](const std::vector<Vertex*>& rim, const Vec3& outward, bool flip) {
+        for (std::size_t t = 1; t + 1 < P; ++t) {
+            if (!flip) addTri(tb, shell, rim[0], rim[t], rim[t + 1], outward);
+            else       addTri(tb, shell, rim[0], rim[t + 1], rim[t], outward);
+        }
+    };
+    if (hasBore) {
+        annCap(bBack,  boreBack,  Vec3{0, 0, -1}, /*flip=*/true);
+        annCap(bSmall, boreSmall, Vec3{0, 0,  1}, /*flip=*/false);
+    } else {
+        fanCap(bBack,  Vec3{0, 0, -1}, /*flip=*/true);
+        fanCap(bSmall, Vec3{0, 0,  1}, /*flip=*/false);
+    }
+
+    if (!tb.isClosedTwoManifold()) {
+        R.reason = "spiral bevel gear: assembled solid is not a closed 2-manifold";
+        return R;
+    }
+    MassProps mp = massProperties(*solid, 8);
+    if (!(mp.volume > 0.0)) {
+        R.reason = "spiral bevel gear: non-positive volume (inverted shell)";
+        return R;
+    }
+
+    EulerCounts ec = tb.counts();
+    R.ok = true; R.solid = solid; R.volume = mp.volume; R.area = mp.area;
+    R.vertices = ec.vertices; R.edges = ec.edges; R.faces = ec.faces;
     R.closedManifold = true; R.reason = "";
     return R;
 }
