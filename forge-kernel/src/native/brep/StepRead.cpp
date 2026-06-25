@@ -192,10 +192,31 @@ double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& t
         if (prefix.find("$") != std::string::npos || prefix.empty()) return 1000.0; // bare metre
         return 1000.0; // unknown prefix -> treat as metre
     };
+    // PASS 1 — imperial CONVERSION_BASED_UNIT (inch/foot) takes PRIORITY. An inch
+    // file ALSO contains the SI base unit (millimetre/metre) the inch is defined in
+    // terms of, so scanning both kinds in ONE pass let std::unordered_map iteration
+    // ORDER decide which matched first — and that order differs across stdlib
+    // implementations (libc++ on macOS vs libstdc++ on Linux CI) and runs, so inch
+    // files intermittently resolved to millimetre (scale 1.0). Scanning imperial
+    // FIRST makes the result deterministic on every platform.
     for (const auto& kv : tab) {
         const Instance& ins = kv.second;
-        // SIMPLE SI length unit only appears as a COMPLEX record:
-        // (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))
+        if (ins.type == "CONVERSION_BASED_UNIT") {
+            auto p = splitTopLevel(ins.params);
+            if (!p.empty()) {
+                std::string nm = p[0];
+                std::transform(nm.begin(), nm.end(), nm.begin(),
+                               [](unsigned char c){ return (char)std::tolower(c); });
+                if (nm.find("inch") != std::string::npos) { unitNameOut = "INCH"; return 25.4; }
+                if (nm.find("foot") != std::string::npos) { unitNameOut = "FOOT"; return 304.8; }
+            }
+        }
+    }
+    // PASS 2 — SI length unit (only when no imperial conversion is present). The
+    // SIMPLE SI length unit appears as a COMPLEX record:
+    // (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))
+    for (const auto& kv : tab) {
+        const Instance& ins = kv.second;
         if (ins.type.empty()) {
             auto subs = splitComplex(ins.params);
             bool isLength = false; std::string prefix;
@@ -211,17 +232,6 @@ double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& t
             if (isLength && !prefix.empty()) {
                 unitNameOut = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE" : "METRE";
                 return siMetreScale(prefix);
-            }
-        }
-        // CONVERSION_BASED_UNIT('inch',#measure) — imperial.
-        if (ins.type == "CONVERSION_BASED_UNIT") {
-            auto p = splitTopLevel(ins.params);
-            if (!p.empty()) {
-                std::string nm = p[0];
-                std::transform(nm.begin(), nm.end(), nm.begin(),
-                               [](unsigned char c){ return (char)std::tolower(c); });
-                if (nm.find("inch") != std::string::npos) { unitNameOut = "INCH"; return 25.4; }
-                if (nm.find("foot") != std::string::npos) { unitNameOut = "FOOT"; return 304.8; }
             }
         }
     }
