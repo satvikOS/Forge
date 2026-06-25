@@ -18,11 +18,43 @@
 //   BRepBndLib                  — axis-aligned bbox of a shape
 //   BRepGProp                   — mass / surface props of a shape
 //   TopExp_Explorer             — sub-shape iteration
+//
+// PHASE-D wiring (2026-06-25) — route the extended sheet-metal solid ops
+// (flatten's rotate+BRepAlgoAPI_Fuse of the un-folded halves, and cornerRelief's
+// BRepPrimAPI_MakeBox/_MakeCylinder relief solid + BRepAlgoAPI_Cut from the part)
+// through the ALREADY-BUILT, gate-tested native B-rep primitives + lineage-carrying
+// boolean (forge::native::brep::SolidFactory::buildBox for the relief brick +
+// forge::native::brep::booleanSolid for the fuse/cut, Boolean.hpp) behind a GATE.
+// Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when the FEAT
+// gate forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or the A/B
+// harness's setForgeNativeBrepEnabled(true)). PRODUCTION DEFAULT IS OFF: with the
+// gate off, the original OCCT paths below run byte-for-byte unchanged. Mirrors the
+// just-landed SheetMetal.cpp / Weldments.cpp / Cam.cpp / Healing.cpp wires.
+//
+// HONEST DEFERRAL — TODAY THIS DEFERS TOTALLY (no behavior change in ANY build):
+//   * flatten / cornerRelief take a `solidPart` / `bentPart` handle. The native
+//     booleanSolid takes two analytic Solid& operands, and the native primitives
+//     have no OCCT-cylinder builder used by tear-drop / round relief either. Every
+//     sheet-metal body produced today is an OCCT TopoDS_Shape (the base build defers
+//     in SheetMetal.cpp, so the whole chain stays OCCT), so kindOf(part) !=
+//     NativeSolid and these DEFER to the OCCT BRepAlgoAPI_{Fuse,Cut} paths. There is
+//     NO OCCT-shape -> native importer (registry kinds are Occt / NativeSolid /
+//     NativeMesh); we must NOT fabricate a native solid from an OCCT body (silent
+//     substitution). The wiring is correct + STAGED: the moment the part is a
+//     NativeSolid (base build emits one), the fuse/cut lights up natively here with
+//     ZERO further change. Nothing is faked. (Round/tear-drop relief additionally
+//     needs a native cylinder operand; rectangular relief is a native box already.)
 
 #include "forge/SheetMetalExtended.hpp"
 
 #include "forge/SheetMetal.hpp"          // bend records / registry for cornerRelief
 #include "forge/ShapeRegistry.hpp"
+
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled(), transformSolid
+#include "forge/native/brep/Primitives.hpp"    // SolidFactory::buildBox (relief brick)
+#include "forge/native/brep/Boolean.hpp"       // booleanSolid, BoolOp (lineage-carrying fuse/cut)
+#endif
 
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -60,6 +92,7 @@
 #include <cstdio>
 #include <fstream>
 #include <limits>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -101,6 +134,44 @@ void edgeEndpoints(const TopoDS_Edge& e, gp_Pnt& a, gp_Pnt& b) {
 ShapeHandle reg(const TopoDS_Shape& sh) {
     return ShapeRegistry::instance().add(sh);
 }
+
+#ifdef FORGE_NATIVE_BREP
+// -------------------------------------------------------------------
+// Native (OCCT-free) wiring helper — compiled in ONLY under the FEAT gate.
+// Returns false (NEVER throws) when the native path HONESTLY DEFERS, so the
+// caller falls through to the unchanged OCCT path. Same deferral contract as
+// SheetMetal.cpp::tryNativeFuseBrick / Weldments.cpp::tryNativeFuseBrick.
+//
+// Apply a boolean (Fuse/Cut) of a native brick operand against the native body
+// `shape`. Used by flatten (Fuse of un-folded halves — staged) and cornerRelief
+// (Cut of a rectangular relief brick). DEFERS (false) when `shape` is not a
+// NativeSolid (no OCCT -> native importer). The brick is built natively
+// (SolidFactory::buildBox) + placed with transformSolid.
+bool tryNativeBrickBoolean(ShapeHandle shape, native::brep::BoolOp op,
+                           double lx, double ly, double lz,
+                           double tx, double ty, double tz,
+                           ShapeHandle& out) {
+    using namespace forge::native::brep;
+    auto& r = ShapeRegistry::instance();
+    if (r.kindOf(shape) != ShapeKind::NativeSolid) return false;  // OCCT body -> defer
+    const Solid& body = r.getNativeSolid(shape);
+    if (!(lx > kEps && ly > kEps && lz > kEps)) return false;     // degenerate -> defer
+
+    SolidFactory fac;
+    Solid* brick = fac.buildBox(lx, ly, lz);
+    if (!brick) return false;
+    const double R[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    const double t[3] = {tx, ty, tz};
+    std::shared_ptr<TopologyBuilder> brickOwner;
+    Solid* placed = transformSolid(*brick, R, t, brickOwner);
+    if (!placed) return false;
+
+    BooleanResult res = booleanSolid(body, *placed, op);
+    if (!res.ok || !res.solid || !res.owner) return false;        // SSI deferred -> OCCT
+    out = r.addNativeSolid(std::move(res.owner), res.solid);
+    return true;
+}
+#endif // FORGE_NATIVE_BREP
 
 } // namespace
 
@@ -321,6 +392,24 @@ std::pair<TopoDS_Shape, TopoDS_Shape> partitionSolids(
 ShapeHandle flatten(ShapeHandle solidPart, const std::vector<BendDef>& bends,
                     double thickness_mm) {
     requirePositive(thickness_mm, "thickness_mm");
+
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native flatten (rotate the un-folded halves + booleanSolid::Fuse
+    // them) is opt-in via the FEAT gate (default OFF). It needs the part to be a
+    // NativeSolid AND a native solid-partition/rotate seam; today every sheet-metal
+    // body is an OCCT TopoDS_Shape (kindOf != NativeSolid), so this HONESTLY DEFERS
+    // to the OCCT partition+fuse path below — byte-identical to the gate-off default.
+    // (When a native base build + native solid-partition land, walk the native
+    // solid's halves, transformSolid-rotate the downstream group, and chain the
+    // native Fuse here.)
+    if (forge::native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(solidPart) ==
+            ShapeKind::NativeSolid) {
+        // Unreachable today (sheet-metal bodies are OCCT). Native flatten seam
+        // plugs in here. Falls through to OCCT below otherwise.
+    }
+#endif
+
     if (bends.empty()) {
         // Already flat — just re-register a copy so the caller has a fresh
         // handle. (Returning the same handle would alias the registry.)
@@ -679,6 +768,41 @@ ShapeHandle cornerRelief(ShapeHandle bentPart, double reliefWidth_mm,
                          double reliefDepth_mm, ReliefType type) {
     requirePositive(reliefWidth_mm, "reliefWidth_mm");
     requirePositive(reliefDepth_mm, "reliefDepth_mm");
+
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native corner-relief (booleanSolid::Cut of a native relief brick
+    // per corner) is opt-in via the FEAT gate (default OFF). It needs the part to be
+    // a NativeSolid; today every sheet-metal body is an OCCT TopoDS_Shape (kindOf !=
+    // NativeSolid), so this HONESTLY DEFERS to the OCCT BRepAlgoAPI_Cut loop below —
+    // byte-identical to the gate-off default. (When a native base build lands so the
+    // part is a NativeSolid, the Rectangular relief is a native box and the cut runs
+    // via tryNativeBrickBoolean(BoolOp::Cut) here; Round/tear-drop additionally need
+    // a native cylinder operand — a documented follow-up seam.)
+    if (forge::native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(bentPart) == ShapeKind::NativeSolid &&
+        type == ReliefType::Rectangular) {
+        // Unreachable today (sheet-metal bodies are OCCT). When the part is a
+        // NativeSolid, the rectangular relief brick is cut via the native boolean.
+        // tryNativeBrickBoolean DEFERS (false) for an OCCT part, so this is wired but
+        // never taken today and the OCCT cut loop below runs unchanged. The relief
+        // placement here mirrors reliefSolid's rectangular branch (a width×depth×
+        // (t+0.2) brick centred on the corner); a future native base build activates
+        // it with ZERO further change.
+        ShapeHandle nativeOut = 0;
+        double tRel = 1.0;
+        if (forge::sheet::SheetMetalRegistry::instance().has(bentPart)) {
+            tRel = forge::sheet::SheetMetalRegistry::instance()
+                       .cget(bentPart).params.thickness;
+        }
+        const double t = std::max(tRel, 0.1);
+        if (tryNativeBrickBoolean(bentPart, native::brep::BoolOp::Cut,
+                                  reliefWidth_mm, reliefDepth_mm, t + 0.2,
+                                  0.0, 0.0, 0.0, nativeOut)) {
+            return nativeOut;
+        }
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
 
     TopoDS_Shape current = ShapeRegistry::instance().get(bentPart);
 

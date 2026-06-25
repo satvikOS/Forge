@@ -47,9 +47,56 @@
 #include <sstream>
 #include <stdexcept>
 
+// PHASE-D wiring (2026-06-25) — route the ONE material-changing direct-edit op in
+// this module, pushPullFace's push/pull-FACE (which ADDS or REMOVES material by
+// extruding the picked face into a PRISM and FUSING / CUTTING it against the body —
+// today OCCT BRepPrimAPI_MakePrism + BRepAlgoAPI_{Fuse,Cut}), through the ALREADY-BUILT
+// in-house native B-rep boolean (forge::native::brep::booleanSolid — Boolean.hpp, now
+// LINEAGE-CARRYING) on a native PRISM (forge::native::brep::prism / Sweep.hpp) behind a
+// GATE. Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when
+// forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or the A/B harness's
+// setForgeNativeBrepEnabled(true)). PRODUCTION DEFAULT IS OFF: with the gate off the
+// original OCCT path below (BRepPrimAPI_MakePrism + BRepAlgoAPI_Fuse/Cut + ShapeFix_Shape)
+// runs byte-for-byte unchanged. Mirrors the prior wires (Booleans.cpp tryNativeBoolean /
+// Cam.cpp PolygonOffset2D / LoftGuide.cpp loftSolid / Healing.cpp healBRep): the native
+// branch is taken ONLY when the input handle is a NativeSolid (there is NO OCCT-face ->
+// native-face importer), so an OCCT-backed input HONESTLY DEFERS to OCCT, and the gate-off
+// default and the gate-on OCCT-input path are both identical to today.
+//
+// DEFERRAL IS TOTAL TODAY — wired correctly + staged, not faked. The face to extrude is
+// resolved by lookupFace() as an OCCT TopoDS_Face, and the native prism target
+// (brep::prism, Sweep.hpp) consumes a native brep::Profile (CCW outer + CW hole loops as
+// geom::Point2 rings) — there is NO OCCT-face -> native-Profile importer, and Sweep::prism
+// emits a mesh::HalfEdgeMesh, NOT the analytic brep::Solid that booleanSolid requires as
+// BOTH operands. So even for a NativeSolid body, a native push/pull prism-boolean cannot be
+// assembled from the OCCT-face pick today: tryNativePushPull returns false for every input
+// and the OCCT path runs — byte-identical to the gate-off default. The gate + native targets
+// (booleanSolid + prism) are wired so the path activates the moment a native-face pick +
+// native-prism-as-Solid producer land, with ZERO change to today's behaviour. We must NOT
+// fabricate a Profile from an OCCT face (a silent substitution), so the call defers wholly.
+//
+// The OTHER direct-edit ops are LEFT ON OCCT — capability gaps surfaced, not degraded:
+//   * moveFace / rotateFace — material edits, but their geometry is a TANGENTIAL wedge
+//     (extrude along the in-plane component) resp. a ROTATION sweep (rigid-transform the
+//     OCCT face + fuse the swept wedge). A native rotated/tangential-swept FACE-from-OCCT
+//     prism has the same no-importer gap as pushPullFace AND needs a face transform with no
+//     native brep::Profile path; LEFT ON OCCT. (The pushPullFace seam they reuse for the
+//     pure-normal component is itself gated above, so they pick up native automatically once
+//     it activates.)
+//   * deleteFaceAndHeal — rebuilds an open shell + caps via heal::autoFillMissingFaces,
+//     which is LEFT ON OCCT in Healing.cpp (BRepOffsetAPI_MakeFilling FABRICATES a cap
+//     surface the native healBRep snap-close does not synthesize). Not a prism boolean.
+//   * replaceFace — swaps a face's analytic Surface + re-sews; not a material add/remove
+//     prism boolean. No native swap-surface-in-shell op. LEFT ON OCCT.
+//   * inferFeature / edgeSegments / faceCount / edgeCount — pure QUERIES (edgeSegments
+//     ALREADY routes native via enumerateSharpConvexEdges for a NativeSolid handle).
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/SolidTessellate.hpp"   // tessellateSolid (native edge picking)
 #include "forge/native/brep/Fillet.hpp"            // enumerateSharpConvexEdges
+#include "forge/native/brep/NativeRoute.hpp"       // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Boolean.hpp"           // booleanSolid, BoolOp, BooleanResult (lineage-carrying)
+#include "forge/native/brep/Sweep.hpp"             // prism, Profile, SweepResult (native extrude)
+#include "forge/native/brep/Topology.hpp"          // Solid, TopologyBuilder
 #include <cstdint>
 #include <vector>
 #endif
@@ -149,6 +196,52 @@ TopoDS_Shape extrudeFace(const TopoDS_Face& face, const gp_Vec& vec) {
 
 } // namespace
 
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// Try the native push/pull-FACE for pushPullFace: extrude the picked face into a
+// native PRISM (brep::prism, Sweep.hpp) and FUSE (distance>0, add material) / CUT
+// (distance<0, remove material) it against the body via the native analytic boolean
+// (brep::booleanSolid, Boolean.hpp — the lineage-carrying in-house BRepAlgoAPI_{Fuse,Cut}
+// replacement). Returns true + sets `out` on success; returns false (NEVER throws) when
+// the native path HONESTLY DEFERS so the caller falls through to the OCCT
+// BRepPrimAPI_MakePrism + BRepAlgoAPI_{Fuse,Cut} path. Same deferral contract as the prior
+// wires (Booleans.cpp::tryNativeBoolean / LoftGuide.cpp::tryNativeLoftGuide).
+//
+// Deferral / GAP cases (Bible §0 — native-where-valid, OCCT otherwise):
+//   * The input handle is NOT a NativeSolid: there is NO OCCT-face -> native-face importer,
+//     so an OCCT TopoDS_Shape body (the production default) defers WHOLLY to OCCT.
+//   * No native face-pick -> native-Profile producer exists: the face is resolved by the
+//     OCCT lookupFace() as a TopoDS_Face, and brep::prism consumes a native brep::Profile
+//     (CCW outer + CW hole loops of geom::Point2) — there is no path from an OCCT face to a
+//     native Profile, AND brep::prism emits a mesh::HalfEdgeMesh, not the analytic
+//     brep::Solid that booleanSolid requires as BOTH operands. We must NOT fabricate a
+//     Profile from an OCCT face (a silent substitution that would change the geometry), so
+//     until a native-face pick + native-prism-as-Solid producer land, this DEFERS for every
+//     input. The gate + native targets (booleanSolid + prism) are wired so the path
+//     activates the moment those producers exist, with ZERO change to today's behaviour.
+bool tryNativePushPull(ShapeHandle shape, FaceId /*faceId*/, double /*distance*/,
+                       ShapeHandle& /*out*/) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+    // An OCCT-backed body has no native face/Profile path -> defer to OCCT.
+    if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
+
+    // Even for a NativeSolid body, the push/pull prism cannot be assembled natively today:
+    // the picked face arrives as an OCCT TopoDS_Face (lookupFace) and there is no
+    // OCCT-face -> native brep::Profile importer, nor a native-prism-as-Solid producer to
+    // feed booleanSolid's two-Solid signature (brep::prism emits a HalfEdgeMesh). Fabricating
+    // a Profile would be a silent substitution, so we DEFER wholly. This is where a future
+    // native-face pick is resolved into a brep::Profile, swept to a brep::Solid via prism,
+    // and combined with reg.getNativeSolid(shape) via booleanSolid(BoolOp::Fuse / Cut),
+    // registering the result with reg.addNativeSolid(r.owner, r.solid) — exactly the
+    // Booleans.cpp::tryNativeBoolean idiom.
+    return false;
+}
+
+}  // namespace
+#endif
+
 std::size_t faceCount(ShapeHandle shape) {
     const auto& s = ShapeRegistry::instance().get(shape);
     TopTools_IndexedMapOfShape map;
@@ -232,6 +325,18 @@ std::vector<EdgePolyline> edgeSegments(ShapeHandle shape, double deflection) {
 }
 
 ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native push/pull-face (brep::prism + brep::booleanSolid) is opt-in via the
+    // FEAT gate (default OFF). When on AND the body is a NativeSolid with a native-Profile
+    // face pick, build the prism-boolean natively; otherwise fall through to OCCT (an
+    // OCCT-backed body HONESTLY DEFERS — no behavior change in the default build). A false
+    // return == defer. Mirrors Booleans.cpp / LoftGuide.cpp.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        ShapeHandle nativeOut = 0;
+        if (tryNativePushPull(shape, faceId, distance, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
     const auto& s = ShapeRegistry::instance().get(shape);
     if (std::abs(distance) < Precision::Confusion()) {
         // No-op: copy in and return so the caller still gets a fresh handle.

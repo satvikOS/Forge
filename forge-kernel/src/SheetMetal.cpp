@@ -31,8 +31,45 @@
 //                 thickness. Documented limitation: only correct for the
 //                 smoke topology (linear chain of flanges from one base).
 //   flatPattern:  Same calc, returned as a rectangle wire + bbox.
+//
+// PHASE-D wiring (2026-06-25) — route the sheet-metal solid builds (baseFlange's
+// prism, the edgeFlange / closedCorner flange/filler bricks, currently OCCT
+// BRepPrimAPI_MakeBox / _MakePrism, and the BRepAlgoAPI_Fuse that joins flanges to
+// the part) through the ALREADY-BUILT, gate-tested native B-rep primitives +
+// lineage-carrying boolean (forge::native::brep::SolidFactory::buildBox for the
+// flange/filler brick + forge::native::brep::booleanSolid for the fuse, Boolean.hpp)
+// behind a GATE. Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime
+// ONLY when the FEAT gate forgeNativeFeaturesEnabled() is true (env
+// FORGE_NATIVE_FEATURES=1, or the A/B harness's setForgeNativeBrepEnabled(true)).
+// PRODUCTION DEFAULT IS OFF: with the gate off, the original OCCT BRepPrimAPI /
+// BRepAlgoAPI_Fuse paths below run byte-for-byte unchanged. This mirrors the
+// just-landed Weldments.cpp (endCap/gusset fuse) / Cam.cpp (inwardOffset) /
+// Healing.cpp (heal/sew) / LoftGuide.cpp (loft) wires: the native branch is taken
+// ONLY when the inputs are natively expressible.
+//
+// HONEST DEFERRAL — TODAY THIS DEFERS TOTALLY (no behavior change in ANY build):
+//   * baseFlange consumes a `wireSketchHandle` that is an OCCT TopoDS_Wire in
+//     ShapeRegistry (Kind::Occt). There is NO OCCT-wire -> native importer (the
+//     registry kinds are Occt / NativeSolid / NativeMesh — no native wire), so the
+//     base prism CANNOT be built natively from the wire and the whole call DEFERS to
+//     the OCCT prism. We must NOT fabricate a face from a wire we cannot natively
+//     resolve (that would be a silent substitution).
+//   * edgeFlange / closedCorner fuse a brick onto an existing `shape` handle. The
+//     native booleanSolid takes two analytic Solid& operands, so the native branch
+//     is taken ONLY when `shape` is a NativeSolid. Every sheet-metal body produced
+//     today is an OCCT TopoDS_Shape (baseFlange defers, so the chain stays OCCT), so
+//     kindOf(shape) != NativeSolid and these DEFER to the OCCT BRepAlgoAPI_Fuse path.
+// The wiring is correct + STAGED: the moment a native base-build path exists (an
+// OCCT-wire -> native producer, or baseFlange itself emitting a NativeSolid), the
+// flange/fuse ops light up natively with ZERO further change here. Nothing is faked.
 
 #include "forge/SheetMetal.hpp"
+
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled(), transformSolid
+#include "forge/native/brep/Primitives.hpp"    // SolidFactory::buildBox (flange/filler brick)
+#include "forge/native/brep/Boolean.hpp"       // booleanSolid, BoolOp (lineage-carrying fuse)
+#endif
 
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -61,6 +98,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <memory>
 #include <stdexcept>
 
 namespace forge::sheet {
@@ -179,6 +217,82 @@ double developedLength(double angleRad, double radius, double t, double k) {
     return (radius + k * t) * std::abs(angleRad);
 }
 
+#ifdef FORGE_NATIVE_BREP
+// -------------------------------------------------------------------
+// Native (OCCT-free) wiring helpers — compiled in ONLY under the FEAT gate.
+// Each returns false / leaves `out` untouched (NEVER throws) when the native
+// path HONESTLY DEFERS, so the caller falls through to the unchanged OCCT path.
+// Same deferral contract as Weldments.cpp::tryNativeFuseBrick /
+// Cam.cpp::tryNativeInwardOffset / Healing.cpp::tryNativeHeal.
+// -------------------------------------------------------------------
+
+// Try to build a sheet-metal base body (the baseFlange prism) via the native
+// B-rep primitives. Returns true + adds a NativeSolid via `out` on success;
+// returns false (DEFER) otherwise.
+//
+// Deferral / GAP (Bible §0 — native-where-valid, OCCT otherwise):
+//   * The base is built from an OCCT TopoDS_Wire handle (ShapeKind::Occt). There
+//     is NO OCCT-wire -> native importer (ShapeRegistry has only Occt / NativeSolid
+//     / NativeMesh — no native wire kind), so we cannot read the wire's planar
+//     profile natively to prism it. We must NOT fabricate the profile, so EVERY
+//     input defers and the OCCT prism runs — byte-identical to the gate-off
+//     default. This is the single seam a future OCCT-wire -> native-profile
+//     producer (or a native sketch profile) plugs into.
+bool tryNativeBaseFlange(ShapeHandle wireSketchHandle,
+                         const SheetMetalParams& /*params*/,
+                         ShapeHandle& /*out*/) {
+    using namespace forge::native::brep;
+    // No native wire/profile producer today: an OCCT-wire handle has no native
+    // profile to read -> defer the whole call to OCCT.
+    if (ShapeRegistry::instance().kindOf(wireSketchHandle) != ShapeKind::NativeSolid) {
+        return false;
+    }
+    // (Unreachable today: sheet-metal wire handles are OCCT wires, never
+    //  NativeSolids. When a native profile producer lands, read its planar loop
+    //  here, build the prism, and addNativeSolid.)
+    return false;
+}
+
+// Try to fuse a flange/filler brick onto the sheet-metal body `shape` via the
+// native lineage-carrying boolean (booleanSolid, BoolOp::Fuse). Used by
+// edgeFlange / closedCorner. Returns true + adds the fused NativeSolid via `out`
+// on success; returns false (DEFER) when `shape` is not a NativeSolid (no OCCT ->
+// native importer, so the OCCT BRepAlgoAPI_Fuse path runs unchanged).
+//
+// The brick operand is built natively (SolidFactory::buildBox) and placed with
+// transformSolid; the result is a closed analytic Solid registered as a NativeSolid.
+bool tryNativeFuseBrick(ShapeHandle shape,
+                        double lx, double ly, double lz,
+                        double tx, double ty, double tz,
+                        ShapeHandle& out) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+    // The native boolean takes two analytic Solid& operands. Today every sheet-metal
+    // body is an OCCT TopoDS_Shape (baseFlange defers, so the chain stays OCCT), so
+    // kindOf(shape) != NativeSolid -> defer to OCCT's BRepAlgoAPI_Fuse.
+    if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
+    const Solid& body = reg.getNativeSolid(shape);
+
+    if (!(lx > kEps && ly > kEps && lz > kEps)) return false;  // degenerate -> defer
+
+    // Build the brick at the origin ([0,lx]x[0,ly]x[0,lz]), then rigid-translate it
+    // to (tx,ty,tz) — the canonical placement idiom from NativeRoute::transformSolid.
+    SolidFactory fac;
+    Solid* brick = fac.buildBox(lx, ly, lz);
+    if (!brick) return false;
+    const double R[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    const double t[3] = {tx, ty, tz};
+    std::shared_ptr<TopologyBuilder> brickOwner;
+    Solid* placed = transformSolid(*brick, R, t, brickOwner);
+    if (!placed) return false;
+
+    BooleanResult res = booleanSolid(body, *placed, BoolOp::Fuse);
+    if (!res.ok || !res.solid || !res.owner) return false;     // SSI deferred -> OCCT
+    out = reg.addNativeSolid(std::move(res.owner), res.solid);
+    return true;
+}
+#endif // FORGE_NATIVE_BREP
+
 } // namespace
 
 // ===================================================================
@@ -223,6 +337,21 @@ ShapeHandle baseFlange(ShapeHandle wireSketchHandle, const SheetMetalParams& par
     if (!(params.kFactor >= 0.0 && params.kFactor <= 1.0)) {
         throw std::invalid_argument("forge.sheetMetal.baseFlange: kFactor must be in [0,1]");
     }
+
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native base-build (prism via the native primitives) is opt-in via
+    // the FEAT gate (default OFF). When on AND the wire is natively resolvable,
+    // build the base natively; otherwise fall through to OCCT (an OCCT-wire profile
+    // HONESTLY DEFERS — no behavior change in the default build).
+    if (forge::native::brep::forgeNativeFeaturesEnabled()) {
+        ShapeHandle nativeOut = 0;
+        if (tryNativeBaseFlange(wireSketchHandle, params, nativeOut)) {
+            return nativeOut;
+        }
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
     const auto& srcShape = ShapeRegistry::instance().get(wireSketchHandle);
     TopoDS_Wire wire = firstWire(srcShape);
     if (wire.IsNull()) {
@@ -329,13 +458,44 @@ ShapeHandle edgeFlange(ShapeHandle shape,
     const double extentY = std::abs(along.Y()) * edgeLen + std::abs(outward.Y()) * (horizSpan + t);
     const double extentZ = vertSpan + t;
 
-    TopoDS_Shape flange = brickAt(
-        std::max(extentX, t),
-        std::max(extentY, t),
-        std::max(extentZ, t),
-        ox - 0.5 * std::max(extentX, t),
-        oy - 0.5 * std::max(extentY, t),
-        oz);
+    const double brickLx = std::max(extentX, t);
+    const double brickLy = std::max(extentY, t);
+    const double brickLz = std::max(extentZ, t);
+    const double brickTx = ox - 0.5 * brickLx;
+    const double brickTy = oy - 0.5 * brickLy;
+    const double brickTz = oz;
+
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native lineage-carrying fuse (booleanSolid) for the flange brick, opt-in
+    // via the FEAT gate (default OFF). tryNativeFuseBrick takes the native branch
+    // ONLY when `shape` is a NativeSolid; an OCCT body HONESTLY DEFERS (false) so the
+    // OCCT BRepAlgoAPI_Fuse below runs unchanged — no behavior change default.
+    if (forge::native::brep::forgeNativeFeaturesEnabled()) {
+        ShapeHandle nativeOut = 0;
+        if (tryNativeFuseBrick(shape, brickLx, brickLy, brickLz,
+                               brickTx, brickTy, brickTz, nativeOut)) {
+            SheetMetalPart outN = SheetMetalRegistry::instance().has(shape)
+                                ? SheetMetalRegistry::instance().cget(shape)
+                                : SheetMetalPart{};
+            BendRecord recN{};
+            recN.angleRad = angleRad;
+            recN.radius   = std::max(params.minBendRadius, kEps);
+            recN.length   = edgeLen;
+            recN.devLength= developedLength(angleRad, recN.radius, t, params.kFactor);
+            recN.x0 = a.X(); recN.y0 = a.Y();
+            recN.x1 = b.X(); recN.y1 = b.Y();
+            outN.bends.push_back(recN);
+            outN.params = params;
+            outN.handle = nativeOut;
+            SheetMetalRegistry::instance().attach(nativeOut, std::move(outN));
+            return nativeOut;
+        }
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
+    TopoDS_Shape flange = brickAt(brickLx, brickLy, brickLz,
+                                  brickTx, brickTy, brickTz);
 
     BRepAlgoAPI_Fuse fuser(src, flange);
     fuser.Build();
@@ -477,9 +637,29 @@ ShapeHandle closedCorner(ShapeHandle shape,
     }
     // Smoke topology has no 3-flange corner gap; we treat the operation as a
     // tiny filler brick that fuses cleanly. JS layer treats it as an op-id.
-    const auto& src = ShapeRegistry::instance().get(shape);
     const double t = std::max(params.thickness, kEps);
-    TopoDS_Shape filler = brickAt(std::max(gapMm, t), t, t, 0.0, 0.0, 0.0);
+    const double fillerLx = std::max(gapMm, t);
+
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native lineage-carrying fuse (booleanSolid) for the corner filler brick,
+    // opt-in via the FEAT gate (default OFF). Native branch ONLY when `shape` is a
+    // NativeSolid; an OCCT body HONESTLY DEFERS so the OCCT fuse below runs unchanged.
+    if (forge::native::brep::forgeNativeFeaturesEnabled()) {
+        ShapeHandle nativeOut = 0;
+        if (tryNativeFuseBrick(shape, fillerLx, t, t, 0.0, 0.0, 0.0, nativeOut)) {
+            SheetMetalPart pN = SheetMetalRegistry::instance().has(shape)
+                               ? SheetMetalRegistry::instance().cget(shape)
+                               : SheetMetalPart{};
+            pN.handle = nativeOut;
+            SheetMetalRegistry::instance().attach(nativeOut, std::move(pN));
+            return nativeOut;
+        }
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
+    const auto& src = ShapeRegistry::instance().get(shape);
+    TopoDS_Shape filler = brickAt(fillerLx, t, t, 0.0, 0.0, 0.0);
     BRepAlgoAPI_Fuse fuser(src, filler);
     fuser.Build();
     TopoDS_Shape out = fuser.IsDone() ? fuser.Shape() : src;
