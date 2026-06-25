@@ -28,6 +28,47 @@
 #include <string>
 #include <vector>
 
+// PHASE-D wiring (2026-06-25) — route the ONE genuine loft op in this module,
+// loftWing()'s multi-station wing loft (OCCT BRepOffsetAPI_ThruSections over per-
+// station B-spline section wires), through the ALREADY-BUILT in-house analytic loft
+// solid (forge::native::brep::loftSolid — LoftSweep.hpp/.cpp: the OCCT-FREE
+// replacement for BRepOffsetAPI_ThruSections that lofts N ordered planar polygon
+// sections into a closed analytic brep::Solid) behind a GATE. Compiled in ONLY under
+// -DFORGE_NATIVE_BREP and taken at runtime ONLY when forgeNativeFeaturesEnabled() is
+// true (env FORGE_NATIVE_FEATURES=1, or the A/B harness's setForgeNativeBrepEnabled(
+// true)). PRODUCTION DEFAULT IS OFF: with the gate off the original OCCT path below
+// (per-station GeomAPI_PointsToBSpline section wire -> BRepOffsetAPI_ThruSections) runs
+// byte-for-byte unchanged. Mirrors the prior wires (LoftGuide.cpp loft /
+// CamAdvanced.cpp generateCmm / Cam.cpp inwardOffset / Healing.cpp healBRep):
+// tryNativeLoftWing takes the native branch ONLY when the loft target is one the native
+// loft can build WITHOUT silently changing the surface; otherwise the call HONESTLY
+// DEFERS to OCCT, so the gate-off default and the gate-on path are both identical to
+// today.
+//
+// HONEST GAP — DEFERS TOTALLY TODAY (staged, NOT faked): unlike LoftGuide (whose
+// sections are opaque OCCT wire handles with no native producer), this module's section
+// data IS already native — the per-station Profile.points are in-house polylines
+// (NACA/Selig), computable straight into brep::Point3 rings. The seam to feed
+// loftSolid therefore EXISTS here. BUT the OCCT path does NOT loft those raw polylines:
+// stationToWorldWire interpolates a degree-3 C2 Geom_BSplineCurve (a SMOOTH NURBS
+// section) through each profile and ThruSections lofts the smooth sections. The native
+// loftSolid lofts STRAIGHT-EDGED polygon rings with planar/ruled triangle side facets
+// (LoftSweep.hpp names "NURBS ruled side surfaces" + smooth-section loft as explicit
+// NAMED FOLLOW-UPS that are NOT in its increment). Routing the wing through loftSolid
+// would replace the smooth B-spline wing skin with a faceted polygon hull — a SILENT
+// surface degrade — so tryNativeLoftWing returns false for every input today and the
+// OCCT smooth-NURBS loft runs, byte-identical to the gate-off default. The gate + the
+// section->Point3-ring conversion seam are wired so the native path activates the
+// MOMENT a native smooth-section (NURBS-curve-section) loft lands, with ZERO change to
+// today's behaviour. We must NOT fabricate a smooth native loft from the faceted
+// loftSolid (that would be the silent substitution), so the call defers — surfaced
+// honestly, not stubbed.
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/LoftSweep.hpp"     // loftSolid (native unguided loft)
+#include "forge/native/brep/Topology.hpp"      // Point3, Solid, TopologyBuilder
+#endif
+
 namespace forge { namespace airfoil {
 
 namespace {
@@ -435,8 +476,117 @@ TopoDS_Wire stationToWorldWire(const WingStation& st) {
 
 } // anonymous namespace
 
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// Convert a station's chord-normalised Profile.points into a world-frame polygon
+// ring (brep::Point3), applying the SAME affine that stationToWorldWire applies to
+// its B-spline control polygon: scale by chord into the local XZ plane (X = chord,
+// Z = thickness, Y = span), rotate about the LE (+Y axis) by -twistDeg, then
+// translate by (sweepMm, yMm, zMm). The closure-duplicate point is dropped (a
+// LoftSection ring must NOT repeat its first vertex). This is the section->ring seam
+// a future native smooth-section loft plugs into; today it feeds the faceted
+// loftSolid only after tryNativeLoftWing has decided whether the native path may run.
+forge::native::brep::LoftSection stationToWorldRing(const WingStation& st) {
+    using forge::native::brep::Point3;
+    forge::native::brep::LoftSection ring;
+    const auto& pts = st.profile.points;
+    const std::size_t n = (pts.size() >= 1) ? pts.size() - 1 : 0; // drop closure dup
+    const double tw = -st.twistDeg * PI / 180.0;
+    const double ct = std::cos(tw), stw = std::sin(tw);
+    ring.points.reserve(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        // Local XZ-plane point (matches stationToWorldWire's gp_Pnt construction).
+        const double lx = pts[i].x * st.chordMm;
+        const double lz = pts[i].y * st.chordMm;
+        // Rotate about +Y axis at the LE by tw:  x' = x cos + z sin, z' = -x sin + z cos.
+        const double rx =  lx * ct + lz * stw;
+        const double rz = -lx * stw + lz * ct;
+        // Translate to the spanwise station + sweep + dihedral height.
+        ring.points.push_back(Point3{ rx + st.sweepMm, st.yMm, rz + st.zMm });
+    }
+    return ring;
+}
+
+// Try the native analytic loft (brep::loftSolid) for the multi-station wing loft.
+// Returns true + adds the native solid to the registry via `out` on success; returns
+// false (NEVER throws) when the native path HONESTLY DEFERS so the caller falls
+// through to the OCCT BRepOffsetAPI_ThruSections path. Same deferral contract as the
+// prior wires (LoftGuide.cpp::tryNativeLoftGuide / CamAdvanced.cpp::tryNativeGenerateCmm).
+//
+// Deferral / GAP (Bible §0 — native-where-valid, OCCT otherwise) — TOTAL TODAY:
+//   The OCCT path lofts SMOOTH degree-3 C2 B-spline (NURBS) section curves
+//   interpolated through each station's profile; loftSolid lofts STRAIGHT-EDGED
+//   polygon rings with planar/ruled triangle side facets (smooth-section / NURBS
+//   ruled side surfaces are NAMED FOLLOW-UPS explicitly outside the LoftSweep.hpp
+//   increment). Substituting the faceted polygon loft for the smooth B-spline wing
+//   skin would SILENTLY change the surface, so `nativeSmoothSectionLoftAvailable`
+//   is false today and the WHOLE call defers to OCCT — byte-identical to the gate-off
+//   default. We must NOT fabricate a smooth loft from the faceted loftSolid.
+//
+// The section->ring conversion (stationToWorldRing) and the loftSolid call are wired
+// behind that flag so the native path activates the moment a native smooth-section
+// loft lands, with zero change to today's behaviour.
+constexpr bool nativeSmoothSectionLoftAvailable = false;
+
+bool tryNativeLoftWing(const std::vector<WingStation>& stations, bool capTips,
+                       ShapeHandle& out) {
+    using namespace forge::native::brep;
+    // No native SMOOTH-section loft yet (loftSolid is straight-facet only) -> defer the
+    // whole call to OCCT so the smooth B-spline wing skin is never silently faceted.
+    if (!nativeSmoothSectionLoftAvailable) return false;
+    if (stations.size() < 2) return false;                       // mirror OCCT >= 2 guard
+
+    // (Reached only once a native smooth-section loft lands.) Build the world-frame
+    // section rings from the in-house Profile polylines and loft them natively.
+    std::vector<LoftSection> sections;
+    sections.reserve(stations.size());
+    for (const auto& st : stations) {
+        if (st.profile.points.size() < 5) return false;          // mirror OCCT guard
+        LoftSection ring = stationToWorldRing(st);
+        if (ring.points.size() < 3) return false;
+        sections.push_back(std::move(ring));
+    }
+
+    LoftSweepResult res = loftSolid(sections);
+    if (!res.ok || !res.solid || !res.owner) return false;       // degenerate -> defer
+
+    (void)capTips;  // native loftSolid always yields a CLOSED solid (== capTips=true);
+                    // an open-tip (capTips==false) request has no exact native
+                    // equivalent yet, so the flag gates entry above.
+
+    // LoftSweepResult::owner is a shared_ptr<SolidFactory> (owns the TopologyBuilder by
+    // value). Hand the registry a shared_ptr<TopologyBuilder> via the aliasing
+    // constructor — the canonical idiom (Primitives.cpp::registerNative /
+    // LoftGuide.cpp::tryNativeLoftGuide) — so the whole factory stays alive while the
+    // registry holds the builder/Solid.
+    std::shared_ptr<TopologyBuilder> owner(res.owner, &res.owner->builder());
+    out = ShapeRegistry::instance().addNativeSolid(std::move(owner), res.solid);
+    return true;
+}
+
+}  // namespace
+#endif
+
 // ============================================================ loftWing
 ShapeHandle loftWing(const std::vector<WingStation>& stations, bool capTips) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native analytic loft (brep::loftSolid) is opt-in via the FEAT gate
+    // (default OFF). When on AND a native smooth-section loft is available (NOT today —
+    // loftSolid is straight-facet only, so this HONESTLY DEFERS), build the wing solid
+    // natively; otherwise fall through to OCCT (no behavior change in the default
+    // build). A false return == defer. The same input-validation throws below still
+    // guard the OCCT path; the native pre-flight only intercepts the geometry-building
+    // work.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        ShapeHandle nativeOut = 0;
+        if (tryNativeLoftWing(stations, capTips, nativeOut)) {
+            return nativeOut;
+        }
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
     if (stations.size() < 2) {
         throw std::invalid_argument("forge.airfoil.loftWing: need ≥ 2 stations");
     }

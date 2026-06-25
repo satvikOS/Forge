@@ -22,6 +22,49 @@
 
 #include "forge/ClassASurfacing.hpp"
 
+// ============================ IN-HOUSE NATIVE FAST-PATH (GATED, ADDITIVE) ====
+// Phase-D wire #12. ADDITIVE + FEAT-GATED, exactly the idiom of the 10 prior
+// wires (Healing.cpp / Cam.cpp / CamAdvanced.cpp / Drawings.cpp / LoftGuide.cpp).
+// Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when the
+// FEAT gate forge::native::brep::forgeNativeFeaturesEnabled() is true (env
+// FORGE_NATIVE_FEATURES=1, or the A/B harness toggle). DEFAULT OFF leaves every
+// op byte-for-byte on the OCCT path below.
+//
+//   stitchG2  -> native brep::sewFaces (Sew.hpp). The OCCT entry's topological
+//                BRepBuilderAPI_Sewing step is the in-house sewer's exact job
+//                (weld coincident boundary edges/vertices -> one connected
+//                Shell). Taken ONLY when EVERY input face handle is a
+//                NativeSolid (no OCCT-shape -> native-face importer exists, so
+//                ShapeRegistry only ever holds Occt / NativeSolid / NativeMesh
+//                kinds) AND reportContinuity == false (the per-shared-edge
+//                G0..G3 ContinuityReport is an OCCT BRepLProp diagnostic with NO
+//                native curvature-on-sewn-shell evaluator — so when continuity
+//                is requested the call HONESTLY DEFERS to OCCT). tryNativeStitchG2
+//                returns false (NEVER throws) on every other input, so the OCCT
+//                path runs unchanged.
+//
+// LEFT OCCT-ONLY (no native target consuming a shape handle; SAID PLAINLY):
+//   * zebraStripes / curvatureComb / continuityCheck / gaussianAndMeanCurvature
+//     — pure OCCT BRepLProp_SLProps/CLProps + GeomLProp_SLProps surface/edge
+//       DIAGNOSTICS on an existing face/edge. The native Class-A surface family
+//       (SurfaceFill.hpp fillCoonsPatch / GregoryFill.hpp fillGregoryPatch)
+//       BUILDS a new fill surface from NurbsCurve boundary+tangent data; it is
+//       NOT a normal/curvature/zebra evaluator over a registered shape, so there
+//       is no native equivalent to route these to.
+//   * sweepWithGuides — guided BRepOffsetAPI_MakePipeShell. The native sweep
+//       family (Sweep.hpp / HelicalSweep.hpp / LoftSweep.hpp) is UNGUIDED; there
+//       is no native guided-pipe-shell target (same gap LoftGuide.cpp documents
+//       for guided loft), and ShapeRegistry has no native wire/curve kind for the
+//       profile/spine/guide handles. OCCT-only.
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult (native)
+#include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Shell/Solid/Surface
+#include "forge/ShapeRegistry.hpp"             // ShapeKind, getNativeSolid
+
+#include <unordered_set>
+#endif
+
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
@@ -128,6 +171,109 @@ inline std::array<double, 3> vec3(const gp_Pnt& p) {
 inline std::array<double, 3> vec3(const gp_Vec& v) {
     return {v.X(), v.Y(), v.Z()};
 }
+
+#ifdef FORGE_NATIVE_BREP
+// Deep-clone one native Face (its outer ring vertices + any inner rings +
+// analytic surface frame + trim window) into `tb` as an INDEPENDENT fragment
+// with PRIVATE fresh vertices/edges — exactly the "N separate STEP ADVANCED_FACE
+// records" import state the native sewer (Sew.hpp) ingests, so its weld pass acts
+// on the raw fragment soup (NOT on an already-sewn shell). Byte-for-byte
+// Healing.cpp::cloneFaceIndependent (identity copy, no transform).
+forge::native::brep::Face* cloneFaceIndependent(
+    forge::native::brep::TopologyBuilder& tb,
+    const forge::native::brep::Face* sf) {
+    using namespace forge::native::brep;
+    Loop* lp = sf->outerLoop;
+    if (!lp || lp->coedgeCount < 3) return nullptr;
+
+    auto ringOf = [&](const Loop* loop) -> std::vector<Vertex*> {
+        std::vector<Vertex*> ring;
+        if (!loop || loop->coedgeCount < 3) return ring;
+        ring.reserve(loop->coedgeCount);
+        Coedge* c = loop->first;
+        for (std::size_t i = 0; i < loop->coedgeCount && c != nullptr; ++i) {
+            Vertex* o = c->originVertex();
+            if (o) ring.push_back(tb.makeVertex(o->point));
+            c = c->next;
+        }
+        return ring;
+    };
+
+    std::vector<Vertex*> outer = ringOf(lp);
+    if (outer.size() < 3) return nullptr;
+
+    Face* nf = tb.makeFace();
+    tb.addOuterLoopToFace(nf, outer);
+    for (Loop* il : sf->innerLoops) {
+        std::vector<Vertex*> inner = ringOf(il);
+        if (inner.size() >= 3) tb.addInnerLoopToFace(nf, inner);
+    }
+    if (sf->surface) {
+        Surface* ns = tb.makeSurface();
+        *ns = *sf->surface;
+        nf->surface = ns;
+    }
+    nf->u0 = sf->u0; nf->u1 = sf->u1;
+    nf->v0 = sf->v0; nf->v1 = sf->v1;
+    nf->vertexUV = sf->vertexUV;
+    nf->paramTri = sf->paramTri;
+    return nf;
+}
+
+// Try the native sew (brep::sewFaces) for stitchG2. Returns true + sets `out` on
+// success; returns false (NEVER throws) when the native path HONESTLY DEFERS to
+// OCCT. Same deferral contract as Healing.cpp::tryNativeSewShape, adapted to the
+// stitchG2 multi-handle signature:
+//   * any input handle that is NOT a NativeSolid (no OCCT-shape -> native-face
+//     importer exists) -> defer to OCCT (default-build behaviour unchanged);
+//   * reportContinuity == true -> defer (the per-shared-edge G0..G3 ContinuityReport
+//     is an OCCT BRepLProp diagnostic with no native curvature-on-sewn-shell
+//     evaluator; the native sewer reports edge MANIFOLD classification, not G2
+//     curvature continuity, so serving it would mean fabricating numbers -> defer);
+//   * a malformed / degenerate sew -> defer.
+bool tryNativeStitchG2(const std::vector<ShapeHandle>& faces,
+                       double tolerance,
+                       bool reportContinuity,
+                       StitchReport& out) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+
+    // The per-edge G0..G3 continuity diagnostic has no native equivalent -> defer
+    // the WHOLE call to OCCT (which fills `reports` via continuityCheck/BRepLProp).
+    if (reportContinuity) return false;
+
+    // Every input must be a NativeSolid (the only native-backed shape kind; a
+    // single OCCT face -> defer). Gather all their faces as independent fragments.
+    auto owner = std::make_shared<TopologyBuilder>();
+    std::vector<Face*> frags;
+    for (ShapeHandle h : faces) {
+        if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;  // defer to OCCT
+        const Solid& s = reg.getNativeSolid(h);
+        for (Shell* sh : s.shells) {
+            for (Face* sf : sh->faces) {
+                if (Face* nf = cloneFaceIndependent(*owner, sf)) frags.push_back(nf);
+            }
+        }
+    }
+    if (frags.size() < 2) return false;  // need >= 2 faces to sew -> defer
+
+    SewOptions sopt;
+    if (tolerance > 0.0) sopt.tol = tolerance;
+    SewResult r = sewFaces(*owner, frags, sopt);
+    if (!r.ok || r.shells.empty()) return false;  // malformed -> defer
+
+    Solid* solid = owner->makeSolid();
+    for (Shell* sh : r.shells) owner->addShellToSolid(solid, sh);
+    if (solid->shells.empty()) return false;
+
+    out.handle = reg.addNativeSolid(std::move(owner), solid);
+    // reportContinuity == false here: OCCT returns edgeCount = 0 with no reports
+    // (the early-return branch). Match that exactly.
+    out.edgeCount = 0;
+    out.reports.clear();
+    return true;
+}
+#endif
 
 }  // namespace
 
@@ -476,6 +622,20 @@ StitchReport stitchG2(const std::vector<ShapeHandle>& faces,
         throw std::invalid_argument(
             "forge.classa.stitchG2: need >= 2 faces to stitch");
     }
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native sewer is opt-in via the FEAT gate (default OFF). When on AND
+    // every input is a NativeSolid AND no per-edge continuity report is requested,
+    // sew via brep::sewFaces; otherwise fall through to OCCT (any OCCT-backed input
+    // or a continuity request HONESTLY DEFERS — no behaviour change in the default
+    // build).
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        StitchReport nativeOut{};
+        if (tryNativeStitchG2(faces, tolerance, reportContinuity, nativeOut)) {
+            return nativeOut;
+        }
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
     BRepBuilderAPI_Sewing sew(tolerance > 0 ? tolerance : 1e-3);
     // Keep TopoDS_Faces around so we can pair them with the sewn shape
     // when running the continuity report.

@@ -68,6 +68,91 @@
 #include <set>
 #include <stdexcept>
 
+// PHASE-D wiring (2026-06-25) — wire #11, the TRIMMED-NURBS KEYSTONE. Route the genuine
+// OCCT NURBS-surface ops in this module (surface point/derivative EVAL, TRIMMED-FACE
+// build, SURFACE-SURFACE INTERSECTION (SSI), point PROJECTION/QUERY, Class-A curvature
+// QUERY) through the ALREADY-BUILT in-house native NURBS family behind a GATE. Compiled
+// in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when the FEAT gate
+// forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or the A/B harness's
+// setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP together). PRODUCTION
+// DEFAULT IS OFF: with the gate off, the original OCCT paths below run byte-for-byte
+// unchanged. Mirrors the 10 prior merged wires (CamAdvanced.cpp generateCmm /
+// Drawings.cpp projectShape / Fea.cpp / LoftGuide.cpp loft / Cam.cpp inwardOffset /
+// Healing.cpp healBRep+sewFaces): each tryNativeNurbs* takes the native branch ONLY when
+// the input is ALREADY native; an OCCT-backed input HONESTLY DEFERS to OCCT.
+//
+// The native NURBS targets ALL EXIST and map 1:1 to the OCCT ops here:
+//   * evalSurface (point + dS/du, dS/dv + unit normal)  -> brep::evaluateWithDerivatives
+//                                                          (NurbsSurface.hpp), the analytic
+//                                                          rational quotient-rule evaluator.
+//   * trimNurbsFace (build a face bounded by (u,v) loops) -> brep::TrimmedFace /
+//                                                          tessellateTrimmedFace
+//                                                          (TrimmedFace.hpp) — THE keystone:
+//                                                          arbitrary rational B-spline surface
+//                                                          bounded by N trim loops.
+//   * intersectSurfaces (SSI)                            -> brep::intersectNurbsSurfaces +
+//                                                          promoteToNurbs
+//                                                          (NurbsSurfaceIntersect.hpp), the
+//                                                          P&T/Patrikalakis-Maekawa marcher.
+//                                                          NAMED + compile-checked but LEFT
+//                                                          OCCT (no native edge/wire result
+//                                                          handle kind — see below).
+//   * projectPointToSurface (point projection/query)     -> a Newton closest-point on the
+//                                                          native rational surface
+//                                                          (brep::evaluateWithDerivatives
+//                                                          partials), NurbsSurface.hpp.
+//   * classAAnalyse (curvature query)                    -> brep::surfaceCurvature
+//                                                          (NurbsAlgebra.hpp) 1st/2nd
+//                                                          fundamental-form Gauss/mean.
+//
+// DEFERRAL IS TOTAL TODAY — and that is the HONEST, byte-identical state, NOT a gap in
+// the native targets (they are built + gate-tested). The blocker is the SAME one the
+// LoftGuide.cpp / Healing.cpp / CamAdvanced.cpp wires hit: every op here takes a
+// ShapeHandle that resolves (via fetch()/firstFaceOf()) to an OCCT TopoDS_Face, and the
+// ShapeRegistry has ONLY Kind::Occt / NativeSolid (brep::Solid) / NativeMesh
+// (mesh::HalfEdgeMesh) — there is NO native NurbsSurface / TrimmedFace handle kind, and
+// NO OCCT-face -> native-NurbsSurface importer. A NativeSolid face carries an analytic
+// brep::Surface (Plane/Cylinder/Sphere/Cone/Torus), NOT the trimmed RATIONAL B-spline
+// surface these ops need. We must NOT fabricate a NurbsSurface from an OCCT
+// Geom_BSplineSurface (that would be a silent OCCT->native importer this slice does not
+// own, and the surfacing inputs are OCCT faces in every live path), so every
+// tryNativeNurbs* returns false and the OCCT path runs — identical to the gate-off
+// default. nativeSurfaceOf() is the SINGLE seam a future native-surface producer plugs
+// into; today no handle is natively backed, so it returns false and all five helpers
+// defer. The gate + native targets are wired so the path activates the moment a native
+// NURBS-surface handle lands, with ZERO change to today's behaviour.
+//
+// buildNurbsPatch / sewNurbsFaces / refineNurbs / intersectSurfaces are LEFT OCCT-ONLY:
+//   * buildNurbsPatch AUTHORS an OCCT Geom_BSplineSurface face from a raw control grid
+//     and registers an OCCT handle. There is no native NURBS-surface registry KIND to
+//     return, so a native author would have nowhere to land its result — it would force
+//     an OCCT bridge on every downstream op. Authoring stays OCCT until a native
+//     NurbsSurface handle kind exists (the documented follow-up that unblocks ALL five
+//     ops above too). NOT a gap in the evaluator — purely the missing handle kind.
+//   * sewNurbsFaces is BRepBuilderAPI_Sewing over face handles — the SAME sew already
+//     wired natively in Healing.cpp::sewShape (brep::sewFaces). Re-wiring it here would
+//     DUPLICATE that wire; it is intentionally left to the Healing.cpp seam (and equally
+//     defers for OCCT face handles). NOT re-wired to avoid a duplicate.
+//   * refineNurbs is Geom_BSplineSurface::IncreaseDegree (degree elevation). The native
+//     suite's knot/degree refinement lives in NurbsCalculus.hpp for CURVES; there is no
+//     native SURFACE degree-elevation entry in the brep/ suite yet, so refineNurbs is
+//     LEFT ON OCCT — a real capability GAP, surfaced not silently degraded.
+//   * intersectSurfaces is BRepAlgoAPI_Section. The native NURBS-aware SSI marcher
+//     (brep::intersectNurbsSurfaces) EXISTS, but it returns ORDERED 3D POLYLINES PER
+//     BRANCH (wire/edge geometry) and the ShapeRegistry has NO native edge/wire/curve
+//     handle kind to return them into (only Occt/NativeSolid/NativeMesh). LEFT ON OCCT
+//     for the missing RESULT-HANDLE kind — NOT a gap in the marcher. (Same blocker as
+//     buildNurbsPatch; the target is #included so it is named + compile-checked.)
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"            // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Nurbs.hpp"                  // NurbsSurface (native rational surface)
+#include "forge/native/brep/NurbsSurface.hpp"           // validateSurface / evaluateWithDerivatives
+#include "forge/native/brep/NurbsAlgebra.hpp"           // surfaceCurvature (Gauss/mean)
+#include "forge/native/brep/TrimmedFace.hpp"            // TrimmedFace / tessellateTrimmedFace (keystone)
+#include "forge/native/brep/NurbsSurfaceIntersect.hpp"  // intersectNurbsSurfaces / promoteToNurbs (SSI)
+#include <optional>
+#endif
+
 namespace forge { namespace surfacing {
 
 namespace {
@@ -133,6 +218,217 @@ void buildUniformClampedKnots(std::uint32_t count, std::uint32_t degree,
 }
 
 }  // namespace
+
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// ---------------------------------------------------------------------------
+// THE SINGLE DEFERRAL SEAM. Resolve a surfacing ShapeHandle to a NATIVE rational
+// B-spline surface (forge::native::brep::NurbsSurface). Returns std::nullopt
+// whenever the handle is NOT natively backed by a NURBS surface — which is the
+// case for EVERY live input today, because:
+//   * ShapeRegistry kinds are Occt / NativeSolid (brep::Solid) / NativeMesh
+//     (mesh::HalfEdgeMesh) — there is NO native NurbsSurface / TrimmedFace handle
+//     kind, and NO OCCT-face -> native-NurbsSurface importer.
+//   * A NativeSolid face carries an ANALYTIC brep::Surface (Plane/Cylinder/Sphere/
+//     Cone/Torus), NOT a trimmed rational B-spline surface, so it cannot yield the
+//     NurbsSurface these ops require.
+// We must NOT fabricate a NurbsSurface from an OCCT Geom_BSplineSurface (that would
+// be a silent OCCT->native importer this slice does not own). So this returns
+// nullopt for every input -> all five helpers below defer -> the OCCT paths run,
+// byte-identical to the gate-off default. This is the ONE place a future native
+// NURBS-surface handle producer plugs in; the moment it lands, every helper below
+// activates with zero further change.
+std::optional<forge::native::brep::NurbsSurface>
+nativeSurfaceOf(ShapeHandle /*face*/) {
+    // No native NURBS-surface handle kind in ShapeRegistry, and no OCCT-face ->
+    // native-NurbsSurface importer -> never natively backed today -> defer.
+    return std::nullopt;
+}
+
+// (1) evalSurface — native rational surface point + analytic partials + unit normal
+// (brep::evaluateWithDerivatives). Returns true + fills `out` when the input is a
+// native NURBS surface; returns false (NEVER throws) to DEFER to OCCT otherwise.
+bool tryNativeEvalSurface(ShapeHandle face, double u, double v, SurfaceEval& out) {
+    using namespace forge::native::brep;
+    std::optional<NurbsSurface> ns = nativeSurfaceOf(face);
+    if (!ns) return false;                                  // OCCT input -> defer
+    const char* why = nullptr;
+    if (!validateSurface(*ns, &why)) return false;          // malformed -> defer
+    SurfaceSample s = evaluateWithDerivatives(*ns, u, v);
+    if (!s.ok) return false;                                // degenerate -> defer
+
+    out.point  = { s.point.x,  s.point.y,  s.point.z  };
+    out.du     = { s.du.x,     s.du.y,     s.du.z     };
+    out.dv     = { s.dv.x,     s.dv.y,     s.dv.z     };
+    out.normal = { s.normal.x, s.normal.y, s.normal.z };
+    // Native rational quotient-rule eval carries the first-order derivatives + unit
+    // normal but not the 2nd-fundamental-form curvatures evaluateWithDerivatives
+    // omits; surfaceCurvature (NurbsAlgebra.hpp) supplies them when this seam opens.
+    SurfaceCurvature k = surfaceCurvature(*ns, u, v);
+    // Mirror the OCCT path's fallback: when curvature is undefined (degenerate
+    // tangent plane) the OCCT branch leaves gaussian/mean at 0 too.
+    out.gaussian = k.ok ? k.gaussian : 0.0;
+    out.mean     = k.ok ? k.mean     : 0.0;
+    return true;
+}
+
+// (2) trimNurbsFace — THE KEYSTONE. Build a trimmed face from a native NURBS surface
+// + the (u,v) trim loop (brep::TrimmedFace + tessellateTrimmedFace). Returns true +
+// sets `out` to a NativeMesh handle of the trimmed region on success; returns false
+// (NEVER throws) to DEFER to OCCT otherwise.
+bool tryNativeTrimNurbsFace(ShapeHandle face, const std::vector<double>& trimUV,
+                            ShapeHandle& out) {
+    using namespace forge::native::brep;
+    std::optional<NurbsSurface> ns = nativeSurfaceOf(face);
+    if (!ns) return false;                                  // OCCT input -> defer
+    const char* why = nullptr;
+    if (!validateSurface(*ns, &why)) return false;          // malformed -> defer
+
+    // Build the single outer trim loop from the (u,v) pairs as straight Line2 pcurve
+    // segments (the same polygonal loop the OCCT path builds from trimUV). A native
+    // TrimmedFace + tessellateTrimmedFace yields the watertight-at-the-trim mesh.
+    TrimmedFace tf;
+    tf.surface = *ns;
+    TrimLoop loop;
+    loop.isOuter = true;
+    const std::size_t n = trimUV.size() / 2;
+    for (std::size_t i = 0; i < n; ++i) {
+        UVCoord a{ trimUV[2 * i],                 trimUV[2 * i + 1] };
+        UVCoord b{ trimUV[2 * ((i + 1) % n)],     trimUV[2 * ((i + 1) % n) + 1] };
+        loop.segments.push_back(PCurve::makeLine2(a, b));
+    }
+    tf.loops.push_back(std::move(loop));
+    if (!tf.valid(&why)) return false;                      // bad loop -> defer
+
+    TrimMesh m = tessellateTrimmedFace(tf);
+    if (!m.ok || m.triangles.empty()) return false;         // degenerate -> defer
+
+    // Pack the trimmed-region triangles into a flat soup for the HalfEdgeMesh.
+    std::vector<double>        positions;
+    std::vector<std::uint32_t> indices;
+    positions.reserve(m.positions.size() * 3);
+    for (const Vec3& p : m.positions) {
+        positions.push_back(p.x); positions.push_back(p.y); positions.push_back(p.z);
+    }
+    indices.reserve(m.triangles.size() * 3);
+    for (const auto& t : m.triangles) {
+        indices.push_back(t[0]); indices.push_back(t[1]); indices.push_back(t[2]);
+    }
+    auto hm = std::make_shared<forge::native::mesh::HalfEdgeMesh>();
+    if (!hm->buildFromSoup(positions, indices)) return false;  // non-manifold -> defer
+    out = ShapeRegistry::instance().addNativeMesh(std::move(hm));
+    return true;
+}
+
+// NOTE on intersectSurfaces (SSI): the native NURBS-aware marcher
+// brep::intersectNurbsSurfaces (NurbsSurfaceIntersect.hpp) EXISTS and would map to the
+// OCCT BRepAlgoAPI_Section here, but its result is an ORDERED 3D POLYLINE PER BRANCH (a
+// wire/edge geometry), and the ShapeRegistry has NO native edge / wire / curve handle
+// kind (only Occt / NativeSolid / NativeMesh). There is no honest native handle to
+// return the section polyline into — fabricating a degenerate vertex-only / triangle
+// NativeMesh would MISREPRESENT a wire as a mesh. So intersectSurfaces is LEFT ON OCCT
+// for the RESULT-HANDLE reason (the SAME missing-handle-kind blocker as buildNurbsPatch),
+// surfaced honestly — NOT a gap in the SSI marcher itself, which is built + gate-tested.
+// (NurbsSurfaceIntersect.hpp is #included so the target is named + compile-checked.)
+
+// (4) projectPointToSurface — Newton closest-point on the native rational surface
+// (brep::evaluateWithDerivatives partials). Returns true + fills `out` on success;
+// returns false (NEVER throws) to DEFER to OCCT otherwise.
+bool tryNativeProjectPointToSurface(ShapeHandle face, double px, double py, double pz,
+                                    PointOnSurface& out) {
+    using namespace forge::native::brep;
+    std::optional<NurbsSurface> ns = nativeSurfaceOf(face);
+    if (!ns) return false;                                  // OCCT input -> defer
+    const char* why = nullptr;
+    if (!validateSurface(*ns, &why)) return false;          // malformed -> defer
+
+    // Newton minimisation of |S(u,v) - P|^2 using the analytic first partials. The
+    // domain is the clamped knot interval [u0,u1] x [v0,v1]; seed at the centre.
+    const double u0 = ns->knotsU.front(), u1 = ns->knotsU.back();
+    const double v0 = ns->knotsV.front(), v1 = ns->knotsV.back();
+    double u = 0.5 * (u0 + u1), v = 0.5 * (v0 + v1);
+    Vec3 P{ px, py, pz };
+    SurfaceSample s{};
+    for (int it = 0; it < 32; ++it) {
+        s = evaluateWithDerivatives(*ns, u, v);
+        if (!s.ok) return false;                            // singular sample -> defer
+        const Vec3 r{ s.point.x - P.x, s.point.y - P.y, s.point.z - P.z };
+        // Gradient of 0.5|r|^2 is (r.Su, r.Sv); Gauss-Newton step with the metric
+        // [Su.Su Su.Sv; Su.Sv Sv.Sv].
+        const double E = s.du.x * s.du.x + s.du.y * s.du.y + s.du.z * s.du.z;
+        const double F = s.du.x * s.dv.x + s.du.y * s.dv.y + s.du.z * s.dv.z;
+        const double G = s.dv.x * s.dv.x + s.dv.y * s.dv.y + s.dv.z * s.dv.z;
+        const double gu = r.x * s.du.x + r.y * s.du.y + r.z * s.du.z;
+        const double gv = r.x * s.dv.x + r.y * s.dv.y + r.z * s.dv.z;
+        const double det = E * G - F * F;
+        if (std::abs(det) < 1e-18) break;                   // degenerate metric -> stop
+        const double du_ = -(G * gu - F * gv) / det;
+        const double dv_ = -(E * gv - F * gu) / det;
+        u = std::min(u1, std::max(u0, u + du_));
+        v = std::min(v1, std::max(v0, v + dv_));
+        if (std::abs(du_) + std::abs(dv_) < 1e-12) break;
+    }
+    s = evaluateWithDerivatives(*ns, u, v);
+    if (!s.ok) return false;
+    out.u = u;
+    out.v = v;
+    out.point = { s.point.x, s.point.y, s.point.z };
+    out.distance = std::sqrt((s.point.x - px) * (s.point.x - px) +
+                             (s.point.y - py) * (s.point.y - py) +
+                             (s.point.z - pz) * (s.point.z - pz));
+    return true;
+}
+
+// (5) classAAnalyse — native Gauss-curvature spread + isophote-bucket cardinality
+// over a (u,v) sample grid via brep::surfaceCurvature. Returns true + fills `out`
+// on success; returns false (NEVER throws) to DEFER to OCCT otherwise.
+bool tryNativeClassAAnalyse(ShapeHandle face, std::uint32_t samples, ClassASummary& out) {
+    using namespace forge::native::brep;
+    std::optional<NurbsSurface> ns = nativeSurfaceOf(face);
+    if (!ns) return false;                                  // OCCT input -> defer
+    const char* why = nullptr;
+    if (!validateSurface(*ns, &why)) return false;          // malformed -> defer
+
+    const double u0 = ns->knotsU.front(), u1 = ns->knotsU.back();
+    const double v0 = ns->knotsV.front(), v1 = ns->knotsV.back();
+    if (samples < 4) samples = 4;
+    // Inset 1% to mirror the OCCT path's pole-avoidance.
+    const double uIn = (u1 - u0) * 0.01, vIn = (v1 - v0) * 0.01;
+    const double uLo = u0 + uIn, uHi = u1 - uIn;
+    const double vLo = v0 + vIn, vHi = v1 - vIn;
+    double minK = std::numeric_limits<double>::infinity();
+    double maxK = -std::numeric_limits<double>::infinity();
+    double sumK = 0.0;
+    std::size_t count = 0;
+    constexpr int kBuckets = 16;
+    std::set<int> seen;
+    for (std::uint32_t i = 0; i < samples; ++i) {
+        for (std::uint32_t j = 0; j < samples; ++j) {
+            const double u = uLo + (uHi - uLo) * (i / static_cast<double>(samples - 1));
+            const double v = vLo + (vHi - vLo) * (j / static_cast<double>(samples - 1));
+            SurfaceCurvature k = surfaceCurvature(*ns, u, v);
+            if (!k.ok || !std::isfinite(k.gaussian)) continue;
+            minK = std::min(minK, k.gaussian);
+            maxK = std::max(maxK, k.gaussian);
+            sumK += k.gaussian;
+            ++count;
+            const double kn = std::max(-1.0, std::min(1.0, k.gaussian));
+            int bucket = static_cast<int>(std::floor((kn + 1.0) * 0.5 * kBuckets));
+            if (bucket >= kBuckets) bucket = kBuckets - 1;
+            seen.insert(bucket);
+        }
+    }
+    if (count == 0) return false;                           // no usable samples -> defer
+    out.minK = minK;
+    out.maxK = maxK;
+    out.avgK = sumK / static_cast<double>(count);
+    out.isophoteCount = static_cast<std::uint32_t>(seen.size());
+    return true;
+}
+
+}  // namespace
+#endif
 
 // ============================================================ buildNurbsPatch
 ShapeHandle buildNurbsPatch(const ControlGrid& grid,
@@ -239,6 +535,17 @@ ShapeHandle buildNurbsPatch(const ControlGrid& grid,
 
 // ============================================================ trimNurbsFace
 ShapeHandle trimNurbsFace(ShapeHandle face, const std::vector<double>& trimUV) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native trimmed-NURBS keystone (brep::TrimmedFace) is opt-in via the FEAT
+    // gate (default OFF). When on AND the input is a native NURBS surface, build the
+    // trimmed face natively; otherwise fall through to OCCT (an OCCT-backed face HONESTLY
+    // DEFERS — no behavior change in the default build). A false return == defer.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        ShapeHandle nativeOut = 0;
+        if (tryNativeTrimNurbsFace(face, trimUV, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
     if (trimUV.size() < 6 || (trimUV.size() % 2) != 0) {
         throw std::invalid_argument(
             "forge.surfacing.trimNurbsFace: trimUV must have >= 3 (u,v) pairs");
@@ -323,6 +630,17 @@ ShapeHandle refineNurbs(ShapeHandle face, std::uint32_t uTimes, std::uint32_t vT
 
 // ============================================================ evalSurface
 SurfaceEval evalSurface(ShapeHandle face, double u, double v) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native rational surface eval (brep::evaluateWithDerivatives) is opt-in via
+    // the FEAT gate (default OFF). When on AND the input is a native NURBS surface,
+    // evaluate natively; otherwise fall through to OCCT (an OCCT-backed face HONESTLY
+    // DEFERS). A false return == defer.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        SurfaceEval nativeOut{};
+        if (tryNativeEvalSurface(face, u, v, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
     TopoDS_Face f = firstFaceOf(fetch(face), "evalSurface");
     Handle(Geom_Surface) s = surfaceOf(f, "evalSurface");
     GeomLProp_SLProps props(s, u, v, /*derivOrder*/ 2, Precision::Confusion());
@@ -373,6 +691,17 @@ ShapeHandle intersectSurfaces(ShapeHandle faceA, ShapeHandle faceB) {
 // ============================================================ projectPointToSurface
 PointOnSurface projectPointToSurface(ShapeHandle face,
                                      double px, double py, double pz) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native point projection (Newton closest-point on the rational surface) is
+    // opt-in via the FEAT gate (default OFF). When on AND the input is a native NURBS
+    // surface, project natively; otherwise fall through to OCCT (an OCCT-backed face
+    // HONESTLY DEFERS). A false return == defer.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        PointOnSurface nativeOut{};
+        if (tryNativeProjectPointToSurface(face, px, py, pz, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
     TopoDS_Face f = firstFaceOf(fetch(face), "projectPointToSurface");
     Handle(Geom_Surface) s = surfaceOf(f, "projectPointToSurface");
     gp_Pnt P(px, py, pz);
@@ -394,6 +723,17 @@ PointOnSurface projectPointToSurface(ShapeHandle face,
 
 // ============================================================ classAAnalyse
 ClassASummary classAAnalyse(ShapeHandle face, std::uint32_t samples) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native Class-A curvature query (brep::surfaceCurvature over a (u,v) grid) is
+    // opt-in via the FEAT gate (default OFF). When on AND the input is a native NURBS
+    // surface, analyse natively; otherwise fall through to OCCT (an OCCT-backed face
+    // HONESTLY DEFERS). A false return == defer.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        ClassASummary nativeOut{};
+        if (tryNativeClassAAnalyse(face, samples, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
     TopoDS_Face f = firstFaceOf(fetch(face), "classAAnalyse");
     Handle(Geom_Surface) s = surfaceOf(f, "classAAnalyse");
 
