@@ -60,6 +60,13 @@ struct ImportResult {
 // an unsupported face — returns ok=false with a reason so the caller can defer.
 ImportResult importOcctSolid(const TopoDS_Shape& shape);
 
+// TEST-ONLY PROBE — the number of times importOcctSolid has been ENTERED process-wide
+// (incremented on the first line of every call, regardless of ok/defer). A/B tests use
+// it to PROVE a Phase-D-wired op actually ran the OCCT->native importer on an OCCT input
+// (i.e. it took the native branch, not silently deferred to OCCT). Zero behavioral impact
+// on production — it only reads/writes a counter.
+unsigned long long importOcctSolidCallCount();
+
 }  // namespace forge
 
 #endif  // FORGE_NATIVE_BREP

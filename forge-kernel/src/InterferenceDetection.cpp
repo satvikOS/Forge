@@ -41,29 +41,25 @@
 // together). PRODUCTION DEFAULT IS OFF: with the gate off the original OCCT
 // narrow phase below (worldShape -> BRepAlgoAPI_Common -> GProp VolumeProperties)
 // runs byte-for-byte unchanged. Mirrors the just-landed CamAdvanced.cpp
-// (generateCmm) / Cam.cpp (inwardOffset) / Healing.cpp (heal/sew) wires:
-// tryNativeInterferencePair takes the native branch ONLY when BOTH instances'
-// components are NativeSolid handles (there is NO OCCT-shape -> native-Solid
-// importer, so an OCCT-backed component HONESTLY DEFERS to OCCT — the broad phase,
-// pair enumeration, dedup + sort all stay on the existing path). It returns false
-// (NEVER throws) on every deferral, so the gate-off default and the gate-on
-// OCCT-input path are both identical to today.
+// (generateCmm) / Cam.cpp (inwardOffset) / Healing.cpp (heal/sew) wires.
 //
-// STAGED — DEFERS TOTALLY TODAY. The live assembly pipeline (Booleans.cpp /
-// Primitives.cpp on the default OCCT backend) registers Kind::Occt components, so
-// `ComponentRegistry::getComponent(id)` resolves to an OCCT handle for every
-// instance the API builds today; tryNativeInterferencePair therefore returns
-// false on the kindOf() guard and the OCCT narrow phase runs — the gate-on result
-// is byte-identical to gate-off RIGHT NOW. The native branch becomes LIVE only
-// once assemblies are populated from native-core bodies (FORGE_NATIVE_BREP=1
-// makeBox/.../cut), at which point the SAME wired path measures the clash with
-// booleanSolid+massProperties. This is the correct, honest staging — wired now,
-// exercised when native components exist — NOT a fabricated active path.
+// PHASE-D ACTIVATION (2026-06-25) — wired LIVE for OCCT inputs via the now-existing
+// OCCT->native importer forge::importOcctSolid (src/OcctImport.cpp). resolveWorldSolid
+// resolves EACH instance's world solid natively: a NativeSolid handle directly, OR an
+// OCCT-backed (ShapeKind::Occt) handle by importing it (analytic box/cyl/cone/sphere/
+// prism + analytic-boolean results) — so the live assembly pipeline (Booleans.cpp /
+// Primitives.cpp on the default OCCT backend, which registers Kind::Occt components)
+// NOW takes the native clash test instead of deferring. SAFE + HONEST: if importOcctSolid
+// returns ok==false (NURBS/Torus/non-analytic) OR the boolean has no closed result, the
+// helper returns false (NEVER throws) and the pair falls back to the OCCT narrow phase,
+// byte-identical to today. The broad phase, pair enumeration, dedup + sort all stay on
+// the existing path regardless.
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled(), transformSolid
 #include "forge/native/brep/Boolean.hpp"       // booleanSolid, BoolOp::Common, BooleanResult
 #include "forge/native/brep/MassProps.hpp"     // massProperties (exact overlap volume)
 #include "forge/native/brep/Topology.hpp"      // brep::Solid, TopologyBuilder
+#include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
 #endif
 
 namespace forge {
@@ -112,60 +108,78 @@ double solidVolume(const TopoDS_Shape& s) {
 }
 
 #ifdef FORGE_NATIVE_BREP
+// Resolve one assembly instance to its WORLD-space native analytic Solid, returning
+// the (R,t)-transformed clone in `worldOut` and stashing the lifetimes it views into
+// (the transformSolid builder + — for an OCCT input — the importOcctSolid ImportResult
+// that owns the imported native topology) in `keepAlive`. Returns false (NEVER throws)
+// when the instance HONESTLY DEFERS, so the pair falls back to the OCCT narrow phase:
+//   * the component is a NativeSolid           -> transformSolid(getNativeSolid).
+//   * the component is OCCT-backed (ShapeKind::Occt) AND importOcctSolid succeeds
+//     (analytic box/cyl/cone/sphere/prism + analytic-boolean result) -> import to a
+//     native Solid, then transformSolid that. PHASE-D ACTIVATION: this is the branch
+//     that now runs the native clash test on OCCT inputs instead of deferring.
+//   * the component is OCCT-backed but importOcctSolid defers (ok==false: NURBS/Torus/
+//     non-analytic) -> false (defer to OCCT, unchanged).
+//   * the component is a NativeMesh, or transformSolid yields null -> false (defer).
+bool resolveWorldSolid(InstanceId id,
+                       const native::brep::Solid*& worldOut,
+                       std::vector<std::shared_ptr<void>>& keepAlive) {
+    using namespace forge::native::brep;
+    auto& shapes = ShapeRegistry::instance();
+    const ShapeHandle h = ComponentRegistry::instance().getComponent(id);
+
+    const Transform4x4 x = AssemblyHierarchy::instance().worldTransform(id);
+    const double R[9] = { x.m[0], x.m[1], x.m[2],
+                          x.m[4], x.m[5], x.m[6],
+                          x.m[8], x.m[9], x.m[10] };
+    const double t[3] = { x.m[3], x.m[7], x.m[11] };
+
+    const Solid* model = nullptr;
+    if (shapes.kindOf(h) == ShapeKind::NativeSolid) {
+        model = &shapes.getNativeSolid(h);
+    } else if (shapes.kindOf(h) == ShapeKind::Occt) {
+        // PHASE-D: import the OCCT analytic solid into a native Solid. ok==false
+        // (NURBS/Torus/etc.) -> defer to OCCT, exactly as before.
+        ImportResult ir = importOcctSolid(shapes.get(h));
+        if (!ir.ok || ir.solid == nullptr) return false;
+        keepAlive.push_back(ir.owner);   // keep the imported topology alive
+        model = ir.solid;
+    } else {
+        return false;  // NativeMesh -> no analytic Solid -> defer
+    }
+
+    std::shared_ptr<TopologyBuilder> owner;
+    Solid* world = transformSolid(*model, R, t, owner);
+    if (!world) return false;  // clone gap -> defer
+    keepAlive.push_back(owner);
+    worldOut = world;
+    return true;
+}
+
 // Try the native analytic clash test (brep::booleanSolid Common + massProperties)
 // for ONE candidate pair. On success sets `volOut` to the exact overlap volume and
 // returns true; returns false (NEVER throws) when the native path HONESTLY DEFERS
 // so the caller falls through to the OCCT BRepAlgoAPI_Common / GProp narrow phase.
 // Same deferral contract as Cam.cpp::tryNativeInwardOffset / Healing.cpp::tryNativeHeal.
 //
-// Deferral / GAP cases (Bible §0 — native-where-valid, OCCT otherwise):
-//   * EITHER instance's component is NOT a NativeSolid (an OCCT-backed body, or a
-//     NativeMesh fillet/chamfer result): there is NO OCCT-shape -> native-Solid
-//     importer, and a NativeMesh has no analytic Solid for booleanSolid, so we MUST
-//     NOT substitute or mix backends — defer the WHOLE pair to OCCT, exactly as the
-//     gate-off default behaves. (Today EVERY live component is OCCT-backed, so this
-//     guard fires for every pair and the call defers totally — staged, see header.)
-//   * booleanSolid returns ok==false (a tangency/degenerate clash with no closed
-//     2-manifold result, or an honest SSI gap): defer so OCCT's own narrow phase —
-//     which owns its own degenerate handling (op.IsDone()/IsNull() skips) — decides,
-//     matching today.
-//
-// The world solid of each instance is the analytic R*p+t clone (transformSolid),
-// the native analogue of worldShape()'s OCCT BRepBuilderAPI_Transform: R is the
-// world Transform4x4's upper-left 3×3 (row-major m[0,1,2 / 4,5,6 / 8,9,10]) and t
-// its 4th column (m[3],m[7],m[11]) — the SAME decomposition toOcctTrsf feeds
-// gp_Trsf::SetValues. The overlap is then booleanSolid(A,B,Common) and the volume
-// is massProperties(result).volume (|·| for sign-safety, mirroring solidVolume).
+// Deferral / GAP cases (Bible §0 — native-where-valid, OCCT otherwise) — see
+// resolveWorldSolid: EITHER instance is a NativeMesh, or an OCCT-backed body whose
+// importOcctSolid defers (NURBS/Torus/non-analytic), or transformSolid yields null;
+// OR booleanSolid returns ok==false (a tangency/degenerate clash with no closed
+// 2-manifold result, or an honest SSI gap) -> defer so OCCT's own narrow phase —
+// which owns its own degenerate handling (op.IsDone()/IsNull() skips) — decides.
+// The overlap is booleanSolid(A,B,Common) and the volume is massProperties(result).volume
+// (|·| for sign-safety, mirroring solidVolume).
 bool tryNativeInterferencePair(InstanceId a, InstanceId b, double& volOut) {
     using namespace forge::native::brep;
-    auto& shapes = ShapeRegistry::instance();
-    auto& comps  = ComponentRegistry::instance();
 
-    const ShapeHandle ha = comps.getComponent(a);
-    const ShapeHandle hb = comps.getComponent(b);
-    // Both components must be analytic native solids (no OCCT->native importer).
-    if (shapes.kindOf(ha) != ShapeKind::NativeSolid ||
-        shapes.kindOf(hb) != ShapeKind::NativeSolid) {
-        return false;  // OCCT-backed (or mesh) input -> defer to OCCT narrow phase
-    }
-
-    // World-space analytic clones via the SAME row-major (R,t) split worldShape's
-    // toOcctTrsf uses: upper-left 3×3 -> R, 4th column -> t.
-    const Transform4x4 xa = AssemblyHierarchy::instance().worldTransform(a);
-    const Transform4x4 xb = AssemblyHierarchy::instance().worldTransform(b);
-    const double Ra[9] = { xa.m[0], xa.m[1], xa.m[2],
-                           xa.m[4], xa.m[5], xa.m[6],
-                           xa.m[8], xa.m[9], xa.m[10] };
-    const double ta[3] = { xa.m[3], xa.m[7], xa.m[11] };
-    const double Rb[9] = { xb.m[0], xb.m[1], xb.m[2],
-                           xb.m[4], xb.m[5], xb.m[6],
-                           xb.m[8], xb.m[9], xb.m[10] };
-    const double tb[3] = { xb.m[3], xb.m[7], xb.m[11] };
-
-    std::shared_ptr<TopologyBuilder> ownerA, ownerB;
-    Solid* wa = transformSolid(shapes.getNativeSolid(ha), Ra, ta, ownerA);
-    Solid* wb = transformSolid(shapes.getNativeSolid(hb), Rb, tb, ownerB);
-    if (!wa || !wb) return false;  // clone gap -> defer
+    // Each instance's world solid is resolved natively (NativeSolid directly, OCCT input
+    // via importOcctSolid). If EITHER honestly defers, the whole pair defers to OCCT.
+    std::vector<std::shared_ptr<void>> keepAlive;   // owns imported + transformed topology
+    const Solid* wa = nullptr;
+    const Solid* wb = nullptr;
+    if (!resolveWorldSolid(a, wa, keepAlive)) return false;
+    if (!resolveWorldSolid(b, wb, keepAlive)) return false;
 
     // Clash = does A∩B have non-zero volume. Common boolean + exact mass props.
     BooleanResult inter = booleanSolid(*wa, *wb, BoolOp::Common);
@@ -210,12 +224,12 @@ std::vector<InterferencePair> detectInterference(
             // ---- narrow phase: exact solid intersection -----------
 #ifdef FORGE_NATIVE_BREP
             // GATE: the native analytic clash test (brep::booleanSolid Common +
-            // massProperties) is opt-in via the FEAT gate (default OFF). When on AND
-            // BOTH components are NativeSolid, measure the overlap natively; otherwise
-            // fall through to the OCCT narrow phase below (an OCCT-backed component
-            // HONESTLY DEFERS — no behavior change in the default build). A false
-            // return == defer. Today every live component is OCCT-backed so this
-            // defers totally; it goes live once assemblies hold native-core bodies.
+            // massProperties) is opt-in via the FEAT gate (default OFF). When on, each
+            // component is resolved to a native world solid (NativeSolid directly, or an
+            // OCCT-backed analytic solid via importOcctSolid), and the overlap is measured
+            // natively; if EITHER component honestly defers (non-analytic import / mesh /
+            // boolean gap) the pair falls through to the OCCT narrow phase below — no
+            // behavior change in the default build. A false return == defer.
             if (native::brep::forgeNativeFeaturesEnabled()) {
                 double vNative = 0.0;
                 if (tryNativeInterferencePair(instances[i], instances[j], vNative)) {

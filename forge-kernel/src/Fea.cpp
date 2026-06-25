@@ -31,11 +31,13 @@
 // harness's setForgeNativeBrepEnabled(true)). PRODUCTION DEFAULT IS OFF: with the gate
 // off the original OCCT path below (BRepBndLib + BRepClass3d_SolidClassifier) runs
 // byte-for-byte unchanged. Mirrors the prior wires (Cam.cpp / Healing.cpp /
-// CamAdvanced.cpp / Drawings.cpp): tryNativeMeshFromBRep takes the native branch ONLY
-// when the input handle is a NativeSolid (so its analytic faces feed the native AABB +
-// even-odd point-in-solid); an OCCT-backed input HONESTLY DEFERS to OCCT (there is NO
-// OCCT-shape -> native-Solid importer — Bible §0), so the gate-off default and the
-// gate-on OCCT-input path are both identical to today. The native build emits the SAME
+// CamAdvanced.cpp / Drawings.cpp). PHASE-D ACTIVATION (2026-06-25): tryNativeMeshFromBRep
+// now takes the native branch on BOTH a NativeSolid handle AND an OCCT-backed
+// (ShapeKind::Occt) handle, the latter imported into a native analytic Solid via
+// forge::importOcctSolid (src/OcctImport.cpp) before the AABB + point-in-solid run. SAFE
+// + HONEST: if importOcctSolid defers (ok==false: NURBS/Torus/non-analytic) the helper
+// returns false and the OCCT path runs, byte-identical to today. The native build emits
+// the SAME
 // hex grid (same Nmax/hSnap snapping, same (Nx,Ny,Nz), same lazy node de-dup, same
 // nodeToFace AABB bitfield) so the resulting Mesh is structurally identical to OCCT's;
 // only the bbox + inside-test backends differ.
@@ -49,6 +51,7 @@
 #include "forge/native/brep/Aabb.hpp"          // computeAabb (native AABB)
 #include "forge/native/brep/Query.hpp"         // pointInSolid (native point classify)
 #include "forge/native/brep/Surface.hpp"       // Vec3
+#include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
 #endif
 
 namespace la = forge::native::linalg;
@@ -735,8 +738,9 @@ namespace {
 // CamAdvanced.cpp::tryNativeGenerateCmm.
 //
 // Deferral cases (Bible §0 — native-where-valid, OCCT otherwise):
-//   * the input handle is NOT a NativeSolid (no OCCT-shape -> native-Solid importer)
-//     -> the whole call defers to OCCT, exactly as the gate-off default behaves.
+//   * the input is a NativeMesh, or an OCCT-backed body whose importOcctSolid defers
+//     (ok==false: NURBS/Torus/non-analytic) -> the whole call defers to OCCT, exactly
+//     as the gate-off default behaves.
 //   * the native AABB is void_ (empty solid) -> defer; OCCT owns the empty-shape throw.
 //
 // The grid construction below is LINE-FOR-LINE the same as the OCCT path's (same
@@ -749,8 +753,25 @@ namespace {
 bool tryNativeMeshFromBRep(ShapeHandle h, double targetElemSize, Mesh& out) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
-    if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;   // defer to OCCT
-    const Solid& solid = reg.getNativeSolid(h);
+
+    // Resolve the input to a native analytic Solid. A NativeSolid handle is used
+    // directly; PHASE-D ACTIVATION (2026-06-25) — an OCCT-backed (ShapeKind::Occt)
+    // handle is IMPORTED via forge::importOcctSolid (analytic box/cyl/cone/sphere/
+    // prism + analytic-boolean results) so the native AABB + point-in-solid hex grid
+    // runs on it. SAFE: importOcctSolid ok==false (NURBS/Torus/non-analytic) -> defer
+    // to OCCT. `imported` keeps the imported topology alive for this call.
+    ImportResult imported;
+    const Solid* solidPtr = nullptr;
+    if (reg.kindOf(h) == ShapeKind::NativeSolid) {
+        solidPtr = &reg.getNativeSolid(h);
+    } else if (reg.kindOf(h) == ShapeKind::Occt) {
+        imported = importOcctSolid(reg.get(h));
+        if (!imported.ok || imported.solid == nullptr) return false;  // defer to OCCT
+        solidPtr = imported.solid;
+    } else {
+        return false;   // NativeMesh -> no analytic Solid -> defer to OCCT
+    }
+    const Solid& solid = *solidPtr;
 
     const Aabb3 bb = computeAabb(solid);
     if (bb.void_) return false;                                  // empty -> defer to OCCT

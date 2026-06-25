@@ -16,6 +16,7 @@
 #include "forge/OcctImport.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -238,7 +239,17 @@ struct BSample {
 
 } // namespace
 
+// TEST-ONLY PROBE counter (see OcctImport.hpp). Process-wide; bumped on entry to every
+// importOcctSolid call. Relaxed atomic so a concurrent assembly scan can't trip TSan;
+// production never reads it.
+static std::atomic<unsigned long long> g_importCallCount{0};
+
+unsigned long long importOcctSolidCallCount() {
+    return g_importCallCount.load(std::memory_order_relaxed);
+}
+
 ImportResult importOcctSolid(const TopoDS_Shape& shape) {
+    g_importCallCount.fetch_add(1, std::memory_order_relaxed);
     ImportResult res;
     if (shape.IsNull()) { res.reason = "null shape"; return res; }
 

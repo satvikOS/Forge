@@ -55,9 +55,12 @@
 // forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or the A/B harness's
 // setForgeNativeBrepEnabled(true)). PRODUCTION DEFAULT IS OFF: with the gate off the
 // original OCCT meshShape path runs byte-for-byte unchanged. Mirrors the prior wires
-// (Cam.cpp / Healing.cpp / CamAdvanced.cpp / Drawings.cpp / Fea.cpp): the native branch is
-// taken ONLY when the input handle is a NativeSolid; an OCCT-backed input HONESTLY DEFERS
-// to OCCT (there is NO OCCT-shape -> native-Solid importer — Bible §0). The native tet
+// (Cam.cpp / Healing.cpp / CamAdvanced.cpp / Drawings.cpp / Fea.cpp). PHASE-D ACTIVATION
+// (2026-06-25): the native branch now runs on BOTH a NativeSolid handle AND an OCCT-backed
+// (ShapeKind::Occt) handle, the latter imported into a native analytic Solid via
+// forge::importOcctSolid (src/OcctImport.cpp) before tessellate/AABB/point-in-solid run.
+// SAFE + HONEST: if importOcctSolid defers (ok==false: NURBS/Torus/non-analytic) the helper
+// returns false and the OCCT meshShape path runs, byte-identical to today. The native tet
 // build reuses the SAME backend-agnostic helpers (bowyerWatson, tetVolume, tet4B, the
 // seed-densify + centroid-filter + shell-fallback logic), substituting ONLY the three
 // geometry backends above; the resulting Mesh is structurally the same kind the OCCT path
@@ -72,6 +75,7 @@
 #include "forge/native/brep/Aabb.hpp"             // computeAabb (native AABB)
 #include "forge/native/brep/Query.hpp"            // pointInSolid (native point classify)
 #include "forge/native/brep/SolidTessellate.hpp"  // tessellateSolid (boundary triangles)
+#include "forge/OcctImport.hpp"                   // importOcctSolid (OCCT analytic -> native Solid)
 #endif
 
 namespace forge::fea::tet {
@@ -917,8 +921,8 @@ Mesh buildShellTetFallbackNative(const std::vector<Vec3>& bndPts,
 // Cam.cpp::tryNativeInwardOffset.
 //
 // Deferral cases (Bible §0 — native-where-valid, OCCT otherwise):
-//   * the input handle is NOT a NativeSolid (no OCCT-shape -> native-Solid importer)
-//     -> the whole call defers to OCCT.
+//   * the input is a NativeMesh, or an OCCT-backed body whose importOcctSolid defers
+//     (ok==false: NURBS/Torus/non-analytic) -> the whole call defers to OCCT.
 //   * the native tessellation yields no triangles, or the native AABB is void_/degenerate
 //     -> defer (OCCT owns the descriptive throw on an empty boundary).
 //
@@ -929,8 +933,25 @@ Mesh buildShellTetFallbackNative(const std::vector<Vec3>& bndPts,
 bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, Mesh& out) {
     using namespace forge::native::brep;
     auto& reg = ::forge::ShapeRegistry::instance();
-    if (reg.kindOf(h) != ::forge::ShapeKind::NativeSolid) return false;  // defer to OCCT
-    const Solid& solid = reg.getNativeSolid(h);
+
+    // Resolve the input to a native analytic Solid. A NativeSolid handle is used
+    // directly; PHASE-D ACTIVATION (2026-06-25) — an OCCT-backed (ShapeKind::Occt)
+    // handle is IMPORTED via forge::importOcctSolid (analytic box/cyl/cone/sphere/
+    // prism + analytic-boolean results) so the native tessellate + point-in-solid
+    // tet build runs on it. SAFE: importOcctSolid ok==false (NURBS/Torus/non-analytic)
+    // -> defer to OCCT. `imported` keeps the imported topology alive for this call.
+    ::forge::ImportResult imported;
+    const Solid* solidPtr = nullptr;
+    if (reg.kindOf(h) == ::forge::ShapeKind::NativeSolid) {
+        solidPtr = &reg.getNativeSolid(h);
+    } else if (reg.kindOf(h) == ::forge::ShapeKind::Occt) {
+        imported = ::forge::importOcctSolid(reg.get(h));
+        if (!imported.ok || imported.solid == nullptr) return false;     // defer to OCCT
+        solidPtr = imported.solid;
+    } else {
+        return false;   // NativeMesh -> no analytic Solid -> defer to OCCT
+    }
+    const Solid& solid = *solidPtr;
 
     // 1. Native AABB (sizes the merge tolerance + the interior seed grid bounds).
     const Aabb3 box = computeAabb(solid);

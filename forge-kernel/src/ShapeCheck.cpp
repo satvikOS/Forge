@@ -33,6 +33,18 @@
 // NativeSolid (so its face set can be validated by the native predicate battery); an
 // OCCT-backed input HONESTLY DEFERS to OCCT (there is no OCCT-shape -> native-topology
 // importer, so we cannot ingest it). NOTHING about the default build changes.
+//
+// PHASE-D NOTE (2026-06-25): an OCCT->native importer (forge::importOcctSolid) now EXISTS,
+// but this op is DELIBERATELY left deferring on OCCT inputs. The native validator's
+// orientation predicate (G3/O-family BadOrientationCCW) checks each face loop's SIGNED
+// PARAMETER-SPACE area, and the importer's triangulated faces wind CW in (u,v) by its own
+// convention — so checkBRep on importer output reports a spurious BadOrientationCCW on
+// EVERY face (verified: a plain imported box -> valid=false vs OCCT valid=true). The
+// geometry imports faithfully (volume/area/bbox/Betti — native_occt_import_test) but the
+// validity VERDICT would be wrong, so activating this wire would be a false negative. It
+// stays deferred until the importer's param-winding is reconciled with the G3 predicate
+// (or the predicate is made orientation-agnostic). The geometry-truth ops (Interference /
+// Fea / FeaTet) DID activate cleanly — see native_occt_wire_activation_test.cpp.
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/Check.hpp"         // checkBRep, CheckOptions, CheckReport (native)
@@ -179,6 +191,9 @@ bool tryNativeAnalyse(ShapeHandle shape, AnalysisReport& out) {
 
     // DEFER unless the input is a native analytic solid (the only native shape whose
     // topology the validator can walk without an OCCT importer). Matches ShapeFix.cpp.
+    // (An OCCT->native importer now exists, but is NOT used here — see the file-head
+    // PHASE-D NOTE: the importer's param-space winding trips the native G3 orientation
+    // predicate, so importing OCCT inputs would yield a false-negative validity verdict.)
     if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
 
     const Solid& s = reg.getNativeSolid(shape);
