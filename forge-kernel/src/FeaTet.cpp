@@ -38,6 +38,42 @@
 #include <unordered_set>
 #include <vector>
 
+// PHASE-D wiring (2026-06-25) — route the OCCT geometry ops that meshShape uses to build
+// the tet-mesh DOMAIN, through the ALREADY-BUILT in-house native B-rep ops behind the
+// FEAT gate, on the meshShapeFromHandle entry (the only point that sees the ShapeHandle,
+// hence the only point that can detect a NativeSolid input):
+//   * BRepMesh_IncrementalMesh + Poly_Triangulation boundary-triangle extraction
+//                                    -> forge::native::brep::tessellateSolid (watertight
+//                                       boundary triangle soup of the native Solid)
+//   * BRepBndLib::Add / Bnd_Box      -> forge::native::brep::computeAabb (exact AABB; used
+//                                       for the merge tolerance + interior-grid bounds)
+//   * BRepClass3d_SolidClassifier    -> forge::native::brep::pointInSolid (even-odd ray
+//                                       cast; the interior-grid seed test, the BW
+//                                       tet-centroid inside filter, and the shell-fallback
+//                                       inner-node test)
+// Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when the FEAT gate
+// forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or the A/B harness's
+// setForgeNativeBrepEnabled(true)). PRODUCTION DEFAULT IS OFF: with the gate off the
+// original OCCT meshShape path runs byte-for-byte unchanged. Mirrors the prior wires
+// (Cam.cpp / Healing.cpp / CamAdvanced.cpp / Drawings.cpp / Fea.cpp): the native branch is
+// taken ONLY when the input handle is a NativeSolid; an OCCT-backed input HONESTLY DEFERS
+// to OCCT (there is NO OCCT-shape -> native-Solid importer — Bible §0). The native tet
+// build reuses the SAME backend-agnostic helpers (bowyerWatson, tetVolume, tet4B, the
+// seed-densify + centroid-filter + shell-fallback logic), substituting ONLY the three
+// geometry backends above; the resulting Mesh is structurally the same kind the OCCT path
+// emits (Bowyer-Watson volume tets when they survive, else the documented shell fallback).
+//
+// The solvers (solveLinearStatic / solveModal) take a Mesh and run pure in-house sparse
+// linear algebra (no OCCT geometry), so they have NO native geometry target and are left
+// UNWIRED (not a gap; there is nothing to route).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"      // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Topology.hpp"         // Solid graph
+#include "forge/native/brep/Aabb.hpp"             // computeAabb (native AABB)
+#include "forge/native/brep/Query.hpp"            // pointInSolid (native point classify)
+#include "forge/native/brep/SolidTessellate.hpp"  // tessellateSolid (boundary triangles)
+#endif
+
 namespace forge::fea::tet {
 
 namespace {
@@ -815,7 +851,276 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge) {
     return buildShellTetFallback(bndPts, triangles, shape);
 }
 
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// Native counterpart of buildShellTetFallback — same crude-but-real surface-triangle ->
+// Tet4 conversion (inner-offset node along the inward face normal at 1/3 the average edge
+// length), but the inside/outside test that picks the inner node uses the native even-odd
+// pointInSolid instead of BRepClass3d_SolidClassifier. Identical geometry/orientation
+// logic otherwise.
+Mesh buildShellTetFallbackNative(const std::vector<Vec3>& bndPts,
+                                 const std::vector<std::array<int,3>>& triangles,
+                                 const forge::native::brep::Solid& solid) {
+    using namespace forge::native::brep;
+    Mesh out;
+    out.shellTetsOnly = true;
+
+    out.nodes.reserve(bndPts.size() + triangles.size());
+    for (std::size_t i = 0; i < bndPts.size(); ++i) {
+        out.nodes.push_back({bndPts[i].x, bndPts[i].y, bndPts[i].z, static_cast<int>(i)});
+    }
+
+    int idCounter = 0;
+    for (auto& tri : triangles) {
+        const Vec3& A = bndPts[tri[0]];
+        const Vec3& B = bndPts[tri[1]];
+        const Vec3& C = bndPts[tri[2]];
+        Vec3 n = (B - A).cross(C - A);
+        double nl = n.norm();
+        if (nl < kEps) continue;
+        Vec3 nu = n * (1.0 / nl);
+        Vec3 centroid = (A + B + C) * (1.0 / 3.0);
+        double e = ((B - A).norm() + (C - B).norm() + (A - C).norm()) / 3.0;
+        double offset = e / 3.0;
+        auto trySign = [&](double sign) -> int {
+            Vec3 inner = centroid + nu * (sign * offset);
+            const PointClass st =
+                pointInSolid(solid, forge::native::brep::Vec3{inner.x, inner.y, inner.z},
+                             Precision::Confusion());
+            if (st == PointClass::Inside || st == PointClass::On) {
+                int newId = static_cast<int>(out.nodes.size());
+                out.nodes.push_back({inner.x, inner.y, inner.z, newId});
+                return newId;
+            }
+            return -1;
+        };
+        int inner = trySign(-1.0);
+        if (inner < 0) inner = trySign(+1.0);
+        if (inner < 0) continue;
+
+        Vec3 D{out.nodes[inner].x, out.nodes[inner].y, out.nodes[inner].z};
+        double V = tetVolume(A, B, C, D);
+        Tet t{};
+        t.a = tri[0]; t.b = tri[1]; t.c = tri[2]; t.d = inner;
+        if (V < 0.0) std::swap(t.b, t.c);
+        t.id = idCounter++;
+        out.tets.push_back(t);
+    }
+    return out;
+}
+
+// Try the native boundary tessellation + native AABB + native point-in-solid for the
+// meshShape domain build. Returns true + fills `out` on success; returns false (NEVER
+// throws) when the native path HONESTLY DEFERS so meshShapeFromHandle falls through to the
+// OCCT meshShape path. Same deferral contract as Fea.cpp::tryNativeMeshFromBRep /
+// Cam.cpp::tryNativeInwardOffset.
+//
+// Deferral cases (Bible §0 — native-where-valid, OCCT otherwise):
+//   * the input handle is NOT a NativeSolid (no OCCT-shape -> native-Solid importer)
+//     -> the whole call defers to OCCT.
+//   * the native tessellation yields no triangles, or the native AABB is void_/degenerate
+//     -> defer (OCCT owns the descriptive throw on an empty boundary).
+//
+// The build below mirrors meshShape's structure: native watertight boundary triangles
+// (tessellateSolid) -> seed densify (triangle midpoints/barycenters + an interior grid
+// classified by native pointInSolid) -> Bowyer-Watson (the SAME backend-agnostic mesher)
+// -> centroid inside-filter (native pointInSolid) -> documented native shell fallback.
+bool tryNativeMeshShape(::forge::ShapeHandle h, double targetEdge, Mesh& out) {
+    using namespace forge::native::brep;
+    auto& reg = ::forge::ShapeRegistry::instance();
+    if (reg.kindOf(h) != ::forge::ShapeKind::NativeSolid) return false;  // defer to OCCT
+    const Solid& solid = reg.getNativeSolid(h);
+
+    // 1. Native AABB (sizes the merge tolerance + the interior seed grid bounds).
+    const Aabb3 box = computeAabb(solid);
+    if (box.void_) return false;                                         // empty -> defer
+    const double xmin = box.minX, ymin = box.minY, zmin = box.minZ;
+    const double xmax = box.maxX, ymax = box.maxY, zmax = box.maxZ;
+    double diag = std::sqrt((xmax - xmin) * (xmax - xmin) +
+                            (ymax - ymin) * (ymax - ymin) +
+                            (zmax - zmin) * (zmax - zmin));
+    double mergeTol = std::max(targetEdge * 1e-3, diag * 1e-7);
+
+    // 2. Native watertight boundary triangles -> unique vertex list + triangle indices,
+    //    in the SAME (uniqueVerts, triangles) form the OCCT extractor produced. The native
+    //    soup is already welded by position (tessellateSolid weldTol); we keep its vertex
+    //    indexing directly (no re-merge needed — coincident topological vertices already
+    //    map to one position).
+    std::vector<double> pos;
+    std::vector<std::uint32_t> idx;
+    tessellateSolid(solid, pos, idx, mergeTol);
+    if (pos.empty() || idx.size() < 3) return false;                    // no boundary -> defer
+
+    std::vector<Vec3> bndPts;
+    bndPts.reserve(pos.size() / 3);
+    for (std::size_t i = 0; i + 2 < pos.size(); i += 3) {
+        bndPts.push_back(Vec3{pos[i], pos[i + 1], pos[i + 2]});
+    }
+    std::vector<std::array<int, 3>> triangles;
+    triangles.reserve(idx.size() / 3);
+    for (std::size_t i = 0; i + 2 < idx.size(); i += 3) {
+        std::array<int, 3> t{ static_cast<int>(idx[i]),
+                              static_cast<int>(idx[i + 1]),
+                              static_cast<int>(idx[i + 2]) };
+        if (t[0] == t[1] || t[1] == t[2] || t[0] == t[2]) continue;
+        triangles.push_back(t);
+    }
+    if (bndPts.empty() || triangles.empty()) return false;              // degenerate -> defer
+
+    // 2b. Densify seeds — identical to meshShape (a: triangle midpoints/barycenters;
+    //     b: interior grid classified IN by the NATIVE pointInSolid).
+    {
+        struct ArrHash {
+            std::size_t operator()(const std::array<long long, 3>& k) const noexcept {
+                std::uint64_t hh = 1469598103934665603ull;
+                for (auto v : k) { hh ^= static_cast<std::uint64_t>(v); hh *= 1099511628211ull; }
+                return static_cast<std::size_t>(hh);
+            }
+        };
+        std::unordered_set<std::array<long long, 3>, ArrHash> occupied;
+        double invCell = 1.0 / std::max(mergeTol, 1e-30);
+        auto cell = [&](const Vec3& v) {
+            return std::array<long long, 3>{
+                static_cast<long long>(std::floor(v.x * invCell)),
+                static_cast<long long>(std::floor(v.y * invCell)),
+                static_cast<long long>(std::floor(v.z * invCell))
+            };
+        };
+        for (const auto& p : bndPts) occupied.insert(cell(p));
+
+        auto tryAdd = [&](const Vec3& p) {
+            auto k = cell(p);
+            for (int di = -1; di <= 1; ++di) {
+                for (int dj = -1; dj <= 1; ++dj) {
+                    for (int dk = -1; dk <= 1; ++dk) {
+                        auto kn = k; kn[0] += di; kn[1] += dj; kn[2] += dk;
+                        if (occupied.count(kn)) return false;
+                    }
+                }
+            }
+            occupied.insert(k);
+            bndPts.push_back(p);
+            return true;
+        };
+
+        const double minLen = 1.25 * targetEdge;
+        const double minArea = 0.5 * targetEdge * targetEdge;
+        std::size_t ntri = triangles.size();
+        for (std::size_t ti = 0; ti < ntri; ++ti) {
+            Vec3 A = bndPts[triangles[ti][0]];
+            Vec3 B = bndPts[triangles[ti][1]];
+            Vec3 C = bndPts[triangles[ti][2]];
+            if ((B - A).norm() > minLen) tryAdd((A + B) * 0.5);
+            if ((C - B).norm() > minLen) tryAdd((B + C) * 0.5);
+            if ((A - C).norm() > minLen) tryAdd((C + A) * 0.5);
+            double area = 0.5 * (B - A).cross(C - A).norm();
+            if (area > minArea) tryAdd((A + B + C) * (1.0 / 3.0));
+        }
+        int nx = std::max(1, static_cast<int>(std::ceil((xmax - xmin) / targetEdge)));
+        int ny = std::max(1, static_cast<int>(std::ceil((ymax - ymin) / targetEdge)));
+        int nz = std::max(1, static_cast<int>(std::ceil((zmax - zmin) / targetEdge)));
+        const int kMax = 20000;
+        long long total = static_cast<long long>(nx) * ny * nz;
+        if (total > kMax) {
+            double f = std::pow(static_cast<double>(total) / kMax, 1.0 / 3.0);
+            nx = std::max(1, static_cast<int>(nx / f));
+            ny = std::max(1, static_cast<int>(ny / f));
+            nz = std::max(1, static_cast<int>(nz / f));
+        }
+        double dx = (xmax - xmin) / (nx + 1);
+        double dy = (ymax - ymin) / (ny + 1);
+        double dz = (zmax - zmin) / (nz + 1);
+        for (int ix = 1; ix <= nx; ++ix) {
+            for (int iy = 1; iy <= ny; ++iy) {
+                for (int iz = 1; iz <= nz; ++iz) {
+                    Vec3 p{xmin + ix * dx, ymin + iy * dy, zmin + iz * dz};
+                    const PointClass st = pointInSolid(
+                        solid, forge::native::brep::Vec3{p.x, p.y, p.z}, mergeTol);
+                    if (st != PointClass::Inside) continue;
+                    tryAdd(p);
+                }
+            }
+        }
+    }
+
+    // 3. Bowyer-Watson on the boundary points (the SAME backend-agnostic mesher).
+    std::vector<Vec3> ptsCopy = bndPts;
+    std::vector<LocalTet> bw;
+    bool bwOk = true;
+    try {
+        bw = bowyerWatson(ptsCopy);
+    } catch (...) {
+        bw.clear();
+        bwOk = false;
+    }
+
+    if (bwOk && !bw.empty()) {
+        // 4. Filter against the solid: keep tets whose centroid is inside (native test).
+        std::vector<LocalTet> kept;
+        kept.reserve(bw.size());
+        for (auto& t : bw) {
+            Vec3 c = (ptsCopy[t.n[0]] + ptsCopy[t.n[1]] + ptsCopy[t.n[2]] + ptsCopy[t.n[3]])
+                     * 0.25;
+            const PointClass st = pointInSolid(
+                solid, forge::native::brep::Vec3{c.x, c.y, c.z}, Precision::Confusion());
+            if (st == PointClass::Inside) kept.push_back(t);
+        }
+        if (!kept.empty()) {
+            std::unordered_map<int, int> remap;
+            for (auto& t : kept) {
+                for (int k = 0; k < 4; ++k) {
+                    auto [it, ins] = remap.try_emplace(t.n[k], static_cast<int>(remap.size()));
+                    (void)it; (void)ins;
+                }
+            }
+            Mesh m;
+            m.nodes.resize(remap.size());
+            for (auto& kv : remap) {
+                const Vec3& p = ptsCopy[kv.first];
+                m.nodes[kv.second] = Node{p.x, p.y, p.z, kv.second};
+            }
+            int idc = 0;
+            for (auto& t : kept) {
+                Tet T{};
+                T.a = remap[t.n[0]];
+                T.b = remap[t.n[1]];
+                T.c = remap[t.n[2]];
+                T.d = remap[t.n[3]];
+                double V = tetVolume({m.nodes[T.a].x, m.nodes[T.a].y, m.nodes[T.a].z},
+                                     {m.nodes[T.b].x, m.nodes[T.b].y, m.nodes[T.b].z},
+                                     {m.nodes[T.c].x, m.nodes[T.c].y, m.nodes[T.c].z},
+                                     {m.nodes[T.d].x, m.nodes[T.d].y, m.nodes[T.d].z});
+                if (V < 0.0) std::swap(T.b, T.c);
+                T.id = idc++;
+                m.tets.push_back(T);
+            }
+            out = std::move(m);
+            return true;
+        }
+    }
+
+    // 5. Shell fallback (documented; native inside-test variant).
+    out = buildShellTetFallbackNative(bndPts, triangles, solid);
+    return true;
+}
+
+} // namespace
+#endif
+
 Mesh meshShapeFromHandle(::forge::ShapeHandle h, double targetEdge) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native boundary-tessellation + AABB + point-in-solid tet-domain build is
+    // opt-in via the FEAT gate (default OFF). When on AND the input is a NativeSolid, build
+    // the tet mesh natively; otherwise fall through to the OCCT meshShape path below (an
+    // OCCT-backed input HONESTLY DEFERS — no behavior change in the default build). A false
+    // return == defer.
+    if (::forge::native::brep::forgeNativeFeaturesEnabled() && targetEdge > 0.0) {
+        Mesh nativeMesh;
+        if (tryNativeMeshShape(h, targetEdge, nativeMesh)) return nativeMesh;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
     const TopoDS_Shape& s = ::forge::ShapeRegistry::instance().get(h);
     return meshShape(s, targetEdge);
 }

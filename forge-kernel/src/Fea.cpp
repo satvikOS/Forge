@@ -17,6 +17,40 @@
 #include <stdexcept>
 #include <vector>
 
+// PHASE-D wiring (2026-06-25) — route the ONE FEA mesh-DOMAIN construction op in this
+// module, meshFromBRep's per-voxel domain build (the shape's BOUNDING BOX that sizes
+// the hex grid + the POINT-IN-SOLID test that keeps the voxels whose centroid lies
+// inside the solid), through the ALREADY-BUILT in-house native B-rep ops behind the
+// FEAT gate:
+//   * BRepBndLib::Add / Bnd_Box      -> forge::native::brep::computeAabb  (exact analytic
+//                                       model-space AABB of a native Solid)
+//   * BRepClass3d_SolidClassifier    -> forge::native::brep::pointInSolid (even-odd ray
+//                                       cast over the watertight boundary triangles)
+// Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when the FEAT
+// gate forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or the A/B
+// harness's setForgeNativeBrepEnabled(true)). PRODUCTION DEFAULT IS OFF: with the gate
+// off the original OCCT path below (BRepBndLib + BRepClass3d_SolidClassifier) runs
+// byte-for-byte unchanged. Mirrors the prior wires (Cam.cpp / Healing.cpp /
+// CamAdvanced.cpp / Drawings.cpp): tryNativeMeshFromBRep takes the native branch ONLY
+// when the input handle is a NativeSolid (so its analytic faces feed the native AABB +
+// even-odd point-in-solid); an OCCT-backed input HONESTLY DEFERS to OCCT (there is NO
+// OCCT-shape -> native-Solid importer — Bible §0), so the gate-off default and the
+// gate-on OCCT-input path are both identical to today. The native build emits the SAME
+// hex grid (same Nmax/hSnap snapping, same (Nx,Ny,Nz), same lazy node de-dup, same
+// nodeToFace AABB bitfield) so the resulting Mesh is structurally identical to OCCT's;
+// only the bbox + inside-test backends differ.
+//
+// The solvers (solveStatic / solveModal / solveDynamic) do NO OCCT geometry — they take
+// a Mesh and run pure in-house linear algebra (forge::native::linalg) — so they have NO
+// native geometry target and are left UNWIRED (not a gap; there is nothing to route).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Topology.hpp"      // Solid graph
+#include "forge/native/brep/Aabb.hpp"          // computeAabb (native AABB)
+#include "forge/native/brep/Query.hpp"         // pointInSolid (native point classify)
+#include "forge/native/brep/Surface.hpp"       // Vec3
+#endif
+
 namespace la = forge::native::linalg;
 
 namespace forge::fea {
@@ -690,6 +724,170 @@ void applyPressureLoads(std::vector<double>& f, const Mesh& mesh,
 
 } // namespace
 
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// Try the native AABB + native point-in-solid for meshFromBRep's hex-grid domain
+// build. Returns true + fills `out` (an identically-structured voxel-clipped hex Mesh)
+// on success; returns false (NEVER throws) when the native path HONESTLY DEFERS so the
+// caller falls through to the OCCT BRepBndLib / BRepClass3d_SolidClassifier path. Same
+// deferral contract as Cam.cpp::tryNativeInwardOffset / Healing.cpp::tryNativeHeal /
+// CamAdvanced.cpp::tryNativeGenerateCmm.
+//
+// Deferral cases (Bible §0 — native-where-valid, OCCT otherwise):
+//   * the input handle is NOT a NativeSolid (no OCCT-shape -> native-Solid importer)
+//     -> the whole call defers to OCCT, exactly as the gate-off default behaves.
+//   * the native AABB is void_ (empty solid) -> defer; OCCT owns the empty-shape throw.
+//
+// The grid construction below is LINE-FOR-LINE the same as the OCCT path's (same
+// Lmax-based Nmax/hSnap snapping, same axisCount -> (Nx,Ny,Nz), same dx/dy/dz, same
+// inside-test fallback offset retry, same lazy getOrAddNode de-dup with the same hex
+// node order, same nodeToFace AABB-face bitfield). ONLY the two backends differ:
+//   bbox   : BRepBndLib::Add/Bnd_Box      -> brep::computeAabb(solid)
+//   inside : BRepClass3d_SolidClassifier  -> brep::pointInSolid(solid, p)
+// On an On/Inside classification the voxel is kept (matching OCCT's TopAbs_IN||ON).
+bool tryNativeMeshFromBRep(ShapeHandle h, double targetElemSize, Mesh& out) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+    if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;   // defer to OCCT
+    const Solid& solid = reg.getNativeSolid(h);
+
+    const Aabb3 bb = computeAabb(solid);
+    if (bb.void_) return false;                                  // empty -> defer to OCCT
+
+    const double xmin = bb.minX, ymin = bb.minY, zmin = bb.minZ;
+    const double xmax = bb.maxX, ymax = bb.maxY, zmax = bb.maxZ;
+
+    const double Lx = xmax - xmin;
+    const double Ly = ymax - ymin;
+    const double Lz = zmax - zmin;
+
+    // Snap element size against the longest axis (identical to the OCCT path).
+    const double Lmax = std::max({Lx, Ly, Lz});
+    int Nmax = std::max(1, static_cast<int>(std::round(Lmax / targetElemSize)));
+    const double hSnap = Lmax / Nmax;
+
+    auto axisCount = [&](double L) {
+        return std::max(1, static_cast<int>(std::round(L / hSnap)));
+    };
+    const int Nx = axisCount(Lx);
+    const int Ny = axisCount(Ly);
+    const int Nz = axisCount(Lz);
+
+    const double dx = Lx / Nx;
+    const double dy = Ly / Ny;
+    const double dz = Lz / Nz;
+
+    // First pass: tag which voxels survive the native even-odd inside test.
+    std::vector<bool> alive(static_cast<std::size_t>(Nx) * Ny * Nz, false);
+    auto cellIdx = [&](int i, int j, int k) {
+        return ((std::size_t)i * Ny + j) * Nz + k;
+    };
+    for (int i = 0; i < Nx; ++i) {
+        for (int j = 0; j < Ny; ++j) {
+            for (int k = 0; k < Nz; ++k) {
+                Vec3 c{ xmin + (i + 0.5) * dx,
+                        ymin + (j + 0.5) * dy,
+                        zmin + (k + 0.5) * dz };
+                const PointClass st = pointInSolid(solid, c, 1e-7);
+                if (st == PointClass::Inside || st == PointClass::On) {
+                    alive[cellIdx(i, j, k)] = true;
+                }
+            }
+        }
+    }
+    // Fallback: same small-offset retry the OCCT path uses before declaring empty.
+    bool any = false;
+    for (bool b : alive) { if (b) { any = true; break; } }
+    if (!any) {
+        for (int i = 0; i < Nx && !any; ++i) {
+            for (int j = 0; j < Ny && !any; ++j) {
+                for (int k = 0; k < Nz; ++k) {
+                    Vec3 c{ xmin + (i + 0.5) * dx + 1e-6,
+                            ymin + (j + 0.5) * dy + 1e-6,
+                            zmin + (k + 0.5) * dz + 1e-6 };
+                    const PointClass st = pointInSolid(solid, c, 1e-5);
+                    if (st == PointClass::Inside || st == PointClass::On) {
+                        alive[cellIdx(i, j, k)] = true;
+                        any = true;
+                    }
+                }
+            }
+        }
+    }
+    if (!any) {
+        // No voxel inside — defer to OCCT, which owns the descriptive throw (the
+        // native path must NOT throw; returning false yields the identical error).
+        return false;
+    }
+
+    // Second pass: emit unique nodes + 8-node hex element list (identical to OCCT).
+    const int nx1 = Nx + 1, ny1 = Ny + 1, nz1 = Nz + 1;
+    const std::size_t nodeCount = static_cast<std::size_t>(nx1) * ny1 * nz1;
+    std::vector<int> nodeIdx(nodeCount, -1);
+    auto nIdx = [&](int i, int j, int k) {
+        return ((std::size_t)i * ny1 + j) * nz1 + k;
+    };
+
+    Mesh mesh;
+    mesh.elemNodeCount = 8;
+
+    auto getOrAddNode = [&](int i, int j, int k) -> std::uint32_t {
+        const auto idx = nIdx(i, j, k);
+        if (nodeIdx[idx] < 0) {
+            nodeIdx[idx] = static_cast<int>(mesh.nodes.size() / 3);
+            mesh.nodes.push_back(xmin + i * dx);
+            mesh.nodes.push_back(ymin + j * dy);
+            mesh.nodes.push_back(zmin + k * dz);
+        }
+        return static_cast<std::uint32_t>(nodeIdx[idx]);
+    };
+
+    for (int i = 0; i < Nx; ++i) {
+        for (int j = 0; j < Ny; ++j) {
+            for (int k = 0; k < Nz; ++k) {
+                if (!alive[cellIdx(i, j, k)]) continue;
+                std::uint32_t n[8] = {
+                    getOrAddNode(i,   j,   k),
+                    getOrAddNode(i+1, j,   k),
+                    getOrAddNode(i+1, j+1, k),
+                    getOrAddNode(i,   j+1, k),
+                    getOrAddNode(i,   j,   k+1),
+                    getOrAddNode(i+1, j,   k+1),
+                    getOrAddNode(i+1, j+1, k+1),
+                    getOrAddNode(i,   j+1, k+1),
+                };
+                for (int q = 0; q < 8; ++q) mesh.tets.push_back(n[q]);
+            }
+        }
+    }
+
+    // Per-node AABB-face bitfield (identical to OCCT).
+    mesh.nodeToFace.assign(mesh.nodes.size() / 3, 0u);
+    for (int i = 0; i < nx1; ++i) {
+        for (int j = 0; j < ny1; ++j) {
+            for (int k = 0; k < nz1; ++k) {
+                const auto idx = nIdx(i, j, k);
+                if (nodeIdx[idx] < 0) continue;
+                const auto nid = static_cast<std::uint32_t>(nodeIdx[idx]);
+                std::uint32_t mask = 0;
+                if (i == 0)   mask |= (1u << 0);
+                if (i == Nx)  mask |= (1u << 1);
+                if (j == 0)   mask |= (1u << 2);
+                if (j == Ny)  mask |= (1u << 3);
+                if (k == 0)   mask |= (1u << 4);
+                if (k == Nz)  mask |= (1u << 5);
+                mesh.nodeToFace[nid] = mask;
+            }
+        }
+    }
+    out = std::move(mesh);
+    return true;
+}
+
+} // namespace
+#endif
+
 // ----------------------------------------------------------------- mesh
 //
 // Builds an axis-aligned hex grid clipped to the shape's bounding box.
@@ -697,6 +895,20 @@ void applyPressureLoads(std::vector<double>& f, const Mesh& mesh,
 // are kept; node deduplication uses an Nx*Ny*Nz dense lookup so neighbouring
 // voxels share corner nodes.
 Mesh meshFromBRep(ShapeHandle h, double targetElemSize) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native AABB + even-odd point-in-solid domain build is opt-in via the
+    // FEAT gate (default OFF). When on AND the input is a NativeSolid, build the hex
+    // grid via brep::computeAabb + brep::pointInSolid; otherwise fall through to OCCT
+    // (an OCCT-backed input HONESTLY DEFERS — no behavior change in the default build).
+    // A false return == defer. The same input-validation throws below still guard the
+    // OCCT path; the native pre-flight only intercepts the geometry domain build.
+    if (native::brep::forgeNativeFeaturesEnabled() && targetElemSize > 0) {
+        Mesh nativeMesh;
+        if (tryNativeMeshFromBRep(h, targetElemSize, nativeMesh)) return nativeMesh;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
     const auto& shape = ShapeRegistry::instance().get(h);
     if (shape.IsNull()) {
         throw std::invalid_argument("forge.fea.meshFromBRep: null shape");
