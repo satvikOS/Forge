@@ -38,13 +38,16 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepLib.hxx>
 #include <BRepOffsetAPI_MakeOffset.hxx>
 #include <BRepTools.hxx>
+#include <GeomAbs_CurveType.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepGProp.hxx>
+#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <GCPnts_QuasiUniformDeflection.hxx>
 #include <GProp_GProps.hxx>
@@ -53,6 +56,7 @@
 #include <Precision.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
@@ -67,6 +71,27 @@
 #include <limits>
 #include <stdexcept>
 #include <vector>
+
+// PHASE-D wiring (2026-06-25) — route the Cam 2.5D toolpath wire-offset
+// (inwardOffset, currently OCCT BRepOffsetAPI_MakeOffset on a planar wire) through
+// the ALREADY-BUILT, gate-tested native 2D polygon offset
+// (forge::native::geom::PolygonOffset2D — PolygonOffset2D.cpp) behind a GATE.
+// Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when the
+// FEAT gate forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or
+// the A/B harness's setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP
+// together). PRODUCTION DEFAULT IS OFF: with the gate off, the original OCCT
+// BRepOffsetAPI_MakeOffset path below runs byte-for-byte unchanged. This mirrors
+// the just-landed Sewing.cpp (commit 19840b66) / ShapeFix.cpp (commit 8d5f2ae1)
+// wires: the native branch is taken only when the planar wire can be expressed as
+// a TRUE 2D polygon (EVERY edge is a straight GeomAbs_Line segment). A wire with
+// ANY curved edge (arc / circle / B-spline) HONESTLY DEFERS to OCCT — PolygonOffset2D
+// consumes a straight-segment Loop2 only and there is no analytic-arc offset in it
+// (the explicit GAP, surfaced not silently degraded — see RETURN risks).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"          // forgeNativeFeaturesEnabled()
+#include "forge/native/geom/PolygonOffset2D.hpp"      // PolygonOffset2D, Loop2, OffsetOptions/Result
+#include "forge/native/geom/Geom.hpp"                 // Point2 (shared 2D point)
+#endif
 
 namespace forge::cam {
 
@@ -164,12 +189,118 @@ sampleWireXY(const TopoDS_Wire& wire, double deflection) {
     return out;
 }
 
+#ifdef FORGE_NATIVE_BREP
+// Try the native 2D polygon offset (geom::PolygonOffset2D) for the Cam wire
+// inward-offset. Returns a non-null TopoDS_Shape (a compound of offset wires) on
+// success; returns a NULL shape (NEVER throws) when the native path HONESTLY
+// DEFERS so the caller falls through to the OCCT BRepOffsetAPI_MakeOffset path.
+//
+// Deferral / GAP cases (Bible §0 — native-where-valid, OCCT otherwise):
+//   * ANY wire edge is NOT a straight GeomAbs_Line (an arc / circle / B-spline):
+//     PolygonOffset2D offsets a straight-segment Loop2 only — it has NO analytic
+//     arc/curve offset. We must NOT silently flatten an arc to a polygon (that
+//     would change the toolpath), so we DEFER the WHOLE wire to OCCT's
+//     BRepOffsetAPI(GeomAbs_Arc) which handles mixed line+arc profiles natively.
+//   * fewer than 3 line edges (cannot form a polygon).
+//   * PolygonOffset2D returns ok==false (degenerate input) or every loop collapsed
+//     past the inradius (loops empty) — defer so OCCT's own empty-result fallback
+//     (callers re-use the unoffset wire) behaves identically to today.
+//
+// CONVERSION (wire -> Loop2 -> wire), all in the face's planar XY:
+//   forward : walk edges head-to-tail (BRepTools_WireExplorer, the SAME order
+//             sampleWireXY uses), take each edge's ORIENTED first vertex -> Point2.
+//             Coincident-vertex de-dup mirrors sampleWireXY so a clean ring forms.
+//   offset  : signed distance. OCCT's path negates (off.Perform(-offsetMm)) which
+//             moves INWARD for a CCW wire. PolygonOffset2D shrinks a CCW loop with
+//             d<0 and a CW loop with d>0, so we sign |offsetMm| by the loop's own
+//             orientation to ALWAYS move inward (into the closed wire) — matching
+//             OCCT's inward intent regardless of the wire's winding.
+//   inverse : each surviving Loop2 -> a closed planar TopoDS_Wire at the plane Z
+//             via BRepBuilderAPI_MakePolygon; many loops -> a TopoDS_Compound. The
+//             return type is byte-identical to the OCCT path (wiresOf + sampleWireXY
+//             consume it unchanged).
+TopoDS_Shape tryNativeInwardOffset(const TopoDS_Wire& wire, double offsetMm,
+                                   const gp_Pln& plane) {
+    using forge::native::geom::Loop2;
+    using forge::native::geom::Point2;
+    using forge::native::geom::PolygonOffset2D;
+    using forge::native::geom::OffsetOptions;
+    using forge::native::geom::OffsetResult;
+
+    // Forward: wire -> Loop2, DEFERRING on the first non-line edge (the GAP).
+    Loop2 loop;
+    for (BRepTools_WireExplorer ex(wire); ex.More(); ex.Next()) {
+        TopoDS_Edge e = ex.Current();
+        BRepAdaptor_Curve adaptor(e);
+        if (adaptor.GetType() != GeomAbs_Line) {
+            // GAP: a curved profile edge — PolygonOffset2D cannot offset it as an
+            // arc. Defer the ENTIRE wire to OCCT rather than flatten the arc.
+            return TopoDS_Shape();
+        }
+        // ex.CurrentVertex() is the edge's start vertex in head-to-tail wire order;
+        // taking the start vertex of every edge walks the ring exactly once.
+        gp_Pnt p = BRep_Tool::Pnt(ex.CurrentVertex());
+        Point2 q{p.X(), p.Y()};
+        if (!loop.pts.empty()) {
+            const Point2& b = loop.pts.back();
+            if (std::abs(b.x - q.x) < kEps && std::abs(b.y - q.y) < kEps) continue;
+        }
+        loop.pts.push_back(q);
+    }
+    // Drop a trailing vertex coincident with the first (Loop2 must NOT repeat it).
+    if (loop.pts.size() >= 2) {
+        const Point2& f = loop.pts.front();
+        const Point2& l = loop.pts.back();
+        if (std::abs(f.x - l.x) < kEps && std::abs(f.y - l.y) < kEps) loop.pts.pop_back();
+    }
+    if (loop.pts.size() < 3) return TopoDS_Shape();   // not a polygon -> defer
+
+    // Sign |offsetMm| to move INWARD regardless of the wire's winding (see above).
+    const double signedDist = loop.isCCW() ? -offsetMm : offsetMm;
+    OffsetOptions opts;                       // Round joins, auto arc tolerance
+    OffsetResult r = PolygonOffset2D::offsetLoop(loop, signedDist, opts);
+    if (!r.ok || r.loops.empty()) return TopoDS_Shape();  // degenerate/collapsed -> defer
+
+    // Inverse: each surviving Loop2 -> a closed planar wire at the face plane Z.
+    const double zPlane = plane.Location().Z();
+    std::vector<TopoDS_Wire> outWires;
+    outWires.reserve(r.loops.size());
+    for (const Loop2& L : r.loops) {
+        if (L.pts.size() < 3) continue;
+        BRepBuilderAPI_MakePolygon poly;
+        for (const Point2& pt : L.pts) poly.Add(gp_Pnt(pt.x, pt.y, zPlane));
+        poly.Close();
+        if (poly.IsDone()) outWires.push_back(poly.Wire());
+    }
+    if (outWires.empty()) return TopoDS_Shape();      // nothing built -> defer
+
+    if (outWires.size() == 1) return outWires.front();
+    TopoDS_Compound comp;
+    BRep_Builder bb;
+    bb.MakeCompound(comp);
+    for (const TopoDS_Wire& w : outWires) bb.Add(comp, w);
+    return comp;
+}
+#endif
+
 // Negative offset = inward for a CCW outer wire (OCCT convention). If
 // BRepOffsetAPI_MakeOffset fails (small wire, self-intersection), we
 // return an empty result; callers fall back to the unoffset wire.
 TopoDS_Shape inwardOffset(const TopoDS_Wire& wire, double offsetMm,
                           const gp_Pln& plane) {
     if (wire.IsNull() || offsetMm < kEps) return TopoDS_Shape();
+
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native 2D polygon offset is opt-in via the FEAT gate (default OFF).
+    // When on AND the wire is a true straight-edge polygon, offset via
+    // PolygonOffset2D; otherwise fall through to OCCT (a curved wire HONESTLY DEFERS
+    // — no behavior change in the default build). A NULL native result == defer.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        TopoDS_Shape nativeOut = tryNativeInwardOffset(wire, offsetMm, plane);
+        if (!nativeOut.IsNull()) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
 
     try {
         BRepOffsetAPI_MakeOffset off(wire, GeomAbs_Arc);

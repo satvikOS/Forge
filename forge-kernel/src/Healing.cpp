@@ -38,6 +38,56 @@
 
 #include <stdexcept>
 
+// PHASE-D wiring (2026-06-25) — route the shape-healing pipeline through the ALREADY-BUILT,
+// A/B-certified native B-rep modules behind the FEAT gate. Compiled in ONLY under
+// -DFORGE_NATIVE_BREP and taken at runtime ONLY when forgeNativeFeaturesEnabled() is true
+// (env FORGE_NATIVE_FEATURES=1, or the A/B harness's setForgeNativeBrepEnabled(true)).
+// PRODUCTION DEFAULT IS OFF: with the gate off the original OCCT paths below run
+// byte-for-byte unchanged. Mirrors the just-landed wires:
+//   * ShapeFix.cpp  (commit 8d5f2ae1) — forge::shapefix::repair -> healBRep. THIS IS THE
+//     CANONICAL TEMPLATE; tryNativeHeal below reuses its cloneFaceIndependent +
+//     deferral + HealReport->log mapping idiom VERBATIM.
+//   * Sewing.cpp    (commit 19840b66) — forge::sewing::sew    -> sewFaces.
+//
+// TWO of this file's five entries have a native equivalent and are wired:
+//   (A) autoRepairSelfIntersection — the OCCT ShapeFix_Shape heal entry. The native
+//       healBRep (Heal.cpp) is the in-house ShapeFix_Shape/ShapeFix_Wire/ShapeUpgrade_*
+//       replacement; its 5 core + 3 harder passes map onto RepairReport's flags.
+//   (B) sewShape                   — the OCCT BRepBuilderAPI_Sewing entry. The native
+//       sewFaces (Sew.cpp) is the in-house BRepBuilderAPI_Sewing replacement; its
+//       SewDiagnosis maps onto SewReport's before/after counters.
+// Both take the native branch ONLY when the input handle is a NativeSolid (so its faces
+// can be decomposed into independent fragments and re-healed/re-sewn); an OCCT-backed
+// input HONESTLY DEFERS to OCCT (there is no OCCT-face -> native-Face importer).
+//
+// THE THREE ENTRIES LEFT ON OCCT — CAPABILITY GAPS surfaced, NOT silently degraded:
+//   * simplifyShape (ShapeUpgrade_UnifySameDomain) — face/edge UNIFICATION (merge
+//     co-planar adjacent faces / co-linear edges, B-spline concatenation) has NO native
+//     equivalent in the brep/ suite (no native ShapeUpgrade_UnifySameDomain). LEFT ON
+//     OCCT. (See KERNEL_PARITY follow-up.)
+//   * autoFillMissingFaces (BRepOffsetAPI_MakeFilling) — FABRICATES a NEW filling patch
+//     across a free wire (a Coons/energy-min surface that did not exist). The native
+//     healBRep gap-fill only SNAPS free-edge endpoints already within tol + re-sews
+//     (Heal.hpp pass (1)); it never fabricates a cap surface. These are DIFFERENT
+//     operations (snap-close vs synthesize-surface). Wiring autoFillMissingFaces to
+//     healBRep would SILENTLY DEGRADE wide-gap capping to a no-op, so it is LEFT ON OCCT.
+//     (SurfaceFill.cpp / GregoryFill.cpp are the native patch synthesizers, but they are
+//     NOT yet wired into a free-wire-cap pipeline — that is the documented follow-up.)
+//   * harmonizeNormals — runs OCCT ShapeFix_Shape + ShapeAnalysis_Shell for outward
+//     orientation; healBRep pass (6) does native orientation repair, but harmonizeNormals
+//     returns a bare ShapeHandle (no report) and is a narrow orientation-only entry; it is
+//     LEFT ON OCCT to keep this slice scoped to the two report-bearing heal entries that
+//     match the canonical ShapeFix.cpp/Sewing.cpp templates 1:1. (Documented follow-up.)
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Heal.hpp"          // healBRep, HealOptions, HealReport (native)
+#include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult, diagnoseShell (native)
+#include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Shell/Solid/Surface
+#include <memory>
+#include <unordered_set>
+#include <vector>
+#endif
+
 namespace forge::heal {
 
 namespace {
@@ -80,7 +130,200 @@ std::size_t countFreeEdges(const TopoDS_Shape& shape) {
 
 } // namespace
 
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// Deep-clone one native Face (its outer ring vertices + any inner rings + analytic
+// surface frame + trim window) into `tb` as an INDEPENDENT fragment with PRIVATE fresh
+// vertices/edges — exactly the "N separate STEP ADVANCED_FACE records" import state the
+// native healer/sewer (Heal.hpp / Sew.hpp) expect to ingest, so their weld/gap-fill/
+// sliver/orientation/non-manifold passes act on the raw fragment soup (NOT on an
+// already-sewn shell). This is byte-for-byte ShapeFix.cpp::cloneFaceIndependent (identity
+// copy, no transform). Coincident boundaries across the cloned faces stay DISTINCT
+// topological entities until healBRep/sewFaces welds + re-sews them.
+native::brep::Face* cloneFaceIndependent(native::brep::TopologyBuilder& tb,
+                                         const native::brep::Face* sf) {
+    using namespace forge::native::brep;
+    Loop* lp = sf->outerLoop;
+    if (!lp || lp->coedgeCount < 3) return nullptr;
+
+    auto ringOf = [&](const Loop* loop) -> std::vector<Vertex*> {
+        std::vector<Vertex*> ring;
+        if (!loop || loop->coedgeCount < 3) return ring;
+        ring.reserve(loop->coedgeCount);
+        Coedge* c = loop->first;
+        for (std::size_t i = 0; i < loop->coedgeCount && c != nullptr; ++i) {
+            Vertex* o = c->originVertex();
+            // PRIVATE fresh vertex per corner (no welding/sharing here): healBRep/sewFaces
+            // weld coincident corners across faces themselves.
+            if (o) ring.push_back(tb.makeVertex(o->point));
+            c = c->next;
+        }
+        return ring;
+    };
+
+    std::vector<Vertex*> outer = ringOf(lp);
+    if (outer.size() < 3) return nullptr;
+
+    Face* nf = tb.makeFace();
+    tb.addOuterLoopToFace(nf, outer);          // private fresh edges for this fragment
+    // Carry inner (hole) loops verbatim so a face-with-holes heals correctly.
+    for (Loop* il : sf->innerLoops) {
+        std::vector<Vertex*> inner = ringOf(il);
+        if (inner.size() >= 3) tb.addInnerLoopToFace(nf, inner);
+    }
+
+    // Copy the analytic surface frame + trim window verbatim (identity clone), so a
+    // healed/sewn quadric face keeps its EXACT parent surface for downstream mass-props.
+    if (sf->surface) {
+        Surface* ns = tb.makeSurface();
+        *ns = *sf->surface;
+        nf->surface = ns;
+    }
+    nf->u0 = sf->u0; nf->u1 = sf->u1;
+    nf->v0 = sf->v0; nf->v1 = sf->v1;
+    nf->vertexUV = sf->vertexUV;
+    nf->paramTri = sf->paramTri;
+    return nf;
+}
+
+// Gather the cloned INDEPENDENT face fragments of a NativeSolid handle into a fresh
+// builder. Returns false (defer to OCCT) when the handle is NOT a NativeSolid (no
+// OCCT-face importer) or yields no cloneable faces. Mirrors ShapeFix.cpp's gather.
+bool gatherNativeFaces(ShapeHandle shape,
+                       std::shared_ptr<native::brep::TopologyBuilder>& owner,
+                       std::vector<native::brep::Face*>& faces) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+    if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
+    owner = std::make_shared<TopologyBuilder>();
+    const Solid& s = reg.getNativeSolid(shape);
+    for (Shell* sh : s.shells) {
+        for (Face* sf : sh->faces) {
+            if (Face* nf = cloneFaceIndependent(*owner, sf)) faces.push_back(nf);
+        }
+    }
+    return !faces.empty();
+}
+
+// Wrap a set of healed/sewn faces' DISTINCT shells into one fresh Solid (so the handle is
+// a NativeSolid the registry + downstream native ops understand), preferring each face's
+// ->shell back-pointer, falling back to `primary`. Returns false if nothing has a shell.
+// Mirrors ShapeFix.cpp's shell-gather.
+bool wrapHealedSolid(native::brep::TopologyBuilder& owner,
+                     const std::vector<native::brep::Face*>& faces,
+                     native::brep::Shell* primary,
+                     native::brep::Solid*& solidOut) {
+    using namespace forge::native::brep;
+    Solid* solid = owner.makeSolid();
+    std::unordered_set<Shell*> seen;
+    for (Face* f : faces) {
+        if (f && f->shell && seen.insert(f->shell).second) owner.addShellToSolid(solid, f->shell);
+    }
+    if (solid->shells.empty()) {
+        if (primary) owner.addShellToSolid(solid, primary);
+        else return false;
+    }
+    solidOut = solid;
+    return true;
+}
+
+// (A) Try the native heal (brep::healBRep) for autoRepairSelfIntersection. Returns true +
+// sets `out` on success; returns false (NEVER throws) when the native path HONESTLY DEFERS
+// to OCCT. Same deferral contract as ShapeFix.cpp::tryNativeRepair. Maps the rich native
+// HealReport onto forge::heal::RepairReport's flags+count.
+bool tryNativeHeal(ShapeHandle shape, double tolerance, RepairResult& out) {
+    using namespace forge::native::brep;
+    std::shared_ptr<TopologyBuilder> owner;
+    std::vector<Face*> faces;
+    if (!gatherNativeFaces(shape, owner, faces)) return false;   // defer to OCCT
+
+    HealOptions opt;
+    if (tolerance > 0.0) opt.tol = tolerance;
+    HealReport rep = healBRep(*owner, faces, opt);
+    if (!rep.ok || rep.faces.empty()) return false;              // malformed -> defer
+
+    Solid* solid = nullptr;
+    if (!wrapHealedSolid(*owner, rep.faces, rep.shell, solid)) return false;
+    out.handle = ShapeRegistry::instance().addNativeSolid(std::move(owner), solid);
+
+    // ---- Map native HealReport -> RepairReport (the OCCT entry's per-fixer booleans) ----
+    // OCCT autoRepairSelfIntersection reads ShapeFix DONE1..6:
+    //   fixedTolerance        <- vertex-weld (the tolerance/dedup pass, OCCT DONE1)
+    //   fixedWires            <- short-edge collapse (loop repair, OCCT DONE2)
+    //   fixedSmallFaces       <- sliver-face removal (OCCT DONE3 small-face fix)
+    //   fixedOrientation      <- face-orientation flips (OCCT DONE4/5)
+    //   fixedSelfIntersection <- self-intersecting sliver removal (OCCT DONE6)
+    out.report.fixedTolerance        = (rep.verticesWelded > 0) || (rep.gapsClosed > 0);
+    out.report.fixedWires            = (rep.shortEdgesCollapsed > 0) || (rep.edgePairsMerged > 0);
+    out.report.fixedSmallFaces       = (rep.sliverFacesRemoved > 0) || (rep.duplicateFacesRemoved > 0);
+    out.report.fixedOrientation      = (rep.facesFlipped > 0);
+    out.report.fixedSelfIntersection = (rep.selfIntersectingFacesRemoved > 0);
+    out.report.fixersFired = (out.report.fixedTolerance        ? 1u : 0u)
+                           + (out.report.fixedWires            ? 1u : 0u)
+                           + (out.report.fixedSmallFaces       ? 1u : 0u)
+                           + (out.report.fixedOrientation      ? 1u : 0u)
+                           + (out.report.fixedSelfIntersection ? 1u : 0u);
+    // GAP (surfaced, not silently degraded): RepairReport is a fixed 5-bool struct, so the
+    // native healer's RICHER honest residuals (rep.unfixedFreeEdgeIds /
+    // unfixedSelfIntersectionFacePairs / unfixedNonManifoldEdgeReport / nonManifoldVertexIds
+    // / keptSliverFaceIds) have NO field to land in here — they are NOT lost (the structural-
+    // self-intersection case stays UNFIXED in the geometry, the booleans only flag what WAS
+    // fixed), but a caller wanting the residual ids must use the native Check.cpp/checkValidity
+    // path. Documented; never faked to a wrong boolean.
+    return true;
+}
+
+// (B) Try the native sew (brep::sewFaces) for sewShape. Returns true + sets `out` on
+// success; returns false (NEVER throws) when the native path HONESTLY DEFERS. Same
+// deferral contract as Sewing.cpp::tryNativeSew. Maps SewDiagnosis onto the SewReport
+// before/after counters. The BEFORE signature comes from diagnoseShell on the raw cloned
+// fragments (matching the OCCT facesBefore/openEdgesBefore/closedBefore semantics).
+bool tryNativeSewShape(ShapeHandle shape, double tolerance, SewResult& out) {
+    using namespace forge::native::brep;
+    std::shared_ptr<TopologyBuilder> owner;
+    std::vector<Face*> faces;
+    if (!gatherNativeFaces(shape, owner, faces)) return false;   // defer to OCCT
+
+    // BEFORE signature on the un-sewn fragment soup (independent faces, every boundary
+    // edge still free) — same "pile of faces" state OCCT's facesBefore/openEdgesBefore read.
+    SewDiagnosis before = diagnoseShell(faces);
+
+    SewOptions sopt;
+    if (tolerance > 0.0) sopt.tol = tolerance;
+    native::brep::SewResult r = sewFaces(*owner, faces, sopt);
+    if (!r.ok) return false;                                     // malformed -> defer
+
+    Solid* solid = owner->makeSolid();
+    for (Shell* sh : r.shells) owner->addShellToSolid(solid, sh);
+    if (solid->shells.empty()) return false;
+
+    out.handle = ShapeRegistry::instance().addNativeSolid(std::move(owner), solid);
+    // EXACT mappings native SewDiagnosis -> forge::heal::SewReport:
+    out.report.facesBefore     = before.faces;
+    out.report.openEdgesBefore = before.freeEdges;
+    out.report.closedBefore    = before.closed;
+    out.report.facesAfter      = r.diagnosis.faces;
+    out.report.openEdgesAfter  = r.diagnosis.freeEdges;
+    out.report.closedAfter     = r.diagnosis.closed;
+    return true;
+}
+
+} // namespace
+#endif
+
 SewResult sewShape(ShapeHandle shape, double tolerance) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native sewer is opt-in via the FEAT gate (default OFF). When on AND the input
+    // is a NativeSolid, sew via brep::sewFaces; otherwise fall through to OCCT (OCCT-backed
+    // input HONESTLY DEFERS — no behavior change in the default build).
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        SewResult nativeOut{};
+        if (tryNativeSewShape(shape, tolerance, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
     const auto& s = ShapeRegistry::instance().get(shape);
 
     SewReport rep{};
@@ -207,6 +450,17 @@ AutoFillResult autoFillMissingFaces(ShapeHandle shape, double tolerance) {
 }
 
 RepairResult autoRepairSelfIntersection(ShapeHandle shape, double tolerance) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native healer is opt-in via the FEAT gate (default OFF). When on AND the input
+    // is a NativeSolid, heal via brep::healBRep; otherwise fall through to OCCT (OCCT-backed
+    // input HONESTLY DEFERS — no behavior change in the default build). Mirrors ShapeFix.cpp.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        RepairResult nativeOut{};
+        if (tryNativeHeal(shape, tolerance, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
     const auto& s = ShapeRegistry::instance().get(shape);
 
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(s);
