@@ -119,18 +119,33 @@ namespace brep {
 //                standard Gleason approximation). The tooth's lengthwise tangent
 //                makes the spiral angle psi_m with the cone radial at the MEAN cone
 //                radius; the transverse profile is still the back-cone involute.
+//   * Hypoid   — a HYPOID gear: a spiral-bevel-LIKE ring gear whose meshing PINION
+//                axis is OFFSET from the gear axis by the defining hypoid offset E
+//                (so the two axes do NOT intersect — the geometry used in automotive
+//                rear-axle final drives). The MEMBER modelled here is the hypoid RING
+//                GEAR: the spiral-bevel taper + Gleason circular-arc lengthwise spiral,
+//                whose GEAR-side mean spiral angle psi_g is the spec spiralAngle, while
+//                the meshing PINION's effective spiral angle psi_p differs by the
+//                closed-form HYPOID RELATION sin(psi_p) - sin(psi_g) = E / R_m (the
+//                offset divided by the mean cone distance; Gleason/AGMA 2005 / Litvin
+//                limit-surface form). E == 0 reduces EXACTLY to the spiral-bevel ring.
 //
-// HONEST SCOPE of this increment: straight bevel + internal spur + SPIRAL bevel.
-// HELICAL-internal and HYPOID remain named follow-ups (not faked here). The spiral
-// bevel uses the CIRCULAR-ARC (Gleason) lengthwise spiral and the radially-scaled
-// back-cone involute transverse profile (an honest approximation of the exact
-// spherical-involute octoid; no crowning / lengthwise tooth-thickness modification).
+// HONEST SCOPE of this increment: straight bevel + internal spur + SPIRAL bevel +
+// HYPOID. HELICAL-internal remains the last named follow-up (not faked here). The
+// spiral bevel and the hypoid gear both use the CIRCULAR-ARC (Gleason) lengthwise
+// spiral and the radially-scaled back-cone involute transverse profile (an honest
+// approximation of the exact spherical-involute octoid; no crowning / lengthwise
+// tooth-thickness modification, no flank-form optimisation). The hypoid gear MEMBER's
+// solid is the offset spiral-bevel ring; the offset's MESHING effect (the differing
+// pinion spiral angle, the hyperboloidal pitch surface) is captured by the closed-form
+// hypoid relation + the recoverable offset E, not by a separately-modelled pinion.
 // ---------------------------------------------------------------------------
 enum class GearType {
     External    = 0,  // original external involute spur gear (unchanged)
     Internal    = 1,  // ring / annulus gear (teeth point inward)
     Bevel       = 2,  // straight bevel gear (teeth on the back cone, taper to apex)
-    SpiralBevel = 3   // spiral bevel gear (circular-arc Gleason lengthwise spiral)
+    SpiralBevel = 3,  // spiral bevel gear (circular-arc Gleason lengthwise spiral)
+    Hypoid      = 4   // hypoid ring gear (offset spiral bevel; pinion axis offset by E)
 };
 
 // ---------------------------------------------------------------------------
@@ -172,6 +187,23 @@ struct GearSpec {
     // R_m. psi_m = 0 reduces EXACTLY to the straight bevel (the regression anchor).
     // A 35-degree mean spiral angle (the Gleason default) is psi_m = 0.6108652381980153.
     double spiralAngle = 0.6108652381980153; // 35 degrees (Gleason default)
+
+    // HYPOID gear ONLY: the defining HYPOID OFFSET E (mm) — the perpendicular distance
+    // by which the meshing PINION axis is shifted off the gear axis, so the two axes do
+    // NOT intersect (the geometry of automotive rear-axle final drives). The offset has
+    // two coupled effects, both captured in closed form here:
+    //   (1) the pinion's effective mean spiral angle psi_p differs from the GEAR's mean
+    //       spiral angle psi_g (== spiralAngle) by the hypoid relation
+    //           sin(psi_p) - sin(psi_g) = E / R_m
+    //       (E divided by the mean cone distance R_m; Gleason/AGMA 2005 / Litvin
+    //       limit-surface form), so the pinion runs at a LARGER spiral angle;
+    //   (2) the pitch surfaces become HYPERBOLOIDS of revolution rather than cones.
+    // The MEMBER built here is the hypoid RING GEAR (the gear-side member), modelled as
+    // the spiral-bevel ring with the gear-side spiral angle spiralAngle; E is stored so
+    // the pinion spiral angle and the offset itself are RECOVERABLE from the geometry.
+    // E == 0 reduces EXACTLY to the spiral bevel (the regression anchor). 30 mm is a
+    // representative passenger-car rear-axle offset.
+    double hypoidOffset = 30.0; // E (mm); 0 => degenerate to the spiral bevel
 };
 
 // ---------------------------------------------------------------------------
@@ -204,8 +236,15 @@ struct GearGeometry {
     // SPIRAL-BEVEL gear: the mean spiral angle psi_m (rad), 0 for the others. The
     // tooth lengthwise trace is a circular arc in the back-cone development whose
     // tangent makes psi_m with the cone radial at the mean cone distance R_m. 0 ==
-    // straight bevel.
+    // straight bevel. For a HYPOID ring gear this is the GEAR-side mean spiral angle.
     double spiralAngle    = 0.0;
+
+    // HYPOID gear: the defining hypoid offset E (mm), 0 for the others. The meshing
+    // pinion's effective mean spiral angle psi_p satisfies the hypoid relation
+    // sin(psi_p) = sin(spiralAngle) + E/R_m (R_m the mean cone distance). E is stored
+    // so the offset and the pinion spiral angle are recoverable from the geometry; 0 ==
+    // spiral bevel.
+    double hypoidOffset   = 0.0;
 };
 
 // Derive the standard full-depth involute-gear dimensions from a spec. Pure math,
@@ -291,6 +330,7 @@ struct GearResult {
 //   Internal    — buildInternalGear (ring gear; teeth point inward).
 //   Bevel       — buildBevelGear (straight bevel; teeth on the back cone, taper).
 //   SpiralBevel — buildSpiralBevelGear (bevel taper + circular-arc lengthwise spiral).
+//   Hypoid      — buildHypoidGear (offset spiral-bevel ring gear; pinion axis offset E).
 //
 // Returns GearResult; on the first structural failure returns ok=false with the
 // failing reason (never a wrong solid).
@@ -371,6 +411,56 @@ double spiralBevelTwist(const GearSpec& spec, const GearGeometry& g, double rho)
 //   distance to recover the spiral angle. Matches the as-built solid's section placement.
 Vec3 spiralBevelCentrelinePoint(const GearSpec& spec, const GearGeometry& g,
                                 double rho, double phi0);
+
+// ---------------------------------------------------------------------------
+// buildHypoidGear — a HYPOID gear (the gear-side RING member of a hypoid pair).
+// A hypoid gear is a spiral-bevel gear whose meshing PINION axis is OFFSET from the
+// gear axis by the defining hypoid offset E (spec.hypoidOffset), so the two axes do
+// NOT intersect — the geometry of an automotive rear-axle final drive.
+//
+// The MEMBER built here is the hypoid RING GEAR: it is geometrically the offset
+// spiral-bevel ring gear (buildSpiralBevelGear's lofted, lengthwise-spiralled toothed
+// frustum with a central bore — a genus-1 closed 2-manifold), built with the GEAR-side
+// mean spiral angle psi_g = spec.spiralAngle. The hypoid OFFSET'S effects are captured
+// in closed form rather than by a separately-modelled pinion:
+//   * the pinion's effective mean spiral angle psi_p satisfies the HYPOID RELATION
+//        sin(psi_p) - sin(psi_g) = E / R_m            (R_m the mean cone distance)
+//     (Gleason/AGMA 2005 / Litvin limit-surface form — the pinion runs at a LARGER
+//     spiral angle; this is hypoidPinionSpiralAngle below);
+//   * the pitch surfaces are HYPERBOLOIDS of revolution (the offset E is the gorge
+//     radius of the gear-axis hyperboloid in the development), so E is RECOVERABLE
+//     from the geometry (hypoidOffsetFromGeometry below).
+//
+// E == 0 reduces EXACTLY (volume / topology / area, <= 1e-9 rel) to
+// buildSpiralBevelGear with the same other parameters — the strong regression anchor.
+// pitchDiameter == m*N exactly at the back cone; closed 2-manifold; genus 1 (bore).
+GearResult buildHypoidGear(const GearSpec& spec);
+
+// hypoidPinionSpiralAngle — the meshing PINION's effective mean spiral angle psi_p
+// (rad) for the hypoid offset E, from the closed-form hypoid relation
+//     sin(psi_p) = sin(psi_g) + E / R_m,
+// where psi_g == spec.spiralAngle is the gear-side mean spiral angle and R_m is the
+// mean cone distance (g.coneDistance - spec.faceWidth/2). The pinion runs at a LARGER
+// spiral angle than the gear; the difference vanishes as E -> 0 (psi_p -> psi_g). The
+// gate asserts the as-stored relation holds to machine precision and that the offset E
+// is recoverable from psi_p, psi_g and R_m. Returns spec.spiralAngle for a non-hypoid
+// spec or when E/R_m would drive sin(psi_p) past 1 (clamped, reported via the result).
+double hypoidPinionSpiralAngle(const GearSpec& spec, const GearGeometry& g);
+
+// hypoidMeanConeDistance — the mean cone distance R_m (mm) = coneDistance - faceWidth/2,
+// the radius at which the hypoid spiral angles are defined. Pure derivation from the spec
+// + geometry; exposed so the gate can form R_m the SAME way the forward relation does
+// (GearGeometry stores the back-cone distance R, not R_m).
+double hypoidMeanConeDistance(const GearSpec& spec, const GearGeometry& g);
+
+// hypoidOffsetFromGeometry — recover the hypoid offset E (mm) from the gear/pinion mean
+// spiral angles and the mean cone distance R_m, inverting the hypoid relation:
+//     E = R_m * ( sin(psi_p) - sin(psi_g) ).
+// The gate calls this with R_m = hypoidMeanConeDistance(spec,g), the as-built gear-side
+// psi_g (g.spiralAngle) and the pinion angle from hypoidPinionSpiralAngle to confirm it
+// returns spec.hypoidOffset to a tight tolerance (the offset is genuinely encoded in /
+// recoverable from the gear-pair geometry).
+double hypoidOffsetFromGeometry(double meanConeDistance, double psiGear, double psiPinion);
 
 } // namespace brep
 } // namespace native

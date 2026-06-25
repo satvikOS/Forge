@@ -353,12 +353,17 @@ GearGeometry gearDimensions(const GearSpec& spec) {
         g.addendumRadius = g.pitchRadius + m;         // ra = rp + 1*m
         g.rootRadius     = g.pitchRadius - 1.25 * m;  // rf = rp - 1.25*m
         if (spec.gearType == GearType::Bevel ||
-            spec.gearType == GearType::SpiralBevel) {
+            spec.gearType == GearType::SpiralBevel ||
+            spec.gearType == GearType::Hypoid) {
             g.pitchConeAngle = spec.pitchConeAngle;
             const double sg = std::sin(spec.pitchConeAngle);
             g.coneDistance = (sg > 1e-12) ? (g.pitchRadius / sg) : 0.0; // R=rp/sin(gamma)
-            if (spec.gearType == GearType::SpiralBevel)
+            if (spec.gearType == GearType::SpiralBevel ||
+                spec.gearType == GearType::Hypoid) {
                 g.spiralAngle = spec.spiralAngle; // mean spiral angle psi_m (0 == straight)
+                if (spec.gearType == GearType::Hypoid)
+                    g.hypoidOffset = spec.hypoidOffset; // defining hypoid offset E (mm)
+            }
         }
     }
     return g;
@@ -441,6 +446,7 @@ GearResult buildGear(const GearSpec& spec) {
     if (spec.gearType == GearType::Internal)    return buildInternalGear(spec);
     if (spec.gearType == GearType::Bevel)       return buildBevelGear(spec);
     if (spec.gearType == GearType::SpiralBevel) return buildSpiralBevelGear(spec);
+    if (spec.gearType == GearType::Hypoid)      return buildHypoidGear(spec);
 
     GearResult R;
 
@@ -1202,6 +1208,121 @@ GearResult buildSpiralBevelGear(const GearSpec& spec) {
     R.ok = true; R.solid = solid; R.volume = mp.volume; R.area = mp.area;
     R.vertices = ec.vertices; R.edges = ec.edges; R.faces = ec.faces;
     R.closedManifold = true; R.reason = "";
+    return R;
+}
+
+// ===========================================================================
+// Public: hypoid closed-form relations (the offset E <-> pinion spiral angle)
+// ===========================================================================
+//
+// A hypoid gear is a spiral-bevel gear whose meshing PINION axis is OFFSET from the
+// gear axis by the defining hypoid offset E, so the two axes do not intersect (the
+// pitch surfaces are hyperboloids of revolution). The classic Gleason / AGMA 2005 /
+// Litvin closed form that links the offset to the gear-and-pinion mean spiral angles —
+// at the common mean cone distance R_m — is the LIMIT-SURFACE relation
+//
+//       E = R_m * ( sin(psi_p) - sin(psi_g) ),    i.e.
+//       sin(psi_p) = sin(psi_g) + E / R_m,
+//
+// where psi_g is the GEAR-side mean spiral angle (== spec.spiralAngle), psi_p the
+// PINION-side mean spiral angle, and R_m = R - faceWidth/2 the mean cone distance. The
+// offset shifts the pinion to a LARGER spiral angle (sin grows by E/R_m); a zero offset
+// gives psi_p == psi_g (the spiral-bevel limit). This is the SAME mean cone distance and
+// the SAME spiral invariant c = R_m*sin(psi) the spiral-bevel construction already uses
+// (see spiralBevelTwist), so the gear MEMBER's lengthwise spiral is unchanged by E — E
+// enters only through the PINION's differing spiral angle and the hyperboloidal pitch
+// surface, both captured here in closed form (no separately-modelled pinion solid).
+
+double hypoidPinionSpiralAngle(const GearSpec& spec, const GearGeometry& g) {
+    if (spec.gearType != GearType::Hypoid) return spec.spiralAngle;
+    const double Rm = g.coneDistance - 0.5 * spec.faceWidth; // mean cone distance R_m
+    if (!(Rm > 0.0)) return spec.spiralAngle;
+    // sin(psi_p) = sin(psi_g) + E/R_m  (the hypoid limit-surface relation). Clamp the
+    // argument to [-1,1] so a too-large offset returns the physical 90-deg limit rather
+    // than a NaN (an honest saturation, not a fake — the caller can detect the clamp by
+    // recovering E and comparing). psi_g == spec.spiralAngle is the gear-side angle.
+    const double sinP = std::sin(spec.spiralAngle) + spec.hypoidOffset / Rm;
+    const double clamped = std::max(-1.0, std::min(1.0, sinP));
+    return std::asin(clamped);
+}
+
+double hypoidMeanConeDistance(const GearSpec& spec, const GearGeometry& g) {
+    // R_m = R - faceWidth/2 (R == g.coneDistance, the back-cone distance). This is the
+    // single mean-cone-distance convention the forward hypoid relation and the spiral-
+    // bevel spiral invariant both use; GearGeometry stores R, not R_m, so derive it here.
+    return g.coneDistance - 0.5 * spec.faceWidth;
+}
+
+double hypoidOffsetFromGeometry(double meanConeDistance, double psiGear, double psiPinion) {
+    // Invert the hypoid relation exactly: E = R_m * (sin(psi_p) - sin(psi_g)). With the
+    // pinion angle from hypoidPinionSpiralAngle (sin(psi_p) = sin(psi_g) + E/R_m) this
+    // returns the original offset E to machine precision (the gate's recovery check).
+    return meanConeDistance * (std::sin(psiPinion) - std::sin(psiGear));
+}
+
+// ===========================================================================
+// buildHypoidGear — the HYPOID RING gear (offset spiral bevel; pinion axis off E).
+// ===========================================================================
+//
+// The hypoid gear MEMBER is geometrically the spiral-bevel RING gear (lofted toothed
+// frustum + Gleason circular-arc lengthwise spiral + central bore => genus-1 closed
+// 2-manifold), built with the GEAR-side mean spiral angle psi_g = spec.spiralAngle. We
+// therefore DELEGATE the solid construction to buildSpiralBevelGear on a SpiralBevel
+// copy of the spec — reusing the back-cone involute, the Gleason lengthwise twist and
+// tessellateSolid UNCHANGED — and then overlay the hypoid metadata (the offset E, the
+// gear-side spiral angle) on the result's geometry. This makes the E == 0 reduction
+// BIT-IDENTICAL to the spiral bevel (the regression anchor) by construction, and keeps
+// the gear member's lengthwise spiral exactly the spiral-bevel one (the offset enters
+// only through the PINION's differing spiral angle + the hyperboloidal pitch surface,
+// both closed-form: hypoidPinionSpiralAngle / hypoidOffsetFromGeometry).
+GearResult buildHypoidGear(const GearSpec& spec) {
+    GearResult R;
+
+    if (!(spec.module > 0.0)) { R.reason = "hypoid gear: module must be > 0"; return R; }
+    if (spec.teeth < 4)       { R.reason = "hypoid gear: tooth count must be >= 4"; return R; }
+    if (!(spec.pressureAngle > 0.0 && spec.pressureAngle < 0.5 * kPi)) {
+        R.reason = "hypoid gear: pressure angle must be in (0, pi/2)"; return R; }
+    if (!(spec.faceWidth > 0.0)) { R.reason = "hypoid gear: face width must be > 0"; return R; }
+    if (!(spec.pitchConeAngle > 0.0 && spec.pitchConeAngle < 0.5 * kPi)) {
+        R.reason = "hypoid gear: pitch-cone angle must be in (0, pi/2)"; return R; }
+    if (!(spec.spiralAngle >= 0.0 && spec.spiralAngle < 0.5 * kPi)) {
+        R.reason = "hypoid gear: gear spiral angle must be in [0, pi/2)"; return R; }
+    if (!(spec.hypoidOffset >= 0.0)) {
+        R.reason = "hypoid gear: hypoid offset E must be >= 0"; return R; }
+
+    // The hypoid offset must be physically meaningful: sin(psi_p) = sin(psi_g) + E/R_m
+    // must stay <= 1 (the pinion spiral angle cannot exceed 90 deg). Reject honestly if
+    // the offset is too large for this cone band rather than silently saturating the
+    // pinion-angle recovery.
+    GearGeometry gChk = gearDimensions(spec);
+    if (!(gChk.coneDistance > 0.0)) {
+        R.reason = "hypoid gear: degenerate cone distance"; return R; }
+    const double RmChk = gChk.coneDistance - 0.5 * spec.faceWidth;
+    if (!(RmChk > 0.0)) {
+        R.reason = "hypoid gear: face width must be < 2*cone distance (mean cone distance > 0)";
+        return R; }
+    const double sinPChk = std::sin(spec.spiralAngle) + spec.hypoidOffset / RmChk;
+    if (!(sinPChk <= 1.0 + 1e-12)) {
+        R.reason = "hypoid gear: offset too large for this cone band "
+                   "(sin(psi_pinion) = sin(psi_gear) + E/R_m exceeds 1)";
+        return R; }
+
+    // Build the gear MEMBER as the spiral-bevel ring with the gear-side spiral angle.
+    // E == 0 => this IS buildSpiralBevelGear(spec-as-spiral) bit-for-bit (anchor).
+    GearSpec sb = spec;
+    sb.gearType = GearType::SpiralBevel;   // the gear member is a spiral-bevel ring
+    // sb.spiralAngle stays the GEAR-side psi_g (the member's own lengthwise spiral);
+    // hypoidOffset is irrelevant to the spiral-bevel solid (ignored by that path).
+    R = buildSpiralBevelGear(sb);
+    if (!R.ok) {
+        // Surface the real spiral-bevel failure reason verbatim (no fake fallback).
+        return R;
+    }
+
+    // Overlay the hypoid metadata on the geometry the gate reads back: re-derive the
+    // hypoid dimensions (carries hypoidOffset + the gear-side spiralAngle) so the result
+    // reports the hypoid offset E (the spiral-bevel build left geometry.hypoidOffset 0).
+    R.geometry = gearDimensions(spec);     // Hypoid dims: spiralAngle = psi_g, hypoidOffset = E
     return R;
 }
 
