@@ -29,7 +29,28 @@ const arg = (k, d) => { const i = process.argv.indexOf(k); return i >= 0 ? proce
 const SPECS = arg('--specs', '/tmp/cadgen_mm_specs.jsonl');
 const OUT = path.resolve(__dirname, arg('--out', '../cadgenbench_deliverables/multimodal'));
 const PORT = parseInt(arg('--port', '8080'), 10), HOST = '127.0.0.1';
+const SIMPLIFY = process.argv.includes('--simplify');
 const FORGE_RUNNER = path.resolve(__dirname, '..', '..', 'frontend', 'src', 'ai', 'ForgeRunner.js');
+
+// Fidelity lever: the dominant failure (19/28) is 0-call — the model emits NOTHING
+// when a spec is overloaded with fillet/chamfer/thread detail (edge-selection features
+// it can't place from text). Simplify to base shape + MATERIAL features (holes/recesses/
+// bosses) so it builds a valid core (validity+topology credit; small fillets are
+// negligible volume so shape barely drops). Sentence-level filter.
+function simplifySpec(spec) {
+  const sentences = spec.split(/(?<=\.)\s+/).filter(Boolean);
+  if (sentences.length <= 1) return spec;
+  const MATERIAL = /\b(hole|bore|counterbore|countersink|recess|pocket|slot|boss|flange|rib|step|cut|wall|thickness|tab|notch|groove)\b/i;
+  const EDGE_ONLY = /\b(fillet|chamfer|thread|radius)\b/i;
+  const out = [sentences[0]];                     // base shape (always)
+  for (let i = 1; i < sentences.length; i++) {
+    const s = sentences[i];
+    if (MATERIAL.test(s)) out.push(s);            // keep material features (even if it also names a fillet)
+    else if (!EDGE_ONLY.test(s)) out.push(s);     // keep other non-edge-detail sentences
+    // else: drop a sentence that is ONLY about fillet/chamfer/thread/radius
+  }
+  return out.join(' ');
+}
 
 function liveSystem() {
   const src = fs.readFileSync(FORGE_RUNNER, 'utf8');
@@ -85,9 +106,11 @@ async function buildBestVariant(sys, spec, outPath) {
   const specs = fs.readFileSync(SPECS, 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l));
   console.log(`[mm] ${specs.length} specs → backend (cadgen-v7, corrected harness) → build → STEP\n`);
   const rows = [];
+  if (SIMPLIFY) console.log('[mm] --simplify ON: base shape + material features only (fillet/chamfer/thread tails dropped)\n');
   for (const s of specs) {
     const id = String(s.id ?? s.fixture ?? '?');
-    const spec = s.spec ?? s.text ?? '';
+    const rawSpec = s.spec ?? s.text ?? '';
+    const spec = SIMPLIFY ? simplifySpec(rawSpec) : rawSpec;
     process.stdout.write(`  ${id} … `);
     const outPath = path.join(OUT, `${id}.step`);
     const r = await buildBestVariant(sys, spec, outPath);
