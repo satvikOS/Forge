@@ -1,0 +1,213 @@
+// forge-kernel/test/native_occt_import_test.cpp
+//
+// A/B CORRECTNESS GATE for the OCCT -> native B-rep IMPORTER (src/OcctImport.cpp).
+//
+// Builds several solids with OCCT DIRECTLY (BRepPrimAPI_MakeBox / MakeCylinder /
+// MakeCone / MakeSphere, and a BRepAlgoAPI_Cut of box - through-cylinder), imports
+// each via forge::importOcctSolid, then asserts the NATIVE result MATCHES the OCCT
+// original:
+//   (a) VOLUME within 0.5%        (native massProperties vs OCCT GProp)
+//   (b) SURFACE AREA within 0.5%  (native massProperties vs OCCT GProp)
+//   (c) BOUNDING BOX within 0.5%  (native computeAabb vs OCCT Bnd_Box)
+//   (d) BETTI b0/b1/b2 match      (native computeBetti vs the known topology;
+//                                  the through-hole cut must import with b1>=1)
+//
+// This links OCCT (it is the bridge oracle) — it is NOT a run_native.sh pure-native
+// gate. Build + run manually (mirrors test/native_vs_occt_fillet.cpp's build line):
+//
+//   clang++ -std=c++20 -O2 -DFORGE_NATIVE_BREP \
+//     -I /Users/account_clawteam1/archdisc-Mech/forge-kernel/include \
+//     -I /opt/homebrew/opt/opencascade/include/opencascade \
+//     /Users/account_clawteam1/archdisc-Mech/forge-kernel/src/OcctImport.cpp \
+//     <native srcs: Surface MassProps Aabb SolidTessellate CadScoreGates Topology \
+//        Curve NurbsSurface NurbsCalculus Nurbs Predicates Geom \
+//        ConstrainedDelaunay2D HalfEdgeMesh ExactReal ExactPredicates3D> \
+//     /Users/account_clawteam1/archdisc-Mech/forge-kernel/test/native_occt_import_test.cpp \
+//     -L /opt/homebrew/opt/opencascade/lib \
+//     -lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo \
+//     -lTKPrim -lTKGeomAlgo -lTKBO -lTKBool -lTKShHealing \   (GProp lives in TKTopAlgo)
+//     -o /tmp/native_occt_import_test && /tmp/native_occt_import_test
+//
+// (The driver script build_occt_import_test.sh assembles this command + the full
+//  native-source set automatically; see test/native/brep/README of OCCT tests.)
+
+#include "forge/OcctImport.hpp"
+
+#include "forge/native/brep/MassProps.hpp"
+#include "forge/native/brep/Aabb.hpp"
+#include "forge/native/brep/CadScoreGates.hpp"
+#include "forge/native/brep/Topology.hpp"
+
+// --- OCCT ------------------------------------------------------------------
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeCone.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
+#include <BRepPrimAPI_MakeTorus.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepGProp.hxx>
+#include <GProp_GProps.hxx>
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
+#include <TopoDS_Shape.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Vec.hxx>
+
+#include <cmath>
+#include <cstdio>
+#include <string>
+#include <vector>
+
+using namespace forge;
+
+namespace {
+
+int g_pass = 0, g_fail = 0;
+
+void check(bool cond, const std::string& label) {
+    if (cond) { ++g_pass; std::printf("  [PASS] %s\n", label.c_str()); }
+    else      { ++g_fail; std::printf("  [FAIL] %s\n", label.c_str()); }
+}
+
+double relErr(double a, double b) {
+    double d = std::fabs(a - b);
+    double s = std::max({std::fabs(a), std::fabs(b), 1e-12});
+    return d / s;
+}
+
+struct OcctMeasure {
+    double volume = 0, area = 0;
+    double mn[3] = {0,0,0}, mx[3] = {0,0,0};
+};
+
+OcctMeasure measureOcct(const TopoDS_Shape& s) {
+    OcctMeasure m;
+    GProp_GProps vp; BRepGProp::VolumeProperties(s, vp); m.volume = vp.Mass();
+    GProp_GProps sp; BRepGProp::SurfaceProperties(s, sp); m.area = sp.Mass();
+    Bnd_Box bb; BRepBndLib::Add(s, bb);
+    bb.Get(m.mn[0], m.mn[1], m.mn[2], m.mx[0], m.mx[1], m.mx[2]);
+    return m;
+}
+
+// Import + assert vs the OCCT original. `bbTol` widens the bbox tolerance for the
+// curved primitives (OCCT's Bnd_Box pads, native AABB is exact-analytic) — it is
+// a generous 1% so the gate is honest about the padded-vs-exact bound but still
+// catches a wrong axis/extent.
+void gate(const std::string& name, const TopoDS_Shape& shape,
+          long long expB0, long long expB1, long long expB2,
+          double volAreaTol = 0.005, double bbTol = 0.01) {
+    std::printf("[%s]\n", name.c_str());
+    OcctMeasure occt = measureOcct(shape);
+
+    ImportResult ir = importOcctSolid(shape);
+    if (!ir.ok) {
+        ++g_fail;
+        std::printf("  [FAIL] import ok (reason: %s)\n", ir.reason.c_str());
+        return;
+    }
+    check(true, "import ok");
+
+    native::brep::MassProps mp = native::brep::massProperties(*ir.solid, 10);
+    check(relErr(mp.volume, occt.volume) <= volAreaTol,
+          "volume  native=" + std::to_string(mp.volume) +
+          " occt=" + std::to_string(occt.volume) +
+          " relerr=" + std::to_string(relErr(mp.volume, occt.volume)));
+    check(relErr(mp.area, occt.area) <= volAreaTol,
+          "area    native=" + std::to_string(mp.area) +
+          " occt=" + std::to_string(occt.area) +
+          " relerr=" + std::to_string(relErr(mp.area, occt.area)));
+
+    native::brep::Aabb3 bb = native::brep::computeAabb(*ir.solid);
+    double diag = std::sqrt((occt.mx[0]-occt.mn[0])*(occt.mx[0]-occt.mn[0]) +
+                            (occt.mx[1]-occt.mn[1])*(occt.mx[1]-occt.mn[1]) +
+                            (occt.mx[2]-occt.mn[2])*(occt.mx[2]-occt.mn[2]));
+    double bbAbs = bbTol * std::max(1.0, diag);
+    bool bbOk =
+        std::fabs(bb.minX - occt.mn[0]) <= bbAbs && std::fabs(bb.maxX - occt.mx[0]) <= bbAbs &&
+        std::fabs(bb.minY - occt.mn[1]) <= bbAbs && std::fabs(bb.maxY - occt.mx[1]) <= bbAbs &&
+        std::fabs(bb.minZ - occt.mn[2]) <= bbAbs && std::fabs(bb.maxZ - occt.mx[2]) <= bbAbs;
+    check(bbOk, "bbox    native=[" +
+          std::to_string(bb.minX) + "," + std::to_string(bb.maxX) + "]x[" +
+          std::to_string(bb.minY) + "," + std::to_string(bb.maxY) + "]x[" +
+          std::to_string(bb.minZ) + "," + std::to_string(bb.maxZ) + "]");
+
+    native::brep::BettiNumbers be = native::brep::computeBetti(*ir.solid);
+    check(be.ok, "betti tessellation ok (watertight 2-manifold)");
+    check(be.b0 == expB0, "betti b0 native=" + std::to_string(be.b0) +
+          " expected=" + std::to_string(expB0));
+    // The kernel's convention is b1 = sum(2*genus) over shells (see CadScoreGates.hpp),
+    // so a genus-g body reports b1 = 2g. expB1 here is that 2g value; the through-hole
+    // (genus 1) must therefore report b1 == 2 (>= 1, i.e. a real tunnel exists).
+    check(be.b1 == expB1, "betti b1 native=" + std::to_string(be.b1) +
+          " expected=" + std::to_string(expB1));
+    check(be.b2 == expB2, "betti b2 native=" + std::to_string(be.b2) +
+          " expected=" + std::to_string(expB2));
+}
+
+} // namespace
+
+int main() {
+    std::printf("=== OCCT -> native importer A/B gate ===\n");
+
+    // (1) BOX 10x6x4 at origin.
+    {
+        TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 6.0, 4.0).Shape();
+        gate("box 10x6x4", box, 1, 0, 1);
+    }
+    // (2) CYLINDER r=3 h=8 along +Z.
+    {
+        TopoDS_Shape cyl = BRepPrimAPI_MakeCylinder(3.0, 8.0).Shape();
+        gate("cylinder r3 h8", cyl, 1, 0, 1);
+    }
+    // (3) CONE rB=4 rT=2 h=7 (frustum) along +Z.
+    {
+        TopoDS_Shape cone = BRepPrimAPI_MakeCone(4.0, 2.0, 7.0).Shape();
+        gate("cone 4->2 h7", cone, 1, 0, 1);
+    }
+    // (4) CONE to apex (rB=4 rT=0 h=6).
+    {
+        TopoDS_Shape cone = BRepPrimAPI_MakeCone(4.0, 0.0, 6.0).Shape();
+        gate("cone 4->apex h6", cone, 1, 0, 1);
+    }
+    // (5) SPHERE r=5 at origin.
+    {
+        TopoDS_Shape sph = BRepPrimAPI_MakeSphere(5.0).Shape();
+        gate("sphere r5", sph, 1, 0, 1);
+    }
+    // (6) Placed cylinder — built directly on a rotated/translated axis. Exercises
+    // the OCCT-frame -> native-frame match (origin/axis/refDir off the world axes).
+    {
+        gp_Ax2 ax(gp_Pnt(2, 3, 1), gp_Dir(0, 1, 0), gp_Dir(1, 0, 0));
+        TopoDS_Shape cyl = BRepPrimAPI_MakeCylinder(ax, 2.5, 9.0).Shape();
+        gate("placed cylinder r2.5 h9", cyl, 1, 0, 1);
+    }
+    // (7) BOX - through CYLINDER (a genuine through-hole; b1 must be >= 1).
+    {
+        TopoDS_Shape box = BRepPrimAPI_MakeBox(gp_Pnt(-5, -5, -5), gp_Pnt(5, 5, 5)).Shape();
+        // cylinder axis along +Z, fully through the box (z from -6 to 6).
+        gp_Ax2 ax(gp_Pnt(0, 0, -6), gp_Dir(0, 0, 1));
+        TopoDS_Shape cyl = BRepPrimAPI_MakeCylinder(ax, 2.0, 12.0).Shape();
+        TopoDS_Shape cut = BRepAlgoAPI_Cut(box, cyl).Shape();
+        // genus-1 (one through tunnel) -> kernel b1 = 2*genus = 2 (>= 1: a real hole).
+        gate("box - through-cylinder", cut, 1, 2, 1);
+    }
+
+    // (8) HONEST DEFERRAL: a TORUS has non-analytic-in-our-scope faces (the native
+    // importer supports Plane/Cylinder/Cone/Sphere only — Torus is out of scope), so
+    // it MUST return ok=false with a "non-analytic face Torus" reason, NOT a faked
+    // import. This proves the importer defers honestly instead of facet-faking.
+    {
+        std::printf("[torus deferral]\n");
+        TopoDS_Shape tor = BRepPrimAPI_MakeTorus(8.0, 2.0).Shape();
+        ImportResult ir = importOcctSolid(tor);
+        check(!ir.ok, std::string("torus deferred (ok=false), reason=\"") + ir.reason + "\"");
+        check(ir.reason.find("non-analytic") != std::string::npos,
+              "deferral reason names the non-analytic face");
+        check(ir.solid == nullptr, "deferred import yields no solid");
+    }
+
+    std::printf("\n=== RESULT: %d passed, %d failed ===\n", g_pass, g_fail);
+    return g_fail == 0 ? 0 : 1;
+}

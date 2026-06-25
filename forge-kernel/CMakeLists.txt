@@ -135,6 +135,7 @@ add_library(forge_kernel SHARED
     src/binding.cpp
     src/ShapeRegistry.cpp
     src/NativeOcctBridge.cpp
+    src/OcctImport.cpp
     src/Primitives.cpp
     src/Booleans.cpp
     src/LineageRegistry.cpp
