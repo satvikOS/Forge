@@ -2018,6 +2018,24 @@ async function runWorker(jobFile, outFile) {
         const s = scoreMechanism(forge, mutated);
         result = { ok: true, score: s };
       }
+    } else if (job.op === 'buildexport') {
+      // No-GT build: dispatch the model's calls, check validity, export STEP.
+      // Used by the multimodal drawing→CAD pipeline where ground truth is PRIVATE
+      // (only build-validity + STEP round-trip are checkable locally).
+      const { lastHandle, errors } = await dispatchSequence(job.calls, forge);
+      if (!lastHandle) { result = { ok: false, error: 'no solid body', errors, valid: false, stepOk: false }; }
+      else {
+        const valid = checkValid(forge, lastHandle).valid;
+        let stepOk = false;
+        try { stepOk = !!forge.io.exportStep(lastHandle, job.outPath) && fs.existsSync(job.outPath); }
+        catch (e) { stepOk = false; }
+        const t = tess(forge, lastHandle);
+        const bb = bboxOf(t);
+        const betti = bettiNumbers(t);
+        const mp = forge.massProps(lastHandle);
+        result = { ok: true, errors, valid, stepOk, betti, bbox: bb,
+          volume: mp.volume, area: mp.area, nCalls: job.calls.length, outPath: job.outPath };
+      }
     } else {
       result = { ok: false, error: `unknown op '${job.op}'` };
     }
