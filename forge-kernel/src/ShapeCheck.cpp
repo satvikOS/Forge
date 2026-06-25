@@ -21,6 +21,24 @@
 #include <sstream>
 #include <stdexcept>
 
+// PHASE-D wiring step #3 (2026-06-25) — route forge::shapecheck::analyse through the
+// ALREADY-BUILT, A/B-certified native VALIDATOR (forge::native::brep::checkBRep —
+// Check.cpp, the in-house BRepCheck_Analyzer replacement, the "BRepCheck-class" K5/H1.1
+// oracle) behind a GATE. Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime
+// ONLY when the FEAT gate forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1,
+// or the A/B harness's setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP together).
+// PRODUCTION DEFAULT IS OFF: with the gate off, the original OCCT BRepCheck_Analyzer path
+// below runs byte-for-byte unchanged. This mirrors the just-landed Sewing.cpp (commit
+// 19840b66) + ShapeFix.cpp wires: the native branch is taken only when the input handle is a
+// NativeSolid (so its face set can be validated by the native predicate battery); an
+// OCCT-backed input HONESTLY DEFERS to OCCT (there is no OCCT-shape -> native-topology
+// importer, so we cannot ingest it). NOTHING about the default build changes.
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Check.hpp"         // checkBRep, CheckOptions, CheckReport (native)
+#include "forge/native/brep/Topology.hpp"      // Solid (for getNativeSolid)
+#endif
+
 namespace forge::shapecheck {
 
 namespace {
@@ -121,7 +139,140 @@ void collectFaultsFor(const BRepCheck_Analyzer& chk,
 
 }  // namespace
 
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// Human kind-tag for a native CheckPredicate offender (edge / face / coedge / loop /
+// vertex / shell) so the fault string names WHAT each id refers to — the native
+// equivalent of OCCT's shapeKindName(sub.ShapeType()) prefix on each fault row.
+const char* offenderKindName(native::brep::CheckPredicate::IdKind k) {
+    using IdKind = native::brep::CheckPredicate::IdKind;
+    switch (k) {
+        case IdKind::Edge:   return "edge";
+        case IdKind::Face:   return "face";
+        case IdKind::Coedge: return "coedge";
+        case IdKind::Loop:   return "loop";
+        case IdKind::Vertex: return "vertex";
+        case IdKind::Shell:  return "shell";
+    }
+    return "entity";
+}
+
+// Try the native validator (brep::checkBRep). Returns true + fills `out` on success;
+// returns false (NEVER throws) when the native path HONESTLY DEFERS so the caller falls
+// back to OCCT. Deferral case (Bible §0 — native-where-valid, OCCT otherwise):
+//   * the input handle is NOT a NativeSolid (an OCCT-backed shape — there is no
+//     OCCT-shape -> native-topology importer, so we cannot ingest it). Mirrors the
+//     ShapeFix.cpp / Sewing.cpp NativeSolid-or-defer rule EXACTLY.
+//
+// On success it maps the native CheckReport -> AnalysisReport (the OCCT-facing return
+// type) 1:1:
+//   AnalysisReport.valid        <- CheckReport.valid (true iff EVERY predicate passed)
+//   AnalysisReport.faultyCount  <- number of FAILED predicate rows (one per defect class)
+//   AnalysisReport.faultStrings <- per-failed-predicate "<kind>#<id>: <StatusName>"
+//                                  rows (one per named offender) + the predicate detail,
+//                                  matching src/ShapeCheck.cpp's OCCT fault-string shape
+//                                  ("<kind>#<index>: <StatusName>").
+bool tryNativeAnalyse(ShapeHandle shape, AnalysisReport& out) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+
+    // DEFER unless the input is a native analytic solid (the only native shape whose
+    // topology the validator can walk without an OCCT importer). Matches ShapeFix.cpp.
+    if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
+
+    const Solid& s = reg.getNativeSolid(shape);
+
+    // Run the full predicate battery on the solid (concatenates all its shells' faces;
+    // expectClosed defaults true — a NativeSolid IS a closed body, which is the right
+    // expectation for the T6/T8 closure predicates, same default the A/B harness uses).
+    CheckOptions opt;   // tol=1e-6, curveSamples=8, maxTolerance=1.0, expectClosed=true
+    CheckReport rep = checkBRep(&s, opt);
+
+    out.valid = rep.valid;
+
+    // faultyCount = the count of FAILED predicate rows (one per distinct defect class
+    // the battery found), mirroring src/ShapeCheck.cpp's ++rep.faultyCount per invalid
+    // sub-shape. We count failed predicates (not raw offenders) so the count is a stable
+    // defect-class tally; the offenders are enumerated in faultStrings below.
+    out.faultyCount = static_cast<std::int32_t>(rep.failed());
+
+    // Emit one fault string per offender of each FAILED predicate (named "<kind>#<id>:
+    // <StatusName>"), with the predicate's optional detail appended. A failed predicate
+    // with NO named offenders (e.g. T8 Euler, which carries only a detail note) still
+    // emits one row so the defect is never silently dropped.
+    for (const CheckPredicate& p : rep.predicates) {
+        if (p.passed) continue;
+        const char* statusNm = checkStatusName(p.status);
+        if (p.offenders.empty()) {
+            std::ostringstream oss;
+            oss << statusNm;
+            if (!p.detail.empty()) oss << " (" << p.detail << ")";
+            out.faultStrings.push_back(oss.str());
+        } else {
+            for (const auto& off : p.offenders) {
+                std::ostringstream oss;
+                oss << offenderKindName(off.kind) << "#" << off.id << ": " << statusNm;
+                if (!p.detail.empty()) oss << " (" << p.detail << ")";
+                out.faultStrings.push_back(oss.str());
+            }
+        }
+    }
+
+    // ---- PREDICATE-COVERAGE GAP vs OCCT's ~30 BRepCheck_Status (surfaced, NEVER
+    // silently passed/failed). The native battery's 21 CheckStatus enums COVER the
+    // structural + the common geometric/orientation OCCT statuses:
+    //   COVERED (native predicate -> OCCT BRepCheck_Status):
+    //     InvalidMultiConnexity(T1/T9)  NotConnected(T7)            NotClosed(T6)
+    //     RedundantEdge(T3)             EmptyWire/NoSurface(T5)     SubshapeNotInShape(T2)
+    //     NotClosedWire->InvalidWire(T4) SelfIntersectingWire(G4)  ZeroLengthEdge->
+    //       InvalidRange(G1)           DegeneratedFace->InvalidDegeneratedFlag(G2)
+    //     BadOrientation-family(G3/O1/O2/O3)  InvalidCurveOnSurface(G5)
+    //     InvalidPointOnCurve(G6)      NoCurveOnSurface(G7)        InvalidToleranceValue(G8)
+    //     InvalidSameParameter/SameRange(G9)  EulerInvalid(T8, OCCT has no direct status)
+    //   NOT COVERED by a native predicate (the GAP — OCCT statuses with NO native
+    //   equivalent today; an OCCT-only check would catch these and the native pass will
+    //   NOT report them, so we DOCUMENT the gap rather than imply completeness):
+    //     InvalidPointOnCurveOnSurface, InvalidPointOnSurface, No3DCurve, Multiple3DCurve,
+    //     Invalid3DCurve, InvalidCurveOnClosedSurface, InvalidSameRangeFlag (flag-only;
+    //       native checks the RANGE via G9, not the boolean flag), InvalidSameParameterFlag
+    //       (flag-only), IntersectingWires/InvalidImbricationOfWires (multi-wire face
+    //       imbrication — covered ONLY for TrimmedFace via checkTrimmedFaceSelfIntersection,
+    //       NOT here in the solid face-set battery), RedundantWire, EmptyShell,
+    //       RedundantFace, InvalidImbricationOfShells, UnorientableShape,
+    //       BadOrientationOfSubshape (native uses BadOrientationFace), EnclosedRegion,
+    //       InvalidPolygonOnTriangulation (no triangulation stored on native faces),
+    //       CheckFail. These are surfaced as ONE explicit advisory row appended below so a
+    //       dashboard/heal-op sees the native pass did NOT gauge those classes — it is
+    //       never silently treated as "clean" for them.
+    out.faultStrings.push_back(
+        "native-check NOTE: validated by the native predicate battery "
+        "(21 predicates, T1-T9/G1-G9/O1-O3); OCCT-only BRepCheck statuses NOT gauged here "
+        "[InvalidPointOnSurface, No3DCurve/Multiple3DCurve/Invalid3DCurve, "
+        "InvalidSameRangeFlag/InvalidSameParameterFlag (flag-only), "
+        "IntersectingWires/InvalidImbricationOfWires (solid-face-set only — trimmed-face "
+        "imbrication is a separate native pass), RedundantWire/RedundantFace/EmptyShell, "
+        "InvalidImbricationOfShells, UnorientableShape, EnclosedRegion, "
+        "InvalidPolygonOnTriangulation, CheckFail] — see Check.hpp battery");
+
+    return true;
+}
+
+}  // namespace
+#endif
+
 AnalysisReport analyse(ShapeHandle shape) {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native validator is opt-in via the FEAT gate (default OFF). When on AND the
+    // input is a NativeSolid, validate via brep::checkBRep; otherwise fall through to OCCT
+    // (OCCT-backed input HONESTLY DEFERS — no behavior change in the default build).
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        AnalysisReport nativeOut{};
+        if (tryNativeAnalyse(shape, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
     const auto& s = ShapeRegistry::instance().get(shape);
     if (s.IsNull()) {
         throw std::invalid_argument("forge.shapecheck.analyse: null shape");
