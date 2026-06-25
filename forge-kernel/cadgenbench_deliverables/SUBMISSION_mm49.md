@@ -59,4 +59,22 @@ first number. The levers toward a high score are FIDELITY, not plumbing:
 - geometry-reward optimization (GRPO with a build-cleanliness + Betti reward).
 
 Local artifacts (not committed — large): `submission_mm49.zip`,
-`multimodal_full2/<id>.step`. Committed: pipeline code + `mm_pipeline_results.json`.
+`multimodal_full3/<id>.step`, `artifacts_full3/<id>/output.{step,stl,glb}` + drawings.
+Committed: pipeline code + renders + gallery + manifest + `mm_pipeline_results.json`.
+
+## Next major piece — the EDIT track (32 fixtures → full 81-fixture benchmark)
+The other half of CADGenBench is editing: each fixture gives `input.step` (a base
+B-rep, ~2.8MB) + an NL instruction (e.g. 201: *"for each of the four non-circular
+pockets on the +X side of the central bore, bring their walls — faces with long axis
+along Y — inward 6mm"*) → produce the edited `output.step`. This is **B-rep-aware
+geometric editing**, NOT build-from-scratch:
+1. `io.importStep(input.step)` → handle (kernel STEP reader exists).
+2. Enumerate the B-rep's faces with geometry (id, centroid, normal, area, type) and
+   feed that + the instruction to the model → it must MAP the NL description to
+   specific face ids and emit `part.push-pull-face{shape,faceId,distance}` /
+   `moveFace` (kernel DirectModeling ops exist).
+3. Apply → `output.step` + the same multi-format + render deliverable set.
+The capability gap: cadgen-v7 emits build calls, not face-selection edits over an
+imported B-rep — the proxy's edit 0.925 was synthetic full rebuilds, not this. So the
+edit track needs a B-rep-editing capability (face-list-context prompting, likely a
+fine-tune on import→identify→edit). A focused multi-day pipeline, scoped here.
