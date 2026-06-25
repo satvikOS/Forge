@@ -360,7 +360,13 @@ struct SubFace {
     std::vector<Vec3> ring;                     // ordered 3-D corner points
     bool   paramTri = false;                    // integrate over the (u,v) triangle
     bool   insideOther = false;                 // classification result
-    bool   fromA = true;                        // provenance
+    bool   fromA = true;                        // provenance: which input solid
+    // LINEAGE (PD-7): the index of the PARENT INPUT FACE this sub-face was carved
+    // from, in the input solid's face-enumeration order (fromA ? A's list : B's).
+    // -1 == unassigned (never happens on the analytic path; the imprint always
+    // threads the parent index). Every result face traces back to exactly one
+    // (fromA, parentFaceIdx) pair, which is the Modified/IsDeleted relation.
+    int    parentFaceIdx = -1;
 };
 
 // Densely + EXACTLY sample a closed-form intersection curve, clipped to a 3-D box
@@ -447,8 +453,10 @@ std::vector<Vec3> sampleCircleOnCurved(const IntersectionCurve& cu,
 }
 
 // Build a SubFace shell from a parent surface (copies the analytic geometry so
-// the result face IS the same quadric/plane as the parent).
-SubFace makeSubFromSurface(const Surface* parent, bool fromA) {
+// the result face IS the same quadric/plane as the parent). `parentFaceIdx` is
+// the index of the input FACE this sub-face descends from (lineage, PD-7) — every
+// sub-face minted from input face i carries i so the result→input map is exact.
+SubFace makeSubFromSurface(const Surface* parent, bool fromA, int parentFaceIdx) {
     SubFace sf;
     sf.parent = parent;
     sf.kind = parent->kind;
@@ -457,6 +465,7 @@ SubFace makeSubFromSurface(const Surface* parent, bool fromA) {
     sf.reversedFlag = parent->reversed;
     sf.isDisk = parent->isDisk; sf.diskOuter = parent->diskOuter; sf.diskInner = parent->diskInner;
     sf.fromA = fromA;
+    sf.parentFaceIdx = parentFaceIdx;
     return sf;
 }
 
@@ -470,7 +479,13 @@ SubFace makeSubFromSurface(const Surface* parent, bool fromA) {
 // surface); only the parameter domain is subdivided.
 //
 // Returns false if the CDT could not be formed (caller then defers honestly).
-bool imprintFace(const Face* parent, bool fromA,
+//
+// `parentFaceIdx` (PD-7 lineage): the index of THIS input face in its solid's
+// face-enumeration order. It is stamped onto every SubFace this call produces so
+// that, after stitching, each result face can be traced back to the exact input
+// face it descends from (the Modified relation) and consumed faces (zero output)
+// are the IsDeleted set.
+bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
                  const std::vector<std::vector<Vec3>>& curves3D,
                  std::vector<SubFace>& out) {
     const Surface* s = parent->surface;
@@ -485,7 +500,7 @@ bool imprintFace(const Face* parent, bool fromA,
     // solid. The single sub-face copies the parent's full trim window + geometry
     // (a sphere/torus face thus survives as the exact sphere/torus patch).
     if (curves3D.empty()) {
-        SubFace sf = makeSubFromSurface(s, fromA);
+        SubFace sf = makeSubFromSurface(s, fromA, parentFaceIdx);
         sf.u0 = parent->u0; sf.u1 = parent->u1; sf.v0 = parent->v0; sf.v1 = parent->v1;
         sf.paramTri = false;
         sf.vertexUV = parent->vertexUV;
@@ -576,7 +591,7 @@ bool imprintFace(const Face* parent, bool fromA,
         };
         for (std::size_t b = 0; b + 1 < levels.size(); ++b) {
             double vb0 = levels[b], vb1 = levels[b + 1];
-            SubFace sf = makeSubFromSurface(s, fromA);
+            SubFace sf = makeSubFromSurface(s, fromA, parentFaceIdx);
             sf.u0 = su0; sf.u1 = su1; sf.v0 = vb0; sf.v1 = vb1;
             sf.paramTri = false;  // RECTANGLE band -> standard parametric integral
             sf.isDisk = false;
@@ -780,7 +795,7 @@ bool imprintFace(const Face* parent, bool fromA,
             double cy = (cdt.points[tri[0]].y + cdt.points[tri[1]].y + cdt.points[tri[2]].y) / 3.0;
             if (!inBoundary(cx, cy)) continue;
         }
-        SubFace sf = makeSubFromSurface(s, fromA);
+        SubFace sf = makeSubFromSurface(s, fromA, parentFaceIdx);
         double mnu = 1e300, mxu = -1e300, mnv = 1e300, mxv = -1e300;
         for (int k = 0; k < 3; ++k) {
             const geom::Point2& P = cdt.points[tri[k]];
@@ -822,6 +837,17 @@ void classify(SubFace& sf, const SoupCache& other) {
     sf.insideOther = (2 * votesIn > votes);
 }
 
+// LINEAGE (PD-7) — per result face, the (fromA, parentFaceIdx) it descends from,
+// captured at the moment stitch mints the Face*. `generatedEdges` are the result
+// edges shared by an A-piece and a B-piece (the imprinted SSI cut), which existed
+// on neither input. booleanSolidAnalytic turns these into the indexed Modified /
+// IsDeleted maps + the Generated-edge list on BooleanResult.
+struct StitchLineage {
+    struct FaceProv { Face* face; bool fromA; int parentFaceIdx; };
+    std::vector<FaceProv> faceProv;       // one entry per surviving result face
+    std::vector<Edge*>    generatedEdges; // SSI cut edges (A-piece | B-piece border)
+};
+
 // Build the final Solid from selected, correctly-oriented sub-faces. Welds
 // coincident 3-D corner points to shared topological Vertices so the imprinted
 // cut mates edge-for-edge (closed 2-manifold).
@@ -833,9 +859,14 @@ void classify(SubFace& sf, const SoupCache& other) {
 // (the sphere pole-fan winds opposite the cylinder, so a blanket per-op flip is
 // wrong; the geometric probe is always right). The surface `reversed` flag is then
 // set so MassProps/SolidTessellate integrate the genuine outward normal.
+//
+// `lineage` (out, PD-7) is populated with each result face's provenance + the
+// generated cut edges. It is recorded ALONGSIDE the geometry — the solid built is
+// byte-identical to the pre-lineage path; nothing here changes a vertex, edge, or
+// face. Pass nullptr to skip (the mesh fallback does not call stitch).
 template <class MaterialFn>
 BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
-                     MaterialFn&& material) {
+                     MaterialFn&& material, StitchLineage* lineage = nullptr) {
     BooleanResult res;
 
     // ---- PASS 1: weld 3-D corners to integer vertex ids and orient each ring
@@ -993,6 +1024,12 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
     for (std::size_t i = 0; i < vpos.size(); ++i)
         verts[i] = owner->makeVertex({vpos[i].x, vpos[i].y, vpos[i].z});
 
+    // LINEAGE (PD-7): for each undirected welded edge (vid pair) record which input
+    // solid(s) the faces using it came from. An edge touched by BOTH an A piece and
+    // a B piece is an imprinted SSI cut edge (GENERATED — on neither input). 0x1 ==
+    // touched by an A face, 0x2 == touched by a B face.
+    std::map<std::pair<int,int>, int> edgeProvenance;
+
     for (const OrientedFace& of : ofaces) {
         SubFace& sf = *of.sf;
         std::vector<Vertex*> vring;
@@ -1024,6 +1061,16 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
                 if (projectToUV(surf, vpos[id], u, v)) f->vertexUV.push_back({u, v});
             }
         }
+
+        // LINEAGE: record this result face's provenance + mark its edges' input(s).
+        if (lineage) {
+            lineage->faceProv.push_back({f, sf.fromA, sf.parentFaceIdx});
+            std::size_t n = of.vids.size();
+            for (std::size_t i = 0; i < n; ++i) {
+                int a = of.vids[i], b = of.vids[(i + 1) % n];
+                edgeProvenance[{std::min(a,b), std::max(a,b)}] |= (sf.fromA ? 0x1 : 0x2);
+            }
+        }
     }
 
     if (!owner->isClosedTwoManifold()) {
@@ -1033,6 +1080,41 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
     if (c.faces == 0 || c.edges == 0 || c.vertices == 0) {
         res.ok = false; res.reason = "analytic stitch empty topology"; return res;
     }
+
+    // LINEAGE (PD-7): collect the GENERATED edges = result edges whose two adjacent
+    // faces come from DIFFERENT inputs (provenance 0x3 == 0x1|0x2). Those are the
+    // imprinted SSI cut curves — they bound a surviving A piece against a surviving
+    // B piece and existed on neither input. (An original input edge is always
+    // shared by two faces of the SAME input, provenance 0x1 or 0x2 only.) Map each
+    // such welded vid-pair back to its concrete result Edge* by walking the result
+    // faces' coedges once. This is exact + cleanly separable from the SSI data.
+    if (lineage) {
+        // Map Vertex* -> welded vid so an Edge's (start,end) becomes a vid pair.
+        std::map<const Vertex*, int> vToId;
+        for (std::size_t i = 0; i < verts.size(); ++i) vToId[verts[i]] = (int)i;
+        std::map<std::pair<int,int>, Edge*> uniqueEdge;
+        for (Shell* sh : solid->shells)
+            for (Face* f : sh->faces) {
+                Loop* lp = f->outerLoop;
+                if (!lp) continue;
+                Coedge* ce = lp->first;
+                for (std::size_t i = 0; i < lp->coedgeCount; ++i) {
+                    Edge* e = ce->edge;
+                    auto its = vToId.find(e->start), ite = vToId.find(e->end);
+                    if (its != vToId.end() && ite != vToId.end()) {
+                        int a = its->second, b = ite->second;
+                        uniqueEdge[{std::min(a,b), std::max(a,b)}] = e;
+                    }
+                    ce = ce->next;
+                }
+            }
+        for (const auto& kv : edgeProvenance)
+            if (kv.second == 0x3) {
+                auto it = uniqueEdge.find(kv.first);
+                if (it != uniqueEdge.end()) lineage->generatedEdges.push_back(it->second);
+            }
+    }
+
     res.ok = true; res.reason = reason; res.solid = solid; res.owner = owner;
     res.usedMeshFallback = false;
     return res;
@@ -1122,14 +1204,14 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
     std::vector<SubFace> subsA, subsB;
     for (std::size_t i = 0; i < fa.size(); ++i) {
         std::vector<SubFace> out;
-        if (!imprintFace(fa[i], /*fromA=*/true, curvesForA[i], out)) {
+        if (!imprintFace(fa[i], /*fromA=*/true, /*parentFaceIdx=*/(int)i, curvesForA[i], out)) {
             fail.reason = "analytic: imprint of an A face failed (CDT)"; return fail;
         }
         for (SubFace& sf : out) { classify(sf, soupB); subsA.push_back(std::move(sf)); }
     }
     for (std::size_t j = 0; j < fb.size(); ++j) {
         std::vector<SubFace> out;
-        if (!imprintFace(fb[j], /*fromA=*/false, curvesForB[j], out)) {
+        if (!imprintFace(fb[j], /*fromA=*/false, /*parentFaceIdx=*/(int)j, curvesForB[j], out)) {
             fail.reason = "analytic: imprint of a B face failed (CDT)"; return fail;
         }
         for (SubFace& sf : out) { classify(sf, soupA); subsB.push_back(std::move(sf)); }
@@ -1194,7 +1276,35 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
     const char* tag = (op == BoolOp::Fuse) ? "ok (analytic fuse)"
                     : (op == BoolOp::Cut)  ? "ok (analytic cut)"
                                            : "ok (analytic common)";
-    return stitch(chosen, tag, material);
+    StitchLineage lin;
+    BooleanResult res = stitch(chosen, tag, material, &lin);
+    if (!res.ok) return res;
+
+    // ===================== BUILD THE LINEAGE MAPS (PD-7) =====================
+    // MODIFIED: index each result face under the (fromA, parentFaceIdx) it came
+    // from. An input face's list of result faces is its "modified" pieces.
+    res.modifiedFromA.assign(fa.size(), {});
+    res.modifiedFromB.assign(fb.size(), {});
+    for (const StitchLineage::FaceProv& fp : lin.faceProv) {
+        if (fp.parentFaceIdx < 0) continue;  // never on the analytic path
+        if (fp.fromA) {
+            if (fp.parentFaceIdx < (int)fa.size())
+                res.modifiedFromA[fp.parentFaceIdx].push_back(fp.face);
+        } else {
+            if (fp.parentFaceIdx < (int)fb.size())
+                res.modifiedFromB[fp.parentFaceIdx].push_back(fp.face);
+        }
+    }
+    // IS-DELETED: an input face with ZERO surviving result faces was entirely
+    // consumed by the op (e.g. a face fully inside the other solid for a Cut, or a
+    // coincident-face net-cancellation in stitch). deleted == modified-list empty.
+    res.deletedA.assign(fa.size(), false);
+    res.deletedB.assign(fb.size(), false);
+    for (std::size_t i = 0; i < fa.size(); ++i) res.deletedA[i] = res.modifiedFromA[i].empty();
+    for (std::size_t j = 0; j < fb.size(); ++j) res.deletedB[j] = res.modifiedFromB[j].empty();
+    // GENERATED edges: the imprinted SSI cut curves (collected in stitch).
+    res.generatedEdges = std::move(lin.generatedEdges);
+    return res;
 }
 
 } // namespace

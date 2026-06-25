@@ -91,6 +91,41 @@ struct BooleanResult {
     // silent regression to facets fails. Set true ONLY when a needed face-pair has
     // no closed-form SSI (NURBS / skew-or-unequal cyl∩cyl / cone∩cone / torus).
     bool   usedMeshFallback = false;
+
+    // ===================== BOOLEAN LINEAGE (PD-7 keystone) =====================
+    // GENUINE face/edge provenance recorded ALONGSIDE the geometry (the solid is
+    // byte-identical with or without this). It answers "where did each result face
+    // come from?" so downstream features (fillet-after-boolean, a pattern that
+    // references a cut face, parametric re-edits) can track input faces forward.
+    // Populated ONLY on the analytic path (ok && !usedMeshFallback); empty on the
+    // mesh fallback (planar-soup reconstruction carries no analytic provenance, an
+    // HONEST gap — see Boolean.cpp). All Face*/Edge* views are owned by `owner`.
+    //
+    // MODIFIED — for each INPUT face of A (resp. B), indexed by its position in the
+    // input's face list (shell/face traversal order, the same order the analytic
+    // boolean enumerates them), the list of RESULT faces that descend from it: the
+    // surviving pieces of that input face after the boolean imprinted/trimmed it.
+    // An input face that survived whole maps to exactly one result face; an input
+    // face split by the cut maps to several; an input face entirely consumed maps
+    // to an EMPTY list (and is marked deleted below). Mirrors OCCT
+    // BRepAlgoAPI_BuilderAlgo::Modified(inputFace).
+    std::vector<std::vector<Face*>> modifiedFromA;   // size == A's input face count
+    std::vector<std::vector<Face*>> modifiedFromB;   // size == B's input face count
+
+    // IS-DELETED — true iff input face i of A (resp. B) contributed ZERO result
+    // faces (entirely consumed by the op — e.g. a face that lies fully inside the
+    // other solid for a Cut). deletedA[i] == modifiedFromA[i].empty(). Mirrors
+    // BRepAlgoAPI_BuilderAlgo::IsDeleted(inputFace).
+    std::vector<bool> deletedA;                      // size == A's input face count
+    std::vector<bool> deletedB;                      // size == B's input face count
+
+    // GENERATED (edges) — the NEW edges the boolean introduced that existed on
+    // NEITHER input: the imprinted SSI cut curves. Each entry is a result Edge*
+    // both of whose endpoints lie on a cut curve (i.e. a welded boundary between a
+    // surviving A piece and a surviving B piece). For a SOLID boolean there are no
+    // GENERATED faces — a cut "wall" is a piece of the OTHER solid's face, i.e.
+    // Modified-from-the-other-input, NOT generated (documented in Boolean.cpp).
+    std::vector<Edge*> generatedEdges;
 };
 
 // Options for the boolean. The conforming soups are produced by the Step-1
