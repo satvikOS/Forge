@@ -62,6 +62,41 @@
 #include <stdexcept>
 #include <vector>
 
+// PHASE-D wiring (2026-06-25) — route the ONE genuine OCCT surface-evaluation op in
+// this module, generateCmm's per-face PROBE-POINT SAMPLING (surface point S(u,v) +
+// outward normal N(u,v) on a planar / cylindrical inspection face), through the
+// ALREADY-BUILT in-house analytic Surface evaluator family
+// (forge::native::brep::Surface — Surface.cpp: evaluate(u,v) / normalAt(u,v) for the
+// Plane & Cylinder kinds) behind a GATE. Compiled in ONLY under -DFORGE_NATIVE_BREP
+// and taken at runtime ONLY when forgeNativeFeaturesEnabled() is true (env
+// FORGE_NATIVE_FEATURES=1, or the A/B harness's setForgeNativeBrepEnabled(true)).
+// PRODUCTION DEFAULT IS OFF: with the gate off the original OCCT path below
+// (BRep_Tool::Surface -> Geom_Plane / BRepAdaptor_Surface -> gp_Cylinder) runs
+// byte-for-byte unchanged. Mirrors the just-landed Cam.cpp (PolygonOffset2D) /
+// Healing.cpp (healBRep/sewFaces) wires: tryNativeGenerateCmm takes the native branch
+// ONLY when the input handle is a NativeSolid whose feature faces carry a native
+// analytic Surface (Plane/Cylinder). An OCCT-backed input HONESTLY DEFERS to OCCT
+// (there is NO OCCT-face -> native-Surface importer), so the gate-off default and the
+// gate-on OCCT-input path are both identical to today.
+//
+// ONLY generateCmm is wired — the other four entries do NO OCCT surface evaluation
+// and so have NO native-Surface target (see the per-op note above each):
+//   * adaptiveClear3Axis  — spiral/feed math over a numeric StockAABB; `shape` is only
+//                           null-checked, never surface-sampled. OCCT-only (no target).
+//   * multiAxisIndexed    — rotates a synthetic bbox-derived square trace; reads only
+//                           BRepBndLib bbox, never a surface point/normal. OCCT-only.
+//   * multiAxisContinuous — surface stations + normals come FROM THE CALLER
+//                           (SurfaceStation list); no kernel surface evaluation at all.
+//                           OCCT-only (no target).
+//   * simulateStock       — voxel sweep over a StockAABB; takes no ShapeHandle and
+//                           evaluates no surface. OCCT-only (no target).
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Topology.hpp"      // Solid/Shell/Face/Surface, SurfaceKind
+#include "forge/native/brep/Surface.hpp"       // Surface::evaluate / normalAt (Plane/Cylinder)
+#include "forge/native/brep/Aabb.hpp"          // computeAabb (Point feature centroid)
+#endif
+
 namespace forge::cam {
 
 namespace {
@@ -525,10 +560,200 @@ inline void emitLine(std::ostringstream& oss, const std::string& s) {
 
 } // namespace
 
+#ifdef FORGE_NATIVE_BREP
+namespace {
+
+// Resolve a native-Solid face by the SAME linear-index convention generateCmm's OCCT
+// resolveFaceById uses (the i-th face in iteration order) — here the i-th face in
+// shell/face order over the Solid's shells (the canonical native face order, matching
+// tessellateSolidForViewport). Returns null on a miss.
+const native::brep::Face* resolveNativeFaceById(const native::brep::Solid& s,
+                                                std::uint32_t id) {
+    std::uint32_t i = 0;
+    for (const native::brep::Shell* sh : s.shells) {
+        if (!sh) continue;
+        for (const native::brep::Face* f : sh->faces) {
+            if (i == id) return f;
+            ++i;
+        }
+    }
+    return nullptr;
+}
+
+// Try the native analytic Surface evaluator (brep::Surface::evaluate / normalAt) for
+// generateCmm's per-face probe-point sampling. Returns true + fills `out` on success;
+// returns false (NEVER throws) when the native path HONESTLY DEFERS so the caller falls
+// through to the OCCT BRep_Tool::Surface / BRepAdaptor_Surface sampling path. Same
+// deferral contract as Cam.cpp::tryNativeInwardOffset / Healing.cpp::tryNativeHeal.
+//
+// Deferral / GAP cases (Bible §0 — native-where-valid, OCCT otherwise):
+//   * input handle is NOT a NativeSolid (no OCCT-face -> native-Surface importer) — the
+//     whole call defers to OCCT, exactly as the gate-off default behaves.
+//   * ANY requested Plane/Cylinder feature face is unresolved, carries no native
+//     analytic Surface, or carries a Surface whose kind is not the one the feature
+//     declares (Plane feature -> SurfaceKind::Plane, Cylinder feature ->
+//     SurfaceKind::Cylinder). We must NOT silently substitute a bbox-virtual feature or
+//     a mismatched surface, so the WHOLE call defers to OCCT (which owns the virtual-
+//     cylinder + plane-grid fallbacks). Point features need no surface and never block.
+//
+// On the native branch the probe POINTS are sampled with the in-house analytic
+// evaluators (Plane: a stepover grid over the face's (u,v) trim, point S(u,v) +
+// outward normalAt(u,v); Cylinder: a (theta,h) lattice over the trim, point + radial
+// normalAt) — the geometric truth this op needs — and the DMIS-ish text is emitted in
+// the SAME order/format as the OCCT path so the CmmProgram is structurally identical.
+bool tryNativeGenerateCmm(ShapeHandle h,
+                          const std::vector<InspectionFeature>& features,
+                          const CmmGauge& gauge,
+                          CmmProgram& out) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+    if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;   // defer to OCCT
+    const Solid& solid = reg.getNativeSolid(h);
+
+    // PRE-FLIGHT: every Plane/Cylinder feature must resolve to a native face that
+    // carries a matching analytic Surface; otherwise defer the WHOLE call to OCCT (no
+    // partial native/OCCT mixing — keeps the result byte-consistent with one backend).
+    for (const auto& f : features) {
+        if (f.kind == InspectionFeatureKind::Point) continue;
+        const Face* nf = resolveNativeFaceById(solid, f.topo);
+        if (!nf || !nf->surface) return false;                  // unresolved/bare -> defer
+        const SurfaceKind want = (f.kind == InspectionFeatureKind::Plane)
+                                     ? SurfaceKind::Plane
+                                     : SurfaceKind::Cylinder;
+        if (nf->surface->kind != want) return false;            // mismatch -> defer
+    }
+
+    CmmProgram prog;
+    std::ostringstream oss;
+    emitLine(oss, "DMISMN/'Forge CMM Inspection',06.00");
+    emitLine(oss, "UNITS/MM,ANGDEC");
+    {
+        std::ostringstream st;
+        st << "TOOL/PROBE,STYL," << gauge.probeRadius << ",0";
+        emitLine(oss, st.str());
+    }
+
+    for (const auto& f : features) {
+        std::uint32_t before = static_cast<std::uint32_t>(prog.points.size());
+
+        if (f.kind == InspectionFeatureKind::Plane) {
+            const Face* nf = resolveNativeFaceById(solid, f.topo);
+            const Surface* surf = nf->surface;   // pre-flight guaranteed non-null Plane
+            // Stepover grid over the face's own (u,v) trim window, capped at 64 points
+            // (matching the OCCT plane sampler's count<64 guard).
+            double uLo = nf->u0, uHi = nf->u1, vLo = nf->v0, vHi = nf->v1;
+            if (uHi - uLo < gauge.stepover) uHi = uLo + gauge.stepover;
+            if (vHi - vLo < gauge.stepover) vHi = vLo + gauge.stepover;
+            int count = 0;
+            for (double vv = vLo + gauge.stepover * 0.5;
+                 vv < vHi && count < 64; vv += gauge.stepover) {
+                for (double uu = uLo + gauge.stepover * 0.5;
+                     uu < uHi && count < 64; uu += gauge.stepover) {
+                    Vec3 p = surf->evaluate(uu, vv);
+                    Vec3 n = surf->normalAt(uu, vv);
+                    CmmProbePoint pt{};
+                    pt.x = p.x; pt.y = p.y; pt.z = p.z;
+                    pt.nx = n.x; pt.ny = n.y; pt.nz = n.z;
+                    pt.featureLabel = f.label;
+                    prog.points.push_back(pt);
+                    std::ostringstream st;
+                    st << "GOTO/" << pt.x << "," << pt.y << "," << pt.z + 5.0;
+                    emitLine(oss, st.str());
+                    st.str("");
+                    st << "PTMEAS/CART," << pt.x << "," << pt.y << "," << pt.z
+                       << "," << pt.nx << "," << pt.ny << "," << pt.nz;
+                    emitLine(oss, st.str());
+                    ++count;
+                }
+            }
+            Vec3 o = surf->origin;
+            Vec3 nrm = surf->normalAt(0.5 * (uLo + uHi), 0.5 * (vLo + vHi));
+            std::ostringstream st;
+            st << "F(" << f.label << ")=FEAT/PLANE,CART," << o.x << ","
+               << o.y << "," << o.z << "," << nrm.x << ","
+               << nrm.y << "," << nrm.z;
+            emitLine(oss, st.str());
+
+        } else if (f.kind == InspectionFeatureKind::Cylinder) {
+            const Face* nf = resolveNativeFaceById(solid, f.topo);
+            const Surface* surf = nf->surface;   // pre-flight guaranteed non-null Cylinder
+            const double radius = surf->r1;
+            // (theta,h) lattice over the cylinder's own trim window — theta over
+            // [u0,u1], axial v over [v0,v1] — matching the OCCT cyl sampler's nT/nH.
+            const double thetaLo = nf->u0, thetaHi = nf->u1;
+            const double hLo = nf->v0, hHi = nf->v1;
+            const double thetaSpan = std::max(thetaHi - thetaLo, 0.0);
+            const int nT = std::max(8, static_cast<int>(std::ceil((radius * thetaSpan) / gauge.stepover)));
+            const int nH = std::max(2, static_cast<int>(std::ceil((hHi - hLo) / gauge.stepover)));
+            for (int j = 0; j < nH; ++j) {
+                const double vv = hLo + (j + 0.5) * (hHi - hLo) / nH;
+                for (int i = 0; i < nT; ++i) {
+                    const double uu = thetaLo + (i + 0.5) * thetaSpan / nT;
+                    Vec3 p = surf->evaluate(uu, vv);
+                    Vec3 n = surf->normalAt(uu, vv);
+                    CmmProbePoint pt{};
+                    pt.x = p.x; pt.y = p.y; pt.z = p.z;
+                    pt.nx = n.x; pt.ny = n.y; pt.nz = n.z;
+                    pt.featureLabel = f.label;
+                    prog.points.push_back(pt);
+                    std::ostringstream st;
+                    st << "PTMEAS/CART," << pt.x << "," << pt.y << "," << pt.z
+                       << "," << pt.nx << "," << pt.ny << "," << pt.nz;
+                    emitLine(oss, st.str());
+                }
+            }
+            std::ostringstream st;
+            st << "F(" << f.label << ")=FEAT/CYLNDR,INNER,CART";
+            emitLine(oss, st.str());
+
+        } else { // Point — bbox centroid touch (no surface evaluation).
+            Aabb3 bb = computeAabb(solid);
+            CmmProbePoint pt{};
+            pt.x = 0.5 * (bb.minX + bb.maxX);
+            pt.y = 0.5 * (bb.minY + bb.maxY);
+            pt.z = bb.maxZ;
+            pt.nx = 0.0; pt.ny = 0.0; pt.nz = 1.0;
+            pt.featureLabel = f.label;
+            prog.points.push_back(pt);
+            std::ostringstream st;
+            st << "PTMEAS/CART," << pt.x << "," << pt.y << "," << pt.z
+               << ",0,0,1";
+            emitLine(oss, st.str());
+        }
+
+        const std::uint32_t added = static_cast<std::uint32_t>(prog.points.size()) - before;
+        prog.pointsPerFeature.push_back(added);
+    }
+
+    emitLine(oss, "ENDFIL");
+    prog.text = oss.str();
+    out = std::move(prog);
+    return true;
+}
+
+} // namespace
+#endif
+
 CmmProgram generateCmm(ShapeHandle h,
                        const std::vector<InspectionFeature>& features,
                        const CmmGauge& gauge)
 {
+#ifdef FORGE_NATIVE_BREP
+    // GATE: the native analytic Surface evaluator (brep::Surface::evaluate/normalAt) is
+    // opt-in via the FEAT gate (default OFF). When on AND the input is a NativeSolid
+    // whose feature faces carry matching analytic surfaces, sample the probe points via
+    // the native evaluators; otherwise fall through to OCCT (an OCCT-backed input
+    // HONESTLY DEFERS — no behavior change in the default build). A false return ==
+    // defer. The same input-validation throws below still guard the OCCT path; the
+    // native pre-flight only intercepts the geometry-sampling work.
+    if (native::brep::forgeNativeFeaturesEnabled() && !features.empty()
+        && gauge.stepover > kEps) {
+        CmmProgram nativeOut;
+        if (tryNativeGenerateCmm(h, features, gauge, nativeOut)) return nativeOut;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
     const auto& shape = ShapeRegistry::instance().get(h);
     if (shape.IsNull()) {
         throw std::runtime_error("forge.cam.generateCmm: shape is null");

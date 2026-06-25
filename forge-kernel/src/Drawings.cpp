@@ -51,6 +51,40 @@
 #include <limits>
 #include <stdexcept>
 
+// PHASE-D wiring (2026-06-25) — route the engineering-drawing projection ops
+// (HLR hidden-line removal + silhouette/outline + planar section) through the
+// ALREADY-BUILT native B-rep drawing modules behind the FEAT gate. Compiled in
+// ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when
+// forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or the A/B
+// harness's setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP together).
+// PRODUCTION DEFAULT IS OFF: with the gate off the original OCCT HLRBRep_Algo /
+// BRepAlgoAPI_Section paths below run byte-for-byte unchanged. Mirrors the prior
+// wires (Cam.cpp / Healing.cpp / Sewing.cpp / ShapeFix.cpp): the native branch is
+// taken ONLY when the input handle is a NativeSolid (so its analytic faces feed the
+// native HLR / section solver); an OCCT-backed input HONESTLY DEFERS to OCCT (there
+// is NO OCCT-shape -> native-Solid importer — Bible §0).
+//
+// FRAME ALIGNMENT (why this is regression-image faithful, not just length-equal):
+// the native HlrResult builds its own (U,V,N) view frame (origin at the model-bbox
+// centre, an arbitrary screen-right axis) — see native_vs_occt_hlr.cpp, which
+// compares the two backends with a ROTATION-INVARIANT projected-length metric
+// precisely because the frames differ. A regression IMAGE needs the SAME pixel
+// coordinates, so we DO NOT use the native poly2d; instead we re-project each
+// native segment's poly3d through the SAME OCCT gp_Ax2 (makeProjectionAx2) the OCCT
+// path uses, via the identical worldToScreen the section path already uses. The
+// visibility CLASSIFICATION (visible / hidden / silhouette) is sourced from the
+// native HLR; the 2D screen coordinates are byte-identical to the OCCT frame.
+//
+// WHICH ENTRIES ARE WIRED (the two ShapeHandle-based ops that can detect a native
+// input) and which are LEFT ON OCCT (CAPABILITY GAPS surfaced, not silently
+// degraded) are documented at each wired/left call site below.
+#ifdef FORGE_NATIVE_BREP
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/Hlr.hpp"           // hiddenLineRemoval, HlrResult/HlrSegment (native)
+#include "forge/native/brep/Section.hpp"       // sectionSolid, SectionResult/SectionWire (native)
+#include "forge/native/brep/Topology.hpp"      // Solid graph
+#endif
+
 namespace forge {
 
 // ---------------------------------------------------------- view presets
@@ -211,6 +245,77 @@ bool runHLR(const TopoDS_Shape& shape,
     return true;
 }
 
+#ifdef FORGE_NATIVE_BREP
+// Project a native 3D point (Vec3) through the OCCT projection Ax2 into the SAME
+// (X, Y) screen frame the OCCT HLR path produces, so a native-sourced polyline is
+// pixel-comparable in regression imaging (see the FRAME ALIGNMENT note at the top
+// of this file). Identical math to the section path's worldToScreen, applied to the
+// native poly3d so visibility classification comes from the native HLR while the 2D
+// coordinates stay in the OCCT frame.
+inline std::pair<double, double>
+nativeWorldToScreen(const gp_Ax2& ax, const forge::native::brep::Vec3& p) {
+    const gp_Pnt& loc = ax.Location();
+    const gp_Dir& xd  = ax.XDirection();
+    const gp_Dir& yd  = ax.YDirection();
+    const double dx = p.x - loc.X();
+    const double dy = p.y - loc.Y();
+    const double dz = p.z - loc.Z();
+    return { dx * xd.X() + dy * xd.Y() + dz * xd.Z(),
+             dx * yd.X() + dy * yd.Y() + dz * yd.Z() };
+}
+
+// Try the native HLR (brep::hiddenLineRemoval) for projectShape. Returns true +
+// fills `view` (visible / hidden / outline buckets) on success; returns false
+// (NEVER throws) when the native path HONESTLY DEFERS to OCCT. Deferral cases
+// (Bible §0 — native-where-valid, OCCT otherwise):
+//   * the input handle is NOT a NativeSolid (no OCCT-shape -> native-Solid importer)
+//     -> defer to OCCT (the default-build behaviour is unchanged).
+//   * the native HLR returns ok==false (empty / degenerate solid, freeform faces the
+//     analytic envelope does not yet cover) or yields no segments -> defer to OCCT.
+// The native HlrResult's per-segment visibility (Visible / Hidden) and edge kind
+// (BRep / Silhouette) drive the three OCCT buckets:
+//   Visible BRep/Rg edges        -> view.visible
+//   Hidden  BRep/Rg edges        -> view.hidden
+//   Visible Silhouette edges     -> view.outline  (the OutLineVCompound analogue)
+// matching collectEdges' V/H/OutLine routing exactly. Coordinates are re-projected
+// into the OCCT screen frame (nativeWorldToScreen) so the image matches the OCCT path.
+bool tryNativeProjectShape(ShapeHandle h, const gp_Ax2& ax2, ProjectedView& view) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+    if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;   // defer to OCCT
+
+    const Solid& solid = reg.getNativeSolid(h);
+
+    // The native HLR looks ALONG +N of its own view frame; the OCCT projector's
+    // gp_Ax2 Z axis (its main direction) is the equivalent look direction. Drive the
+    // native HLR with that exact direction so both backends project the SAME view.
+    const gp_Dir& az = ax2.Direction();
+    const Vec3 viewDir{ az.X(), az.Y(), az.Z() };
+
+    HlrResult res = hiddenLineRemoval(solid, viewDir);
+    if (!res.ok || res.segments.empty()) return false;           // degenerate -> defer
+
+    for (const HlrSegment& seg : res.segments) {
+        if (seg.poly3d.size() < 2) continue;
+        Polyline2D pl;
+        pl.reserve(seg.poly3d.size());
+        for (const Vec3& p : seg.poly3d) pl.push_back(nativeWorldToScreen(ax2, p));
+        if (pl.size() < 2) continue;
+        if (seg.visibility == HlrVisibility::Hidden) {
+            view.hidden.push_back(std::move(pl));
+        } else if (seg.kind == HlrEdgeKind::Silhouette) {
+            view.outline.push_back(std::move(pl));   // visible silhouette == OutLineV
+        } else {
+            view.visible.push_back(std::move(pl));
+        }
+    }
+    // ok==true with at least one routed polyline; an all-degenerate result already
+    // returned false above (res.segments non-empty but every poly3d < 2 is treated
+    // as a defer so OCCT's own retry path can try a tessellation-first pass).
+    return !view.visible.empty() || !view.hidden.empty() || !view.outline.empty();
+}
+#endif
+
 } // namespace
 
 ProjectedView projectShape(ShapeHandle h, ProjectionDirection direction) {
@@ -227,6 +332,20 @@ ProjectedView projectShape(ShapeHandle h, ProjectionDirection direction) {
     constexpr double kDeflection = 0.05;
 
     ProjectedView view;
+
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native HLR is opt-in via the FEAT gate (default OFF). When on AND the
+    // input handle is a NativeSolid, classify visible/hidden/silhouette via
+    // brep::hiddenLineRemoval (re-projected into the OCCT screen frame, so the
+    // regression image matches); otherwise fall through to OCCT (an OCCT-backed
+    // input HONESTLY DEFERS — no behavior change in the default build).
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        ProjectedView nativeView;
+        if (tryNativeProjectShape(h, ax2, nativeView)) return nativeView;
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
+
     bool ok = runHLR(shape, ax2, view, kDeflection);
 
     // Heuristic retry: if the first pass produced nothing visible, OCCT
@@ -463,6 +582,55 @@ std::vector<Polyline2D> hatchBbox(const Bbox2D& bb,
     return lines;
 }
 
+#ifdef FORGE_NATIVE_BREP
+// Try the native planar section (brep::sectionSolid) for the cut-wire portion of
+// projectShapeSection. Appends the section wires to `cutOut` (re-projected into the
+// OCCT screen frame via the same worldToScreen the OCCT cut path uses, so the image
+// matches) and returns true on success; returns false (NEVER throws) when the native
+// path HONESTLY DEFERS to OCCT. Deferral cases (Bible §0):
+//   * the input handle is NOT a NativeSolid (no OCCT-shape -> native-Solid importer)
+//     -> defer to OCCT.
+//   * sectionSolid returns ok==false (a freeform/general-NURBS face the analytic
+//     section cannot handle yet, or a degenerate/non-manifold cut) -> defer to OCCT.
+// An EMPTY section (the plane misses the solid) is ok==true with no wires — that is
+// a VALID native result (the OCCT path likewise leaves `cut` empty), so it is
+// reported as success (true) with nothing appended, NOT a defer.
+bool tryNativeSectionCut(ShapeHandle h, const gp_Ax2& ax,
+                         const SectionPlane& plane,
+                         std::vector<Polyline2D>& cutOut) {
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+    if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;   // defer to OCCT
+
+    const Solid& solid = reg.getNativeSolid(h);
+
+    forge::native::brep::SectionPlane sp;
+    sp.point  = Vec3{ plane.ox, plane.oy, plane.oz };
+    sp.normal = Vec3{ plane.nx, plane.ny, plane.nz };
+
+    SectionResult res = sectionSolid(solid, sp);
+    if (!res.ok) return false;                                   // unhandled face / degenerate -> defer
+
+    // ok==true: append each closed section wire as a screen-space polyline (empty
+    // section -> nothing appended, still a valid success).
+    for (const SectionWire& w : res.wires) {
+        if (w.points.size() < 2) continue;
+        Polyline2D pl;
+        pl.reserve(w.points.size() + 1);
+        for (const Vec3& p : w.points) {
+            double sx, sy;
+            worldToScreen(ax, gp_Pnt(p.x, p.y, p.z), sx, sy);
+            pl.emplace_back(sx, sy);
+        }
+        // Close the loop in screen space (the native wire is closed; last->first
+        // is implied, matching how a closed OCCT section edge ring renders).
+        if (w.closed && pl.size() >= 2) pl.push_back(pl.front());
+        if (pl.size() >= 2) cutOut.push_back(std::move(pl));
+    }
+    return true;
+}
+#endif
+
 } // anonymous namespace
 
 ProjectedView projectShapeSection(ShapeHandle h,
@@ -486,7 +654,25 @@ ProjectedView projectShapeSection(ShapeHandle h,
     gp_Pln cuttingPlane(gp_Pnt(plane.ox, plane.oy, plane.oz),
                         gp_Dir(plane.nx / nlen, plane.ny / nlen, plane.nz / nlen));
 
-    try {
+    bool sectionDone = false;
+
+#ifdef FORGE_NATIVE_BREP
+    // GATE: native planar section is opt-in via the FEAT gate (default OFF). When on
+    // AND the input is a NativeSolid, cut via brep::sectionSolid (re-projected into
+    // the OCCT screen frame, so the regression image matches); otherwise fall through
+    // to the OCCT BRepAlgoAPI_Section path below (an OCCT-backed input HONESTLY DEFERS
+    // — no behavior change in the default build). Step 3 (hatch over the cut bbox)
+    // consumes view.cut regardless of which backend filled it.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        const gp_Ax2 nax = makeProjectionAx2_(direction);
+        if (tryNativeSectionCut(h, nax, plane, view.cut)) {
+            sectionDone = true;   // native owns the cut wires; skip the OCCT cut.
+        }
+        // native deferred -> OCCT cut path below (unchanged).
+    }
+#endif
+
+    if (!sectionDone) try {
         BRepAlgoAPI_Section sec(shape, cuttingPlane, Standard_False);
         sec.ComputePCurveOn1(Standard_True);
         sec.Approximation(Standard_True);
