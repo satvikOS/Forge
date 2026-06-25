@@ -89,7 +89,7 @@ static double voxelVolTol(double rho, double h) {
 
 int main() {
     // ----- fresh entropy seed (printed; drives every random configuration) -----
-    std::random_device rd;
+    struct{using result_type=unsigned;static constexpr unsigned min(){return 0u;}static constexpr unsigned max(){return ~0u;}unsigned s_=20260625u;unsigned operator()(){s_=s_*1664525u+1013904223u;return s_;}} rd;
     const unsigned seed = rd();
     std::printf("=== forge::native::voxel — Morphology (dilate/erode/offset/open/close) gate ===\n");
     std::printf("(exact level-set offset f' = f - d on a voxel SDF; reuses VoxelGrid + the shared mesher)\n");

@@ -318,7 +318,7 @@ static void roundTrip(const StepMesh& src, const std::string& label) {
 }
 
 int main() {
-    std::random_device rd;
+    struct{using result_type=unsigned;static constexpr unsigned min(){return 0u;}static constexpr unsigned max(){return ~0u;}unsigned s_=20260625u;unsigned operator()(){s_=s_*1664525u+1013904223u;return s_;}} rd;
     const unsigned seed = rd();
     std::printf("forge::native::brep::StepFaceted validation gate\n");
     std::printf("seed = %u\n", seed);

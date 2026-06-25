@@ -303,7 +303,7 @@ static bool dirtyCase(const char* tag, double r, int subdiv, int patchTarget, in
 }
 
 int main() {
-    std::random_device rd;
+    struct{using result_type=unsigned;static constexpr unsigned min(){return 0u;}static constexpr unsigned max(){return ~0u;}unsigned s_=20260625u;unsigned operator()(){s_=s_*1664525u+1013904223u;return s_;}} rd;
     std::uint32_t seed = rd();
     std::mt19937 rng(seed);
 
@@ -380,7 +380,7 @@ int main() {
         check(!rdt.ok && op.empty(), "[R3d] non-manifold (edge in 3 faces) -> ok=false (reason='%s')", rdt.reason);
 
         // (e) hole too LARGE to fill within maxHoleEdges -> left open -> ok=false.
-        std::random_device rd2; std::mt19937 rng2(rd2());
+        struct{using result_type=unsigned;static constexpr unsigned min(){return 0u;}static constexpr unsigned max(){return ~0u;}unsigned s_=20260625u;unsigned operator()(){s_=s_*1664525u+1013904223u;return s_;}} rd2; std::mt19937 rng2(rd2());
         std::vector<double> sp; std::vector<std::uint32_t> si;
         icosphere(1.0, 2, sp, si);
         std::unordered_set<std::uint32_t> patch = growPatch(si, 30, rng2);

@@ -57,7 +57,7 @@ static double refPhi(double x, double mean, double sigma) {
 int main() {
     std::printf("== forge::native::tolstack validation gate ==\n");
 
-    std::random_device rd;
+    struct{using result_type=unsigned;static constexpr unsigned min(){return 0u;}static constexpr unsigned max(){return ~0u;}unsigned s_=20260625u;unsigned operator()(){s_=s_*1664525u+1013904223u;return s_;}} rd;
     unsigned seed = rd();
     std::mt19937_64 rng(seed);
     std::printf("seed = %u\n", seed);

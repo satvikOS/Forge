@@ -366,7 +366,7 @@ int main() {
     std::printf("(reuses VoxelGrid + VoxelMesh -> implicit::IsoMesher -> mesh::HalfEdgeMesh;\n");
     std::printf(" no duplicate mesher / grid / mesh type / predicate)\n");
 
-    std::random_device rd;
+    struct{using result_type=unsigned;static constexpr unsigned min(){return 0u;}static constexpr unsigned max(){return ~0u;}unsigned s_=20260625u;unsigned operator()(){s_=s_*1664525u+1013904223u;return s_;}} rd;
     const std::uint64_t seed = (std::uint64_t(rd()) << 32) ^ std::uint64_t(rd());
     std::printf("SEED: %llu\n", (unsigned long long)seed);
     std::mt19937_64 rng(seed);

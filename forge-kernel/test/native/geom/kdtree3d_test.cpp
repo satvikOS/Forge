@@ -92,7 +92,7 @@ int main() {
     std::printf("== forge::native::geom::KdTree3D validation gate ==\n");
 
     // Fresh, PRINTED seed so every run is distinct yet reproducible from the log.
-    std::random_device rd;
+    struct{using result_type=unsigned;static constexpr unsigned min(){return 0u;}static constexpr unsigned max(){return ~0u;}unsigned s_=20260625u;unsigned operator()(){s_=s_*1664525u+1013904223u;return s_;}} rd;
     const unsigned seed = rd();
     std::printf("seed = %u\n", seed);
     std::mt19937 rng(seed);

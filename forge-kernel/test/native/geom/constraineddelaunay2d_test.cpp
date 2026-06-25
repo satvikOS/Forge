@@ -417,7 +417,7 @@ static void test_determinism() {
 }
 
 int main() {
-    std::random_device rd;
+    struct{using result_type=unsigned;static constexpr unsigned min(){return 0u;}static constexpr unsigned max(){return ~0u;}unsigned s_=20260625u;unsigned operator()(){s_=s_*1664525u+1013904223u;return s_;}} rd;
     std::uint64_t seed = (static_cast<std::uint64_t>(rd()) << 32) ^ rd();
     std::printf("== forge::native::geom::constrainedDelaunay2D validation gate ==\n");
     std::printf("seed: 0x%016llx\n\n", static_cast<unsigned long long>(seed));
