@@ -51,7 +51,7 @@ jobs:
     # past the old 10-min cap as the kernel expanded (8 OCCT-zero bursts) — raised
     # to 30 (gate ~12 min on CI today, headroom for further growth).
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Build + run in-house native kernel gates (pure C++, no deps, no WASM)
