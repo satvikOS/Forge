@@ -57,7 +57,9 @@ OBJS+=("$IMP")
 
 # 3. link + run the A/B test (OCCT libs)
 # OCCT 7.9 merges GProp into TKTopAlgo (no TKGProp toolkit).
-OCCT_LIBS="-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo -lTKPrim -lTKGeomAlgo -lTKBO -lTKBool -lTKShHealing"
+# TKFillet -> BRepFilletAPI_MakeFillet (the variable-radius BSpline blend fixture);
+# TKOffset -> BRepOffsetAPI_ThruSections (the BSpline loft fixture).
+OCCT_LIBS="-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo -lTKPrim -lTKGeomAlgo -lTKBO -lTKBool -lTKShHealing -lTKFillet -lTKOffset"
 BIN="$OBJDIR/native_occt_import_test"
 # shellcheck disable=SC2086
 if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" test/native_occt_import_test.cpp "${OBJS[@]}" \

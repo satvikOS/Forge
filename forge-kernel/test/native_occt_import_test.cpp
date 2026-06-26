@@ -46,6 +46,15 @@
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>          // BSpline blend (variable fillet)
+#include <BRepOffsetAPI_ThruSections.hxx>        // BSpline loft (through-sections)
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Wire.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopExp_Explorer.hxx>
+#include <gp_Circ.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <Bnd_Box.hxx>
@@ -93,15 +102,34 @@ OcctMeasure measureOcct(const TopoDS_Shape& s) {
     return m;
 }
 
+// TIGHT OCCT bbox oracle for the BSpline fixtures. OCCT's default Bnd_Box
+// (BRepBndLib::Add) bounds a B-spline face by its CONTROL-POLYGON hull, which for
+// a high-degree blend/loft surface extends measurably PAST the true surface (e.g.
+// the variable fillet's z-extent is reported [-0.24, 4.24] vs the real [0, 4]).
+// BRepBndLib::AddOptimal samples the actual surface, giving the EXACT solid extent
+// — which is what the native exact-analytic/NURBS AABB computes — so the tight box
+// is the correct A/B oracle for the curved-NURBS fixtures (it is still OCCT truth,
+// just the non-padded bound). Mass/area are unchanged (GProp integrates the real
+// surface either way).
+OcctMeasure measureOcctTight(const TopoDS_Shape& s) {
+    OcctMeasure m;
+    GProp_GProps vp; BRepGProp::VolumeProperties(s, vp); m.volume = vp.Mass();
+    GProp_GProps sp; BRepGProp::SurfaceProperties(s, sp); m.area = sp.Mass();
+    Bnd_Box bb; BRepBndLib::AddOptimal(s, bb, Standard_False, Standard_False);
+    bb.Get(m.mn[0], m.mn[1], m.mn[2], m.mx[0], m.mx[1], m.mx[2]);
+    return m;
+}
+
 // Import + assert vs the OCCT original. `bbTol` widens the bbox tolerance for the
 // curved primitives (OCCT's Bnd_Box pads, native AABB is exact-analytic) — it is
 // a generous 1% so the gate is honest about the padded-vs-exact bound but still
 // catches a wrong axis/extent.
 void gate(const std::string& name, const TopoDS_Shape& shape,
           long long expB0, long long expB1, long long expB2,
-          double volAreaTol = 0.005, double bbTol = 0.01) {
+          double volAreaTol = 0.005, double bbTol = 0.01,
+          bool tightBbox = false) {
     std::printf("[%s]\n", name.c_str());
-    OcctMeasure occt = measureOcct(shape);
+    OcctMeasure occt = tightBbox ? measureOcctTight(shape) : measureOcct(shape);
 
     ImportResult ir = importOcctSolid(shape);
     if (!ir.ok) {
@@ -220,10 +248,60 @@ int main() {
         gate("box - through-cylinder", cut, 1, 2, 1);
     }
 
+    // ========================================================================
+    // BSPLINE / NURBS SURFACE FACES — the OCCT-zero gap this slice closes. Real
+    // CAD parts (filleted blends, lofts, sweeps) carry BSpline faces; the importer
+    // now extracts Geom_BSplineSurface EXACTLY into a native NurbsSurface + (u,v)
+    // trim and welds it watertight to the analytic faces of the SAME solid.
+    //
+    // TOLERANCE JUSTIFICATION: the analytic gate is 0.5% because a quadric sub-face
+    // integrates EXACTLY (paramTri over the closed-form Jacobian). A NURBS sub-face
+    // also integrates its EXACT rational Jacobian, but the *trim region* is meshed
+    // (Steiner grid) and the divergence-theorem volume term ∮ x·n_x dA accumulates
+    // over that mesh, so a strongly-curved blend has a small chordal residual. We
+    // therefore allow a slightly looser but still tight 1% vol/area band for the
+    // NURBS fixtures (honest: it is approximate where the analytic path is exact),
+    // and assert the ACTUAL relerr is reported so any regression is visible. The
+    // bbox is gated against OCCT's TIGHT (AddOptimal) box — see measureOcctTight.
+    // ========================================================================
+
+    // (9) BOX with a VARIABLE-RADIUS FILLET on one edge. A constant-radius straight
+    // fillet is an analytic CYLINDER; a VARIABLE radius forces OCCT to build a real
+    // Geom_BSplineSurface blend. Result: ONE BSpline face + the SIX box planes — a
+    // genuine MIXED analytic+BSpline solid the importer must handle in one piece.
+    {
+        TopoDS_Shape box = BRepPrimAPI_MakeBox(10.0, 6.0, 4.0).Shape();
+        BRepFilletAPI_MakeFillet mf(box);
+        TopExp_Explorer ee(box, TopAbs_EDGE);
+        mf.Add(0.5, 2.0, TopoDS::Edge(ee.Current()));   // r: 0.5 -> 2.0 along the edge
+        mf.Build();
+        if (!mf.IsDone()) { ++g_fail; std::printf("[var-fillet] FAIL: OCCT fillet not done\n"); }
+        else gate("box + variable-radius fillet (BSpline blend + 6 planes)",
+                  mf.Shape(), 1, 0, 1, /*volArea*/0.01, /*bb*/0.01, /*tight*/true);
+    }
+
+    // (10) THROUGH-SECTIONS (loft) SOLID over two circular sections of different
+    // radius (r=4 at z=0 -> r=2 at z=8), smoothed. OCCT builds the side as a single
+    // Geom_BSplineSurface; the two end caps are planar disks. Mixed BSpline + plane,
+    // a monotone taper so the control hull ~ the surface (tight bbox matches).
+    {
+        auto circWire = [](double z, double r) -> TopoDS_Wire {
+            gp_Circ c(gp_Ax2(gp_Pnt(0, 0, z), gp_Dir(0, 0, 1)), r);
+            return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(c).Edge()).Wire();
+        };
+        BRepOffsetAPI_ThruSections ts(Standard_True /*solid*/, Standard_False /*ruled=false -> smooth BSpline*/);
+        ts.AddWire(circWire(0.0, 4.0));
+        ts.AddWire(circWire(8.0, 2.0));
+        ts.Build();
+        if (!ts.IsDone()) { ++g_fail; std::printf("[loft] FAIL: OCCT ThruSections not done\n"); }
+        else gate("lofted taper r4->r2 (BSpline side + 2 plane caps)",
+                  ts.Shape(), 1, 0, 1, /*volArea*/0.01, /*bb*/0.01, /*tight*/true);
+    }
+
     // (8) HONEST DEFERRAL: a TORUS has non-analytic-in-our-scope faces (the native
-    // importer supports Plane/Cylinder/Cone/Sphere only — Torus is out of scope), so
-    // it MUST return ok=false with a "non-analytic face Torus" reason, NOT a faked
-    // import. This proves the importer defers honestly instead of facet-faking.
+    // importer supports Plane/Cylinder/Cone/Sphere + BSpline/Bezier — Torus is still
+    // out of scope), so it MUST return ok=false with a "non-analytic face Torus"
+    // reason, NOT a faked import. This proves the importer defers honestly.
     {
         std::printf("[torus deferral]\n");
         TopoDS_Shape tor = BRepPrimAPI_MakeTorus(8.0, 2.0).Shape();

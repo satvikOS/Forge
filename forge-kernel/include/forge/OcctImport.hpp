@@ -7,20 +7,30 @@
 // can take their native branch on OCCT inputs instead of deferring totally.
 //
 // ============================ HONESTY (Bible §0/§9) ========================
-// SCOPE: ANALYTIC faces only — Plane + Cylinder + Cone + Sphere. Each OCCT
-// analytic face is re-expressed as the SAME analytic surface in the native
-// model (frame matched to OCCT's elementary parameterization, so the native
-// (u,v) coincides with OCCT's), then triangulated in its (u,v) domain (the
-// proven Boolean "faceted topology over exact analytic geometry" model) so that
-// faces with HOLES (e.g. a bored box cap) are represented and welded watertight.
-// Curved sub-faces keep the parent quadric (paramTri integration -> EXACT mass);
-// planar sub-faces integrate the exact polygon. The result is A/B-verified vs
-// the OCCT original (volume/area/bbox/Betti) by test/native_occt_import_test.cpp.
+// SCOPE: ANALYTIC faces — Plane + Cylinder + Cone + Sphere — PLUS free-form
+// BSpline / Bezier SURFACE faces (the biggest OCCT-zero gap: real CAD parts with
+// fillet blends, lofts and sweeps have BSpline faces). Each OCCT analytic face is
+// re-expressed as the SAME analytic surface in the native model (frame matched to
+// OCCT's elementary parameterization, so the native (u,v) coincides with OCCT's);
+// each BSpline face is extracted EXACTLY (poles/weights/clamped knots/degrees,
+// 1:1, periodic->clamped via OCCT's own de-periodisation) into a native
+// brep::NurbsSurface, with the face's (u,v) wire loops as its trim. Every face is
+// then triangulated in its (u,v) domain (the proven Boolean "faceted topology over
+// exact geometry" model) so faces with HOLES (a bored cap) are represented and
+// welded watertight from the SHARED OCCT edge 3-D curves. Curved sub-faces keep
+// the parent surface (paramTri integration over the EXACT — quadric or rational —
+// Jacobian); planar sub-faces integrate the exact polygon. The result is
+// A/B-verified vs the OCCT original (volume/area/bbox/Betti/validity) by
+// test/native_occt_import_test.cpp, INCLUDING a variable-radius-fillet box
+// (BSpline blend + 6 planes) and a through-sections loft (BSpline side + caps) —
+// genuine MIXED analytic+BSpline solids — to within ~1% mass/area (NURBS trim
+// meshing is approximate where the analytic path is exact; bbox/Betti are exact).
 //
-// A NURBS / BSpline / Bezier / Torus / Revolution / Extrusion / Offset face ->
+// A Torus / SurfaceOfRevolution / SurfaceOfExtrusion / Offset face still ->
 // ok=false, reason="non-analytic face <type>" — DEFERRED HONESTLY, never
-// facet-faked. This covers the canonical primitives (box/cyl/cone/sphere/prism)
-// and analytic-boolean results, which is exactly what the wires need first.
+// facet-faked. (Degenerate BSpline corner-setback patches in a constant-radius
+// all-edge fillet likewise defer honestly via the 2-manifold pre-check rather
+// than emit a folded shell.)
 //
 // Compiled ONLY under FORGE_NATIVE_BREP. It READS OCCT (it is the bridge) but
 // EMITS pure native types. C++20, no new deps.

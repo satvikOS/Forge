@@ -40,6 +40,12 @@
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <Geom_Curve.hxx>
+#include <Geom_Surface.hxx>
+#include <Geom_BSplineSurface.hxx>
+#include <Geom_BezierSurface.hxx>
+#include <GeomConvert.hxx>
+#include <TColgp_Array2OfPnt.hxx>
+#include <TColStd_Array1OfReal.hxx>
 #include <Geom2d_Curve.hxx>
 #include <gp_Pnt2d.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -56,6 +62,8 @@
 
 // --- native (emit side) ----------------------------------------------------
 #include "forge/native/brep/Surface.hpp"
+#include "forge/native/brep/Nurbs.hpp"           // nb::NurbsSurface
+#include "forge/native/brep/NurbsSurface.hpp"    // validateSurface / evaluateWithDerivatives
 #include "forge/native/geom/Geom.hpp"
 #include "forge/native/geom/ConstrainedDelaunay2D.hpp"
 
@@ -81,6 +89,12 @@ struct FaceSurf {
     bool reversed = false;     // flip native normal so it points OUT of the solid
     bool angular = false;      // u is an angle (cylinder/cone/sphere) -> unwrap
     bool sphere = false;       // v maps as native_v = pi/2 - occt_v
+    // BSpline/Bezier path (kind == Nurbs): the EXACT rational tensor-product
+    // surface (poles/weights/clamped knots/degrees). For a Nurbs face the native
+    // (u,v) == OCCT's surface (u,v) directly (the p-curves CurveOnSurface returns
+    // are in this same parameter domain), so no angular unwrap / colatitude remap
+    // is applied — occtToNative is the identity for the Nurbs kind.
+    nb::NurbsSurface nurbs;
 };
 
 // native partials dS/du, dS/dv at (u,v) (mirror of brep::Surface::evaluateDeriv).
@@ -107,6 +121,15 @@ void evalDeriv(const FaceSurf& s, double u, double v, Vec3& du, Vec3& dv) {
         du = nb::vadd(nb::vscale(s.refDir, -s.r1 * sp * st), nb::vscale(b, s.r1 * sp * ct));
         dv = nb::vadd(nb::vscale(s.refDir, s.r1 * cp * ct),
              nb::vadd(nb::vscale(b, s.r1 * cp * st), nb::vscale(s.axis, -s.r1 * sp)));
+        return;
+    }
+    case nb::SurfaceKind::Nurbs: {
+        // EXACT rational partials from the native bivariate NURBS evaluator
+        // (quotient rule on the homogeneous numerator/denominator). Same code the
+        // mass integrator runs on the built Face, so the staged orientation check
+        // sees the identical surface geometry.
+        nb::SurfaceSample ss = nb::evaluateWithDerivatives(s.nurbs, u, v);
+        du = ss.du; dv = ss.dv;
         return;
     }
     default: du = s.refDir; dv = b; return;
@@ -138,9 +161,86 @@ Vec3 evalUV(const FaceSurf& s, double u, double v) {
                        nb::vadd(nb::vscale(b, s.r1 * sp * st),
                                 nb::vscale(s.axis, s.r1 * cp))));
     }
+    case nb::SurfaceKind::Nurbs: {
+        // EXACT rational surface point S(u,v) (used for interior Steiner points;
+        // boundary points are the canonical shared edge-curve 3-D positions).
+        nb::SurfaceSample ss = nb::evaluatePoint(s.nurbs, u, v);
+        return ss.point;
+    }
     default:
         return s.origin;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Convert an OCCT Geom_BSplineSurface into a native nb::NurbsSurface, EXACTLY:
+// every pole (control point) + weight, the FLAT (multiplicity-expanded) clamped
+// knot vectors, and the U/V degrees are copied 1:1 — no refit, no approximation
+// of the geometry itself. A U- or V-PERIODIC OCCT surface (its knot vector is
+// not clamped, so the native validateSurface would reject it) is first converted
+// to its equivalent CLAMPED (non-periodic) form by OCCT's own SetUNotPeriodic /
+// SetVNotPeriodic, which duplicates the wrap-around poles and re-clamps the end
+// knots WITHOUT changing the surface — the native poles then satisfy the clamped
+// invariant while still describing the same geometry. The native surface keeps
+// OCCT's parameter domain (knotsU/V carry OCCT's actual U/V values), so the face
+// p-curves (BRep_Tool::CurveOnSurface, in that same domain) index it directly.
+//
+// Returns false (with `why`) only if the converted surface fails the native
+// validateSurface gate — an HONEST defer, never a fabricated surface.
+bool readBSplineSurface(const Handle(Geom_BSplineSurface)& srcIn,
+                        nb::NurbsSurface& out, std::string& why) {
+    if (srcIn.IsNull()) { why = "null BSpline surface"; return false; }
+
+    // Work on a copy so converting periodic->clamped never mutates the input
+    // shape's geometry (we only READ the OCCT side).
+    Handle(Geom_BSplineSurface) s =
+        Handle(Geom_BSplineSurface)::DownCast(srcIn->Copy());
+    if (s.IsNull()) { why = "BSpline surface copy failed"; return false; }
+    if (s->IsUPeriodic()) s->SetUNotPeriodic();
+    if (s->IsVPeriodic()) s->SetVNotPeriodic();
+
+    const int nU = s->NbUPoles();
+    const int nV = s->NbVPoles();
+    if (nU < 2 || nV < 2) { why = "BSpline pole count < 2"; return false; }
+
+    out.degreeU = (std::size_t)s->UDegree();
+    out.degreeV = (std::size_t)s->VDegree();
+
+    // Poles + weights (OCCT 1-based grid: rows index U, cols index V — matches the
+    // native control[i_u][j_v] convention). Weight defaults to 1 for a polynomial
+    // (non-rational) surface (OCCT returns a null weight array there).
+    const bool rational = s->IsURational() || s->IsVRational();
+    out.control.assign(nU, std::vector<nb::Vec3>(nV));
+    out.weights.assign(nU, std::vector<double>(nV, 1.0));
+    for (int iu = 1; iu <= nU; ++iu)
+        for (int iv = 1; iv <= nV; ++iv) {
+            gp_Pnt p = s->Pole(iu, iv);
+            out.control[iu - 1][iv - 1] = nb::Vec3{p.X(), p.Y(), p.Z()};
+            if (rational) {
+                double w = s->Weight(iu, iv);
+                if (!(w > 0.0)) { why = "BSpline non-positive weight"; return false; }
+                out.weights[iu - 1][iv - 1] = w;
+            }
+        }
+
+    // FLAT knot vectors (multiplicities already expanded): size nU+degreeU+1 and
+    // nV+degreeV+1, clamped after the de-periodisation above.
+    TColStd_Array1OfReal uk(1, nU + s->UDegree() + 1);
+    TColStd_Array1OfReal vk(1, nV + s->VDegree() + 1);
+    s->UKnotSequence(uk);
+    s->VKnotSequence(vk);
+    out.knotsU.assign(uk.Length(), 0.0);
+    out.knotsV.assign(vk.Length(), 0.0);
+    for (int i = uk.Lower(); i <= uk.Upper(); ++i) out.knotsU[i - uk.Lower()] = uk.Value(i);
+    for (int i = vk.Lower(); i <= vk.Upper(); ++i) out.knotsV[i - vk.Lower()] = vk.Value(i);
+
+    const char* vr = nullptr;
+    if (!nb::validateSurface(out, &vr)) {
+        why = std::string("BSpline surface invalid for native (") +
+              (vr ? vr : "?") + ")";
+        return false;
+    }
+    return true;
 }
 
 // Build the native FaceSurf from an OCCT analytic face. Returns false (with
@@ -198,11 +298,35 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         out.sphere  = true;
         break;
     }
+    case GeomAbs_BSplineSurface: {
+        // The biggest OCCT-zero gap: real CAD parts (fillet blends, lofts, sweeps)
+        // are bounded by BSpline faces. Extract OCCT's Geom_BSplineSurface EXACTLY
+        // into the native rational tensor-product surface; the face's trim (its
+        // (u,v) wire loops) is applied by the CDT path below.
+        Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+        Handle(Geom_BSplineSurface) bs = Handle(Geom_BSplineSurface)::DownCast(gs);
+        if (bs.IsNull()) { why = "BSpline face had no Geom_BSplineSurface"; return false; }
+        if (!readBSplineSurface(bs, out.nurbs, why)) return false;
+        out.kind = nb::SurfaceKind::Nurbs;
+        return true;   // frame fields (origin/axis/refDir) are unused for Nurbs.
+    }
+    case GeomAbs_BezierSurface: {
+        // A Bezier surface is the special case of a B-spline with the clamped
+        // Bezier knot vector [0..0,1..1]; OCCT converts it LOSSLESSLY. We do the
+        // Bezier->BSpline promotion here (cheap + exact) so the same native path
+        // handles it — no separate Bezier evaluator needed.
+        Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+        Handle(Geom_BezierSurface) bz = Handle(Geom_BezierSurface)::DownCast(gs);
+        if (bz.IsNull()) { why = "Bezier face had no Geom_BezierSurface"; return false; }
+        Handle(Geom_BSplineSurface) bs = GeomConvert::SurfaceToBSplineSurface(bz);
+        if (bs.IsNull()) { why = "Bezier->BSpline conversion failed"; return false; }
+        if (!readBSplineSurface(bs, out.nurbs, why)) return false;
+        out.kind = nb::SurfaceKind::Nurbs;
+        return true;
+    }
     default: {
         const char* n = "other";
         switch (t) {
-            case GeomAbs_BSplineSurface:  n = "BSpline";     break;
-            case GeomAbs_BezierSurface:   n = "Bezier";      break;
             case GeomAbs_Torus:           n = "Torus";       break;
             case GeomAbs_SurfaceOfRevolution: n = "Revolution"; break;
             case GeomAbs_SurfaceOfExtrusion:  n = "Extrusion";  break;
@@ -313,6 +437,7 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         double r1 = 0, r2 = 0, param = 0;
         bool reversed = false, paramTri = false;
         std::array<std::array<double, 2>, 3> uv{};
+        std::shared_ptr<const nb::NurbsSurface> nurbs; // valid iff kind==Nurbs
     };
     std::vector<StagedFace> staged;
 
@@ -366,7 +491,13 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         // rim rows (v = vmin / vmax) sample at the SAME nu angles the bounding cap
         // circles use (kEdgeSamples), so wall-rim and cap-rim vertices weld => the
         // wall stitches watertight to its caps. Mass stays EXACT (paramTri quads).
-        if (curved && std::fabs((umax - umin) - 2.0 * kPi) < 1e-6) {
+        // NB: NURBS faces NEVER take the periodic-wrap-grid path — that path bakes
+        // in the quadric angular/colatitude parameterisation (nv0/nv1, sphere-pole
+        // collapse). A NURBS face's u-domain is its knot range (which may happen to
+        // span 2*pi but is NOT an angle), so it is handled by the general CDT path
+        // below with its real (u,v) trim loops.
+        if (fs.kind != nb::SurfaceKind::Nurbs &&
+            curved && std::fabs((umax - umin) - 2.0 * kPi) < 1e-6) {
             // `faceReversed`: native du x dv vs OCCT's OUTWARD normal, compared at the
             // SAME physical point (a curved face's outward direction varies with u, so
             // both MUST be sampled at the same (u,v) — here OCCT u=umin / native u=0).
@@ -483,6 +614,11 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             }
             case nb::SurfaceKind::Sphere:
                 un = unwrapU(uo); vn = 0.5 * kPi - vo; return; // colatitude
+            case nb::SurfaceKind::Nurbs:
+                // IDENTITY: the native NURBS surface keeps OCCT's parameter domain,
+                // and CurveOnSurface returns the p-curve in that same (u,v), so the
+                // native (u,v) == OCCT's (u,v) with no remap.
+                un = uo; vn = vo; return;
             default: un = uo; vn = vo; return;
             }
         };
@@ -570,7 +706,21 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         // CURVED faces (non-periodic — e.g. a cut wall): interior Steiner grid so the
         // boundary triangulation is fine enough for a watertight tessellation + Betti
         // (mass is exact via paramTri regardless of grid). Planar faces need none.
-        if (curved) {
+        if (curved && fs.kind == nb::SurfaceKind::Nurbs) {
+            // NURBS: no analytic radius, so mass accuracy is the quadrature density.
+            // Each interior cell becomes paramTri sub-faces whose degree-5 rule
+            // integrates that patch; a finer (u,v) grid => more patches => the
+            // approximation of a strongly-curved blend/loft tightens. Scale the
+            // grid with the control-net span in each direction (more poles between
+            // the knot bounds => more curvature to resolve), clamped for cost.
+            std::size_t npU = fs.nurbs.control.size();
+            std::size_t npV = npU ? fs.nurbs.control[0].size() : 0;
+            int nu = std::max(8, std::min(40, 6 * (int)npU));
+            int nv = std::max(8, std::min(40, 6 * (int)npV));
+            for (int iu = 1; iu < nu; ++iu)
+                for (int iv = 1; iv < nv; ++iv)
+                    addInteriorP(pu0 + du * iu / nu, pv0 + dv * iv / nv);
+        } else if (curved) {
             int nu = std::max(2, (int)std::ceil(du / (2.0 * kPi) * 48.0));
             int nv = std::max(2, (int)std::ceil(dv / std::max(dv, 1e-9) * 6.0));
             if (fs.kind == nb::SurfaceKind::Sphere) nv = std::max(8, nv);
@@ -615,6 +765,12 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             return evalUV(fs, P.x, P.y);
         };
 
+        // One shared copy of this OCCT face's NURBS surface (if any), referenced by
+        // every staged sub-face — not copied per-triangle (a blend can have many).
+        std::shared_ptr<const nb::NurbsSurface> sharedNurbs;
+        if (fs.kind == nb::SurfaceKind::Nurbs)
+            sharedNurbs = std::make_shared<const nb::NurbsSurface>(fs.nurbs);
+
         // even-odd `inside` over the closed constraint loops == the annulus for a
         // bored cap. Stage one native sub-face per inside triangle (built below).
         for (std::size_t t = 0; t < cdt.triangles.size(); ++t) {
@@ -644,6 +800,7 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             sfc.reversed = faceReversed;
             sfc.uv = {{{{A.x, A.y}}, {{B.x, B.y}}, {{C.x, C.y}}}};
             sfc.paramTri = curved;
+            sfc.nurbs = sharedNurbs;
             staged.push_back(std::move(sfc));
         }
     }
@@ -698,6 +855,8 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         surf->kind = sf.kind; surf->origin = sf.origin; surf->axis = sf.axis;
         surf->refDir = sf.refDir; surf->r1 = sf.r1; surf->r2 = sf.r2;
         surf->param = sf.param; surf->reversed = sf.reversed;
+        if (sf.kind == nb::SurfaceKind::Nurbs && sf.nurbs)
+            surf->nurbs = *sf.nurbs;   // the EXACT rational surface for this patch
         f->surface = surf;
         f->vertexUV = {sf.uv[0], sf.uv[1], sf.uv[2]};
         f->u0 = std::min({sf.uv[0][0], sf.uv[1][0], sf.uv[2][0]});
