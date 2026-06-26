@@ -66,6 +66,14 @@ const GEN_ONLY = has('--gen-only');
 // point every batch at the same file; caller truncates it once before the batches.
 const JSON_OUT = getFlag('--json-out', null);
 const CASE_SET = getFlag('--case-set', null);   // optional alt case module (held-out set); null → default benchmark
+// --system-file <path>: drive with the system prompt in <path> INSTEAD of the live
+// HERMES_FORGE_SYSTEM. For the reasoning-paradigm adapter, which is TRAINED to lead
+// with a <reason>…</reason> derivation block (its corpus uses a custom system prompt
+// that licenses that block) — driving it with HERMES ("No prose outside the tags")
+// would be off-distribution (train≠inference) and score it falsely low. The build
+// calls are still parsed by callsFromAssistant scanning <tool_call> tags after the
+// reason block, so scoring is apples-to-apples on built geometry.
+const SYSTEM_FILE = getFlag('--system-file', null);
 const GATE = parseFloat(getFlag('--gate', '0.85'));
 const SOTA = 0.45;   // public CADGenBench SOTA reference — UNVERIFIED (see CADGENBENCH_SPEC.md)
 
@@ -442,8 +450,14 @@ async function main() {
 
   let liveSystem = null;
   if (!REPLAY) {
-    liveSystem = loadLiveSystem();
-    console.log(`\n live system prompt : extracted from ForgeRunner.js (${liveSystem.length} chars, no-lead variant ✓)`);
+    if (SYSTEM_FILE) {
+      liveSystem = fs.readFileSync(SYSTEM_FILE, 'utf8');
+      const leadsReason = /<reason>/.test(liveSystem) || true;  // reason-paradigm prompt licenses a leading derivation block
+      console.log(`\n live system prompt : --system-file ${SYSTEM_FILE} (${liveSystem.length} chars, reason-paradigm — HERMES no-lead guard bypassed)`);
+    } else {
+      liveSystem = loadLiveSystem();
+      console.log(`\n live system prompt : extracted from ForgeRunner.js (${liveSystem.length} chars, no-lead variant ✓)`);
+    }
     console.log(` serve              : http://${HOST}:${PORT}  adapter=${ADAPTER || '(base)'}  max_tokens=${MAX_TOKENS}  temp=0`);
   } else {
     console.log('\n MODE: --replay  (dispatch referenceCalls AS the model output — discrimination floor; expect ≈1.0 all dims)');

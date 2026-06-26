@@ -5,7 +5,9 @@
 // B-rep boolean (brep::booleanSolid) behind FORGE_NATIVE_BREP + the runtime gate.
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"
+#include <cstdint>
 #include <memory>
+#include <vector>
 // NOTE: the OCCT fallback below passes the ORIGINAL handles to runBoolean<> —
 // ShapeRegistry::get() lazily bridges any native operand to OCCT on demand
 // (see ShapeRegistry::get / NativeOcctBridge), so no explicit conversion is needed.
@@ -180,12 +182,51 @@ bool tryNativeBoolean(ShapeHandle a, ShapeHandle b,
                       native::brep::BoolOp op, ShapeHandle& out) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
-    if (reg.kindOf(a) != ShapeKind::NativeSolid || reg.kindOf(b) != ShapeKind::NativeSolid)
-        return false;
-    BooleanResult r = booleanSolid(reg.getNativeSolid(a), reg.getNativeSolid(b), op);
-    if (!r.ok || !r.solid || !r.owner)
-        return false;
-    out = reg.addNativeSolid(r.owner, r.solid);
+    const ShapeKind ka = reg.kindOf(a);
+    const ShapeKind kb = reg.kindOf(b);
+
+    // ---- COMMON CASE (UNCHANGED): pure analytic Solid x Solid -------------
+    if (ka == ShapeKind::NativeSolid && kb == ShapeKind::NativeSolid) {
+        BooleanResult r = booleanSolid(reg.getNativeSolid(a), reg.getNativeSolid(b), op);
+        if (!r.ok || !r.solid || !r.owner)
+            return false;
+        out = reg.addNativeSolid(r.owner, r.solid);
+        return true;
+    }
+
+    // ---- MESH-OPERAND BRIDGE (the fuse/cut mesh-operand fix) --------------
+    // At least one operand is a NativeMesh (a fillet/chamfer mesh-bridge result that
+    // carries NO analytic TopoDS_Shape / brep::Solid). The OCCT fallback would THROW
+    // on it (ShapeRegistry::get -> "native-mesh-backed ... no analytic TopoDS_Shape"),
+    // so route the boolean through the native MESH boolean (booleanMeshOperand) when
+    // BOTH operands are native (NativeMesh or NativeSolid). A mixed native/OCCT pair
+    // still HONESTLY DEFERS to OCCT below (return false).
+    const bool aNative = (ka == ShapeKind::NativeMesh || ka == ShapeKind::NativeSolid);
+    const bool bNative = (kb == ShapeKind::NativeMesh || kb == ShapeKind::NativeSolid);
+    const bool meshInvolved = (ka == ShapeKind::NativeMesh || kb == ShapeKind::NativeMesh);
+    if (!(aNative && bNative && meshInvolved))
+        return false;  // mixed native/OCCT operand -> let OCCT handle it (no throw here)
+
+    // Gather each operand's triangle soup. The registry accessors take their lock
+    // only for the borrow; the toSoup()/tessellateSolid() copies below run on the
+    // returned references with NO registry lock held (mirrors booleanSolidMeshFallback).
+    auto gatherSoup = [&reg](ShapeHandle h, ShapeKind k,
+                             std::vector<double>& pos, std::vector<std::uint32_t>& idx) {
+        if (k == ShapeKind::NativeMesh) {
+            reg.getNativeMesh(h).toSoup(pos, idx);
+        } else {  // NativeSolid
+            native::brep::tessellateSolid(reg.getNativeSolid(h), pos, idx);
+        }
+    };
+    std::vector<double> aPos, bPos;
+    std::vector<std::uint32_t> aIdx, bIdx;
+    gatherSoup(a, ka, aPos, aIdx);
+    gatherSoup(b, kb, bPos, bIdx);
+
+    MeshOperandResult mr = booleanMeshOperand(aPos, aIdx, bPos, bIdx, op);
+    if (!mr.ok || !mr.solid || !mr.owner)
+        return false;  // honest deferral (the mesh boolean could not close the result)
+    out = reg.addNativeSolid(mr.owner, mr.solid);
     return true;
 }
 #endif

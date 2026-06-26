@@ -315,11 +315,46 @@ BooleanResult booleanSolidMeshFallback(const Solid& A, const Solid& B, BoolOp op
     BooleanResult res;
     res.usedMeshFallback = true;
 
+    // Tessellate BOTH solids to conforming soups, then route through the shared
+    // mesh-operand core (booleanMeshOperand). Identical pipeline to before — the
+    // soup->meshBooleanNative->reconstructPlanar->manifold-check body now lives in
+    // booleanMeshOperand so src/Booleans.cpp can reuse it for NativeMesh operands.
     std::vector<double> ap, bp;
     std::vector<std::uint32_t> ai, bi;
     tessellateSolid(A, ap, ai, opts.weldTol);
     tessellateSolid(B, bp, bi, opts.weldTol);
-    if (ai.empty() || bi.empty()) { res.reason = "empty input tessellation"; return res; }
+
+    MeshOperandResult mr = booleanMeshOperand(ap, ai, bp, bi, op);
+    res.ok     = mr.ok;
+    res.reason = mr.ok ? "ok (mesh fallback)" : mr.reason;
+    res.solid  = mr.solid;
+    res.owner  = std::move(mr.owner);
+    return res;
+}
+
+} // namespace
+
+// ===========================================================================
+// MESH-OPERAND BOOLEAN (the fuse/cut mesh-operand bridge) — see Boolean.hpp.
+// The reusable core factored out of booleanSolidMeshFallback: it operates on raw
+// triangle soups so a caller (src/Booleans.cpp) can supply a NativeMesh operand's
+// soup (getNativeMesh().toSoup()) that has no analytic Solid to tessellate. The
+// anonymous-namespace helpers (ensurePositiveWinding / toMeshOp / reconstructPlanar)
+// are defined above in this TU and are in scope here.
+// ===========================================================================
+MeshOperandResult booleanMeshOperand(const std::vector<double>& aPos,
+                                     const std::vector<std::uint32_t>& aIdx,
+                                     const std::vector<double>& bPos,
+                                     const std::vector<std::uint32_t>& bIdx,
+                                     BoolOp op) {
+    MeshOperandResult res;
+
+    if (aIdx.empty() || bIdx.empty()) { res.reason = "empty input tessellation"; return res; }
+
+    // Copy the soups so we can normalize winding without mutating the caller's
+    // (the caller's soups may be views it still needs / built outside a lock).
+    std::vector<double> ap = aPos, bp = bPos;
+    std::vector<std::uint32_t> ai = aIdx, bi = bIdx;
     ensurePositiveWinding(ap, ai);
     ensurePositiveWinding(bp, bi);
 
@@ -329,16 +364,14 @@ BooleanResult booleanSolidMeshFallback(const Solid& A, const Solid& B, BoolOp op
     auto owner = std::make_shared<TopologyBuilder>();
     Solid* solid = nullptr;
     if (!reconstructPlanar(br.mesh, *owner, solid)) {
-        res.reason = "fallback reconstruction hit a degenerate triangle"; return res;
+        res.reason = "mesh-operand reconstruction hit a degenerate triangle"; return res;
     }
     if (!owner->isClosedTwoManifold()) {
-        res.reason = "fallback reconstructed solid is not a closed 2-manifold"; return res;
+        res.reason = "mesh-operand reconstructed solid is not a closed 2-manifold"; return res;
     }
-    res.ok = true; res.reason = "ok (mesh fallback)"; res.solid = solid; res.owner = owner;
+    res.ok = true; res.reason = "ok (mesh operand)"; res.solid = solid; res.owner = owner;
     return res;
 }
-
-} // namespace
 
 // ===========================================================================
 // ANALYTIC PATH

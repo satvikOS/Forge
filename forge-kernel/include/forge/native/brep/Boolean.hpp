@@ -55,7 +55,9 @@
 #ifndef FORGE_NATIVE_BREP_BOOLEAN_HPP
 #define FORGE_NATIVE_BREP_BOOLEAN_HPP
 
+#include <cstdint>
 #include <memory>
+#include <vector>
 
 #include "forge/native/brep/Topology.hpp"
 
@@ -142,6 +144,42 @@ struct BooleanOptions {
 // file header for the strategy and the HONEST map of what is exact vs converged.
 BooleanResult booleanSolid(const Solid& A, const Solid& B, BoolOp op,
                            const BooleanOptions& opts = BooleanOptions{});
+
+// ===========================================================================
+// MESH-OPERAND BOOLEAN (the fuse/cut mesh-operand bridge)
+// ===========================================================================
+// Compute A (op) B directly from two INDEXED TRIANGLE SOUPS (positions flat xyz,
+// indices flat tri), where AT LEAST ONE operand is a NativeMesh (a fillet/chamfer
+// mesh-bridge result that carries NO analytic TopoDS_Shape / brep::Solid). This is
+// the SAME proven pipeline the analytic mesh fallback uses — meshBooleanNative ->
+// reconstructPlanar -> isClosedTwoManifold — exposed so src/Booleans.cpp can route
+// a NativeMesh x NativeSolid (or NativeMesh x NativeMesh) boolean through it WITHOUT
+// touching OCCT (the operand has no analytic shape to bridge, so the OCCT path would
+// THROW). The caller is responsible for gathering each operand's soup OUTSIDE any
+// held registry lock (NativeMesh -> getNativeMesh().toSoup(); NativeSolid ->
+// tessellateSolid(getNativeSolid())) and passing them here.
+//
+// Result faces are planar (reconstructPlanar = 1 face/triangle), exactly like the
+// existing Solid x Solid mesh fallback — fine for the viewport and for mass props.
+// `ok` is an HONEST closed-2-manifold guarantee (true ONLY when `solid` validated);
+// on any honest failure (empty input, degenerate triangle, mesh boolean ok=false,
+// non-manifold reconstruction) ok=false and `reason` explains — NEVER a wrong solid.
+// The result owns its topology via `owner`; `solid` is a non-owning view valid for
+// the lifetime of `owner`.
+struct MeshOperandResult {
+    bool   ok = false;
+    const char* reason = "uninitialized";
+    Solid* solid = nullptr;                       // view into *owner
+    std::shared_ptr<TopologyBuilder> owner;       // owns the result topology
+};
+
+// `weldTol` matches BooleanOptions::weldTol (the soups are already built; this is
+// passed through to the result reconstruction for parity with the Solid path).
+MeshOperandResult booleanMeshOperand(const std::vector<double>& aPos,
+                                     const std::vector<std::uint32_t>& aIdx,
+                                     const std::vector<double>& bPos,
+                                     const std::vector<std::uint32_t>& bIdx,
+                                     BoolOp op);
 
 } // namespace brep
 } // namespace native
