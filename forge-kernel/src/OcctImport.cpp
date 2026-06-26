@@ -39,6 +39,11 @@
 #include <BRep_Tool.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_FindPlane.hxx>
+#include <GCPnts_UniformAbscissa.hxx>
+#include <GeomAbs_CurveType.hxx>
+#include <Geom_Plane.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Surface.hxx>
 #include <Geom_BSplineSurface.hxx>
@@ -74,6 +79,7 @@
 #include "forge/native/brep/NurbsSurface.hpp"    // validateSurface / evaluateWithDerivatives
 #include "forge/native/geom/Geom.hpp"
 #include "forge/native/geom/ConstrainedDelaunay2D.hpp"
+#include "forge/native/brep/Sweep.hpp"           // nb::Profile (Point2 rings)
 
 namespace forge {
 
@@ -1290,6 +1296,231 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
     res.solid = solid;
     res.owner = owner;
     return res;
+}
+
+// ===========================================================================
+// OCCT sketch WIRE / planar FACE -> native B-rep PROFILE (Sweep.hpp Profile).
+// ===========================================================================
+namespace {
+
+// Discretise ONE oriented wire edge into ordered 3-D points, in the wire's
+// traversal sense. A line edge contributes its two endpoints; a curved edge is
+// sampled by GCPnts_UniformAbscissa (uniform arc length) into kProfileEdgeSamples
+// points. The edge's END vertex is NOT appended here — the wire explorer's next
+// edge contributes it (so the ring has no duplicated shared vertex). Returns false
+// only if the edge's 3-D curve cannot be read.
+bool sampleEdge3D(const TopoDS_Edge& e, bool reversed, std::vector<Vec3>& out) {
+    BRepAdaptor_Curve ad(e);
+    Standard_Real f = ad.FirstParameter(), l = ad.LastParameter();
+    if (!(l > f) && !(f > l)) {
+        // zero-length parameter range -> nothing usable from this edge.
+        return true;
+    }
+    const GeomAbs_CurveType ct = ad.GetType();
+    auto emit = [&](double param) { out.push_back(toV3(ad.Value(param))); };
+
+    if (ct == GeomAbs_Line) {
+        // exact: only the start vertex (the next edge contributes the shared end).
+        emit(reversed ? l : f);
+        return true;
+    }
+    // curved edge — uniform-abscissa discretisation over [f,l].
+    GCPnts_UniformAbscissa ua(ad, kProfileEdgeSamples + 1, f, l);
+    if (ua.IsDone() && ua.NbPoints() >= 2) {
+        const int n = ua.NbPoints();
+        // emit all but the LAST point (the shared end goes to the next edge),
+        // honouring traversal direction.
+        for (int i = 0; i < n - 1; ++i) {
+            int idx = reversed ? (n - i) : (i + 1);   // 1-based GCPnts index
+            emit(ua.Parameter(idx));
+        }
+        return true;
+    }
+    // fall back to a uniform PARAMETER sampling if the abscissa solver failed.
+    for (int i = 0; i < kProfileEdgeSamples; ++i) {
+        double s = (double)i / kProfileEdgeSamples;
+        emit(reversed ? (l + (f - l) * s) : (f + (l - f) * s));
+    }
+    return true;
+}
+
+// Project ordered 3-D ring points into the plane (origin, xDir, yDir) -> Point2,
+// dropping consecutive (welded) duplicates and the wrap-around duplicate. `tol2`
+// is the squared in-plane weld tolerance. Returns false if < 3 distinct points.
+bool projectRing(const std::vector<Vec3>& pts3, const Vec3& org,
+                 const Vec3& xd, const Vec3& yd, double tol,
+                 std::vector<ng::Point2>& ring2) {
+    ring2.clear();
+    const double tol2 = tol * tol;
+    for (const Vec3& p : pts3) {
+        Vec3 d = nb::vsub(p, org);
+        ng::Point2 q{nb::vdot(d, xd), nb::vdot(d, yd)};
+        if (!ring2.empty()) {
+            double ddx = q.x - ring2.back().x, ddy = q.y - ring2.back().y;
+            if (ddx * ddx + ddy * ddy <= tol2) continue;   // welded duplicate
+        }
+        ring2.push_back(q);
+    }
+    // drop the wrap-around duplicate (last == first).
+    if (ring2.size() >= 2) {
+        double ddx = ring2.front().x - ring2.back().x;
+        double ddy = ring2.front().y - ring2.back().y;
+        if (ddx * ddx + ddy * ddy <= tol2) ring2.pop_back();
+    }
+    return ring2.size() >= 3;
+}
+
+// signed area of a 2D loop (positive == CCW) — same convention as Sweep::signedArea.
+double ringSignedArea(const std::vector<ng::Point2>& r) {
+    double a = 0.0;
+    for (std::size_t i = 0; i < r.size(); ++i) {
+        const auto& p = r[i]; const auto& q = r[(i + 1) % r.size()];
+        a += p.x * q.y - q.x * p.y;
+    }
+    return 0.5 * a;
+}
+
+// Find the plane a single wire lies in (OCCT BRepBuilderAPI_FindPlane). Returns
+// false (NON-planar / no plane) if the wire's edges are not coplanar.
+bool wirePlane(const TopoDS_Wire& w, gp_Pln& pl) {
+    BRepBuilderAPI_FindPlane fp(w);
+    if (!fp.Found()) return false;
+    pl = fp.Plane()->Pln();
+    return true;
+}
+
+// Sample + project one wire into a 2D ring in the GIVEN plane frame (no orientation
+// fix-up here — the caller orients outer CCW / hole CW).
+bool ringFromWire(const TopoDS_Wire& w, const TopoDS_Face* faceForPCurve,
+                  const Vec3& org, const Vec3& xd, const Vec3& yd, double tol,
+                  std::vector<ng::Point2>& ring2, std::string& why) {
+    std::vector<Vec3> pts3;
+    if (faceForPCurve) {
+        for (BRepTools_WireExplorer ex(w, *faceForPCurve); ex.More(); ex.Next()) {
+            TopoDS_Edge e = ex.Current();
+            bool rev = (ex.Current().Orientation() == TopAbs_REVERSED);
+            if (!sampleEdge3D(e, rev, pts3)) { why = "wire edge has no 3-D curve"; return false; }
+        }
+    } else {
+        for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) {
+            TopoDS_Edge e = ex.Current();
+            bool rev = (ex.Current().Orientation() == TopAbs_REVERSED);
+            if (!sampleEdge3D(e, rev, pts3)) { why = "wire edge has no 3-D curve"; return false; }
+        }
+    }
+    if (pts3.size() < 3) { why = "wire produced < 3 ring points (open or degenerate)"; return false; }
+    if (!projectRing(pts3, org, xd, yd, tol, ring2)) {
+        why = "projected ring degenerate (< 3 distinct in-plane points)"; return false; }
+    if (std::fabs(ringSignedArea(ring2)) <= tol * tol) {
+        why = "projected ring has zero area"; return false; }
+    return true;
+}
+
+} // namespace
+
+ProfileImportResult importOcctProfile(const TopoDS_Wire& wire) {
+    ProfileImportResult r;
+    if (wire.IsNull()) { r.reason = "null wire"; return r; }
+
+    gp_Pln pl;
+    if (!wirePlane(wire, pl)) {
+        r.reason = "non-planar wire (no exact plane for sketch profile — deferred)";
+        return r;
+    }
+    const gp_Ax3& ax = pl.Position();
+    const Vec3 org = toV3(ax.Location());
+    const Vec3 xd  = nb::vnorm(toV3(ax.XDirection()));
+    const Vec3 yd  = nb::vnorm(toV3(ax.YDirection()));
+    const Vec3 nrm = nb::vnorm(toV3(ax.Direction()));
+
+    // plane-scale weld tolerance from the wire bbox diagonal (cheap: vertex span).
+    double diag = 1.0;
+    {
+        double lo[3] = {1e300,1e300,1e300}, hi[3] = {-1e300,-1e300,-1e300};
+        for (TopExp_Explorer ve(wire, TopAbs_VERTEX); ve.More(); ve.Next()) {
+            Vec3 p = toV3(BRep_Tool::Pnt(TopoDS::Vertex(ve.Current())));
+            for (int k = 0; k < 3; ++k) { double v = (&p.x)[k];
+                lo[k] = std::min(lo[k], v); hi[k] = std::max(hi[k], v); }
+        }
+        diag = std::sqrt((hi[0]-lo[0])*(hi[0]-lo[0]) + (hi[1]-lo[1])*(hi[1]-lo[1]) +
+                         (hi[2]-lo[2])*(hi[2]-lo[2]));
+        if (!(diag > 0)) diag = 1.0;
+    }
+    const double tol = 1e-7 * std::max(1.0, diag);
+
+    std::vector<ng::Point2> outer;
+    std::string why;
+    if (!ringFromWire(wire, nullptr, org, xd, yd, tol, outer, why)) { r.reason = why; return r; }
+
+    // orient OUTER CCW (Profile contract).
+    if (ringSignedArea(outer) < 0.0) std::reverse(outer.begin(), outer.end());
+    r.profile.outer = std::move(outer);
+    r.profile.holes.clear();
+
+    r.origin = {{org.x, org.y, org.z}};
+    r.normal = {{nrm.x, nrm.y, nrm.z}};
+    r.xDir   = {{xd.x,  xd.y,  xd.z}};
+    r.yDir   = {{yd.x,  yd.y,  yd.z}};
+    r.ok = true;
+    return r;
+}
+
+ProfileImportResult importOcctProfile(const TopoDS_Face& face) {
+    ProfileImportResult r;
+    if (face.IsNull()) { r.reason = "null face"; return r; }
+
+    // Only a PLANAR sketch face has an exact 2D profile; defer otherwise.
+    BRepAdaptor_Surface ad(face, Standard_True);
+    if (ad.GetType() != GeomAbs_Plane) {
+        r.reason = "non-planar sketch face (only a planar profile face imports — deferred)";
+        return r;
+    }
+    gp_Pln pl = ad.Plane();
+    const gp_Ax3& ax = pl.Position();
+    const Vec3 org = toV3(ax.Location());
+    const Vec3 xd  = nb::vnorm(toV3(ax.XDirection()));
+    const Vec3 yd  = nb::vnorm(toV3(ax.YDirection()));
+    const Vec3 nrm = nb::vnorm(toV3(ax.Direction()));
+
+    double diag = 1.0;
+    {
+        double lo[3] = {1e300,1e300,1e300}, hi[3] = {-1e300,-1e300,-1e300};
+        for (TopExp_Explorer ve(face, TopAbs_VERTEX); ve.More(); ve.Next()) {
+            Vec3 p = toV3(BRep_Tool::Pnt(TopoDS::Vertex(ve.Current())));
+            for (int k = 0; k < 3; ++k) { double v = (&p.x)[k];
+                lo[k] = std::min(lo[k], v); hi[k] = std::max(hi[k], v); }
+        }
+        diag = std::sqrt((hi[0]-lo[0])*(hi[0]-lo[0]) + (hi[1]-lo[1])*(hi[1]-lo[1]) +
+                         (hi[2]-lo[2])*(hi[2]-lo[2]));
+        if (!(diag > 0)) diag = 1.0;
+    }
+    const double tol = 1e-7 * std::max(1.0, diag);
+
+    TopoDS_Wire outerW = BRepTools::OuterWire(face);
+    std::vector<ng::Point2> outer;
+    std::string why;
+    if (!ringFromWire(outerW, &face, org, xd, yd, tol, outer, why)) { r.reason = why; return r; }
+    if (ringSignedArea(outer) < 0.0) std::reverse(outer.begin(), outer.end());
+    r.profile.outer = std::move(outer);
+    r.profile.holes.clear();
+
+    // every OTHER wire on the face is a HOLE loop -> CW ring inside the outer.
+    for (TopExp_Explorer we(face, TopAbs_WIRE); we.More(); we.Next()) {
+        TopoDS_Wire w = TopoDS::Wire(we.Current());
+        if (w.IsSame(outerW)) continue;
+        std::vector<ng::Point2> hole;
+        std::string hwhy;
+        if (!ringFromWire(w, &face, org, xd, yd, tol, hole, hwhy)) { r.reason = hwhy; return r; }
+        if (ringSignedArea(hole) > 0.0) std::reverse(hole.begin(), hole.end()); // CW
+        r.profile.holes.push_back(std::move(hole));
+    }
+
+    r.origin = {{org.x, org.y, org.z}};
+    r.normal = {{nrm.x, nrm.y, nrm.z}};
+    r.xDir   = {{xd.x,  xd.y,  xd.z}};
+    r.yDir   = {{yd.x,  yd.y,  yd.z}};
+    r.ok = true;
+    return r;
 }
 
 }  // namespace forge

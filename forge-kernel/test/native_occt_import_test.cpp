@@ -38,6 +38,8 @@
 #include "forge/native/brep/CadScoreGates.hpp"
 #include "forge/native/brep/Topology.hpp"
 #include "forge/native/brep/Check.hpp"        // checkBRep — the native B-rep VALIDATOR
+#include "forge/native/brep/Sweep.hpp"        // brep::prism / Profile (profile-import A/B)
+#include "forge/native/mesh/HalfEdgeMesh.hpp" // mesh::HalfEdgeMesh (native prism result)
 
 // --- OCCT ------------------------------------------------------------------
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -53,6 +55,7 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakePolygon.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -375,6 +378,177 @@ int main() {
         check(ir.reason.find("Revolution") != std::string::npos,
               "deferral reason names the Revolution face");
         check(ir.solid == nullptr, "deferred revolution import yields no solid");
+    }
+
+    // =======================================================================
+    // (13) OCCT sketch WIRE / planar FACE -> native brep::Profile -> native PRISM.
+    //
+    // The PRODUCER A/B (importOcctProfile, OcctImport.cpp): build a sketch wire with
+    // OCCT, import it to a native brep::Profile (CCW outer ring in the wire's plane),
+    // sweep it with the native brep::prism, and assert the native prism MATCHES the
+    // OCCT BRepPrimAPI_MakePrism of the SAME wire+thickness in VOLUME / AREA / BBOX.
+    // This proves the OCCT-wire -> native-profile -> native-prism fuse-activation path
+    // (the SheetMetal baseFlange producer) is geometrically faithful.
+    //
+    // NOTE: these cases are WRITTEN but NOT auto-run by the parent's corpus pass; they
+    // run under the same build_occt_import_test.sh driver (which already links
+    // src/native/brep/Sweep.cpp into the native source set).
+    // =======================================================================
+    {
+        // Measure a native prism's WORLD bbox from its vertices, mapping each vertex
+        // back through BOTH frames the pipeline applies. There are TWO independent local
+        // frames, neither contractually tied to OCCT's world axes, so a direct AABB
+        // equality against OCCT's world box is wrong (only volume/area are frame-invariant):
+        //
+        //   (1) importOcctProfile returns the profile in the WIRE-PLANE 2D basis from OCCT's
+        //       BRepBuilderAPI_FindPlane (origin/xDir/yDir). For this axis-aligned z=0
+        //       rectangle FindPlane hands back a ROTATED in-plane X-axis (e.g.
+        //       xDir≈(0.848,0.530,0)), so the profile (u,v) are the rectangle expressed in a
+        //       rotated basis — same geometry, tilted 2D coords. Contract: world point of a
+        //       profile coord (u,v) is  origin + u*xDir + v*yDir.
+        //
+        //   (2) brep::prism(profile,T) does NOT preserve that basis: it builds its OWN
+        //       canonical sketch basis from the +Z sweep tangent (Sweep.cpp §4):
+        //         N0=(0,0,1); a=(1,0,0); U0 = a×N0 = (0,-1,0); V0 = N0×U0 = (1,0,0).
+        //       A profile point (u,v) is emitted at native mesh xyz = u*U0 + v*V0 + t*N0.
+        //
+        // So to compare placement we INVERT the prism basis to recover the profile coord
+        // (u = mesh·U0, v = mesh·V0, t = mesh·N0), then apply the wire-plane frame to land
+        // in world (sweep param t runs along the wire-plane normal == OCCT's +Z extrude dir).
+        // This round-trip reproduces OCCT's exact world box (verified: [0,40]×[0,25]×[0,3]).
+        const double U0[3] = {0, -1, 0}, V0[3] = {1, 0, 0}, N0[3] = {0, 0, 1}; // prism +Z basis
+        auto meshBoxWorld = [&](const forge::native::mesh::HalfEdgeMesh& m,
+                                const forge::ProfileImportResult& pr,
+                                double mn[3], double mx[3]) {
+            mn[0]=mn[1]=mn[2]= 1e300; mx[0]=mx[1]=mx[2]= -1e300;
+            for (const auto& vtx : m.vertices()) {
+                const auto& p = vtx.position;   // native mesh xyz (prism canonical basis)
+                const double mp[3] = {p.x, p.y, p.z};
+                // recover profile (u,v) + sweep param t by projecting onto the prism basis.
+                double u=0, v=0, t=0;
+                for (int k = 0; k < 3; ++k) { u += mp[k]*U0[k]; v += mp[k]*V0[k]; t += mp[k]*N0[k]; }
+                // place in world via the wire-plane frame; the sweep runs along the plane
+                // normal, which for this z=0 sketch == OCCT's +Z extrusion direction.
+                double w[3];
+                for (int k = 0; k < 3; ++k)
+                    w[k] = pr.origin[k] + u*pr.xDir[k] + v*pr.yDir[k] + t*std::fabs(pr.normal[k]);
+                for (int k = 0; k < 3; ++k) { mn[k]=std::min(mn[k],w[k]); mx[k]=std::max(mx[k],w[k]); }
+            }
+        };
+        auto occtPrismOfWire = [](const TopoDS_Wire& w, double t) {
+            BRepBuilderAPI_MakeFace mkf(w, /*onlyPlane*/ Standard_True);
+            BRepPrimAPI_MakePrism mkp(mkf.Face(), gp_Vec(0, 0, t));
+            return mkp.Shape();
+        };
+
+        // -- (13a) RECTANGLE wire (40 x 25) extruded by thickness 3 ---------------
+        {
+            std::printf("[profile import: rectangle wire -> native prism]\n");
+            const double W = 40.0, H = 25.0, T = 3.0;
+            BRepBuilderAPI_MakePolygon poly(
+                gp_Pnt(0, 0, 0), gp_Pnt(W, 0, 0),
+                gp_Pnt(W, H, 0), gp_Pnt(0, H, 0), Standard_True);
+            TopoDS_Wire rectW = poly.Wire();
+
+            forge::ProfileImportResult pr = forge::importOcctProfile(rectW);
+            check(pr.ok, std::string("rectangle wire imported (reason=\"") + pr.reason + "\")");
+            check(pr.profile.outer.size() >= 4, "outer ring has >= 4 points");
+            check(pr.profile.holes.empty(), "rectangle has no holes");
+            check(std::fabs(pr.normal[2]) > 0.999, "rectangle wire plane normal ~ +Z");
+
+            forge::native::brep::SweepResult sw =
+                forge::native::brep::prism(pr.profile, T);
+            check(sw.ok, std::string("native prism built (reason=\"") + sw.reason + "\")");
+
+            OcctMeasure occt = measureOcct(occtPrismOfWire(rectW, T));
+            double nv = std::fabs(sw.solid.signedVolume()), na = sw.solid.surfaceArea();
+            check(relErr(nv, occt.volume) <= 0.005,         // expect 40*25*3 = 3000
+                  "volume native=" + std::to_string(nv) + " occt=" + std::to_string(occt.volume));
+            check(relErr(na, occt.area) <= 0.005,
+                  "area   native=" + std::to_string(na) + " occt=" + std::to_string(occt.area));
+            double mn[3], mx[3]; meshBoxWorld(sw.solid, pr, mn, mx);
+            bool bbOk = std::fabs(mn[0]-occt.mn[0])<1e-3 && std::fabs(mx[0]-occt.mx[0])<1e-3 &&
+                        std::fabs(mn[1]-occt.mn[1])<1e-3 && std::fabs(mx[1]-occt.mx[1])<1e-3 &&
+                        std::fabs(mn[2]-occt.mn[2])<1e-3 && std::fabs(mx[2]-occt.mx[2])<1e-3;
+            check(bbOk, "bbox (native solid placed via wire-plane frame) matches OCCT prism extent"
+                        " native=[" + std::to_string(mn[0]) + "," + std::to_string(mx[0]) + "]x[" +
+                        std::to_string(mn[1]) + "," + std::to_string(mx[1]) + "]x[" +
+                        std::to_string(mn[2]) + "," + std::to_string(mx[2]) + "]");
+        }
+
+        // -- (13b) RECTANGLE-WITH-HOLE planar FACE -> outer + 1 CW hole ring -------
+        {
+            std::printf("[profile import: rectangle face with hole -> native prism]\n");
+            const double W = 50.0, H = 30.0, T = 4.0;
+            BRepBuilderAPI_MakePolygon outer(
+                gp_Pnt(0, 0, 0), gp_Pnt(W, 0, 0),
+                gp_Pnt(W, H, 0), gp_Pnt(0, H, 0), Standard_True);
+            // The hole points are listed CCW (same winding as the outer). For OCCT to
+            // treat the inner loop as a SUBTRACTIVE hole, the hole wire must be oriented
+            // OPPOSITE to the outer (the standard BRepBuilderAPI_MakeFace::Add idiom): we
+            // therefore Reverse() it. Without this, OCCT builds a same-sense inner loop and
+            // ADDS its area — the face area comes out 1500+100=1600 and the prism volume
+            // 1600*4 = 6400 (a mis-constructed reference), NOT the true 1400*4 = 5600. The
+            // native importer is winding-robust (importOcctProfile re-orients each hole CW),
+            // so it already yields the correct 5600; this fix makes the OCCT ORACLE correct
+            // too so the A/B compares two true holed solids.
+            BRepBuilderAPI_MakePolygon hole(
+                gp_Pnt(20, 10, 0), gp_Pnt(30, 10, 0),
+                gp_Pnt(30, 20, 0), gp_Pnt(20, 20, 0), Standard_True);
+            TopoDS_Wire holeW = hole.Wire();
+            holeW.Reverse();                       // CW subtractive hole loop (vs CCW outer)
+            BRepBuilderAPI_MakeFace mkf(outer.Wire(), Standard_True);
+            mkf.Add(holeW);
+            TopoDS_Face fc = mkf.Face();
+
+            forge::ProfileImportResult pr = forge::importOcctProfile(fc);
+            check(pr.ok, std::string("holed face imported (reason=\"") + pr.reason + "\")");
+            check(pr.profile.holes.size() == 1, "face imported with exactly 1 hole ring");
+
+            forge::native::brep::SweepResult sw =
+                forge::native::brep::prism(pr.profile, T);
+            check(sw.ok, std::string("native prism (with hole) built (reason=\"") + sw.reason + "\")");
+
+            BRepPrimAPI_MakePrism mkp(fc, gp_Vec(0, 0, T));
+            OcctMeasure occt = measureOcct(mkp.Shape());
+            double nv = std::fabs(sw.solid.signedVolume());
+            check(relErr(nv, occt.volume) <= 0.005,   // (50*30 - 10*10)*4 = 5600
+                  "volume native=" + std::to_string(nv) + " occt=" + std::to_string(occt.volume));
+        }
+
+        // -- (13c) CIRCULAR wire -> chordal ring; volume within the prism gate -----
+        {
+            std::printf("[profile import: circle wire -> native prism]\n");
+            const double R = 12.0, T = 5.0;
+            BRepBuilderAPI_MakeEdge ce(gp_Circ(gp_Ax2(gp_Pnt(0,0,0), gp_Dir(0,0,1)), R));
+            TopoDS_Wire circW = BRepBuilderAPI_MakeWire(ce.Edge()).Wire();
+
+            forge::ProfileImportResult pr = forge::importOcctProfile(circW);
+            check(pr.ok, std::string("circle wire imported (reason=\"") + pr.reason + "\")");
+            check(pr.profile.outer.size() >= 32, "circle discretised into a fine ring");
+
+            forge::native::brep::SweepResult sw =
+                forge::native::brep::prism(pr.profile, T);
+            check(sw.ok, std::string("native prism (circle) built (reason=\"") + sw.reason + "\")");
+            double nv = std::fabs(sw.solid.signedVolume());
+            double exact = 3.14159265358979323846 * R * R * T;   // pi r^2 t
+            check(relErr(nv, exact) <= 0.005,
+                  "volume native=" + std::to_string(nv) + " exact=" + std::to_string(exact));
+        }
+
+        // -- (13d) HONEST DEFER: a NON-PLANAR wire -> ok=false, named reason -------
+        {
+            std::printf("[profile import: non-planar wire deferral]\n");
+            TopoDS_Edge e1 = BRepBuilderAPI_MakeEdge(gp_Pnt(0,0,0),   gp_Pnt(10,0,0)).Edge();
+            TopoDS_Edge e2 = BRepBuilderAPI_MakeEdge(gp_Pnt(10,0,0),  gp_Pnt(10,10,5)).Edge();
+            TopoDS_Edge e3 = BRepBuilderAPI_MakeEdge(gp_Pnt(10,10,5), gp_Pnt(0,10,0)).Edge();
+            TopoDS_Edge e4 = BRepBuilderAPI_MakeEdge(gp_Pnt(0,10,0),  gp_Pnt(0,0,0)).Edge();
+            BRepBuilderAPI_MakeWire mw(e1, e2, e3); mw.Add(e4);
+            forge::ProfileImportResult pr = forge::importOcctProfile(mw.Wire());
+            check(!pr.ok, std::string("non-planar wire deferred (ok=false), reason=\"") + pr.reason + "\"");
+            check(pr.reason.find("non-planar") != std::string::npos,
+                  "deferral reason names the non-planar wire");
+        }
     }
 
     std::printf("\n=== RESULT: %d passed, %d failed ===\n", g_pass, g_fail);

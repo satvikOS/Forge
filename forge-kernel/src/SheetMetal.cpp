@@ -69,6 +69,9 @@
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled(), transformSolid
 #include "forge/native/brep/Primitives.hpp"    // SolidFactory::buildBox (flange/filler brick)
 #include "forge/native/brep/Boolean.hpp"       // booleanSolid, BoolOp (lineage-carrying fuse)
+#include "forge/native/brep/Sweep.hpp"         // brep::prism, brep::Profile (native extrude)
+#include "forge/OcctImport.hpp"                // importOcctProfile (OCCT wire -> native Profile)
+#include <memory>
 #endif
 
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -227,40 +230,74 @@ double developedLength(double angleRad, double radius, double t, double k) {
 // -------------------------------------------------------------------
 
 // Try to build a sheet-metal base body (the baseFlange prism) via the native
-// B-rep primitives. Returns true + adds a NativeSolid via `out` on success;
-// returns false (DEFER) otherwise.
+// B-rep prism (brep::prism on a native brep::Profile). Returns true + adds a
+// NativeMesh via `out` on success; returns false (DEFER) otherwise.
 //
-// Deferral / GAP (Bible §0 — native-where-valid, OCCT otherwise):
-//   * The base is built from an OCCT TopoDS_Wire handle (ShapeKind::Occt). There
-//     is NO OCCT-wire -> native importer (ShapeRegistry has only Occt / NativeSolid
-//     / NativeMesh — no native wire kind), so we cannot read the wire's planar
-//     profile natively to prism it. We must NOT fabricate the profile, so EVERY
-//     input defers and the OCCT prism runs — byte-identical to the gate-off
-//     default. This is the single seam a future OCCT-wire -> native-profile
-//     producer (or a native sketch profile) plugs into.
+// PRODUCER WIRED (2026-06-26): the missing OCCT-wire -> native-Profile converter
+// (forge::importOcctProfile, OcctImport.cpp) now reads the sheet-metal sketch wire's
+// planar closed loop into a native brep::Profile (CCW outer, in the wire's plane), so
+// the base prism IS built natively when:
+//   * the FEAT gate is on AND the wire handle resolves to an OCCT wire shape, AND
+//   * the wire imports as a planar profile (importOcctProfile.ok), AND
+//   * its plane is the GLOBAL XY plane (z-normal, z~0) — the sheet-metal sketch
+//     contract (makeWireRect builds in z=0). brep::prism extrudes the 2D profile
+//     along +Z, so its world geometry equals the OCCT _MakePrism(face, +Z*t) ONLY
+//     for an XY-plane sketch; an arbitrarily-placed plane would have the native
+//     prism in profile-LOCAL coords, not world, so we DEFER it (no silent transform).
+// The result is a watertight HalfEdgeMesh registered as a NativeMesh (brep::prism
+// honestly emits a mesh, not an analytic Solid). On any !ok import / off-plane / prism
+// failure we DEFER (return false) and the unchanged OCCT prism path runs — byte-
+// identical to the gate-off default. Nothing is fabricated.
 bool tryNativeBaseFlange(ShapeHandle wireSketchHandle,
-                         const SheetMetalParams& /*params*/,
-                         ShapeHandle& /*out*/) {
+                         const SheetMetalParams& params,
+                         ShapeHandle& out) {
     using namespace forge::native::brep;
-    // No native wire/profile producer today: an OCCT-wire handle has no native
-    // profile to read -> defer the whole call to OCCT.
-    if (ShapeRegistry::instance().kindOf(wireSketchHandle) != ShapeKind::NativeSolid) {
-        return false;
-    }
-    // (Unreachable today: sheet-metal wire handles are OCCT wires, never
-    //  NativeSolids. When a native profile producer lands, read its planar loop
-    //  here, build the prism, and addNativeSolid.)
-    return false;
+    auto& reg = ShapeRegistry::instance();
+    // Need the OCCT wire shape to import; a native body would have no wire to read.
+    if (reg.kindOf(wireSketchHandle) != ShapeKind::Occt) return false;
+
+    TopoDS_Wire wire = firstWire(reg.get(wireSketchHandle));
+    if (wire.IsNull()) return false;                       // no wire -> OCCT path errors honestly
+
+    ProfileImportResult pr = forge::importOcctProfile(wire);
+    if (!pr.ok) return false;                              // non-planar / open -> DEFER to OCCT
+
+    // GATE the plane: brep::prism extrudes the 2D profile along +Z, matching the OCCT
+    // baseFlange's _MakePrism(face, (0,0,thickness)) in WORLD space only when the
+    // sketch lies in the global XY plane (normal ~ +/-Z, origin z ~ 0). Otherwise the
+    // native prism would be in profile-local coords; defer rather than silently move it.
+    const double nz = std::fabs(pr.normal[2]);
+    const double nxy = std::sqrt(pr.normal[0] * pr.normal[0] + pr.normal[1] * pr.normal[1]);
+    if (!(nz > 1.0 - 1e-6 && nxy < 1e-6)) return false;    // not an XY sketch -> DEFER
+    if (std::fabs(pr.origin[2]) > 1e-6 * std::max(1.0, params.thickness)) return false;
+
+    if (!(params.thickness > kEps)) return false;          // degenerate -> DEFER
+
+    SweepResult sw = prism(pr.profile, params.thickness);  // forge::native::brep::prism
+    if (!sw.ok) return false;                              // bad profile/sweep -> DEFER to OCCT
+
+    auto baseMesh = std::make_shared<forge::native::mesh::HalfEdgeMesh>(std::move(sw.solid));
+    out = reg.addNativeMesh(std::move(baseMesh));
+    return true;
 }
 
 // Try to fuse a flange/filler brick onto the sheet-metal body `shape` via the
 // native lineage-carrying boolean (booleanSolid, BoolOp::Fuse). Used by
 // edgeFlange / closedCorner. Returns true + adds the fused NativeSolid via `out`
-// on success; returns false (DEFER) when `shape` is not a NativeSolid (no OCCT ->
-// native importer, so the OCCT BRepAlgoAPI_Fuse path runs unchanged).
+// on success; returns false (DEFER) when `shape` is not a NativeSolid.
 //
 // The brick operand is built natively (SolidFactory::buildBox) and placed with
 // transformSolid; the result is a closed analytic Solid registered as a NativeSolid.
+//
+// REMAINING-OPERAND DEPENDENCY (the body, even after the baseFlange producer wire):
+// booleanSolid takes two ANALYTIC brep::Solid& operands, but the native baseFlange
+// now emits a brep::prism HalfEdgeMesh (ShapeKind::NativeMesh), NOT a brep::Solid.
+// So a sheet-metal body that came through the native baseFlange path is a NativeMesh
+// and STILL defers here (kindOf != NativeSolid) until the body is an analytic Solid —
+// i.e. this fuse lights up natively once either (a) baseFlange emits an analytic Solid
+// prism (a brep::Profile -> brep::Solid extrude, the loftSolid/LoftSweep route), or
+// (b) booleanSolid gains a mesh-operand overload. The producer gap (OCCT wire ->
+// native profile) is closed; the body-operand-type gap is the named follow-up.
 bool tryNativeFuseBrick(ShapeHandle shape,
                         double lx, double ly, double lz,
                         double tx, double ty, double tz,

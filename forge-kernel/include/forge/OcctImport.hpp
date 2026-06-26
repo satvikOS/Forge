@@ -67,12 +67,16 @@
 
 #ifdef FORGE_NATIVE_BREP
 
+#include <array>
 #include <memory>
 #include <string>
 
 #include <TopoDS_Shape.hxx>
+#include <TopoDS_Wire.hxx>
+#include <TopoDS_Face.hxx>
 
 #include "forge/native/brep/Topology.hpp"   // brep::TopologyBuilder, brep::Solid
+#include "forge/native/brep/Sweep.hpp"      // brep::Profile (CCW outer + CW holes, Point2)
 
 namespace forge {
 
@@ -96,6 +100,57 @@ struct ImportResult {
 // the shape's faces directly) into a native analytic B-rep Solid. Never throws on
 // an unsupported face — returns ok=false with a reason so the caller can defer.
 ImportResult importOcctSolid(const TopoDS_Shape& shape);
+
+// ---------------------------------------------------------------------------
+// OCCT sketch WIRE / planar FACE -> native B-rep PROFILE.
+//
+// The producer that lights up the Weldments / SheetMetal / DirectModeling fuse
+// wires: those ops take an OCCT *sketch wire / profile* and want to build a native
+// prism (brep::prism, Sweep.hpp) from it, but brep::prism consumes a native
+// brep::Profile (a CCW outer ring + CW hole rings of geom::Point2 in the sketch
+// plane), and until now there was NO OCCT-wire -> native-Profile converter — so
+// every such op DEFERRED totally even with a NativeSolid body. This closes that gap.
+//
+//   importOcctProfile(const TopoDS_Wire&)  — one closed planar wire -> outer ring.
+//   importOcctProfile(const TopoDS_Face&)  — a planar sketch face -> outer ring +
+//                                            inner (hole) rings (a bored sketch).
+//
+// EACH EDGE of the wire is read EXACTLY where it is a line (its two vertices), and a
+// curved edge (arc/B-spline) is discretised by GCPnts_UniformAbscissa on the
+// BRepAdaptor_Curve into kProfileEdgeSamples ordered points (so a circular sketch
+// imports as a fine chordal polygon within the prism's volume gate). Points are
+// taken in the wire's TRAVERSAL ORDER (BRepTools_WireExplorer, honouring each edge's
+// orientation), the shared end vertex contributed once, and PROJECTED into the wire's
+// own plane (the 2D (u,v) of gp_Pln) to give geom::Point2. The outer ring is oriented
+// CCW and each hole CW (the brep::Profile contract). The plane frame (origin + normal
+// + x/y dirs) is returned so the caller can map the 2D profile / native prism back
+// into world space (and gate on whether the plane matches its own sweep axis).
+//
+// HONEST DEFERS (ok=false, named reason — never a fabricated profile):
+//   * a NON-PLANAR wire (its edges do not lie in one plane)            -> defer.
+//   * an OPEN wire / fewer than 3 distinct projected points            -> defer.
+//   * a degenerate (zero-area) projected loop                          -> defer.
+//   * an edge whose 3-D curve cannot be read                           -> defer.
+// Compiled ONLY under FORGE_NATIVE_BREP; READS OCCT, EMITS native types. C++20.
+struct ProfileImportResult {
+    bool ok = false;
+    std::string reason;                 // honest deferral cause on failure
+    native::brep::Profile profile;      // CCW outer + CW holes (geom::Point2), wire-plane 2D
+    // Wire-plane frame (so the 2D profile maps to world: P = origin + u*xDir + v*yDir,
+    // with normal = xDir x yDir). On a sheet-metal z=0 sketch this is the global XY.
+    std::array<double, 3> origin{{0, 0, 0}};
+    std::array<double, 3> normal{{0, 0, 1}};
+    std::array<double, 3> xDir{{1, 0, 0}};
+    std::array<double, 3> yDir{{0, 1, 0}};
+};
+
+// Number of ordered points a CURVED profile edge is discretised into (a line edge
+// contributes only its two endpoints). 64 keeps a unit-circle sketch's chordal area
+// within ~0.06% of the true disk — well inside the native prism's volume A/B gate.
+constexpr int kProfileEdgeSamples = 64;
+
+ProfileImportResult importOcctProfile(const TopoDS_Wire& wire);
+ProfileImportResult importOcctProfile(const TopoDS_Face& face);
 
 // TEST-ONLY PROBE — the number of times importOcctSolid has been ENTERED process-wide
 // (incremented on the first line of every call, regardless of ok/defer). A/B tests use
