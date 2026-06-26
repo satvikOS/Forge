@@ -9,9 +9,20 @@
 // behind FORGE_NATIVE_BREP. NativeSolid -> exact analytic (divergence theorem);
 // NativeMesh (fillet/chamfer result) -> mesh tetra-decomposition (HONEST: a mesh
 // inertia, not analytic).
+//
+// PHASE-D ACTIVATION (2026-06-25) — wired LIVE for OCCT inputs via the OCCT->native
+// importer forge::importOcctSolid (src/OcctImport.cpp). An OCCT-backed (ShapeKind::Occt)
+// handle is now imported into a native analytic Solid (analytic box/cyl/cone/sphere/prism
+// + analytic-boolean results + NURBS/Bezier faces) and the EXACT divergence-theorem
+// massProperties runs on it, instead of deferring to OCCT's BRepGProp. SAFE + HONEST: if
+// importOcctSolid defers (ok==false: Torus/Revolution/non-analytic, or a non-manifold
+// import) the helper falls through to the OCCT BRepGProp path below, byte-identical to
+// today. Behind forgeNativeFeaturesEnabled() (default OFF). Mirrors the InterferenceDetection
+// / Fea / FeaTet / ShapeCheck / ShapeFix importer activations.
 #ifdef FORGE_NATIVE_BREP
-#include "forge/native/brep/NativeRoute.hpp"
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/MassProps.hpp"
+#include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
 #endif
 
 namespace forge {
@@ -34,6 +45,21 @@ MassProperties massProperties(ShapeHandle h) {
             MassProperties out{mp.volume, mp.area, mp.com[0], mp.com[1], mp.com[2], {}};
             for (int i = 0; i < 9; ++i) out.inertiaCom[i] = mp.inertiaCom[i];
             return out;
+        }
+        // PHASE-D ACTIVATION: an OCCT-backed analytic solid is imported into a native
+        // Solid (importOcctSolid) and integrated by the EXACT divergence-theorem native
+        // massProperties. Gated (default OFF). On an HONEST defer (non-analytic face /
+        // non-manifold import) fall through to the OCCT BRepGProp path below — unchanged.
+        if (k == ShapeKind::Occt && forge::native::brep::forgeNativeFeaturesEnabled()) {
+            ImportResult ir = importOcctSolid(reg.get(h));
+            if (ir.ok && ir.solid != nullptr) {
+                forge::native::brep::MassProps mp =
+                    forge::native::brep::massProperties(*ir.solid);
+                MassProperties out{mp.volume, mp.area, mp.com[0], mp.com[1], mp.com[2], {}};
+                for (int i = 0; i < 9; ++i) out.inertiaCom[i] = mp.inertiaCom[i];
+                return out;
+            }
+            // import deferred -> OCCT BRepGProp path below (unchanged).
         }
     }
 #endif

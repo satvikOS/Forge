@@ -64,6 +64,9 @@ OCCT_SRCS=(
   src/FeaTet.cpp
   src/ShapeCheck.cpp
   src/ShapeFix.cpp
+  src/MassProps.cpp
+  src/Drawings.cpp
+  src/Healing.cpp
 )
 compile_occt() { if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" -c "$1" -o "$2" 2>"$2.err"; then echo "OCCT SRC FAIL: $1"; tail -20 "$2.err"; echo x>>"$FAIL"; fi; }
 for src in "${OCCT_SRCS[@]}"; do
@@ -74,7 +77,7 @@ drain
 [ -s "$FAIL" ] && { echo "[wire-activation] OCCT source compile failed"; exit 1; }
 
 # 3. link + run the A/B test (OCCT libs). OCCT 7.9 merges GProp into TKTopAlgo.
-OCCT_LIBS="-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo -lTKPrim -lTKGeomAlgo -lTKBO -lTKBool -lTKShHealing -lTKMesh -lTKXSBase -lTKDESTEP -lTKDE"
+OCCT_LIBS="-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo -lTKPrim -lTKGeomAlgo -lTKBO -lTKBool -lTKShHealing -lTKMesh -lTKXSBase -lTKDESTEP -lTKDE -lTKHLR -lTKOffset -lTKFillet"
 BIN="$OBJDIR/native_occt_wire_activation_test"
 # shellcheck disable=SC2086
 if ! $CXX $FLAGS -I "$INC" -I "$OCCT_INC" test/native_occt_wire_activation_test.cpp "${OBJS[@]}" \

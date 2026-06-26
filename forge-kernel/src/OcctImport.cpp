@@ -43,9 +43,16 @@
 #include <Geom_Surface.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_BezierSurface.hxx>
+#include <Geom_SurfaceOfRevolution.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <Geom_OffsetSurface.hxx>
+#include <Geom_BSplineCurve.hxx>
 #include <GeomConvert.hxx>
+#include <Standard_Failure.hxx>
 #include <TColgp_Array2OfPnt.hxx>
 #include <TColStd_Array1OfReal.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array2OfReal.hxx>
 #include <Geom2d_Curve.hxx>
 #include <gp_Pnt2d.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -56,6 +63,7 @@
 #include <gp_Cylinder.hxx>
 #include <gp_Cone.hxx>
 #include <gp_Sphere.hxx>
+#include <gp_Torus.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Ax3.hxx>
@@ -123,6 +131,17 @@ void evalDeriv(const FaceSurf& s, double u, double v, Vec3& du, Vec3& dv) {
              nb::vadd(nb::vscale(b, s.r1 * cp * st), nb::vscale(s.axis, -s.r1 * sp)));
         return;
     }
+    case nb::SurfaceKind::Torus: {
+        // Mirror of Surface.cpp Torus: S(u,v) = O + (r1 + r2 cos v)*(cos u rd + sin u bn)
+        //                                        + r2 sin v * ax  (u=theta, v=phi).
+        double ct = std::cos(u), st = std::sin(u), cp = std::cos(v), sp = std::sin(v);
+        double ring = s.r1 + s.r2 * cp;
+        du = nb::vadd(nb::vscale(s.refDir, -ring * st), nb::vscale(b, ring * ct));   // d/dtheta
+        dv = nb::vadd(nb::vadd(nb::vscale(s.refDir, -s.r2 * sp * ct),
+                               nb::vscale(b, -s.r2 * sp * st)),
+                      nb::vscale(s.axis, s.r2 * cp));                                  // d/dphi
+        return;
+    }
     case nb::SurfaceKind::Nurbs: {
         // EXACT rational partials from the native bivariate NURBS evaluator
         // (quotient rule on the homogeneous numerator/denominator). Same code the
@@ -161,6 +180,13 @@ Vec3 evalUV(const FaceSurf& s, double u, double v) {
                        nb::vadd(nb::vscale(b, s.r1 * sp * st),
                                 nb::vscale(s.axis, s.r1 * cp))));
     }
+    case nb::SurfaceKind::Torus: {
+        double ct = std::cos(u), st = std::sin(u), cp = std::cos(v), sp = std::sin(v);
+        double ring = s.r1 + s.r2 * cp;
+        return nb::vadd(s.origin, nb::vadd(nb::vadd(nb::vscale(s.refDir, ring * ct),
+                                                    nb::vscale(b, ring * st)),
+                                           nb::vscale(s.axis, s.r2 * sp)));
+    }
     case nb::SurfaceKind::Nurbs: {
         // EXACT rational surface point S(u,v) (used for interior Steiner points;
         // boundary points are the canonical shared edge-curve 3-D positions).
@@ -176,12 +202,18 @@ Vec3 evalUV(const FaceSurf& s, double u, double v) {
 // Convert an OCCT Geom_BSplineSurface into a native nb::NurbsSurface, EXACTLY:
 // every pole (control point) + weight, the FLAT (multiplicity-expanded) clamped
 // knot vectors, and the U/V degrees are copied 1:1 — no refit, no approximation
-// of the geometry itself. A U- or V-PERIODIC OCCT surface (its knot vector is
-// not clamped, so the native validateSurface would reject it) is first converted
-// to its equivalent CLAMPED (non-periodic) form by OCCT's own SetUNotPeriodic /
-// SetVNotPeriodic, which duplicates the wrap-around poles and re-clamps the end
-// knots WITHOUT changing the surface — the native poles then satisfy the clamped
-// invariant while still describing the same geometry. The native surface keeps
+// of the geometry itself. A U- or V-PERIODIC OCCT surface (its knot vector is not
+// clamped, so the native validateSurface would reject it) is first converted to its
+// equivalent CLAMPED (non-periodic) form. SetUNotPeriodic / SetVNotPeriodic unrolls
+// the periodicity and is enough for a surface whose ends are ALREADY clamped (the
+// fillet/loft BSpline faces), but a surface born periodic from a full revolution
+// keeps a NON-clamped end-knot multiplicity (e.g. a degree-2 revolution's U knot
+// sequence has multiplicity 1 at the ends and knots OUTSIDE the [0,2pi] range), which
+// the native clamped invariant rejects. So we additionally Segment() the surface to
+// its natural bounds: on a B-spline, Segment(U1,U2,V1,V2) re-clamps the end knots to
+// full multiplicity over EXACTLY that domain WITHOUT changing the geometry (OCCT's own
+// knot-insertion), giving a clamped surface the native side accepts. This is the same
+// EXACT surface — a faithful representation, not a refit. The native surface keeps
 // OCCT's parameter domain (knotsU/V carry OCCT's actual U/V values), so the face
 // p-curves (BRep_Tool::CurveOnSurface, in that same domain) index it directly.
 //
@@ -196,8 +228,23 @@ bool readBSplineSurface(const Handle(Geom_BSplineSurface)& srcIn,
     Handle(Geom_BSplineSurface) s =
         Handle(Geom_BSplineSurface)::DownCast(srcIn->Copy());
     if (s.IsNull()) { why = "BSpline surface copy failed"; return false; }
+    const bool wasPeriodic = s->IsUPeriodic() || s->IsVPeriodic();
     if (s->IsUPeriodic()) s->SetUNotPeriodic();
     if (s->IsVPeriodic()) s->SetVNotPeriodic();
+    if (wasPeriodic) {
+        // Re-clamp the de-periodised surface to its natural bounds so the end-knot
+        // multiplicities become degree+1 (the native clamped invariant). Segment is a
+        // geometry-preserving knot operation; guard the rare DomainError on a hairline
+        // over-period and fall back to the (possibly still-unclamped) de-periodised form,
+        // which then defers honestly at the validateSurface gate below.
+        Standard_Real bu1, bu2, bv1, bv2;
+        s->Bounds(bu1, bu2, bv1, bv2);
+        try {
+            s->Segment(bu1, bu2, bv1, bv2);
+        } catch (const Standard_Failure&) {
+            // leave s as-is; validateSurface will catch a residual non-clamp.
+        }
+    }
 
     const int nU = s->NbUPoles();
     const int nV = s->NbVPoles();
@@ -241,6 +288,66 @@ bool readBSplineSurface(const Handle(Geom_BSplineSurface)& srcIn,
         return false;
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// EXACT surface of LINEAR EXTRUSION -> native NurbsSurface, built DIRECTLY (not via
+// GeomConvert, which THROWS for a B-spline-based extrusion). A linear extrusion is
+// S(u,v) = C(u) + v*D, where C is the basis curve and D the extrusion direction. As a
+// tensor B-spline this is EXACT: the U-direction is the basis curve (its poles, knots,
+// weights, degree carried 1:1 — CurveToBSplineCurve is exact for a line/conic/B-spline
+// basis), and the V-direction is degree 1 over the face's actual [v0,v1] window with
+// just two pole rows, C-poles + v0*D and C-poles + v1*D (the same weight on both). The
+// resulting surface matches OCCT's extrusion to MACHINE PRECISION in BOTH geometry AND
+// (u,v) parameterization (V is linear = OCCT's v, U is the basis param = OCCT's u), so
+// the face's CurveOnSurface p-curves index it directly. We then feed it through the
+// SAME readBSplineSurface 1:1 extractor (de-periodise/validate) for a single code path.
+// Returns false (named `why`) if the basis can't be turned into a B-spline curve or the
+// built surface fails the native validate gate — an HONEST defer, never a refit.
+bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
+                          const TopoDS_Face& face,
+                          nb::NurbsSurface& out, std::string& why) {
+    if (ext.IsNull()) { why = "null extrusion surface"; return false; }
+    Handle(Geom_Curve) basis = ext->BasisCurve();
+    if (basis.IsNull()) { why = "extrusion has null basis curve"; return false; }
+    Handle(Geom_BSplineCurve) cb;
+    try { cb = GeomConvert::CurveToBSplineCurve(basis); }
+    catch (const Standard_Failure&) { cb.Nullify(); }
+    if (cb.IsNull()) { why = "extrusion basis curve -> B-spline failed"; return false; }
+
+    const gp_Dir D = ext->Direction();
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);   // v-window = extrusion-length range
+
+    const int nU = cb->NbPoles();
+    if (nU < 2) { why = "extrusion basis pole count < 2"; return false; }
+    const bool curveRational = cb->IsRational();
+    TColgp_Array2OfPnt poles(1, nU, 1, 2);
+    TColStd_Array2OfReal wts(1, nU, 1, 2);
+    for (int i = 1; i <= nU; ++i) {
+        gp_Pnt p = cb->Pole(i);
+        double w = curveRational ? cb->Weight(i) : 1.0;
+        poles.SetValue(i, 1, gp_Pnt(p.X() + v0 * D.X(), p.Y() + v0 * D.Y(), p.Z() + v0 * D.Z()));
+        poles.SetValue(i, 2, gp_Pnt(p.X() + v1 * D.X(), p.Y() + v1 * D.Y(), p.Z() + v1 * D.Z()));
+        wts.SetValue(i, 1, w); wts.SetValue(i, 2, w);
+    }
+    // U knots from the basis curve; V knots = degree-1 clamped over [v0,v1].
+    const int nUk = cb->NbKnots();
+    TColStd_Array1OfReal uk(1, nUk); cb->Knots(uk);
+    TColStd_Array1OfInteger um(1, nUk); cb->Multiplicities(um);
+    TColStd_Array1OfReal vk(1, 2); vk.SetValue(1, v0); vk.SetValue(2, v1);
+    TColStd_Array1OfInteger vm(1, 2); vm.SetValue(1, 2); vm.SetValue(2, 2);
+
+    Handle(Geom_BSplineSurface) bs;
+    try {
+        bs = new Geom_BSplineSurface(poles, wts, uk, vk, um, vm,
+                                     cb->Degree(), 1, cb->IsPeriodic(), Standard_False);
+    } catch (const Standard_Failure& f) {
+        why = std::string("extrusion tensor surface build failed: ") + f.GetMessageString();
+        return false;
+    }
+    // 1:1 extract (handles a periodic U basis via the de-periodise+clamp path).
+    return readBSplineSurface(bs, out, why);
 }
 
 // Build the native FaceSurf from an OCCT analytic face. Returns false (with
@@ -298,6 +405,73 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         out.sphere  = true;
         break;
     }
+    case GeomAbs_Torus: {
+        // A torus IS an exact native analytic surface (nb::SurfaceKind::Torus): OCCT's
+        // gp_Torus parameterization P(u,v) = Loc + (R + r cos v)(cos u XDir + sin u YDir)
+        // + r sin v ZDir is IDENTICAL to the native S(theta,phi) (see Surface.cpp), so we
+        // copy major/minor radii + the gp_Ax3 frame 1:1 — NOT a facet-fake, the same
+        // closed-form quadric OCCT uses. The full-periodic torus (u,v both span 2pi, the
+        // BRepPrimAPI_MakeTorus case) is staged by the doubly-periodic torus grid below;
+        // a TRIMMED torus patch (e.g. a pipe bend) falls through to the general CDT path
+        // with this exact surface + its real (u,v) trim loops.
+        gp_Torus to = ad.Torus();
+        const gp_Ax3& ax = to.Position();
+        out.kind = nb::SurfaceKind::Torus;
+        out.origin = toV3(ax.Location());
+        out.axis   = toV3(ax.Direction());     // torus symmetry axis (+Z of frame)
+        out.refDir = toV3(ax.XDirection());
+        out.r1 = to.MajorRadius();             // major R (ring centre radius)
+        out.r2 = to.MinorRadius();             // minor r (tube radius)
+        out.angular = true;
+        break;
+    }
+    case GeomAbs_SurfaceOfExtrusion: {
+        // A linear-extrusion (sweep of a profile along a straight direction) face has NO
+        // dedicated native analytic kind, but it IS an EXACT rational tensor B-spline
+        // (basis curve x linear-in-direction). We build it DIRECTLY (readExtrusionSurface)
+        // rather than via GeomConvert — GeomConvert::SurfaceToBSplineSurface THROWS for a
+        // B-spline-based extrusion, and even where it succeeds it can reparameterise. The
+        // direct construction matches OCCT's extrusion to MACHINE PRECISION in geometry
+        // AND (u,v) parameterization, so the face p-curves index it; it is then routed
+        // through the proven native NURBS path with the face's real (u,v) trim loops.
+        Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+        Handle(Geom_SurfaceOfLinearExtrusion) ext =
+            Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(gs);
+        if (ext.IsNull()) { why = "extrusion face had no Geom_SurfaceOfLinearExtrusion"; return false; }
+        if (!readExtrusionSurface(ext, face, out.nurbs, why)) return false;
+        out.kind = nb::SurfaceKind::Nurbs;
+        return true;
+    }
+    case GeomAbs_SurfaceOfRevolution: {
+        // HONEST DEFER. A surface of revolution sweeps the profile around the axis through
+        // a TRUE-ANGLE u parameter (OCCT's u is the revolution angle, uniform). The only
+        // exact representation of a circular sweep as a B-spline is a RATIONAL QUADRATIC,
+        // whose u parameter is NON-uniform in the angle (the tan(theta/2) reparameterisation)
+        // — so NO rational B-spline surface can simultaneously (a) trace the exact circle
+        // AND (b) keep OCCT's uniform-angle u domain that the face's CurveOnSurface p-curves
+        // live in. GeomConvert::SurfaceToBSplineSurface confirms this: it returns a degree-2
+        // NON-rational (polynomial) approximation that misses the true surface by ~0.16 at
+        // model scale (~4.6% volume) and is parameter-mismatched. Rather than import a
+        // facet-grade-inexact, p-curve-misindexed body, we DEFER until the native kernel
+        // grows a first-class revolved-surface geometry (which would re-derive the p-curves
+        // in its own parameterisation). [A native Torus IS supported — that quadric's
+        // parameterisation IS uniform-angle and matches OCCT exactly.]
+        why = "non-analytic face Revolution (no exact uniform-angle NURBS; GeomConvert "
+              "approximation ~4.6% volume / 0.16 abs — deferred, not facet-faked)";
+        return false;
+    }
+    case GeomAbs_OffsetSurface: {
+        // HONEST DEFER. An OffsetSurface is the base surface displaced by a constant along
+        // its normal; it is exactly a rational B-spline ONLY for special bases, and for a
+        // free-form base GeomConvert::SurfaceToBSplineSurface yields a TOLERANCED (fitted)
+        // approximation, not an exact surface — and (like the revolution) its (u,v)
+        // parameterisation need not match the offset's p-curve domain. With no verified
+        // exact-and-parameter-matched case, we DEFER honestly rather than import an
+        // approximate offset wall.
+        why = "non-analytic face Offset (offset->NURBS is a toleranced fit, not exact — "
+              "deferred, not facet-faked)";
+        return false;
+    }
     case GeomAbs_BSplineSurface: {
         // The biggest OCCT-zero gap: real CAD parts (fillet blends, lofts, sweeps)
         // are bounded by BSpline faces. Extract OCCT's Geom_BSplineSurface EXACTLY
@@ -325,15 +499,8 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         return true;
     }
     default: {
-        const char* n = "other";
-        switch (t) {
-            case GeomAbs_Torus:           n = "Torus";       break;
-            case GeomAbs_SurfaceOfRevolution: n = "Revolution"; break;
-            case GeomAbs_SurfaceOfExtrusion:  n = "Extrusion";  break;
-            case GeomAbs_OffsetSurface:   n = "Offset";      break;
-            default: break;
-        }
-        why = std::string("non-analytic face ") + n;
+        // Any surface type with no native route at all (e.g. GeomAbs_OtherSurface).
+        why = "non-analytic face other";
         return false;
     }
     }
@@ -443,6 +610,10 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
 
     // An n-gon curved sector band (periodic-wall path) integrated EXACTLY over its
     // full [u0,u1]x[v0,v1] rectangle (paramTri=false), like the native primitives.
+    // For a NURBS face whose trim IS the full parameter rectangle, the same exact
+    // rectangle path (tensor Gauss over the EXACT rational Jacobian) is used, so the
+    // wall's mass is computed to quadrature precision instead of the coarser CDT
+    // degree-5 triangle rule — `nurbs` carries the EXACT rational surface for that.
     struct StagedPoly {
         std::vector<int> vids;
         nb::SurfaceKind kind = nb::SurfaceKind::Plane;
@@ -451,6 +622,7 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         bool reversed = false, paramTri = false;
         std::vector<std::array<double, 2>> uv;
         double u0 = 0, u1 = 0, v0 = 0, v1 = 0;
+        std::shared_ptr<const nb::NurbsSurface> nurbs; // valid iff kind==Nurbs
     };
     std::vector<StagedPoly> stagedPoly;
 
@@ -482,6 +654,86 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
 
         const bool curved = (fs.kind != nb::SurfaceKind::Plane);
 
+        // ============ FULL TORUS (DOUBLY-periodic) — WRAP GRID BOTH WAYS =========
+        // BRepPrimAPI_MakeTorus is a SINGLE face periodic in BOTH u (theta, around the
+        // major ring) and v (phi, around the tube): u,v each span 2*pi, with NO cap
+        // wires to weld to. A CDT of the flat [0,2pi]x[0,2pi] rectangle would duplicate
+        // BOTH seams. Instead build a structured NxM grid whose u AND v indices WRAP
+        // (column nu == column 0 and row nv == row 0, SHARED vertices) — exactly how the
+        // native buildTorus primitive segments the surface. Each cell is emitted as a
+        // native FACE over its EXACT [u_i,u_{i+1}]x[v_k,v_{k+1}] torus rectangle
+        // (paramTri=false), integrated EXACTLY by the analytic |S_u x S_v| Jacobian
+        // (degree-exact tensor Gauss). The closed grid is genus 1 (chi = 0 => b1 = 2),
+        // a watertight 2-manifold. NB: only a FULL doubly-periodic torus takes this path;
+        // a trimmed torus patch (a real (u,v) sub-window) falls through to the general
+        // CDT path below with the same exact native Torus surface + its trim loops.
+        if (fs.kind == nb::SurfaceKind::Torus &&
+            std::fabs((umax - umin) - 2.0 * kPi) < 1e-6 &&
+            std::fabs((vmax - vmin) - 2.0 * kPi) < 1e-6) {
+            // `faceReversed`: native du x dv vs OCCT's OUTWARD normal, compared at the
+            // SAME physical point (umin,vmin). For a default torus native du x dv points
+            // OUTWARD already; this stays robust for a placed/flipped torus frame.
+            Vec3 faceOutward{0, 0, 1};
+            {
+                BRepGProp_Face gf(face);
+                gp_Pnt op; gp_Vec on;
+                gf.Normal(umin, vmin, op, on);
+                faceOutward = nb::vnorm(Vec3{on.X(), on.Y(), on.Z()});
+            }
+            Vec3 ndu, ndv; evalDeriv(fs, 0.0, 0.0, ndu, ndv);
+            Vec3 nNat = nb::vnorm(nb::vcross(ndu, ndv));
+            bool faceReversed = (nb::vlen(faceOutward) > 0.5 && nb::vlen(nNat) > 0.5)
+                                ? (nb::vdot(nNat, faceOutward) < 0.0) : false;
+
+            const int nu = kEdgeSamples;             // segments around the major ring
+            const int nv = std::max(24, kEdgeSamples / 2); // segments around the tube
+            auto uParT = [&](int iu) { return (2.0 * kPi * iu) / nu; };  // un-wrapped
+            auto vParT = [&](int iv) { return (2.0 * kPi * iv) / nv; };
+            auto vidAtT = [&](int iu, int iv) -> int {
+                double u = (2.0 * kPi * (iu % nu)) / nu;   // wraps: nu -> 0
+                double v = (2.0 * kPi * (iv % nv)) / nv;   // wraps: nv -> 0
+                return weldId(evalUV(fs, u, v));
+            };
+            for (int iu = 0; iu < nu; ++iu)
+                for (int iv = 0; iv < nv; ++iv) {
+                    std::vector<int> ring = {vidAtT(iu, iv), vidAtT(iu + 1, iv),
+                                             vidAtT(iu + 1, iv + 1), vidAtT(iu, iv + 1)};
+                    std::vector<std::array<double,2>> uv = {
+                        {uParT(iu), vParT(iv)}, {uParT(iu + 1), vParT(iv)},
+                        {uParT(iu + 1), vParT(iv + 1)}, {uParT(iu), vParT(iv + 1)}};
+                    // drop welded-duplicate consecutive corners (defensive; none for a
+                    // proper torus where r2 < r1 so no row collapses).
+                    std::vector<int> r; std::vector<std::array<double,2>> u2;
+                    for (std::size_t i = 0; i < ring.size(); ++i) {
+                        int prev = r.empty() ? ring.back() : r.back();
+                        if (ring[i] != prev) { r.push_back(ring[i]); u2.push_back(uv[i]); }
+                    }
+                    if (r.size() < 3) continue;
+                    // parameter-orientation signed area, flipped uniformly by faceReversed
+                    // so the winding is consistently OUTWARD (=> closed 2-manifold).
+                    double cr = 0;
+                    for (std::size_t i = 0; i < u2.size(); ++i) {
+                        auto& p = u2[i]; auto& q = u2[(i + 1) % u2.size()];
+                        cr += p[0] * q[1] - q[0] * p[1];
+                    }
+                    bool ccw = cr > 0.0;
+                    if (ccw == faceReversed) {
+                        std::reverse(r.begin() + 1, r.end());
+                        std::reverse(u2.begin() + 1, u2.end());
+                    }
+                    StagedPoly sp;
+                    sp.vids = r;
+                    sp.kind = fs.kind; sp.origin = fs.origin; sp.axis = fs.axis;
+                    sp.refDir = fs.refDir; sp.r1 = fs.r1; sp.r2 = fs.r2; sp.param = fs.param;
+                    sp.reversed = faceReversed; sp.paramTri = false;
+                    sp.uv = u2;
+                    sp.u0 = uParT(iu); sp.u1 = uParT(iu + 1);
+                    sp.v0 = vParT(iv); sp.v1 = vParT(iv + 1);
+                    stagedPoly.push_back(std::move(sp));
+                }
+            continue;   // full torus fully staged; next face.
+        }
+
         // ============ FULL-REVOLUTION (periodic) CURVED FACE — WRAP GRID =========
         // A cylinder/cone/sphere side spanning a full 2*pi in u has a SEAM: a CDT of
         // the flat [0,2pi] rectangle would duplicate it (two boundary columns weld to
@@ -495,8 +747,12 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         // in the quadric angular/colatitude parameterisation (nv0/nv1, sphere-pole
         // collapse). A NURBS face's u-domain is its knot range (which may happen to
         // span 2*pi but is NOT an angle), so it is handled by the general CDT path
-        // below with its real (u,v) trim loops.
-        if (fs.kind != nb::SurfaceKind::Nurbs &&
+        // below with its real (u,v) trim loops. A TORUS is likewise excluded — a full
+        // torus was already staged by the doubly-periodic grid above (and `continue`d),
+        // and a partial torus patch (u=2pi but v<2pi) has v=phi as a tube angle this
+        // cap-rim path does not model, so it routes through the general CDT path with
+        // the exact native Torus surface + its real trim loops.
+        if (fs.kind != nb::SurfaceKind::Nurbs && fs.kind != nb::SurfaceKind::Torus &&
             curved && std::fabs((umax - umin) - 2.0 * kPi) < 1e-6) {
             // `faceReversed`: native du x dv vs OCCT's OUTWARD normal, compared at the
             // SAME physical point (a curved face's outward direction varies with u, so
@@ -597,6 +853,13 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             while (uref - u > kPi) u += 2.0 * kPi;
             return u;
         };
+        // v-unwrap reference (only needed for the torus, whose v=phi is ALSO an angle).
+        const double vref = 0.5 * (vmin + vmax);
+        auto unwrapV = [&](double v) {
+            while (v - vref > kPi) v -= 2.0 * kPi;
+            while (vref - v > kPi) v += 2.0 * kPi;
+            return v;
+        };
         // OCCT (u,v) -> native (u_n,v_n). u is the same angle (unwrapped) for the
         // angular kinds; native v differs: sphere uses colatitude phi = pi/2 - v_occt,
         // cone uses t = (v_occt - vmin)/(vmax-vmin).
@@ -614,6 +877,10 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             }
             case nb::SurfaceKind::Sphere:
                 un = unwrapU(uo); vn = 0.5 * kPi - vo; return; // colatitude
+            case nb::SurfaceKind::Torus:
+                // OCCT torus (u=theta, v=phi) maps IDENTICALLY to the native torus; both
+                // are angles, so just keep each within a contiguous window for the CDT.
+                un = unwrapU(uo); vn = unwrapV(vo); return;
             case nb::SurfaceKind::Nurbs:
                 // IDENTITY: the native NURBS surface keeps OCCT's parameter domain,
                 // and CurveOnSurface returns the p-curve in that same (u,v), so the
@@ -670,6 +937,124 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         double du = pu1 - pu0, dv = pv1 - pv0;
         if (!(du > 0) || !(dv > 0)) { res.reason = "degenerate face param window"; return res; }
 
+        // ============ FULL-RECTANGLE-TRIM NURBS FACE — STRUCTURED EXACT GRID ======
+        // A NURBS face whose trim IS the whole parameter rectangle [umin,umax]x[vmin,vmax]
+        // (one outer loop, no inner holes, the loop running along the 4 rectangle edges —
+        // e.g. an extrusion/sweep wall or a single loft patch) is integrated EXACTLY by
+        // the tensor-Gauss RECTANGLE path (paramTri=false), the SAME path the native
+        // primitives + the periodic walls use. This matters because a NURBS born from a
+        // chord/centripetal-parameterised profile has a wildly non-uniform |S_u x S_v|;
+        // the general CDT path's single degree-5 triangle rule under-integrates it by a
+        // few %, whereas a per-cell 10-pt tensor-Gauss over the rational Jacobian is exact
+        // to quadrature precision. We build a structured (nu+1)x(nv+1) grid whose 4 BORDER
+        // rows/columns reuse the SAME canonical shared-edge 3-D points the adjacent faces
+        // sample (so the wall welds watertight to its caps), and whose interior comes from
+        // the exact surface; each cell is one paramTri=false NURBS rectangle sub-face.
+        if (fs.kind == nb::SurfaceKind::Nurbs && rings.size() == 1) {
+            // Is the single outer loop exactly the rectangle border? (every sample lies on
+            // one of the 4 edges within tolerance). If so, the trim is the full rectangle.
+            const double rtu = 1e-6 * std::max(1.0, du), rtv = 1e-6 * std::max(1.0, dv);
+            bool fullRect = true;
+            for (const auto& bs : rings[0]) {
+                bool onU = std::fabs(bs.uv[0] - pu0) < rtu || std::fabs(bs.uv[0] - pu1) < rtu;
+                bool onV = std::fabs(bs.uv[1] - pv0) < rtv || std::fabs(bs.uv[1] - pv1) < rtv;
+                if (!onU && !onV) { fullRect = false; break; }
+            }
+            if (fullRect) {
+                // outward orientation at the rectangle centre.
+                bool faceReversed = false;
+                {
+                    double ou = 0.5 * (umin + umax), ov = 0.5 * (vmin + vmax);
+                    BRepGProp_Face gf(face);
+                    gp_Pnt occtP; gp_Vec occtN; gf.Normal(ou, ov, occtP, occtN);
+                    Vec3 faceOutward = nb::vnorm(Vec3{occtN.X(), occtN.Y(), occtN.Z()});
+                    double un, vn; occtToNative(ou, ov, un, vn);
+                    Vec3 ndu, ndv; evalDeriv(fs, un, vn, ndu, ndv);
+                    Vec3 nNat = nb::vnorm(nb::vcross(ndu, ndv));
+                    if (nb::vlen(faceOutward) > 0.5 && nb::vlen(nNat) > 0.5)
+                        faceReversed = (nb::vdot(nNat, faceOutward) < 0.0);
+                }
+                auto sharedNs = std::make_shared<const nb::NurbsSurface>(fs.nurbs);
+                const int nu = kEdgeSamples, nv = kEdgeSamples;
+                auto gx = [&](int iu) { return pu0 + du * iu / nu; };
+                auto gy = [&](int iv) { return pv0 + dv * iv / nv; };
+
+                // BORDER welding: the 4 rectangle edges are SHARED with adjacent faces,
+                // which sample them from the CANONICAL edge 3-D curve. To weld watertight
+                // the structured grid's border vertices MUST be those same canonical points,
+                // NOT evalUV (the surface and the edge curve agree geometrically but their
+                // PARAMETERS differ, so evalUV at a uniform grid param lands at a slightly
+                // different 3-D point than the edge's canonical sample). So we build, for
+                // each of the 4 borders, a lookup from the grid index to the canonical 3-D
+                // point by binning the outer-wire edge samples (which carry both the native
+                // (u,v) and the canonical p3) onto the nearest grid line. A grid border slot
+                // with no canonical sample (coarser edge sampling) falls back to evalUV.
+                std::vector<Vec3> bU0(nv + 1), bU1(nv + 1), bV0(nu + 1), bV1(nu + 1);
+                std::vector<char> hU0(nv + 1, 0), hU1(nv + 1, 0), hV0(nu + 1, 0), hV1(nu + 1, 0);
+                for (const BSample& bs : rings[0]) {
+                    double u = bs.uv[0], v = bs.uv[1];
+                    bool onU0 = std::fabs(u - pu0) < rtu, onU1 = std::fabs(u - pu1) < rtu;
+                    bool onV0 = std::fabs(v - pv0) < rtv, onV1 = std::fabs(v - pv1) < rtv;
+                    if (onU0 || onU1) { // const-u border: bin by v
+                        int iv = (int)std::llround((v - pv0) / dv * nv);
+                        if (iv >= 0 && iv <= nv) {
+                            if (onU0) { bU0[iv] = bs.p3; hU0[iv] = 1; }
+                            else      { bU1[iv] = bs.p3; hU1[iv] = 1; }
+                        }
+                    }
+                    if (onV0 || onV1) { // const-v border: bin by u
+                        int iu = (int)std::llround((u - pu0) / du * nu);
+                        if (iu >= 0 && iu <= nu) {
+                            if (onV0) { bV0[iu] = bs.p3; hV0[iu] = 1; }
+                            else      { bV1[iu] = bs.p3; hV1[iu] = 1; }
+                        }
+                    }
+                }
+                auto vidAt = [&](int iu, int iv) -> int {
+                    // border slots: use the canonical shared-edge point if we have it.
+                    if (iu == 0  && hU0[iv]) return weldId(bU0[iv]);
+                    if (iu == nu && hU1[iv]) return weldId(bU1[iv]);
+                    if (iv == 0  && hV0[iu]) return weldId(bV0[iu]);
+                    if (iv == nv && hV1[iu]) return weldId(bV1[iu]);
+                    return weldId(evalUV(fs, gx(iu), gy(iv)));
+                };
+                for (int iu = 0; iu < nu; ++iu)
+                    for (int iv = 0; iv < nv; ++iv) {
+                        std::vector<int> ring = {vidAt(iu, iv), vidAt(iu + 1, iv),
+                                                 vidAt(iu + 1, iv + 1), vidAt(iu, iv + 1)};
+                        std::vector<std::array<double,2>> uv = {
+                            {gx(iu), gy(iv)}, {gx(iu + 1), gy(iv)},
+                            {gx(iu + 1), gy(iv + 1)}, {gx(iu), gy(iv + 1)}};
+                        std::vector<int> r; std::vector<std::array<double,2>> u2;
+                        for (std::size_t i = 0; i < ring.size(); ++i) {
+                            int prev = r.empty() ? ring.back() : r.back();
+                            if (ring[i] != prev) { r.push_back(ring[i]); u2.push_back(uv[i]); }
+                        }
+                        if (r.size() < 3) continue;
+                        double cr = 0;
+                        for (std::size_t i = 0; i < u2.size(); ++i) {
+                            auto& p = u2[i]; auto& q = u2[(i + 1) % u2.size()];
+                            cr += p[0] * q[1] - q[0] * p[1];
+                        }
+                        bool ccw = cr > 0.0;
+                        if (ccw == faceReversed) {
+                            std::reverse(r.begin() + 1, r.end());
+                            std::reverse(u2.begin() + 1, u2.end());
+                        }
+                        StagedPoly sp;
+                        sp.vids = r;
+                        sp.kind = nb::SurfaceKind::Nurbs;
+                        sp.reversed = faceReversed; sp.paramTri = false;
+                        sp.uv = u2;
+                        sp.u0 = gx(iu); sp.u1 = gx(iu + 1);
+                        sp.v0 = gy(iv); sp.v1 = gy(iv + 1);
+                        sp.nurbs = sharedNs;
+                        stagedPoly.push_back(std::move(sp));
+                    }
+                continue;   // full-rectangle NURBS face staged exactly; next face.
+            }
+        }
+
         // ---- build the CDT PSLG in native (u,v). Each `pts` entry also carries
         // its CANONICAL 3-D point (from the edge curve) for BOUNDARY points, or a
         // sentinel for interior Steiner points (whose 3-D comes from evalUV). -----
@@ -724,6 +1109,11 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             int nu = std::max(2, (int)std::ceil(du / (2.0 * kPi) * 48.0));
             int nv = std::max(2, (int)std::ceil(dv / std::max(dv, 1e-9) * 6.0));
             if (fs.kind == nb::SurfaceKind::Sphere) nv = std::max(8, nv);
+            // A torus patch is doubly angular: v=phi (tube) is as curved as u=theta, so
+            // scale BOTH by their angular span and give v a sphere-like floor.
+            if (fs.kind == nb::SurfaceKind::Torus) {
+                nv = std::max(8, (int)std::ceil(dv / (2.0 * kPi) * 48.0));
+            }
             nu = std::min(nu, 96); nv = std::min(nv, 24);
             for (int iu = 1; iu < nu; ++iu)
                 for (int iv = 1; iv < nv; ++iv)
@@ -878,6 +1268,8 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         surf->kind = sp.kind; surf->origin = sp.origin; surf->axis = sp.axis;
         surf->refDir = sp.refDir; surf->r1 = sp.r1; surf->r2 = sp.r2;
         surf->param = sp.param; surf->reversed = sp.reversed;
+        if (sp.kind == nb::SurfaceKind::Nurbs && sp.nurbs)
+            surf->nurbs = *sp.nurbs;   // exact rational surface for this rectangle cell
         f->surface = surf;
         f->vertexUV = sp.uv;
         f->u0 = sp.u0; f->u1 = sp.u1; f->v0 = sp.v0; f->v1 = sp.v1;

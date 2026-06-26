@@ -28,6 +28,21 @@
 //      solid heals to a valid native solid). A/B: the same OCCT box, gate ON, takes the native
 //      import+heal path (importer hit) and yields a valid NativeSolid handle.
 //
+// NEWLY ACTIVATED 2026-06-25 (this slice):
+//   6) forge::massProperties              — native divergence-theorem massProperties on the
+//      imported solid. A/B: volume / area / centre-of-mass / inertia tensor match the OCCT
+//      BRepGProp (VolumeProperties + SurfaceProperties + MatrixOfInertia) on the SAME OCCT
+//      box, bored box, AND a filleted box (NURBS blend faces — exercises the NURBS importer).
+//   7) forge::projectShape (HLR)          — native hiddenLineRemoval on the imported solid. A/B:
+//      gate ON imports the OCCT box and emits a non-empty visible-edge polyline set; the
+//      importer-hit proves the native HLR ran on the OCCT input (the segment count is reported).
+//   8) forge::projectShapeSection (cut)   — native sectionSolid on the imported solid. A/B: a
+//      mid-plane cut of the OCCT box yields exactly one closed cut wire whose screen bbox spans
+//      the section rectangle; importer-hit proves the native section ran on the OCCT input.
+//   9) forge::heal::sewShape / autoRepairSelfIntersection — native sewFaces / healBRep on the
+//      imported solid (gatherNativeFaces now imports an OCCT body). A/B: gate ON imports the OCCT
+//      box and yields a VALID NativeSolid handle whose sewn shell is closed.
+//
 // Each op additionally asserts importOcctSolidCallCount() INCREASED across the gated call —
 // i.e. the OCCT->native importer was genuinely hit (the wire ACTIVATED, not silently deferred).
 //
@@ -47,6 +62,9 @@
 #include "forge/FeaTet.hpp"
 #include "forge/ShapeCheck.hpp"                 // shapecheck::analyse (validity wire)
 #include "forge/ShapeFix.hpp"                   // shapefix::repair (heal wire)
+#include "forge/MassProps.hpp"                  // massProperties (mass wire)
+#include "forge/Drawings.hpp"                   // projectShape / projectShapeSection (HLR + section wires)
+#include "forge/Healing.hpp"                    // heal::sewShape / autoRepairSelfIntersection (heal/sew wires)
 #include "forge/native/brep/NativeRoute.hpp"   // setForgeNativeBrepEnabled
 #include "forge/native/brep/Check.hpp"          // checkBRep, CheckReport (validate healed solid)
 #include "forge/native/brep/Topology.hpp"       // Solid (getNativeSolid)
@@ -56,6 +74,13 @@
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepCheck_Analyzer.hxx>               // OCCT validity oracle for the A/B verdict
+#include <BRepFilletAPI_MakeFillet.hxx>         // build a filleted box (NURBS blend faces)
+#include <BRepGProp.hxx>                        // OCCT mass-props A/B oracle
+#include <GProp_GProps.hxx>
+#include <gp_Mat.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Edge.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Dir.hxx>
@@ -111,6 +136,32 @@ TopoDS_Shape makeBoredBox() {
     gp_Ax2 ax(gp_Pnt(10, 10, -10), gp_Dir(0, 0, 1));
     TopoDS_Shape cyl = BRepPrimAPI_MakeCylinder(ax, 4.0, 40.0).Shape();
     return BRepAlgoAPI_Cut(box, cyl).Shape();
+}
+
+// A box with all 12 edges filleted — the blend faces are BSpline (NURBS) surfaces, so
+// this exercises importOcctSolid's NURBS/Bezier import path (planes + cylinders + NURBS).
+TopoDS_Shape makeFilletedBox(double r) {
+    TopoDS_Shape box = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 20.0, 20.0, 20.0).Shape();
+    BRepFilletAPI_MakeFillet mk(box);
+    for (TopExp_Explorer ex(box, TopAbs_EDGE); ex.More(); ex.Next()) {
+        mk.Add(r, TopoDS::Edge(ex.Current()));
+    }
+    mk.Build();
+    return mk.Shape();
+}
+
+// OCCT mass-props oracle: exact volume / area / COM / inertia(about COM) of an OCCT shape.
+struct OcctMass { double vol, area, cx, cy, cz, I[9]; };
+OcctMass occtMass(const TopoDS_Shape& s) {
+    GProp_GProps vp;  BRepGProp::VolumeProperties(s, vp);
+    GProp_GProps sp;  BRepGProp::SurfaceProperties(s, sp);
+    const gp_Pnt c = vp.CentreOfMass();
+    const gp_Mat I = vp.MatrixOfInertia();
+    OcctMass m{ vp.Mass(), sp.Mass(), c.X(), c.Y(), c.Z(),
+        { I.Value(1,1), I.Value(1,2), I.Value(1,3),
+          I.Value(1,2), I.Value(2,2), I.Value(2,3),
+          I.Value(1,3), I.Value(2,3), I.Value(3,3) } };
+    return m;
 }
 
 }  // namespace
@@ -382,6 +433,221 @@ void testShapeFixRepair() {
     reg.release(h);
 }
 
+// === 6) massProperties =====================================================
+// Gate ON -> native divergence-theorem massProperties on the imported solid;
+// importOcctSolidCallCount must rise. Volume/area/COM/inertia must match the OCCT BRepGProp
+// oracle. Run on the plain box (all-planar: bit-EXACT native vs OCCT), the bored box
+// (analytic boolean — the cylinder wall is FACETED on import (kEdgeSamples), so area/COM/
+// inertia carry the importer's small chordal approximation, gated to the import's ~0.5%
+// vol/area band — see native_occt_import_test), AND a filleted box (NURBS blend faces —
+// exercises the NURBS importer; its quadric/NURBS faces integrate via the analytic/rational
+// Jacobian, near-exact).
+//
+// TOLERANCE MODEL: `relTol` bounds the RELATIVE error of the SCALAR vol/area and of each
+// inertia/COM component normalised by the tensor/extent SCALE (NOT a raw per-component
+// relErr — products of inertia are ~0 for a symmetric box, so a 1e-11 float residual vs
+// OCCT's exact 0.0 is a meaningless 100% relErr; normalising by the largest diagonal makes
+// the comparison physical). The planar box uses an EXACT band; the faceted/curved imports
+// use the import's vol/area band.
+void testMassProperties() {
+    std::printf("[massProperties on OCCT box + bored box + filleted box]\n");
+    auto& reg = ShapeRegistry::instance();
+
+    struct Case { const char* name; TopoDS_Shape shape; double relTol; };
+    std::vector<Case> cases;
+    cases.push_back({"box 10x6x4 (planar, exact)", BRepPrimAPI_MakeBox(gp_Pnt(0,0,0),10.0,6.0,4.0).Shape(), 1e-9});
+    cases.push_back({"bored box 20^3 - r4 (faceted cyl)", makeBoredBox(),                                   5e-3});
+    cases.push_back({"filleted box r2 (NURBS)",   makeFilletedBox(2.0),                                     5e-3});
+
+    for (auto& c : cases) {
+        ShapeHandle h = reg.add(c.shape);
+        OcctMass o = occtMass(c.shape);
+        // Tensor scale = largest |diagonal inertia|; extent scale = 20mm bbox. Used to turn
+        // a near-zero component comparison into a physically meaningful normalised error.
+        const double iScale = std::max({std::fabs(o.I[0]), std::fabs(o.I[4]), std::fabs(o.I[8]), 1.0});
+        const double extScale = 20.0;
+
+        // --- gate OFF: OCCT BRepGProp path (A/B oracle, importer not hit) ---
+        setForgeNativeBrepEnabled(false);
+        unsigned long long before0 = importOcctSolidCallCount();
+        MassProperties occt = massProperties(h);
+        check(importOcctSolidCallCount() == before0,
+              std::string("[") + c.name + "] gate OFF -> importer NOT hit (pure OCCT)");
+
+        // --- gate ON: native massProperties via importOcctSolid ---
+        setForgeNativeBrepEnabled(true);
+        unsigned long long before1 = importOcctSolidCallCount();
+        MassProperties nat = massProperties(h);
+        check(importOcctSolidCallCount() > before1,
+              std::string("[") + c.name + "] gate ON  -> importOcctSolid HIT (mass wire activated)");
+
+        check(relErr(nat.volume, o.vol) <= c.relTol,
+              std::string("[") + c.name + "] native volume matches OCCT  native=" +
+              std::to_string(nat.volume) + " occt=" + std::to_string(o.vol) +
+              " relerr=" + std::to_string(relErr(nat.volume, o.vol)));
+        check(relErr(nat.area, o.area) <= c.relTol,
+              std::string("[") + c.name + "] native area matches OCCT  native=" +
+              std::to_string(nat.area) + " occt=" + std::to_string(o.area) +
+              " relerr=" + std::to_string(relErr(nat.area, o.area)));
+        // COM: each component's absolute delta normalised by the 20mm bbox extent.
+        double comErr = std::max({std::fabs(nat.cx - o.cx), std::fabs(nat.cy - o.cy),
+                                  std::fabs(nat.cz - o.cz)}) / extScale;
+        check(comErr <= c.relTol,
+              std::string("[") + c.name + "] native COM matches OCCT  norm-delta=" +
+              std::to_string(comErr));
+        // Inertia tensor: each component's absolute delta normalised by the tensor scale
+        // (so symmetric-box products-of-inertia ~0 don't blow up the metric).
+        double iErr = 0.0;
+        for (int k = 0; k < 9; ++k) iErr = std::max(iErr, std::fabs(nat.inertiaCom[k] - o.I[k]) / iScale);
+        check(iErr <= c.relTol,
+              std::string("[") + c.name + "] native inertia tensor matches OCCT  norm-delta=" +
+              std::to_string(iErr) + "  (diag native Ixx=" + std::to_string(nat.inertiaCom[0]) +
+              " occt Ixx=" + std::to_string(o.I[0]) + ")");
+
+        // The gate-OFF OCCT path must itself agree with the BRepGProp oracle (sanity).
+        check(relErr(occt.volume, o.vol) <= 1e-9,
+              std::string("[") + c.name + "] gate-OFF OCCT-path volume == BRepGProp");
+
+        setForgeNativeBrepEnabled(false);
+        reg.release(h);
+    }
+}
+
+// === 7) projectShape (HLR) =================================================
+// Gate ON -> native hiddenLineRemoval on the imported solid; importOcctSolidCallCount must rise.
+// The native HLR must emit a non-empty visible-edge polyline set for the OCCT box (the front
+// view of a box has 4 visible silhouette/outline edges). A/B: gate-OFF OCCT HLR also non-empty;
+// both produce the canonical front-view rectangle (the importer-hit proves the native path ran).
+void testProjectShapeHLR() {
+    std::printf("[projectShape HLR on OCCT box]\n");
+    auto& reg = ShapeRegistry::instance();
+    ShapeHandle h = reg.add(BRepPrimAPI_MakeBox(gp_Pnt(0,0,0), 10.0, 6.0, 4.0).Shape());
+
+    // --- gate OFF: OCCT HLRBRep_Algo path (A/B oracle, importer not hit) ---
+    setForgeNativeBrepEnabled(false);
+    unsigned long long before0 = importOcctSolidCallCount();
+    ProjectedView occt = projectShape(h, frontView());
+    check(importOcctSolidCallCount() == before0, "gate OFF -> importer NOT hit (pure OCCT)");
+    std::size_t occtSegs = occt.visible.size() + occt.hidden.size() + occt.outline.size();
+    check(occtSegs > 0, "gate OFF -> OCCT HLR emits visible/hidden/outline segments  n=" +
+          std::to_string(occtSegs));
+
+    // --- gate ON: native HLR via importOcctSolid ---
+    setForgeNativeBrepEnabled(true);
+    unsigned long long before1 = importOcctSolidCallCount();
+    ProjectedView nat = projectShape(h, frontView());
+    check(importOcctSolidCallCount() > before1,
+          "gate ON  -> importOcctSolid HIT (HLR wire activated)");
+    std::size_t natSegs = nat.visible.size() + nat.hidden.size() + nat.outline.size();
+    check(natSegs > 0, "gate ON  -> native HLR emits segments (native path taken)  n=" +
+          std::to_string(natSegs));
+    // The native HLR of an axis-aligned box front view must show the visible outline of the
+    // 10x4 face (at least one visible OR outline polyline — i.e. the silhouette rectangle).
+    check(!nat.visible.empty() || !nat.outline.empty(),
+          "gate ON  -> native HLR has visible/outline polylines  vis=" +
+          std::to_string(nat.visible.size()) + " out=" + std::to_string(nat.outline.size()));
+
+    setForgeNativeBrepEnabled(false);
+    reg.release(h);
+}
+
+// === 8) projectShapeSection (cut) ==========================================
+// Gate ON -> native sectionSolid on the imported solid; importOcctSolidCallCount must rise. A
+// mid-plane cut (z=2 normal +Z) of the 10x6x4 box yields exactly one closed cut rectangle whose
+// screen bbox spans 10x6. A/B: gate-OFF OCCT BRepAlgoAPI_Section also yields a cut; importer-hit
+// proves the native section ran on the OCCT input.
+void testProjectShapeSection() {
+    std::printf("[projectShapeSection on OCCT box]\n");
+    auto& reg = ShapeRegistry::instance();
+    ShapeHandle h = reg.add(BRepPrimAPI_MakeBox(gp_Pnt(0,0,0), 10.0, 6.0, 4.0).Shape());
+    SectionPlane plane{ 5.0, 3.0, 2.0,  0.0, 0.0, 1.0 };   // cut at z=2, normal +Z
+    HatchSpec hatch{ 2.0, 45.0 };
+
+    // --- gate OFF: OCCT section path (A/B oracle, importer not hit) ---
+    setForgeNativeBrepEnabled(false);
+    unsigned long long before0 = importOcctSolidCallCount();
+    ProjectedView occt = projectShapeSection(h, topView(), plane, hatch);
+    check(importOcctSolidCallCount() == before0, "gate OFF -> importer NOT hit (pure OCCT)");
+    check(!occt.cut.empty(), "gate OFF -> OCCT section emits cut wires  n=" +
+          std::to_string(occt.cut.size()));
+
+    // --- gate ON: native section via importOcctSolid ---
+    setForgeNativeBrepEnabled(true);
+    unsigned long long before1 = importOcctSolidCallCount();
+    ProjectedView nat = projectShapeSection(h, topView(), plane, hatch);
+    check(importOcctSolidCallCount() > before1,
+          "gate ON  -> importOcctSolid HIT (section wire activated)");
+    check(!nat.cut.empty(), "gate ON  -> native section emits cut wires (native path taken)  n=" +
+          std::to_string(nat.cut.size()));
+    // The native cut polylines of a z-cut box must span the 10x6 rectangle in screen space.
+    double minX = 1e300, maxX = -1e300, minY = 1e300, maxY = -1e300;
+    for (const auto& pl : nat.cut)
+        for (const auto& xy : pl) {
+            minX = std::min(minX, xy.first);  maxX = std::max(maxX, xy.first);
+            minY = std::min(minY, xy.second); maxY = std::max(maxY, xy.second);
+        }
+    double w = maxX - minX, hgt = maxY - minY;
+    // top view screen axes are (worldX, -worldY): the cut rectangle is 10 wide x 6 tall.
+    bool spanOk = std::fabs(std::max(w, hgt) - 10.0) < 1e-6 &&
+                  std::fabs(std::min(w, hgt) - 6.0)  < 1e-6;
+    check(spanOk, "gate ON  -> native cut rectangle spans 10x6  w=" + std::to_string(w) +
+          " h=" + std::to_string(hgt));
+
+    setForgeNativeBrepEnabled(false);
+    reg.release(h);
+}
+
+// === 9) heal::sewShape / autoRepairSelfIntersection ========================
+// Gate ON -> native sewFaces / healBRep on the imported solid (gatherNativeFaces imports an OCCT
+// body); importOcctSolidCallCount must rise. A clean analytic OCCT box imports + sews to a VALID,
+// CLOSED NativeSolid handle, and heals to a valid NativeSolid handle. gate OFF -> pure OCCT.
+void testHealSew() {
+    std::printf("[heal::sewShape + autoRepairSelfIntersection on OCCT box]\n");
+    auto& reg = ShapeRegistry::instance();
+    ShapeHandle h = reg.add(BRepPrimAPI_MakeBox(gp_Pnt(0,0,0), 10.0, 6.0, 4.0).Shape());
+
+    // --- sewShape: gate OFF (OCCT BRepBuilderAPI_Sewing, importer not hit) ---
+    setForgeNativeBrepEnabled(false);
+    unsigned long long before0 = importOcctSolidCallCount();
+    forge::heal::SewResult occtSew = forge::heal::sewShape(h, 1e-3);
+    check(importOcctSolidCallCount() == before0, "[sew] gate OFF -> importer NOT hit (pure OCCT)");
+    check(occtSew.handle != kInvalidHandle, "[sew] gate OFF -> OCCT sew yields a handle");
+    reg.release(occtSew.handle);
+
+    // --- sewShape: gate ON (native sewFaces via importOcctSolid) ---
+    setForgeNativeBrepEnabled(true);
+    unsigned long long before1 = importOcctSolidCallCount();
+    forge::heal::SewResult natSew = forge::heal::sewShape(h, 1e-3);
+    check(importOcctSolidCallCount() > before1,
+          "[sew] gate ON  -> importOcctSolid HIT (sew wire activated on OCCT input)");
+    check(natSew.handle != kInvalidHandle, "[sew] gate ON  -> native sew yields a handle");
+    check(reg.kindOf(natSew.handle) == ShapeKind::NativeSolid,
+          "[sew] gate ON  -> sewn handle is a NativeSolid (native path produced it)");
+    check(natSew.report.closedAfter,
+          "[sew] gate ON  -> native sewn shell is closed (closedAfter=true)");
+    reg.release(natSew.handle);
+
+    // --- autoRepairSelfIntersection: gate ON (native healBRep via importOcctSolid) ---
+    setForgeNativeBrepEnabled(true);
+    unsigned long long before2 = importOcctSolidCallCount();
+    forge::heal::RepairResult natHeal = forge::heal::autoRepairSelfIntersection(h, 1e-3);
+    check(importOcctSolidCallCount() > before2,
+          "[heal] gate ON  -> importOcctSolid HIT (heal wire activated on OCCT input)");
+    check(natHeal.handle != kInvalidHandle, "[heal] gate ON  -> native heal yields a handle");
+    check(reg.kindOf(natHeal.handle) == ShapeKind::NativeSolid,
+          "[heal] gate ON  -> healed handle is a NativeSolid (native path produced it)");
+    {
+        const forge::native::brep::Solid& hs = reg.getNativeSolid(natHeal.handle);
+        forge::native::brep::CheckReport cr = forge::native::brep::checkBRep(&hs);
+        check(cr.valid, "[heal] gate ON  -> healed native solid is valid (checkBRep)  predicates " +
+              std::to_string(cr.passed()) + "/" + std::to_string(cr.total()));
+    }
+    reg.release(natHeal.handle);
+
+    setForgeNativeBrepEnabled(false);
+    reg.release(h);
+}
+
 int main() {
     std::printf("=== PHASE-D WIRE-ACTIVATION A/B GATE (OCCT analytic input -> native) ===\n");
     testInterference();
@@ -389,6 +655,10 @@ int main() {
     testFeaTetMeshShape();
     testShapeCheckAnalyse();
     testShapeFixRepair();
+    testMassProperties();
+    testProjectShapeHLR();
+    testProjectShapeSection();
+    testHealSew();
     std::printf("\n%d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

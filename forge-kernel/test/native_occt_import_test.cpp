@@ -48,8 +48,16 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>          // BSpline blend (variable fillet)
 #include <BRepOffsetAPI_ThruSections.hxx>        // BSpline loft (through-sections)
+#include <BRepPrimAPI_MakeRevol.hxx>             // surface of revolution (honest deferral)
+#include <BRepPrimAPI_MakePrism.hxx>             // SOLID OF EXTRUSION (exact NURBS sweep)
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <GeomAPI_PointsToBSpline.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_Vec.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Edge.hxx>
@@ -298,18 +306,75 @@ int main() {
                   ts.Shape(), 1, 0, 1, /*volArea*/0.01, /*bb*/0.01, /*tight*/true);
     }
 
-    // (8) HONEST DEFERRAL: a TORUS has non-analytic-in-our-scope faces (the native
-    // importer supports Plane/Cylinder/Cone/Sphere + BSpline/Bezier — Torus is still
-    // out of scope), so it MUST return ok=false with a "non-analytic face Torus"
-    // reason, NOT a faked import. This proves the importer defers honestly.
+    // ========================================================================
+    // NEWLY-SUPPORTED SURFACE TYPES (was: honest deferral). The importer now imports
+    // a full TORUS exactly (native SurfaceKind::Torus, gp_Torus copied 1:1) and a
+    // SOLID OF REVOLUTION (GeomConvert::SurfaceToBSplineSurface -> native NURBS path).
+    // ========================================================================
+
+    // (8) FULL TORUS R=8 r=2. A torus IS an exact native analytic surface (its
+    // parameterization is identical to gp_Torus), so the importer copies major/minor
+    // radii + frame 1:1 and stages a doubly-periodic NxM grid of EXACT torus cells.
+    // It is genus 1 (one through-tunnel through the ring centre) => kernel b1 = 2*genus
+    // = 2 (the killer topology axis: a torus MUST report b1==2). Volume/area are gated
+    // at the tight 0.5% analytic band (the cells integrate the EXACT torus Jacobian).
     {
-        std::printf("[torus deferral]\n");
         TopoDS_Shape tor = BRepPrimAPI_MakeTorus(8.0, 2.0).Shape();
-        ImportResult ir = importOcctSolid(tor);
-        check(!ir.ok, std::string("torus deferred (ok=false), reason=\"") + ir.reason + "\"");
-        check(ir.reason.find("non-analytic") != std::string::npos,
-              "deferral reason names the non-analytic face");
-        check(ir.solid == nullptr, "deferred import yields no solid");
+        gate("torus R8 r2 (native Torus, genus 1 -> b1=2)", tor, 1, 2, 1,
+             /*volArea*/0.005, /*bb*/0.01, /*tight*/true);
+    }
+
+    // (11) SOLID OF EXTRUSION — extrude a CLOSED B-spline-bounded profile (a B-spline
+    // outer edge + a straight return edge, in the XY plane) along +Z by 5. OCCT keeps
+    // the swept outer wall as a GeomAbs_SurfaceOfExtrusion; the importer builds the
+    // EXACT rational tensor B-spline of that extrusion DIRECTLY from the basis curve
+    // (basis x linear-in-direction — matches OCCT to machine precision in geometry AND
+    // (u,v) parameterization) and routes it through the native NURBS path, welded to
+    // the planar back wall + 2 planar caps. Genus 0 (b1=0). The swept NURBS wall's trim
+    // meshing is approximate vs the exact analytic path, so vol/area use the same honest
+    // 1% band as the loft/fillet; the bbox is gated against OCCT's tight (AddOptimal) box.
+    {
+        TColgp_Array1OfPnt pts(1, 4);
+        pts.SetValue(1, gp_Pnt(2, 0, 0));
+        pts.SetValue(2, gp_Pnt(4, 1, 0));
+        pts.SetValue(3, gp_Pnt(4, 3, 0));
+        pts.SetValue(4, gp_Pnt(2, 4, 0));
+        Handle(Geom_BSplineCurve) bc = GeomAPI_PointsToBSpline(pts).Curve();
+        TopoDS_Edge eb = BRepBuilderAPI_MakeEdge(bc).Edge();
+        TopoDS_Edge eret = BRepBuilderAPI_MakeEdge(gp_Pnt(2, 4, 0), gp_Pnt(2, 0, 0)).Edge();
+        TopoDS_Wire w = BRepBuilderAPI_MakeWire(eb, eret).Wire();
+        TopoDS_Face pf = BRepBuilderAPI_MakeFace(w).Face();
+        TopoDS_Shape pr = BRepPrimAPI_MakePrism(pf, gp_Vec(0, 0, 5)).Shape();
+        gate("solid of extrusion (exact BSpline-extrusion wall + 3 planes, genus 0)",
+             pr, 1, 0, 1, /*volArea*/0.01, /*bb*/0.01, /*tight*/true);
+    }
+
+    // (12) HONEST DEFERRAL — a SOLID OF REVOLUTION. A circular sweep has no exact
+    // UNIFORM-ANGLE NURBS representation (the exact rational-quadratic circle is
+    // non-uniform in the angle, so it cannot keep OCCT's u-domain that the face's
+    // p-curves live in), and GeomConvert's polynomial approximation misses by ~4.6%
+    // volume. The importer therefore MUST defer (ok=false, "Revolution" named), NOT
+    // import an inexact/p-curve-misindexed body. (The native Torus IS supported because
+    // that quadric's parameterization is uniform-angle and matches OCCT exactly.)
+    {
+        std::printf("[revolution deferral]\n");
+        gp_Ax1 zax(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+        TColgp_Array1OfPnt pts(1, 4);
+        pts.SetValue(1, gp_Pnt(2, 0, 0));
+        pts.SetValue(2, gp_Pnt(4, 0, 2));
+        pts.SetValue(3, gp_Pnt(4, 0, 4));
+        pts.SetValue(4, gp_Pnt(2, 0, 6));
+        Handle(Geom_BSplineCurve) bc = GeomAPI_PointsToBSpline(pts).Curve();
+        TopoDS_Edge eb = BRepBuilderAPI_MakeEdge(bc).Edge();
+        TopoDS_Edge eret = BRepBuilderAPI_MakeEdge(gp_Pnt(2, 0, 6), gp_Pnt(2, 0, 0)).Edge();
+        TopoDS_Wire w = BRepBuilderAPI_MakeWire(eb, eret).Wire();
+        TopoDS_Face pf = BRepBuilderAPI_MakeFace(w).Face();
+        TopoDS_Shape rv = BRepPrimAPI_MakeRevol(pf, zax).Shape();
+        ImportResult ir = importOcctSolid(rv);
+        check(!ir.ok, std::string("revolution deferred (ok=false), reason=\"") + ir.reason + "\"");
+        check(ir.reason.find("Revolution") != std::string::npos,
+              "deferral reason names the Revolution face");
+        check(ir.solid == nullptr, "deferred revolution import yields no solid");
     }
 
     std::printf("\n=== RESULT: %d passed, %d failed ===\n", g_pass, g_fail);

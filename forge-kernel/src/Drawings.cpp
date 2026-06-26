@@ -78,11 +78,23 @@
 // WHICH ENTRIES ARE WIRED (the two ShapeHandle-based ops that can detect a native
 // input) and which are LEFT ON OCCT (CAPABILITY GAPS surfaced, not silently
 // degraded) are documented at each wired/left call site below.
+//
+// PHASE-D ACTIVATION (2026-06-25) — wired LIVE for OCCT inputs via the OCCT->native
+// importer forge::importOcctSolid (src/OcctImport.cpp). BOTH HLR (tryNativeProjectShape)
+// and planar section (tryNativeSectionCut) now resolve an OCCT-backed (ShapeKind::Occt)
+// analytic solid by importing it to a native Solid before running brep::hiddenLineRemoval
+// / brep::sectionSolid on it, instead of deferring outright. The 2D output stays in the
+// OCCT screen frame (nativeWorldToScreen / worldToScreen) so the regression image still
+// matches; the section emits screen polylines (NOT a registered section-result handle),
+// so it is NOT blocked by the missing native-section result-handle kind. SAFE + HONEST: a
+// non-analytic import (Torus/Revolution/non-manifold) -> defer to OCCT, byte-identical to
+// today. Gated by forgeNativeFeaturesEnabled() (default OFF).
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/Hlr.hpp"           // hiddenLineRemoval, HlrResult/HlrSegment (native)
 #include "forge/native/brep/Section.hpp"       // sectionSolid, SectionResult/SectionWire (native)
 #include "forge/native/brep/Topology.hpp"      // Solid graph
+#include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
 #endif
 
 namespace forge {
@@ -268,10 +280,14 @@ nativeWorldToScreen(const gp_Ax2& ax, const forge::native::brep::Vec3& p) {
 // fills `view` (visible / hidden / outline buckets) on success; returns false
 // (NEVER throws) when the native path HONESTLY DEFERS to OCCT. Deferral cases
 // (Bible §0 — native-where-valid, OCCT otherwise):
-//   * the input handle is NOT a NativeSolid (no OCCT-shape -> native-Solid importer)
+//   * the input handle is a NativeMesh, OR an OCCT-backed body whose importOcctSolid
+//     DEFERS (ok==false: Torus/Revolution/non-analytic / non-manifold import)
 //     -> defer to OCCT (the default-build behaviour is unchanged).
 //   * the native HLR returns ok==false (empty / degenerate solid, freeform faces the
 //     analytic envelope does not yet cover) or yields no segments -> defer to OCCT.
+// PHASE-D ACTIVATION (2026-06-25): a NativeSolid handle is used directly; an OCCT-backed
+// (ShapeKind::Occt) analytic solid is IMPORTED via forge::importOcctSolid before the HLR
+// run (`imported` keeps the imported topology alive for this call).
 // The native HlrResult's per-segment visibility (Visible / Hidden) and edge kind
 // (BRep / Silhouette) drive the three OCCT buckets:
 //   Visible BRep/Rg edges        -> view.visible
@@ -282,9 +298,19 @@ nativeWorldToScreen(const gp_Ax2& ax, const forge::native::brep::Vec3& p) {
 bool tryNativeProjectShape(ShapeHandle h, const gp_Ax2& ax2, ProjectedView& view) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
-    if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;   // defer to OCCT
 
-    const Solid& solid = reg.getNativeSolid(h);
+    ImportResult imported;
+    const Solid* solidPtr = nullptr;
+    if (reg.kindOf(h) == ShapeKind::NativeSolid) {
+        solidPtr = &reg.getNativeSolid(h);
+    } else if (reg.kindOf(h) == ShapeKind::Occt) {
+        imported = importOcctSolid(reg.get(h));
+        if (!imported.ok || imported.solid == nullptr) return false;  // defer to OCCT
+        solidPtr = imported.solid;
+    } else {
+        return false;                                                 // NativeMesh -> defer
+    }
+    const Solid& solid = *solidPtr;
 
     // The native HLR looks ALONG +N of its own view frame; the OCCT projector's
     // gp_Ax2 Z axis (its main direction) is the equivalent look direction. Drive the
@@ -588,10 +614,16 @@ std::vector<Polyline2D> hatchBbox(const Bbox2D& bb,
 // OCCT screen frame via the same worldToScreen the OCCT cut path uses, so the image
 // matches) and returns true on success; returns false (NEVER throws) when the native
 // path HONESTLY DEFERS to OCCT. Deferral cases (Bible §0):
-//   * the input handle is NOT a NativeSolid (no OCCT-shape -> native-Solid importer)
+//   * the input handle is a NativeMesh, OR an OCCT-backed body whose importOcctSolid
+//     DEFERS (ok==false: Torus/Revolution/non-analytic / non-manifold import)
 //     -> defer to OCCT.
 //   * sectionSolid returns ok==false (a freeform/general-NURBS face the analytic
 //     section cannot handle yet, or a degenerate/non-manifold cut) -> defer to OCCT.
+// PHASE-D ACTIVATION (2026-06-25): a NativeSolid handle is used directly; an OCCT-backed
+// (ShapeKind::Occt) analytic solid is IMPORTED via forge::importOcctSolid before the
+// section run (`imported` keeps the imported topology alive for this call). The section
+// output is screen polylines (NOT a registered section-result handle), so this is NOT
+// blocked by the missing native-section result-handle kind.
 // An EMPTY section (the plane misses the solid) is ok==true with no wires — that is
 // a VALID native result (the OCCT path likewise leaves `cut` empty), so it is
 // reported as success (true) with nothing appended, NOT a defer.
@@ -600,9 +632,19 @@ bool tryNativeSectionCut(ShapeHandle h, const gp_Ax2& ax,
                          std::vector<Polyline2D>& cutOut) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
-    if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;   // defer to OCCT
 
-    const Solid& solid = reg.getNativeSolid(h);
+    ImportResult imported;
+    const Solid* solidPtr = nullptr;
+    if (reg.kindOf(h) == ShapeKind::NativeSolid) {
+        solidPtr = &reg.getNativeSolid(h);
+    } else if (reg.kindOf(h) == ShapeKind::Occt) {
+        imported = importOcctSolid(reg.get(h));
+        if (!imported.ok || imported.solid == nullptr) return false;  // defer to OCCT
+        solidPtr = imported.solid;
+    } else {
+        return false;                                                 // NativeMesh -> defer
+    }
+    const Solid& solid = *solidPtr;
 
     forge::native::brep::SectionPlane sp;
     sp.point  = Vec3{ plane.ox, plane.oy, plane.oz };

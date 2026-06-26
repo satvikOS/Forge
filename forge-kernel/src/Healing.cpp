@@ -56,9 +56,13 @@
 //   (B) sewShape                   — the OCCT BRepBuilderAPI_Sewing entry. The native
 //       sewFaces (Sew.cpp) is the in-house BRepBuilderAPI_Sewing replacement; its
 //       SewDiagnosis maps onto SewReport's before/after counters.
-// Both take the native branch ONLY when the input handle is a NativeSolid (so its faces
-// can be decomposed into independent fragments and re-healed/re-sewn); an OCCT-backed
-// input HONESTLY DEFERS to OCCT (there is no OCCT-face -> native-Face importer).
+// Both take the native branch when the input handle is a NativeSolid (so its faces can be
+// decomposed into independent fragments and re-healed/re-sewn), OR — PHASE-D ACTIVATION
+// (2026-06-25) — when it is an OCCT-backed (ShapeKind::Occt) analytic solid, by IMPORTING
+// it to a native Solid via forge::importOcctSolid (src/OcctImport.cpp) and decomposing the
+// imported faces. A clean analytic OCCT solid (box / bored box / fillet) thus heals + sews
+// natively; an import that DEFERS (ok==false: Torus/Revolution/non-analytic / non-manifold)
+// HONESTLY falls through to OCCT.
 //
 // THE THREE ENTRIES LEFT ON OCCT — CAPABILITY GAPS surfaced, NOT silently degraded:
 //   * simplifyShape (ShapeUpgrade_UnifySameDomain) — face/edge UNIFICATION (merge
@@ -83,6 +87,7 @@
 #include "forge/native/brep/Heal.hpp"          // healBRep, HealOptions, HealReport (native)
 #include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult, diagnoseShell (native)
 #include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Shell/Solid/Surface
+#include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
 #include <memory>
 #include <unordered_set>
 #include <vector>
@@ -187,17 +192,34 @@ native::brep::Face* cloneFaceIndependent(native::brep::TopologyBuilder& tb,
     return nf;
 }
 
-// Gather the cloned INDEPENDENT face fragments of a NativeSolid handle into a fresh
-// builder. Returns false (defer to OCCT) when the handle is NOT a NativeSolid (no
-// OCCT-face importer) or yields no cloneable faces. Mirrors ShapeFix.cpp's gather.
+// Gather the cloned INDEPENDENT face fragments of a solid handle into a fresh builder.
+// A NativeSolid handle is decomposed directly; PHASE-D ACTIVATION (2026-06-25) — an
+// OCCT-backed (ShapeKind::Occt) analytic solid is first IMPORTED into a native Solid via
+// forge::importOcctSolid, then its faces are cloned into `owner` (the clone deep-copies
+// the vertices + analytic surface, so the import's own TopologyBuilder is needed only for
+// the duration of this call and is released on return). Returns false (defer to OCCT) when
+// the handle is a NativeMesh, when importOcctSolid DEFERS (ok==false: non-analytic /
+// non-manifold), or when no cloneable faces result. Mirrors ShapeFix.cpp's gather.
 bool gatherNativeFaces(ShapeHandle shape,
                        std::shared_ptr<native::brep::TopologyBuilder>& owner,
                        std::vector<native::brep::Face*>& faces) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
-    if (reg.kindOf(shape) != ShapeKind::NativeSolid) return false;
+
+    const Solid* sptr = nullptr;
+    ImportResult imported;                 // keeps the imported topology alive while cloning
+    if (reg.kindOf(shape) == ShapeKind::NativeSolid) {
+        sptr = &reg.getNativeSolid(shape);
+    } else if (reg.kindOf(shape) == ShapeKind::Occt) {
+        imported = importOcctSolid(reg.get(shape));
+        if (!imported.ok || imported.solid == nullptr) return false;   // defer to OCCT
+        sptr = imported.solid;
+    } else {
+        return false;                                                  // NativeMesh -> defer
+    }
+
     owner = std::make_shared<TopologyBuilder>();
-    const Solid& s = reg.getNativeSolid(shape);
+    const Solid& s = *sptr;
     for (Shell* sh : s.shells) {
         for (Face* sf : sh->faces) {
             if (Face* nf = cloneFaceIndependent(*owner, sf)) faces.push_back(nf);
