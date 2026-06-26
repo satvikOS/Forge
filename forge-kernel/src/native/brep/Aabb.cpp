@@ -115,13 +115,16 @@ void boundFace(const Face& f, Box& box, int nurbsGrid) {
             }
             return;
         }
-        // Affine plane patch: the extremum over the rectangle is at a corner.
-        for (double u : { u0, u1 })
-            for (double v : { v0, v1 })
-                box.add(surf->evaluate(u, v));
-        // If a loop polygon is present, its vertices are interior to / on the
-        // rectangle, so they cannot extend the affine extremum — but include the
-        // exact loop vertices anyway (cheap, and exact for a sub-polygon face).
+        // Affine plane patch. When the face carries an outer LOOP polygon (every
+        // imported facet, and every boolean-cut planar sub-face), the TRUE face is
+        // the polygon spanned by those loop vertices — NOT the axis-aligned
+        // [u0,u1]x[v0,v1] rectangle in (u,v). For a non-axis-aligned polygon (e.g. a
+        // triangular facet with corners (0,0),(8.5,0),(7.07,9.89)) the rectangle's
+        // (u0,v1)/(u1,v0) corners lie OUTSIDE the polygon and evaluate to 3-D points
+        // beyond the real face, which would inflate the AABB (the faceted-STEP bbox
+        // failures). A plane is affine, so the polygon's exact extremum is at one of
+        // its own vertices — bound by the loop vertices alone (exact). Only when no
+        // loop polygon is attached do we fall back to the rectangle corners.
         if (f.outerLoop && f.outerLoop->first) {
             const Coedge* c = f.outerLoop->first;
             const Coedge* start = c;
@@ -130,6 +133,10 @@ void boundFace(const Face& f, Box& box, int nurbsGrid) {
                 if (vv) box.add(Vec3{ vv->point.x, vv->point.y, vv->point.z });
                 c = c->next;
             } while (c && c != start);
+        } else {
+            for (double u : { u0, u1 })
+                for (double v : { v0, v1 })
+                    box.add(surf->evaluate(u, v));
         }
         return;
     }

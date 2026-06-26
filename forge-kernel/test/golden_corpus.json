@@ -1,0 +1,4606 @@
+{
+  "schemaVersion": 1,
+  "frozenAt": "2026-06-26T12:13:39.512Z",
+  "deflection": 0.1,
+  "occtVersion": "7.9.3",
+  "tolerances": {
+    "massArea": 0.005,
+    "bbox": 0.001,
+    "com": 0.001,
+    "inertia": 0.01
+  },
+  "modelCount": 72,
+  "models": [
+    {
+      "id": "fx_box_10x6x4",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "part.make-box",
+          "arguments": {
+            "dx": 10,
+            "dy": 6,
+            "dz": 4
+          }
+        }
+      ],
+      "volume": 240,
+      "area": 247.99999999999997,
+      "com": [
+        5,
+        3,
+        2
+      ],
+      "inertiaPrincipal": [
+        1040,
+        2320,
+        2720
+      ],
+      "bbox": {
+        "min": [
+          0,
+          0,
+          0
+        ],
+        "max": [
+          10,
+          6,
+          4
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 12,
+        "vertHash": "3997225f50efa8c8"
+      },
+      "stepHash": "bf1a63c3b79c36b2",
+      "step": "golden_corpus_steps/fx_box_10x6x4.step"
+    },
+    {
+      "id": "fx_cyl_r3_h8",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "part.make-cylinder",
+          "arguments": {
+            "radius": 3,
+            "height": 8
+          }
+        }
+      ],
+      "volume": 226.19467105847505,
+      "area": 207.34511513693624,
+      "com": [
+        9.867807420877793e-14,
+        3.1099899120628006e-16,
+        3.9999999999999996
+      ],
+      "inertiaPrincipal": [
+        1017.8760197631478,
+        1715.309588860057,
+        1715.3095888601133
+      ],
+      "bbox": {
+        "min": [
+          -3.0000000000000004,
+          -3.0000000000000004,
+          0
+        ],
+        "max": [
+          3.0000000000000004,
+          3.0000000000000004,
+          8
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 508,
+        "vertHash": "bfc0a3fda31ef807"
+      },
+      "stepHash": "a5e8c34426bb56c2",
+      "step": "golden_corpus_steps/fx_cyl_r3_h8.step"
+    },
+    {
+      "id": "fx_sphere_r5",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "part.make-sphere",
+          "arguments": {
+            "radius": 5
+          }
+        }
+      ],
+      "volume": 523.598775598299,
+      "area": 314.1592653589792,
+      "com": [
+        -2.375544004984156e-17,
+        -4.129595995000143e-18,
+        6.3948846218409e-17
+      ],
+      "inertiaPrincipal": [
+        5235.987755982988,
+        5235.987755982989,
+        5235.987755982991
+      ],
+      "bbox": {
+        "min": [
+          -5,
+          -5,
+          -5
+        ],
+        "max": [
+          5,
+          5,
+          5
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 16128,
+        "vertHash": "c8d9216d71e412e0"
+      },
+      "stepHash": "7b27da96bf1b7383",
+      "step": "golden_corpus_steps/fx_sphere_r5.step"
+    },
+    {
+      "id": "fx_bored_box",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 10,
+            "dy": 10,
+            "dz": 10
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 4,
+            "depth": 20,
+            "at": [
+              0,
+              0,
+              -5
+            ]
+          }
+        }
+      ],
+      "volume": 968.5966884306482,
+      "area": 585.1321101955411,
+      "com": [
+        5.134592605283249,
+        5.134592605283994,
+        4.999999999999007
+      ],
+      "inertiaPrincipal": [
+        15281.351718494654,
+        15531.639218305849,
+        16393.565640324516
+      ],
+      "bbox": {
+        "min": [
+          -3.566688189562545e-12,
+          -2.977490793949055e-12,
+          -2.9072003143353562e-15
+        ],
+        "max": [
+          10.000000000002522,
+          10.00000000000517,
+          10.000000000000004
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 272,
+        "vertHash": "02d448ab74795651"
+      },
+      "stepHash": "d848009232ed46a0",
+      "step": "golden_corpus_steps/fx_bored_box.step"
+    },
+    {
+      "id": "fx_bored_plate",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "asset.make-bored-plate",
+          "arguments": {
+            "dx": 60,
+            "dy": 40,
+            "dz": 8,
+            "bore": 12
+          }
+        }
+      ],
+      "volume": 18295.221315766204,
+      "area": 6475.398223686256,
+      "com": [
+        30.000000000000043,
+        19.999999999999943,
+        3.999999999999973
+      ],
+      "inertiaPrincipal": [
+        2649431.5055259876,
+        5849431.505526023,
+        8303713.983683847
+      ],
+      "bbox": {
+        "min": [
+          -1.2010991521610045e-11,
+          -1.3244562263696072e-11,
+          0
+        ],
+        "max": [
+          60.000000000012015,
+          40.000000000013245,
+          8
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 528,
+        "vertHash": "d4e419ef6aeb0b30"
+      },
+      "stepHash": "438fa0c690e0d41b",
+      "step": "golden_corpus_steps/fx_bored_plate.step"
+    },
+    {
+      "id": "fx_flange",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "asset.make-flange",
+          "arguments": {
+            "od": 120,
+            "thick": 12,
+            "bore": 40,
+            "bolts": 6,
+            "bolt_d": 9,
+            "bcd": 90
+          }
+        }
+      ],
+      "volume": 116010.11360025906,
+      "area": 27401.818913761104,
+      "com": [
+        4.377330465675846e-12,
+        1.865223262327676e-12,
+        5.999999999999454
+      ],
+      "inertiaPrincipal": [
+        117273414.42805488,
+        117273414.42806254,
+        231762586.12971145
+      ],
+      "bbox": {
+        "min": [
+          -60.000000000000014,
+          -60,
+          -8.488807650967164e-13
+        ],
+        "max": [
+          60,
+          60,
+          12.00000000000297
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 14,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 7572,
+        "vertHash": "7aa930a930bc9ada"
+      },
+      "stepHash": "6dc68cf58c4ee9e7",
+      "step": "golden_corpus_steps/fx_flange.step"
+    },
+    {
+      "id": "fx_tube",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "asset.make-tube",
+          "arguments": {
+            "od": 40,
+            "wall": 5,
+            "len": 50
+          }
+        }
+      ],
+      "volume": 27488.935718912428,
+      "area": 12095.131716321532,
+      "com": [
+        6.856049067469777e-13,
+        1.0658424442944942e-13,
+        24.999999999999613
+      ],
+      "inertiaPrincipal": [
+        8590292.412159977,
+        10022007.814186435,
+        10022007.814187154
+      ],
+      "bbox": {
+        "min": [
+          -20.000000000000053,
+          -20.000000000000053,
+          0
+        ],
+        "max": [
+          20.000000000000004,
+          20.000000000000224,
+          50
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "81df11610b75366c"
+      },
+      "stepHash": "4ff2aae24212ef8b",
+      "step": "golden_corpus_steps/fx_tube.step"
+    },
+    {
+      "id": "fx_washer",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "asset.make-washer",
+          "arguments": {
+            "od": 30,
+            "id": 12,
+            "thick": 3
+          }
+        }
+      ],
+      "volume": 1781.2830345854036,
+      "area": 1583.362697409104,
+      "com": [
+        7.502414294549898e-13,
+        3.5238241324087493e-13,
+        1.4999999999999403
+      ],
+      "inertiaPrincipal": [
+        117564.68028262841,
+        117564.68028264624,
+        232457.43601339616
+      ],
+      "bbox": {
+        "min": [
+          -15,
+          -15,
+          0
+        ],
+        "max": [
+          15,
+          15,
+          3
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "b30650538f612e4f"
+      },
+      "stepHash": "1fdf9aef59bab2eb",
+      "step": "golden_corpus_steps/fx_washer.step"
+    },
+    {
+      "id": "fx_lbracket",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "asset.make-l-bracket",
+          "arguments": {
+            "len": 70,
+            "width": 50,
+            "thick": 5,
+            "wall": 80,
+            "hole": 5
+          }
+        }
+      ],
+      "volume": 43553.65045916059,
+      "area": 19528.53981633709,
+      "com": [
+        35.000000000000064,
+        11.416597886342021,
+        26.608197336630088
+      ],
+      "inertiaPrincipal": [
+        23077932.190966956,
+        37975465.01976402,
+        50532953.38893469
+      ],
+      "bbox": {
+        "min": [
+          -2.1172817471713445e-11,
+          -1.3749046053304368e-13,
+          -3.0362861411450444e-15
+        ],
+        "max": [
+          70.00000000001229,
+          50.00000000002554,
+          80.00000000000004
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1076,
+        "vertHash": "e773a123607cdc65"
+      },
+      "stepHash": "030caba3b0e252b6",
+      "step": "golden_corpus_steps/fx_lbracket.step"
+    },
+    {
+      "id": "fx_stepped_shaft",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "asset.make-stepped-shaft",
+          "arguments": {
+            "d1": 20,
+            "h1": 30,
+            "d2": 12,
+            "h2": 25
+          }
+        }
+      ],
+      "volume": 12252.21134900073,
+      "area": 3455.7519189489567,
+      "com": [
+        2.9852934296296185e-13,
+        -2.6701613314218217e-15,
+        21.34615384615398
+      ],
+      "inertiaPrincipal": [
+        522132.6990266517,
+        2759991.8520923327,
+        2759991.8520924053
+      ],
+      "bbox": {
+        "min": [
+          -10.000000000000002,
+          -10.000000000000002,
+          0
+        ],
+        "max": [
+          10.000000000000002,
+          10.00000000000003,
+          55
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1020,
+        "vertHash": "0881610b819cd561"
+      },
+      "stepHash": "2a4b05011baa3797",
+      "step": "golden_corpus_steps/fx_stepped_shaft.step"
+    },
+    {
+      "id": "fx_filleted_box",
+      "source": "fixture",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 30,
+            "dy": 20,
+            "dz": 10
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 3
+          }
+        }
+      ],
+      "volume": 5603.522022723661,
+      "area": 1906.5309045510294,
+      "com": [
+        14.999999999999991,
+        10.050705123203917,
+        4.999999999999989
+      ],
+      "inertiaPrincipal": [
+        216601.22076594864,
+        441651.2085031702,
+        572455.2216729366
+      ],
+      "bbox": {
+        "min": [
+          -4.440892098501e-16,
+          -4.440892098501e-16,
+          -4.440892098501e-16
+        ],
+        "max": [
+          30,
+          20,
+          10
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 372,
+        "vertHash": "95c44ab015a3d839"
+      },
+      "stepHash": "bad2c2c5f4b4134d",
+      "step": "golden_corpus_steps/fx_filleted_box.step"
+    },
+    {
+      "id": "cadgen_b4e57ec6186718ac",
+      "source": "cadgen_v3:valid",
+      "prompt": "An L-bracket 70 mm long, 50 mm wide, 5 mm thick with a 80 mm upstand, and a 5 mm mounting hole in each leg.",
+      "calls": [
+        {
+          "name": "asset.make-l-bracket",
+          "arguments": {
+            "len": 70,
+            "width": 50,
+            "thick": 5,
+            "wall": 80,
+            "hole": 5
+          }
+        }
+      ],
+      "volume": 43553.65045916059,
+      "area": 19528.53981633709,
+      "com": [
+        35.000000000000064,
+        11.416597886342021,
+        26.608197336630088
+      ],
+      "inertiaPrincipal": [
+        23077932.190966956,
+        37975465.01976402,
+        50532953.38893469
+      ],
+      "bbox": {
+        "min": [
+          -2.1172817471713445e-11,
+          -1.3749046053304368e-13,
+          -3.0362861411450444e-15
+        ],
+        "max": [
+          70.00000000001229,
+          50.00000000002554,
+          80.00000000000004
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1076,
+        "vertHash": "e773a123607cdc65"
+      },
+      "stepHash": "030caba3b0e252b6",
+      "step": "golden_corpus_steps/cadgen_b4e57ec6186718ac.step"
+    },
+    {
+      "id": "cadgen_8e2646d46a3631ae",
+      "source": "cadgen_v3:valid",
+      "prompt": "A length of round tube: 30 mm outer diameter, 8 mm wall thickness, 60 mm long.",
+      "calls": [
+        {
+          "name": "asset.make-tube",
+          "arguments": {
+            "od": 30,
+            "wall": 8,
+            "len": 60
+          }
+        }
+      ],
+      "volume": 33175.21842190795,
+      "area": 9399.645219541057,
+      "com": [
+        7.588816320697997e-13,
+        4.0142278600383314e-13,
+        29.99999999999887
+      ],
+      "inertiaPrincipal": [
+        4545004.923801426,
+        12225067.9884723,
+        12225067.988472668
+      ],
+      "bbox": {
+        "min": [
+          -15,
+          -15,
+          0
+        ],
+        "max": [
+          15,
+          15,
+          60
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "51f40379e263cf9c"
+      },
+      "stepHash": "fa2d33ea82b37578",
+      "step": "golden_corpus_steps/cadgen_8e2646d46a3631ae.step"
+    },
+    {
+      "id": "cadgen_b38e29245bad0f81",
+      "source": "cadgen_v3:valid",
+      "prompt": "An L-bracket 80 mm long, 50 mm wide, 5 mm thick with a 40 mm upstand, and a 6 mm mounting hole in each leg.",
+      "calls": [
+        {
+          "name": "asset.make-l-bracket",
+          "arguments": {
+            "len": 80,
+            "width": 50,
+            "thick": 5,
+            "wall": 40,
+            "hole": 6
+          }
+        }
+      ],
+      "volume": 33717.25666116316,
+      "area": 15325.398223685048,
+      "com": [
+        40.00000000000504,
+        15.615674345226953,
+        10.80435295533331
+      ],
+      "inertiaPrincipal": [
+        13051324.675470939,
+        20489464.961154707,
+        28652088.882667415
+      ],
+      "bbox": {
+        "min": [
+          -1.1986880362459832e-11,
+          -1.7509094533106563e-13,
+          -1.559723964200341e-13
+        ],
+        "max": [
+          80.00000000001221,
+          50.000000000032536,
+          40.00000000000412
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1076,
+        "vertHash": "8101dfa89ed863dc"
+      },
+      "stepHash": "934b63f2bc7ed728",
+      "step": "golden_corpus_steps/cadgen_b38e29245bad0f81.step"
+    },
+    {
+      "id": "cadgen_0777cdc41caf1228",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 140 × 70 × 16 mm plate (origin at centre) with ONE Ø25 mm through-hole located EXACTLY at x=-20, y=+10 mm from centre.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 140,
+            "dy": 70,
+            "dz": 16,
+            "at": [
+              -70,
+              -35,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 25,
+            "depth": 16,
+            "at": [
+              -20,
+              10,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 148946.01836602914,
+      "area": 26594.889357190772,
+      "com": [
+        1.0546077995423695,
+        -0.527303899771317,
+        7.999999999999226
+      ],
+      "inertiaPrincipal": [
+        66056151.77595426,
+        255684556.78496093,
+        315385678.44396454
+      ],
+      "bbox": {
+        "min": [
+          -70.00000000001772,
+          -35.000000000031456,
+          0
+        ],
+        "max": [
+          70.0000000000224,
+          35.00000000003604,
+          16
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 528,
+        "vertHash": "f56df1ffefccf096"
+      },
+      "stepHash": "6c5bb8a88b531a54",
+      "step": "golden_corpus_steps/cadgen_0777cdc41caf1228.step"
+    },
+    {
+      "id": "cadgen_2a4c92c9562eadf4",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 140 × 160 × 25 mm plate (origin at centre) with ONE Ø4 mm through-hole located EXACTLY at x=+30, y=-50 mm from centre.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 140,
+            "dy": 160,
+            "dz": 25,
+            "at": [
+              -70,
+              -80,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 4,
+            "depth": 25,
+            "at": [
+              30,
+              -50,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 559685.840734697,
+      "area": 60089.02652414371,
+      "com": [
+        -0.016839407530914993,
+        0.02806567921159496,
+        12.500000000000645
+      ],
+      "inertiaPrincipal": [
+        943532959.2556179,
+        1223031613.1046715,
+        2108263963.9504204
+      ],
+      "bbox": {
+        "min": [
+          -70.0000000000674,
+          -80.00000000005573,
+          0
+        ],
+        "max": [
+          70.0000000000435,
+          80.00000000002521,
+          25
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 528,
+        "vertHash": "dd6444a6fb7d09a4"
+      },
+      "stepHash": "11f1de69cfffb1e5",
+      "step": "golden_corpus_steps/cadgen_2a4c92c9562eadf4.step"
+    },
+    {
+      "id": "cadgen_dab58b0cafad9da4",
+      "source": "cadgen_v3:valid",
+      "prompt": "A flat washer: 40 mm outer diameter, 21 mm inner diameter, 1 mm thick.",
+      "calls": [
+        {
+          "name": "asset.make-washer",
+          "arguments": {
+            "od": 40,
+            "id": 21,
+            "thick": 1
+          }
+        }
+      ],
+      "volume": 910.2764713776606,
+      "area": 2012.190094624126,
+      "com": [
+        1.0019961412916234e-12,
+        2.3594635874413654e-13,
+        0.4999999999999745
+      ],
+      "inertiaPrincipal": [
+        116192.99875271936,
+        116192.99875273522,
+        232234.28476022504
+      ],
+      "bbox": {
+        "min": [
+          -20.00000000000001,
+          -20.00000000000001,
+          0
+        ],
+        "max": [
+          20.000000000000004,
+          20.00000000000002,
+          1
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "34893cfe1874a918"
+      },
+      "stepHash": "2e2ef2bdbee55bae",
+      "step": "golden_corpus_steps/cadgen_dab58b0cafad9da4.step"
+    },
+    {
+      "id": "cadgen_2be3c9afbcae1f36",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 80 mm diameter, 50 mm tall cup with a 5 mm wall and a solid base, open at the top.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 80,
+            "depth": 50
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 70,
+            "depth": 46,
+            "at": [
+              0,
+              0,
+              5
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 70421.92619462954,
+      "area": 32948.9708615491,
+      "com": [
+        6.160897294520703e-12,
+        5.060326869983961e-12,
+        21.148829431432112
+      ],
+      "inertiaPrincipal": [
+        62705553.80424522,
+        62705553.80424848,
+        90202165.11471456
+      ],
+      "bbox": {
+        "min": [
+          -40,
+          -40.00000000001113,
+          0
+        ],
+        "max": [
+          40.00000000000564,
+          40.000000000000945,
+          50.000000000000206
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1620,
+        "vertHash": "a899e7697070adf7"
+      },
+      "stepHash": "312320e4d190bb41",
+      "step": "golden_corpus_steps/cadgen_2be3c9afbcae1f36.step"
+    },
+    {
+      "id": "cadgen_b0174dc450bf025d",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 4-bolt pipe flange: Ø150 mm OD, 12 mm thick, bolt circle Ø122, 4× Ø7 mm holes, Ø40 mm centre bore, rim blended R2.0. It must be a closed watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 150,
+            "depth": 12
+          }
+        },
+        {
+          "name": "part.bolt-circle",
+          "arguments": {
+            "count": 4,
+            "bcd": 122,
+            "diameter": 7,
+            "depth": 12
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 40,
+            "depth": 12
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 2
+          }
+        }
+      ],
+      "volume": 193967.6869210293,
+      "area": 39670.631628671734,
+      "com": [
+        -0.000027418252377917963,
+        0.0000532251229102037,
+        6.003158362498444
+      ],
+      "inertiaPrincipal": [
+        292750585.3016655,
+        292751524.56217116,
+        580888145.0542812
+      ],
+      "bbox": {
+        "min": [
+          -75.00000010000001,
+          -75.00000010000001,
+          -1.0000000177635683e-7
+        ],
+        "max": [
+          75.0000001,
+          75.0000001,
+          12.000000100000317
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 10,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 138982,
+        "vertHash": "c2603e5722e8cec8"
+      },
+      "stepHash": "ed4bebf826555cd3",
+      "step": "golden_corpus_steps/cadgen_b0174dc450bf025d.step"
+    },
+    {
+      "id": "cadgen_41bbe73d4ec611e9",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 80x80 mm mounting plate, 12 mm thick, with a 2x2 pattern of Ø8 mm through-holes inset 8 mm from each edge, rim filleted R2.0. Make sure it exports as a watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 80,
+            "dy": 80,
+            "dz": 12
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 64,
+            "dy": 64,
+            "diameter": 8,
+            "depth": 12,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 2
+          }
+        }
+      ],
+      "volume": 75691.834098523,
+      "area": 16342.050533802756,
+      "com": [
+        40.06780166760417,
+        40.03675260161998,
+        6.004458842307656
+      ],
+      "inertiaPrincipal": [
+        41286329.564887464,
+        41406328.84295851,
+        80895338.94685856
+      ],
+      "bbox": {
+        "min": [
+          -0.49032247535019097,
+          -0.49032247575307253,
+          -0.7443280662512888
+        ],
+        "max": [
+          80.41668235061614,
+          80.41668235077522,
+          12.741853284309446
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 14436,
+        "vertHash": "3fbd2ea842c2b999"
+      },
+      "stepHash": "215dea7467c49b26",
+      "step": "golden_corpus_steps/cadgen_41bbe73d4ec611e9.step"
+    },
+    {
+      "id": "cadgen_9b916b70bf7d0bcc",
+      "source": "cadgen_v3:valid",
+      "prompt": "A length of round tube: 60 mm outer diameter, 4 mm wall thickness, 60 mm long.",
+      "calls": [
+        {
+          "name": "asset.make-tube",
+          "arguments": {
+            "od": 60,
+            "wall": 4,
+            "len": 60
+          }
+        }
+      ],
+      "volume": 42223.005264248764,
+      "area": 22518.936140932943,
+      "com": [
+        1.3015920232438898e-12,
+        4.305764248772189e-14,
+        29.999999999999137
+      ],
+      "inertiaPrincipal": [
+        29302765.653387304,
+        29302765.653389398,
+        33271728.148227688
+      ],
+      "bbox": {
+        "min": [
+          -30,
+          -30,
+          0
+        ],
+        "max": [
+          30,
+          30,
+          60
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "24da38cac673941d"
+      },
+      "stepHash": "1ba5371978d5cfcd",
+      "step": "golden_corpus_steps/cadgen_9b916b70bf7d0bcc.step"
+    },
+    {
+      "id": "cadgen_d789cc5f0b055647",
+      "source": "cadgen_v3:valid",
+      "prompt": "A stepped shaft: a 35 mm diameter × 100 mm long lower section and a 20 mm diameter × 60 mm long upper section, coaxial.",
+      "calls": [
+        {
+          "name": "asset.make-stepped-shaft",
+          "arguments": {
+            "d1": 35,
+            "h1": 100,
+            "d2": 20,
+            "h2": 60
+          }
+        }
+      ],
+      "volume": 115060.83093775527,
+      "area": 16689.710972197343,
+      "com": [
+        -2.5625515246499594e-13,
+        -1.5425074592875e-12,
+        63.105802047773224
+      ],
+      "inertiaPrincipal": [
+        15674829.282935414,
+        194542417.94161493,
+        194542417.94161743
+      ],
+      "bbox": {
+        "min": [
+          -17.5,
+          -17.500000000000007,
+          0
+        ],
+        "max": [
+          17.500000000000007,
+          17.500000000000007,
+          160
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1020,
+        "vertHash": "cfaddaa936bcbaad"
+      },
+      "stepHash": "663dd599e8c7b468",
+      "step": "golden_corpus_steps/cadgen_d789cc5f0b055647.step"
+    },
+    {
+      "id": "cadgen_95d8f148694ca162",
+      "source": "cadgen_v3:valid",
+      "prompt": "Fuse a Ø28 mm, 45 mm tall cylindrical boss centrally on top of a 120 × 120 × 14 mm plate.",
+      "calls": [
+        {
+          "name": "part.make-box",
+          "arguments": {
+            "dx": 120,
+            "dy": 120,
+            "dz": 14
+          }
+        },
+        {
+          "name": "part.make-cylinder",
+          "arguments": {
+            "radius": 14,
+            "height": 45
+          }
+        },
+        {
+          "name": "part.translate",
+          "arguments": {
+            "shape": 2,
+            "dx": 60,
+            "dy": 60,
+            "dz": 14
+          }
+        },
+        {
+          "name": "part.fuse",
+          "arguments": {
+            "a": 1,
+            "b": 3
+          }
+        }
+      ],
+      "volume": 229308.84720466763,
+      "area": 39478.40674352245,
+      "com": [
+        59.999999999999865,
+        60.00000000000051,
+        10.564672721973377
+      ],
+      "inertiaPrincipal": [
+        272446223.0909291,
+        272446223.0909433,
+        486555467.02606153
+      ],
+      "bbox": {
+        "min": [
+          -3.066943818420205e-11,
+          -3.067731338492753e-11,
+          0
+        ],
+        "max": [
+          120.00000000002527,
+          120.00000000003068,
+          59
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 524,
+        "vertHash": "81a7433a41dabe39"
+      },
+      "stepHash": "ef890d62eb7addf9",
+      "step": "golden_corpus_steps/cadgen_95d8f148694ca162.step"
+    },
+    {
+      "id": "cadgen_7436b95c572fc4ed",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 80x40 mm mounting plate, 8 mm thick, with a 2x2 pattern of Ø6 mm through-holes inset 10 mm from each edge, rim filleted R2.0. Make sure it exports as a watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 80,
+            "dy": 40,
+            "dz": 8
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 60,
+            "dy": 20,
+            "diameter": 6,
+            "depth": 8,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 2
+          }
+        }
+      ],
+      "volume": 32113.314086350507,
+      "area": 10159.475976264519,
+      "com": [
+        46.7852804074987,
+        12.574859786371631,
+        3.999905632665758
+      ],
+      "inertiaPrincipal": [
+        3973552.7170347353,
+        19944783.277099673,
+        23357179.01668972
+      ],
+      "bbox": {
+        "min": [
+          -2.3718258691824152,
+          -13.615341978928969,
+          -6.3128753381300005
+        ],
+        "max": [
+          89.5401055297956,
+          40.48400337260523,
+          14.312875338129999
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": false,
+      "tess": {
+        "triCount": 13487,
+        "vertHash": "101c3eb6c525a178"
+      },
+      "stepHash": "3489482c4563b371",
+      "step": "golden_corpus_steps/cadgen_7436b95c572fc4ed.step"
+    },
+    {
+      "id": "cadgen_c60a8849a1a2262c",
+      "source": "cadgen_v3:valid",
+      "prompt": "A stepped shaft: a 35 mm diameter × 30 mm long lower section and a 30 mm diameter × 80 mm long upper section, coaxial.",
+      "calls": [
+        {
+          "name": "asset.make-stepped-shaft",
+          "arguments": {
+            "d1": 35,
+            "h1": 30,
+            "d2": 30,
+            "h2": 80
+          }
+        }
+      ],
+      "volume": 85412.05026947465,
+      "area": 12762.720155209532,
+      "com": [
+        5.890175441066488e-13,
+        7.835571553424061e-14,
+        51.41379310343724
+      ],
+      "inertiaPrincipal": [
+        10781430.569576178,
+        95521146.58097664,
+        95521146.58097711
+      ],
+      "bbox": {
+        "min": [
+          -17.5,
+          -17.5,
+          0
+        ],
+        "max": [
+          17.5,
+          17.5,
+          110
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1020,
+        "vertHash": "3a10c23839035c82"
+      },
+      "stepHash": "4e3c5250d769bff8",
+      "step": "golden_corpus_steps/cadgen_c60a8849a1a2262c.step"
+    },
+    {
+      "id": "cadgen_ffd080426efd2e27",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 80x60 mm mounting plate, 10 mm thick, with a 2x2 pattern of Ø8 mm through-holes inset 8 mm from each edge, rim filleted R2.0. Make sure it exports as a watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 80,
+            "dy": 60,
+            "dz": 10
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 64,
+            "dy": 44,
+            "diameter": 8,
+            "depth": 10,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 2
+          }
+        }
+      ],
+      "volume": 47162.316477961955,
+      "area": 12220.27320207021,
+      "com": [
+        40.09675187456722,
+        30.045908430833904,
+        5.01456503262489
+      ],
+      "inertiaPrincipal": [
+        14559042.832704386,
+        25713227.39819778,
+        39494768.95832087
+      ],
+      "bbox": {
+        "min": [
+          -0.4515236882425644,
+          -0.8057436208160773,
+          -0.8347364865033134
+        ],
+        "max": [
+          80.56150304134992,
+          60.42003812928899,
+          10.000000100000005
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 13908,
+        "vertHash": "20898219cfe3ef6b"
+      },
+      "stepHash": "38b478d2ad7fc07a",
+      "step": "golden_corpus_steps/cadgen_ffd080426efd2e27.step"
+    },
+    {
+      "id": "cadgen_15dc01fdf0c29998",
+      "source": "cadgen_v3:valid",
+      "prompt": "A hex nut: 50 mm across flats, 6.5 mm thick, 4 mm bore.",
+      "calls": [
+        {
+          "name": "asset.make-hex-nut",
+          "arguments": {
+            "af": 50,
+            "thick": 6.5,
+            "bore": 4
+          }
+        }
+      ],
+      "volume": 13991.264201411486,
+      "area": 5512.51060310454,
+      "com": [
+        6.068265469045576e-13,
+        -9.280656457577033e-13,
+        3.250000000000449
+      ],
+      "inertiaPrincipal": [
+        2492393.323321846,
+        2492393.323323187,
+        4886264.827893279
+      ],
+      "bbox": {
+        "min": [
+          -28.86751345948405,
+          -25.000000000007976,
+          -3.3792484968170487e-12
+        ],
+        "max": [
+          28.86751345948332,
+          25.000000000007535,
+          6.5000000000033795
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1168,
+        "vertHash": "da5a5c19fcb971f0"
+      },
+      "stepHash": "202ffef41e37cddf",
+      "step": "golden_corpus_steps/cadgen_15dc01fdf0c29998.step"
+    },
+    {
+      "id": "cadgen_ef7f24ff67a15a51",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 148 × 88 × 10 mm plate with a 3 × 4 grid of Ø4 mm through-holes spaced 60 mm apart in X and 20 mm in Y — EXACTLY 12 holes total.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 148,
+            "dy": 88,
+            "dz": 10,
+            "at": [
+              -74,
+              -44,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 3,
+            "ny": 4,
+            "dx": 60,
+            "dy": 20,
+            "diameter": 4
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 128732.03552632031,
+      "area": 31974.37157900582,
+      "com": [
+        -6.8447402038672724e-12,
+        -3.879921699612354e-12,
+        5.0000000000005365
+      ],
+      "inertiaPrincipal": [
+        84365490.09473622,
+        235183557.59469756,
+        317403513.7639957
+      ],
+      "bbox": {
+        "min": [
+          -74.00000000001407,
+          -44.000000000019746,
+          0
+        ],
+        "max": [
+          74.00000000001508,
+          44.00000000002017,
+          10
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 24,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 6204,
+        "vertHash": "9086db0ba00f302a"
+      },
+      "stepHash": "946b88ffca09f439",
+      "step": "golden_corpus_steps/cadgen_ef7f24ff67a15a51.step"
+    },
+    {
+      "id": "cadgen_6489e520fa42f0f9",
+      "source": "cadgen_v3:valid",
+      "prompt": "a tube EXACTLY Ø40.0 mm OD x 60.0 mm long with EXACTLY 3.0 mm wall thickness. The bore diameter must therefore be Ø34.0 mm (= 40.0 − 2·3.0).",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 40,
+            "depth": 60
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 34,
+            "depth": 60
+          }
+        }
+      ],
+      "volume": 20923.007072908833,
+      "area": 14646.104951036545,
+      "com": [
+        1.0373356701299306e-12,
+        1.9045785445333097e-13,
+        29.999999999999826
+      ],
+      "inertiaPrincipal": [
+        7207975.936617021,
+        9880890.090180619,
+        9880890.090181092
+      ],
+      "bbox": {
+        "min": [
+          -20.000000000000004,
+          -20.000000000000004,
+          0
+        ],
+        "max": [
+          20.000000000000004,
+          20.000000000000004,
+          60
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "3003d6fe3c9f2c3c"
+      },
+      "stepHash": "516dedac558d8f8c",
+      "step": "golden_corpus_steps/cadgen_6489e520fa42f0f9.step"
+    },
+    {
+      "id": "cadgen_6379bba34006859c",
+      "source": "cadgen_v3:valid",
+      "prompt": "Revolve a section about the Z axis to make a grooved turned ring: 48 mm outer diameter, 24 mm bore, 25 mm long, with a 2 mm deep external groove around the middle.",
+      "calls": [
+        {
+          "name": "part.revolve",
+          "arguments": {
+            "profile": [
+              [
+                12,
+                0
+              ],
+              [
+                24,
+                0
+              ],
+              [
+                24,
+                8.8
+              ],
+              [
+                22,
+                8.8
+              ],
+              [
+                22,
+                16.2
+              ],
+              [
+                24,
+                16.2
+              ],
+              [
+                24,
+                25
+              ],
+              [
+                12,
+                25
+              ]
+            ],
+            "axisOrigin": [
+              0,
+              0,
+              0
+            ],
+            "axisDir": [
+              0,
+              0,
+              1
+            ],
+            "angleDeg": 360
+          }
+        }
+      ],
+      "volume": 31790.404380205953,
+      "area": 8854.264734877355,
+      "com": [
+        -1.373236564184206e-14,
+        3.3300622223610097e-15,
+        12.500000000000002
+      ],
+      "inertiaPrincipal": [
+        7297860.932052113,
+        7297860.932052281,
+        11080950.20951824
+      ],
+      "bbox": {
+        "min": [
+          -24,
+          -24,
+          -2.6645352591000002e-15
+        ],
+        "max": [
+          24,
+          24.000000000000004,
+          25.000000000000004
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 720,
+        "vertHash": "47466da6ba13d4a5"
+      },
+      "stepHash": "a1ea947175971e7a",
+      "step": "golden_corpus_steps/cadgen_6379bba34006859c.step"
+    },
+    {
+      "id": "cadgen_b70f7000a549a5be",
+      "source": "cadgen_v3:valid",
+      "prompt": "A hex nut: 55 mm across flats, 36 mm thick, 14 mm bore.",
+      "calls": [
+        {
+          "name": "asset.make-hex-nut",
+          "arguments": {
+            "af": 55,
+            "thick": 36,
+            "bore": 14
+          }
+        }
+      ],
+      "volume": 88770.62231123664,
+      "area": 13373.826171954875,
+      "com": [
+        2.3749949768030883e-12,
+        1.4834048113740386e-12,
+        18.000000000001517
+      ],
+      "inertiaPrincipal": [
+        29331079.316444,
+        29331079.316446934,
+        39487704.21366441
+      ],
+      "bbox": {
+        "min": [
+          -31.754264805429568,
+          -27.500000000007475,
+          -1.0648241086904604e-11
+        ],
+        "max": [
+          31.754264805435568,
+          27.50000000000537,
+          36.00000000000521
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1168,
+        "vertHash": "8e78047e5023d24e"
+      },
+      "stepHash": "397246525c5f2b42",
+      "step": "golden_corpus_steps/cadgen_b70f7000a549a5be.step"
+    },
+    {
+      "id": "cadgen_f78b9e906e03c212",
+      "source": "cadgen_v3:valid",
+      "prompt": "Hollow out a 160 × 70 × 120 mm box to a 8 mm wall, leaving the top face open.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 160,
+            "dy": 70,
+            "dz": 120,
+            "at": [
+              -80,
+              -35,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "box",
+            "dx": 144,
+            "dy": 54,
+            "dz": 113,
+            "at": [
+              -72,
+              -27,
+              8
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 457535.9999999368,
+      "area": 122744.00000000605,
+      "com": [
+        -2.1172436179588576e-11,
+        -1.3894951927214008e-11,
+        54.18757868233617
+      ],
+      "inertiaPrincipal": [
+        962713053.2472272,
+        1668779455.999714,
+        1964714013.2471218
+      ],
+      "bbox": {
+        "min": [
+          -80.00000000000192,
+          -35.00000000005498,
+          0
+        ],
+        "max": [
+          80.00000000002079,
+          35.00000000001729,
+          120.00000000000021
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 40,
+        "vertHash": "f9cb90f75edd3853"
+      },
+      "stepHash": "2f9ca0564bee292c",
+      "step": "golden_corpus_steps/cadgen_f78b9e906e03c212.step"
+    },
+    {
+      "id": "cadgen_c24e4b8ada95e144",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 100x100x10 mm plate with a 4x2 grid of Ø8 mm through-holes — EXACTLY 8 holes total (b1=8). The grid count is graded; don't add or drop any.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 100,
+            "dy": 100,
+            "dz": 10
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 4,
+            "ny": 2,
+            "dx": 70,
+            "dy": 60,
+            "diameter": 8,
+            "depth": 10,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1
+          }
+        }
+      ],
+      "volume": 99339.72231126571,
+      "area": 23836.277204643047,
+      "com": [
+        50.07742212780678,
+        50.09321395756268,
+        5.000961943512173
+      ],
+      "inertiaPrincipal": [
+        83595703.63204029,
+        83917108.64710547,
+        165861738.64532053
+      ],
+      "bbox": {
+        "min": [
+          -0.30330124134106906,
+          -0.35574892917084827,
+          -0.28328989008690936
+        ],
+        "max": [
+          100.26061104678344,
+          100.23852761965564,
+          10.000000100000005
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 15314,
+        "vertHash": "d43d1c412bfb267d"
+      },
+      "stepHash": "04dea193b3062a8f",
+      "step": "golden_corpus_steps/cadgen_c24e4b8ada95e144.step"
+    },
+    {
+      "id": "cadgen_2120afe445c3e031",
+      "source": "cadgen_v3:valid",
+      "prompt": "A flat washer: 50 mm outer diameter, 5 mm inner diameter, 8 mm thick.",
+      "calls": [
+        {
+          "name": "asset.make-washer",
+          "arguments": {
+            "od": 50,
+            "id": 5,
+            "thick": 8
+          }
+        }
+      ],
+      "volume": 15550.883635269827,
+      "area": 5270.021676396706,
+      "com": [
+        1.0243408778582444e-12,
+        2.0585026401566143e-13,
+        3.999999999999782
+      ],
+      "inertiaPrincipal": [
+        2537061.8697456466,
+        2537061.8697459535,
+        4908247.647382074
+      ],
+      "bbox": {
+        "min": [
+          -25.000000000000004,
+          -25.00000000000001,
+          0
+        ],
+        "max": [
+          25.000000000000007,
+          25.00000000000001,
+          8
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "74c8acd940c40d07"
+      },
+      "stepHash": "d18114a24e7798f0",
+      "step": "golden_corpus_steps/cadgen_2120afe445c3e031.step"
+    },
+    {
+      "id": "cadgen_42c22062f1795edd",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 123 × 93 × 15 mm plate with a 4 × 2 grid of Ø12 mm through-holes spaced 25 mm apart in X and 45 mm in Y — EXACTLY 8 holes total.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 123,
+            "dy": 93,
+            "dz": 15,
+            "at": [
+              -61.5,
+              -46.5,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 4,
+            "ny": 2,
+            "dx": 25,
+            "dy": 45,
+            "diameter": 12
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 158013.3197365292,
+      "area": 32072.336052717626,
+      "com": [
+        -2.9698743926222043e-12,
+        -2.4912586163700728e-12,
+        7.499999999999577
+      ],
+      "inertiaPrincipal": [
+        119639830.23929168,
+        208563518.1668473,
+        322277848.916018
+      ],
+      "bbox": {
+        "min": [
+          -61.500000000010935,
+          -46.50000000001981,
+          0
+        ],
+        "max": [
+          61.50000000001616,
+          46.500000000022446,
+          15
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 16,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 4140,
+        "vertHash": "75a2b89f37c9b7a5"
+      },
+      "stepHash": "e57fd7d12624ad54",
+      "step": "golden_corpus_steps/cadgen_42c22062f1795edd.step"
+    },
+    {
+      "id": "cadgen_9097b821a95b75ba",
+      "source": "cadgen_v3:valid",
+      "prompt": "Fuse a Ø20 mm, 35 mm tall cylindrical boss centrally on top of a 150 × 50 × 14 mm plate.",
+      "calls": [
+        {
+          "name": "part.make-box",
+          "arguments": {
+            "dx": 150,
+            "dy": 50,
+            "dz": 14
+          }
+        },
+        {
+          "name": "part.make-cylinder",
+          "arguments": {
+            "radius": 10,
+            "height": 35
+          }
+        },
+        {
+          "name": "part.translate",
+          "arguments": {
+            "shape": 2,
+            "dx": 75,
+            "dy": 25,
+            "dz": 14
+          }
+        },
+        {
+          "name": "part.fuse",
+          "arguments": {
+            "a": 1,
+            "b": 3
+          }
+        }
+      ],
+      "volume": 115995.57428757382,
+      "area": 22799.114857510747,
+      "com": [
+        74.99999999999801,
+        25.000000000000085,
+        9.32242972803053
+      ],
+      "inertiaPrincipal": [
+        30961804.7077388,
+        205961804.70774388,
+        219299778.71438992
+      ],
+      "bbox": {
+        "min": [
+          -7.726041396134548e-12,
+          -2.5086748564964624e-11,
+          0
+        ],
+        "max": [
+          150.00000000000773,
+          50.00000000002509,
+          49
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 524,
+        "vertHash": "0abc7bd3998eccad"
+      },
+      "stepHash": "c131b3d90720e386",
+      "step": "golden_corpus_steps/cadgen_9097b821a95b75ba.step"
+    },
+    {
+      "id": "cadgen_8357026b8965e41e",
+      "source": "cadgen_v3:valid",
+      "prompt": "Hollow out a 160 × 160 × 40 mm box to a 3 mm wall, leaving the top face open.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 160,
+            "dy": 160,
+            "dz": 40,
+            "at": [
+              -80,
+              -80,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "box",
+            "dx": 154,
+            "dy": 154,
+            "dz": 38,
+            "at": [
+              -77,
+              -77,
+              3
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 99075.99999999937,
+      "area": 100823.99999999984,
+      "com": [
+        9.400082508533696e-15,
+        1.8800165017067392e-14,
+        15.332249989906549
+      ],
+      "inertiaPrincipal": [
+        373484529.6614965,
+        373484529.6614981,
+        713150402.6666636
+      ],
+      "bbox": {
+        "min": [
+          -80.0000000000005,
+          -80.0000000000005,
+          0
+        ],
+        "max": [
+          80.0000000000005,
+          80.0000000000005,
+          40.000000000038774
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 44,
+        "vertHash": "a471e4df0f05f8f5"
+      },
+      "stepHash": "829c9952f59a6c7d",
+      "step": "golden_corpus_steps/cadgen_8357026b8965e41e.step"
+    },
+    {
+      "id": "cadgen_66f4e0bae44f4c1c",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 180 mm diameter, 8 mm thick flange with a 40 mm centre bore and 6 × 13 mm bolt holes on a 160 mm bolt circle.",
+      "calls": [
+        {
+          "name": "asset.make-flange",
+          "arguments": {
+            "od": 180,
+            "thick": 8,
+            "bore": 40,
+            "bolts": 6,
+            "bolt_d": 13,
+            "bcd": 160
+          }
+        }
+      ],
+      "volume": 187075.80768200321,
+      "area": 54257.756886708274,
+      "com": [
+        1.2987533130294704e-11,
+        6.6068166452711615e-12,
+        4.00000000000081
+      ],
+      "inertiaPrincipal": [
+        391455301.42620325,
+        391455301.4262637,
+        780915127.5705203
+      ],
+      "bbox": {
+        "min": [
+          -90.00000000000048,
+          -90,
+          -1.198620822066028e-12
+        ],
+        "max": [
+          90.0000000000006,
+          90.00000000000055,
+          8.000000000002716
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 14,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 7484,
+        "vertHash": "1c758f6ae8262afd"
+      },
+      "stepHash": "5f6a41250a63c4e6",
+      "step": "golden_corpus_steps/cadgen_66f4e0bae44f4c1c.step"
+    },
+    {
+      "id": "cadgen_1b62054a383bc0ee",
+      "source": "cadgen_v3:valid",
+      "prompt": "A stepped shaft: a 100 mm diameter × 70 mm long lower section and a 35 mm diameter × 40 mm long upper section, coaxial.",
+      "calls": [
+        {
+          "name": "asset.make-stepped-shaft",
+          "arguments": {
+            "d1": 100,
+            "h1": 70,
+            "d2": 35,
+            "h2": 40
+          }
+        }
+      ],
+      "volume": 588263.2243847757,
+      "area": 42097.34155810727,
+      "com": [
+        6.018839713430667e-13,
+        -1.7676094016809486e-12,
+        38.59813084111771
+      ],
+      "inertiaPrincipal": [
+        684982075.9622103,
+        684982075.962309,
+        693116333.5676231
+      ],
+      "bbox": {
+        "min": [
+          -50.00000000000001,
+          -50.00000000000001,
+          0
+        ],
+        "max": [
+          50.00000000000001,
+          50.00000000000001,
+          110
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1020,
+        "vertHash": "54a8b74853c27482"
+      },
+      "stepHash": "2406306a60f135d3",
+      "step": "golden_corpus_steps/cadgen_1b62054a383bc0ee.step"
+    },
+    {
+      "id": "cadgen_931cac24827fd4e9",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 100x60x16 mm base plate with 4 corner mounting holes Ø6 mm, each 15 mm in from the corner, rim filleted R1.0. Watertight solid with exactly 4 through-holes.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 100,
+            "dy": 60,
+            "dz": 16
+          }
+        },
+        {
+          "name": "part.holes",
+          "arguments": {
+            "locations": [
+              [
+                -35,
+                -15
+              ],
+              [
+                35,
+                -15
+              ],
+              [
+                -35,
+                15
+              ],
+              [
+                35,
+                15
+              ]
+            ],
+            "diameter": 6
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1
+          }
+        }
+      ],
+      "volume": 95452.70571267307,
+      "area": 17138.82212945258,
+      "com": [
+        50.08203476553939,
+        30.071130611863772,
+        8.001688172027862
+      ],
+      "inertiaPrincipal": [
+        30677099.865984287,
+        81802304.33723013,
+        108415106.4758903
+      ],
+      "bbox": {
+        "min": [
+          -0.31665753013617537,
+          -1.0841622453913977,
+          -0.41958602253899635
+        ],
+        "max": [
+          100.62195937432,
+          60.20514332432941,
+          16.000000100000005
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 14466,
+        "vertHash": "9e3362403c9a2f4c"
+      },
+      "stepHash": "0b70ae0112fe1975",
+      "step": "golden_corpus_steps/cadgen_931cac24827fd4e9.step"
+    },
+    {
+      "id": "cadgen_e7aa62139aac0f54",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 80.0x80.0x10.0 mm plate (origin at centre) with ONE Ø12.0 mm through-hole located EXACTLY at x=+25.0, y=+15.0 mm from centre. Hole position is graded tightly — place it precisely.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 80,
+            "dy": 80,
+            "dz": 10
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 12,
+            "depth": 10,
+            "at": [
+              25,
+              15,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "chamfer": 0.5
+          }
+        }
+      ],
+      "volume": 62834.182985679974,
+      "area": 16069.034178223937,
+      "com": [
+        40.271146254093885,
+        40.44557110302819,
+        5.001141890611723
+      ],
+      "inertiaPrincipal": [
+        33634272.84527847,
+        34611899.42234841,
+        67199984.76917848
+      ],
+      "bbox": {
+        "min": [
+          -1.0000783238723843e-7,
+          -1.0000008757105965e-7,
+          -1.000007891183232e-7
+        ],
+        "max": [
+          80.00000010000039,
+          80.0000001000004,
+          10.0000001
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 3128,
+        "vertHash": "217ec3ba14446696"
+      },
+      "stepHash": "99ef55b685e9a4e4",
+      "step": "golden_corpus_steps/cadgen_e7aa62139aac0f54.step"
+    },
+    {
+      "id": "cadgen_669fa4e24a0146f5",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 120x80 mm mounting plate, 12 mm thick, with a 2x2 pattern of Ø8 mm through-holes inset 10 mm from each edge, rim filleted R1.5. Make sure it exports as a watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 120,
+            "dy": 80,
+            "dz": 12
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 100,
+            "dy": 60,
+            "diameter": 8,
+            "depth": 12,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1.5
+          }
+        }
+      ],
+      "volume": 114328.81620829202,
+      "area": 23846.02603197187,
+      "com": [
+        60.05606945590765,
+        40.0338011790052,
+        6.006249881567622
+      ],
+      "inertiaPrincipal": [
+        62440702.59838236,
+        139089796.83242935,
+        198797479.01658347
+      ],
+      "bbox": {
+        "min": [
+          -0.34070701183103835,
+          -0.5936191611724729,
+          -0.6589891263488497
+        ],
+        "max": [
+          120.42010079193902,
+          80.32097295569304,
+          12.000000100000005
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 14172,
+        "vertHash": "f6eea531d948d5de"
+      },
+      "stepHash": "3c2170f0887bc15d",
+      "step": "golden_corpus_steps/cadgen_669fa4e24a0146f5.step"
+    },
+    {
+      "id": "cadgen_81e2a60d95a08e8b",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 100x60 mm mounting plate, 8 mm thick, with a 2x2 pattern of Ø5 mm through-holes inset 12 mm from each edge, rim filleted R1.0. Make sure it exports as a watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 100,
+            "dy": 60,
+            "dz": 8
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 76,
+            "dy": 36,
+            "diameter": 5,
+            "depth": 8,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1
+          }
+        }
+      ],
+      "volume": 29949.42764680383,
+      "area": 13296.785717502838,
+      "com": [
+        33.1480656293522,
+        33.40247330826449,
+        3.95223181200685
+      ],
+      "inertiaPrincipal": [
+        7746357.3083255645,
+        12365481.150875596,
+        19654950.543622613
+      ],
+      "bbox": {
+        "min": [
+          -0.26470432213751377,
+          -0.6061436733357645,
+          -0.4172914806306738
+        ],
+        "max": [
+          100.4256885913809,
+          60.20646667280174,
+          8.417291480578212
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": false,
+      "tess": {
+        "triCount": 15259,
+        "vertHash": "1744fee4ed3bb006"
+      },
+      "stepHash": "45c5e104006e4681",
+      "step": "golden_corpus_steps/cadgen_81e2a60d95a08e8b.step"
+    },
+    {
+      "id": "cadgen_f8f994656f07360b",
+      "source": "cadgen_v3:valid",
+      "prompt": "An L-bracket 60 mm long, 50 mm wide, 5 mm thick with a 40 mm upstand, and a 10 mm mounting hole in each leg.",
+      "calls": [
+        {
+          "name": "asset.make-l-bracket",
+          "arguments": {
+            "len": 60,
+            "width": 50,
+            "thick": 5,
+            "wall": 40,
+            "hole": 10
+          }
+        }
+      ],
+      "volume": 24714.91721076322,
+      "area": 11650.094609396188,
+      "com": [
+        29.999999999998725,
+        15.282167975797604,
+        10.99689271500332
+      ],
+      "inertiaPrincipal": [
+        9339240.42657851,
+        9621125.74460908,
+        15298490.073043484
+      ],
+      "bbox": {
+        "min": [
+          -1.0099428260717285e-11,
+          -1.7509094533106563e-13,
+          -1.559723964200341e-13
+        ],
+        "max": [
+          60.00000000001269,
+          50.000000000024414,
+          40.00000000000109
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1596,
+        "vertHash": "1199318dc31cd8a1"
+      },
+      "stepHash": "7f1733f307ee141f",
+      "step": "golden_corpus_steps/cadgen_f8f994656f07360b.step"
+    },
+    {
+      "id": "cadgen_d098f28791cbf141",
+      "source": "cadgen_v3:valid",
+      "prompt": "A flat washer: 80 mm outer diameter, 43 mm inner diameter, 5 mm thick.",
+      "calls": [
+        {
+          "name": "asset.make-washer",
+          "arguments": {
+            "od": 80,
+            "id": 43,
+            "thick": 5
+          }
+        }
+      ],
+      "volume": 17871.73520810963,
+      "area": 9080.773565201263,
+      "com": [
+        1.6190118317239075e-12,
+        3.3706353576495994e-13,
+        2.499999999999944
+      ],
+      "inertiaPrincipal": [
+        9251229.264913913,
+        9251229.26491518,
+        18427992.966462024
+      ],
+      "bbox": {
+        "min": [
+          -40.00000000000001,
+          -40.00000000000001,
+          0
+        ],
+        "max": [
+          40.00000000000001,
+          40.00000000000001,
+          5
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "302b41af1cd520e4"
+      },
+      "stepHash": "b03e8eeb8404d153",
+      "step": "golden_corpus_steps/cadgen_d098f28791cbf141.step"
+    },
+    {
+      "id": "cadgen_637a4fe8386c34d6",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 250 mm diameter, 16 mm thick flange with a 50 mm centre bore and 8 × 11 mm bolt holes on a 100 mm bolt circle.",
+      "calls": [
+        {
+          "name": "asset.make-flange",
+          "arguments": {
+            "od": 250,
+            "thick": 16,
+            "bore": 50,
+            "bolts": 8,
+            "bolt_d": 11,
+            "bcd": 100
+          }
+        }
+      ],
+      "volume": 741520.1154290192,
+      "area": 112191.0636023927,
+      "com": [
+        2.6321515019742366e-11,
+        1.8852359936295474e-11,
+        8.000000000003086
+      ],
+      "inertiaPrincipal": [
+        3061121486.186247,
+        3061121486.186533,
+        6090604780.781141
+      ],
+      "bbox": {
+        "min": [
+          -125.00000000000001,
+          -125.00000000000001,
+          -4.341290033068188e-12
+        ],
+        "max": [
+          125.00000000000001,
+          125.00000000000001,
+          16.000000000011564
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 18,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 9760,
+        "vertHash": "30a9de2b2e315843"
+      },
+      "stepHash": "0a6d336a47908324",
+      "step": "golden_corpus_steps/cadgen_637a4fe8386c34d6.step"
+    },
+    {
+      "id": "cadgen_c1f67a9f481fcc46",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 100x40x12 mm plate with a central Ø30 mm boss 10 mm tall, bored Ø10 mm through plate+boss, edges chamfered 0.5. Watertight single body.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 100,
+            "dy": 40,
+            "dz": 12
+          }
+        },
+        {
+          "name": "part.add",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 30,
+            "depth": 10,
+            "at": [
+              0,
+              0,
+              12
+            ]
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 10,
+            "depth": 22
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "chamfer": 0.5
+          }
+        }
+      ],
+      "volume": 55226.74069492015,
+      "area": 13441.445540278459,
+      "com": [
+        43.221319036371696,
+        17.270149108854998,
+        6.54048851702621
+      ],
+      "inertiaPrincipal": [
+        10500636.58756968,
+        59367980.922484234,
+        66047343.45194773
+      ],
+      "bbox": {
+        "min": [
+          -15,
+          -15,
+          -127.3171463913334
+        ],
+        "max": [
+          100.0000001,
+          40.0000001,
+          22.00000000000424
+        ]
+      },
+      "betti": {
+        "b0": 46,
+        "b1": 104,
+        "b2": 46
+      },
+      "valid": false,
+      "tess": null,
+      "stepHash": "6fb0db698ac55208",
+      "step": "golden_corpus_steps/cadgen_c1f67a9f481fcc46.step"
+    },
+    {
+      "id": "cadgen_16bf75ef24271ed7",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 110.0x70.0x30.0 mm housing with an open top pocket leaving EXACTLY 4.0 mm side walls and a 6.0 mm floor. Pocket must be 102.0x62.0 mm and 24.0 mm deep. Inner corners R2.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 110,
+            "dy": 70,
+            "dz": 30
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "box",
+            "dx": 102,
+            "dy": 62,
+            "dz": 24,
+            "at": [
+              -51,
+              -31,
+              6
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 2
+          }
+        }
+      ],
+      "volume": 189740.25364027545,
+      "area": 26043.604357828568,
+      "com": [
+        61.37392802581163,
+        39.207492637894475,
+        14.578504670871144
+      ],
+      "inertiaPrincipal": [
+        79504193.80304617,
+        202049205.69023147,
+        252343146.4934965
+      ],
+      "bbox": {
+        "min": [
+          -2.933301012521796e-14,
+          -1.2860496346277788e-11,
+          -1.607031015195264e-11
+        ],
+        "max": [
+          110.00000000000861,
+          70.00000000000557,
+          30.000000000026386
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 160,
+        "vertHash": "445879569db4c1df"
+      },
+      "stepHash": "72354a058663d221",
+      "step": "golden_corpus_steps/cadgen_16bf75ef24271ed7.step"
+    },
+    {
+      "id": "cadgen_619ccbb149d3780d",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 120x50x12 mm bar that must have EXACTLY 8 Ø8 mm through-holes evenly spaced along its length — no more, no fewer (the topology score needs b1=8 exactly).",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 120,
+            "dy": 50,
+            "dz": 12
+          }
+        },
+        {
+          "name": "part.holes",
+          "arguments": {
+            "locations": [
+              [
+                -46.7,
+                0
+              ],
+              [
+                -33.3,
+                0
+              ],
+              [
+                -20,
+                0
+              ],
+              [
+                -6.7,
+                0
+              ],
+              [
+                6.7,
+                0
+              ],
+              [
+                20,
+                0
+              ],
+              [
+                33.3,
+                0
+              ],
+              [
+                46.7,
+                0
+              ]
+            ],
+            "diameter": 8
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1
+          }
+        }
+      ],
+      "volume": 71029.33615450056,
+      "area": 16458.280667422892,
+      "com": [
+        60.487066883441344,
+        25.313502395090683,
+        5.9803375660298315
+      ],
+      "inertiaPrincipal": [
+        15329440.60915784,
+        85710512.2005042,
+        99330141.74983099
+      ],
+      "bbox": {
+        "min": [
+          -1.000000002220446e-7,
+          -6.000000100000001,
+          -0.0581036021358193
+        ],
+        "max": [
+          120.0000001,
+          50.0000001,
+          12.0000001
+        ]
+      },
+      "betti": {
+        "b0": 76,
+        "b1": 184,
+        "b2": 76
+      },
+      "valid": false,
+      "tess": {
+        "triCount": 14593,
+        "vertHash": "b1cbcb1230e59134"
+      },
+      "stepHash": "ab59766a222104ec",
+      "step": "golden_corpus_steps/cadgen_619ccbb149d3780d.step"
+    },
+    {
+      "id": "cadgen_f3d0273b9f820443",
+      "source": "cadgen_v3:valid",
+      "prompt": "Here is a solid 160 × 140 × 60 mm block. Hollow it to a 4 mm wall with the top open.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 160,
+            "dy": 140,
+            "dz": 60,
+            "at": [
+              -80,
+              -70,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "box",
+            "dx": 152,
+            "dy": 132,
+            "dz": 57,
+            "at": [
+              -76,
+              -66,
+              4
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 180287.99999999933,
+      "area": 113743.99999999983,
+      "com": [
+        1.0331498209703163e-14,
+        -1.2914372762128954e-15,
+        23.545260915867754
+      ],
+      "inertiaPrincipal": [
+        573787742.6709232,
+        694964062.6709247,
+        1132156671.9999971
+      ],
+      "bbox": {
+        "min": [
+          -80.00000000000087,
+          -70,
+          0
+        ],
+        "max": [
+          80.00000000000063,
+          70,
+          60.000000000005514
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 44,
+        "vertHash": "e90619b8eaef94d4"
+      },
+      "stepHash": "e225a72d59f4946a",
+      "step": "golden_corpus_steps/cadgen_f3d0273b9f820443.step"
+    },
+    {
+      "id": "cadgen_8e323361ab71e97c",
+      "source": "cadgen_v3:valid",
+      "prompt": "A stepped shaft: a 30 mm diameter × 60 mm long lower section and a 16 mm diameter × 30 mm long upper section, coaxial.",
+      "calls": [
+        {
+          "name": "asset.make-stepped-shaft",
+          "arguments": {
+            "d1": 30,
+            "h1": 60,
+            "d2": 16,
+            "h2": 30
+          }
+        }
+      ],
+      "volume": 48443.35871836577,
+      "area": 8576.547944300935,
+      "com": [
+        -2.154367457516487e-13,
+        -1.3312489992280485e-12,
+        35.60311284046276
+      ],
+      "inertiaPrincipal": [
+        4964313.295277475,
+        26351635.354933564,
+        26351635.35493448
+      ],
+      "bbox": {
+        "min": [
+          -15,
+          -15,
+          0
+        ],
+        "max": [
+          15,
+          15,
+          90
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1020,
+        "vertHash": "d730e3218d698f26"
+      },
+      "stepHash": "f70029158db17191",
+      "step": "golden_corpus_steps/cadgen_8e323361ab71e97c.step"
+    },
+    {
+      "id": "cadgen_890e9f76d1c08b1c",
+      "source": "cadgen_v3:valid",
+      "prompt": "An L-bracket 40 mm long, 50 mm wide, 5 mm thick with a 40 mm upstand, and a 12 mm mounting hole in each leg.",
+      "calls": [
+        {
+          "name": "asset.make-l-bracket",
+          "arguments": {
+            "len": 40,
+            "width": 50,
+            "thick": 5,
+            "wall": 40,
+            "hole": 12
+          }
+        }
+      ],
+      "volume": 15869.480783495757,
+      "area": 7974.745583510495,
+      "com": [
+        20.000000000006235,
+        14.719096780269739,
+        11.321964745408188
+      ],
+      "inertiaPrincipal": [
+        3386438.232376987,
+        6223863.402154464,
+        7175322.511519876
+      ],
+      "bbox": {
+        "min": [
+          -1.0929778052395936e-11,
+          -1.7509094533106563e-13,
+          -1.559723964200341e-13
+        ],
+        "max": [
+          40.00000000001305,
+          50.000000000012065,
+          40.000000000001414
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1592,
+        "vertHash": "fad011e8fd2e962e"
+      },
+      "stepHash": "12054e00f4f2fcaa",
+      "step": "golden_corpus_steps/cadgen_890e9f76d1c08b1c.step"
+    },
+    {
+      "id": "cadgen_6161e9c2aaf46f5e",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 176 × 296 × 15 mm plate with a 5 × 5 grid of Ø8 mm through-holes spaced 30 mm apart in X and 60 mm in Y — EXACTLY 25 holes total.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 176,
+            "dy": 296,
+            "dz": 15,
+            "at": [
+              -88,
+              -148,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 5,
+            "ny": 5,
+            "dx": 30,
+            "dy": 60,
+            "diameter": 8
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 762590.4440789701,
+      "area": 125263.50383809723,
+      "com": [
+        -5.787088554493538e-12,
+        -5.789290165112329e-11,
+        7.500000000002282
+      ],
+      "inertiaPrincipal": [
+        1997451091.944692,
+        5584060289.971428,
+        7552914240.263143
+      ],
+      "bbox": {
+        "min": [
+          -88.00000000005093,
+          -148.00000000001688,
+          0
+        ],
+        "max": [
+          88.00000000005281,
+          148.0000000000254,
+          15
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 50,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 12912,
+        "vertHash": "b15fc5ba311de17b"
+      },
+      "stepHash": "4a05b8e01c9e1e14",
+      "step": "golden_corpus_steps/cadgen_6161e9c2aaf46f5e.step"
+    },
+    {
+      "id": "cadgen_925633c866dd4817",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 224 × 134 × 15 mm plate with a 4 × 4 grid of Ø12 mm through-holes spaced 60 mm apart in X and 30 mm in Y — EXACTLY 16 holes total.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 224,
+            "dy": 134,
+            "dz": 15,
+            "at": [
+              -112,
+              -67,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 4,
+            "ny": 4,
+            "dx": 60,
+            "dy": 30,
+            "diameter": 12
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 423096.6394730649,
+      "area": 76200.6721054448,
+      "com": [
+        -4.064736289681022e-12,
+        -3.1441122582724807e-12,
+        7.499999999999725
+      ],
+      "inertiaPrincipal": [
+        650861611.1525158,
+        1768147169.3740106,
+        2403142656.5462804
+      ],
+      "bbox": {
+        "min": [
+          -112.00000000002294,
+          -67.00000000003519,
+          0
+        ],
+        "max": [
+          112.00000000002294,
+          67.00000000004287,
+          15
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 32,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 8268,
+        "vertHash": "ba4f1b6b0e55a52a"
+      },
+      "stepHash": "6c5b977d03e4cfcc",
+      "step": "golden_corpus_steps/cadgen_925633c866dd4817.step"
+    },
+    {
+      "id": "cadgen_a4658188c88c47b9",
+      "source": "cadgen_v3:valid",
+      "prompt": "Fuse a Ø28 mm, 45 mm tall cylindrical boss centrally on top of a 100 × 70 × 10 mm plate.",
+      "calls": [
+        {
+          "name": "part.make-box",
+          "arguments": {
+            "dx": 100,
+            "dy": 70,
+            "dz": 10
+          }
+        },
+        {
+          "name": "part.make-cylinder",
+          "arguments": {
+            "radius": 14,
+            "height": 45
+          }
+        },
+        {
+          "name": "part.translate",
+          "arguments": {
+            "shape": 2,
+            "dx": 50,
+            "dy": 35,
+            "dz": 10
+          }
+        },
+        {
+          "name": "part.fuse",
+          "arguments": {
+            "a": 1,
+            "b": 3
+          }
+        }
+      ],
+      "volume": 97708.84720466162,
+      "area": 21358.406743523752,
+      "com": [
+        50.0000000000003,
+        34.999999999999986,
+        12.798611076969753
+      ],
+      "inertiaPrincipal": [
+        50212594.46864784,
+        79962594.46864909,
+        89632133.69272226
+      ],
+      "bbox": {
+        "min": [
+          -6.1409707991455676e-12,
+          -2.5581513240213862e-11,
+          0
+        ],
+        "max": [
+          100.00000000000688,
+          70.00000000002558,
+          55
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 524,
+        "vertHash": "190016d6dc08b58b"
+      },
+      "stepHash": "8026b3d8d0e7f954",
+      "step": "golden_corpus_steps/cadgen_a4658188c88c47b9.step"
+    },
+    {
+      "id": "cadgen_575c4fae04b01d53",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 60x40 mm mounting plate, 12 mm thick, with a 2x2 pattern of Ø6 mm through-holes inset 12 mm from each edge, rim filleted R2.0. Make sure it exports as a watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 60,
+            "dy": 40,
+            "dz": 12
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 36,
+            "dy": 16,
+            "diameter": 6,
+            "depth": 12,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 2
+          }
+        }
+      ],
+      "volume": 34130.45965186465,
+      "area": 9182.651312889191,
+      "com": [
+        32.97300434407827,
+        16.1099057914231,
+        6.000009290634045
+      ],
+      "inertiaPrincipal": [
+        6068736.452911962,
+        12030743.194220725,
+        17181891.22047929
+      ],
+      "bbox": {
+        "min": [
+          -0.8592699823187351,
+          -16.11083189386699,
+          -4.637311955183294
+        ],
+        "max": [
+          71.04472565776658,
+          41.7507614977717,
+          16.637311955175
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 8,
+        "b2": 1
+      },
+      "valid": false,
+      "tess": {
+        "triCount": 14244,
+        "vertHash": "2d507aac55f69e42"
+      },
+      "stepHash": "6e4c09f32e5c41b2",
+      "step": "golden_corpus_steps/cadgen_575c4fae04b01d53.step"
+    },
+    {
+      "id": "cadgen_81c0cf8ec6eff9f1",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 85 × 80 × 10 mm plate with a 2 × 2 grid of Ø5 mm through-holes spaced 35 mm apart in X and 30 mm in Y — EXACTLY 4 holes total.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 85,
+            "dy": 80,
+            "dz": 10,
+            "at": [
+              -42.5,
+              -40,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 35,
+            "dy": 30,
+            "diameter": 5
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 67214.601836624,
+      "area": 17371.23889805184,
+      "com": [
+        -2.603678687793321e-12,
+        -2.096194568828821e-12,
+        5.000000000000107
+      ],
+      "inertiaPrincipal": [
+        36648846.577248365,
+        41260032.97647245,
+        76788636.18977693
+      ],
+      "bbox": {
+        "min": [
+          -42.50000000001171,
+          -40.000000000009386,
+          0
+        ],
+        "max": [
+          42.500000000012584,
+          40.000000000013586,
+          10
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 8,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 2076,
+        "vertHash": "786aa1b5f31cd72c"
+      },
+      "stepHash": "34b0de6352621f46",
+      "step": "golden_corpus_steps/cadgen_81c0cf8ec6eff9f1.step"
+    },
+    {
+      "id": "cadgen_c3e03bde59549175",
+      "source": "cadgen_v3:valid",
+      "prompt": "An L-bracket 50 mm long, 70 mm wide, 8 mm thick with a 70 mm upstand, and a 10 mm mounting hole in each leg.",
+      "calls": [
+        {
+          "name": "asset.make-l-bracket",
+          "arguments": {
+            "len": 50,
+            "width": 70,
+            "thick": 8,
+            "wall": 70,
+            "hole": 10
+          }
+        }
+      ],
+      "volume": 51543.867537182385,
+      "area": 16300.571244452887,
+      "com": [
+        25.000000000002586,
+        19.913958451448938,
+        20.840024652272447
+      ],
+      "inertiaPrincipal": [
+        20750252.6569938,
+        47447961.85413044,
+        48378029.78978849
+      ],
+      "bbox": {
+        "min": [
+          -1.3230294010690406e-11,
+          -1.3824912694929823e-11,
+          -1.3824912694929823e-11
+        ],
+        "max": [
+          50.00000000001883,
+          70.00000000001593,
+          70
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1596,
+        "vertHash": "67989cd857a60d1c"
+      },
+      "stepHash": "b8d0e2169bbe7315",
+      "step": "golden_corpus_steps/cadgen_c3e03bde59549175.step"
+    },
+    {
+      "id": "cadgen_15597c56f4ac7224",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 8-bolt pipe flange: Ø150 mm OD, 20 mm thick, bolt circle Ø118, 8× Ø9 mm holes, Ø20 mm centre bore, rim blended R2.0. It must be a closed watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 150,
+            "depth": 20
+          }
+        },
+        {
+          "name": "part.bolt-circle",
+          "arguments": {
+            "count": 8,
+            "bcd": 118,
+            "diameter": 9,
+            "depth": 20
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "cylinder",
+            "diameter": 20,
+            "depth": 20
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 2
+          }
+        }
+      ],
+      "volume": 335623.44150505384,
+      "area": 47625.26377588885,
+      "com": [
+        5.093731506879935e-9,
+        -7.360173944442554e-10,
+        10.000000005192167
+      ],
+      "inertiaPrincipal": [
+        487204678.7653044,
+        487204679.0018952,
+        952190804.4317176
+      ],
+      "bbox": {
+        "min": [
+          -75.0000001,
+          -75.00000010000001,
+          -1.0000000055511151e-7
+        ],
+        "max": [
+          75.00000010000001,
+          75.0000001,
+          20.000000100000015
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 18,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 180468,
+        "vertHash": "8b57687fbcd29e9a"
+      },
+      "stepHash": "bda0e3af9e1dcc67",
+      "step": "golden_corpus_steps/cadgen_15597c56f4ac7224.step"
+    },
+    {
+      "id": "cadgen_efb51dbf731f2a72",
+      "source": "cadgen_v3:valid",
+      "prompt": "Revolve a shouldered section about the Z axis: a hollow turned part with a Ø36 mm × 20 mm lower shoulder stepping down to Ø34 mm × 15 mm, with a Ø24 mm bore through.",
+      "calls": [
+        {
+          "name": "part.revolve",
+          "arguments": {
+            "profile": [
+              [
+                12,
+                0
+              ],
+              [
+                18,
+                0
+              ],
+              [
+                18,
+                20
+              ],
+              [
+                17,
+                20
+              ],
+              [
+                17,
+                35
+              ],
+              [
+                12,
+                35
+              ]
+            ],
+            "axisOrigin": [
+              0,
+              0,
+              0
+            ],
+            "axisDir": [
+              0,
+              0,
+              1
+            ],
+            "angleDeg": 360
+          }
+        }
+      ],
+      "volume": 18142.697574481106,
+      "area": 7634.070148223116,
+      "com": [
+        -8.020811220948243e-15,
+        2.3497263512886227e-15,
+        16.59090909090911
+      ],
+      "inertiaPrincipal": [
+        3872491.3244307414,
+        3872491.324430799,
+        4125814.3620513105
+      ],
+      "bbox": {
+        "min": [
+          -18,
+          -18,
+          -1.998401444325e-15
+        ],
+        "max": [
+          18,
+          18.000000000000004,
+          35
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 476,
+        "vertHash": "ce0906f1d8e289ad"
+      },
+      "stepHash": "143f862f14cc06be",
+      "step": "golden_corpus_steps/cadgen_efb51dbf731f2a72.step"
+    },
+    {
+      "id": "cadgen_269786c4eddf7833",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 60x60 mm mounting plate, 6 mm thick, with a 2x2 pattern of Ø8 mm through-holes inset 8 mm from each edge, rim filleted R1.5. Make sure it exports as a watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 60,
+            "dy": 60,
+            "dz": 6
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 44,
+            "dy": 44,
+            "diameter": 8,
+            "depth": 6,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1.5
+          }
+        }
+      ],
+      "volume": 21173.601897964803,
+      "area": 8412.780191227375,
+      "com": [
+        30.061830270622412,
+        30.199090398814906,
+        3.0032352504218482
+      ],
+      "inertiaPrincipal": [
+        6406948.616053639,
+        6531485.671136968,
+        12793449.003651323
+      ],
+      "bbox": {
+        "min": [
+          -0.44661380162728576,
+          -0.4466138014099892,
+          -1.0000000034694469e-7
+        ],
+        "max": [
+          60.358401863549766,
+          60.35840186354914,
+          6.000000100000003
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": false,
+      "tess": {
+        "triCount": 15039,
+        "vertHash": "d1a9b71f219b002f"
+      },
+      "stepHash": "d886a3aa69cebd9a",
+      "step": "golden_corpus_steps/cadgen_269786c4eddf7833.step"
+    },
+    {
+      "id": "cadgen_6778c97c2af5f51c",
+      "source": "cadgen_v3:valid",
+      "prompt": "A length of round tube: 50 mm outer diameter, 5 mm wall thickness, 150 mm long.",
+      "calls": [
+        {
+          "name": "asset.make-tube",
+          "arguments": {
+            "od": 50,
+            "wall": 5,
+            "len": 150
+          }
+        }
+      ],
+      "volume": 106028.75205865948,
+      "area": 43825.21751758052,
+      "com": [
+        1.0755375354546276e-12,
+        3.1228328756531994e-13,
+        75.00000000000021
+      ],
+      "inertiaPrincipal": [
+        54339735.43006263,
+        225973777.8250109,
+        225973777.82501125
+      ],
+      "bbox": {
+        "min": [
+          -25.000000000000004,
+          -25.000000000000004,
+          0
+        ],
+        "max": [
+          25.000000000000004,
+          25.000000000000004,
+          150
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "503e940d21d0662e"
+      },
+      "stepHash": "0729e745cdf77d25",
+      "step": "golden_corpus_steps/cadgen_6778c97c2af5f51c.step"
+    },
+    {
+      "id": "cadgen_072211a7c43ab7d7",
+      "source": "cadgen_v3:valid",
+      "prompt": "A flat washer: 28 mm outer diameter, 5 mm inner diameter, 1.5 mm thick.",
+      "calls": [
+        {
+          "name": "asset.make-washer",
+          "arguments": {
+            "od": 28,
+            "id": 5,
+            "thick": 1.5
+          }
+        }
+      ],
+      "volume": 894.1758090279986,
+      "area": 1347.7432483898913,
+      "com": [
+        6.895936091787689e-13,
+        2.378950004579802e-13,
+        0.7499999999999589
+      ],
+      "inertiaPrincipal": [
+        45379.42230816779,
+        45379.42230817406,
+        90423.52868795628
+      ],
+      "bbox": {
+        "min": [
+          -14.000000000000007,
+          -14.000000000000007,
+          0
+        ],
+        "max": [
+          14.000000000000002,
+          14.000000000000007,
+          1.5
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "845a058465ee7e3b"
+      },
+      "stepHash": "3f7709a47dc343e0",
+      "step": "golden_corpus_steps/cadgen_072211a7c43ab7d7.step"
+    },
+    {
+      "id": "cadgen_0cc0e0cc0240f4ee",
+      "source": "cadgen_v3:valid",
+      "prompt": "Here is a solid 160 × 160 × 30 mm block. Hollow it to a 6 mm wall with the top open.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 160,
+            "dy": 160,
+            "dz": 30,
+            "at": [
+              -80,
+              -80,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "box",
+            "dx": 148,
+            "dy": 148,
+            "dz": 25,
+            "at": [
+              -74,
+              -74,
+              6
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 198496.0000000012,
+      "area": 85792.0000000005,
+      "com": [
+        -2.3459479652372666e-14,
+        -5.864869913093167e-16,
+        9.261808802192592
+      ],
+      "inertiaPrincipal": [
+        615569444.9868362,
+        615569444.9868383,
+        1197730730.6666718
+      ],
+      "bbox": {
+        "min": [
+          -80.00000000000183,
+          -80.00000000000183,
+          0
+        ],
+        "max": [
+          80.00000000000165,
+          80.00000000000165,
+          30
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 44,
+        "vertHash": "e8b569c1a98ba686"
+      },
+      "stepHash": "5dea25c348dd5622",
+      "step": "golden_corpus_steps/cadgen_0cc0e0cc0240f4ee.step"
+    },
+    {
+      "id": "cadgen_16d20d89c43df705",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 80x50x12 mm bar that must have EXACTLY 6 Ø10 mm through-holes evenly spaced along its length — no more, no fewer (the topology score needs b1=6 exactly).",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 80,
+            "dy": 50,
+            "dz": 12
+          }
+        },
+        {
+          "name": "part.holes",
+          "arguments": {
+            "locations": [
+              [
+                -28.6,
+                0
+              ],
+              [
+                -17.1,
+                0
+              ],
+              [
+                -5.7,
+                0
+              ],
+              [
+                5.7,
+                0
+              ],
+              [
+                17.1,
+                0
+              ],
+              [
+                28.6,
+                0
+              ]
+            ],
+            "diameter": 10
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1
+          }
+        }
+      ],
+      "volume": 46657.03584397084,
+      "area": 11113.087726985244,
+      "com": [
+        40.631833996890414,
+        25.63002233439608,
+        5.993316812790891
+      ],
+      "inertiaPrincipal": [
+        9812694.379647084,
+        25314465.98599856,
+        34006498.4957643
+      ],
+      "bbox": {
+        "min": [
+          -1.000000002220446e-7,
+          -6.000000100000001,
+          -0.0037008714526724734
+        ],
+        "max": [
+          80.0000001,
+          50.0000001,
+          12.000000100000001
+        ]
+      },
+      "betti": {
+        "b0": 57,
+        "b1": 132,
+        "b2": 57
+      },
+      "valid": false,
+      "tess": {
+        "triCount": 5162,
+        "vertHash": "a84742ad3ef8443d"
+      },
+      "stepHash": "d531c989daa82cf2",
+      "step": "golden_corpus_steps/cadgen_16d20d89c43df705.step"
+    },
+    {
+      "id": "cadgen_4dbb295f0273348f",
+      "source": "cadgen_v3:valid",
+      "prompt": "A stepped shaft: a 80 mm diameter × 30 mm long lower section and a 16 mm diameter × 30 mm long upper section, coaxial.",
+      "calls": [
+        {
+          "name": "asset.make-stepped-shaft",
+          "arguments": {
+            "d1": 80,
+            "h1": 30,
+            "d2": 16,
+            "h2": 30
+          }
+        }
+      ],
+      "volume": 156828.30526725148,
+      "area": 19100.883333829115,
+      "com": [
+        -1.0393089499522642e-13,
+        -2.747865913578238e-12,
+        16.15384615384398
+      ],
+      "inertiaPrincipal": [
+        77397088.5947221,
+        77397088.59473921,
+        120830177.35051826
+      ],
+      "bbox": {
+        "min": [
+          -40.00000000000001,
+          -40.00000000000001,
+          0
+        ],
+        "max": [
+          40.00000000000001,
+          40.00000000000001,
+          60
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1020,
+        "vertHash": "78100ace5e18548b"
+      },
+      "stepHash": "e4b075c9cdfb17f5",
+      "step": "golden_corpus_steps/cadgen_4dbb295f0273348f.step"
+    },
+    {
+      "id": "cadgen_9311f977289ebbb1",
+      "source": "cadgen_v3:valid",
+      "prompt": "A 70 × 170 × 8 mm plate with a 2 × 4 grid of Ø5 mm through-holes spaced 20 mm apart in X and 40 mm in Y — EXACTLY 8 holes total.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 70,
+            "dy": 170,
+            "dz": 8,
+            "at": [
+              -35,
+              -85,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 4,
+            "dx": 20,
+            "dy": 40,
+            "diameter": 5
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 93943.36293857868,
+      "area": 28331.150383801523,
+      "com": [
+        -2.209163927148536e-12,
+        -4.788233114323975e-13,
+        4.00000000000018
+      ],
+      "inertiaPrincipal": [
+        39246737.40078497,
+        227259126.98407236,
+        265503801.8468453
+      ],
+      "bbox": {
+        "min": [
+          -35.000000000012584,
+          -85.0000000000127,
+          0
+        ],
+        "max": [
+          35.00000000001358,
+          85.00000000001359,
+          8
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 16,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 4140,
+        "vertHash": "f89ae6593d7e99e0"
+      },
+      "stepHash": "c843288e47a4c3bf",
+      "step": "golden_corpus_steps/cadgen_9311f977289ebbb1.step"
+    },
+    {
+      "id": "cadgen_667c16ff858cc189",
+      "source": "cadgen_v3:valid",
+      "prompt": "A flat washer: 72 mm outer diameter, 13 mm inner diameter, 10 mm thick.",
+      "calls": [
+        {
+          "name": "asset.make-washer",
+          "arguments": {
+            "od": 72,
+            "id": 13,
+            "thick": 10
+          }
+        }
+      ],
+      "volume": 39387.71789438314,
+      "area": 10547.897334427538,
+      "com": [
+        1.412270085786165e-12,
+        2.1942699104835667e-13,
+        4.999999999999721
+      ],
+      "inertiaPrincipal": [
+        13505884.350491967,
+        13505884.350493634,
+        26355306.736079294
+      ],
+      "bbox": {
+        "min": [
+          -36,
+          -36,
+          0
+        ],
+        "max": [
+          36,
+          36,
+          10
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 2,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1024,
+        "vertHash": "88947de89923c7b6"
+      },
+      "stepHash": "b6cc0047a2c1bee6",
+      "step": "golden_corpus_steps/cadgen_667c16ff858cc189.step"
+    },
+    {
+      "id": "cadgen_5da5c0a485953788",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 120x40x10 mm bar that must have EXACTLY 3 Ø6 mm through-holes evenly spaced along its length — no more, no fewer (the topology score needs b1=3 exactly).",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 120,
+            "dy": 40,
+            "dz": 10
+          }
+        },
+        {
+          "name": "part.holes",
+          "arguments": {
+            "locations": [
+              [
+                -30,
+                0
+              ],
+              [
+                0,
+                0
+              ],
+              [
+                30,
+                0
+              ]
+            ],
+            "diameter": 6
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1
+          }
+        }
+      ],
+      "volume": 48123.86600115124,
+      "area": 13282.68248160285,
+      "com": [
+        59.761624678965205,
+        19.939667060308153,
+        4.992389644380359
+      ],
+      "inertiaPrincipal": [
+        6865799.183776943,
+        58806999.47693474,
+        64866017.756660916
+      ],
+      "bbox": {
+        "min": [
+          -5.000000100000001,
+          -5.000000100000001,
+          -0.00037549070390741106
+        ],
+        "max": [
+          120,
+          40.0000001,
+          10.000393988943715
+        ]
+      },
+      "betti": {
+        "b0": 87,
+        "b1": 186,
+        "b2": 87
+      },
+      "valid": false,
+      "tess": {
+        "triCount": 3514,
+        "vertHash": "4b0ed6479562a74a"
+      },
+      "stepHash": "0485e58a77101897",
+      "step": "golden_corpus_steps/cadgen_5da5c0a485953788.step"
+    },
+    {
+      "id": "cadgen_044d64cde427bc86",
+      "source": "cadgen_v3:valid",
+      "prompt": "a 60x40 mm mounting plate, 8 mm thick, with a 2x2 pattern of Ø5 mm through-holes inset 12 mm from each edge, rim filleted R1.5. Make sure it exports as a watertight solid.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 60,
+            "dy": 40,
+            "dz": 8
+          }
+        },
+        {
+          "name": "part.grid-holes",
+          "arguments": {
+            "nx": 2,
+            "ny": 2,
+            "dx": 36,
+            "dy": 16,
+            "diameter": 5,
+            "depth": 8,
+            "at_z": 0
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {
+            "fillet": 1.5
+          }
+        }
+      ],
+      "volume": 14329.292375975252,
+      "area": 5907.434108295115,
+      "com": [
+        25.293029055197984,
+        20.304757599975883,
+        4.079224939675049
+      ],
+      "inertiaPrincipal": [
+        2215273.645838279,
+        3908035.162040754,
+        5917897.530181919
+      ],
+      "bbox": {
+        "min": [
+          -0.5602930600179912,
+          -11.306538741009009,
+          -0.6359506508422547
+        ],
+        "max": [
+          67.92517273694232,
+          40.336159951269146,
+          11.398046230307042
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 4,
+        "b2": 1
+      },
+      "valid": false,
+      "tess": {
+        "triCount": 14798,
+        "vertHash": "09640be55476a75a"
+      },
+      "stepHash": "1247e8aaf56ed203",
+      "step": "golden_corpus_steps/cadgen_044d64cde427bc86.step"
+    },
+    {
+      "id": "cadgen_fac1a7fe4d8007af",
+      "source": "cadgen_v3:valid",
+      "prompt": "Here is a solid 160 × 60 × 70 mm block. Hollow it to a 4 mm wall with the top open.",
+      "calls": [
+        {
+          "name": "part.begin",
+          "arguments": {
+            "primitive": "box",
+            "dx": 160,
+            "dy": 60,
+            "dz": 70,
+            "at": [
+              -80,
+              -30,
+              0
+            ]
+          }
+        },
+        {
+          "name": "part.subtract",
+          "arguments": {
+            "primitive": "box",
+            "dx": 152,
+            "dy": 52,
+            "dz": 67,
+            "at": [
+              -76,
+              -26,
+              4
+            ]
+          }
+        },
+        {
+          "name": "part.finish",
+          "arguments": {}
+        }
+      ],
+      "volume": 134527.99999999953,
+      "area": 77743.99999999991,
+      "com": [
+        -3.4614451066524506e-15,
+        -3.894125744984007e-15,
+        31.00475737392945
+      ],
+      "inertiaPrincipal": [
+        145098962.2886137,
+        463396562.28861296,
+        479276885.33333266
+      ],
+      "bbox": {
+        "min": [
+          -80.00000000000153,
+          -30,
+          0
+        ],
+        "max": [
+          80.00000000000063,
+          30,
+          70
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 44,
+        "vertHash": "51d0a0e75f849fc3"
+      },
+      "stepHash": "f57a0c10cd22276b",
+      "step": "golden_corpus_steps/cadgen_fac1a7fe4d8007af.step"
+    },
+    {
+      "id": "cadgen_5ea7e4762c846510",
+      "source": "cadgen_v3:valid",
+      "prompt": "A stepped shaft: a 40 mm diameter × 50 mm long lower section and a 35 mm diameter × 20 mm long upper section, coaxial.",
+      "calls": [
+        {
+          "name": "asset.make-stepped-shaft",
+          "arguments": {
+            "d1": 40,
+            "h1": 50,
+            "d2": 35,
+            "h2": 20
+          }
+        }
+      ],
+      "volume": 82074.10807504554,
+      "area": 10995.574287565045,
+      "com": [
+        1.9653805556894036e-13,
+        -8.308444791379231e-13,
+        33.2057416267877
+      ],
+      "inertiaPrincipal": [
+        15512840.911732752,
+        39533166.67432899,
+        39533166.67433035
+      ],
+      "bbox": {
+        "min": [
+          -20.000000000000004,
+          -20.000000000000004,
+          0
+        ],
+        "max": [
+          20.000000000000004,
+          20.000000000000004,
+          70
+        ]
+      },
+      "betti": {
+        "b0": 1,
+        "b1": 0,
+        "b2": 1
+      },
+      "valid": true,
+      "tess": {
+        "triCount": 1020,
+        "vertHash": "d9c41b3e1c5df7ba"
+      },
+      "stepHash": "08485b12f698df15",
+      "step": "golden_corpus_steps/cadgen_5ea7e4762c846510.step"
+    }
+  ]
+}

@@ -148,20 +148,30 @@ void integrateParametricTri(const Face* f, Accum& acc) {
     const double u1 = f->vertexUV[1][0], v1 = f->vertexUV[1][1];
     const double u2 = f->vertexUV[2][0], v2 = f->vertexUV[2][1];
 
-    // A symmetric degree-5 triangle rule (7-point) in barycentric coords keeps the
-    // (here at most cubic-in-position, but curved-Jacobian) integrand accurate.
+    // A symmetric degree-5 triangle rule (7-point Dunavant) in barycentric coords
+    // keeps the curved-Jacobian integrand accurate. Each off-centre family is the
+    // orbit {(a,a,1-2a) and its two cyclic permutations} for that family's `a`; the
+    // barycentric coordinates of EVERY node must sum to 1 (a+a+(1-2a)=1). The two
+    // families are:
+    //   A:  a = 0.47014206410511505  (so 1-2a = 0.05971587178976990), weight wA
+    //   B:  a = 0.10128650732345633  (so 1-2a = 0.79742698535308740), weight wB
+    // (The previous form cross-wired the two families' `a` and `1-2a`, yielding
+    // nodes whose barycentric coordinates did NOT sum to 1 — they sampled OFF the
+    // reference triangle — so every curved sub-face integrated by this rule, e.g.
+    // an imported cylinder/cone wall strip, was biased low by ~1.5% in mass. The
+    // rule below uses the exact, self-consistent Dunavant nodes.)
     struct TQ { double a, b, c, w; };
     static const double w1 = 0.225;
     static const double wA = 0.13239415278850618;
     static const double wB = 0.12593918054482715;
-    static const double gA = 0.05971587178976982; // (a,a,1-2a) family A
-    static const double gB = 0.79742698535308720;
-    static const double hA = 0.47014206410511505; // family B
-    static const double hB = 0.10128650732345633;
+    static const double aA = 0.47014206410511505;   // family A node
+    static const double cA = 1.0 - 2.0 * aA;         // = 0.05971587178976990
+    static const double aB = 0.10128650732345633;   // family B node
+    static const double cB = 1.0 - 2.0 * aB;         // = 0.79742698535308740
     const TQ rule[7] = {
         {1.0/3, 1.0/3, 1.0/3, w1},
-        {gA, gA, gB, wA}, {gA, gB, gA, wA}, {gB, gA, gA, wA},
-        {hA, hA, hB, wB}, {hA, hB, hA, wB}, {hB, hA, hA, wB},
+        {aA, aA, cA, wA}, {aA, cA, aA, wA}, {cA, aA, aA, wA},
+        {aB, aB, cB, wB}, {aB, cB, aB, wB}, {cB, aB, aB, wB},
     };
     // Parameter-triangle area Jacobian: the map (b0,b1,b2)->(u,v) is affine with
     // constant Jacobian = 2*area of the (u,v) triangle. The triangle rule weights

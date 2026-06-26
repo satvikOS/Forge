@@ -61,6 +61,9 @@
 #include <Geom2d_Curve.hxx>
 #include <gp_Pnt2d.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepGProp_Face.hxx>
 #include <GeomAbs_SurfaceType.hxx>
@@ -560,6 +563,31 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         faces.push_back(TopoDS::Face(fe.Current()));
     if (faces.empty()) { res.reason = "no faces in shape"; return res; }
 
+    // ---- edge -> "every adjacent face is PLANAR" map --------------------------
+    // A STRAIGHT (3-D Line) edge is sampled at just its two endpoints (no interior
+    // densification) ONLY when EVERY face that uses it is planar. Rationale: the
+    // over-densification CDT crossing this avoids is a PLANAR-FACET artifact (a flat
+    // facet's straight boundary sampled at 64 collinear points proper-crosses its
+    // neighbour near a shared corner — the faceted-STEP failure). A line edge shared
+    // with a CURVED face (e.g. an analytic fillet's tangent line, between a plane and
+    // a cylindrical/spherical blend) must KEEP the dense sampling: the curved face's
+    // constrained triangulation relies on it, and collapsing the edge there folds the
+    // weld at the arc junction (non-manifold). Keying the reduction off the SHARED
+    // edge's neighbourhood (not the per-face surface) keeps BOTH faces' sample counts
+    // identical, so every shared edge still welds into one oppositely-mated edge.
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(src, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    auto allAdjacentPlanar = [&](const TopoDS_Edge& e) -> bool {
+        if (!edgeFaces.Contains(e)) return false;
+        const TopTools_ListOfShape& adj = edgeFaces.FindFromKey(e);
+        if (adj.IsEmpty()) return false;
+        for (TopTools_ListIteratorOfListOfShape it(adj); it.More(); it.Next()) {
+            BRepAdaptor_Surface as(TopoDS::Face(it.Value()), Standard_False);
+            if (as.GetType() != GeomAbs_Plane) return false;
+        }
+        return true;
+    };
+
     // ---- global vertex weld: one native Vertex per unique 3-D position --------
     auto owner = std::make_shared<nb::TopologyBuilder>();
     nb::Solid* solid = owner->makeSolid();
@@ -911,10 +939,36 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
                 Handle(Geom_Curve)   c3 = BRep_Tool::Curve(e, p3a, p3b);
                 if (pc.IsNull() || c3.IsNull()) continue;
                 const bool rev = (ex.Current().Orientation() == TopAbs_REVERSED);
+                // How many samples does THIS edge need? A STRAIGHT 3-D edge (a Line in
+                // model space) is fully described by its two endpoints: densifying it
+                // with intermediate collinear points adds no geometry and, near a shared
+                // corner, lets two adjacent edges' dense near-corner samples spuriously
+                // register as a PROPER_CROSS in the CDT PSLG (the faceted-STEP failure:
+                // every planar facet boundary is a chain of LINE edges). So a 3-D line
+                // edge contributes ONE point per edge (its start; the next edge contributes
+                // the shared end vertex), giving the exact polygon. A genuinely CURVED 3-D
+                // edge (an analytic arc / a B-spline trim) still gets the full kEdgeSamples
+                // chordal densification so a curved cap / blend boundary is resolved finely.
+                //
+                // THE DECISION KEYS OFF THE SHARED EDGE (3-D Line type + the edge's
+                // adjacent-face set), never this face's p-curve — because the SAME edge is
+                // used by exactly two faces and BOTH must sample it IDENTICALLY (same count,
+                // same arc fractions) for their boundary 3-D points to weld into one shared,
+                // oppositely-mated edge (closed 2-manifold). `allAdjacentPlanar(e)` is a
+                // property of the edge (same answer for both faces), so the reduction stays
+                // weld-consistent. We collapse to the two endpoints only for a straight edge
+                // between PLANAR faces — exactly the faceted-facet case the dense sampling
+                // breaks; a straight edge bordering a curved blend keeps the full sampling
+                // that the curved face's CDT needs (see the map comment above).
+                int nSamp = kEdgeSamples;
+                {
+                    BRepAdaptor_Curve ac(e);
+                    if (ac.GetType() == GeomAbs_Line && allAdjacentPlanar(e)) nSamp = 1;
+                }
                 // sample [0,1) along the edge in its wire-traversal sense; the next
                 // edge contributes the shared end vertex.
-                for (int i = 0; i < kEdgeSamples; ++i) {
-                    double s = (double)i / kEdgeSamples;
+                for (int i = 0; i < nSamp; ++i) {
+                    double s = (double)i / nSamp;
                     double f2 = rev ? (p2b + (p2a - p2b) * s) : (p2a + (p2b - p2a) * s);
                     double f3 = rev ? (p3b + (p3a - p3b) * s) : (p3a + (p3b - p3a) * s);
                     gp_Pnt2d q2 = pc->Value(f2);
