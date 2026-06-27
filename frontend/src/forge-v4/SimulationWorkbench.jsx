@@ -19,20 +19,22 @@
 // canvas / canvas-2 / canvas-3 backgrounds, monochrome accent, 4px grid
 // spacing. No emojis, no chromatic UI.
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './icons/Icon.jsx';
 import {
   isKernelReady,
   detectAvailableSolvers,
-  mesh as meshDispatch,
 } from './simulationDispatch.js';
 import {
   MATERIALS, STUDY_TYPES, LOAD_KINDS, BC_KINDS, FACE_LABELS,
-  defaultLoad, defaultBC, materialById,
+  defaultLoad, defaultBC,
   loadsToNodalForces, bcsToNodalConstraints,
-  SIM_TREE, sectionForNode, isCoreStudyType, runStudyCore, peakDisplacement,
+  SIM_TREE, sectionForNode, isCoreStudyType,
 } from './simulationModel.js';
+import {
+  simStore, runMesh, runStudy, installSimSetupApi,
+} from './simulationStore.js';
 import { FeaResultViewer } from './FeaResultViewer.jsx';
 import { TopologyResultViewer } from './TopologyResultViewer.jsx';
 import { runTopologyOptimisation, TOPOLOGY_DEFAULTS } from './topologyOptimisation.js';
@@ -44,68 +46,69 @@ import { runAdaptiveRefinement, ADAPTIVE_DEFAULTS } from './adaptiveMesh.js';
 // surface). Re-export the two public ones for backward compatibility.
 export { MATERIALS, STUDY_TYPES };
 
-// Publish the canonical static-result mirror downstream panels read
-// (FatigueAnalysisPanel keys off window.__forgeSimulationLast). Properly
-// wired here so the "run Simulation first" handshake actually has data.
-function publishSimulationLast(result, meshObj) {
-  if (typeof window === 'undefined' || !result) return;
-  window.__forgeSimulationLast = {
-    maxVonMises: result.maxVonMises ?? null,
-    maxDisplacement: peakDisplacement(result, meshObj),
-    residual: result.residual ?? null,
-    at: Date.now(),
-  };
-}
-
 // ---------------------------------------------------------- panel
 
 export function SimulationWorkbench({ activeBodyHandle = null,
                                       activeBodyName = 'No body selected',
                                       onSelectBody = null,
                                       onClose = null }) {
-  // SimScale-style unified study tree — the left rail focuses/scrolls the
-  // matching existing sub-section. Inc 1 keeps focus in local state (it is
-  // human-clicked); Inc 2 promotes the rest of the setup to the event store.
-  const [focusedSection, setFocusedSection] = useState('study');
+  // ── Event-reducer store (Inc 2) ──────────────────────────────────────
+  // The setup + status fields live in the external simulationStore so the
+  // Archie-CUA `sim.setup.*` setters drive the SAME state the buttons do,
+  // WITHOUT any window-API setState (the re-render race that breaks tests).
+  // The panel SUBSCRIBES here; every handler dispatches an action.
+  const s = useSyncExternalStore(simStore.subscribe, simStore.getState, simStore.getState);
+  const {
+    name, type, materialId, elemSizeMm,
+    meshObj, meshInfo, meshError, meshing, meshQuality,
+    loads, bcs, tEnd, dt, alpha, beta, nModes, loadSteps, fatigueCfg,
+    result, resultTab, solveError, solving, solveLog,
+    focusedSection,
+  } = s;
+  const dispatch = simStore.dispatch;
+
+  // Same-named shim setters → store actions, so the existing JSX handlers
+  // need no rewrite. Functional updates (setLoads(arr => …)) are supported;
+  // each reads the freshest store value to avoid stale closures.
+  const setField = (key) => (next) => {
+    const value = typeof next === 'function' ? next(simStore.getState()[key]) : next;
+    dispatch({ type: 'SET', key, value });
+  };
+  const setName       = setField('name');
+  const setType       = setField('type');
+  const setMaterialId = setField('materialId');
+  const setElemSizeMm = setField('elemSizeMm');
+  const setLoads      = setField('loads');
+  const setBcs        = setField('bcs');
+  const setTEnd       = setField('tEnd');
+  const setDt         = setField('dt');
+  const setAlpha      = setField('alpha');
+  const setBeta       = setField('beta');
+  const setNModes     = setField('nModes');
+  const setLoadSteps  = setField('loadSteps');
+  const setFatigueCfg = setField('fatigueCfg');
+  const setResultTab  = setField('resultTab');
+  const setResult     = setField('result');
+  const setSolveError = setField('solveError');
+  const setSolving    = setField('solving');
+  const setSolveLog   = setField('solveLog');
+  const setMeshObj    = setField('meshObj');
+
+  // SimScale-style unified study tree — the left rail focuses + scrolls the
+  // matching existing sub-section (the section itself is untouched). Focus
+  // lives in the store too, so a CUA `focus` dispatch and a human click are
+  // the same action.
   const bodyRef = useRef(null);
   const focusNode = (nodeId) => {
     const section = sectionForNode(nodeId);
     if (!section) return;
-    setFocusedSection(section);
+    dispatch({ type: 'FOCUS', section });
     const el = bodyRef.current &&
       bodyRef.current.querySelector(`[data-sim-section="${section}"]`);
     if (el && typeof el.scrollIntoView === 'function') {
       el.scrollIntoView({ block: 'start', behavior: 'smooth' });
     }
   };
-
-  // study setup
-  const [name, setName]           = useState('Study 1');
-  const [type, setType]           = useState('Static');
-  const [materialId, setMaterialId] = useState('steel');
-
-  // mesh
-  const [elemSizeMm, setElemSizeMm] = useState(3);
-  const [meshObj, setMeshObj]       = useState(null);
-  const [meshInfo, setMeshInfo]     = useState(null);
-  const [meshError, setMeshError]   = useState(null);
-  const [meshing, setMeshing]       = useState(false);
-
-  // loads + bcs
-  const [loads, setLoads] = useState([defaultLoad('Force')]);
-  const [bcs, setBcs]     = useState([defaultBC('Fixed')]);
-
-  // dynamic + fatigue params
-  const [tEnd, setTEnd]     = useState(0.1);
-  const [dt, setDt]         = useState(0.001);
-  const [alpha, setAlpha]   = useState(0);
-  const [beta, setBeta]     = useState(0);
-  const [nModes, setNModes] = useState(6);
-  const [loadSteps, setLoadSteps] = useState(5);
-  const [fatigueCfg, setFatigueCfg] = useState({
-    Sut: 400e6, Se: 200e6, b: -0.085,
-    meanStressCorrection: 'goodman',
-  });
 
   // Forge-132 — advanced study cfgs
   const [topoCfg, setTopoCfg] = useState({
@@ -137,12 +140,8 @@ export function SimulationWorkbench({ activeBodyHandle = null,
   const [crackResult, setCrackResult] = useState(null);
   const [adaptResult, setAdaptResult] = useState(null);
 
-  // solve / results
-  const [solveError, setSolveError] = useState(null);
-  const [solving, setSolving]       = useState(false);
-  const [result, setResult]         = useState(null);
-  const [resultTab, setResultTab]   = useState('Displacement');
-  const [solveLog, setSolveLog]     = useState([]); // convergence iterations
+  // solverCaps stays component-local — it is a one-shot capability probe,
+  // not study state the CUA surface drives.
   const [solverCaps, setSolverCaps] = useState({});
 
   const material = useMemo(() => MATERIALS.find((m) => m.id === materialId) || MATERIALS[0],
@@ -150,71 +149,45 @@ export function SimulationWorkbench({ activeBodyHandle = null,
 
   useEffect(() => {
     setSolverCaps(detectAvailableSolvers());
+    // Mount the Archie-CUA surface + push the active body into the store so
+    // `sim.setup.mesh/solve` can resolve it. Idempotent.
+    installSimSetupApi();
   }, []);
+  useEffect(() => {
+    dispatch({ type: 'SET_BODY', handle: activeBodyHandle, name: activeBodyName });
+  }, [activeBodyHandle, activeBodyName]);
 
-  // ----- mesh handler -----
-  const meshNow = async () => {
-    setMeshing(true);
-    setMeshError(null);
-    setMeshInfo(null);
-    if (typeof activeBodyHandle !== 'number') {
-      setMeshError('No body handle — pick a body first.');
-      setMeshing(false);
-      return;
-    }
-    const r = meshDispatch(activeBodyHandle, elemSizeMm);
-    if (r.error) {
-      setMeshError(r.error);
-      setMeshObj(null);
-    } else {
-      setMeshObj(r.mesh);
-      setMeshInfo({
-        nodeCount: r.mesh.nodeCount || (r.mesh.nodes ? r.mesh.nodes.length / 3 : 0),
-        elemCount: r.mesh.elemCount || (r.mesh.elements ? r.mesh.elements.length / (r.mesh.elemNodeCount || 4) : 0),
-        elapsedMs: r.elapsedMs,
-        sizeMeters: r.sizeMeters,
-      });
-    }
-    setMeshing(false);
-  };
+  // ----- mesh handler ----- routes through the store controller so the
+  // panel button + the CUA `sim.setup.mesh` setter mesh identically (and
+  // both get the Inc-4 quality report).
+  const meshNow = () => { runMesh(simStore, { activeBodyHandle }); };
 
   // ----- solve router -----
   const solve = async () => {
-    setSolveError(null);
-    setSolveLog([]);
-    setResult(null);
     // Adaptive refinement re-meshes inside the loop, so it can start
     // without a pre-built mesh.
     if (!meshObj && type !== 'CFD' && type !== 'Adaptive Refinement') {
       setSolveError('Mesh the body first.');
       return;
     }
-    setSolving(true);
 
-    // CORE study types go through the shared runStudyCore path — the SAME
-    // function the headless Inc-1 gate AND the Archie-CUA `sim.setup.solve`
-    // setter call. The panel button and the CUA agent therefore provably
-    // solve identically; the maths lives in ONE place (simulationModel.js).
+    // CORE study types go through the shared store controller — the SAME
+    // runStudy the Archie-CUA `sim.setup.solve` setter calls (which itself
+    // calls runStudyCore, the function the headless Inc-1/Inc-2 gates use).
+    // Panel button and CUA agent therefore provably solve identically; the
+    // controller dispatches SOLVE_BEGIN/DONE/ERROR + publishes the result
+    // mirror. The maths lives in ONE place (simulationModel.js).
     if (isCoreStudyType(type)) {
-      const env = runStudyCore({
-        state: { type, materialId, name, loads, bcs,
-                 nModes, tEnd, dt, alpha, beta, loadSteps, fatigueCfg },
-        meshObj, prevResult: result,
-      });
-      if (env.error) {
-        setSolveError(env.error);
-      } else {
-        setResult(env.result);
-        setResultTab(env.resultTab);
-        setSolveLog(env.solveLog || []);
-        publishSimulationLast(env.result, meshObj);
-      }
-      setSolving(false);
+      runStudy(simStore, { activeBodyHandle });
       return;
     }
 
     // Advanced studies (Contact / Topology / Crack / Adaptive) keep their
     // dedicated runners + result viewers.
+    setSolveError(null);
+    setSolveLog([]);
+    setResult(null);
+    setSolving(true);
     const { nodal, pressures } = loadsToNodalForces(loads, meshObj);
     const constraints = bcsToNodalConstraints(bcs, meshObj);
     const mat = { E: material.E, nu: material.nu, rho: material.rho,

@@ -22,6 +22,7 @@
  */
 
 import { getForge } from '../kernel/forge/index.js';
+import { simSetup } from '../forge-v4/simulationStore.js';
 import { exportRobot } from '../forge-v4/io/robotExport.js';
 import { exportArchival, verifyArchival } from '../forge-v4/io/archivalExport.js';
 import { ecadImportBoard, ecadExportBoard, routeHarness as ecadRouteHarness } from '../forge-v4/ecad/ecadBridge.js';
@@ -2187,6 +2188,72 @@ export const FORGE_TOOLS = [
         note: 'numeric 1-D stack; not a geometric/datum-frame check',
       };
     } },
+
+  // ============================================================ SIM SETUP (CUA)
+  // Task #66 Inc 2 — Archie OPERATES the SimScale-style Simulation panel
+  // step-by-step instead of calling the headless solver. Every verb drives
+  // the SAME React state the buttons do, through the simulationStore event-
+  // reducer (NO setState reachable from this surface), so the agent and a
+  // human leave the panel in identical states. Face selection uses the
+  // existing 6-AABB-face bitmask (−x|+x|−y|+y|−z|+z, with base/top/… aliases);
+  // real BRep face picking is the deferred Inc 3.
+  { name: 'sim.setup.study-type', discipline: 'simulate', produces: 'result',
+    description: 'Select the Simulation study type in the panel (Static, Modal, Dynamic, Thermal, Buckling, Nonlinear, Plastic, Fatigue, CFD, Topology Optimisation, Crack Propagation, Adaptive Refinement). Idempotent.',
+    parameters: { type: P('enum', 'study type, e.g. Static|Modal|Thermal', { required: true }) },
+    run: ({ type }) => simSetup.setStudyType(type) },
+
+  { name: 'sim.setup.material', discipline: 'simulate', produces: 'result',
+    description: 'Pick the study material by id (steel|aluminium|brass|copper|titanium|abs|nylon|petg). Idempotent.',
+    parameters: { id: P('enum', 'material id', { required: true }) },
+    run: ({ id }) => simSetup.setMaterial(id) },
+
+  { name: 'sim.setup.element-size', discipline: 'simulate', produces: 'result',
+    description: 'Set the target mesh element size in mm. Idempotent.',
+    parameters: { mm: P('number', 'target element size (mm)', { required: true }) },
+    run: ({ mm }) => simSetup.setElementSize(mm) },
+
+  { name: 'sim.setup.mesh', discipline: 'simulate', produces: 'report',
+    description: 'Mesh the active body at the current element size (operates the panel "Mesh now" action). Returns node/element counts + a quality summary (worst aspect, min dihedral, poor count).',
+    parameters: {},
+    run: () => simSetup.mesh() },
+
+  { name: 'sim.setup.add-load', discipline: 'simulate', produces: 'result',
+    description: 'Add OR (when `index` is given) update a load row. kind=Force|Pressure|BodyForce. Face by token (-x|+x|-y|+y|-z|+z or base/top/left/right/front/back). Force magnitude+axis(+sign) → vector, or pass F=[fx,fy,fz]. Idempotent at a fixed index.',
+    parameters: { kind: P('enum', 'Force|Pressure|BodyForce', { default: 'Force' }),
+                  index: P('uint', 'row index to update in place (omit to append)', { default: null }),
+                  face: P('enum', 'face token: -x|+x|-y|+y|-z|+z or base/top/left/right/front/back', { default: '+x' }),
+                  F: P('array', '[fx,fy,fz] force vector (N) — overrides magnitude/axis', { default: null }),
+                  magnitude: P('number', 'force magnitude (N) used with axis+sign', { default: null }),
+                  axis: P('enum', 'x|y|z direction for magnitude', { default: 'y' }),
+                  sign: P('number', '+1 or -1 direction sign', { default: -1 }),
+                  pressure: P('number', 'pressure (Pa) for kind=Pressure', { default: null }),
+                  g: P('array', '[gx,gy,gz] body-force accel for kind=BodyForce', { default: null }) },
+    run: (a) => simSetup.addLoad(a) },
+
+  { name: 'sim.setup.add-bc', discipline: 'simulate', produces: 'result',
+    description: 'Add OR (when `index` is given) update a boundary condition. kind=Fixed|Pin|Roller|Symmetry. Face by token (base/top/-z/+z…). Roller/Symmetry take a locked axis. Idempotent at a fixed index.',
+    parameters: { kind: P('enum', 'Fixed|Pin|Roller|Symmetry', { default: 'Fixed' }),
+                  index: P('uint', 'row index to update in place (omit to append)', { default: null }),
+                  face: P('enum', 'face token: -x|+x|-y|+y|-z|+z or base/top/left/right/front/back', { default: '-x' }),
+                  axis: P('enum', 'locked axis x|y|z (Roller/Symmetry)', { default: 'y' }) },
+    run: (a) => simSetup.addBC(a) },
+
+  { name: 'sim.setup.assign-face', discipline: 'simulate', produces: 'result',
+    description: 'Re-assign the AABB face a load or BC row acts on. target=load|bc, index, face token. Idempotent.',
+    parameters: { target: P('enum', 'load|bc', { default: 'load' }),
+                  index: P('uint', 'row index', { default: 0 }),
+                  face: P('enum', 'face token: -x|+x|-y|+y|-z|+z or base/top/…', { required: true }) },
+    run: (a) => simSetup.assignFace(a) },
+
+  { name: 'sim.setup.solve', discipline: 'simulate', produces: 'report',
+    description: 'Run the configured CORE study (the panel "Solve" action), driving the SAME state path the headless solver uses. Returns max von Mises, peak displacement, residual.',
+    parameters: {},
+    run: () => simSetup.solve() },
+
+  { name: 'sim.setup.read-result', discipline: 'simulate', produces: 'report',
+    description: 'Read the solved result off the panel (or a single field): max von Mises (Pa/MPa), peak displacement (m), residual, eigenvalues.',
+    parameters: { field: P('string', 'optional single field to read', { default: null }) },
+    run: ({ field }) => simSetup.readResult(field) },
 
   // ============================================================ MANUFACTURE
   { name: 'manufacture.cam-profile', discipline: 'manufacture', produces: 'report',
