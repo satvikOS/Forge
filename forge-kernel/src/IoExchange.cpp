@@ -7,7 +7,9 @@
 #include <STEPControl_Writer.hxx>
 #include <StlAPI_Reader.hxx>
 #include <StlAPI_Writer.hxx>
-#include <IGESControl_Reader.hxx>
+// OCCT_ZERO Wave-0 (B1): <IGESControl_Reader.hxx> REMOVED — IGES read is now the
+// in-house native reader (forge/native/brep/IgesRead.hpp), A/B-certified vs OCCT
+// in test/native_vs_occt_iges.cpp. OCCT's TKDEIGES reader is no longer linked here.
 #include <IFSelect_ReturnStatus.hxx>
 #include <Interface_Static.hxx>
 #include <TopoDS_Shape.hxx>
@@ -29,6 +31,7 @@
 #include "forge/native/brep/StepAnalytic.hpp"       // analytic codec (NativeSolid)
 #include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh)
 #include "forge/native/brep/SolidTessellate.hpp"    // soup for a faceted-solid fallback
+#include "forge/native/brep/IgesRead.hpp"           // OCCT-zero B1 — native foreign-IGES reader
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
 #endif
 
@@ -191,22 +194,35 @@ bool exportStl(ShapeHandle h, const std::string& filepath,
 // --------------------------------------------------------------------
 
 ShapeHandle importIges(const std::string& filepath) {
-    // OCCT 7.9's TKDEIGES toolkit ships IGESControl_Reader; ReadFile()
-    // returns IFSelect_RetDone on success. Same multi-root → compound
-    // strategy as STEP.
-    IGESControl_Reader reader;
-    Interface_Static::SetCVal("xstep.cascade.unit", "MM");
-    const auto stat = reader.ReadFile(filepath.c_str());
-    if (stat != IFSelect_RetDone) {
-        throw std::runtime_error("forge.io: IGES read failed for " + filepath);
+#ifdef FORGE_NATIVE_BREP
+    // OCCT-ZERO Wave-0 (B1) — IGES read is now NATIVE-ONLY. The in-house foreign-IGES
+    // reader (forge::native::brep::readForeignIges) is A/B-certified vs OCCT 7.9.3's
+    // IGESControl_Reader in test/native_vs_occt_iges.cpp (box VOLUME 240 rel<=1e-6,
+    // trimmed-face AREA, V/E/F signature). The OCCT TKDEIGES IGESControl_Reader has
+    // been RETIRED from this kernel — native is the sole IGES read path.
+    //
+    // We mirror importStep's native route: read the file, accept ONLY a COMPLETE
+    // watertight body (every entity reconstructed AND the sewn shell closed), and on
+    // any failure surface the HONEST reason — NO silent fallback, NO fake (Bible
+    // §0/§9). A foreign IGES whose entity zoo the native reader does not yet
+    // reconstruct fails loud with the entity gap, never a wrong/partial solid.
+    std::string text = slurpFile(filepath);
+    native::brep::ForeignReadResult rr = native::brep::readForeignIges(text);
+    if (rr.ok && rr.solid && rr.owner && rr.unsupported.empty() && rr.closed) {
+        return ShapeRegistry::instance().addNativeSolid(rr.owner, rr.solid);
     }
-    reader.TransferRoots();
-    const auto nShapes = reader.NbShapes();
-    if (nShapes == 0) {
-        throw std::runtime_error("forge.io: IGES transfer produced no shapes");
-    }
-    TopoDS_Shape shape = nShapes == 1 ? reader.Shape(1) : reader.OneShape();
-    return ShapeRegistry::instance().add(shape);
+    const std::string why =
+        !rr.ok                  ? (rr.reason.empty() ? "the file could not be parsed" : rr.reason)
+      : !rr.solid               ? "the IGES file produced no transferable shapes"
+      : !rr.unsupported.empty() ? "the IGES file uses entities the native reader does not reconstruct"
+      :                           "the body is not a closed watertight solid";
+    throw std::runtime_error("forge.io: IGES read failed for " + filepath + " — " + why);
+#else
+    (void)filepath;
+    throw std::runtime_error(
+        "forge.io: IGES import requires the native B-rep build (FORGE_NATIVE_BREP); "
+        "the OCCT IGESControl_Reader path has been retired.");
+#endif
 }
 
 bool exportIges(ShapeHandle /*h*/, const std::string& /*filepath*/) {
