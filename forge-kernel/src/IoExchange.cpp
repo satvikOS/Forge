@@ -2,11 +2,15 @@
 
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
-#include <BRepMesh_IncrementalMesh.hxx>
+// OCCT_ZERO Wave-0 (B2): <BRepMesh_IncrementalMesh.hxx> REMOVED — STL export no
+// longer meshes via OCCT; it tessellates the native body (tessellateSolid /
+// HalfEdgeMesh::toSoup) and writes through the native ASCII STL codec.
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
-#include <StlAPI_Reader.hxx>
-#include <StlAPI_Writer.hxx>
+// OCCT_ZERO Wave-0 (B2): <StlAPI_Reader.hxx> / <StlAPI_Writer.hxx> REMOVED — STL
+// read/write is now the in-house ASCII codec (forge/native/brep/MeshExchange.hpp),
+// whose std::to_chars/from_chars coordinate round-trip is bit-exact (A/B-certified
+// vs OCCT StlAPI in test/native_vs_occt_stl.cpp: enclosed-volume rel<=1e-9).
 // OCCT_ZERO Wave-0 (B1): <IGESControl_Reader.hxx> REMOVED — IGES read is now the
 // in-house native reader (forge/native/brep/IgesRead.hpp), A/B-certified vs OCCT
 // in test/native_vs_occt_iges.cpp. OCCT's TKDEIGES reader is no longer linked here.
@@ -32,6 +36,7 @@
 #include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh)
 #include "forge/native/brep/SolidTessellate.hpp"    // soup for a faceted-solid fallback
 #include "forge/native/brep/IgesRead.hpp"           // OCCT-zero B1 — native foreign-IGES reader
+#include "forge/native/brep/MeshExchange.hpp"        // OCCT-zero B2 — native ASCII STL codec
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
 #endif
 
@@ -165,28 +170,75 @@ bool exportBrep(ShapeHandle h, const std::string& filepath) {
 }
 
 ShapeHandle importStl(const std::string& filepath) {
-    StlAPI_Reader reader;
-    TopoDS_Shape shape;
-    if (!reader.Read(shape, filepath.c_str())) {
-        throw std::runtime_error("forge.io: STL read failed for " + filepath);
+#ifdef FORGE_NATIVE_BREP
+    // OCCT-ZERO Wave-0 (B2) — native ASCII-STL reader. MeshExchange::readSTL welds
+    // the triangle soup back into a shared-vertex table by EXACT 64-bit coordinate
+    // identity, so a closed mesh's enclosed volume is preserved bit-exactly. The
+    // welded soup is built into a NativeMesh (HalfEdgeMesh) handle; a non-manifold /
+    // inconsistently-wound STL fails LOUD (no silent repair — Bible §0/§9).
+    std::string text = slurpFile(filepath);
+    native::brep::ReadResult rr = native::brep::MeshExchange::readSTL(text);
+    if (!rr.ok) {
+        throw std::runtime_error("forge.io: STL read failed for " + filepath + " — " + rr.reason);
     }
-    return ShapeRegistry::instance().add(shape);
+    auto hem = std::make_shared<native::mesh::HalfEdgeMesh>();
+    if (!hem->buildFromSoup(rr.mesh.positions, rr.mesh.indices)) {
+        throw std::runtime_error(
+            "forge.io: STL read failed for " + filepath +
+            " — the triangle mesh is not a consistently-wound 2-manifold "
+            "(non-manifold edge, inconsistent winding, or degenerate face)");
+    }
+    return ShapeRegistry::instance().addNativeMesh(std::move(hem));
+#else
+    (void)filepath;
+    throw std::runtime_error(
+        "forge.io: STL import requires the native B-rep build (FORGE_NATIVE_BREP); "
+        "the OCCT StlAPI_Reader path has been retired.");
+#endif
 }
 
 bool exportStl(ShapeHandle h, const std::string& filepath,
                double linearTol, double angularTol, bool ascii) {
-    auto shape = ShapeRegistry::instance().get(h);
-    // STL needs a triangulation first — BRepMesh_IncrementalMesh fills
-    // it onto the existing shape (mutating its sub-shape triangulations).
-    BRepMesh_IncrementalMesh mesher(shape, linearTol, /*isRelative*/ Standard_False,
-                                    angularTol, /*isInParallel*/ Standard_True);
-    mesher.Perform();
-    StlAPI_Writer writer;
-    writer.ASCIIMode() = ascii ? Standard_True : Standard_False;
-    if (!writer.Write(shape, filepath.c_str())) {
-        throw std::runtime_error("forge.io: STL write failed for " + filepath);
+#ifdef FORGE_NATIVE_BREP
+    // OCCT-ZERO Wave-0 (B2) — native STL export. The body is tessellated by the
+    // in-house tessellator (NativeSolid -> tessellateSolid at its as-built faceting;
+    // NativeMesh -> HalfEdgeMesh::toSoup) and serialised through MeshExchange::writeSTL,
+    // whose std::to_chars coordinate output round-trips bit-exactly. NO OCCT meshing.
+    //
+    // FORMAT: the native STL codec emits ASCII (its exact-double text round-trip is
+    // what gives the rel<=1e-9 volume parity; binary STL is float32 and could not).
+    // `ascii` is therefore advisory here — native STL export is always ASCII. The
+    // `linearTol`/`angularTol` chord controls are likewise advisory: a native body
+    // tessellates at its own as-built resolution (exact for planar faces).
+    (void)linearTol; (void)angularTol; (void)ascii;
+    auto& reg = ShapeRegistry::instance();
+    const ShapeKind k = reg.kindOf(h);
+    native::brep::TriMesh tm;
+    if (k == ShapeKind::NativeSolid) {
+        native::brep::tessellateSolid(reg.getNativeSolid(h), tm.positions, tm.indices, /*weldTol*/ 1e-7);
+    } else if (k == ShapeKind::NativeMesh) {
+        reg.getNativeMesh(h).toSoup(tm.positions, tm.indices);
+    } else {
+        // Occt-backed handle (e.g. a BREP import): no native tessellation exists for
+        // an arbitrary OCCT shape and the OCCT mesher has been retired here. Surface
+        // the truth (Bible §0/§9) rather than fake a mesh.
+        throw std::runtime_error(
+            "forge.io: native STL export covers native-kernel bodies; this handle is "
+            "OCCT-backed and has no native tessellation. Export STEP (AP242) instead, "
+            "or rebuild the body through the native kernel.");
     }
+    if (tm.indices.empty()) {
+        throw std::runtime_error("forge.io: STL export produced an empty tessellation for " + filepath);
+    }
+    const std::string text = native::brep::MeshExchange::writeSTL(tm, "forge");
+    spillFile(filepath, text);
     return true;
+#else
+    (void)h; (void)filepath; (void)linearTol; (void)angularTol; (void)ascii;
+    throw std::runtime_error(
+        "forge.io: STL export requires the native B-rep build (FORGE_NATIVE_BREP); "
+        "the OCCT StlAPI_Writer path has been retired.");
+#endif
 }
 
 // --------------------------------------------------------------------
