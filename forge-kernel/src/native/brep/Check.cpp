@@ -18,6 +18,7 @@
 #include "forge/native/ExactPredicates3D.hpp"   // exactOrient3D for exact sign decisions
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -748,13 +749,103 @@ CheckReport checkBRep(const std::vector<Face*>& faces, const CheckOptions& opt) 
             return true;
         };
 
-        // Even-odd crossing count of a ray from p along a fixed jittered direction.
-        auto insideByRay = [&](const Vec3& pIn) -> bool {
-            const Vec3 dir = vnorm(Vec3{0.5773502691896258, 0.5773502691896258 + 1e-4,
+        // The single fixed jittered ray direction every probe uses.
+        const Vec3 RAY_DIR = vnorm(Vec3{0.5773502691896258, 0.5773502691896258 + 1e-4,
                                         0.5773502691896258 - 1e-4});
+
+        // ── UNIFORM-GRID ACCELERATOR for the fixed-direction ray parity ──────────
+        // Naive insideByRay tests EVERY triangle for EVERY probe — O(faces × tris).
+        // On a 200k-triangle import that is 8e10 ray-tri tests → ~140 s, the sole
+        // cause of the large-model VERIFY perf-timeout. This grid makes it ~O(1)/probe
+        // WITHOUT changing the verdict: because every ray shares RAY_DIR, a triangle
+        // can be crossed ONLY if the probe's footprint in the plane ⊥ RAY_DIR lands
+        // inside the triangle's footprint there (Möller–Trumbore's u/v test is exactly
+        // that in-projection containment). So binning triangles by their projected AABB
+        // and querying only the probe-cell's bucket yields the IDENTICAL crossing set —
+        // every triangle the grid skips is a guaranteed rayTri()==false. An exact
+        // prefilter, not an approximation: the parity (crossings % 2) is unchanged.
+        // (Empty grid ⇒ the loop below simply falls back to scanning all tris.)
+        Vec3 gU, gV;  // orthonormal basis of the plane ⊥ RAY_DIR
+        {
+            Vec3 a = (std::abs(RAY_DIR.x) < 0.9) ? Vec3{1, 0, 0} : Vec3{0, 1, 0};
+            gU = vnorm(vsub(a, vscale(RAY_DIR, vdot(a, RAY_DIR))));
+            gV = vcross(RAY_DIR, gU);
+        }
+        auto proj2 = [&](const Vec3& w) -> std::array<double, 2> {
+            return { vdot(w, gU), vdot(w, gV) };
+        };
+        // Grid extent in the projected plane.
+        double pMinU = 1e300, pMinV = 1e300, pMaxU = -1e300, pMaxV = -1e300;
+        for (const Tri& T : tris) {
+            for (const Vec3* w : { &T.a, &T.b, &T.c }) {
+                auto q = proj2(*w);
+                pMinU = std::min(pMinU, q[0]); pMaxU = std::max(pMaxU, q[0]);
+                pMinV = std::min(pMinV, q[1]); pMaxV = std::max(pMaxV, q[1]);
+            }
+        }
+        // Choose a cell size targeting a handful of triangles per cell: scale the
+        // projected span by 1/sqrt(N) (uniform-density heuristic), floored so a
+        // pathological zero-extent axis cannot make an infinitely thin grid.
+        const std::size_t nTris = tris.size();
+        int gNU = 1, gNV = 1;
+        double cell = 0.0;
+        std::vector<std::vector<int>> grid;  // row-major gNU × gNV buckets
+        bool gridOn = false;
+        if (nTris >= 256 && pMaxU > pMinU && pMaxV > pMinV) {
+            const double spanU = pMaxU - pMinU, spanV = pMaxV - pMinV;
+            const double area = spanU * spanV;
+            // ~1 triangle/cell on average → cell area ≈ area/N → cell ≈ sqrt(area/N).
+            cell = std::sqrt(area / (double)nTris);
+            const double minCell = std::max(spanU, spanV) / 4096.0;  // cap grid at 4096²
+            if (!(cell > minCell)) cell = minCell;
+            if (cell > 0.0) {
+                gNU = std::max(1, (int)std::ceil(spanU / cell));
+                gNV = std::max(1, (int)std::ceil(spanV / cell));
+                // Hard cap on total cells to bound memory.
+                if ((long long)gNU * gNV <= 64LL * 1024 * 1024) {
+                    grid.assign((std::size_t)gNU * gNV, {});
+                    auto cellOf = [&](double pu, double pv, int& cu, int& cv) {
+                        cu = (int)((pu - pMinU) / cell);
+                        cv = (int)((pv - pMinV) / cell);
+                        cu = std::min(std::max(cu, 0), gNU - 1);
+                        cv = std::min(std::max(cv, 0), gNV - 1);
+                    };
+                    for (std::size_t ti = 0; ti < nTris; ++ti) {
+                        const Tri& T = tris[ti];
+                        auto qa = proj2(T.a), qb = proj2(T.b), qc = proj2(T.c);
+                        double loU = std::min({qa[0], qb[0], qc[0]});
+                        double hiU = std::max({qa[0], qb[0], qc[0]});
+                        double loV = std::min({qa[1], qb[1], qc[1]});
+                        double hiV = std::max({qa[1], qb[1], qc[1]});
+                        int cu0, cv0, cu1, cv1;
+                        cellOf(loU, loV, cu0, cv0);
+                        cellOf(hiU, hiV, cu1, cv1);
+                        for (int cu = cu0; cu <= cu1; ++cu)
+                            for (int cv = cv0; cv <= cv1; ++cv)
+                                grid[(std::size_t)cu * gNV + cv].push_back((int)ti);
+                    }
+                    gridOn = true;
+                }
+            }
+        }
+
+        // Even-odd crossing count of a ray from p along RAY_DIR. With the grid on,
+        // only the triangles whose projected AABB covers p's projection are tested
+        // (the rest are provable misses); otherwise every triangle is tested.
+        auto insideByRay = [&](const Vec3& pIn) -> bool {
             int crossings = 0;
             double t;
-            for (const Tri& T : tris) if (rayTri(pIn, dir, T, t)) ++crossings;
+            if (gridOn) {
+                auto qp = proj2(pIn);
+                int cu = (int)((qp[0] - pMinU) / cell);
+                int cv = (int)((qp[1] - pMinV) / cell);
+                if (cu < 0) cu = 0; else if (cu >= gNU) cu = gNU - 1;
+                if (cv < 0) cv = 0; else if (cv >= gNV) cv = gNV - 1;
+                for (int ti : grid[(std::size_t)cu * gNV + cv])
+                    if (rayTri(pIn, RAY_DIR, tris[ti], t)) ++crossings;
+            } else {
+                for (const Tri& T : tris) if (rayTri(pIn, RAY_DIR, T, t)) ++crossings;
+            }
             return (crossings % 2) == 1;
         };
 

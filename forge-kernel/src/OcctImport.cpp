@@ -16,6 +16,7 @@
 #include "forge/OcctImport.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -1256,6 +1257,81 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
     }
 
     if (staged.empty() && stagedPoly.empty()) { res.reason = "no faces produced triangles"; return res; }
+
+    // ---- DEGENERATE-FIN (back-to-back overlap) REMOVAL -------------------------
+    // Where two ANALYTIC fillet faces meet at a shared box/cylinder corner, OCCT's
+    // trimming of the two blend surfaces OVERLAPS in a sliver lens at the corner:
+    // both faces' p-curves cover the same corner triangle, so the importer stages
+    // the SAME 3-D triangle from each face — with OPPOSITE winding (each face's
+    // outward normal points the opposite way in the shared lens). That is a
+    // zero-volume "fin": a pair of coincident, oppositely-wound triangles whose net
+    // geometric contribution is nil but which makes every interior fan edge of the
+    // lens used 4× (2 per copy) — a spurious non-2-manifold. (Diagnosed on the
+    // box-pocket-fillet and flange-rim-fillet golden models: 6 such pairs at one
+    // corner, each appearing twice with identical area and reversed orientation.)
+    //
+    // The fix removes EXACTLY these back-to-back pairs (same welded vertex SET,
+    // opposite winding). It is geometry-neutral — the two slivers were equal-and-
+    // opposite, so volume/area/inertia are unchanged to quadrature precision — and
+    // it touches ONLY genuinely coincident overlap fins (a clean watertight mesh has
+    // none, so the 48 passing models are untouched). It does NOT relax the CDT's
+    // PROPER_CROSS test; the CDT per-face triangulation is correct — the defect is
+    // the cross-face TRIM OVERLAP, repaired here at the stitch, exactly where
+    // Boolean.cpp's stitch also reconciles coincident operand facets.
+    {
+        // Canonical key for a triangle's vertex SET (sorted) and its directed cyclic
+        // identity (to tell winding apart). Two staged faces are a back-to-back pair
+        // iff same set + opposite cyclic orientation.
+        auto sortedKey = [](const std::array<int, 3>& v) {
+            int a = v[0], b = v[1], c = v[2];
+            if (a > b) std::swap(a, b);
+            if (b > c) std::swap(b, c);
+            if (a > b) std::swap(a, b);
+            return std::array<int, 3>{a, b, c};
+        };
+        // +1 if (v) is a cyclic rotation of the ascending-order set's canonical CCW
+        // (a<b<c → a,b,c), -1 if it is the reversed (CW) orientation. Degenerate
+        // (repeated vid) returns 0 and is left for the existing post-weld guard.
+        auto orient = [](const std::array<int, 3>& v) -> int {
+            const int a = v[0], b = v[1], c = v[2];
+            if (a == b || b == c || a == c) return 0;
+            // The three CCW rotations of the ascending triple (lo,mid,hi):
+            int lo = std::min({a, b, c}), hi = std::max({a, b, c});
+            int mid = a ^ b ^ c ^ lo ^ hi;
+            // v matches CCW (lo,mid,hi) up to rotation?
+            const bool ccw =
+                (a == lo && b == mid && c == hi) ||
+                (a == mid && b == hi && c == lo) ||
+                (a == hi && b == lo && c == mid);
+            return ccw ? +1 : -1;
+        };
+        // Group staged-triangle indices by their vertex set, tracking orientation.
+        struct Slot { std::vector<int> pos, neg; };
+        std::map<std::array<int, 3>, Slot> groups;
+        for (std::size_t i = 0; i < staged.size(); ++i) {
+            int o = orient(staged[i].vid);
+            if (o == 0) continue;                       // degenerate — handled elsewhere
+            Slot& s = groups[sortedKey(staged[i].vid)];
+            (o > 0 ? s.pos : s.neg).push_back((int)i);
+        }
+        std::vector<char> drop(staged.size(), 0);
+        for (auto& kv : groups) {
+            Slot& s = kv.second;
+            // Cancel as many opposite-wound copies as pair up: each (pos,neg) match
+            // is a back-to-back fin → drop BOTH. Leftovers (a genuine single triangle,
+            // or an unpaired same-wound duplicate) are kept for the manifold check to
+            // judge honestly — we only remove provable equal-and-opposite fins.
+            std::size_t np = std::min(s.pos.size(), s.neg.size());
+            for (std::size_t k = 0; k < np; ++k) {
+                drop[s.pos[k]] = 1;
+                drop[s.neg[k]] = 1;
+            }
+        }
+        std::size_t w = 0;
+        for (std::size_t i = 0; i < staged.size(); ++i)
+            if (!drop[i]) staged[w++] = std::move(staged[i]);
+        staged.resize(w);
+    }
 
     // ---- COMBINATORIAL 2-MANIFOLD PRE-CHECK (mirrors Boolean.cpp's stitch) -----
     // Build only AFTER proving every directed edge (a->b) is matched by exactly

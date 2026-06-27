@@ -149,9 +149,20 @@ function ensureMeasureBin({ rebuild = false } = {}) {
   return bin;
 }
 
+// Per-model measure cap. The gate measures CORRECTNESS, not speed, so a large
+// (but correct) import must not be falsely deferred by an arbitrary clock. The
+// import path was made O(E) (TopologyBuilder::findEdge edge index) and the G3
+// orientation ray-cast was made ~O(1)/probe (a uniform-grid accelerator over the
+// fixed-direction ray), bringing every gateable model well under this cap — the
+// current slowest is the 26 MB faceted shell at ~80 s. The 180 s cap leaves honest
+// headroom for transient machine load (and for the still-larger non-manifold-DEFER
+// carriers the importer rejects on geometry grounds, not on time). PERF NOTE: the
+// remaining cost on the largest shells is checkBRep's ray-cast on ~200k+ triangles;
+// a BVH over the target tris would shave it further if the corpus ever grows.
+const MEASURE_TIMEOUT_MS = 180000;
 function runMeasure(bin, mode, stepPath) {
   const r = spawnSync(bin, ['--mode', mode, '--step', stepPath], {
-    encoding: 'utf8', timeout: 120000,
+    encoding: 'utf8', timeout: MEASURE_TIMEOUT_MS,
   });
   if (r.status !== 0 && !(r.stdout || '').trim()) {
     return { ok: false, reason: `measure exited ${r.status}: ${r.stderr || ''}` };

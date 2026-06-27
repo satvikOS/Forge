@@ -46,6 +46,7 @@
 #include <array>
 #include <cstdint>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 // The analytic surface geometry a Face may optionally carry (Surface.hpp). It is
@@ -397,6 +398,20 @@ private:
     // inner-loop builders (creates/shares edges, wires next/prev/mate, points
     // every coedge at `loop`, sets loop->first/coedgeCount).
     void buildCoedgeRing(Loop* loop, const std::vector<Vertex*>& ring);
+
+    // O(1) edge lookup by UNORDERED vertex-id pair, keeping findEdge() out of an
+    // O(E²) linear scan. Critical for importing large faceted shells (a 200k-tri
+    // STEP makes ~600k findEdge calls; the prior linear scan over a growing edges_
+    // vector was the dominant import cost — minutes per large model). The key is a
+    // single 64-bit (min(idA,idB)<<32 | max(idA,idB)); the value is the FIRST edge
+    // registered for that pair (makeEdge inserts without overwrite), so findEdge
+    // returns exactly the edge the linear scan would have — first-wins on the rare
+    // non-manifold double-edge (which the importer's pre-check rejects anyway).
+    static std::uint64_t edgeKey(std::uint32_t ia, std::uint32_t ib) {
+        std::uint32_t lo = ia < ib ? ia : ib, hi = ia < ib ? ib : ia;
+        return (static_cast<std::uint64_t>(lo) << 32) | static_cast<std::uint64_t>(hi);
+    }
+    std::unordered_map<std::uint64_t, Edge*> edgeIndex_;
 
     std::uint32_t nextId_ = 1;
 

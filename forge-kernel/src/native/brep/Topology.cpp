@@ -57,6 +57,10 @@ Edge* TopologyBuilder::makeEdge(Vertex* start, Vertex* end) {
     e->end = end;
     Edge* raw = e.get();
     edges_.push_back(std::move(e));
+    // Register in the O(1) lookup index (first-wins: do NOT overwrite an existing
+    // entry, so findEdge keeps returning the edge the prior linear scan returned).
+    if (start && end)
+        edgeIndex_.emplace(edgeKey(start->id, end->id), raw);
     return raw;
 }
 
@@ -119,13 +123,12 @@ Solid* TopologyBuilder::makeSolid() {
 // findEdge — locate an existing edge between two vertices (either direction).
 // ---------------------------------------------------------------------------
 Edge* TopologyBuilder::findEdge(Vertex* a, Vertex* b) const {
-    for (const auto& e : edges_) {
-        if ((e->start == a && e->end == b) ||
-            (e->start == b && e->end == a)) {
-            return e.get();
-        }
-    }
-    return nullptr;
+    if (!a || !b) return nullptr;
+    // O(1) via the unordered vertex-id index (was an O(E) linear scan, the prime
+    // cause of O(E²) import time on large faceted shells). The index is kept in
+    // exact sync by makeEdge; the returned edge is the same one the scan returned.
+    auto it = edgeIndex_.find(edgeKey(a->id, b->id));
+    return it != edgeIndex_.end() ? it->second : nullptr;
 }
 
 // ---------------------------------------------------------------------------
