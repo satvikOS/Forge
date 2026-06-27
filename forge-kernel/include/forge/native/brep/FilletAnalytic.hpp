@@ -226,6 +226,51 @@ AnalyticChainFilletResult filletBoxEdgeChainAnalytic(TopologyBuilder& tb,
                                                      const std::vector<int>& edgeIndices);
 
 // ---------------------------------------------------------------------------
+// filletSolidStraightEdgesAnalytic — the MULTI-EDGE topology-sourced rolling-ball
+// fillet: fillet a SET of straight CONVEX edges of one ARBITRARY native analytic
+// Solid in a single watertight result, so a real native solid with several selected
+// edges is filleted ENTIRELY natively (OCCT-zero) instead of falling back to the
+// mesh-bridge. Unlike filletBoxEdgeChainAnalytic (box-hardcoded indices + a
+// world-axis grid), this resolves the edges + their adjacent / perpendicular faces
+// by WALKING the real B-rep of `src`, so it runs on imported / boolean / extrude
+// solids. `edgeIds` index enumerateSolidStraightEdges(src); each is resolved +
+// validated exactly like the single-edge path (straight, CONVEX, shared by two
+// ORTHOGONAL PLANAR faces, terminating against PLANAR PERPENDICULAR end faces).
+//
+// Every face is re-trimmed for ALL the requested edges that touch it at once: a face
+// ADJACENT to several edges has all of those corners pulled back to their tangent
+// lines; a face that is the perpendicular END of several edges has each such corner
+// rounded with its own quarter-disk. The modified planar faces are decomposed into
+// CONVEX triangles (an ear-clip of the real re-trimmed polygon — so the exact
+// polygon-moment mass integral stays exact even where the re-trim makes a face
+// non-convex, e.g. the rounded-rectangle top/bottom of a post). The per-edge
+// cylindrical blends + quarter-disk caps are added and everything is SEWN into one
+// closed 2-manifold whose mass the analytic integrator measures exactly.
+//
+// Returns AnalyticChainFilletResult (reusing its filletFaces / unblendedCorners /
+// removedVolume fields). For a TOPOLOGY-SOURCED solid UnblendedCorner.cornerIndex
+// is -1 and edgeA/edgeB carry the meeting edgeIds.
+//
+// HONEST SCOPE (each REFUSED with `reason`, never faked):
+//   * The requested edges must be pairwise VERTEX-DISJOINT (no two share an
+//     endpoint). When two requested edges DO meet at a shared vertex, the spherical
+//     / setback VERTEX BLEND is a documented follow-up: rather than fabricate a
+//     subtly-wrong corner, every such corner is reported in `unblendedCorners`,
+//     `ok` is set false, and the caller (part.filletEdges) falls back to the proven
+//     mesh-bridge for that selection. So this strictly ADDS capability (the common
+//     non-adjacent multi-edge selection — e.g. the four vertical edges of a post —
+//     now fillets natively + exactly), never regresses.
+//   * Same straight / convex / orthogonal-planar / perpendicular-end envelope as the
+//     single-edge path; any curved / concave / non-orthogonal / holed / oblique
+//     input is refused (not fabricated).
+// `ok` is true only when the sew is watertight (closed 2-manifold); otherwise the
+// caller falls back to the mesh-bridge.
+// ---------------------------------------------------------------------------
+AnalyticChainFilletResult filletSolidStraightEdgesAnalytic(
+    TopologyBuilder& tb, const Solid& src,
+    const std::vector<std::uint32_t>& edgeIds, double R);
+
+// ---------------------------------------------------------------------------
 // filletCylinderTopEdgeAnalytic — CURVED-FACE rolling-ball fillet increment.
 //
 // The first member of the family where ONE adjacent face is CURVED: the constant-

@@ -47,9 +47,12 @@
 #include "forge/native/brep/Sew.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
+#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace forge {
@@ -924,6 +927,316 @@ AnalyticFilletResult filletSolidStraightEdgeAnalytic(TopologyBuilder& tb,
           "convex straight planar-planar edge; watertight closed 2-manifold)"
         : "topology-sourced fillet assembly did not sew into a closed shell";
     return res;
+}
+
+// ===========================================================================
+// TOPOLOGY-SOURCED MULTI-EDGE fillet (the OCCT-zero multi-edge keystone). Fillet a
+// SET of straight convex planar-planar edges of an arbitrary native Solid in one
+// watertight result. Same rolling-ball math + re-trim as the single-edge path, but
+// every face is re-trimmed for ALL the requested edges that touch it at once, and
+// the re-trimmed planar faces (which can become NON-convex, e.g. a rounded-rectangle
+// cap) are decomposed into CONVEX triangles so the exact polygon-moment mass stays
+// exact. Pairwise-vertex-disjoint edges only; a shared vertex is reported, not faked.
+// ===========================================================================
+namespace {
+
+// Triangulate a SIMPLE planar polygon `ring` (3D points coplanar with outward
+// normal `fn`) into CONVEX triangles — returned as explicit 3D point-triples — so
+// MassProps' per-triangle exact moment integral stays exact even where the re-trim
+// makes a face NON-convex (a rounded-rectangle cap). EVERY ring edge is preserved as
+// a triangle edge, so each load-bearing boundary vertex (a notch centre that welds
+// to a quarter-disk apex; a tangent point that welds to a cylinder/disk arc) is kept.
+//
+// PRIMARY: fan from the polygon's vertex-average when that point lies in the polygon
+// KERNEL (strictly on the interior side of EVERY edge) — i.e. the polygon is
+// star-shaped from it, the case for a convex face with shallow corner notches (the
+// box/plate re-trim family). This is the multi-corner generalisation of the
+// single-edge path's fan-from-notch-centre, and it produces clean, degenerate-free
+// triangles preserving all boundary edges.
+// FALLBACK: ear-clipping. If ear-clipping stalls or would strand a degenerate
+// (collinear) triangle, EMPTY is returned so the caller refuses honestly (mesh-bridge
+// fallback) rather than emit a zero-area face. Pure, allocation-only.
+std::vector<std::array<Vec3, 3>> triangulatePlanarPolygon(const std::vector<Vec3>& ring,
+                                                          const Vec3& fn) {
+    std::vector<std::array<Vec3, 3>> tris;
+    const int n = static_cast<int>(ring.size());
+    if (n < 3) return tris;
+
+    // In-plane 2D frame (u, w) with u along the first non-degenerate ring edge.
+    Vec3 u{0, 0, 0};
+    for (int i = 0; i < n; ++i) {
+        Vec3 d = vsub(ring[(i + 1) % n], ring[i]);
+        if (vlen(d) > 1e-9) { u = vnorm(d); break; }
+    }
+    if (vlen(u) < 0.5) return tris;
+    const Vec3 w = vnorm(vcross(fn, u));     // in-plane, (u, w, fn) right-handed
+    const Vec3 o = ring[0];
+    std::vector<std::array<double, 2>> P(n);
+    for (int i = 0; i < n; ++i) {
+        Vec3 r = vsub(ring[i], o);
+        P[i] = {vdot(r, u), vdot(r, w)};
+    }
+    auto cross2 = [&](const std::array<double, 2>& a, const std::array<double, 2>& b,
+                      const std::array<double, 2>& c) {
+        return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    };
+    double area2 = 0.0;
+    for (int i = 0; i < n; ++i) area2 += P[i][0] * P[(i + 1) % n][1] - P[(i + 1) % n][0] * P[i][1];
+    const double sgn = (area2 >= 0.0) ? 1.0 : -1.0;      // +1 if the ring runs CCW in (u,w)
+
+    // ---- PRIMARY: fan from the vertex-average if it lies in the polygon kernel ----
+    std::array<double, 2> ctr{0.0, 0.0};
+    for (const auto& p : P) { ctr[0] += p[0]; ctr[1] += p[1]; }
+    ctr[0] /= n; ctr[1] /= n;
+    bool inKernel = true;
+    for (int i = 0; i < n; ++i) {
+        const double cr = cross2(P[i], P[(i + 1) % n], ctr);   // interior side is sgn-positive
+        if (sgn * cr <= 1e-9) { inKernel = false; break; }
+    }
+    if (inKernel) {
+        Vec3 c3{0, 0, 0};
+        for (const auto& p : ring) c3 = vadd(c3, p);
+        c3 = vscale(c3, 1.0 / n);
+        for (int i = 0; i < n; ++i) {
+            const Vec3& a = ring[i];
+            const Vec3& b = ring[(i + 1) % n];
+            if (vlen(vsub(a, b)) < 1e-9) continue;             // skip a zero-length boundary edge
+            tris.push_back({c3, a, b});
+        }
+        return tris;
+    }
+
+    // ---- FALLBACK: ear-clipping (refuse on a stall / stranded degenerate) --------
+    std::vector<int> V(n);
+    for (int i = 0; i < n; ++i) V[i] = i;
+    if (sgn < 0.0) std::reverse(V.begin(), V.end());           // make V CCW in (u,w)
+    auto cr3 = [&](int ia, int ib, int ic) { return cross2(P[ia], P[ib], P[ic]); };
+    auto strictlyInside = [&](int ia, int ib, int ic, int ip) {
+        return cr3(ia, ib, ip) > 1e-12 && cr3(ib, ic, ip) > 1e-12 && cr3(ic, ia, ip) > 1e-12;
+    };
+    int guard = 0;
+    while (static_cast<int>(V.size()) > 3 && guard++ < 8 * n) {
+        const int m = static_cast<int>(V.size());
+        bool clipped = false;
+        for (int i = 0; i < m; ++i) {
+            const int ia = V[(i + m - 1) % m], ib = V[i], ic = V[(i + 1) % m];
+            if (cr3(ia, ib, ic) <= 1e-12) continue;            // reflex/collinear: not an ear
+            bool ear = true;
+            for (int j = 0; j < m; ++j) {
+                const int ip = V[j];
+                if (ip == ia || ip == ib || ip == ic) continue;
+                if (strictlyInside(ia, ib, ic, ip)) { ear = false; break; }
+            }
+            if (!ear) continue;
+            tris.push_back({ring[ia], ring[ib], ring[ic]});
+            V.erase(V.begin() + i);
+            clipped = true;
+            break;
+        }
+        if (!clipped) return {};                               // stalled -> honest refusal
+    }
+    if (static_cast<int>(V.size()) == 3) {
+        if (std::fabs(cr3(V[0], V[1], V[2])) < 1e-12) return {};   // degenerate final triangle
+        tris.push_back({ring[V[0]], ring[V[1]], ring[V[2]]});
+    }
+    return tris;
+}
+
+} // namespace
+
+AnalyticChainFilletResult filletSolidStraightEdgesAnalytic(
+    TopologyBuilder& tb, const Solid& src,
+    const std::vector<std::uint32_t>& edgeIds, double R) {
+    AnalyticChainFilletResult out;
+    auto bad = [&](const char* why) { out.ok = false; out.solid = nullptr; out.reason = why; return out; };
+    if (!(R > 0.0) || !std::isfinite(R)) return bad("fillet radius R must be positive and finite");
+    if (src.shells.empty() || src.shells[0] == nullptr) return bad("solid has no shell");
+    if (edgeIds.empty()) return bad("no edges requested");
+
+    std::vector<Edge*> allEdges = enumerateSolidStraightEdges(src);
+    if (allEdges.empty()) return bad("solid has no enumerable edges");
+
+    // Dedup + range-check the requested ids.
+    std::vector<std::uint32_t> ids;
+    for (std::uint32_t id : edgeIds) {
+        if (id >= allEdges.size()) return bad("edgeId out of range for this solid's edge enumeration");
+        if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+    }
+
+    // Per requested edge: resolve adjacent faces, validate the single-edge scope
+    // (straight / convex / orthogonal-planar), compute the rolling-ball contact.
+    struct EdgeBlend {
+        std::uint32_t id = 0;
+        Edge* E = nullptr;
+        Face* FA = nullptr; Face* FB = nullptr;
+        Vertex* V0 = nullptr; Vertex* V1 = nullptr;
+        Vec3 nA{}, nB{}, e{};
+        double edgeLen = 0.0;
+        Vec3 A0{}, A1{}, TA0{}, TB0{}, TA1{}, TB1{};
+    };
+    std::vector<EdgeBlend> blends;
+    blends.reserve(ids.size());
+    for (std::uint32_t id : ids) {
+        Edge* E = allEdges[id];
+        EdgeBlend b; b.id = id; b.E = E;
+        if (!E->coedgeA || !E->coedgeB) return bad("a requested edge is not shared by two coedges (open/non-manifold)");
+        if (!E->coedgeA->loop || !E->coedgeB->loop) return bad("a requested edge coedge has no loop");
+        b.FA = E->coedgeA->loop->face;
+        b.FB = E->coedgeB->loop->face;
+        if (!b.FA || !b.FB || b.FA == b.FB) return bad("could not resolve two distinct adjacent faces for a requested edge");
+        if (!b.FA->surface || b.FA->surface->kind != SurfaceKind::Plane ||
+            !b.FB->surface || b.FB->surface->kind != SurfaceKind::Plane)
+            return bad("a requested edge's adjacent face is not PLANAR (curved-face fillet is a follow-up)");
+        if (!b.FA->innerLoops.empty() || !b.FB->innerLoops.empty())
+            return bad("a requested edge's adjacent face has inner (hole) loops (holed-face re-trim is a follow-up)");
+        b.V0 = E->start; b.V1 = E->end;
+        const Vec3 P0 = P2V(b.V0->point), P1 = P2V(b.V1->point);
+        Vec3 e = vsub(P1, P0);
+        b.edgeLen = vlen(e);
+        if (!(b.edgeLen > 0.0)) return bad("a requested edge is degenerate (zero length)");
+        b.e = vscale(e, 1.0 / b.edgeLen);
+        if (!(R < b.edgeLen)) return bad("fillet radius R must be < every requested edge's length");
+        b.nA = vnorm(ringNormal(outerRingVerts(b.FA)));
+        b.nB = vnorm(ringNormal(outerRingVerts(b.FB)));
+        if (std::fabs(vdot(b.nA, b.nB)) > 1e-7)
+            return bad("a requested edge's adjacent faces are not orthogonal (only 90-degree convex straight edges in scope)");
+        Coedge* cA = (E->coedgeA->loop->face == b.FA) ? E->coedgeA : E->coedgeB;
+        const Vec3 dA = vnorm(vsub(P2V(cA->destVertex()->point), P2V(cA->originVertex()->point)));
+        const Vec3 iA = vnorm(vcross(b.nA, dA));
+        if (!(vdot(iA, b.nB) < -1e-7))
+            return bad("a requested edge is concave (reflex) or tangent — convex-only in this increment");
+        const Vec3 iAn = vscale(b.nA, -1.0), iBn = vscale(b.nB, -1.0);
+        b.A0 = vadd(P0, vadd(vscale(iAn, R), vscale(iBn, R)));
+        b.A1 = vadd(b.A0, vscale(b.e, b.edgeLen));
+        b.TA0 = vadd(b.A0, vscale(b.nA, R)); b.TB0 = vadd(b.A0, vscale(b.nB, R));
+        b.TA1 = vadd(b.A1, vscale(b.nA, R)); b.TB1 = vadd(b.A1, vscale(b.nB, R));
+        blends.push_back(b);
+    }
+
+    // Vertex -> requested blends touching it (an endpoint). A vertex touched by >= 2
+    // requested edges is a SHARED corner (the vertex-blend follow-up).
+    std::unordered_map<Vertex*, std::vector<int>> vtxBlends;
+    for (int k = 0; k < static_cast<int>(blends.size()); ++k) {
+        vtxBlends[blends[k].V0].push_back(k);
+        vtxBlends[blends[k].V1].push_back(k);
+    }
+    out.filletedEdgeCount = static_cast<int>(blends.size());
+    out.radius = R;
+
+    bool hasShared = false;
+    for (const auto& kv : vtxBlends) {
+        if (kv.second.size() >= 2) {
+            hasShared = true;
+            UnblendedCorner uc;
+            uc.position = P2V(kv.first->point);
+            uc.cornerIndex = -1;                  // topology-sourced: no box-corner index
+            uc.edgeA = static_cast<int>(blends[kv.second[0]].id);
+            uc.edgeB = static_cast<int>(blends[kv.second[1]].id);
+            uc.meetingFilletCount = static_cast<int>(kv.second.size());
+            out.unblendedCorners.push_back(uc);
+        }
+    }
+    if (hasShared) {
+        out.ok = false;
+        out.solid = nullptr;
+        out.reason = "partial (honest): two or more requested edges share a VERTEX where their "
+                     "fillets meet — the spherical/setback VERTEX BLEND is a documented follow-up, "
+                     "so each such corner is reported in unblendedCorners and NOT fabricated; the "
+                     "caller falls back to the mesh-bridge for this selection";
+        return out;
+    }
+
+    // -------- re-emit every face, re-trimmed for all the edges that touch it -----
+    auto isAdjFace = [&](const Face* F, int k, bool& isA) {
+        if (F == blends[k].FA) { isA = true;  return true; }
+        if (F == blends[k].FB) { isA = false; return true; }
+        return false;
+    };
+
+    std::vector<Face*> frags;
+    for (Face* F : src.shells[0]->faces) {
+        const std::vector<Vertex*> ring = outerRingVerts(F);
+        if (ring.empty()) return bad("a face has an empty outer loop");
+        const int n = static_cast<int>(ring.size());
+
+        bool touched = false;
+        for (Vertex* v : ring) if (vtxBlends.count(v)) { touched = true; break; }
+        if (!touched) { frags.push_back(copyFaceFragment(tb, F)); continue; }
+
+        // A re-trimmed face must be planar + hole-free (adjacent or perpendicular end).
+        if (!F->surface || F->surface->kind != SurfaceKind::Plane || !F->innerLoops.empty())
+            return bad("a re-trimmed face is non-planar or holed (curved/holed fillet is a follow-up)");
+        const Vec3 fn = vnorm(ringNormal(ring));    // outward (CCW-from-outside loop)
+
+        std::vector<Vec3> mod;
+        mod.reserve(static_cast<std::size_t>(n) + 8);
+        for (int slot = 0; slot < n; ++slot) {
+            Vertex* v = ring[slot];
+            auto it = vtxBlends.find(v);
+            if (it == vtxBlends.end()) { mod.push_back(P2V(v->point)); continue; }
+            const int k = it->second.front();           // vertex-disjoint -> exactly one
+            const EdgeBlend& b = blends[k];
+            const bool isV1 = (b.V1 == v);
+            bool isA = false;
+            if (isAdjFace(F, k, isA)) {
+                // ADJACENT face: pull the sharp corner back to its tangent contact.
+                const Vec3 tp = isA ? (isV1 ? b.TA1 : b.TA0)
+                                    : (isV1 ? b.TB1 : b.TB0);
+                mod.push_back(tp);
+            } else {
+                // PERPENDICULAR END face: validate, round the corner, cap the quarter.
+                if (!(std::fabs(vdot(fn, b.e)) > 1.0 - 1e-6))
+                    return bad("an edge endpoint meets a face that is neither adjacent nor "
+                               "perpendicular to the edge (mitre/oblique end is a follow-up)");
+                const Vec3 center = isV1 ? b.A1 : b.A0;
+                const Vec3 Ta = isV1 ? b.TA1 : b.TA0;    // tangent on FA at this end
+                const Vec3 Tb = isV1 ? b.TB1 : b.TB0;    // tangent on FB at this end
+                const Vec3 prevPos = P2V(ring[(slot - 1 + n) % n]->point);
+                const double dTa = vlen(vsub(Ta, prevPos)), dTb = vlen(vsub(Tb, prevPos));
+                const Vec3 nearPrev = (dTa <= dTb) ? Ta : Tb;
+                const Vec3 nearNext = (dTa <= dTb) ? Tb : Ta;
+                mod.push_back(nearPrev);
+                mod.push_back(center);
+                mod.push_back(nearNext);
+                frags.push_back(emitQuarterDisk(tb, center, R, b.nA, b.nB, b.e, fn));
+            }
+        }
+
+        // Decompose the re-trimmed (possibly non-convex) planar polygon into CONVEX
+        // triangles so the polygon-moment mass integral stays exact.
+        std::vector<std::array<Vec3, 3>> tris = triangulatePlanarPolygon(mod, fn);
+        if (tris.empty())
+            return bad("a re-trimmed face could not be triangulated (degenerate/overlapping "
+                       "re-trim — radius too large for this face?)");
+        for (const auto& t : tris)
+            frags.push_back(emitPlanarPolygon(tb, {t[0], t[1], t[2]}, fn));
+    }
+
+    // -------- one cylindrical blend patch per requested edge --------------------
+    double removed = 0.0;
+    for (const EdgeBlend& b : blends) {
+        const Vec3 outward = vnorm(vadd(b.nA, b.nB));
+        Face* cyl = emitCylinderPatch(tb, b.A0, b.A1, R, b.nA, b.nB, b.e, b.edgeLen, outward, outward);
+        frags.push_back(cyl);
+        out.filletFaces.push_back(cyl);
+        removed += (1.0 - kPi / 4.0) * R * R * b.edgeLen;
+    }
+
+    // -------- sew every fragment into one closed 2-manifold ----------------------
+    Solid* solid = tb.makeSolid();
+    SewOptions so; so.tol = 1e-7; so.midSamples = 3; so.weldVertices = true;
+    SewResult sr = sewFaces(tb, frags, so);
+    for (Shell* sh : sr.shells) tb.addShellToSolid(solid, sh);
+
+    out.solid = solid;
+    out.removedVolume = removed;
+    out.ok = sr.ok && sr.diagnosis.closed;
+    out.reason = out.ok
+        ? "ok (analytic constant-radius rolling-ball fillet of MULTIPLE topology-sourced "
+          "convex straight planar-planar edges, pairwise vertex-disjoint; watertight closed "
+          "2-manifold; exact removed volume)"
+        : "multi-edge fillet assembly did not sew into a closed shell";
+    return out;
 }
 
 // ===========================================================================

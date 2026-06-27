@@ -900,46 +900,64 @@ ShapeHandle filletEdges(ShapeHandle shape,
             s.radius = radius;
             sel.push_back(s);
         }
-        // ANALYTIC EXACT PATH (preferred for a single straight convex edge): when
-        // exactly one edge is selected and it resolves to a straight CONVEX edge
-        // between two ORTHOGONAL PLANAR faces, build the EXACT analytic rolling-
-        // ball blend (a real Cylinder fillet surface + re-trimmed faces + quarter-
-        // disk caps, emitted as a native analytic Solid) instead of the mesh-bridge
-        // rounded strip. The selected edge is mapped from its geometric key to the
-        // solid's topology edge enumeration. ANY failure (not analytic-fillable, or
-        // the result is not a watertight 2-manifold) FALLS BACK to the proven mesh
-        // bridge below — so this strictly adds capability, never regresses.
-        if (sel.size() == 1) {
+        // ANALYTIC EXACT PATH (preferred): when the SELECTED edges resolve to
+        // straight CONVEX edges between two ORTHOGONAL PLANAR faces, build the EXACT
+        // analytic rolling-ball blend (real Cylinder fillet surfaces + re-trimmed
+        // faces + quarter-disk caps, emitted as a native analytic Solid) instead of
+        // the mesh-bridge rounded strip. A SINGLE such edge uses the single-edge
+        // keystone; MULTIPLE such edges use the TOPOLOGY-SOURCED multi-edge keystone
+        // (filletSolidStraightEdgesAnalytic — fillets a pairwise-vertex-disjoint set
+        // in ONE watertight result, and honestly REFUSES a shared-vertex set so we
+        // fall back below). Each selected edge is mapped from its geometric key to
+        // the solid's topology edge enumeration. ANY failure (not analytic-fillable,
+        // a shared-vertex set, or a non-watertight result) FALLS BACK to the proven
+        // mesh bridge below — so this strictly adds capability, never regresses.
+        {
             const nb::Solid& solid = ShapeRegistry::instance().getNativeSolid(shape);
             const std::vector<nb::Edge*> topo = nb::enumerateSolidStraightEdges(solid);
-            const nb::EdgeSel& s0 = sel[0];
-            int hit = -1;
-            for (std::size_t i = 0; i < topo.size(); ++i) {
-                const nb::Edge* E = topo[i];
-                const double mx = 0.5 * (E->start->point.x + E->end->point.x);
-                const double my = 0.5 * (E->start->point.y + E->end->point.y);
-                const double mz = 0.5 * (E->start->point.z + E->end->point.z);
-                double dx = E->end->point.x - E->start->point.x;
-                double dy = E->end->point.y - E->start->point.y;
-                double dz = E->end->point.z - E->start->point.z;
-                const double dl = std::sqrt(dx * dx + dy * dy + dz * dz);
-                if (!(dl > 0.0)) continue;
-                dx /= dl; dy /= dl; dz /= dl;
-                const double dmid = std::sqrt((mx - s0.px) * (mx - s0.px) +
-                                              (my - s0.py) * (my - s0.py) +
-                                              (mz - s0.pz) * (mz - s0.pz));
-                const double cx = dy * s0.dz - dz * s0.dy;   // dir x sel.dir
-                const double cy = dz * s0.dx - dx * s0.dz;
-                const double cz = dx * s0.dy - dy * s0.dx;
-                const double cl = std::sqrt(cx * cx + cy * cy + cz * cz);
-                if (dmid <= 1e-6 && cl <= 1e-6) { hit = static_cast<int>(i); break; }
+            auto resolve = [&](const nb::EdgeSel& s0) -> int {
+                for (std::size_t i = 0; i < topo.size(); ++i) {
+                    const nb::Edge* E = topo[i];
+                    const double mx = 0.5 * (E->start->point.x + E->end->point.x);
+                    const double my = 0.5 * (E->start->point.y + E->end->point.y);
+                    const double mz = 0.5 * (E->start->point.z + E->end->point.z);
+                    double dx = E->end->point.x - E->start->point.x;
+                    double dy = E->end->point.y - E->start->point.y;
+                    double dz = E->end->point.z - E->start->point.z;
+                    const double dl = std::sqrt(dx * dx + dy * dy + dz * dz);
+                    if (!(dl > 0.0)) continue;
+                    dx /= dl; dy /= dl; dz /= dl;
+                    const double dmid = std::sqrt((mx - s0.px) * (mx - s0.px) +
+                                                  (my - s0.py) * (my - s0.py) +
+                                                  (mz - s0.pz) * (mz - s0.pz));
+                    const double cx = dy * s0.dz - dz * s0.dy;   // edge dir x sel dir
+                    const double cy = dz * s0.dx - dx * s0.dz;
+                    const double cz = dx * s0.dy - dy * s0.dx;
+                    const double cl = std::sqrt(cx * cx + cy * cy + cz * cz);
+                    if (dmid <= 1e-6 && cl <= 1e-6) return static_cast<int>(i);
+                }
+                return -1;
+            };
+            std::vector<std::uint32_t> ids;
+            bool allHit = true;
+            for (const nb::EdgeSel& s : sel) {
+                const int hit = resolve(s);
+                if (hit < 0) { allHit = false; break; }
+                ids.push_back(static_cast<std::uint32_t>(hit));
             }
-            if (hit >= 0) {
+            if (allHit && !ids.empty()) {
                 auto owner = std::make_shared<nb::TopologyBuilder>();
-                nb::AnalyticFilletResult ar = nb::filletSolidStraightEdgeAnalytic(
-                    *owner, solid, static_cast<std::uint32_t>(hit), radius);
-                if (ar.ok && ar.solid)
-                    return ShapeRegistry::instance().addNativeSolid(owner, ar.solid);
+                if (ids.size() == 1) {
+                    nb::AnalyticFilletResult ar = nb::filletSolidStraightEdgeAnalytic(
+                        *owner, solid, ids[0], radius);
+                    if (ar.ok && ar.solid)
+                        return ShapeRegistry::instance().addNativeSolid(owner, ar.solid);
+                } else {
+                    nb::AnalyticChainFilletResult cr = nb::filletSolidStraightEdgesAnalytic(
+                        *owner, solid, ids, radius);
+                    if (cr.ok && cr.solid)
+                        return ShapeRegistry::instance().addNativeSolid(owner, cr.solid);
+                }
                 // else: honest fallback to the mesh bridge below.
             }
         }

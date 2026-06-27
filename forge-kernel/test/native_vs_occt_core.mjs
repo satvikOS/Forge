@@ -218,14 +218,17 @@ const cases = [
   // PER-EDGE SUBSET fillet: round ONLY the 4 VERTICAL (Z-parallel) edges of a box by
   // r=0.3 — a MIXED-corner case (each box corner has 1 rounded + 2 sharp incident
   // convex edges; the rounded strip terminates against the flat cap as a planar arc,
-  // NOT a spherical corner). The edge set is derived from EACH kernel's OWN geometry
-  // (boxVerticalEdges: |dir·Z|≈1 via direct.edgeSegments, deduped by midpoint), so
-  // OCCT and native operate on the SAME 4 geometric edges without relying on
-  // edge-id-order coincidence (the EDGE analogue of the draft case's boxSideFaces).
-  // OCCT's analytic per-edge fillet and the native rolling-ball mesh strip agree on
-  // volume removed = 4·(1−π/4)·r²·H to ~0.5% (the same mesh-bridge ceiling as the
-  // all-edges case). Result is a NativeMesh handle.
-  { name: 'fillet 4 VERTICAL box edges (subset)', tol: MESH_TOL, meshBridge: true, curved: true,
+  // NOT a spherical corner). The 4 verticals are pairwise VERTEX-DISJOINT, so as of
+  // the topology-sourced MULTI-EDGE analytic fillet (filletSolidStraightEdgesAnalytic)
+  // this no longer rides the mesh-bridge: it is filleted ENTIRELY natively into a real
+  // analytic NativeSolid (true cylinder blend faces + re-trimmed planar caps), so its
+  // mass matches OCCT's analytic per-edge fillet EXACTLY (volume removed =
+  // 4·(1−π/4)·r²·H to ~1e-15, not the old ~0.5% mesh ceiling). The edge set is derived
+  // from EACH kernel's OWN geometry (boxVerticalEdges: |dir·Z|≈1 via direct.edgeSegments,
+  // deduped by midpoint), so OCCT and native operate on the SAME 4 geometric edges.
+  // Result is a NativeSolid handle. `curved` keeps the brep-F/E check relaxed (the
+  // blend faces are cylinders, not a canonical primitive count).
+  { name: 'fillet 4 VERTICAL box edges (subset)', tol: ANALYTIC_TOL, curved: true,
     build: f => { const b=f.makeBox(3,3,3);
       return f.part.filletEdges(b, boxVerticalEdges(f, b), 0.3); } },
   // Chamfer: native vertex-split corner-fan vs OCCT analytic corner faces differ

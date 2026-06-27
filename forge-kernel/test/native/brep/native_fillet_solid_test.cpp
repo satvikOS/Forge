@@ -21,6 +21,18 @@
 //   (5) MULTI-EDGE robustness: filleting EACH of the 12 enumerated edges (on a
 //       non-cube PLATE, so the edge length is read from the topology, not assumed)
 //       yields a valid closed 2-manifold with the per-edge volume removal exact.
+//   (6) MULTI-EDGE in ONE call (filletSolidStraightEdgesAnalytic): a greedy pairwise
+//       vertex-disjoint subset of the plate -> watertight closed 2-manifold, every
+//       blend is a Cylinder, NO unblended corners, volume == plate - SUM removals.
+//   (7) MULTI-EDGE realistic part: the four vertical edges of a post (rounded
+//       rectangle) -> watertight + checkBRep valid + exact 4-quarter-round removal
+//       (the top/bottom caps are NON-convex and MUST be triangulated to stay exact).
+//   (8) HONEST BOUNDARY: all 12 box edges in one call share every corner (3 fillets
+//       meet) -> the op REFUSES (ok=false), emits NO solid, and reports all 8 shared
+//       corners in unblendedCorners (the spherical/setback vertex blend is a follow-
+//       up); part.filletEdges then falls back to the mesh-bridge.
+//   (9) CONSISTENCY: the multi-edge path on a SINGLE edge reproduces the single-edge
+//       path's exact volume + a valid checkBRep.
 
 #include "forge/native/brep/FilletAnalytic.hpp"
 #include "forge/native/brep/Primitives.hpp"   // SolidFactory (planar-faced box)
@@ -35,6 +47,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 using namespace forge::native::brep;
@@ -163,6 +176,211 @@ int main() {
         check(okCount == 12, "all 12 plate edges fillet (ok)");
         check(validCount == 12, "all 12 results are watertight closed 2-manifolds");
         check(volCount == 12, "all 12 results pass checkBRep AND have exact volume removal");
+    }
+
+    // ---- (6) MULTI-EDGE in ONE call: greedy vertex-disjoint set ----------------
+    // The topology-sourced filletSolidStraightEdgesAnalytic fillets a SET of edges in
+    // a single watertight result. A greedy pairwise vertex-disjoint subset of a
+    // 12x8x20 plate (faces SHARED between filleted edges, but no shared vertices) is
+    // the core multi-edge case: every shared face must be re-trimmed for BOTH its
+    // edges at once and the result stays a watertight closed 2-manifold with the
+    // exact summed quarter-round removal.
+    std::printf("\n--- MULTI-EDGE (one call): greedy vertex-disjoint subset of a 12x8x20 plate ---\n");
+    {
+        const double DX = 12.0, DY = 8.0, DZ = 20.0, Rm = 1.0;
+        const double plateVol = DX * DY * DZ;
+        SolidFactory facM;
+        Solid* plate = facM.buildBox(DX, DY, DZ);
+        std::vector<Edge*> pe = enumerateSolidStraightEdges(*plate);
+        std::vector<std::uint32_t> sel;
+        std::unordered_set<Vertex*> used;
+        for (std::uint32_t i = 0; i < pe.size(); ++i) {
+            Vertex* a = pe[i]->start; Vertex* b = pe[i]->end;
+            if (used.count(a) || used.count(b)) continue;
+            sel.push_back(i); used.insert(a); used.insert(b);
+        }
+        std::printf("[multi] greedy selected %zu of 12 pairwise vertex-disjoint edges\n", sel.size());
+        check(sel.size() >= 3, "greedy vertex-disjoint subset has >= 3 edges");
+        TopologyBuilder tb;
+        AnalyticChainFilletResult ch = filletSolidStraightEdgesAnalytic(tb, *plate, sel, Rm);
+        std::printf("[multi] %s\n", ch.reason);
+        check(ch.ok, "multi-edge fillet ok (vertex-disjoint set, single call)");
+        if (ch.ok) {
+            SewDiagnosis d = diagOf(ch.solid);
+            std::printf("      -> V=%zu E=%zu F=%zu free=%zu nonmanifold=%zu %s\n",
+                        d.vertices, d.edges, d.faces, d.freeEdges, d.nonManifoldEdges,
+                        d.closed ? "CLOSED" : "OPEN");
+            check(d.freeEdges == 0 && d.nonManifoldEdges == 0 && d.closed,
+                  "multi-edge result is a watertight closed 2-manifold");
+            CheckReport rep = checkBRep(ch.solid);
+            std::printf("      -> checkBRep: %zu/%zu passed, valid=%s\n",
+                        rep.passed(), rep.total(), rep.valid ? "true" : "false");
+            if (!rep.valid)
+                for (const auto& p : rep.predicates)
+                    if (!p.passed) std::printf("         FAIL predicate: %s (%s)\n",
+                                               p.name.c_str(), p.detail.c_str());
+            check(rep.valid, "multi-edge checkBRep().valid == true");
+            bool allCyl = (ch.filletFaces.size() == sel.size());
+            for (Face* f : ch.filletFaces)
+                if (!f || !f->surface || f->surface->kind != SurfaceKind::Cylinder) allCyl = false;
+            check(allCyl, "every blend face is a Cylinder (one per selected edge)");
+            check(ch.unblendedCorners.empty(), "no unblended corners (vertex-disjoint set)");
+            MassProps mp = massProperties(*ch.solid, 8);
+            const double expected = plateVol - ch.removedVolume;
+            const double err = std::fabs(mp.volume - expected);
+            std::printf("      -> removed=%.12f volume=%.12f expected=%.12f |err|=%.3e\n",
+                        ch.removedVolume, mp.volume, expected, err);
+            check(err <= 1e-6, "multi-edge volume == plate - SUM (1-pi/4)R^2 L  to <= 1e-6");
+        }
+    }
+
+    // ---- (7) MULTI-EDGE: round the FOUR VERTICAL edges of a post ---------------
+    // The realistic "rounded-rectangle post" selection: the four vertical edges are
+    // pairwise vertex-disjoint, the four side faces are each shared by two of them
+    // (tangent re-trim), and the top + bottom caps become NON-CONVEX rounded
+    // rectangles that MUST be ear-clipped into convex triangles to keep the exact
+    // polygon-moment mass integral exact.
+    std::printf("\n--- MULTI-EDGE: the four vertical edges of a 12x8x20 post (rounded rectangle) ---\n");
+    {
+        const double DX = 12.0, DY = 8.0, DZ = 20.0, Rm = 1.5;
+        const double postVol = DX * DY * DZ;
+        SolidFactory facV;
+        Solid* post = facV.buildBox(DX, DY, DZ);
+        std::vector<Edge*> pe = enumerateSolidStraightEdges(*post);
+        std::vector<std::uint32_t> vert;
+        for (std::uint32_t i = 0; i < pe.size(); ++i) {
+            const double dx = pe[i]->end->point.x - pe[i]->start->point.x;
+            const double dy = pe[i]->end->point.y - pe[i]->start->point.y;
+            const double dz = pe[i]->end->point.z - pe[i]->start->point.z;
+            const double L = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (L > 0.0 && std::fabs(dz) / L > 0.999) vert.push_back(i);
+        }
+        check(vert.size() == 4, "post has 4 vertical edges (|dz| == length)");
+        TopologyBuilder tb;
+        AnalyticChainFilletResult ch = filletSolidStraightEdgesAnalytic(tb, *post, vert, Rm);
+        std::printf("[post] %s\n", ch.reason);
+        check(ch.ok, "4-vertical-edge fillet ok");
+        if (ch.ok) {
+            SewDiagnosis d = diagOf(ch.solid);
+            CheckReport rep = checkBRep(ch.solid);
+            std::printf("      -> %s checkBRep=%s free=%zu nonmanifold=%zu\n",
+                        d.closed ? "CLOSED" : "OPEN", rep.valid ? "valid" : "INVALID",
+                        d.freeEdges, d.nonManifoldEdges);
+            check(d.closed && d.freeEdges == 0 && d.nonManifoldEdges == 0 && rep.valid,
+                  "rounded-post result watertight closed 2-manifold + checkBRep valid");
+            const double expRemoved = 4.0 * (1.0 - kPi / 4.0) * Rm * Rm * DZ;
+            std::printf("      -> removedVolume=%.12f expect 4*(1-pi/4)R^2*DZ=%.12f\n",
+                        ch.removedVolume, expRemoved);
+            check(std::fabs(ch.removedVolume - expRemoved) <= 1e-9,
+                  "removedVolume == 4 vertical quarter-round prisms");
+            MassProps mp = massProperties(*ch.solid, 8);
+            const double err = std::fabs(mp.volume - (postVol - expRemoved));
+            std::printf("      -> volume=%.12f expected=%.12f |err|=%.3e\n",
+                        mp.volume, postVol - expRemoved, err);
+            check(err <= 1e-6, "rounded-post volume == post - 4 quarter-round prisms  to <= 1e-6");
+        }
+    }
+
+    // ---- (7b) MIXED face roles: a face that is ADJACENT to one filleted edge AND
+    //      the PERPENDICULAR END of another (no shared vertex). Selecting one bottom
+    //      edge (in the z=0 plane) + one vertical edge whose endpoints avoid it makes
+    //      the bottom face simultaneously an adjacent re-trim (for the bottom edge)
+    //      and an end-cap corner-round (for the vertical) — the per-face accumulation
+    //      path that the clean matchings above do not hit.
+    std::printf("\n--- MIXED face roles: bottom edge + a non-adjacent vertical edge ---\n");
+    {
+        const double DX = 12.0, DY = 8.0, DZ = 20.0, Rm = 1.0;
+        const double plateVol = DX * DY * DZ;
+        SolidFactory facX;
+        Solid* plate = facX.buildBox(DX, DY, DZ);
+        std::vector<Edge*> pe = enumerateSolidStraightEdges(*plate);
+        auto isVertical = [](Edge* e) {
+            const double dz = e->end->point.z - e->start->point.z;
+            const double dx = e->end->point.x - e->start->point.x;
+            const double dy = e->end->point.y - e->start->point.y;
+            const double L = std::sqrt(dx * dx + dy * dy + dz * dz);
+            return L > 0.0 && std::fabs(dz) / L > 0.999;
+        };
+        auto atZ0 = [](Edge* e) { return std::fabs(e->start->point.z) < 1e-9 && std::fabs(e->end->point.z) < 1e-9; };
+        std::uint32_t bottomId = 0; bool gotB = false;
+        for (std::uint32_t i = 0; i < pe.size(); ++i) if (atZ0(pe[i])) { bottomId = i; gotB = true; break; }
+        check(gotB, "found a bottom (z=0) edge");
+        // a vertical edge whose endpoints do NOT touch the chosen bottom edge
+        Vertex* bA = pe[bottomId]->start; Vertex* bB = pe[bottomId]->end;
+        std::uint32_t vertId = 0; bool gotV = false;
+        for (std::uint32_t i = 0; i < pe.size(); ++i) {
+            if (!isVertical(pe[i])) continue;
+            Vertex* a = pe[i]->start; Vertex* b = pe[i]->end;
+            if (a == bA || a == bB || b == bA || b == bB) continue;
+            vertId = i; gotV = true; break;
+        }
+        check(gotV, "found a vertical edge sharing no vertex with the bottom edge");
+        if (gotB && gotV) {
+            std::vector<std::uint32_t> mix = {bottomId, vertId};
+            TopologyBuilder tb;
+            AnalyticChainFilletResult ch = filletSolidStraightEdgesAnalytic(tb, *plate, mix, Rm);
+            std::printf("[mixed] %s\n", ch.reason);
+            check(ch.ok, "mixed adjacent+end fillet ok");
+            if (ch.ok) {
+                SewDiagnosis d = diagOf(ch.solid);
+                CheckReport rep = checkBRep(ch.solid);
+                std::printf("      -> %s checkBRep=%s free=%zu nonmanifold=%zu unblended=%zu\n",
+                            d.closed ? "CLOSED" : "OPEN", rep.valid ? "valid" : "INVALID",
+                            d.freeEdges, d.nonManifoldEdges, ch.unblendedCorners.size());
+                check(d.closed && d.freeEdges == 0 && d.nonManifoldEdges == 0 && rep.valid,
+                      "mixed-roles result watertight closed 2-manifold + checkBRep valid");
+                check(ch.unblendedCorners.empty(), "mixed-roles: no unblended corners");
+                MassProps mp = massProperties(*ch.solid, 8);
+                const double err = std::fabs(mp.volume - (plateVol - ch.removedVolume));
+                std::printf("      -> volume=%.12f expected=%.12f |err|=%.3e\n",
+                            mp.volume, plateVol - ch.removedVolume, err);
+                check(err <= 1e-6, "mixed-roles volume == plate - SUM removals  to <= 1e-6");
+            }
+        }
+    }
+
+    // ---- (8) ALL 12 box edges in ONE call: shared vertices reported honestly ---
+    // The honest scope boundary: every box corner is shared by 3 filleted edges, so
+    // the spherical/setback VERTEX BLEND is required — a documented follow-up. Rather
+    // than fabricate a wrong corner, the op refuses (ok==false), emits NO solid, and
+    // reports all 8 shared corners in unblendedCorners. part.filletEdges then falls
+    // back to the proven mesh-bridge for such a selection.
+    std::printf("\n--- ALL 12 box edges in one call: shared-vertex corners reported honestly ---\n");
+    {
+        SolidFactory facA;
+        Solid* cube = facA.buildBox(10.0, 10.0, 10.0);
+        std::vector<Edge*> ce = enumerateSolidStraightEdges(*cube);
+        std::vector<std::uint32_t> all;
+        for (std::uint32_t i = 0; i < ce.size(); ++i) all.push_back(i);
+        TopologyBuilder tb;
+        AnalyticChainFilletResult ch = filletSolidStraightEdgesAnalytic(tb, *cube, all, 1.5);
+        std::printf("[all12] ok=%d edges=%d unblendedCorners=%zu solid=%s\n   %s\n",
+                    ch.ok ? 1 : 0, ch.filletedEdgeCount, ch.unblendedCorners.size(),
+                    ch.solid ? "non-null" : "null", ch.reason);
+        check(!ch.ok, "all-12 refuses honestly (ok==false; shared-vertex blend NOT fabricated)");
+        check(ch.filletedEdgeCount == 12, "all-12 resolved the 12 requested edges");
+        check(ch.unblendedCorners.size() == 8, "all-12 reports the 8 shared box corners (honest follow-up)");
+        check(ch.solid == nullptr, "all-12 emits NO fabricated solid");
+    }
+
+    // ---- (9) one-edge multi path == single-edge path (general-path consistency) -
+    std::printf("\n--- CONSISTENCY: one-edge multi path matches the single-edge path ---\n");
+    {
+        SolidFactory facE;
+        Solid* bx = facE.buildBox(10.0, 10.0, 10.0);
+        TopologyBuilder t1, t2;
+        AnalyticFilletResult single = filletSolidStraightEdgeAnalytic(t1, *bx, 0, 1.5);
+        AnalyticChainFilletResult multi =
+            filletSolidStraightEdgesAnalytic(t2, *bx, std::vector<std::uint32_t>{0}, 1.5);
+        check(single.ok && multi.ok, "single & one-edge-multi both ok");
+        if (single.ok && multi.ok) {
+            const double v1 = massProperties(*single.solid, 8).volume;
+            const double v2 = massProperties(*multi.solid, 8).volume;
+            std::printf("[equiv] single=%.12f multi(1)=%.12f |diff|=%.3e\n",
+                        v1, v2, std::fabs(v1 - v2));
+            check(std::fabs(v1 - v2) <= 1e-9, "one-edge multi-path volume == single-edge volume");
+            check(checkBRep(multi.solid).valid, "one-edge multi-path checkBRep valid");
+        }
     }
 
     std::printf("\n=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
