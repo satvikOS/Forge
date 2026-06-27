@@ -1042,6 +1042,80 @@ std::vector<std::array<Vec3, 3>> triangulatePlanarPolygon(const std::vector<Vec3
     return tris;
 }
 
+// Emit the SPHERICAL-OCTANT corner blend fragment that rounds an ORTHOGONAL
+// TRIHEDRAL vertex where three mutually-orthogonal filleted edges meet. The three
+// corner faces have OUTWARD unit normals m0,m1,m2 (mutually orthogonal). The sphere
+// of radius R centred at `center` is tangent to all three planes; its three TANGENT
+// POINTS  Vi = center + R*mi  are the octant's vertices, and its three boundary arcs
+// are QUARTER GREAT CIRCLES — the arc between Vi and Vj lies in the plane through
+// `center` spanned by mi,mj and IS the set-back cylinder END of the edge shared by
+// faces i,j (foot == center, radii mi -> mj). Binding each octant arc to the SAME
+// quarterArc(center,R,mi,mj) the cylinder cap binds makes the sewer weld them.
+//
+// Carried as a real SurfaceKind::Sphere face: frame axis = m0 (so phi=0 is the pole
+// V0) and refDir chosen from {m1,m2} so binormal = axis x refDir is the remaining
+// normal; the trim rectangle theta,phi in [0,pi/2]^2 maps EXACTLY onto the octant
+// (the phi=0 edge degenerates to the pole — handled as a 3-edge TRIANGULAR loop, so
+// no zero-length edge is created), and the analytic |S_u x S_v| Jacobian integrates
+// the corner's contribution to the mass EXACTLY (the pole's vanishing Jacobian is a
+// Gauss-interior limit). `reversed` is set so the stored normal points OUT of the
+// solid (radially away from `center`). The loop is wound CCW about that outward
+// normal, so each octant arc opposes its cylinder-cap coedge (a closed 2-manifold).
+Face* emitSphereOctant(TopologyBuilder& tb, const Vec3& center, double R,
+                       const Vec3& m0, const Vec3& m1, const Vec3& m2) {
+    const std::array<Vec3, 3> m = {m0, m1, m2};
+    const std::array<Vec3, 3> V = {vadd(center, vscale(m0, R)),
+                                   vadd(center, vscale(m1, R)),
+                                   vadd(center, vscale(m2, R))};
+    std::vector<Vertex*> ring = {tb.makeVertex(V2P(V[0])),
+                                 tb.makeVertex(V2P(V[1])),
+                                 tb.makeVertex(V2P(V[2]))};
+    // Outward of the octant (toward the rounded-off corner exterior) is the SUM of
+    // the three outward face normals; wind the chord triangle CCW about it.
+    const Vec3 octOut = vnorm(vadd(vadd(m0, m1), m2));
+    orientRingCCW(ring, octOut);
+
+    Face* f = tb.makeFace();
+    tb.addOuterLoopToFace(f, ring);
+
+    // Bind every loop coedge (a side of the octant triangle) to its quarter great
+    // circle so it welds to the matching set-back cylinder cap.
+    auto idxOf = [&](Vertex* x) -> int {
+        for (int i = 0; i < 3; ++i) if (veq(P2V(x->point), V[i])) return i;
+        return -1;
+    };
+    Coedge* ce = f->outerLoop->first;
+    for (std::size_t s = 0; s < f->outerLoop->coedgeCount; ++s) {
+        const int i = idxOf(ce->originVertex());
+        const int j = idxOf(ce->destVertex());
+        if (i >= 0 && j >= 0 && i != j)
+            ce->edge->curve = tb.makeCurve(quarterArc(center, R, m[i], m[j]));
+        ce = ce->next;
+    }
+
+    Surface* s = tb.makeSurface();
+    s->kind = SurfaceKind::Sphere;
+    s->origin = center;
+    s->r1 = R;
+    s->axis = m0;
+    // refDir so that binormal = axis x refDir is the third normal (the octant maps
+    // to [0,pi/2]^2): for a right-handed {m0,m1,m2} m0 x m1 == m2 -> refDir = m1;
+    // for left-handed m0 x m1 == -m2 (and m0 x m2 == m1) -> refDir = m2.
+    s->refDir = veq(vcross(m0, m1), m2) ? m1 : m2;
+    {
+        Vec3 sp, du, dv;
+        s->evaluateDeriv(0.25 * kPi, 0.25 * kPi, sp, du, dv);   // patch midpoint
+        const Vec3 nrm = vnorm(vcross(du, dv));
+        const Vec3 wantOut = vnorm(vsub(sp, center));           // radially outward
+        s->reversed = (vdot(nrm, wantOut) < 0.0);
+    }
+    f->surface = s;
+    f->paramTri = false;
+    f->u0 = 0.0; f->u1 = 0.5 * kPi;   // theta
+    f->v0 = 0.0; f->v1 = 0.5 * kPi;   // phi (phi=0 == pole == V0)
+    return f;
+}
+
 } // namespace
 
 AnalyticChainFilletResult filletSolidStraightEdgesAnalytic(
@@ -1073,6 +1147,7 @@ AnalyticChainFilletResult filletSolidStraightEdgesAnalytic(
         Vec3 nA{}, nB{}, e{};
         double edgeLen = 0.0;
         Vec3 A0{}, A1{}, TA0{}, TB0{}, TA1{}, TB1{};
+        double sb0 = 0.0, sb1 = 0.0;     // set-back at the V0 / V1 ends (R at a shared corner)
     };
     std::vector<EdgeBlend> blends;
     blends.reserve(ids.size());
@@ -1123,27 +1198,85 @@ AnalyticChainFilletResult filletSolidStraightEdgesAnalytic(
     out.filletedEdgeCount = static_cast<int>(blends.size());
     out.radius = R;
 
-    bool hasShared = false;
+    // -------- classify every SHARED vertex (>= 2 meeting fillets) ----------------
+    // The supported shared vertex is the ORTHOGONAL TRIHEDRAL CORNER: exactly three
+    // meeting edges whose six adjacent faces reduce to three DISTINCT faces (each
+    // shared by two of the three edges) with mutually-orthogonal outward normals (a
+    // convex box corner). Such a corner is closed by a spherical octant; the three
+    // meeting cylinders are SET BACK by R there. ANY other shared-vertex config (two
+    // edges, four+, non-trihedral / non-orthogonal) is the honest follow-up boundary:
+    // it is reported in unblendedCorners and the whole op refuses (mesh-bridge).
+    struct Corner {
+        Vertex* v = nullptr;
+        Vec3 center{};            // sphere centre = v + R*(sum of the 3 inward normals)
+        Vec3 m0{}, m1{}, m2{};    // the 3 distinct face OUTWARD normals
+    };
+    std::vector<Corner> corners;
+    std::unordered_map<Vertex*, int> cornerOf;       // shared vertex -> index in `corners`
+
+    bool anyUnsupported = false;
     for (const auto& kv : vtxBlends) {
-        if (kv.second.size() >= 2) {
-            hasShared = true;
+        if (kv.second.size() < 2) continue;
+        Vertex* v = kv.first;
+        const std::vector<int>& bs = kv.second;
+        bool supported = false;
+        Corner c; c.v = v;
+        if (bs.size() == 3) {
+            // Collect the distinct adjacent faces + their normals; each must appear
+            // in exactly two of the three edges.
+            struct FN { Face* f; Vec3 n; int count; };
+            std::vector<FN> fs;
+            auto addF = [&](Face* f, const Vec3& n) {
+                for (auto& x : fs) if (x.f == f) { ++x.count; return; }
+                fs.push_back({f, n, 1});
+            };
+            for (int k : bs) { addF(blends[k].FA, blends[k].nA); addF(blends[k].FB, blends[k].nB); }
+            if (fs.size() == 3 && fs[0].count == 2 && fs[1].count == 2 && fs[2].count == 2) {
+                const Vec3 a = fs[0].n, b2 = fs[1].n, c2 = fs[2].n;
+                if (std::fabs(vdot(a, b2)) <= 1e-7 && std::fabs(vdot(b2, c2)) <= 1e-7 &&
+                    std::fabs(vdot(a, c2)) <= 1e-7) {
+                    // Convex corner: the inward step -R*(a+b2+c2) from v must land R
+                    // inside each plane — already guaranteed by the per-edge convex
+                    // test. center = v + R*(inward sum) = v - R*(sum of outward).
+                    c.m0 = a; c.m1 = b2; c.m2 = c2;
+                    c.center = vsub(P2V(v->point), vscale(vadd(vadd(a, b2), c2), R));
+                    supported = true;
+                }
+            }
+        }
+        if (supported) {
+            cornerOf[v] = static_cast<int>(corners.size());
+            corners.push_back(c);
+        } else {
+            anyUnsupported = true;
             UnblendedCorner uc;
-            uc.position = P2V(kv.first->point);
+            uc.position = P2V(v->point);
             uc.cornerIndex = -1;                  // topology-sourced: no box-corner index
-            uc.edgeA = static_cast<int>(blends[kv.second[0]].id);
-            uc.edgeB = static_cast<int>(blends[kv.second[1]].id);
-            uc.meetingFilletCount = static_cast<int>(kv.second.size());
+            uc.edgeA = static_cast<int>(blends[bs[0]].id);
+            uc.edgeB = static_cast<int>(blends[bs[1]].id);
+            uc.meetingFilletCount = static_cast<int>(bs.size());
             out.unblendedCorners.push_back(uc);
         }
     }
-    if (hasShared) {
+    if (anyUnsupported) {
         out.ok = false;
         out.solid = nullptr;
-        out.reason = "partial (honest): two or more requested edges share a VERTEX where their "
-                     "fillets meet — the spherical/setback VERTEX BLEND is a documented follow-up, "
-                     "so each such corner is reported in unblendedCorners and NOT fabricated; the "
-                     "caller falls back to the mesh-bridge for this selection";
+        out.reason = "partial (honest): a shared VERTEX is not the supported orthogonal "
+                     "trihedral (3-edge box) corner — the 2-edge spherical-lune / 4+-edge / "
+                     "non-orthogonal vertex blend is a documented follow-up, so it is reported "
+                     "in unblendedCorners and NOT fabricated; the caller falls back to the "
+                     "mesh-bridge for this selection";
         return out;
+    }
+
+    // -------- set-back: a corner end pulls its cylinder back by R --------------
+    auto isCornerV = [&](Vertex* v) { return cornerOf.count(v) > 0; };
+    for (EdgeBlend& b : blends) {
+        b.sb0 = isCornerV(b.V0) ? R : 0.0;
+        b.sb1 = isCornerV(b.V1) ? R : 0.0;
+        if (!(b.edgeLen - b.sb0 - b.sb1 > 1e-9))
+            return bad("a requested edge is too short for the corner set-backs (radius too large "
+                       "for the shared-vertex spacing)");
     }
 
     // -------- re-emit every face, re-trimmed for all the edges that touch it -----
@@ -1172,6 +1305,17 @@ AnalyticChainFilletResult filletSolidStraightEdgesAnalytic(
         mod.reserve(static_cast<std::size_t>(n) + 8);
         for (int slot = 0; slot < n; ++slot) {
             Vertex* v = ring[slot];
+            auto cit = cornerOf.find(v);
+            if (cit != cornerOf.end()) {
+                // SHARED TRIHEDRAL CORNER: F is one of the corner's three faces, so it
+                // is ADJACENT to two of the meeting edges and the PERPENDICULAR (set-
+                // back) end of the third. The single sharp vertex collapses to ONE
+                // inset point = the sphere's tangent point on F = center + R*fn (where
+                // the two adjacent edges' tangent lines on F meet); the third (set-back)
+                // edge contributes NOTHING here — the spherical octant rounds it.
+                mod.push_back(vadd(corners[cit->second].center, vscale(fn, R)));
+                continue;
+            }
             auto it = vtxBlends.find(v);
             if (it == vtxBlends.end()) { mod.push_back(P2V(v->point)); continue; }
             const int k = it->second.front();           // vertex-disjoint -> exactly one
@@ -1213,13 +1357,31 @@ AnalyticChainFilletResult filletSolidStraightEdgesAnalytic(
     }
 
     // -------- one cylindrical blend patch per requested edge --------------------
+    // A set-back end (shared trihedral corner) shortens the cylinder by R there; its
+    // end cross-section then IS the adjacent spherical octant's quarter-arc (foot ==
+    // sphere centre), so no quarter-disk cap is emitted at that end — the octant
+    // closes it. A flush (non-corner) end is still capped by the perpendicular end
+    // face's quarter-disk emitted in the face loop above.
     double removed = 0.0;
     for (const EdgeBlend& b : blends) {
+        const Vec3 A0s = vadd(b.A0, vscale(b.e, b.sb0));     // near foot, advanced by set-back
+        const Vec3 A1s = vsub(b.A1, vscale(b.e, b.sb1));     // far  foot, pulled in by set-back
+        const double cylLen = b.edgeLen - b.sb0 - b.sb1;
         const Vec3 outward = vnorm(vadd(b.nA, b.nB));
-        Face* cyl = emitCylinderPatch(tb, b.A0, b.A1, R, b.nA, b.nB, b.e, b.edgeLen, outward, outward);
+        Face* cyl = emitCylinderPatch(tb, A0s, A1s, R, b.nA, b.nB, b.e, cylLen, outward, outward);
         frags.push_back(cyl);
         out.filletFaces.push_back(cyl);
-        removed += (1.0 - kPi / 4.0) * R * R * b.edgeLen;
+        removed += (1.0 - kPi / 4.0) * R * R * cylLen;
+    }
+
+    // -------- one spherical octant per shared trihedral corner ------------------
+    // Each corner removes (1 - pi/6) R^3 of material (the corner cube R^3 minus the
+    // eighth-ball of radius R that remains).
+    for (const Corner& c : corners) {
+        Face* oct = emitSphereOctant(tb, c.center, R, c.m0, c.m1, c.m2);
+        frags.push_back(oct);
+        out.cornerFaces.push_back(oct);
+        removed += (1.0 - kPi / 6.0) * R * R * R;
     }
 
     // -------- sew every fragment into one closed 2-manifold ----------------------
@@ -1232,9 +1394,13 @@ AnalyticChainFilletResult filletSolidStraightEdgesAnalytic(
     out.removedVolume = removed;
     out.ok = sr.ok && sr.diagnosis.closed;
     out.reason = out.ok
-        ? "ok (analytic constant-radius rolling-ball fillet of MULTIPLE topology-sourced "
-          "convex straight planar-planar edges, pairwise vertex-disjoint; watertight closed "
-          "2-manifold; exact removed volume)"
+        ? (corners.empty()
+            ? "ok (analytic constant-radius rolling-ball fillet of MULTIPLE topology-sourced "
+              "convex straight planar-planar edges, pairwise vertex-disjoint; watertight closed "
+              "2-manifold; exact removed volume)"
+            : "ok (analytic constant-radius rolling-ball fillet of MULTIPLE topology-sourced "
+              "convex straight planar-planar edges WITH spherical-octant corner blends at the "
+              "shared orthogonal trihedral vertices; watertight closed 2-manifold; exact volume)")
         : "multi-edge fillet assembly did not sew into a closed shell";
     return out;
 }

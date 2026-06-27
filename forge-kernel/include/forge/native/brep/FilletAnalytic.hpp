@@ -208,10 +208,14 @@ struct AnalyticChainFilletResult {
 
     int    filletedEdgeCount = 0;          // how many edges were filleted
     std::vector<Face*> filletFaces;        // one cylinder patch per filleted edge
+    // One SPHERICAL-OCTANT corner blend (SurfaceKind::Sphere) per orthogonal
+    // trihedral vertex where three filleted edges meet (the multi-edge keystone's
+    // shared-vertex blend). Empty for a pairwise vertex-disjoint selection.
+    std::vector<Face*> cornerFaces;
     std::vector<UnblendedCorner> unblendedCorners; // shared vertices left sharp (honest)
 
     double radius = 0.0;        // R
-    double removedVolume = 0.0; // total (1 - pi/4) R^2 (sum of edge lengths) removed
+    double removedVolume = 0.0; // total removed = SUM (1-pi/4) R^2 L_cyl + SUM (1-pi/6) R^3
     const char* reason = "";
 };
 
@@ -251,15 +255,27 @@ AnalyticChainFilletResult filletBoxEdgeChainAnalytic(TopologyBuilder& tb,
 // removedVolume fields). For a TOPOLOGY-SOURCED solid UnblendedCorner.cornerIndex
 // is -1 and edgeA/edgeB carry the meeting edgeIds.
 //
+// SHARED-VERTEX CORNER BLEND (now built, not refused): when three of the requested
+// edges meet at one ORTHOGONAL TRIHEDRAL vertex (a convex box corner — three
+// mutually-orthogonal planar faces, each shared by two of the three edges), the
+// corner is closed by a SPHERICAL OCTANT of radius R centred at the vertex's
+// set-back point  C = P_vertex + R*(sum of the three faces' INWARD normals). The
+// sphere is tangent to all three planes and to each adjacent cylinder blend along a
+// quarter great-circle: each meeting cylinder is SET BACK by R at the shared vertex
+// and its end cross-section IS one of the octant's three boundary arcs, so the three
+// cylinders + the octant + the (re-trimmed) planar faces sew watertight. This makes
+// the ALL-12-EDGES-of-a-box fillet a single native closed 2-manifold (genus 0, the
+// 8 corners carried as SurfaceKind::Sphere faces in `cornerFaces`), removing exactly
+//   SUM_edges (1 - pi/4) R^2 L_cyl  +  SUM_corners (1 - pi/6) R^3.
+//
 // HONEST SCOPE (each REFUSED with `reason`, never faked):
-//   * The requested edges must be pairwise VERTEX-DISJOINT (no two share an
-//     endpoint). When two requested edges DO meet at a shared vertex, the spherical
-//     / setback VERTEX BLEND is a documented follow-up: rather than fabricate a
-//     subtly-wrong corner, every such corner is reported in `unblendedCorners`,
-//     `ok` is set false, and the caller (part.filletEdges) falls back to the proven
-//     mesh-bridge for that selection. So this strictly ADDS capability (the common
-//     non-adjacent multi-edge selection — e.g. the four vertical edges of a post —
-//     now fillets natively + exactly), never regresses.
+//   * The supported shared vertex is EXACTLY the orthogonal trihedral corner above
+//     (three meeting edges, three distinct mutually-orthogonal faces each used by two
+//     of them). Any OTHER shared-vertex configuration — two edges meeting (a partial
+//     spherical lune), four-or-more edges, or a non-trihedral / non-orthogonal corner
+//     — is the documented follow-up: rather than fabricate a subtly-wrong corner it is
+//     reported in `unblendedCorners`, `ok` is set false, and the caller
+//     (part.filletEdges) falls back to the proven mesh-bridge for that selection.
 //   * Same straight / convex / orthogonal-planar / perpendicular-end envelope as the
 //     single-edge path; any curved / concave / non-orthogonal / holed / oblique
 //     input is refused (not fabricated).

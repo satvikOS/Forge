@@ -27,10 +27,14 @@
 //   (7) MULTI-EDGE realistic part: the four vertical edges of a post (rounded
 //       rectangle) -> watertight + checkBRep valid + exact 4-quarter-round removal
 //       (the top/bottom caps are NON-convex and MUST be triangulated to stay exact).
-//   (8) HONEST BOUNDARY: all 12 box edges in one call share every corner (3 fillets
-//       meet) -> the op REFUSES (ok=false), emits NO solid, and reports all 8 shared
-//       corners in unblendedCorners (the spherical/setback vertex blend is a follow-
-//       up); part.filletEdges then falls back to the mesh-bridge.
+//   (8) SHARED-VERTEX KEYSTONE: all 12 box edges in one call share every corner (3
+//       fillets meet) -> each is closed by a NATIVE SPHERICAL OCTANT (SurfaceKind::
+//       Sphere, radius R, set-back cylinders), so the whole all-12 fillet is ONE
+//       watertight closed 2-manifold (genus 0, 8 sphere corner faces, no unblended
+//       corners, checkBRep 21/21) with the exact box - 12 prisms - 8 corner volume.
+//   (8b) HONEST BOUNDARY: a 2-edge shared corner is NOT the supported orthogonal
+//       trihedral corner, so the op REFUSES (ok=false), emits NO solid, and reports
+//       it in unblendedCorners; part.filletEdges then falls back to the mesh-bridge.
 //   (9) CONSISTENCY: the multi-edge path on a SINGLE edge reproduces the single-edge
 //       path's exact volume + a valid checkBRep.
 
@@ -339,28 +343,121 @@ int main() {
         }
     }
 
-    // ---- (8) ALL 12 box edges in ONE call: shared vertices reported honestly ---
-    // The honest scope boundary: every box corner is shared by 3 filleted edges, so
-    // the spherical/setback VERTEX BLEND is required — a documented follow-up. Rather
-    // than fabricate a wrong corner, the op refuses (ok==false), emits NO solid, and
-    // reports all 8 shared corners in unblendedCorners. part.filletEdges then falls
-    // back to the proven mesh-bridge for such a selection.
-    std::printf("\n--- ALL 12 box edges in one call: shared-vertex corners reported honestly ---\n");
+    // ---- (8) ALL 12 box edges in ONE call: NATIVE spherical-octant corners ------
+    // The shared-vertex keystone: every box corner is shared by 3 mutually-orthogonal
+    // filleted edges, so each is closed by a SPHERICAL OCTANT of radius R centred at
+    // the set-back point. The whole all-12 fillet is now ONE watertight closed
+    // 2-manifold (genus 0) — 6 inset planar squares + 12 set-back cylinders + 8
+    // sphere octants — with NO unblended corners. Volume == box - 12 edge quarter-
+    // round prisms (over the set-back length L-2R) - 8 corner (1-pi/6)R^3 removals.
+    std::printf("\n--- ALL 12 box edges in one call: native spherical-octant corner blends ---\n");
     {
+        const double L = 10.0, Rc = 1.5;
         SolidFactory facA;
-        Solid* cube = facA.buildBox(10.0, 10.0, 10.0);
+        Solid* cube = facA.buildBox(L, L, L);
         std::vector<Edge*> ce = enumerateSolidStraightEdges(*cube);
         std::vector<std::uint32_t> all;
         for (std::uint32_t i = 0; i < ce.size(); ++i) all.push_back(i);
         TopologyBuilder tb;
-        AnalyticChainFilletResult ch = filletSolidStraightEdgesAnalytic(tb, *cube, all, 1.5);
-        std::printf("[all12] ok=%d edges=%d unblendedCorners=%zu solid=%s\n   %s\n",
-                    ch.ok ? 1 : 0, ch.filletedEdgeCount, ch.unblendedCorners.size(),
-                    ch.solid ? "non-null" : "null", ch.reason);
-        check(!ch.ok, "all-12 refuses honestly (ok==false; shared-vertex blend NOT fabricated)");
+        AnalyticChainFilletResult ch = filletSolidStraightEdgesAnalytic(tb, *cube, all, Rc);
+        std::printf("[all12] ok=%d edges=%d corners=%zu unblended=%zu solid=%s\n   %s\n",
+                    ch.ok ? 1 : 0, ch.filletedEdgeCount, ch.cornerFaces.size(),
+                    ch.unblendedCorners.size(), ch.solid ? "non-null" : "null", ch.reason);
+        check(ch.ok, "all-12 fillet ok (native spherical-octant corners; NOT refused)");
         check(ch.filletedEdgeCount == 12, "all-12 resolved the 12 requested edges");
-        check(ch.unblendedCorners.size() == 8, "all-12 reports the 8 shared box corners (honest follow-up)");
-        check(ch.solid == nullptr, "all-12 emits NO fabricated solid");
+        check(ch.unblendedCorners.empty(), "all-12 leaves NO unblended corners");
+        check(ch.cornerFaces.size() == 8, "all-12 emits 8 spherical-octant corner faces");
+        if (ch.ok) {
+            SewDiagnosis d = diagOf(ch.solid);
+            std::printf("      -> V=%zu E=%zu F=%zu free=%zu nonmanifold=%zu %s chi=%lld genus=%lld\n",
+                        d.vertices, d.edges, d.faces, d.freeEdges, d.nonManifoldEdges,
+                        d.closed ? "CLOSED" : "OPEN", d.eulerCharacteristic, d.genus);
+            check(d.freeEdges == 0 && d.nonManifoldEdges == 0 && d.closed,
+                  "all-12 result is a watertight closed 2-manifold");
+            check(d.genus == 0, "all-12 result is genus 0");
+            // every corner face is a Sphere of radius R
+            bool allSphere = (ch.cornerFaces.size() == 8);
+            for (Face* f : ch.cornerFaces)
+                if (!f || !f->surface || f->surface->kind != SurfaceKind::Sphere ||
+                    std::fabs(f->surface->r1 - Rc) > 1e-12) allSphere = false;
+            check(allSphere, "every corner face is a Sphere of radius R");
+            // every sphere sample is exactly R from its centre (analytic, not faked)
+            double maxSphErr = 0.0;
+            for (Face* f : ch.cornerFaces) {
+                Surface* s = f->surface;
+                for (int iu = 0; iu <= 6; ++iu)
+                    for (int iv = 0; iv <= 6; ++iv) {
+                        Vec3 p = s->evaluate(f->u0 + (f->u1 - f->u0) * iu / 6.0,
+                                             f->v0 + (f->v1 - f->v0) * iv / 6.0);
+                        maxSphErr = std::max(maxSphErr, std::fabs(dist(p, s->origin) - Rc));
+                    }
+            }
+            std::printf("      -> max |dist(sphere sample, centre) - R| = %.3e\n", maxSphErr);
+            check(maxSphErr <= 1e-12, "every octant sample is exactly R from the sphere centre");
+
+            CheckReport rep = checkBRep(ch.solid);
+            std::printf("      -> checkBRep: %zu/%zu predicates passed, valid=%s\n",
+                        rep.passed(), rep.total(), rep.valid ? "true" : "false");
+            if (!rep.valid)
+                for (const auto& p : rep.predicates)
+                    if (!p.passed) std::printf("         FAIL predicate: %s (%s)\n",
+                                               p.name.c_str(), p.detail.c_str());
+            check(rep.valid, "all-12 checkBRep().valid == true (full 21-predicate battery)");
+            check(rep.passed() == rep.total() && rep.total() == 21,
+                  "all-12 checkBRep 21/21 predicates passed");
+
+            // Exact removed volume + filleted volume (two independent derivations).
+            const double removedExpect = 12.0 * (1.0 - kPi / 4.0) * Rc * Rc * (L - 2.0 * Rc)
+                                       + 8.0 * (1.0 - kPi / 6.0) * Rc * Rc * Rc;
+            const double a = L - 2.0 * Rc;   // constructive: inner box + slabs + cyls + octants
+            const double volConstruct = a * a * a + 6.0 * Rc * a * a
+                                      + 12.0 * (kPi / 4.0) * Rc * Rc * a
+                                      + 8.0 * (1.0 / 8.0) * (4.0 / 3.0) * kPi * Rc * Rc * Rc;
+            const double expectedVol = L * L * L - removedExpect;
+            std::printf("      -> removedVolume=%.12f expect=%.12f (constructive vol=%.12f)\n",
+                        ch.removedVolume, removedExpect, volConstruct);
+            check(std::fabs(ch.removedVolume - removedExpect) <= 1e-9,
+                  "all-12 removedVolume == 12 edge prisms + 8 corner removals");
+            check(std::fabs(expectedVol - volConstruct) <= 1e-9,
+                  "the box-minus-removed and constructive volumes agree (sanity)");
+            MassProps mp = massProperties(*ch.solid, 10);
+            const double err = std::fabs(mp.volume - expectedVol);
+            std::printf("      -> volume=%.12f expected=%.12f |err|=%.3e\n",
+                        mp.volume, expectedVol, err);
+            check(mp.volume < L * L * L, "material REMOVED (volume < box)");
+            check(err <= 1e-9,
+                  "all-12 filleted volume == box - 12*(1-pi/4)R^2 L_cyl - 8*(1-pi/6)R^3  to <= 1e-9");
+        }
+    }
+
+    // ---- (8b) HONEST BOUNDARY: a 2-edge shared corner is NOT the supported trihedral
+    //      corner, so the op refuses (mesh-bridge fallback) — never fabricated. Two
+    //      bottom edges of a box that share ONE corner (the third edge at that corner
+    //      is NOT filleted): the 2-edge spherical-lune blend is a documented follow-up.
+    std::printf("\n--- HONEST BOUNDARY: a 2-edge shared corner refuses (mesh-bridge fallback) ---\n");
+    {
+        SolidFactory facB;
+        Solid* cube = facB.buildBox(10.0, 10.0, 10.0);
+        std::vector<Edge*> ce = enumerateSolidStraightEdges(*cube);
+        // pick two edges that share exactly one vertex.
+        std::uint32_t e0 = 0, e1 = 0; bool got = false;
+        for (std::uint32_t i = 0; i < ce.size() && !got; ++i)
+            for (std::uint32_t j = i + 1; j < ce.size() && !got; ++j) {
+                int shared = 0;
+                for (Vertex* a : {ce[i]->start, ce[i]->end})
+                    for (Vertex* b : {ce[j]->start, ce[j]->end})
+                        if (a == b) ++shared;
+                if (shared == 1) { e0 = i; e1 = j; got = true; }
+            }
+        check(got, "found two edges sharing exactly one vertex");
+        TopologyBuilder tb;
+        AnalyticChainFilletResult ch =
+            filletSolidStraightEdgesAnalytic(tb, *cube, std::vector<std::uint32_t>{e0, e1}, 1.5);
+        std::printf("[2edge] ok=%d unblended=%zu solid=%s\n   %s\n",
+                    ch.ok ? 1 : 0, ch.unblendedCorners.size(), ch.solid ? "non-null" : "null", ch.reason);
+        check(!ch.ok, "2-edge shared corner refuses honestly (ok==false)");
+        check(ch.solid == nullptr, "2-edge shared corner emits NO fabricated solid");
+        check(ch.unblendedCorners.size() == 1, "2-edge shared corner reported in unblendedCorners");
     }
 
     // ---- (9) one-edge multi path == single-edge path (general-path consistency) -
