@@ -26,108 +26,35 @@ import {
   isKernelReady,
   detectAvailableSolvers,
   mesh as meshDispatch,
-  solveStatic, solveModal, solveDynamic, solveThermal,
-  solveBuckling, solveNonlinearStatic, solveContact,
-  solveNonlinearPlastic, fatigueLife as fatigueLifeDispatch, solveCFD,
-  pinFace, distributeForceFace, rollerFace,
 } from './simulationDispatch.js';
+import {
+  MATERIALS, STUDY_TYPES, LOAD_KINDS, BC_KINDS, FACE_LABELS,
+  defaultLoad, defaultBC, materialById,
+  loadsToNodalForces, bcsToNodalConstraints,
+  SIM_TREE, sectionForNode, isCoreStudyType, runStudyCore, peakDisplacement,
+} from './simulationModel.js';
 import { FeaResultViewer } from './FeaResultViewer.jsx';
 import { TopologyResultViewer } from './TopologyResultViewer.jsx';
 import { runTopologyOptimisation, TOPOLOGY_DEFAULTS } from './topologyOptimisation.js';
 import { runCrackPropagation, CRACK_DEFAULTS } from './crackPropagation.js';
 import { runAdaptiveRefinement, ADAPTIVE_DEFAULTS } from './adaptiveMesh.js';
 
-// ---------------------------------------------------------- materials
-//
-// Eight presets with real engineering values. E in Pa, ρ in kg/m³, σ_y
-// in Pa, k thermal conductivity (W/m·K), α thermal expansion (1/K).
-// Values from MMPDS / ASM Handbook / supplier datasheets.
-export const MATERIALS = Object.freeze([
-  { id: 'steel',     name: 'Steel A36',        E: 200e9,   nu: 0.26,  rho: 7850, sigmaY: 250e6, k: 50,    alpha: 12e-6, color: '#8b95a5' },
-  { id: 'aluminium', name: 'Aluminium 6061-T6',E:  68.9e9, nu: 0.33,  rho: 2700, sigmaY: 276e6, k: 167,   alpha: 23.6e-6, color: '#c9cfd6' },
-  { id: 'brass',     name: 'Brass C26000',     E: 110e9,   nu: 0.375, rho: 8530, sigmaY: 124e6, k: 120,   alpha: 19.9e-6, color: '#caa56b' },
-  { id: 'copper',    name: 'Copper C110',      E: 117e9,   nu: 0.33,  rho: 8940, sigmaY:  70e6, k: 401,   alpha: 16.5e-6, color: '#b66838' },
-  { id: 'titanium',  name: 'Titanium Ti-6Al-4V',E:113.8e9, nu: 0.342, rho: 4430, sigmaY: 880e6, k:   6.7, alpha:  9.0e-6, color: '#9aa0a8' },
-  { id: 'abs',       name: 'ABS Plastic',      E:   2.3e9, nu: 0.35,  rho: 1050, sigmaY:  40e6, k:   0.17,alpha: 90e-6, color: '#e1dccb' },
-  { id: 'nylon',     name: 'Nylon 6/6',        E:   2.0e9, nu: 0.39,  rho: 1140, sigmaY:  75e6, k:   0.25,alpha: 80e-6, color: '#dad3b9' },
-  { id: 'petg',      name: 'PETG',             E:   2.1e9, nu: 0.38,  rho: 1270, sigmaY:  53e6, k:   0.20,alpha: 68e-6, color: '#d6cfe4' },
-]);
+// The simulation catalogues + builders now live in simulationModel.js (the
+// single, unit-testable source of truth shared with the Archie-CUA control
+// surface). Re-export the two public ones for backward compatibility.
+export { MATERIALS, STUDY_TYPES };
 
-export const STUDY_TYPES = Object.freeze([
-  'Static', 'Modal', 'Dynamic', 'Thermal',
-  'Buckling', 'Nonlinear', 'Contact', 'Plastic',
-  'Fatigue', 'CFD',
-  'Topology Optimisation', 'Crack Propagation', 'Adaptive Refinement',
-]);
-
-const LOAD_KINDS = ['Force', 'Pressure', 'BodyForce'];
-const BC_KINDS   = ['Fixed', 'Pin', 'Roller', 'Symmetry'];
-
-const FACE_LABELS = ['−X', '+X', '−Y', '+Y', '−Z', '+Z'];
-
-// ---------------------------------------------------------- helpers
-
-function defaultLoad(kind) {
-  switch (kind) {
-    case 'Force':     return { kind, faceId: 1, F: [0, -1000, 0] };
-    case 'Pressure':  return { kind, faceId: 1, pressure: 1e5 };
-    case 'BodyForce': return { kind, g: [0, -9.81, 0] };
-    default:          return { kind, faceId: 0 };
-  }
-}
-
-function defaultBC(kind) {
-  switch (kind) {
-    case 'Fixed':    return { kind, faceId: 0 };
-    case 'Pin':      return { kind, faceId: 0 };
-    case 'Roller':   return { kind, faceId: 0, axis: 'y' };
-    case 'Symmetry': return { kind, faceId: 0, axis: 'x' };
-    default:         return { kind, faceId: 0 };
-  }
-}
-
-function loadsToNodalForces(loads, meshObj) {
-  if (!meshObj) return { nodal: [], pressures: [] };
-  const nodal = [];
-  const pressures = [];
-  for (const L of loads) {
-    if (L.kind === 'Force') {
-      const distributed = distributeForceFace(meshObj, L.faceId, L.F);
-      nodal.push(...distributed);
-    } else if (L.kind === 'Pressure') {
-      pressures.push({ faceId: L.faceId, pressure: L.pressure });
-    } else if (L.kind === 'BodyForce') {
-      // Body force — apply g × ρ × Vᵢ to every node (approximation:
-      // distribute as if every node sees ρ·g·V_total/N). The kernel may
-      // accept a dedicated body-force field; if not we treat it as a
-      // uniform per-node load.
-      if (meshObj.nodeCount > 0) {
-        const N = meshObj.nodeCount;
-        const fx = L.g[0] / N;
-        const fy = L.g[1] / N;
-        const fz = L.g[2] / N;
-        for (let i = 0; i < N; i++) {
-          nodal.push({ nodeId: i, fx, fy, fz });
-        }
-      }
-    }
-  }
-  return { nodal, pressures };
-}
-
-function bcsToNodalConstraints(bcs, meshObj) {
-  if (!meshObj) return [];
-  const out = [];
-  for (const B of bcs) {
-    if (B.kind === 'Fixed' || B.kind === 'Pin') {
-      out.push(...pinFace(meshObj, B.faceId));
-    } else if (B.kind === 'Roller') {
-      out.push(...rollerFace(meshObj, B.faceId, B.axis || 'y'));
-    } else if (B.kind === 'Symmetry') {
-      out.push(...rollerFace(meshObj, B.faceId, B.axis || 'x'));
-    }
-  }
-  return out;
+// Publish the canonical static-result mirror downstream panels read
+// (FatigueAnalysisPanel keys off window.__forgeSimulationLast). Properly
+// wired here so the "run Simulation first" handshake actually has data.
+function publishSimulationLast(result, meshObj) {
+  if (typeof window === 'undefined' || !result) return;
+  window.__forgeSimulationLast = {
+    maxVonMises: result.maxVonMises ?? null,
+    maxDisplacement: peakDisplacement(result, meshObj),
+    residual: result.residual ?? null,
+    at: Date.now(),
+  };
 }
 
 // ---------------------------------------------------------- panel
@@ -136,6 +63,22 @@ export function SimulationWorkbench({ activeBodyHandle = null,
                                       activeBodyName = 'No body selected',
                                       onSelectBody = null,
                                       onClose = null }) {
+  // SimScale-style unified study tree — the left rail focuses/scrolls the
+  // matching existing sub-section. Inc 1 keeps focus in local state (it is
+  // human-clicked); Inc 2 promotes the rest of the setup to the event store.
+  const [focusedSection, setFocusedSection] = useState('study');
+  const bodyRef = useRef(null);
+  const focusNode = (nodeId) => {
+    const section = sectionForNode(nodeId);
+    if (!section) return;
+    setFocusedSection(section);
+    const el = bodyRef.current &&
+      bodyRef.current.querySelector(`[data-sim-section="${section}"]`);
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
+  };
+
   // study setup
   const [name, setName]           = useState('Study 1');
   const [type, setType]           = useState('Static');
@@ -248,6 +191,30 @@ export function SimulationWorkbench({ activeBodyHandle = null,
     }
     setSolving(true);
 
+    // CORE study types go through the shared runStudyCore path — the SAME
+    // function the headless Inc-1 gate AND the Archie-CUA `sim.setup.solve`
+    // setter call. The panel button and the CUA agent therefore provably
+    // solve identically; the maths lives in ONE place (simulationModel.js).
+    if (isCoreStudyType(type)) {
+      const env = runStudyCore({
+        state: { type, materialId, name, loads, bcs,
+                 nModes, tEnd, dt, alpha, beta, loadSteps, fatigueCfg },
+        meshObj, prevResult: result,
+      });
+      if (env.error) {
+        setSolveError(env.error);
+      } else {
+        setResult(env.result);
+        setResultTab(env.resultTab);
+        setSolveLog(env.solveLog || []);
+        publishSimulationLast(env.result, meshObj);
+      }
+      setSolving(false);
+      return;
+    }
+
+    // Advanced studies (Contact / Topology / Crack / Adaptive) keep their
+    // dedicated runners + result viewers.
     const { nodal, pressures } = loadsToNodalForces(loads, meshObj);
     const constraints = bcsToNodalConstraints(bcs, meshObj);
     const mat = { E: material.E, nu: material.nu, rho: material.rho,
@@ -257,66 +224,10 @@ export function SimulationWorkbench({ activeBodyHandle = null,
     let r;
     try {
       switch (type) {
-        case 'Static':
-          r = solveStatic({ mesh: meshObj, material: mat,
-                            loads: nodal, pressureLoads: pressures, bcs: constraints });
-          break;
-        case 'Modal':
-          r = solveModal({ mesh: meshObj, material: mat, bcs: constraints, nModes });
-          setResultTab('Modes');
-          break;
-        case 'Dynamic':
-          r = solveDynamic({ mesh: meshObj, material: mat,
-                             loads: nodal, bcs: constraints,
-                             tEnd, dt, alpha, beta });
-          break;
-        case 'Thermal': {
-          // pressure-loads from this UI become thermal source/convection here.
-          const sources = loads.filter((L) => L.kind === 'BodyForce')
-            .map((L) => ({ value: L.g[1] || 0 }));
-          const dirichlet = bcs.filter((B) => B.kind === 'Fixed')
-            .map((B) => ({ faceId: B.faceId, T: 293.15 }));
-          r = solveThermal({ mesh: meshObj, material: mat,
-                             dirichlet, sources, convection: [] });
-          setResultTab('Temperature');
-          break;
-        }
-        case 'Buckling':
-          r = solveBuckling({ mesh: meshObj, material: mat,
-                              loads: nodal, bcs: constraints, nModes });
-          setResultTab('Modes');
-          break;
-        case 'Nonlinear':
-          r = solveNonlinearStatic({ mesh: meshObj, material: mat,
-                                     loads: nodal, bcs: constraints,
-                                     loadSteps });
-          break;
         case 'Contact':
           // contact requires two meshes; we expose only meshA here. The
           // brief allows reporting "needs second body" via the error path.
           r = { error: 'Contact study requires two bodies — pick the second body in the feature tree.' };
-          break;
-        case 'Plastic':
-          r = solveNonlinearPlastic({ mesh: meshObj, material: mat,
-                                      loads: nodal, bcs: constraints, loadSteps });
-          break;
-        case 'Fatigue': {
-          // Fatigue runs on a stress history. If we have a prior static
-          // result, use its stress as a unit-load amplitude.
-          if (!result || !result.stress) {
-            r = { error: 'Run a Static study first; Fatigue consumes its stress history.' };
-            break;
-          }
-          const nE = meshObj.elemCount || (meshObj.elements ? meshObj.elements.length / (meshObj.elemNodeCount || 4) : 0);
-          r = fatigueLifeDispatch({
-            stressHistory: result.stress, nElem: nE, nSteps: 1, cfg: fatigueCfg,
-          });
-          setResultTab('Fatigue Life');
-          break;
-        }
-        case 'CFD':
-          r = solveCFD({ velocityInlet: [0.1, 0, 0], pressureOutlet: 0,
-                         viscosity: 1e-3, density: 1000 });
           break;
         case 'Topology Optimisation': {
           setTopoResult(null);
@@ -419,7 +330,8 @@ export function SimulationWorkbench({ activeBodyHandle = null,
 
   // ----- subcomponents (inline so each section sees the closure) -----
   const Section = ({ id, title, children, action = null }) => (
-    <section className="forge-sim-section" data-sim-section={id}>
+    <section className="forge-sim-section" data-sim-section={id}
+             data-focused={String(focusedSection === id)}>
       <header className="forge-sim-section-header">
         <span>{title}</span>
         {action}
@@ -456,7 +368,26 @@ export function SimulationWorkbench({ activeBodyHandle = null,
         )}
       </header>
 
-      <div className="forge-sim-body">
+      <div className="forge-sim-main">
+        {/* SimScale-style unified study tree (left rail) */}
+        <nav className="forge-sim-tree" data-testid="forge-sim-tree"
+             aria-label="Simulation study tree">
+          {SIM_TREE.map((node, i) => (
+            <button key={node.id}
+                    type="button"
+                    className="forge-sim-tree-node"
+                    data-sim-tree-node={node.id}
+                    data-active={String(focusedSection === node.section)}
+                    onClick={() => focusNode(node.id)}>
+              <span className="forge-sim-tree-rail" aria-hidden="true">
+                {i < SIM_TREE.length - 1 ? '├' : '└'}
+              </span>
+              <span className="forge-sim-tree-label">{node.label}</span>
+            </button>
+          ))}
+        </nav>
+
+      <div className="forge-sim-body" ref={bodyRef}>
         {/* 1. Study setup */}
         <Section id="study" title="Study">
           <Field label="Name">
@@ -833,6 +764,7 @@ export function SimulationWorkbench({ activeBodyHandle = null,
 
         <SolverCapsFooter caps={solverCaps} ready={ready} />
       </div>
+      </div>
     </aside>
   );
 }
@@ -1119,7 +1051,7 @@ function SolverCapsFooter({ caps, ready }) {
 const WB_STYLE = {
   display: 'flex',
   flexDirection: 'column',
-  width: 360,
+  width: 524,
   height: '100%',
   background: 'var(--forge-canvas-3)',
   borderLeft: '1px solid var(--forge-rail-edge)',
@@ -1144,11 +1076,52 @@ function SimWorkbenchStyles() {
         font-size: 12px; font-weight: 600; color: var(--forge-ink);
         flex-shrink: 0;
       }
+      .forge-sim-main {
+        flex: 1; min-height: 0;
+        display: flex; flex-direction: row;
+      }
+      .forge-sim-tree {
+        width: 164px; flex-shrink: 0;
+        display: flex; flex-direction: column; gap: 1px;
+        padding: 8px 6px;
+        background: var(--forge-canvas-2, var(--forge-canvas));
+        border-right: 1px solid var(--forge-rail-edge);
+        overflow-y: auto;
+      }
+      .forge-sim-tree-node {
+        display: flex; align-items: center; gap: 6px;
+        padding: 6px 8px;
+        background: transparent; border: 1px solid transparent;
+        border-radius: 3px;
+        color: var(--forge-ink-2);
+        font: inherit; font-size: 11px; text-align: left;
+        cursor: pointer;
+        transition: background var(--forge-motion-fast),
+                    color var(--forge-motion-fast);
+      }
+      .forge-sim-tree-node:hover { background: var(--forge-surface); color: var(--forge-ink); }
+      .forge-sim-tree-node[data-active="true"] {
+        background: var(--forge-accent-mute);
+        border-color: var(--forge-accent-rim);
+        color: var(--forge-ink);
+      }
+      .forge-sim-tree-rail {
+        font-family: var(--forge-mono);
+        color: var(--forge-ink-mute);
+        width: 10px; text-align: center;
+      }
+      .forge-sim-tree-label { flex: 1; }
       .forge-sim-body {
-        flex: 1; overflow-y: auto;
+        flex: 1; min-width: 0; overflow-y: auto;
         display: flex; flex-direction: column; gap: 0;
       }
-      .forge-sim-section { border-bottom: 1px solid var(--forge-rail-edge); }
+      .forge-sim-section {
+        border-bottom: 1px solid var(--forge-rail-edge);
+        scroll-margin-top: 0;
+      }
+      .forge-sim-section[data-focused="true"] {
+        box-shadow: inset 2px 0 0 var(--forge-accent-rim);
+      }
       .forge-sim-section-header {
         display: flex; align-items: center; justify-content: space-between;
         padding: 6px 12px;
