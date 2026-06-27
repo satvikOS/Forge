@@ -44,9 +44,17 @@ namespace la = forge::native::linalg;
 // staggered cells outside the domain — instead we use ghost-cell mirroring,
 // which is the standard MAC trick and gives second-order accuracy at the wall.
 //
-// We deliberately keep the discretisation first-order in advection (upwind)
-// because it stays stable at the Re = 100 cavity smoke; an MUSCL / QUICK
-// upgrade is queued behind a turbulence model.
+// Advection is discretised with a SECOND-ORDER TVD/MUSCL scheme (van Leer
+// limiter) on the staggered faces — see musclConv() below. The convective
+// term is the non-conservative (advective) momentum form a·∂φ/∂x with the
+// advecting velocity a frozen over each control volume; φ is reconstructed at
+// the two CV faces with an upwind-biased, slope-limited gradient. It is TVD
+// (monotone — no spurious oscillation near the moving lid) and collapses
+// EXACTLY to the original first-order upwind where the limiter vanishes
+// (extrema / boundary stencils), so it inherits the prior robustness. This
+// removes the ~1/(Re·h) numerical diffusion of first-order upwind that
+// dominated the lid-cavity error at Re≥400 (see test/cfd_ghia_gate.mjs).
+// The central diffusion term and the projection/MAC core are unchanged.
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -77,6 +85,49 @@ struct FaceFlags {
     bool isInlet  = false;
     double vx = 0, vy = 0, vz = 0;
 };
+
+// van Leer flux limiter ψ(r) = (r+|r|)/(1+|r|): TVD, symmetric, smooth.
+//   ψ(r)=0   for r ≤ 0   (local extremum → first-order upwind, monotone)
+//   ψ(1)=1               (smooth flow → central, 2nd-order)
+//   ψ(r)→2   as r → ∞    (bounded ⇒ Sweby-TVD, no new extrema)
+inline double vanLeer(double r) {
+    if (!(r > 0.0)) return 0.0;           // r ≤ 0 or NaN → first-order
+    return (r + r) / (1.0 + r);
+}
+
+// Second-order TVD/MUSCL convective term a·∂φ/∂x on a uniform 1-D stencil, in
+// non-conservative (advective) momentum form with the advecting velocity `a`
+// frozen over the control volume (standard staggered-MAC momentum advection).
+// φ is reconstructed at the two CV faces i±½ with an upwind-biased, van-Leer-
+// limited slope; returns a·(φ_{i+½} − φ_{i−½})/h. Reduces EXACTLY to the
+// original first-order upwind wherever the limiter vanishes (extrema, boundary
+// stencils), so it never oscillates and inherits the prior robustness.
+// Stencil: phi at i−2, i−1, i, i+1, i+2 (mm, m, c, p, pp).
+inline double musclConv(double a,
+                        double phi_mm, double phi_m, double phi_c,
+                        double phi_p,  double phi_pp, double h) {
+    constexpr double eps = 1e-30;
+    auto ratio = [](double num, double den) {
+        // Slope ratio num/den, guarding den≈0. When the downwind gradient den→0
+        // the limited correction (0.5·ψ·den) →0 for ANY finite r, so clamping
+        // den away from exact zero only avoids a 0/0 NaN; the result is benign.
+        if (den > -eps && den < eps) den = (den < 0.0 ? -eps : eps);
+        return num / den;
+    };
+    const double dC = phi_p - phi_c;       // downwind gradient across face i+½
+    const double dM = phi_c - phi_m;       // downwind gradient across face i−½
+    double fL, fR;                         // reconstructed φ at faces i−½, i+½
+    if (a >= 0.0) {
+        // left-biased: faces reconstructed from the upwind cells i and i−1
+        fR = phi_c + 0.5 * vanLeer(ratio(phi_c - phi_m,  dC)) * dC;
+        fL = phi_m + 0.5 * vanLeer(ratio(phi_m - phi_mm, dM)) * dM;
+    } else {
+        // right-biased: faces reconstructed from the upwind cells i+1 and i
+        fR = phi_p - 0.5 * vanLeer(ratio(phi_pp - phi_p, dC)) * dC;
+        fL = phi_c - 0.5 * vanLeer(ratio(phi_p  - phi_c,  dM)) * dM;
+    }
+    return a * (fR - fL) / h;
+}
 
 } // namespace
 
@@ -416,6 +467,27 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         return w[idxW(i, j, k, Nx, Ny)];
     };
 
+    // Streamwise (face-normal direction) clamped sampling for the MUSCL
+    // advection stencil, which reaches 2 cells out. The TRANSVERSE directions
+    // use the uGhost/vGhost/wGhost mirrors above (already valid for arbitrary
+    // out-of-range indices, and self-limiting to first order at boundaries
+    // because the 2-cell mirror repeats ⇒ slope ratio 0). The NORMAL direction
+    // of each component (u in x, v in y, w in z) spans its own staggered grid's
+    // boundary faces (0..N) and is clamped (zero-gradient), which likewise
+    // drives the limiter to first order in the single boundary-adjacent face.
+    auto uX = [&](int i, int j, int k) {
+        i = i < 0 ? 0 : (i > Nx ? Nx : i);
+        return u[idxU(i, j, k, Nx, Ny)];
+    };
+    auto vY = [&](int i, int j, int k) {
+        j = j < 0 ? 0 : (j > Ny ? Ny : j);
+        return v[idxV(i, j, k, Nx, Ny)];
+    };
+    auto wZ = [&](int i, int j, int k) {
+        k = k < 0 ? 0 : (k > Nz ? Nz : k);
+        return w[idxW(i, j, k, Nx, Ny)];
+    };
+
     applyVelocityBCs(u, v, w);
     applyOutletBCs(u, v, w); // seed outlet plug flow so iter-1 div is finite
 
@@ -615,7 +687,6 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
             for (int i = 1; i < Nx; ++i) {
               const std::size_t ui = idxU(i, j, k, Nx, Ny);
               const double uC = u[ui];
-              // First-order upwind advection.
               const double uE = u[idxU(i + 1, j, k, Nx, Ny)];
               const double uW = u[idxU(i - 1, j, k, Nx, Ny)];
               const double uN = uGhost(i, j + 1, k);
@@ -635,9 +706,13 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                 w[idxW(i - 1, j, k + 1, Nx, Ny)] +
                 w[idxW(i,     j, k + 1, Nx, Ny)]);
 
-              const double duAdx = (uC > 0 ? (uC - uW) : (uE - uC)) / dx * uC;
-              const double duAdy = (v_here > 0 ? (uC - uS) : (uN - uC)) / dy * v_here;
-              const double duAdz = (w_here > 0 ? (uC - uB) : (uT - uC)) / dz * w_here;
+              // 2nd-order TVD/MUSCL (van Leer) advection on the staggered faces.
+              const double duAdx = musclConv(uC,
+                  uX(i - 2, j, k), uW, uC, uE, uX(i + 2, j, k), dx);
+              const double duAdy = musclConv(v_here,
+                  uGhost(i, j - 2, k), uS, uC, uN, uGhost(i, j + 2, k), dy);
+              const double duAdz = musclConv(w_here,
+                  uGhost(i, j, k - 2), uB, uC, uT, uGhost(i, j, k + 2), dz);
 
               // Central diffusion.
               const double lap = (uE - 2 * uC + uW) / (dx * dx)
@@ -672,9 +747,12 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                 w[idxW(i, j - 1, k + 1, Nx, Ny)] +
                 w[idxW(i, j,     k + 1, Nx, Ny)]);
 
-              const double dvAdx = (u_here > 0 ? (vC - vW) : (vE - vC)) / dx * u_here;
-              const double dvAdy = (vC > 0 ? (vC - vS) : (vN - vC)) / dy * vC;
-              const double dvAdz = (w_here > 0 ? (vC - vB) : (vT - vC)) / dz * w_here;
+              const double dvAdx = musclConv(u_here,
+                  vGhost(i - 2, j, k), vW, vC, vE, vGhost(i + 2, j, k), dx);
+              const double dvAdy = musclConv(vC,
+                  vY(i, j - 2, k), vS, vC, vN, vY(i, j + 2, k), dy);
+              const double dvAdz = musclConv(w_here,
+                  vGhost(i, j, k - 2), vB, vC, vT, vGhost(i, j, k + 2), dz);
 
               const double lap = (vE - 2 * vC + vW) / (dx * dx)
                                + (vN - 2 * vC + vS) / (dy * dy)
@@ -708,9 +786,12 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                 v[idxV(i, j,     k,     Nx, Ny)] +
                 v[idxV(i, j + 1, k,     Nx, Ny)]);
 
-              const double dwAdx = (u_here > 0 ? (wC - wW) : (wE - wC)) / dx * u_here;
-              const double dwAdy = (v_here > 0 ? (wC - wS) : (wN - wC)) / dy * v_here;
-              const double dwAdz = (wC > 0 ? (wC - wB) : (wT - wC)) / dz * wC;
+              const double dwAdx = musclConv(u_here,
+                  wGhost(i - 2, j, k), wW, wC, wE, wGhost(i + 2, j, k), dx);
+              const double dwAdy = musclConv(v_here,
+                  wGhost(i, j - 2, k), wS, wC, wN, wGhost(i, j + 2, k), dy);
+              const double dwAdz = musclConv(wC,
+                  wZ(i, j, k - 2), wB, wC, wT, wZ(i, j, k + 2), dz);
 
               const double lap = (wE - 2 * wC + wW) / (dx * dx)
                                + (wN - 2 * wC + wS) / (dy * dy)
