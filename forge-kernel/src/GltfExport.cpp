@@ -2,13 +2,12 @@
 
 #include "forge/Tessellate.hpp"
 
-#include <BRepMesh_IncrementalMesh.hxx>
-#include <BRep_Tool.hxx>
-#include <Poly_Triangulation.hxx>
-#include <TopExp_Explorer.hxx>
-#include <TopLoc_Location.hxx>
-#include <TopoDS.hxx>
-#include <TopoDS_Face.hxx>
+// NOTE (OCCT_ZERO Wave-0 B3): the OCCT headers that used to sit here
+// (BRepMesh_IncrementalMesh / BRep_Tool / Poly_Triangulation / TopExp_Explorer /
+// TopLoc_Location / TopoDS / TopoDS_Face) were DEAD — glTF export is already
+// fully native (it tessellates through forge::Tessellate, which owns the native↔
+// OCCT routing). None of those symbols appear anywhere in this translation unit.
+// Removed so this TU carries zero direct OCCT includes.
 
 #include <cstdint>
 #include <cstdio>
