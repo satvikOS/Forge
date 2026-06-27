@@ -116,6 +116,54 @@ AnalyticFilletResult filletBoxEdgeAnalytic(TopologyBuilder& tb,
                                            int edgeIndex = 4);
 
 // ---------------------------------------------------------------------------
+// enumerateSolidStraightEdges — the DETERMINISTIC edge enumeration the
+// topology-sourced fillet (and the part.filletEdges native routing) indexes
+// `edgeId` through. It walks shells[0] -> faces[*] -> outerLoop (and inner)
+// coedges, collects each distinct Edge* once (canonicalised by its endpoint
+// vertices), and sorts the survivors by (edge MIDPOINT, then sign-canonical
+// unit DIRECTION) — the SAME canonical (midpoint, direction) ordering the mesh
+// enumeration enumerateSharpConvexEdges (Fillet.hpp) sorts its sharp-convex
+// edges by, so an `edgeId` resolves to the geometrically same edge on both the
+// analytic-B-rep and the mesh-bridge backends (JS edge ids stay stable). Pure,
+// allocation-only; returns an empty vector for an empty / shell-less solid.
+// ---------------------------------------------------------------------------
+std::vector<Edge*> enumerateSolidStraightEdges(const Solid& src);
+
+// ---------------------------------------------------------------------------
+// filletSolidStraightEdgeAnalytic — the OCCT-ZERO keystone: the analytic
+// constant-radius ROLLING-BALL fillet of ONE straight CONVEX edge of an
+// arbitrary native analytic Solid, TOPOLOGY-SOURCED (not box-hardcoded). This
+// is the same rolling-ball contact + cylinder blend + re-trim + quarter-disk
+// caps as filletBoxEdgeAnalytic, but the edge and its adjacent / perpendicular
+// faces are resolved by WALKING the real B-rep topology of `src`, so it runs
+// on STEP-imported / boolean / extrude solids — the cases part.filletEdges
+// would otherwise hand to OCCT BRepFilletAPI_MakeFillet (which spins forever on
+// a multi-hole body). `edgeId` indexes enumerateSolidStraightEdges(src).
+//
+// HONEST SCOPE of THIS increment (each REFUSED with `reason`, never faked):
+//   * the selected edge must be STRAIGHT, CONVEX, and shared by exactly two
+//     PLANAR faces whose normals are ORTHOGONAL (the 90-degree edge — the exact
+//     scope of filletBoxEdgeAnalytic, so the quarter-cylinder blend + the
+//     (1-pi/4)R^2 L removed cross-section are exact);
+//   * each of the two faces that CAP the edge ends (the perpendicular end
+//     faces) must be PLANAR, hole-free, and perpendicular to the edge (the
+//     box/prism/plate local topology). A non-orthogonal / curved / holed
+//     adjacent or end face, or a concave edge, is REFUSED (the torus / mitre /
+//     setback follow-ups), NOT fabricated. Faces that touch NEITHER endpoint
+//     are copied faithfully (any surface, inner loops preserved), so a solid
+//     with curved or holed faces ELSEWHERE is fully supported.
+//
+// The two re-trimmed faces + the L-polygon-re-trimmed end faces + the two
+// quarter-disk caps + the cylindrical blend patch + every untouched face are
+// SEWN (Sew.hpp) into one closed 2-manifold whose mass the analytic integrator
+// measures exactly; `ok` is true only when that sew is watertight (else `reason`).
+// ---------------------------------------------------------------------------
+AnalyticFilletResult filletSolidStraightEdgeAnalytic(TopologyBuilder& tb,
+                                                     const Solid& src,
+                                                     std::uint32_t edgeId,
+                                                     double R);
+
+// ---------------------------------------------------------------------------
 // filletLBlockEdgeAnalytic — CONCAVE (reflex) constant-radius rolling-ball fillet.
 //
 // Builds the canonical L-PRISM: the L-shaped cross-section

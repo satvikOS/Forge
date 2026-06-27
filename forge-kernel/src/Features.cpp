@@ -20,6 +20,7 @@
 #include "forge/native/brep/NativeRoute.hpp"
 #include "forge/native/brep/SolidTessellate.hpp"
 #include "forge/native/brep/Fillet.hpp"
+#include "forge/native/brep/FilletAnalytic.hpp"  // topology-sourced analytic edge fillet
 #include "forge/native/brep/Chamfer.hpp"
 #include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
 // IN-HOUSE KERNEL STEP 3b — native sketch-feature ops (extrude/revolve/sweep/loft).
@@ -31,10 +32,14 @@
 #include "forge/native/mesh/FeatureEdges.hpp"   // detectFeatureEdges
 #include "forge/native/Predicates.hpp"          // orient3d convex test
 #include <array>                                // edge enumeration
+#include <chrono>                               // OCCT-fillet watchdog deadline
 #include <cmath>                                // std::sqrt for edge dirs
 #include <cstdint>
+#include <future>                               // OCCT-fillet watchdog (packaged_task)
 #include <map>                                  // canonical edge ordering
 #include <memory>
+#include <mutex>                                // OCCT-fillet cumulative budget guard
+#include <thread>                               // OCCT-fillet watchdog worker
 #include <unordered_map>                        // edge->faces map
 #include <unordered_set>                      // selected-face id set (draftFaces)
 #endif
@@ -895,6 +900,49 @@ ShapeHandle filletEdges(ShapeHandle shape,
             s.radius = radius;
             sel.push_back(s);
         }
+        // ANALYTIC EXACT PATH (preferred for a single straight convex edge): when
+        // exactly one edge is selected and it resolves to a straight CONVEX edge
+        // between two ORTHOGONAL PLANAR faces, build the EXACT analytic rolling-
+        // ball blend (a real Cylinder fillet surface + re-trimmed faces + quarter-
+        // disk caps, emitted as a native analytic Solid) instead of the mesh-bridge
+        // rounded strip. The selected edge is mapped from its geometric key to the
+        // solid's topology edge enumeration. ANY failure (not analytic-fillable, or
+        // the result is not a watertight 2-manifold) FALLS BACK to the proven mesh
+        // bridge below — so this strictly adds capability, never regresses.
+        if (sel.size() == 1) {
+            const nb::Solid& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            const std::vector<nb::Edge*> topo = nb::enumerateSolidStraightEdges(solid);
+            const nb::EdgeSel& s0 = sel[0];
+            int hit = -1;
+            for (std::size_t i = 0; i < topo.size(); ++i) {
+                const nb::Edge* E = topo[i];
+                const double mx = 0.5 * (E->start->point.x + E->end->point.x);
+                const double my = 0.5 * (E->start->point.y + E->end->point.y);
+                const double mz = 0.5 * (E->start->point.z + E->end->point.z);
+                double dx = E->end->point.x - E->start->point.x;
+                double dy = E->end->point.y - E->start->point.y;
+                double dz = E->end->point.z - E->start->point.z;
+                const double dl = std::sqrt(dx * dx + dy * dy + dz * dz);
+                if (!(dl > 0.0)) continue;
+                dx /= dl; dy /= dl; dz /= dl;
+                const double dmid = std::sqrt((mx - s0.px) * (mx - s0.px) +
+                                              (my - s0.py) * (my - s0.py) +
+                                              (mz - s0.pz) * (mz - s0.pz));
+                const double cx = dy * s0.dz - dz * s0.dy;   // dir x sel.dir
+                const double cy = dz * s0.dx - dx * s0.dz;
+                const double cz = dx * s0.dy - dy * s0.dx;
+                const double cl = std::sqrt(cx * cx + cy * cy + cz * cz);
+                if (dmid <= 1e-6 && cl <= 1e-6) { hit = static_cast<int>(i); break; }
+            }
+            if (hit >= 0) {
+                auto owner = std::make_shared<nb::TopologyBuilder>();
+                nb::AnalyticFilletResult ar = nb::filletSolidStraightEdgeAnalytic(
+                    *owner, solid, static_cast<std::uint32_t>(hit), radius);
+                if (ar.ok && ar.solid)
+                    return ShapeRegistry::instance().addNativeSolid(owner, ar.solid);
+                // else: honest fallback to the mesh bridge below.
+            }
+        }
         nb::FilletResult fr = nb::filletConvexEdgesSelected(pos, idx, sel, nSeg);
         if (!fr.ok) {
             throw std::runtime_error(std::string("forge native fillet: ") +
@@ -905,15 +953,74 @@ ShapeHandle filletEdges(ShapeHandle shape,
     }
 #endif
     const auto& src = fetch(shape);
-    BRepFilletAPI_MakeFillet mk(src);
-    for (auto id : edgeIds) {
-        mk.Add(radius, edgeById(src, id));
+    // ─────────────────────────── OCCT-fillet hang guard ──────────────────────
+    // The OCCT BRepFilletAPI path can make part.finish hang on a multi-hole body
+    // in TWO ways, BOTH bounded here so the call ERRORS CLEANLY rather than
+    // hanging the process (the native analytic path above already avoids OCCT for
+    // fillable native solids — this protects the remaining OCCT shapes: imported
+    // STEP / boolean results):
+    //   (a) a SINGLE Build() can spin unbounded — ChFi3d_Builder::Compute() has no
+    //       cancellation hook, so we run it on a WORKER THREAD with a deadline; and
+    //   (b) the frontend's greedy per-edge fillet fallback issues O(N) filletEdges
+    //       calls on a many-edge body (the box+4-holes repro has thousands of OCCT
+    //       edges), each ~0.1 s — summing to minutes even though no single call
+    //       spins. So we also enforce a CUMULATIVE per-body WALL-TIME BUDGET across
+    //       back-to-back fillet calls (a >3 s gap starts a fresh window, so an
+    //       unrelated later fillet is never starved). Once the budget is spent,
+    //       further calls fail FAST, collapsing the greedy storm to ~the budget.
+    using FilletClock = std::chrono::steady_clock;
+    static std::mutex sFilletMx;
+    static FilletClock::time_point sWinStart{};
+    static FilletClock::time_point sLastEnd{};
+    static bool sWinActive = false;
+    constexpr std::chrono::milliseconds kFilletBudget{20000};   // per-body wall budget
+    constexpr std::chrono::milliseconds kFilletGap{3000};       // window-reset gap
+
+    std::chrono::milliseconds remaining{};
+    {
+        std::lock_guard<std::mutex> lk(sFilletMx);
+        const FilletClock::time_point now = FilletClock::now();
+        if (!sWinActive || (now - sLastEnd) > kFilletGap) { sWinStart = now; sWinActive = true; }
+        const auto used = std::chrono::duration_cast<std::chrono::milliseconds>(now - sWinStart);
+        if (used >= kFilletBudget)
+            throw std::runtime_error(
+                "forge.part.filletEdges: cumulative OCCT-fillet budget (20s) exhausted "
+                "for this body without converging — refusing further edge-fillet "
+                "attempts rather than hanging (a many-edge multi-hole body whose "
+                "per-edge fillet fallback cannot finish in bounded time, or a ChFi3d "
+                "blend that spins). Native solids use the OCCT-free analytic fillet path.");
+        remaining = kFilletBudget - used;
     }
-    mk.Build();
-    if (!mk.IsDone()) {
-        throw std::runtime_error("forge.part.filletEdges: fillet build failed");
+
+    TopoDS_Shape srcCopy = src;                 // shallow handle copy; read-only below
+    const std::vector<std::uint32_t> ids(edgeIds.begin(), edgeIds.end());
+    const double rad = radius;
+    auto task = std::make_shared<std::packaged_task<TopoDS_Shape()>>(
+        [srcCopy, ids, rad]() -> TopoDS_Shape {
+            BRepFilletAPI_MakeFillet mk(srcCopy);
+            for (auto id : ids) mk.Add(rad, edgeById(srcCopy, id));
+            mk.Build();
+            if (!mk.IsDone())
+                throw std::runtime_error("forge.part.filletEdges: fillet build failed");
+            return mk.Shape();
+        });
+    std::future<TopoDS_Shape> fut = task->get_future();
+    std::thread worker([task]() { (*task)(); });
+    const std::future_status st = fut.wait_for(remaining);
+    {
+        std::lock_guard<std::mutex> lk(sFilletMx);
+        sLastEnd = FilletClock::now();
     }
-    return ShapeRegistry::instance().add(mk.Shape());
+    if (st == std::future_status::timeout) {
+        worker.detach();   // abandon the non-cancellable OCCT build (no inner hook)
+        throw std::runtime_error(
+            "forge.part.filletEdges: OCCT BRepFilletAPI did not converge within the "
+            "remaining fillet budget (the blend walk spun — typically a fillet edge "
+            "adjacent to a hole). Refusing rather than hanging; the native analytic "
+            "fillet path rounds straight convex edges of native solids without OCCT.");
+    }
+    worker.join();
+    return ShapeRegistry::instance().add(fut.get());   // rethrows any worker error
 }
 
 // ============================================================ variableFilletEdge

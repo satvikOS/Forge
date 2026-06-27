@@ -48,6 +48,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <unordered_set>
 #include <vector>
 
 namespace forge {
@@ -646,6 +648,281 @@ AnalyticFilletResult filletBoxEdgeAnalytic(TopologyBuilder& tb,
     res.tangentB    = TB0;
     res.reason      = "ok (analytic constant-radius rolling-ball fillet, "
                       "planar-planar convex straight edge)";
+    return res;
+}
+
+// ===========================================================================
+// TOPOLOGY-SOURCED single convex straight edge fillet (the OCCT-zero keystone).
+// Same rolling-ball math as filletBoxEdgeAnalytic, but the edge + its adjacent
+// and perpendicular-end faces are resolved by WALKING the real B-rep of `src`.
+// ===========================================================================
+namespace {
+
+// The ordered outer-loop vertices of a face (origin vertices in coedge order).
+std::vector<Vertex*> outerRingVerts(const Face* f) {
+    std::vector<Vertex*> vs;
+    if (!f->outerLoop || !f->outerLoop->first) return vs;
+    Coedge* c = f->outerLoop->first;
+    for (std::size_t i = 0; i < f->outerLoop->coedgeCount; ++i, c = c->next)
+        vs.push_back(c->originVertex());
+    return vs;
+}
+
+// Faithful INDEPENDENT-fragment copy of a face: fresh vertices at the same
+// positions for the outer loop and every inner (hole) loop, the analytic
+// Surface copied verbatim (plane / quadric / NURBS / disk), plus the trim
+// window, vertexUV and paramTri flag. Edge 3D-curves are intentionally NOT
+// copied: the sewer welds coincident edges by their shared endpoints (a chord
+// match), and the EXACT mass is integrated from the copied Surface + trim, so
+// the copy is watertight AND mass-exact without re-binding curves. Used for the
+// faces of `src` that touch NEITHER endpoint of the filleted edge.
+Face* copyFaceFragment(TopologyBuilder& tb, const Face* src) {
+    auto freshRing = [&](Loop* lp) {
+        std::vector<Vertex*> vs;
+        if (!lp || !lp->first) return vs;
+        Coedge* c = lp->first;
+        for (std::size_t i = 0; i < lp->coedgeCount; ++i, c = c->next)
+            vs.push_back(tb.makeVertex(c->originVertex()->point));
+        return vs;
+    };
+    Face* f = tb.makeFace();
+    tb.addOuterLoopToFace(f, freshRing(src->outerLoop));
+    for (Loop* il : src->innerLoops) {
+        std::vector<Vertex*> inner = freshRing(il);
+        if (!inner.empty()) tb.addInnerLoopToFace(f, inner);
+    }
+    if (src->surface) {
+        Surface* s = tb.makeSurface();
+        *s = *src->surface;          // value copy (PODs + NurbsSurface vectors)
+        f->surface = s;
+    }
+    f->u0 = src->u0; f->u1 = src->u1; f->v0 = src->v0; f->v1 = src->v1;
+    f->vertexUV = src->vertexUV;
+    f->paramTri = src->paramTri;
+    return f;
+}
+
+} // namespace
+
+std::vector<Edge*> enumerateSolidStraightEdges(const Solid& src) {
+    std::vector<Edge*> edges;
+    if (src.shells.empty() || src.shells[0] == nullptr) return edges;
+    std::unordered_set<Edge*> seen;
+    auto collectLoop = [&](Loop* lp) {
+        if (!lp || !lp->first) return;
+        Coedge* c = lp->first;
+        for (std::size_t i = 0; i < lp->coedgeCount; ++i, c = c->next)
+            if (c->edge && c->edge->start && c->edge->end && seen.insert(c->edge).second)
+                edges.push_back(c->edge);
+    };
+    for (Face* f : src.shells[0]->faces) {
+        collectLoop(f->outerLoop);
+        for (Loop* il : f->innerLoops) collectLoop(il);
+    }
+    // Canonical (midpoint, sign-canonical direction) sort — mirrors the
+    // enumerateSharpConvexEdges ordering so an edgeId is backend-stable.
+    auto midDir = [](Edge* e, Vec3& mid, Vec3& dir) {
+        Vec3 a = P2V(e->start->point), b = P2V(e->end->point);
+        mid = vscale(vadd(a, b), 0.5);
+        Vec3 d = vsub(b, a);
+        // sign-canonical: point from the lexicographically-smaller endpoint to
+        // the larger one (independent of edge->start/end labelling).
+        const double eps = 1e-12;
+        bool flip = (a.x > b.x + eps) ||
+                    (std::fabs(a.x - b.x) <= eps && (a.y > b.y + eps ||
+                    (std::fabs(a.y - b.y) <= eps && a.z > b.z + eps)));
+        if (flip) d = vscale(d, -1.0);
+        const double L = vlen(d);
+        dir = (L > 0.0) ? vscale(d, 1.0 / L) : Vec3{0, 0, 0};
+    };
+    std::sort(edges.begin(), edges.end(), [&](Edge* a, Edge* b) {
+        Vec3 ma, da, mb, db; midDir(a, ma, da); midDir(b, mb, db);
+        if (ma.x != mb.x) return ma.x < mb.x;
+        if (ma.y != mb.y) return ma.y < mb.y;
+        if (ma.z != mb.z) return ma.z < mb.z;
+        if (da.x != db.x) return da.x < db.x;
+        if (da.y != db.y) return da.y < db.y;
+        return da.z < db.z;
+    });
+    return edges;
+}
+
+AnalyticFilletResult filletSolidStraightEdgeAnalytic(TopologyBuilder& tb,
+                                                     const Solid& src,
+                                                     std::uint32_t edgeId,
+                                                     double R) {
+    if (!(R > 0.0) || !std::isfinite(R)) return fail("fillet radius R must be positive and finite");
+    if (src.shells.empty() || src.shells[0] == nullptr) return fail("solid has no shell");
+
+    std::vector<Edge*> edges = enumerateSolidStraightEdges(src);
+    if (edges.empty()) return fail("solid has no enumerable edges");
+    if (edgeId >= edges.size()) return fail("edgeId out of range for this solid's edge enumeration");
+    Edge* E = edges[edgeId];
+
+    // -------- resolve the two adjacent faces (via the edge's two coedges) -----
+    if (!E->coedgeA || !E->coedgeB) return fail("edge is not shared by two coedges (open / non-manifold)");
+    if (!E->coedgeA->loop || !E->coedgeB->loop) return fail("edge coedge has no loop");
+    Face* FA = E->coedgeA->loop->face;
+    Face* FB = E->coedgeB->loop->face;
+    if (!FA || !FB || FA == FB) return fail("could not resolve two distinct adjacent faces");
+    if (!FA->surface || FA->surface->kind != SurfaceKind::Plane ||
+        !FB->surface || FB->surface->kind != SurfaceKind::Plane)
+        return fail("both adjacent faces must be PLANAR (curved-face fillet is the torus follow-up)");
+    if (!FA->innerLoops.empty() || !FB->innerLoops.empty())
+        return fail("an adjacent face has inner (hole) loops; holed-face re-trim is a follow-up");
+
+    Vertex* VP0 = E->start;
+    Vertex* VP1 = E->end;
+    const Vec3 P0 = P2V(VP0->point);
+    const Vec3 P1 = P2V(VP1->point);
+    Vec3 e = vsub(P1, P0);
+    const double edgeLen = vlen(e);
+    if (!(edgeLen > 0.0)) return fail("degenerate (zero-length) edge");
+    e = vscale(e, 1.0 / edgeLen);
+    if (!(R < edgeLen)) return fail("fillet radius R must be < the edge length");
+
+    // Outward normals from the real loop winding (CCW-from-outside -> outward).
+    const Vec3 nA = vnorm(ringNormal(outerRingVerts(FA)));
+    const Vec3 nB = vnorm(ringNormal(outerRingVerts(FB)));
+
+    // Orthogonal-only scope (the exact filletBoxEdgeAnalytic envelope).
+    const double ndot = vdot(nA, nB);
+    if (std::fabs(ndot) > 1e-7)
+        return fail("adjacent face normals are not orthogonal (only the 90-degree "
+                    "convex straight edge is in this increment's scope)");
+
+    // Convex test: face A's in-plane interior direction must lie on the MATERIAL
+    // (inner) side of plane B (iA . nB < 0). Concave (reflex) edges are refused.
+    Coedge* cA = (E->coedgeA->loop->face == FA) ? E->coedgeA : E->coedgeB;
+    const Vec3 dA = vnorm(vsub(P2V(cA->destVertex()->point), P2V(cA->originVertex()->point)));
+    const Vec3 iA = vnorm(vcross(nA, dA));   // points into FA's interior, in-plane
+    if (!(vdot(iA, nB) < -1e-7))
+        return fail("edge is concave (reflex) or tangent — convex-only in this increment");
+
+    const double interiorDihedralDeg =
+        180.0 - std::acos(std::max(-1.0, std::min(1.0, ndot))) * 180.0 / kPi;
+
+    // -------- rolling-ball contact (identical math to filletBoxEdgeAnalytic) --
+    const Vec3 iAn = vscale(nA, -1.0), iBn = vscale(nB, -1.0);
+    const Vec3 A0 = vadd(P0, vadd(vscale(iAn, R), vscale(iBn, R)));   // axis foot @ P0
+    const Vec3 A1 = vadd(A0, vscale(e, edgeLen));                     // axis foot @ P1
+    const Vec3 TA0 = vadd(A0, vscale(nA, R)), TB0 = vadd(A0, vscale(nB, R));
+    const Vec3 TA1 = vadd(A1, vscale(nA, R)), TB1 = vadd(A1, vscale(nB, R));
+
+    AnalyticFilletResult res;
+    std::vector<Face*> frags;
+    int adjacentCount = 0, endCount = 0;
+
+    // -------- classify + re-emit every face of src as an independent fragment -
+    for (Face* F : src.shells[0]->faces) {
+        std::vector<Vertex*> ring = outerRingVerts(F);
+        if (ring.empty()) return fail("a face has an empty outer loop");
+        bool has0 = false, has1 = false;
+        for (Vertex* v : ring) { if (v == VP0) has0 = true; if (v == VP1) has1 = true; }
+
+        if (has0 && has1) {
+            // ADJACENT face (FA or FB): re-trim its two sharp-edge corners to the
+            // tangent contacts; the rest of the polygon is unchanged.
+            if (F != FA && F != FB)
+                return fail("a non-adjacent face contains both edge endpoints (unsupported topology)");
+            ++adjacentCount;
+            const bool isA = (F == FA);
+            const Vec3 fn = isA ? nA : nB;
+            const Vec3 T0 = isA ? TA0 : TB0;
+            const Vec3 T1 = isA ? TA1 : TB1;
+            std::vector<Vec3> rp;
+            rp.reserve(ring.size());
+            for (Vertex* v : ring) {
+                if (v == VP0)      rp.push_back(T0);
+                else if (v == VP1) rp.push_back(T1);
+                else               rp.push_back(P2V(v->point));
+            }
+            Face* rf = emitPlanarPolygon(tb, rp, fn);
+            frags.push_back(rf);
+            if (isA) res.trimmedFaceA = rf; else res.trimmedFaceB = rf;
+            continue;
+        }
+
+        if (has0 || has1) {
+            // PERPENDICULAR END face (exactly one sharp corner). Must be planar,
+            // hole-free, and perpendicular to the edge (box/prism local topology).
+            if (!F->surface || F->surface->kind != SurfaceKind::Plane || !F->innerLoops.empty())
+                return fail("an edge endpoint meets a non-planar or holed face (setback follow-up)");
+            const Vec3 fn = vnorm(ringNormal(ring));
+            if (!(std::fabs(vdot(fn, e)) > 1.0 - 1e-6))
+                return fail("an end face is not perpendicular to the edge (mitre/setback follow-up)");
+            ++endCount;
+            const bool atStart = has0;
+            Vertex* Vsharp = atStart ? VP0 : VP1;
+            const Vec3 center = atStart ? A0 : A1;
+            const Vec3 Ta = atStart ? TA0 : TA1;   // tangent on FA's plane at this end
+            const Vec3 Tb = atStart ? TB0 : TB1;   // tangent on FB's plane at this end
+
+            const int n = static_cast<int>(ring.size());
+            int slot = -1;
+            for (int k = 0; k < n; ++k) if (ring[k] == Vsharp) { slot = k; break; }
+            if (slot < 0) return fail("internal: sharp corner not located in end-face loop");
+            const Vec3 prevPos = P2V(ring[(slot - 1 + n) % n]->point);
+            const double dTa = vlen(vsub(Ta, prevPos)), dTb = vlen(vsub(Tb, prevPos));
+            const Vec3 nearPrev = (dTa <= dTb) ? Ta : Tb;
+            const Vec3 nearNext = (dTa <= dTb) ? Tb : Ta;
+
+            // L-polygon: the box ring with the sharp corner replaced by the chain
+            // [nearPrev, center, nearNext]; it is star-shaped from `center`, so it
+            // fans into convex triangles (the analytic planar integrator is exact
+            // per convex triangle). The two radius edges + the disk's radii + the
+            // disk arc make the rounded corner watertight.
+            std::vector<Vec3> Lring;
+            for (int k = 0; k < n; ++k) {
+                if (k == slot) { Lring.push_back(nearPrev); Lring.push_back(center); Lring.push_back(nearNext); }
+                else           { Lring.push_back(P2V(ring[k]->point)); }
+            }
+            int ci = 0;
+            for (int k = 0; k < static_cast<int>(Lring.size()); ++k) if (veq(Lring[k], center)) { ci = k; break; }
+            const int Ln = static_cast<int>(Lring.size());
+            for (int step = 1; step + 1 < Ln; ++step) {
+                std::vector<Vec3> tri = { center, Lring[(ci + step) % Ln], Lring[(ci + step + 1) % Ln] };
+                frags.push_back(emitPlanarPolygon(tb, tri, fn));
+            }
+            // The quarter-disk cap (radii nA -> nB, centred on the axis foot).
+            frags.push_back(emitQuarterDisk(tb, center, R, nA, nB, e, fn));
+            continue;
+        }
+
+        // UNTOUCHED face: faithful independent copy (any surface, holes preserved).
+        frags.push_back(copyFaceFragment(tb, F));
+    }
+
+    if (adjacentCount != 2)
+        return fail("the edge is not shared by exactly two re-trimmable adjacent faces");
+    if (endCount != 2)
+        return fail("the edge does not terminate against exactly two perpendicular end faces");
+
+    // -------- the cylindrical fillet PATCH (convex: ring & normal == +bisector) -
+    const Vec3 outward = vnorm(vadd(nA, nB));
+    Face* cyl = emitCylinderPatch(tb, A0, A1, R, nA, nB, e, edgeLen, outward, outward);
+    frags.push_back(cyl);
+    res.filletFace = cyl;
+
+    // -------- sew every fragment into one closed 2-manifold -------------------
+    Solid* solid = tb.makeSolid();
+    SewOptions so; so.tol = 1e-7; so.midSamples = 3; so.weldVertices = true;
+    SewResult sr = sewFaces(tb, frags, so);
+    for (Shell* sh : sr.shells) tb.addShellToSolid(solid, sh);
+
+    res.solid       = solid;
+    res.radius      = R;
+    res.edgeLength  = edgeLen;
+    res.dihedralDeg = interiorDihedralDeg;
+    res.axisPoint   = A0;
+    res.axisDir     = e;
+    res.tangentA    = TA0;
+    res.tangentB    = TB0;
+    res.ok = sr.ok && sr.diagnosis.closed;
+    res.reason = res.ok
+        ? "ok (analytic constant-radius rolling-ball fillet of a TOPOLOGY-SOURCED "
+          "convex straight planar-planar edge; watertight closed 2-manifold)"
+        : "topology-sourced fillet assembly did not sew into a closed shell";
     return res;
 }
 
