@@ -443,6 +443,7 @@ export function SimulationWorkbench({ activeBodyHandle = null,
               <span><strong>elapsed</strong> {Math.round(meshInfo.elapsedMs)} ms</span>
             </div>
           )}
+          {meshQuality && <MeshQualityReport q={meshQuality} />}
           {meshError && (
             <div className="forge-sim-error" data-testid="forge-sim-mesh-error">
               {meshError}
@@ -912,6 +913,44 @@ function ConvergencePlot({ log }) {
   );
 }
 
+// Task #66 Inc 4 — per-element FEA mesh-quality report (aspect histogram +
+// min/avg/worst aspect, min dihedral, volume; poor-element flag). Reads the
+// structured report feaMeshQuality() computed on the last mesh.
+function MeshQualityReport({ q }) {
+  if (!q) return null;
+  const maxBin = Math.max(1, ...q.histogram.map((b) => b.count));
+  const fmtEdge = (v) => (v === Infinity ? '∞' : v);
+  return (
+    <div className="forge-sim-quality" data-testid="forge-sim-mesh-quality"
+         data-element-type={q.elementType}
+         data-poor-count={q.poorCount}>
+      <div className="forge-sim-quality-head">
+        mesh quality — {q.elementType} · {q.elemCount} elem
+        <span className={q.poorCount > 0 ? 'forge-sim-quality-bad' : 'forge-sim-quality-ok'}>
+          {q.poorCount > 0 ? `${q.poorCount} poor` : 'all good'}
+        </span>
+      </div>
+      <div className="forge-sim-info">
+        <span><strong>aspect</strong> {q.aspect.min.toFixed(2)} / {q.aspect.avg.toFixed(2)} / {
+          Number.isFinite(q.aspect.worst) ? q.aspect.worst.toFixed(2) : '∞'}</span>
+        <span><strong>min ∠</strong> {q.minDihedralDeg.min.toFixed(1)}°</span>
+        <span><strong>Σvol</strong> {q.volume.total.toExponential(2)} m³</span>
+      </div>
+      <div className="forge-sim-quality-hist" aria-label="aspect-ratio histogram">
+        {q.histogram.map((b, i) => (
+          <div key={i} className="forge-sim-quality-bar-wrap"
+               title={`aspect ${fmtEdge(b.loEdge)}–${fmtEdge(b.hiEdge)}: ${b.count}`}>
+            <div className="forge-sim-quality-bar"
+                 data-bin={i}
+                 style={{ height: `${Math.round((b.count / maxBin) * 100)}%` }} />
+            <span className="forge-sim-quality-tick">{fmtEdge(b.hiEdge)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CrackResultSummary({ result }) {
   const steps = Array.isArray(result.steps) ? result.steps : [];
   return (
@@ -1173,6 +1212,40 @@ function SimWorkbenchStyles() {
         color: var(--forge-ink-2);
       }
       .forge-sim-info strong { color: var(--forge-ink); margin-right: 4px; }
+      .forge-sim-quality {
+        display: flex; flex-direction: column; gap: 6px;
+        padding: 6px 8px;
+        background: var(--forge-surface);
+        border: 1px solid var(--forge-rail-edge);
+        border-radius: 4px;
+      }
+      .forge-sim-quality-head {
+        display: flex; align-items: center; justify-content: space-between;
+        font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em;
+        color: var(--forge-ink-mute);
+      }
+      .forge-sim-quality-ok  { color: var(--forge-ok); }
+      .forge-sim-quality-bad { color: var(--forge-err); }
+      .forge-sim-quality-hist {
+        display: flex; align-items: flex-end; gap: 3px;
+        height: 48px; padding-top: 4px;
+      }
+      .forge-sim-quality-bar-wrap {
+        flex: 1; height: 100%;
+        display: flex; flex-direction: column; justify-content: flex-end;
+        align-items: center; gap: 2px;
+      }
+      .forge-sim-quality-bar {
+        width: 100%; min-height: 1px;
+        background: var(--forge-accent-rim);
+        border-radius: 1px;
+      }
+      .forge-sim-quality-bar[data-bin="4"],
+      .forge-sim-quality-bar[data-bin="5"] { background: var(--forge-err); }
+      .forge-sim-quality-tick {
+        font-family: var(--forge-mono); font-size: 8px;
+        color: var(--forge-ink-mute);
+      }
       .forge-sim-error {
         background: rgba(226, 106, 106, 0.08);
         border: 1px solid var(--forge-err);
