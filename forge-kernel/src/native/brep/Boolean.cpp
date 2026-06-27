@@ -899,7 +899,8 @@ struct StitchLineage {
 // face. Pass nullptr to skip (the mesh fallback does not call stitch).
 template <class MaterialFn>
 BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
-                     MaterialFn&& material, StitchLineage* lineage = nullptr) {
+                     MaterialFn&& material, StitchLineage* lineage = nullptr,
+                     double weldGrid = 1e-7) {
     BooleanResult res;
 
     // ---- PASS 1: weld 3-D corners to integer vertex ids and orient each ring
@@ -911,7 +912,9 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
     // (the caller then falls back honestly).
     std::map<std::tuple<long long, long long, long long>, int> weld;
     std::vector<Vec3> vpos;
-    const double wtol = 1e-7;
+    // Corner-weld grid. Default 1e-7; a fuzzy boolean widens it (weldGrid) so
+    // near-coincident corners of the two operands collapse to one shared vertex.
+    const double wtol = weldGrid;
     auto vid = [&](const Vec3& p) -> int {
         auto key = std::make_tuple((long long)std::llround(p.x / wtol),
                                    (long long)std::llround(p.y / wtol),
@@ -1187,8 +1190,15 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
     // small face, not 1-2 grazing points).
     std::vector<std::vector<std::vector<Vec3>>> curvesForA(fa.size()), curvesForB(fb.size());
     SurfaceIntersectOptions sio; sio.sampleN = 256;
+    // FUZZY BOOLEAN (C-FUZZY): widen the SSI geometric coincidence tolerance by the
+    // fuzz so a pair of surfaces within `fuzz` is treated as coincident (not a
+    // spurious sliver crossing). fuzz=0 leaves the exact 1e-9 default untouched.
+    if (opts.fuzz > sio.tol) sio.tol = opts.fuzz;
 
-    const double padAabb = 1e-7;
+    // FUZZY BOOLEAN (C-FUZZY): the face-pair overlap pad that decides which pairs
+    // get imprinted is widened by the fuzz so near-coincident faces separated by a
+    // gap <= fuzz are still mated. fuzz=0 leaves the exact 1e-7 pad untouched.
+    const double padAabb = std::max(1e-7, opts.fuzz);
     for (std::size_t i = 0; i < fa.size(); ++i) {
         for (std::size_t j = 0; j < fb.size(); ++j) {
             if (!ba[i].overlaps(bb[j], padAabb)) continue;
@@ -1310,7 +1320,9 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
                     : (op == BoolOp::Cut)  ? "ok (analytic cut)"
                                            : "ok (analytic common)";
     StitchLineage lin;
-    BooleanResult res = stitch(chosen, tag, material, &lin);
+    // FUZZY BOOLEAN (C-FUZZY): pass the fuzz-widened corner-weld grid so the
+    // near-coincident operand corners collapse to shared vertices in the stitch.
+    BooleanResult res = stitch(chosen, tag, material, &lin, std::max(1e-7, opts.fuzz));
     if (!res.ok) return res;
 
     // ===================== BUILD THE LINEAGE MAPS (PD-7) =====================

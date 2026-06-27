@@ -138,6 +138,16 @@ struct BooleanResult {
 // grid used when building the soups and reconstructing the result.
 struct BooleanOptions {
     double weldTol = 1e-7;
+
+    // FUZZY BOOLEAN (OCCT_ZERO Wave-0, C-FUZZY) — the OCCT-free analogue of
+    // BRepAlgoAPI_BooleanOperation::SetFuzzyValue. A POSITIVE `fuzz` is an extra
+    // geometric tolerance (model units) under which near-coincident geometry is
+    // treated as coincident, so two operands separated (or overlapping) by a gap
+    // <= fuzz still produce a clean analytic result instead of a sliver / mesh
+    // fallback. It is threaded into (1) the SSI coincidence tolerance, (2) the
+    // face-overlap AABB pad that decides which face pairs are imprinted, and
+    // (3) the stitch corner-weld grid. 0 (default) = exact behaviour, unchanged.
+    double fuzz = 0.0;
 };
 
 // Compute A (op) B for two closed, oriented 2-manifold native solids. See the
