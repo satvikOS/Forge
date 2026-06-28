@@ -383,18 +383,76 @@ function distributeFaceLoad(mesh, bit, force) {
     nodes: ids,
   };
 }
-// Mesh a shape handle for FEA. The native meshFromBrep targets element edge
-// length in METRES (the smoke tests use b/2 ≈ 5 mm on a 10 mm beam). Archie
-// supplies meshSize in mm; we convert. Throws on an empty mesh so the failure
-// is the real one, not a downstream NaN.
+// Largest bounding-box extent of a shape in its RAW coordinate units (whatever
+// units it was authored in). Used by feaMesh to reconcile the build units
+// against the SI FEA solver. Returns 0 when the extent can't be determined, in
+// which case feaMesh keeps the legacy metre interpretation (never regresses an
+// already-SI caller).
+function shapeMaxExtent(forge, shape) {
+  try {
+    if (typeof forge.tessellate !== 'function') return 0;
+    const m = forge.tessellate(shape, 1.0, 0.8);
+    const p = (m && m.positions) || [];
+    if (!p.length) return 0;
+    let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < p.length; i += 3) {
+      for (let k = 0; k < 3; k++) {
+        const v = p[i + k];
+        if (v < lo[k]) lo[k] = v;
+        if (v > hi[k]) hi[k] = v;
+      }
+    }
+    return Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]);
+  } catch (_) { return 0; }
+}
+
+// Mesh a shape handle for FEA, returning an SI (metre-coordinate) mesh ready for
+// the native solver.
+//
+// UNIT RECONCILIATION — the native solver chain is SI: node coordinates in
+// METRES, material E in Pa. Two callers build with different conventions:
+//   • Archie "build-in-mm → simulate.fea-*": the kernel/CAD build path is
+//     mm-native (part.make-box → forge.makeBox(dx_mm,…); massProps returns mm³),
+//     so the body arrives with mm-valued coordinates.
+//   • the simulation smoke/flagship suites author their FEA bodies directly in
+//     metres ("geometry mm / simulation SI") and pass meshSize in mm.
+// forge.fea.meshFromBrep interprets its element-edge arg AND emits node coords in
+// the shape's RAW units, so the two conventions need OPPOSITE handling:
+//   • metre-authored body → edge = meshSize/1000 (mm→m); nodes already SI.
+//   • mm-authored body    → edge = meshSize      (mm raw); nodes scaled mm→m.
+// The old code always did /1000 (assumed metre-authored). For an mm-authored body
+// that makes the edge 1000× too fine: a 100×30×60 mm box snaps to round(100 /
+// (5/1000)) = 20000 divisions per axis ≈ 1.4e12 elements and the mesher hangs.
+//
+// We choose the convention from the physical invariant that a target element edge
+// must be no larger than the body's longest extent in the SAME units: when the
+// meshSize (read as mm) fits inside the raw max extent, the raw coordinates ARE
+// mm; when the raw extent is smaller than a single mm element, the body must have
+// been authored in metres (raw extent ≪ a mm element). This is a genuine unit
+// decision, not an element-count clamp — it ALSO rescales the node coordinates so
+// the solver's stress/displacement come out physically correct (a clamp would
+// leave a mm-coordinate mesh and silently wrong physics). Throws on an empty mesh
+// so the failure surfaced is the real one, not a downstream NaN.
 function feaMesh(forge, shape, meshSizeMm) {
   if (!forge.fea || typeof forge.fea.meshFromBrep !== 'function') {
     throw new Error('forge.fea.meshFromBrep unavailable — build the kernel with Forge-12');
   }
-  const edgeM = (Number(meshSizeMm) > 0 ? Number(meshSizeMm) : 5) / 1000;
-  const mesh = forge.fea.meshFromBrep(shape, edgeM);
+  const sizeMm = Number(meshSizeMm) > 0 ? Number(meshSizeMm) : 5;
+  const rawMax = shapeMaxExtent(forge, shape);   // body's longest extent, raw units
+  // rawMax >= sizeMm ⇒ a mm-sized element fits the body ⇒ raw coords are mm.
+  // (Biased toward the mm reading so a tiny mm part never re-expands into the
+  //  explosive metre interpretation; real metre-authored FEA bodies are ≤ a few
+  //  metres, far below any mm meshSize, so they fall through to the metre path.)
+  const builtInMm = rawMax > 0 && rawMax >= sizeMm;
+  const edge = builtInMm ? sizeMm : sizeMm / 1000;   // element edge in the shape's RAW units
+  const mesh = forge.fea.meshFromBrep(shape, edge);
   if (!mesh || !mesh.nodeCount || !mesh.elemCount) {
     throw new Error('FEA mesh is empty — shape may be invalid or meshSize too coarse');
+  }
+  if (builtInMm) {
+    // Raw coords are mm → convert to metres so the SI solver (E in Pa) is correct.
+    const n = mesh.nodes;
+    for (let i = 0; i < n.length; i++) n[i] *= 0.001;
   }
   return mesh;
 }
