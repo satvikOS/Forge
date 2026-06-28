@@ -460,6 +460,53 @@ export function ForgeShellV4() {
     };
   }, [viewName]);
 
+  // Auto-zoom-to-fit whenever a model is generated / built / updated.
+  // Archie generation and every workbench op funnel through setBodies, so a
+  // change to `bodies` means new geometry just landed in the viewport. We
+  // frame the COMBINED bounds of all visible (non-helper) body meshes so the
+  // whole model — multi-body and instanced assemblies included — fills the
+  // viewport instead of sitting as a tiny mesh on a black canvas.
+  //
+  // SceneMeshes tessellates asynchronously (dynamic import + kernel
+  // tessellate), so the meshes are NOT in window.__forgeScene the instant
+  // `bodies` changes. We poll a bounded number of animation frames until the
+  // scene's body bbox is non-empty, fit ONCE, then stop. Reuses the single
+  // shared fit util (window.__forgeFitToBounds → cameraFit.js); passing no
+  // `dir` keeps the user's current view direction. margin 1.2 frames the
+  // body to ~70–85 % of the frame. No setState here → no re-render churn.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    if (!Array.isArray(bodies) || bodies.length === 0) return undefined;
+    let raf = 0;
+    let tries = 0;
+    const MAX_TRIES = 45;            // ~0.75s at 60fps — covers async tessellation
+    const attempt = () => {
+      tries += 1;
+      try {
+        const THREE = window.__forgeThree;
+        const scene = window.__forgeScene;
+        const fit = window.__forgeFitToBounds;
+        if (THREE && scene && typeof fit === 'function') {
+          const box = new THREE.Box3();
+          let any = false;
+          scene.traverse((o) => {
+            if (o.isMesh && o.geometry && !o.userData?.helper) {
+              box.expandByObject(o);
+              any = true;
+            }
+          });
+          if (any && !box.isEmpty()) {
+            fit(box, { margin: 1.2 });   // current view direction, ~70–85% fill
+            return;                      // framed — stop polling
+          }
+        }
+      } catch { /* ignore — retry next frame */ }
+      if (tries < MAX_TRIES) raf = requestAnimationFrame(attempt);
+    };
+    raf = requestAnimationFrame(attempt);
+    return () => { try { cancelAnimationFrame(raf); } catch {} };
+  }, [bodies]);
+
   // Cmd+K → focus cmd bar; Cmd+/ toggle dock; Cmd+T cycle theme.
   useEffect(() => {
     if (typeof window === 'undefined') return;

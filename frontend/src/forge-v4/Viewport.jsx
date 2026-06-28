@@ -67,6 +67,10 @@ import {
   getOctreeIndex,
   installOctreeWindowApi,
 } from './octreeIndex.js';
+// Single shared fit-to-bounds math (also used by the auto-zoom-to-fit-on-
+// build hook in ForgeShellV4). __forgeFitToBounds delegates to this so there
+// is exactly one framing implementation.
+import { computeCameraFit } from './cameraFit.js';
 
 function ViewportFallback() {
   return (
@@ -462,29 +466,24 @@ function CameraCenterEffect({ orbitRef, bundle, viewName, centerToken }) {
     window.__forgeOrbit = orbitRef.current;
     window.__forgeFitToBounds = (box, opts = {}) => {
       if (!orbitRef.current || !box) return;
-      const center = new THREE.Vector3();
-      box.getCenter(center);
-      const size = new THREE.Vector3();
-      box.getSize(size);
-      // Use diagonal length so the longest extent in ANY orientation fits.
-      const diag = size.length();
-      const fov = (camera.fov * Math.PI) / 180;
-      const margin = opts.margin ?? 2.4;
-      const aspect = camera.aspect || 1.778;
-      // Use the smaller of horizontal/vertical FOV to be safe.
-      const fovV = fov;
-      const fovH = 2 * Math.atan(Math.tan(fov / 2) * aspect);
-      const fovMin = Math.min(fovV, fovH);
-      const dist = (diag / 2) / Math.tan(fovMin / 2) * margin;
-      const dir = (opts.dir
-        ? new THREE.Vector3(...opts.dir)
-        : new THREE.Vector3(1.4, 0.6, 1.0)
-      ).normalize();
-      camera.position.copy(center).add(dir.multiplyScalar(dist));
-      camera.near = Math.max(1, dist / 100);
-      camera.far = Math.max(5000, dist * 10);
+      // Single shared fit math (cameraFit.js). When no explicit `dir` is
+      // passed we hand the current camera position + controls target so the
+      // fit keeps the user's current view direction (per-spec) instead of
+      // snapping to a fixed iso angle.
+      const fit = computeCameraFit(box, {
+        fovDeg: camera.fov,
+        aspect: camera.aspect || 1.778,
+        margin: opts.margin,
+        dir: opts.dir,
+        currentPosition: camera.position.toArray(),
+        currentTarget: orbitRef.current.target.toArray(),
+      });
+      if (!fit) return;
+      camera.position.set(fit.position[0], fit.position[1], fit.position[2]);
+      camera.near = fit.near;
+      camera.far = fit.far;
       camera.updateProjectionMatrix();
-      orbitRef.current.target.copy(center);
+      orbitRef.current.target.set(fit.target[0], fit.target[1], fit.target[2]);
       orbitRef.current.update();
     };
     return () => {

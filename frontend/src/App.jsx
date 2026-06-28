@@ -18,7 +18,6 @@ import { IfcExportPanelHost } from './forge-v4/IfcExportPanel.jsx';
 import { ViewportEnvironmentProvider } from './forge-v4/ViewportEnvironment.jsx';
 import { PerfStatsHUD } from './forge-v4/PerfStatsHUD.jsx';
 import { HoverTooltip } from './forge-v4/HoverTooltip.jsx';
-import { ViewportWelcomeHost } from './forge-v4/ViewportWelcome.jsx';
 import { SectionControlHost } from './forge-v4/SectionControl.jsx';
 import { AssemblyTreePanelHost } from './forge-v4/AssemblyTreePanel.jsx';
 import { AssemblyPanelHost } from './forge-v4/AssemblyPanel.jsx';
@@ -1082,7 +1081,6 @@ function App() {
       <VideoCaptureHUD />
       <PerfStatsHUD />
       <HoverTooltip />
-      <ViewportWelcomeHost />
       <SectionControlHost />
       <StressTestPanelHost />
       <ProgressStripPortal />
