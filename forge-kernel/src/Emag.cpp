@@ -215,4 +215,179 @@ MagnetostaticsResult magnetostatics(const MagnetostaticsConfig& cfg)
     return out;
 }
 
+// ====================================================================
+// E2 — electrostatics  −∇·(ε∇φ) = 0  (forge.em.electrostatics)
+// ====================================================================
+
+ElectrostaticsResult electrostatics(const ElectrostaticsConfig& cfg)
+{
+    if (cfg.n < 1) {
+        throw std::invalid_argument("forge.em.electrostatics: n must be ≥ 1");
+    }
+    if (cfg.rOuter <= cfg.rInner) {
+        throw std::invalid_argument("forge.em.electrostatics: need rOuter > rInner");
+    }
+    if (cfg.eps <= 0) {
+        throw std::invalid_argument("forge.em.electrostatics: eps must be > 0");
+    }
+    // planar gap must start at 0; cylindrical/spherical inner radius must be > 0
+    // (the ε·r / ε·r² weighting is singular only at r=0, which is never an
+    // interior coaxial/sphere radius).
+    if (cfg.geometry != ElectroGeometry::Planar && cfg.rInner <= 0) {
+        throw std::invalid_argument(
+            "forge.em.electrostatics: cylindrical/spherical rInner must be > 0");
+    }
+
+    const int    n  = cfg.n;
+    const double r0 = cfg.rInner, r1 = cfg.rOuter;
+    const double dr = (r1 - r0) / n;
+    const double eps = cfg.eps;
+
+    // Geometry-weighted coefficient  c(x) = ε · x^p  (p = 0/1/2) and the physical
+    // energy multiplier geomFactor (energy W = geomFactor · slab-energy E_slab):
+    //   planar:      p=0, geomFactor = plate area A
+    //   cylindrical: p=1, geomFactor = 2π·length   (C per `length`)
+    //   spherical:   p=2, geomFactor = 4π
+    int p; double geomFactor;
+    switch (cfg.geometry) {
+        case ElectroGeometry::Planar:
+            p = 0; geomFactor = cfg.area; break;
+        case ElectroGeometry::Cylindrical:
+            p = 1; geomFactor = 2.0 * kPi * cfg.length; break;
+        case ElectroGeometry::Spherical:
+        default:
+            p = 2; geomFactor = 4.0 * kPi; break;
+    }
+    auto coeffAt = [&](double x, double /*y*/, double /*z*/) {
+        double c = eps;
+        for (int i = 0; i < p; ++i) c *= x;   // ε·x^p (p ≤ 2)
+        return c;
+    };
+    auto zeroSrc = [](double, double, double) { return 0.0; };
+
+    const std::size_t N = static_cast<std::size_t>(n) + 1;  // (n+1) gap/radial DOFs
+
+    auto xOf = [&](int i) { return r0 + i * dr; };
+
+    // Unit-square transverse slab in (y,z); the four transverse corners of each
+    // hex tie to one DOF per x-station — the 1-D chain mirrors the axisymmetric
+    // solver's layer-tying so the 3-D hex math (HexElement) is reused with no
+    // 1-D shape-function re-derivation.
+    std::vector<la::Triplet<double>> trips;
+    trips.reserve(static_cast<std::size_t>(n) * 8 * 8);
+    std::vector<double> f(N, 0.0);
+
+    for (int e = 0; e < n; ++e) {
+        const double xa = xOf(e), xb = xOf(e + 1);
+        const double X[8][3] = {
+            {xa, 0.0, 0.0}, {xb, 0.0, 0.0}, {xb, 1.0, 0.0}, {xa, 1.0, 0.0},
+            {xa, 0.0, 1.0}, {xb, 0.0, 1.0}, {xb, 1.0, 1.0}, {xa, 1.0, 1.0},
+        };
+        la::MatrixD Ke(8, 8);
+        double fe[8];
+        se::elementStiffnessVar(coeffAt, zeroSrc, X, Ke, fe,
+                                "forge.em.electrostatics");
+        // local hex node → x-DOF: nodes at xa {0,3,4,7}→e, at xb {1,2,5,6}→e+1.
+        const std::size_t g[8] = {
+            static_cast<std::size_t>(e),     static_cast<std::size_t>(e + 1),
+            static_cast<std::size_t>(e + 1), static_cast<std::size_t>(e),
+            static_cast<std::size_t>(e),     static_cast<std::size_t>(e + 1),
+            static_cast<std::size_t>(e + 1), static_cast<std::size_t>(e),
+        };
+        for (int a = 0; a < 8; ++a)
+            for (int b = 0; b < 8; ++b) {
+                const double v = Ke(a, b);
+                if (v != 0.0) trips.emplace_back(g[a], g[b], v);
+            }
+    }
+
+    // Dirichlet: φ = V at the inner DOF (0), φ = 0 at the outer DOF (n). Same
+    // filtered-triplet elimination the thermal/magnetostatic paths use.
+    std::vector<bool>   isFixed(N, false);
+    std::vector<double> fixedVal(N, 0.0);
+    isFixed[0] = true;     fixedVal[0] = cfg.V;
+    isFixed[n] = true;     fixedVal[n] = 0.0;
+    {
+        // Build K0, substitute fixed values into f, then drop fixed rows/cols and
+        // add unit diagonal — reproduces solveThermal's Dirichlet handling.
+        la::SparseCSR<double> K0;
+        K0.setFromTriplets(N, N, trips);
+        const auto& rowPtr = K0.rowPtr();
+        const auto& colIdx = K0.colIdx();
+        const auto& vals   = K0.values();
+        for (std::size_t r = 0; r < N; ++r)
+            for (std::size_t q = rowPtr[r]; q < rowPtr[r + 1]; ++q) {
+                const std::size_t c = colIdx[q];
+                if (isFixed[c] && !isFixed[r]) f[r] -= vals[q] * fixedVal[c];
+            }
+        std::vector<la::Triplet<double>> kt;
+        kt.reserve(vals.size());
+        for (std::size_t r = 0; r < N; ++r)
+            for (std::size_t q = rowPtr[r]; q < rowPtr[r + 1]; ++q) {
+                const std::size_t c = colIdx[q];
+                if (isFixed[r] || isFixed[c]) continue;
+                kt.emplace_back(r, c, vals[q]);
+            }
+        for (std::size_t i = 0; i < N; ++i)
+            if (isFixed[i]) { kt.emplace_back(i, i, 1.0); f[i] = fixedVal[i]; }
+        trips.swap(kt);
+    }
+
+    la::SparseCSR<double> K;
+    K.setFromTriplets(N, N, trips);
+    la::SparseLDLT ldlt(K);
+    if (!ldlt.ok()) {
+        throw std::runtime_error(
+            "forge.em.electrostatics: LDLT factorisation failed (system not SPD)");
+    }
+    std::vector<double> phi = ldlt.solve(f);
+
+    // ---- post-process: nodal φ, per-element |E| and the FE-exact energy ------
+    ElectrostaticsResult out;
+    out.n = n;
+    out.nodeR.resize(N);
+    out.phi.assign(phi.begin(), phi.end());
+    for (std::size_t i = 0; i < N; ++i) out.nodeR[i] = xOf(static_cast<int>(i));
+
+    out.elemR.resize(n);
+    out.Efield.resize(n);
+    double Eslab = 0.0;   // ½ Σ_e φ_eᵀ K_e φ_e  = ½∫ c|∇φ|² dV over the unit slab
+    for (int e = 0; e < n; ++e) {
+        const double xa = xOf(e), xb = xOf(e + 1);
+        const double X[8][3] = {
+            {xa, 0.0, 0.0}, {xb, 0.0, 0.0}, {xb, 1.0, 0.0}, {xa, 1.0, 0.0},
+            {xa, 0.0, 1.0}, {xb, 0.0, 1.0}, {xb, 1.0, 1.0}, {xa, 1.0, 1.0},
+        };
+        const std::size_t g[8] = {
+            static_cast<std::size_t>(e),     static_cast<std::size_t>(e + 1),
+            static_cast<std::size_t>(e + 1), static_cast<std::size_t>(e),
+            static_cast<std::size_t>(e),     static_cast<std::size_t>(e + 1),
+            static_cast<std::size_t>(e + 1), static_cast<std::size_t>(e),
+        };
+        double phe[8];
+        for (int a = 0; a < 8; ++a) phe[a] = phi[g[a]];
+        // |E| = |dφ/dr| at the element centroid (∂/∂x = ∂/∂r on the chain).
+        double grad[3];
+        se::gradientAt(0, 0, 0, X, phe, grad);
+        out.elemR[e]  = 0.5 * (xa + xb);
+        out.Efield[e] = std::abs(grad[0]);
+        // element energy ½ φ_eᵀ K_e φ_e (K_e carries the ε·x^p weighting).
+        la::MatrixD Ke(8, 8);
+        double fe[8];
+        se::elementStiffnessVar(coeffAt, zeroSrc, X, Ke, fe,
+                                "forge.em.electrostatics");
+        double ee = 0.0;
+        for (int a = 0; a < 8; ++a)
+            for (int b = 0; b < 8; ++b) ee += phe[a] * Ke(a, b) * phe[b];
+        Eslab += 0.5 * ee;
+    }
+    out.energy      = geomFactor * Eslab;          // W = ½∫ε|∇φ|² dV
+    out.capacitance = (cfg.V != 0.0)
+                    ? 2.0 * out.energy / (cfg.V * cfg.V) : 0.0;  // C = 2W/V²
+
+    std::vector<double> resid = la::vsub(K * phi, f);
+    out.residual = la::normInf(resid);
+    return out;
+}
+
 } // namespace forge::em

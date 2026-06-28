@@ -5432,6 +5432,54 @@ Napi::Value EmMagnetostatics(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------------------------- EM E2 electrostatics
+//
+//   electrostatics(cfgObj)
+//     cfg: { geometry:'planar'|'cylindrical'|'spherical', eps, rInner, rOuter,
+//            V, n, area, length }
+//     → { n, nodeR, phi, elemR, Efield, energy, capacitance, residual }
+Napi::Value EmElectrostatics(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.em.electrostatics: cfg must be an object");
+        }
+        auto o = info[0].As<Napi::Object>();
+        forge::em::ElectrostaticsConfig cfg;
+        if (o.Has("geometry")) {
+            std::string g = o.Get("geometry").As<Napi::String>().Utf8Value();
+            if      (g == "planar")      cfg.geometry = forge::em::ElectroGeometry::Planar;
+            else if (g == "cylindrical") cfg.geometry = forge::em::ElectroGeometry::Cylindrical;
+            else if (g == "spherical")   cfg.geometry = forge::em::ElectroGeometry::Spherical;
+            else throw Napi::TypeError::New(env,
+                "forge.em.electrostatics: geometry must be planar|cylindrical|spherical");
+        }
+        if (o.Has("eps"))    cfg.eps    = o.Get("eps").As<Napi::Number>().DoubleValue();
+        if (o.Has("rInner")) cfg.rInner = o.Get("rInner").As<Napi::Number>().DoubleValue();
+        if (o.Has("rOuter")) cfg.rOuter = o.Get("rOuter").As<Napi::Number>().DoubleValue();
+        if (o.Has("V"))      cfg.V      = o.Get("V").As<Napi::Number>().DoubleValue();
+        if (o.Has("n"))      cfg.n      = o.Get("n").As<Napi::Number>().Int32Value();
+        if (o.Has("area"))   cfg.area   = o.Get("area").As<Napi::Number>().DoubleValue();
+        if (o.Has("length")) cfg.length = o.Get("length").As<Napi::Number>().DoubleValue();
+        auto r = forge::em::electrostatics(cfg);
+        auto out = Napi::Object::New(env);
+        out.Set("n", Napi::Number::New(env, r.n));
+        auto setF64 = [&](const char* key, const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            std::copy(v.begin(), v.end(), a.Data());
+            out.Set(key, a);
+        };
+        setF64("nodeR",  r.nodeR);
+        setF64("phi",    r.phi);
+        setF64("elemR",  r.elemR);
+        setF64("Efield", r.Efield);
+        out.Set("energy",      Napi::Number::New(env, r.energy));
+        out.Set("capacitance", Napi::Number::New(env, r.capacitance));
+        out.Set("residual",    Napi::Number::New(env, r.residual));
+        return out;
+    });
+}
+
 // Wave-0 dark-engine harvest — register the self-contained binding TUs that expose
 // the native geom predicates, the implicit/voxel/F-rep field stack, and the
 // PlaneGCS constraint diagnostics (binding_geom/field/sketchdiag.cpp).
@@ -5666,7 +5714,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 
     // -------- em (Elmer-track native electromagnetic field solvers) ------
     auto em = Napi::Object::New(env);
-    em.Set("magnetostatics", Napi::Function::New(env, EmMagnetostatics));
+    em.Set("magnetostatics",    Napi::Function::New(env, EmMagnetostatics));
+    em.Set("electrostatics",    Napi::Function::New(env, EmElectrostatics));
     exports.Set("em", em);
 
     // -------- cam (2.5D toolpath generators + G-code post) -------------

@@ -63,4 +63,55 @@ struct MagnetostaticsResult {
 // std::runtime_error on a degenerate grid or a non-SPD assembled system.
 MagnetostaticsResult magnetostatics(const MagnetostaticsConfig& cfg);
 
+// ====================================================================
+// Elmer-track E2 — electrostatics  −∇·(ε∇φ) = 0
+// ====================================================================
+//
+// The electrostatic potential φ obeys the SAME scalar-elliptic operator the
+// thermal/magnetostatic paths use, with coefficient c = ε (permittivity). For
+// the three canonical capacitor geometries the field is one-dimensional in the
+// separation/radial coordinate, so φ is solved on a 1-D chain of 8-node hexes
+// (unit transverse slab, the two transverse node-layers tied to one DOF — the
+// SAME tying trick the axisymmetric magnetostatics solver uses) assembled
+// through forge::native::fea::scalar_elliptic::elementStiffnessVar with the
+// geometry-weighted coefficient
+//
+//     planar       c(x) = ε            (Cartesian gap; φ linear)
+//     cylindrical  c(x) = ε·r          (coaxial; −(rε φ')'=0 ⇒ φ ∝ ln(b/r))
+//     spherical    c(x) = ε·r²         (sphere; −(r²ε φ')'=0 ⇒ φ ∝ 1/r)
+//
+// — exactly mirroring how the magnetostatic solver folds the axisymmetric 1/r
+// weighting into c. The stored electrostatic energy is the FE-exact element
+// energy W = geomFactor·½ Σ_e φ_eᵀ K_e φ_e (geomFactor = plate area A for
+// planar, 2π·length for cylindrical [→ capacitance per unit length], 4π for
+// spherical), and the capacitance follows from C = 2W/V².
+enum class ElectroGeometry { Planar, Cylindrical, Spherical };
+
+struct ElectrostaticsConfig {
+    ElectroGeometry geometry = ElectroGeometry::Planar;
+    double eps    = 8.8541878128e-12; // permittivity (F/m); default ε₀
+    double rInner = 0.0;              // inner coord: planar 0, coax a, sphere R
+    double rOuter = 1.0;              // outer coord: planar d, coax b, sphere R_out
+    double V      = 1.0;             // applied potential (inner = V, outer = 0)
+    int    n      = 400;             // radial/gap element count
+    double area   = 1.0;            // planar plate area A (m²) — planar only
+    double length = 1.0;            // axial length (m) — cylindrical only (C per this length)
+};
+
+struct ElectrostaticsResult {
+    int n = 0;
+    std::vector<double> nodeR;   // (n+1) node coordinate along the gap/radius (m)
+    std::vector<double> phi;     // (n+1) nodal potential (V)
+    std::vector<double> elemR;   // (n) element-centroid coordinate (m)
+    std::vector<double> Efield;  // (n) field magnitude |E| = |dφ/dr| at centroid (V/m)
+    double energy      = 0.0;    // electrostatic energy W = ½∫ε|∇φ|² dV (J)
+    double capacitance = 0.0;    // C = 2W/V² (F)
+    double residual    = 0.0;    // ‖K φ − f‖∞ after BC application
+};
+
+// Solve electrostatics for the chosen capacitor geometry. Throws
+// std::invalid_argument on a degenerate config and std::runtime_error on a
+// non-SPD assembled system.
+ElectrostaticsResult electrostatics(const ElectrostaticsConfig& cfg);
+
 } // namespace forge::em
