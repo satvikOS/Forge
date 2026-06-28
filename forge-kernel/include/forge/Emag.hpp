@@ -114,4 +114,47 @@ struct ElectrostaticsResult {
 // non-SPD assembled system.
 ElectrostaticsResult electrostatics(const ElectrostaticsConfig& cfg);
 
+// ====================================================================
+// Elmer-track E3 — current conduction + Joule→thermal coupling
+// ====================================================================
+//
+// Forge's FIRST native multiphysics coupling. On a structured hex bar the
+// electric potential V is solved from the steady current-conservation law
+//     −∇·(σ∇V) = 0          (σ = electrical conductivity)
+// which is the SAME scalar-elliptic operator with c = σ — so it is solved by
+// REUSING forge::fea::solveThermal with k := σ (no new Laplacian). The recovered
+// current density magnitude |J| = σ|∇V| gives the volumetric Joule source
+//     q''' = σ|∇V|² = |J|²/σ      (W/m³)
+// per element, which is INJECTED as a ThermalElemSource into the SAME
+// forge::fea::solveThermal (now with k = thermal conductivity) to obtain the
+// coupled temperature field — a one-way V→q→T staggered coupling that leaves the
+// thermal solver byte-for-byte unchanged (it already supports element sources).
+struct CurrentConductionConfig {
+    double Lx = 0.10, Ly = 0.01, Lz = 0.01; // bar dimensions (m); current flows ∥ x
+    int    nx = 40, ny = 4, nz = 4;          // element counts per axis
+    double sigma = 1.0e7;                    // electrical conductivity (S/m)
+    double V     = 1.0;                      // applied voltage (x=0 → V, x=Lx → 0)
+    double k     = 50.0;                     // thermal conductivity (W/(m·K))
+    double T0    = 0.0;                      // fixed end temperature at x=0 and x=Lx
+};
+
+struct CurrentConductionResult {
+    int nNodes = 0, nElems = 0;
+    std::vector<double> nodeX, nodeY, nodeZ; // node coords (m)
+    std::vector<double> V;                    // nodal potential (V)
+    std::vector<double> Jmag;                 // per-element |J| = σ|∇V| (A/m²)
+    std::vector<double> joule;                // per-element q''' = σ|∇V|² (W/m³)
+    std::vector<double> T;                    // nodal temperature (coupled) (°C/K)
+    double elemVol     = 0.0;                 // uniform element volume (m³)
+    double dissipation = 0.0;                 // ∫σ|∇V|² dV (W)
+    double resistance  = 0.0;                 // R = L/(σA) (Ω)
+    double current     = 0.0;                 // I = V/R (A)
+    double maxT = 0.0, minT = 0.0;            // coupled temperature extremes
+    double residualV = 0.0, residualT = 0.0;  // solver residuals
+};
+
+// Solve current conduction in the bar and the coupled Joule-heated temperature.
+// Throws std::invalid_argument on a degenerate config.
+CurrentConductionResult currentConduction(const CurrentConductionConfig& cfg);
+
 } // namespace forge::em

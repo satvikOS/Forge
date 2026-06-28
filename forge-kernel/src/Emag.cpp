@@ -24,6 +24,7 @@
 
 #include "forge/native/linalg/LinAlg.hpp"
 #include "forge/native/fea/ScalarElliptic.hpp"
+#include "forge/Fea.hpp"   // E3 couples into forge::fea::solveThermal (Joule → T)
 
 #include <cmath>
 #include <stdexcept>
@@ -387,6 +388,140 @@ ElectrostaticsResult electrostatics(const ElectrostaticsConfig& cfg)
 
     std::vector<double> resid = la::vsub(K * phi, f);
     out.residual = la::normInf(resid);
+    return out;
+}
+
+// ====================================================================
+// E3 — current conduction + Joule→thermal coupling (forge.em.currentConduction)
+// ====================================================================
+
+namespace {
+
+// Minimal structured 8-node-hex box grid (nx·ny·nz cells) as a forge::fea::Mesh.
+// This is NOT meshFromBRep (no solid classifier / AABB clipping) — just the
+// regular grid the analytic Joule/heat gates need, so the current-conduction
+// solver stays self-contained while still feeding the real solveThermal.
+forge::fea::Mesh buildBoxMesh(double Lx, double Ly, double Lz,
+                              int nx, int ny, int nz)
+{
+    forge::fea::Mesh m;
+    m.elemNodeCount = 8;
+    const int NX = nx + 1, NY = ny + 1, NZ = nz + 1;
+    auto nid = [&](int ix, int iy, int iz) {
+        return static_cast<std::uint32_t>((static_cast<std::size_t>(iz) * NY + iy) * NX + ix);
+    };
+    const std::size_t nNodes = static_cast<std::size_t>(NX) * NY * NZ;
+    m.nodes.resize(nNodes * 3);
+    m.nodeToFace.assign(nNodes, 0u);
+    for (int iz = 0; iz < NZ; ++iz)
+        for (int iy = 0; iy < NY; ++iy)
+            for (int ix = 0; ix < NX; ++ix) {
+                const std::uint32_t id = nid(ix, iy, iz);
+                m.nodes[3 * id + 0] = Lx * ix / nx;
+                m.nodes[3 * id + 1] = Ly * iy / ny;
+                m.nodes[3 * id + 2] = Lz * iz / nz;
+                std::uint32_t mask = 0;       // AABB faces: 0=-X 1=+X 2=-Y 3=+Y 4=-Z 5=+Z
+                if (ix == 0)  mask |= 1u << 0;
+                if (ix == nx) mask |= 1u << 1;
+                if (iy == 0)  mask |= 1u << 2;
+                if (iy == ny) mask |= 1u << 3;
+                if (iz == 0)  mask |= 1u << 4;
+                if (iz == nz) mask |= 1u << 5;
+                m.nodeToFace[id] = mask;
+            }
+    m.tets.reserve(static_cast<std::size_t>(nx) * ny * nz * 8);
+    for (int cz = 0; cz < nz; ++cz)
+        for (int cy = 0; cy < ny; ++cy)
+            for (int cx = 0; cx < nx; ++cx) {
+                // canonical HexElement node order (ξ:0→1, η:0→3, ζ:0→4)
+                m.tets.push_back(nid(cx,     cy,     cz));
+                m.tets.push_back(nid(cx + 1, cy,     cz));
+                m.tets.push_back(nid(cx + 1, cy + 1, cz));
+                m.tets.push_back(nid(cx,     cy + 1, cz));
+                m.tets.push_back(nid(cx,     cy,     cz + 1));
+                m.tets.push_back(nid(cx + 1, cy,     cz + 1));
+                m.tets.push_back(nid(cx + 1, cy + 1, cz + 1));
+                m.tets.push_back(nid(cx,     cy + 1, cz + 1));
+            }
+    return m;
+}
+
+} // namespace
+
+CurrentConductionResult currentConduction(const CurrentConductionConfig& cfg)
+{
+    if (cfg.nx < 1 || cfg.ny < 1 || cfg.nz < 1) {
+        throw std::invalid_argument("forge.em.currentConduction: nx,ny,nz must be ≥ 1");
+    }
+    if (cfg.Lx <= 0 || cfg.Ly <= 0 || cfg.Lz <= 0) {
+        throw std::invalid_argument("forge.em.currentConduction: bar dims must be > 0");
+    }
+    if (cfg.sigma <= 0 || cfg.k <= 0) {
+        throw std::invalid_argument("forge.em.currentConduction: sigma and k must be > 0");
+    }
+
+    namespace fea = forge::fea;
+    fea::Mesh mesh = buildBoxMesh(cfg.Lx, cfg.Ly, cfg.Lz, cfg.nx, cfg.ny, cfg.nz);
+    const std::size_t nNodes = mesh.nodes.size() / 3;
+    const std::size_t nElems = mesh.tets.size() / mesh.elemNodeCount;
+
+    // End-face node sets (x = 0 → bit 0, x = Lx → bit 1).
+    std::vector<fea::ThermalNodalT> vDir, tDir;
+    for (std::size_t i = 0; i < nNodes; ++i) {
+        if (mesh.nodeToFace[i] & (1u << 0)) {   // x = 0 face
+            vDir.push_back({ static_cast<std::uint32_t>(i), cfg.V });
+            tDir.push_back({ static_cast<std::uint32_t>(i), cfg.T0 });
+        } else if (mesh.nodeToFace[i] & (1u << 1)) { // x = Lx face
+            vDir.push_back({ static_cast<std::uint32_t>(i), 0.0 });
+            tDir.push_back({ static_cast<std::uint32_t>(i), cfg.T0 });
+        }
+    }
+
+    // ---- Step 1: solve V on −∇·(σ∇V)=0 by REUSING the canonical scalar-elliptic
+    //      Dirichlet solver (solveThermal with k := σ). Its elemFluxMag is then
+    //      |q| = σ|∇V| = |J|, the current-density magnitude.
+    fea::ThermalMaterial elecMat{ cfg.sigma };
+    fea::ThermalResult vRes = fea::solveThermal(mesh, elecMat, vDir, {}, {});
+
+    // ---- Step 2: per-element Joule source q''' = σ|∇V|² = |J|²/σ (W/m³).
+    std::vector<fea::ThermalElemSource> joule(nElems);
+    CurrentConductionResult out;
+    out.joule.resize(nElems);
+    out.Jmag.resize(nElems);
+    const double elemVol = (cfg.Lx / cfg.nx) * (cfg.Ly / cfg.ny) * (cfg.Lz / cfg.nz);
+    out.elemVol = elemVol;
+    double dissipation = 0.0;
+    for (std::size_t e = 0; e < nElems; ++e) {
+        const double Jm = vRes.elemFluxMag[e];      // |J| = σ|∇V|
+        const double q  = Jm * Jm / cfg.sigma;      // q''' = |J|²/σ = σ|∇V|²
+        out.Jmag[e]  = Jm;
+        out.joule[e] = q;
+        joule[e] = { static_cast<std::uint32_t>(e), q };
+        dissipation += q * elemVol;                 // ∫σ|∇V|² dV
+    }
+
+    // ---- Step 3: COUPLE — inject the Joule field as a volumetric source into the
+    //      SAME (byte-unchanged) thermal solver to get the heated temperature.
+    fea::ThermalMaterial thermMat{ cfg.k };
+    fea::ThermalResult tRes = fea::solveThermal(mesh, thermMat, tDir, joule, {});
+
+    // ---- assemble result ----------------------------------------------------
+    out.nNodes = static_cast<int>(nNodes);
+    out.nElems = static_cast<int>(nElems);
+    out.nodeX.resize(nNodes); out.nodeY.resize(nNodes); out.nodeZ.resize(nNodes);
+    for (std::size_t i = 0; i < nNodes; ++i) {
+        out.nodeX[i] = mesh.nodes[3 * i + 0];
+        out.nodeY[i] = mesh.nodes[3 * i + 1];
+        out.nodeZ[i] = mesh.nodes[3 * i + 2];
+    }
+    out.V = vRes.T;          // solved potential (thermal-solver T with k=σ)
+    out.T = tRes.T;          // coupled temperature
+    out.dissipation = dissipation;
+    out.resistance  = cfg.Lx / (cfg.sigma * cfg.Ly * cfg.Lz);   // R = L/(σA)
+    out.current     = (out.resistance > 0) ? cfg.V / out.resistance : 0.0;
+    out.maxT = tRes.maxT;  out.minT = tRes.minT;
+    out.residualV = vRes.residual;
+    out.residualT = tRes.residual;
     return out;
 }
 

@@ -5480,6 +5480,58 @@ Napi::Value EmElectrostatics(const Napi::CallbackInfo& info) {
     });
 }
 
+// ------------------------------------------- EM E3 current-conduction + Joule→T
+//
+//   currentConduction(cfgObj)
+//     cfg: { Lx, Ly, Lz, nx, ny, nz, sigma, V, k, T0 }
+//     → { nNodes, nElems, nodeX, nodeY, nodeZ, V, Jmag, joule, T, elemVol,
+//         dissipation, resistance, current, maxT, minT, residualV, residualT }
+Napi::Value EmCurrentConduction(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.em.currentConduction: cfg must be an object");
+        }
+        auto o = info[0].As<Napi::Object>();
+        forge::em::CurrentConductionConfig cfg;
+        if (o.Has("Lx")) cfg.Lx = o.Get("Lx").As<Napi::Number>().DoubleValue();
+        if (o.Has("Ly")) cfg.Ly = o.Get("Ly").As<Napi::Number>().DoubleValue();
+        if (o.Has("Lz")) cfg.Lz = o.Get("Lz").As<Napi::Number>().DoubleValue();
+        if (o.Has("nx")) cfg.nx = o.Get("nx").As<Napi::Number>().Int32Value();
+        if (o.Has("ny")) cfg.ny = o.Get("ny").As<Napi::Number>().Int32Value();
+        if (o.Has("nz")) cfg.nz = o.Get("nz").As<Napi::Number>().Int32Value();
+        if (o.Has("sigma")) cfg.sigma = o.Get("sigma").As<Napi::Number>().DoubleValue();
+        if (o.Has("V"))     cfg.V     = o.Get("V").As<Napi::Number>().DoubleValue();
+        if (o.Has("k"))     cfg.k     = o.Get("k").As<Napi::Number>().DoubleValue();
+        if (o.Has("T0"))    cfg.T0    = o.Get("T0").As<Napi::Number>().DoubleValue();
+        auto r = forge::em::currentConduction(cfg);
+        auto out = Napi::Object::New(env);
+        out.Set("nNodes", Napi::Number::New(env, r.nNodes));
+        out.Set("nElems", Napi::Number::New(env, r.nElems));
+        auto setF64 = [&](const char* key, const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            std::copy(v.begin(), v.end(), a.Data());
+            out.Set(key, a);
+        };
+        setF64("nodeX", r.nodeX);
+        setF64("nodeY", r.nodeY);
+        setF64("nodeZ", r.nodeZ);
+        setF64("V",     r.V);
+        setF64("Jmag",  r.Jmag);
+        setF64("joule", r.joule);
+        setF64("T",     r.T);
+        out.Set("elemVol",     Napi::Number::New(env, r.elemVol));
+        out.Set("dissipation", Napi::Number::New(env, r.dissipation));
+        out.Set("resistance",  Napi::Number::New(env, r.resistance));
+        out.Set("current",     Napi::Number::New(env, r.current));
+        out.Set("maxT", Napi::Number::New(env, r.maxT));
+        out.Set("minT", Napi::Number::New(env, r.minT));
+        out.Set("residualV", Napi::Number::New(env, r.residualV));
+        out.Set("residualT", Napi::Number::New(env, r.residualT));
+        return out;
+    });
+}
+
 // Wave-0 dark-engine harvest — register the self-contained binding TUs that expose
 // the native geom predicates, the implicit/voxel/F-rep field stack, and the
 // PlaneGCS constraint diagnostics (binding_geom/field/sketchdiag.cpp).
@@ -5716,6 +5768,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     auto em = Napi::Object::New(env);
     em.Set("magnetostatics",    Napi::Function::New(env, EmMagnetostatics));
     em.Set("electrostatics",    Napi::Function::New(env, EmElectrostatics));
+    em.Set("currentConduction", Napi::Function::New(env, EmCurrentConduction));
     exports.Set("em", em);
 
     // -------- cam (2.5D toolpath generators + G-code post) -------------
