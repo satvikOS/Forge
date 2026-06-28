@@ -3365,6 +3365,104 @@ std::vector<std::uint32_t> readFaceIdArray(const Napi::Env& env, const Napi::Val
     return out;
 }
 
+// Parse the shared CFD config (domain, grid, fluid props, velocity BCs) used by
+// BOTH the isothermal solveSteadyNS and the natural-convection wrapper.
+forge::cfd::CfdConfig readCfdConfig(const Napi::Env& env, const Napi::Object& co) {
+    forge::cfd::CfdConfig cfg;
+    if (!co.Has("domain")) throw Napi::TypeError::New(env, "forge.cfd: cfg.domain required");
+    auto domain = co.Get("domain").As<Napi::Float64Array>();
+    if (domain.ElementLength() != 6) {
+        throw Napi::TypeError::New(env, "forge.cfd: domain must be Float64Array[6]");
+    }
+    cfg.domain = { domain.Data()[0], domain.Data()[1], domain.Data()[2],
+                   domain.Data()[3], domain.Data()[4], domain.Data()[5] };
+    cfg.Nx = co.Get("Nx").As<Napi::Number>().Int32Value();
+    cfg.Ny = co.Get("Ny").As<Napi::Number>().Int32Value();
+    cfg.Nz = co.Get("Nz").As<Napi::Number>().Int32Value();
+    cfg.rho = co.Get("rho").As<Napi::Number>().DoubleValue();
+    cfg.nu  = co.Get("nu").As<Napi::Number>().DoubleValue();
+    if (co.Has("maxIter"))     cfg.maxIter     = co.Get("maxIter").As<Napi::Number>().Int32Value();
+    if (co.Has("residualTol")) cfg.residualTol = co.Get("residualTol").As<Napi::Number>().DoubleValue();
+    cfg.inlets  = readInlets(env, co.Has("inlets")  ? co.Get("inlets")  : env.Undefined());
+    cfg.outlets = readFaceIdArray(env, co.Has("outlets") ? co.Get("outlets") : env.Undefined());
+    cfg.walls   = readFaceIdArray(env, co.Has("walls")   ? co.Get("walls")   : env.Undefined());
+    if (co.Has("lid") && co.Get("lid").IsObject()) {
+        auto lo = co.Get("lid").As<Napi::Object>();
+        cfg.lid.faceId = lo.Get("faceId").As<Napi::Number>().Uint32Value();
+        cfg.lid.vx = lo.Has("vx") ? lo.Get("vx").As<Napi::Number>().DoubleValue() : 0.0;
+        cfg.lid.vy = lo.Has("vy") ? lo.Get("vy").As<Napi::Number>().DoubleValue() : 0.0;
+        cfg.lid.vz = lo.Has("vz") ? lo.Get("vz").As<Napi::Number>().DoubleValue() : 0.0;
+        cfg.useLid = true;
+    }
+    return cfg;
+}
+
+// Parse the optional thermal / Boussinesq block (energy equation, task #61):
+//   thermal: { alpha, beta, Tref, gx, gy, gz, Tinit,
+//              bc: [ {type:'isothermal'|'adiabatic', value}, ... x6 ] }
+// Sets cfg.useThermal = true. The per-face `bc` array maps to AABB faces 0..5
+// (-X,+X,-Y,+Y,-Z,+Z); a missing entry defaults to adiabatic (insulated).
+void readThermal(const Napi::Env& env, const Napi::Object& co, forge::cfd::CfdConfig& cfg) {
+    if (!(co.Has("thermal") && co.Get("thermal").IsObject())) return;
+    auto th = co.Get("thermal").As<Napi::Object>();
+    cfg.useThermal = true;
+    auto num = [&](const char* k, double def) {
+        return (th.Has(k) && th.Get(k).IsNumber())
+                   ? th.Get(k).As<Napi::Number>().DoubleValue() : def;
+    };
+    cfg.alpha = num("alpha", 0.0);
+    cfg.beta  = num("beta", 0.0);
+    cfg.Tref  = num("Tref", 0.0);
+    cfg.gx    = num("gx", 0.0);
+    cfg.gy    = num("gy", 0.0);
+    cfg.gz    = num("gz", 0.0);
+    cfg.Tinit = num("Tinit", cfg.Tref);
+    if (th.Has("bc") && th.Get("bc").IsArray()) {
+        auto arr = th.Get("bc").As<Napi::Array>();
+        for (uint32_t f = 0; f < arr.Length() && f < 6; ++f) {
+            if (!arr.Get(f).IsObject()) continue;
+            auto fo = arr.Get(f).As<Napi::Object>();
+            std::string ty = "adiabatic";
+            if (fo.Has("type") && fo.Get("type").IsString())
+                ty = fo.Get("type").As<Napi::String>().Utf8Value();
+            else if (fo.Has("type") && fo.Get("type").IsNumber())
+                ty = (fo.Get("type").As<Napi::Number>().Int32Value() == 1) ? "isothermal" : "adiabatic";
+            cfg.thermalBC[f].type =
+                (ty == "isothermal" || ty == "dirichlet" || ty == "iso") ? 1 : 0;
+            cfg.thermalBC[f].value =
+                (fo.Has("value") && fo.Get("value").IsNumber())
+                    ? fo.Get("value").As<Napi::Number>().DoubleValue() : 0.0;
+        }
+    }
+}
+
+// Build the JS result object (shared by both entrypoints). The temperature
+// Float64Array is attached only when the thermal solve produced one.
+Napi::Value cfdResultToJS(const Napi::Env& env,
+                          const forge::cfd::CfdResult& r,
+                          const forge::cfd::CfdConfig& cfg) {
+    auto out = Napi::Object::New(env);
+    auto u = Napi::Float64Array::New(env, r.u.size()); std::copy(r.u.begin(), r.u.end(), u.Data()); out.Set("u", u);
+    auto v = Napi::Float64Array::New(env, r.v.size()); std::copy(r.v.begin(), r.v.end(), v.Data()); out.Set("v", v);
+    auto w = Napi::Float64Array::New(env, r.w.size()); std::copy(r.w.begin(), r.w.end(), w.Data()); out.Set("w", w);
+    auto p = Napi::Float64Array::New(env, r.p.size()); std::copy(r.p.begin(), r.p.end(), p.Data()); out.Set("p", p);
+    if (!r.T.empty()) {
+        auto T = Napi::Float64Array::New(env, r.T.size());
+        std::copy(r.T.begin(), r.T.end(), T.Data());
+        out.Set("T", T);
+    }
+    out.Set("maxVelocity", Napi::Number::New(env, r.maxVelocity));
+    out.Set("reynolds",    Napi::Number::New(env, r.reynolds));
+    out.Set("iterations",  Napi::Number::New(env, r.iterations));
+    out.Set("finalResidual",   Napi::Number::New(env, r.finalResidual));
+    out.Set("initialResidual", Napi::Number::New(env, r.initialResidual));
+    out.Set("cpuMs",       Napi::Number::New(env, r.cpuMs));
+    out.Set("Nx", Napi::Number::New(env, cfg.Nx));
+    out.Set("Ny", Napi::Number::New(env, cfg.Ny));
+    out.Set("Nz", Napi::Number::New(env, cfg.Nz));
+    return out;
+}
+
 } // namespace
 
 Napi::Value CfdSolveSteadyNS(const Napi::CallbackInfo& info) {
@@ -3374,48 +3472,36 @@ Napi::Value CfdSolveSteadyNS(const Napi::CallbackInfo& info) {
             throw Napi::TypeError::New(env, "forge.cfd.solveSteadyNS: cfg must be an object");
         }
         auto co = info[0].As<Napi::Object>();
-        forge::cfd::CfdConfig cfg;
-        if (!co.Has("domain")) throw Napi::TypeError::New(env, "forge.cfd: cfg.domain required");
-        auto domain = co.Get("domain").As<Napi::Float64Array>();
-        if (domain.ElementLength() != 6) {
-            throw Napi::TypeError::New(env, "forge.cfd: domain must be Float64Array[6]");
+        forge::cfd::CfdConfig cfg = readCfdConfig(env, co);
+        // solveSteadyNS also honours an optional thermal block (so the energy
+        // equation is available through this entrypoint too); absent ⇒ pure
+        // isothermal NS, identical to before.
+        readThermal(env, co, cfg);
+        auto r = forge::cfd::solveSteadyNS(cfg);
+        return cfdResultToJS(env, r, cfg);
+    });
+}
+
+// forge.cfd.solveNaturalConvection(cfg) — energy equation + Boussinesq buoyancy
+// (task #61). Identical core solver as solveSteadyNS but REQUIRES the `thermal`
+// block and forces the coupled natural-convection path on. Validated against de
+// Vahl Davis (1983) — see test/cfd_natconv_gate.mjs.
+Napi::Value CfdSolveNaturalConvection(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.cfd.solveNaturalConvection: cfg must be an object");
         }
-        cfg.domain = { domain.Data()[0], domain.Data()[1], domain.Data()[2],
-                       domain.Data()[3], domain.Data()[4], domain.Data()[5] };
-        cfg.Nx = co.Get("Nx").As<Napi::Number>().Int32Value();
-        cfg.Ny = co.Get("Ny").As<Napi::Number>().Int32Value();
-        cfg.Nz = co.Get("Nz").As<Napi::Number>().Int32Value();
-        cfg.rho = co.Get("rho").As<Napi::Number>().DoubleValue();
-        cfg.nu  = co.Get("nu").As<Napi::Number>().DoubleValue();
-        if (co.Has("maxIter"))     cfg.maxIter     = co.Get("maxIter").As<Napi::Number>().Int32Value();
-        if (co.Has("residualTol")) cfg.residualTol = co.Get("residualTol").As<Napi::Number>().DoubleValue();
-        cfg.inlets  = readInlets(env, co.Has("inlets")  ? co.Get("inlets")  : env.Undefined());
-        cfg.outlets = readFaceIdArray(env, co.Has("outlets") ? co.Get("outlets") : env.Undefined());
-        cfg.walls   = readFaceIdArray(env, co.Has("walls")   ? co.Get("walls")   : env.Undefined());
-        if (co.Has("lid") && co.Get("lid").IsObject()) {
-            auto lo = co.Get("lid").As<Napi::Object>();
-            cfg.lid.faceId = lo.Get("faceId").As<Napi::Number>().Uint32Value();
-            cfg.lid.vx = lo.Has("vx") ? lo.Get("vx").As<Napi::Number>().DoubleValue() : 0.0;
-            cfg.lid.vy = lo.Has("vy") ? lo.Get("vy").As<Napi::Number>().DoubleValue() : 0.0;
-            cfg.lid.vz = lo.Has("vz") ? lo.Get("vz").As<Napi::Number>().DoubleValue() : 0.0;
-            cfg.useLid = true;
+        auto co = info[0].As<Napi::Object>();
+        forge::cfd::CfdConfig cfg = readCfdConfig(env, co);
+        readThermal(env, co, cfg);
+        if (!cfg.useThermal) {
+            throw Napi::TypeError::New(env,
+                "forge.cfd.solveNaturalConvection: a `thermal` block "
+                "{ alpha, beta, gx/gy/gz, bc[] } is required");
         }
         auto r = forge::cfd::solveSteadyNS(cfg);
-        auto out = Napi::Object::New(env);
-        auto u = Napi::Float64Array::New(env, r.u.size()); std::copy(r.u.begin(), r.u.end(), u.Data()); out.Set("u", u);
-        auto v = Napi::Float64Array::New(env, r.v.size()); std::copy(r.v.begin(), r.v.end(), v.Data()); out.Set("v", v);
-        auto w = Napi::Float64Array::New(env, r.w.size()); std::copy(r.w.begin(), r.w.end(), w.Data()); out.Set("w", w);
-        auto p = Napi::Float64Array::New(env, r.p.size()); std::copy(r.p.begin(), r.p.end(), p.Data()); out.Set("p", p);
-        out.Set("maxVelocity", Napi::Number::New(env, r.maxVelocity));
-        out.Set("reynolds",    Napi::Number::New(env, r.reynolds));
-        out.Set("iterations",  Napi::Number::New(env, r.iterations));
-        out.Set("finalResidual",   Napi::Number::New(env, r.finalResidual));
-        out.Set("initialResidual", Napi::Number::New(env, r.initialResidual));
-        out.Set("cpuMs",       Napi::Number::New(env, r.cpuMs));
-        out.Set("Nx", Napi::Number::New(env, cfg.Nx));
-        out.Set("Ny", Napi::Number::New(env, cfg.Ny));
-        out.Set("Nz", Napi::Number::New(env, cfg.Nz));
-        return out;
+        return cfdResultToJS(env, r, cfg);
     });
 }
 
@@ -5805,6 +5891,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     // -------- CFD (Forge-12b) -------------------------------------------
     auto cfd = Napi::Object::New(env);
     cfd.Set("solveSteadyNS", Napi::Function::New(env, CfdSolveSteadyNS));
+    cfd.Set("solveNaturalConvection",
+            Napi::Function::New(env, CfdSolveNaturalConvection));
     cfd.Set("solveCompressible1D",
             Napi::Function::New(env, CfdSolveCompressible1D));
     cfd.Set("sodShockTube",

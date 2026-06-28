@@ -33,6 +33,7 @@
 // All quantities are in SI (length=m, time=s, velocity=m/s, pressure=Pa,
 // density=kg/m³, kinematic viscosity=m²/s).
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -43,6 +44,15 @@ struct AABB { double minX, minY, minZ, maxX, maxY, maxZ; };
 struct BCFaceVelocity {
     std::uint32_t faceId; // 0..5 (same convention as fea::LoadPressure)
     double vx, vy, vz;
+};
+
+// Per-AABB-face temperature boundary condition for the natural-convection
+// (energy-equation) extension (task #61).
+//   type 0 = ADIABATIC  (zero-gradient, ∂T/∂n = 0 — an insulated wall)
+//   type 1 = ISOTHERMAL (Dirichlet, T = value — a hot/cold wall)
+struct ThermalFaceBC {
+    int    type  = 0;     // 0 adiabatic, 1 isothermal
+    double value = 0.0;   // wall temperature (K) when isothermal
 };
 
 struct CfdConfig {
@@ -57,6 +67,23 @@ struct CfdConfig {
     std::vector<std::uint32_t>  walls;   // no-slip
     BCFaceVelocity lid{};             // optional moving lid (for cavity smoke)
     bool useLid = false;
+
+    // ---- energy equation + Boussinesq buoyancy (natural convection, #61) ----
+    // When useThermal is true the solver ALSO transports a temperature scalar T
+    // on the cell centres:   ∂T/∂t + u·∇T = α ∇²T   (advection reuses the SAME
+    // van-Leer MUSCL routine as momentum; diffusion is central at α), and
+    // couples T back into momentum through the Boussinesq body force (per unit
+    // mass):  f = −β (T − Tref) g   added to the velocity predictor. With
+    // gravity g pointing −y, hot fluid (T>Tref) gets a +y (upward) acceleration
+    // — closing the natural-convection loop. When useThermal is false the solver
+    // is byte-for-byte the original isothermal NS (the Ghia gate is unaffected).
+    bool   useThermal = false;
+    double alpha = 0.0;               // thermal diffusivity α (m²/s)
+    double beta  = 0.0;               // volumetric thermal expansion coeff β (1/K)
+    double Tref  = 0.0;               // Boussinesq reference temperature (K)
+    double gx = 0.0, gy = 0.0, gz = 0.0;  // gravity acceleration vector (m/s²)
+    double Tinit = 0.0;               // fallback uniform initial temperature (K)
+    std::array<ThermalFaceBC, 6> thermalBC{}; // per AABB-face T BC (0=-X..5=+Z)
 };
 
 struct CfdResult {
@@ -64,6 +91,7 @@ struct CfdResult {
     std::vector<double> v;            // cell-centre y-velocity
     std::vector<double> w;            // cell-centre z-velocity
     std::vector<double> p;            // cell-centre pressure
+    std::vector<double> T;            // cell-centre temperature (empty unless useThermal)
     double maxVelocity = 0;           // m/s
     double reynolds    = 0;           // characteristic Re estimate
     int    iterations  = 0;           // outer SIMPLE iterations actually used

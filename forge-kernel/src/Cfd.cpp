@@ -55,6 +55,21 @@ namespace la = forge::native::linalg;
 // removes the ~1/(Re·h) numerical diffusion of first-order upwind that
 // dominated the lid-cavity error at Re≥400 (see test/cfd_ghia_gate.mjs).
 // The central diffusion term and the projection/MAC core are unchanged.
+//
+// ENERGY EQUATION + BOUSSINESQ BUOYANCY (task #61, natural convection).
+// When cfg.useThermal is set, a temperature scalar T is transported on the
+// SAME staggered cell centres as pressure:
+//        ∂T/∂t + u·∇T = α ∇²T
+// Its convective term reuses the IDENTICAL musclConv() van-Leer routine used
+// for momentum (the advecting velocity is the cell-centred interpolate of the
+// MAC faces) — there is NO second advection scheme. Diffusion is the same
+// central 7-point Laplacian, at thermal diffusivity α. T is coupled back into
+// momentum through the Boussinesq body force (per unit mass)
+//        f = −β (T − Tref) g
+// added to the velocity predictor (interpolating T to the velocity face). With
+// useThermal=false every thermal branch is skipped and the solver is bit-for-
+// bit the original isothermal NS, so the Ghia lid-cavity gate is untouched.
+// Validated against de Vahl Davis (1983) — see test/cfd_natconv_gate.mjs.
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -142,6 +157,10 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     if (!(cfg.nu > 0)) {
         throw std::invalid_argument("forge.cfd.solveSteadyNS: nu must be > 0");
     }
+    if (cfg.useThermal && !(cfg.alpha > 0)) {
+        throw std::invalid_argument(
+            "forge.cfd.solveSteadyNS: thermal diffusivity alpha must be > 0 when useThermal");
+    }
 
     auto startWall = std::chrono::steady_clock::now();
 
@@ -175,7 +194,26 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     // inlet speed). std::max(dtDiff,dtAdv) is never used — dt is the min of two
     // strictly positive quantities, so dt > 0 is guaranteed and the explicit
     // predictor cannot produce a 0/0 timestep.
-    const double dtDiff = 0.45 * hMin * hMin / cfg.nu;
+    // Diffusive (von-Neumann) stability limit for the explicit central
+    // Laplacian.
+    //   * Isothermal path: UNCHANGED — the original 0.45·h²/ν. It is only stable
+    //     because the lid/inlet advective CFL (dtAdv) binds first; the Ghia gate
+    //     depends on this exact value so we must not touch it.
+    //   * Thermal path: a buoyancy-driven flow starts from REST, so dtAdv is
+    //     non-binding up front and the PURE-diffusion limit governs. The proper
+    //     3-D limit is  dt ≤ 1 / (2·D·(1/dx²+1/dy²+1/dz²))  with the binding
+    //     diffusivity D = max(ν, α) (momentum or thermal, whichever is larger).
+    //     With the looser 0.45·h²/ν the highest grid mode amplifies ~2.6×/step
+    //     and blows the temperature field up — so the energy equation REQUIRES
+    //     this tighter, correct limit (0.8 safety margin).
+    double dtDiff;
+    if (cfg.useThermal) {
+        const double diffMax = std::max(cfg.nu, cfg.alpha);
+        const double invh2 = 1.0 / (dx * dx) + 1.0 / (dy * dy) + 1.0 / (dz * dz);
+        dtDiff = 0.8 / (2.0 * diffMax * invh2);
+    } else {
+        dtDiff = 0.45 * hMin * hMin / cfg.nu;
+    }
     const double dtAdv  = 0.5  * hMin / (1.5 * uBc);
     const double dt = std::min(dtDiff, dtAdv);
     if (!(dt > 0) || !std::isfinite(dt)) {
@@ -208,6 +246,36 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     std::vector<double> w(static_cast<std::size_t>(Nx) * Ny * (Nz + 1), 0.0);
     std::vector<double> p(static_cast<std::size_t>(Nx) * Ny * Nz, 0.0);
     std::vector<double> uStar = u, vStar = v, wStar = w;
+
+    // ---------------------------------------------------- temperature field
+    // T lives on the SAME cell centres as pressure (Nx·Ny·Nz). When a pair of
+    // opposing faces carries an isothermal BC we seed a LINEAR conduction
+    // profile between them (the Ra→0 solution) so the coupled iteration starts
+    // close to steady state and converges far faster; otherwise we seed the
+    // uniform Tinit. Empty when useThermal is false.
+    std::vector<double> T, Tstar;
+    if (cfg.useThermal) {
+        T.assign(static_cast<std::size_t>(Nx) * Ny * Nz, cfg.Tinit);
+        const auto& bc = cfg.thermalBC;
+        auto isoPair = [&](int a, int b) { return bc[a].type == 1 && bc[b].type == 1; };
+        for (int k = 0; k < Nz; ++k)
+          for (int j = 0; j < Ny; ++j)
+            for (int i = 0; i < Nx; ++i) {
+              double t = cfg.Tinit;
+              if (isoPair(0, 1)) {            // -X/+X isothermal → ramp in x
+                  const double f = (i + 0.5) / Nx;
+                  t = bc[0].value + f * (bc[1].value - bc[0].value);
+              } else if (isoPair(2, 3)) {     // -Y/+Y isothermal → ramp in y
+                  const double f = (j + 0.5) / Ny;
+                  t = bc[2].value + f * (bc[3].value - bc[2].value);
+              } else if (isoPair(4, 5)) {     // -Z/+Z isothermal → ramp in z
+                  const double f = (k + 0.5) / Nz;
+                  t = bc[4].value + f * (bc[5].value - bc[4].value);
+              }
+              T[idxC(i, j, k, Nx, Ny)] = t;
+            }
+        Tstar = T;
+    }
 
     // ---------------------------------------------------- BC enforcement
     //
@@ -467,6 +535,29 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         return w[idxW(i, j, k, Nx, Ny)];
     };
 
+    // Ghost temperature one (or more) cell(s) outside the domain, applying the
+    // per-face T boundary condition (cell-centred field, like pressure):
+    //   ISOTHERMAL (Dirichlet T=Tw): ghost = 2·Tw − T_interior so the linearly
+    //     interpolated face value is exactly Tw (2nd-order at the wall).
+    //   ADIABATIC  (Neumann ∂T/∂n=0): ghost = T_interior (zero normal gradient).
+    // The boundary cell is clamped (the formula repeats for the i±2 MUSCL reach),
+    // which drives the limiter to first order in the single boundary-adjacent
+    // cell — mirroring how the velocity ghosts self-limit (see uX/vY/wZ note).
+    // Only ONE index is ever out of range per directional sweep (as for momentum
+    // advection), so the i-then-j-then-k order below is unambiguous.
+    auto tGhost = [&](int i, int j, int k) -> double {
+        auto mirror = [](const ThermalFaceBC& b, double tin) {
+            return b.type == 1 ? (2.0 * b.value - tin) : tin;
+        };
+        if (i < 0)   return mirror(cfg.thermalBC[0], T[idxC(0,      j, k, Nx, Ny)]);
+        if (i >= Nx) return mirror(cfg.thermalBC[1], T[idxC(Nx - 1, j, k, Nx, Ny)]);
+        if (j < 0)   return mirror(cfg.thermalBC[2], T[idxC(i, 0,      k, Nx, Ny)]);
+        if (j >= Ny) return mirror(cfg.thermalBC[3], T[idxC(i, Ny - 1, k, Nx, Ny)]);
+        if (k < 0)   return mirror(cfg.thermalBC[4], T[idxC(i, j, 0,      Nx, Ny)]);
+        if (k >= Nz) return mirror(cfg.thermalBC[5], T[idxC(i, j, Nz - 1, Nx, Ny)]);
+        return T[idxC(i, j, k, Nx, Ny)];
+    };
+
     // Streamwise (face-normal direction) clamped sampling for the MUSCL
     // advection stencil, which reaches 2 cells out. The TRANSVERSE directions
     // use the uGhost/vGhost/wGhost mirrors above (already valid for arbitrary
@@ -621,13 +712,21 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     // iterations. Divergence stays at machine precision after each projection,
     // so it can't detect "did we reach steady state" — we instead require the
     // *update* to fall below a fraction of the BC velocity scale.
-    std::vector<double> uPrev = u, vPrev = v, wPrev = w;
+    std::vector<double> uPrev = u, vPrev = v, wPrev = w, TPrev = T;
     auto velocityChange = [&]() {
         double s = 0;
+        std::size_t n = u.size() + v.size() + w.size();
         for (std::size_t i = 0; i < u.size(); ++i) { const double d = u[i] - uPrev[i]; s += d * d; }
         for (std::size_t i = 0; i < v.size(); ++i) { const double d = v[i] - vPrev[i]; s += d * d; }
         for (std::size_t i = 0; i < w.size(); ++i) { const double d = w[i] - wPrev[i]; s += d * d; }
-        return std::sqrt(s / (u.size() + v.size() + w.size()));
+        // Include the temperature update so steady state means the COUPLED
+        // (velocity + thermal) field has stopped evolving — natural convection
+        // is not converged until the temperature plume is also stationary.
+        if (cfg.useThermal) {
+            for (std::size_t i = 0; i < T.size(); ++i) { const double d = T[i] - TPrev[i]; s += d * d; }
+            n += T.size();
+        }
+        return std::sqrt(s / n);
     };
 
     // Current peak face speed across all three staggered velocity arrays — the
@@ -659,6 +758,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     // -------------------------------------------------- main SIMPLE loop
     for (iter = 1; iter <= cfg.maxIter; ++iter) {
         uPrev = u; vPrev = v; wPrev = w;
+        if (cfg.useThermal) TPrev = T;
 
         // ADAPTIVE TIMESTEP (channel-stability fix). The base dt above was
         // sized from the *initial* BC speed (uBc, e.g. the 0.1 m/s inlet). But
@@ -719,7 +819,16 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                                + (uN - 2 * uC + uS) / (dy * dy)
                                + (uT - 2 * uC + uB) / (dz * dz);
 
-              uStar[ui] = uC + dtStep * (-duAdx - duAdy - duAdz + cfg.nu * lap);
+              // Boussinesq buoyancy (x-component): f = −β(T−Tref)·gx, with T
+              // interpolated to this u-face. Zero unless gravity has an x part.
+              double buoyX = 0.0;
+              if (cfg.useThermal && cfg.gx != 0.0) {
+                  const double Tface = 0.5 * (T[idxC(i - 1, j, k, Nx, Ny)]
+                                            + T[idxC(i,     j, k, Nx, Ny)]);
+                  buoyX = -cfg.beta * (Tface - cfg.Tref) * cfg.gx;
+              }
+
+              uStar[ui] = uC + dtStep * (-duAdx - duAdy - duAdz + cfg.nu * lap + buoyX);
             }
           }
         }
@@ -758,7 +867,17 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                                + (vN - 2 * vC + vS) / (dy * dy)
                                + (vT - 2 * vC + vB) / (dz * dz);
 
-              vStar[vi] = vC + dtStep * (-dvAdx - dvAdy - dvAdz + cfg.nu * lap);
+              // Boussinesq buoyancy (y-component): f = −β(T−Tref)·gy, with T
+              // interpolated to this v-face. With gravity (0,−g,0) this is the
+              // term that drives natural convection — hot fluid rises (+y).
+              double buoyY = 0.0;
+              if (cfg.useThermal && cfg.gy != 0.0) {
+                  const double Tface = 0.5 * (T[idxC(i, j - 1, k, Nx, Ny)]
+                                            + T[idxC(i, j,     k, Nx, Ny)]);
+                  buoyY = -cfg.beta * (Tface - cfg.Tref) * cfg.gy;
+              }
+
+              vStar[vi] = vC + dtStep * (-dvAdx - dvAdy - dvAdz + cfg.nu * lap + buoyY);
             }
           }
         }
@@ -797,7 +916,63 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                                + (wN - 2 * wC + wS) / (dy * dy)
                                + (wT - 2 * wC + wB) / (dz * dz);
 
-              wStar[wi] = wC + dtStep * (-dwAdx - dwAdy - dwAdz + cfg.nu * lap);
+              // Boussinesq buoyancy (z-component): f = −β(T−Tref)·gz, with T
+              // interpolated to this w-face. Zero unless gravity has a z part.
+              double buoyZ = 0.0;
+              if (cfg.useThermal && cfg.gz != 0.0) {
+                  const double Tface = 0.5 * (T[idxC(i, j, k - 1, Nx, Ny)]
+                                            + T[idxC(i, j, k,     Nx, Ny)]);
+                  buoyZ = -cfg.beta * (Tface - cfg.Tref) * cfg.gz;
+              }
+
+              wStar[wi] = wC + dtStep * (-dwAdx - dwAdy - dwAdz + cfg.nu * lap + buoyZ);
+            }
+          }
+        }
+
+        // -------- 1b. energy equation — transport temperature T -----------
+        // ∂T/∂t + u·∇T = α ∇²T, explicit, on the SAME current velocity snapshot
+        // (u,v,w) the momentum predictor read. The convective term reuses the
+        // IDENTICAL musclConv() van-Leer routine as momentum (no second advection
+        // scheme); the advecting velocity is the cell-centred interpolate of the
+        // staggered MAC faces. Diffusion is the same central 7-point Laplacian,
+        // at thermal diffusivity α. Boundary behaviour is carried entirely by
+        // tGhost (isothermal Dirichlet / adiabatic Neumann). T is committed
+        // (T←Tstar) only after the projection, at the bottom of the iteration.
+        if (cfg.useThermal) {
+          for (int k = 0; k < Nz; ++k) {
+            for (int j = 0; j < Ny; ++j) {
+              for (int i = 0; i < Nx; ++i) {
+                const std::size_t c = idxC(i, j, k, Nx, Ny);
+                const double Tc = T[c];
+
+                // advecting velocity at the cell centre (MAC face average)
+                const double uCc = 0.5 * (u[idxU(i, j, k, Nx, Ny)]
+                                        + u[idxU(i + 1, j, k, Nx, Ny)]);
+                const double vCc = 0.5 * (v[idxV(i, j, k, Nx, Ny)]
+                                        + v[idxV(i, j + 1, k, Nx, Ny)]);
+                const double wCc = 0.5 * (w[idxW(i, j, k, Nx, Ny)]
+                                        + w[idxW(i, j, k + 1, Nx, Ny)]);
+
+                // 2nd-order TVD/MUSCL advection — SAME routine as momentum.
+                const double dTadx = musclConv(uCc,
+                    tGhost(i - 2, j, k), tGhost(i - 1, j, k), Tc,
+                    tGhost(i + 1, j, k), tGhost(i + 2, j, k), dx);
+                const double dTady = musclConv(vCc,
+                    tGhost(i, j - 2, k), tGhost(i, j - 1, k), Tc,
+                    tGhost(i, j + 1, k), tGhost(i, j + 2, k), dy);
+                const double dTadz = musclConv(wCc,
+                    tGhost(i, j, k - 2), tGhost(i, j, k - 1), Tc,
+                    tGhost(i, j, k + 1), tGhost(i, j, k + 2), dz);
+
+                // central diffusion α∇²T (7-point, ghosts carry the T BCs)
+                const double lapT =
+                    (tGhost(i + 1, j, k) - 2 * Tc + tGhost(i - 1, j, k)) / (dx * dx)
+                  + (tGhost(i, j + 1, k) - 2 * Tc + tGhost(i, j - 1, k)) / (dy * dy)
+                  + (tGhost(i, j, k + 1) - 2 * Tc + tGhost(i, j, k - 1)) / (dz * dz);
+
+                Tstar[c] = Tc + dtStep * (-dTadx - dTady - dTadz + cfg.alpha * lapT);
+              }
             }
           }
         }
@@ -868,10 +1043,15 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         if (!anyOutlet) rhs[0] = 0.0;
 
         // SPD pressure-Poisson via Jacobi-PCG, warm-started in place from the
-        // previous pressure field p (fast projection convergence). tol is tight
-        // so ∇·u_new is driven to ~1e-10, preserving the projection identity.
+        // previous pressure field p (fast projection convergence). The isothermal
+        // path keeps the tight 1e-10 (Ghia gate depends on it). The thermal path
+        // takes 1e-8 — the velocities are O(10-200) and a relative divergence of
+        // 1e-8 leaves an absolute ∇·u far below any physical scale, so the
+        // steady Nusselt number is unchanged while each (transient) projection
+        // costs markedly fewer CG iterations.
+        const double cgTol = cfg.useThermal ? 1e-8 : 1e-10;
         la::CGResult cg = la::conjugateGradient(Lp, rhs, p, /*maxIters=*/0,
-                                                /*tol=*/1e-10);
+                                                /*tol=*/cgTol);
         if (!cg.ok) {
             throw std::runtime_error(
                 "forge.cfd.solveSteadyNS: pressure Poisson CG failed to converge");
@@ -912,6 +1092,11 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         // boundary face itself).
         applyOutletBCs(u, v, w);
 
+        // Commit the temperature update for this iteration (computed above from
+        // the pre-projection velocity snapshot). The velocity projection does
+        // not touch T — incompressibility constrains only the flow field.
+        if (cfg.useThermal) std::swap(T, Tstar);
+
         divResidual = divergenceL2();
         velChange   = velocityChange();
 
@@ -948,8 +1133,15 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
             for (double x : u) umaxNow = std::max(umaxNow, std::abs(x));
             double pmax = 0;
             for (double x : p) pmax = std::max(pmax, std::abs(x));
-            std::fprintf(stderr, "[cfd] iter %d dtStep %.3e divRes %.3e velChange %.3e maxU %.3e maxP %.3e\n",
-                         iter, dtStep, divResidual, velChange, umaxNow, pmax);
+            if (cfg.useThermal) {
+                double tlo = 1e300, thi = -1e300;
+                for (double x : T) { tlo = std::min(tlo, x); thi = std::max(thi, x); }
+                std::fprintf(stderr, "[cfd] iter %d dtStep %.3e divRes %.3e velChange %.3e maxU %.3e maxP %.3e T[%.3f,%.3f]\n",
+                             iter, dtStep, divResidual, velChange, umaxNow, pmax, tlo, thi);
+            } else {
+                std::fprintf(stderr, "[cfd] iter %d dtStep %.3e divRes %.3e velChange %.3e maxU %.3e maxP %.3e\n",
+                             iter, dtStep, divResidual, velChange, umaxNow, pmax);
+            }
         }
         if (iter > 1 && velChange < cfg.residualTol) break;
     }
@@ -960,6 +1152,9 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     out.v.resize(nCells);
     out.w.resize(nCells);
     out.p.resize(nCells);
+    // Temperature is already cell-centred (same layout as p), so it copies out
+    // directly; left empty for the isothermal solver.
+    if (cfg.useThermal) out.T = T;
 
     double maxV = 0;
     for (int k = 0; k < Nz; ++k)
