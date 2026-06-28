@@ -96,6 +96,15 @@ struct BC {
 struct Result {
     std::vector<std::array<double, 3>> displacement; // per node, m
     std::vector<double>                vonMises;     // per element, Pa
+    // Inc1b — full Cauchy stress tensor + principal stresses, stored both
+    // per-element (constant-strain Tet4 → one value per element) and
+    // nodal-recovered (unweighted average of incident-element stresses) so a
+    // probe point reads a real σ_yy/σ_zz. Voigt order = {sxx,syy,szz,sxy,syz,szx}.
+    std::vector<std::array<double, 6>> elemStress;     // per element, Pa
+    std::vector<std::array<double, 3>> elemPrincipal;  // per element {s1≥s2≥s3}, Pa
+    std::vector<std::array<double, 6>> nodalStress;     // per node, Pa
+    std::vector<std::array<double, 3>> nodalPrincipal;  // per node {s1≥s2≥s3}, Pa
+    std::vector<double>                nodalVonMises;   // per node, Pa
     double maxDisp      = 0.0;
     double maxVonMises  = 0.0;
     bool   converged    = false;

@@ -104,6 +104,48 @@ double tetVolume(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d) {
     return (b - a).cross(c - a).dot(d - a) / 6.0;
 }
 
+// Inc1b — closed-form principal stresses (eigenvalues of the symmetric 3×3
+// Cauchy tensor) via the trigonometric (Smith 1961) method for a real
+// symmetric matrix. Input Voigt s = {sxx,syy,szz,sxy,syz,szx}; output
+// {s1 ≥ s2 ≥ s3}. Exact, branch-stable, no iteration.
+inline void principalStresses(const double s[6], double out[3]) {
+    constexpr double kPi = 3.14159265358979323846;
+    const double sxx = s[0], syy = s[1], szz = s[2];
+    const double sxy = s[3], syz = s[4], szx = s[5];
+    const double p1 = sxy * sxy + syz * syz + szx * szx;
+    if (p1 <= 1e-30) {                       // tensor already diagonal
+        out[0] = sxx; out[1] = syy; out[2] = szz;
+    } else {
+        const double q  = (sxx + syy + szz) / 3.0;
+        const double p2 = (sxx - q) * (sxx - q) + (syy - q) * (syy - q)
+                        + (szz - q) * (szz - q) + 2.0 * p1;
+        const double p  = std::sqrt(p2 / 6.0);
+        const double bxx = (sxx - q) / p, byy = (syy - q) / p, bzz = (szz - q) / p;
+        const double bxy = sxy / p, byz = syz / p, bzx = szx / p;
+        double detB = bxx * (byy * bzz - byz * byz)
+                    - bxy * (bxy * bzz - byz * bzx)
+                    + bzx * (bxy * byz - byy * bzx);
+        double r = detB / 2.0;
+        if (r < -1.0) r = -1.0; else if (r > 1.0) r = 1.0;
+        const double phi = std::acos(r) / 3.0;
+        const double e1 = q + 2.0 * p * std::cos(phi);
+        const double e3 = q + 2.0 * p * std::cos(phi + 2.0 * kPi / 3.0);
+        const double e2 = 3.0 * q - e1 - e3;       // trace invariant
+        out[0] = e1; out[1] = e2; out[2] = e3;
+    }
+    if (out[0] < out[1]) std::swap(out[0], out[1]);
+    if (out[1] < out[2]) std::swap(out[1], out[2]);
+    if (out[0] < out[1]) std::swap(out[0], out[1]);
+}
+
+inline double vonMisesVoigt(const double s[6]) {
+    const double sx = s[0], sy = s[1], sz = s[2];
+    const double txy = s[3], tyz = s[4], tzx = s[5];
+    return std::sqrt(0.5 * ((sx - sy) * (sx - sy) + (sy - sz) * (sy - sz)
+                          + (sz - sx) * (sz - sx))
+                     + 3.0 * (txy * txy + tyz * tyz + tzx * tzx));
+}
+
 // =================================================== Bowyer-Watson mesher
 //
 // Indices used during meshing: nodes are stored in a std::vector<Vec3>
@@ -1281,10 +1323,19 @@ Result solveLinearStatic(const Mesh& mesh, const Material& mat, const BC& bc) {
     R.cgResidual   = finalRes;
     R.converged    = (finalRes < 1e-6);
 
-    // Element von Mises.
-    R.vonMises.resize(mesh.tets.size(), 0.0);
+    // ---- Inc1b: element stress recovery — full Cauchy tensor + principal,
+    // per-element AND nodal-averaged. The sig[6] vector computed here was
+    // previously reduced to von Mises and discarded; we now STORE it. ----
+    const std::size_t nE = mesh.tets.size();
+    R.vonMises.resize(nE, 0.0);
+    R.elemStress.assign(nE, {0, 0, 0, 0, 0, 0});
+    R.elemPrincipal.assign(nE, {0, 0, 0});
     R.maxVonMises = 0.0;
-    for (std::size_t e = 0; e < mesh.tets.size(); ++e) {
+
+    std::vector<std::array<double, 6>> nodeAccum(N, {0, 0, 0, 0, 0, 0});
+    std::vector<int>                   nodeCount(N, 0);
+
+    for (std::size_t e = 0; e < nE; ++e) {
         const Tet& t = mesh.tets[e];
         int ni[4]{ idOf(t.a), idOf(t.b), idOf(t.c), idOf(t.d) };
         Vec3 P[4]{
@@ -1312,12 +1363,33 @@ Result solveLinearStatic(const Mesh& mesh, const Material& mat, const BC& bc) {
         for (int i = 0; i < 6; ++i) {
             for (int j = 0; j < 6; ++j) sig[i] += D[i * 6 + j] * eps[j];
         }
-        double sx=sig[0], sy=sig[1], sz=sig[2], tx=sig[3], ty=sig[4], tz=sig[5];
-        double vm = std::sqrt(0.5 * (
-            (sx - sy)*(sx - sy) + (sy - sz)*(sy - sz) + (sz - sx)*(sz - sx)
-        ) + 3.0 * (tx*tx + ty*ty + tz*tz));
+        for (int i = 0; i < 6; ++i) R.elemStress[e][i] = sig[i];
+        double pr[3]; principalStresses(sig, pr);
+        R.elemPrincipal[e] = {pr[0], pr[1], pr[2]};
+        double vm = vonMisesVoigt(sig);
         R.vonMises[e] = vm;
         if (vm > R.maxVonMises) R.maxVonMises = vm;
+
+        for (int k = 0; k < 4; ++k) {
+            const int nd = ni[k];
+            for (int i = 0; i < 6; ++i) nodeAccum[nd][i] += sig[i];
+            nodeCount[nd]++;
+        }
+    }
+
+    // Nodal-recovered stress: unweighted average of incident-element stresses,
+    // then principal + von Mises recomputed from the averaged tensor (averaging
+    // the principal triplet directly would be wrong — eigenframes differ).
+    R.nodalStress.assign(N, {0, 0, 0, 0, 0, 0});
+    R.nodalPrincipal.assign(N, {0, 0, 0});
+    R.nodalVonMises.assign(N, 0.0);
+    for (int n = 0; n < N; ++n) {
+        if (nodeCount[n] == 0) continue;
+        double s[6];
+        for (int i = 0; i < 6; ++i) { s[i] = nodeAccum[n][i] / nodeCount[n]; R.nodalStress[n][i] = s[i]; }
+        double pr[3]; principalStresses(s, pr);
+        R.nodalPrincipal[n] = {pr[0], pr[1], pr[2]};
+        R.nodalVonMises[n] = vonMisesVoigt(s);
     }
     return R;
 }

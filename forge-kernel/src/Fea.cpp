@@ -493,6 +493,39 @@ inline double vonMisesFromVoigt(const std::vector<double>& s) {
                             + 6.0 * (txy*txy + tyz*tyz + txz*txz)));
 }
 
+// Inc1b — closed-form principal stresses (eigenvalues of the symmetric 3×3
+// Cauchy tensor) via the trigonometric (Smith 1961) method. Input Voigt
+// s = {sxx,syy,szz,sxy,syz,szx}; output {s1 ≥ s2 ≥ s3}.
+inline void principalStresses(const double s[6], double out[3]) {
+    constexpr double kPi = 3.14159265358979323846;
+    const double sxx = s[0], syy = s[1], szz = s[2];
+    const double sxy = s[3], syz = s[4], szx = s[5];
+    const double p1 = sxy * sxy + syz * syz + szx * szx;
+    if (p1 <= 1e-30) {                       // tensor already diagonal
+        out[0] = sxx; out[1] = syy; out[2] = szz;
+    } else {
+        const double q  = (sxx + syy + szz) / 3.0;
+        const double p2 = (sxx - q) * (sxx - q) + (syy - q) * (syy - q)
+                        + (szz - q) * (szz - q) + 2.0 * p1;
+        const double p  = std::sqrt(p2 / 6.0);
+        const double bxx = (sxx - q) / p, byy = (syy - q) / p, bzz = (szz - q) / p;
+        const double bxy = sxy / p, byz = syz / p, bzx = szx / p;
+        double detB = bxx * (byy * bzz - byz * byz)
+                    - bxy * (bxy * bzz - byz * bzx)
+                    + bzx * (bxy * byz - byy * bzx);
+        double r = detB / 2.0;
+        if (r < -1.0) r = -1.0; else if (r > 1.0) r = 1.0;
+        const double phi = std::acos(r) / 3.0;
+        const double e1 = q + 2.0 * p * std::cos(phi);
+        const double e3 = q + 2.0 * p * std::cos(phi + 2.0 * kPi / 3.0);
+        const double e2 = 3.0 * q - e1 - e3;       // trace invariant
+        out[0] = e1; out[1] = e2; out[2] = e3;
+    }
+    if (out[0] < out[1]) std::swap(out[0], out[1]);
+    if (out[1] < out[2]) std::swap(out[1], out[2]);
+    if (out[0] < out[1]) std::swap(out[0], out[1]);
+}
+
 // ---- assembly ----
 //
 // Assemble K and lumped M for the whole mesh. `dofMap` is identity
@@ -1136,16 +1169,26 @@ StaticResult solveStatic(const Mesh& mesh, const Material& mat,
     result.u.assign(u.begin(), u.begin() + nDof);
     result.residual = residual;
 
+    // ---- Inc1b: per-element + nodal-recovered stress tensor + principal ----
     const std::size_t nElems = mesh.tets.size() / 8;
+    const std::size_t nNodes = mesh.nodes.size() / 3;
     result.vonMises.assign(nElems, 0.0);
+    result.elemStress.assign(nElems, {0, 0, 0, 0, 0, 0});
+    result.elemPrincipal.assign(nElems, {0, 0, 0});
     la::MatrixD D = buildD(mat);
     double maxVM = 0;
     std::uint32_t maxAt = 0;
+
+    std::vector<std::array<double, 6>> nodeAccum(nNodes, {0, 0, 0, 0, 0, 0});
+    std::vector<int>                   nodeCount(nNodes, 0);
+
     for (std::size_t e = 0; e < nElems; ++e) {
         double nodeCoords[8][3];
         std::array<double, 24> ue{};
+        std::uint32_t nid8[8];
         for (int i = 0; i < 8; ++i) {
             const std::uint32_t nid = mesh.tets[e * 8 + i];
+            nid8[i] = nid;
             nodeCoords[i][0] = mesh.nodes[3 * nid + 0];
             nodeCoords[i][1] = mesh.nodes[3 * nid + 1];
             nodeCoords[i][2] = mesh.nodes[3 * nid + 2];
@@ -1153,13 +1196,36 @@ StaticResult solveStatic(const Mesh& mesh, const Material& mat,
         }
         const IncompatOps* iop =
             (e < sys.incompat.size()) ? &sys.incompat[e] : nullptr;
-        auto sigma = elementStress(nodeCoords, D, ue, iop);
+        std::vector<double> sigma = elementStress(nodeCoords, D, ue, iop);
+        double s[6];
+        for (int i = 0; i < 6; ++i) s[i] = sigma[i];
+        for (int i = 0; i < 6; ++i) result.elemStress[e][i] = s[i];
+        double pr[3]; principalStresses(s, pr);
+        result.elemPrincipal[e] = {pr[0], pr[1], pr[2]};
         const double vm = vonMisesFromVoigt(sigma);
         result.vonMises[e] = vm;
         if (vm > maxVM) { maxVM = vm; maxAt = static_cast<std::uint32_t>(e); }
+
+        for (int i = 0; i < 8; ++i) {
+            const std::uint32_t nd = nid8[i];
+            for (int c = 0; c < 6; ++c) nodeAccum[nd][c] += s[c];
+            nodeCount[nd]++;
+        }
     }
     result.maxVonMises = maxVM;
     result.maxAtElem   = maxAt;
+
+    result.nodalStress.assign(nNodes, {0, 0, 0, 0, 0, 0});
+    result.nodalPrincipal.assign(nNodes, {0, 0, 0});
+    result.nodalVonMises.assign(nNodes, 0.0);
+    for (std::size_t n = 0; n < nNodes; ++n) {
+        if (nodeCount[n] == 0) continue;
+        std::vector<double> s(6);
+        for (int c = 0; c < 6; ++c) { s[c] = nodeAccum[n][c] / nodeCount[n]; result.nodalStress[n][c] = s[c]; }
+        double pr[3]; principalStresses(s.data(), pr);
+        result.nodalPrincipal[n] = {pr[0], pr[1], pr[2]};
+        result.nodalVonMises[n] = vonMisesFromVoigt(s);
+    }
     return result;
 }
 

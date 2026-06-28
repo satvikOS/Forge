@@ -2111,6 +2111,27 @@ Napi::Value FeaSolveStatic(const Napi::CallbackInfo& info) {
         out.Set("maxVonMises", Napi::Number::New(env, r.maxVonMises));
         out.Set("maxAtElem",   Napi::Number::New(env, r.maxAtElem));
         out.Set("residual",    Napi::Number::New(env, r.residual));
+        // Inc1b — full Cauchy stress tensor + principal, per-element AND
+        // nodal-recovered, as named Float64Arrays (length nElems / nNodes).
+        auto emit6 = [&](const char* nm, const std::vector<std::array<double,6>>& v, int c) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            for (std::size_t i = 0; i < v.size(); ++i) a.Data()[i] = v[i][c];
+            out.Set(nm, a);
+        };
+        auto emit3 = [&](const char* nm, const std::vector<std::array<double,3>>& v, int c) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            for (std::size_t i = 0; i < v.size(); ++i) a.Data()[i] = v[i][c];
+            out.Set(nm, a);
+        };
+        emit6("sxx", r.elemStress, 0); emit6("syy", r.elemStress, 1); emit6("szz", r.elemStress, 2);
+        emit6("sxy", r.elemStress, 3); emit6("syz", r.elemStress, 4); emit6("szx", r.elemStress, 5);
+        emit3("s1", r.elemPrincipal, 0); emit3("s2", r.elemPrincipal, 1); emit3("s3", r.elemPrincipal, 2);
+        emit6("nodeSxx", r.nodalStress, 0); emit6("nodeSyy", r.nodalStress, 1); emit6("nodeSzz", r.nodalStress, 2);
+        emit6("nodeSxy", r.nodalStress, 3); emit6("nodeSyz", r.nodalStress, 4); emit6("nodeSzx", r.nodalStress, 5);
+        emit3("nodeS1", r.nodalPrincipal, 0); emit3("nodeS2", r.nodalPrincipal, 1); emit3("nodeS3", r.nodalPrincipal, 2);
+        auto nvm = Napi::Float64Array::New(env, r.nodalVonMises.size());
+        std::copy(r.nodalVonMises.begin(), r.nodalVonMises.end(), nvm.Data());
+        out.Set("nodeVonMises", nvm);
         return out;
     });
 }
@@ -3193,6 +3214,27 @@ Napi::Value FeaTetSolveLinearStatic(const Napi::CallbackInfo& info) {
         out.Set("converged",    Napi::Boolean::New(env, r.converged));
         out.Set("cgIterations", Napi::Number::New(env, r.cgIterations));
         out.Set("cgResidual",   Napi::Number::New(env, r.cgResidual));
+        // Inc1b — full Cauchy stress tensor + principal, per-element AND
+        // nodal-recovered, as named Float64Arrays (length elemCount / nodeCount).
+        auto emit6 = [&](const char* nm, const std::vector<std::array<double,6>>& v, int c) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            for (std::size_t i = 0; i < v.size(); ++i) a.Data()[i] = v[i][c];
+            out.Set(nm, a);
+        };
+        auto emit3 = [&](const char* nm, const std::vector<std::array<double,3>>& v, int c) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            for (std::size_t i = 0; i < v.size(); ++i) a.Data()[i] = v[i][c];
+            out.Set(nm, a);
+        };
+        emit6("sxx", r.elemStress, 0); emit6("syy", r.elemStress, 1); emit6("szz", r.elemStress, 2);
+        emit6("sxy", r.elemStress, 3); emit6("syz", r.elemStress, 4); emit6("szx", r.elemStress, 5);
+        emit3("s1", r.elemPrincipal, 0); emit3("s2", r.elemPrincipal, 1); emit3("s3", r.elemPrincipal, 2);
+        emit6("nodeSxx", r.nodalStress, 0); emit6("nodeSyy", r.nodalStress, 1); emit6("nodeSzz", r.nodalStress, 2);
+        emit6("nodeSxy", r.nodalStress, 3); emit6("nodeSyz", r.nodalStress, 4); emit6("nodeSzx", r.nodalStress, 5);
+        emit3("nodeS1", r.nodalPrincipal, 0); emit3("nodeS2", r.nodalPrincipal, 1); emit3("nodeS3", r.nodalPrincipal, 2);
+        auto nvm = Napi::Float64Array::New(env, r.nodalVonMises.size());
+        std::copy(r.nodalVonMises.begin(), r.nodalVonMises.end(), nvm.Data());
+        out.Set("nodeVonMises", nvm);
         return out;
     });
 }

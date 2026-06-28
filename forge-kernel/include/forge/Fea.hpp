@@ -33,6 +33,7 @@
 
 #include "forge/ShapeRegistry.hpp"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -65,6 +66,14 @@ struct StaticResult {
     double maxVonMises;             // Pa
     std::uint32_t maxAtElem;        // element index of max stress
     double residual;                // ‖Ku − f‖_∞ on the reduced system
+    // Inc1b — full Cauchy stress tensor + principal stresses, per-element AND
+    // nodal-recovered (unweighted average of incident-element stresses), so a
+    // NAFEMS probe point reads a real σ_yy/σ_zz. Voigt order {sxx,syy,szz,sxy,syz,szx}.
+    std::vector<std::array<double, 6>> elemStress;     // per element, Pa
+    std::vector<std::array<double, 3>> elemPrincipal;  // per element {s1≥s2≥s3}, Pa
+    std::vector<std::array<double, 6>> nodalStress;     // per node, Pa
+    std::vector<std::array<double, 3>> nodalPrincipal;  // per node {s1≥s2≥s3}, Pa
+    std::vector<double>                nodalVonMises;   // per node, Pa
 };
 
 struct ModalResult {
