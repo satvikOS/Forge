@@ -526,6 +526,43 @@ inline void principalStresses(const double s[6], double out[3]) {
     if (out[0] < out[1]) std::swap(out[0], out[1]);
 }
 
+// Inc1c — consistent element thermal (initial-strain) load vector for the
+// trilinear hex:  f_eᵗʰ = ∫ Bcᵀ D ε₀ dV,  ε₀ = e0·[1,1,1,0,0,0], e0 = α·ΔT̄ₑ.
+// Integrated on the SAME 2×2×2 Gauss rule the stiffness uses (compatible field;
+// the condensed bubble contribution to a uniform σ₀ is a second-order term that
+// vanishes for the regular grid bricks the voxel mesher emits). Also returns the
+// constant element thermal stress σ₀ = D ε₀ for the σ = D(ε − ε₀) recovery.
+void thermalLoadVector(const double nodeCoords[8][3], const la::MatrixD& D,
+                       double e0, std::array<double, 24>& fe, double sig0[6]) {
+    fe.fill(0.0);
+    for (int i = 0; i < 6; ++i) sig0[i] = (D(i, 0) + D(i, 1) + D(i, 2)) * e0;
+    for (int g = 0; g < GAUSS_COUNT; ++g) {
+        const auto& gp = kGauss[g];
+        double dN[8][3];
+        shapeDerivatives(gp.xi, gp.eta, gp.zeta, dN);
+        double J[3][3];
+        jacobian(dN, nodeCoords, J);
+        const double det = det3(J);
+        double Ji[3][3];
+        inv3(J, Ji, det);
+        double dNx[8][3];
+        for (int i = 0; i < 8; ++i)
+            for (int j = 0; j < 3; ++j) {
+                double s = 0;
+                for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
+                dNx[i][j] = s;
+            }
+        const double w = gp.w * det;   // dV at this Gauss point
+        // fe += Bcᵀ σ₀ · dV, expanded per node (Bc layout = fillBc).
+        for (int a = 0; a < 8; ++a) {
+            const double bx = dNx[a][0], by = dNx[a][1], bz = dNx[a][2];
+            fe[3*a+0] += w * (bx*sig0[0] + by*sig0[3] + bz*sig0[5]);
+            fe[3*a+1] += w * (by*sig0[1] + bx*sig0[3] + bz*sig0[4]);
+            fe[3*a+2] += w * (bz*sig0[2] + by*sig0[4] + bx*sig0[5]);
+        }
+    }
+}
+
 // ---- assembly ----
 //
 // Assemble K and lumped M for the whole mesh. `dofMap` is identity
@@ -652,14 +689,29 @@ std::vector<int> applyPinnedBCs(la::SparseCSR<double>& K,
     std::vector<int> pinned;
     const int nDof = static_cast<int>(K.rows());
     std::vector<bool> isPinned(nDof, false);
+    std::vector<double> g(nDof, 0.0);   // Inc1c — prescribed displacement values
 
     for (const auto& bc : bcs) {
         const int base = 3 * bc.nodeId;
-        if (bc.fx) isPinned[base + 0] = true;
-        if (bc.fy) isPinned[base + 1] = true;
-        if (bc.fz) isPinned[base + 2] = true;
+        if (bc.fx) { isPinned[base + 0] = true; g[base + 0] = bc.ux; }
+        if (bc.fy) { isPinned[base + 1] = true; g[base + 1] = bc.uy; }
+        if (bc.fz) { isPinned[base + 2] = true; g[base + 2] = bc.uz; }
     }
     for (int i = 0; i < nDof; ++i) if (isPinned[i]) pinned.push_back(i);
+
+    // Inc1c — lift prescribed-displacement columns onto the RHS of the FREE rows
+    // (f_free −= K_free,pinned · g_pinned) so a NON-ZERO prescribed value enters
+    // the reduced system correctly. Must read the ORIGINAL kTrips before the
+    // elimination below mutates them. No-op when every g is 0 (classic pin).
+    bool anyNonzero = false;
+    for (int i : pinned) if (g[i] != 0.0) { anyNonzero = true; break; }
+    if (anyNonzero) {
+        for (const auto& t : kTrips) {
+            const int r = static_cast<int>(t.row);
+            const int c = static_cast<int>(t.col);
+            if (isPinned[c] && !isPinned[r]) f[r] -= t.value * g[c];
+        }
+    }
 
     // Sparse row/col elimination — triplet level. Drop every stiffness triplet
     // touching a pinned row or column (equivalent to Eigen's InnerIterator
@@ -702,7 +754,7 @@ std::vector<int> applyPinnedBCs(la::SparseCSR<double>& K,
     }
 
     for (int i : pinned) {
-        f[i] = 0.0;
+        f[i] = g[i];                  // Inc1c — enforce u_i = prescribed value (0 for a pin)
         if (Mdiag) (*Mdiag)[i] = 1.0; // 1 keeps generalised eigenproblem regular
     }
     (void)mesh;
@@ -1124,14 +1176,26 @@ Mesh meshFromBRep(ShapeHandle h, double targetElemSize) {
 }
 
 // ---------------------------------------------------------- solveStatic
+// 5-arg form forwards to the thermoelastic overload with no temperature field.
 StaticResult solveStatic(const Mesh& mesh, const Material& mat,
                          const std::vector<LoadNodal>&    loads,
                          const std::vector<LoadPressure>& pressureLoads,
                          const std::vector<BCPinned>&     bcs)
 {
+    return solveStatic(mesh, mat, loads, pressureLoads, bcs, std::vector<double>{});
+}
+
+StaticResult solveStatic(const Mesh& mesh, const Material& mat,
+                         const std::vector<LoadNodal>&    loads,
+                         const std::vector<LoadPressure>& pressureLoads,
+                         const std::vector<BCPinned>&     bcs,
+                         const std::vector<double>&       nodeDeltaT)
+{
     auto sys = assemble(mesh, mat, /*withConsistentMass=*/false,
                         /*withIncompatOps=*/true);
     const int nDof = static_cast<int>(sys.nDof);
+    const std::size_t nNodes = mesh.nodes.size() / 3;
+    const std::size_t nElems = mesh.tets.size() / 8;
 
     std::vector<double> f(nDof, 0.0);
     for (const auto& L : loads) {
@@ -1145,6 +1209,45 @@ StaticResult solveStatic(const Mesh& mesh, const Material& mat,
         f[base + 2] += L.fz;
     }
     applyPressureLoads(f, mesh, pressureLoads);
+
+    // ---- Inc1c: thermoelastic initial-strain load ----------------------------
+    // For each element ε₀ = α·ΔT̄ₑ·[1,1,1,0,0,0]; assemble f_th = ∫ Bᵀ D ε₀ dV
+    // and remember the constant element thermal stress σ₀ = D ε₀ so the stress
+    // recovery below reports σ = D(ε − ε₀). Active only when α≠0 AND a per-node
+    // ΔT field of the right length is supplied.
+    std::vector<std::array<double, 6>> thermalSigma0;  // empty ⇒ isothermal
+    if (mat.alpha != 0.0 && nodeDeltaT.size() == nNodes && nNodes > 0) {
+        la::MatrixD Dth = buildD(mat);
+        thermalSigma0.assign(nElems, {0, 0, 0, 0, 0, 0});
+        for (std::size_t e = 0; e < nElems; ++e) {
+            double nodeCoords[8][3];
+            double dTbar = 0.0;
+            for (int i = 0; i < 8; ++i) {
+                const std::uint32_t nid = mesh.tets[e * 8 + i];
+                nodeCoords[i][0] = mesh.nodes[3 * nid + 0];
+                nodeCoords[i][1] = mesh.nodes[3 * nid + 1];
+                nodeCoords[i][2] = mesh.nodes[3 * nid + 2];
+                dTbar += nodeDeltaT[nid];
+            }
+            dTbar *= 0.125;
+            const double e0 = mat.alpha * dTbar;
+            if (e0 == 0.0) continue;
+            std::array<double, 24> fe;
+            double sig0[6];
+            thermalLoadVector(nodeCoords, Dth, e0, fe, sig0);
+            for (int i = 0; i < 6; ++i) thermalSigma0[e][i] = sig0[i];
+            for (int i = 0; i < 8; ++i) {
+                const std::uint32_t nid = mesh.tets[e * 8 + i];
+                f[3 * nid + 0] += fe[3 * i + 0];
+                f[3 * nid + 1] += fe[3 * i + 1];
+                f[3 * nid + 2] += fe[3 * i + 2];
+            }
+        }
+    } else if (mat.alpha != 0.0 && !nodeDeltaT.empty() && nodeDeltaT.size() != nNodes) {
+        throw std::invalid_argument(
+            "forge.fea.solveStatic: nodeDeltaT length must equal node count");
+    }
+
     // Keep an unmodified copy of f for residual reporting.
     std::vector<double> fOrig = f;
     auto pinned = applyPinnedBCs(sys.K, sys.kTrips, f, nullptr, mesh, bcs);
@@ -1170,8 +1273,6 @@ StaticResult solveStatic(const Mesh& mesh, const Material& mat,
     result.residual = residual;
 
     // ---- Inc1b: per-element + nodal-recovered stress tensor + principal ----
-    const std::size_t nElems = mesh.tets.size() / 8;
-    const std::size_t nNodes = mesh.nodes.size() / 3;
     result.vonMises.assign(nElems, 0.0);
     result.elemStress.assign(nElems, {0, 0, 0, 0, 0, 0});
     result.elemPrincipal.assign(nElems, {0, 0, 0});
@@ -1197,6 +1298,11 @@ StaticResult solveStatic(const Mesh& mesh, const Material& mat,
         const IncompatOps* iop =
             (e < sys.incompat.size()) ? &sys.incompat[e] : nullptr;
         std::vector<double> sigma = elementStress(nodeCoords, D, ue, iop);
+        // Inc1c — subtract the constant element thermal stress σ₀ so the reported
+        // value is the true σ = D·(ε − ε₀). No-op when isothermal.
+        if (!thermalSigma0.empty()) {
+            for (int i = 0; i < 6; ++i) sigma[i] -= thermalSigma0[e][i];
+        }
         double s[6];
         for (int i = 0; i < 6; ++i) s[i] = sigma[i];
         for (int i = 0; i < 6; ++i) result.elemStress[e][i] = s[i];

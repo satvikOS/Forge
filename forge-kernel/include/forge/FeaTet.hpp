@@ -61,6 +61,7 @@ struct Material {
     double E;   // Young's modulus  (Pa)
     double nu;  // Poisson ratio    (dimensionless)
     double rho; // density          (kg/m³)
+    double alpha = 0.0; // Inc1c: coefficient of thermal expansion (1/K); 0 ⇒ no thermoelastic
 };
 
 struct Node {
@@ -88,9 +89,22 @@ Mesh meshShape(const ::TopoDS_Shape& s, double targetEdge);
 // Convenience overload: load the shape from the registry first.
 Mesh meshShapeFromHandle(::forge::ShapeHandle h, double targetEdge);
 
+// Inc1c — general per-DOF boundary condition. A constrained DOF takes a
+// prescribed displacement value (0 ⇒ pin / symmetry plane, non-zero ⇒ enforced
+// motion). Node-set selection (BRep-face id or geometric predicate) is done
+// caller-side; this carries the resolved node + per-DOF flags/values.
+struct PrescribedDisp {
+    int    nodeId;
+    bool   fx = false, fy = false, fz = false; // which DOFs are prescribed
+    double ux = 0.0,  uy = 0.0,  uz = 0.0;     // prescribed values (m)
+};
+
 struct BC {
-    std::vector<int> fixedNodes;                                       // restrained DOFs
+    std::vector<int> fixedNodes;                                       // full 3-DOF pin (legacy)
     std::vector<std::pair<int, std::array<double, 3>>> nodalForces;    // (nodeId, Fx,Fy,Fz)
+    // Inc1c additions:
+    std::vector<PrescribedDisp>          prescribed; // per-DOF prescribed / symmetry
+    std::vector<std::pair<int, double>>  nodeTemps;  // (nodeId, ΔT) thermoelastic field
 };
 
 struct Result {

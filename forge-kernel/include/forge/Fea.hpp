@@ -43,6 +43,7 @@ struct Material {
     double E;   // Young's modulus  (Pa)
     double nu;  // Poisson ratio    (dimensionless)
     double rho; // density          (kg/m³)
+    double alpha = 0.0; // Inc1c: coefficient of thermal expansion (1/K); 0 ⇒ no thermoelastic
 };
 
 struct LoadNodal {
@@ -57,7 +58,13 @@ struct LoadPressure {
 
 struct BCPinned {
     std::uint32_t nodeId;
-    bool fx, fy, fz; // true → that translational DOF is fixed (zero displacement)
+    bool fx, fy, fz; // true → that translational DOF is constrained
+    // Inc1c — general BCs. Each constrained DOF takes a PRESCRIBED displacement
+    // value (default 0 ⇒ classic homogeneous pin; non-zero ⇒ enforced motion;
+    // a single-axis fix with value 0 expresses a SYMMETRY plane = zero normal
+    // component on an axis-aligned face). Node-set selection (by source-BRep
+    // face id via mesh.nodeToFace, or a geometric predicate) is done caller-side.
+    double ux = 0.0, uy = 0.0, uz = 0.0;
 };
 
 struct StaticResult {
@@ -133,6 +140,17 @@ StaticResult  solveStatic (const Mesh& m, const Material& mat,
                            const std::vector<LoadNodal>&    loads,
                            const std::vector<LoadPressure>& pressureLoads,
                            const std::vector<BCPinned>&     bcs);
+
+// Inc1c — thermoelastic overload. `nodeDeltaT` is the per-node temperature rise
+// ΔT (size nNodes, or empty for the isothermal case). Each element forms a
+// constant initial strain ε₀ = α·ΔT̄ₑ·[1,1,1,0,0,0] (α = mat.alpha), assembled
+// into an equivalent nodal load f_th = ∫ Bᵀ D ε₀ dV; the recovered stress is the
+// true σ = D·(ε − ε₀). The 5-arg form above forwards here with an empty ΔT.
+StaticResult  solveStatic (const Mesh& m, const Material& mat,
+                           const std::vector<LoadNodal>&    loads,
+                           const std::vector<LoadPressure>& pressureLoads,
+                           const std::vector<BCPinned>&     bcs,
+                           const std::vector<double>&       nodeDeltaT);
 
 ModalResult   solveModal  (const Mesh& m, const Material& mat,
                            const std::vector<BCPinned>& bcs,

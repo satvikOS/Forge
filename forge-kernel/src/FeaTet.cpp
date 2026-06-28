@@ -1265,41 +1265,90 @@ Result solveLinearStatic(const Mesh& mesh, const Material& mat, const BC& bc) {
         f[3 * idx + 2] += nf.second[2];
     }
 
-    // Penalty for fixed DOFs (full 3-DOF restraint).
+    // ---- Inc1c: thermoelastic initial-strain load (per-node ΔT → element ε₀) ----
+    // ε₀ = α·ΔT̄ₑ·[1,1,1,0,0,0]; constant-strain Tet4 ⇒ f_e = V·Bᵀ·(D ε₀).
+    // elemE0[e] (= α·ΔT̄ₑ) is retained so the stress recovery reports σ = D(ε−ε₀).
+    std::vector<double> elemE0;   // empty ⇒ isothermal
+    if (mat.alpha != 0.0 && !bc.nodeTemps.empty()) {
+        std::vector<double> nodeDT(N, 0.0);
+        for (const auto& nt : bc.nodeTemps) {
+            int idx = idOf(nt.first);
+            if (idx >= 0 && idx < N) nodeDT[idx] = nt.second;
+        }
+        elemE0.assign(mesh.tets.size(), 0.0);
+        for (std::size_t e = 0; e < mesh.tets.size(); ++e) {
+            const Tet& t = mesh.tets[e];
+            int ni[4]{ idOf(t.a), idOf(t.b), idOf(t.c), idOf(t.d) };
+            bool ok = true;
+            for (int k = 0; k < 4; ++k) if (ni[k] < 0 || ni[k] >= N) ok = false;
+            if (!ok) continue;
+            double dT = 0.0;
+            for (int k = 0; k < 4; ++k) dT += nodeDT[ni[k]];
+            const double e0 = mat.alpha * (dT * 0.25);
+            elemE0[e] = e0;
+            if (e0 == 0.0) continue;
+            Vec3 P[4]{
+                {mesh.nodes[ni[0]].x, mesh.nodes[ni[0]].y, mesh.nodes[ni[0]].z},
+                {mesh.nodes[ni[1]].x, mesh.nodes[ni[1]].y, mesh.nodes[ni[1]].z},
+                {mesh.nodes[ni[2]].x, mesh.nodes[ni[2]].y, mesh.nodes[ni[2]].z},
+                {mesh.nodes[ni[3]].x, mesh.nodes[ni[3]].y, mesh.nodes[ni[3]].z},
+            };
+            double V = tetVolume(P[0], P[1], P[2], P[3]);
+            if (V < 0) { std::swap(ni[1], ni[2]); std::swap(P[1], P[2]); V = -V; }
+            std::array<double, 6 * 12> B;
+            double Vchk;
+            if (!tet4B(P, B, Vchk)) continue;
+            double sig0[6];
+            for (int i = 0; i < 6; ++i) sig0[i] = (D[i*6+0] + D[i*6+1] + D[i*6+2]) * e0;
+            int gdof[12];
+            for (int k = 0; k < 4; ++k) {
+                gdof[3*k+0] = 3*ni[k]+0; gdof[3*k+1] = 3*ni[k]+1; gdof[3*k+2] = 3*ni[k]+2;
+            }
+            for (int j = 0; j < 12; ++j) {
+                double v = 0.0;
+                for (int i = 0; i < 6; ++i) v += B[i*12+j] * sig0[i];
+                f[gdof[j]] += V * v;
+            }
+        }
+    }
+
+    // ---- Inc1c: general per-DOF boundary conditions via penalty -------------
+    // fixedNodes → full 3-DOF pin at value 0 (legacy). prescribed → per-DOF
+    // constraint with a (possibly non-zero) value; value 0 on a single axis is a
+    // SYMMETRY plane (zero normal component). Penalty: the constrained row keeps
+    // only a large diagonal d with f = d·value (⇒ u = value); free rows retain
+    // the constrained COLUMN, giving the correct K_free,c·value coupling.
     constexpr double kPenalty = 1e30;
-    std::unordered_set<int> fixedSet;
+    std::map<int, double> prescribedDof;   // dof -> prescribed value
     for (int nid : bc.fixedNodes) {
         int idx = idOf(nid);
         if (idx < 0) continue;
-        fixedSet.insert(3 * idx + 0);
-        fixedSet.insert(3 * idx + 1);
-        fixedSet.insert(3 * idx + 2);
+        prescribedDof[3 * idx + 0] = 0.0;
+        prescribedDof[3 * idx + 1] = 0.0;
+        prescribedDof[3 * idx + 2] = 0.0;
     }
-    // Zero rows on fixed dofs, set diag to penalty, zero f.
-    if (!fixedSet.empty()) {
-        // Iterate triplets and rewrite.
+    for (const auto& pd : bc.prescribed) {
+        int idx = idOf(pd.nodeId);
+        if (idx < 0) continue;
+        if (pd.fx) prescribedDof[3 * idx + 0] = pd.ux;
+        if (pd.fy) prescribedDof[3 * idx + 1] = pd.uy;
+        if (pd.fz) prescribedDof[3 * idx + 2] = pd.uz;
+    }
+    if (!prescribedDof.empty()) {
         Sparse::Trip newTrips;
         for (auto& kv : trips) {
             int r = kv.first.first;
-            int c = kv.first.second;
-            if (fixedSet.count(r)) {
-                if (r == c) {
-                    // skip — will overwrite with penalty below
-                }
-                // drop off-diagonals on fixed rows
-                continue;
-            }
-            newTrips[{r, c}] = kv.second;
+            if (prescribedDof.count(r)) continue;   // drop the constrained row
+            newTrips[{r, kv.first.second}] = kv.second;
         }
-        for (int fd : fixedSet) {
-            // Replace diagonal with penalty value (scaled by an existing
-            // diagonal magnitude if available; otherwise just use kPenalty).
+        for (const auto& pr : prescribedDof) {
+            const int fd = pr.first;
             double existing = 0.0;
             auto it = trips.find({fd, fd});
             if (it != trips.end()) existing = it->second;
-            double diag = std::max(std::abs(existing), 1.0) * kPenalty;
+            const double diag = std::max(std::abs(existing), 1.0) * kPenalty;
             newTrips[{fd, fd}] = diag;
-            f[fd] = 0.0;
+            f[fd] = diag * pr.second;     // u_fd = prescribed value (0 = pin / symmetry)
         }
         trips.swap(newTrips);
     }
@@ -1358,6 +1407,12 @@ Result solveLinearStatic(const Mesh& mesh, const Material& mat, const BC& bc) {
         double eps[6] = {0,0,0,0,0,0};
         for (int i = 0; i < 6; ++i) {
             for (int j = 0; j < 12; ++j) eps[i] += B[i * 12 + j] * ue[j];
+        }
+        // Inc1c — remove the element thermal (initial) strain so σ = D·(ε − ε₀);
+        // ε₀ = α·ΔT̄ₑ·[1,1,1,0,0,0]. No-op when isothermal (elemE0 empty).
+        if (!elemE0.empty()) {
+            const double e0 = elemE0[e];
+            eps[0] -= e0; eps[1] -= e0; eps[2] -= e0;
         }
         double sig[6] = {0,0,0,0,0,0};
         for (int i = 0; i < 6; ++i) {

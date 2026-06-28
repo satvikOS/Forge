@@ -1982,6 +1982,9 @@ forge::fea::Material readMaterial(const Napi::Env& env, const Napi::Value& v) {
     mat.E   = reqNum("E");
     mat.nu  = reqNum("nu");
     mat.rho = reqNum("rho");
+    if (obj.Has("alpha") && obj.Get("alpha").IsNumber()) {   // Inc1c: optional CTE
+        mat.alpha = obj.Get("alpha").As<Napi::Number>().DoubleValue();
+    }
     return mat;
 }
 
@@ -2056,6 +2059,10 @@ readBCs(const Napi::Env& env, const Napi::Value& v) {
         B.fx     = o.Has("fx") ? o.Get("fx").As<Napi::Boolean>().Value() : false;
         B.fy     = o.Has("fy") ? o.Get("fy").As<Napi::Boolean>().Value() : false;
         B.fz     = o.Has("fz") ? o.Get("fz").As<Napi::Boolean>().Value() : false;
+        // Inc1c — optional non-zero prescribed displacement per DOF (default 0 = pin).
+        B.ux     = o.Has("ux") ? o.Get("ux").As<Napi::Number>().DoubleValue() : 0.0;
+        B.uy     = o.Has("uy") ? o.Get("uy").As<Napi::Number>().DoubleValue() : 0.0;
+        B.uz     = o.Has("uz") ? o.Get("uz").As<Napi::Number>().DoubleValue() : 0.0;
         out.push_back(B);
     }
     return out;
@@ -2099,8 +2106,15 @@ Napi::Value FeaSolveStatic(const Napi::CallbackInfo& info) {
         auto loads    = readNodalLoads(env, info.Length() > 2 ? info[2] : env.Undefined());
         auto pres     = readPressureLoads(env, info.Length() > 3 ? info[3] : env.Undefined());
         auto bcs      = readBCs(env, info.Length() > 4 ? info[4] : env.Undefined());
+        // Inc1c — optional 6th arg: per-node ΔT (Float64Array, length nNodes) for
+        // the thermoelastic initial-strain load. Absent ⇒ isothermal solve.
+        std::vector<double> nodeDeltaT;
+        if (info.Length() > 5 && info[5].IsTypedArray()) {
+            auto ta = info[5].As<Napi::Float64Array>();
+            nodeDeltaT.assign(ta.Data(), ta.Data() + ta.ElementLength());
+        }
 
-        auto r = forge::fea::solveStatic(mesh, material, loads, pres, bcs);
+        auto r = forge::fea::solveStatic(mesh, material, loads, pres, bcs, nodeDeltaT);
         auto out = Napi::Object::New(env);
         auto u = Napi::Float64Array::New(env, r.u.size());
         std::copy(r.u.begin(), r.u.end(), u.Data());
@@ -3131,7 +3145,11 @@ forge::fea::tet::Material feaTetReadMaterial(Napi::Env env, const Napi::Value& v
         }
         return obj.Get(k).As<Napi::Number>().DoubleValue();
     };
-    return forge::fea::tet::Material{req("E"), req("nu"), req("rho")};
+    forge::fea::tet::Material m{req("E"), req("nu"), req("rho")};
+    if (obj.Has("alpha") && obj.Get("alpha").IsNumber()) {   // Inc1c: optional CTE
+        m.alpha = obj.Get("alpha").As<Napi::Number>().DoubleValue();
+    }
+    return m;
 }
 
 forge::fea::tet::BC feaTetReadBC(Napi::Env env, const Napi::Value& v) {
@@ -3161,6 +3179,37 @@ forge::fea::tet::BC feaTetReadBC(Napi::Env env, const Napi::Value& v) {
             double fy = o.Has("fy") ? o.Get("fy").As<Napi::Number>().DoubleValue() : 0.0;
             double fz = o.Has("fz") ? o.Get("fz").As<Napi::Number>().DoubleValue() : 0.0;
             bc.nodalForces.emplace_back(nid, std::array<double,3>{fx, fy, fz});
+        }
+    }
+    // Inc1c — general per-DOF prescribed displacement / symmetry constraints:
+    //   prescribed: [{ nodeId, fx?, fy?, fz?, ux?, uy?, uz? }]
+    if (obj.Has("prescribed") && obj.Get("prescribed").IsArray()) {
+        auto a = obj.Get("prescribed").As<Napi::Array>();
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            auto e = a.Get(i);
+            if (!e.IsObject()) continue;
+            auto o = e.As<Napi::Object>();
+            forge::fea::tet::PrescribedDisp pd;
+            pd.nodeId = o.Has("nodeId") ? o.Get("nodeId").As<Napi::Number>().Int32Value() : 0;
+            pd.fx = o.Has("fx") ? o.Get("fx").As<Napi::Boolean>().Value() : false;
+            pd.fy = o.Has("fy") ? o.Get("fy").As<Napi::Boolean>().Value() : false;
+            pd.fz = o.Has("fz") ? o.Get("fz").As<Napi::Boolean>().Value() : false;
+            pd.ux = o.Has("ux") ? o.Get("ux").As<Napi::Number>().DoubleValue() : 0.0;
+            pd.uy = o.Has("uy") ? o.Get("uy").As<Napi::Number>().DoubleValue() : 0.0;
+            pd.uz = o.Has("uz") ? o.Get("uz").As<Napi::Number>().DoubleValue() : 0.0;
+            bc.prescribed.push_back(pd);
+        }
+    }
+    // Inc1c — thermoelastic temperature field: nodeTemps: [{ nodeId, T }] (ΔT).
+    if (obj.Has("nodeTemps") && obj.Get("nodeTemps").IsArray()) {
+        auto a = obj.Get("nodeTemps").As<Napi::Array>();
+        for (uint32_t i = 0; i < a.Length(); ++i) {
+            auto e = a.Get(i);
+            if (!e.IsObject()) continue;
+            auto o = e.As<Napi::Object>();
+            int nid = o.Has("nodeId") ? o.Get("nodeId").As<Napi::Number>().Int32Value() : 0;
+            double T = o.Has("T") ? o.Get("T").As<Napi::Number>().DoubleValue() : 0.0;
+            bc.nodeTemps.emplace_back(nid, T);
         }
     }
     return bc;
