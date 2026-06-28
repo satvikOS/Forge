@@ -158,6 +158,7 @@ add_library(forge_kernel SHARED
     src/FeaTet.cpp
     src/Emag.cpp
     src/Cfd.cpp
+    src/CfdCompressible.cpp
     src/Cam.cpp
     src/CamAdvanced.cpp
     src/GcodePost.cpp

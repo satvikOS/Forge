@@ -33,6 +33,7 @@
 #include "forge/CamExtended.hpp"
 #include "forge/GcodePost.hpp"
 #include "forge/Cfd.hpp"
+#include "forge/CfdCompressible.hpp"
 #include "forge/IoExchange.hpp"
 #include "forge/DirectModeling.hpp"
 #include "forge/Healing.hpp"
@@ -3418,6 +3419,62 @@ Napi::Value CfdSolveSteadyNS(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------- compressible 1D Euler (task #63 C0)
+//
+// JS surface — under `forge.cfd`:
+//   solveCompressible1D(cfgObj)   (alias: sodShockTube)
+//     → { x, rho, u, p, e, mach: Float64Array,
+//         cells, steps, tFinal, dx, cpuMs }
+//
+// Native Roe approximate Riemann flux (Harten–Hyman entropy fix) + SSP-RK2 +
+// optional MUSCL/van-Leer reconstruction. All cfg fields are optional and
+// DEFAULT to the standard Sod shock tube (Toro): see CfdCompressible.hpp.
+Napi::Value CfdSolveCompressible1D(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        forge::cfd::Compressible1DConfig cfg; // Sod defaults
+        if (info.Length() > 0 && info[0].IsObject()) {
+            auto co = info[0].As<Napi::Object>();
+            auto num = [&](const char* k, double& dst) {
+                if (co.Has(k) && co.Get(k).IsNumber())
+                    dst = co.Get(k).As<Napi::Number>().DoubleValue();
+            };
+            auto inum = [&](const char* k, int& dst) {
+                if (co.Has(k) && co.Get(k).IsNumber())
+                    dst = co.Get(k).As<Napi::Number>().Int32Value();
+            };
+            num("xL", cfg.xL);   num("xR", cfg.xR);   num("x0", cfg.x0);
+            inum("N", cfg.N);
+            num("gamma", cfg.gamma);
+            num("tEnd", cfg.tEnd);
+            num("cfl", cfg.cfl);
+            inum("order", cfg.order);
+            num("rhoL", cfg.rhoL); num("uL", cfg.uL); num("pL", cfg.pL);
+            num("rhoR", cfg.rhoR); num("uR", cfg.uR); num("pR", cfg.pR);
+            inum("maxSteps", cfg.maxSteps);
+        }
+        auto r = forge::cfd::solveCompressible1D(cfg);
+        auto out = Napi::Object::New(env);
+        auto setF = [&](const char* k, const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            std::copy(v.begin(), v.end(), a.Data());
+            out.Set(k, a);
+        };
+        setF("x", r.x);
+        setF("rho", r.rho);
+        setF("u", r.u);
+        setF("p", r.p);
+        setF("e", r.e);
+        setF("mach", r.mach);
+        out.Set("cells",  Napi::Number::New(env, r.cells));
+        out.Set("steps",  Napi::Number::New(env, r.steps));
+        out.Set("tFinal", Napi::Number::New(env, r.tFinal));
+        out.Set("dx",     Napi::Number::New(env, r.dx));
+        out.Set("cpuMs",  Napi::Number::New(env, r.cpuMs));
+        return out;
+    });
+}
+
 // ------------------------------------------------- Multibody dynamics
 // Real constrained inertial multibody integrator (HHT-α + Baumgarte) —
 // supersedes the kinematic MotionStudy. Exposed as
@@ -5646,6 +5703,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     // -------- CFD (Forge-12b) -------------------------------------------
     auto cfd = Napi::Object::New(env);
     cfd.Set("solveSteadyNS", Napi::Function::New(env, CfdSolveSteadyNS));
+    cfd.Set("solveCompressible1D",
+            Napi::Function::New(env, CfdSolveCompressible1D));
+    cfd.Set("sodShockTube",
+            Napi::Function::New(env, CfdSolveCompressible1D));
     exports.Set("cfd", cfd);
 
     // -------- multibody dynamics (real inertial DAE, HHT-α) -------------
