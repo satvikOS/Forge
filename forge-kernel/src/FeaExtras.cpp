@@ -13,6 +13,7 @@
 
 #include "forge/native/linalg/LinAlg.hpp"
 #include "forge/native/fea/HexElement.hpp"
+#include "forge/native/fea/ScalarElliptic.hpp"
 
 #include <algorithm>
 #include <array>
@@ -39,6 +40,7 @@ namespace {
 // under the names the call sites below already use, so behavior is unchanged.
 // (The former local `shapeFns` was dead code here and is dropped.)
 namespace hex = forge::native::fea::hex;
+namespace se  = forge::native::fea::scalar_elliptic;
 using hex::GaussPoint;
 using hex::kGauss;
 constexpr int kGaussCount = hex::GAUSS_COUNT;
@@ -103,37 +105,14 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
             nodeCoords[i][2] = mesh.nodes[3 * nid + 2];
         }
 
+        // Element 8×8 Laplacian stiffness K_e^{ij} = ∫ k (∇N_i)·(∇N_j) dΩ — the
+        // scalar-elliptic operator −∇·(c∇u)=f with c = k — via the SHARED
+        // assembler (ScalarElliptic.hpp). Byte-identical to the former inline loop
+        // (same HexElement math, same k·s·w order), so the thermal numerics are
+        // unchanged; the ctx reproduces the prior degenerate-element message.
         la::MatrixD Ke(8, 8);
-        double elemVolume = 0;
-        for (int g = 0; g < kGaussCount; ++g) {
-            const auto& gp = kGauss[g];
-            double dN[8][3]; shapeDerivs(gp.xi, gp.eta, gp.zeta, dN);
-            double J[3][3];  jacobian3(dN, nodeCoords, J);
-            const double det = det3x3(J);
-            if (det <= 0) {
-                throw std::runtime_error(
-                    "forge.fea.solveThermal: element Jacobian non-positive");
-            }
-            double Ji[3][3]; inv3x3(J, Ji, det);
-            // Build dN/dx (8×3).
-            double dNx[8][3];
-            for (int i = 0; i < 8; ++i)
-                for (int j = 0; j < 3; ++j) {
-                    double s = 0;
-                    for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
-                    dNx[i][j] = s;
-                }
-            // K_e^{ij} += k Σ (∇N_i)·(∇N_j) det w.
-            const double w = gp.w * det;
-            for (int i = 0; i < 8; ++i)
-                for (int j = 0; j < 8; ++j) {
-                    const double s = dNx[i][0] * dNx[j][0]
-                                   + dNx[i][1] * dNx[j][1]
-                                   + dNx[i][2] * dNx[j][2];
-                    Ke(i, j) += mat.k * s * w;
-                }
-            elemVolume += w;
-        }
+        const double elemVolume =
+            se::elementStiffness(mat.k, nodeCoords, Ke, "forge.fea.solveThermal");
         // Scatter into global K.
         for (int i = 0; i < 8; ++i) {
             for (int j = 0; j < 8; ++j) {
@@ -279,20 +258,11 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
             nodeCoords[i][2] = mesh.nodes[3*nid + 2];
             Te[i] = out.T[nid];
         }
-        double dN[8][3]; shapeDerivs(0,0,0, dN);
-        double J[3][3];  jacobian3(dN, nodeCoords, J);
-        double Ji[3][3]; inv3x3(J, Ji, det3x3(J));
-        double dNx[8][3];
-        for (int i = 0; i < 8; ++i)
-            for (int j = 0; j < 3; ++j) {
-                double s = 0;
-                for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
-                dNx[i][j] = s;
-            }
-        double gT[3] = {0, 0, 0};
-        for (int i = 0; i < 8; ++i) {
-            for (int j = 0; j < 3; ++j) gT[j] += dNx[i][j] * Te[i];
-        }
+        // ∇T at the element centroid via the SHARED gradient recovery
+        // (ScalarElliptic.hpp) — byte-identical to the former inline single
+        // Gauss-point (0,0,0) evaluation.
+        double gT[3];
+        se::gradientAt(0, 0, 0, nodeCoords, Te, gT);
         // q = −k ∇T.
         const double qx = -mat.k * gT[0];
         const double qy = -mat.k * gT[1];
