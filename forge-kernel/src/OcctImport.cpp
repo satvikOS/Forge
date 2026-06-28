@@ -966,17 +966,51 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
                     BRepAdaptor_Curve ac(e);
                     if (ac.GetType() == GeomAbs_Line && allAdjacentPlanar(e)) nSamp = 1;
                 }
+                // ---- PLANAR-FACE (u,v) FROM EXACT 3-D PROJECTION -------------------
+                // On a PLANAR face, derive each boundary sample's (u,v) by EXACT affine
+                // projection of its CANONICAL 3-D point (c3->Value, the same point both
+                // adjacent faces weld to) onto the plane's orthonormal frame, instead of
+                // routing each sample through the OCCT p-curve (pc->Value, a reconstructed
+                // 2-D trim that injects ~1e-9 FP wiggle). For a plane the surface map is
+                // P = origin + u*refDir + v*b (b = axis x refDir, refDir/b orthonormal),
+                // so the inverse u=(P-o).refDir, v=(P-o).b is EXACT and is the very frame
+                // evalDeriv/faceReversed already use — the boundary embedding is now in the
+                // native frame (more consistent, not less). For a STRAIGHT shared edge this
+                // makes the planar face's (u,v) affine in the edge parameter (u,v collinear
+                // with the line), the collinear-only intent of this fix. Only the PLANAR
+                // face's (u,v) changes; the 3-D weld points and every curved/NURBS face's
+                // own sampling path are untouched, so all masses stay bit-identical (a
+                // planar face's mass is a 3-D flux that ignores the (u,v) triangulation).
+                // NOTE: a STEP straight edge that borders a CURVED face must still be
+                // sampled at kEdgeSamples collinear points (to weld to the neighbour), and
+                // FP cannot place N points EXACTLY on an arbitrary line, so the exact CDT
+                // predicate would still read a sub-ULP "crossing" between two far-apart
+                // sub-segments of that run — that residual is cleared by the EXACT
+                // bounding-box reject in constrainedDelaunay2D's self-intersection guard
+                // (the predicate itself is left untouched).
+                const bool planarProj = (fs.kind == nb::SurfaceKind::Plane);
+                const Vec3 pframeB = nb::vcross(fs.axis, fs.refDir); // plane v-axis (unit)
                 // sample [0,1) along the edge in its wire-traversal sense; the next
                 // edge contributes the shared end vertex.
+                std::vector<BSample> es; es.reserve(nSamp);
                 for (int i = 0; i < nSamp; ++i) {
                     double s = (double)i / nSamp;
-                    double f2 = rev ? (p2b + (p2a - p2b) * s) : (p2a + (p2b - p2a) * s);
                     double f3 = rev ? (p3b + (p3a - p3b) * s) : (p3a + (p3b - p3a) * s);
-                    gp_Pnt2d q2 = pc->Value(f2);
-                    gp_Pnt   q3 = c3->Value(f3);
-                    double un, vn; occtToNative(q2.X(), q2.Y(), un, vn);
-                    ring.push_back({toV3(q3), {un, vn}});
+                    gp_Pnt q3 = c3->Value(f3);
+                    Vec3 P = toV3(q3);
+                    double un, vn;
+                    if (planarProj) {
+                        Vec3 d = nb::vsub(P, fs.origin);
+                        un = nb::vdot(d, fs.refDir);
+                        vn = nb::vdot(d, pframeB);
+                    } else {
+                        double f2 = rev ? (p2b + (p2a - p2b) * s) : (p2a + (p2b - p2a) * s);
+                        gp_Pnt2d q2 = pc->Value(f2);
+                        occtToNative(q2.X(), q2.Y(), un, vn);
+                    }
+                    es.push_back({P, {un, vn}});
                 }
+                for (auto& bs : es) ring.push_back(bs);
             }
             if (ring.size() >= 3) rings.push_back(std::move(ring));
         };

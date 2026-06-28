@@ -810,9 +810,29 @@ CDTResult constrainedDelaunay2D(const std::vector<Point2>& ptsIn,
     // distinct constraint segments may share an endpoint (allowed) but must not
     // properly cross, collinearly overlap, or T-touch at an interior point.
     for (std::size_t i = 0; i < cons.size(); ++i) {
+        const Point2& Ai = R.points[cons[i][0]];
+        const Point2& Bi = R.points[cons[i][1]];
+        const double iLoX = std::min(Ai.x, Bi.x), iHiX = std::max(Ai.x, Bi.x);
+        const double iLoY = std::min(Ai.y, Bi.y), iHiY = std::max(Ai.y, Bi.y);
         for (std::size_t j = i + 1; j < cons.size(); ++j) {
             int a0 = cons[i][0], a1 = cons[i][1];
             int b0 = cons[j][0], b1 = cons[j][1];
+            // EXACT bounding-box reject. The intersection of any two segments lies in
+            // BOTH of their axis-aligned bounding boxes, so two segments whose boxes are
+            // strictly disjoint cannot intersect — skip the orient-sign classifier for
+            // them. This is the ONLY place the classifier can return a spurious verdict:
+            // a near-collinear constraint run (a STEP straight edge sampled at
+            // kEdgeSamples points so it welds to a curved neighbour is collinear only to
+            // ~1e-13, not exactly) makes the EXACT orient2d return a true-but-tiny sign
+            // for two TANGENTIALLY FAR-APART sub-segments, which the straddle test reads
+            // as a "proper crossing" even though the segments are nowhere near each other.
+            // The box test is exact on doubles and can NEVER hide a real crossing (a real
+            // crossing has overlapping boxes), so the predicate's coverage of genuine
+            // self-intersections is unchanged — only the false positive is removed.
+            const Point2& Cj = R.points[b0];
+            const Point2& Dj = R.points[b1];
+            if (iHiX < std::min(Cj.x, Dj.x) || std::max(Cj.x, Dj.x) < iLoX) continue;
+            if (iHiY < std::min(Cj.y, Dj.y) || std::max(Cj.y, Dj.y) < iLoY) continue;
             bool shareEndpoint = (a0 == b0 || a0 == b1 || a1 == b0 || a1 == b1);
             SegIntersection si = segmentIntersect(
                 R.points[a0], R.points[a1], R.points[b0], R.points[b1]);
