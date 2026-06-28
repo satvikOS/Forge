@@ -12,6 +12,7 @@
 #include "forge/Fea.hpp"
 
 #include "forge/native/linalg/LinAlg.hpp"
+#include "forge/native/fea/HexElement.hpp"
 
 #include <algorithm>
 #include <array>
@@ -30,74 +31,28 @@ namespace la = forge::native::linalg;
 
 namespace {
 
-// ---------------------------- hex element kernels (duplicated)
-// We re-declare a minimal local copy of the 8-node hex shape derivatives so
-// this TU stays independent of Fea.cpp's private namespace. The constants and
-// algebra match exactly.
-
-constexpr double kGaussPt = 0.5773502691896258; // 1/√3
-constexpr int    kGaussCount = 8;
-
-struct GaussPoint { double xi, eta, zeta, w; };
-constexpr std::array<GaussPoint, kGaussCount> kGauss{{
-    {-kGaussPt,-kGaussPt,-kGaussPt,1.0},
-    { kGaussPt,-kGaussPt,-kGaussPt,1.0},
-    { kGaussPt, kGaussPt,-kGaussPt,1.0},
-    {-kGaussPt, kGaussPt,-kGaussPt,1.0},
-    {-kGaussPt,-kGaussPt, kGaussPt,1.0},
-    { kGaussPt,-kGaussPt, kGaussPt,1.0},
-    { kGaussPt, kGaussPt, kGaussPt,1.0},
-    {-kGaussPt, kGaussPt, kGaussPt,1.0},
-}};
-
-constexpr int kSignXi  [8] = {-1, 1, 1,-1,-1, 1, 1,-1};
-constexpr int kSignEta [8] = {-1,-1, 1, 1,-1,-1, 1, 1};
-constexpr int kSignZeta[8] = {-1,-1,-1,-1, 1, 1, 1, 1};
-
-inline void shapeFns(double xi, double eta, double zeta, double N[8]) {
-    for (int i = 0; i < 8; ++i) {
-        N[i] = 0.125 * (1 + kSignXi[i]*xi)
-                     * (1 + kSignEta[i]*eta)
-                     * (1 + kSignZeta[i]*zeta);
-    }
-}
+// ---------------------------- hex element kernels (shared)
+// The 8-node hex Gauss rule, node-sign table, shape functions/derivatives and
+// Jacobian/det3/inv3 are THE single canonical copy in the shared header
+// forge/native/fea/HexElement.hpp (extracted from Fea.cpp). This TU previously
+// re-declared a byte-identical local copy; it now forwards to the shared one
+// under the names the call sites below already use, so behavior is unchanged.
+// (The former local `shapeFns` was dead code here and is dropped.)
+namespace hex = forge::native::fea::hex;
+using hex::GaussPoint;
+using hex::kGauss;
+constexpr int kGaussCount = hex::GAUSS_COUNT;
 
 inline void shapeDerivs(double xi, double eta, double zeta, double dN[8][3]) {
-    for (int i = 0; i < 8; ++i) {
-        const double a = kSignXi[i],   xa = 1 + a*xi;
-        const double b = kSignEta[i],  yb = 1 + b*eta;
-        const double c = kSignZeta[i], zc = 1 + c*zeta;
-        dN[i][0] = 0.125 * a * yb * zc;
-        dN[i][1] = 0.125 * b * xa * zc;
-        dN[i][2] = 0.125 * c * xa * yb;
-    }
+    hex::shapeDerivatives(xi, eta, zeta, dN);
 }
-
 inline void jacobian3(const double dN[8][3], const double nodeCoords[8][3],
                       double J[3][3]) {
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j) {
-            double s = 0;
-            for (int k = 0; k < 8; ++k) s += dN[k][i] * nodeCoords[k][j];
-            J[i][j] = s;
-        }
+    hex::jacobian(dN, nodeCoords, J);
 }
-inline double det3x3(const double J[3][3]) {
-    return J[0][0]*(J[1][1]*J[2][2] - J[1][2]*J[2][1])
-         - J[0][1]*(J[1][0]*J[2][2] - J[1][2]*J[2][0])
-         + J[0][2]*(J[1][0]*J[2][1] - J[1][1]*J[2][0]);
-}
+inline double det3x3(const double J[3][3]) { return hex::det3(J); }
 inline void inv3x3(const double J[3][3], double Ji[3][3], double det) {
-    const double inv = 1.0 / det;
-    Ji[0][0] =  (J[1][1]*J[2][2] - J[1][2]*J[2][1]) * inv;
-    Ji[0][1] = -(J[0][1]*J[2][2] - J[0][2]*J[2][1]) * inv;
-    Ji[0][2] =  (J[0][1]*J[1][2] - J[0][2]*J[1][1]) * inv;
-    Ji[1][0] = -(J[1][0]*J[2][2] - J[1][2]*J[2][0]) * inv;
-    Ji[1][1] =  (J[0][0]*J[2][2] - J[0][2]*J[2][0]) * inv;
-    Ji[1][2] = -(J[0][0]*J[1][2] - J[0][2]*J[1][0]) * inv;
-    Ji[2][0] =  (J[1][0]*J[2][1] - J[1][1]*J[2][0]) * inv;
-    Ji[2][1] = -(J[0][0]*J[2][1] - J[0][1]*J[2][0]) * inv;
-    Ji[2][2] =  (J[0][0]*J[1][1] - J[0][1]*J[1][0]) * inv;
+    hex::inv3(J, Ji, det);
 }
 
 } // namespace

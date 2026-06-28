@@ -9,6 +9,7 @@
 #include <gp_Pnt.hxx>
 
 #include "forge/native/linalg/LinAlg.hpp"
+#include "forge/native/fea/HexElement.hpp"
 
 #include <algorithm>
 #include <array>
@@ -95,47 +96,22 @@ inline void addScaled(la::MatrixD& dst, const la::MatrixD& src, double w) {
 // Local natural coordinates (ξ,η,ζ) ∈ [-1,1]³ with shape functions
 //   N_i(ξ,η,ζ) = 1/8 (1+ξ_i ξ)(1+η_i η)(1+ζ_i ζ).
 
-constexpr double GAUSS_PT = 0.5773502691896258; // 1/√3
-constexpr int    GAUSS_COUNT = 8;
-
-struct GaussPoint { double xi, eta, zeta, w; };
-constexpr std::array<GaussPoint, GAUSS_COUNT> kGauss{{
-    {-GAUSS_PT,-GAUSS_PT,-GAUSS_PT,1.0},
-    { GAUSS_PT,-GAUSS_PT,-GAUSS_PT,1.0},
-    { GAUSS_PT, GAUSS_PT,-GAUSS_PT,1.0},
-    {-GAUSS_PT, GAUSS_PT,-GAUSS_PT,1.0},
-    {-GAUSS_PT,-GAUSS_PT, GAUSS_PT,1.0},
-    { GAUSS_PT,-GAUSS_PT, GAUSS_PT,1.0},
-    { GAUSS_PT, GAUSS_PT, GAUSS_PT,1.0},
-    {-GAUSS_PT, GAUSS_PT, GAUSS_PT,1.0},
-}};
-
-// Node-local sign pattern: same indexing as the diagram above.
-constexpr int kSignXi  [8] = {-1, 1, 1,-1,-1, 1, 1,-1};
-constexpr int kSignEta [8] = {-1,-1, 1, 1,-1,-1, 1, 1};
-constexpr int kSignZeta[8] = {-1,-1,-1,-1, 1, 1, 1, 1};
-
-inline void shapeFunctions(double xi, double eta, double zeta,
-                           double N[8]) {
-    for (int i = 0; i < 8; ++i) {
-        N[i] = 0.125 * (1 + kSignXi[i]*xi)
-                     * (1 + kSignEta[i]*eta)
-                     * (1 + kSignZeta[i]*zeta);
-    }
-}
-
-// Returns ∂N/∂(ξ,η,ζ): 8×3 with row i = (dN_i/dξ, dN_i/dη, dN_i/dζ).
-inline void shapeDerivatives(double xi, double eta, double zeta,
-                             double dN[8][3]) {
-    for (int i = 0; i < 8; ++i) {
-        const double a = kSignXi[i],   xa = 1 + a*xi;
-        const double b = kSignEta[i],  yb = 1 + b*eta;
-        const double c = kSignZeta[i], zc = 1 + c*zeta;
-        dN[i][0] = 0.125 * a * yb * zc;
-        dN[i][1] = 0.125 * b * xa * zc;
-        dN[i][2] = 0.125 * c * xa * yb;
-    }
-}
+// The 8-node hex element math (Gauss rule, node-sign table, trilinear shape
+// functions + derivatives, the isoparametric Jacobian / det3 / inv3, and the
+// compatible 6×24 B-matrix) is THE single canonical copy in the shared header
+// forge/native/fea/HexElement.hpp. It was previously duplicated byte-for-byte
+// here, in FeaExtras.cpp, and in FeaContact.cpp; this TU now uses that copy.
+// These using-declarations keep every call site below unchanged.
+namespace hex = forge::native::fea::hex;
+using hex::GaussPoint;
+using hex::GAUSS_COUNT;
+using hex::kGauss;
+using hex::shapeFunctions;
+using hex::shapeDerivatives;
+using hex::jacobian;
+using hex::det3;
+using hex::inv3;
+using hex::fillBc;
 
 // ------------------------------------------------------- incompatible modes
 //
@@ -156,35 +132,8 @@ inline void incompatDerivativesNatural(double xi, double eta, double zeta,
     dP[2][0] = 0.0;        dP[2][1] = 0.0;        dP[2][2] = -2.0 * zeta;
 }
 
-// Build the 3×3 Jacobian J = ∂(x,y,z)/∂(ξ,η,ζ) at one Gauss point.
-inline void jacobian(const double dN[8][3], const double nodeCoords[8][3],
-                     double J[3][3]) {
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j) {
-            double s = 0;
-            for (int k = 0; k < 8; ++k) s += dN[k][i] * nodeCoords[k][j];
-            J[i][j] = s;
-        }
-}
-
-inline double det3(const double J[3][3]) {
-    return J[0][0]*(J[1][1]*J[2][2] - J[1][2]*J[2][1])
-         - J[0][1]*(J[1][0]*J[2][2] - J[1][2]*J[2][0])
-         + J[0][2]*(J[1][0]*J[2][1] - J[1][1]*J[2][0]);
-}
-
-inline void inv3(const double J[3][3], double Ji[3][3], double det) {
-    const double inv = 1.0 / det;
-    Ji[0][0] =  (J[1][1]*J[2][2] - J[1][2]*J[2][1]) * inv;
-    Ji[0][1] = -(J[0][1]*J[2][2] - J[0][2]*J[2][1]) * inv;
-    Ji[0][2] =  (J[0][1]*J[1][2] - J[0][2]*J[1][1]) * inv;
-    Ji[1][0] = -(J[1][0]*J[2][2] - J[1][2]*J[2][0]) * inv;
-    Ji[1][1] =  (J[0][0]*J[2][2] - J[0][2]*J[2][0]) * inv;
-    Ji[1][2] = -(J[0][0]*J[1][2] - J[0][2]*J[1][0]) * inv;
-    Ji[2][0] =  (J[1][0]*J[2][1] - J[1][1]*J[2][0]) * inv;
-    Ji[2][1] = -(J[0][0]*J[2][1] - J[0][1]*J[2][0]) * inv;
-    Ji[2][2] =  (J[0][0]*J[1][1] - J[0][1]*J[1][0]) * inv;
-}
+// jacobian / det3 / inv3 are now provided by forge/native/fea/HexElement.hpp
+// (brought into scope via the using-declarations above).
 
 // ---- material matrix (3D isotropic linear elasticity) ----
 // D is 6×6 in Voigt form (σ_xx, σ_yy, σ_zz, σ_xy, σ_yz, σ_xz).
@@ -219,22 +168,9 @@ la::MatrixD buildD(const Material& mat) {
 //   Euler–Bernoulli value. M_e is a Gram matrix (∫NᵀN), hence symmetric
 //   positive-definite, which the GeneralizedSelfAdjointEigenSolver (Ax_lBx,
 //   Cholesky on M) requires.
-// Fill the compatible 6×24 strain-displacement matrix Bc from dN/dx (8×3).
-inline void fillBc(const double dNx[8][3], la::MatrixD& B) {
-    B.setZero();
-    for (int i = 0; i < 8; ++i) {
-        const int c = 3 * i;
-        const double bx = dNx[i][0];
-        const double by = dNx[i][1];
-        const double bz = dNx[i][2];
-        B(0, c    ) = bx;
-        B(1, c + 1) = by;
-        B(2, c + 2) = bz;
-        B(3, c    ) = by; B(3, c + 1) = bx;
-        B(4, c + 1) = bz; B(4, c + 2) = by;
-        B(5, c    ) = bz; B(5, c + 2) = bx;
-    }
-}
+// fillBc (the compatible 6×24 strain-displacement matrix) is now provided by
+// forge/native/fea/HexElement.hpp (brought into scope via the using-declaration
+// above).
 
 // Fill the incompatible 6×9 strain-displacement matrix Bi from dP/dx (3×3).
 // Column block m (m=0,1,2) holds the x,y,z DOFs of incompatible mode P_m.

@@ -14,6 +14,7 @@
 #include "forge/FeaContact.hpp"
 
 #include "forge/native/linalg/LinAlg.hpp"
+#include "forge/native/fea/HexElement.hpp"
 
 #include <algorithm>
 #include <array>
@@ -39,61 +40,26 @@ inline la::MatrixD matScale(const la::MatrixD& A, double s) {
     return C;
 }
 
-// ----------------------------- hex shape kernels (local) -----------------
-
-constexpr double kGaussPt    = 0.5773502691896258; // 1/√3
-constexpr int    kGaussCount = 8;
-
-struct GaussPoint { double xi, eta, zeta, w; };
-constexpr std::array<GaussPoint, kGaussCount> kGauss{{
-    {-kGaussPt,-kGaussPt,-kGaussPt,1.0},
-    { kGaussPt,-kGaussPt,-kGaussPt,1.0},
-    { kGaussPt, kGaussPt,-kGaussPt,1.0},
-    {-kGaussPt, kGaussPt,-kGaussPt,1.0},
-    {-kGaussPt,-kGaussPt, kGaussPt,1.0},
-    { kGaussPt,-kGaussPt, kGaussPt,1.0},
-    { kGaussPt, kGaussPt, kGaussPt,1.0},
-    {-kGaussPt, kGaussPt, kGaussPt,1.0},
-}};
-
-constexpr int kSignXi  [8] = {-1, 1, 1,-1,-1, 1, 1,-1};
-constexpr int kSignEta [8] = {-1,-1, 1, 1,-1,-1, 1, 1};
-constexpr int kSignZeta[8] = {-1,-1,-1,-1, 1, 1, 1, 1};
+// ----------------------------- hex shape kernels (shared) ----------------
+// The 8-node hex Gauss rule, node-sign table, shape derivatives and
+// Jacobian/det3/inv3 are THE single canonical copy in the shared header
+// forge/native/fea/HexElement.hpp (extracted from Fea.cpp). This TU previously
+// re-declared a byte-identical local copy; it now forwards to the shared one
+// under the names the call sites below already use, so behavior is unchanged.
+namespace hex = forge::native::fea::hex;
+using hex::GaussPoint;
+using hex::kGauss;
+constexpr int kGaussCount = hex::GAUSS_COUNT;
 
 inline void shapeDerivs(double xi, double eta, double zeta, double dN[8][3]) {
-    for (int i = 0; i < 8; ++i) {
-        const double a = kSignXi[i],   xa = 1 + a*xi;
-        const double b = kSignEta[i],  yb = 1 + b*eta;
-        const double c = kSignZeta[i], zc = 1 + c*zeta;
-        dN[i][0] = 0.125 * a * yb * zc;
-        dN[i][1] = 0.125 * b * xa * zc;
-        dN[i][2] = 0.125 * c * xa * yb;
-    }
+    hex::shapeDerivatives(xi, eta, zeta, dN);
 }
 inline void jacobian3(const double dN[8][3], const double X[8][3], double J[3][3]) {
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j) {
-            double s = 0;
-            for (int k = 0; k < 8; ++k) s += dN[k][i] * X[k][j];
-            J[i][j] = s;
-        }
+    hex::jacobian(dN, X, J);
 }
-inline double det3x3(const double J[3][3]) {
-    return J[0][0]*(J[1][1]*J[2][2] - J[1][2]*J[2][1])
-         - J[0][1]*(J[1][0]*J[2][2] - J[1][2]*J[2][0])
-         + J[0][2]*(J[1][0]*J[2][1] - J[1][1]*J[2][0]);
-}
+inline double det3x3(const double J[3][3]) { return hex::det3(J); }
 inline void inv3x3(const double J[3][3], double Ji[3][3], double det) {
-    const double inv = 1.0 / det;
-    Ji[0][0] =  (J[1][1]*J[2][2] - J[1][2]*J[2][1]) * inv;
-    Ji[0][1] = -(J[0][1]*J[2][2] - J[0][2]*J[2][1]) * inv;
-    Ji[0][2] =  (J[0][1]*J[1][2] - J[0][2]*J[1][1]) * inv;
-    Ji[1][0] = -(J[1][0]*J[2][2] - J[1][2]*J[2][0]) * inv;
-    Ji[1][1] =  (J[0][0]*J[2][2] - J[0][2]*J[2][0]) * inv;
-    Ji[1][2] = -(J[0][0]*J[1][2] - J[0][2]*J[1][0]) * inv;
-    Ji[2][0] =  (J[1][0]*J[2][1] - J[1][1]*J[2][0]) * inv;
-    Ji[2][1] = -(J[0][0]*J[2][1] - J[0][1]*J[2][0]) * inv;
-    Ji[2][2] =  (J[0][0]*J[1][1] - J[0][1]*J[1][0]) * inv;
+    hex::inv3(J, Ji, det);
 }
 
 inline la::MatrixD isotropicD(double E, double nu) {
@@ -116,21 +82,12 @@ inline double vonMisesVoigt(const std::vector<double>& s) {
                           + 6.0 * (txy*txy + tyz*tyz + txz*txz)));
 }
 
-// Build the standard B (6 × 24) at one set of dN/dx.
+// Build the standard compatible B (6 × 24) at one set of dN/dx. The canonical
+// implementation (byte-identical to Fea.cpp's former fillBc) lives in the
+// shared header forge/native/fea/HexElement.hpp; forward to it so all callers
+// share one definition.
 inline void buildB(const double dNx[8][3], la::MatrixD& B) {
-    B.setZero();
-    for (int i = 0; i < 8; ++i) {
-        const int c = 3 * i;
-        const double bx = dNx[i][0];
-        const double by = dNx[i][1];
-        const double bz = dNx[i][2];
-        B(0, c    ) = bx;
-        B(1, c + 1) = by;
-        B(2, c + 2) = bz;
-        B(3, c    ) = by; B(3, c + 1) = bx;
-        B(4, c + 1) = bz; B(4, c + 2) = by;
-        B(5, c    ) = bz; B(5, c + 2) = bx;
-    }
+    hex::fillBc(dNx, B);
 }
 
 // G matrix (9 × 24) for geometric stress stiffness: row blocks (3 per disp
