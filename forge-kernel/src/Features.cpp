@@ -87,6 +87,7 @@
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <TopTools_MapOfShape.hxx>            // dense-body guard: O(cap) early-exit edge count
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
@@ -149,6 +150,21 @@ void requirePositive(double v, const char* what) {
         throw std::invalid_argument(std::string("forge.part: ") + what +
                                     " must be non-zero (> Precision::Confusion)");
     }
+}
+
+// Count the UNIQUE OCCT edges of `s`, stopping EARLY the moment the count
+// exceeds `cap` (so the result is capped at cap+1). Used by the dense/faceted
+// body fillet/chamfer guard: the app's greedy per-edge fillet fallback issues
+// O(edges) filletEdges calls, so the per-call density check must be O(cap) — a
+// full edge map per call would make the storm itself O(edges²) on a
+// thousands-of-edge faceted body. Returns >cap iff the body is too dense to
+// hand to OCCT BRepFilletAPI.
+int countUniqueEdgesUpTo(const TopoDS_Shape& s, int cap) {
+    TopTools_MapOfShape seen;
+    for (TopExp_Explorer ex(s, TopAbs_EDGE); ex.More(); ex.Next()) {
+        if (seen.Add(ex.Current()) && seen.Extent() > cap) break;
+    }
+    return seen.Extent();
 }
 
 // Take the first wire from a sketch; throws if the sketch has no wires.
@@ -971,6 +987,41 @@ ShapeHandle filletEdges(ShapeHandle shape,
     }
 #endif
     const auto& src = fetch(shape);
+    // ───────────────── PRE-DETECT: dense/faceted body fillet guard ────────────
+    // ROOT CAUSE of the dense-bolt-circle+fillet stall (measured 2026-06-28):
+    // a NativeSolid boolean result — e.g. a bolt-circle plate (140×130×16 box −
+    // Ø40 central bore − 8..12 × Ø11 holes on a Ø90 BCD) — bridges to OCCT
+    // (ShapeRegistry::get → occtFromNativeSolid) as a HEAVILY-SEGMENTED / faceted
+    // shape with THOUSANDS of edges (measured: 4426 edges for 8 holes, 8880 for
+    // 10 holes), versus 45 edges for the CLEAN OCCT B-Rep of the same part. OCCT
+    // BRepFilletAPI on such a dense/faceted edge set does NOT fail cleanly:
+    //   • it can CRASH the worker thread (SIGBUS) — which the timeout watchdog
+    //     below CANNOT catch, because the signal tears down the whole in-process
+    //     kernel BEFORE the deadline fires (no child to SIGKILL); or
+    //   • it can SPIN at ~0% CPU indefinitely inside ChFi3d_Builder, ignoring
+    //     SIGTERM (the reported infinite hang).
+    // A clean B-Rep plate+bolt-circle stays well under a few hundred edges, so an
+    // OCCT edge count far above that is a reliable signature of an un-fillettable
+    // faceted body. Refuse FAST here, BEFORE constructing BRepFilletAPI, so the
+    // build COMPLETES un-filleted (the app's roundEdges/greedyEdgeOp catch this
+    // throw and report applied:false; the part still exports) rather than hanging
+    // or crashing. Native solids round via the OCCT-free analytic fillet path
+    // (above) when native features are enabled — that path is unaffected.
+    {
+        constexpr int kMaxFilletSrcEdges = 1000;   // clean B-Rep ≪ this; faceted ≫ this
+        const int nSrcEdges = countUniqueEdgesUpTo(src, kMaxFilletSrcEdges);
+        if (nSrcEdges > kMaxFilletSrcEdges) {
+            throw std::runtime_error(
+                "forge.part.filletEdges: refusing OCCT fillet on a dense/faceted body (>"
+                + std::to_string(kMaxFilletSrcEdges)
+                + " edges) — typically a many-hole boolean result bridged from a "
+                "NativeSolid. OCCT BRepFilletAPI crashes (SIGBUS) or hangs (0% CPU, "
+                "SIGTERM-ignoring) on such an edge set, so the part is returned "
+                "UN-FILLETED rather than stalling the in-process kernel. (Native "
+                "solids fillet via the OCCT-free analytic path when native features "
+                "are enabled.)");
+        }
+    }
     // ─────────────────────────── OCCT-fillet hang guard ──────────────────────
     // The OCCT BRepFilletAPI path can make part.finish hang on a multi-hole body
     // in TWO ways, BOTH bounded here so the call ERRORS CLEANLY rather than
@@ -1099,6 +1150,22 @@ ShapeHandle chamferEdges(ShapeHandle shape,
 #endif
     const bool asymmetric = distance2 > Precision::Confusion();
     const auto& src = fetch(shape);
+    // PRE-DETECT: same dense/faceted-body guard as filletEdges — OCCT
+    // BRepFilletAPI_MakeChamfer crashes/hangs on the thousands-of-edge faceted
+    // bridge of a many-hole NativeSolid boolean result (the app's chamferAllEdges
+    // greedy storm drives the identical failure). Refuse FAST so the part exports
+    // un-chamfered rather than stalling/crashing the in-process kernel.
+    {
+        constexpr int kMaxChamferSrcEdges = 1000;
+        const int nSrcEdges = countUniqueEdgesUpTo(src, kMaxChamferSrcEdges);
+        if (nSrcEdges > kMaxChamferSrcEdges) {
+            throw std::runtime_error(
+                "forge.part.chamferEdges: refusing OCCT chamfer on a dense/faceted body (>"
+                + std::to_string(kMaxChamferSrcEdges)
+                + " edges) — OCCT BRepFilletAPI_MakeChamfer crashes or hangs on such a "
+                "faceted edge set; the part is returned UN-CHAMFERED.");
+        }
+    }
     BRepFilletAPI_MakeChamfer mk(src);
 
     for (auto id : edgeIds) {
