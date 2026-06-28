@@ -1,0 +1,66 @@
+** ==========================================================================
+** calculix_uniaxial_bar.inp — transcribed CalculiX/Abaqus deck, EXACT answer.
+** A prismatic bar of 4 C3D8 hexes along x, cross-section 1 x 1 (consistent
+** units). Left face (x=0) fixed in x; a y,z pin removes rigid body motion.
+** Right face (x=4) pulled with a total axial force F = 1000 (250 per node).
+**   exact:  sigma_xx = F / A = 1000 / 1 = 1000        (uniform)
+**           tip u_x  = sigma * L / E = 1000 * 4 / 210e9 = 1.90476e-8
+** This is a constant-stress field a valid element reproduces to machine eps,
+** so CalculiX and Forge must agree to round-off.
+** ==========================================================================
+*HEADING
+ Uniaxial bar, 4 x C3D8, known answer sigma=F/A
+*NODE, NSET=NALL
+1,  0.0, 0.0, 0.0
+2,  0.0, 1.0, 0.0
+3,  0.0, 1.0, 1.0
+4,  0.0, 0.0, 1.0
+5,  1.0, 0.0, 0.0
+6,  1.0, 1.0, 0.0
+7,  1.0, 1.0, 1.0
+8,  1.0, 0.0, 1.0
+9,  2.0, 0.0, 0.0
+10, 2.0, 1.0, 0.0
+11, 2.0, 1.0, 1.0
+12, 2.0, 0.0, 1.0
+13, 3.0, 0.0, 0.0
+14, 3.0, 1.0, 0.0
+15, 3.0, 1.0, 1.0
+16, 3.0, 0.0, 1.0
+17, 4.0, 0.0, 0.0
+18, 4.0, 1.0, 0.0
+19, 4.0, 1.0, 1.0
+20, 4.0, 0.0, 1.0
+*ELEMENT, TYPE=C3D8, ELSET=EALL
+1,  1, 5, 6, 2, 4, 8, 7, 3
+2,  5, 9, 10, 6, 8, 12, 11, 7
+3,  9, 13, 14, 10, 12, 16, 15, 11
+4,  13, 17, 18, 14, 16, 20, 19, 15
+*NSET, NSET=FIXED
+1, 2, 3, 4
+*NSET, NSET=TIP
+17, 18, 19, 20
+*MATERIAL, NAME=STEEL
+*ELASTIC
+210.0e9, 0.3
+*DENSITY
+7850.0
+*SOLID SECTION, ELSET=EALL, MATERIAL=STEEL
+*STEP
+*STATIC
+** x=0 face held in x; node 1 pins y,z transl.; node 2 pins z (removes x-rotation).
+** All three are consistent with the exact uniaxial field, so sigma_xx = F/A exactly.
+*BOUNDARY
+FIXED, 1, 1
+1, 2, 3
+2, 3, 3
+*CLOAD
+17, 1, 250.0
+18, 1, 250.0
+19, 1, 250.0
+20, 1, 250.0
+*NODE PRINT, NSET=NALL
+U
+*EL PRINT
+S
+*END STEP
