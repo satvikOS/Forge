@@ -3561,6 +3561,72 @@ Napi::Value CfdSolveCompressible1D(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------- compressible 2D Euler (task #63 C1)
+//
+// JS surface — under `forge.cfd`:
+//   solveCompressible2D(cfgObj)   (alias: obliqueShock)
+//     → { ni, nj, x, y, rho, u, v, p, mach: Float64Array,
+//         rhoInf, uInf, vInf, pInf, aInf, machInf,
+//         iters, resFinal, res0, order, cpuMs }
+//
+// Cell-centred finite volume on a body-fitted structured wedge mesh. The
+// interface flux is the C0 Roe solver rotated into the face-normal frame plus
+// a tangential shear wave (NOT a second Riemann solver). Slip-wall (flow
+// tangency) on the wedge floor; supersonic inflow/far-field + outflow. All cfg
+// fields are optional and DEFAULT to the canonical M₁=2, θ=15° wedge.
+Napi::Value CfdSolveCompressible2D(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        forge::cfd::Compressible2DConfig cfg; // M=2, θ=15° wedge defaults
+        if (info.Length() > 0 && info[0].IsObject()) {
+            auto co = info[0].As<Napi::Object>();
+            auto num = [&](const char* k, double& dst) {
+                if (co.Has(k) && co.Get(k).IsNumber())
+                    dst = co.Get(k).As<Napi::Number>().DoubleValue();
+            };
+            auto inum = [&](const char* k, int& dst) {
+                if (co.Has(k) && co.Get(k).IsNumber())
+                    dst = co.Get(k).As<Napi::Number>().Int32Value();
+            };
+            num("gamma", cfg.gamma);
+            num("machInf", cfg.machInf);
+            num("wedgeDeg", cfg.wedgeDeg);
+            num("xInlet", cfg.xInlet); num("xRamp", cfg.xRamp);
+            num("xOutlet", cfg.xOutlet); num("yTop", cfg.yTop);
+            inum("ni", cfg.ni); inum("nj", cfg.nj);
+            num("rhoInf", cfg.rhoInf); num("pInf", cfg.pInf);
+            num("cfl", cfg.cfl);
+            inum("order", cfg.order);
+            inum("maxIter", cfg.maxIter);
+            num("resTol", cfg.resTol);
+        }
+        auto r = forge::cfd::solveCompressible2D(cfg);
+        auto out = Napi::Object::New(env);
+        auto setF = [&](const char* k, const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            std::copy(v.begin(), v.end(), a.Data());
+            out.Set(k, a);
+        };
+        setF("x", r.x);     setF("y", r.y);
+        setF("rho", r.rho); setF("u", r.u); setF("v", r.v);
+        setF("p", r.p);     setF("mach", r.mach);
+        out.Set("ni", Napi::Number::New(env, r.ni));
+        out.Set("nj", Napi::Number::New(env, r.nj));
+        out.Set("rhoInf",  Napi::Number::New(env, r.rhoInf));
+        out.Set("uInf",    Napi::Number::New(env, r.uInf));
+        out.Set("vInf",    Napi::Number::New(env, r.vInf));
+        out.Set("pInf",    Napi::Number::New(env, r.pInf));
+        out.Set("aInf",    Napi::Number::New(env, r.aInf));
+        out.Set("machInf", Napi::Number::New(env, r.machInf));
+        out.Set("iters",    Napi::Number::New(env, r.iters));
+        out.Set("resFinal", Napi::Number::New(env, r.resFinal));
+        out.Set("res0",     Napi::Number::New(env, r.res0));
+        out.Set("order",    Napi::Number::New(env, r.order));
+        out.Set("cpuMs",    Napi::Number::New(env, r.cpuMs));
+        return out;
+    });
+}
+
 // ------------------------------------------------- Multibody dynamics
 // Real constrained inertial multibody integrator (HHT-α + Baumgarte) —
 // supersedes the kinematic MotionStudy. Exposed as
@@ -5897,6 +5963,10 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
             Napi::Function::New(env, CfdSolveCompressible1D));
     cfd.Set("sodShockTube",
             Napi::Function::New(env, CfdSolveCompressible1D));
+    cfd.Set("solveCompressible2D",
+            Napi::Function::New(env, CfdSolveCompressible2D));
+    cfd.Set("obliqueShock",
+            Napi::Function::New(env, CfdSolveCompressible2D));
     exports.Set("cfd", cfd);
 
     // -------- multibody dynamics (real inertial DAE, HHT-α) -------------

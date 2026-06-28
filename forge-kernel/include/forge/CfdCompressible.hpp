@@ -78,4 +78,71 @@ struct Compressible1DResult {
 // flux (Harten–Hyman entropy fix) and SSP-RK2 time marching.
 Compressible1DResult solveCompressible1D(const Compressible1DConfig& cfg);
 
+// ===========================================================================
+// SU2-track C1 — 2D compressible Euler on a structured quad mesh.
+// ---------------------------------------------------------------------------
+// Cell-centred finite-volume on a body-fitted structured grid over a
+// compression wedge. The interface flux is the SAME C0 Roe linearisation
+// generalised to an arbitrary face normal: the cell states are rotated into
+// the face-normal frame (un = u·n, ut tangential), the identical 3-wave Roe
+// decomposition (acoustic un±a + entropy un, with the C0 Harten–Hyman entropy
+// fix and the C0 α-projection formulas) is evaluated in that frame, the
+// tangential velocity is carried by one extra shear wave at speed un, and the
+// resulting momentum flux is rotated back to (x,y). It is NOT a second Riemann
+// solver — same Roe averages, same eigenvalues, same entropy fix as C0.
+//
+// Verified against the analytic oblique-shock θ-β-M relation for supersonic
+// flow over a wedge (Anderson, "Modern Compressible Flow", 3rd ed., McGraw-Hill
+// 2003, Ch. 4) — see test/cfd_oblique_shock_gate.mjs.
+// ===========================================================================
+
+// Supersonic flow over a compression wedge on a body-fitted structured mesh.
+// Geometry (2D, units non-dimensional): a flat inlet floor on [xInlet, xRamp]
+// then a straight ramp inclined at the wedge half-angle for x ≥ xRamp, a flat
+// far-field top at y = yTop, supersonic inflow on the left, supersonic outflow
+// on the right. Defaults are the canonical M₁=2, θ=15° case (β≈45.34°).
+struct Compressible2DConfig {
+    double gamma   = 1.4;   // ratio of specific heats (ideal gas, air)
+    double machInf = 2.0;   // freestream Mach number M₁ (supersonic)
+    double wedgeDeg = 15.0; // wedge half-angle θ (degrees)
+
+    // structured body-fitted mesh extent + resolution
+    double xInlet  = 0.0;   // left boundary x
+    double xRamp   = 1.0;   // wedge corner x (flat floor → inclined ramp)
+    double xOutlet = 3.0;   // right boundary x
+    double yTop    = 2.2;   // far-field top y (sized so the shock exits right)
+    int    ni      = 240;   // cells in x
+    int    nj      = 120;   // cells in y
+
+    // freestream reference state (primitive); flow is along +x at inflow
+    double rhoInf  = 1.0;
+    double pInf    = 1.0;
+
+    double cfl     = 0.5;       // CFL for local time stepping to steady state
+    int    order   = 1;         // 1 = 1st-order, 2 = MUSCL (van Leer, primitive)
+    int    maxIter  = 30000;    // iteration cap
+    double resTol   = 1e-6;     // steady-state density-residual drop (relative)
+};
+
+struct Compressible2DResult {
+    int ni = 0, nj = 0;                 // mesh dims (cells)
+    // cell-centred fields, row-major index = i + j*ni  (i fast, x-direction)
+    std::vector<double> x, y;           // cell-centre coordinates
+    std::vector<double> rho, u, v, p;   // primitive state
+    std::vector<double> mach;           // |vel|/a
+    // freestream reference (region I)
+    double rhoInf = 0.0, uInf = 0.0, vInf = 0.0, pInf = 0.0;
+    double aInf = 0.0, machInf = 0.0;
+    int    iters    = 0;                // iterations to convergence / cap
+    double resFinal = 0.0;              // final density residual (relative)
+    double res0     = 0.0;              // initial density residual
+    double cpuMs    = 0.0;
+    int    order    = 1;                // scheme order actually used
+};
+
+// Solve the 2D compressible Euler equations over a compression wedge to steady
+// state. Reuses the C0 Roe flux (rotate-to-normal-frame); slip-wall (flow
+// tangency) on the wedge floor; supersonic far-field/inflow + outflow.
+Compressible2DResult solveCompressible2D(const Compressible2DConfig& cfg);
+
 } // namespace forge::cfd
