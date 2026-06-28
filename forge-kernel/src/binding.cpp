@@ -25,6 +25,7 @@
 #include "forge/Drawings.hpp"
 #include "forge/Sketcher.hpp"
 #include "forge/Fea.hpp"
+#include "forge/Emag.hpp"
 #include "forge/FeaContact.hpp"
 #include "forge/FeaTet.hpp"
 #include "forge/Cam.hpp"
@@ -5314,6 +5315,66 @@ Napi::Value Version(const Napi::CallbackInfo& info) {
 
 } // namespace
 
+// ----------------------------------------------------------- EM (Elmer-track E1)
+//
+// JS surface — under `forge.em`:
+//   magnetostatics(cfgObj)
+//     cfg: { rMax, zMin, zMax, nr, nz, mu, coils:[{rLo,rHi,zLo,zHi,Jphi}, ...] }
+//     → { nr, nz, nodeR, nodeZ, Aphi, elemR, elemZ, Br, Bz, Bmag, energy, residual }
+Napi::Value EmMagnetostatics(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.em.magnetostatics: cfg must be an object");
+        }
+        auto o = info[0].As<Napi::Object>();
+        forge::em::MagnetostaticsConfig cfg;
+        if (o.Has("rMax")) cfg.rMax = o.Get("rMax").As<Napi::Number>().DoubleValue();
+        if (o.Has("zMin")) cfg.zMin = o.Get("zMin").As<Napi::Number>().DoubleValue();
+        if (o.Has("zMax")) cfg.zMax = o.Get("zMax").As<Napi::Number>().DoubleValue();
+        if (o.Has("nr"))   cfg.nr   = o.Get("nr").As<Napi::Number>().Int32Value();
+        if (o.Has("nz"))   cfg.nz   = o.Get("nz").As<Napi::Number>().Int32Value();
+        if (o.Has("mu"))   cfg.mu   = o.Get("mu").As<Napi::Number>().DoubleValue();
+        if (o.Has("coils")) {
+            if (!o.Get("coils").IsArray()) {
+                throw Napi::TypeError::New(env, "forge.em.magnetostatics: coils must be an array");
+            }
+            auto arr = o.Get("coils").As<Napi::Array>();
+            cfg.coils.reserve(arr.Length());
+            for (uint32_t i = 0; i < arr.Length(); ++i) {
+                auto co = arr.Get(i).As<Napi::Object>();
+                forge::em::CoilRegion c{};
+                c.rLo  = co.Get("rLo").As<Napi::Number>().DoubleValue();
+                c.rHi  = co.Get("rHi").As<Napi::Number>().DoubleValue();
+                c.zLo  = co.Get("zLo").As<Napi::Number>().DoubleValue();
+                c.zHi  = co.Get("zHi").As<Napi::Number>().DoubleValue();
+                c.Jphi = co.Get("Jphi").As<Napi::Number>().DoubleValue();
+                cfg.coils.push_back(c);
+            }
+        }
+        auto r = forge::em::magnetostatics(cfg);
+        auto out = Napi::Object::New(env);
+        out.Set("nr", Napi::Number::New(env, r.nr));
+        out.Set("nz", Napi::Number::New(env, r.nz));
+        auto setF64 = [&](const char* key, const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            std::copy(v.begin(), v.end(), a.Data());
+            out.Set(key, a);
+        };
+        setF64("nodeR", r.nodeR);
+        setF64("nodeZ", r.nodeZ);
+        setF64("Aphi",  r.Aphi);
+        setF64("elemR", r.elemR);
+        setF64("elemZ", r.elemZ);
+        setF64("Br",    r.Br);
+        setF64("Bz",    r.Bz);
+        setF64("Bmag",  r.Bmag);
+        out.Set("energy",   Napi::Number::New(env, r.energy));
+        out.Set("residual", Napi::Number::New(env, r.residual));
+        return out;
+    });
+}
+
 // Wave-0 dark-engine harvest — register the self-contained binding TUs that expose
 // the native geom predicates, the implicit/voxel/F-rep field stack, and the
 // PlaneGCS constraint diagnostics (binding_geom/field/sketchdiag.cpp).
@@ -5545,6 +5606,12 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     fea.Set("tet", feaTet);
 
     exports.Set("fea", fea);
+
+    // -------- em (Elmer-track native electromagnetic field solvers) ------
+    auto em = Napi::Object::New(env);
+    em.Set("magnetostatics", Napi::Function::New(env, EmMagnetostatics));
+    exports.Set("em", em);
+
     // -------- cam (2.5D toolpath generators + G-code post) -------------
     auto cam = Napi::Object::New(env);
     cam.Set("profile",  Napi::Function::New(env, CamProfile));
