@@ -18,7 +18,19 @@
 // shell stays small. Mounts inside a Canvas the caller already provides
 // (so this is a "scene fragment" — Group + Points + Mesh).
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { buildSliceMesh } from './sciviz/slice.js';
+import { buildClipMesh } from './sciviz/clip.js';
+import { buildIsosurfaceMesh } from './sciviz/isosurface.js';
+import { TransferFunction } from './sciviz/colorMaps.js';
+import {
+  RESULT_FIELDS, unitsFor, nodalFieldFor, fieldStats, defaultIsovalue,
+  sliceResult, clipResult, isoResult, probeResult, buildFieldReport,
+} from './sciviz/resultFilters.js';
+import {
+  resultsStore, resultsManager, installResultsManagerApi,
+} from './resultsManagerStore.js';
+import { captureSnapshot } from '../foundation/SnapshotPng.js';
 
 // Convert a Float64Array of nodal displacement into a per-node vec3 magnitude.
 function nodeMagnitude(u, nodeCount) {
@@ -155,7 +167,42 @@ function buildBufferGeometry(THREE, mesh, scalarField, dispField, amp) {
   g.setAttribute('normal',   new THREE.BufferAttribute(normals, 3));
   g._smin = smin;
   g._smax = smax;
+  // Stash the deformed node lattice (mm) + the displayed scalar so the
+  // click-to-probe raycast can resolve a hit point to its nearest node.
+  g._nodePos = deformed;
+  g._nodeScalar = scalarField;
+  g._nodeCount = nodeCount;
   return g;
+}
+
+// World-space (metres) axis-aligned bounds of the FE node lattice.
+function meshBounds(mesh) {
+  const n = mesh.nodeCount ?? (mesh.nodes ? mesh.nodes.length / 3 : 0);
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < n; i++) {
+    for (let a = 0; a < 3; a++) {
+      const v = mesh.nodes[3 * i + a];
+      if (v < min[a]) min[a] = v;
+      if (v > max[a]) max[a] = v;
+    }
+  }
+  if (!Number.isFinite(min[0])) return { min: [0, 0, 0], max: [1, 1, 1] };
+  return { min, max };
+}
+
+// Build a (point, normal) axis-aligned plane in metres from the store's
+// axis + normalised position over the bounding box.
+function planeFromStore(mesh, axis, position01) {
+  const bb = meshBounds(mesh);
+  const ai = { x: 0, y: 1, z: 2 }[axis] ?? 0;
+  const normal = [0, 0, 0]; normal[ai] = 1;
+  const point = [
+    (bb.min[0] + bb.max[0]) / 2,
+    (bb.min[1] + bb.max[1]) / 2,
+    (bb.min[2] + bb.max[2]) / 2,
+  ];
+  point[ai] = bb.min[ai] + position01 * (bb.max[ai] - bb.min[ai]);
+  return { point, normal };
 }
 
 /** Pick the scalar field for the active result tab. */
@@ -252,7 +299,8 @@ function pickScalarField(result, mesh, tab, modeIndex, time) {
  *   onLegend     — callback({min, max, units}) — keeps legend in sync
  */
 export function FeaResultScene({ THREE, result, mesh, resultTab, amp = 1,
-                                 playing = false, modeIndex = 0, onLegend = null }) {
+                                 playing = false, modeIndex = 0, onLegend = null,
+                                 onProbe = null, dim = false }) {
   const meshRef = useRef();
   const geomRef = useRef(null);
   const [time, setTime] = useState(0);
@@ -292,11 +340,97 @@ export function FeaResultScene({ THREE, result, mesh, resultTab, amp = 1,
     if (prev && prev !== buffer && typeof prev.dispose === 'function') prev.dispose();
   }, [buffer]);
 
+  // Click-to-probe: raycast hit point (mm) → nearest node → readout. The hit
+  // is in scene units (mm); probeResult finds the nearest stashed node.
+  const handleProbe = (e) => {
+    if (!onProbe || !buffer || !buffer._nodePos) return;
+    e.stopPropagation();
+    const p = e.point; // THREE.Vector3 in scene mm
+    const probe = probeResult(
+      mesh, buffer._nodeScalar, [p.x, p.y, p.z],
+      { nodes: buffer._nodePos, nodeCount: buffer._nodeCount },
+    );
+    if (probe.nodeId < 0) return;
+    onProbe({
+      nodeId: probe.nodeId,
+      value: probe.value,
+      // position back to metres for an SI-clean report
+      position: probe.position ? probe.position.map((v) => v / 1000) : null,
+      field: resultTab,
+      units: unitsForTab(resultTab),
+      at: Date.now(),
+    });
+  };
+
   if (!buffer) return null;
   return (
-    <mesh ref={meshRef} geometry={buffer} castShadow receiveShadow>
-      <meshStandardMaterial vertexColors flatShading metalness={0.05} roughness={0.65} />
+    <mesh ref={meshRef} geometry={buffer} castShadow receiveShadow
+          onClick={handleProbe}>
+      <meshStandardMaterial vertexColors flatShading metalness={0.05} roughness={0.65}
+                            transparent={dim} opacity={dim ? 0.18 : 1}
+                            depthWrite={!dim} />
     </mesh>
+  );
+}
+
+// ── Sci-viz result overlay (ParaView Slice / Clip / Contour) ───────────────
+// REUSES sciviz/slice|clip|isosurface + resultFilters; renders the active
+// filter over the FE result field. Built in metres, scaled ×1000 to the mm
+// viewport so it registers with the deformed base mesh.
+export function SciVizResultOverlay({ THREE, mesh, field, range, rstate }) {
+  const group = useMemo(() => {
+    if (!THREE || !mesh || !field || rstate.mode === 'none') return null;
+    const [lo, hi] = range && range[1] > range[0] ? range : [0, 1];
+    const tf = new TransferFunction({ preset: rstate.preset, range: [lo, hi] });
+    const g = new THREE.Group();
+    g.name = 'sciviz-result-overlay';
+    try {
+      if (rstate.mode === 'slice') {
+        const pl = planeFromStore(mesh, rstate.axis, rstate.position01);
+        g.add(buildSliceMesh(THREE, sliceResult(mesh, field, pl), tf, { opacity: rstate.opacity }));
+      } else if (rstate.mode === 'clip') {
+        const pl = planeFromStore(mesh, rstate.axis, rstate.position01);
+        const spec = { type: 'plane', plane: pl, invert: rstate.invert };
+        g.add(buildClipMesh(THREE, clipResult(mesh, field, spec), tf, { opacity: rstate.opacity }));
+      } else if (rstate.mode === 'iso') {
+        const isov = rstate.isovalue != null ? rstate.isovalue : defaultIsovalue(field);
+        g.add(buildIsosurfaceMesh(THREE, isoResult(mesh, field, isov), tf, { opacity: rstate.opacity }));
+      }
+    } catch (err) {
+      console.warn('[forge.v4.SciVizResultOverlay]', err && err.message);
+      return null;
+    }
+    g.scale.setScalar(1000);
+    return g;
+  }, [THREE, mesh, field, range, rstate.mode, rstate.axis, rstate.position01,
+      rstate.invert, rstate.isovalue, rstate.opacity, rstate.preset]);
+
+  // dispose previous group's geometries on swap
+  const prevRef = useRef(null);
+  useEffect(() => {
+    const prev = prevRef.current;
+    prevRef.current = group;
+    if (prev && prev !== group) {
+      prev.traverse((o) => { if (o.geometry && o.geometry.dispose) o.geometry.dispose(); });
+    }
+  }, [group]);
+
+  if (!group) return null;
+  return <primitive object={group} />;
+}
+
+// Small markers at probed nodes (mm = metres × 1000).
+function ProbeMarkers({ probes }) {
+  if (!probes || !probes.length) return null;
+  return (
+    <group name="forge-probe-markers">
+      {probes.map((p, i) => p.position && (
+        <mesh key={`${p.nodeId}-${i}`} position={p.position.map((v) => v * 1000)}>
+          <sphereGeometry args={[1.4, 12, 12]} />
+          <meshBasicMaterial color="#f0f3f8" />
+        </mesh>
+      ))}
+    </group>
   );
 }
 
@@ -374,6 +508,15 @@ export function FeaResultViewer({ result, mesh, resultTab = 'Displacement',
   const [play, setPlay] = useState(playing);
   const [legend, setLegend] = useState(null);
   const [mIdx, setMIdx] = useState(modeIndex);
+  const [exportStatus, setExportStatus] = useState(null);
+
+  // Results-manager state lives in the external event-reducer store so the
+  // window/CUA `sim.results.*` setters never call a React setState.
+  const rstate = useSyncExternalStore(resultsStore.subscribe, resultsStore.getState, resultsStore.getState);
+  useEffect(() => { installResultsManagerApi(); }, []);
+
+  // r3f renderer/scene/camera handle for the report PNG (reuses captureSnapshot).
+  const glRef = useRef(null);
 
   useEffect(() => { setTab(resultTab); }, [resultTab]);
 
@@ -398,6 +541,64 @@ export function FeaResultViewer({ result, mesh, resultTab = 'Displacement',
                  : (result && result.eigenvalues) ? result.eigenvalues.length
                  : 0;
 
+  // The sci-viz field the results-manager cuts / clips / isos / probes over.
+  const scivizField = useMemo(
+    () => nodalFieldFor(result, mesh, rstate.field),
+    [result, mesh, rstate.field],
+  );
+  const scivizStats = useMemo(
+    () => (scivizField ? fieldStats(scivizField) : null),
+    [scivizField],
+  );
+  const scivizRange = scivizStats ? [scivizStats.min, scivizStats.max] : [0, 1];
+
+  // A probe is computed in the scene (raycast) → published to the store.
+  const onProbe = (probe) => { resultsManager.addProbe(probe); };
+
+  // Report export — REUSES SnapshotPng.captureSnapshot for the PNG + assembles
+  // the numeric summary via resultFilters.buildFieldReport, then downloads JSON.
+  const exportReport = () => {
+    try {
+      const report = buildFieldReport({
+        fieldKey: rstate.field,
+        field: scivizField,
+        probes: rstate.probes,
+        filter: {
+          mode: rstate.mode, axis: rstate.axis, position01: rstate.position01,
+          isovalue: rstate.isovalue, invert: rstate.invert,
+        },
+      });
+      // PNG via the existing snapshot util (no new renderer).
+      let png = { ok: false };
+      if (glRef.current) {
+        png = captureSnapshot({
+          viewport: glRef.current,
+          multiplier: 2,
+          filename: `fea-result-${rstate.field}-${Date.now()}.png`,
+          download: true,
+        });
+      }
+      report.png = png.ok ? { filename: png.filename, bytes: png.bytes, width: png.width, height: png.height } : { ok: false };
+      // numeric summary JSON download
+      if (typeof document !== 'undefined') {
+        const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `fea-result-${rstate.field}-${Date.now()}.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }
+      setExportStatus({
+        ok: true,
+        field: rstate.field,
+        min: report.stats.min, max: report.stats.max, mean: report.stats.mean,
+        probes: report.probeCount, png: png.ok,
+      });
+    } catch (err) {
+      setExportStatus({ ok: false, error: err && err.message ? err.message : String(err) });
+    }
+  };
+
   if (!bundle) {
     return (
       <div data-testid="forge-fea-result-viewer"
@@ -420,7 +621,8 @@ export function FeaResultViewer({ result, mesh, resultTab = 'Displacement',
     <div data-testid="forge-fea-result-viewer"
          style={{ position: 'relative', width: '100%', height: '100%' }}>
       <Canvas camera={{ position: [120, 90, 120], fov: 45, near: 0.1, far: 5000 }}
-              gl={{ antialias: true, alpha: false }}
+              gl={{ antialias: true, alpha: false, preserveDrawingBuffer: true }}
+              onCreated={({ gl, scene, camera }) => { glRef.current = { renderer: gl, scene, camera }; }}
               data-testid="forge-fea-canvas">
         <color attach="background" args={['#0a0b0e']} />
         <ambientLight intensity={0.45} />
@@ -432,7 +634,12 @@ export function FeaResultViewer({ result, mesh, resultTab = 'Displacement',
         <FeaResultScene THREE={THREE} result={result} mesh={mesh}
                         resultTab={tab} amp={amp} playing={play}
                         modeIndex={mIdx}
-                        onLegend={setLegend} />
+                        onLegend={setLegend}
+                        onProbe={onProbe}
+                        dim={rstate.mode === 'slice' || rstate.mode === 'clip' ? rstate.dimBase : false} />
+        <SciVizResultOverlay THREE={THREE} mesh={mesh} field={scivizField}
+                             range={scivizRange} rstate={rstate} />
+        <ProbeMarkers probes={rstate.probes} />
         <OrbitControls makeDefault enableDamping dampingFactor={0.08}
                        minDistance={5} maxDistance={500} />
       </Canvas>
@@ -442,8 +649,184 @@ export function FeaResultViewer({ result, mesh, resultTab = 'Displacement',
                             play={play} setPlay={setPlay}
                             modeIndex={mIdx} setModeIndex={setMIdx}
                             numModes={numModes} />
+      <ResultsManagerControls rstate={rstate} mgr={resultsManager}
+                              stats={scivizStats}
+                              fieldAvailable={!!scivizField}
+                              onExport={exportReport}
+                              exportStatus={exportStatus} />
+      <ProbeHud probes={rstate.probes} onClear={() => resultsManager.clearProbes()} />
     </div>
   );
+}
+
+// ── Results-manager control panel (cut / clip / iso + field + report) ──────
+function ResultsManagerControls({ rstate, mgr, stats, fieldAvailable, onExport, exportStatus }) {
+  const MODES = [['none', 'Off'], ['slice', 'Cut'], ['clip', 'Clip'], ['iso', 'Iso']];
+  const isoDefault = stats ? stats.mean : 0;
+  const isoVal = rstate.isovalue != null ? rstate.isovalue : isoDefault;
+  const fmt = (v) => (v == null ? '—'
+    : (Math.abs(v) >= 1e6 || (Math.abs(v) < 0.01 && v !== 0)) ? v.toExponential(2) : v.toFixed(3));
+  return (
+    <div className="forge-fea-resultsmgr"
+         data-testid="forge-fea-resultsmgr"
+         data-mode={rstate.mode}
+         style={{
+           position: 'absolute', right: 12, bottom: 12,
+           display: 'flex', flexDirection: 'column', gap: 6,
+           background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+           border: '1px solid var(--forge-rail-edge)', borderRadius: 4,
+           padding: 8, minWidth: 250, fontSize: 10, color: 'var(--forge-ink-mute)',
+         }}>
+      <div style={{ textTransform: 'uppercase', letterSpacing: '0.06em',
+                    color: 'var(--forge-ink-2)' }}>sci-viz results manager</div>
+      {/* filter mode */}
+      <div style={{ display: 'flex', gap: 4 }}>
+        {MODES.map(([m, lbl]) => (
+          <button key={m} type="button"
+                  data-resultsmgr-mode={m}
+                  data-active={String(rstate.mode === m)}
+                  onClick={() => mgr.setMode(m)}
+                  style={miniBtn(rstate.mode === m)}>{lbl}</button>
+        ))}
+      </div>
+      {/* field selector */}
+      <label style={rowStyle}>
+        <span style={lblStyle}>Field</span>
+        <select className="forge-tool-input"
+                data-testid="forge-resultsmgr-field"
+                value={rstate.field}
+                onChange={(e) => mgr.setField(e.target.value)}
+                style={{ flex: 1, fontSize: 10 }}>
+          {RESULT_FIELDS.map((f) => <option key={f} value={f}>{f}</option>)}
+        </select>
+      </label>
+      {!fieldAvailable && (
+        <div style={{ color: 'var(--forge-warn)' }}>field "{rstate.field}" not in result</div>
+      )}
+      {(rstate.mode === 'slice' || rstate.mode === 'clip') && (
+        <>
+          <label style={rowStyle}>
+            <span style={lblStyle}>Axis</span>
+            {['x', 'y', 'z'].map((a) => (
+              <button key={a} type="button"
+                      data-resultsmgr-axis={a}
+                      data-active={String(rstate.axis === a)}
+                      onClick={() => mgr.setAxis(a)}
+                      style={miniBtn(rstate.axis === a)}>{a.toUpperCase()}</button>
+            ))}
+          </label>
+          <label style={rowStyle}>
+            <span style={lblStyle}>Pos {rstate.position01.toFixed(2)}</span>
+            <input type="range" min={0} max={1} step={0.01}
+                   data-testid="forge-resultsmgr-pos"
+                   value={rstate.position01}
+                   onChange={(e) => mgr.setPosition(parseFloat(e.target.value))}
+                   style={{ flex: 1 }} />
+          </label>
+          {rstate.mode === 'clip' && (
+            <button type="button"
+                    data-testid="forge-resultsmgr-invert"
+                    data-active={String(rstate.invert)}
+                    onClick={() => mgr.setInvert(!rstate.invert)}
+                    style={miniBtn(rstate.invert)}>invert half-space</button>
+          )}
+        </>
+      )}
+      {rstate.mode === 'iso' && (
+        <label style={rowStyle}>
+          <span style={lblStyle}>Iso {fmt(isoVal)}</span>
+          <input type="range"
+                 min={stats ? stats.min : 0} max={stats ? stats.max : 1}
+                 step={stats ? Math.max((stats.max - stats.min) / 100, 1e-9) : 0.01}
+                 data-testid="forge-resultsmgr-iso"
+                 value={isoVal}
+                 onChange={(e) => mgr.setIsovalue(parseFloat(e.target.value))}
+                 style={{ flex: 1 }} />
+        </label>
+      )}
+      {rstate.mode === 'iso' && (
+        <button type="button" onClick={() => mgr.setIsovalue(null)}
+                style={miniBtn(rstate.isovalue == null)}>σ_mean default</button>
+      )}
+      {/* field stats */}
+      {stats && (
+        <div style={{ fontFamily: 'var(--forge-mono)', fontSize: 9,
+                      color: 'var(--forge-ink-2)' }}>
+          min {fmt(stats.min)} · mean {fmt(stats.mean)} · max {fmt(stats.max)} {unitsFor(rstate.field)}
+        </div>
+      )}
+      <button type="button"
+              data-testid="forge-resultsmgr-export"
+              onClick={onExport}
+              className="forge-tool-dock-btn"
+              data-kind="confirm"
+              style={{ padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}>
+        Export report (PNG + summary)
+      </button>
+      {exportStatus && (
+        <div data-testid="forge-resultsmgr-export-status"
+             style={{ fontFamily: 'var(--forge-mono)', fontSize: 9,
+                      color: exportStatus.ok ? 'var(--forge-ok)' : 'var(--forge-err)' }}>
+          {exportStatus.ok
+            ? `report: ${exportStatus.field} min/mean/max ${fmt(exportStatus.min)}/${fmt(exportStatus.mean)}/${fmt(exportStatus.max)} · ${exportStatus.probes} probes · png ${exportStatus.png ? '✓' : '✗'}`
+            : `export failed: ${exportStatus.error}`}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Probe readout HUD ──────────────────────────────────────────────────────
+function ProbeHud({ probes, onClear }) {
+  if (!probes || !probes.length) return null;
+  const last = probes[probes.length - 1];
+  const fmt = (v) => (v == null ? '—'
+    : (Math.abs(v) >= 1e6 || (Math.abs(v) < 0.01 && v !== 0)) ? v.toExponential(3) : v.toFixed(4));
+  return (
+    <div className="forge-fea-probe-hud"
+         data-testid="forge-fea-probe-hud"
+         style={{
+           position: 'absolute', left: 12, bottom: 12,
+           background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+           border: '1px solid var(--forge-rail-edge)', borderRadius: 4,
+           padding: 8, minWidth: 200, fontSize: 10,
+           fontFamily: 'var(--forge-mono)', color: 'var(--forge-ink-2)',
+         }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between',
+                    color: 'var(--forge-ink-mute)', textTransform: 'uppercase',
+                    letterSpacing: '0.06em', marginBottom: 4 }}>
+        <span>probe · node #{last.nodeId}</span>
+        <button type="button" onClick={onClear}
+                style={{ background: 'transparent', border: 'none',
+                         color: 'var(--forge-ink-mute)', cursor: 'pointer',
+                         fontSize: 10 }}>clear</button>
+      </div>
+      <div data-testid="forge-fea-probe-value">
+        {last.field}: <strong style={{ color: 'var(--forge-ink)' }}>{fmt(last.value)}</strong> {last.units}
+      </div>
+      {last.position && (
+        <div style={{ color: 'var(--forge-ink-mute)' }}>
+          @ [{last.position.map((v) => v.toFixed(4)).join(', ')}] m
+        </div>
+      )}
+      {probes.length > 1 && (
+        <div style={{ color: 'var(--forge-ink-mute)', marginTop: 2 }}>
+          {probes.length} probes recorded
+        </div>
+      )}
+    </div>
+  );
+}
+
+const rowStyle = { display: 'flex', alignItems: 'center', gap: 6 };
+const lblStyle = { minWidth: 64, textTransform: 'uppercase', letterSpacing: '0.05em' };
+function miniBtn(active) {
+  return {
+    background: active ? 'var(--forge-accent-mute)' : 'transparent',
+    color: 'var(--forge-ink)',
+    border: active ? '1px solid var(--forge-accent-rim)' : '1px solid var(--forge-rail-edge)',
+    borderRadius: 3, padding: '2px 7px', fontSize: 10, cursor: 'pointer',
+  };
 }
 
 function ResultViewerControls({ amp, setAmp, tab, setTab,

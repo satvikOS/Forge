@@ -27,7 +27,7 @@ function getViewport() {
   return window.__archdiscViewport ?? null;
 }
 
-function dataUrlToBytes(dataUrl) {
+export function dataUrlToBytes(dataUrl) {
   // dataUrl format: "data:image/png;base64,XXXX"
   const comma = dataUrl.indexOf(',');
   if (comma < 0) return null;
@@ -46,11 +46,15 @@ function dataUrlToBytes(dataUrl) {
  * @param {number=} opts.multiplier  size multiplier (default 2; max 4)
  * @param {string=} opts.filename    download filename
  * @param {boolean=} opts.download   default true; pass false to keep bytes only
+ * @param {object=} opts.viewport    explicit { renderer, scene, camera } to
+ *                                   snapshot (e.g. a second r3f Canvas like the
+ *                                   FEA result viewer). Falls back to the global
+ *                                   window.__archdiscViewport when omitted.
  * @returns {{ok:boolean, width:number, height:number, bytes:number,
  *            filename:string, pngBytes:Uint8Array}}
  */
 export function captureSnapshot(opts = {}) {
-  const vp = getViewport();
+  const vp = opts.viewport || getViewport();
   if (!vp?.renderer || !vp?.scene || !vp?.camera) {
     return { ok: false, reason: 'no-viewport', width: 0, height: 0, bytes: 0 };
   }

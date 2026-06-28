@@ -35,6 +35,7 @@ import {
 import {
   simStore, runMesh, runStudy, installSimSetupApi,
 } from './simulationStore.js';
+import { installResultsManagerApi } from './resultsManagerStore.js';
 import { FeaResultViewer } from './FeaResultViewer.jsx';
 import { TopologyResultViewer } from './TopologyResultViewer.jsx';
 import { runTopologyOptimisation, TOPOLOGY_DEFAULTS } from './topologyOptimisation.js';
@@ -152,6 +153,8 @@ export function SimulationWorkbench({ activeBodyHandle = null,
     // Mount the Archie-CUA surface + push the active body into the store so
     // `sim.setup.mesh/solve` can resolve it. Idempotent.
     installSimSetupApi();
+    // Inc 6 — mount the results-manager CUA surface (window.sim.results.*).
+    installResultsManagerApi();
   }, []);
   useEffect(() => {
     dispatch({ type: 'SET_BODY', handle: activeBodyHandle, name: activeBodyName });
