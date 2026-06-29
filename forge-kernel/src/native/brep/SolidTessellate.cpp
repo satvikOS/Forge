@@ -5,7 +5,9 @@
 
 #include "forge/native/brep/SolidTessellate.hpp"
 #include "forge/native/brep/Surface.hpp"
+#include "forge/native/geom/ConstrainedDelaunay2D.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <map>
@@ -21,6 +23,28 @@ namespace {
 // to the same key.
 inline long long qz(double v, double tol) {
     return static_cast<long long>(std::llround(v / tol));
+}
+
+// Orthonormal in-plane basis from a (unit) normal — for embedding a planar holed
+// face into 2-D so its annulus can be CDT-triangulated (hole excluded).
+inline void planeBasis(const Vec3& n, Vec3& e1, Vec3& e2) {
+    Vec3 a = (std::fabs(n.x) <= std::fabs(n.y) && std::fabs(n.x) <= std::fabs(n.z))
+                 ? Vec3{1, 0, 0}
+                 : (std::fabs(n.y) <= std::fabs(n.z) ? Vec3{0, 1, 0} : Vec3{0, 0, 1});
+    e1 = vnorm(vsub(a, vscale(n, vdot(a, n))));
+    e2 = vcross(n, e1);
+}
+
+// Ordered 3-D points of a loop's coedge ring (origin vertices, ring order).
+inline std::vector<Vec3> loopPts(const Loop* lp) {
+    std::vector<Vec3> pts;
+    if (!lp || !lp->first) return pts;
+    const Coedge* c = lp->first;
+    for (std::size_t i = 0; i < lp->coedgeCount; ++i, c = c->next) {
+        const Vertex* o = c->originVertex();
+        pts.push_back(Vec3{o->point.x, o->point.y, o->point.z});
+    }
+    return pts;
 }
 } // namespace
 
@@ -64,6 +88,63 @@ void tessellateSolid(const Solid& solid,
             if (f->surface) {
                 refN = f->surface->normalAt(0.5 * (f->u0 + f->u1),
                                             0.5 * (f->v0 + f->v1));
+            }
+
+            // HOLED ANALYTIC FACE (native boolean): triangulate the ANNULUS between
+            // the outer loop and the inner (hole) loops via a constrained Delaunay
+            // over all loops, keeping only the even-odd INSIDE triangles (so the
+            // hole is NOT filled). The loop vertices ARE the bore-wall rim vertices,
+            // so the welded soup stays watertight. Gated on `boolHoled` so only
+            // boolean-emitted holed faces take this path — every other face keeps the
+            // byte-identical fan below. A CDT miss falls through to the fan (which at
+            // worst fills the hole, but the boolean only sets boolHoled on clean
+            // inner-loop faces, so the CDT succeeds in practice).
+            if (f->boolHoled && !f->innerLoops.empty() && f->surface) {
+                Vec3 e1, e2; planeBasis(refN, e1, e2);
+                const Vec3 o = pts[0];
+                std::vector<geom::Point2> P2;
+                std::vector<Vec3> P3;
+                std::vector<geom::ConstraintEdge> cons;
+                auto addRing = [&](const std::vector<Vec3>& ring) {
+                    if (ring.size() < 3) return;
+                    int base = static_cast<int>(P2.size());
+                    for (const Vec3& p : ring) {
+                        Vec3 d = vsub(p, o);
+                        P2.push_back(geom::Point2{vdot(d, e1), vdot(d, e2)});
+                        P3.push_back(p);
+                    }
+                    int m = static_cast<int>(ring.size());
+                    for (int i = 0; i < m; ++i) cons.push_back({base + i, base + ((i + 1) % m)});
+                };
+                addRing(pts);                                   // outer loop
+                for (Loop* il : f->innerLoops) addRing(loopPts(il)); // hole loops
+
+                geom::CDTResult cdt = geom::constrainedDelaunay2D(P2, cons);
+                if (cdt.ok && cdt.closedLoops && !cdt.triangles.empty()) {
+                    for (std::size_t t = 0; t < cdt.triangles.size(); ++t) {
+                        if (t < cdt.inside.size() && !cdt.inside[t]) continue; // skip hole
+                        const auto& tr = cdt.triangles[t];
+                        Vec3 q[3]; bool good = true;
+                        for (int kk = 0; kk < 3; ++kk) {
+                            int li = tr[kk];
+                            if (li < 0 || li >= static_cast<int>(cdt.inputIndex.size())) { good = false; break; }
+                            int orig = cdt.inputIndex[li];
+                            if (orig < 0 || orig >= static_cast<int>(P3.size())) { good = false; break; }
+                            q[kk] = P3[orig];
+                        }
+                        if (!good) continue;
+                        std::uint32_t a = vid(q[0]), b = vid(q[1]), c2 = vid(q[2]);
+                        if (a == b || b == c2 || a == c2) continue;
+                        Vec3 triN = vcross(vsub(q[1], q[0]), vsub(q[2], q[0]));
+                        if (vdot(triN, refN) < 0.0) {
+                            indices.push_back(a); indices.push_back(c2); indices.push_back(b);
+                        } else {
+                            indices.push_back(a); indices.push_back(b); indices.push_back(c2);
+                        }
+                    }
+                    continue; // holed face done; do NOT fan-triangulate (would fill the hole)
+                }
+                // CDT miss: fall through to the fan (best-effort, keeps the gate honest).
             }
 
             // Fan-triangulate the (convex-or-simple) loop polygon.

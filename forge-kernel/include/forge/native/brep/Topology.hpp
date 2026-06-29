@@ -219,6 +219,17 @@ struct Face {
     // its real parameter triangle — so a bored cylinder wall's mass is exact).
     // Default false: every primitive face (full rectangular sector) is unaffected.
     bool paramTri = false;
+
+    // ADDITIVE (native boolean HOLED-FACE marker): true when this PLANAR face was
+    // emitted by the boolean as a holed analytic face — an outer loop with one or
+    // more inner (hole) loops (e.g. a drilled plate top/bottom), instead of the
+    // legacy per-CDT-triangle fan. It opts THIS face into the hole-aware
+    // mass-integration (MassProps) and annulus tessellation (SolidTessellate) so
+    // the inner loop's area/volume is subtracted and the hole is not filled. It is
+    // set ONLY by the boolean stitch — NEVER by the fillet/copy paths — so every
+    // non-boolean inner-loop face (e.g. a fillet fragment copy) keeps the original
+    // outer-loop-only integration byte-for-byte (marker isolation). Default false.
+    bool boolHoled = false;
 };
 
 // ----------------------------------------------------------------------------

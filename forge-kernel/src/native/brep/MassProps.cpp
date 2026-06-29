@@ -234,6 +234,36 @@ void integratePlanarExact(const Face* f, Accum& acc) {
             addSample(acc, p, n, q.w * A);
         }
     }
+
+    // HOLED ANALYTIC FACE (native boolean): the divergence-theorem surface
+    // integral over the annulus = ∫(outer) − Σ ∫(inner hole). The face is planar,
+    // so EVERY inner loop is integrated with the SAME constant outward normal `n`
+    // and SUBTRACTED. This is EXACT for the planar caps (the integrands are cubic
+    // monomials, the degree-3 rule is exact). Gated on `boolHoled` so ONLY
+    // boolean-emitted holed faces are hole-aware — the fillet/other inner-loop
+    // faces keep the original outer-loop-only integral byte-for-byte.
+    if (f->boolHoled) {
+        for (Loop* il : f->innerLoops) {
+            std::vector<Vec3> ip;
+            Coedge* ic = il->first;
+            for (std::size_t i = 0; i < il->coedgeCount; ++i) {
+                Vertex* o = ic->originVertex();
+                ip.push_back(Vec3{o->point.x, o->point.y, o->point.z});
+                ic = ic->next;
+            }
+            if (ip.size() < 3) continue;
+            const Vec3& Q0 = ip[0];
+            for (std::size_t t = 1; t + 1 < ip.size(); ++t) {
+                Vec3 a1 = vsub(ip[t], Q0), a2 = vsub(ip[t + 1], Q0);
+                double Ah = 0.5 * vlen(vcross(a1, a2));
+                if (Ah <= 0.0) continue;
+                for (const auto& q : rule) {
+                    Vec3 p = vadd(vadd(vscale(Q0, q.a), vscale(ip[t], q.b)), vscale(ip[t + 1], q.c));
+                    addSample(acc, p, n, -q.w * Ah); // SUBTRACT the hole contribution
+                }
+            }
+        }
+    }
 }
 
 // Integrate an EXACT circular disk / annular sector planar face in polar

@@ -32,6 +32,7 @@
 #include <cstdio>
 #include <limits>
 #include <map>
+#include <set>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -79,6 +80,131 @@ Aabb faceAabb(const Face* f) {
     Aabb bb;
     for (const Vec3& p : faceRing(f)) bb.add(p);
     return bb;
+}
+
+// Ordered 3-D corner points of an arbitrary loop (outer or inner).
+std::vector<Vec3> loopRing3D(const Loop* lp) {
+    std::vector<Vec3> pts;
+    if (!lp || !lp->first) return pts;
+    const Coedge* c = lp->first;
+    for (std::size_t i = 0; i < lp->coedgeCount; ++i, c = c->next) {
+        const Vertex* o = c->originVertex();
+        pts.push_back(Vec3{o->point.x, o->point.y, o->point.z});
+    }
+    return pts;
+}
+
+// ===========================================================================
+// PLANAR 2-D helpers (for the holed-face inner-loop path). A planar face is
+// embedded into 2-D via an orthonormal in-plane basis so the cut fragments can
+// be welded, assembled into closed rings, and point-in-region tested exactly.
+// ===========================================================================
+void planeBasis(const Vec3& n, Vec3& e1, Vec3& e2) {
+    // Pick the world axis least aligned with n, then Gram-Schmidt it into the plane.
+    Vec3 a = (std::fabs(n.x) <= std::fabs(n.y) && std::fabs(n.x) <= std::fabs(n.z))
+                 ? Vec3{1, 0, 0}
+                 : (std::fabs(n.y) <= std::fabs(n.z) ? Vec3{0, 1, 0} : Vec3{0, 0, 1});
+    e1 = vnorm(vsub(a, vscale(n, vdot(a, n))));
+    e2 = vcross(n, e1);
+}
+inline geom::Point2 proj2(const Vec3& p, const Vec3& o, const Vec3& e1, const Vec3& e2) {
+    Vec3 d = vsub(p, o);
+    return geom::Point2{vdot(d, e1), vdot(d, e2)};
+}
+// Even-odd point-in-polygon over a 2-D ring.
+bool pointInPoly2(const std::vector<geom::Point2>& poly, double qx, double qy) {
+    bool in = false;
+    std::size_t n = poly.size();
+    if (n < 3) return false;
+    for (std::size_t i = 0, j = n - 1; i < n; j = i++) {
+        double xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+        if (((yi > qy) != (yj > qy)) &&
+            (qx < (xj - xi) * (qy - yi) / (yj - yi) + xi))
+            in = !in;
+    }
+    return in;
+}
+
+// Try to merge the imprint curve fragments (`curves3D`) of a PLANAR face into one
+// or more CLOSED rings that lie STRICTLY INSIDE the face's `boundary` loop — the
+// signature of a drilled hole (a circle/closed loop fully inside the face). On
+// success `loops` holds each closed ring (ordered 3-D points) and the function
+// returns true. It returns false (loops cleared) when ANY fragment endpoint is a
+// boundary-reaching open cut (degree != 2) or sits outside the boundary — those
+// cuts keep the legacy per-CDT-triangle path. Pure topology: the fragments are
+// welded EXACTLY (the SSI emits the shared sector-arc endpoints bit-identically).
+bool assembleClosedInteriorLoops(const std::vector<std::vector<Vec3>>& curves3D,
+                                 const std::vector<Vec3>& boundary,
+                                 const Vec3& normal,
+                                 std::vector<std::vector<Vec3>>& loops) {
+    loops.clear();
+    if (curves3D.empty() || boundary.size() < 3) return false;
+
+    Vec3 e1, e2; planeBasis(normal, e1, e2);
+    const Vec3 o = boundary[0];
+
+    std::vector<geom::Point2> bpoly; bpoly.reserve(boundary.size());
+    for (const Vec3& p : boundary) bpoly.push_back(proj2(p, o, e1, e2));
+
+    double scale = 1.0;
+    { Aabb bb; for (const Vec3& p : boundary) bb.add(p);
+      scale = std::max({1.0, bb.hi.x - bb.lo.x, bb.hi.y - bb.lo.y, bb.hi.z - bb.lo.z}); }
+    const double wtol = 1e-7 * scale;
+
+    // Weld every fragment point (in 2-D quantised keys) -> unique vertex ids.
+    std::map<std::pair<long long, long long>, int> weld;
+    std::vector<Vec3>          P3;
+    std::vector<geom::Point2>  P2;
+    auto vid = [&](const Vec3& p) -> int {
+        geom::Point2 q = proj2(p, o, e1, e2);
+        auto key = std::make_pair((long long)std::llround(q.x / wtol),
+                                  (long long)std::llround(q.y / wtol));
+        auto it = weld.find(key);
+        if (it != weld.end()) return it->second;
+        int id = (int)P3.size(); P3.push_back(p); P2.push_back(q);
+        weld.emplace(key, id); return id;
+    };
+    std::vector<std::pair<int,int>> edges;
+    for (const auto& cv : curves3D) {
+        int prev = -1;
+        for (const Vec3& p : cv) {
+            int id = vid(p);
+            if (prev >= 0 && prev != id) edges.push_back({prev, id});
+            prev = id;
+        }
+    }
+    if (P3.size() < 3) return false;
+
+    std::vector<std::set<int>> adj(P3.size());
+    for (auto& e : edges) { adj[e.first].insert(e.second); adj[e.second].insert(e.first); }
+
+    // Every welded fragment point must have degree EXACTLY 2 (clean closed loops)
+    // and lie strictly inside the boundary (interior hole, not a boundary cut).
+    for (int i = 0; i < (int)P3.size(); ++i) {
+        if (adj[i].size() != 2) return false;
+        if (!pointInPoly2(bpoly, P2[i].x, P2[i].y)) return false;
+    }
+
+    // Trace each connected cycle into an ordered ring.
+    std::vector<char> vis(P3.size(), 0);
+    for (int s = 0; s < (int)P3.size(); ++s) {
+        if (vis[s]) continue;
+        std::vector<int> ring;
+        int cur = s, prev = -1;
+        bool closed = false;
+        for (std::size_t guard = 0; guard <= P3.size(); ++guard) {
+            vis[cur] = 1; ring.push_back(cur);
+            int nxt = -1;
+            for (int nb : adj[cur]) if (nb != prev && !vis[nb]) { nxt = nb; break; }
+            if (nxt < 0) { closed = (adj[cur].count(s) && ring.size() >= 3); break; }
+            prev = cur; cur = nxt;
+        }
+        if (!closed || ring.size() < 3) return false;
+        std::vector<Vec3> r3; r3.reserve(ring.size());
+        for (int id : ring) r3.push_back(P3[id]);
+        loops.push_back(std::move(r3));
+    }
+    return !loops.empty();
 }
 
 // ===========================================================================
@@ -390,7 +516,14 @@ struct SubFace {
     bool   isDisk = false; double diskOuter = 0, diskInner = 0;
     double u0 = 0, u1 = 0, v0 = 0, v1 = 0;
     std::vector<std::array<double,2>> vertexUV; // (u,v) per ring vertex (param-triangle)
-    std::vector<Vec3> ring;                     // ordered 3-D corner points
+    std::vector<Vec3> ring;                     // ordered 3-D corner points (OUTER loop)
+    // HOLED PLANAR FACE (native boolean inner-loop path): closed hole rings (each
+    // an ordered 3-D point loop) cut INTO this planar sub-face — a drilled hole's
+    // bore rim. Empty for every ordinary sub-face. When non-empty the sub-face is
+    // a SINGLE analytic holed face (outer `ring` + these inner rings), not a
+    // per-CDT-triangle fan. stitch welds + orients these against the bore wall.
+    std::vector<std::vector<Vec3>> innerRings;
+    bool   boolHoled = false;                   // emit as a holed analytic face
     bool   paramTri = false;                    // integrate over the (u,v) triangle
     bool   insideOther = false;                 // classification result
     bool   fromA = true;                        // provenance: which input solid
@@ -538,6 +671,16 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
         sf.paramTri = false;
         sf.vertexUV = parent->vertexUV;
         sf.ring = ring;
+        // HOLED-FACE CARRY-OVER: a face that already carries inner (hole) loops from
+        // a PRIOR boolean (sequential drilling) but is NOT crossed by this op must
+        // keep its holes — re-emit them as the sub-face's inner rings.
+        if (!parent->innerLoops.empty()) {
+            for (Loop* il : parent->innerLoops) {
+                std::vector<Vec3> r = loopRing3D(il);
+                if (r.size() >= 3) sf.innerRings.push_back(std::move(r));
+            }
+            if (!sf.innerRings.empty()) sf.boolHoled = true;
+        }
         out.push_back(std::move(sf));
         return true;
     }
@@ -651,6 +794,73 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
             out.push_back(std::move(sf));
         }
         return true;
+    }
+
+    // ---- PLANAR faces: HOLED-FACE (INNER-LOOP) ANALYTIC PATH -------------------
+    // BEFORE the per-CDT-triangle imprint, detect the drilled-hole signature: the
+    // imprint fragments of THIS face merge into one or more CLOSED rings that lie
+    // entirely inside the face boundary (a circle/loop fully interior — a through
+    // bore). If so, emit ONE holed analytic sub-face (the original outer loop +
+    // those inner rings + any inner loops carried from a prior cut) instead of a
+    // triangle fan. This keeps a drilled face as a SINGLE planar face per drill —
+    // no +388-faces/hole explosion, no T-junction at the 6th hole. A cut that
+    // REACHES the boundary (open/partial) yields degree!=2 fragment endpoints, so
+    // assembleClosedInteriorLoops returns false and we keep the legacy CDT path.
+    {
+        Vec3 nrm = s->normalAt(0.5 * (parent->u0 + parent->u1),
+                               0.5 * (parent->v0 + parent->v1));
+        std::vector<std::vector<Vec3>> newLoops;
+        bool allClosed = assembleClosedInteriorLoops(curves3D, ring, nrm, newLoops);
+        if (allClosed) {
+            // Helper: project a planar loop into (u,v), filling vertexUV + bbox.
+            auto fillUV = [&](SubFace& f, const std::vector<Vec3>& loop) {
+                double mnu = 1e300, mxu = -1e300, mnv = 1e300, mxv = -1e300;
+                for (const Vec3& p : loop) {
+                    double u, v; if (!toParam(p, u, v)) continue;
+                    mnu = std::min(mnu, u); mxu = std::max(mxu, u);
+                    mnv = std::min(mnv, v); mxv = std::max(mxv, v);
+                    f.vertexUV.push_back({u, v});
+                }
+                if (mnu <= mxu) { f.u0 = mnu; f.u1 = mxu; f.v0 = mnv; f.v1 = mxv; }
+                else            { f.u0 = parent->u0; f.u1 = parent->u1;
+                                  f.v0 = parent->v0; f.v1 = parent->v1; }
+            };
+
+            // (a) The HOLED ANNULUS face: outer loop + every hole loop (existing
+            // carried-over holes + the newly-cut loops). Classified by an annulus
+            // sample; selected by the op's OUTSIDE-the-cut side (Cut/Fuse keep it).
+            SubFace sf = makeSubFromSurface(s, fromA, parentFaceIdx);
+            sf.ring = ring;
+            sf.paramTri = false;
+            sf.isDisk = false;
+            for (Loop* il : parent->innerLoops) {
+                std::vector<Vec3> r = loopRing3D(il);
+                if (r.size() >= 3) sf.innerRings.push_back(std::move(r));
+            }
+            for (const auto& nl : newLoops) sf.innerRings.push_back(nl); // copy (disks need it)
+            sf.boolHoled = !sf.innerRings.empty();
+            fillUV(sf, ring);
+            out.push_back(std::move(sf));
+
+            // (b) One DISK face per NEWLY-cut loop: the region INSIDE that cut circle
+            // (the bore plug's cap). Classified by its own interior centroid; selected
+            // by the op's INSIDE-the-cut side (Common keeps it; Cut drops it). Without
+            // this the inside-selections would lose the material the cut split off.
+            // Existing (carried-over) holes get NO disk — they are genuine voids.
+            for (const auto& nl : newLoops) {
+                if (nl.size() < 3) continue;
+                SubFace dk = makeSubFromSurface(s, fromA, parentFaceIdx);
+                dk.ring = nl;
+                dk.paramTri = false; dk.isDisk = false; dk.boolHoled = false;
+                fillUV(dk, nl);
+                out.push_back(std::move(dk));
+            }
+            return true;
+        }
+        // A face that ALREADY has holes but is met by an OPEN/partial cut is outside
+        // the analytic holed envelope — defer honestly to the mesh fallback rather
+        // than silently dropping the existing holes via the legacy CDT path.
+        if (!parent->innerLoops.empty()) return false;
     }
 
     // ---- PLANAR faces: CDT IMPRINT ---------------------------------------------
@@ -858,6 +1068,39 @@ void classify(SubFace& sf, const SoupCache& other) {
     for (const Vec3& p : sf.ring) c = vadd(c, p);
     c = vscale(c, 1.0 / sf.ring.size());
 
+    // HOLED FACE: the outer-loop centroid may fall INSIDE a hole (a centred bore),
+    // which would misclassify the face. Vote only over sample points proven to lie
+    // in the ANNULUS — inside the outer loop AND outside every inner (hole) loop.
+    if (sf.boolHoled && !sf.innerRings.empty() && sf.ring.size() >= 3) {
+        Vec3 nrm = vnorm(vcross(vsub(sf.ring[1], sf.ring[0]), vsub(sf.ring[2], sf.ring[0])));
+        Vec3 e1, e2; planeBasis(nrm, e1, e2);
+        const Vec3 o = sf.ring[0];
+        std::vector<geom::Point2> outer;
+        for (const Vec3& p : sf.ring) outer.push_back(proj2(p, o, e1, e2));
+        std::vector<std::vector<geom::Point2>> inners;
+        for (const auto& ir : sf.innerRings) {
+            std::vector<geom::Point2> q; for (const Vec3& p : ir) q.push_back(proj2(p, o, e1, e2));
+            inners.push_back(std::move(q));
+        }
+        auto inAnnulus = [&](const Vec3& p) -> bool {
+            geom::Point2 q = proj2(p, o, e1, e2);
+            if (!pointInPoly2(outer, q.x, q.y)) return false;
+            for (const auto& ip : inners) if (pointInPoly2(ip, q.x, q.y)) return false;
+            return true;
+        };
+        int votesIn = 0, votes = 0;
+        auto vote = [&](const Vec3& p) { if (inAnnulus(p)) { if (pointInSoup(other, p)) ++votesIn; ++votes; } };
+        vote(c);
+        for (const Vec3& p : sf.ring) vote(vadd(c, vscale(vsub(p, c), 0.6)));
+        std::size_t n = sf.ring.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            Vec3 m = vscale(vadd(sf.ring[i], sf.ring[(i + 1) % n]), 0.5);
+            vote(vadd(m, vscale(vsub(c, m), 0.05))); // just inside each outer edge
+        }
+        if (votes > 0) { sf.insideOther = (2 * votesIn > votes); return; }
+        // (no annulus sample landed — fall through to the plain centroid vote)
+    }
+
     int votesIn = 0, votes = 0;
     // centroid (weight 1)
     if (pointInSoup(other, c)) ++votesIn; ++votes;
@@ -928,8 +1171,13 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
     };
 
     struct OrientedFace {
-        std::vector<int> vids;     // welded vertex ids in final CCW order
+        std::vector<int> vids;     // welded OUTER-loop vertex ids in final CCW order
         std::vector<std::array<double,2>> uv; // (u,v) per vid (final order)
+        // HOLED FACE: welded INNER (hole) loop vertex ids, each ring oriented CW
+        // w.r.t. the face's outward normal (opposite the outer CCW loop) so the
+        // material is on the left of every coedge and the rim mates the bore wall.
+        std::vector<std::vector<int>> innerVids;
+        bool boolHoled = false;
         SubFace* sf = nullptr;
     };
     std::vector<OrientedFace> ofaces;
@@ -1012,7 +1260,33 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
                 if (vring[i] == vring[j]) degen = true;
         if (degen) continue;
 
+        // HOLED FACE: weld + orient each inner (hole) ring. Each inner loop is wound
+        // CW w.r.t. the face's outward normal nWanted (opposite the outer CCW loop)
+        // so the hole interior stays on the right of every coedge — the standard
+        // material-on-the-left convention — which makes each rim edge the exact
+        // opposite-sense mate of the bore wall's rim coedge (closed 2-manifold).
+        std::vector<std::vector<int>> innerVrings;
+        bool innerDegen = false;
+        for (const std::vector<Vec3>& iring : sf.innerRings) {
+            if (iring.size() < 3) { innerDegen = true; break; }
+            // Newell area-vector of the ring (translation-invariant for a closed loop).
+            Vec3 pn{0, 0, 0};
+            for (std::size_t k = 0; k < iring.size(); ++k)
+                pn = vadd(pn, vcross(iring[k], iring[(k + 1) % iring.size()]));
+            std::vector<Vec3> r = iring;
+            if (vdot(pn, nWanted) > 0.0) std::reverse(r.begin(), r.end()); // -> CW vs nWanted
+            std::vector<int> iv; iv.reserve(r.size());
+            for (const Vec3& p : r) iv.push_back(vid(p));
+            for (std::size_t a = 0; a < iv.size() && !innerDegen; ++a)
+                for (std::size_t b = a + 1; b < iv.size(); ++b)
+                    if (iv[a] == iv[b]) { innerDegen = true; break; }
+            innerVrings.push_back(std::move(iv));
+        }
+        if (innerDegen) continue;
+
         OrientedFace of; of.vids = std::move(vring); of.uv = std::move(uv); of.sf = &sf;
+        of.innerVids = std::move(innerVrings);
+        of.boolHoled = sf.boolHoled && !of.innerVids.empty();
         ofaces.push_back(std::move(of));
     }
 
@@ -1023,13 +1297,17 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
     // edge may appear more than twice.
     std::map<std::pair<int,int>, int> directed;        // (a,b) -> count
     std::map<std::pair<int,int>, int> undirected;      // (min,max) -> count
-    for (const OrientedFace& of : ofaces) {
-        std::size_t n = of.vids.size();
+    auto countRing = [&](const std::vector<int>& r) {
+        std::size_t n = r.size();
         for (std::size_t i = 0; i < n; ++i) {
-            int a = of.vids[i], b = of.vids[(i + 1) % n];
+            int a = r[i], b = r[(i + 1) % n];
             directed[{a, b}]++;
             undirected[{std::min(a,b), std::max(a,b)}]++;
         }
+    };
+    for (const OrientedFace& of : ofaces) {
+        countRing(of.vids);
+        for (const std::vector<int>& iv : of.innerVids) countRing(iv);  // hole rims
     }
 #ifdef FORGE_BOOL_DEBUG
     {
@@ -1076,6 +1354,16 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
         owner->addFaceToShell(shell, f);
         owner->addOuterLoopToFace(f, vring);
 
+        // HOLED FACE: attach each (already CW-oriented) inner hole loop. The bore
+        // wall band re-uses the SAME welded rim vertices, so addInnerLoopToFace
+        // shares the edges + mates the coedges (closed 2-manifold).
+        for (const std::vector<int>& iv : of.innerVids) {
+            std::vector<Vertex*> ivv; ivv.reserve(iv.size());
+            for (int id : iv) ivv.push_back(verts[id]);
+            if (ivv.size() >= 3) owner->addInnerLoopToFace(f, ivv);
+        }
+        f->boolHoled = of.boolHoled;
+
         Surface* surf = owner->makeSurface();
         surf->kind = sf.kind; surf->origin = sf.origin; surf->axis = sf.axis;
         surf->refDir = sf.refDir; surf->r1 = sf.r1; surf->r2 = sf.r2; surf->param = sf.param;
@@ -1101,11 +1389,15 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
         // LINEAGE: record this result face's provenance + mark its edges' input(s).
         if (lineage) {
             lineage->faceProv.push_back({f, sf.fromA, sf.parentFaceIdx});
-            std::size_t n = of.vids.size();
-            for (std::size_t i = 0; i < n; ++i) {
-                int a = of.vids[i], b = of.vids[(i + 1) % n];
-                edgeProvenance[{std::min(a,b), std::max(a,b)}] |= (sf.fromA ? 0x1 : 0x2);
-            }
+            auto markRing = [&](const std::vector<int>& r) {
+                std::size_t n = r.size();
+                for (std::size_t i = 0; i < n; ++i) {
+                    int a = r[i], b = r[(i + 1) % n];
+                    edgeProvenance[{std::min(a,b), std::max(a,b)}] |= (sf.fromA ? 0x1 : 0x2);
+                }
+            };
+            markRing(of.vids);
+            for (const std::vector<int>& iv : of.innerVids) markRing(iv); // hole rims
         }
     }
 
@@ -1129,20 +1421,23 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
         std::map<const Vertex*, int> vToId;
         for (std::size_t i = 0; i < verts.size(); ++i) vToId[verts[i]] = (int)i;
         std::map<std::pair<int,int>, Edge*> uniqueEdge;
+        auto collectLoopEdges = [&](Loop* lp) {
+            if (!lp) return;
+            Coedge* ce = lp->first;
+            for (std::size_t i = 0; i < lp->coedgeCount; ++i) {
+                Edge* e = ce->edge;
+                auto its = vToId.find(e->start), ite = vToId.find(e->end);
+                if (its != vToId.end() && ite != vToId.end()) {
+                    int a = its->second, b = ite->second;
+                    uniqueEdge[{std::min(a,b), std::max(a,b)}] = e;
+                }
+                ce = ce->next;
+            }
+        };
         for (Shell* sh : solid->shells)
             for (Face* f : sh->faces) {
-                Loop* lp = f->outerLoop;
-                if (!lp) continue;
-                Coedge* ce = lp->first;
-                for (std::size_t i = 0; i < lp->coedgeCount; ++i) {
-                    Edge* e = ce->edge;
-                    auto its = vToId.find(e->start), ite = vToId.find(e->end);
-                    if (its != vToId.end() && ite != vToId.end()) {
-                        int a = its->second, b = ite->second;
-                        uniqueEdge[{std::min(a,b), std::max(a,b)}] = e;
-                    }
-                    ce = ce->next;
-                }
+                collectLoopEdges(f->outerLoop);
+                for (Loop* il : f->innerLoops) collectLoopEdges(il); // hole rims
             }
         for (const auto& kv : edgeProvenance)
             if (kv.second == 0x3) {

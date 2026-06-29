@@ -1180,6 +1180,54 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
         return v;
     };
 
+    // Walk an EDGE_LOOP (referenced by `loopId`) into an ordered ring of START
+    // vertices + the per-edge circle, in the loop's traversal direction. Returns
+    // false (with `err` set) on any malformed loop. Shared by the OUTER bound and
+    // every INNER (hole) bound so a holed face reconstructs exactly as written.
+    auto buildRing = [&](std::uint64_t loopId,
+                         std::vector<Vertex*>& ring,
+                         std::vector<EdgeCircle>& ringCircles,
+                         std::string& err) -> bool {
+        auto litR = tab.find(loopId);
+        if (litR == tab.end()) { err = "bound loop ref dangling"; return false; }
+        if (litR->second.type != "EDGE_LOOP") { err = "bound is not an EDGE_LOOP"; return false; }
+        auto lp = splitTopLevel(litR->second.params);
+        std::vector<std::string> oeRefs;
+        if (lp.size() != 2 || !parseList(lp[1], oeRefs) || oeRefs.size() < 3) {
+            err = "EDGE_LOOP < 3 oriented edges"; return false;
+        }
+        ring.clear(); ringCircles.clear();
+        ring.reserve(oeRefs.size()); ringCircles.reserve(oeRefs.size());
+        for (const std::string& oref : oeRefs) {
+            std::uint64_t oeId = 0;
+            if (!parseRef(oref, oeId)) { err = "EDGE_LOOP holds a non-ref"; return false; }
+            auto oit = tab.find(oeId);
+            if (oit == tab.end() || oit->second.type != "ORIENTED_EDGE") { err = "loop member not ORIENTED_EDGE"; return false; }
+            auto op = splitTopLevel(oit->second.params);
+            if (op.size() != 5) { err = "ORIENTED_EDGE arity"; return false; }
+            std::uint64_t ecId = 0;
+            if (!parseRef(op[3], ecId)) { err = "ORIENTED_EDGE edge not a ref"; return false; }
+            bool sense;
+            if (op[4] == ".T.") sense = true;
+            else if (op[4] == ".F.") sense = false;
+            else { err = "ORIENTED_EDGE sense not .T./.F."; return false; }
+            auto eit = tab.find(ecId);
+            if (eit == tab.end() || eit->second.type != "EDGE_CURVE") { err = "edge is not EDGE_CURVE"; return false; }
+            auto ep = splitTopLevel(eit->second.params);
+            if (ep.size() != 5) { err = "EDGE_CURVE arity"; return false; }
+            std::uint64_t vS = 0, vE = 0;
+            if (!parseRef(ep[1], vS) || !parseRef(ep[2], vE)) { err = "EDGE_CURVE endpoints"; return false; }
+            std::uint64_t startVp = sense ? vS : vE;
+            Vertex* v = vertexForVP(startVp);
+            if (!v) { err = "cannot resolve oriented-edge start vertex"; return false; }
+            ring.push_back(v);
+            ringCircles.push_back(circleOfEdgeCurve(tab, ecId));
+        }
+        for (std::size_t k = 0; k < ring.size(); ++k)
+            if (ring[k] == ring[(k + 1) % ring.size()]) { err = "degenerate loop (repeated vertex)"; return false; }
+        return true;
+    };
+
     std::size_t nAnalytic = 0, nPlanar = 0;
 
     for (const std::string& fref : faceRefs) {
@@ -1202,25 +1250,36 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
             return readFail("StepAnalytic.read: ADVANCED_FACE surface not a ref");
         bool sameSense = (fp[3] == ".T.");
 
-        // Pick the outer bound (prefer FACE_OUTER_BOUND).
+        // Classify the bounds: the FACE_OUTER_BOUND is the peripheral loop; every
+        // FACE_BOUND is an inner (hole) loop — the round-trip sibling of the writer
+        // (which emits FACE_OUTER_BOUND then one FACE_BOUND per Face::innerLoops). A
+        // holed face thus reconstructs WITH its holes (previously the inner bounds
+        // were dropped, filling the hole -> non-watertight + wrong COM/inertia).
         std::uint64_t loopId = 0;
         bool gotLoop = false;
+        std::vector<std::uint64_t> innerLoopIds;
         for (const std::string& bref : boundRefs) {
             std::uint64_t bId = 0;
             if (!parseRef(bref, bId)) continue;
             auto bit = tab.find(bId);
             if (bit == tab.end()) continue;
-            if (bit->second.type != "FACE_OUTER_BOUND" && bit->second.type != "FACE_BOUND")
-                continue;
+            const bool isOuter = (bit->second.type == "FACE_OUTER_BOUND");
+            if (!isOuter && bit->second.type != "FACE_BOUND") continue;
             auto bp = splitTopLevel(bit->second.params);
             if (bp.size() != 3) continue;
             std::uint64_t lId = 0;
             if (!parseRef(bp[1], lId)) continue;
-            if (bit->second.type == "FACE_OUTER_BOUND") { loopId = lId; gotLoop = true; break; }
-            if (!gotLoop) { loopId = lId; gotLoop = true; }  // fallback to first FACE_BOUND
+            if (isOuter && !gotLoop) { loopId = lId; gotLoop = true; }
+            else                     { innerLoopIds.push_back(lId); }
         }
-        if (!gotLoop)
-            return readFail("StepAnalytic.read: ADVANCED_FACE has no usable bound loop");
+        // No explicit FACE_OUTER_BOUND -> promote the first FACE_BOUND to the outer.
+        if (!gotLoop) {
+            if (innerLoopIds.empty())
+                return readFail("StepAnalytic.read: ADVANCED_FACE has no usable bound loop");
+            loopId = innerLoopIds.front();
+            innerLoopIds.erase(innerLoopIds.begin());
+            gotLoop = true;
+        }
 
         auto lit = tab.find(loopId);
         if (lit == tab.end())
@@ -1247,59 +1306,13 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
             continue;   // this ADVANCED_FACE is fully handled
         }
 
-        if (lit->second.type != "EDGE_LOOP")
-            return readFail("StepAnalytic.read: bound is not an EDGE_LOOP");
-        auto lp = splitTopLevel(lit->second.params);
-        std::vector<std::string> oeRefs;
-        if (lp.size() != 2 || !parseList(lp[1], oeRefs) || oeRefs.size() < 3)
-            return readFail("StepAnalytic.read: EDGE_LOOP < 3 oriented edges");
-
-        // Walk the oriented edges -> ordered ring of START vertices (in the loop's
-        // traversal direction). For each ORIENTED_EDGE: resolve its EDGE_CURVE and
-        // the orientation flag; the directed start vertex is the ring corner.
+        // Build the OUTER ring (the legacy EDGE_LOOP walk, now factored into buildRing).
         std::vector<Vertex*> ring;
         std::vector<EdgeCircle> ringCircles;  // circle of the edge leaving ring[i]
-        ring.reserve(oeRefs.size());
-        ringCircles.reserve(oeRefs.size());
-        for (const std::string& oref : oeRefs) {
-            std::uint64_t oeId = 0;
-            if (!parseRef(oref, oeId))
-                return readFail("StepAnalytic.read: EDGE_LOOP holds a non-ref");
-            auto oit = tab.find(oeId);
-            if (oit == tab.end() || oit->second.type != "ORIENTED_EDGE")
-                return readFail("StepAnalytic.read: loop member not ORIENTED_EDGE");
-            auto op = splitTopLevel(oit->second.params);
-            if (op.size() != 5)
-                return readFail("StepAnalytic.read: ORIENTED_EDGE arity");
-            std::uint64_t ecId = 0;
-            if (!parseRef(op[3], ecId))
-                return readFail("StepAnalytic.read: ORIENTED_EDGE edge not a ref");
-            bool sense;
-            if (op[4] == ".T.") sense = true;
-            else if (op[4] == ".F.") sense = false;
-            else return readFail("StepAnalytic.read: ORIENTED_EDGE sense not .T./.F.");
-
-            auto eit = tab.find(ecId);
-            if (eit == tab.end() || eit->second.type != "EDGE_CURVE")
-                return readFail("StepAnalytic.read: edge is not EDGE_CURVE");
-            auto ep = splitTopLevel(eit->second.params);
-            if (ep.size() != 5)
-                return readFail("StepAnalytic.read: EDGE_CURVE arity");
-            std::uint64_t vS = 0, vE = 0;
-            if (!parseRef(ep[1], vS) || !parseRef(ep[2], vE))
-                return readFail("StepAnalytic.read: EDGE_CURVE endpoints");
-            std::uint64_t startVp = sense ? vS : vE;
-            Vertex* v = vertexForVP(startVp);
-            if (!v)
-                return readFail("StepAnalytic.read: cannot resolve oriented-edge "
-                                "start vertex");
-            ring.push_back(v);
-            ringCircles.push_back(circleOfEdgeCurve(tab, ecId));
-        }
-        // Reject a degenerate ring (a repeated consecutive vertex).
-        for (std::size_t k = 0; k < ring.size(); ++k) {
-            if (ring[k] == ring[(k + 1) % ring.size()])
-                return readFail("StepAnalytic.read: degenerate loop (repeated vertex)");
+        {
+            std::string rerr;
+            if (!buildRing(loopId, ring, ringCircles, rerr))
+                return readFail("StepAnalytic.read: " + rerr);
         }
 
         // Build the face + outer loop (edges created on demand, shared+mated).
@@ -1315,6 +1328,22 @@ AnalyticReadResult StepAnalytic::read(const std::string& text) {
         *surf = tmp;
         f->surface = surf;
         if (surf->kind == SurfaceKind::Plane) ++nPlanar; else ++nAnalytic;
+
+        // INNER (hole) loops -> addInnerLoopToFace (edges shared+mated with the bore
+        // wall via the deduped VERTEX_POINTs). A PLANAR face that gains holes is
+        // tagged boolHoled so the hole-aware mass integrator + annulus tessellation
+        // treat it exactly as the boolean's holed face did — keeping a drilled-plate
+        // STEP round-trip watertight + mass-exact.
+        for (std::uint64_t innerId : innerLoopIds) {
+            std::vector<Vertex*> hv;
+            std::vector<EdgeCircle> hc;
+            std::string rerr;
+            if (!buildRing(innerId, hv, hc, rerr))
+                return readFail("StepAnalytic.read: inner (hole) loop: " + rerr);
+            if (hv.size() >= 3) tb.addInnerLoopToFace(f, hv);
+        }
+        if (surf->kind == SurfaceKind::Plane && !f->innerLoops.empty())
+            f->boolHoled = true;
 
         // Compute the face trim window (u0..v1) + vertexUV so the EXACT mass
         // integrator can integrate this face over the SAME parameterisation the
