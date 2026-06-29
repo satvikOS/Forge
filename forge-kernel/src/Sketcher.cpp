@@ -525,7 +525,23 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
         // correct arc direction. Fall back to a straight-edge if degenerate.
         const double r = *ar.rad;
         const double sa = *ar.startAngle;
-        const double ea = *ar.endAngle;
+        double ea = *ar.endAngle;
+        // MINOR-ARC NORMALISATION (fix #1). addArc stores start/end angles via
+        // atan2 (each in (-pi, pi]), so a corner arc whose sweep straddles the
+        // +/-pi branch cut (e.g. a centred rounded-rect's bottom-left corner:
+        // start at pi, end at -pi/2) gives a raw sweep of -3pi/2 and the midpoint
+        // below lands the GC_MakeArcOfCircle on the MAJOR arc — a concave bite
+        // into the profile instead of the convex rounded corner. Bring the sweep
+        // into (-pi, pi] so the SHORTER arc is always taken. Corner/fillet arcs
+        // are <= 90deg, so this is unambiguous; a true semicircle (sweep == pi)
+        // is preserved unchanged.
+        {
+            constexpr double kPi = 3.14159265358979323846;
+            double sweep = ea - sa;
+            while (sweep <= -kPi) sweep += 2.0 * kPi;
+            while (sweep >   kPi) sweep -= 2.0 * kPi;
+            ea = sa + sweep;
+        }
         if (r < Precision::Confusion() || std::abs(ea - sa) < 1e-9) {
             continue;
         }
@@ -614,6 +630,17 @@ extractProfileRings(SketchHandle h, int circleSegments) {
         const GCS::Arc& ar = *aptr;
         const double cx = *ar.center.x, cy = *ar.center.y, r = *ar.rad;
         double sa = *ar.startAngle, ea = *ar.endAngle;
+        // MINOR-ARC NORMALISATION (fix #1) — mirror extractWires: bring the sweep
+        // into (-pi, pi] so a corner arc straddling the +/-pi branch cut samples
+        // the SHORTER (convex) arc, not the major arc (a concave bite). Corner
+        // arcs are <= 90deg; a true semicircle (sweep == pi) is preserved.
+        {
+            constexpr double kPi = 3.14159265358979323846;
+            double s = ea - sa;
+            while (s <= -kPi) s += 2.0 * kPi;
+            while (s >   kPi) s -= 2.0 * kPi;
+            ea = sa + s;
+        }
         if (r < Precision::Confusion() || std::abs(ea - sa) < 1e-9) continue;
         // Sample the arc at the same angular resolution as a full circle.
         const double sweep = ea - sa;

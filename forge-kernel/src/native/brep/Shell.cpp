@@ -215,10 +215,19 @@ ShellResult shellSolid(TopologyBuilder& tb, Solid* solid, const ShellOptions& op
     double halfMin = 0.5 * std::min(std::min(hi.x - lo.x, hi.y - lo.y), hi.z - lo.z);
     if (t >= halfMin) { res.reason = "thickness >= solid min half-extent (inner offset collapses)"; return res; }
 
-    // Mark which faces are removed (open mouths).
+    // Mark which faces are removed (open mouths). Face indices are 0-BASED
+    // [0 .. faces.size()-1]. An out-of-range index used to be SILENTLY ignored,
+    // so a caller that mis-numbered the open face got a SEALED (closed) shell
+    // back with no signal — non-deterministic face selection (fix #3). Reject it
+    // honestly so the caller learns the index was wrong (mirrors the OCCT path's
+    // "face id N out of range" throw, but as an ok=false result, no exception).
     std::vector<bool> removed(faces.size(), false);
     for (std::size_t idx : opt.removedFaces) {
-        if (idx < removed.size()) removed[idx] = true;
+        if (idx >= removed.size()) {
+            res.reason = "removed face index out of range (faces are 0-based [0..n-1])";
+            return res;
+        }
+        removed[idx] = true;
     }
 
     // ---- 1. offset every retained face's surface inward ----

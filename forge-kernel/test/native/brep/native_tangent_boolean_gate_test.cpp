@@ -37,6 +37,7 @@
 #include "forge/native/brep/Surface.hpp"
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdint>

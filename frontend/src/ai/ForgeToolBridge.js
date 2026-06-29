@@ -108,18 +108,66 @@ function roundEdges(shape, forge, radius) {
   } catch (_) { return shape; }
 }
 
-// Build a closed planar (XY, z=0) profile sketch from a [[x,y], …] point
-// list and return the sketch handle the part-feature ops consume. One
-// tool call → one profile → one feature, matching the asset-builder
-// philosophy (Archie never juggles sketch handles across turns).
+// Build a closed planar (XY, z=0) profile sketch from a profile spec and
+// return the sketch handle the part-feature ops consume. One tool call →
+// one profile → one feature, matching the asset-builder philosophy (Archie
+// never juggles sketch handles across turns).
+//
+// PROFILE FORMAT (backward-compatible):
+//   * A plain vertex is `[x, y]` (array) — reached from the previous vertex
+//     by a straight LINE. A pure `[[x,y], …]` list builds exactly as before.
+//   * A vertex may instead be an object `{ x, y }` (or `{ pt:[x,y] }`) and may
+//     carry an `arc` describing the edge ENTERING this vertex from the previous
+//     one (vertex 0's `arc` describes the wrap-around CLOSING edge):
+//         arc: [cx, cy]           — arc about centre (cx,cy)
+//         arc: { center:[cx,cy] } — same, object form
+//     An arc edge is emitted via the sketcher's true arc primitive
+//     (sk.addArc), so a rounded-rect / waisted / filleted profile stays ~8–16
+//     B-rep edges instead of the hundreds of short LINE chords a tessellated
+//     approximation would emit. That density matters: part.fillet (and the
+//     OCCT BRepFilletAPI behind it) REFUSES a body with > 1000 edges
+//     (Features.cpp kMaxFilletSrcEdges), so a polyline-approximated rounded
+//     profile ships with un-rounded sharp corners — preserving arcs is what
+//     keeps the edge count low enough for the fillet to apply.
+// NOTE: the kernel's arc edge takes the MINOR arc between start/end about the
+//   centre (fixed in Sketcher.cpp extractWires/extractProfileRings); corner
+//   arcs are ≤ 90° so this is unambiguous.
 function buildProfileSketch(forge, points, { closed = true } = {}) {
   const sk = forge && forge.sketcher;
   if (!sk || typeof sk.createSketch !== 'function') throw new Error('forge.sketcher unavailable');
   if (!Array.isArray(points) || points.length < 2) throw new Error('profile needs ≥2 points');
+  // Normalise each entry into { x, y, arc:{cx,cy}|null }. `arc` (when present)
+  // describes the edge that ENTERS this vertex from the previous one.
+  const norm = points.map((p) => {
+    if (Array.isArray(p)) return { x: +p[0] || 0, y: +p[1] || 0, arc: null };
+    const pt = Array.isArray(p.pt) ? p.pt : null;
+    const x = +(p.x ?? (pt ? pt[0] : 0)) || 0;
+    const y = +(p.y ?? (pt ? pt[1] : 0)) || 0;
+    let arc = null;
+    if (p.arc != null) {
+      const c = Array.isArray(p.arc) ? p.arc
+              : (p.arc && Array.isArray(p.arc.center) ? p.arc.center : null);
+      if (c) arc = { cx: +c[0] || 0, cy: +c[1] || 0 };
+    }
+    return { x, y, arc };
+  });
+  const anyArc = norm.some((p) => p.arc) && typeof sk.addArc === 'function';
   const h = sk.createSketch();
-  const ids = points.map((p) => sk.addPoint(h, +p[0] || 0, +p[1] || 0));
-  for (let i = 0; i < ids.length - 1; i++) sk.addLine(h, ids[i], ids[i + 1]);
-  if (closed) sk.addLine(h, ids[ids.length - 1], ids[0]);
+  const vids = norm.map((p) => sk.addPoint(h, p.x, p.y));
+  if (!anyArc) {
+    // Legacy line-only path — byte-for-byte identical to the original builder.
+    for (let i = 0; i < vids.length - 1; i++) sk.addLine(h, vids[i], vids[i + 1]);
+    if (closed) sk.addLine(h, vids[vids.length - 1], vids[0]);
+    return h;
+  }
+  // Arc-aware path: each `norm[to].arc` describes the edge from `from` → `to`.
+  const edge = (from, to) => {
+    const a = norm[to].arc;
+    if (a) { const cid = sk.addPoint(h, a.cx, a.cy); sk.addArc(h, cid, vids[from], vids[to]); }
+    else sk.addLine(h, vids[from], vids[to]);
+  };
+  for (let i = 0; i < vids.length - 1; i++) edge(i, i + 1);
+  if (closed) edge(vids.length - 1, 0);  // closing edge uses vertex 0's arc
   return h;
 }
 
@@ -1165,8 +1213,8 @@ export const FORGE_TOOLS = [
   // shell, face push/pull. This is what lets Archie build CURVED / BLENDED /
   // PATTERNED geometry instead of straight CSG primitive stacks.
   { name: 'part.extrude', discipline: 'part', produces: 'handle',
-    description: 'Extrude a closed 2D profile (XY points, mm) by a distance along a direction → prism solid.',
-    parameters: { profile: P('array', '[[x,y], …] closed profile points', { required: true }),
+    description: 'Extrude a closed 2D profile (XY points, mm) by a distance along a direction → prism solid. For ROUNDED/filleted/waisted profiles pass true arc corners — an entry { x, y, arc:[cx,cy] } draws an arc (about centre cx,cy) from the previous vertex to this one — so the body stays ~8–16 edges and part.fillet can round it (a polyline-approximated round profile exceeds the 1000-edge fillet limit and ships sharp).',
+    parameters: { profile: P('array', '[[x,y], …] closed profile points; an entry may be { x, y, arc:[cx,cy] } for an arc edge', { required: true }),
                   distance: P('number', 'extrude distance in mm', { required: true }),
                   dir: P('array', '[dx,dy,dz] direction (default +Z)', { default: [0, 0, 1] }) },
     run: ({ profile, distance, dir }, forge) => {
@@ -1319,11 +1367,44 @@ export const FORGE_TOOLS = [
     } },
 
   { name: 'part.shell', discipline: 'part', produces: 'handle',
-    description: 'Hollow a solid to a wall thickness, optionally removing faces to open it (faceIds 1-based).',
+    description: 'Hollow a solid into a wall of the given thickness, OPENING the listed faces (their mouths are removed). For a housing/enclosure you MUST pass the open face id(s) (e.g. the top) — an EMPTY faceIds set seals the part, which OCCT MakeThickSolid turns into an inverted (negative-volume) solid, so it is rejected with a clear error. Face ids are 1-based (face 1 = first face; a box has faces 1..6).',
     parameters: { shape: P('uint', 'shape handle', { required: true }),
                   thickness: P('number', 'wall thickness in mm', { required: true }),
-                  faceIds: P('array', '1-based face ids to remove/open (default none)', { default: [] }) },
-    run: ({ shape, thickness, faceIds }, forge) => ({ shape: forge.part.shell(shape, Array.isArray(faceIds) ? faceIds : [], thickness, []) }) },
+                  faceIds: P('array', '1-based face ids to open/remove (REQUIRED for a hollow housing; empty = sealed, rejected)', { default: [] }) },
+    run: ({ shape, thickness, faceIds }, forge) => {
+      // Fix #3 — face-id base mismatch. The kernel's faceById is 0-BASED
+      // (Features.cpp), but this verb (and the model corpus) speak 1-BASED face
+      // ids, so passing the documented "face 6" of a 6-face box hit
+      // "face id 6 out of range (only 6 faces)". Convert 1-based → 0-based here
+      // with validation so the open face is selected deterministically.
+      const raw = Array.isArray(faceIds) ? faceIds : [];
+      const kernelIds = raw.map((id) => {
+        const n = Math.trunc(Number(id));
+        if (!Number.isFinite(n) || n < 1) {
+          throw new Error(`part.shell: faceIds are 1-based (got ${id}); use 1..faceCount`);
+        }
+        return n - 1;
+      });
+      const out = forge.part.shell(shape, kernelIds, thickness, []);
+      // Fix #2 — robustness. A sealed (empty faceIds) shell, or a wall thicker
+      // than the part, makes OCCT emit an inverted / degenerate solid. Surface
+      // that as a clear, actionable error instead of returning a negative-volume
+      // body that silently corrupts the downstream build.
+      try {
+        const v = forge.massProps ? forge.massProps(out).volume : null;
+        if (typeof v === 'number' && !(v > 0)) {
+          throw new Error(
+            `part.shell produced an inverted/degenerate solid (volume ${v.toFixed(3)} ≤ 0). ` +
+            `Pass the open face id(s) in faceIds (1-based) for a hollow housing — an empty ` +
+            `faceIds set seals the part and OCCT inverts it — and keep thickness below the ` +
+            `smallest half-dimension of the part.`);
+        }
+      } catch (e) {
+        if (/inverted\/degenerate/.test(e.message)) throw e;
+        // massProps unavailable/threw for another reason — don't block a valid build.
+      }
+      return { shape: out };
+    } },
 
   { name: 'part.draft-faces', discipline: 'part', produces: 'handle',
     description: 'Apply a draft (taper) angle to faces about a neutral plane — for mould release / cast parts.',
