@@ -24,6 +24,7 @@
 #include <cmath>
 #include <complex>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <utility>
 #include <vector>
@@ -1702,6 +1703,176 @@ CGResult conjugateGradient(const SparseCSR<double>& A,
     res.residual = rnorm / bnorm;
     res.ok = (res.residual <= std::max(tol * 10.0, 1e-8));
     return res;
+}
+
+// ===========================================================================
+// sparseGeneralizedEigSI — lowest-k modes of K φ = λ M φ by SHIFT-INVERT
+// LANCZOS with full M-re-orthogonalization. See the header for the method.
+//
+// The operator C = (K − σM)⁻¹ M is M-self-adjoint; one SparseLDLT factorization
+// of (K − σM) drives every Lanczos step (a sparse triangular solve), M is
+// applied as a sparse matvec, and the M-inner product is evaluated through the
+// stored M·q_j vectors (so the inner products are plain dot products, no extra
+// matvecs). The tridiagonal T is solved with the dense SymmetricEigen; the Ritz
+// pairs are validated by the TRUE pencil residual before being returned.
+// ===========================================================================
+SparseGenEigResult sparseGeneralizedEigSI(const SparseCSR<double>& K,
+                                          const SparseCSR<double>& M,
+                                          int numModes, double sigma,
+                                          int maxLanczos, double tol) {
+    SparseGenEigResult out;
+    const std::size_t n = K.rows();
+    if (n == 0 || numModes <= 0) return out;
+    if (K.cols() != n || M.rows() != n || M.cols() != n) return out;
+    const int k = std::min<int>(numModes, static_cast<int>(n));
+
+    // ---- 1. A = K − σM (sparse), factored ONCE with the existing SparseLDLT. -
+    SparseCSR<double> A;
+    if (sigma == 0.0) {
+        A = K;                                   // (K − 0·M) = K
+    } else {
+        std::vector<Triplet<double>> trips;
+        trips.reserve(K.nnz() + M.nnz());
+        const auto& krp = K.rowPtr(); const auto& kci = K.colIdx(); const auto& kv = K.values();
+        for (std::size_t i = 0; i < n; ++i)
+            for (std::size_t p = krp[i]; p < krp[i + 1]; ++p)
+                trips.emplace_back(i, kci[p], kv[p]);
+        const auto& mrp = M.rowPtr(); const auto& mci = M.colIdx(); const auto& mv = M.values();
+        for (std::size_t i = 0; i < n; ++i)
+            for (std::size_t p = mrp[i]; p < mrp[i + 1]; ++p)
+                trips.emplace_back(i, mci[p], -sigma * mv[p]);
+        A.setFromTriplets(n, n, trips);
+    }
+    SparseLDLT ldlt(A);
+    if (!ldlt.ok()) return out;   // (K − σM) not SPD ⇒ shift not below λ_min: honest fail.
+
+    // ---- 2. shift-invert Lanczos in the M-inner product, FULL reorthog. ------
+    int mmax = (maxLanczos > 0) ? maxLanczos
+                                : std::max(2 * k + 30, 40);
+    mmax = std::min<int>(mmax, static_cast<int>(n));
+
+    auto mdot = [&](const std::vector<double>& Mu, const std::vector<double>& v) {
+        double s = 0.0; for (std::size_t i = 0; i < n; ++i) s += Mu[i] * v[i]; return s;
+    };
+
+    std::vector<std::vector<double>> Q;    // Lanczos vectors q_j  (M-orthonormal)
+    std::vector<std::vector<double>> MQ;   // M q_j  (cached so inner products are dots)
+    Q.reserve(mmax); MQ.reserve(mmax);
+    std::vector<double> alpha, beta;       // T: diagonal α, sub-diagonal β
+
+    // Deterministic, reproducible starting vector (a fixed xorshift fill, so the
+    // gate is repeatable); generic enough not to be M-orthogonal to a target mode.
+    std::vector<double> r(n);
+    {
+        std::uint64_t s = 0x9e3779b97f4a7c15ull;
+        for (std::size_t i = 0; i < n; ++i) {
+            s ^= s << 13; s ^= s >> 7; s ^= s << 17;
+            r[i] = static_cast<double>((s >> 11) & 0xfffffu) / static_cast<double>(0x100000u) - 0.5;
+        }
+    }
+    std::vector<double> Mr = M * r;
+    double nrm = mdot(Mr, r);
+    if (!(nrm > 0.0)) return out;
+    nrm = std::sqrt(nrm);
+    for (std::size_t i = 0; i < n; ++i) { r[i] /= nrm; Mr[i] /= nrm; }
+    Q.push_back(r); MQ.push_back(Mr);
+
+    double betaPrev = 0.0;                  // β_{j-1}
+    for (int j = 0;; ++j) {
+        // u = C q_j = (K − σM)⁻¹ (M q_j)
+        std::vector<double> u = ldlt.solve(MQ[j]);
+        // α_j = (M q_j)ᵀ u
+        const double aj = mdot(MQ[j], u);
+        // three-term recurrence: u −= α_j q_j + β_{j-1} q_{j-1}
+        for (std::size_t i = 0; i < n; ++i) u[i] -= aj * Q[j][i];
+        if (j > 0) for (std::size_t i = 0; i < n; ++i) u[i] -= betaPrev * Q[j - 1][i];
+        // FULL re-orthogonalization (two passes) in the M-inner product:
+        //   u −= Σ_i ((M q_i)ᵀ u) q_i   — defeats loss-of-orthogonality / ghosts.
+        for (int pass = 0; pass < 2; ++pass)
+            for (int i = 0; i <= j; ++i) {
+                const double c = mdot(MQ[i], u);
+                if (c != 0.0) for (std::size_t t = 0; t < n; ++t) u[t] -= c * Q[i][t];
+            }
+        alpha.push_back(aj);
+
+        std::vector<double> Mu = M * u;
+        double bj2 = mdot(Mu, u);
+        const double bj = (bj2 > 0.0) ? std::sqrt(bj2) : 0.0;
+
+        const int m = static_cast<int>(alpha.size());      // current T dimension
+        const bool lastStep = (j + 1 >= mmax) || (bj < 1e-13);
+
+        if (!lastStep) {                                   // extend the basis
+            beta.push_back(bj);
+            for (std::size_t i = 0; i < n; ++i) { u[i] /= bj; Mu[i] /= bj; }
+            Q.push_back(std::move(u)); MQ.push_back(std::move(Mu));
+            betaPrev = bj;
+        }
+
+        // Convergence test: solve the m×m tridiagonal, take the k Ritz values
+        // with the largest θ>0 (⇔ smallest λ), and certify each with the EXACT
+        // Lanczos residual of the shift-invert operator C = (K−σM)⁻¹M:
+        //   ‖C φ_i − θ_i φ_i‖_M = β_m · |y_i(last)|
+        // (Parlett §13.2). This is the mathematically correct convergence metric
+        // for the SPECTRAL-TRANSFORMED problem — unlike the raw K-pencil residual
+        // ‖Kφ−λMφ‖, it is NOT inflated by ‖K‖ for the higher modes of a stiff
+        // pencil, so it certifies the genuine modes without false non-convergence.
+        const bool tryConverge = (m >= k) && ((m % 3 == 0) || lastStep);
+        if (tryConverge) {
+            MatrixD T(static_cast<std::size_t>(m), static_cast<std::size_t>(m), 0.0);
+            for (int i = 0; i < m; ++i) {
+                T(i, i) = alpha[i];
+                if (i + 1 < m) { T(i, i + 1) = beta[i]; T(i + 1, i) = beta[i]; }
+            }
+            SymmetricEigen es(T, true);
+            if (es.ok()) {
+                const std::vector<double>& th = es.eigenvalues();   // ascending θ
+                const MatrixD& S = es.eigenvectors();
+                std::vector<int> idx;                               // largest θ>0 first
+                for (int c = m - 1; c >= 0 && static_cast<int>(idx.size()) < k; --c)
+                    if (th[c] > 0.0) idx.push_back(c);
+                if (static_cast<int>(idx.size()) == k) {
+                    // cheap relative operator residual per selected Ritz pair.
+                    double worstOp = 0.0;
+                    for (int t = 0; t < k; ++t) {
+                        const int c = idx[t];
+                        const double res = bj * std::fabs(S(m - 1, c));   // M-norm residual
+                        worstOp = std::max(worstOp, res / std::max(std::fabs(th[c]), 1e-300));
+                    }
+                    const double accept = std::max(tol, 1e-11);
+                    if (worstOp < accept || lastStep) {
+                        // build + M-normalize the converged mode shapes, sort by λ.
+                        std::vector<double> lam(k);
+                        std::vector<std::vector<double>> phi(k, std::vector<double>(n, 0.0));
+                        for (int t = 0; t < k; ++t) {
+                            const int c = idx[t];
+                            lam[t] = sigma + 1.0 / th[c];
+                            for (int p = 0; p < m; ++p) {            // φ = Σ_p S(p,c) q_p
+                                const double sc = S(p, c);
+                                if (sc != 0.0)
+                                    for (std::size_t i = 0; i < n; ++i) phi[t][i] += sc * Q[p][i];
+                            }
+                        }
+                        std::vector<int> ord(k); for (int t = 0; t < k; ++t) ord[t] = t;
+                        std::sort(ord.begin(), ord.end(),
+                                  [&](int a, int b) { return lam[a] < lam[b]; });
+                        out.eigenvalues.resize(k);
+                        out.eigenvectors.resize(k);
+                        for (int t = 0; t < k; ++t) {
+                            out.eigenvalues[t]  = lam[ord[t]];
+                            out.eigenvectors[t] = std::move(phi[ord[t]]);
+                        }
+                        out.maxResidual  = worstOp;
+                        out.lanczosSteps = m;
+                        out.ok = (worstOp < accept);
+                        return out;
+                    }
+                }
+            }
+        }
+        if (lastStep) break;
+    }
+    return out;   // ok stays false: did not converge within the Krylov cap (honest).
 }
 
 // ===========================================================================

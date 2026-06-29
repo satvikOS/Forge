@@ -1278,16 +1278,27 @@ StaticResult solveStatic(const Mesh& mesh, const Material& mat,
 // eigenvalue of 1 (rad²/s²) per pinned DOF, which we discard by skipping
 // modes whose eigenvector is supported only on pinned DOFs.
 //
-// Dense GeneralizedSelfAdjointEigenSolver for simplicity; documented cap
-// of ~1500 DOFs. The cantilever smoke is well under that.
+// Two solver paths, picked by problem size:
+//   * nDof ≤ kDenseModalCap (1500): the dense GeneralizedSelfAdjointEigenSolver
+//     — kept as the small-mesh ORACLE (it is fast and proven at small size, and
+//     is the A/B reference for the sparse path).
+//   * nDof > kDenseModalCap: the SPARSE SHIFT-INVERT LANCZOS eigensolver
+//     (la::sparseGeneralizedEigSI) — lifts the old hard ≤1500-DOF dense cap so a
+//     modal solve runs on REALISTIC meshes. The pinned DOFs are REMOVED (true
+//     reduced free-free system K_ff φ = λ M_ff φ), for which a zero shift σ=0 is
+//     correct (K_ff is SPD); (K_ff − σM_ff) is factored ONCE with the existing
+//     SparseLDLT and Lanczos with full M-re-orthogonalization recovers the lowest
+//     modes. The native gate test/native/linalg/sparse_eig_test.cpp validates
+//     this path A/B vs the dense oracle (≤1e-6) and at >1500 DOF vs analytic
+//     Euler–Bernoulli (<2%) with machine-precision backward error.
 //
-// UPGRADE A: modal now defaults to the CONSISTENT mass matrix
-// M = ρ∫NᵀN dV (full 24×24 per element, off-diagonal nodal coupling retained)
-// instead of the lumped ρV/8 diagonal. The consistent mass distributes inertia
-// in agreement with the trilinear interpolation, which removes the systematic
-// over-prediction of the first bending frequency (≈24% with the lumped mass)
-// and brings the cantilever f₁ toward the Euler–Bernoulli value. The lumped
-// path is preserved behind `kUseConsistentMass` purely as a fallback/diagnostic.
+// UPGRADE A: modal defaults to the CONSISTENT mass matrix M = ρ∫NᵀN dV (full
+// 24×24 per element, off-diagonal nodal coupling retained) instead of the lumped
+// ρV/8 diagonal. The consistent mass distributes inertia in agreement with the
+// trilinear interpolation, which removes the systematic over-prediction of the
+// first bending frequency (≈24% with the lumped mass) and brings the cantilever
+// f₁ toward the Euler–Bernoulli value. The lumped path is preserved behind
+// `kUseConsistentMass` purely as a fallback/diagnostic.
 ModalResult solveModal(const Mesh& mesh, const Material& mat,
                        const std::vector<BCPinned>& bcs, int nModes)
 {
@@ -1297,16 +1308,12 @@ ModalResult solveModal(const Mesh& mesh, const Material& mat,
     // Default: consistent mass (physically accurate). Flip to false to recover
     // the legacy lumped-mass behaviour for comparison/diagnostics.
     constexpr bool kUseConsistentMass = true;
+    // Above this DOF count the dense O(n³)/O(n²)-memory eigensolver is replaced
+    // by the sparse shift-invert Lanczos path (no longer a hard refusal).
+    constexpr int kDenseModalCap = 1500;
 
     auto sys = assemble(mesh, mat, /*withConsistentMass=*/kUseConsistentMass);
     const int nDof = static_cast<int>(sys.nDof);
-    if (nDof > 1500) {
-        // Soft warning via exception text — caller can catch + retry on a
-        // coarser mesh. We keep this strict to avoid silently wasting CPU.
-        throw std::runtime_error(
-            "forge.fea.solveModal: nDof exceeds dense-eigen cap (1500). "
-            "Coarsen the mesh or wait for the subspace-iteration upgrade.");
-    }
 
     std::vector<double> dummyF(nDof, 0.0);
     auto pinned = applyPinnedBCs(
@@ -1316,6 +1323,73 @@ ModalResult solveModal(const Mesh& mesh, const Material& mat,
     std::vector<bool> isPinned(nDof, false);
     for (int i : pinned) isPinned[i] = true;
 
+    // ---------------------------------------------------------------- sparse
+    // Realistic-mesh path: reduce out the pinned DOFs and run sparse shift-invert
+    // Lanczos on the genuine free-free pencil (no spurious unit-eigenvalue modes).
+    if (nDof > kDenseModalCap) {
+        // compact map: global free DOF -> reduced index.
+        std::vector<int> g2c(nDof, -1);
+        std::vector<int> freeIdx;
+        freeIdx.reserve(nDof);
+        for (int i = 0; i < nDof; ++i)
+            if (!isPinned[i]) { g2c[i] = static_cast<int>(freeIdx.size()); freeIdx.push_back(i); }
+        const std::size_t nf = freeIdx.size();
+
+        // extract the free-free sub-block of a CSR matrix as a reduced CSR.
+        auto extractFree = [&](const la::SparseCSR<double>& A) {
+            std::vector<la::Triplet<double>> t;
+            t.reserve(A.nnz());
+            const auto& rp = A.rowPtr(); const auto& ci = A.colIdx(); const auto& v = A.values();
+            for (int oi = 0; oi < nDof; ++oi) {
+                if (g2c[oi] < 0) continue;
+                for (std::size_t p = rp[oi]; p < rp[oi + 1]; ++p) {
+                    const int oj = static_cast<int>(ci[p]);
+                    if (g2c[oj] < 0) continue;
+                    t.emplace_back(static_cast<std::size_t>(g2c[oi]),
+                                   static_cast<std::size_t>(g2c[oj]), v[p]);
+                }
+            }
+            la::SparseCSR<double> S; S.setFromTriplets(nf, nf, t); return S;
+        };
+
+        la::SparseCSR<double> Kff = extractFree(sys.K);
+        la::SparseCSR<double> Mff;
+        if (kUseConsistentMass) {
+            Mff = extractFree(sys.Mconsistent);
+        } else {
+            std::vector<la::Triplet<double>> mt; mt.reserve(nf);
+            for (std::size_t c = 0; c < nf; ++c)
+                mt.emplace_back(c, c, sys.Mdiag[freeIdx[c]]);
+            Mff.setFromTriplets(nf, nf, mt);
+        }
+
+        // request the modes; σ=0 (Kff SPD). The lowest λ are the structural modes.
+        const int kReq = std::min<int>(nModes, static_cast<int>(nf));
+        la::SparseGenEigResult eig =
+            la::sparseGeneralizedEigSI(Kff, Mff, kReq, /*sigma=*/0.0);
+        if (!eig.ok) {
+            throw std::runtime_error(
+                "forge.fea.solveModal: sparse shift-invert Lanczos did not converge");
+        }
+
+        ModalResult result;
+        result.nModes = 0;
+        for (int m = 0; m < static_cast<int>(eig.eigenvalues.size()) && result.nModes < nModes; ++m) {
+            const double lam = eig.eigenvalues[m];
+            if (lam < -1e-3) continue;  // negative → numerical noise; skip
+            result.eigenvalues.push_back(std::max(0.0, lam));
+            // map the reduced mode shape back to the full DOF layout (pinned = 0).
+            std::vector<double> phi(nDof, 0.0);
+            const std::vector<double>& y = eig.eigenvectors[m];
+            for (std::size_t c = 0; c < nf; ++c) phi[freeIdx[c]] = y[c];
+            result.eigenvectors.push_back(std::move(phi));
+            result.nModes++;
+        }
+        return result;
+    }
+
+    // ---------------------------------------------------------------- dense
+    // Small-mesh oracle path (unchanged): full dense generalized eigensolver.
     la::MatrixD Kd = sys.K.toDense();
     la::MatrixD Md;
     if (kUseConsistentMass) {

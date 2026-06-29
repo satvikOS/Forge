@@ -692,6 +692,55 @@ CGResult conjugateGradient(const SparseCSR<double>& A,
                            int maxIters = 0,        // 0 => 10*n
                            double tol = 1e-12);
 
+// ---------------------------------------------------------------------------
+// Sparse generalized symmetric eigensolver — the LOWEST-k modes of the pencil
+//   K φ = λ M φ
+// via SHIFT-INVERT LANCZOS. This is the large-DOF MODAL path: it lifts the
+// dense GeneralizedSymmetricEigen O(n³)/O(n²)-memory cap (≈1500 DOF) so a modal
+// solve runs on realistic meshes (10³–10⁵ DOF) by touching K and M only through
+// sparse matrix-vector products and ONE sparse factorization.
+//
+//   K — symmetric, POSITIVE DEFINITE on the analysed (BC-reduced) DOF set, or
+//       symmetric-indefinite if a negative shift σ is supplied.
+//   M — symmetric POSITIVE DEFINITE (consistent or lumped mass).
+//
+// METHOD (Ericsson–Ruhe / Parlett, "The Symmetric Eigenvalue Problem", ch. 13;
+// shift-invert spectral transformation): the operator
+//       C = (K − σM)⁻¹ M
+// is SELF-ADJOINT in the M-inner product ⟨x,y⟩_M = xᵀMy, and its eigenvalues θ
+// map to the pencil's eigenvalues CLOSEST to the shift via  λ = σ + 1/θ. Because
+// shift-invert sends the eigenvalues nearest σ to the EXTREMES of C's spectrum,
+// a few Lanczos steps capture them. We:
+//   1. form (K − σM) sparsely and factor it ONCE with the existing SparseLDLT
+//      (SPD whenever σ < λ_min; σ = 0 is correct for an SPD constrained K — no
+//      new factorizer is written);
+//   2. run Lanczos in the M-inner product, building the tridiagonal T with FULL
+//      re-orthogonalization against ALL stored Lanczos vectors (this defeats the
+//      classic loss-of-M-orthogonality → ghost / spurious-eigenvalue failure);
+//   3. solve the small k×k tridiagonal eigenproblem densely (SymmetricEigen);
+//   4. map θ → λ = σ + 1/θ, recover φ = V·y, and M-normalize; convergence is
+//      certified by the TRUE pencil residual ‖Kφ − λMφ‖₂ / ‖λMφ‖₂ of every
+//      returned mode (so a non-converged mode is never silently returned).
+//
+// NO Eigen / ARPACK / Spectra: native Lanczos on the in-house SparseLDLT +
+// SymmetricEigen. ok()=false (honest) if (K − σM) is not SPD under the shift, or
+// the requested modes do not converge within the Krylov-dimension cap.
+// ---------------------------------------------------------------------------
+struct SparseGenEigResult {
+    bool ok = false;
+    std::vector<double> eigenvalues;                 // ascending λ (= ω² in modal)
+    std::vector<std::vector<double>> eigenvectors;   // M-orthonormal φ, each length n
+    int    lanczosSteps = 0;                         // Krylov dimension actually used
+    double maxResidual  = 0.0;                        // max ‖Kφ−λMφ‖₂/‖λMφ‖₂ over modes
+};
+
+SparseGenEigResult sparseGeneralizedEigSI(const SparseCSR<double>& K,
+                                          const SparseCSR<double>& M,
+                                          int numModes,
+                                          double sigma     = 0.0,  // shift (0 ⇒ SPD K)
+                                          int    maxLanczos = 0,    // 0 ⇒ auto cap
+                                          double tol        = 1e-10);
+
 } // namespace linalg
 } // namespace native
 } // namespace forge

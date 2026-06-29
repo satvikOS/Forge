@@ -18,10 +18,12 @@
 //
 //   * Static solve: SimplicialLDLT on the assembled K, with pinned DOFs
 //     eliminated by row/column zeroing + diagonal-1 substitution.
-//   * Modal solve: a small dense GeneralisedSelfAdjointEigenSolver. Eigen's
-//     sparse path through Spectra/ARPACK is out of scope for the kernel;
-//     the dense fallback works comfortably up to ~1500 DOFs, which is more
-//     than enough for the cantilever smoke (~300 DOFs).
+//   * Modal solve: two paths picked by size. ≤1500 DOF uses the dense
+//     GeneralisedSelfAdjointEigenSolver (small-mesh oracle). Above that the
+//     native SPARSE SHIFT-INVERT LANCZOS eigensolver (la::sparseGeneralizedEigSI)
+//     runs on the reduced free-free pencil, lifting the old hard ≤1500-DOF cap so
+//     modal works on realistic meshes — no Spectra/ARPACK, native on the in-house
+//     SparseLDLT + SymmetricEigen.
 //   * Dynamic solve: Newmark-β with β=1/4, γ=1/2 (unconditionally stable
 //     constant-average-acceleration). The effective system matrix
 //     M + γΔt·C + βΔt²·K is factored exactly once per call so every
