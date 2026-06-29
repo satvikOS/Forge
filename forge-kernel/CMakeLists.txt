@@ -573,6 +573,7 @@ add_library(forge_kernel SHARED
     src/native/implicit/MeshToFRep.cpp
     src/native/voxel/Lattice.cpp
     src/native/voxel/Morphology.cpp
+    src/native/viz/FieldViz.cpp         # #65 — CAE field-visualization: warp-by-vector + viridis colormap + isosurface (reuses implicit::IsoMesher) + RK4 streamline
     # Wave-0 — PlaneGCS constraint diagnostics (sketcher-constraints.md Phase A)
     src/binding_sketchdiag.cpp
     ${PLANEGCS_SRC}
