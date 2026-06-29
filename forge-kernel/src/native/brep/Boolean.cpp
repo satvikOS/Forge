@@ -1650,6 +1650,92 @@ BooleanResult booleanSolidAnalytic(const Solid& A, const Solid& B, BoolOp op,
 } // namespace
 
 // ===========================================================================
+// TANGENT / NEAR-TANGENT PINCH PRE-DETECTOR — see Boolean.hpp. Pure geometry, no
+// boolean / no tessellation. Scans every cylinder/equal-cone feature of either
+// operand against every PLANAR face of the OTHER operand whose plane the feature
+// axis is PARALLEL to (the only configuration whose tangency is a LINE pinch), and
+// reports `degenerate` when the perpendicular axis->plane distance equals the radius
+// to within a model-scaled eps AND the feature spatially reaches that face. A normal
+// interior hole (wall thickness >> eps) is never flagged. Reuses the TU-local
+// faceRing / Aabb helpers above (internal linkage, visible for the rest of the TU).
+// ===========================================================================
+TangentPinchReport detectBooleanTangentPinch(const Solid& A, const Solid& B, BoolOp /*op*/) {
+    TangentPinchReport rep;
+
+    // Per-solid AABB (and the combined extent that sets the model-scaled tolerance).
+    auto solidAabb = [](const Solid& S) {
+        Aabb b;
+        for (Shell* sh : S.shells) for (Face* f : sh->faces)
+            for (const Vec3& p : faceRing(f)) b.add(p);
+        return b;
+    };
+    const Aabb aabbA = solidAabb(A), aabbB = solidAabb(B);
+    Aabb all = aabbA; all.add(aabbB.lo); all.add(aabbB.hi);
+    const double scale = std::max({1.0, all.hi.x - all.lo.x,
+                                        all.hi.y - all.lo.y, all.hi.z - all.lo.z});
+    const double eps    = std::max(1e-6, 1e-7 * scale);  // tangency / pinch band
+    const double sinTol = 1e-4;                           // axis-∥-plane band (|cos|)
+    rep.eps = eps;
+
+    // A cylinder, or the equal-radius cone the SolidFactory emits for buildCylinder
+    // (kind==Cone with r1==r2), both carry a single radius + axis line.
+    auto cylRadius = [](const Surface* s, double& r) -> bool {
+        if (!s) return false;
+        if (s->kind == SurfaceKind::Cylinder) { r = s->r1; return r > 0.0; }
+        if (s->kind == SurfaceKind::Cone && std::fabs(s->r1 - s->r2) < 1e-9) { r = s->r1; return r > 0.0; }
+        return false;
+    };
+
+    // tool = the operand contributing the cylindrical wall; body = the operand whose
+    // planar face that wall may pinch against. Both directions are scanned (a hole
+    // tool may live in either operand, for any op).
+    auto scan = [&](const Solid& tool, const Aabb& toolBB, const Solid& body) -> bool {
+        // Gather the body's planar faces once (normal, point, AABB).
+        struct PF { Vec3 n, p0; Aabb bb; };
+        std::vector<PF> planes;
+        for (Shell* sh : body.shells) for (Face* f : sh->faces) {
+            const Surface* sp = f->surface;
+            if (!sp || sp->kind != SurfaceKind::Plane) continue;
+            PF pf; pf.n = vnorm(sp->axis); pf.p0 = sp->origin;
+            for (const Vec3& p : faceRing(f)) pf.bb.add(p);
+            planes.push_back(pf);
+        }
+        if (planes.empty()) return false;
+
+        for (Shell* sh : tool.shells) for (Face* f : sh->faces) {
+            double r;
+            if (!cylRadius(f->surface, r)) continue;
+            const Vec3 axis = vnorm(f->surface->axis);
+            const Vec3 o    = f->surface->origin;          // a point on the axis line
+            for (const PF& pf : planes) {
+                // The pinch is a LINE only when the cylinder axis is parallel to the
+                // plane (axis ⊥ plane normal). A non-parallel axis just punches the
+                // face (a through-hole) — not a tangent pinch.
+                if (std::fabs(vdot(axis, pf.n)) > sinTol) continue;
+                // The feature must actually reach this face's region (reject a tangency
+                // to a distant coplanar face elsewhere in a multi-body operand).
+                if (!toolBB.overlaps(pf.bb, eps + 1e-6 * scale)) continue;
+                // axis->plane signed distance (constant along an axis ∥ the plane).
+                const double dist = vdot(vsub(o, pf.p0), pf.n);
+                const double wall = std::fabs(dist) - r;   // ~0 => tangent / sub-eps sliver
+                if (std::fabs(wall) < eps) {
+                    rep.degenerate = true;
+                    rep.radius   = r;
+                    rep.perpDist = std::fabs(dist);
+                    rep.wall     = wall;
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    if (scan(B, aabbB, A)) return rep;   // hole tool in B vs body A (the cut case)
+    if (scan(A, aabbA, B)) return rep;   // symmetric (tool in A vs body B)
+    return rep;                          // degenerate stays false
+}
+
+// ===========================================================================
 // PUBLIC ENTRY — analytic first, flagged mesh fallback on any analytic miss.
 // ===========================================================================
 BooleanResult booleanSolid(const Solid& A, const Solid& B, BoolOp op,

@@ -156,6 +156,37 @@ BooleanResult booleanSolid(const Solid& A, const Solid& B, BoolOp op,
                            const BooleanOptions& opts = BooleanOptions{});
 
 // ===========================================================================
+// TANGENT / NEAR-TANGENT PINCH PRE-DETECTOR (boolean-robustness guard)
+// ===========================================================================
+// A cylindrical (or equal-radius conical) FEATURE wall that lands within `eps` of
+// a PLANAR face of the other operand — i.e. a hole/boss whose wall is TANGENT to a
+// boundary face (the classic cx + r == L drilled-edge case) — leaves a ZERO- or
+// SUB-TOLERANCE-thickness wall: a genuine non-2-manifold PINCH. The native analytic
+// boolean HONESTLY DEFERS on it (it will not emit the pinch), but the OCCT fallback
+// (BRepAlgoAPI + healing) can SPIN for minutes on that degeneracy before failing.
+//
+// detectBooleanTangentPinch is a FAST, purely-geometric pre-check (no boolean, no
+// tessellation) the caller runs BEFORE the expensive OCCT fallback so the pipeline
+// can fail FAST with a clear diagnostic instead of hanging. It scans every cylinder
+// /equal-cone feature of EITHER operand against every PLANAR face of the OTHER whose
+// plane the feature axis is PARALLEL to (the only configuration that yields a line-
+// pinch), flagging `degenerate` when |dist(axis,plane) - r| < eps AND the feature
+// spatially reaches that face. A genuine INTERIOR hole (wall >> eps) is never flagged,
+// so a normal cut is UNAFFECTED. eps scales with the model size (max(1e-6, 1e-7·diag)).
+//
+// HONEST: this only DETECTS + REPORTS. It moves no geometry. The caller decides the
+// deterministic response (a fast clean error). `op` is accepted for future op-specific
+// policy; the pinch itself is op-independent.
+struct TangentPinchReport {
+    bool   degenerate = false;  // a feature wall is within eps of tangent to a face
+    double radius     = 0.0;    // the offending cylindrical-feature radius
+    double perpDist   = 0.0;    // |feature axis -> plane| (== radius at exact tangent)
+    double wall       = 0.0;    // perpDist - radius  (~0 = pinch; sign = inside/through)
+    double eps        = 0.0;    // the tangency band used (model-scaled)
+};
+TangentPinchReport detectBooleanTangentPinch(const Solid& A, const Solid& B, BoolOp op);
+
+// ===========================================================================
 // MESH-OPERAND BOOLEAN (the fuse/cut mesh-operand bridge)
 // ===========================================================================
 // Compute A (op) B directly from two INDEXED TRIANGLE SOUPS (positions flat xyz,
