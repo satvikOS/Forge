@@ -157,4 +157,53 @@ struct CurrentConductionResult {
 // Throws std::invalid_argument on a degenerate config.
 CurrentConductionResult currentConduction(const CurrentConductionConfig& cfg);
 
+// ====================================================================
+// Elmer-track E4 — transient eddy-current / magnetic diffusion (skin effect)
+// ====================================================================
+//
+// Forge's FIRST native TRANSIENT EM solver. The magnetic-diffusion equation for
+// the flux density B in a conductor exposed to a time-varying surface field,
+//     ∂B/∂t = (1/(μσ))∇²B          (σ ∂B/∂t = (1/μ)∇²B),
+// is the SAME parabolic operator the TRANSIENT-THERMAL solver assembles
+// (ρc ∂T/∂t = ∇·(k∇T)) under the EM substitution conductance k:=ν=1/μ (the E1
+// magnetostatic reluctivity) and capacitance ρc:=σ (the E3 conductivity), giving
+// the magnetic diffusivity α=k/ρc=1/(μσ). It is therefore solved by REUSING
+// forge::native::fea::transient_thermal verbatim — assembleKC (K=∫ν∇N∇N,
+// C=∫σ NN) and the backward-Euler ThetaThermalIntegrator (A=C/Δt+K factored ONCE,
+// factor-once/solve-many) — the ONLY new ingredient being a time-varying Dirichlet
+// surface BC B(0,t)=B0·cos(ωt) applied through ThetaThermalIntegrator::stepBC.
+// See forge/native/em/MagneticDiffusion.hpp for the solver; this is the thin
+// .node adapter onto forge::native::em::solveSkinEffect.
+//
+// Known answer (semi-infinite conductor): B(x,t)≈B0·e^{−x/δ}·cos(ωt−x/δ),
+// skin depth δ=√(2/(μσω)). The result carries the analytic δ and the δ fitted
+// from BOTH the amplitude decay (−ln(A/B0)=x/δ) and the phase lag (φ=x/δ).
+struct MagneticDiffusionConfig {
+    double L     = 0.0;        // conductor depth modelled (m); ≤0 ⇒ default 8δ
+    int    N     = 80;         // elements through the depth
+    double mu    = 1.25663706143591729e-6; // permeability (default μ₀)
+    double sigma = 5.8e7;      // electrical conductivity (S/m) (default copper)
+    double freq  = 1000.0;     // surface-field frequency (Hz); ω = 2πf
+    double B0    = 1.0;        // surface field amplitude (T)
+    int    stepsPerPeriod  = 160;  // backward-Euler steps per AC period
+    int    periodsToSteady = 20;   // periods marched to sinusoidal steady state
+};
+
+struct MagneticDiffusionResult {
+    double skinDepth      = 0.0;   // analytic δ = √(2/(μσω)) (m)
+    double skinDepthAmp   = 0.0;   // δ fitted from the amplitude decay e^{−x/δ}
+    double skinDepthPhase = 0.0;   // δ fitted from the phase lag x/δ
+    double dt = 0.0;               // backward-Euler step (s)
+    int    nSteps = 0;             // total steps marched (steady + measurement)
+    std::vector<double> depth;     // sample depths x (m)
+    std::vector<double> ampNum, ampAna;     // |B|(x): measured / analytic B0 e^{−x/δ}
+    std::vector<double> phaseNum, phaseAna; // phase lag (rad): measured / analytic x/δ
+    bool   ok = false;             // backward-Euler operator factorised (SPD)
+};
+
+// Solve transient magnetic diffusion (skin effect) for the sinusoidal surface
+// field and recover δ from amplitude + phase. Throws std::invalid_argument on a
+// degenerate config (N<2, or non-positive μ/σ/freq).
+MagneticDiffusionResult magneticDiffusion(const MagneticDiffusionConfig& cfg);
+
 } // namespace forge::em

@@ -5828,6 +5828,52 @@ Napi::Value EmCurrentConduction(const Napi::CallbackInfo& info) {
     });
 }
 
+// ----------------------------------------- EM E4 transient eddy-current / skin
+//
+//   magneticDiffusion(cfgObj)
+//     cfg: { L, N, mu, sigma, freq, B0, stepsPerPeriod, periodsToSteady }
+//     → { skinDepth, skinDepthAmp, skinDepthPhase, dt, nSteps, depth,
+//         ampNum, ampAna, phaseNum, phaseAna, ok }
+Napi::Value EmMagneticDiffusion(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.em.magneticDiffusion: cfg must be an object");
+        }
+        auto o = info[0].As<Napi::Object>();
+        forge::em::MagneticDiffusionConfig cfg;
+        if (o.Has("L"))     cfg.L     = o.Get("L").As<Napi::Number>().DoubleValue();
+        if (o.Has("N"))     cfg.N     = o.Get("N").As<Napi::Number>().Int32Value();
+        if (o.Has("mu"))    cfg.mu    = o.Get("mu").As<Napi::Number>().DoubleValue();
+        if (o.Has("sigma")) cfg.sigma = o.Get("sigma").As<Napi::Number>().DoubleValue();
+        if (o.Has("freq"))  cfg.freq  = o.Get("freq").As<Napi::Number>().DoubleValue();
+        if (o.Has("B0"))    cfg.B0    = o.Get("B0").As<Napi::Number>().DoubleValue();
+        if (o.Has("stepsPerPeriod"))
+            cfg.stepsPerPeriod  = o.Get("stepsPerPeriod").As<Napi::Number>().Int32Value();
+        if (o.Has("periodsToSteady"))
+            cfg.periodsToSteady = o.Get("periodsToSteady").As<Napi::Number>().Int32Value();
+        auto r = forge::em::magneticDiffusion(cfg);
+        auto out = Napi::Object::New(env);
+        auto setF64 = [&](const char* key, const std::vector<double>& v) {
+            auto a = Napi::Float64Array::New(env, v.size());
+            std::copy(v.begin(), v.end(), a.Data());
+            out.Set(key, a);
+        };
+        out.Set("skinDepth",      Napi::Number::New(env, r.skinDepth));
+        out.Set("skinDepthAmp",   Napi::Number::New(env, r.skinDepthAmp));
+        out.Set("skinDepthPhase", Napi::Number::New(env, r.skinDepthPhase));
+        out.Set("dt",             Napi::Number::New(env, r.dt));
+        out.Set("nSteps",         Napi::Number::New(env, r.nSteps));
+        setF64("depth",    r.depth);
+        setF64("ampNum",   r.ampNum);
+        setF64("ampAna",   r.ampAna);
+        setF64("phaseNum", r.phaseNum);
+        setF64("phaseAna", r.phaseAna);
+        out.Set("ok", Napi::Boolean::New(env, r.ok));
+        return out;
+    });
+}
+
 // Wave-0 dark-engine harvest — register the self-contained binding TUs that expose
 // the native geom predicates, the implicit/voxel/F-rep field stack, and the
 // PlaneGCS constraint diagnostics (binding_geom/field/sketchdiag.cpp).
@@ -6066,6 +6112,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     em.Set("magnetostatics",    Napi::Function::New(env, EmMagnetostatics));
     em.Set("electrostatics",    Napi::Function::New(env, EmElectrostatics));
     em.Set("currentConduction", Napi::Function::New(env, EmCurrentConduction));
+    em.Set("magneticDiffusion", Napi::Function::New(env, EmMagneticDiffusion));
     exports.Set("em", em);
 
     // -------- cam (2.5D toolpath generators + G-code post) -------------

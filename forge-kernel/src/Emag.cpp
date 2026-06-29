@@ -24,6 +24,7 @@
 
 #include "forge/native/linalg/LinAlg.hpp"
 #include "forge/native/fea/ScalarElliptic.hpp"
+#include "forge/native/em/MagneticDiffusion.hpp" // E4 transient eddy-current/skin effect
 #include "forge/Fea.hpp"   // E3 couples into forge::fea::solveThermal (Joule → T)
 
 #include <cmath>
@@ -522,6 +523,53 @@ CurrentConductionResult currentConduction(const CurrentConductionConfig& cfg)
     out.maxT = tRes.maxT;  out.minT = tRes.minT;
     out.residualV = vRes.residual;
     out.residualT = tRes.residual;
+    return out;
+}
+
+// ====================================================================
+// E4 — transient eddy-current / magnetic diffusion (forge.em.magneticDiffusion)
+// ====================================================================
+//
+// Thin adapter onto the header-only solver forge::native::em::solveSkinEffect
+// (forge/native/em/MagneticDiffusion.hpp), which REUSES the transient-thermal
+// backward-Euler integrator with conductance k=ν=1/μ and capacitance ρc=σ
+// (diffusivity α=1/(μσ)) plus a time-varying sinusoidal surface BC (stepBC).
+
+MagneticDiffusionResult magneticDiffusion(const MagneticDiffusionConfig& cfg)
+{
+    if (cfg.N < 2) {
+        throw std::invalid_argument("forge.em.magneticDiffusion: N must be ≥ 2");
+    }
+    if (cfg.mu <= 0 || cfg.sigma <= 0 || cfg.freq <= 0) {
+        throw std::invalid_argument(
+            "forge.em.magneticDiffusion: mu, sigma and freq must be > 0");
+    }
+
+    namespace nem = forge::native::em;
+    nem::SkinEffectConfig sc;
+    sc.L     = cfg.L;                       // ≤0 ⇒ solver defaults to 8δ
+    sc.N     = cfg.N;
+    sc.mu    = cfg.mu;
+    sc.sigma = cfg.sigma;
+    sc.omega = 2.0 * kPi * cfg.freq;
+    sc.B0    = cfg.B0;
+    sc.stepsPerPeriod  = cfg.stepsPerPeriod;
+    sc.periodsToSteady = cfg.periodsToSteady;
+
+    nem::SkinEffectResult sr = nem::solveSkinEffect(sc);
+
+    MagneticDiffusionResult out;
+    out.skinDepth      = sr.delta;
+    out.skinDepthAmp   = sr.deltaAmp;
+    out.skinDepthPhase = sr.deltaPhase;
+    out.dt             = sr.dt;
+    out.nSteps         = sr.nSteps;
+    out.depth          = sr.depth;
+    out.ampNum         = sr.ampNum;
+    out.ampAna         = sr.ampAna;
+    out.phaseNum       = sr.phaseNum;
+    out.phaseAna       = sr.phaseAna;
+    out.ok             = sr.ok;
     return out;
 }
 

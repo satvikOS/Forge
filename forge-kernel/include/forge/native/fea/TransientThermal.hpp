@@ -256,9 +256,25 @@ public:
     // Advance one step. `Tn` is the full n-vector of the current field (its
     // fixed entries hold the surface values that were active over [tⁿ, tⁿ⁺¹));
     // `F` is the constant load (body source + Neumann flux). Returns Tⁿ⁺¹ with
-    // the Dirichlet entries set to fixedVal.
+    // the Dirichlet entries set to fixedVal. (Constant-BC convenience wrapper of
+    // stepBC with the integrator's own fixedVal — byte-identical to the original.)
     std::vector<double> step(const std::vector<double>& Tn,
                              const std::vector<double>& F) const
+    {
+        return stepBC(Tn, F, fixedVal_);
+    }
+
+    // Advance one step imposing a possibly TIME-VARYING Dirichlet set: `bcVal`
+    // supplies the prescribed values at tⁿ⁺¹ for every fixed dof (its free
+    // entries are ignored); `Tn` must carry the tⁿ Dirichlet values in its fixed
+    // entries (i.e. the previous step's output, or the IC). A_ff and A_fp depend
+    // ONLY on which dofs are fixed — NOT on their values — so the ONE Cholesky is
+    // reused unchanged; only the RHS lift varies. This is what lets a sinusoidal
+    // surface BC B(0,t)=B0·cos(ωt) (skin-effect / magnetic diffusion) march
+    // without ever re-factoring.
+    std::vector<double> stepBC(const std::vector<double>& Tn,
+                               const std::vector<double>& F,
+                               const std::vector<double>& bcVal) const
     {
         std::vector<double> b = R_ * Tn;            // C/Δt − (1−θ)K applied to Tⁿ
         for (std::size_t i = 0; i < n_; ++i) b[i] += F[i];
@@ -266,14 +282,14 @@ public:
         std::vector<double> bf(nf);
         for (std::size_t a = 0; a < nf; ++a) {
             double v = b[free_[a]];
-            for (std::size_t c = 0; c < fixedIdx_.size(); ++c)  // lift fixed dofs
-                v -= Afp_(a, c) * fixedVal_[fixedIdx_[c]];
+            for (std::size_t c = 0; c < fixedIdx_.size(); ++c)  // lift fixed dofs (tⁿ⁺¹)
+                v -= Afp_(a, c) * bcVal[fixedIdx_[c]];
             bf[a] = v;
         }
         std::vector<double> xf = llt_.solve(bf);
         std::vector<double> Tn1(n_);
         for (std::size_t i = 0; i < n_; ++i)
-            Tn1[i] = isFixed_[i] ? fixedVal_[i] : 0.0;
+            Tn1[i] = isFixed_[i] ? bcVal[i] : 0.0;
         for (std::size_t a = 0; a < nf; ++a) Tn1[free_[a]] = xf[a];
         return Tn1;
     }
