@@ -55,6 +55,15 @@ struct ThermalFaceBC {
     double value = 0.0;   // wall temperature (K) when isothermal
 };
 
+// Per-AABB-face boundary condition for the PASSIVE-SCALAR / species concentration
+// field C transported by the advection-diffusion extension (task #61).
+//   type 0 = ZERO-GRADIENT (Neumann, ∂C/∂n = 0 — an impermeable / outflow wall)
+//   type 1 = DIRICHLET     (fixed concentration C = value — e.g. an inlet source)
+struct SpeciesFaceBC {
+    int    type  = 0;     // 0 zero-gradient (Neumann), 1 Dirichlet (fixed C)
+    double value = 0.0;   // imposed concentration when Dirichlet
+};
+
 struct CfdConfig {
     AABB domain;
     int    Nx, Ny, Nz;
@@ -84,6 +93,24 @@ struct CfdConfig {
     double gx = 0.0, gy = 0.0, gz = 0.0;  // gravity acceleration vector (m/s²)
     double Tinit = 0.0;               // fallback uniform initial temperature (K)
     std::array<ThermalFaceBC, 6> thermalBC{}; // per AABB-face T BC (0=-X..5=+Z)
+
+    // ---- passive scalar / species advection-diffusion transport (#61) -------
+    // When useSpecies is true the solver ALSO transports a concentration scalar C
+    // on the cell centres:   ∂C/∂t + u·∇C = D ∇²C   (advection reuses the EXACT
+    // SAME van-Leer MUSCL routine as momentum and the energy equation — there is
+    // NO third advection scheme; diffusion is the same central 7-point Laplacian
+    // at the mass diffusivity D). The scalar is PASSIVE: it is advected by the
+    // existing velocity field with NO back-coupling onto momentum (unlike the
+    // Boussinesq thermal field). Boundary behaviour is Dirichlet (fixed C, e.g.
+    // an inlet source) / zero-gradient (impermeable or outflow wall) per face.
+    // With useSpecies false every species branch is skipped and the solver is
+    // bit-for-bit unchanged (the Ghia + de Vahl Davis gates are unaffected).
+    bool   useSpecies = false;
+    double massDiff = 0.0;            // mass diffusivity D (m²/s); 0 ⇒ pure advection
+    double Cinit = 0.0;               // fallback uniform initial concentration
+    std::vector<double> Cinit0;       // optional explicit initial C field (Nx·Ny·Nz),
+                                      // e.g. an advected pulse; empty ⇒ ramp/uniform seed
+    std::array<SpeciesFaceBC, 6> speciesBC{}; // per AABB-face C BC (0=-X..5=+Z)
 };
 
 struct CfdResult {
@@ -92,6 +119,8 @@ struct CfdResult {
     std::vector<double> w;            // cell-centre z-velocity
     std::vector<double> p;            // cell-centre pressure
     std::vector<double> T;            // cell-centre temperature (empty unless useThermal)
+    std::vector<double> C;            // cell-centre species concentration (empty unless useSpecies)
+    double simTime = 0;               // total elapsed physical time Σ dtStep (s) — for transient scalar transport
     double maxVelocity = 0;           // m/s
     double reynolds    = 0;           // characteristic Re estimate
     int    iterations  = 0;           // outer SIMPLE iterations actually used

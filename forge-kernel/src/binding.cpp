@@ -3436,6 +3436,50 @@ void readThermal(const Napi::Env& env, const Napi::Object& co, forge::cfd::CfdCo
     }
 }
 
+// Parse the optional passive-scalar / species block (advection-diffusion, #61):
+//   species: { D | massDiff, Cinit, C0: Float64Array (optional initial field),
+//              bc: [ {type:'dirichlet'|'neumann'|'zeroGradient', value}, ... x6 ] }
+// Sets cfg.useSpecies = true. The per-face `bc` array maps to AABB faces 0..5
+// (-X,+X,-Y,+Y,-Z,+Z); a missing entry defaults to zero-gradient (impermeable).
+// The scalar is PASSIVE — advected by the velocity field with no back-coupling.
+void readSpecies(const Napi::Env& env, const Napi::Object& co, forge::cfd::CfdConfig& cfg) {
+    if (!(co.Has("species") && co.Get("species").IsObject())) return;
+    auto sp = co.Get("species").As<Napi::Object>();
+    cfg.useSpecies = true;
+    auto num = [&](const char* k, double def) {
+        return (sp.Has(k) && sp.Get(k).IsNumber())
+                   ? sp.Get(k).As<Napi::Number>().DoubleValue() : def;
+    };
+    // mass diffusivity: accept either `D` or `massDiff` (D = 0 ⇒ pure advection).
+    cfg.massDiff = (sp.Has("D") && sp.Get("D").IsNumber()) ? num("D", 0.0)
+                                                           : num("massDiff", 0.0);
+    cfg.Cinit = num("Cinit", 0.0);
+    // optional explicit initial concentration field (e.g. an advected pulse /
+    // restart); length must equal Nx·Ny·Nz or it is ignored in favour of the
+    // ramp/uniform seed inside the solver.
+    if (sp.Has("C0") && sp.Get("C0").IsTypedArray()) {
+        auto a = sp.Get("C0").As<Napi::Float64Array>();
+        cfg.Cinit0.assign(a.Data(), a.Data() + a.ElementLength());
+    }
+    if (sp.Has("bc") && sp.Get("bc").IsArray()) {
+        auto arr = sp.Get("bc").As<Napi::Array>();
+        for (uint32_t f = 0; f < arr.Length() && f < 6; ++f) {
+            if (!arr.Get(f).IsObject()) continue;
+            auto fo = arr.Get(f).As<Napi::Object>();
+            std::string ty = "neumann";
+            if (fo.Has("type") && fo.Get("type").IsString())
+                ty = fo.Get("type").As<Napi::String>().Utf8Value();
+            else if (fo.Has("type") && fo.Get("type").IsNumber())
+                ty = (fo.Get("type").As<Napi::Number>().Int32Value() == 1) ? "dirichlet" : "neumann";
+            cfg.speciesBC[f].type =
+                (ty == "dirichlet" || ty == "fixed" || ty == "inlet" || ty == "iso") ? 1 : 0;
+            cfg.speciesBC[f].value =
+                (fo.Has("value") && fo.Get("value").IsNumber())
+                    ? fo.Get("value").As<Napi::Number>().DoubleValue() : 0.0;
+        }
+    }
+}
+
 // Build the JS result object (shared by both entrypoints). The temperature
 // Float64Array is attached only when the thermal solve produced one.
 Napi::Value cfdResultToJS(const Napi::Env& env,
@@ -3451,6 +3495,12 @@ Napi::Value cfdResultToJS(const Napi::Env& env,
         std::copy(r.T.begin(), r.T.end(), T.Data());
         out.Set("T", T);
     }
+    if (!r.C.empty()) {
+        auto C = Napi::Float64Array::New(env, r.C.size());
+        std::copy(r.C.begin(), r.C.end(), C.Data());
+        out.Set("C", C);
+    }
+    out.Set("simTime",     Napi::Number::New(env, r.simTime));
     out.Set("maxVelocity", Napi::Number::New(env, r.maxVelocity));
     out.Set("reynolds",    Napi::Number::New(env, r.reynolds));
     out.Set("iterations",  Napi::Number::New(env, r.iterations));
@@ -3477,6 +3527,9 @@ Napi::Value CfdSolveSteadyNS(const Napi::CallbackInfo& info) {
         // equation is available through this entrypoint too); absent ⇒ pure
         // isothermal NS, identical to before.
         readThermal(env, co, cfg);
+        // …and an optional passive-scalar / species block (advection-diffusion);
+        // absent ⇒ no scalar transported, solution unchanged.
+        readSpecies(env, co, cfg);
         auto r = forge::cfd::solveSteadyNS(cfg);
         return cfdResultToJS(env, r, cfg);
     });
@@ -3495,10 +3548,37 @@ Napi::Value CfdSolveNaturalConvection(const Napi::CallbackInfo& info) {
         auto co = info[0].As<Napi::Object>();
         forge::cfd::CfdConfig cfg = readCfdConfig(env, co);
         readThermal(env, co, cfg);
+        readSpecies(env, co, cfg);  // a heated flow may also carry a passive tracer
         if (!cfg.useThermal) {
             throw Napi::TypeError::New(env,
                 "forge.cfd.solveNaturalConvection: a `thermal` block "
                 "{ alpha, beta, gx/gy/gz, bc[] } is required");
+        }
+        auto r = forge::cfd::solveSteadyNS(cfg);
+        return cfdResultToJS(env, r, cfg);
+    });
+}
+
+// forge.cfd.solveSpeciesTransport(cfg) — passive scalar / species advection-
+// diffusion (task #61). Same core MAC/Chorin solver and the SAME van-Leer MUSCL
+// advection as momentum + the energy equation, but REQUIRES a `species` block
+// and transports a concentration field C with NO back-coupling onto the flow
+// (passive). May co-exist with a thermal block. Validated against the exact 1D
+// advection-diffusion profile — see test/cfd_species_gate.mjs.
+Napi::Value CfdSolveSpeciesTransport(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        if (!info[0].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.cfd.solveSpeciesTransport: cfg must be an object");
+        }
+        auto co = info[0].As<Napi::Object>();
+        forge::cfd::CfdConfig cfg = readCfdConfig(env, co);
+        readThermal(env, co, cfg);   // optional — species can ride a heated flow
+        readSpecies(env, co, cfg);
+        if (!cfg.useSpecies) {
+            throw Napi::TypeError::New(env,
+                "forge.cfd.solveSpeciesTransport: a `species` block "
+                "{ D, Cinit, bc[] } is required");
         }
         auto r = forge::cfd::solveSteadyNS(cfg);
         return cfdResultToJS(env, r, cfg);
@@ -5959,6 +6039,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     cfd.Set("solveSteadyNS", Napi::Function::New(env, CfdSolveSteadyNS));
     cfd.Set("solveNaturalConvection",
             Napi::Function::New(env, CfdSolveNaturalConvection));
+    cfd.Set("solveSpeciesTransport",
+            Napi::Function::New(env, CfdSolveSpeciesTransport));
     cfd.Set("solveCompressible1D",
             Napi::Function::New(env, CfdSolveCompressible1D));
     cfd.Set("sodShockTube",

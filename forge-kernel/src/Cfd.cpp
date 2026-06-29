@@ -161,6 +161,11 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         throw std::invalid_argument(
             "forge.cfd.solveSteadyNS: thermal diffusivity alpha must be > 0 when useThermal");
     }
+    if (cfg.useSpecies && cfg.massDiff < 0) {
+        throw std::invalid_argument(
+            "forge.cfd.solveSteadyNS: species mass diffusivity D must be >= 0 when useSpecies "
+            "(D = 0 is the pure-advection limit)");
+    }
 
     auto startWall = std::chrono::steady_clock::now();
 
@@ -206,9 +211,15 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     //     With the looser 0.45·h²/ν the highest grid mode amplifies ~2.6×/step
     //     and blows the temperature field up — so the energy equation REQUIRES
     //     this tighter, correct limit (0.8 safety margin).
+    //   * Species path: an extra passive scalar diffuses at the mass diffusivity
+    //     D; the binding diffusivity becomes max(ν, α, D) so the tighter, correct
+    //     limit also covers the species Laplacian (a high-Schmidt scalar with
+    //     D < ν is bound by ν; a high-D scalar would otherwise blow up).
     double dtDiff;
-    if (cfg.useThermal) {
-        const double diffMax = std::max(cfg.nu, cfg.alpha);
+    if (cfg.useThermal || cfg.useSpecies) {
+        double diffMax = cfg.nu;
+        if (cfg.useThermal) diffMax = std::max(diffMax, cfg.alpha);
+        if (cfg.useSpecies) diffMax = std::max(diffMax, cfg.massDiff);
         const double invh2 = 1.0 / (dx * dx) + 1.0 / (dy * dy) + 1.0 / (dz * dz);
         dtDiff = 0.8 / (2.0 * diffMax * invh2);
     } else {
@@ -275,6 +286,43 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
               T[idxC(i, j, k, Nx, Ny)] = t;
             }
         Tstar = T;
+    }
+
+    // ---------------------------------------------------- species field
+    // C lives on the SAME cell centres as pressure/temperature (Nx·Ny·Nz). An
+    // explicit initial field (cfg.Cinit0, e.g. an advected pulse) takes priority;
+    // otherwise — exactly as for T — a Dirichlet/Dirichlet face pair seeds a
+    // LINEAR profile between the two fixed concentrations (the diffusion-only
+    // solution) so the steady advection-diffusion iteration starts close to its
+    // boundary-layer answer and converges faster; failing that the uniform Cinit.
+    // Empty when useSpecies is false. PASSIVE: never coupled back into momentum.
+    std::vector<double> C, Cstar;
+    if (cfg.useSpecies) {
+        const std::size_t nC = static_cast<std::size_t>(Nx) * Ny * Nz;
+        if (cfg.Cinit0.size() == nC) {
+            C = cfg.Cinit0;                 // explicit initial field (pulse / restart)
+        } else {
+            C.assign(nC, cfg.Cinit);
+            const auto& bc = cfg.speciesBC;
+            auto isoPair = [&](int a, int b) { return bc[a].type == 1 && bc[b].type == 1; };
+            for (int k = 0; k < Nz; ++k)
+              for (int j = 0; j < Ny; ++j)
+                for (int i = 0; i < Nx; ++i) {
+                  double c = cfg.Cinit;
+                  if (isoPair(0, 1)) {            // -X/+X Dirichlet → ramp in x
+                      const double f = (i + 0.5) / Nx;
+                      c = bc[0].value + f * (bc[1].value - bc[0].value);
+                  } else if (isoPair(2, 3)) {     // -Y/+Y Dirichlet → ramp in y
+                      const double f = (j + 0.5) / Ny;
+                      c = bc[2].value + f * (bc[3].value - bc[2].value);
+                  } else if (isoPair(4, 5)) {     // -Z/+Z Dirichlet → ramp in z
+                      const double f = (k + 0.5) / Nz;
+                      c = bc[4].value + f * (bc[5].value - bc[4].value);
+                  }
+                  C[idxC(i, j, k, Nx, Ny)] = c;
+                }
+        }
+        Cstar = C;
     }
 
     // ---------------------------------------------------- BC enforcement
@@ -558,6 +606,27 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         return T[idxC(i, j, k, Nx, Ny)];
     };
 
+    // Ghost species concentration one (or more) cell(s) outside the domain,
+    // applying the per-face C boundary condition (cell-centred field, like T):
+    //   DIRICHLET (fixed C=Cw): ghost = 2·Cw − C_interior so the linearly
+    //     interpolated face value is exactly Cw (2nd-order at the boundary).
+    //   ZERO-GRADIENT (Neumann ∂C/∂n=0): ghost = C_interior (impermeable/outflow).
+    // Identical structure to tGhost; the 2-cell MUSCL reach self-limits to first
+    // order in the single boundary-adjacent cell. One index out of range per
+    // directional sweep, so the i-then-j-then-k order is unambiguous.
+    auto cGhost = [&](int i, int j, int k) -> double {
+        auto mirror = [](const SpeciesFaceBC& b, double cin) {
+            return b.type == 1 ? (2.0 * b.value - cin) : cin;
+        };
+        if (i < 0)   return mirror(cfg.speciesBC[0], C[idxC(0,      j, k, Nx, Ny)]);
+        if (i >= Nx) return mirror(cfg.speciesBC[1], C[idxC(Nx - 1, j, k, Nx, Ny)]);
+        if (j < 0)   return mirror(cfg.speciesBC[2], C[idxC(i, 0,      k, Nx, Ny)]);
+        if (j >= Ny) return mirror(cfg.speciesBC[3], C[idxC(i, Ny - 1, k, Nx, Ny)]);
+        if (k < 0)   return mirror(cfg.speciesBC[4], C[idxC(i, j, 0,      Nx, Ny)]);
+        if (k >= Nz) return mirror(cfg.speciesBC[5], C[idxC(i, j, Nz - 1, Nx, Ny)]);
+        return C[idxC(i, j, k, Nx, Ny)];
+    };
+
     // Streamwise (face-normal direction) clamped sampling for the MUSCL
     // advection stencil, which reaches 2 cells out. The TRANSVERSE directions
     // use the uGhost/vGhost/wGhost mirrors above (already valid for arbitrary
@@ -712,7 +781,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     // iterations. Divergence stays at machine precision after each projection,
     // so it can't detect "did we reach steady state" — we instead require the
     // *update* to fall below a fraction of the BC velocity scale.
-    std::vector<double> uPrev = u, vPrev = v, wPrev = w, TPrev = T;
+    std::vector<double> uPrev = u, vPrev = v, wPrev = w, TPrev = T, CPrev = C;
     auto velocityChange = [&]() {
         double s = 0;
         std::size_t n = u.size() + v.size() + w.size();
@@ -725,6 +794,14 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         if (cfg.useThermal) {
             for (std::size_t i = 0; i < T.size(); ++i) { const double d = T[i] - TPrev[i]; s += d * d; }
             n += T.size();
+        }
+        // Likewise fold in the species update so steady state means the SCALAR
+        // field has also stopped evolving (its advection-diffusion front / plume
+        // is stationary), not just the velocity. Passive ⇒ this only affects the
+        // convergence test, never the flow solution.
+        if (cfg.useSpecies) {
+            for (std::size_t i = 0; i < C.size(); ++i) { const double d = C[i] - CPrev[i]; s += d * d; }
+            n += C.size();
         }
         return std::sqrt(s / n);
     };
@@ -754,11 +831,16 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     int iter = 0;
     double divResidual = 0;
     double velChange = 0;
+    // Total elapsed physical time Σ dtStep — each outer iteration is a real
+    // explicit time step, so this is the genuine transient time the species
+    // pulse / front has been advected (reported back for the centroid gate).
+    double simTime = 0;
 
     // -------------------------------------------------- main SIMPLE loop
     for (iter = 1; iter <= cfg.maxIter; ++iter) {
         uPrev = u; vPrev = v; wPrev = w;
         if (cfg.useThermal) TPrev = T;
+        if (cfg.useSpecies) CPrev = C;
 
         // ADAPTIVE TIMESTEP (channel-stability fix). The base dt above was
         // sized from the *initial* BC speed (uBc, e.g. the 0.1 m/s inlet). But
@@ -780,6 +862,7 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         }
         const double dtAdvCur = 0.5 * hMin / (1.5 * std::max(uCur, 1e-6));
         const double dtStep = std::min(dt, dtAdvCur);
+        simTime += dtStep;   // accumulate genuine elapsed physical time
 
         // -------- 1. predictor — solve for u* (interior u-faces only) ----
         for (int k = 0; k < Nz; ++k) {
@@ -977,6 +1060,56 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
           }
         }
 
+        // -------- 1c. passive scalar — transport species concentration C ----
+        // ∂C/∂t + u·∇C = D ∇²C, explicit, on the SAME current velocity snapshot
+        // (u,v,w) the momentum predictor read. The convective term reuses the
+        // IDENTICAL musclConv() van-Leer routine as momentum AND the energy
+        // equation — there is NO third advection scheme; the advecting velocity
+        // is the cell-centred interpolate of the staggered MAC faces, exactly as
+        // for T. Diffusion is the same central 7-point Laplacian, at the mass
+        // diffusivity D. Boundary behaviour is carried entirely by cGhost
+        // (Dirichlet / zero-gradient). The scalar is PASSIVE — it reads the
+        // velocity but never writes it (no buoyancy/source back onto momentum) —
+        // so the flow solution is byte-identical to species-off. C is committed
+        // (C←Cstar) only after the projection, at the bottom of the iteration.
+        if (cfg.useSpecies) {
+          for (int k = 0; k < Nz; ++k) {
+            for (int j = 0; j < Ny; ++j) {
+              for (int i = 0; i < Nx; ++i) {
+                const std::size_t c = idxC(i, j, k, Nx, Ny);
+                const double Cc = C[c];
+
+                // advecting velocity at the cell centre (MAC face average)
+                const double uCc = 0.5 * (u[idxU(i, j, k, Nx, Ny)]
+                                        + u[idxU(i + 1, j, k, Nx, Ny)]);
+                const double vCc = 0.5 * (v[idxV(i, j, k, Nx, Ny)]
+                                        + v[idxV(i, j + 1, k, Nx, Ny)]);
+                const double wCc = 0.5 * (w[idxW(i, j, k, Nx, Ny)]
+                                        + w[idxW(i, j, k + 1, Nx, Ny)]);
+
+                // 2nd-order TVD/MUSCL advection — SAME routine as momentum + T.
+                const double dCadx = musclConv(uCc,
+                    cGhost(i - 2, j, k), cGhost(i - 1, j, k), Cc,
+                    cGhost(i + 1, j, k), cGhost(i + 2, j, k), dx);
+                const double dCady = musclConv(vCc,
+                    cGhost(i, j - 2, k), cGhost(i, j - 1, k), Cc,
+                    cGhost(i, j + 1, k), cGhost(i, j + 2, k), dy);
+                const double dCadz = musclConv(wCc,
+                    cGhost(i, j, k - 2), cGhost(i, j, k - 1), Cc,
+                    cGhost(i, j, k + 1), cGhost(i, j, k + 2), dz);
+
+                // central diffusion D∇²C (7-point, ghosts carry the C BCs)
+                const double lapC =
+                    (cGhost(i + 1, j, k) - 2 * Cc + cGhost(i - 1, j, k)) / (dx * dx)
+                  + (cGhost(i, j + 1, k) - 2 * Cc + cGhost(i, j - 1, k)) / (dy * dy)
+                  + (cGhost(i, j, k + 1) - 2 * Cc + cGhost(i, j, k - 1)) / (dz * dz);
+
+                Cstar[c] = Cc + dtStep * (-dCadx - dCady - dCadz + cfg.massDiff * lapC);
+              }
+            }
+          }
+        }
+
         // Re-apply BCs (the predictor never touches boundary faces in the
         // loops above, but inlet/wall values can drift slightly so make sure).
         applyVelocityBCs(uStar, vStar, wStar);
@@ -1096,6 +1229,9 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
         // the pre-projection velocity snapshot). The velocity projection does
         // not touch T — incompressibility constrains only the flow field.
         if (cfg.useThermal) std::swap(T, Tstar);
+        // Commit the species update likewise (passive — the projection neither
+        // reads nor writes C; the scalar simply rides the corrected velocity).
+        if (cfg.useSpecies) std::swap(C, Cstar);
 
         divResidual = divergenceL2();
         velChange   = velocityChange();
@@ -1142,6 +1278,11 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
                 std::fprintf(stderr, "[cfd] iter %d dtStep %.3e divRes %.3e velChange %.3e maxU %.3e maxP %.3e\n",
                              iter, dtStep, divResidual, velChange, umaxNow, pmax);
             }
+            if (cfg.useSpecies) {
+                double clo = 1e300, chi = -1e300;
+                for (double x : C) { clo = std::min(clo, x); chi = std::max(chi, x); }
+                std::fprintf(stderr, "[cfd]   species t=%.4f C[%.4f,%.4f]\n", simTime, clo, chi);
+            }
         }
         if (iter > 1 && velChange < cfg.residualTol) break;
     }
@@ -1155,6 +1296,9 @@ CfdResult solveSteadyNS(const CfdConfig& cfg) {
     // Temperature is already cell-centred (same layout as p), so it copies out
     // directly; left empty for the isothermal solver.
     if (cfg.useThermal) out.T = T;
+    // Species concentration is likewise cell-centred; left empty when species off.
+    if (cfg.useSpecies) out.C = C;
+    out.simTime = simTime;
 
     double maxV = 0;
     for (int k = 0; k < Nz; ++k)
