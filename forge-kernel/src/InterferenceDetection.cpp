@@ -35,13 +35,29 @@
 // rotation R[9] and its 4th column (m[3],m[7],m[11]) the translation t[3], the
 // SAME row-major decomposition toOcctTrsf() feeds gp_Trsf::SetValues.
 //
-// Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime ONLY when the
-// FEAT gate forgeNativeFeaturesEnabled() is true (env FORGE_NATIVE_FEATURES=1, or
-// the A/B harness's setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP
-// together). PRODUCTION DEFAULT IS OFF: with the gate off the original OCCT
-// narrow phase below (worldShape -> BRepAlgoAPI_Common -> GProp VolumeProperties)
-// runs byte-for-byte unchanged. Mirrors the just-landed CamAdvanced.cpp
-// (generateCmm) / Cam.cpp (inwardOffset) / Healing.cpp (heal/sew) wires.
+// Compiled in ONLY under -DFORGE_NATIVE_BREP and taken at runtime when the
+// DEDICATED gate forgeNativeInterferenceEnabled() is true.
+//
+// WAVE-2 FLIP (2026-06-29): this clash test was previously bundled under the FEAT
+// gate (forgeNativeFeaturesEnabled, default OFF) alongside the representation-
+// CHANGING mesh-bridge ops (fillet/chamfer/draft → NativeMesh). But it is NOT a
+// representation change — it returns a SCALAR overlap volume from the analytic-core
+// engine (booleanSolid(Common)+massProperties+transformSolid), the SAME Wave-1
+// CORE family that is already the production default and A/B-verified vs OCCT.
+// It now has its OWN gate, DEFAULT ON, so the native clash test runs by default and
+// FORGE_NATIVE_INTERFERENCE=0/off rolls back to the OCCT narrow phase for the whole
+// module. WHAT THIS REMOVES AT RUNTIME (default): for every candidate pair whose
+// BOTH operands resolve to a native analytic Solid (NativeSolid handles directly,
+// or OCCT-analytic handles via importOcctSolid), the OCCT BRepAlgoAPI_Common +
+// BRepGProp::VolumeProperties + BRepBuilderAPI_Transform narrow-phase calls below
+// are NO LONGER EXECUTED — replaced by native booleanSolid(Common)+massProperties+
+// transformSolid. WHAT STILL LINKS OCCT (honest, per Bible §0 — delete OCCT last):
+// (1) importOcctSolid still READS the OCCT shape to convert OCCT-backed operands to
+// native; (2) the worldShape→BRepAlgoAPI_Common→GProp fallback below stays compiled
+// and IS taken for any pair where importOcctSolid honestly defers (NURBS/torus/
+// non-analytic) or booleanSolid returns no closed result. The A/B harness's
+// setForgeNativeBrepEnabled(true/false) still flips this gate together with CORE/
+// FEAT/STEP. Mirrors the CamAdvanced.cpp / Cam.cpp / Healing.cpp native wires.
 //
 // PHASE-D ACTIVATION (2026-06-25) — wired LIVE for OCCT inputs via the now-existing
 // OCCT->native importer forge::importOcctSolid (src/OcctImport.cpp). resolveWorldSolid
@@ -55,7 +71,7 @@
 // byte-identical to today. The broad phase, pair enumeration, dedup + sort all stay on
 // the existing path regardless.
 #ifdef FORGE_NATIVE_BREP
-#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled(), transformSolid
+#include "forge/native/brep/NativeRoute.hpp"   // forgeNativeInterferenceEnabled(), transformSolid
 #include "forge/native/brep/Boolean.hpp"       // booleanSolid, BoolOp::Common, BooleanResult
 #include "forge/native/brep/MassProps.hpp"     // massProperties (exact overlap volume)
 #include "forge/native/brep/Topology.hpp"      // brep::Solid, TopologyBuilder
@@ -224,13 +240,14 @@ std::vector<InterferencePair> detectInterference(
             // ---- narrow phase: exact solid intersection -----------
 #ifdef FORGE_NATIVE_BREP
             // GATE: the native analytic clash test (brep::booleanSolid Common +
-            // massProperties) is opt-in via the FEAT gate (default OFF). When on, each
+            // massProperties) runs by default via the dedicated interference gate
+            // (DEFAULT ON; FORGE_NATIVE_INTERFERENCE=0 rolls back to OCCT). Each
             // component is resolved to a native world solid (NativeSolid directly, or an
             // OCCT-backed analytic solid via importOcctSolid), and the overlap is measured
             // natively; if EITHER component honestly defers (non-analytic import / mesh /
-            // boolean gap) the pair falls through to the OCCT narrow phase below — no
-            // behavior change in the default build. A false return == defer.
-            if (native::brep::forgeNativeFeaturesEnabled()) {
+            // boolean gap) the pair falls through to the OCCT narrow phase below. A false
+            // return == defer.
+            if (native::brep::forgeNativeInterferenceEnabled()) {
                 double vNative = 0.0;
                 if (tryNativeInterferencePair(instances[i], instances[j], vNative)) {
                     if (vNative >= kInterferenceMinVolume) {

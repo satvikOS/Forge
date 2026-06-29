@@ -66,9 +66,24 @@ bool forgeNativeBrepEnabled();
 bool forgeNativeFeaturesEnabled();
 bool forgeNativeStepEnabled();
 
+// INTERFERENCE clash test (assembly overlap volume) sub-gate. This is a CORE-class,
+// REPRESENTATION-NEUTRAL op — it returns a scalar overlap volume + a clash verdict,
+// NOT a NativeMesh (unlike the FEATURES bridge). Its native path is
+//   resolveWorldSolid (NativeSolid directly / OCCT-analytic via importOcctSolid) ->
+//   transformSolid -> brep::booleanSolid(Common) -> brep::massProperties,
+// all of which are the Wave-1 analytic-core engine A/B-verified vs OCCT (the
+// box-box COMMON overlap volume is gate-covered to 1e-6 in native_boolean_test.cpp,
+// and the import→native composition vs OCCT BRepAlgoAPI_Common is gate-covered in
+// native_vs_occt_interference.cpp). It was previously bundled under FEATURES (OFF);
+// it now has its OWN gate, DEFAULT ON (env FORGE_NATIVE_INTERFERENCE=0/off rolls back
+// to the OCCT BRepAlgoAPI_Common narrow phase). OCCT stays LINKED as the honest
+// fallback for non-analytic operands (NURBS/torus → importOcctSolid defers) and as
+// the importOcctSolid source — per Bible §0 (delete OCCT only at the very end).
+bool forgeNativeInterferenceEnabled();
+
 // Force the runtime gate (overrides the env var for the rest of the process).
 // Used by the A/B gate harness to toggle backends per-op deterministically.
-// Sets CORE + FEATURES + STEP together so the harness can A/B every op.
+// Sets CORE + FEATURES + STEP + INTERFERENCE together so the harness can A/B every op.
 void setForgeNativeBrepEnabled(bool on);
 
 // ---------------------------------------------------------------------------

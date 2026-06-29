@@ -31,13 +31,18 @@ namespace brep {
 //   * FEAT   = mesh-bridge / feature ops (fillet/chamfer/draft/loft/revolve/...)
 //              that return a NativeMesh (a representation change). Default OFF. — Wave 2.
 //   * STEP   = native STEP import/export. Default OFF. — Wave 3.
-// setForgeNativeBrepEnabled(on) sets ALL THREE so the native_vs_occt A/B harness
-// still exercises fillet/chamfer/draft/STEP natively; the PRODUCTION default (env
-// FORGE_NATIVE_BREP=1, no setter) turns on CORE only, leaving FEAT/STEP on OCCT.
+//   * INTERF = the assembly clash test (representation-NEUTRAL overlap volume via
+//              the CORE booleanSolid(Common)+massProperties engine). Default ON
+//              (its own opt-out FORGE_NATIVE_INTERFERENCE=0). — Wave 2.
+// setForgeNativeBrepEnabled(on) sets ALL FOUR so the native_vs_occt A/B harness
+// still exercises fillet/chamfer/draft/STEP/interference natively; the PRODUCTION
+// default (env FORGE_NATIVE_BREP=1, no setter) turns on CORE + INTERF, leaving
+// FEAT/STEP on OCCT.
 namespace {
 std::atomic<int> g_coreOverride{-1};
 std::atomic<int> g_featOverride{-1};
 std::atomic<int> g_stepOverride{-1};
+std::atomic<int> g_interfOverride{-1};
 
 bool readEnvFlag(const char* name) {
     const char* v = std::getenv(name);
@@ -75,6 +80,20 @@ bool forgeNativeStepEnabled() {
     return envOn;
 }
 
+bool forgeNativeInterferenceEnabled() {
+    int ov = g_interfOverride.load(std::memory_order_relaxed);
+    if (ov >= 0) return ov != 0;
+    // WAVE-2 FLIP (2026-06-29): the assembly clash test is a CORE-class,
+    // representation-NEUTRAL op (scalar overlap volume via the analytic-core
+    // booleanSolid(Common)+massProperties engine, A/B-verified vs OCCT). It is the
+    // PRODUCTION DEFAULT — env can force it either way: FORGE_NATIVE_INTERFERENCE=0/off
+    // = OCCT BRepAlgoAPI_Common narrow phase (rollback), =1/on = native; UNSET = native.
+    // OCCT remains the honest fallback for non-analytic operands (importOcctSolid defers).
+    static const bool envSet = (std::getenv("FORGE_NATIVE_INTERFERENCE") != nullptr);
+    static const bool envOn  = readEnvFlag("FORGE_NATIVE_INTERFERENCE");
+    return envSet ? envOn : true;
+}
+
 void setForgeNativeBrepEnabled(bool on) {
     // The A/B harness toggles the WHOLE native surface (core + features + step) so
     // native_vs_occt can compare every op; production never calls this.
@@ -82,6 +101,7 @@ void setForgeNativeBrepEnabled(bool on) {
     g_coreOverride.store(v, std::memory_order_relaxed);
     g_featOverride.store(v, std::memory_order_relaxed);
     g_stepOverride.store(v, std::memory_order_relaxed);
+    g_interfOverride.store(v, std::memory_order_relaxed);
 }
 
 // ---------------------------------------------------------------------------
