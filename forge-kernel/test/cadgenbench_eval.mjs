@@ -52,7 +52,7 @@ const getFlag = (name, def = null) => {
 };
 const has = (name) => argv.includes(name);
 const ADAPTER = getFlag('--adapter', null);          // mlx_lm.server per-request LoRA; null → base served model
-const MAX_TOKENS = parseInt(getFlag('--max-tokens', '700'), 10);
+const MAX_TOKENS = parseInt(getFlag('--max-tokens', '1800'), 10);
 const HOST = getFlag('--host', '127.0.0.1');
 const PORT = parseInt(getFlag('--port', '8080'), 10);
 const REPLAY = has('--replay');

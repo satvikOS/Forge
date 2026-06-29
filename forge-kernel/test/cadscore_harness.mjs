@@ -1897,7 +1897,7 @@ function printScorecard(title, rows) {
 // ───────────────────────────────────────────────────────────────────────────
 //  --model mode (stub but wired): POST a prompt to localhost:8080
 // ───────────────────────────────────────────────────────────────────────────
-function postToModel(systemStr, userStr, { host = '127.0.0.1', port = 8080, maxTokens = 640, adapter = null } = {}) {
+function postToModel(systemStr, userStr, { host = '127.0.0.1', port = 8080, maxTokens = 1800, adapter = null } = {}) {
   return new Promise((resolve, reject) => {
     const payload = {
       messages: [

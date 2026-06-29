@@ -248,7 +248,7 @@ function structuredToolCallText(toolCalls) {
  * layout); the server routes adapters/archie/mech/${discipline}.
  */
 async function archieComplete({ messages, discipline,
-                                temperature = 0.1, maxTokens = 640,
+                                temperature = 0.1, maxTokens = 1800,
                                 baseUrl = ARCHIE_BASE_URL, signal,
                                 onToken = null, onToolCall = null }) {
   // Forge-190 — every discipline routes to the single Hermes adapter
