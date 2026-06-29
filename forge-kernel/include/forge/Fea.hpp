@@ -214,6 +214,39 @@ ThermalResult solveThermal(const Mesh& m, const ThermalMaterial& mat,
                            const std::vector<ThermalElemSource>& sources,
                            const std::vector<ThermalConvection>& convection);
 
+// ---- transient thermal (time-dependent conduction) -----------------------
+//
+// Solves ρc ∂T/∂t = ∇·(k ∇T) + Q on the same hex mesh, extending the STEADY
+// operator above. Adds the consistent thermal capacitance C = ∫ ρc N_iN_j dV
+// (forge/native/fea/TransientThermal.hpp::elementCapacitance) and marches with
+// backward Euler (unconditionally stable): (C/Δt + K) Tⁿ⁺¹ = (C/Δt) Tⁿ + F.
+// The left operator is Dirichlet-eliminated and factored ONCE (SparseLDLT,
+// factor-once / solve-many); body sources, convection (Robin) and the constant
+// load enter F. Validated against the closed-form semi-infinite-slab erf
+// solution and the steady operator by the native gate
+// test/native/fea/transient_thermal_test.cpp.
+struct TransientThermalConfig {
+    double rhoC = 0;          // ρ·c_p volumetric heat capacity J/(m³·K)
+    double dt = 0;            // fixed time step (s) — factored once
+    int    nSteps = 0;        // number of backward-Euler steps
+    double T0 = 0;            // uniform initial temperature (used iff initialT empty)
+    int    snapshotEvery = 0; // 0 = final field only; >0 stores t=0 then every Nth step
+};
+struct TransientThermalResult {
+    std::vector<double>              T;             // final nodal temperatures
+    std::vector<std::vector<double>> snapshots;    // optional time history (per snapshot)
+    std::vector<double>              snapshotTimes; // time (s) of each snapshot
+    double maxT = 0;
+    double minT = 0;
+    int    steps = 0;
+};
+TransientThermalResult solveTransientThermal(
+    const Mesh& m, const ThermalMaterial& mat, const TransientThermalConfig& cfg,
+    const std::vector<ThermalNodalT>&     dirichlet,
+    const std::vector<ThermalElemSource>& sources,
+    const std::vector<ThermalConvection>& convection,
+    const std::vector<double>&            initialT);
+
 // ---- nonlinear static (geometric only) -----------------------------------
 //
 // Newton-Raphson over geometric nonlinearity using the updated Lagrangian

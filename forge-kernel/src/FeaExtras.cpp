@@ -14,6 +14,7 @@
 #include "forge/native/linalg/LinAlg.hpp"
 #include "forge/native/fea/HexElement.hpp"
 #include "forge/native/fea/ScalarElliptic.hpp"
+#include "forge/native/fea/TransientThermal.hpp"
 
 #include <algorithm>
 #include <array>
@@ -272,6 +273,194 @@ ThermalResult solveThermal(const Mesh& mesh, const ThermalMaterial& mat,
     // Residual (post-elimination).
     std::vector<double> r = la::vsub(K0 * T, f);
     out.residual = la::normInf(r);
+    return out;
+}
+
+// =====================================================================
+// solveTransientThermal — time-dependent heat conduction on the hex mesh
+// =====================================================================
+//
+// Extends solveThermal to ρc ∂T/∂t = ∇·(k ∇T) + Q. The element conductance K_e
+// is the SAME scalar-elliptic Laplacian (se::elementStiffness, c = k) the steady
+// path assembles; the NEW piece is the consistent thermal capacitance
+//   C_e^{ij} = ∫ ρc N_i N_j dΩ   (transient_thermal::elementCapacitance).
+// Backward Euler (unconditionally stable): (C/Δt + K) Tⁿ⁺¹ = (C/Δt) Tⁿ + F.
+// The left operator A = C/Δt + K (plus the convective Robin diagonal) is
+// Dirichlet-eliminated and factored ONCE with SparseLDLT — the identical
+// factor-once / solve-many posture and the identical row/col elimination
+// solveThermal uses — then every step is one back-solve. Body sources +
+// convection RHS form the constant load F; the per-step RHS adds (C/Δt) Tⁿ and
+// re-applies the (constant) Dirichlet lift. Convergence of this operator to the
+// steady K T = F as t→∞, and the closed-form semi-infinite-slab erf profile, are
+// the native-gate known answers (test/native/fea/transient_thermal_test.cpp).
+TransientThermalResult solveTransientThermal(
+    const Mesh& mesh, const ThermalMaterial& mat,
+    const TransientThermalConfig& cfg,
+    const std::vector<ThermalNodalT>&     dirichlet,
+    const std::vector<ThermalElemSource>& sources,
+    const std::vector<ThermalConvection>& convection,
+    const std::vector<double>&            initialT)
+{
+    namespace tt = forge::native::fea::transient_thermal;
+    const std::size_t nNodes = mesh.nodes.size() / 3;
+    const std::size_t nElems = mesh.tets.size() / mesh.elemNodeCount;
+    if (mat.k <= 0)
+        throw std::invalid_argument("forge.fea.solveTransientThermal: k must be > 0");
+    if (cfg.rhoC <= 0)
+        throw std::invalid_argument("forge.fea.solveTransientThermal: rhoC must be > 0");
+    if (cfg.dt <= 0)
+        throw std::invalid_argument("forge.fea.solveTransientThermal: dt must be > 0");
+    if (cfg.nSteps <= 0)
+        throw std::invalid_argument("forge.fea.solveTransientThermal: nSteps must be > 0");
+
+    const double idt = 1.0 / cfg.dt;
+
+    std::vector<double> F0(nNodes, 0.0);              // constant load (body + Robin RHS)
+    std::vector<la::Triplet<double>> aTrips;          // A = C/Δt + K (+ Robin diagonal)
+    std::vector<la::Triplet<double>> cTrips;          // C (consistent capacitance)
+    aTrips.reserve(nElems * 8 * 8);
+    cTrips.reserve(nElems * 8 * 8);
+
+    std::unordered_map<std::uint32_t, double> elemSource;
+    elemSource.reserve(sources.size());
+    for (const auto& s : sources) elemSource.emplace(s.elemId, s.q);
+
+    for (std::size_t e = 0; e < nElems; ++e) {
+        double nodeCoords[8][3];
+        std::uint32_t nodeIds[8];
+        for (int i = 0; i < 8; ++i) {
+            const std::uint32_t nid = mesh.tets[e * 8 + i];
+            nodeIds[i] = nid;
+            nodeCoords[i][0] = mesh.nodes[3 * nid + 0];
+            nodeCoords[i][1] = mesh.nodes[3 * nid + 1];
+            nodeCoords[i][2] = mesh.nodes[3 * nid + 2];
+        }
+        // K_e (reuse the steady Laplacian) and C_e (the new consistent capacitance).
+        la::MatrixD Ke(8, 8);
+        const double elemVolume =
+            se::elementStiffness(mat.k, nodeCoords, Ke, "forge.fea.solveTransientThermal");
+        la::MatrixD Ce(8, 8);
+        tt::elementCapacitance(cfg.rhoC, nodeCoords, Ce, "forge.fea.solveTransientThermal");
+        for (int i = 0; i < 8; ++i)
+            for (int j = 0; j < 8; ++j) {
+                const double kij = Ke(i, j), cij = Ce(i, j);
+                const double aij = cij * idt + kij;
+                if (std::abs(aij) > 0) aTrips.emplace_back(nodeIds[i], nodeIds[j], aij);
+                if (std::abs(cij) > 0) cTrips.emplace_back(nodeIds[i], nodeIds[j], cij);
+            }
+        // Body source — lumped equally (held constant over the march).
+        auto srcIt = elemSource.find(static_cast<std::uint32_t>(e));
+        if (srcIt != elemSource.end()) {
+            const double per = srcIt->second * elemVolume / 8.0;
+            for (int i = 0; i < 8; ++i) F0[nodeIds[i]] += per;
+        }
+    }
+
+    // Convection (Robin) — part of the SPATIAL operator: h·A_node adds to A's
+    // diagonal, h·A_node·T∞ to the constant load F0 (same AABB-face lumping as
+    // solveThermal). Held constant across the march.
+    if (mesh.nodeToFace.size() == nNodes && !convection.empty()) {
+        double minP[3] = { 1e300, 1e300, 1e300};
+        double maxP[3] = {-1e300,-1e300,-1e300};
+        for (std::size_t i = 0; i < nNodes; ++i)
+            for (int j = 0; j < 3; ++j) {
+                minP[j] = std::min(minP[j], mesh.nodes[3*i + j]);
+                maxP[j] = std::max(maxP[j], mesh.nodes[3*i + j]);
+            }
+        const double Lx = maxP[0]-minP[0], Ly = maxP[1]-minP[1], Lz = maxP[2]-minP[2];
+        const double faceArea[6] = { Ly*Lz, Ly*Lz, Lx*Lz, Lx*Lz, Lx*Ly, Lx*Ly };
+        for (const auto& c : convection) {
+            if (c.faceId >= 6) continue;
+            std::vector<std::size_t> faceNodes;
+            for (std::size_t i = 0; i < nNodes; ++i)
+                if (mesh.nodeToFace[i] & (1u << c.faceId)) faceNodes.push_back(i);
+            if (faceNodes.empty()) continue;
+            const double per = faceArea[c.faceId] / static_cast<double>(faceNodes.size());
+            for (std::size_t i : faceNodes) {
+                aTrips.emplace_back(i, i, c.h * per);
+                F0[i] += c.h * c.Tinf * per;
+            }
+        }
+    }
+
+    // Aorig = un-eliminated C/Δt + K (+ Robin) for the per-step Dirichlet lift;
+    // Cmat = the consistent capacitance for the (C/Δt) Tⁿ RHS matvec.
+    la::SparseCSR<double> Aorig; Aorig.setFromTriplets(nNodes, nNodes, aTrips);
+    la::SparseCSR<double> Cmat;  Cmat.setFromTriplets(nNodes, nNodes, cTrips);
+
+    // Dirichlet set (prescribed surface temperatures, constant in time).
+    std::vector<bool>   isFixed(nNodes, false);
+    std::vector<double> fixedVal(nNodes, 0.0);
+    for (const auto& d : dirichlet)
+        if (d.nodeId < nNodes) { isFixed[d.nodeId] = true; fixedVal[d.nodeId] = d.T; }
+
+    // Eliminated operator: drop fixed rows/cols, unit diagonal on fixed dofs —
+    // IDENTICAL to solveThermal's elimination. Factor ONCE (fixed Δt).
+    la::SparseCSR<double> Aelim;
+    {
+        const auto& rowPtr = Aorig.rowPtr();
+        const auto& colIdx = Aorig.colIdx();
+        const auto& vals   = Aorig.values();
+        std::vector<la::Triplet<double>> et;
+        et.reserve(vals.size());
+        for (std::size_t r = 0; r < nNodes; ++r)
+            for (std::size_t p = rowPtr[r]; p < rowPtr[r + 1]; ++p) {
+                const std::size_t c = colIdx[p];
+                if (isFixed[r] || isFixed[c]) continue;
+                et.emplace_back(r, c, vals[p]);
+            }
+        for (std::size_t i = 0; i < nNodes; ++i)
+            if (isFixed[i]) et.emplace_back(i, i, 1.0);
+        Aelim.setFromTriplets(nNodes, nNodes, et);
+    }
+    la::SparseLDLT ldlt(Aelim);
+    if (!ldlt.ok())
+        throw std::runtime_error("forge.fea.solveTransientThermal: LDLT factorisation failed");
+
+    // Initial condition.
+    std::vector<double> T(nNodes, cfg.T0);
+    if (!initialT.empty()) {
+        if (initialT.size() != nNodes)
+            throw std::invalid_argument(
+                "forge.fea.solveTransientThermal: initialT size must equal node count");
+        T = initialT;
+    }
+
+    TransientThermalResult out;
+    out.steps = cfg.nSteps;
+    const int snap = cfg.snapshotEvery;
+    if (snap > 0) { out.snapshots.push_back(T); out.snapshotTimes.push_back(0.0); }
+
+    const auto& arp = Aorig.rowPtr();
+    const auto& aci = Aorig.colIdx();
+    const auto& avv = Aorig.values();
+    for (int s = 0; s < cfg.nSteps; ++s) {
+        // RHS b = (C/Δt) Tⁿ + F0.
+        std::vector<double> cT = Cmat * T;
+        std::vector<double> b(nNodes);
+        for (std::size_t i = 0; i < nNodes; ++i) b[i] = cT[i] * idt + F0[i];
+        // Dirichlet lift on the FREE rows: b[r] -= A(r,c)·fixedVal[c] for fixed c.
+        for (std::size_t r = 0; r < nNodes; ++r) {
+            if (isFixed[r]) continue;
+            for (std::size_t p = arp[r]; p < arp[r + 1]; ++p) {
+                const std::size_t c = aci[p];
+                if (isFixed[c]) b[r] -= avv[p] * fixedVal[c];
+            }
+        }
+        for (std::size_t i = 0; i < nNodes; ++i)
+            if (isFixed[i]) b[i] = fixedVal[i];
+        T = ldlt.solve(b);
+        if (snap > 0 && ((s + 1) % snap == 0)) {
+            out.snapshots.push_back(T);
+            out.snapshotTimes.push_back((s + 1) * cfg.dt);
+        }
+    }
+
+    out.T.assign(T.begin(), T.end());
+    double maxT = -1e300, minT = 1e300;
+    for (double t : T) { if (t > maxT) maxT = t; if (t < minT) minT = t; }
+    out.maxT = maxT;
+    out.minT = minT;
     return out;
 }
 

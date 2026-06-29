@@ -295,6 +295,9 @@ const forgeApi = {
                               tEnd, dt, alpha ?? 0, beta ?? 0),
     solveThermal: (mesh, material, dirichlet, sources, convection) =>
       kernel.fea.solveThermal(mesh, material, dirichlet ?? [], sources ?? [], convection ?? []),
+    solveTransientThermal: (mesh, material, cfg, dirichlet, sources, convection, initialT) =>
+      kernel.fea.solveTransientThermal(mesh, material, cfg ?? {}, dirichlet ?? [],
+                                       sources ?? [], convection ?? [], initialT ?? null),
     solveNonlinearStatic: (mesh, material, loads, bcs, cfg) =>
       kernel.fea.solveNonlinearStatic(mesh, material, loads ?? [], bcs ?? [], cfg ?? {}),
     fatigueLife: (stressHistory, nElem, nSteps, cfg) =>

@@ -2799,6 +2799,70 @@ Napi::Value FeaSolveThermal(const Napi::CallbackInfo& info) {
     });
 }
 
+// solveTransientThermal(meshObj, materialObj, cfgObj, dirichletArr, sourcesArr,
+//                        convectionArr, initialT?: Float64Array)
+//   cfgObj = { rhoC, dt, nSteps, T0?, snapshotEvery? }
+//   → { T: Float64Array, snapshots: [Float64Array...], snapshotTimes: Float64Array,
+//       maxT, minT, steps }
+Napi::Value FeaSolveTransientThermal(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        auto mesh = readMesh(env, info[0]);
+        if (!info[1].IsObject()) {
+            throw Napi::TypeError::New(env, "forge.fea.solveTransientThermal: material must be {k}");
+        }
+        auto matObj = info[1].As<Napi::Object>();
+        forge::fea::ThermalMaterial mat{};
+        if (!matObj.Has("k")) {
+            throw Napi::TypeError::New(env, "forge.fea.solveTransientThermal: material.k required");
+        }
+        mat.k = matObj.Get("k").As<Napi::Number>().DoubleValue();
+        if (!info[2].IsObject()) {
+            throw Napi::TypeError::New(env,
+                "forge.fea.solveTransientThermal: config must be {rhoC, dt, nSteps}");
+        }
+        auto cfgObj = info[2].As<Napi::Object>();
+        forge::fea::TransientThermalConfig cfg{};
+        if (!cfgObj.Has("rhoC") || !cfgObj.Has("dt") || !cfgObj.Has("nSteps")) {
+            throw Napi::TypeError::New(env,
+                "forge.fea.solveTransientThermal: config.rhoC, config.dt, config.nSteps required");
+        }
+        cfg.rhoC   = cfgObj.Get("rhoC").As<Napi::Number>().DoubleValue();
+        cfg.dt     = cfgObj.Get("dt").As<Napi::Number>().DoubleValue();
+        cfg.nSteps = cfgObj.Get("nSteps").As<Napi::Number>().Int32Value();
+        if (cfgObj.Has("T0"))            cfg.T0            = cfgObj.Get("T0").As<Napi::Number>().DoubleValue();
+        if (cfgObj.Has("snapshotEvery")) cfg.snapshotEvery = cfgObj.Get("snapshotEvery").As<Napi::Number>().Int32Value();
+        auto dirichlet  = readDirichlet (env, info.Length() > 3 ? info[3] : env.Undefined());
+        auto sources    = readSources   (env, info.Length() > 4 ? info[4] : env.Undefined());
+        auto convection = readConvection(env, info.Length() > 5 ? info[5] : env.Undefined());
+        std::vector<double> initialT;
+        if (info.Length() > 6 && info[6].IsTypedArray()) {
+            auto ta = info[6].As<Napi::Float64Array>();
+            initialT.assign(ta.Data(), ta.Data() + ta.ElementLength());
+        }
+        auto r = forge::fea::solveTransientThermal(mesh, mat, cfg, dirichlet, sources,
+                                                   convection, initialT);
+        auto out = Napi::Object::New(env);
+        auto T = Napi::Float64Array::New(env, r.T.size());
+        std::copy(r.T.begin(), r.T.end(), T.Data());
+        out.Set("T", T);
+        auto snaps = Napi::Array::New(env, r.snapshots.size());
+        for (std::size_t i = 0; i < r.snapshots.size(); ++i) {
+            auto ta = Napi::Float64Array::New(env, r.snapshots[i].size());
+            std::copy(r.snapshots[i].begin(), r.snapshots[i].end(), ta.Data());
+            snaps.Set(static_cast<uint32_t>(i), ta);
+        }
+        out.Set("snapshots", snaps);
+        auto stimes = Napi::Float64Array::New(env, r.snapshotTimes.size());
+        std::copy(r.snapshotTimes.begin(), r.snapshotTimes.end(), stimes.Data());
+        out.Set("snapshotTimes", stimes);
+        out.Set("maxT", Napi::Number::New(env, r.maxT));
+        out.Set("minT", Napi::Number::New(env, r.minT));
+        out.Set("steps", Napi::Number::New(env, r.steps));
+        return out;
+    });
+}
+
 Napi::Value FeaSolveNonlinearStatic(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto env = info.Env();
@@ -5975,6 +6039,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     fea.Set("solveModal",          Napi::Function::New(env, FeaSolveModal));
     fea.Set("solveDynamic",        Napi::Function::New(env, FeaSolveDynamic));
     fea.Set("solveThermal",        Napi::Function::New(env, FeaSolveThermal));
+    fea.Set("solveTransientThermal",Napi::Function::New(env, FeaSolveTransientThermal));
     fea.Set("solveNonlinearStatic",Napi::Function::New(env, FeaSolveNonlinearStatic));
     fea.Set("fatigueLife",         Napi::Function::New(env, FeaFatigueLife));
     fea.Set("solveBuckling",          Napi::Function::New(env, FeaSolveBuckling));
