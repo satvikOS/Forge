@@ -89,7 +89,7 @@ run_test() {  # $1=name $2=test
 
 # collect the full test list (predicates + every test/native/<class>/*.cpp)
 TESTS=("predicates|forge-kernel/test/native/predicates_test.cpp")
-for d in brep mesh geom implicit voxel gdt csg tolstack vvuq materials am composites surfit cam linalg; do
+for d in brep mesh geom implicit voxel gdt csg tolstack vvuq materials am composites surfit cam linalg fea; do
   for test in forge-kernel/test/native/$d/*.cpp; do
     [ -e "$test" ] || continue
     TESTS+=("$d/$(basename "$test" .cpp)|$test")

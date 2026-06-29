@@ -10,6 +10,7 @@
 
 #include "forge/native/linalg/LinAlg.hpp"
 #include "forge/native/fea/HexElement.hpp"
+#include "forge/native/fea/Thermoelastic.hpp"
 
 #include <algorithm>
 #include <array>
@@ -138,16 +139,11 @@ inline void incompatDerivativesNatural(double xi, double eta, double zeta,
 // ---- material matrix (3D isotropic linear elasticity) ----
 // D is 6×6 in Voigt form (σ_xx, σ_yy, σ_zz, σ_xy, σ_yz, σ_xz).
 la::MatrixD buildD(const Material& mat) {
-    la::MatrixD D(6, 6);  // zero-initialised
-    const double lam = mat.E * mat.nu / ((1 + mat.nu) * (1 - 2 * mat.nu));
-    const double mu  = mat.E / (2 * (1 + mat.nu));
-    for (int i = 0; i < 3; ++i)
-        for (int j = 0; j < 3; ++j)
-            D(i, j) = lam + (i == j ? 2 * mu : 0);
-    D(3, 3) = mu;
-    D(4, 4) = mu;
-    D(5, 5) = mu;
-    return D;
+    // Single source of truth: the 6×6 isotropic Voigt constitutive now lives in
+    // forge/native/fea/Thermoelastic.hpp (byte-identical formula) so the
+    // structural and thermoelastic paths — and the native gate — share ONE
+    // definition. Forwarding here removes the former inline duplicate.
+    return forge::native::fea::thermoelastic::buildIsotropicD(mat.E, mat.nu);
 }
 
 // ---- element K, lumped M, and consistent M ----
@@ -470,33 +466,10 @@ inline void principalStresses(const double s[6], double out[3]) {
 // constant element thermal stress σ₀ = D ε₀ for the σ = D(ε − ε₀) recovery.
 void thermalLoadVector(const double nodeCoords[8][3], const la::MatrixD& D,
                        double e0, std::array<double, 24>& fe, double sig0[6]) {
-    fe.fill(0.0);
-    for (int i = 0; i < 6; ++i) sig0[i] = (D(i, 0) + D(i, 1) + D(i, 2)) * e0;
-    for (int g = 0; g < GAUSS_COUNT; ++g) {
-        const auto& gp = kGauss[g];
-        double dN[8][3];
-        shapeDerivatives(gp.xi, gp.eta, gp.zeta, dN);
-        double J[3][3];
-        jacobian(dN, nodeCoords, J);
-        const double det = det3(J);
-        double Ji[3][3];
-        inv3(J, Ji, det);
-        double dNx[8][3];
-        for (int i = 0; i < 8; ++i)
-            for (int j = 0; j < 3; ++j) {
-                double s = 0;
-                for (int k = 0; k < 3; ++k) s += dN[i][k] * Ji[k][j];
-                dNx[i][j] = s;
-            }
-        const double w = gp.w * det;   // dV at this Gauss point
-        // fe += Bcᵀ σ₀ · dV, expanded per node (Bc layout = fillBc).
-        for (int a = 0; a < 8; ++a) {
-            const double bx = dNx[a][0], by = dNx[a][1], bz = dNx[a][2];
-            fe[3*a+0] += w * (bx*sig0[0] + by*sig0[3] + bz*sig0[5]);
-            fe[3*a+1] += w * (by*sig0[1] + bx*sig0[3] + bz*sig0[4]);
-            fe[3*a+2] += w * (bz*sig0[2] + by*sig0[4] + bx*sig0[5]);
-        }
-    }
+    // Forward to the canonical native primitive (single source of truth, shared
+    // with the test/native thermomechanical gate). Byte-identical to the former
+    // inline body: same σ₀ = D ε₀, same Bcᵀσ₀·dV scatter on the 2×2×2 Gauss rule.
+    forge::native::fea::thermoelastic::thermalLoadElement(nodeCoords, D, e0, fe, sig0);
 }
 
 // ---- assembly ----
