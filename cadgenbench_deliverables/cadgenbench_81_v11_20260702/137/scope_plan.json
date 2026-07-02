@@ -1,0 +1,80 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 150.4,
+  "y": 82.36
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 150.4,
+  "y": 82.36
+ },
+ "features": [
+  {
+   "type": "sheet_thickness",
+   "thickness_mm": 1.0
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "rectangular",
+    "rows": 2,
+    "cols": 2
+   },
+   "positions_mm": [
+    [
+     -38.0,
+     -41.5
+    ],
+    [
+     67.9,
+     2.0
+    ],
+    [
+     -38.0,
+     41.5
+    ],
+    [
+     67.9,
+     -2.0
+    ]
+   ],
+   "type": "holes",
+   "diameter_mm": 8.5,
+   "through_thickness_mm": 12.0
+  },
+  {
+   "count": 3,
+   "pattern": {
+    "shape": "rectangular",
+    "rows": 4
+   },
+   "positions_mm": [
+    [
+     10.5,
+     -28.0
+    ],
+    [
+     37.0,
+     6.0
+    ],
+    [
+     -9.4,
+     -28.0
+    ]
+   ],
+   "type": "bend",
+   "angle_deg": 135,
+   "radius_mm": 4.0
+  },
+  {
+   "count": 2,
+   "type": "flange",
+   "side": "+x",
+   "thickness_mm": 1.5
+  }
+ ],
+ "complexity": "medium (formed sheet metal with multiple bends and holes)",
+ "feature_count": 4,
+ "sheet_thickness_mm": 1.0
+}

@@ -1,0 +1,30 @@
+{
+ "base_shape": "outer ring (annular) with central bore",
+ "overall_dims_mm": {
+  "x": 260.0,
+  "y": 238.5
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 106,
+   "wall_thickness_mm": 23.5
+  },
+  {
+   "type": "mounting_holes",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "pattern": "circumferential"
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "diameter_mm": 6.0
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 1.5
+  }
+ ],
+ "complexity": "medium"
+}

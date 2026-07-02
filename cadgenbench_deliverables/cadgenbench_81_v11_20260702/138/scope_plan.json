@@ -1,0 +1,45 @@
+{
+ "base_shape": "cylindrical housing (box with rounded corners)",
+ "overall_dims_mm": {
+  "x": 30.0,
+  "y": 17.0,
+  "z": 25.48
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 16.0,
+   "depth_mm": 25.48
+  },
+  {
+   "type": "corner_holes",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "pattern": "rectangular"
+  },
+  {
+   "type": "threaded_hole",
+   "diameter_mm": 6.0
+  },
+  {
+   "type": "counterbore",
+   "hole_diameter_mm": 8.5,
+   "depth_mm": 10.0
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 0.74,
+   "edges": "vertical"
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 20.0
+  },
+  {
+   "type": "threaded_hole",
+   "diameter_mm": 6.0,
+   "count": 1
+  }
+ ],
+ "complexity": "medium"
+}

@@ -1,0 +1,183 @@
+{
+ "callouts": [
+  {
+   "text": "4X \u00d817.5 THRU \u2334\u00d820 X 8 DEEP",
+   "type": "diameter",
+   "value_mm": 17.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d816.5 THRU \u2334\u00d820 X 8 DEEP",
+   "type": "diameter",
+   "value_mm": 16.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d813.5 THRU \u2334\u00d820 X 8 DEEP",
+   "type": "diameter",
+   "value_mm": 13.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d812.5 THRU \u2334\u00d830 X 8 DEEP",
+   "type": "diameter",
+   "value_mm": 12.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d810.5 THRU \u2334\u00d823 X 8 DEEP",
+   "type": "diameter",
+   "value_mm": 10.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d816 X 7 DEEP",
+   "type": "diameter",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R75.\u00d80",
+   "type": "radius",
+   "value_mm": 75.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R20.50",
+   "type": "radius",
+   "value_mm": 20.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d812.5 THRU \u2334\u00d830 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 30.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d810.5 THRU \u2334\u00d823 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 23.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d813.5 THRU \u2334\u00d820 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 20.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 3
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d816 X 7 DEEP",
+   "type": "cbore",
+   "value_mm": 16.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "CBORE \u00d814 X 6 DEEP",
+   "type": "cbore",
+   "value_mm": 14.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M8.5 THRU \u233413 X 6 DEEP",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "CSK \u00d820 X 35 DEEP",
+   "type": "csink",
+   "value_mm": 20.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M8.5 X 0.75 THRU CBORE",
+   "type": "thread",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M6X1",
+   "type": "thread",
+   "value_mm": 4.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "C283.69",
+   "type": "linear",
+   "value_mm": 283.69,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d810.5 THRU \u2334\u00d823 X 8 DEEP",
+   "type": "linear",
+   "value_mm": 8.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 4
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d816 X 7 DEEP",
+   "type": "linear",
+   "value_mm": 7.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 148.62,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 75.0,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 30.57,
+   "orientation": "vertical",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 3,
+ "tiles_failed": 2
+}

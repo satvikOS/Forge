@@ -1,0 +1,114 @@
+{
+ "base_shape": "cylindrical body (main shaft)",
+ "overall_dims_mm": {
+  "max_diameter": 50.0,
+  "length": 128
+ },
+ "outline": {
+  "kind": "circle",
+  "diam_mm": 50.0,
+  "x": 128
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 12.5,
+   "through": true
+  },
+  {
+   "count": 4,
+   "type": "holes",
+   "diameter_mm": 6.0,
+   "positions_mm": [
+    [
+     -25.0,
+     -31.0
+    ],
+    [
+     24.0,
+     8.0
+    ],
+    [
+     -7.69,
+     28.8
+    ],
+    [
+     -35.0,
+     -14.0
+    ]
+   ]
+  },
+  {
+   "count": 4,
+   "type": "holes",
+   "diameter_mm": 6.25,
+   "positions_mm": [
+    [
+     -30.0,
+     -18.0
+    ],
+    [
+     4.0,
+     7.0
+    ],
+    [
+     -9.6,
+     25.0
+    ],
+    [
+     28.0,
+     -13.0
+    ]
+   ]
+  },
+  {
+   "count": 4,
+   "type": "cbore_holes",
+   "diameter_mm": 8.5,
+   "hole_dia_mm": 4.0,
+   "depth_mm": 3.219875
+  },
+  {
+   "count": 1,
+   "type": "central_thread",
+   "diameter_mm": 6.0,
+   "pitch_microns": 25
+  },
+  {
+   "count": 1,
+   "type": "central_thread",
+   "diameter_mm": 8.0,
+   "pitch_microns": 25
+  },
+  {
+   "count": 4,
+   "type": "threaded_holes",
+   "diameter_mm": 8.0,
+   "pitch_microns": 1.25
+  },
+  {
+   "count": 4,
+   "type": "threaded_holes",
+   "diameter_mm": 6.0,
+   "pitch_microns": 1
+  },
+  {
+   "count": 4,
+   "type": "threaded_holes",
+   "diameter_mm": 8.0,
+   "pitch_microns": 1.25
+  },
+  {
+   "count": "4",
+   "type": "threaded_holes",
+   "diameter_mm": 8,
+   "pitch_microns": 1.25
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 9,
+ "missing_features": {
+  "count_8_dia": 1,
+  "count_4_dia": 3
+ }
+}

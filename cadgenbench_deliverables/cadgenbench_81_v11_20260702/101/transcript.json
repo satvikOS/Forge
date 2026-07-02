@@ -1,0 +1,154 @@
+{
+ "callouts": [
+  {
+   "text": "200",
+   "type": "diameter",
+   "value_mm": 200.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "188",
+   "type": "diameter",
+   "value_mm": 188.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "50",
+   "type": "diameter",
+   "value_mm": 50.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "38",
+   "type": "diameter",
+   "value_mm": 38.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "R18",
+   "type": "radius",
+   "value_mm": 18.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R4",
+   "type": "radius",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "CSINK 60\u00b0",
+   "type": "csink",
+   "value_mm": 60.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "6X M12 X 1.75 -8H - 15 DEEP",
+   "type": "thread",
+   "value_mm": 12.0,
+   "count": 6,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X 12 THRU",
+   "type": "count",
+   "value_mm": 12.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X 12",
+   "type": "count",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "12 X90\u00b0",
+   "type": "linear",
+   "value_mm": 90.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 35.428 MM (FROM CORNER TO CENTER)",
+   "type": "linear",
+   "value_mm": 60.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 23
+  },
+  {
+   "text": "+0.35 -0.78 (4X)",
+   "type": "linear",
+   "value_mm": 12.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 32
+  },
+  {
+   "text": "+0 - 5 DEEP",
+   "type": "linear",
+   "value_mm": 5.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "+0 - 3 DEEP",
+   "type": "linear",
+   "value_mm": 3.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+0 - 2.4 DEEP",
+   "type": "linear",
+   "value_mm": 2.4,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 20
+  },
+  {
+   "text": "5X 1.6 X 45\u00b0 TYP.",
+   "type": "linear",
+   "value_mm": 1.6,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 110.4,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 40.0,
+   "orientation": "horizontal",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 4,
+ "tiles_failed": 1
+}

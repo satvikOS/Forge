@@ -1,0 +1,130 @@
+{
+ "callouts": [
+  {
+   "text": "85.\u00d86\u00b0",
+   "type": "diameter",
+   "value_mm": 85.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R78.\u00d80",
+   "type": "radius",
+   "value_mm": 78.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R25.\u00d80",
+   "type": "radius",
+   "value_mm": 25.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "R15.\u00d80 -2X",
+   "type": "radius",
+   "value_mm": 15.0,
+   "count": 2,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "R5.\u00d80 TYP",
+   "type": "radius",
+   "value_mm": 5.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R2.\u00d80 TYP",
+   "type": "radius",
+   "value_mm": 2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "156.\u00d80",
+   "type": "linear",
+   "value_mm": 156.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 106.5",
+   "type": "linear",
+   "value_mm": 106.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 10
+  },
+  {
+   "text": "+/- 105.\u00d80",
+   "type": "linear",
+   "value_mm": 105.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "86(79) C+A",
+   "type": "linear",
+   "value_mm": 86.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 2X -78.3",
+   "type": "linear",
+   "value_mm": 78.3,
+   "count": 2,
+   "confidence": 1.0,
+   "evidence": 11
+  },
+  {
+   "text": "78.\u00d80 -2X",
+   "type": "linear",
+   "value_mm": 78.0,
+   "count": 2,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 15\u00b0",
+   "type": "linear",
+   "value_mm": 15.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 29
+  },
+  {
+   "text": "+/- 1\u00b0",
+   "type": "linear",
+   "value_mm": 1.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 85.0,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 21.03,
+   "orientation": "vertical",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 3,
+ "tiles_failed": 2
+}

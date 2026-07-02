@@ -1,0 +1,146 @@
+{
+ "callouts": [
+  {
+   "text": "\u00d8240.\u00d80",
+   "type": "diameter",
+   "value_mm": 240.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "207.68",
+   "type": "diameter",
+   "value_mm": 207.68,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "(\u00d870.65)",
+   "type": "diameter",
+   "value_mm": 70.65,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "(\u00d840)",
+   "type": "diameter",
+   "value_mm": 40.38,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d825(3)",
+   "type": "diameter",
+   "value_mm": 28.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 32
+  },
+  {
+   "text": "(\u00d825)",
+   "type": "diameter",
+   "value_mm": 24.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88",
+   "type": "diameter",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R12.38",
+   "type": "radius",
+   "value_mm": 12.38,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M8.50-6H (P=1)",
+   "type": "thread",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 13
+  },
+  {
+   "text": "M6X0.7-4H (P=1)",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 13
+  },
+  {
+   "text": "4X M6X1 THRU",
+   "type": "thread",
+   "value_mm": 4.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "145.93 X 4",
+   "type": "count",
+   "value_mm": 145.93,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/-28 X 60\u00b0",
+   "type": "count",
+   "value_mm": 28.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "13.54 X 60\u00b0",
+   "type": "count",
+   "value_mm": 13.54,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 29
+  },
+  {
+   "text": "+/- 35.68\u00b0",
+   "type": "linear",
+   "value_mm": 35.68,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 26
+  },
+  {
+   "text": "+0/-28",
+   "type": "linear",
+   "value_mm": 0.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 36.0,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 14.85,
+   "orientation": "horizontal",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

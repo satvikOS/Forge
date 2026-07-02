@@ -1,0 +1,235 @@
+{
+ "base_shape": "multi-level stepped shaft (cylindrical)",
+ "overall_dims_mm": {
+  "max_diameter": 240.38,
+  "total_height": 156.79
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 240.38,
+  "x": 120.5976,
+  "y": 124.0
+ },
+ "features": [
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 73,
+   "height_mm": 10.548629
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 103.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 140.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 170.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  },
+  {
+   "type": "cylindrical_section",
+   "diameter_mm": 190.5,
+   "height_mm": 28
+  }
+ ]
+}

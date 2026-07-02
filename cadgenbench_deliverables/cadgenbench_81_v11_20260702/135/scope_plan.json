@@ -1,0 +1,59 @@
+{
+ "base_shape": "cylindrical (shaft)",
+ "overall_dims_mm": {
+  "diameter": 51.68,
+  "length": 40.0
+ },
+ "outline": {
+  "kind": "circle",
+  "x": 23.5768,
+  "y": 104
+ },
+ "features": [
+  {
+   "type": "shaft",
+   "diameter_mm": 5.38,
+   "length_mm": 17
+  },
+  {
+   "count": 4,
+   "type": "holes",
+   "diameter_mm": 6.25,
+   "pattern": {
+    "kind": "rectangular",
+    "x_span": 104.387625,
+    "y_span": 90
+   },
+   "positions_mm": [
+    [
+     -104.387625,
+     -45.0
+    ],
+    [
+     -90.0,
+     45.0
+    ],
+    [
+     104.387625,
+     -45.0
+    ],
+    [
+     -90.0,
+     45.0
+    ]
+   ]
+  },
+  {
+   "count": 1,
+   "type": "thread",
+   "diameter_mm": 8.0,
+   "length_mm": 24
+  },
+  {
+   "count": 16,
+   "type": "bore",
+   "diameter_mm": 8.5
+  }
+ ],
+ "complexity": "high"
+}

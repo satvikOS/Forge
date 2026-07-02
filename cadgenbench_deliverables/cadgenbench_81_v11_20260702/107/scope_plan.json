@@ -1,0 +1,192 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 104.5,
+  "y": 82.3
+ },
+ "outline": {
+  "kind": "rounded_rect",
+  "x": 104.5,
+  "y": 82.3
+ },
+ "sheet_thickness_mm": 2.0,
+ "features": [
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 80.54,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+y",
+   "angle_degrees": 80,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+y",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+y",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+y",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+y",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+y",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+y",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "bend",
+   "side": "+y",
+   "angle_degrees": 70,
+   "radius_mm": 12.36
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "positions_mm": [
+    [
+     -12.5,
+     -37
+    ],
+    [
+     -46,
+     9
+    ],
+    [
+     8.0,
+     -37
+    ],
+    [
+     31.25,
+     9
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "diameter_mm": 8.5,
+   "through_thickness_mm": 2.0,
+   "positions_mm": [
+    [
+     31,
+     -47
+    ]
+   ]
+  },
+  {
+   "type": "cbore",
+   "diameter_mm": 8.5,
+   "depth_mm": 3.04761904762,
+   "positions_mm": [
+    [
+     58,
+     -3.5
+    ]
+   ]
+  },
+  {
+   "type": "cbore",
+   "diameter_mm": 10.5,
+   "depth_mm": 4.38697247706,
+   "positions_mm": [
+    [
+     51,
+     -3.5
+    ]
+   ]
+  },
+  {
+   "type": "cbore",
+   "diameter_mm": 12,
+   "depth_mm": 4.38697247706,
+   "positions_mm": [
+    [
+     51,
+     -3.5
+    ]
+   ]
+  },
+  {
+   "type": "thread",
+   "size_mm": 8,
+   "pitch_mm": 1.25,
+   "count": 4
+  },
+  {
+   "type": "thread",
+   "size_mm": 6,
+   "pitch_mm": 1.0,
+   "count": 4
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 8
+}
