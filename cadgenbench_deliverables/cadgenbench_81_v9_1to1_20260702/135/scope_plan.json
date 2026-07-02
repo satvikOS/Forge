@@ -1,0 +1,64 @@
+{
+ "base_shape": "cylindrical housing (outer shell)",
+ "overall_dims_mm": {
+  "diameter_outer": 286.0,
+  "diameter_inner": 247.16,
+  "height": 19.8
+ },
+ "features": [
+  {
+   "type": "corner_fillet",
+   "radius_mm": 35.0,
+   "count": 4
+  },
+  {
+   "type": "central_bore",
+   "diameter_outer_mm": 84.5,
+   "depth_inner_mm": 173.0
+  },
+  {
+   "type": "mounting_holes",
+   "count": 4,
+   "pattern": "rectangular",
+   "diameter_mm": 8.0
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "pattern": "rectangular",
+   "diameter_mm": 6.0
+  },
+  {
+   "type": "m85_cbore_holes",
+   "count": 4,
+   "pattern": "rectangular",
+   "hole_diameter_mm": 8.5,
+   "bore_diameter_mm": 12.0
+  },
+  {
+   "type": "internal_rim",
+   "diameter_outer_mm": 84.5,
+   "height_inner_mm": 173.0
+  },
+  {
+   "type": "central_bore",
+   "diameter_outer_mm": 84.5,
+   "depth_inner_mm": 173.0
+  },
+  {
+   "type": "m6x1_thru",
+   "count": 4,
+   "pattern": "rectangular"
+  },
+  {
+   "type": "central_bore",
+   "diameter_outer_mm": 80.5,
+   "depth_inner_mm": 3
+  },
+  {
+   "type": "m4_thru",
+   "count": 1
+  }
+ ],
+ "complexity": "high"
+}

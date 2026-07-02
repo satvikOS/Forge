@@ -1,0 +1,46 @@
+{
+ "base_shape": "cylindrical housing (outer shell with internal stepped bore)",
+ "overall_dims_mm": {
+  "x": 132.94,
+  "y": 70.5
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 30.48,
+   "depth_mm": 75
+  },
+  {
+   "type": "internal_tapered_bore",
+   "diameter_start_mm": 28.0,
+   "angle_degrees": 15
+  },
+  {
+   "type": "external_flange",
+   "diameter_mm": 78.0,
+   "thickness_mm": 12
+  },
+  {
+   "type": "corner_holes",
+   "count": 4,
+   "diameter_mm": 8.5,
+   "pattern": "rectangular"
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "pitch_mm": 1.0
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 25.4,
+   "depth_mm": 10
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 3.5
+  }
+ ],
+ "complexity": "high"
+}

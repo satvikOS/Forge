@@ -1,0 +1,32 @@
+{
+ "base_shape": "box-like housing with a vertical flange and mounting tabs",
+ "overall_dims_mm": {
+  "x": 105.2,
+  "y": 68.4,
+  "z": 37
+ },
+ "features": [
+  {
+   "type": "corner_bends",
+   "angle_degrees": 90.0,
+   "count": 4
+  },
+  {
+   "feature_type": "vertical_flange",
+   "height_mm": 37.0
+  },
+  {
+   "type": "cbore_hole",
+   "diameter_outer_mm": 14.0,
+   "depth_mm": 8.0,
+   "count": 1
+  },
+  {
+   "type": "threaded_hole",
+   "diameter_mm": 6.0,
+   "pitch_mm": 0.75,
+   "count": 1
+  }
+ ],
+ "complexity": "medium"
+}

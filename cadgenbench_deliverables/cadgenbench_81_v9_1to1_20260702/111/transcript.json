@@ -1,0 +1,98 @@
+{
+ "callouts": [
+  {
+   "text": "20.8",
+   "type": "diameter",
+   "value_mm": 20.8,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88 THRU",
+   "type": "diameter",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 22
+  },
+  {
+   "text": "4X \u00d88 THRU",
+   "type": "thru",
+   "value_mm": null,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 35
+  },
+  {
+   "text": "R20.5 THRU \u2334\u00d814 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 20.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 24
+  },
+  {
+   "text": "4X M8 THRU \u2334\u00d820 X 5 DEEP",
+   "type": "cbore",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 28
+  },
+  {
+   "text": "M8 X 0.75",
+   "type": "thread",
+   "value_mm": 8.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M6X1",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M6X1 THRU",
+   "type": "thread",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "14X35\u00b0",
+   "type": "count",
+   "value_mm": 14.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d812 THRU \u2334\u00d830 X 8 DEEP",
+   "type": "linear",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 20.8,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 14.0,
+   "orientation": "horizontal",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

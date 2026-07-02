@@ -1,0 +1,41 @@
+{
+ "base_shape": "cylindrical housing (box-like enclosure with a large central bore)",
+ "overall_dims_mm": {
+  "x": 250.0,
+  "y": 168.4,
+  "z": 93
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 80.0,
+   "depth_mm": 9.0
+  },
+  {
+   "type": "mounting_holes",
+   "count": 6,
+   "diameter_mm": 8.0,
+   "pattern": "hex"
+  },
+  {
+   "type": "end_bore",
+   "diameter_mm": 24.0,
+   "depth_mm": 8.5
+  },
+  {
+   "type": "threaded_hole",
+   "diameter_mm": 6.0,
+   "depth_mm": 14.0
+  },
+  {
+   "type": "tapped_hole",
+   "diameter_mm": 8.5,
+   "depth_mm": 10.3
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 2.5
+  }
+ ],
+ "complexity": "high"
+}

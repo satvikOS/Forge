@@ -1,0 +1,50 @@
+{
+ "base_shape": "tapered stepped housing (concentric cylinders)",
+ "overall_dims_mm": {
+  "outer_diameter": 240.6,
+  "inner_bore_diam": 70.0
+ },
+ "features": [
+  {
+   "type": "central_hole",
+   "diameter_mm": 37.8,
+   "depth_mm": 104.5
+  },
+  {
+   "type": "tapered_wall",
+   "angle_degrees": 68,
+   "inner_diameter_mm": 108.5
+  },
+  {
+   "type": "stepped_bore",
+   "diameters": "24 70",
+   "depths": 18.5
+  },
+  {
+   "type": "external_taper",
+   "angle_degrees": 60,
+   "inner_diameter_mm": 185.63
+  },
+  {
+   "type": "internal_bore",
+   "diameters": "204 186.5",
+   "depths": 37
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 186.0,
+   "depths": "37",
+   "tapered": "true"
+  },
+  {
+   "type": "counterbore",
+   "diameter_mm": 12,
+   "depth_mm": 8
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 30.5
+  }
+ ],
+ "complexity": "medium"
+}

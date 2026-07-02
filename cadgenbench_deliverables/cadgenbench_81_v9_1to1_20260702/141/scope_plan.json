@@ -1,0 +1,49 @@
+{
+ "base_shape": "cylindrical housing (ring)",
+ "overall_dims_mm": {
+  "outer_diameter": 283.69,
+  "inner_bore_diam": 145.0
+ },
+ "features": [
+  {
+   "type": "central_hole",
+   "diameter_mm": 86.0,
+   "depth_mm": 175.0
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 3.8,
+   "location": "inner wall"
+  },
+  {
+   "type": "tapered_wall",
+   "angle_degrees": 17.5,
+   "profile": {
+    "inner_radius_mm": 86.0,
+    "outer_radius_mm": 283.69
+   }
+  },
+  {
+   "type": "mounting_holes",
+   "count": 4,
+   "pattern": "rectangular",
+   "diameter_mm": 8.5,
+   "depth_mm": 170.3
+  },
+  {
+   "type": "threaded_hole",
+   "diameter_mm": 8.5,
+   "tapped_depth_mm": 40.3
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 12,
+   "depth_mm": 80.3
+  },
+  {
+   "type": "corner_fillet",
+   "radius_mm": 75.0
+  }
+ ],
+ "complexity": "high"
+}

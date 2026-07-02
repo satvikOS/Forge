@@ -1,0 +1,54 @@
+{
+ "base_shape": "boxy housing with a central vertical channel and side flanges",
+ "overall_dims_mm": {
+  "x": 120.5,
+  "y": 84.3,
+  "z": 67
+ },
+ "features": [
+  {
+   "type": "central_channel",
+   "diameter_mm": 80.5,
+   "depth_mm": 67
+  },
+  {
+   "type": "corner_holes",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "pattern": "rectangular"
+  },
+  {
+   "type": "side_holes",
+   "count": 4,
+   "diameter_mm": 8.5,
+   "pattern": "rectangular"
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "depth_mm": 8.5
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 2.5,
+   "edges": "vertical_wall"
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 4.0
+  },
+  {
+   "type": "cbored_hole",
+   "count": 1,
+   "hole_diameter_mm": 2.5,
+   "bore_diameter_mm": 4.0
+  },
+  {
+   "type": "threaded_bore",
+   "count": 1,
+   "diameter_mm": 2.5
+  }
+ ],
+ "complexity": "high"
+}
