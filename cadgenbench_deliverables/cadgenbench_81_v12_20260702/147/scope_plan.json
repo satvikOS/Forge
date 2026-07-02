@@ -1,0 +1,30 @@
+{
+ "base_shape": "cylindrical housing (ring)",
+ "overall_dims_mm": {
+  "outer_diameter": 200.0,
+  "inner_bore": 83.5
+ },
+ "features": [
+  {
+   "type": "central_hole",
+   "diameter_mm": 60.24,
+   "depth_mm": 19
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 3.8,
+   "throughout": true
+  },
+  {
+   "type": "tapered_wall",
+   "angle_degrees": 2.0,
+   "height_mm": 63
+  },
+  {
+   "type": "spokes",
+   "count": 4,
+   "angle_degrees": 90.0
+  }
+ ],
+ "complexity": "medium"
+}

@@ -1,0 +1,76 @@
+{
+ "base_shape": "cylindrical",
+ "overall_dims_mm": {
+  "outer_dia": 80.5,
+  "height": 32.0
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 80.5,
+  "x": 41.23796875,
+  "y": 40
+ },
+ "features": [
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5,
+   "through_thickness_mm": 32.0,
+   "positions_mm": [
+    [
+     147.0,
+     -86.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 2,
+   "hole_dia_mm": 14.0,
+   "cbore_dia_mm": 38.52967041015,
+   "depth_mm": 8.034,
+   "through_thickness_mm": 26.9715
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_dia_mm": 8.03571269841,
+   "cbore_dia_mm": 13.0,
+   "depth_mm": 5.984762
+  },
+  {
+   "type": "thread",
+   "count": 1,
+   "diameter_mm": 8.5,
+   "pitch_mm": 0.7
+  },
+  {
+   "type": "thread",
+   "count": 4,
+   "diameter_mm": 6.1380952378
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 1.0625387933
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_dia_mm": 1.0625387933,
+   "cbore_dia_mm": 4.1
+  },
+  {
+   "type": "thread",
+   "count": 4,
+   "diameter_mm": 3.809523761
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 4.1,
+   "scope_type": "tapered"
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 9
+}

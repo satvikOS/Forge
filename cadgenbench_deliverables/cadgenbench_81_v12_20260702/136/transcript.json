@@ -1,0 +1,207 @@
+{
+ "callouts": [
+  {
+   "text": "R40.852",
+   "type": "radius",
+   "value_mm": 40.85,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R37.59",
+   "type": "radius",
+   "value_mm": 37.59,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R28.504",
+   "type": "radius",
+   "value_mm": 28.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 14
+  },
+  {
+   "text": "R20.15",
+   "type": "radius",
+   "value_mm": 20.15,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M10-1.5 THRU",
+   "type": "thread",
+   "value_mm": 10.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "M8-1.25 THRU",
+   "type": "thread",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 15
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 16
+  },
+  {
+   "text": "+/- 3\u00b0 (4X)",
+   "type": "count",
+   "value_mm": 3.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 13
+  },
+  {
+   "text": "+/- 3\u00b0 (2X)",
+   "type": "count",
+   "value_mm": 3.0,
+   "count": 2,
+   "confidence": 1.0,
+   "evidence": 13
+  },
+  {
+   "text": "+/-1856379-+",
+   "type": "linear",
+   "value_mm": 1856379.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/-13679-+",
+   "type": "linear",
+   "value_mm": 13679.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 15
+  },
+  {
+   "text": "1028.65",
+   "type": "linear",
+   "value_mm": 1028.65,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 384.67",
+   "type": "linear",
+   "value_mm": 384.67,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 11
+  },
+  {
+   "text": "+/- 205.19",
+   "type": "linear",
+   "value_mm": 205.19,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 11
+  },
+  {
+   "text": "+/- 105.92",
+   "type": "linear",
+   "value_mm": 105.92,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 48.36",
+   "type": "linear",
+   "value_mm": 48.36,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 38.64",
+   "type": "linear",
+   "value_mm": 38.64,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 36.84",
+   "type": "linear",
+   "value_mm": 36.84,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 20.75",
+   "type": "linear",
+   "value_mm": 20.75,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+15/-8.23",
+   "type": "linear",
+   "value_mm": 15.0,
+   "count": 6,
+   "confidence": 1.0,
+   "evidence": 18
+  },
+  {
+   "text": "+15/-8",
+   "type": "linear",
+   "value_mm": 15.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+12/-8",
+   "type": "linear",
+   "value_mm": 12.0,
+   "count": 6,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+0.15/-0.6",
+   "type": "linear",
+   "value_mm": 0.75,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+0.15/-0.32",
+   "type": "linear",
+   "value_mm": 0.47,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/-0.24",
+   "type": "linear",
+   "value_mm": 0.24,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

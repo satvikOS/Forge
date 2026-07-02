@@ -1,0 +1,292 @@
+{
+ "base_shape": "cylindrical",
+ "overall_dims_mm": {
+  "diameter": 80.5,
+  "height": 124.0
+ },
+ "outline": {
+  "kind": "circle",
+  "x": 79.085,
+  "y": 124
+ },
+ "features": [
+  {
+   "type": "hole",
+   "count": 36.0,
+   "diameter_mm": 8.5,
+   "through_thickness_mm": "12",
+   "positions_mm": [
+    [
+     0.0,
+     34.0
+    ],
+    [
+     68.5,
+     -79.0
+    ],
+    [
+     -102.5,
+     -10.0
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 8.25,
+   "depth_mm": 10
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 3.25,
+   "through_thickness_mm": 10
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 8.5,
+   "depth_mm": 12
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8.5
+  },
+  {
+   "type": "hole",
+   "count": 1,
+   "diameter_mm": 8
+  }
+ ]
+}

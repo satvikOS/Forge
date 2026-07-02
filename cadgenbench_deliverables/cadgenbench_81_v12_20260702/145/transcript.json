@@ -1,0 +1,180 @@
+{
+ "callouts": [
+  {
+   "text": "\u00d8106",
+   "type": "diameter",
+   "value_mm": 106.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 45.\u00d80",
+   "type": "diameter",
+   "value_mm": 45.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "40.\u00d80 (C)",
+   "type": "diameter",
+   "value_mm": 40.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "(8X) \u00d824.5",
+   "type": "diameter",
+   "value_mm": 24.5,
+   "count": 8,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "15.0 (6X)",
+   "type": "diameter",
+   "value_mm": 15.0,
+   "count": 6,
+   "confidence": 0.5,
+   "evidence": 2
+  },
+  {
+   "text": "8.5 (X)",
+   "type": "diameter",
+   "value_mm": 10.0,
+   "count": 8,
+   "confidence": 0.5,
+   "evidence": 2
+  },
+  {
+   "text": "(6X) \u00d810",
+   "type": "diameter",
+   "value_mm": 10.0,
+   "count": 6,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "10.0 (X)",
+   "type": "diameter",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d87.0 (6X)",
+   "type": "diameter",
+   "value_mm": 7.0,
+   "count": 6,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "(6X) \u00d87.5 THRU CBORE",
+   "type": "cbore",
+   "value_mm": 10.0,
+   "count": 6,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "(4X) \u00d88.5 THRU \u2334\u00d821 X 7",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+45\u00b0 (X)",
+   "type": "linear",
+   "value_mm": 45.0,
+   "count": 8,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 18.67",
+   "type": "linear",
+   "value_mm": 18.67,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 12.47",
+   "type": "linear",
+   "value_mm": 12.47,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 12.37",
+   "type": "linear",
+   "value_mm": 12.4,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 25
+  },
+  {
+   "text": "+/- 6.51",
+   "type": "linear",
+   "value_mm": 6.51,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "6.\u00d80",
+   "type": "linear",
+   "value_mm": 6.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 2.5 MM (ALL SIDE)",
+   "type": "linear",
+   "value_mm": 2.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 0.3 MM (ALL)",
+   "type": "linear",
+   "value_mm": 0.3,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 27.05,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 15.0,
+   "orientation": "horizontal",
+   "evidence": 2
+  },
+  {
+   "value_mm": 8.03,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 3.55,
+   "orientation": "vertical",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 3,
+ "tiles_failed": 2
+}

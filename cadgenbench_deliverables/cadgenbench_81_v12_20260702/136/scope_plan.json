@@ -1,0 +1,96 @@
+{
+ "base_shape": "cylindrical",
+ "overall_dims_mm": {
+  "diameter": 1028.65,
+  "height": 374.9
+ },
+ "outline": {
+  "kind": "circle",
+  "x": 1028.65,
+  "y": 1028.65
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 370,
+   "through_length_mm": 185.64
+  },
+  {
+   "type": "threaded_holes",
+   "count": 2,
+   "tapped_diameter_mm": 8.0,
+   "hole_depth_mm": 35.476291,
+   "pattern": "radial",
+   "positions_mm": [
+    [
+     -80.0,
+     -35.476291
+    ],
+    [
+     80.0,
+     35.476291
+    ]
+   ]
+  },
+  {
+   "type": "threaded_holes",
+   "count": 8,
+   "tapped_diameter_mm": 6.0,
+   "hole_depth_mm": 35.476291,
+   "pattern": "radial",
+   "positions_mm": [
+    [
+     [
+      -80,
+      -35.476291
+     ],
+     [
+      80,
+      35.476291
+     ]
+    ],
+    [
+     [
+      -80,
+      -35.476291
+     ],
+     [
+      80,
+      35.476291
+     ]
+    ]
+   ]
+  },
+  {
+   "type": "threaded_holes",
+   "count": 8,
+   "tapped_diameter_mm": 10.0,
+   "hole_depth_mm": 35.476291,
+   "pattern": "radial",
+   "positions_mm": [
+    [
+     [
+      -80,
+      -35.476291
+     ],
+     [
+      80,
+      35.476291
+     ]
+    ],
+    [
+     [
+      -80,
+      -35.476291
+     ],
+     [
+      80,
+      35.476291
+     ]
+    ]
+   ]
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 8
+}

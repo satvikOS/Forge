@@ -1,0 +1,151 @@
+{
+ "callouts": [
+  {
+   "text": "\u00d8165.\u00d80",
+   "type": "diameter",
+   "value_mm": 165.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d812.50 (BRO)",
+   "type": "diameter",
+   "value_mm": 12.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R97.50 (BRO)",
+   "type": "radius",
+   "value_mm": 97.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R47.82 CBORE",
+   "type": "cbore",
+   "value_mm": 47.82,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d810.5 THRU \u233423 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 10.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 9
+  },
+  {
+   "text": "4X \u00d88 THRU \u2334\u00d823 X 10 DEEP",
+   "type": "cbore",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 9
+  },
+  {
+   "text": "M8-1.25 THRU",
+   "type": "thread",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+256 (-3) (X)",
+   "type": "linear",
+   "value_mm": 253.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 10
+  },
+  {
+   "text": "+250 (-3) (X)",
+   "type": "linear",
+   "value_mm": 247.0,
+   "count": 6,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+205 (X)",
+   "type": "linear",
+   "value_mm": 205.0,
+   "count": 3,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+136.48 (X)",
+   "type": "linear",
+   "value_mm": 136.48,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+128.64 (X)",
+   "type": "linear",
+   "value_mm": 128.64,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+50 (X)",
+   "type": "linear",
+   "value_mm": 50.0,
+   "count": 2,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/-0.5 MM THK.",
+   "type": "linear",
+   "value_mm": 14.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 26
+  },
+  {
+   "text": "10.5 THRU",
+   "type": "linear",
+   "value_mm": 10.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+1.84 (X)",
+   "type": "linear",
+   "value_mm": 1.84,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+1.\u00d88 (X)",
+   "type": "linear",
+   "value_mm": 1.08,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 11
+  }
+ ],
+ "dims": [],
+ "tiles_parsed": 3,
+ "tiles_failed": 2
+}

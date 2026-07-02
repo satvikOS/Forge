@@ -1,0 +1,154 @@
+{
+ "callouts": [
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d814 X 8 DEEP",
+   "type": "diameter",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.0 THROUGH, DEPTH 2 MM",
+   "type": "diameter",
+   "value_mm": 8.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.0 THROUGH, DEPTH 2 MM",
+   "type": "thru",
+   "value_mm": null,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d814 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 14.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M8.5 THRU CBORE 3X \u00d814 X 2 DEEP",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "R6.5 THRU CBORE 3X \u00d814 X 2 DEEP",
+   "type": "cbore",
+   "value_mm": 6.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 23
+  },
+  {
+   "text": "4X M8 THRU \u2334\u00d820 X 15 DEEP",
+   "type": "cbore",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 25
+  },
+  {
+   "text": "R2.5 CBORE M6X1 THRU",
+   "type": "cbore",
+   "value_mm": 2.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R2 CBORE M4 X 0.7 THRU",
+   "type": "cbore",
+   "value_mm": 2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 28
+  },
+  {
+   "text": "M6X1.0 THROUGH, DEPTH 3.5 MM",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "4X M6X1",
+   "type": "thread",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 3
+  },
+  {
+   "text": "4X",
+   "type": "count",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M8 X 20 DEEP",
+   "type": "linear",
+   "value_mm": 20.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 16
+  },
+  {
+   "text": "M8 X 15 DEEP",
+   "type": "linear",
+   "value_mm": 15.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 16
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d814 X 8 DEEP",
+   "type": "linear",
+   "value_mm": 8.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M6X1.0 THROUGH, DEPTH 3.5 MM",
+   "type": "linear",
+   "value_mm": 3.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.0 THROUGH, DEPTH 2 MM",
+   "type": "linear",
+   "value_mm": 2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 130.5,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 64.2,
+   "orientation": "horizontal",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

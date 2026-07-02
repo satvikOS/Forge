@@ -1,0 +1,53 @@
+{
+ "base_shape": "multi-stage cylindrical housing (flanged base, stepped body)",
+ "overall_dims_mm": {
+  "max_diameter": 128.4,
+  "total_height": 95
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 128.4,
+  "x": 64.205,
+  "y": 37
+ },
+ "features": [
+  {
+   "type": "flange",
+   "diameter_mm": 128.4,
+   "thickness_mm": 6
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 10.5,
+   "through": true,
+   "positions_mm": [
+    [
+     0,
+     3
+    ]
+   ]
+  },
+  {
+   "type": "threaded_hole",
+   "count": 4,
+   "diameter_mm": 6.25,
+   "depth_mm": 30
+  },
+  {
+   "type": "counterbore",
+   "diameter_mm": 18.5,
+   "depth_mm": 34
+  },
+  {
+   "type": "threaded_hole",
+   "count": 6,
+   "diameter_mm": 8.5,
+   "depth_mm": 20
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 13.5,
+   "through": true
+  }
+ ]
+}

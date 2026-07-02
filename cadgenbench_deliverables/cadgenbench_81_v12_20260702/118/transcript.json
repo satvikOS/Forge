@@ -1,0 +1,178 @@
+{
+ "callouts": [
+  {
+   "text": "4X M8 THRU \u233420 X 1.5 DEEP",
+   "type": "diameter",
+   "value_mm": 20.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d88.3",
+   "type": "diameter",
+   "value_mm": 8.3,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M8 THRU \u233420 X 1.5 DEEP",
+   "type": "diameter",
+   "value_mm": 8.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88 THRU",
+   "type": "diameter",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "\u00d83.2 THRU-XV",
+   "type": "diameter",
+   "value_mm": 3.2,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R1.5 CBORE 4X \u00d88 THRU",
+   "type": "diameter",
+   "value_mm": 1.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 6
+  },
+  {
+   "text": "R50-4X",
+   "type": "radius",
+   "value_mm": 50.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R10",
+   "type": "radius",
+   "value_mm": 10.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R1.5 CBORE 4X \u00d88 THRU",
+   "type": "radius",
+   "value_mm": 1.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 6
+  },
+  {
+   "text": "R1.0",
+   "type": "radius",
+   "value_mm": 1.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M8 THRU \u233420 X 1.5 DEEP",
+   "type": "thru",
+   "value_mm": null,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 7
+  },
+  {
+   "text": "M8.5 CBORE 4X \u00d812 X 3 DEEP",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 26
+  },
+  {
+   "text": "4X M8 THRU \u233420 X 1.5 DEEP",
+   "type": "cbore",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "R1.5 CBORE 4X \u00d88 THRU",
+   "type": "cbore",
+   "value_mm": 1.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 7
+  },
+  {
+   "text": "M6X1",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M8 THRU \u233420 X 1.5 DEEP",
+   "type": "thread",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "4X M8 THRU \u233420 X 1.5 DEEP",
+   "type": "count",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 18
+  },
+  {
+   "text": "R1.5 CBORE 4X \u00d88 THRU",
+   "type": "count",
+   "value_mm": 1.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 6
+  },
+  {
+   "text": "18-2X",
+   "type": "linear",
+   "value_mm": 35.46,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 30
+  },
+  {
+   "text": "4X M8 THRU \u233420 X 1.5 DEEP",
+   "type": "linear",
+   "value_mm": 1.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 50.0,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 36.5,
+   "orientation": "vertical",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}
