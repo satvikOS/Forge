@@ -1,0 +1,1 @@
+{"base_shape": "box", "overall_dims_mm": {"x": 105, "y": 82.34769, "z": 20}, "features": [{"type": "fillet", "radius_mm": 1.5, "edges": [4]}, {"type": "hole", "diameter_mm": 6, "through": true}], "complexity": "medium"}

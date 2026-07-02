@@ -1,0 +1,1 @@
+{"base_shape": "cylindrical body (shaft)", "overall_dims_mm": {"diameter": 30, "length": 125}, "features": [{"type": "shoulder", "count": 1}, {"diameter_mm": [30, 25], "length_mm": 48}]}

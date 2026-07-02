@@ -1,0 +1,1 @@
+{"base_shape": "cuboid", "overall_dims_mm": {"x": 60.81, "y": 45.32, "z": 79.0}, "features": [{"type": "through_hole", "count": 16, "diameter_mm": 3.0}, {"type": "fillet_edges", "radius_mm": 2.5, "count": 16}], "complexity": "medium"}

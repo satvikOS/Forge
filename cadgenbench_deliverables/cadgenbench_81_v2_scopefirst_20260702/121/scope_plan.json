@@ -1,0 +1,1 @@
+{"base_shape": "cylinder", "overall_dims_mm": {"diameter": 206.4, "height": 78}, "features": [{"type": "central_bore", "diameter_mm": 60.3, "through": true}, {"type": "bolt_holes_pattern", "count": 8, "diameter_mm": 10.53}, {"type": "flange_bore", "count": 8, "diameter_mm": 10.53}, {"type": "bolt_holes_pattern", "count": 8, "diameter_mm": 10.53}], "complexity": "high"}

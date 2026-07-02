@@ -1,0 +1,15 @@
+{
+  "id": "114",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 91.5 x 65 x 3 mm sheet-metal. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 91.5], y[0, 65], z[0, 3] and its centre is (45.75, 32.5). ONE Ø6.8 mm through hole, a cylinder cutter whose axis is at the absolute coordinate at = [47.8, 28.8, 3] measured from the datum (hold this exact position - without the explicit at the cutter would default to the origin corner and only clip a quarter of the bore, giving no through-hole). 5 identical Ø7 mm through holes at z = 3, all drilled in ONE operation: part.holes{locations:[[51.4, 23.9], [52.2, 18], [61, 47], [65, 65], [65, 61.5]], diameter:7, depth:3} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 5 holes (do NOT write 5 separate hole calls). Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 21,
+  "bodyCount": 1,
+  "toolCalls": 4,
+  "stepBytes": 15573,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/114/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/114/render.png",
+  "startedAt": "2026-07-01T22:58:23.667Z",
+  "finishedAt": "2026-07-01T22:58:57.932Z"
+}

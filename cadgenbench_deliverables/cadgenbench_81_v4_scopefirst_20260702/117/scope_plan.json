@@ -1,0 +1,1 @@
+{"base_shape": "rectangular enclosure (box)", "overall_dims_mm": {"x": 150.2, "y": 98.34, "z": 67}, "features": [{"type": "central_cavity", "wall_thickness_mm": 10.5, "depth_mm": 48}, {"type": "corner_holes", "count": 2, "diameter_mm": 10.53}], "complexity": "medium"}

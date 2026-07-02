@@ -1,0 +1,15 @@
+{
+  "id": "116",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 235 x 153 x 75 mm bracket. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 235], y[0, 153], z[0, 75] and its centre is (117.5, 76.5). ONE Ø14 mm blind hole, a cylinder cutter whose axis is at the absolute coordinate at = [117.5, 69.5, 75] measured from the datum. ONE Ø5 mm blind hole, a cylinder cutter whose axis is at the absolute coordinate at = [117.5, 69.5, 75] measured from the datum. Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 60,
+  "bodyCount": 1,
+  "toolCalls": 13,
+  "stepBytes": 1162833,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/116/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/116/render.png",
+  "startedAt": "2026-07-01T22:59:22.850Z",
+  "finishedAt": "2026-07-01T22:59:42.152Z"
+}

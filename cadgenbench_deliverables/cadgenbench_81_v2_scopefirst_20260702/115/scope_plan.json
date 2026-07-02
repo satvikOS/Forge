@@ -1,0 +1,1 @@
+{"base_shape": "box", "overall_dims_mm": {"x": 104.5, "y": 83.2679, "z": 1}, "features": [{"type": "central_boss", "diameter_mm": 20.3, "height_mm": 1}, {"count": 4, "type": "bolt_holes", "diameter_mm": 5.238710649, "pattern": "bolt_circle", "center_z_offset_mm": -0.5}], "complexity": "medium", "feature_count": 2, "has_bosses": true, "bolt_hole_pattern_type": "circle"}

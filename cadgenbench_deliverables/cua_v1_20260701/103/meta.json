@@ -1,0 +1,15 @@
+{
+  "id": "103",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 370 x 252.5 x 30 mm sheet-metal. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 370], y[0, 252.5], z[0, 30] and its centre is (185, 126.25). ONE Ø9 mm through hole, a cylinder cutter whose axis is at the absolute coordinate at = [127.1, 105, 0] measured from the datum (hold this exact position - without the explicit at the cutter would default to the origin corner and only clip a quarter of the bore, giving no through-hole). 16 identical Ø10 mm through holes at z = 0, all drilled in ONE operation: part.holes{locations:[[127.1, 120], [127.1, 135], [127.1, 150], [127.1, 165], [127.1, 180], [127.1, 195], [127.1, 210], [127.1, 225], [127.1, 240], [127.1, 247.5], [127.1, 247.5], [127.1, 247.5], [127.1, 247.5], [127.1, 247.5], [127.1, 247.5], [127.1, 247.5]], diameter:10, depth:30} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 16 holes (do NOT write 16 separate hole calls). Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 101,
+  "bodyCount": 1,
+  "toolCalls": 19,
+  "stepBytes": 3429885,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/103/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/103/render.png",
+  "startedAt": "2026-07-01T22:07:23.652Z",
+  "finishedAt": "2026-07-01T22:08:47.092Z"
+}

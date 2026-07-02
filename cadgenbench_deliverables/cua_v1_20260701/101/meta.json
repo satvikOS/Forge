@@ -1,0 +1,15 @@
+{
+  "id": "101",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 110.4 x 30.4 x 60 mm housing. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 110.4], y[0, 30.4], z[0, 60] and its centre is (55.2, 15.2). ONE Ø60 mm through hole, a cylinder cutter whose axis is at the absolute coordinate at = [60, 30, 0] measured from the datum (hold this exact position - without the explicit at the cutter would default to the origin corner and only clip a quarter of the bore, giving no through-hole). ONE Ø61 mm through hole, a cylinder cutter whose axis is at the absolute coordinate at = [60.5, 16.72, 0] measured from the datum (hold this exact position - without the explicit at the cutter would default to the origin corner and only clip a quarter of the bore, giving no through-hole). ONE Ø82 mm through hole, a cylinder cutter whose axis is at the absolute coordinate at = [61, 30, 0] measured from the datum (hold this exact position - without the explicit at the cutter would default to the origin corner and only clip a quarter of the bore, giving no through-hole). ONE Ø50 mm through hole, a cylinder cutter whose axis is at the absolute coordinate at = [105, 30, 0] measured from the datum (hold this exact position - without the explicit at the cutter would default to the origin corner and only clip a quarter of the bore, giving no through-hole). ONE Ø38 mm through hole, a cylinder cutter whose axis is at the absolute coordinate at = [105, 30, 0] measured from the datum (hold this exact position - without the explicit at the cutter would default to the origin corner and only clip a quarter of the bore, giving no through-hole). Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 21,
+  "bodyCount": 1,
+  "toolCalls": 7,
+  "stepBytes": 182224,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/101/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/101/render.png",
+  "startedAt": "2026-07-01T22:06:33.355Z",
+  "finishedAt": "2026-07-01T22:06:56.572Z"
+}

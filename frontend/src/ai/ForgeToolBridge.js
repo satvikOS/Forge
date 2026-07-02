@@ -760,6 +760,135 @@ function flushPmi(forge, shape, filepath, notes) {
 }
 
 // ===================================================================
+//   SHEET-METAL helpers (Forge-24 kernel ops → Archie sheet.* verbs)
+// ===================================================================
+// The native forge.sheetMetal.* ops (binding.cpp 6251-6265; smoke-tested in
+// forge-kernel/test/sheet_metal_smoke.js) author folded sheet metal the
+// manufacturing way: a flat blank (makeWireRect → baseFlange) that is FOLDED by
+// edgeFlange / miterFlange / hem / sketchedBend / jog and developed by unfold /
+// flatPattern. They were never exposed as Archie tool verbs, so dispatchSequence
+// could not route a single sheet.* call (the sheet-metal corpus's kernel gate
+// reported "unknown tool id"). The sheet.* verbs below wrap those existing ops
+// per ~/archdisc-Models/scripts/build_family_sheetmetal.mjs::SHEET_METAL_BRIDGE_SPEC
+// — the single source of truth for the verb→op mapping AND the per-verb handle-
+// consume counts the generator threads against (makeWireRect+baseFlange = 2,
+// edgeFlange = 1, makeLineEdge+sketchedBend = 2, the rest = 1, miter = N).
+//
+// Two pieces of NEW logic the wrapper adds on top of the raw ops:
+//   1) angleDeg → rad (the existing DEG() helper). Archie/the corpus speak
+//      degrees (45 | 90 | 180); every kernel sheet op takes radians.
+//   2) a GEOMETRIC side/corner resolver. edgeFlange/hem/jog/miterFlange address a
+//      perimeter edge by its TopExp_Explorer index, but those raw ids RESHUFFLE
+//      after every fuse (each flange fuses a brick). So Archie never names a raw
+//      id: it names a SIDE (front|back|left|right) and we re-query the body's
+//      edges each call. forge.direct.edgeSegments tags every edge with the SAME
+//      0-based TopExp id edgeByIndex consumes (DirectModeling.cpp: "matches
+//      edgeById enumeration"), so the resolved id is exactly what the kernel op
+//      will re-address.
+
+// Kernel defaults when a sheet.* verb is reached before sheet.base-flange has
+// stashed the real gauge on ctx (mirrors sheet_bind::readParams defaults).
+const SHEET_DEFAULT_PARAMS = Object.freeze({ thickness: 1.0, kFactor: 0.44, minBendRadius: 0.5 });
+
+// Guard + handle for the native sheet-metal namespace.
+function sheetNs(forge) {
+  if (!forge || !forge.sheetMetal || typeof forge.sheetMetal.baseFlange !== 'function') {
+    throw new Error('forge.sheetMetal unavailable — build the kernel with Forge-24 (sheet metal)');
+  }
+  return forge.sheetMetal;
+}
+
+// The live gauge/bend-table params for this build sequence. sheet.base-flange
+// stashes {thickness, kFactor, minBendRadius} on ctx.sheet so every downstream
+// fold reuses the SAME gauge (the kernel reads params fresh on every op).
+function sheetParams(ctx) {
+  return (ctx && ctx.sheet) ? ctx.sheet : SHEET_DEFAULT_PARAMS;
+}
+
+// Sample the body's edges into {id, midpoint, axis spans, z slab} records via the
+// pure-query forge.direct.edgeSegments (registers NO new kernel handle, so the
+// monotonic handle counter the generator predicts against stays exact). `points`
+// is a flat [x,y,z, …] world-space polyline; `id` is the 0-based TopExp edge id.
+function sheetEdgeRecs(forge, shape) {
+  const seg = forge && forge.direct && forge.direct.edgeSegments;
+  if (typeof seg !== 'function') {
+    throw new Error('forge.direct.edgeSegments unavailable — cannot resolve a sheet-metal side');
+  }
+  const edges = seg(shape, 0.25) || [];
+  const recs = [];
+  let zFloor = Infinity;
+  for (const e of edges) {
+    const p = e.points;
+    if (!p || p.length < 6) continue;            // need ≥ 2 sampled points
+    const n = Math.floor(p.length / 3);
+    let zmin = Infinity, zmax = -Infinity;
+    for (let i = 0; i < n; i++) { const z = p[i * 3 + 2]; if (z < zmin) zmin = z; if (z > zmax) zmax = z; }
+    const ax = p[0], ay = p[1];
+    const bx = p[(n - 1) * 3], by = p[(n - 1) * 3 + 1];
+    recs.push({
+      id: e.id | 0,
+      midX: (ax + bx) / 2, midY: (ay + by) / 2,
+      spanX: Math.abs(bx - ax), spanY: Math.abs(by - ay),
+      zmin, zmax,
+    });
+    if (zmin < zFloor) zFloor = zmin;
+  }
+  return { recs, zFloor };
+}
+
+// Resolve a SIDE name (front|back|left|right) → the TopExp edge id of that side's
+// base-floor perimeter edge on the CURRENT body. makeWireRect builds the blank at
+// x∈[0,W], y∈[0,D], so front = the −Y edge, back = +Y, left = −X, right = +X —
+// the exact convention the generator's applyFlange grows. We keep edges lying in
+// the base slab (low z; folded walls rise above it), pick the one extreme in the
+// side's outward direction, and break ties (a fused flange brick can leave a
+// short stub edge at the same extreme) by the LONGEST span along the side — the
+// genuine full-width/-depth perimeter edge, never a brick sub-edge.
+function resolveSheetEdge(forge, shape, sideName, params) {
+  const side = String(sideName || 'front').toLowerCase();
+  const { recs, zFloor } = sheetEdgeRecs(forge, shape);
+  if (!recs.length) throw new Error(`resolveSheetEdge: body ${shape} has no edges`);
+  const t = (params && params.thickness > 0) ? params.thickness : 1.0;
+  const slabTop = zFloor + Math.max(t, 0.5) + 1e-3;
+  let floor = recs.filter((r) => r.zmax <= slabTop);
+  if (!floor.length) floor = recs;                 // degenerate fallback
+  const alongX = side === 'front' || side === 'back';   // front/back run along X
+  let pool = floor.filter((r) => (alongX ? r.spanX >= r.spanY : r.spanY >= r.spanX));
+  if (!pool.length) pool = floor;
+  const coord = (r) => (alongX ? r.midY : r.midX);      // side-normal coordinate
+  const span  = (r) => (alongX ? r.spanX : r.spanY);    // length along the side
+  const wantMin = side === 'front' || side === 'left';
+  let ext = coord(pool[0]);
+  for (const r of pool) { const c = coord(r); if (wantMin ? c < ext : c > ext) ext = c; }
+  const TIE = 1.0;                                  // mm — collapse coincident edges
+  let best = null;
+  for (const r of pool) {
+    if (Math.abs(coord(r) - ext) > TIE) continue;
+    if (!best || span(r) > span(best)) best = r;    // genuine side = the longest edge
+  }
+  return (best || pool[0]).id;
+}
+
+// Resolve a corner reference (a 0..3 index — front-left|front-right|back-right|
+// back-left, the generator's CORNER_OF order — or one of those names) to a base-
+// plane corner-vertex ordinal. NOTE (verified in SheetMetal.cpp): the bound
+// kernel cornerRelief/closedCorner IGNORE the vertex id (corner relief is a
+// bbox/betti-neutral metadata record), so this drives the AUTHORED corner, not
+// kernel geometry. We still resolve it geometrically (the body must have edges,
+// like the edge resolver) and return a stable ordinal so the same corner name
+// always maps to the same vertex.
+const SHEET_CORNER_ORDER = ['front-left', 'front-right', 'back-right', 'back-left'];
+function resolveSheetVertex(forge, shape, cornerRef /* , params */) {
+  if (typeof cornerRef === 'number' && Number.isFinite(cornerRef)) {
+    return Math.max(0, cornerRef | 0);             // numeric corner index passes through
+  }
+  const name = String(cornerRef || 'front-left').toLowerCase().replace(/[_\s]+/g, '-');
+  const idx = SHEET_CORNER_ORDER.indexOf(name);
+  try { sheetEdgeRecs(forge, shape); } catch (_) { /* kernel ignores vid; non-fatal */ }
+  return idx >= 0 ? idx : 0;
+}
+
+// ===================================================================
 //                              tool registry
 // ===================================================================
 
@@ -1475,6 +1604,178 @@ export const FORGE_TOOLS = [
     description: 'Validate a solid (manifold / self-intersection / small faces) — the coherence gate for a body.',
     parameters: { shape: P('uint', 'shape handle', { required: true }) },
     run: ({ shape }, forge) => forge.heal.checkValidity(shape) },
+
+  // ===================================================== SHEET METAL (Forge-24)
+  // Folded sheet-metal authoring — wraps the native forge.sheetMetal.* ops (see
+  // the SHEET-METAL helpers block above). Author a flat blank (sheet.base-flange)
+  // then FOLD it (edge/miter flanges, hems, sketched bends, jogs) and develop it
+  // (unfold / flat-pattern) — the manufacturing way, never stacked boxes. Sides
+  // are named (front|back|left|right) and resolved geometrically each call, so
+  // the post-fuse TopExp id reshuffle never reaches the model. The basic fold/
+  // hem/unfold verbs map 1:1 to real, smoke-tested kernel ops. (TRUE-formed
+  // features — bead/dart/louver/emboss/draw/true-down-fold — have NO kernel op
+  // yet; the generator models those as rib/cut stand-ins, so they are NOT bridged
+  // here and await a later clang pass.)
+  { name: 'sheet.base-flange', discipline: 'part', produces: 'handle',
+    description: 'Open a flat sheet-metal blank (the base flange): a width×length rectangle extruded by thickness on the XY plane. Stashes the gauge (thickness/kFactor/bendRadius) so every later fold reuses the same bend table. The correct way to START a sheet-metal part (never a stacked box).',
+    parameters: { width: P('number', 'blank width (X) in mm', { required: true }),
+                  length: P('number', 'blank length (Y) in mm', { required: true }),
+                  thickness: P('number', 'sheet thickness in mm', { required: true }),
+                  kFactor: P('number', 'neutral factor (K) for bend allowance', { default: 0.44 }),
+                  bendRadius: P('number', 'inside bend radius in mm', { default: 1.0 }) },
+    run: ({ width, length, thickness, kFactor, bendRadius }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = {
+        thickness: thickness > 0 ? thickness : 1.0,
+        kFactor: (typeof kFactor === 'number' && kFactor > 0) ? kFactor : 0.44,
+        minBendRadius: (typeof bendRadius === 'number' && bendRadius > 0) ? bendRadius : 0.5,
+      };
+      if (ctx) ctx.sheet = params;                       // remember the gauge for downstream folds
+      const wire = sm.makeWireRect(width, length);       // +1 handle
+      const base = sm.baseFlange(wire, params);          // +1 handle  → consume 2
+      return { shape: base, op: 'base-flange' };
+    } },
+
+  { name: 'sheet.edge-flange', discipline: 'part', produces: 'handle',
+    description: 'Fold one wall up off a base side of the current sheet body. side ∈ front|back|left|right (resolved to the live perimeter edge); angleDeg 45 or 90; relief ∈ rect|obround|tear. Returns the folded body.',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }),
+                  side: P('enum', 'front|back|left|right', { required: true }),
+                  length: P('number', 'flange length in mm', { required: true }),
+                  angleDeg: P('number', 'bend angle in degrees (45|90)', { required: true }),
+                  relief: P('enum', 'rect|obround|tear', { default: 'rect' }) },
+    run: ({ shape, side, length, angleDeg, relief }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const eid = resolveSheetEdge(forge, shape, side, params);
+      const h = sm.edgeFlange(shape, eid, params, length, DEG(angleDeg), relief || 'rect');  // +1
+      return { shape: h, op: 'edge-flange', side, edgeId: eid };
+    } },
+
+  { name: 'sheet.miter-flange', discipline: 'part', produces: 'handle',
+    description: 'Fold several adjacent base sides at once (a mitred wrap). sides is a list of front|back|left|right, each folded to length at angleDeg. Returns the body.',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }),
+                  sides: P('array', 'list of sides front|back|left|right', { required: true }),
+                  length: P('number', 'flange length in mm', { required: true }),
+                  angleDeg: P('number', 'bend angle in degrees', { required: true }) },
+    run: ({ shape, sides, length, angleDeg }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const list = (Array.isArray(sides) ? sides : [sides]).filter((s) => s != null);
+      if (!list.length) throw new Error('sheet.miter-flange: sides must be a non-empty list');
+      // The kernel's miterFlange consumes a FIXED id list, but each internal
+      // edgeFlange fuse reshuffles the TopExp ids — so pre-resolved ids 2..N go
+      // stale. We instead expand it (its own definition: "internally N
+      // edgeFlange") by re-resolving each side against the running body. Same
+      // result, N handles (= the consume:sides.length the generator threads).
+      const ang = DEG(angleDeg);
+      let cur = shape; const eids = [];
+      for (const s of list) {
+        const eid = resolveSheetEdge(forge, cur, s, params);
+        cur = sm.edgeFlange(cur, eid, params, length, ang, 'rect');   // +1 each
+        eids.push(eid);
+      }
+      return { shape: cur, op: 'miter-flange', sides: list, edgeIds: eids };
+    } },
+
+  { name: 'sheet.hem', discipline: 'part', produces: 'handle',
+    description: 'Fold a hem (a 180° fold-back) on a base side. side ∈ front|back|left|right; type ∈ closed|open|tear-drop|rolled. Returns the body.',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }),
+                  side: P('enum', 'front|back|left|right', { required: true }),
+                  type: P('enum', 'closed|open|tear-drop|rolled', { default: 'closed' }),
+                  length: P('number', 'hem length in mm', { required: true }) },
+    run: ({ shape, side, type, length }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const eid = resolveSheetEdge(forge, shape, side, params);
+      const h = sm.hem(shape, eid, params, type || 'closed', length);   // +1
+      return { shape: h, op: 'hem', side, edgeId: eid };
+    } },
+
+  { name: 'sheet.sketched-bend', discipline: 'part', produces: 'handle',
+    description: 'Bend the sheet along a sketched line (x0,y0)→(x1,y1) on the blank by angleDeg at the given radius (records the bend for unfold; the bend line is built on z=0). Returns the body.',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }),
+                  x0: P('number', 'bend-line start X', { required: true }),
+                  y0: P('number', 'bend-line start Y', { required: true }),
+                  x1: P('number', 'bend-line end X', { required: true }),
+                  y1: P('number', 'bend-line end Y', { required: true }),
+                  angleDeg: P('number', 'bend angle in degrees', { required: true }),
+                  radius: P('number', 'bend radius in mm (≥ the gauge bend radius)', { required: true }) },
+    run: ({ shape, x0, y0, x1, y1, angleDeg, radius }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const line = sm.makeLineEdge(x0, y0, 0, x1, y1, 0);                 // +1 handle
+      const h = sm.sketchedBend(shape, line, params, DEG(angleDeg), radius);  // +1  → consume 2
+      return { shape: h, op: 'sketched-bend' };
+    } },
+
+  { name: 'sheet.corner-relief', discipline: 'part', produces: 'handle',
+    description: 'Add a corner relief at a base corner (prevents tearing where flanges meet). corner ∈ 0..3 (front-left|front-right|back-right|back-left) or that name; type ∈ circular|oval|rectangular; size in mm. Returns the body.',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }),
+                  corner: P('string', 'corner ref 0..3 or front-left|front-right|back-right|back-left', { required: true }),
+                  type: P('enum', 'circular|oval|rectangular', { default: 'circular' }),
+                  size: P('number', 'relief size in mm', { required: true }) },
+    run: ({ shape, corner, type, size }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const vid = resolveSheetVertex(forge, shape, corner);
+      const h = sm.cornerRelief(shape, vid, params, type || 'circular', size);   // +1
+      return { shape: h, op: 'corner-relief', corner, vertexId: vid };
+    } },
+
+  { name: 'sheet.closed-corner', discipline: 'part', produces: 'handle',
+    description: 'Close the gap at a 3-flange corner with a filler. corner ∈ 0..3 or the corner name; gap in mm. Returns the body.',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }),
+                  corner: P('string', 'corner ref 0..3 or front-left|front-right|back-right|back-left', { required: true }),
+                  gap: P('number', 'corner gap in mm', { required: true }) },
+    run: ({ shape, corner, gap }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const vid = resolveSheetVertex(forge, shape, corner);
+      const h = sm.closedCorner(shape, vid, params, gap);                // +1
+      return { shape: h, op: 'closed-corner', corner, vertexId: vid };
+    } },
+
+  { name: 'sheet.jog', discipline: 'part', produces: 'handle',
+    description: 'Add a Z-style jog (two cancelling bends) on a base side, offsetting the panel by height at angleDeg. side ∈ front|back|left|right. Returns the body.',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }),
+                  side: P('enum', 'front|back|left|right', { required: true }),
+                  height: P('number', 'jog offset height in mm', { required: true }),
+                  angleDeg: P('number', 'jog angle in degrees', { required: true }) },
+    run: ({ shape, side, height, angleDeg }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const eid = resolveSheetEdge(forge, shape, side, params);
+      const h = sm.jog(shape, eid, params, height, DEG(angleDeg));        // +1
+      return { shape: h, op: 'jog', side, edgeId: eid };
+    } },
+
+  { name: 'sheet.unfold', discipline: 'part', produces: 'handle',
+    description: 'Develop the folded sheet body to its FLAT blank (base length + Σ bend allowance). Returns the flat body.',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }) },
+    run: ({ shape }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const flat = sm.unfold(shape, params);                             // +1
+      return { shape: flat, op: 'unfold' };
+    } },
+
+  { name: 'sheet.flat-pattern', discipline: 'part', produces: 'report',
+    description: 'Report the developed flat pattern of the folded sheet body — developed length/width, formed height, and the flat outline wire. Does NOT change the body (the per-bend allowance is L_dev=(R+K·t)·θ).',
+    parameters: { shape: P('uint', 'current sheet body handle', { required: true }) },
+    run: ({ shape }, forge, ctx) => {
+      const sm = sheetNs(forge);
+      const params = sheetParams(ctx);
+      const fp = sm.flatPattern(shape, params);                          // registers the flat wire (+1)
+      const bbox = Array.isArray(fp.bbox) ? fp.bbox : [0, 0, 0, 0];
+      return {
+        op: 'flat-pattern',
+        wire: fp.wire,
+        developedLength: bbox[2] - bbox[0],
+        developedWidth: bbox[3] - bbox[1],
+        formedHeight: fp.formedHeight,
+        bbox,
+      };
+    } },
 
   // ===================================================== HEALING / REPAIR
   // Reach the OCCT shape-healing pipeline (window.forge.heal.*) — the kernel

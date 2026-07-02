@@ -1,0 +1,1 @@
+{"base_shape": "cylindrical housing (flange with central bore)", "overall_dims_mm": {"outer_diameter": 108, "height": 52}, "features": [{"type": "central_bore", "diam_mm": 30.4, "through_hole": true}, {"type": "flange_bore", "diam_mm": 80.4, "through_hole": true}, {"type": "bolt_circles", "count": 6, "diam_mm": [80.4], "pattern": {"type": "bolt_circle"}}]}

@@ -1,0 +1,15 @@
+{
+  "id": "104",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 116.5 x 107.9 x 39.7 mm bracket. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 116.5], y[0, 107.9], z[0, 39.7] and its centre is (58.25, 53.95). 3 identical Ø9 mm through holes at z = 0, all drilled in ONE operation: part.holes{locations:[[58.5, 28.5], [103.5, 28.5], [112, 28.5]], diameter:9, depth:39.7} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 3 holes (do NOT write 3 separate hole calls). 3 identical Ø4.8 mm through holes at z = 0, all drilled in ONE operation: part.holes{locations:[[58.5, 28.5], [103.5, 28.5], [114.1, 28.5]], diameter:4.8, depth:39.7} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 3 holes (do NOT write 3 separate hole calls). Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 120,
+  "bodyCount": 1,
+  "toolCalls": 23,
+  "stepBytes": 3324162,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/104/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/104/render.png",
+  "startedAt": "2026-07-01T22:08:47.094Z",
+  "finishedAt": "2026-07-01T22:09:15.885Z"
+}

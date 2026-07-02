@@ -1,0 +1,15 @@
+{
+  "id": "117",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 300 x 250 x 26 mm housing. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 300], y[0, 250], z[0, 26] and its centre is (150, 125). 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 105, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 130, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 155, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 180, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 205, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 230, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 246, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 246, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 246, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 246, 0] from the datum. 8 Ø8 mm through holes, each a cylinder cutter; the pattern is located at = [255, 246, 0] from the datum. Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 62,
+  "bodyCount": 1,
+  "toolCalls": 16,
+  "stepBytes": 15566,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/117/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/117/render.png",
+  "startedAt": "2026-07-01T22:59:42.154Z",
+  "finishedAt": "2026-07-01T22:59:59.889Z"
+}

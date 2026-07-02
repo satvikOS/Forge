@@ -1,0 +1,1 @@
+{"base_shape": "cuboid", "overall_dims_mm": {"x": 150.2, "y": 86.4379, "z": 25}, "features": [{"type": "bottom_fillet", "radius_mm": 1.0}, {"count": 4, "pattern": {"x": [25, 38], "y": [-71.06, -94]}}, {"type": "top_fillet", "radius_mm": 2.5, "count": 8}], "complexity": {"feature_count": "10", "has_patterns": true}}

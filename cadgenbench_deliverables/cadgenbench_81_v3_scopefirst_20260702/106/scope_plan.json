@@ -1,0 +1,1 @@
+{"base_shape": "box", "overall_dims_mm": {"x": 104.5, "y": 82.3679}, "features": [{"type": "central_bore", "diameter_mm": 18, "through": true}, {"type": "bolt_holes", "count": 4, "diameter_mm": 6.53872109}, {"type": "flange", "thickness_mm": 4, "outer_diameter_mm": 82.3679}, {"type": "mounting_holes", "count": 4, "diameter_mm": 8.5}], "complexity": "medium"}

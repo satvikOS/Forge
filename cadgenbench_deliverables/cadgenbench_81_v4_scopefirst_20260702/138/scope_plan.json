@@ -1,0 +1,1 @@
+{"base_shape": "cylindrical housing (bore + flange)", "overall_dims_mm": {"diameter": 60, "height": 35}, "features": [{"type": "central_bore", "dia_mm": 24}, {"type": "threaded_hole", "count": 3, "diameter_mm": 5.8, "depth_mm": 12}, {"type": "mounting_holes", "count": 4, "diameter_mm": 6.5}], "complexity": "medium"}

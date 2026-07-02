@@ -1,0 +1,1 @@
+{"base_shape": "box", "overall_dims_mm": {"x": 104, "y": 82.5, "z": 36}, "features": [{"type": "bend", "angle_degrees": 90}, {"count": 2, "pattern": {"axis": "z"}}], "complexity": "medium", "feature_count": 1}

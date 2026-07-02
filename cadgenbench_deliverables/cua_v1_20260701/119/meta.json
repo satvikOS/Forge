@@ -1,0 +1,15 @@
+{
+  "id": "119",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 32 x 29 x 13 mm housing. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 32], y[0, 29], z[0, 13] and its centre is (16, 14.5). 4 identical Ø15 mm blind holes at z = 13, all drilled in ONE operation: part.holes{locations:[[16.5, 11.75], [20.5, 11.75], [24.5, 11.75], [28.5, 11.75]], diameter:15, depth:13} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 4 holes (do NOT write 4 separate hole calls). 4 identical Ø12 mm blind holes at z = 6.8, all drilled in ONE operation: part.holes{locations:[[16.5, 11.75], [20.5, 11.75], [24.5, 11.75], [28.5, 11.75]], diameter:12, depth:7.2} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 4 holes (do NOT write 4 separate hole calls). 4 identical Ø2.75 mm blind holes at z = 6, all drilled in ONE operation: part.holes{locations:[[16.5, 18.75], [20.5, 18.75], [24.5, 18.75], [28.5, 18.75]], diameter:2.75, depth:6} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 4 holes (do NOT write 4 separate hole calls). 4 identical Ø2 mm blind holes at z = 10.5, all drilled in ONE operation: part.holes{locations:[[16.5, 18.75], [20.5, 18.75], [24.5, 18.75], [28.5, 18.75]], diameter:2, depth:6} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 4 holes (do NOT write 4 separate hole calls). Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 58,
+  "bodyCount": 1,
+  "toolCalls": 9,
+  "stepBytes": 357376,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/119/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/119/render.png",
+  "startedAt": "2026-07-01T23:00:36.985Z",
+  "finishedAt": "2026-07-01T23:02:07.140Z"
+}

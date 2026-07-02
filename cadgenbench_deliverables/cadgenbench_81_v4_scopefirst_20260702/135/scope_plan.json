@@ -1,0 +1,1 @@
+{"base_shape": "cylindrical body with a flat top and two side flanges", "overall_dims_mm": {"diameter": 20.5, "height": 18}, "features": [{"type": "central_bore", "diameter_mm": 6.5, "through": true}, {"type": "flange_holes", "count": 2, "diameter_mm": 3.5}], "complexity": "medium"}

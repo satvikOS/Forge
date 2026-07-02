@@ -1,0 +1,1 @@
+{"base_shape": "cuboid", "overall_dims_mm": {"x": 205.1, "y": 83.4769, "z": 10}, "features": [{"type": "fillet", "radius_mm": 2.54}, {"count": 8, "pattern": {"name": "corner"}}, {"type": "fillet", "radius_mm": 1.524, "pattern": {"name": "edge"}}, {"count": 8}], "complexity": "high", "feature_count": 2, "has_bosses_or_pockets": true}

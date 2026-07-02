@@ -124,7 +124,15 @@ Full physics suite — after building the part, run the matching analysis. These
   simulate.cfd{domain,grid,rho,viscosity,inletFace,velocity,maxIter} — incompressible laminar steady Navier-Stokes: peak velocity (m/s), Reynolds, pressure range,
   simulate.dynamics-motion{motor,axis,totalAngle,steps} — assembly kinematics: sweep a driver mate over N frames, return the driven trajectory (build the mate assembly first),
   simulate.multibody-dynamics{study|bodies,constraints,loads,gravity,dt,steps} — RIGOROUS inertial multibody dynamics (HHT-α + Baumgarte, mass+inertia EOM, validated pendulum 0.016%/rotor 0.00%): study:"rotor"{mass,radius,torque} spins a disk under torque, study:"pendulum"{mass,length,angleDeg} swings under gravity, or give explicit bodies ([{mass,inertia?,position?,linVel?,angVel?}] or [{shape,density}]) + constraints ([{kind:ballJoint|axisLock|distance,bodyA,bodyB?,anchor?,axis?,value?}]) + loads ([{body,force?,torque?}]) + gravity. Returns per-step samples (animate the motion) + maxConstraintDrift/energyDrift/stable. SI (kg,m,N,N·m,rad).
-Faces are -x|+x|-y|+y|-z|+z. Build the geometry in mm as usual, then call ONE simulate.* verb with SI arguments.`;
+Faces are -x|+x|-y|+y|-z|+z. Build the geometry in mm as usual, then call ONE simulate.* verb with SI arguments.
+Sheet-metal — author folded sheet-metal parts the manufacturing way (a flat blank that is FOLDED), never as stacked boxes:
+  sheet.base-flange{width,length,thickness,kFactor?,bendRadius?} opens a flat blank (the base flange) on the XY plane,
+  sheet.edge-flange{shape,side,length,angleDeg,relief?} folds a wall up off one base side (side:front|back|left|right; angleDeg 45|90),
+  sheet.miter-flange{shape,sides,length,angleDeg} folds several adjacent sides at once, sheet.hem{shape,side,type,length} folds a closed/open/rolled hem (180°),
+  sheet.sketched-bend{shape,x0,y0,x1,y1,angleDeg,radius} bends along a sketched line, sheet.corner-relief{shape,corner,type,size} + sheet.closed-corner{shape,corner,gap} treat the corners,
+  sheet.unfold{shape} develops the part to its FLAT blank, sheet.flat-pattern{shape} reports the developed length/width + per-bend allowance L_dev=(R+K·t)·θ (neutral factor / K-factor).
+  thickness + bendRadius + kFactor come from the gauge/bend table. Cut vent windows/slots/lightening/bolt-hole tabs with part.cut and stamp stiffening ribs with part.fuse on the folded body.
+`;
 
 // Kept for back-compat (some legacy tests + the few-shot persona stack
 // still pull `buildSystemPrompt`); new code paths should use the

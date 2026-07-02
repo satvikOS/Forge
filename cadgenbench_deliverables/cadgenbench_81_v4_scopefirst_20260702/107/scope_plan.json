@@ -1,0 +1,1 @@
+{"base_shape": "multi-level bracket (box base + raised platform)", "overall_dims_mm": {"x": 104, "y": 82.5}, "z_levels": [{"name": "base", "height_mm": 10}, {"name": "raised_platform", "height_mm": 8, "profile": {"x": 64.5, "y": 30}}], "features": [{"type": "counterbore_holes", "count": 4}, {"type": "tapped holes", "count": 2, "depth_mm": 10}], "complexity": "medium"}

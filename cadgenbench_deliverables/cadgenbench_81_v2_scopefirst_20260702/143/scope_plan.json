@@ -1,0 +1,1 @@
+{"base_shape": "cuboid", "overall_dims_mm": {"x": 105.3, "y": 82.4769, "z": 10}, "features": [{"type": "extruded_cut", "count": 2}, {"type": "hole_through_all", "diameter_mm": 10.5, "pattern": {"rows": 2, "cols": 3}}, {"type": "fillet", "radius_mm": 1.5}]}

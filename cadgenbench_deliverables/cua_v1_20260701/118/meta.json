@@ -1,0 +1,15 @@
+{
+  "id": "118",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 145 x 68 x 50 mm housing. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 145], y[0, 68], z[0, 50] and its centre is (72.5, 34). 2 identical Ø3 mm through holes at z = 0, all drilled in ONE operation: part.holes{locations:[[36.5, 34], [109.5, 34]], diameter:3, depth:50} - each cylinder-cutter axis sits at the listed [x, y] coordinate measured from the datum. Emit a SINGLE part.holes call that produces exactly 2 holes (do NOT write 2 separate hole calls). Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 8,
+  "bodyCount": 1,
+  "toolCalls": 3,
+  "stepBytes": 2969022,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/118/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/118/render.png",
+  "startedAt": "2026-07-01T23:00:11.122Z",
+  "finishedAt": "2026-07-01T23:00:36.983Z"
+}

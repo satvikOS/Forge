@@ -37,34 +37,34 @@ import React, {
 } from 'react';
 import { createPortal } from 'react-dom';
 
+// The pure auto-dim math (bbox + hole detection + per-view axis labels +
+// tolerances) lives in a React-free sibling so the headless drawing
+// engine + plain-Node tests can import it (Node can't load this `.jsx`).
+// We re-export so existing `AutoDimPanel.jsx` importers keep working.
+import {
+    ORTHO_VIEWS,
+    VIEW_AXIS_LABELS,
+    HOLE_RADIUS_TOL,
+    HOLE_MIN_VERTS,
+    HOLE_MIN_RADIUS,
+    bboxOfView,
+    detectHoles,
+} from './autoDimMath.js';
+
+export {
+    ORTHO_VIEWS,
+    VIEW_AXIS_LABELS,
+    HOLE_RADIUS_TOL,
+    HOLE_MIN_VERTS,
+    HOLE_MIN_RADIUS,
+    bboxOfView,
+    detectHoles,
+};
+
 // ─────────────────────────────────────────────────────────────────────
 // Constants
 
 export const FORGE_AUTO_DIM_EVENT = 'forge:auto-dim-generated';
-
-// All three orthographic views the panel scans so it can derive the
-// full 3D extent regardless of which view the user has selected.
-export const ORTHO_VIEWS = Object.freeze(['front', 'top', 'right']);
-
-// Per-view bbox-axis labels in the kernel's projection convention:
-//   front (look along -Y) → screen X = world X (width),  screen Y = world Z (depth)
-//   top   (look down -Z)  → screen X = world X (width),  screen Y = world Y (height)
-//   right (look along -X) → screen X = world Y (height), screen Y = world Z (depth)
-// → from any 2 of {front, top, right} we recover width (X), height (Y),
-// depth (Z) directly off the bbox spans.
-export const VIEW_AXIS_LABELS = Object.freeze({
-    front: { width: 'width', height: 'depth'  },
-    top:   { width: 'width', height: 'height' },
-    right: { width: 'height', height: 'depth' },
-});
-
-// Hole-detection tolerance: a polyline is classified as a circle when
-// every vertex lies within HOLE_RADIUS_TOL of the centroid distance.
-// Tight enough to reject squashed rectangles, loose enough to allow
-// the typical 12-segment OCCT tessellation.
-export const HOLE_RADIUS_TOL = 0.15;   // 15 % of mean radius
-export const HOLE_MIN_VERTS  = 6;      // at least a hexagon
-export const HOLE_MIN_RADIUS = 0.5;    // mm
 
 // View directions exposed in the UI.
 export const VIEW_DIRS = Object.freeze([
@@ -77,96 +77,6 @@ export const VIEW_DIRS = Object.freeze([
 // ─────────────────────────────────────────────────────────────────────
 // Pure helpers — exported so the e2e + plugins + Archie can drive the
 // pipeline headlessly via window.__forgeAutoDimHelper.
-
-/**
- * Compute the 2D bbox of an HLR view's visibleEdges. We deliberately
- * trust the kernel's pre-computed bbox when it's finite (the binding
- * fills v.minX..v.maxY off the same polylines we scan) but recompute
- * on the JS side as a defensive measure so a degenerate view object
- * still yields finite extents.
- *
- * @param {{bbox?: {minX, minY, maxX, maxY}, visibleEdges?: Array}} view
- * @returns {{minX, minY, maxX, maxY, width, height}|null}
- */
-export function bboxOfView(view) {
-    if (!view) return null;
-    let minX = +Infinity, minY = +Infinity, maxX = -Infinity, maxY = -Infinity;
-    const bb = view.bbox;
-    if (bb && Number.isFinite(bb.minX) && Number.isFinite(bb.maxX)
-           && Number.isFinite(bb.minY) && Number.isFinite(bb.maxY)) {
-        minX = bb.minX; minY = bb.minY; maxX = bb.maxX; maxY = bb.maxY;
-    } else {
-        const edges = Array.isArray(view.visibleEdges) ? view.visibleEdges : [];
-        for (const pl of edges) {
-            if (!Array.isArray(pl)) continue;
-            for (const p of pl) {
-                if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-                if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
-                if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
-            }
-        }
-    }
-    if (!Number.isFinite(minX) || !Number.isFinite(maxX)
-       || !Number.isFinite(minY) || !Number.isFinite(maxY)) return null;
-    return {
-        minX, minY, maxX, maxY,
-        width:  maxX - minX,
-        height: maxY - minY,
-    };
-}
-
-/**
- * Detect circular holes in an HLR view's visibleEdges. Each visible
- * polyline is treated as a candidate circle; we accept it when its
- * vertex spread is consistent with a circle (max deviation from the
- * mean radius < HOLE_RADIUS_TOL × meanRadius) and it has enough
- * vertices to be a real tessellated arc (HOLE_MIN_VERTS).
- *
- * Returns an array of {cx, cy, diameter, radius, edgeIndex}.
- */
-export function detectHoles(view) {
-    if (!view || !Array.isArray(view.visibleEdges)) return [];
-    const out = [];
-    for (let i = 0; i < view.visibleEdges.length; i += 1) {
-        const pl = view.visibleEdges[i];
-        if (!Array.isArray(pl) || pl.length < HOLE_MIN_VERTS) continue;
-        // Compute centroid.
-        let cx = 0, cy = 0, n = 0;
-        for (const p of pl) {
-            if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-            cx += p.x; cy += p.y; n += 1;
-        }
-        if (n < HOLE_MIN_VERTS) continue;
-        cx /= n; cy /= n;
-        // Compute mean radius + max deviation.
-        let rSum = 0, rMax = -Infinity, rMin = +Infinity;
-        for (const p of pl) {
-            if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
-            const dx = p.x - cx, dy = p.y - cy;
-            const r = Math.sqrt(dx * dx + dy * dy);
-            rSum += r;
-            if (r > rMax) rMax = r;
-            if (r < rMin) rMin = r;
-        }
-        const rMean = rSum / n;
-        if (!Number.isFinite(rMean) || rMean < HOLE_MIN_RADIUS) continue;
-        const dev = Math.max(Math.abs(rMax - rMean), Math.abs(rMin - rMean));
-        if (dev / rMean > HOLE_RADIUS_TOL) continue;
-        // Reject open polylines: a true tessellated circle has its
-        // endpoints close together relative to the radius.
-        const first = pl[0], last = pl[pl.length - 1];
-        const closeDx = last.x - first.x, closeDy = last.y - first.y;
-        const closeDist = Math.sqrt(closeDx * closeDx + closeDy * closeDy);
-        if (closeDist / rMean > 0.5) continue;
-        out.push({
-            cx, cy,
-            radius:   rMean,
-            diameter: 2 * rMean,
-            edgeIndex: i,
-        });
-    }
-    return out;
-}
 
 /**
  * Run forge.drawings.projectView for one direction and return the view

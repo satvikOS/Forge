@@ -1,0 +1,1 @@
+{"base_shape": "cuboid", "overall_dims_mm": {"x": 104, "y": 82.5, "z": 36}, "features": [{"type": "extruded_cut", "count": 10}, {"type": "fillet", "radius_mm": 2.5, "feature_count": 4}], "complexity": "medium"}

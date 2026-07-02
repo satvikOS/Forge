@@ -1,0 +1,1 @@
+{"base_shape": "box", "overall_dims_mm": {"x": 104, "y": 82.5, "z": 36}, "features": [{"type": "central_bore", "diameter_mm": 20.5, "through": true}, {"type": "corner_holes", "count": 4, "diameter_mm": 6.5, "pattern": {"name": "rectangular_grid"}}], "complexity": "medium", "feature_count": 2}

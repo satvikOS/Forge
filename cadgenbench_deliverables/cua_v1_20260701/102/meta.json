@@ -1,0 +1,15 @@
+{
+  "id": "102",
+  "status": "hit",
+  "reason": null,
+  "spec": "A 250 x 250 x 3.5 mm disc. The datum is the lower-left corner: part.begin{box} puts that corner at the origin, so the part spans x[0, 250], y[0, 250], z[0, 3.5] and its centre is (125, 125). ONE Ø120 mm blind hole, a cylinder cutter whose axis is at the absolute coordinate at = [120, 120, 3.5] measured from the datum. ONE Ø175.3 mm blind hole, a cylinder cutter whose axis is at the absolute coordinate at = [175.3, 175.3, 3.5] measured from the datum. ONE Ø200 mm blind hole, a cylinder cutter whose axis is at the absolute coordinate at = [200, 200, 3.5] measured from the datum. ONE Ø230 mm blind hole, a cylinder cutter whose axis is at the absolute coordinate at = [230, 230, 3.5] measured from the datum. ONE Ø250 mm blind hole, a cylinder cutter whose axis is at the absolute coordinate at = [250, 250, 3.5] measured from the datum. ONE Ø270 mm blind hole, a cylinder cutter whose axis is at the absolute coordinate at = [137.5, 137.5, 3.5] measured from the datum. Build exactly this part in Forge: start with the base solid, then apply each feature at its stated at = [x, y, z] coordinate, then the finish. Use the exact numbers above and do not drop any position.",
+  "adapter": "(shipped default)",
+  "handle": 47,
+  "bodyCount": 1,
+  "toolCalls": 15,
+  "stepBytes": 15554,
+  "stepPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/102/output.step",
+  "renderPath": "/Users/account_clawteam1/archdisc-Mech/cadgenbench_deliverables/cua_v1_20260701/102/render.png",
+  "startedAt": "2026-07-01T22:06:56.574Z",
+  "finishedAt": "2026-07-01T22:07:23.651Z"
+}

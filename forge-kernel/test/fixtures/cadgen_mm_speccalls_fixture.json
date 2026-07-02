@@ -1,0 +1,69 @@
+[
+  {
+    "id": "single_centre_hole",
+    "_note": "Canonical corner-drop bug: box base + ONE cylinder subtract with NO at. Raw build → cutter at origin (corner) → quarter-clip → b1=0. fillPositions → at=[60,40,0] → real through-hole → b1=2.",
+    "spec": "A 120 x 80 x 10 mm rectangular plate with a single 25 mm diameter through-hole at its centre.",
+    "calls": [
+      { "name": "part.begin", "arguments": { "primitive": "box", "dx": 120, "dy": 80, "dz": 10 } },
+      { "name": "part.subtract", "arguments": { "primitive": "cylinder", "diameter": 25, "depth": 10 } },
+      { "name": "part.finish", "arguments": {} }
+    ],
+    "expect": { "firstAt": [60, 40], "b1Before": 0, "b1After": 2 }
+  },
+  {
+    "id": "offset_hole_from_edges",
+    "_note": "Explicit absolute coordinate in the spec '(40, 30)' must override the centre default.",
+    "spec": "A 100 x 70 x 12 mm plate with one 16 mm diameter through-hole located at (40, 30) mm from the lower-left corner.",
+    "calls": [
+      { "name": "part.begin", "arguments": { "primitive": "box", "dx": 100, "dy": 70, "dz": 12 } },
+      { "name": "part.subtract", "arguments": { "primitive": "cylinder", "diameter": 16, "depth": 12 } },
+      { "name": "part.finish", "arguments": {} }
+    ],
+    "expect": { "firstAt": [40, 30], "b1Before": 0, "b1After": 2 }
+  },
+  {
+    "id": "central_pocket",
+    "_note": "Box cutter, no at → centred open-top pocket (lower-corner placement). Topology unchanged (open pocket, no through-hole) but POSITION corrected for shape IoU.",
+    "spec": "A 90 x 90 x 30 mm block with a central open pocket, 12 mm side walls and an 8 mm floor.",
+    "calls": [
+      { "name": "part.begin", "arguments": { "primitive": "box", "dx": 90, "dy": 90, "dz": 30 } },
+      { "name": "part.subtract", "arguments": { "primitive": "box", "dx": 66, "dy": 66, "dz": 22 } },
+      { "name": "part.finish", "arguments": { "fillet": 2 } }
+    ],
+    "expect": { "firstAt": [12, 12] }
+  },
+  {
+    "id": "cyl_base_bore_already_coaxial",
+    "_note": "Cylinder base + bore subtract with no at → injects [0,0,0] (the correct coaxial axis). b1=2 either way; injection is a no-op but makes the position explicit.",
+    "spec": "A tube: Ø50 mm OD x 60 mm long with a Ø40 mm coaxial bore.",
+    "calls": [
+      { "name": "part.begin", "arguments": { "primitive": "cylinder", "diameter": 50, "depth": 60 } },
+      { "name": "part.subtract", "arguments": { "primitive": "cylinder", "diameter": 40, "depth": 60 } },
+      { "name": "part.finish", "arguments": {} }
+    ],
+    "expect": { "firstAt": [0, 0], "b1Before": 2, "b1After": 2 }
+  },
+  {
+    "id": "two_holes_fanout",
+    "_note": "Two at-less cylinder subtracts on a box base with NO spec coordinates → fan out on a ring (radius min(L,W)/4) so they do not stack at the same centre. Two distinct through-holes → b1=4.",
+    "spec": "A 140 x 100 x 12 mm plate with two 14 mm diameter through-holes.",
+    "calls": [
+      { "name": "part.begin", "arguments": { "primitive": "box", "dx": 140, "dy": 100, "dz": 12 } },
+      { "name": "part.subtract", "arguments": { "primitive": "cylinder", "diameter": 14, "depth": 12 } },
+      { "name": "part.subtract", "arguments": { "primitive": "cylinder", "diameter": 14, "depth": 12 } },
+      { "name": "part.finish", "arguments": {} }
+    ],
+    "expect": { "b1Before": 0, "b1After": 4 }
+  },
+  {
+    "id": "explicit_at_untouched",
+    "_note": "Model already emitted a correct explicit at → fillPositions must NOT touch it (regression guard).",
+    "spec": "A 80 x 80 x 10 mm plate with one 20 mm diameter through-hole at its centre.",
+    "calls": [
+      { "name": "part.begin", "arguments": { "primitive": "box", "dx": 80, "dy": 80, "dz": 10 } },
+      { "name": "part.subtract", "arguments": { "primitive": "cylinder", "diameter": 20, "depth": 10, "at": [40, 40, 0] } },
+      { "name": "part.finish", "arguments": {} }
+    ],
+    "expect": { "b1Before": 2, "b1After": 2 }
+  }
+]

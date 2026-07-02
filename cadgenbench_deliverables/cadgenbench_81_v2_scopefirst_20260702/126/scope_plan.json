@@ -1,0 +1,1 @@
+{"base_shape": "cuboid", "overall_dims_mm": {"x": 104.5, "y": 82.3679, "z": 100}, "features": [{"type": "bolt_holes", "count": 4}, {"type": "mounting_bosses", "count": 2, "pattern": {"name": "rectangular_grid"}}], "complexity": "medium"}
