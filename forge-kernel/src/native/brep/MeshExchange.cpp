@@ -19,6 +19,9 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cstdlib>
+#include <cerrno>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -48,14 +51,17 @@ std::string formatDouble(double v) {
 }
 
 bool parseDouble(const std::string& token, double& out) {
+    // libc++ (Apple) deletes std::from_chars for floating-point; strtod is the
+    // portable equivalent. Same strictness: no leading whitespace, the WHOLE
+    // token must parse, and the value must be finite.
     if (token.empty()) return false;
-    const char* first = token.data();
-    const char* last  = token.data() + token.size();
-    double value = 0.0;
-    auto res = std::from_chars(first, last, value);
-    if (res.ec != std::errc()) return false;
-    if (res.ptr != last) return false;        // trailing garbage => reject
-    if (!std::isfinite(value)) return false;  // NaN / inf are not valid coords
+    if (std::isspace(static_cast<unsigned char>(token.front()))) return false;
+    errno = 0;
+    char* end = nullptr;
+    const double value = std::strtod(token.c_str(), &end);
+    if (end != token.c_str() + token.size()) return false;  // trailing garbage => reject
+    if (errno == ERANGE) return false;                      // over/underflow
+    if (!std::isfinite(value)) return false;                // NaN / inf are not valid coords
     out = value;
     return true;
 }
