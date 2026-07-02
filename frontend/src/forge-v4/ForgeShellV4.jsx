@@ -591,10 +591,67 @@ export function ForgeShellV4() {
   //   ForgeRunner if it's available + the native kernel is present.
   //   Tool calls stream into the thread; the run can be cancelled via
   //   the dock header. Falls back to a friendly offline echo otherwise.
-  async function runArchie(prompt) {
+  // Prompt-bar attachments (Forge — attach option in the command bar).
+  // CAD files import into the scene through the SAME io bridge File ▸ Import
+  // uses (real bodies, real handles); images are vision-captioned via the
+  // local caption server (Forge-162 pattern, bounded + optional) and ride the
+  // prompt as <attached_drawing> context. No stubs: a CAD import failure is
+  // surfaced in the thread as the real error.
+  async function _ingestAttachments(attachments) {
+    const notes = [];
+    for (const a of attachments || []) {
+      const ext = String(a.name || '').split('.').pop().toLowerCase();
+      if (a.kind === 'cad' && a.path) {
+        try {
+          const io = window.forge?.io;
+          if (!io) throw new Error('I/O bridge not loaded');
+          const fn = { step: io.importStep, stp: io.importStep,
+                       iges: io.importIges, igs: io.importIges,
+                       brep: io.importBrep, brp: io.importBrep,
+                       stl: io.importStl }[ext];
+          if (!fn) throw new Error(`no importer for .${ext}`);
+          const h = fn(a.path);
+          const nextId = `att-${Date.now().toString(36)}`;
+          setBodies((b) => [...b, { id: nextId, kind: 'native', handle: h,
+            toolId: 'file.importStep', params: { path: a.path }, name: a.name }]);
+          setFeatureTree((t) => [...t, { id: nextId, label: `Attach ${a.name}`,
+            icon: 'io.step', params: { path: a.path } }]);
+          pushThread({ role: 'tool', text: `[attachment] imported ${a.name} · handle ${h}` });
+          notes.push(`<attached_model name="${a.name}" handle="${h}">imported into the scene — edit THIS body</attached_model>`);
+        } catch (err) {
+          pushThread({ role: 'tool', text: `[attachment] import failed for ${a.name}: ${err.message}` });
+        }
+      } else if (a.kind === 'image' || a.kind === 'drawing') {
+        let caption = '';
+        if (a.kind === 'image' && (a.path || a.url)) {
+          try {   // draw onto an offscreen canvas → same caption server as the viewport
+            const img = new Image();
+            await new Promise((res, rej) => { img.onload = res; img.onerror = rej;
+              img.src = a.path ? `file://${a.path}` : a.url; });
+            const cv = document.createElement('canvas');
+            cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+            cv.getContext('2d').drawImage(img, 0, 0);
+            const { captureAndCaption } = await import('../ai/VisionPerception.js');
+            caption = await captureAndCaption({ canvas: cv,
+              prompt: 'Describe this engineering drawing: part type, views, key dimension callouts.' });
+          } catch (_) { /* vision optional — the attachment note still rides the prompt */ }
+        }
+        pushThread({ role: 'tool', text: `[attachment] drawing ${a.name}${caption ? ' · captioned' : ''}` });
+        notes.push(`<attached_drawing name="${a.name}"${a.path ? ` path="${a.path}"` : ''}>${caption || 'engineering drawing attached'}</attached_drawing>`);
+      }
+    }
+    return notes;
+  }
+
+  async function runArchie(prompt, attachments = []) {
     if (!prompt) return;
     setDockOpen(true);
-    pushThread({ role: 'user', text: prompt });
+    pushThread({ role: 'user', text: attachments.length
+      ? `${prompt}  📎 ${attachments.map((a) => a.name).join(', ')}` : prompt });
+    if (attachments.length) {
+      const notes = await _ingestAttachments(attachments);
+      if (notes.length) prompt = `${notes.join('\n')}\n\n${prompt}`;
+    }
     // Forge-165 — Phase D.3: simulation auto-trigger. Scan the prompt
     // for load-bearing / dynamic / thermal cues and post a hint to
     // the thread so Archie + the user both see that a Linear Static /
@@ -3178,7 +3235,7 @@ export function ForgeShellV4() {
                   running={running}
                   dockOpen={dockOpen}
                   onToggleDock={() => setDockOpen((v) => !v)}
-                  onSubmit={(text) => runArchie(text)} />
+                  onSubmit={(text, attachments) => runArchie(text, attachments)} />
       <ToastHost />
       <UpdateBanner />
       <HelpDrawer open={helpOpen}

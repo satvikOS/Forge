@@ -239,6 +239,7 @@ const PATHS = {
   // ──────────────── archie ────────────────
   'archie.spark':   (<><path d="M8 2v4M6 4h4M7 2.6l2 2.8M9 2.6l-2 2.8" /><path d="M5 9l3 5 3 -5" /></>),
   'archie.send':    (<><path d="M2 8l11 -5 -5 11 -2 -4z" /></>),
+  'archie.attach':  (<><path d="M9.5 4.5l-4.6 4.6a2.2 2.2 0 0 0 3.1 3.1l5.2-5.2a3.5 3.5 0 0 0-5-5L3.6 6.6" /></>),
   'archie.cancel':  (<><circle cx="8" cy="8" r="6" /><path d="M5 5l6 6" /></>),
   'archie.history': (<><circle cx="8" cy="8" r="6" /><path d="M8 4v4l3 2" /></>),
   'archie.thread':  (<><path d="M2 5h12v6H7l-3 3v-3H2z" /></>),

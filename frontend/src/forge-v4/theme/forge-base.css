@@ -1140,3 +1140,32 @@
   font-size: var(--fds-fs-micro);
   letter-spacing: 0;
 }
+
+/* ── command-bar attachments (prompt-bar attach option) ─────────────────── */
+.forge-app .forge-cmdbar-attach {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; flex: 0 0 auto;
+  background: transparent; border: 1px solid var(--f-border, #333);
+  border-radius: 6px; color: var(--f-text-dim, #999); cursor: pointer;
+}
+.forge-app .forge-cmdbar-attach:hover:not(:disabled) {
+  color: var(--f-text, #ddd); border-color: var(--f-text-dim, #777);
+}
+.forge-app .forge-cmdbar-attach:disabled { opacity: .4; cursor: default; }
+.forge-app .forge-cmdbar-attachments {
+  display: inline-flex; gap: 4px; max-width: 28ch; overflow: hidden; flex: 0 1 auto;
+}
+.forge-app .forge-cmdbar-attachment-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; line-height: 1; padding: 4px 6px;
+  border: 1px solid var(--f-border, #333); border-radius: 10px;
+  color: var(--f-text-dim, #aaa); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: 14ch;
+}
+.forge-app .forge-cmdbar-attachment-chip[data-kind="cad"] { border-style: solid; }
+.forge-app .forge-cmdbar-attachment-chip[data-kind="image"],
+.forge-app .forge-cmdbar-attachment-chip[data-kind="drawing"] { border-style: dashed; }
+.forge-app .forge-cmdbar-attachment-x {
+  background: none; border: none; color: inherit; cursor: pointer;
+  font-size: 12px; line-height: 1; padding: 0 0 0 2px;
+}
