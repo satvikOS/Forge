@@ -1,0 +1,42 @@
+{
+ "base_shape": "tapered flange (outer cylinder) with concentric inner bore and central hub",
+ "overall_dims_mm": {
+  "x": 116.0,
+  "y": 116.0,
+  "z": 28.02
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 66.94,
+   "depth_mm": 20.84
+  },
+  {
+   "type": "outer_flange",
+   "diameter_outer_mm": 116.0,
+   "thickness_mm": 28.02
+  },
+  {
+   "type": "central_hub",
+   "diameter_outer_mm": 45.0,
+   "height_mm": 13.79
+  },
+  {
+   "type": "tapered_wall",
+   "angle_degrees": 45,
+   "thickness_mm": 2.0
+  },
+  {
+   "type": "radial_slots",
+   "count": 6,
+   "diameter_outer_mm": 86.94,
+   "width_mm": 7.5
+  },
+  {
+   "type": "central_bore",
+   "diameter_outer_mm": 10.0,
+   "count": 6
+  }
+ ],
+ "complexity": "high"
+}

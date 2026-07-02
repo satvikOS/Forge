@@ -1,0 +1,70 @@
+{
+ "base_shape": "box",
+ "overall_dims_mm": {
+  "x": 104.5,
+  "y": 82.3,
+  "z": 67
+ },
+ "features": [
+  {
+   "type": "corner_cavity",
+   "depth_mm": 14.0,
+   "wall_thickness_mm": 3.5
+  },
+  {
+   "type": "central_bore",
+   "diameter_outer_mm": 20.0,
+   "depth_mm": 14.0
+  },
+  {
+   "type": "side_cavities",
+   "count": 2,
+   "diameter_outer_mm": 14.0
+  },
+  {
+   "type": "cbore_hole",
+   "count": 1,
+   "diameter_outer_mm": 8.5,
+   "depth_mm": 4.0
+  },
+  {
+   "type": "cbore_hole",
+   "count": 1,
+   "diameter_outer_mm": 8.5,
+   "depth_mm": 4.0
+  },
+  {
+   "type": "cbore_hole",
+   "count": 1,
+   "diameter_outer_mm": 8.5,
+   "depth_mm": 4.0
+  },
+  {
+   "type": "cbore_hole",
+   "count": 1,
+   "diameter_outer_mm": 8.5,
+   "depth_mm": 4.0
+  },
+  {
+   "type": "threaded_hole",
+   "size_m": 8.5,
+   "depth_mm": 14.0
+  },
+  {
+   "type": "threaded_hole",
+   "size_m": 8.5,
+   "depth_mm": 14.0
+  },
+  {
+   "type": "threaded_hole",
+   "size_m": 8.5,
+   "depth_mm": 14.0
+  },
+  {
+   "type": "threaded_hole",
+   "size_m": 8.5,
+   "depth_mm": 14.0
+  }
+ ],
+ "complexity": "high"
+}

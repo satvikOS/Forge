@@ -1,0 +1,58 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 80.81,
+  "y": 54.4,
+  "z_max": 36.7
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 80.81,
+  "y": 54.4
+ },
+ "features": [
+  {
+   "type": "sheet_thickness",
+   "thickness_mm": 2.0
+  },
+  {
+   "feature_id": "central_hole",
+   "count": 1,
+   "diameter_mm": 8.5,
+   "through": true
+  },
+  {
+   "feature_id": "cbore",
+   "count": 1,
+   "hole_dia_mm": 8.5,
+   "cavity_dia_mm": 13.0,
+   "depth_mm": 4.2
+  },
+  {
+   "feature_id": "corner_bends",
+   "side_1": {
+    "angle_degrees": 90,
+    "flange_height_mm": 23.48
+   },
+   "side_2": {
+    "angle_degrees": 90,
+    "flange_height_mm": 13.48
+   }
+  },
+  {
+   "feature_id": "corner_radius",
+   "radius_mm": 2.0,
+   "corners": "top-left-back"
+  },
+  {
+   "feature_id": "mounting_holes",
+   "count": 4,
+   "pattern": "rectangular",
+   "spacing_x_mm": 36.085,
+   "spacing_y_mm": 21.475
+  }
+ ],
+ "complexity": "medium",
+ "feature_count": 6,
+ "material_thickness_mm": 2.0
+}

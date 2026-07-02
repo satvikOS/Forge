@@ -1,0 +1,50 @@
+{
+ "base_shape": "cylindrical housing (outer), stepped bore",
+ "overall_dims_mm": {
+  "diameter": 1054.3,
+  "height": 287
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 405.31,
+   "depth_mm": 287
+  },
+  {
+   "type": "tapered_bore",
+   "angle_degrees": 105.0,
+   "inner_diameter_mm": 728.69
+  },
+  {
+   "type": "corner_fillet",
+   "radius_mm": 4.28,
+   "location": "outer corner"
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 3.64
+  },
+  {
+   "type": "threaded_hole",
+   "diameter_mm": 10,
+   "count": 8,
+   "pattern": "rectangular"
+  },
+  {
+   "type": "mounting_holes",
+   "diameter_mm": 6.0,
+   "count": 4,
+   "pattern": "rectangular"
+  },
+  {
+   "type": "deep_pockets",
+   "depth_mm": 8.2
+  },
+  {
+   "type": "counterbore_holes",
+   "diameter_mm": 14,
+   "count": 8
+  }
+ ],
+ "complexity": "high"
+}

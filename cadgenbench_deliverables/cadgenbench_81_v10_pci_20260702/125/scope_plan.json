@@ -1,0 +1,648 @@
+{
+ "base_shape": "cylindrical housing (multi-radius stepped)",
+ "overall_dims_mm": {
+  "diameter": 255.0,
+  "height": 138.4
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 255.0,
+  "x": 127.5,
+  "y": 127.5
+ },
+ "features": [
+  {
+   "type": "vertical_cavity",
+   "diameter_mm": 80.64,
+   "depth_mm": 32.51799999999864,
+   "positions_mm": [
+    [
+     0.0,
+     135.27
+    ]
+   ]
+  },
+  {
+   "type": "bolt_holes",
+   "count": 4,
+   "diameter_mm": 13.0,
+   "pattern": {
+    "type": "rectangular",
+    "spacing_x": 75.2489361036,
+    "spacing_y": 75.2489361036
+   },
+   "positions_mm": [
+    [
+     -37.62,
+     -37.62
+    ],
+    [
+     37.62,
+     -37.62
+    ],
+    [
+     -37.62,
+     37.62
+    ],
+    [
+     37.62,
+     37.62
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 5.0,
+   "positions_mm": [
+    [
+     138.4,
+     -267.9
+    ]
+   ]
+  }
+ ],
+ "outline_points_mm": [
+  [
+   -92.89,
+   121.81
+  ],
+  [
+   -96.45,
+   117.67
+  ],
+  [
+   -99.0,
+   105.78
+  ],
+  [
+   -99.0,
+   81.98
+  ],
+  [
+   -101.03,
+   72.67
+  ],
+  [
+   -112.23,
+   46.81
+  ],
+  [
+   -112.23,
+   6.47
+  ],
+  [
+   -121.39,
+   -4.4
+  ],
+  [
+   -124.45,
+   -11.64
+  ],
+  [
+   -124.95,
+   -19.91
+  ],
+  [
+   -127.5,
+   -21.98
+  ],
+  [
+   -125.46,
+   -56.12
+  ],
+  [
+   -123.43,
+   -59.22
+  ],
+  [
+   -80.17,
+   -92.84
+  ],
+  [
+   -72.02,
+   -98.02
+  ],
+  [
+   -16.54,
+   -125.43
+  ],
+  [
+   -6.87,
+   -126.98
+  ],
+  [
+   -0.76,
+   -125.95
+  ],
+  [
+   54.21,
+   -107.33
+  ],
+  [
+   77.11,
+   -96.98
+  ],
+  [
+   88.82,
+   -88.71
+  ],
+  [
+   126.48,
+   -50.43
+  ],
+  [
+   126.99,
+   -43.71
+  ],
+  [
+   124.45,
+   -40.6
+  ],
+  [
+   92.38,
+   -17.84
+  ],
+  [
+   92.38,
+   15.78
+  ],
+  [
+   91.36,
+   20.43
+  ],
+  [
+   88.31,
+   28.19
+  ],
+  [
+   84.24,
+   34.4
+  ],
+  [
+   74.57,
+   44.22
+  ],
+  [
+   64.89,
+   50.95
+  ],
+  [
+   43.52,
+   60.26
+  ],
+  [
+   25.7,
+   64.4
+  ],
+  [
+   -1.78,
+   67.5
+  ],
+  [
+   -21.63,
+   74.74
+  ],
+  [
+   -41.48,
+   88.71
+  ],
+  [
+   -47.59,
+   100.6
+  ],
+  [
+   -49.12,
+   115.6
+  ],
+  [
+   -50.64,
+   118.71
+  ],
+  [
+   -57.77,
+   124.4
+  ],
+  [
+   -65.91,
+   126.98
+  ],
+  [
+   -77.11,
+   127.5
+  ],
+  [
+   -86.27,
+   125.43
+  ]
+ ]
+}

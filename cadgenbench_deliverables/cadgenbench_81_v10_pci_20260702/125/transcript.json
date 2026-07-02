@@ -1,0 +1,222 @@
+{
+ "callouts": [
+  {
+   "text": "85.\u00d86",
+   "type": "diameter",
+   "value_mm": 85.06,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "85.\u00d86\u00b0",
+   "type": "diameter",
+   "value_mm": 85.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "32.94",
+   "type": "diameter",
+   "value_mm": 32.94,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 15.\u00d86\u00b0",
+   "type": "diameter",
+   "value_mm": 15.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R25.\u00d80",
+   "type": "radius",
+   "value_mm": 25.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 3
+  },
+  {
+   "text": "R18.74",
+   "type": "radius",
+   "value_mm": 18.74,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R15.\u00d80",
+   "type": "radius",
+   "value_mm": 15.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R5.\u00d80 TYP",
+   "type": "radius",
+   "value_mm": 5.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R2.\u00d80 TYP",
+   "type": "radius",
+   "value_mm": 2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "80.64 THRU \u233413",
+   "type": "cbore",
+   "value_mm": 80.64,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 25
+  },
+  {
+   "text": "255.\u00d80",
+   "type": "linear",
+   "value_mm": 255.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "156.24 -3X",
+   "type": "linear",
+   "value_mm": 156.24,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 11
+  },
+  {
+   "text": "150.\u00d80",
+   "type": "linear",
+   "value_mm": 150.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "106.\u00d80",
+   "type": "linear",
+   "value_mm": 106.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "78.\u00d80",
+   "type": "linear",
+   "value_mm": 78.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "75.\u00d80 -2X",
+   "type": "linear",
+   "value_mm": 75.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "70.83 -X-",
+   "type": "linear",
+   "value_mm": 70.83,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 9
+  },
+  {
+   "text": "70.\u00d80 -3X",
+   "type": "linear",
+   "value_mm": 70.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "50.62\u00b0",
+   "type": "linear",
+   "value_mm": 50.62,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "39.42",
+   "type": "linear",
+   "value_mm": 39.42,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/-2\u00b0",
+   "type": "linear",
+   "value_mm": 2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 0.5\u00b0",
+   "type": "linear",
+   "value_mm": 0.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/-0.15",
+   "type": "linear",
+   "value_mm": 0.15,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 345.27,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 275.69,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 102.67,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 84.35,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 81.0,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 81.0,
+   "orientation": "vertical",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

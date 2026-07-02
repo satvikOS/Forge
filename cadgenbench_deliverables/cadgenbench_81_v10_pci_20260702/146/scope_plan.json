@@ -1,0 +1,111 @@
+{
+ "base_shape": "cylindrical housing (cup)",
+ "overall_dims_mm": {
+  "max_diameter": 210.0,
+  "height": 95.0
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 210.0,
+  "x": 210.0,
+  "y": 210.0
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 68.5,
+   "through_length_mm": 90.34
+  },
+  {
+   "type": "side_bore",
+   "diameter_mm": 18.0,
+   "depth_mm": 35.46
+  },
+  {
+   "type": "tapered_section",
+   "start_diameter_mm": 180.0,
+   "end_diameter_mm": 68.5,
+   "length_mm": 43.12
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "diameter_mm": 70.3856219,
+   "pitch_dia": "M14",
+   "depth_mm": 70.3856219,
+   "positions_mm": [
+    [
+     -34.6,
+     -37.0
+    ],
+    [
+     34.5,
+     0.0
+    ],
+    [
+     -18.29,
+     37.6
+    ],
+    [
+     34.0,
+     -37.0
+    ]
+   ]
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 120.0,
+   "through_length_mm": 95.0
+  },
+  {
+   "type": "side_bore",
+   "diameter_mm": 45.0,
+   "depth_mm": 38.6
+  },
+  {
+   "type": "side_bore",
+   "diameter_mm": 40.0,
+   "depth_mm": 38.6
+  },
+  {
+   "type": "side_bore",
+   "diameter_mm": 18.0,
+   "depth_mm": 35.46
+  },
+  {
+   "type": "side_bore",
+   "diameter_mm": 8.0,
+   "depth_mm": 35.46
+  },
+  {
+   "type": "side_bore",
+   "diameter_mm": 6.0,
+   "depth_mm": 35.46
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "diameter_mm": 12.0,
+   "pitch_dia": "M12",
+   "depth_mm": 74.3856219,
+   "positions_mm": [
+    [
+     -30.0,
+     -30.0
+    ],
+    [
+     30.0,
+     -45.287196
+    ],
+    [
+     30.0,
+     30.0
+    ],
+    [
+     -30.0,
+     45.287196
+    ]
+   ]
+  }
+ ]
+}

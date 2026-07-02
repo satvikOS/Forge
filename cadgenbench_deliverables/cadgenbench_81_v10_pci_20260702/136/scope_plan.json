@@ -1,0 +1,43 @@
+{
+ "base_shape": "cylindrical housing (tapered outer wall)",
+ "overall_dims_mm": {
+  "diameter": 168.39,
+  "height": 70
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 68.42,
+   "depth_mm": 70
+  },
+  {
+   "type": "tapered_wall",
+   "inner_diameter_start": 135.48,
+   "outer_diameter_end": 168.39
+  },
+  {
+   "type": "mounting_holes",
+   "count": 4,
+   "pattern": "circumferential",
+   "diameter_mm": 14.0,
+   "depth_mm": 8
+  },
+  {
+   "type": "counterbore",
+   "feature_name": "central_cbore",
+   "diameter_outer": 30.59,
+   "depth_mm": 8
+  },
+  {
+   "type": "counterbore",
+   "feature_name": "inner_cbore",
+   "diameter_outer": 20.65,
+   "depth_mm": 8
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 2.0
+  }
+ ],
+ "complexity": "high"
+}

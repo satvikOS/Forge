@@ -1,0 +1,164 @@
+{
+ "base_shape": "cylindrical housing (outer), concentric inner bore",
+ "overall_dims_mm": {
+  "diameter": 128.0,
+  "height": 54.3
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 108,
+   "tapped": {
+    "thread_size": "M36X2"
+   }
+  },
+  {
+   "type": "inner_bore",
+   "diameter_mm": 40.5,
+   "tapped": {
+    "thread_size": "M12X38 THRU"
+   }
+  },
+  {
+   "type": "mounting_holes",
+   "count": 4,
+   "diameter_mm": 6.5,
+   "pattern": "rectangular"
+  },
+  {
+   "type": "coolant_port",
+   "diameter_mm": 82.0
+  },
+  {
+   "type": "threaded_hole",
+   "size": "M30X1.5 (TAPPED)",
+   "depth_mm": 28
+  },
+  {
+   "type": "tapped_holes",
+   "count": 10,
+   "size": "M4X0.6 THRU CBORE 8",
+   "pattern": "circular"
+  },
+  {
+   "type": "threaded_hole",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "threaded_hole",
+   "size": "M8X0.75 (TAPPED)",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "threaded_hole",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  },
+  {
+   "type": "tapped_holes",
+   "size": "M6X0.75 THRU \u2334\u00d89 X 3 DEEP",
+   "count": 1,
+   "position": "central"
+  }
+ ]
+}
