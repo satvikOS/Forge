@@ -91,3 +91,4 @@ dist-electron/
 *.zip
 *.exe
 forge-kernel/build-native/
+forge-kernel/test/native/gdt/fcf_evaluator_test.cpp
