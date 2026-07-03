@@ -1,0 +1,138 @@
+{
+ "base_shape": "cylindrical",
+ "overall_dims_mm": {
+  "diameter": 240.1,
+  "height": 38.0
+ },
+ "outline": {
+  "kind": "circle",
+  "x": 240.1,
+  "y": 240.1
+ },
+ "z_levels": [
+  {
+   "name": "base",
+   "height_mm": 38,
+   "profile": {
+    "outer_dia": 240.1
+   }
+  },
+  {
+   "name": "central_boss",
+   "height_mm": 38,
+   "profile": {
+    "outer_dia": 70.6
+   }
+  },
+  {
+   "name": "top_ring",
+   "height_mm": 13,
+   "profile": {
+    "outer_dia": 86.0
+   }
+  }
+ ],
+ "features": [
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 18.5,
+   "positions_mm": [
+    [
+     -72.0,
+     -30.0
+    ],
+    [
+     69.0,
+     4.0
+    ],
+    [
+     -71.85,
+     -30.05
+    ],
+    [
+     2.05,
+     69.0
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 18.5,
+   "positions_mm": [
+    [
+     -72.0,
+     -30.0
+    ],
+    [
+     69.0,
+     4.0
+    ],
+    [
+     -71.85,
+     -30.05
+    ],
+    [
+     2.05,
+     69.0
+    ]
+   ]
+  },
+  {
+   "type": "tapped_hole",
+   "count": 4,
+   "thread_size": "M6x1.0",
+   "positions_mm": [
+    [
+     -72.0,
+     -30.0
+    ],
+    [
+     69.0,
+     4.0
+    ],
+    [
+     -71.85,
+     -30.05
+    ],
+    [
+     2.05,
+     69.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_dia_mm": 8.5,
+   "cbore_dia_mm": 10.62,
+   "depth_mm": 3.84597,
+   "positions_mm": [
+    [
+     -10.0,
+     -62.0
+    ],
+    [
+     69.0,
+     3.8
+    ],
+    [
+     -54.7,
+     -48.10002
+    ],
+    [
+     69.0,
+     3.8
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 1,
+   "scope": "TYP"
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 6
+}

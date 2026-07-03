@@ -1,0 +1,75 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 105.0,
+  "y": 8.0
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 105.0,
+  "y": 7.0
+ },
+ "features": [
+  {
+   "type": "sheet_thickness",
+   "thickness_mm": 1.62
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "rectangular",
+    "rows": 2,
+    "cols": 2
+   },
+   "positions_mm": [
+    [
+     10.0,
+     5.0
+    ],
+    [
+     30.0,
+     5.0
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "diameter_mm": 6.0,
+   "through_thickness_mm": 12.0
+  },
+  {
+   "type": "thread",
+   "size_mm": 8.0,
+   "pitch_mm": 1.62,
+   "tapped_depth_mm": 9.0
+  },
+  {
+   "type": "hole",
+   "diameter_mm": 16.0,
+   "through_thickness_mm": 20.0
+  },
+  {
+   "type": "thread",
+   "size_mm": 16.0,
+   "pitch_mm": 2.0,
+   "tapped_depth_mm": 9.0
+  },
+  {
+   "type": "bend",
+   "angle_degrees": 45,
+   "radius_mm": 3.25
+  }
+ ],
+ "complexity": "medium",
+ "feature_count": 6,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 3.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 6.0
+  }
+ ]
+}

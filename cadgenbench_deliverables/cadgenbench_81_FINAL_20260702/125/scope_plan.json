@@ -1,0 +1,94 @@
+{
+ "base_shape": "cylindrical housing (cup)",
+ "overall_dims_mm": {
+  "max_diameter": 156.0,
+  "height": 48.76
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 156.0,
+  "x": 78.0,
+  "y": 78.0
+ },
+ "features": [
+  {
+   "type": "cavity",
+   "count": 1,
+   "radius_mm": 60.0,
+   "depth_mm": 25.48
+  },
+  {
+   "type": "boss",
+   "count": 1,
+   "height_mm": 30.0,
+   "diameter_mm": 42.73
+  },
+  {
+   "type": "threaded_hole",
+   "count": 1,
+   "diameter_mm": 8.0,
+   "tap_size": "M6-25",
+   "positions_mm": [
+    [
+     170.0,
+     39.0
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 24.38,
+   "feature_type": "corner"
+  },
+  {
+   "type": "rib",
+   "count": 6,
+   "thickness_mm": 2.0,
+   "height_mm": 15.0
+  },
+  {
+   "type": "mounting_holes",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "pattern": "rectangular (125x93)",
+   "positions_mm": [
+    [
+     48.76,
+     0
+    ],
+    [
+     39.0
+    ]
+   ]
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 85,
+   "through_length_mm": 30.0
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 8,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 10.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 25.48,
+   "profile": {
+    "type": "cylinder",
+    "diameter": 106.5
+   }
+  },
+  {
+   "name": "boss_top",
+   "height_mm": 30.0,
+   "profile": {
+    "type": "cylinder",
+    "diameter": 42.73
+   }
+  }
+ ]
+}

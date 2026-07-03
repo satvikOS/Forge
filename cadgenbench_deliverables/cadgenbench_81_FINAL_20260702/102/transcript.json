@@ -1,0 +1,354 @@
+{
+ "callouts": [
+  {
+   "text": "4X \u00d88.5 THRU \u233413 X 6 DEEP",
+   "type": "diameter",
+   "value_mm": 4.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R106 (4X)",
+   "type": "radius",
+   "value_mm": 106.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R30 TYP.",
+   "type": "radius",
+   "value_mm": 30.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R5 TYP.",
+   "type": "radius",
+   "value_mm": 5.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R3",
+   "type": "radius",
+   "value_mm": 3.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u233413 X 6 DEEP",
+   "type": "thru",
+   "value_mm": null,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d88.5 THRU \u233413 X 6 DEEP",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u233413 X 6 DEEP",
+   "type": "cbore",
+   "value_mm": 4.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 3
+  },
+  {
+   "text": "M10-1.5 THRU",
+   "type": "thread",
+   "value_mm": 10.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 13
+  },
+  {
+   "text": "M8-1.25 THRU",
+   "type": "thread",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 13
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "(3260)",
+   "type": "count",
+   "value_mm": 3260.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 2
+  },
+  {
+   "text": "(3240)",
+   "type": "count",
+   "value_mm": 3240.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 2
+  },
+  {
+   "text": "(3210 TYP)",
+   "type": "count",
+   "value_mm": 3210.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "(250) (R14)",
+   "type": "count",
+   "value_mm": 250.0,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "4X",
+   "type": "count",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+68 (-1.5) (R7)",
+   "type": "linear",
+   "value_mm": 66.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "(30) (-1.5)",
+   "type": "linear",
+   "value_mm": 28.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+2 -0.3",
+   "type": "linear",
+   "value_mm": 18.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+2 -0.3",
+   "type": "linear",
+   "value_mm": 16.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+2 -0.3",
+   "type": "linear",
+   "value_mm": 15.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+2 -0.3",
+   "type": "linear",
+   "value_mm": 14.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 26
+  },
+  {
+   "text": "+14 (-5) (R7)",
+   "type": "linear",
+   "value_mm": 9.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+8.5 (-2) (R47)",
+   "type": "linear",
+   "value_mm": 6.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+5.2 (R47)",
+   "type": "linear",
+   "value_mm": 5.2,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+0.2 -0.3",
+   "type": "linear",
+   "value_mm": 5.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u233413 X 6 DEEP",
+   "type": "linear",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "/2.0 (-1) (R7)",
+   "type": "linear",
+   "value_mm": 1.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+0.25/ - 0.18",
+   "type": "linear",
+   "value_mm": 0.43,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 15\u00b0",
+   "type": "linear",
+   "value_mm": 0.26,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 27
+  },
+  {
+   "text": "+0.25 UNL",
+   "type": "linear",
+   "value_mm": 0.25,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "/2.0 (-3) (R7)",
+   "type": "linear",
+   "value_mm": -1.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "/2.0 (-4) (R7)",
+   "type": "linear",
+   "value_mm": -2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "/1.5 (-4) (R7)",
+   "type": "linear",
+   "value_mm": -2.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+5 (-8) (R7)",
+   "type": "linear",
+   "value_mm": -3.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 3
+  },
+  {
+   "text": "/0.5 (-4) (R7)",
+   "type": "linear",
+   "value_mm": -3.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "/0 (-4) (R7)",
+   "type": "linear",
+   "value_mm": -4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "+1.5 (-6) (R7)",
+   "type": "linear",
+   "value_mm": -4.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+3 (-8) (R7)",
+   "type": "linear",
+   "value_mm": -5.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "/0 (-6) (R7)",
+   "type": "linear",
+   "value_mm": -6.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "/0 (-8) (R7)",
+   "type": "linear",
+   "value_mm": -8.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "/0 (-12) (R7)",
+   "type": "linear",
+   "value_mm": -12.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 143.0,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 62.85,
+   "orientation": "vertical",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

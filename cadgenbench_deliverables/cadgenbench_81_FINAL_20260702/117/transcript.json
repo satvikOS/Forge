@@ -1,0 +1,154 @@
+{
+ "callouts": [
+  {
+   "text": "4X \u00d88 THRU",
+   "type": "diameter",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 12
+  },
+  {
+   "text": "12X \u00d83 THRU",
+   "type": "diameter",
+   "value_mm": 3.0,
+   "count": 12,
+   "confidence": 1.0,
+   "evidence": 13
+  },
+  {
+   "text": "R38.70-4X",
+   "type": "radius",
+   "value_mm": 38.7,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R25-4X",
+   "type": "radius",
+   "value_mm": 25.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R20.50-4X",
+   "type": "radius",
+   "value_mm": 20.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R18-4X",
+   "type": "radius",
+   "value_mm": 18.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "R12.50",
+   "type": "radius",
+   "value_mm": 12.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "R8.74 CIRCULAR FILLET",
+   "type": "radius",
+   "value_mm": 8.74,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88 THRU \u2334\u00d823 X 10 DEEP",
+   "type": "cbore",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 5
+  },
+  {
+   "text": "M8-1.25 THRU",
+   "type": "thread",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 5.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 3
+  },
+  {
+   "text": "+/-0.37 -0.4",
+   "type": "linear",
+   "value_mm": 128.65,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 23
+  },
+  {
+   "text": "+/- 25\u00b0-4X (MAX)",
+   "type": "linear",
+   "value_mm": 25.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 21
+  },
+  {
+   "text": "12.87 -0.3",
+   "type": "linear",
+   "value_mm": 12.57,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "10.5 THRU",
+   "type": "linear",
+   "value_mm": 10.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+0/-125 THRU CIRCULAR FILLET",
+   "type": "linear",
+   "value_mm": 1.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 25
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 23.49,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 10.5,
+   "orientation": "vertical",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

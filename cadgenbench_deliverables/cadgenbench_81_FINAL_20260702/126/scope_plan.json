@@ -1,0 +1,113 @@
+{
+ "base_shape": "multi-level housing (cylindrical base + rectangular top)",
+ "overall_dims_mm": {
+  "x": 105.0,
+  "y": 8.0,
+  "z": 30.0
+ },
+ "outline": {
+  "kind": "rounded_rect",
+  "x": 105.0,
+  "y": 8.0
+ },
+ "features": [
+  {
+   "type": "cylindrical_bore",
+   "diameter_mm": 15.0,
+   "through_length_mm": 24.0,
+   "positions_mm": [
+    [
+     3.0,
+     15.0
+    ]
+   ]
+  },
+  {
+   "type": "threaded_hole",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "tapped_depth_mm": 12.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     3.0,
+     45.0
+    ],
+    [
+     12.0,
+     60.0
+    ]
+   ]
+  },
+  {
+   "type": "threaded_hole",
+   "count": 4,
+   "diameter_mm": 5.0,
+   "tapped_depth_mm": 12.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     3.0,
+     45.0
+    ],
+    [
+     12.0,
+     60.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_diameter_mm": 6.0,
+   "cbore_dia_mm": 12.0,
+   "depth_mm": 3.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     12.0,
+     60.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_diameter_mm": 8.5,
+   "cbore_dia_mm": [
+    12
+   ],
+   "depth_mm": 3.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     12.0,
+     60.0
+    ]
+   ]
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 5,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 10.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 20.0,
+   "profile": {
+    "type": "cylindrical_bore",
+    "diameter_mm": 15.0
+   }
+  },
+  {
+   "name": "top_boss",
+   "height_mm": 24.0,
+   "profile": {
+    "type": "cylindrical"
+   }
+  }
+ ]
+}

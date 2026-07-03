@@ -1,0 +1,204 @@
+{
+ "callouts": [
+  {
+   "text": "\u00d810.5 (VIA EXTERIOR BLEND)",
+   "type": "diameter",
+   "value_mm": 10.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d813 X 6 DEEP",
+   "type": "diameter",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 5
+  },
+  {
+   "text": "4X \u00d88",
+   "type": "diameter",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "\u00d88",
+   "type": "diameter",
+   "value_mm": 8.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d86 (VIA EXTRUDE)",
+   "type": "diameter",
+   "value_mm": 6.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R52+0.4/\u22120.1",
+   "type": "radius",
+   "value_mm": 52.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R18 C20 DEEP",
+   "type": "radius",
+   "value_mm": 18.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 26
+  },
+  {
+   "text": "R10.5+2/\u22124",
+   "type": "radius",
+   "value_mm": 10.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 16
+  },
+  {
+   "text": "RS TYP",
+   "type": "radius",
+   "value_mm": 5.2,
+   "count": 1,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "R3.5 C20 DEEP",
+   "type": "radius",
+   "value_mm": 3.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d810.5 THRU \u2334\u00d823 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 10.5,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d810.5 THRU \u233423 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 10.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d820 X 6 DEEP",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M8.5 X 0.7 THRU CBORE",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u2334\u00d813 X 6 DEEP",
+   "type": "cbore",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 4
+  },
+  {
+   "text": "M6X1 (VIA EXTRUDE)",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 5
+  },
+  {
+   "text": "4X M5 X 0.8 THRU",
+   "type": "thread",
+   "value_mm": 5.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M6X1 THRU",
+   "type": "thread",
+   "value_mm": 4.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "7",
+   "type": "linear",
+   "value_mm": 7.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 30
+  },
+  {
+   "text": "+/- 3\u00b0",
+   "type": "linear",
+   "value_mm": 3.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 2\u00b0",
+   "type": "linear",
+   "value_mm": 2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 16
+  },
+  {
+   "text": "+0.3/-0.1",
+   "type": "linear",
+   "value_mm": 0.3,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 130.25,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 20.39,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 8.5,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 4.5,
+   "orientation": "horizontal",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

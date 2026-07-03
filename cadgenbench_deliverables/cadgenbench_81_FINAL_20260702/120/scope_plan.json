@@ -1,0 +1,200 @@
+{
+ "base_shape": "sheet-metal enclosure (formed)",
+ "overall_dims_mm": {
+  "x": 18.0,
+  "y": 20.0,
+  "z": 9.0
+ },
+ "outline": {
+  "kind": "rounded_rect",
+  "x": 18.0,
+  "y": 20.0
+ },
+ "features": [
+  {
+   "type": "sheet_thickness",
+   "thickness_mm": 1.5
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "diameter_mm": 8.0
+   },
+   "positions_mm": [
+    [
+     2.5,
+     3.12
+    ],
+    [
+     4.0,
+     6.25
+    ],
+    "-7.8,-9",
+    "-3.1",
+    4
+   ],
+   "type": "holes",
+   "diameter_mm": 6.25,
+   "through_thickness_mm": 10
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "diameter_mm": 8.0
+   },
+   "positions_mm": [
+    [
+     2.5,
+     3.12
+    ],
+    [
+     4.0,
+     6.25
+    ],
+    "-7.8,-9",
+    "-3.1",
+    4
+   ],
+   "type": "holes",
+   "diameter_mm": 6.25,
+   "counterbore_dia_mm": 10.0
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "diameter_mm": 8.0
+   },
+   "positions_mm": [
+    [
+     2.5,
+     3.12
+    ],
+    [
+     4.0,
+     6.25
+    ],
+    "-7.8,-9",
+    "-3.1",
+    4
+   ],
+   "type": "tapped_holes",
+   "thread_size_mm": 6,
+   "pitch_mm": 0.75
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "diameter_mm": 8.0
+   },
+   "positions_mm": [
+    [
+     2.5,
+     3.12
+    ],
+    [
+     4.0,
+     6.25
+    ],
+    "-7.8,-9",
+    "-3.1",
+    4
+   ],
+   "type": "tapped_holes",
+   "thread_size_mm": 8,
+   "pitch_mm": 0.75
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "diameter_mm": 8.0
+   },
+   "positions_mm": [
+    [
+     2.5,
+     3.12
+    ],
+    [
+     4.0,
+     6.25
+    ],
+    "-7.8,-9",
+    "-3.1",
+    4
+   ],
+   "type": "tapped_holes",
+   "thread_size_mm": 5,
+   "pitch_mm": 0.75
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "diameter_mm": 8.0
+   },
+   "positions_mm": [
+    [
+     2.5,
+     3.12
+    ],
+    [
+     4.0,
+     6.25
+    ],
+    "-7.8,-9",
+    "-3.1",
+    4
+   ],
+   "type": "tapped_holes",
+   "thread_size_mm": 10,
+   "pitch_mm": 1.5
+  },
+  {
+   "count": 12,
+   "pattern": {
+    "shape": "rect",
+    "x_span": 8.0,
+    "y_span": 9.0
+   },
+   "positions_mm": [
+    [
+     1.5,
+     2
+    ],
+    [
+     3.0,
+     4
+    ],
+    "-6,-7",
+    "-9",
+    8,
+    "15"
+   ],
+   "type": "holes",
+   "diameter_mm": 3.0
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "radius_mm": 5
+   },
+   "positions_mm": [
+    [
+     3.0,
+     4
+    ],
+    "-6,-7",
+    8,
+    "12"
+   ],
+   "type": "holes",
+   "diameter_mm": 4.0
+  }
+ ],
+ "complexity": "high"
+}

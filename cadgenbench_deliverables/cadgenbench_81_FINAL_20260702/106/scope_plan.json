@@ -1,0 +1,42 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 120.0,
+  "y": 8.0
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 120.0,
+  "y": 8.0
+ },
+ "features": [
+  {
+   "type": "sheet_thickness",
+   "thickness_mm": 1.0
+  },
+  {
+   "name": "base_plate_bend_90deg",
+   "bend_angle_deg": 90,
+   "radius_mm": 1.0
+  },
+  {
+   "type": "formed_flange",
+   "side": "+y",
+   "height_mm": 2.0,
+   "thickness_multiplier": 1.0
+  }
+ ],
+ "complexity": "medium",
+ "feature_count": 4,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 3.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 6.0,
+   "offset_from_base": 4.0
+  }
+ ]
+}

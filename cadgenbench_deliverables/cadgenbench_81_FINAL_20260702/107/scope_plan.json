@@ -1,0 +1,74 @@
+{
+ "base_shape": "multi-level housing (stacked)",
+ "overall_dims_mm": {
+  "x": 120.0,
+  "y": 8.0
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 120.0,
+  "y": 8.0
+ },
+ "features": [
+  {
+   "type": "sheet_metal",
+   "thickness_mm": 1.0,
+   "bend_radius_mm": 2.0
+  },
+  {
+   "type": "raised_platform",
+   "height_mm": 6.0,
+   "diameter_outer_mm": 30.0
+  },
+  {
+   "type": "boss",
+   "count": 2,
+   "dia_inner_mm": 8.0,
+   "height_mm": 9.0,
+   "positions_mm": [
+    [
+     15.0,
+     2.0
+    ],
+    [
+     45.0,
+     3.0
+    ]
+   ]
+  },
+  {
+   "type": "mounting_holes",
+   "count": 2,
+   "diameter_mm": 4.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     15.0,
+     2.0
+    ],
+    [
+     45.0,
+     3.0
+    ]
+   ]
+  }
+ ],
+ "complexity": "medium",
+ "feature_count": 6,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 3.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 6.0,
+   "z_offset_mm": 4.0
+  },
+  {
+   "name": "boss_top",
+   "height_mm": 9.0
+  }
+ ],
+ "feature_count_total": 6
+}

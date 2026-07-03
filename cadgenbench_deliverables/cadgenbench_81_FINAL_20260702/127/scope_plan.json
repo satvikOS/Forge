@@ -1,0 +1,33 @@
+{
+ "base_shape": "boxy housing (elongated rectangular enclosure)",
+ "overall_dims_mm": {
+  "x": 120.5,
+  "y": 68.3,
+  "z": 47
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 8.0,
+   "depth_mm": 45.0
+  },
+  {
+   "type": "corner_bore",
+   "count": 2,
+   "diameter_mm": 10.2,
+   "depth_mm": 45.0
+  },
+  {
+   "type": "threaded_hole",
+   "count": 8,
+   "diameter_mm": 6.0,
+   "pitch_mm": 1.0
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 3.5
+  }
+ ],
+ "complexity": "high (multi-feature housing with internal bores, corner features and threaded holes)",
+ "feature_count": 4
+}

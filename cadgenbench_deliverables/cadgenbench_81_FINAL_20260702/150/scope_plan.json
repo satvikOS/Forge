@@ -1,0 +1,152 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 314.56,
+  "y": 20.0
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 314.56,
+  "y": 20.0
+ },
+ "features": [
+  {
+   "type": "sheet_metal_bend",
+   "side": "+x",
+   "angle_deg": 90,
+   "radius_mm": 2.5
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "depth_mm": 314.56,
+   "positions_mm": [
+    [
+     292.0,
+     8.0
+    ],
+    [
+     314.56,
+     7.0
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "count": 2,
+   "diameter_mm": 146.0,
+   "depth_mm": 30.0,
+   "positions_mm": [
+    [
+     292.0,
+     8.0
+    ],
+    [
+     146.0
+    ]
+   ]
+  },
+  {
+   "type": "thread",
+   "count": 2,
+   "diameter_mm": 30.0,
+   "pitch_mm": 18.0,
+   "positions_mm": [
+    [
+     292.0,
+     7.0
+    ],
+    [
+     36.0
+    ]
+   ]
+  },
+  {
+   "type": "thread",
+   "count": 4,
+   "diameter_mm": 12.0,
+   "pitch_mm": 75.0,
+   "positions_mm": [
+    [
+     36.0,
+     8.0
+    ],
+    [
+     146.0
+    ]
+   ]
+  },
+  {
+   "type": "thread",
+   "count": 2,
+   "diameter_mm": 5.0,
+   "length_mm": 18.0,
+   "positions_mm": [
+    [
+     36.0,
+     7.0
+    ],
+    [
+     292.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_diameter_mm": 8.0,
+   "cbore_dia_mm": 12.0,
+   "depth_mm": 6.0,
+   "positions_mm": [
+    [
+     36.0,
+     8.0
+    ],
+    [
+     146.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 2,
+   "hole_diameter_mm": 4.0,
+   "cbore_dia_mm": 8.0,
+   "depth_mm": 6.0,
+   "positions_mm": [
+    [
+     314.56,
+     7.0
+    ],
+    [
+     292.0
+    ]
+   ]
+  },
+  {
+   "type": "thread",
+   "count": 4,
+   "diameter_mm": 12.0,
+   "pitch_mm": 75.0
+  },
+  {
+   "type": "thread",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "pitch_mm": 18.0
+  }
+ ],
+ "complexity": "medium",
+ "feature_count": 9,
+ "outline_points_mm": [
+  [
+   157.28,
+   4.0
+  ],
+  [
+   36.0,
+   9.0
+  ]
+ ]
+}

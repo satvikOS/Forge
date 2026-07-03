@@ -1,0 +1,53 @@
+{
+ "base_shape": "cylindrical",
+ "overall_dims_mm": {
+  "diameter": 105.0,
+  "height": 2.0
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter": 105.0,
+  "x": 105.0
+ },
+ "features": [
+  {
+   "type": "cylinder",
+   "count": 2,
+   "diameter_mm": [
+    30.0,
+    45.0
+   ],
+   "height_mm": 15.0,
+   "positions_mm": [
+    [
+     2.0,
+     3.0
+    ],
+    [
+     4.0,
+     6.0
+    ]
+   ]
+  },
+  {
+   "type": "threaded_hole",
+   "count": 2,
+   "diameter_mm": [
+    4.0
+   ],
+   "depth_mm": 15.0,
+   "positions_mm": [
+    [
+     2.0,
+     3.0
+    ],
+    [
+     4.0,
+     6.0
+    ]
+   ]
+  }
+ ],
+ "complexity": "medium",
+ "feature_count": 2
+}

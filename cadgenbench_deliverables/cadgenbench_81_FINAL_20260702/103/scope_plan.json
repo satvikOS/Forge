@@ -1,0 +1,85 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 120.0,
+  "y": 75.0
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 120.0,
+  "y": 75.0
+ },
+ "features": [
+  {
+   "type": "sheet_thickness",
+   "thickness_mm": 1.5
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "diameter_mm": 8.0
+   },
+   "type": "hole",
+   "through_thickness_mm": 12,
+   "dia_mm": 6.5
+  },
+  {
+   "count": 4,
+   "pattern": {
+    "shape": "circle",
+    "diameter_mm": 8.0
+   },
+   "type": "hole",
+   "through_thickness_mm": 12,
+   "dia_mm": 6.25
+  },
+  {
+   "count": 4,
+   "type": "thread",
+   "size_metric": {
+    "diameter_mm": 8
+   },
+   "pitch_mm": 1.0
+  },
+  {
+   "count": 4,
+   "type": "thread",
+   "size_metric": {
+    "diameter_mm": 6
+   },
+   "pitch_mm": 1.0
+  },
+  {
+   "count": 4,
+   "type": "cbore",
+   "diameter_mm": 6.25,
+   "depth_mm": 3
+  },
+  {
+   "count": 1,
+   "type": "cbore",
+   "diameter_mm": 8.0,
+   "depth_mm": 5
+  },
+  {
+   "count": 1,
+   "type": "cbore",
+   "diameter_mm": 6.25,
+   "depth_mm": 3
+  },
+  {
+   "count": 1,
+   "type": "cbore",
+   "diameter_mm": 4.0,
+   "depth_mm": 3
+  },
+  {
+   "count": 1,
+   "type": "cbore",
+   "diameter_mm": 4.0
+  }
+ ],
+ "complexity": "medium (formed sheet metal with multiple holes, bends and a raised boss)",
+ "feature_count": 10
+}

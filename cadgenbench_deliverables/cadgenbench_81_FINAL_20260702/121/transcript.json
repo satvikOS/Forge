@@ -1,0 +1,109 @@
+{
+ "callouts": [
+  {
+   "text": "4X \u00d88.5 THRU",
+   "type": "diameter",
+   "value_mm": 8.5,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R1.\u00d80",
+   "type": "radius",
+   "value_mm": 1.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u233412 X 3 DEEP",
+   "type": "cbore",
+   "value_mm": 12.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88.5 THRU \u233412 X 3 DEEP",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "150",
+   "type": "count",
+   "value_mm": 150.0,
+   "count": 4,
+   "confidence": 0.5,
+   "evidence": 1
+  },
+  {
+   "text": "+/-0.2 (3X)",
+   "type": "count",
+   "value_mm": 0.4,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 25
+  },
+  {
+   "text": "78.60",
+   "type": "linear",
+   "value_mm": 78.6,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 32.\u00d85 (MAX)",
+   "type": "linear",
+   "value_mm": 32.6,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 28
+  },
+  {
+   "text": "+/- 12 MM (0.47 IN)",
+   "type": "linear",
+   "value_mm": 12.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 3 MM (0.1 IN)",
+   "type": "linear",
+   "value_mm": 3.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 16
+  },
+  {
+   "text": "+/- 2\u00b0",
+   "type": "linear",
+   "value_mm": 2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 16
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 268.0,
+   "orientation": "horizontal",
+   "evidence": 31
+  }
+ ],
+ "tiles_parsed": 4,
+ "tiles_failed": 1
+}

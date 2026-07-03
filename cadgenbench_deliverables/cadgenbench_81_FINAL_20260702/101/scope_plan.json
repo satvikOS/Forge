@@ -1,0 +1,88 @@
+{
+ "base_shape": "cylindrical housing (multi-level)",
+ "overall_dims_mm": {
+  "x": 200.0,
+  "y": 188.0
+ },
+ "outline": {
+  "kind": "rounded_rect",
+  "x": 200,
+  "y": 188.0
+ },
+ "features": [
+  {
+   "type": "cylinder",
+   "count": 6,
+   "diameter_mm": 12.0,
+   "through_length_mm": 50.0,
+   "positions_mm": [
+    [
+     38.0,
+     12.0
+    ],
+    [
+     4.0,
+     50.0
+    ],
+    ":[-63.8,-71.2],[-94.0,5.0],[38.6,-50.1],[-72.49,-18.0]]},{"
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 6,
+   "hole_dia_mm": 18.0,
+   "cbore_dia_mm": "25",
+   "depth_mm": 3.0
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 4.0,
+   "edges": "['outer_cylindrical'] ['vertical']"
+  },
+  {
+   "type": "csink",
+   "count": 6,
+   "angle_degrees": 60.0,
+   "hole_dia_mm": "12"
+  },
+  {
+   "type": "thread",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "pitch_mm": 1.2
+  },
+  {
+   "type": "boss",
+   "diameter_mm": 45.0,
+   "height_mm": 8.0
+  }
+ ],
+ "complexity": "high (multi-level, threaded holes, counterbores)",
+ "feature_count": 9,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 3.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 6.0,
+   "offset_from_base": 12.0
+  },
+  {
+   "name": "boss_top",
+   "height_mm": 8.0,
+   "offset_from_base": 15.0
+  }
+ ],
+ "outline_points_mm": [
+  [
+   400,
+   200
+  ],
+  [
+   38.0,
+   15.0
+  ]
+ ]
+}

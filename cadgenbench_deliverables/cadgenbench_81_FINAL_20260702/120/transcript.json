@@ -1,0 +1,188 @@
+{
+ "callouts": [
+  {
+   "text": "\u00d810 THRU",
+   "type": "diameter",
+   "value_mm": 10.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88 THRU",
+   "type": "diameter",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 13
+  },
+  {
+   "text": "4X \u00d86.25 THRU",
+   "type": "diameter",
+   "value_mm": 6.25,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "12X \u00d83 THRU",
+   "type": "diameter",
+   "value_mm": 3.0,
+   "count": 12,
+   "confidence": 1.0,
+   "evidence": 12
+  },
+  {
+   "text": "R10.5 C2 THRU",
+   "type": "radius",
+   "value_mm": 10.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d86.25 THRU \u233410 X 3 DEEP",
+   "type": "cbore",
+   "value_mm": 4.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "M10-1.5 THRU",
+   "type": "thread",
+   "value_mm": 10.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "M8-1.25 THRU",
+   "type": "thread",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 4
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 4
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 5.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "4X",
+   "type": "count",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 0.3 MM (\u00b12)",
+   "type": "linear",
+   "value_mm": 18.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 0.3 MM (\u00b12)",
+   "type": "linear",
+   "value_mm": 16.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 0.3 MM (\u00b12)",
+   "type": "linear",
+   "value_mm": 15.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 0.3 MM (\u00b12)",
+   "type": "linear",
+   "value_mm": 14.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 21
+  },
+  {
+   "text": "+/- 2 MM (\u00b10.8)",
+   "type": "linear",
+   "value_mm": 4.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+0.25/ - 1.38 MM (\u00b10.64)",
+   "type": "linear",
+   "value_mm": 2.51,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 1 MM (\u00b10.5)",
+   "type": "linear",
+   "value_mm": 2.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 28
+  },
+  {
+   "text": "+/-0.8 MM (\u00b10.4)",
+   "type": "linear",
+   "value_mm": 1.6,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 3 MM (\u00b12)",
+   "type": "linear",
+   "value_mm": 1.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 108.37,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 40.25,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 25.39,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 24.5,
+   "orientation": "horizontal",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

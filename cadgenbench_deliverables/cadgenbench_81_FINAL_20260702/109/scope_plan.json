@@ -1,0 +1,112 @@
+{
+ "base_shape": "cylinder",
+ "overall_dims_mm": {
+  "diameter": 135.04,
+  "height": 82.6
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 135.04,
+  "x": 67.52,
+  "y": 67.52
+ },
+ "features": [
+  {
+   "type": "cylinder",
+   "count": 1,
+   "diameter_mm": 80.465,
+   "height_mm": 32.791
+  },
+  {
+   "type": "cylinder",
+   "count": 4,
+   "diameter_mm": 8.5,
+   "height_mm": 60.231,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     -48.75,
+     -60.0
+    ],
+    [
+     -39.0,
+     12.0
+    ],
+    [
+     48.75,
+     -60.0
+    ],
+    [
+     39.0,
+     12.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_dia_mm": 8.5,
+   "cbore_dia_mm": 13.0,
+   "depth_mm": 6.248579999999993,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     -48.75,
+     -60.0
+    ],
+    [
+     -39.0,
+     12.0
+    ],
+    [
+     48.75,
+     -60.0
+    ],
+    [
+     39.0,
+     12.0
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 1.8,
+   "edges": "['outer_cylinder_edge'] ['inner_cylinders']",
+   "feature_id": "fillet_1.8"
+  },
+  {
+   "type": "tapered_surface",
+   "angle_deg": 24,
+   "cone_height_mm": 13.085799999999963,
+   "top_diameter_mm": 103.5872
+  },
+  {
+   "type": "cylinder",
+   "count": 4,
+   "diameter_mm": 13.08579999999964,
+   "height_mm": 13.08579999999964,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     -10.83,
+     -57.2
+    ],
+    [
+     -46.9,
+     12.0
+    ],
+    [
+     10.83,
+     -57.2
+    ],
+    [
+     -46.9,
+     12.0
+    ]
+   ]
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 7,
+ "units": "mm"
+}

@@ -1,0 +1,173 @@
+{
+ "base_shape": "cylindrical body (main shaft) with a flange and two mounting arms",
+ "overall_dims_mm": {
+  "x": 108.5,
+  "y": 72.4936,
+  "z": 50.0
+ },
+ "outline": {
+  "kind": "rounded_rect",
+  "x": 108.4936,
+  "y": 72.5
+ },
+ "features": [
+  {
+   "type": "cylinder",
+   "count": 1,
+   "diameter_mm": 60.4935872,
+   "length_mm": 108.4936,
+   "positions_mm": [
+    [
+     54.247,
+     -10.8
+    ]
+   ],
+   "feature_id": "shaft"
+  },
+  {
+   "type": "flange",
+   "count": 1,
+   "diameter_mm": 64.0387592,
+   "thickness_mm": 10.0,
+   "positions_mm": [
+    [
+     54.247,
+     -10.8
+    ]
+   ],
+   "feature_id": "flange"
+  },
+  {
+   "type": "arm",
+   "count": 4,
+   "length_mm": 283.5176904,
+   "width_mm": 20.0,
+   "positions_mm": [
+    [
+     38.5,
+     -174.0
+    ],
+    [
+     69.2,
+     10.0
+    ],
+    [
+     -10.538,
+     -174.0
+    ]
+   ],
+   "feature_id": "arms"
+  },
+  {
+   "type": "bolt_holes",
+   "count": 8,
+   "pattern": "rectangular (4x2)",
+   "diameter_mm": 6.037518,
+   "positions_mm": [
+    [
+     -49.0,
+     -20.0
+    ],
+    [
+     -49.0,
+     6.0
+    ],
+    [
+     37.5,
+     -18.0
+    ]
+   ],
+   "feature_id": "bolt_holes"
+  },
+  {
+   "type": "cbore",
+   "count": 4,
+   "diameter_mm": 108.537692,
+   "hole_dia_mm": 4.0,
+   "depth_mm": 18.537692,
+   "pattern": "circular",
+   "positions": [
+    [
+     40.0,
+     -18.5
+    ],
+    [
+     37.0,
+     26.0
+    ],
+    [
+     -90.5,
+     -18.0
+    ]
+   ],
+   "feature_id": "cbore_4x108"
+  },
+  {
+   "type": "cbore",
+   "count": 6,
+   "diameter_mm": 25.3408719,
+   "hole_dia_mm": 6.25,
+   "depth_mm": 34.08719,
+   "pattern": "circular",
+   "positions": [
+    [
+     25.0,
+     -63.0
+    ],
+    [
+     40.8,
+     17.0
+    ],
+    [
+     -90.5,
+     -18.0
+    ]
+   ],
+   "feature_id": "cbore_6x25"
+  },
+  {
+   "type": "tapped_holes",
+   "count": 3,
+   "thread_size_mm": 8.0,
+   "depth_mm": 12.547693,
+   "positions": [
+    [
+     85.0,
+     -10.0
+    ]
+   ]
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 9,
+ "z_levels": [
+  {
+   "name": "main shaft (lower)",
+   "height_mm": 108.4936,
+   "profile": {
+    "type": "cylinder",
+    "diameter_mm": 57
+   },
+   "feature_id": "shaft"
+  },
+  {
+   "name": "flange (middle)",
+   "height_mm": 10.4963,
+   "profile": {
+    "type": "cylinder",
+    "diameter_mm": 72
+   },
+   "feature_id": "flange"
+  },
+  {
+   "name": "arms (upper)",
+   "height_mm": 10.4963,
+   "profile": {
+    "type": "extrusion",
+    "width_mm": 28
+   },
+   "feature_id": "arms"
+  }
+ ],
+ "units": "mm"
+}

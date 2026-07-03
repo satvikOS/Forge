@@ -1,0 +1,150 @@
+{
+ "callouts": [
+  {
+   "text": "\u00d812.\u00d80 THRU",
+   "type": "diameter",
+   "value_mm": 12.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X \u00d88",
+   "type": "diameter",
+   "value_mm": 8.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "R84...\u00d80",
+   "type": "radius",
+   "value_mm": 17.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R15.\u00d80",
+   "type": "radius",
+   "value_mm": 15.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 2
+  },
+  {
+   "text": "R10 CIRCULAR",
+   "type": "radius",
+   "value_mm": 10.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "R8.\u00d80",
+   "type": "radius",
+   "value_mm": 8.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "19.\u00d82 CBORE \u2334\u00d813 X 5 DEEP",
+   "type": "cbore",
+   "value_mm": 13.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 9
+  },
+  {
+   "text": "\u00d812 THRU \u2334\u00d814 X 8 DEEP",
+   "type": "cbore",
+   "value_mm": 12.0,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d88.5 THRU \u233412 X 6 DEEP",
+   "type": "cbore",
+   "value_mm": 8.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "\u00d86.5 THRU \u2334\u00d89 X 4 DEEP",
+   "type": "cbore",
+   "value_mm": 6.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "4X M6-1 THRU",
+   "type": "thread",
+   "value_mm": 6.0,
+   "count": 4,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 2% (0)",
+   "type": "linear",
+   "value_mm": 17.5,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 31
+  },
+  {
+   "text": "B15..\u00d80",
+   "type": "linear",
+   "value_mm": 2.3,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 1
+  },
+  {
+   "text": "+/- 28 .43 A+",
+   "type": "linear",
+   "value_mm": 0.17,
+   "count": 1,
+   "confidence": 1.0,
+   "evidence": 28
+  }
+ ],
+ "dims": [
+  {
+   "value_mm": 108.37,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 48.75,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 24.5,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 24.09,
+   "orientation": "horizontal",
+   "evidence": 1
+  },
+  {
+   "value_mm": 19.0,
+   "orientation": "vertical",
+   "evidence": 1
+  },
+  {
+   "value_mm": 16.02,
+   "orientation": "vertical",
+   "evidence": 1
+  }
+ ],
+ "tiles_parsed": 5,
+ "tiles_failed": 0
+}

@@ -1,0 +1,29 @@
+{
+ "base_shape": "cylindrical housing (cup)",
+ "overall_dims_mm": {
+  "x": 105.0,
+  "y": 8.0
+ },
+ "outline": {
+  "kind": "rounded_rect",
+  "x": 105.0,
+  "y": 8.0
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 14.0,
+   "through_thickness_mm": 38.0
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 12,
+   "through_thickness_mm": 38.0
+  },
+  {
+   "type": "central_bore",
+   "diameter_mm": 14,
+   "through_thickness_mm": null
+  }
+ ]
+}

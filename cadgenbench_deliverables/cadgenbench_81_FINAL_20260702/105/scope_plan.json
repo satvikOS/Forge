@@ -1,0 +1,109 @@
+{
+ "base_shape": "multi-level cylindrical housing (stacked)",
+ "overall_dims_mm": {
+  "x": 120.0,
+  "y": 8.0
+ },
+ "outline": {
+  "kind": "rect",
+  "width_mm": 120.0,
+  "height_mm": 8.0
+ },
+ "features": [
+  {
+   "type": "cylinder",
+   "diameter_mm": 12.0,
+   "height_mm": 3.0,
+   "positions_mm": [
+    [
+     60.0,
+     4.0
+    ]
+   ]
+  },
+  {
+   "type": "cylinder",
+   "diameter_mm": 12.0,
+   "height_mm": 6.5,
+   "positions_mm": [
+    [
+     30.0,
+     4.0
+    ]
+   ]
+  },
+  {
+   "type": "cylinder",
+   "diameter_mm": 12.0,
+   "height_mm": 9.0,
+   "positions_mm": [
+    [
+     30.0,
+     4.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 1,
+   "diameter_mm": 20.0,
+   "depth_mm": 3.0,
+   "hole_dia_mm": 10.0,
+   "pattern": "circular",
+   "positions_mm": [
+    [
+     60.0,
+     4.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 1,
+   "diameter_mm": 20.0,
+   "depth_mm": 3.0,
+   "hole_dia_mm": 16.0,
+   "pattern": "circular",
+   "positions_mm": [
+    [
+     30.0,
+     4.0
+    ]
+   ]
+  },
+  {
+   "type": "tapped_hole",
+   "count": 8,
+   "diameter_mm": 12.0,
+   "thread_size": "M6X1",
+   "positions_mm": [
+    [
+     30.0,
+     4.0
+    ],
+    [
+     90.0,
+     24.0
+    ]
+   ]
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 8,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 3.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 6.5,
+   "z_offset_mm": 12.0
+  },
+  {
+   "name": "boss_top",
+   "height_mm": 9.0,
+   "z_offset_mm": 12.0
+  }
+ ]
+}

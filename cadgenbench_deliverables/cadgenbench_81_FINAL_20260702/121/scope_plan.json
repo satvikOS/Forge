@@ -1,0 +1,73 @@
+{
+ "base_shape": "cylindrical housing (multi-level)",
+ "overall_dims_mm": {
+  "diameter": 150.0,
+  "height": 24.0
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 150,
+  "x": 78.6,
+  "y": 24
+ },
+ "features": [
+  {
+   "type": "cylindrical_boss",
+   "count": 1,
+   "diameter_mm": 32.6,
+   "height_mm": 7.0,
+   "positions_mm": [
+    [
+     15.0,
+     8.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore_holes",
+   "count": 4,
+   "diameter_mm": 12.0,
+   "depth_mm": 3.0,
+   "through_dia_mm": 8.5,
+   "pattern": "bolt_circle",
+   "positions_mm": [
+    [
+     39.3,
+     120
+    ],
+    [
+     45.0
+    ]
+   ]
+  },
+  {
+   "type": "tapped_holes",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "thread_size": "M6-1",
+   "depth_mm": 8.5,
+   "pattern": "bolt_circle",
+   "positions_mm": [
+    [
+     39.3,
+     120
+    ],
+    [
+     45.0
+    ]
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 1,
+   "feature_id": "f0"
+  },
+  {
+   "type": "chamfer_edge",
+   "angle_degrees": 2.0,
+   "edge_type": "top_outer"
+  }
+ ],
+ "complexity": "medium (multi-level, multiple hole types)",
+ "feature_count": 5
+}

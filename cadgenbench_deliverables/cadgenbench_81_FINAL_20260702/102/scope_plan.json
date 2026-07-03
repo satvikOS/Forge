@@ -1,0 +1,157 @@
+{
+ "base_shape": "cylindrical",
+ "overall_dims_mm": {
+  "diameter": 3260.0,
+  "height": 17.0
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 3260,
+  "x": 15.0
+ },
+ "features": [
+  {
+   "type": "central_bore",
+   "diameter_mm": 28,
+   "positions_mm": [
+    [
+     0.0,
+     0.0
+    ]
+   ]
+  },
+  {
+   "type": "bolt_holes",
+   "count": 4,
+   "diameter_mm": 8.5,
+   "pattern": {
+    "kind": "circular",
+    "radius_mm": 14.0
+   },
+   "positions_mm": [
+    [
+     8.5,
+     7.0
+    ],
+    [
+     2.6,
+     13.0
+    ],
+    ":[-4.9,-8.5],[-7.0,-2.6]]},{"
+   ]
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "diameter_mm": 10.0,
+   "tapped_depth_mm": 250.0,
+   "pattern": {
+    "kind": "circular",
+    "radius_mm": 36
+   },
+   "positions_mm": [
+    [
+     18.0,
+     250
+    ],
+    [
+     4.0,
+     7.0
+    ],
+    ":[-36,-18],[-9.25,-14]]},{"
+   ]
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "tapped_depth_mm": 250.0,
+   "pattern": {
+    "kind": "circular",
+    "radius_mm": 36
+   },
+   "positions_mm": [
+    [
+     18.0,
+     250
+    ],
+    [
+     4.0,
+     7.0
+    ],
+    ":[-36,-18],[-9.25,-14]]},{"
+   ]
+  },
+  {
+   "type": "threaded_holes",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "tapped_depth_mm": 12.0,
+   "pattern": {
+    "kind": "circular",
+    "radius_mm": 36
+   },
+   "positions_mm": [
+    [
+     18.0,
+     250
+    ],
+    [
+     4.0,
+     7.0
+    ],
+    ":[-36,-18],[-9.25,-14]]},{"
+   ]
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 3,
+   "feature_edges": "[8.5, 7.0] [2.6, 13.0] :[-4.9,-8.5],[-7.0,-2.6]]},{"
+  },
+  {
+   "type": "counterbore",
+   "count": 1,
+   "hole_diameter_mm": 8.5,
+   "cbore_dia_mm": 20.0,
+   "depth_mm": 6.0,
+   "positions_mm": [
+    [
+     18.0,
+     250.0
+    ]
+   ]
+  },
+  {
+   "]},{": ","
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 6,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 3.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 6.0,
+   "z_offset_mm": 12.0
+  },
+  {
+   "name": "boss_top",
+   "height_mm": 8.0,
+   "z_offset_mm": 17.0
+  }
+ ],
+ "outline_points_mm": [
+  [
+   8.5,
+   250
+  ],
+  [
+   4.0,
+   7.0
+  ],
+  ":[-36,-18],[-9.25,-14]]},"
+ ]
+}

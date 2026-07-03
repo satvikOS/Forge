@@ -1,0 +1,183 @@
+{
+ "base_shape": "cylindrical housing (multi-level)",
+ "overall_dims_mm": {
+  "max_diameter": 34.0,
+  "height": 175.0
+ },
+ "outline": {
+  "kind": "circle",
+  "diameter_mm": 34,
+  "x": 17.0,
+  "y": 17.0
+ },
+ "features": [
+  {
+   "type": "cylinder",
+   "diameter_mm": 34,
+   "length_mm": 12.0,
+   "positions_mm": [
+    [
+     0.0,
+     0.0
+    ]
+   ],
+   "z_level": "base_plate"
+  },
+  {
+   "type": "cylinder",
+   "diameter_mm": 28,
+   "length_mm": 10.52,
+   "positions_mm": [
+    [
+     0.0,
+     0.0
+    ]
+   ],
+   "z_level": "raised_platform"
+  },
+  {
+   "type": "cylinder",
+   "diameter_mm": 16.0,
+   "length_mm": 28.0,
+   "positions_mm": [
+    [
+     0.0,
+     0.0
+    ]
+   ],
+   "z_level": "boss_top"
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "through_thickness_mm": 12.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     34.0,
+     56.0
+    ],
+    [
+     12.0,
+     75.0
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "through_thickness_mm": 12.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     34.0,
+     56.0
+    ],
+    [
+     12.0,
+     75.0
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "tapped": {
+    "thread_size_m": "M8",
+    "depth_mm": 12
+   },
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     34.0,
+     56.0
+    ],
+    [
+     12.0,
+     75.0
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "tapped": {
+    "thread_size_m": "M6",
+    "depth_mm": 12
+   },
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     34.0,
+     56.0
+    ],
+    [
+     12.0,
+     75.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_diameter_mm": 8.5,
+   "cbore_diameter_mm": 102.84,
+   "depth_mm": 3.0,
+   "positions_mm": [
+    [
+     56.0,
+     12.0
+    ],
+    [
+     75.0,
+     34.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 1,
+   "hole_diameter_mm": 8.5,
+   "cbore_diameter_mm": 28.0,
+   "depth_mm": 7.0,
+   "positions_mm": [
+    [
+     14.0,
+     28.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 1,
+   "hole_diameter_mm": 6.0,
+   "cbore_diameter_mm": 34.0,
+   "depth_mm": 12.0,
+   "positions_mm": [
+    [
+     56.0,
+     34.0
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 1,
+   "hole_diameter_mm": 8.5,
+   "cbore_diameter_mm": 34.0,
+   "depth_mm": 12.0,
+   "positions_mm": [
+    [
+     56.0,
+     34.0
+    ]
+   ]
+  }
+ ],
+ "complexity": "high",
+ "feature_count": 12
+}

@@ -1,0 +1,13 @@
+{
+ "base_shape": "box",
+ "overall_dims_mm": {
+  "x": 8.0,
+  "y": 12.0
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 8.5,
+  "y": 9.0
+ },
+ "features": []
+}

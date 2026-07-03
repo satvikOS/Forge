@@ -1,0 +1,28 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 105.0,
+  "y": 75.0,
+  "z": 2.0
+ },
+ "outline": {
+  "kind": "rect",
+  "x": 105.0,
+  "y": 75.0
+ },
+ "features": [
+  {
+   "type": "sheet_thickness",
+   "thickness_mm": 2.0
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_degrees": 90,
+   "radius_mm": 3.0
+  },
+  {
+   "type": "bend"
+  }
+ ]
+}

@@ -1,0 +1,124 @@
+{
+ "base_shape": "sheet-metal bracket (formed)",
+ "overall_dims_mm": {
+  "x": 105.0,
+  "y": 75.0,
+  "z_max": 8.0
+ },
+ "outline": {
+  "kind": "rounded_rect",
+  "x": 105.0,
+  "y": 75.0
+ },
+ "features": [
+  {
+   "type": "sheet_thickness",
+   "thickness_mm": 1.0,
+   "positions_mm": [
+    [
+     0.0,
+     0.0
+    ]
+   ]
+  },
+  {
+   "type": "bend",
+   "side": "+x",
+   "angle_deg": 90,
+   "radius_mm": 2.3,
+   "flange_height_mm": 15.0
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 8.0,
+   "through_thickness_mm": 1.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     24.0,
+     35.0
+    ],
+    [
+     16.0,
+     8.75
+    ]
+   ]
+  },
+  {
+   "type": "hole",
+   "count": 4,
+   "diameter_mm": 12.0,
+   "through_thickness_mm": 3.0,
+   "pattern": "rectangular",
+   "positions_mm": [
+    [
+     24.0,
+     15.0
+    ],
+    [
+     30.0,
+     8.75
+    ]
+   ]
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_dia_mm": 8.0,
+   "cbore_dia_mm": 13.0,
+   "depth_mm": 5.0
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_dia_mm": 12.0,
+   "cbore_dia_mm": 13.0,
+   "depth_mm": 5.0
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_dia_mm": 8.5,
+   "cbore_dia_mm": 12.0,
+   "depth_mm": 6.0
+  },
+  {
+   "type": "counterbore",
+   "count": 4,
+   "hole_dia_mm": 6.5,
+   "cbore_dia_mm": 9.0,
+   "depth_mm": 4.0
+  },
+  {
+   "type": "thread",
+   "count": 4,
+   "diameter_mm": 6.0,
+   "pitch_mm": 1.0,
+   "tapped_depth_mm": 8.5
+  },
+  {
+   "type": "fillet",
+   "radius_mm": 2.3,
+   "positions": [
+    [
+     0.0,
+     17.5
+    ]
+   ]
+  }
+ ],
+ "complexity": "medium",
+ "feature_count": 9,
+ "z_levels": [
+  {
+   "name": "base_plate",
+   "height_mm": 1.0
+  },
+  {
+   "name": "raised_platform",
+   "height_mm": 3.0,
+   "z_offset_mm": 2.0
+  }
+ ]
+}
