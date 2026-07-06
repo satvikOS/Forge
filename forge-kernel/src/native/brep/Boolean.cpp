@@ -24,6 +24,7 @@
 #include "forge/native/brep/Surface.hpp"
 #include "forge/native/geom/ConstrainedDelaunay2D.hpp"
 #include "forge/native/mesh/MeshBooleanNative.hpp"
+#include "forge/native/mesh/MeshBooleanExact.hpp"   // K2 exact escalation (near-triple-point)
 
 #include <algorithm>
 #include <array>
@@ -484,7 +485,13 @@ MeshOperandResult booleanMeshOperand(const std::vector<double>& aPos,
     ensurePositiveWinding(ap, ai);
     ensurePositiveWinding(bp, bi);
 
-    mesh::BoolResultN br = mesh::meshBooleanNative(ap, ai, bp, bi, toMeshOp(op));
+    // K2 ESCALATION: meshBooleanExact KEEPS the fast meshBooleanNative (Strategy Q +
+    // SoS) as its first attempt, and ONLY when that returns ok=false (the residual
+    // near-triple-point / coplanar-sliver class the double-coordinate engine cannot
+    // close) escalates to the fully-exact ExactReal arrangement. This resolves those
+    // inputs NATIVELY here instead of deferring to OCCT one level up. Both stages are
+    // validate()'d as closed 2-manifolds, so ok=true stays an honest guarantee.
+    mesh::BoolResultN br = mesh::meshBooleanExact(ap, ai, bp, bi, toMeshOp(op));
     if (!br.ok) { res.reason = br.reason ? br.reason : "mesh boolean ok=false"; return res; }
 
     auto owner = std::make_shared<TopologyBuilder>();
