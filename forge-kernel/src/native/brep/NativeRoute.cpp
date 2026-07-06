@@ -5,6 +5,7 @@
 
 #include "forge/native/brep/NativeRoute.hpp"
 #include "forge/native/brep/Surface.hpp"
+#include "forge/native/geom/ConstrainedDelaunay2D.hpp"
 
 #include <atomic>
 #include <cctype>
@@ -199,6 +200,29 @@ Solid* transformSolid(const Solid& src,
 // smooth normals + per-tri faceIds). Mirrors src/Tessellate.cpp's smooth-normal
 // accumulation; faceId is the 1-based analytic-Face index in shell/face order.
 // ---------------------------------------------------------------------------
+// Orthonormal in-plane basis from a (unit) normal — for embedding a planar holed
+// face into 2-D so its annulus can be CDT-triangulated (hole excluded). Mirrors
+// SolidTessellate.cpp so the viewport mesh matches the analytic tessellator.
+static inline void viewportPlaneBasis(const Vec3& n, Vec3& e1, Vec3& e2) {
+    Vec3 a = (std::fabs(n.x) <= std::fabs(n.y) && std::fabs(n.x) <= std::fabs(n.z))
+                 ? Vec3{1, 0, 0}
+                 : (std::fabs(n.y) <= std::fabs(n.z) ? Vec3{0, 1, 0} : Vec3{0, 0, 1});
+    e1 = vnorm(vsub(a, vscale(n, vdot(a, n))));
+    e2 = vcross(n, e1);
+}
+
+// Ordered 3-D points of a loop's coedge ring (origin vertices, ring order).
+static inline std::vector<Vec3> viewportLoopPts(const Loop* lp) {
+    std::vector<Vec3> pts;
+    if (!lp || !lp->first) return pts;
+    const Coedge* c = lp->first;
+    for (std::size_t i = 0; i < lp->coedgeCount; ++i, c = c->next) {
+        const Vertex* o = c->originVertex();
+        pts.push_back(Vec3{o->point.x, o->point.y, o->point.z});
+    }
+    return pts;
+}
+
 NativeTessOut tessellateSolidForViewport(const Solid& solid) {
     NativeTessOut out;
 
@@ -238,6 +262,73 @@ NativeTessOut tessellateSolidForViewport(const Solid& solid) {
             if (f->surface)
                 refN = f->surface->normalAt(0.5 * (f->u0 + f->u1),
                                             0.5 * (f->v0 + f->v1));
+
+            // Emit one oriented triangle (outward per refN) + accumulate its
+            // area-weighted normal onto the 3 welded verts + tag the faceId.
+            auto emitTri = [&](const Vec3& A, const Vec3& B, const Vec3& C) {
+                std::uint32_t a = vid(A), b = vid(B), c2 = vid(C);
+                if (a == b || b == c2 || a == c2) return;
+                Vec3 triN = vcross(vsub(B, A), vsub(C, A));
+                std::uint32_t t0 = a, t1 = b, t2 = c2;
+                if (f->surface && vdot(triN, refN) < 0.0) { std::swap(t1, t2); triN = vscale(triN, -1.0); }
+                out.indices.push_back(t0);
+                out.indices.push_back(t1);
+                out.indices.push_back(t2);
+                out.faceIds.push_back(faceId);
+                nx[t0] += triN.x; ny[t0] += triN.y; nz[t0] += triN.z;
+                nx[t1] += triN.x; ny[t1] += triN.y; nz[t1] += triN.z;
+                nx[t2] += triN.x; ny[t2] += triN.y; nz[t2] += triN.z;
+            };
+
+            // HOLED ANALYTIC FACE (native boolean, e.g. a through-bore cap): the
+            // face carries inner (hole) loops, so a plain fan of the OUTER loop
+            // would FILL the hole and weld the through-bore shut (χ=2/genus 0). We
+            // triangulate the ANNULUS between the outer loop and the inner (hole)
+            // loops via a constrained Delaunay over all loops, keeping only the
+            // even-odd INSIDE triangles (hole excluded). The loop vertices ARE the
+            // bore-wall rim vertices, so the welded soup stays watertight with the
+            // correct genus. Mirrors brep::tessellateSolid's holed path (the two
+            // tessellators must agree). A CDT miss falls through to the fan.
+            if (f->boolHoled && !f->innerLoops.empty() && f->surface) {
+                Vec3 e1, e2; viewportPlaneBasis(refN, e1, e2);
+                const Vec3 origin = pts[0];
+                std::vector<geom::Point2> P2;
+                std::vector<Vec3> P3;
+                std::vector<geom::ConstraintEdge> cons;
+                auto addRing = [&](const std::vector<Vec3>& ring) {
+                    if (ring.size() < 3) return;
+                    int base = static_cast<int>(P2.size());
+                    for (const Vec3& p : ring) {
+                        Vec3 d = vsub(p, origin);
+                        P2.push_back(geom::Point2{vdot(d, e1), vdot(d, e2)});
+                        P3.push_back(p);
+                    }
+                    int m = static_cast<int>(ring.size());
+                    for (int i = 0; i < m; ++i) cons.push_back({base + i, base + ((i + 1) % m)});
+                };
+                addRing(pts);                                        // outer loop
+                for (Loop* il : f->innerLoops) addRing(viewportLoopPts(il)); // holes
+
+                geom::CDTResult cdt = geom::constrainedDelaunay2D(P2, cons);
+                if (cdt.ok && cdt.closedLoops && !cdt.triangles.empty()) {
+                    for (std::size_t t = 0; t < cdt.triangles.size(); ++t) {
+                        if (t < cdt.inside.size() && !cdt.inside[t]) continue; // skip hole
+                        const auto& tr = cdt.triangles[t];
+                        Vec3 q[3]; bool good = true;
+                        for (int kk = 0; kk < 3; ++kk) {
+                            int li = tr[kk];
+                            if (li < 0 || li >= static_cast<int>(cdt.inputIndex.size())) { good = false; break; }
+                            int orig = cdt.inputIndex[li];
+                            if (orig < 0 || orig >= static_cast<int>(P3.size())) { good = false; break; }
+                            q[kk] = P3[orig];
+                        }
+                        if (!good) continue;
+                        emitTri(q[0], q[1], q[2]);
+                    }
+                    continue; // holed face done; do NOT fan (would fill the hole)
+                }
+                // CDT miss: fall through to the fan (best-effort).
+            }
 
             std::uint32_t i0 = vid(pts[0]);
             for (std::size_t k = 1; k + 1 < pts.size(); ++k) {
