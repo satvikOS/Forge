@@ -9,6 +9,9 @@
 // bad inputs; binding.cpp's safe() wrapper relays those to JS Errors.
 
 #include "forge/Features.hpp"
+#include "forge/Transform.hpp"   // ::forge::translate / ::forge::rotate (gate-routed)
+#include "forge/Booleans.hpp"    // ::forge::fuse / ::forge::cut       (gate-routed)
+#include "forge/Primitives.hpp"  // ::forge::makeCylinder / ::forge::makeCone (gate-routed)
 
 // IN-HOUSE KERNEL STEP 3a — route part.filletEdges / part.chamferEdges through
 // the native MESH-BRIDGE (tessellate the native analytic Solid -> mesh, then the
@@ -23,6 +26,8 @@
 #include "forge/native/brep/FilletAnalytic.hpp"  // topology-sourced analytic edge fillet
 #include "forge/native/brep/Chamfer.hpp"
 #include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
+#include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
+#include "forge/native/brep/Pattern.hpp"    // GAP1: RigidTransform / transformSolidInPlace
 // IN-HOUSE KERNEL STEP 3b — native sketch-feature ops (extrude/revolve/sweep/loft).
 #include "forge/native/brep/Sweep.hpp"        // brep::Profile, sweep(), prism()
 #include "forge/native/brep/Loft.hpp"         // brep::LoftSection, loftSections()
@@ -808,6 +813,36 @@ ShapeHandle shell(ShapeHandle shape,
                   double thickness,
                   const std::vector<FaceThickness>& multiThickness) {
     requirePositive(thickness, "shell thickness");
+#ifdef FORGE_NATIVE_BREP
+    // GAP1 — native analytic SHELL (forge::native::brep::shellSolid): hollow the
+    // solid INWARD to a uniform wall of `thickness`, opening the faces named in
+    // `faceIdsToRemove` (0-based indices into THIS solid's own analytic-face order,
+    // the SAME order tessellate emits its 1-based faceIds in). The result is a real
+    // analytic NativeSolid (exact wall volume, not a chord estimate). We clone the
+    // registry's solid into a fresh builder first (shellSolid allocates the inner +
+    // wall faces onto that builder), so the input handle is never mutated. Multi-
+    // thickness overrides are honestly deferred to the OCCT path below.
+    if (native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid &&
+        multiThickness.empty()) {
+        namespace nb = ::forge::native::brep;
+        const nb::Solid& srcSolid = ShapeRegistry::instance().getNativeSolid(shape);
+        const double I[9] = {1,0,0, 0,1,0, 0,0,1};
+        const double t0[3] = {0,0,0};
+        auto owner = std::make_shared<nb::TopologyBuilder>();
+        nb::Solid* clone = nb::transformSolid(srcSolid, I, t0, owner);
+        nb::ShellOptions opt;
+        opt.thickness = thickness;
+        opt.removedFaces.assign(faceIdsToRemove.begin(), faceIdsToRemove.end());
+        nb::ShellResult r = nb::shellSolid(*owner, clone, opt);
+        if (r.ok && r.solid) {
+            return ShapeRegistry::instance().addNativeSolid(owner, r.solid);
+        }
+        // else: honest fall-through to the OCCT thick-solid path below (the native
+        // shell HONESTLY DEFERS on faces it cannot offset — e.g. torus/NURBS faces —
+        // rather than faking a result).
+    }
+#endif
     const auto& src = fetch(shape);
 
     TopTools_ListOfShape facesToRemove;
@@ -1304,6 +1339,67 @@ ShapeHandle holeWizard(ShapeHandle shape,
     if (dl < Precision::Confusion()) {
         throw std::invalid_argument("forge.part.holeWizard: axis is zero");
     }
+#ifdef FORGE_NATIVE_BREP
+    // GAP1 — native holeWizard. Build each cutter as a NATIVE primitive
+    // (makeCylinder / makeCone, both +Z-based at the origin under the gate),
+    // orient +Z -> axis, translate to `position`, and boolean-CUT it from the host
+    // with the gate-routed forge::cut (native analytic boolean). Identical geometry
+    // to the OCCT path below, but stays on the native backend. Only when the host is
+    // a NativeSolid; otherwise the OCCT path runs unchanged. simple/counterbore/
+    // countersink are wired; `tapped` (kind 3) is a simple hole + metadata (same as
+    // OCCT). Any native step that cannot close HONESTLY throws (no silent OCCT swap).
+    if (native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        const double ux = ax / dl, uy = ay / dl, uz = az / dl;
+        // Orient a +Z-built native tool so its axis points along (ux,uy,uz), then
+        // move its base to (px,py,pz). Rotation about the origin keeps the base at
+        // the origin; translate afterwards.
+        auto place = [&](ShapeHandle tool, double offset) -> ShapeHandle {
+            const double eps = 1e-12;
+            if (uz < 1.0 - 1e-9) {                       // needs a rotation
+                if (uz <= -1.0 + 1e-9) {
+                    tool = ::forge::rotate(tool, 1, 0, 0, M_PI); // +Z -> -Z
+                } else {
+                    // rot axis = Z x u = (-uy, ux, 0); angle = acos(uz)
+                    double rax = -uy, ray = ux, raz = 0.0;
+                    const double rl = std::sqrt(rax*rax + ray*ray + raz*raz);
+                    if (rl > eps) { rax/=rl; ray/=rl; }
+                    tool = ::forge::rotate(tool, rax, ray, raz, std::acos(uz));
+                }
+            }
+            const double ox = px + ux * offset, oy = py + uy * offset, oz = pz + uz * offset;
+            return ::forge::translate(tool, ox, oy, oz);
+        };
+        // Through hole (always).
+        ShapeHandle result = shape;
+        {
+            ShapeHandle through = place(::forge::makeCylinder(spec.diameter * 0.5, spec.depth), 0.0);
+            result = ::forge::cut(result, through);
+        }
+        if (kind == 1) {                                  // counterbore
+            if (spec.headDiameter <= spec.diameter || spec.headDepth <= Precision::Confusion()) {
+                throw std::invalid_argument(
+                    "forge.part.holeWizard: counterbore requires headDiameter > diameter and headDepth > 0");
+            }
+            ShapeHandle head = place(::forge::makeCylinder(spec.headDiameter * 0.5, spec.headDepth), 0.0);
+            result = ::forge::cut(result, head);
+        }
+        if (kind == 2) {                                  // countersink
+            const double headAng = spec.headAngle > Precision::Confusion() ? spec.headAngle : (M_PI / 2.0);
+            const double headR = spec.headDiameter > spec.diameter ? spec.headDiameter * 0.5
+                                                                   : spec.diameter * 0.75;
+            const double coneH = headR / std::tan(headAng * 0.5);
+            if (!(coneH > Precision::Confusion())) {
+                throw std::invalid_argument("forge.part.holeWizard: countersink geometry degenerate");
+            }
+            // OCCT builds MakeCone(ax2(origin,axis), headR, d/2, coneH): base radius
+            // headR at `origin`, tapering to d/2 at +coneH. makeCone(r1,r2,h) matches.
+            ShapeHandle cone = place(::forge::makeCone(headR, spec.diameter * 0.5, coneH), 0.0);
+            result = ::forge::cut(result, cone);
+        }
+        return result;
+    }
+#endif
     const gp_Dir axisDir(ax, ay, az);
     const gp_Pnt origin(px, py, pz);
 
@@ -1380,6 +1476,23 @@ ShapeHandle rib(SketchHandle profileSketch, double depth, double thickness,
                 std::uint32_t /*neutralFaceId*/) {
     requirePositive(depth, "rib depth");
     requirePositive(thickness, "rib thickness");
+#ifdef FORGE_NATIVE_BREP
+    // GAP1 — native CLOSED-PROFILE rib. When the sketch has an extractable closed
+    // ring, a rib is a straight +Z prism of that face (identical to the OCCT
+    // closed-profile branch below), so route it through the native linear prism
+    // (nb::prism), producing a watertight NativeMesh — byte-identical footprint to
+    // OCCT MakePrism. The OPEN-profile ribbon rib (no closed ring) HONESTLY stays on
+    // the OCCT path below (its in-plane-offset ribbon has no native prism analogue
+    // yet). fetch() is intentionally NOT called first (it would force an OCCT bridge).
+    if (nb::forgeNativeFeaturesEnabled()) {
+        nb::Profile prof;
+        if (nativeProfileFromSketchZAligned(profileSketch, prof)) {
+            nb::SweepResult r = nb::prism(prof, depth);
+            if (r.ok) return storeNativeMesh(std::move(r.solid));
+            // else: honest fall-through to OCCT (degenerate profile).
+        }
+    }
+#endif
     // Extrude-and-thicken fallback: take the wire, build a 2D ribbon by
     // offsetting in-plane by ±thickness/2, then extrude `depth` along Z.
     // OCCT's BRepFeat_MakeLinearForm requires a base shape and a sketch
@@ -1428,6 +1541,22 @@ ShapeHandle linearPattern(ShapeHandle shape, std::uint32_t count,
     if (count < 1) {
         throw std::invalid_argument("forge.part.linearPattern: count must be >= 1");
     }
+#ifdef FORGE_NATIVE_BREP
+    // GAP1 — native linear pattern: replicate the whole body by N-1 translated
+    // copies and FUSE them via the gate-routed forge::translate + forge::fuse, both
+    // of which run natively on a NativeSolid (analytic clone + analytic boolean).
+    // Result is a single NativeSolid. OCCT path (below) is untouched when the gate
+    // is off or the handle is OCCT-backed.
+    if (native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        ShapeHandle acc = shape;
+        for (std::uint32_t i = 1; i < count; ++i) {
+            ShapeHandle inst = ::forge::translate(shape, dx * i, dy * i, dz * i);
+            acc = ::forge::fuse(acc, inst);
+        }
+        return acc;
+    }
+#endif
     const auto& src = fetch(shape);
     TopoDS_Shape acc = src;
     for (std::uint32_t i = 1; i < count; ++i) {
@@ -1457,6 +1586,25 @@ ShapeHandle circularPattern(ShapeHandle shape, std::uint32_t count,
     if (dl < Precision::Confusion()) {
         throw std::invalid_argument("forge.part.circularPattern: axis is zero");
     }
+#ifdef FORGE_NATIVE_BREP
+    // GAP1 — native circular pattern: N-1 rotated copies fused natively. Each
+    // instance is rotated about the axis LINE (origin (ox,oy,oz), dir (ax,ay,az)):
+    // translate the body to the axis origin frame, rotate about the axis dir through
+    // the world origin, translate back — exactly OCCT's gp_Trsf::SetRotation(gp_Ax1)
+    // convention. forge::translate/rotate/fuse all run natively on a NativeSolid.
+    if (native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        const double step = (count > 1) ? (totalAngleRad / static_cast<double>(count)) : 0.0;
+        ShapeHandle acc = shape;
+        for (std::uint32_t i = 1; i < count; ++i) {
+            ShapeHandle inst = ::forge::translate(shape, -ox, -oy, -oz);
+            inst = ::forge::rotate(inst, ax, ay, az, step * i);
+            inst = ::forge::translate(inst, ox, oy, oz);
+            acc = ::forge::fuse(acc, inst);
+        }
+        return acc;
+    }
+#endif
     const gp_Ax1 axis(gp_Pnt(ox, oy, oz), gp_Dir(ax, ay, az));
     const auto& src = fetch(shape);
     TopoDS_Shape acc = src;
@@ -1484,6 +1632,35 @@ ShapeHandle mirrorPattern(ShapeHandle shape,
     if (dl < Precision::Confusion()) {
         throw std::invalid_argument("forge.part.mirrorPattern: plane normal is zero");
     }
+#ifdef FORGE_NATIVE_BREP
+    // GAP1 — native mirror pattern: reflect the body across the plane
+    // (origin (ox,oy,oz), unit normal n) and FUSE the reflection with the original.
+    // Reflection R = I - 2 n nᵀ (det -1); t = 2 (n·o) n. transformSolidInPlace applies
+    // R,t AND reverses every face loop (an improper transform inverts the winding —
+    // the reversal keeps the mirrored solid OUTWARD-oriented / manifold). The
+    // reflected instance fuses with the original via the native analytic boolean.
+    if (native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        namespace nb = ::forge::native::brep;
+        const double n0[3] = { nx / dl, ny / dl, nz / dl };
+        const double nDotO = n0[0]*ox + n0[1]*oy + n0[2]*oz;
+        // clone the source solid into a fresh builder, then reflect it in place.
+        const nb::Solid& srcSolid = ShapeRegistry::instance().getNativeSolid(shape);
+        const double I[9] = {1,0,0, 0,1,0, 0,0,1};
+        const double t0[3] = {0,0,0};
+        auto owner = std::make_shared<nb::TopologyBuilder>();
+        nb::Solid* inst = nb::transformSolid(srcSolid, I, t0, owner);
+        nb::RigidTransform xf;
+        xf.r[0] = 1 - 2*n0[0]*n0[0]; xf.r[1] =   - 2*n0[0]*n0[1]; xf.r[2] =   - 2*n0[0]*n0[2];
+        xf.r[3] =   - 2*n0[1]*n0[0]; xf.r[4] = 1 - 2*n0[1]*n0[1]; xf.r[5] =   - 2*n0[1]*n0[2];
+        xf.r[6] =   - 2*n0[2]*n0[0]; xf.r[7] =   - 2*n0[2]*n0[1]; xf.r[8] = 1 - 2*n0[2]*n0[2];
+        xf.t = nb::Vec3{ 2*nDotO*n0[0], 2*nDotO*n0[1], 2*nDotO*n0[2] };
+        xf.det = -1.0;
+        nb::transformSolidInPlace(xf, inst, *owner);
+        ShapeHandle instH = ShapeRegistry::instance().addNativeSolid(owner, inst);
+        return ::forge::fuse(shape, instH);
+    }
+#endif
     gp_Trsf tr;
     tr.SetMirror(gp_Ax2(gp_Pnt(ox, oy, oz), gp_Dir(nx, ny, nz)));
     const auto& src = fetch(shape);
