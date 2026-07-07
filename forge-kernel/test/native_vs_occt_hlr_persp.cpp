@@ -17,7 +17,7 @@
 // Both engines run the SAME pin-hole camera. We report LITERAL visible/hidden
 // edge counts and per-class projected length on BOTH sides, then compare:
 //   * counts (informational — OCCT splits edges at silhouette/occlusion crossings
-//     and the native sampled-HLR merges spans, so raw counts legitimately differ),
+//     and the native HLR merges consecutive same-class pieces, so raw counts differ),
 //   * per-class projected length, compared as the scale-invariant FRACTION of the
 //     total drawn (visible+hidden) length, since the native image-plane focal model
 //     (u = focal*(p-eye).U/depth) and OCCT's (x*F/(F-z)) are different
@@ -25,9 +25,14 @@
 //     not in the same units. The visible/hidden SPLIT of the total drawn length is
 //     the engine-independent invariant.
 //
-// PASS iff the per-class length FRACTION matches within rel<=1e-3 on both scenes.
-// Counts that differ only by OCCT edge-splitting / native sampled-HLR ceiling are
-// reported and flagged PARTIAL, not FAIL (per the task's note).
+// The native perspective HLR is now ANALYTIC (Hlr.cpp::perspSplitCandidates): a
+// straight edge is split at the EXACT world-space plane crossings (eye-edge
+// silhouette planes + face depth plane + eye plane), NOT on a sampling grid. So the
+// headline assertion here is that Scene B (near box occluding the far box) matches
+// OCCT's exact occlusion split at a LOW samplesPerEdge (4) — a sampled z-buffer
+// would need thousands of samples to reach the same crossing. PASS iff the per-class
+// length FRACTION matches within rel<=1e-3 on both scenes at low samples. Counts that
+// differ only by OCCT edge-splitting / native piece-merge are PARTIAL, not FAIL.
 //
 // Build (single clang++, C++20):
 //   clang++ -std=c++20 -O2 \
@@ -335,34 +340,37 @@ int main() {
         bld.Add(comp, oFar);
         OcctHlr occt = runOcct(comp, makePerspProjector(c, focus));
 
-        // (B0) as-shipped native default (64 samples/edge): sampled-HLR ceiling.
-        NativeHlr nat64 = runNative(*nearBox, c, 64);
-        std::printf("\n[B] native(64 samples/edge) ok=%d reason='%s'\n",
-                    (int)nat64.ok, nat64.reason.c_str());
-        bool lenOk64 = compareScene("Scene B (native default 64 samples/edge)",
-                                    nat64, occt, 1e-3);
+        // (B0) LOW samplesPerEdge (4): the ANALYTIC split makes this already match
+        // OCCT's exact occlusion crossing — straight box edges carry no sampling
+        // residual, since perspSplitCandidates cuts them at the exact world-space
+        // silhouette/depth plane crossings (not on a grid).
+        NativeHlr nat4 = runNative(*nearBox, c, 4);
+        std::printf("\n[B] native(4 samples/edge, ANALYTIC split) ok=%d reason='%s'\n",
+                    (int)nat4.ok, nat4.reason.c_str());
+        bool lenOk4 = compareScene("Scene B (native 4 samples/edge, ANALYTIC)",
+                                   nat4, occt, 1e-3);
 
-        // (B1) high-res native (2048 samples/edge): converges to OCCT's exact
-        // occlusion crossing -> the sampling residual collapses below rel<=1e-3.
-        // Rebuild the scene (a fresh solid graph) for the high-res pass.
+        // (B1) 64 samples/edge: identical result (the analytic split is sample-count
+        // independent for straight edges) — a regression guard that raising the knob
+        // does NOT change the exact crossing.
         TopologyBuilder tb2;
         Solid* nb2 = tb2.buildBox({0,0,0},   {1,1,1});
         Solid* fb2 = tb2.buildBox({3,0.6,0}, {4,1.6,1});
         for (Shell* sh : fb2->shells) nb2->shells.push_back(sh);
-        NativeHlr nat2048 = runNative(*nb2, c, 2048);
-        std::printf("\n[B] native(2048 samples/edge) ok=%d reason='%s'\n",
-                    (int)nat2048.ok, nat2048.reason.c_str());
-        bool lenOk2048 = compareScene("Scene B (native 2048 samples/edge, converged)",
-                                      nat2048, occt, 1e-3);
+        NativeHlr nat64 = runNative(*nb2, c, 64);
+        std::printf("\n[B] native(64 samples/edge) ok=%d reason='%s'\n",
+                    (int)nat64.ok, nat64.reason.c_str());
+        bool lenOk64 = compareScene("Scene B (native 64 samples/edge)",
+                                    nat64, occt, 1e-3);
 
-        std::printf("\n  [B summary] sampled-HLR convergence toward OCCT exact crossing:\n");
-        std::printf("    64   samples/edge -> length-fraction match: %s\n",
-                    lenOk64 ? "PASS" : "FAIL (sampling ceiling)");
-        std::printf("    2048 samples/edge -> length-fraction match: %s\n",
-                    lenOk2048 ? "PASS" : "FAIL");
-        // Judge Scene B on the converged native result (the sampling parameter is
-        // the only knob between the two engines once the projection is identical).
-        allLenOk &= lenOk2048;
+        std::printf("\n  [B summary] ANALYTIC perspective split (sample-count independent):\n");
+        std::printf("    4  samples/edge -> length-fraction match: %s\n",
+                    lenOk4 ? "PASS" : "FAIL");
+        std::printf("    64 samples/edge -> length-fraction match: %s\n",
+                    lenOk64 ? "PASS" : "FAIL");
+        // The headline assertion: the analytic split matches OCCT at LOW samples AND
+        // the two sample counts agree (analytic exactness, not a sampling limit).
+        allLenOk &= (lenOk4 && lenOk64);
     }
 
     std::printf("\n=== VERDICT ===\n");

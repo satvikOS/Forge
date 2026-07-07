@@ -61,6 +61,23 @@ struct ProjectedView {
 // will see curved faces), we tessellate first and re-run.
 ProjectedView projectShape(ShapeHandle h, ProjectionDirection direction);
 
+// ---------------------------------------------------------- perspective view
+//
+// Pin-hole PERSPECTIVE projection. Runs the NATIVE analytic perspective HLR
+// (forge::native::brep::hlrPerspective) and returns the image-plane polylines
+// (u/depth*focal, v/depth*focal). This is a native-only capability (there is no
+// OCCT perspective HLR wired): a NativeSolid handle is used directly and an
+// OCCT-backed analytic body is imported via forge::importOcctSolid. A NativeMesh,
+// an input the importer defers on, or a degenerate camera throws std::runtime_error
+// with the honest reason — a perspective view is NEVER fabricated.
+struct PerspectiveCamera {
+    double eyeX, eyeY, eyeZ;             // camera position (world)
+    double targetX, targetY, targetZ;    // look-at point (world)
+    double upX, upY, upZ;                // world-up hint (re-orthogonalised)
+    double fovYRadians;                  // full vertical field of view, in (0, pi)
+};
+ProjectedView projectShapePerspective(ShapeHandle h, PerspectiveCamera cam);
+
 // ---------------------------------------------------------- Forge-32 extensions
 //
 // Section / detail / broken view projections — extend the basic HLR

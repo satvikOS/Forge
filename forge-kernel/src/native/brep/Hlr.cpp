@@ -680,6 +680,80 @@ bool occludedPersp(const std::vector<WorldTri>& tris, const Vec3& eye,
     return false;
 }
 
+// ----------------------------------------------------------------------------
+// ANALYTIC perspective split (the perspective analogue of segmentSplitCandidates).
+//
+// Under a pin-hole projection the image coordinates u_img,v_img of a straight
+// world segment A->B are RATIONAL (non-linear) in the segment parameter t: the
+// numerator dot(P-eye,U) is linear, the denominator depth=dot(P-eye,N) is linear,
+// so the ratio is a Moebius map of t (the "post-projection depth non-linear in t"
+// the orthographic image-space clip does NOT model). But EVERY perspective
+// visibility change is exactly a WORLD-SPACE plane crossing that IS linear in t, so
+// the exact split parameters are recovered in world space without dividing by depth:
+//
+//   * OUTLINE / SILHOUETTE crossing against an occluder triangle EDGE (Qi,Qj): the
+//     projected segment crosses the projected occluder edge exactly where the eye
+//     E, Qi, Qj and the segment point P(t) become COPLANAR, i.e.
+//        dot(P(t)-E, (Qi-E)x(Qj-E)) == 0 .
+//     That plane through the eye and the occluder edge maps, under central
+//     projection, to the image line of the occluder edge - so its crossing is the
+//     true silhouette/outline event (where the edge slips behind / out from an
+//     occluder's projected boundary).
+//   * DEPTH crossing (the in-front/behind swap) against the occluder FACE plane:
+//     where P(t) pierces the triangle's supporting plane, dot(P(t)-Qa, m) == 0 with
+//     m the face normal (Qb-Qa)x(Qc-Qa).
+//   * EYE-PLANE crossing: where depth dot(P(t)-E, N) == 0 (the segment crosses the
+//     image plane; ahead projects, behind cannot).
+//
+// Each condition is f(t)=fa+t(fb-fa)==0 with fa,fb the plane function evaluated at
+// A,B - one exact root when fa,fb straddle 0. We collect every such root in (0,1),
+// split there, and classify each piece by ONE exact eye-ray in-front test
+// (occludedPersp) at its interior midpoint. So - exactly like the orthographic
+// analytic path - a STRAIGHT edge is split at the TRUE crossings independent of
+// samplesPerEdge (which now only pre-chords CURVED edges), not on a sampling grid.
+// ----------------------------------------------------------------------------
+
+// Exact root t in (0,1) of the plane function g(t)=dot(P(t)-ref, n), P(t)=A+t(B-A);
+// appended to `cuts` only on a real sign straddle (a genuine crossing).
+inline void addPlaneCrossing(std::vector<double>& cuts,
+                             const Vec3& A, const Vec3& B,
+                             const Vec3& ref, const Vec3& n) {
+    double fa = vdot(vsub(A, ref), n);
+    double fb = vdot(vsub(B, ref), n);
+    bool na = (fa <= 0.0), nb = (fb <= 0.0);
+    if (na == nb) return;                        // no sign change -> no crossing
+    double denom = fa - fb;
+    if (!(std::fabs(denom) > 1e-300)) return;
+    double t = fa / denom;                       // g(t)==0
+    if (t > 1e-12 && t < 1.0 - 1e-12) cuts.push_back(t);
+}
+
+// All analytic split parameters t in (0,1) at which the straight world segment
+// A->B can change perspective visibility: the eye/image-plane crossing plus, per
+// occluder triangle (excluding the edge's own incident faces), its three eye-edge
+// silhouette planes and its supporting depth plane.
+inline std::vector<double> perspSplitCandidates(
+        const std::vector<WorldTri>& tris, const Vec3& eye, const Vec3& N,
+        const Vec3& A, const Vec3& B,
+        const std::unordered_set<std::uint32_t>& skipFaces) {
+    std::vector<double> cuts;
+    addPlaneCrossing(cuts, A, B, eye, N);                     // eye/image plane
+    for (const WorldTri& t : tris) {
+        if (skipFaces.count(t.faceId)) continue;
+        // three planes through the eye and each triangle edge (outline events)
+        addPlaneCrossing(cuts, A, B, eye, vcross(vsub(t.a, eye), vsub(t.b, eye)));
+        addPlaneCrossing(cuts, A, B, eye, vcross(vsub(t.b, eye), vsub(t.c, eye)));
+        addPlaneCrossing(cuts, A, B, eye, vcross(vsub(t.c, eye), vsub(t.a, eye)));
+        // the triangle's own supporting plane (in-front/behind depth swap)
+        addPlaneCrossing(cuts, A, B, t.a, vcross(vsub(t.b, t.a), vsub(t.c, t.a)));
+    }
+    std::sort(cuts.begin(), cuts.end());
+    cuts.erase(std::unique(cuts.begin(), cuts.end(),
+               [](double x, double y) { return std::fabs(x - y) < 1e-12; }),
+               cuts.end());
+    return cuts;
+}
+
 } // namespace
 
 HlrResult hlrPerspective(const Solid& solid,
@@ -796,46 +870,76 @@ HlrResult hlrPerspective(const Solid& solid,
     // Track whether any geometry fell on / behind the eye plane (cannot project).
     std::uint32_t behindCount = 0;
 
-    // --- Classify each edge into visible / hidden spans. ---------------------
+    // --- Classify each edge into visible / hidden spans (ANALYTIC split). -----
+    // Mirrors the orthographic analytic path: for every straight sub-segment we
+    // solve the EXACT world-space crossing parameters (perspSplitCandidates) and
+    // cut the sub-segment there, then classify each piece by ONE exact eye-ray
+    // in-front test at its interior midpoint. Straight edges are therefore split
+    // at the true silhouette/occlusion crossings regardless of samplesPerEdge.
     for (const EdgeJob& j : jobs) {
         const std::vector<Vec3>& P = j.poly3d;
         if (P.size() < 2) continue;
-        std::size_t nspan = P.size() - 1;
-        std::vector<char> spanHidden(nspan, 0);
-        for (std::size_t k = 0; k < nspan; ++k) {
-            Vec3 mid = vscale(vadd(P[k], P[k + 1]), 0.5);
-            double depth = vdot(vsub(mid, fr.origin), fr.N);
-            if (!(depth > 0.0)) { spanHidden[k] = 1; ++behindCount; continue; }
-            bool h = occludedPersp(tris, cam.eye, mid, j.incidentFaces,
-                                   opt.depthBias);
-            spanHidden[k] = h ? 1 : 0;
+
+        // Cut every straight sub-segment at its analytic crossings; `pts` collects
+        // the ordered 3D cut points and `pieceHidden[i]` the class of the piece
+        // between pts[i] and pts[i+1] (mirrors the orthographic path exactly).
+        std::vector<Vec3> pts;
+        std::vector<char> pieceHidden;
+        pts.push_back(P[0]);
+        for (std::size_t k = 0; k + 1 < P.size(); ++k) {
+            const Vec3& A = P[k];
+            const Vec3& B = P[k + 1];
+            std::vector<double> cuts = perspSplitCandidates(
+                tris, cam.eye, fr.N, A, B, j.incidentFaces);
+            cuts.insert(cuts.begin(), 0.0);
+            cuts.push_back(1.0);
+            for (std::size_t c = 0; c + 1 < cuts.size(); ++c) {
+                double ta = cuts[c], tb = cuts[c + 1];
+                if (tb - ta < 1e-15) continue;               // collapsed piece
+                double tm = 0.5 * (ta + tb);
+                Vec3 mid = vadd(vscale(A, 1.0 - tm), vscale(B, tm));
+                char h;
+                double depth = vdot(vsub(mid, fr.origin), fr.N);
+                if (!(depth > 0.0)) { h = 1; ++behindCount; }  // behind eye -> hidden
+                else h = occludedPersp(tris, cam.eye, mid, j.incidentFaces,
+                                       opt.depthBias) ? 1 : 0;
+                Vec3 end = vadd(vscale(A, 1.0 - tb), vscale(B, tb));  // point at tb
+                pts.push_back(end);
+                pieceHidden.push_back(h);
+            }
         }
 
+        // Merge consecutive same-class pieces into HlrSegments. Image coordinates
+        // come from the perspective projection; a piece boundary on/behind the eye
+        // plane cannot project (sentinel) and breaks the running length so no
+        // spurious length is accrued across the projective singularity.
         bool sawVisible = false, sawHidden = false;
+        std::size_t nseg = pieceHidden.size();
         std::size_t k = 0;
-        while (k < nspan) {
-            char cls = spanHidden[k];
+        while (k < nseg) {
+            char cls = pieceHidden[k];
             std::size_t start = k;
-            while (k < nspan && spanHidden[k] == cls) ++k;
+            while (k < nseg && pieceHidden[k] == cls) ++k;
             HlrSegment seg;
             seg.visibility = cls ? HlrVisibility::Hidden : HlrVisibility::Visible;
             seg.kind = j.kind;
             seg.edgeId = j.edge ? j.edge->id : 0u;
             double len2d = 0.0;
+            bool havePrev = false;
+            double prevU = 0.0, prevV = 0.0;
             for (std::size_t m = start; m <= k; ++m) {
-                seg.poly3d.push_back(P[m]);
+                seg.poly3d.push_back(pts[m]);
                 double uu, vv, dd;
-                if (projectPersp(fr, focal, P[m], uu, vv, dd)) {
+                if (projectPersp(fr, focal, pts[m], uu, vv, dd)) {
                     seg.poly2d.push_back({uu, vv});
+                    if (havePrev) {
+                        double du = uu - prevU, dv = vv - prevV;
+                        len2d += std::sqrt(du * du + dv * dv);
+                    }
+                    prevU = uu; prevV = vv; havePrev = true;
                 } else {
-                    // Behind the eye plane: cannot project; mark with a sentinel
-                    // so length accounting skips this span boundary cleanly.
-                    seg.poly2d.push_back({uu = 0.0, vv = 0.0});
-                }
-                if (m > start && seg.poly2d.size() >= 2) {
-                    double du = seg.poly2d[seg.poly2d.size() - 1][0] - seg.poly2d[seg.poly2d.size() - 2][0];
-                    double dv = seg.poly2d[seg.poly2d.size() - 1][1] - seg.poly2d[seg.poly2d.size() - 2][1];
-                    len2d += std::sqrt(du * du + dv * dv);
+                    seg.poly2d.push_back({0.0, 0.0});   // on/behind eye plane sentinel
+                    havePrev = false;
                 }
             }
             seg.length2d = len2d;

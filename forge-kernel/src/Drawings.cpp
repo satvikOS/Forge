@@ -394,6 +394,75 @@ ProjectedView projectShape(ShapeHandle h, ProjectionDirection direction) {
     return view;
 }
 
+ProjectedView projectShapePerspective(ShapeHandle h, PerspectiveCamera cam) {
+#ifdef FORGE_NATIVE_BREP
+    using namespace forge::native::brep;
+    auto& reg = ShapeRegistry::instance();
+
+    // Acquire the native Solid: a NativeSolid handle directly, or an OCCT-backed
+    // analytic body imported via forge::importOcctSolid (the SAME route the
+    // orthographic native HLR uses). A NativeMesh or a deferred import is an honest
+    // error — perspective HLR is native-only, there is no OCCT fallback for it.
+    ImportResult imported;
+    const Solid* solidPtr = nullptr;
+    if (reg.kindOf(h) == ShapeKind::NativeSolid) {
+        solidPtr = &reg.getNativeSolid(h);
+    } else if (reg.kindOf(h) == ShapeKind::Occt) {
+        imported = importOcctSolid(reg.get(h));
+        if (!imported.ok || imported.solid == nullptr) {
+            throw std::runtime_error(
+                std::string("forge.drawings.projectShapePerspective: cannot run native "
+                            "perspective HLR on this OCCT body (") +
+                imported.reason + ")");
+        }
+        solidPtr = imported.solid;
+    } else {
+        throw std::runtime_error(
+            "forge.drawings.projectShapePerspective: perspective HLR requires a "
+            "NativeSolid or an importable analytic OCCT solid (got a mesh/other handle)");
+    }
+
+    HlrCamera hc;
+    hc.eye         = { cam.eyeX,    cam.eyeY,    cam.eyeZ    };
+    hc.target      = { cam.targetX, cam.targetY, cam.targetZ };
+    hc.up          = { cam.upX,     cam.upY,     cam.upZ     };
+    hc.fovYRadians = cam.fovYRadians;
+
+    HlrResult res = hlrPerspective(*solidPtr, hc);
+    if (!res.ok) {
+        throw std::runtime_error(
+            std::string("forge.drawings.projectShapePerspective: native perspective HLR "
+                        "failed (") + (res.reason ? res.reason : "") + ")");
+    }
+
+    // Route the classified perspective segments into the V/H/OutLine buckets exactly
+    // like the orthographic native path, but keep the segments' own image-plane (u,v)
+    // (the perspective foreshortened coordinates) — there is no OCCT screen frame to
+    // re-project into for a perspective camera.
+    ProjectedView view;
+    for (const HlrSegment& seg : res.segments) {
+        if (seg.poly2d.size() < 2) continue;
+        Polyline2D pl;
+        pl.reserve(seg.poly2d.size());
+        for (const auto& uv : seg.poly2d) pl.emplace_back(uv[0], uv[1]);
+        if (pl.size() < 2) continue;
+        if (seg.visibility == HlrVisibility::Hidden) {
+            view.hidden.push_back(std::move(pl));
+        } else if (seg.kind == HlrEdgeKind::Silhouette) {
+            view.outline.push_back(std::move(pl));   // visible silhouette == OutLineV
+        } else {
+            view.visible.push_back(std::move(pl));
+        }
+    }
+    return view;
+#else
+    (void)h; (void)cam;
+    throw std::runtime_error(
+        "forge.drawings.projectShapePerspective: perspective HLR requires the native "
+        "B-rep build (FORGE_NATIVE_BREP)");
+#endif
+}
+
 // ---------------------------------------------------------- Forge-32 helpers
 
 namespace {

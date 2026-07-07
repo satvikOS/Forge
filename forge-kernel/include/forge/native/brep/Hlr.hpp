@@ -33,7 +33,13 @@
 //        same-class pieces are merged, so each edge becomes an ordered list of
 //        visible + hidden spans split EXACTLY at the true occlusion boundaries
 //        (validated 1:1 against OCCT HLRBRep_Algo to rel<=1e-6). The PERSPECTIVE
-//        path (hlrPerspective) still uses the sampled-midpoint z-buffer split.
+//        path (hlrPerspective) is now ALSO ANALYTIC: although the perspective image
+//        coordinates are non-linear (rational) in the segment parameter, every
+//        visibility change is a WORLD-SPACE plane crossing that is LINEAR in t (the
+//        plane through the eye and an occluder-triangle edge for a silhouette/outline
+//        event; the occluder face plane for the depth swap; the eye plane for the
+//        image-plane crossing), so the exact split parameters are solved in closed
+//        form and each piece is classified by one exact eye-ray in-front test.
 //
 // HONEST ENVELOPE (do NOT overclaim — Bible §0):
 //   * Solids handled: POLYHEDRAL (planar faces) + ANALYTIC-QUADRIC (cylinder /
@@ -45,13 +51,14 @@
 //     divides the lateral image coordinates by eye-relative depth (foreshortens)
 //     and ray-casts occlusion FROM THE EYE (not parallel). Both share the same
 //     polyhedral + analytic-quadric envelope.
-//   * ORTHOGRAPHIC occlusion is resolved ANALYTICALLY: the visible/hidden split
-//     points are the exact outline/depth crossings (closed-form roots of linear
-//     functions of the segment parameter), classified by a robust interior sample
-//     — so per-class projected lengths match OCCT's exact HLR to rel<=1e-6 on the
-//     polyhedral gate (Cases A+B). `samplesPerEdge` only pre-chords curved edges;
-//     straight edges are exact at any value. The PERSPECTIVE path remains a
-//     sampled z-buffer split (raise samplesPerEdge to converge).
+//   * BOTH the ORTHOGRAPHIC and the PERSPECTIVE occlusion are resolved ANALYTICALLY:
+//     the visible/hidden split points are the exact outline/depth crossings
+//     (closed-form roots of linear functions of the segment parameter - solved in
+//     the view plane for the ortho path, in world space for the perspective path),
+//     classified by a robust interior in-front sample - so per-class projected
+//     lengths match OCCT's exact HLR on the polyhedral gate. `samplesPerEdge` only
+//     pre-chords CURVED edges; a STRAIGHT edge is split at the true crossings and is
+//     exact at ANY samplesPerEdge value (even 1) under BOTH projections.
 //
 // 0 FAKES (Bible §0): a segment is reported HIDDEN only when a real face triangle
 // was found strictly in front of its depth; an empty / degenerate solid yields an

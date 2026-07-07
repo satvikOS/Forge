@@ -1355,6 +1355,89 @@ Napi::Value ProjectShape(const Napi::CallbackInfo& info) {
     });
 }
 
+// projectShapePerspective(handle, cam?)
+//   cam = { eye:[x,y,z], target:[x,y,z], up:[x,y,z], fovY:number(radians) }
+//   -> { visible, visibleStarts, visibleCount, hidden, hiddenStarts, hiddenCount,
+//        outline, outlineStarts, outlineCount }  (same packing as projectShape,
+//        minus `direction` — a perspective camera has no single parallel direction).
+//
+// Runs the NATIVE analytic perspective HLR (forge::projectShapePerspective ->
+// brep::hlrPerspective). Native-only: throws for a mesh / non-importable input or a
+// degenerate camera (the honest error surfaces to JS; no fabricated view).
+Napi::Value ProjectShapePerspective(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+
+        // Defaults: eye (4,4,4) looking at the origin, world-up +Z, 60deg vertical fov.
+        PerspectiveCamera cam{ 4.0, 4.0, 4.0,  0.0, 0.0, 0.0,  0.0, 0.0, 1.0,
+                               1.0471975511965976 };
+        auto readVec3 = [&](Napi::Value v, double& x, double& y, double& z) {
+            if (v.IsTypedArray()) {
+                auto a = v.As<Napi::Float64Array>();
+                if (a.ElementLength() >= 3) { x = a.Data()[0]; y = a.Data()[1]; z = a.Data()[2]; }
+            } else if (v.IsArray()) {
+                auto a = v.As<Napi::Array>();
+                if (a.Length() >= 3) {
+                    x = a.Get(uint32_t{0}).As<Napi::Number>().DoubleValue();
+                    y = a.Get(uint32_t{1}).As<Napi::Number>().DoubleValue();
+                    z = a.Get(uint32_t{2}).As<Napi::Number>().DoubleValue();
+                }
+            }
+        };
+        if (info.Length() > 1 && info[1].IsObject()) {
+            auto o = info[1].As<Napi::Object>();
+            if (o.Has("eye"))    readVec3(o.Get("eye"),    cam.eyeX,    cam.eyeY,    cam.eyeZ);
+            if (o.Has("target")) readVec3(o.Get("target"), cam.targetX, cam.targetY, cam.targetZ);
+            if (o.Has("up"))     readVec3(o.Get("up"),     cam.upX,     cam.upY,     cam.upZ);
+            if (o.Has("fovY"))
+                cam.fovYRadians = o.Get("fovY").As<Napi::Number>().DoubleValue();
+            else if (o.Has("fovYRadians"))
+                cam.fovYRadians = o.Get("fovYRadians").As<Napi::Number>().DoubleValue();
+        }
+
+        ProjectedView pv = projectShapePerspective(h, cam);
+
+        auto pack = [&](const std::vector<Polyline2D>& polys) -> Napi::Object {
+            std::size_t totalVerts = 0;
+            for (const auto& p : polys) totalVerts += p.size();
+            auto verts  = Napi::Float32Array::New(env, totalVerts * 2);
+            auto starts = Napi::Uint32Array::New(env, polys.size() + 1);
+            std::size_t vIdx = 0;
+            for (std::size_t i = 0; i < polys.size(); ++i) {
+                starts.Data()[i] = static_cast<std::uint32_t>(vIdx);
+                for (const auto& xy : polys[i]) {
+                    verts.Data()[2 * vIdx + 0] = static_cast<float>(xy.first);
+                    verts.Data()[2 * vIdx + 1] = static_cast<float>(xy.second);
+                    ++vIdx;
+                }
+            }
+            starts.Data()[polys.size()] = static_cast<std::uint32_t>(vIdx);
+            auto out = Napi::Object::New(env);
+            out.Set("verts",  verts);
+            out.Set("starts", starts);
+            out.Set("count",  Napi::Number::New(env, static_cast<double>(polys.size())));
+            return out;
+        };
+
+        auto vis  = pack(pv.visible);
+        auto hid  = pack(pv.hidden);
+        auto out_ = pack(pv.outline);
+
+        auto out = Napi::Object::New(env);
+        out.Set("visible",       vis.Get("verts"));
+        out.Set("visibleStarts", vis.Get("starts"));
+        out.Set("visibleCount",  vis.Get("count"));
+        out.Set("hidden",        hid.Get("verts"));
+        out.Set("hiddenStarts",  hid.Get("starts"));
+        out.Set("hiddenCount",   hid.Get("count"));
+        out.Set("outline",       out_.Get("verts"));
+        out.Set("outlineStarts", out_.Get("starts"));
+        out.Set("outlineCount",  out_.Get("count"));
+        return out;
+    });
+}
+
 // ----------------------------------------------------------- drawings (Forge-32)
 //
 // Helpers shared by projectSection / projectDetail / projectBroken — they
@@ -6030,6 +6113,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     // section / detail / broken views.
     auto drawings = Napi::Object::New(env);
     drawings.Set("projectShape",   Napi::Function::New(env, ProjectShape));
+    drawings.Set("projectShapePerspective", Napi::Function::New(env, ProjectShapePerspective));
     drawings.Set("projectSection", Napi::Function::New(env, ProjectShapeSection));
     drawings.Set("projectDetail",  Napi::Function::New(env, ProjectShapeDetail));
     drawings.Set("projectBroken",  Napi::Function::New(env, ProjectShapeBroken));

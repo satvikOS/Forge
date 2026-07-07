@@ -23,13 +23,15 @@
 // harness's setForgeNativeBrepEnabled(true), which flips CORE+FEAT+STEP together).
 // PRODUCTION DEFAULT IS OFF: with the gate off, the original OCCT BRepBuilderAPI_Sewing
 // path below runs byte-for-byte unchanged. This mirrors the Booleans.cpp / Transform.cpp
-// "tryNative* -> else OCCT" idiom: the native branch is taken only when EVERY input
-// handle is a NativeSolid (so its faces can be cloned into one builder and welded); a
-// mixed/OCCT-backed input HONESTLY DEFERS to OCCT (no silent OCCT-face importer exists).
+// "tryNative* -> else OCCT" idiom: the native branch is taken when every operand is a
+// NativeSolid OR an importable analytic OCCT solid (each is decomposed / imported into
+// one builder and welded); a NativeMesh operand or an OCCT body the importer DEFERS on
+// HONESTLY falls through to OCCT.
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult (native)
 #include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Solid/Shell
+#include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
 #include <memory>
 #include <vector>
 #endif
@@ -51,19 +53,32 @@ native::brep::Face* cloneFaceIndependent(native::brep::TopologyBuilder& tb,
     Loop* lp = sf->outerLoop;
     if (!lp || lp->coedgeCount < 3) return nullptr;
 
-    std::vector<Vertex*> ring;
-    ring.reserve(lp->coedgeCount);
-    Coedge* c = lp->first;
-    for (std::size_t i = 0; i < lp->coedgeCount && c != nullptr; ++i) {
-        Vertex* o = c->originVertex();
-        // PRIVATE fresh vertex per corner (no welding/sharing here): the sewer
-        // welds coincident corners across faces. Same construction the A/B harness
-        // (native_vs_occt_sew.cpp::nativeSew via addOuterLoopToFace) relies on.
-        ring.push_back(tb.makeVertex(o->point));
-        c = c->next;
-    }
+    // PRIVATE fresh vertex per corner (no welding/sharing here): the sewer welds
+    // coincident corners across faces. Same construction the A/B harness
+    // (native_vs_occt_sew.cpp::nativeSew via addOuterLoopToFace) relies on.
+    auto ringOf = [&](const Loop* loop) -> std::vector<Vertex*> {
+        std::vector<Vertex*> ring;
+        if (!loop || loop->coedgeCount < 3) return ring;
+        ring.reserve(loop->coedgeCount);
+        Coedge* c = loop->first;
+        for (std::size_t i = 0; i < loop->coedgeCount && c != nullptr; ++i) {
+            Vertex* o = c->originVertex();
+            if (o) ring.push_back(tb.makeVertex(o->point));
+            c = c->next;
+        }
+        return ring;
+    };
+
+    std::vector<Vertex*> ring = ringOf(lp);
+    if (ring.size() < 3) return nullptr;
     Face* nf = tb.makeFace();
     tb.addOuterLoopToFace(nf, ring);   // private fresh edges for this fragment
+    // Carry inner (hole) loops verbatim so a bored / windowed face sews correctly
+    // (broadens the sewer past outer-loop-only bodies to imported faces-with-holes).
+    for (Loop* il : sf->innerLoops) {
+        std::vector<Vertex*> inner = ringOf(il);
+        if (inner.size() >= 3) tb.addInnerLoopToFace(nf, inner);
+    }
 
     // Copy the analytic surface frame + trim window verbatim (identity clone), so a
     // sewn quadric face keeps its EXACT parent surface for downstream mass-props.
@@ -82,32 +97,43 @@ native::brep::Face* cloneFaceIndependent(native::brep::TopologyBuilder& tb,
 // Try the native sew (brep::sewFaces). Returns true + sets `out` on success; returns
 // false (NEVER throws) when the native path HONESTLY DEFERS so the caller falls back
 // to OCCT. Deferral cases (Bible §0 — native-where-valid, OCCT otherwise):
-//   * any input handle is NOT a NativeSolid (mixed / OCCT-backed operands — there is
-//     no OCCT-face -> native-Face importer, so we cannot ingest an OCCT face).
+//   * an operand is a NativeMesh, or an OCCT body whose importOcctSolid DEFERS
+//     (ok==false: Torus/Revolution/non-analytic / non-manifold) — cannot ingest it.
 //   * no cloneable faces, or sewFaces returns ok==false (malformed fragment set).
 bool tryNativeSew(const std::vector<ShapeHandle>& shapes, double tolerance,
                   SewResult& out) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
 
-    // DEFER unless EVERY input is a native analytic solid (the only native shape we
-    // can decompose into faces without an OCCT-face importer). Matches Booleans.cpp's
-    // "all operands NativeSolid or defer" rule.
-    for (ShapeHandle h : shapes) {
-        if (reg.kindOf(h) != ShapeKind::NativeSolid) return false;
-    }
-
     // One fresh builder owns the whole cloned-fragment graph + the sewn result, so
     // the registered handle keeps its topology alive (same ownership model as
     // registerNative in Primitives.cpp).
+    //
+    // Per operand: a NativeSolid is decomposed directly; PHASE-D ACTIVATION — an
+    // OCCT-backed (ShapeKind::Occt) analytic solid is first IMPORTED into a native
+    // Solid via forge::importOcctSolid and its faces cloned in (cloneFaceIndependent
+    // deep-copies the vertices + analytic surface, so each import's own builder is
+    // needed only for its clone loop and is released when `imported` dies). This
+    // matches Healing.cpp / ShapeFix.cpp's gatherNativeFaces so the MULTI-SHAPE sewer
+    // now spans NativeSolid AND importable analytic OCCT bodies, not NativeSolid only.
+    // A NativeMesh operand, or an OCCT body whose import DEFERS (ok==false:
+    // Torus/Revolution/non-analytic / non-manifold), HONESTLY falls through to OCCT.
     auto owner = std::make_shared<TopologyBuilder>();
     std::vector<Face*> faces;
     for (ShapeHandle h : shapes) {
-        const Solid& s = reg.getNativeSolid(h);
-        for (Shell* sh : s.shells) {
-            for (Face* sf : sh->faces) {
-                if (Face* nf = cloneFaceIndependent(*owner, sf)) faces.push_back(nf);
-            }
+        if (reg.kindOf(h) == ShapeKind::NativeSolid) {
+            const Solid& s = reg.getNativeSolid(h);
+            for (Shell* sh : s.shells)
+                for (Face* sf : sh->faces)
+                    if (Face* nf = cloneFaceIndependent(*owner, sf)) faces.push_back(nf);
+        } else if (reg.kindOf(h) == ShapeKind::Occt) {
+            ImportResult imported = importOcctSolid(reg.get(h));
+            if (!imported.ok || imported.solid == nullptr) return false;   // defer to OCCT
+            for (Shell* sh : imported.solid->shells)
+                for (Face* sf : sh->faces)
+                    if (Face* nf = cloneFaceIndependent(*owner, sf)) faces.push_back(nf);
+        } else {
+            return false;                                                  // NativeMesh -> defer
         }
     }
     if (faces.empty()) return false;
@@ -160,8 +186,9 @@ SewResult sew(const std::vector<ShapeHandle>& shapes, double tolerance) {
 
 #ifdef FORGE_NATIVE_BREP
     // GATE: native sewer is opt-in via the FEAT gate (default OFF). When on AND every
-    // input is a NativeSolid, sew via brep::sewFaces; otherwise fall through to OCCT
-    // (mixed/OCCT operands HONESTLY DEFER — no behavior change in the default build).
+    // operand is a NativeSolid or an importable analytic OCCT solid, sew via
+    // brep::sewFaces; otherwise fall through to OCCT (a NativeMesh operand or an OCCT
+    // body the importer defers on HONESTLY DEFERS — no behavior change in default build).
     if (native::brep::forgeNativeFeaturesEnabled()) {
         SewResult nativeOut{};
         if (tryNativeSew(shapes, tolerance, nativeOut)) return nativeOut;
