@@ -1003,6 +1003,16 @@ ShapeHandle filletEdges(ShapeHandle shape,
                         *owner, solid, ids[0], radius);
                     if (ar.ok && ar.solid)
                         return ShapeRegistry::instance().addNativeSolid(owner, ar.solid);
+                    // K3 NON-ORTHOGONAL broadening: the orthogonal path declines a
+                    // non-90-degree edge; try the GENERAL-dihedral native fillet
+                    // before the mesh bridge, so a wedge/prism/dovetail/angled-
+                    // bracket edge stays OCCT-free (a fresh builder so no stale
+                    // fragments from the declined orthogonal attempt leak in).
+                    auto ownerG = std::make_shared<nb::TopologyBuilder>();
+                    nb::AnalyticFilletResult gr = nb::filletSolidStraightConvexEdgeAnalytic(
+                        *ownerG, solid, ids[0], radius);
+                    if (gr.ok && gr.solid)
+                        return ShapeRegistry::instance().addNativeSolid(ownerG, gr.solid);
                 } else {
                     // DISPATCH CONTRACT: the multi-edge analytic solid path is used
                     // ONLY for a PAIRWISE-VERTEX-DISJOINT selection (each blend is a

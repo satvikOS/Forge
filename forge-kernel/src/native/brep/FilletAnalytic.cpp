@@ -343,6 +343,160 @@ Face* emitCylinderPatch(TopologyBuilder& tb, const Vec3& axis0, const Vec3& axis
     return f;
 }
 
+// ===========================================================================
+// GENERAL-ANGLE (non-orthogonal) SECTOR emitters — the DIHEDRAL broadening of the
+// quarter emitters above. The quarter emitters hard-code a pi/2 arc between two
+// ORTHOGONAL radial directions (dirA . dirB == 0); these take ANY two unit radial
+// directions dirA,dirB and span the FULL arc angle  theta = acos(dirA . dirB) in
+// (0,pi), so a fillet on a NON-orthogonal convex planar-planar edge (a prism /
+// wedge / dovetail / angled bracket) builds the EXACT sector cylinder + sector-disk
+// caps instead of deferring to OCCT BRepFilletAPI. They REDUCE to the quarter
+// emitters at theta == pi/2 (same vertices, same trim, same Circle), so they are a
+// strict generalisation. NOTE the rolling-ball tangent point on plane A is ALWAYS
+// axisFoot + R*nA — the foot is signed-distance -R from plane A, so its
+// perpendicular foot onto A is foot + R*nA — INDEPENDENT of the dihedral angle; only
+// the arc SWEEP and the axis-foot OFFSET change with the angle, not the algebra.
+// ===========================================================================
+
+// The exact circular arc from center+R*originDir to center+R*destDir spanning the
+// full angle theta = acos(originDir . destDir) between the two unit radial dirs (the
+// quarterArc above is the theta == pi/2 special case; identical Circle there).
+Curve sectorArc(const Vec3& center, double R, const Vec3& originDir, const Vec3& destDir) {
+    const Vec3 axis = vnorm(vcross(originDir, destDir));   // rotation axis originDir->destDir
+    const double c = std::max(-1.0, std::min(1.0, vdot(originDir, destDir)));
+    const double theta = std::acos(c);
+    return Curve::makeCircle(center, originDir, axis, R, 0.0, theta);
+}
+
+// Bind the (already-created) arc edge between vP (at center+R*dirP) and vQ (at
+// center+R*dirQ) to its sector Circle running in the edge's own start->end sense.
+void bindSectorArcEdge(TopologyBuilder& tb, Edge* edge, const Vec3& center, double R,
+                       Vertex* vP, const Vec3& dirP, Vertex* vQ, const Vec3& dirQ) {
+    (void)vQ;  // the other endpoint, by construction at center+R*dirQ
+    if (edge->start == vP) edge->curve = tb.makeCurve(sectorArc(center, R, dirP, dirQ));
+    else                   edge->curve = tb.makeCurve(sectorArc(center, R, dirQ, dirP));
+}
+
+// The in-plane unit vector perpendicular to dirA, in the (dirA,dirB) arc plane and
+// pointing toward dirB — the surface-frame BINORMAL of a sector patch whose refDir
+// is dirA (for orthogonal dirs this is exactly dirB).
+Vec3 sectorBinormal(const Vec3& dirA, const Vec3& dirB) {
+    return vnorm(vsub(dirB, vscale(dirA, vdot(dirA, dirB))));
+}
+
+// Emit a SECTOR-DISK cap fragment (annular sector, inner 0 .. outer R) centred at
+// `center`, in the plane with outward normal `outward`, spanning the arc from +dirA
+// to +dirB (angle theta = acos(dirA . dirB)). Generalises emitQuarterDisk to any
+// theta in (0,pi). The two straight radius edges run center->A and center->B; the arc
+// A->B is bound to its exact sector Circle. `axisForFrame` is the surface frame axis
+// (the edge dir) so binormal = axis x refDir points toward dirB.
+Face* emitSectorDisk(TopologyBuilder& tb, const Vec3& center, double R,
+                     const Vec3& dirA, const Vec3& dirB, const Vec3& axisForFrame,
+                     const Vec3& outward) {
+    const Vec3 A = vadd(center, vscale(dirA, R));
+    const Vec3 B = vadd(center, vscale(dirB, R));
+    Vertex* vC = tb.makeVertex(V2P(center));
+    Vertex* vA = tb.makeVertex(V2P(A));
+    Vertex* vB = tb.makeVertex(V2P(B));
+    std::vector<Vertex*> ring = {vC, vA, vB};
+    orientRingCCW(ring, outward);
+    Face* fD = tb.makeFace();
+    tb.addOuterLoopToFace(fD, ring);
+    Coedge* ce = fD->outerLoop->first;
+    for (std::size_t s = 0; s < fD->outerLoop->coedgeCount; ++s) {
+        Vertex* o = ce->originVertex();
+        Vertex* dst = ce->destVertex();
+        const bool arc = (o == vA && dst == vB) || (o == vB && dst == vA);
+        if (arc) bindSectorArcEdge(tb, ce->edge, center, R, vA, dirA, vB, dirB);
+        ce = ce->next;
+    }
+    const Vec3 bn = sectorBinormal(dirA, dirB);
+    const double theta = std::acos(std::max(-1.0, std::min(1.0, vdot(dirA, dirB))));
+    Surface* sd = tb.makeSurface();
+    sd->kind = SurfaceKind::Plane;
+    sd->origin = center;
+    sd->refDir = dirA;
+    // axis (== +-axisForFrame, both perpendicular to the arc plane) chosen so that
+    // binormal = axis x refDir points toward dirB (== sectorBinormal).
+    sd->axis = (vdot(vcross(axisForFrame, dirA), bn) >= 0.0) ? axisForFrame
+                                                             : vscale(axisForFrame, -1.0);
+    sd->reversed = (vdot(sd->axis, outward) < 0.0);
+    sd->isDisk = true;
+    sd->diskOuter = R;
+    sd->diskInner = 0.0;
+    fD->surface = sd;
+    fD->u0 = 0.0; fD->u1 = theta;   // angular trim (the sector angle, not a fixed quarter)
+    fD->v0 = 0.0; fD->v1 = R;       // radial trim
+    return fD;
+}
+
+// Emit the SECTOR-CYLINDER fillet patch fragment over the edge from axis base
+// `axis0` to `axis1`, radius R, spanning the arc from +dirA to +dirB (angle theta).
+// Generalises emitCylinderPatch to any theta in (0,pi). See emitCylinderPatch for the
+// ringOrient / surfNormalDir convention (unchanged here).
+Face* emitCylinderSectorPatch(TopologyBuilder& tb, const Vec3& axis0, const Vec3& axis1,
+                              double R, const Vec3& dirA, const Vec3& dirB,
+                              const Vec3& edgeDir, double edgeLen,
+                              const Vec3& ringOrient, const Vec3& surfNormalDir) {
+    const Vec3 TA0 = vadd(axis0, vscale(dirA, R));
+    const Vec3 TB0 = vadd(axis0, vscale(dirB, R));
+    const Vec3 TA1 = vadd(axis1, vscale(dirA, R));
+    const Vec3 TB1 = vadd(axis1, vscale(dirB, R));
+    Vertex* vTA0 = tb.makeVertex(V2P(TA0));
+    Vertex* vTB0 = tb.makeVertex(V2P(TB0));
+    Vertex* vTA1 = tb.makeVertex(V2P(TA1));
+    Vertex* vTB1 = tb.makeVertex(V2P(TB1));
+
+    std::vector<Vertex*> ring = {vTA0, vTB0, vTB1, vTA1};
+    orientRingCCW(ring, ringOrient);
+    Face* f = tb.makeFace();
+    tb.addOuterLoopToFace(f, ring);
+
+    const Vec3 bn = sectorBinormal(dirA, dirB);
+    const double theta = std::acos(std::max(-1.0, std::min(1.0, vdot(dirA, dirB))));
+    // axis chosen so binormal = axis x refDir == sectorBinormal (theta 0 -> dirA).
+    Vec3 cylAxis = (vdot(vcross(edgeDir, dirA), bn) >= 0.0) ? edgeDir : vscale(edgeDir, -1.0);
+    const bool axisFlipped = (vdot(cylAxis, edgeDir) < 0.0);
+    const Vec3 cylOrigin = axisFlipped ? axis1 : axis0;
+
+    Coedge* ce = f->outerLoop->first;
+    for (std::size_t s = 0; s < f->outerLoop->coedgeCount; ++s) {
+        Vertex* o = ce->originVertex();
+        Vertex* dst = ce->destVertex();
+        auto isArc = [&](Vertex* a, Vertex* b) {
+            return (o == a && dst == b) || (o == b && dst == a);
+        };
+        if (isArc(vTA0, vTB0)) bindSectorArcEdge(tb, ce->edge, axis0, R, vTA0, dirA, vTB0, dirB);
+        else if (isArc(vTA1, vTB1)) bindSectorArcEdge(tb, ce->edge, axis1, R, vTA1, dirA, vTB1, dirB);
+        ce = ce->next;
+    }
+
+    Surface* s = tb.makeSurface();
+    s->kind = SurfaceKind::Cylinder;
+    s->origin = cylOrigin;
+    s->axis = cylAxis;
+    s->refDir = dirA;
+    s->r1 = R;
+    s->param = edgeLen;
+    {
+        // Compare the geometric normal at the ARC MIDPOINT (theta/2, radial == the
+        // bisector of dirA,dirB) against surfNormalDir; set `reversed` accordingly.
+        Vec3 sp, du, dv;
+        s->evaluateDeriv(0.5 * theta, 0.5 * edgeLen, sp, du, dv);
+        Vec3 nrm = vnorm(vcross(du, dv));
+        s->reversed = (vdot(nrm, surfNormalDir) < 0.0);
+    }
+    f->surface = s;
+    f->u0 = 0.0; f->u1 = theta;
+    f->v0 = 0.0; f->v1 = edgeLen;
+    const double zStart = axisFlipped ? edgeLen : 0.0;
+    const double zFar = axisFlipped ? 0.0 : edgeLen;
+    f->vertexUV = {
+        {0.0, zStart}, {theta, zStart}, {theta, zFar}, {0.0, zFar},
+    };
+    return f;
+}
+
 } // namespace
 
 AnalyticFilletResult filletBoxEdgeAnalytic(TopologyBuilder& tb,
@@ -926,6 +1080,223 @@ AnalyticFilletResult filletSolidStraightEdgeAnalytic(TopologyBuilder& tb,
         ? "ok (analytic constant-radius rolling-ball fillet of a TOPOLOGY-SOURCED "
           "convex straight planar-planar edge; watertight closed 2-manifold)"
         : "topology-sourced fillet assembly did not sew into a closed shell";
+    return res;
+}
+
+// ===========================================================================
+// TOPOLOGY-SOURCED single convex straight edge fillet — GENERAL DIHEDRAL ANGLE
+// (K3 non-orthogonal broadening). Identical rolling-ball contact + re-trim + cap
+// machinery as filletSolidStraightEdgeAnalytic, but WITHOUT the 90-degree gate, so
+// ANY convex straight edge between two PLANAR faces meeting at an arbitrary dihedral
+// (a prism / wedge / dovetail / angled bracket, angle strictly in (0,180)) is
+// filleted native + exact. At a 90-degree edge it reduces to the orthogonal path
+// bit-for-bit (same tangent points, same removed cross-section, same Circle arcs).
+// This shrinks the OCCT BRepFilletAPI include-surface: a non-orthogonal edge that
+// previously deferred to OCCT / the mesh bridge now stays OCCT-free.
+//
+// GENERAL rolling-ball geometry (outward unit normals nA,nB, c = nA . nB in (-1,1)):
+//   * the ball centre is a distance R inside BOTH planes, so its cross-section foot
+//     is  A0 = P0 - (R/(1+c)) * (nA + nB)  (the c==0 orthogonal case is P0-R(nA+nB),
+//     exactly the filletSolidStraightEdgeAnalytic foot). Verify: (A0-P0).nA
+//     = -(R/(1+c))(1 + c) = -R, i.e. signed distance -R from plane A (likewise B).
+//   * the tangent contact on plane A is A0 + R*nA (the perpendicular foot of A0 onto
+//     plane A, since A0 is signed-distance -R from it) — INDEPENDENT of the angle;
+//     likewise A0 + R*nB on plane B.
+//   * the blend is a CYLINDER of radius R whose arc spans theta = acos(c) from the
+//     +nA radial to the +nB radial. Interior dihedral delta = 180 - theta (deg).
+//   * removed cross-section area (kite minus circular sector) is
+//         R^2 * ( cot(delta/2) - theta/2 )   [ = (1 - pi/4) R^2 at delta = 90 ],
+//     so the removed volume is that times the edge length L (the closed-form GT the
+//     A/B checks against OCCT). Everything else (face classification, adjacent-face
+//     re-trim to the tangent points, perpendicular-end L-polygon fan + sector-disk
+//     cap, faithful copy of untouched faces, watertight sew) is UNCHANGED.
+//
+// HONEST SCOPE (each REFUSED with `reason`, never faked): straight CONVEX edge shared
+// by two PLANAR faces at a genuine dihedral (faces neither coplanar nor flat), ending
+// against two PLANAR faces PERPENDICULAR to the edge; a curved / concave / coplanar /
+// holed / oblique-end input is refused. `ok` is true only when the sew is watertight.
+// ===========================================================================
+AnalyticFilletResult filletSolidStraightConvexEdgeAnalytic(TopologyBuilder& tb,
+                                                           const Solid& src,
+                                                           std::uint32_t edgeId,
+                                                           double R) {
+    if (!(R > 0.0) || !std::isfinite(R)) return fail("fillet radius R must be positive and finite");
+    if (src.shells.empty() || src.shells[0] == nullptr) return fail("solid has no shell");
+
+    std::vector<Edge*> edges = enumerateSolidStraightEdges(src);
+    if (edges.empty()) return fail("solid has no enumerable edges");
+    if (edgeId >= edges.size()) return fail("edgeId out of range for this solid's edge enumeration");
+    Edge* E = edges[edgeId];
+
+    // -------- resolve the two adjacent faces (via the edge's two coedges) -----
+    if (!E->coedgeA || !E->coedgeB) return fail("edge is not shared by two coedges (open / non-manifold)");
+    if (!E->coedgeA->loop || !E->coedgeB->loop) return fail("edge coedge has no loop");
+    Face* FA = E->coedgeA->loop->face;
+    Face* FB = E->coedgeB->loop->face;
+    if (!FA || !FB || FA == FB) return fail("could not resolve two distinct adjacent faces");
+    if (!FA->surface || FA->surface->kind != SurfaceKind::Plane ||
+        !FB->surface || FB->surface->kind != SurfaceKind::Plane)
+        return fail("both adjacent faces must be PLANAR (curved-face fillet is the torus follow-up)");
+    if (!FA->innerLoops.empty() || !FB->innerLoops.empty())
+        return fail("an adjacent face has inner (hole) loops; holed-face re-trim is a follow-up");
+
+    Vertex* VP0 = E->start;
+    Vertex* VP1 = E->end;
+    const Vec3 P0 = P2V(VP0->point);
+    const Vec3 P1 = P2V(VP1->point);
+    Vec3 e = vsub(P1, P0);
+    const double edgeLen = vlen(e);
+    if (!(edgeLen > 0.0)) return fail("degenerate (zero-length) edge");
+    e = vscale(e, 1.0 / edgeLen);
+    if (!(R < edgeLen)) return fail("fillet radius R must be < the edge length");
+
+    // Outward normals from the real loop winding (CCW-from-outside -> outward).
+    const Vec3 nA = vnorm(ringNormal(outerRingVerts(FA)));
+    const Vec3 nB = vnorm(ringNormal(outerRingVerts(FB)));
+
+    // GENERAL dihedral scope: any genuine convex edge. Refuse only DEGENERATE angles:
+    // c -> +1 (faces coplanar, no real edge) and c -> -1 (faces flat/anti-parallel,
+    // a 180-degree smooth join with nothing to blend). The orthogonal c==0 case is a
+    // subset handled bit-for-bit; the certified orthogonal path (which the dispatch
+    // tries first) is unaffected — this only runs when that path declines.
+    const double ndot = vdot(nA, nB);
+    if (ndot > 1.0 - 1e-7)
+        return fail("adjacent faces are (near) coplanar — no genuine dihedral edge to fillet");
+    if (ndot < -1.0 + 1e-7)
+        return fail("adjacent faces are (near) flat/anti-parallel — a smooth 180-degree join, nothing to blend");
+    // Fillet must fit: the sharp-corner set-back distance R/tan(delta/2) = R/tan(theta_c)
+    // uses theta_c = (pi - theta)/2; guard 1+ndot away from 0 already covers a spike.
+
+    // Convex test: face A's in-plane interior direction must lie on the MATERIAL
+    // (inner) side of plane B (iA . nB < 0). Concave (reflex) edges are refused.
+    Coedge* cA = (E->coedgeA->loop->face == FA) ? E->coedgeA : E->coedgeB;
+    const Vec3 dA = vnorm(vsub(P2V(cA->destVertex()->point), P2V(cA->originVertex()->point)));
+    const Vec3 iA = vnorm(vcross(nA, dA));   // points into FA's interior, in-plane
+    if (!(vdot(iA, nB) < -1e-7))
+        return fail("edge is concave (reflex) or tangent — convex-only in this increment");
+
+    const double theta = std::acos(std::max(-1.0, std::min(1.0, ndot)));   // fillet arc sweep
+    const double interiorDihedralDeg = 180.0 - theta * 180.0 / kPi;
+
+    // -------- GENERAL rolling-ball contact (axis foot = P0 - R/(1+c) (nA+nB)) --
+    const double foot = R / (1.0 + ndot);
+    const Vec3 A0 = vsub(P0, vscale(vadd(nA, nB), foot));   // axis foot @ P0
+    const Vec3 A1 = vadd(A0, vscale(e, edgeLen));           // axis foot @ P1
+    const Vec3 TA0 = vadd(A0, vscale(nA, R)), TB0 = vadd(A0, vscale(nB, R));
+    const Vec3 TA1 = vadd(A1, vscale(nA, R)), TB1 = vadd(A1, vscale(nB, R));
+
+    AnalyticFilletResult res;
+    std::vector<Face*> frags;
+    int adjacentCount = 0, endCount = 0;
+
+    // -------- classify + re-emit every face of src as an independent fragment -
+    for (Face* F : src.shells[0]->faces) {
+        std::vector<Vertex*> ring = outerRingVerts(F);
+        if (ring.empty()) return fail("a face has an empty outer loop");
+        bool has0 = false, has1 = false;
+        for (Vertex* v : ring) { if (v == VP0) has0 = true; if (v == VP1) has1 = true; }
+
+        if (has0 && has1) {
+            // ADJACENT face (FA or FB): re-trim its two sharp-edge corners to the
+            // tangent contacts; the rest of the polygon is unchanged.
+            if (F != FA && F != FB)
+                return fail("a non-adjacent face contains both edge endpoints (unsupported topology)");
+            ++adjacentCount;
+            const bool isA = (F == FA);
+            const Vec3 fn = isA ? nA : nB;
+            const Vec3 T0 = isA ? TA0 : TB0;
+            const Vec3 T1 = isA ? TA1 : TB1;
+            std::vector<Vec3> rp;
+            rp.reserve(ring.size());
+            for (Vertex* v : ring) {
+                if (v == VP0)      rp.push_back(T0);
+                else if (v == VP1) rp.push_back(T1);
+                else               rp.push_back(P2V(v->point));
+            }
+            Face* rf = emitPlanarPolygon(tb, rp, fn);
+            frags.push_back(rf);
+            if (isA) res.trimmedFaceA = rf; else res.trimmedFaceB = rf;
+            continue;
+        }
+
+        if (has0 || has1) {
+            // PERPENDICULAR END face (exactly one sharp corner). Must be planar,
+            // hole-free, and perpendicular to the edge (box/prism local topology).
+            if (!F->surface || F->surface->kind != SurfaceKind::Plane || !F->innerLoops.empty())
+                return fail("an edge endpoint meets a non-planar or holed face (setback follow-up)");
+            const Vec3 fn = vnorm(ringNormal(ring));
+            if (!(std::fabs(vdot(fn, e)) > 1.0 - 1e-6))
+                return fail("an end face is not perpendicular to the edge (mitre/setback follow-up)");
+            ++endCount;
+            const bool atStart = has0;
+            Vertex* Vsharp = atStart ? VP0 : VP1;
+            const Vec3 center = atStart ? A0 : A1;
+            const Vec3 Ta = atStart ? TA0 : TA1;   // tangent on FA's plane at this end
+            const Vec3 Tb = atStart ? TB0 : TB1;   // tangent on FB's plane at this end
+
+            const int n = static_cast<int>(ring.size());
+            int slot = -1;
+            for (int k = 0; k < n; ++k) if (ring[k] == Vsharp) { slot = k; break; }
+            if (slot < 0) return fail("internal: sharp corner not located in end-face loop");
+            const Vec3 prevPos = P2V(ring[(slot - 1 + n) % n]->point);
+            const double dTa = vlen(vsub(Ta, prevPos)), dTb = vlen(vsub(Tb, prevPos));
+            const Vec3 nearPrev = (dTa <= dTb) ? Ta : Tb;
+            const Vec3 nearNext = (dTa <= dTb) ? Tb : Ta;
+
+            // L-polygon: the corner replaced by [nearPrev, center, nearNext]; star-
+            // shaped from `center`, so it fans into convex triangles (exact planar
+            // integrator per triangle). The sector-disk cap fills the rounded corner.
+            std::vector<Vec3> Lring;
+            for (int k = 0; k < n; ++k) {
+                if (k == slot) { Lring.push_back(nearPrev); Lring.push_back(center); Lring.push_back(nearNext); }
+                else           { Lring.push_back(P2V(ring[k]->point)); }
+            }
+            int ci = 0;
+            for (int k = 0; k < static_cast<int>(Lring.size()); ++k) if (veq(Lring[k], center)) { ci = k; break; }
+            const int Ln = static_cast<int>(Lring.size());
+            for (int step = 1; step + 1 < Ln; ++step) {
+                std::vector<Vec3> tri = { center, Lring[(ci + step) % Ln], Lring[(ci + step + 1) % Ln] };
+                frags.push_back(emitPlanarPolygon(tb, tri, fn));
+            }
+            // The sector-disk cap (radii nA -> nB spanning theta, centred on the foot).
+            frags.push_back(emitSectorDisk(tb, center, R, nA, nB, e, fn));
+            continue;
+        }
+
+        // UNTOUCHED face: faithful independent copy (any surface, holes preserved).
+        frags.push_back(copyFaceFragment(tb, F));
+    }
+
+    if (adjacentCount != 2)
+        return fail("the edge is not shared by exactly two re-trimmable adjacent faces");
+    if (endCount != 2)
+        return fail("the edge does not terminate against exactly two perpendicular end faces");
+
+    // -------- the sector cylindrical fillet PATCH (convex: ring & normal == +bisector) -
+    const Vec3 outward = vnorm(vadd(nA, nB));
+    Face* cyl = emitCylinderSectorPatch(tb, A0, A1, R, nA, nB, e, edgeLen, outward, outward);
+    frags.push_back(cyl);
+    res.filletFace = cyl;
+
+    // -------- sew every fragment into one closed 2-manifold -------------------
+    Solid* solid = tb.makeSolid();
+    SewOptions so; so.tol = 1e-7; so.midSamples = 3; so.weldVertices = true;
+    SewResult sr = sewFaces(tb, frags, so);
+    for (Shell* sh : sr.shells) tb.addShellToSolid(solid, sh);
+
+    res.solid       = solid;
+    res.radius      = R;
+    res.edgeLength  = edgeLen;
+    res.dihedralDeg = interiorDihedralDeg;
+    res.axisPoint   = A0;
+    res.axisDir     = e;
+    res.tangentA    = TA0;
+    res.tangentB    = TB0;
+    res.ok = sr.ok && sr.diagnosis.closed;
+    res.reason = res.ok
+        ? "ok (analytic constant-radius rolling-ball fillet of a TOPOLOGY-SOURCED "
+          "convex straight planar-planar edge at a GENERAL dihedral angle; watertight)"
+        : "general-dihedral fillet assembly did not sew into a closed shell";
     return res;
 }
 

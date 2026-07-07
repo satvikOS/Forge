@@ -164,6 +164,34 @@ AnalyticFilletResult filletSolidStraightEdgeAnalytic(TopologyBuilder& tb,
                                                      double R);
 
 // ---------------------------------------------------------------------------
+// filletSolidStraightConvexEdgeAnalytic — the K3 NON-ORTHOGONAL broadening of
+// filletSolidStraightEdgeAnalytic: the analytic constant-radius rolling-ball fillet
+// of ONE straight CONVEX edge of an arbitrary native Solid whose two adjacent PLANAR
+// faces meet at ANY genuine dihedral angle (NOT restricted to 90 degrees). It runs
+// the identical rolling-ball contact + re-trim + sector-cap + watertight-sew pipeline
+// as the orthogonal path, but with the general axis foot A0 = P0 - R/(1+nA.nB)(nA+nB)
+// and a fillet cylinder whose arc sweeps theta = acos(nA.nB) (the caps are sector
+// disks, not fixed quarter disks). At a 90-degree edge it coincides with the
+// orthogonal path exactly. This is the case a prism / wedge / dovetail / angled
+// bracket edge would otherwise hand to OCCT BRepFilletAPI (or the mesh bridge); it now
+// stays OCCT-free, shrinking the TKFillet include-surface.
+//
+// HONEST SCOPE (each REFUSED with `reason`, never faked): straight CONVEX edge shared
+// by two PLANAR faces at a genuine dihedral (faces neither coplanar nor flat), ending
+// against two PLANAR faces PERPENDICULAR to the edge. A curved / concave / coplanar /
+// flat-180 / holed / oblique-end input is refused (the torus / mitre / setback
+// follow-ups), and faces touching neither endpoint are copied faithfully. `ok` is true
+// only when the sew is a watertight closed 2-manifold whose mass the analytic
+// integrator measures exactly. The removed volume is
+//   ( cot(delta/2) - theta/2 ) R^2 * L   (delta = interior dihedral, theta = pi - delta)
+// which is (1 - pi/4) R^2 L at the 90-degree edge — the closed-form A/B ground truth.
+// ---------------------------------------------------------------------------
+AnalyticFilletResult filletSolidStraightConvexEdgeAnalytic(TopologyBuilder& tb,
+                                                           const Solid& src,
+                                                           std::uint32_t edgeId,
+                                                           double R);
+
+// ---------------------------------------------------------------------------
 // filletLBlockEdgeAnalytic — CONCAVE (reflex) constant-radius rolling-ball fillet.
 //
 // Builds the canonical L-PRISM: the L-shaped cross-section
