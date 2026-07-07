@@ -23,14 +23,17 @@
 //   2. OCCLUSION FACE SET. Build a flat triangle soup of every face of the solid
 //        (loop fan-triangulation; analytic curved faces are tessellated on their
 //        (u,v) trim rectangle). This is the depth tester.
-//   3. CLASSIFY. Each edge is sampled into a polyline; the MIDPOINT of every
-//        sample span is tested for occlusion by casting a ray from that 3D point
-//        toward the viewer (along -view-dir) and counting whether any solid face
-//        triangle lies strictly IN FRONT (closer to the viewer) of the sample,
-//        excluding the edge's own incident faces and self-coplanar grazes. A span
-//        whose midpoint is occluded is HIDDEN; otherwise VISIBLE. Consecutive
-//        same-class spans are merged, so each edge becomes an ordered list of
-//        visible + hidden polyline spans split exactly at occlusion boundaries.
+//   3. CLASSIFY. The ORTHOGRAPHIC path (hiddenLineRemoval) splits each edge at
+//        the ANALYTIC visibility crossings: for every straight projected segment
+//        it solves, in closed form, each t where the segment enters/leaves an
+//        occluder face's projected outline and where its depth crosses that face's
+//        plane depth (both linear in t). The segment is cut at those exact t's and
+//        each piece is classified by a robust interior-midpoint in-front test
+//        (hole-aware, excluding the edge's own incident faces). Consecutive
+//        same-class pieces are merged, so each edge becomes an ordered list of
+//        visible + hidden spans split EXACTLY at the true occlusion boundaries
+//        (validated 1:1 against OCCT HLRBRep_Algo to rel<=1e-6). The PERSPECTIVE
+//        path (hlrPerspective) still uses the sampled-midpoint z-buffer split.
 //
 // HONEST ENVELOPE (do NOT overclaim — Bible §0):
 //   * Solids handled: POLYHEDRAL (planar faces) + ANALYTIC-QUADRIC (cylinder /
@@ -42,12 +45,13 @@
 //     divides the lateral image coordinates by eye-relative depth (foreshortens)
 //     and ray-casts occlusion FROM THE EYE (not parallel). Both share the same
 //     polyhedral + analytic-quadric envelope.
-//   * Occlusion is resolved by adaptive SAMPLING of each edge (span midpoint depth
-//     test), so an occlusion boundary lands within one sample step of the true
-//     crossing; raising `samplesPerEdge` tightens it (the test asserts the classic
-//     box counts are exact and stable). This is the standard robust-in-practice
-//     z-buffer HLR ceiling, NOT a proven-exact analytic edge/face intersection
-//     HLR (that — OCCT's polyalgo exact mode — remains TARGETED).
+//   * ORTHOGRAPHIC occlusion is resolved ANALYTICALLY: the visible/hidden split
+//     points are the exact outline/depth crossings (closed-form roots of linear
+//     functions of the segment parameter), classified by a robust interior sample
+//     — so per-class projected lengths match OCCT's exact HLR to rel<=1e-6 on the
+//     polyhedral gate (Cases A+B). `samplesPerEdge` only pre-chords curved edges;
+//     straight edges are exact at any value. The PERSPECTIVE path remains a
+//     sampled z-buffer split (raise samplesPerEdge to converge).
 //
 // 0 FAKES (Bible §0): a segment is reported HIDDEN only when a real face triangle
 // was found strictly in front of its depth; an empty / degenerate solid yields an

@@ -13,8 +13,8 @@
 //
 //   CASE B  4x4x4 block minus a 1x1 square through-hole (centred at (2,2),
 //           full height in Z), view direction (-0.2,-0.2,-1)
-//           native gate: 13 visible + 11 hidden segments,
-//                        V-len 30.742576 / H-len 17.218992.
+//           native gate: 16 visible + 10 hidden segments,
+//                        V-len 32.223760 / H-len 15.737807 (== OCCT, analytic split).
 //
 // On the OCCT side the SAME shapes are built (BRepPrimAPI_MakeBox; the holed
 // block via BRepAlgoAPI_Cut of a 4x4x4 box minus a 1x1x(>height) prism), HLR
