@@ -1004,10 +1004,34 @@ ShapeHandle filletEdges(ShapeHandle shape,
                     if (ar.ok && ar.solid)
                         return ShapeRegistry::instance().addNativeSolid(owner, ar.solid);
                 } else {
-                    nb::AnalyticChainFilletResult cr = nb::filletSolidStraightEdgesAnalytic(
-                        *owner, solid, ids, radius);
-                    if (cr.ok && cr.solid)
-                        return ShapeRegistry::instance().addNativeSolid(owner, cr.solid);
+                    // DISPATCH CONTRACT: the multi-edge analytic solid path is used
+                    // ONLY for a PAIRWISE-VERTEX-DISJOINT selection (each blend is a
+                    // pure cylindrical strip, exact rolling-ball volume == OCCT to
+                    // ~1e-16). A SHARED-VERTEX selection (e.g. all 12 box edges — every
+                    // corner shared by 3 fillets) would be closed by the analytic
+                    // spherical-octant trihedral corner, which is a watertight solid but
+                    // an APPROXIMATION of OCCT's true corner blend (over-removes ~4e-3
+                    // vol), so it must NOT masquerade as an exact analytic NativeSolid.
+                    // Such selections ride the proven mesh-bridge (NativeMesh) instead —
+                    // the contract asserted by native_multifillet_verify (3) and
+                    // native_vs_occt_core `fillet ALL box edges (mesh-bridge)`. The
+                    // analytic trihedral corner remains available to direct callers of
+                    // filletSolidStraightEdgesAnalytic (native_fillet_solid_test case 8).
+                    bool sharesVertex = false;
+                    std::unordered_set<const nb::Vertex*> seenV;
+                    for (std::uint32_t hid : ids) {
+                        const nb::Edge* E = topo[hid];
+                        if (!E->start || !E->end) { sharesVertex = true; break; }
+                        if (!seenV.insert(E->start).second) { sharesVertex = true; break; }
+                        if (!seenV.insert(E->end).second)   { sharesVertex = true; break; }
+                    }
+                    if (!sharesVertex) {
+                        nb::AnalyticChainFilletResult cr = nb::filletSolidStraightEdgesAnalytic(
+                            *owner, solid, ids, radius);
+                        if (cr.ok && cr.solid)
+                            return ShapeRegistry::instance().addNativeSolid(owner, cr.solid);
+                    }
+                    // shared-vertex OR analytic refusal: honest fallback to mesh bridge.
                 }
                 // else: honest fallback to the mesh bridge below.
             }
