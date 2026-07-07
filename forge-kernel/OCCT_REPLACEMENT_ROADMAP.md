@@ -49,3 +49,10 @@ pass — a kind=occt that still shows is an honest FAIL to report. 6. Continue u
     compile INTO the addon; standalone smoke compiles+links **OCCT-FREE** (128 native objs) and passes **39/39** A/B.
   - **dylibs 19 → 19 (unchanged, honest)** — no keystone fully severed a lib yet: K2 keeps BRepAlgoAPI fallback
     (TKBO/TKBool), K6 still feeds gp_Ax2/Pln/Trsf + BRepGProp_Face (TKernel/TKMath/TKBRep/TKTopAlgo/TKPrim).
+- **K5 write-cycle (2026-07-07, verify-deferred)** — AUTHORED `forge::occtmesh` native meshing
+  (include/forge/OcctNativeMesh.hpp + src/OcctNativeMesh.cpp): a watertight adaptive triangulator
+  (shared per-edge discretisation + interior UV grid + native constrained Delaunay) that reads OCCT
+  surfaces/pcurves but references **zero TKMesh**. Wired into src/Booleans.cpp GAP-A, src/BooleanTol.cpp
+  (kills the LAST K2 OCCT-operand deferral — a dirty-STEP fuzzy operand now routes native), and the
+  src/Drawings.cpp HLR retry (x2). `BRepMesh_IncrementalMesh` REMOVED from those TUs. Dylibs still 19
+  (honest): src/Tessellate.cpp + src/FeaTet.cpp still call BRepMesh — moving those two drops TKMesh.

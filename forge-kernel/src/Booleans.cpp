@@ -27,7 +27,10 @@
 #ifdef FORGE_NATIVE_BREP
 // GAP A — native-tessellate an OCCT operand into a triangle soup for the native
 // mesh-operand boolean (the mixed native/OCCT boolean route).
-#include <BRepMesh_IncrementalMesh.hxx>
+// K5 — native meshing replaces BRepMesh_IncrementalMesh here (no TKMesh).
+#include "forge/OcctNativeMesh.hpp"
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
 #include <BRep_Tool.hxx>
 #include <Poly_Triangulation.hxx>
 #include <TopLoc_Location.hxx>
@@ -275,54 +278,27 @@ ShapeHandle runBoolean(ShapeHandle a, ShapeHandle b, const char* opName) {
 bool tessellateOcctOperandToSoup(const TopoDS_Shape& shape,
                                  std::vector<double>& pos,
                                  std::vector<std::uint32_t>& idx) {
+    // K5 — NATIVE tessellation, NO BRepMesh / TKMesh. occtmesh::tessellateShapeToSoup
+    // discretises each face's trim wire (adaptive pcurve sampling) + fills an adaptive
+    // UV grid and triangulates the whole PSLG with the in-house constrained Delaunay,
+    // reading ONLY OCCT surface points / wire pcurves (TKBRep/TKG3d/TKG2d/TKTopAlgo).
+    // Absolute chord deflection = 0.1% of the shape's bounding-box diagonal (mirrors
+    // the previous RELATIVE 0.001 BRepMesh faceting, so the soup density is unchanged).
+    // Returns false on an honest native miss (a face whose boundary has no pcurve), so
+    // the mixed boolean falls back to OCCT for that pair only.
     pos.clear();
     idx.clear();
-
-    // Scale-adaptive faceting: RELATIVE linear deflection (0.1% of each edge) keeps
-    // curved walls tight at any model scale; a modest angular deflection resolves the
-    // curvature. Incremental so shared edges facet conformally; meshed in parallel.
-    BRepMesh_IncrementalMesh mesher(shape, /*linDefl*/ 0.001, /*isRelative*/ Standard_True,
-                                    /*angDefl*/ 0.1, /*parallel*/ Standard_True);
-    mesher.Perform();
-
-    // Weld coincident face-boundary vertices (OCCT emits them per face) onto one id so
-    // the soup is a clean shared-vertex mesh — mirrors brep::tessellateSolid, which
-    // meshBooleanExact's fast path expects.
-    constexpr double kWeldTol = 1e-7;
-    std::map<std::tuple<long long, long long, long long>, std::uint32_t> weld;
-    auto vid = [&](double x, double y, double z) -> std::uint32_t {
-        auto q = [](double v) { return static_cast<long long>(std::llround(v / kWeldTol)); };
-        auto key = std::make_tuple(q(x), q(y), q(z));
-        auto it = weld.find(key);
-        if (it != weld.end()) return it->second;
-        std::uint32_t id = static_cast<std::uint32_t>(pos.size() / 3);
-        pos.push_back(x); pos.push_back(y); pos.push_back(z);
-        weld.emplace(key, id);
-        return id;
-    };
-
-    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
-        TopoDS_Face face = TopoDS::Face(ex.Current());
-        TopLoc_Location loc;
-        Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
-        if (tri.IsNull()) continue;
-        const bool reversed = (face.Orientation() == TopAbs_REVERSED);
-        const gp_Trsf& tr = loc.Transformation();
-        for (Standard_Integer i = 1; i <= tri->NbTriangles(); ++i) {
-            Standard_Integer n1, n2, n3;
-            tri->Triangle(i).Get(n1, n2, n3);
-            if (reversed) std::swap(n2, n3);   // outward-consistent winding
-            const gp_Pnt p1 = tri->Node(n1).Transformed(tr);
-            const gp_Pnt p2 = tri->Node(n2).Transformed(tr);
-            const gp_Pnt p3 = tri->Node(n3).Transformed(tr);
-            const std::uint32_t va = vid(p1.X(), p1.Y(), p1.Z());
-            const std::uint32_t vb = vid(p2.X(), p2.Y(), p2.Z());
-            const std::uint32_t vc = vid(p3.X(), p3.Y(), p3.Z());
-            if (va == vb || vb == vc || va == vc) continue;   // drop welded-degenerate tris
-            idx.push_back(va); idx.push_back(vb); idx.push_back(vc);
-        }
+    Bnd_Box box;
+    BRepBndLib::Add(shape, box);
+    double diag = 1.0;
+    if (!box.IsVoid()) {
+        double xmin, ymin, zmin, xmax, ymax, zmax;
+        box.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+        const double dx = xmax - xmin, dy = ymax - ymin, dz = zmax - zmin;
+        diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     }
-    return !idx.empty();
+    const double linDefl = std::max(1e-4, 0.001 * diag);
+    return occtmesh::tessellateShapeToSoup(shape, pos, idx, linDefl, /*angDefl*/ 0.1);
 }
 
 // Try to resolve a boolean NATIVELY. Returns true + sets `out` on success; returns

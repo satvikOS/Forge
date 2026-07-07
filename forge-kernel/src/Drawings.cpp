@@ -25,7 +25,8 @@
 #include "forge/ShapeRegistry.hpp"
 
 #include <BRepLib.hxx>
-#include <BRepMesh_IncrementalMesh.hxx>
+// K5 — HLR retry now facets natively (no BRepMesh / TKMesh).
+#include "forge/OcctNativeMesh.hpp"
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -379,8 +380,10 @@ ProjectedView projectShape(ShapeHandle h, ProjectionDirection direction) {
     // (some versions of HLR refuse curved faces without it). Force a
     // tessellation and try once more.
     if (!ok || view.visible.empty()) {
-        BRepMesh_IncrementalMesh mesher(shape, 0.1, Standard_False, 0.5, Standard_True);
-        mesher.Perform();
+        // K5 — attach a NATIVE per-face triangulation (in-house triangulator,
+        // reads only OCCT surfaces/pcurves; NO BRepMesh / TKMesh) so the OCCT HLR
+        // pass has a polyhedral facing to fall back on for curved faces.
+        occtmesh::triangulateShapeInPlace(shape, /*linDefl*/ 0.1, /*angDefl*/ 0.5);
 
         ProjectedView retry;
         if (runHLR(shape, ax2, retry, kDeflection)) {
@@ -1107,8 +1110,10 @@ View2D projectView(const TopoDS_Shape& shape, ViewDirection dir) {
     // If HLR produced no visible edges (some curved-face shapes need
     // a triangulation first), tessellate and retry once.
     if (!ok || buckets.visible.empty()) {
-        BRepMesh_IncrementalMesh mesher(shape, 0.1, Standard_False, 0.5, Standard_True);
-        mesher.Perform();
+        // K5 — attach a NATIVE per-face triangulation (in-house triangulator,
+        // reads only OCCT surfaces/pcurves; NO BRepMesh / TKMesh) so the OCCT HLR
+        // pass has a polyhedral facing to fall back on for curved faces.
+        occtmesh::triangulateShapeInPlace(shape, /*linDefl*/ 0.1, /*angDefl*/ 0.5);
         HLRBuckets retry;
         if (runHlrToPolylines(shape, ax2, retry, kDeflection) && !retry.visible.empty()) {
             buckets = std::move(retry);

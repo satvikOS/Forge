@@ -44,6 +44,12 @@
 #include "forge/native/brep/NativeRoute.hpp"     // forgeNativeBrepEnabled()
 #include "forge/native/brep/Boolean.hpp"          // booleanSolid / booleanMeshOperand / BoolOp
 #include "forge/native/brep/SolidTessellate.hpp"  // tessellateSolid (NativeSolid -> soup)
+#include "forge/OcctNativeMesh.hpp"        // K5 — native OCCT-shape triangulator (no TKMesh)
+#include <Bnd_Box.hxx>                     // K5 — scale-adaptive deflection from bbox
+#include <BRepBndLib.hxx>
+#include <TopoDS_Shape.hxx>
+#include <algorithm>                        // std::max
+#include <cmath>                            // std::sqrt
 #include <chrono>
 #include <cstdint>
 #include <future>
@@ -92,11 +98,12 @@ bool tryNativeFuzzyBoolean(ShapeHandle a, ShapeHandle b,
     const ShapeKind kb = reg.kindOf(b);
     const BoolOp nop = toNativeOp(op);
 
-    // A genuine OCCT-imported operand still needs the BRepMesh native-tessellation
-    // bridge (GAP A in src/Booleans.cpp) to enter the native mesh engine; that bridge
-    // is not yet shared into this TU, so an OCCT operand HONESTLY DEFERS to the OCCT
-    // fuzzy path below (no wrong result). A NativeSolid there is bridged by get().
-    if (ka == ShapeKind::Occt || kb == ShapeKind::Occt) return false;
+    // K5 — the OCCT-operand deferral is GONE. A genuine OCCT-imported (dirty-STEP)
+    // fuzzy operand is now native-tessellated by occtmesh::tessellateShapeToSoup
+    // (in-house triangulator, NO BRepMesh / TKMesh) and combined by the native mesh-
+    // operand boolean below, exactly like src/Booleans.cpp GAP-A. Only a pair the
+    // native tessellator cannot READ (a face whose boundary has no pcurve) still
+    // HONESTLY DEFERS (gatherSoup returns false -> the OCCT SetFuzzyValue fallback).
 
     // ---- PURE NATIVE ANALYTIC pair: booleanSolid WITH the fuzz value ------------
     // Covers the curved-through-cut / tangent / near-coincident pairs. The analytic
@@ -124,7 +131,19 @@ bool tryNativeFuzzyBoolean(ShapeHandle a, ShapeHandle b,
                           std::vector<double>& pos, std::vector<std::uint32_t>& idx) -> bool {
         if (k == ShapeKind::NativeMesh) { reg.getNativeMesh(h).toSoup(pos, idx); return !idx.empty(); }
         if (k == ShapeKind::NativeSolid) { tessellateSolid(reg.getNativeSolid(h), pos, idx); return !idx.empty(); }
-        return false;  // ShapeKind::Occt already returned above
+        // ShapeKind::Occt — K5: native-tessellate the imported OCCT B-rep (no TKMesh).
+        // Absolute chord deflection = 0.1% of the shape bbox diagonal (scale-adaptive),
+        // matching src/Booleans.cpp GAP-A. An unreadable face -> false -> OCCT deferral.
+        const TopoDS_Shape& sh = reg.get(h);
+        Bnd_Box box; BRepBndLib::Add(sh, box);
+        double diag = 1.0;
+        if (!box.IsVoid()) {
+            double x0, y0, z0, x1, y1, z1; box.Get(x0, y0, z0, x1, y1, z1);
+            const double dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+            diag = std::sqrt(dx * dx + dy * dy + dz * dz);
+        }
+        const double linDefl = std::max(1e-4, 0.001 * diag);
+        return occtmesh::tessellateShapeToSoup(sh, pos, idx, linDefl, /*angDefl*/ 0.1);
     };
     std::vector<double> aPos, bPos;
     std::vector<std::uint32_t> aIdx, bIdx;

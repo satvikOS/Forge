@@ -141,6 +141,7 @@ add_library(forge_kernel SHARED
     src/OcctImport.cpp
     src/Primitives.cpp
     src/Booleans.cpp
+    src/OcctNativeMesh.cpp        # K5 — native meshing (replaces BRepMesh/TKMesh at boolean+HLR sites)
     src/LineageRegistry.cpp
     src/Tessellate.cpp
     src/MassProps.cpp
