@@ -7,6 +7,9 @@
 #include "forge/native/brep/NativeRoute.hpp"
 #include "forge/native/brep/Boolean.hpp"   // detectBooleanTangentPinch (pre-OCCT guard)
 #include <cstdint>
+#include <cmath>                            // GAP A — quantized weld of an OCCT operand soup
+#include <map>                              // GAP A — weld map for the OCCT-tessellation soup
+#include <tuple>                            // GAP A — weld key
 #include <vector>
 // NOTE: the OCCT fallback below passes the ORIGINAL handles to runBoolean<> —
 // ShapeRegistry::get() lazily bridges any native operand to OCCT on demand
@@ -21,6 +24,17 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopAbs.hxx>
+#ifdef FORGE_NATIVE_BREP
+// GAP A — native-tessellate an OCCT operand into a triangle soup for the native
+// mesh-operand boolean (the mixed native/OCCT boolean route).
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <BRep_Tool.hxx>
+#include <Poly_Triangulation.hxx>
+#include <TopLoc_Location.hxx>
+#include <TopoDS.hxx>
+#include <TopoDS_Face.hxx>
+#include <gp_Pnt.hxx>
+#endif
 #include <algorithm>                        // OCCT-boolean watchdog: per-call deadline cap
 #include <chrono>                           // OCCT-boolean watchdog deadline
 #include <cstdio>                           // tangent-pinch diagnostic formatting
@@ -252,16 +266,83 @@ ShapeHandle runBoolean(ShapeHandle a, ShapeHandle b, const char* opName) {
 }
 
 #ifdef FORGE_NATIVE_BREP
-// Try the native analytic boolean (brep::booleanSolid). Returns true + sets `out`
-// on success; returns false (NEVER throws) when the native path HONESTLY DEFERS,
-// so the caller can fall back to OCCT on bridged operands.
+// GAP A — native-tessellate an OCCT B-rep operand into a WELDED double-precision
+// triangle soup so a MIXED native/OCCT boolean can run through the native mesh-operand
+// engine (meshBooleanExact) instead of deferring the whole operation to BRepAlgoAPI.
+// This READS OCCT geometry (BRepMesh faceting) but the BOOLEAN arrangement itself is
+// native — eliminating the OCCT boolean surface. Works for ANY OCCT surface (quadric,
+// NURBS, revolved, offset). Returns false if the shape produced no triangulable face.
+bool tessellateOcctOperandToSoup(const TopoDS_Shape& shape,
+                                 std::vector<double>& pos,
+                                 std::vector<std::uint32_t>& idx) {
+    pos.clear();
+    idx.clear();
+
+    // Scale-adaptive faceting: RELATIVE linear deflection (0.1% of each edge) keeps
+    // curved walls tight at any model scale; a modest angular deflection resolves the
+    // curvature. Incremental so shared edges facet conformally; meshed in parallel.
+    BRepMesh_IncrementalMesh mesher(shape, /*linDefl*/ 0.001, /*isRelative*/ Standard_True,
+                                    /*angDefl*/ 0.1, /*parallel*/ Standard_True);
+    mesher.Perform();
+
+    // Weld coincident face-boundary vertices (OCCT emits them per face) onto one id so
+    // the soup is a clean shared-vertex mesh — mirrors brep::tessellateSolid, which
+    // meshBooleanExact's fast path expects.
+    constexpr double kWeldTol = 1e-7;
+    std::map<std::tuple<long long, long long, long long>, std::uint32_t> weld;
+    auto vid = [&](double x, double y, double z) -> std::uint32_t {
+        auto q = [](double v) { return static_cast<long long>(std::llround(v / kWeldTol)); };
+        auto key = std::make_tuple(q(x), q(y), q(z));
+        auto it = weld.find(key);
+        if (it != weld.end()) return it->second;
+        std::uint32_t id = static_cast<std::uint32_t>(pos.size() / 3);
+        pos.push_back(x); pos.push_back(y); pos.push_back(z);
+        weld.emplace(key, id);
+        return id;
+    };
+
+    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+        TopoDS_Face face = TopoDS::Face(ex.Current());
+        TopLoc_Location loc;
+        Handle(Poly_Triangulation) tri = BRep_Tool::Triangulation(face, loc);
+        if (tri.IsNull()) continue;
+        const bool reversed = (face.Orientation() == TopAbs_REVERSED);
+        const gp_Trsf& tr = loc.Transformation();
+        for (Standard_Integer i = 1; i <= tri->NbTriangles(); ++i) {
+            Standard_Integer n1, n2, n3;
+            tri->Triangle(i).Get(n1, n2, n3);
+            if (reversed) std::swap(n2, n3);   // outward-consistent winding
+            const gp_Pnt p1 = tri->Node(n1).Transformed(tr);
+            const gp_Pnt p2 = tri->Node(n2).Transformed(tr);
+            const gp_Pnt p3 = tri->Node(n3).Transformed(tr);
+            const std::uint32_t va = vid(p1.X(), p1.Y(), p1.Z());
+            const std::uint32_t vb = vid(p2.X(), p2.Y(), p2.Z());
+            const std::uint32_t vc = vid(p3.X(), p3.Y(), p3.Z());
+            if (va == vb || vb == vc || va == vc) continue;   // drop welded-degenerate tris
+            idx.push_back(va); idx.push_back(vb); idx.push_back(vc);
+        }
+    }
+    return !idx.empty();
+}
+
+// Try to resolve a boolean NATIVELY. Returns true + sets `out` on success; returns
+// false (NEVER throws) only when the pair HONESTLY cannot be closed natively, so the
+// caller can fall back to OCCT.
 //
-// Deferral cases (Bible §0 — native-where-valid, OCCT otherwise, never a hard
-// failure on a valid modelling request):
-//   * a mixed OCCT/native operand pair (a caller built one operand on OCCT).
-//   * booleanSolid ok==false — the analytic SSI AND the flagged mesh fallback
-//     both deferred (e.g. a degenerate coincident-face cut). OCCT handles it.
-//   * usedMeshFallback==true is NOT a deferral (the result IS a closed solid).
+// GAP A — MIXED native/OCCT operand booleans now resolve NATIVELY through the native
+// MESH-OPERAND engine (meshBooleanExact):
+//   * pure NativeSolid x NativeSolid keeps the EXACT analytic boolean (booleanSolid).
+//   * ANY pair involving an OCCT B-rep (ShapeKind::Occt) operand — a genuine imported-
+//     STEP body — or a NativeMesh operand is gathered into triangle soups and combined
+//     by the native mesh boolean. An OCCT operand is native-tessellated DIRECTLY
+//     (BRepMesh, adequate deflection): this READS OCCT geometry but the BOOLEAN
+//     arrangement is native — eliminating the OCCT boolean surface. It also covers OCCT
+//     surfaces importOcctSolid cannot (revolved/offset/other), and — unlike routing the
+//     import through the analytic engine — cannot SPIN on an imported periodic quadric
+//     face (booleanSolidAnalytic mishandles an imported cylinder's seam'd face; the mesh
+//     arrangement is robust to it).
+// Only a pair the mesh engine cannot close (an operand with no native soup, or a
+// genuinely-degenerate arrangement) still defers to OCCT (return false).
 bool tryNativeBoolean(ShapeHandle a, ShapeHandle b,
                       native::brep::BoolOp op, ShapeHandle& out) {
     using namespace forge::native::brep;
@@ -269,45 +350,63 @@ bool tryNativeBoolean(ShapeHandle a, ShapeHandle b,
     const ShapeKind ka = reg.kindOf(a);
     const ShapeKind kb = reg.kindOf(b);
 
-    // ---- COMMON CASE (UNCHANGED): pure analytic Solid x Solid -------------
+    // ---- EXACT ANALYTIC PATH: pure native analytic Solid x Solid (fast/proven) --
     if (ka == ShapeKind::NativeSolid && kb == ShapeKind::NativeSolid) {
         BooleanResult r = booleanSolid(reg.getNativeSolid(a), reg.getNativeSolid(b), op);
         if (!r.ok || !r.solid || !r.owner)
-            return false;
+            return false;   // booleanSolid already tried analytic + mesh natively
         out = reg.addNativeSolid(r.owner, r.solid);
         return true;
     }
 
-    // ---- MESH-OPERAND BRIDGE (the fuse/cut mesh-operand fix) --------------
-    // At least one operand is a NativeMesh (a fillet/chamfer mesh-bridge result that
-    // carries NO analytic TopoDS_Shape / brep::Solid). The OCCT fallback would THROW
-    // on it (ShapeRegistry::get -> "native-mesh-backed ... no analytic TopoDS_Shape"),
-    // so route the boolean through the native MESH boolean (booleanMeshOperand) when
-    // BOTH operands are native (NativeMesh or NativeSolid). A mixed native/OCCT pair
-    // still HONESTLY DEFERS to OCCT below (return false).
-    const bool aNative = (ka == ShapeKind::NativeMesh || ka == ShapeKind::NativeSolid);
-    const bool bNative = (kb == ShapeKind::NativeMesh || kb == ShapeKind::NativeSolid);
-    const bool meshInvolved = (ka == ShapeKind::NativeMesh || kb == ShapeKind::NativeMesh);
-    if (!(aNative && bNative && meshInvolved))
-        return false;  // mixed native/OCCT operand -> let OCCT handle it (no throw here)
-
-    // Gather each operand's triangle soup. The registry accessors take their lock
-    // only for the borrow; the toSoup()/tessellateSolid() copies below run on the
+    // ---- NATIVE MESH-OPERAND PATH (GAP A + the fillet/chamfer bridge) ----------
+    // Handles every remaining resolvable pair: a NativeMesh operand and/or an OCCT
+    // B-rep operand. Gather each operand's triangle soup NATIVELY, then meshBooleanExact.
+    // Registry accessors take their lock only for the borrow; the soup copies run on the
     // returned references with NO registry lock held (mirrors booleanSolidMeshFallback).
-    auto gatherSoup = [&reg](ShapeHandle h, ShapeKind k,
-                             std::vector<double>& pos, std::vector<std::uint32_t>& idx) {
+    auto gatherSoup = [&](ShapeHandle h, ShapeKind k,
+                          std::vector<double>& pos, std::vector<std::uint32_t>& idx) -> bool {
         if (k == ShapeKind::NativeMesh) {
             reg.getNativeMesh(h).toSoup(pos, idx);
-        } else {  // NativeSolid
-            native::brep::tessellateSolid(reg.getNativeSolid(h), pos, idx);
+            return !idx.empty();
         }
+        if (k == ShapeKind::NativeSolid) {
+            native::brep::tessellateSolid(reg.getNativeSolid(h), pos, idx);
+            return !idx.empty();
+        }
+        // ShapeKind::Occt — GAP A: native-tessellate the imported OCCT B-rep directly.
+        return tessellateOcctOperandToSoup(reg.get(h), pos, idx);
     };
     std::vector<double> aPos, bPos;
     std::vector<std::uint32_t> aIdx, bIdx;
-    gatherSoup(a, ka, aPos, aIdx);
-    gatherSoup(b, kb, bPos, bIdx);
+    if (!gatherSoup(a, ka, aPos, aIdx)) return false;
+    if (!gatherSoup(b, kb, bPos, bIdx)) return false;
 
-    MeshOperandResult mr = booleanMeshOperand(aPos, aIdx, bPos, bIdx, op);
+    // NATIVE-BOOLEAN WATCHDOG (mirrors the OCCT runBoolean watchdog): meshBooleanExact
+    // has NO cancellation hook and can SPIN on a pathological curved/degenerate mixed
+    // arrangement (e.g. an imported cylindrical wall cutting a planar face at a chain of
+    // near-triple-points, which escalates the exact arrangement). Run it on a WORKER
+    // THREAD with a per-call DEADLINE; the soups are captured BY VALUE so a timed-out,
+    // detached computation is fully self-contained (no dangling reference into this frame
+    // or the registry). On timeout the pair HONESTLY DEFERS to OCCT (return false) instead
+    // of hanging the in-process kernel — a successful native mesh boolean completes in
+    // well under this budget (a few hundred ms even for a curved operand in practice).
+    MeshOperandResult mr;
+    {
+        constexpr std::chrono::milliseconds kMeshDeadline{2000};
+        auto task = std::make_shared<std::packaged_task<MeshOperandResult()>>(
+            [aPos, aIdx, bPos, bIdx, op]() {
+                return booleanMeshOperand(aPos, aIdx, bPos, bIdx, op);
+            });
+        std::future<MeshOperandResult> fut = task->get_future();
+        std::thread worker([task]() { (*task)(); });
+        if (fut.wait_for(kMeshDeadline) == std::future_status::timeout) {
+            worker.detach();   // abandon the non-cancellable mesh boolean
+            return false;      // defer to OCCT rather than hang
+        }
+        worker.join();
+        mr = fut.get();
+    }
     if (!mr.ok || !mr.solid || !mr.owner)
         return false;  // honest deferral (the mesh boolean could not close the result)
     out = reg.addNativeSolid(mr.owner, mr.solid);
