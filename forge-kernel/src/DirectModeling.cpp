@@ -24,7 +24,6 @@
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_Surface.hxx>
 #include <Geom_ToroidalSurface.hxx>
-#include <Precision.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
@@ -42,6 +41,24 @@
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
+
+// K6 (OCCT-zero migration, OCCT_REPLACEMENT_ROADMAP): every point / vector /
+// direction ARITHMETIC in this module now runs on the in-house native
+// forge::native::brep::Vec3 (NVec3) via the small algebra helpers in the
+// anonymous namespace below (matching the Mold.cpp / Airfoil.cpp K6 pattern).
+// OCCT gp_ types are constructed ONLY at the thin boundary where a BRep builder
+// (BRepPrimAPI_MakePrism), a rigid-transform frame (gp_Ax1 / gp_Trsf — K2/K3
+// territory), a Geom_ analytic surface (Geom_Plane / Geom_CylindricalSurface /
+// Geom_SphericalSurface), or an OCCT query out-param (BRepGProp_Face::Normal,
+// GProp centroid, curve sampling) must be fed / read; any OCCT query result is
+// read straight back into NVec3 for the downstream math. This drops the module's
+// direct gp_Vec / gp_Dir / gp_Pnt ALGEBRA (and <Precision.hxx>) onto the native
+// substrate. gp_ still appears at the builder / query boundary because the
+// ShapeRegistry stores TopoDS_Shape and the primitive/boolean/transform builders
+// are not yet native. Nurbs.hpp's Vec3 is dependency-free (no OCCT) so it is
+// included UNCONDITIONALLY — the algebra runs in the default (non-FORGE_NATIVE)
+// build too.
+#include "forge/native/brep/Nurbs.hpp"   // forge::native::brep::Vec3 (dependency-free)
 
 #include <cmath>
 #include <sstream>
@@ -105,6 +122,45 @@ namespace forge::direct {
 
 namespace {
 
+// OCCT's Precision::Confusion() is 1.0e-7; expressed here as a native constant
+// so this translation unit no longer pulls in <Precision.hxx>. Every tolerance
+// comparison below uses this in place of Precision::Confusion(), byte-identical.
+constexpr double kConfusion = 1.0e-7;
+
+// ---------------------------------------------------------------------------
+// K6 native vector substrate — the OCCT-free replacement for this module's
+// gp_Vec / gp_Dir / gp_Pnt arithmetic. NVec3 is the in-house B-rep Euclidean
+// point (forge::native::brep::Vec3). The free functions below are the minimal
+// affine/linear algebra the direct-editing math needs; gp_ conversions live in
+// the tiny to*/toN helpers and are used ONLY at the OCCT builder / query
+// boundary. Same helper kit as the Mold.cpp / Airfoil.cpp K6 migrations.
+// ---------------------------------------------------------------------------
+using NVec3 = forge::native::brep::Vec3;
+
+inline NVec3 nAdd(const NVec3& a, const NVec3& b)   { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+inline NVec3 nSub(const NVec3& a, const NVec3& b)   { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+inline NVec3 nScale(const NVec3& a, double s)       { return {a.x * s, a.y * s, a.z * s}; }
+inline double nDot(const NVec3& a, const NVec3& b)  { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline NVec3 nCross(const NVec3& a, const NVec3& b) {
+    return {a.y * b.z - a.z * b.y,
+            a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x};
+}
+inline double nMag(const NVec3& a) { return std::sqrt(nDot(a, a)); }
+inline NVec3  nNormalize(const NVec3& a) {
+    const double m = nMag(a);
+    return (m > 0.0) ? nScale(a, 1.0 / m) : a;
+}
+
+// Boundary conversions (OCCT <-> native). Used ONLY where a gp_ value must be
+// handed to an OCCT builder / frame, or an OCCT query result read back native.
+inline NVec3  toN(const gp_Pnt& p) { return {p.X(), p.Y(), p.Z()}; }
+inline NVec3  toN(const gp_Vec& v) { return {v.X(), v.Y(), v.Z()}; }
+inline NVec3  toN(const gp_Dir& d) { return {d.X(), d.Y(), d.Z()}; }
+inline gp_Pnt toPnt(const NVec3& v) { return gp_Pnt(v.x, v.y, v.z); }
+inline gp_Vec toVec(const NVec3& v) { return gp_Vec(v.x, v.y, v.z); }
+inline gp_Dir toDir(const NVec3& v) { return gp_Dir(v.x, v.y, v.z); }
+
 // Resolve a 1-based face id against the shape's face map. Throws if the id
 // is out of range. The map is rebuilt every call — face counts in the
 // hundreds make this trivially cheap, and we avoid stashing OCCT state
@@ -124,34 +180,35 @@ TopoDS_Face lookupFace(const TopoDS_Shape& shape, FaceId id) {
 // Return the unit outward normal at the parametric centroid of `face`.
 // We sample the parametric (uMin+uMax)/2, (vMin+vMax)/2 — good enough for
 // planar/cylindrical/toroidal faces we'd ever push/pull.
-gp_Vec outwardNormal(const TopoDS_Face& face) {
+NVec3 outwardNormal(const TopoDS_Face& face) {
     BRepAdaptor_Surface surf(face);
     const double u = 0.5 * (surf.FirstUParameter() + surf.LastUParameter());
     const double v = 0.5 * (surf.FirstVParameter() + surf.LastVParameter());
     BRepGProp_Face gp(face);
-    gp_Pnt p;
+    gp_Pnt p;   // OCCT out-params required by BRepGProp_Face::Normal
     gp_Vec n;
     gp.Normal(u, v, p, n);
-    if (n.Magnitude() < Precision::Confusion()) {
-        n = gp_Vec(0, 0, 1);
+    NVec3 nn = toN(n);              // read the OCCT normal into native at once
+    if (nMag(nn) < kConfusion) {
+        nn = NVec3{0.0, 0.0, 1.0};
     }
-    n.Normalize();
+    nn = nNormalize(nn);
     if (face.Orientation() == TopAbs_REVERSED) {
-        n.Reverse();
+        nn = nScale(nn, -1.0);     // native equivalent of gp_Vec::Reverse()
     }
-    return n;
+    return nn;
 }
 
-gp_Pnt faceCentroid(const TopoDS_Face& face) {
+NVec3 faceCentroid(const TopoDS_Face& face) {
     GProp_GProps props;
     BRepGProp::SurfaceProperties(face, props);
-    return props.CentreOfMass();
+    return toN(props.CentreOfMass());
 }
 
-gp_Pnt solidCentroid(const TopoDS_Shape& shape) {
+NVec3 solidCentroid(const TopoDS_Shape& shape) {
     GProp_GProps props;
     BRepGProp::VolumeProperties(shape, props);
-    return props.CentreOfMass();
+    return toN(props.CentreOfMass());
 }
 
 // Geometric outward normal: `outwardNormal()` derives its sign from
@@ -164,13 +221,13 @@ gp_Pnt solidCentroid(const TopoDS_Shape& shape) {
 // the solid's volume centroid. Robust for any convex-ish face on a solid;
 // for the rare face whose centroid sits on the body centroid we keep the
 // orientation-derived sign.
-gp_Vec trueOutwardNormal(const TopoDS_Shape& solid, const TopoDS_Face& face) {
-    gp_Vec n = outwardNormal(face);
-    const gp_Pnt fc = faceCentroid(face);
-    const gp_Pnt sc = solidCentroid(solid);
-    const gp_Vec away(sc, fc);  // solid centroid -> face centroid = outward
-    if (away.Magnitude() > Precision::Confusion()) {
-        if (n.Dot(away) < 0.0) n.Reverse();
+NVec3 trueOutwardNormal(const TopoDS_Shape& solid, const TopoDS_Face& face) {
+    NVec3 n = outwardNormal(face);
+    const NVec3 fc = faceCentroid(face);
+    const NVec3 sc = solidCentroid(solid);
+    const NVec3 away = nSub(fc, sc);  // solid centroid -> face centroid = outward
+    if (nMag(away) > kConfusion) {
+        if (nDot(n, away) < 0.0) n = nScale(n, -1.0);
     }
     return n;
 }
@@ -183,11 +240,12 @@ double faceArea(const TopoDS_Face& face) {
 
 // Build a prism solid of `face` extruded along `vec`. Used as the
 // add/remove material primitive for push/pull and friends.
-TopoDS_Shape extrudeFace(const TopoDS_Face& face, const gp_Vec& vec) {
-    if (vec.Magnitude() < Precision::Confusion()) {
+TopoDS_Shape extrudeFace(const TopoDS_Face& face, const NVec3& vec) {
+    if (nMag(vec) < kConfusion) {
         throw std::runtime_error("forge.direct: extrusion vector is zero-length");
     }
-    BRepPrimAPI_MakePrism mk(face, vec, /*Copy*/ Standard_False, /*Canonize*/ Standard_True);
+    // gp_Vec built ONLY here, at the BRepPrimAPI_MakePrism builder boundary.
+    BRepPrimAPI_MakePrism mk(face, toVec(vec), /*Copy*/ Standard_False, /*Canonize*/ Standard_True);
     if (!mk.IsDone()) {
         throw std::runtime_error("forge.direct: prism extrusion failed");
     }
@@ -338,13 +396,13 @@ ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {
     }
 #endif
     const auto& s = ShapeRegistry::instance().get(shape);
-    if (std::abs(distance) < Precision::Confusion()) {
+    if (std::abs(distance) < kConfusion) {
         // No-op: copy in and return so the caller still gets a fresh handle.
         return ShapeRegistry::instance().add(s);
     }
     const auto face = lookupFace(s, faceId);
-    const gp_Vec n  = trueOutwardNormal(s, face);
-    const gp_Vec v  = n.Multiplied(std::abs(distance));
+    const NVec3 n  = trueOutwardNormal(s, face);
+    const NVec3 v  = nScale(n, std::abs(distance));
     const TopoDS_Shape prism = extrudeFace(face, v);
 
     TopoDS_Shape out;
@@ -359,7 +417,8 @@ ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {
     } else {
         // Pull inward (pocket): subtract the prism from the original shape.
         // Extrude inward — the prism we just made was along +n; flip it.
-        BRepPrimAPI_MakePrism mk(face, n.Multiplied(-std::abs(distance)),
+        // Native scale; gp_Vec built ONLY at the MakePrism builder boundary.
+        BRepPrimAPI_MakePrism mk(face, toVec(nScale(n, -std::abs(distance))),
                                  Standard_False, Standard_True);
         if (!mk.IsDone()) {
             throw std::runtime_error("forge.direct.pushPullFace: inward prism failed");
@@ -382,26 +441,26 @@ ShapeHandle moveFace(ShapeHandle shape, FaceId faceId,
                      const std::array<double, 3>& translation) {
     const auto& s = ShapeRegistry::instance().get(shape);
     const auto face = lookupFace(s, faceId);
-    const gp_Vec t(translation[0], translation[1], translation[2]);
-    if (t.Magnitude() < Precision::Confusion()) {
+    const NVec3 t{translation[0], translation[1], translation[2]};
+    if (nMag(t) < kConfusion) {
         return ShapeRegistry::instance().add(s);
     }
     // Decompose translation into the part along the face normal (push/pull,
     // which the boolean engine handles cleanly) and the tangential part
     // (which becomes a "slide" — implemented as fuse of the slid prism).
-    const gp_Vec n = outwardNormal(face);
-    const double along = t.Dot(n);
-    const gp_Vec tangential = t - n.Multiplied(along);
+    const NVec3 n = outwardNormal(face);
+    const double along = nDot(t, n);
+    const NVec3 tangential = nSub(t, nScale(n, along));
 
     TopoDS_Shape work = s;
 
-    if (std::abs(along) > Precision::Confusion()) {
+    if (std::abs(along) > kConfusion) {
         ShapeHandle pushed = pushPullFace(
             ShapeRegistry::instance().add(work), faceId, along);
         work = ShapeRegistry::instance().get(pushed);
     }
 
-    if (tangential.Magnitude() > Precision::Confusion()) {
+    if (nMag(tangential) > kConfusion) {
         // For tangential motion we extrude the face along the tangential
         // vector and fuse — adds a wedge of material adjacent to the face.
         // This is the SolidWorks "Move Face → translate" behaviour: the
@@ -431,9 +490,11 @@ ShapeHandle rotateFace(ShapeHandle shape, FaceId faceId,
                        double angleRad) {
     const auto& s = ShapeRegistry::instance().get(shape);
     const auto face = lookupFace(s, faceId);
-    if (std::abs(angleRad) < Precision::Confusion()) {
+    if (std::abs(angleRad) < kConfusion) {
         return ShapeRegistry::instance().add(s);
     }
+    // gp_Ax1 / gp_Trsf rotation frame kept at the OCCT transform boundary
+    // (rigid-body transform builders are K2/K3 territory, not K6 algebra).
     const gp_Pnt origin(axisOrigin[0], axisOrigin[1], axisOrigin[2]);
     const gp_Dir dir(axisDir[0], axisDir[1], axisDir[2]);
     const gp_Ax1 axis(origin, dir);
@@ -449,12 +510,14 @@ ShapeHandle rotateFace(ShapeHandle shape, FaceId faceId,
         throw std::runtime_error("forge.direct.rotateFace: transform failed");
     }
     // Sweep between the old and new face by extruding along the centroid
-    // displacement — keeps the result a closed solid.
-    const gp_Pnt c0 = faceCentroid(face);
-    gp_Pnt c1 = c0;
+    // displacement — keeps the result a closed solid. The centroid comes back
+    // native; only the rigid rotation (c1.Transform) touches the OCCT gp_Trsf,
+    // and the displacement subtraction + magnitude are native.
+    const NVec3 c0 = faceCentroid(face);
+    gp_Pnt c1 = toPnt(c0);          // gp_Pnt so OCCT can apply the rotation
     c1.Transform(trsf);
-    const gp_Vec sweep(c0, c1);
-    if (sweep.Magnitude() < Precision::Confusion()) {
+    const NVec3 sweep = nSub(toN(c1), c0);
+    if (nMag(sweep) < kConfusion) {
         // Axis passes through centroid — no displacement; treat as no-op.
         return ShapeRegistry::instance().add(s);
     }
@@ -514,7 +577,7 @@ ShapeHandle replaceFace(ShapeHandle shape, FaceId faceId, const SurfaceSpec& spe
             break;
         }
         case SurfaceSpec::Kind::Cylinder: {
-            if (spec.radius <= Precision::Confusion()) {
+            if (spec.radius <= kConfusion) {
                 throw std::runtime_error("forge.direct.replaceFace: cylinder radius must be > 0");
             }
             gp_Pnt o(spec.origin[0], spec.origin[1], spec.origin[2]);
@@ -524,7 +587,7 @@ ShapeHandle replaceFace(ShapeHandle shape, FaceId faceId, const SurfaceSpec& spe
             break;
         }
         case SurfaceSpec::Kind::Sphere: {
-            if (spec.radius <= Precision::Confusion()) {
+            if (spec.radius <= kConfusion) {
                 throw std::runtime_error("forge.direct.replaceFace: sphere radius must be > 0");
             }
             gp_Pnt o(spec.origin[0], spec.origin[1], spec.origin[2]);
@@ -573,13 +636,13 @@ FeatureInfo inferFeature(ShapeHandle shape, FaceId faceId) {
 
     BRepAdaptor_Surface adaptor(face);
     const auto kind = adaptor.GetType();
-    const gp_Vec n = trueOutwardNormal(s, face);
-    const gp_Pnt c = faceCentroid(face);
+    const NVec3 n = trueOutwardNormal(s, face);
+    const NVec3 c = faceCentroid(face);
     const double area = faceArea(face);
 
     FeatureInfo info;
-    info.normal   = {n.X(), n.Y(), n.Z()};
-    info.centroid = {c.X(), c.Y(), c.Z()};
+    info.normal   = {n.x, n.y, n.z};
+    info.centroid = {c.x, c.y, c.z};
     info.area = area;
 
     switch (kind) {
