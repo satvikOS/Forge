@@ -107,8 +107,11 @@ set(OCCT_LIBS
     TKBRep TKTopAlgo TKShHealing
     TKPrim TKBO TKBool TKFillet TKOffset
     TKHLR TKMesh
-    TKDE TKDESTEP TKDEIGES TKDESTL TKDEVRML TKXSBase
+    TKDE TKDESTEP TKXSBase
 )
+# OCCT-zero progress (2026-07-06): dropped 3 dead-linked dylibs TKDEIGES/TKDESTL/TKDEVRML —
+# IGES read is native (IgesRead.cpp), STL is native both ways (MeshExchange), no VRML path exists.
+# Verified zero #include of IGESControl/StlAPI/VrmlAPI in src/. 22 -> 19 OCCT dylibs.
 
 # ---------------------------------------------------------------- Boost
 # planegcs uses boost::graph (connected_components) + boost::math::constants.
