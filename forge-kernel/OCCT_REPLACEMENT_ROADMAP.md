@@ -39,3 +39,13 @@ pass — a kind=occt that still shows is an honest FAIL to report. 6. Continue u
 - 22→19 dylibs (dropped dead TKDEIGES/TKDESTL/TKDEVRML). Native verified: shell/rib/holeWizard/pattern,
   bore tessellation, mesh-boolean exact escalation, mixed-operand booleans 13/18, analytic ortho HLR (1e-15),
   native IGES-write/open-rib/torus-shell. CGAL/libfive/PicoGK/Manifold fully native (0 linkage).
+- **cycle-1 (2026-07-07) verify+integrate** — K2/K6/K7 cherry-picked onto archdisc, Release build GREEN:
+  - **K2 booleantol native-first** — `booleantol.{fuse,cut,common}` now route through the OCCT-free engine
+    for native operand pairs. API A/B 10/10: kindOf(result)==nativeSolid (NOT occt); vol == OCCT SetFuzzyValue
+    (fuse rel 2e-16, cut rel 4e-7, curved cut rel 9e-15, curved common rel 3e-4). OCCT operand still defers.
+  - **K6 Mold.cpp** — ~53 gp_/Precision algebra sites → native NVec3 (0 Precision::, 0 gp_ vector math left;
+    OCCT builder/query boundary intact). Draft-arithmetic A/B 4/4 (cone side angle 75.96°); mold split/flow green.
+  - **K7 Parasolid-style opaque-handle C-API** — `include/forge/capi/forge_capi.h` + `src/native/capi/forge_capi.cpp`
+    compile INTO the addon; standalone smoke compiles+links **OCCT-FREE** (128 native objs) and passes **39/39** A/B.
+  - **dylibs 19 → 19 (unchanged, honest)** — no keystone fully severed a lib yet: K2 keeps BRepAlgoAPI fallback
+    (TKBO/TKBool), K6 still feeds gp_Ax2/Pln/Trsf + BRepGProp_Face (TKernel/TKMath/TKBRep/TKTopAlgo/TKPrim).

@@ -53,16 +53,24 @@ int main() {
     CHECK(nv >= 8 && nt >= 12);                  // a box: >=12 triangles
     FgFree(verts); FgFree(tris);
 
-    // 3. CUT a through-cylinder bore -> volume drops by pi r^2 h (r=3, h=30).
+    // 3. CUT a through-cylinder bore -> volume drops by the overlap of the disc.
     FgHandle cyl = FG_NULL_HANDLE, holed = FG_NULL_HANDLE;
     CHECK(FgCreateCylinder(s, 3.0, 30.0, &cyl) == FG_OK);
     CHECK(FgBoolean(s, box, cyl, FG_CUT, &holed) == FG_OK);
     double vHoled = 0.0;
     CHECK(FgVolume(s, holed, &vHoled) == FG_OK);
-    // The bore is fully inside the box footprint (box XY footprint 10x20, cyl at
-    // origin r=3) so the analytic drop is exactly pi*9*30 for a clean through-cut.
+    // GEOMETRY: FgCreateBox is CORNER-AT-ORIGIN ([0,10]x[0,20]x[0,30]) while
+    // FgCreateCylinder is centered on the Z axis at the XY origin (r=3, z in
+    // [0,30]). The disc (r=3 < both box extents) overlaps the box only in the
+    // +x,+y QUADRANT, so a clean through-cut removes a QUARTER cylinder:
+    //   drop = pi*r^2*h / 4 = pi*9*30/4 ~= 212.06.
+    // (Independently A/B-verified against the native JS box-cyl cut = 211.97;
+    // K7 exposes no transform to recenter the cylinder — skeleton.) The native
+    // curved boolean matches the analytic quarter within the mesh-boolean 5e-3
+    // relative tol used elsewhere for curved ops.
+    const double bore = PI * 9.0 * 30.0 / 4.0;    // analytic quarter-cylinder
     CHECK(vHoled < 6000.0);                       // material removed
-    CHECK(approx(6000.0 - vHoled, PI * 9.0 * 30.0, 1e-3)); // analytic bore volume
+    CHECK(approx(6000.0 - vHoled, bore, 5e-3 * bore)); // A/B vs analytic quarter
 
     // 4. EXTRUDE a unit square -> volume 1 (1x1 x height 1).
     const double sq[8] = { 0,0,  1,0,  1,1,  0,1 };

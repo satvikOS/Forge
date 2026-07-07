@@ -3,3 +3,4 @@ Release/
 Debug/
 *.node
 test/golden_corpus_steps/
+forge_capi_smoke_box.step
