@@ -9,7 +9,7 @@
 //      (20 eight-column fields); each Parameter-Data (P) entity is a delimiter-
 //      separated stream over one or more P lines, back-referenced to its DE.
 //   2. Parse the GLOBAL section's delimiter-separated parameter stream; resolve
-//      the model-space scale (field 14) + unit flag (field 15) -> millimetre
+//      the model-space scale (field 13) + unit flag (field 14) -> millimetre
 //      scale, applied to every coordinate.
 //   3. Build the DE table (DE sequence number -> {type, PD pointer, form}) and the
 //      PD table (DE sequence number -> the entity's tokenised parameter list). The
@@ -69,7 +69,9 @@ enum : int {
     E_PLANE                 = 108,
     E_LINE                  = 110,
     E_POINT                 = 116,
+    E_DIRECTION             = 123,
     E_SURFACE_OF_REVOLUTION = 120,
+    E_PLANE_SURFACE         = 190,
     E_TABULATED_CYLINDER    = 122,
     E_RBSPLINE_CURVE        = 126,
     E_RBSPLINE_SURFACE      = 128,
@@ -268,14 +270,18 @@ bool parseGlobal(const std::vector<RawLine>& gLines, IgesModel& m, std::string& 
         fields.push_back(cur);
     }
 
-    // Field 14 (index 13) = model space scale; field 15 = unit flag; field 16 =
-    // unit name. (1-based field numbers per the IGES spec.)
+    // Per the IGES 5.3 spec, MODEL SPACE SCALE is field 13, UNIT FLAG is field 14,
+    // and UNIT NAME is field 15 (1-based). `fields` is 0-based with fields[0]==f1,
+    // so scale=fields[12], unitFlag=fields[13], unitName=fields[14]. (These slots
+    // are the SAME ones writeIges now emits; an earlier build read f14/f15/f16 by
+    // mistake, which forced the writer to emit a spurious scale field and made
+    // OCCT mis-read the units — both sides are now spec-aligned.)
     double modelScale = 1.0;
-    if (fields.size() > 13) { double d; if (igesNum(fields[13], d) && d != 0.0) modelScale = d; }
+    if (fields.size() > 12) { double d; if (igesNum(fields[12], d) && d != 0.0) modelScale = d; }
     long unitFlag = 2;   // default mm
-    if (fields.size() > 14) { long u; if (igesInt(fields[14], u)) unitFlag = u; }
+    if (fields.size() > 13) { long u; if (igesInt(fields[13], u)) unitFlag = u; }
     std::string unitName;
-    if (fields.size() > 15) unitName = trimTok(fields[15]);
+    if (fields.size() > 14) unitName = trimTok(fields[14]);
 
     // Resolve scale to millimetres. The unit flag enumerates the model units; the
     // coordinates are in those units * modelScale. We scale every coordinate so
@@ -603,7 +609,7 @@ Curve3 readCurve3(const IgesModel& m, long deSeq) {
 // ---------------------------------------------------------------------------
 bool readBSplineSurface(const IgesModel& m, long deSeq, NurbsSurface& out) {
     const auto* p = params(m, deSeq);
-    if (!p || p->size() < 9) return false;
+    if (!p || p->size() < 10) return false;
     long K1, K2, M1, M2;
     if (!igesInt((*p)[1], K1) || !igesInt((*p)[2], K2) ||
         !igesInt((*p)[3], M1) || !igesInt((*p)[4], M2)) return false;
@@ -611,8 +617,11 @@ bool readBSplineSurface(const IgesModel& m, long deSeq, NurbsSurface& out) {
     const long nU = K1 + 1, nV = K2 + 1;
     const long nUK = K1 + M1 + 2, nVK = K2 + M2 + 2;
     const long nW = nU * nV;
-    std::size_t idx = 9;
-    if ((std::size_t)(9 + nUK + nVK + nW + 3 * nW) > p->size()) return false;
+    // IGES 128 carries FIVE property flags (params 5..9): closedU, closedV,
+    // polynomial, periodicU, periodicV. The knot vectors therefore begin at
+    // parameter index 10 (0-based, past the type token).
+    std::size_t idx = 10;
+    if ((std::size_t)(10 + nUK + nVK + nW + 3 * nW) > p->size()) return false;
     out.degreeU = (std::size_t)M1;
     out.degreeV = (std::size_t)M2;
     out.knotsU.clear(); out.knotsU.reserve(nUK);
@@ -663,6 +672,53 @@ bool readPlane(const IgesModel& m, long deSeq, Surface& s) {
     // a refDir perpendicular to the normal.
     Vec3 t = (std::fabs(n.x) < 0.9) ? Vec3{1, 0, 0} : Vec3{0, 1, 0};
     s.refDir = vnorm(vsub(t, vscale(n, vdot(t, n))));
+    return true;
+}
+
+// 123 DIRECTION: param[1..3] = dx,dy,dz (param[0] = type 123). A direction is a
+// pure vector (NOT scaled to mm — it is dimensionless).
+bool readDirection(const IgesModel& m, long deSeq, Vec3& out) {
+    const auto* p = params(m, deSeq);
+    if (!p || p->size() < 4) return false;
+    double x, y, z;
+    if (!igesNum((*p)[1], x) || !igesNum((*p)[2], y) || !igesNum((*p)[3], z)) return false;
+    out = Vec3{x, y, z};
+    return vlen(out) > 1e-30;
+}
+
+// 190 PLANE SURFACE -> native analytic plane Surface. This is the PARAMETRIC plane
+// (as opposed to the 108 implicit construction plane). PD: [0]=190 [1]=ptr to a 116
+// POINT (surface origin), [2]=ptr to a 123 DIRECTION (unit normal / axis), and for
+// FORM 1 [3]=ptr to a 123 DIRECTION (reference direction fixing the u axis). We
+// reconstruct origin + axis + refDir directly (no frame guessing needed).
+bool readPlaneSurface(const IgesModel& m, long deSeq, Surface& s) {
+    const auto* p = params(m, deSeq);
+    if (!p || p->size() < 3) return false;
+    long ptPtr, nPtr;
+    if (!igesPtr((*p)[1], ptPtr) || !igesPtr((*p)[2], nPtr)) return false;
+    Vec3 origin, normal;
+    if (!readPoint(m, ptPtr, origin))     return false;
+    if (!readDirection(m, nPtr, normal))  return false;
+    Vec3 n = vnorm(normal);
+    s.kind = SurfaceKind::Plane;
+    s.origin = origin;
+    s.axis = n;
+    // FORM 1 carries an explicit reference direction; otherwise pick a stable one
+    // perpendicular to the normal.
+    Vec3 refDir{};
+    bool haveRef = false;
+    if (p->size() >= 4) {
+        long rPtr;
+        if (igesPtr((*p)[3], rPtr) && rPtr > 0 && readDirection(m, rPtr, refDir)) {
+            // project the reference direction into the plane and normalise.
+            Vec3 proj = vsub(refDir, vscale(n, vdot(refDir, n)));
+            if (vlen(proj) > 1e-30) { s.refDir = vnorm(proj); haveRef = true; }
+        }
+    }
+    if (!haveRef) {
+        Vec3 t = (std::fabs(n.x) < 0.9) ? Vec3{1, 0, 0} : Vec3{0, 1, 0};
+        s.refDir = vnorm(vsub(t, vscale(n, vdot(t, n))));
+    }
     return true;
 }
 
@@ -767,6 +823,7 @@ ForeignReadResult readForeignIges(const std::string& text, double sewTol) {
         int t = entityType(m, surfDe);
         isBSpline = false;
         if (t == E_PLANE) { kw = "IGES_108"; return readPlane(m, surfDe, s); }
+        if (t == E_PLANE_SURFACE) { kw = "IGES_190"; return readPlaneSurface(m, surfDe, s); }
         if (t == E_RBSPLINE_SURFACE) {
             kw = "IGES_128";
             if (!readBSplineSurface(m, surfDe, nurbs)) return false;
@@ -1194,7 +1251,8 @@ ForeignReadResult readForeignIges(const std::string& text, double sewTol) {
                     if (readPoint(m, kv.first, pt)) result.unsupported["IGES_116(loose-point)"]++;
                     continue;
                 }
-                if (t == E_RBSPLINE_SURFACE || t == E_PLANE || t == E_SURFACE_OF_REVOLUTION ||
+                if (t == E_RBSPLINE_SURFACE || t == E_PLANE || t == E_PLANE_SURFACE ||
+                    t == E_SURFACE_OF_REVOLUTION ||
                     t == E_TABULATED_CYLINDER || t == E_LINE ||
                     t == E_CIRCULAR_ARC || t == E_CONIC_ARC || t == E_RBSPLINE_CURVE)
                     result.unsupported["IGES_" + std::to_string(t) + "(no-trimmed-surface-or-brep)"]++;

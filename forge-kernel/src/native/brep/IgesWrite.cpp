@@ -207,25 +207,37 @@ IgesWriteResult writeIges(const Solid& solid, const std::string& name) {
     }
     const long eListSeq = B.deSeq(hEList);
 
-    // ---- 5) base surfaces (108 PLANE / 128 NURBS) per face -------------------
-    // Emit one surface entity per face (in `faces` order); the 510 FACE references
-    // it. A PLANE is A*x+B*y+C*z=D (normal = face axis, D = n·origin). A NURBS is
-    // a 128 RATIONAL B-SPLINE SURFACE with the full control/knot/weight grid.
+    // ---- 5) base surfaces (190 PLANE SURFACE / 128 NURBS) per face -----------
+    // Emit one base-surface entity per face (in `faces` order); the 510 FACE
+    // references it. For a PLANE we emit a 190 PLANE SURFACE (form 1) — a genuine
+    // PARAMETRIC surface built from a 116 POINT (origin) + two 123 DIRECTIONs
+    // (normal, ref direction). OCCT's IGESToBRep face builder REQUIRES a parametric
+    // surface here: a 108 PLANE is an unbounded implicit construction plane and
+    // OCCT silently DROPS every face that references one (the shell reconstructs
+    // with zero faces). A NURBS face is a 128 RATIONAL B-SPLINE SURFACE with the
+    // full control/knot/weight grid. Both the forge reader and OCCT parse 190/128.
     std::vector<std::size_t> surfHandle(faces.size());
     for (std::size_t fi = 0; fi < faces.size(); ++fi) {
         const Surface& s = *faces[fi]->surface;
         if (s.kind == SurfaceKind::Plane) {
-            // 108 PD: [0]=108 [1..4]=A,B,C,D, [5]=bounding-curve ptr (0=unbounded),
-            //         [6..8]=display point, [9]=display size. The reader consumes
-            //         A,B,C,D only; the rest are display hints (0).
-            const Vec3 n = vnorm(s.axis);
-            const double D = vdot(n, s.origin);
-            std::vector<std::string> p = {"108",
-                num(n.x), num(n.y), num(n.z), num(D),
-                "0", num(s.origin.x), num(s.origin.y), num(s.origin.z), "0"};
-            surfHandle[fi] = B.add(108, 0, std::move(p));
+            // 116 POINT (plane origin): [0]=116 [1..3]=x,y,z [4]=display symbol(0).
+            const Vec3 n  = vnorm(s.axis);
+            const Vec3 rd = vnorm(s.refDir);
+            const std::size_t hPt = B.add(116, 0, {"116",
+                num(s.origin.x), num(s.origin.y), num(s.origin.z), "0"});
+            // 123 DIRECTION (unit normal): [0]=123 [1..3]=dx,dy,dz.
+            const std::size_t hN = B.add(123, 0, {"123", num(n.x), num(n.y), num(n.z)});
+            // 123 DIRECTION (ref direction fixing the surface's u parametrisation).
+            const std::size_t hR = B.add(123, 0, {"123", num(rd.x), num(rd.y), num(rd.z)});
+            // 190 PLANE SURFACE, FORM 1 (parametrised): [0]=190 [1]=pointPtr
+            //   [2]=normalPtr [3]=refDirPtr.
+            std::vector<std::string> p = {"190",
+                std::to_string(B.deSeq(hPt)),
+                std::to_string(B.deSeq(hN)),
+                std::to_string(B.deSeq(hR))};
+            surfHandle[fi] = B.add(190, 1, std::move(p));
         } else {
-            // 128 PD: [0]=128 [1]=K1 [2]=K2 [3]=M1(degU) [4]=M2(degV) [5..8]=PROP1..4
+            // 128 PD: [0]=128 [1]=K1 [2]=K2 [3]=M1(degU) [4]=M2(degV) [5..9]=PROP1..5
             //         then (K1+M1+2) U knots, (K2+M2+2) V knots,
             //         then (K1+1)(K2+1) weights (V-major), then the same count of
             //         xyz control points (V-major), then U0,U1,V0,V1.
@@ -246,12 +258,16 @@ IgesWriteResult writeIges(const Solid& solid, const std::string& name) {
             p.push_back(std::to_string(K2));
             p.push_back(std::to_string(M1));
             p.push_back(std::to_string(M2));
-            // PROP1..4: closedU, closedV, polynomial(=1 if all weights 1), periodic.
+            // PROP1..5: closedU, closedV, polynomial(=1 if all weights 1), periodicU,
+            // periodicV. IGES 128 carries FIVE boolean property flags; emitting only
+            // four shifts the knot/weight/control arrays by one field and OCCT then
+            // mis-parses (and silently drops) the surface.
             bool allUnitW = true;
             for (const auto& row : nb.weights)
                 for (double w : row) if (w != 1.0) { allUnitW = false; break; }
-            p.push_back("0"); p.push_back("0");
-            p.push_back(allUnitW ? "1" : "0"); p.push_back("0");
+            p.push_back("0"); p.push_back("0");                 // PROP1 closedU, PROP2 closedV
+            p.push_back(allUnitW ? "1" : "0");                  // PROP3 polynomial (1 = non-rational)
+            p.push_back("0"); p.push_back("0");                 // PROP4 periodicU, PROP5 periodicV
             for (double k : nb.knotsU) p.push_back(num(k));
             for (double k : nb.knotsV) p.push_back(num(k));
             // weights V-major: for j in 0..K2, for i in 0..K1.
@@ -271,10 +287,14 @@ IgesWriteResult writeIges(const Solid& solid, const std::string& name) {
     }
 
     // ---- 6) 508 LOOP per face boundary loop ----------------------------------
-    // PD: [0]=508 [1]=N then per-edge tuples (type=1, edgeListPtr, edgeIdx,
-    //     orientationFlag, #pcurves=0). type 1 = an edge from a 504 EDGE LIST. The
-    //     orientation flag is 1 when the coedge runs the edge start->end (forward),
-    //     0 otherwise (the reader swaps the directed endpoints on 0).
+    // PD: [0]=508 [1]=N then per-edge tuples (type=0, edgeListPtr, edgeIdx,
+    //     orientationFlag, #pcurves=0). Per IGES 5.3 (and OCCT IGESSolid_Loop) the
+    //     edge-tuple TYPE flag is 0 = EDGE (from a 504 EDGE LIST), 1 = VERTEX (from
+    //     a 502 VERTEX LIST). We reference edges, so the flag is 0. (The forge
+    //     reader ignores this flag and always treats the tuple as an edge, so it
+    //     round-trips either way; OCCT REQUIRES 0 to build the wire.) The
+    //     orientation flag is 1 when the coedge runs start->end (forward), 0
+    //     otherwise (the reader swaps the directed endpoints on 0).
     auto emitLoop = [&](const Loop* lp) -> std::size_t {
         std::vector<const Coedge*> ring;
         const Coedge* start = lp->first;
@@ -284,7 +304,7 @@ IgesWriteResult writeIges(const Solid& solid, const std::string& name) {
         p.push_back("508");
         p.push_back(std::to_string(ring.size()));
         for (const Coedge* c : ring) {
-            p.push_back("1");                                       // type: edge
+            p.push_back("0");                                       // type: 0 = edge (from 504 EDGE LIST)
             p.push_back(std::to_string(eListSeq));                  // edge list ptr
             p.push_back(std::to_string(eIdxOf(c->edge)));           // edge index
             p.push_back(c->forward ? "1" : "0");                    // orientation
@@ -327,10 +347,13 @@ IgesWriteResult writeIges(const Solid& solid, const std::string& name) {
     }
 
     // ---- 9) 186 MANIFOLD SOLID B-REP OBJECT ----------------------------------
-    // PD: [0]=186 [1]=shellPtr [2]=shellOrientationFlag (no void shells).
+    // PD: [0]=186 [1]=shellPtr [2]=shellOrientationFlag [3]=N(#void shells)=0.
+    // OCCT's IGESSolid_ManifoldSolid REQUIRES the void-shell count field (param 3);
+    // a record that stops after the orientation flag is rejected ("Number of Void
+    // Shells is incorrect"). We have no void shells, so emit an explicit 0.
     {
         std::vector<std::string> p = {"186",
-            std::to_string(B.deSeq(hShell)), "1"};
+            std::to_string(B.deSeq(hShell)), "1", "0"};
         B.add(186, 0, std::move(p));
     }
 
@@ -367,31 +390,45 @@ IgesWriteResult writeIges(const Solid& solid, const std::string& name) {
     // as the UNIT FLAG, and index 15 (f16) as the UNIT NAME — so f1..f13 must be
     // exactly thirteen fields ahead of the scale/units triple. Emit them in order.
     std::string grec;
-    grec += "1H,";                       // f1  param delim
-    grec += "1H;";                       // f2  record delim
-    grec += hol("forge") + ",";          // f3
-    grec += hol(gname) + ",";            // f4
-    grec += hol("forge::native::brep::writeIges") + ",";  // f5
-    grec += hol("forge IGES 5.3") + ",";                  // f6
-    grec += "32,";                       // f7
-    grec += "38,";                       // f8
-    grec += "6,";                        // f9
-    grec += "308,";                      // f10
-    grec += "15,";                       // f11
-    grec += hol(gname) + ",";            // f12
-    grec += "1.0,";                      // f13
-    grec += "1.0,";                      // f14  MODEL SPACE SCALE  (reader idx 13)
-    grec += "2,";                        // f15  UNIT FLAG = mm     (reader idx 14)
-    grec += hol("MM") + ",";             // f16  UNIT NAME          (reader idx 15)
-    grec += "1000,";                     // f17  max line weight grad
-    grec += "1.0,";                      // f18  max line weight
-    grec += hol("20260101.000000") + ",";// f19  timestamp
-    grec += "1E-07,";                    // f20  min resolution
-    grec += "0.0,";                      // f21  max coord
-    grec += hol("forge") + ",";          // f22  author
-    grec += hol("forge") + ",";          // f23  organisation
-    grec += "11,";                       // f24  IGES version (5.3)
-    grec += "0;";                        // f25  drafting standard + record delim
+    // SPEC-EXACT IGES 5.3 GLOBAL record. The 1-based field numbers below are the
+    // canonical spec positions (matched 1:1 by OCCT's IGESControl_Reader): MODEL
+    // SPACE SCALE is field 13, UNIT FLAG field 14, UNIT NAME field 15. (An earlier
+    // layout shifted these to f14/f15/f16 by emitting a spurious f13 scale; OCCT
+    // then read the unit flag as the scale and mis-delimited every parameter-data
+    // record, so the whole B-rep translation collapsed. Do NOT re-introduce that
+    // off-by-one — the forge reader (parseGlobal) is aligned to these SAME slots.)
+    // Fields 1 and 2 DEFINE the parameter/record delimiters, and like every other
+    // global field they must themselves be followed by the parameter delimiter.
+    // The Hollerith "1H," is the delimiter DEFINITION; the trailing "," after it is
+    // the actual field separator. Omitting that separator (emitting "1H,1H;...")
+    // leaves OCCT unable to establish the parameter delimiter, after which it
+    // mis-splits every parameter-data record and the whole B-rep translation fails.
+    grec += "1H,,";                      // f1  parameter delimiter (comma) + sep
+    grec += "1H;,";                      // f2  record delimiter (semicolon) + sep
+    grec += hol("forge") + ",";          // f3  product id (sending system)
+    grec += hol(gname) + ",";            // f4  file name
+    grec += hol("forge::native::brep::writeIges") + ",";  // f5  native system id
+    grec += hol("forge IGES 5.3") + ",";                  // f6  preprocessor version
+    grec += "32,";                       // f7  integer bits
+    grec += "38,";                       // f8  single-float max power of 10
+    grec += "6,";                        // f9  single-float significant digits
+    grec += "308,";                      // f10 double-float max power of 10
+    grec += "15,";                       // f11 double-float significant digits
+    grec += hol(gname) + ",";            // f12 product id (receiving system)
+    grec += "1.0,";                      // f13 MODEL SPACE SCALE   (spec field 13)
+    grec += "2,";                        // f14 UNIT FLAG = 2 (mm)  (spec field 14)
+    grec += hol("MM") + ",";             // f15 UNIT NAME           (spec field 15)
+    grec += "1000,";                     // f16 max line-weight gradations
+    grec += "1.0,";                      // f17 max line weight
+    grec += hol("20260101.000000") + ",";// f18 date/time file generated
+    grec += "1E-07,";                    // f19 min user-intended resolution
+    grec += "0.0,";                      // f20 approximate max coordinate
+    grec += hol("forge") + ",";          // f21 author
+    grec += hol("forge") + ",";          // f22 organisation
+    grec += "11,";                       // f23 IGES spec version (11 = 5.3)
+    grec += "0,";                        // f24 drafting standard
+    grec += hol("20260101.000000") + ",";// f25 date/time model created
+    grec += "0;";                        // f26 application protocol / MIL-D-28000
     // wrap grec into 72-col G lines.
     for (std::size_t i = 0; i < grec.size(); i += 72) {
         std::string chunk = grec.substr(i, 72);

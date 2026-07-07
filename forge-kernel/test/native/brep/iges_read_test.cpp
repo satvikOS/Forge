@@ -197,12 +197,8 @@ struct IgesBuilder {
         // strings or zero; we only need fields up to 16 to carry the units.
         // Layout (1-based): 1 pdelim,2 rdelim,3 sendID,4 fileName,5 systemID,
         //   6 preprocVer,7 intBits,8 maxPow10single,9 maxDigSingle,10 maxPow10dbl,
-        //   11 maxDigDbl,12 recvID,13 modelScale,14 unitFlag... WAIT: per spec
-        //   field 13 = model space scale, 14 = unit flag, 15 = unit name. We use
-        //   the reader's indices: field14(idx13)=scale, field15(idx14)=unitFlag,
-        //   field16(idx15)=unitName. So we place modelScale at field 14.
-        // To keep the reader's exact indexing, emit fields 3..13 as placeholders
-        // then 14=modelScale,15=unitFlag,16=unitName.
+        //   11 maxDigDbl,12 recvID,13 modelScale,14 unitFlag,15 unitName — the
+        //   canonical IGES 5.3 field positions, matched 1:1 by the forge reader.
         std::string g;
         g += "1H,";          // field 1 param delimiter
         g += "1H;";          // field 2 record delimiter
@@ -216,18 +212,16 @@ struct IgesBuilder {
         g += "308,";         // 10
         g += "15,";          // 11
         g += "4Hrcvr,";      // 12 receiver id
+        // Per the IGES 5.3 spec (and the forge reader), MODEL SPACE SCALE is field
+        // 13, UNIT FLAG is field 14, UNIT NAME is field 15. The fields vector is
+        // 0-based: idx0=pdelim,1=rdelim,2=test,3=file,4=forg,5=forg,6=32,7=38,8=6,
+        // 9=308,10=15,11=rcvr,12=modelScale,13=unitFlag,14=unitName. So scale goes
+        // straight after the receiver id (field 12) with NO spurious duplicate.
         char buf[64];
         std::snprintf(buf, sizeof(buf), "%.6g,", modelScale);
-        g += buf;            // 13 model space scale  -> reader field idx 12... see below
-        // The reader uses fields[13]=scale, fields[14]=unitFlag, fields[15]=name.
-        // Our fields vector: idx0=pdelim,1=rdelim,2=test,3=file,4=forg,5=forg,
-        // 6=32,7=38,8=6,9=308,10=15,11=rcvr,12=modelScale,13=??,14=??,15=??.
-        // So we need scale at idx13 -> add ONE MORE field before it. Insert the
-        // model scale a SECOND time at idx13 (resolution), then unitFlag,name.
-        std::snprintf(buf, sizeof(buf), "%.6g,", modelScale);
-        g += buf;            // idx13 -> reader reads this as scale
-        g += std::to_string(unitFlag); g += ",";   // idx14 -> unit flag
-        g += std::to_string((int)unitName.size()) + "H" + unitName; // idx15 -> name
+        g += buf;            // field 13 (idx12) model space scale
+        g += std::to_string(unitFlag); g += ",";   // field 14 (idx13) unit flag
+        g += std::to_string((int)unitName.size()) + "H" + unitName; // field 15 (idx14) unit name
         // Split global record across <=72 col G lines.
         std::string full = g + ";";
         std::size_t pos = 0;
@@ -414,11 +408,12 @@ static std::string makeBrepBox(double Lx, double Ly, double Lz) {
 static std::string makeBSplineSurface(double L) {
     IgesBuilder b;
     b.buildGlobal(2, "MM", 1.0);
-    // 128: K1=1,K2=1,M1=1,M2=1; PROP1..4 = 0,0,1,0 (non-periodic, polynomial=0 ->
-    // we still give explicit weights 1). U knots (A+1 = K1+M1+2 = 4): 0,0,1,1.
-    // V knots likewise 0,0,1,1. Weights (4) all 1. Control pts (V-major):
-    //   j=0: (0,0,0),(L,0,0)   j=1: (0,L,0),(L,L,0).  Then U0,U1,V0,V1 = 0,1,0,1.
-    std::string r = "128,1,1,1,1,0,0,1,0";
+    // 128: K1=1,K2=1,M1=1,M2=1; PROP1..5 = closedU,closedV,polynomial,periodicU,
+    // periodicV = 0,0,1,0,0 (IGES 128 carries FIVE property flags). We still give
+    // explicit unit weights. U knots (A+1 = K1+M1+2 = 4): 0,0,1,1. V knots likewise
+    // 0,0,1,1. Weights (4) all 1. Control pts (V-major): j=0: (0,0,0),(L,0,0)
+    // j=1: (0,L,0),(L,L,0). Then U0,U1,V0,V1 = 0,1,0,1.
+    std::string r = "128,1,1,1,1,0,0,1,0,0";
     r += ",0,0,1,1";          // U knots
     r += ",0,0,1,1";          // V knots
     r += ",1,1,1,1";          // weights
