@@ -579,6 +579,13 @@ add_library(forge_kernel SHARED
     src/native/viz/FieldViz.cpp         # #65 — CAE field-visualization: warp-by-vector + viridis colormap + isosurface (reuses implicit::IsoMesher) + RK4 streamline
     # Wave-0 — PlaneGCS constraint diagnostics (sketcher-constraints.md Phase A)
     src/binding_sketchdiag.cpp
+    # KEYSTONE K7 — Parasolid-style opaque-handle C-API black box wrapping the
+    # native brep/mesh/csg kernel (include/forge/capi/forge_capi.h). Strict
+    # extern "C"; no C++ types cross the boundary. Verify batch also compiles
+    # test/capi/forge_capi_smoke.cpp against it. Deps (brep Primitives/Boolean/
+    # Fillet/Shell/Sweep/MassProps/Aabb/SolidTessellate/StepAnalytic/StepFaceted +
+    # csg/Revolve + mesh/HalfEdgeMesh) are already listed above.
+    src/native/capi/forge_capi.cpp
     ${PLANEGCS_SRC}
 )
 
