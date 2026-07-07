@@ -101,6 +101,12 @@ function rectAt(x0, x1, y0, y1) {           // rectangle in the XY plane
   S.addLine(s, a, b); S.addLine(s, b, c); S.addLine(s, c, d); S.addLine(s, d, a);
   return s;
 }
+function openLine(x0, y0, x1, y1) {         // a single OPEN line segment (no closed ring)
+  const s = S.createSketch();
+  const a = S.addPoint(s, x0, y0), b = S.addPoint(s, x1, y1);
+  S.addLine(s, a, b);
+  return s;
+}
 
 // ---------------------------------------------------------------- cases
 // mode:
@@ -133,6 +139,17 @@ const cases = [
   { family: 'rib', name: 'rib closed rect(2x3) depth 4', mode: 'vs-occt', tol: 1e-6,
     expectNativeKind: 'nativeMesh', refVol: 2*3*4, curved: false,
     build: f => f.part.rib(rectAt(0,2,0,3), 4.0, 0.5) },
+  // OPEN-profile ribbon rib: a single line (0,0)->(5,0) swept +Y by thickness 0.5
+  // into a ribbon, then +Z by depth 4 -> a 5 x 0.5 x 4 slab (volume 10). This was
+  // the last rib branch that fell back to OCCT; it now rides the NATIVE prism.
+  // Gated vs-analytic: OCCT's open-rib BRep IS the same valid solid (independently
+  // verified: BRepGProp volume 10, 1 solid / 6 faces), but this harness's OCCT
+  // tessellation reads the ribbon-swept-face solid as a non-watertight sheet
+  // (occtVol 0, genus 0.5), so the closed-form oracle is the honest reference. The
+  // native path produces a clean watertight closed solid of the exact volume.
+  { family: 'rib', name: 'rib OPEN line(5) thick 0.5 depth 4', mode: 'vs-analytic', tol: 1e-6,
+    expectNativeKind: 'nativeMesh', refVol: 10, refGenus: 0,
+    build: f => f.part.rib(openLine(0,0,5,0), 4.0, 0.5) },
 
   // ---------- HOLE WIZARD ----------
   // The native holeWizard builds each cutter as a native primitive and boolean-CUTs

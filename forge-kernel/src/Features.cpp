@@ -1514,6 +1514,39 @@ ShapeHandle rib(SketchHandle profileSketch, double depth, double thickness,
             nb::SweepResult r = nb::prism(prof, depth);
             if (r.ok) return storeNativeMesh(std::move(r.solid));
             // else: honest fall-through to OCCT (degenerate profile).
+        } else {
+            // GAP D.3 — native OPEN-PROFILE ribbon rib. With no closed ring the
+            // profile is an open chain (a line / polyline / arc string). OCCT's
+            // open-rib path sweeps that wire +Y by `thickness` into a ribbon SHEET,
+            // then +Z by `depth` into a solid. We reproduce it EXACTLY: take the
+            // stitched open chain P0..Pn, append the chain translated +Y by
+            // `thickness` in reverse (Pn+dy .. P0+dy) to close a ribbon polygon,
+            // then native-prism it +Z by `depth`. The footprint parallelogram(s),
+            // COM and volume are byte-identical to OCCT's MakePrism-of-MakePrism.
+            auto rings = extractProfileRings(profileSketch);
+            const std::vector<native::geom::Point2>* chain = nullptr;
+            for (const auto& r : rings)
+                if (r.size() >= 2 && (chain == nullptr || r.size() > chain->size()))
+                    chain = &r;
+            if (chain != nullptr && chain->size() >= 2) {
+                std::vector<native::geom::Point2> ribbon;
+                ribbon.reserve(chain->size() * 2);
+                for (const auto& pt : *chain)                         // bottom edge P0..Pn
+                    ribbon.push_back(pt);
+                for (auto it = chain->rbegin(); it != chain->rend(); ++it)  // top edge, +Y offset
+                    ribbon.push_back(native::geom::Point2{it->x, it->y + thickness});
+                // Same +Z-align pre-rotation the closed path uses, so the native
+                // prism footprint lands at world (x,y): (x,y) -> (-y,x).
+                std::vector<std::vector<native::geom::Point2>> rr{ std::move(ribbon) };
+                for (auto& ring : rr)
+                    for (auto& q : ring) { const double x = q.x, y = q.y; q.x = -y; q.y = x; }
+                nb::Profile ribProf;
+                if (ringsToProfile(rr, ribProf)) {
+                    nb::SweepResult r = nb::prism(ribProf, depth);
+                    if (r.ok) return storeNativeMesh(std::move(r.solid));
+                    // else: honest fall-through to the OCCT ribbon path below.
+                }
+            }
         }
     }
 #endif
