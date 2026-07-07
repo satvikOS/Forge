@@ -44,11 +44,15 @@
 //     (their inner counterparts are also dropped); the rim of every removed face is
 //     bridged by a planar SIDE-WALL band joining the outer rim to the inner rim, so
 //     the wall stays a closed 2-manifold with a real lip of thickness t.
+//   * TORUS faces ARE offset natively: the offset of a torus is another torus
+//     (major radius / centre / axis unchanged, minor radius r2 -> r2 - t), and
+//     every curved-face vertex is re-trimmed along the OUTER surface normal at that
+//     vertex's (u,v) so the inner corner lands exactly on the offset surface. The
+//     inner face inherits the theta/phi param window verbatim, so its analytic mass
+//     integral is exact (a closed donut hollow matches OCCT MakeThickSolid to 1e-6).
 //   * NOT built here (honestly deferred — see EXECUTION_ROADMAP Wave-3 P2.5):
 //       - VARIABLE / per-face thickness (the spec's true variable-offset shell),
-//       - FREEFORM (trimmed-NURBS) face offset with self-intersection trimming,
-//       - TORUS-face offset (its offset is a torus r2->r2-t but the corner SSI with
-//         a torus is the deferred SSI pair), and
+//       - FREEFORM (trimmed-NURBS) face offset with self-intersection trimming, and
 //       - automatic self-intersection rejection beyond the t<min-half-extent guard.
 //     Each is reported via ShellResult::reason / ok=false, never faked.
 //

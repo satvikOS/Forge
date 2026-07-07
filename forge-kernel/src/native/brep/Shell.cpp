@@ -163,10 +163,19 @@ OffsetSurfaceResult offsetSurfaceInward(const Surface& s, double t) {
         r.ok = true;
         return r;
     }
-    case SurfaceKind::Torus:
+    case SurfaceKind::Torus: {
+        // A torus offset INWARD by t along its (radial-from-the-tube-centreline)
+        // normal is ANOTHER torus: same centre / axis / major radius, minor (tube)
+        // radius reduced by t. The inner face stays an exact torus, so its mass
+        // integral is exact.
+        if (t >= s.r2) { r.reason = "thickness >= torus minor (tube) radius (inner collapses)"; return r; }
+        r.surface.r2 = s.r2 - t;
+        r.ok = true;
+        return r;
+    }
     case SurfaceKind::Nurbs:
     default:
-        r.reason = "unsupported face kind for analytic shell (torus / NURBS deferred)";
+        r.reason = "unsupported face kind for analytic shell (NURBS offset deferred)";
         return r;
     }
 }
@@ -192,8 +201,8 @@ ShellResult shellSolid(TopologyBuilder& tb, Solid* solid, const ShellOptions& op
     for (Face* f : faces) {
         if (f->surface == nullptr) { res.reason = "a face has no analytic surface"; return res; }
         SurfaceKind k = f->surface->kind;
-        if (k == SurfaceKind::Torus || k == SurfaceKind::Nurbs) {
-            res.reason = "torus / NURBS face offset is deferred (planar + quadric only)";
+        if (k == SurfaceKind::Nurbs) {
+            res.reason = "NURBS face offset is deferred (planar / quadric / torus only)";
             return res;
         }
     }
@@ -333,15 +342,33 @@ ShellResult shellSolid(TopologyBuilder& tb, Solid* solid, const ShellOptions& op
         }
 
         std::vector<Vertex*> outerRing = loopRing(of->outerLoop);
-        // Inner ring positions (reverse order for opposite winding).
+        // Inner-ring positions. For a PLANAR face every corner comes from the
+        // offset-plane meet (innerPos); a corner with no meet falls back to the
+        // constant plane normal. For a CURVED face (cylinder / cone / sphere /
+        // TORUS) the surface normal VARIES across the loop, so each vertex must be
+        // pushed inward along the surface normal AT THAT VERTEX'S (u,v) — a single
+        // normalAt(0,0) would collapse a torus quad. `vertexUV` carries the per-
+        // loop-vertex parameters in loop order, so we push vertex j inward by
+        // t*normalAt(vertexUV[j]); the result lands exactly on the offset surface.
+        const bool planar = (of->surface->kind == SurfaceKind::Plane);
+        const bool haveUV = (of->vertexUV.size() == outerRing.size());
+        std::vector<Vec3> innerFwd(outerRing.size());
+        for (std::size_t j = 0; j < outerRing.size(); ++j) {
+            Vertex* ov = outerRing[j];
+            auto itp = innerPos.find(ov);
+            if (itp != innerPos.end()) { innerFwd[j] = itp->second; continue; }
+            Vec3 n;
+            if (!planar && haveUV)
+                n = vnorm(of->surface->normalAt(of->vertexUV[j][0], of->vertexUV[j][1]));
+            else
+                n = planeOutwardNormal(of->surface);
+            innerFwd[j] = vsub(V3(ov->point), vscale(n, t));
+        }
+        // Inner ring wound in REVERSE (opposite winding -> normal into the cavity).
         std::vector<Vertex*> innerRing;
         innerRing.reserve(outerRing.size());
-        for (auto it = outerRing.rbegin(); it != outerRing.rend(); ++it) {
-            Vec3 ip = innerPos.count(*it) ? innerPos[*it]
-                                          : vsub(V3((*it)->point),
-                                                 vscale(planeOutwardNormal(of->surface), t));
-            innerRing.push_back(tb.makeVertex(P3(ip)));
-        }
+        for (auto it = innerFwd.rbegin(); it != innerFwd.rend(); ++it)
+            innerRing.push_back(tb.makeVertex(P3(*it)));
 
         Face* inf = tb.makeFace();
         tb.addOuterLoopToFace(inf, innerRing);
@@ -355,9 +382,9 @@ ShellResult shellSolid(TopologyBuilder& tb, Solid* solid, const ShellOptions& op
         *s = offsetSurf[i];
         s->reversed = !s->reversed;   // flip: point into the cavity (away from material)
         inf->surface = s;
-        // Re-derive the planar trim window + vertexUV in the offset plane frame so
-        // the EXACT polygon mass integral runs over the inner polygon.
-        {
+        if (planar) {
+            // Re-derive the planar trim window + vertexUV in the offset plane frame
+            // so the EXACT polygon mass integral runs over the inner polygon.
             Vec3 o = s->origin;
             Vec3 uDir = s->refDir;
             Vec3 vDir = s->binormal();
@@ -373,6 +400,18 @@ ShellResult shellSolid(TopologyBuilder& tb, Solid* solid, const ShellOptions& op
                        v0 = std::min(v0, pv); v1 = std::max(v1, pv); }
             }
             inf->u0 = u0; inf->u1 = u1; inf->v0 = v0; inf->v1 = v1;
+        } else {
+            // CURVED face (cylinder / cone / sphere / TORUS): the offset surface is
+            // parametrised IDENTICALLY to the outer surface (same theta/phi domain —
+            // only a radius shrank), so the inner face inherits the outer face's
+            // param window verbatim. Its per-vertex (u,v) is the outer face's
+            // vertexUV REVERSED, because innerRing is wound in reverse. This lets
+            // MassProps integrate the analytic offset surface over the correct
+            // theta/phi patch (a planar-frame re-derivation would be meaningless on
+            // a curved surface and corrupts the hollow volume).
+            inf->u0 = of->u0; inf->u1 = of->u1;
+            inf->v0 = of->v0; inf->v1 = of->v1;
+            inf->vertexUV.assign(of->vertexUV.rbegin(), of->vertexUV.rend());
         }
 
         innerFaces.push_back(inf);

@@ -36,6 +36,7 @@
 
 // ---- OCCT 7.9.3 ----
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeTorus.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepGProp.hxx>
@@ -230,6 +231,57 @@ static void runCase(const char* label, double L, double t, bool removeTop, doubl
     std::printf("\n");
 }
 
+// =====================================================================
+// TORUS DONUT SHELL — the torus/NURBS-offset increment (GAP D.2). Native side:
+// buildTorus(R,r) carries the analytic torus surface on every faceted quad;
+// shellSolid offsets each to minor radius r-t and re-trims every vertex along the
+// surface normal (exact offset torus). OCCT side: a fully-enclosed hollow donut is
+// the boolean difference of the outer torus (R,r) and the inner torus (R,r-t) --
+// MakeThickSolid cannot build a void with no opening (same reason as the closed
+// box case). Closed-form hollow volume = 2*pi^2*R*(r^2 - (r-t)^2).
+// =====================================================================
+static double nativeTorusShellVolume(double R, double r, double t, bool& closed, bool& ok) {
+    SolidFactory fac;
+    Solid* donut = fac.buildTorus(R, r);
+    ShellOptions opt; opt.thickness = t; opt.tol = 1e-9;
+    ShellResult res = shellSolid(fac.builder(), donut, opt);
+    ok = res.ok && res.solid != nullptr;
+    closed = res.closedManifold && res.freeEdges == 0;
+    return res.volume;
+}
+
+static double occtTorusShellVolume(double R, double r, double t, bool& closed, bool& ok) {
+    closed = false; ok = false;
+    TopoDS_Shape outer = BRepPrimAPI_MakeTorus(R, r).Shape();
+    TopoDS_Shape inner = BRepPrimAPI_MakeTorus(R, r - t).Shape();
+    BRepAlgoAPI_Cut cut(outer, inner);
+    try { cut.Build(); } catch (...) { return 0.0; }
+    if (!cut.IsDone()) return 0.0;
+    TopoDS_Shape hollow = cut.Shape();
+    if (hollow.IsNull()) return 0.0;
+    ok = true;
+    GProp_GProps vp; BRepGProp::VolumeProperties(hollow, vp);
+    closed = occtShapeClosed(hollow);
+    return std::fabs(vp.Mass());
+}
+
+static void runTorusCase(const char* label, double R, double r, double t) {
+    const double PI = 3.14159265358979323846;
+    const double expected = 2.0 * PI * PI * R * (r * r - (r - t) * (r - t));
+    std::printf("[%s] torus R=%.1f r=%.1f t=%.1f  (closed donut shell)\n", label, R, r, t);
+    bool nClosed=false,nOk=false; double nVol=nativeTorusShellVolume(R,r,t,nClosed,nOk);
+    bool oClosed=false,oOk=false; double oVol=occtTorusShellVolume(R,r,t,oClosed,oOk);
+    std::printf("    native : ok=%d  V=%.9f  closed2manifold=%d\n", nOk, nVol, nClosed);
+    std::printf("    OCCT   : ok=%d  V=%.9f  shellClosed=%d\n",     oOk, oVol, oClosed);
+    std::printf("    expected closed-form hollow V = %.9f\n", expected);
+    check(nOk, "native torus shell op succeeded (torus offset native, NOT deferred)");
+    check(oOk, "OCCT torus MakeThickSolid/cut succeeded");
+    check(relClose(nVol, expected, 1e-6), "native torus hollow V == closed-form (rel <= 1e-6)");
+    check(relClose(oVol, expected, 1e-6), "OCCT torus hollow V == closed-form (rel <= 1e-6)");
+    check(relClose(nVol, oVol, 1e-6), "native torus hollow V == OCCT hollow V (rel <= 1e-6)");
+    std::printf("\n");
+}
+
 int main() {
     std::printf("=== Forge native SHELL  vs  OCCT 7.9.3 BRepOffsetAPI_MakeThickSolid ===\n\n");
     const double L = 10.0, t = 1.0;
@@ -241,6 +293,9 @@ int main() {
     // CASE B: closed shell -> 488.
     runCase("B", L, t, /*removeTop=*/false,
             L * L * L - (L - 2 * t) * (L - 2 * t) * (L - 2 * t)); // 488
+
+    // CASE C: TORUS DONUT shell (GAP D.2 — torus offset now NATIVE, not deferred).
+    runTorusCase("C", /*R=*/5.0, /*r=*/2.0, /*t=*/0.5);
 
     std::printf("=== RESULT: %d / %d checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;
