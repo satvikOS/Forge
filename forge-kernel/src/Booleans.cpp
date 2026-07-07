@@ -339,6 +339,39 @@ void throwIfTangentPinch(ShapeHandle a, ShapeHandle b,
         opName, 2.0 * tp.radius, tp.wall, tp.eps);
     throw std::runtime_error(msg);
 }
+
+// K2 — NATIVE-ONLY BOOLEAN CLASS (kill the OCCT BRepAlgoAPI fallback for
+// all-native operands). When BOTH operands are native (analytic Solid and/or
+// mesh-bridge) the native analytic/mesh boolean OWNS this class — it is the
+// verified native_vs_occt path. If tryNativeBoolean DEFERRED on such a pair
+// (and it was not a tangent pinch, handled just above by throwIfTangentPinch),
+// the request is a genuine degenerate or an unimplemented native intersection:
+// reject it HONESTLY rather than silently masking a native gap with OCCT
+// (Bible §0 — never fake native; a kind=occt that still shows is an honest FAIL).
+//
+// OCCT booleans are RETAINED (below, via runBoolean<>) only for the genuinely-
+// unsupported cases: (1) at least one OCCT-backed operand — an imported
+// trimmed-NURBS/torus STEP solid the native analytic boolean cannot consume —
+// and (2) the A/B oracle path (setNativeBrep(false), forgeNativeBrepEnabled()
+// == false), which never reaches this guard. Fuzzy/Splitter stay OCCT-only in
+// their own translation units (BooleanTol / SheetMetal / Mold).
+void throwIfNativeOnlyDeferred(ShapeHandle a, ShapeHandle b, const char* opName) {
+    auto& reg = ShapeRegistry::instance();
+    const ShapeKind ka = reg.kindOf(a);
+    const ShapeKind kb = reg.kindOf(b);
+    const bool aNative = (ka == ShapeKind::NativeSolid || ka == ShapeKind::NativeMesh);
+    const bool bNative = (kb == ShapeKind::NativeSolid || kb == ShapeKind::NativeMesh);
+    if (!(aNative && bNative))
+        return;  // >= 1 OCCT-backed operand -> genuinely-unsupported -> OCCT below
+    throw std::runtime_error(
+        std::string("forge: boolean ") + opName +
+        ": native analytic/mesh boolean deferred on an all-native operand pair. "
+        "This operand class is NATIVE-ONLY — the OCCT BRepAlgoAPI fallback was "
+        "removed (K2). The operands are degenerate or hit an unimplemented native "
+        "intersection; refusing rather than masking a native gap with OCCT "
+        "(Bible \xC2\xA7""0). OCCT booleans remain only for OCCT-backed operands "
+        "(imported trimmed-NURBS/torus STEP solids) and fuzzy/splitter.");
+}
 #endif
 
 }  // namespace
@@ -348,10 +381,12 @@ ShapeHandle fuse(ShapeHandle a, ShapeHandle b) {
     if (native::brep::forgeNativeBrepEnabled()) {
         ShapeHandle out = kInvalidHandle;
         if (tryNativeBoolean(a, b, native::brep::BoolOp::Fuse, out)) return out;
-        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+        // native deferred. Fast-reject a tangent/degenerate pinch, then refuse an
+        // all-native deferral (native-only class — K2), else fall through to OCCT
+        // only for an OCCT-backed operand (get() lazily bridges native operands).
+        throwIfTangentPinch(a, b, native::brep::BoolOp::Fuse, "fuse");
+        throwIfNativeOnlyDeferred(a, b, "fuse");
     }
-    // Fast-reject a tangent/degenerate pinch BEFORE the OCCT fallback can spin.
-    throwIfTangentPinch(a, b, native::brep::BoolOp::Fuse, "fuse");
 #endif
     return runBoolean<BRepAlgoAPI_Fuse>(a, b, "fuse");
 }
@@ -360,10 +395,12 @@ ShapeHandle cut(ShapeHandle a, ShapeHandle b) {
     if (native::brep::forgeNativeBrepEnabled()) {
         ShapeHandle out = kInvalidHandle;
         if (tryNativeBoolean(a, b, native::brep::BoolOp::Cut, out)) return out;
-        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+        // native deferred. Fast-reject a tangent/degenerate pinch, then refuse an
+        // all-native deferral (native-only class — K2), else fall through to OCCT
+        // only for an OCCT-backed operand (get() lazily bridges native operands).
+        throwIfTangentPinch(a, b, native::brep::BoolOp::Cut, "cut");
+        throwIfNativeOnlyDeferred(a, b, "cut");
     }
-    // Fast-reject a tangent/degenerate pinch BEFORE the OCCT fallback can spin.
-    throwIfTangentPinch(a, b, native::brep::BoolOp::Cut, "cut");
 #endif
     return runBoolean<BRepAlgoAPI_Cut>(a, b, "cut");
 }
@@ -372,10 +409,12 @@ ShapeHandle common(ShapeHandle a, ShapeHandle b) {
     if (native::brep::forgeNativeBrepEnabled()) {
         ShapeHandle out = kInvalidHandle;
         if (tryNativeBoolean(a, b, native::brep::BoolOp::Common, out)) return out;
-        // native deferred -> OCCT fallback (get() lazily bridges native operands).
+        // native deferred. Fast-reject a tangent/degenerate pinch, then refuse an
+        // all-native deferral (native-only class — K2), else fall through to OCCT
+        // only for an OCCT-backed operand (get() lazily bridges native operands).
+        throwIfTangentPinch(a, b, native::brep::BoolOp::Common, "common");
+        throwIfNativeOnlyDeferred(a, b, "common");
     }
-    // Fast-reject a tangent/degenerate pinch BEFORE the OCCT fallback can spin.
-    throwIfTangentPinch(a, b, native::brep::BoolOp::Common, "common");
 #endif
     return runBoolean<BRepAlgoAPI_Common>(a, b, "common");
 }
