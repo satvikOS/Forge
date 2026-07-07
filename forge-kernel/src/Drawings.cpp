@@ -402,27 +402,33 @@ ProjectedView projectShapePerspective(ShapeHandle h, PerspectiveCamera cam) {
     using namespace forge::native::brep;
     auto& reg = ShapeRegistry::instance();
 
-    // Acquire the native Solid: a NativeSolid handle directly, or an OCCT-backed
-    // analytic body imported via forge::importOcctSolid (the SAME route the
-    // orthographic native HLR uses). A NativeMesh or a deferred import is an honest
-    // error — perspective HLR is native-only, there is no OCCT fallback for it.
-    ImportResult imported;
+    // Acquire the native Solid. Perspective HLR is native-only (there is no OCCT
+    // perspective fallback). It runs on a NativeSolid directly.
+    //
+    // VERIFY-GATE (cycle-2, 2026-07-07): the importOcctSolid -> native perspective
+    // HLR route is HONESTLY DEFERRED. A/B measurement showed that, while the native
+    // perspective HLR of a native Solid matches OCCT HLRBRep_Algo to machine
+    // precision (native_vs_occt_hlr_persp: rel<=1e-16 both scenes) AND the
+    // ORTHOGRAPHIC importOcctSolid route matches exactly, the PERSPECTIVE HLR of an
+    // importOcctSolid body diverges from the verified native drawing (visible/hidden
+    // length fraction 0.605 vs the verified 0.759; total drawn length +66% from
+    // duplicated boundary edges in the imported shell). Emitting that drawing would
+    // be an unverified/wrong result, so the OCCT-body branch throws the real reason
+    // instead of fabricating a view. Re-enable once importOcctSolid feeds the
+    // perspective silhouette pass a de-duplicated shell (K4 follow-up).
     const Solid* solidPtr = nullptr;
     if (reg.kindOf(h) == ShapeKind::NativeSolid) {
         solidPtr = &reg.getNativeSolid(h);
     } else if (reg.kindOf(h) == ShapeKind::Occt) {
-        imported = importOcctSolid(reg.get(h));
-        if (!imported.ok || imported.solid == nullptr) {
-            throw std::runtime_error(
-                std::string("forge.drawings.projectShapePerspective: cannot run native "
-                            "perspective HLR on this OCCT body (") +
-                imported.reason + ")");
-        }
-        solidPtr = imported.solid;
+        throw std::runtime_error(
+            "forge.drawings.projectShapePerspective: native perspective HLR on an "
+            "imported OCCT body is not yet verified (the imported-shell perspective "
+            "drawing diverges from the machine-precision native path); supply a "
+            "NativeSolid, or use the orthographic projectShape for OCCT bodies");
     } else {
         throw std::runtime_error(
             "forge.drawings.projectShapePerspective: perspective HLR requires a "
-            "NativeSolid or an importable analytic OCCT solid (got a mesh/other handle)");
+            "NativeSolid (got a mesh/other handle)");
     }
 
     HlrCamera hc;

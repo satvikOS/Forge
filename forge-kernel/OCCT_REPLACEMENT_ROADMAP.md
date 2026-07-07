@@ -49,10 +49,20 @@ pass — a kind=occt that still shows is an honest FAIL to report. 6. Continue u
     compile INTO the addon; standalone smoke compiles+links **OCCT-FREE** (128 native objs) and passes **39/39** A/B.
   - **dylibs 19 → 19 (unchanged, honest)** — no keystone fully severed a lib yet: K2 keeps BRepAlgoAPI fallback
     (TKBO/TKBool), K6 still feeds gp_Ax2/Pln/Trsf + BRepGProp_Face (TKernel/TKMath/TKBRep/TKTopAlgo/TKPrim).
-- **K5 write-cycle (2026-07-07, verify-deferred)** — AUTHORED `forge::occtmesh` native meshing
-  (include/forge/OcctNativeMesh.hpp + src/OcctNativeMesh.cpp): a watertight adaptive triangulator
-  (shared per-edge discretisation + interior UV grid + native constrained Delaunay) that reads OCCT
-  surfaces/pcurves but references **zero TKMesh**. Wired into src/Booleans.cpp GAP-A, src/BooleanTol.cpp
-  (kills the LAST K2 OCCT-operand deferral — a dirty-STEP fuzzy operand now routes native), and the
-  src/Drawings.cpp HLR retry (x2). `BRepMesh_IncrementalMesh` REMOVED from those TUs. Dylibs still 19
-  (honest): src/Tessellate.cpp + src/FeaTet.cpp still call BRepMesh — moving those two drops TKMesh.
+- **cycle-2 (2026-07-07) verify+integrate** — K3/K4/K5 cherry-picked onto archdisc (K4+K5 auto-merged in
+  Drawings.cpp), two bounded Release builds GREEN:
+  - **K3 general fillet** — INTEGRATED + FULLY VERIFIED to machine precision. New A/B native_vs_occt_fillet_prism.mjs:
+    non-orthogonal n-gon side edge (delta=60/120/135) 9/9 — native rides the general-dihedral analytic path
+    (nativeSolid, not mesh/occt), vol == analytic ~1e-15 AND == OCCT BRepFilletAPI ~4e-15. Ortho fillet 8/8 intact.
+  - **K4a analytic perspective HLR** — INTEGRATED + VERIFIED: native_vs_occt_hlr_persp PASS both scenes at 4 AND 64
+    samples/edge (length-fraction rel<=1e-16, counts matched) — native hlrPerspective == OCCT HLRBRep_Algo, sample
+    independent. Core sew 24/24 + heal PASS + healing_smoke all-pass (no regression from the Sewing.cpp broadening).
+  - **K4b DEFECT fixed** — projectShapePerspective on an imported OCCT body emitted a WRONG drawing (visFrac 0.605 vs
+    verified 0.759, +66% length from duplicated edges); that branch now DEFERS honestly (throws). Native persp works;
+    ortho-via-import still exact. Re-enable after importOcctSolid de-dupes the shell.
+  - **K5 native meshing** — INTEGRATED: `forge::occtmesh` triangulator (zero TKMesh symbol) compiles in; Booleans
+    GAP-A + Drawings HLR-retry BRepMesh->occtmesh, regression-clean (core 34/34, fuzzy 8/8). HONEST sub-fail:
+    BooleanTol OCCT operand still returns kind==occt (native mesh-operand route did NOT engage) — correct volume,
+    no regression; the "kills the LAST K2 deferral" write-side claim did not land in the built kernel.
+  - **dylibs 19 → 19 (unchanged, honest)** — grep-confirmed TKMesh/TKFillet/TKHLR/TKShHealing/TKOffset all still have
+    live callers (TKMesh in Tessellate/FeaTet/IoExchange/GltfExport; TKHLR in the Drawings OCCT retry). No full sever.
