@@ -7,7 +7,7 @@
 #include "forge/native/brep/NativeRoute.hpp"
 #endif
 
-#include <BRepMesh_IncrementalMesh.hxx>
+#include "forge/OcctNativeMesh.hpp"   // K5 — occtmesh::triangulateShapeInPlace (no TKMesh)
 #include <BRep_Tool.hxx>
 #include <Poly_Triangulation.hxx>
 #include <TopAbs_Orientation.hxx>
@@ -65,9 +65,16 @@ Mesh tessellate(ShapeHandle h, double linearTol, double angularTol) {
 #endif
     const auto& shape = ShapeRegistry::instance().get(h);
 
-    BRepMesh_IncrementalMesh mesher(shape, linearTol, /*isRelative*/ Standard_False,
-                                    angularTol, /*isInParallel*/ Standard_True);
-    mesher.Perform();
+    // K5 — NATIVE per-face triangulation (in-house triangulator, reads only OCCT
+    // surfaces/pcurves; NO BRepMesh / TKMesh). Drop-in for the old
+    // BRepMesh_IncrementalMesh(shape, linearTol, /*rel*/false, angularTol, /*par*/true)
+    // + Perform(): it attaches a Poly_Triangulation to every face IN-PLACE at the SAME
+    // absolute linear (linearTol) + angular (angularTol) deflection, which the
+    // TopExp_Explorer loop below reads back via BRep_Tool::Triangulation exactly as
+    // before (nodes in each face's LOCAL frame, world-transformed here by loc). A face
+    // whose boundary edge has no pcurve is an HONEST DEFERRAL (not attached) and is
+    // simply skipped by the tri.IsNull() guard — the same graceful skip as before.
+    occtmesh::triangulateShapeInPlace(shape, linearTol, angularTol);
 
     Mesh out;
 
