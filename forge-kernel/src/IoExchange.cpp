@@ -33,6 +33,7 @@
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"        // forgeNativeBrepEnabled
 #include "forge/native/brep/StepAnalytic.hpp"       // analytic codec (NativeSolid)
+#include "forge/native/brep/StepRead.hpp"           // K1 — foreign trimmed-NURBS STEP reader
 #include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh)
 #include "forge/native/brep/SolidTessellate.hpp"    // soup for a faceted-solid fallback
 #include "forge/native/brep/IgesRead.hpp"           // OCCT-zero B1 — native foreign-IGES reader
@@ -72,8 +73,24 @@ ShapeHandle importStep(const std::string& filepath) {
         if (rr.ok && rr.solid && rr.owner) {
             return ShapeRegistry::instance().addNativeSolid(rr.owner, rr.solid);
         }
-        // else: honest fall-through to OCCT (e.g. a B_SPLINE_SURFACE face, or a
-        // non-analytic third-party STEP the native reader does not reconstruct).
+        // K1 — TRIMMED-NURBS route. StepAnalytic only round-trips Forge's OWN
+        // analytic dialect (the 5 quadrics); it returns !ok on any B_SPLINE_SURFACE
+        // face or a foreign NX/SW/CATIA export. Before conceding to OCCT, try the
+        // native FOREIGN reader (readForeignStep), which reconstructs the full core
+        // AP203/214/242 zoo — the 5 quadrics AND trimmed B-spline surfaces + curves —
+        // into a native B-rep, then SEWS it. We accept it ONLY when it is a COMPLETE
+        // watertight solid with NO unsupported entities (mirrors importIges's strict
+        // acceptance): every ADVANCED_FACE reconstructed AND the sewn body closed.
+        // On ANY gap (an unsupported surface such as SURFACE_OF_REVOLUTION / OFFSET_
+        // SURFACE, or an open/non-manifold sew) we DO NOT hand back a partial solid —
+        // we fall through to OCCT so nothing regresses. This routes real trimmed-NURBS
+        // files through native and shrinks the OCCT surface to the unsupported tail.
+        auto fr = native::brep::readForeignStep(text);
+        if (fr.ok && fr.solid && fr.owner && fr.unsupported.empty() && fr.closed) {
+            return ShapeRegistry::instance().addNativeSolid(fr.owner, fr.solid);
+        }
+        // else: honest fall-through to OCCT (a surface entity the native reader does
+        // not yet reconstruct, or a body the native sew could not close watertight).
     }
 #endif
     // STEPControl_Reader supports AP203, AP214, AP242 — TKDESTEP picks

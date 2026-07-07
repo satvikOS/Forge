@@ -1105,8 +1105,13 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
     // process each ADVANCED_FACE.
     for (std::uint64_t fid : faceIds) {
         Instance fi;
-        if (!R.get(fid, fi) || fi.type != "ADVANCED_FACE")
-            return fail("readForeignStep: shell member #" + std::to_string(fid) + " not ADVANCED_FACE");
+        // ADVANCED_FACE is the AP203/214/242 subtype of FACE_SURFACE restricted to
+        // elementary/swept/b-spline geometry; both carry the IDENTICAL field layout
+        // (name, (#bound..), #face_geometry, same_sense) so a bare FACE_SURFACE (some
+        // exporters emit it directly) parses through the identical path — accept it.
+        if (!R.get(fid, fi) || (fi.type != "ADVANCED_FACE" && fi.type != "FACE_SURFACE"))
+            return fail("readForeignStep: shell member #" + std::to_string(fid) +
+                        " not ADVANCED_FACE/FACE_SURFACE");
         auto fp = splitTopLevel(fi.params);
         if (fp.size() < 4) return fail("readForeignStep: ADVANCED_FACE arity");
         std::vector<std::string> boundRefs;
