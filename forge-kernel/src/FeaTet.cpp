@@ -8,10 +8,10 @@
 
 #include "forge/FeaTet.hpp"
 
-#include "forge/OcctNativeMesh.hpp"   // K5 — occtmesh::triangulateShapeInPlace (no TKMesh)
 #include <BRep_Tool.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
 #include <Bnd_Box.hxx>
 #include <Poly_Triangle.hxx>
 #include <Poly_Triangulation.hxx>
@@ -720,18 +720,10 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge) {
         throw std::invalid_argument("forge::fea::tet::meshShape: targetEdge must be > 0");
     }
 
-    // 1. NATIVE surface mesh — K5 in-house triangulator (reads only OCCT
-    //    surfaces/pcurves; NO BRepMesh / TKMesh). Drop-in for the old
-    //    BRepMesh_IncrementalMesh(shape, targetEdge, /*rel*/false, /*ang*/0.5,
-    //    /*par*/true) + Perform(): attaches a Poly_Triangulation to every face at the
-    //    SAME absolute targetEdge chord + 0.5 rad angular deflection, which
-    //    extractTrianglesAndVertices reads back below via BRep_Tool::Triangulation. The
-    //    FEA densifier (step 2b) re-seeds surface + interior points, so tet-mesh
-    //    quality is robust to the base facet density (occtmesh, like BRepMesh, may
-    //    emit only corner/edge verts on a planar face). A face whose boundary lacks a
-    //    pcurve is an HONEST DEFERRAL (not attached); if that leaves no triangles at
-    //    all, step 2 throws below rather than fabricating a mesh.
-    forge::occtmesh::triangulateShapeInPlace(shape, targetEdge, /*angDefl*/ 0.5);
+    // 1. OCCT surface mesh.
+    BRepMesh_IncrementalMesh mesher(shape, targetEdge, /*relative*/ Standard_False,
+                                    /*ang*/ 0.5, /*parallel*/ Standard_True);
+    mesher.Perform();
 
     // 2. Collect unique boundary vertices + triangles.
     Bnd_Box bb;
@@ -748,7 +740,7 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge) {
     extractTrianglesAndVertices(shape, mergeTol, bndPts, triangles);
 
     if (bndPts.empty() || triangles.empty()) {
-        throw std::runtime_error("forge::fea::tet::meshShape: native triangulator produced no triangles");
+        throw std::runtime_error("forge::fea::tet::meshShape: BRepMesh produced no triangles");
     }
 
     // 2b. Densify seeds.

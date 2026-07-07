@@ -66,3 +66,14 @@ pass — a kind=occt that still shows is an honest FAIL to report. 6. Continue u
     no regression; the "kills the LAST K2 deferral" write-side claim did not land in the built kernel.
   - **dylibs 19 → 19 (unchanged, honest)** — grep-confirmed TKMesh/TKFillet/TKHLR/TKShHealing/TKOffset all still have
     live callers (TKMesh in Tessellate/FeaTet/IoExchange/GltfExport; TKHLR in the Drawings OCCT retry). No full sever.
+- **cycle-3 (2026-07-07) verify+integrate** — K5-tkmesh-callers-swap + K6-DirectModeling cherry-picked; K6 kept, K5 reverted:
+  - **K6 DirectModeling native-Vec3** — INTEGRATED + KEPT. 11 Precision::Confusion + ~17 gp_ vector-algebra sites migrated
+    to native NVec3. A/B vs pre-K6 gp_ build = **byte-for-byte IDENTICAL** (arithmetic-identical). direct_smoke PASS,
+    core.mjs 34/34, features_gap1 10/10, aabb 7/7, gltf OK. 4th K6 module done (Airfoil+Mold+DirectModeling). No lib drop.
+  - **K5 tkmesh-callers-swap** — A/B **FAILED → REVERTED, TKMesh KEPT**. Swapping Tessellate/FeaTet BRepMesh→occtmesh made
+    native_vs_occt_core.mjs regress 34/34 → 28/34: occtmesh mis-tessellates OCCT-backed reference solids (prism z-extent
+    6 vs correct 3; dropped caps → |dBBox|=solid-dim; revolve χ flips −6 vs 2). Whole-shape import corpus (7 STEP) was
+    non-empty, but the AABB/χ/watertight gate exposed dropped/mislocated faces — the exact regression the gate warns of.
+    Reverted (git revert bf4b0492); post-revert core.mjs 34/34 GREEN. **TKMesh cannot drop until occtmesh correctly
+    tessellates arbitrary OCCT TopoDS faces (honour Location transform + planar caps) and holds core.mjs 34/34.**
+  - **dylibs 19 → 19 (unchanged, honest)** — TKMesh KEPT (occtmesh not yet correct on OCCT-backed solids). No sever.
