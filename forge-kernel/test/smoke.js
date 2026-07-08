@@ -38,7 +38,11 @@ assert.ok(Math.abs(cmp.volume - expectedVol) / expectedVol < 1e-6,
 console.log('[smoke] cylinder ok — volume', cmp.volume);
 
 // ----- boolean: box - cylinder ---------------------------------------
-const hole = forge.cut(box, forge.makeCylinder(0.3, 1));
+// Cut a true through-hole positioned through the box centre.  An origin-axis
+// cylinder only grazes the unit box corner and can drive OCCT's boolean into a
+// pathological tangent case; the smoke gate should exercise the production
+// through-bore path, not a degenerate contact.
+const hole = forge.cut(box, forge.translate(forge.makeCylinder(0.3, 2), 0.5, 0.5, -0.5));
 const holeMp = forge.massProps(hole);
 assert.ok(holeMp.volume < 1 && holeMp.volume > 0.7,
           `cut volume ${holeMp.volume} out of expected range`);
