@@ -10,6 +10,7 @@
 #include "forge/ShapeRegistry.hpp"
 #include "forge/Primitives.hpp"
 #include "forge/Booleans.hpp"
+#include "forge/DirectEdit.hpp"
 #include "forge/Tessellate.hpp"
 #include "forge/MassProps.hpp"
 #include "forge/Transform.hpp"
@@ -496,6 +497,86 @@ Napi::Value Cut(const Napi::CallbackInfo& info) {
 Napi::Value Common(const Napi::CallbackInfo& info) {
     return safe(info, [&]() {
         return Napi::Number::New(info.Env(), common(requireHandle(info,0), requireHandle(info,1)));
+    });
+}
+
+// ---------------------------------------------------------------- DirectEdit
+// Face-level direct modelling: enumerate faces, delete features and heal, push
+// or pull a planar face, resize a cylindrical bore. See forge/DirectEdit.hpp.
+
+Napi::Value UnifyFaces(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        return Napi::Number::New(info.Env(), unifyFaces(requireHandle(info, 0)));
+    });
+}
+
+Napi::Value FaceInventory(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        const std::vector<FaceInfo> faces = faceInventory(requireHandle(info, 0));
+        Napi::Array out = Napi::Array::New(env, faces.size());
+        for (std::size_t i = 0; i < faces.size(); ++i) {
+            const FaceInfo& f = faces[i];
+            Napi::Object o = Napi::Object::New(env);
+            o.Set("index",    Napi::Number::New(env, f.index));
+            o.Set("kind",     Napi::String::New(env, f.kind));
+            o.Set("area",     Napi::Number::New(env, f.area));
+            o.Set("radius",   Napi::Number::New(env, f.radius));
+            o.Set("minorRadius", Napi::Number::New(env, f.minorRadius));
+            o.Set("concave",  Napi::Boolean::New(env, f.concave));
+            o.Set("vMin",     Napi::Number::New(env, f.vMin));
+            o.Set("vMax",     Napi::Number::New(env, f.vMax));
+            auto vec3 = [&](const std::array<double,3>& v) {
+                Napi::Array a = Napi::Array::New(env, 3);
+                for (uint32_t k = 0; k < 3; ++k) a.Set(k, Napi::Number::New(env, v[k]));
+                return a;
+            };
+            o.Set("centroid",     vec3(f.centroid));
+            o.Set("direction",    vec3(f.direction));
+            o.Set("axisLocation", vec3(f.axisLocation));
+            out.Set(static_cast<uint32_t>(i), o);
+        }
+        return out;
+    });
+}
+
+Napi::Value Defeature(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        if (info.Length() < 2 || !info[1].IsArray()) {
+            throw Napi::TypeError::New(env, "forge.defeature: expected face index array at arg 1");
+        }
+        Napi::Array arr = info[1].As<Napi::Array>();
+        std::vector<int> idx;
+        idx.reserve(arr.Length());
+        for (uint32_t i = 0; i < arr.Length(); ++i) {
+            idx.push_back(arr.Get(i).As<Napi::Number>().Int32Value());
+        }
+        return Napi::Number::New(env, defeature(h, idx));
+    });
+}
+
+Napi::Value PushPullFace(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        int face = static_cast<int>(requireNumber(info, 1, "faceIndex"));
+        std::array<double,3> dir{{requireNumber(info, 2, "dx"),
+                                  requireNumber(info, 3, "dy"),
+                                  requireNumber(info, 4, "dz")}};
+        double dist = requireNumber(info, 5, "distance");
+        return Napi::Number::New(env, pushPullFace(h, face, dir, dist));
+    });
+}
+
+Napi::Value ResizeBore(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        int face = static_cast<int>(requireNumber(info, 1, "faceIndex"));
+        double r = requireNumber(info, 2, "newRadius");
+        return Napi::Number::New(env, resizeBore(h, face, r));
     });
 }
 
@@ -5980,6 +6061,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 
     exports.Set("fuse",   Napi::Function::New(env, Fuse));
     exports.Set("cut",    Napi::Function::New(env, Cut));
+    exports.Set("unifyFaces",    Napi::Function::New(env, UnifyFaces));
+    exports.Set("faceInventory", Napi::Function::New(env, FaceInventory));
+    exports.Set("defeature",     Napi::Function::New(env, Defeature));
+    exports.Set("pushPullFace",  Napi::Function::New(env, PushPullFace));
+    exports.Set("resizeBore",    Napi::Function::New(env, ResizeBore));
     exports.Set("common", Napi::Function::New(env, Common));
 
     // Forge-60 — Lineage emission from BRepAlgoAPI_*::Modified() /
