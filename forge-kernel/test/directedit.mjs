@@ -12,8 +12,13 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
-const dir = process.env.FORGE_KERNEL ?? 'build/Release'
-const forge = require(path.resolve(process.cwd(), dir, 'forge-kernel.node'))
+// Accept EITHER a directory or the .node file itself. Every other suite in this repo passes the
+// file path (see native_vs_occt_core.mjs); this test originally demanded a directory, which made
+// `FORGE_KERNEL=/abs/forge-kernel.node` fail with MODULE_NOT_FOUND on a perfectly good kernel.
+const env = process.env.FORGE_KERNEL ?? 'build/Release'
+const forge = require(
+  env.endsWith('.node') ? path.resolve(env) : path.resolve(process.cwd(), env, 'forge-kernel.node'),
+)
 
 const PI = Math.PI
 const near = (a, b, tol, what) =>
