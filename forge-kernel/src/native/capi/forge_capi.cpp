@@ -36,6 +36,8 @@
 #include "forge/capi/forge_capi.h"
 
 #include <cmath>
+#include <cstdint>   // uint32_t: used 33x below; libc++ pulls it in
+                     // transitively, libstdc++ does not. The native preflight catches this.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
