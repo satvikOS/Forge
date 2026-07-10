@@ -51,11 +51,30 @@ jobs:
     # past the old 10-min cap as the kernel expanded (8 OCCT-zero bursts) — raised
     # to 30 (gate ~12 min on CI today, headroom for further growth).
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The gate compiles ~125 native sources once, then compiles AND LINKS each of ~121 tests
+    # against the whole object set. On a 4-core runner that is ~45 min cold, which is exactly the
+    # cap it used to sit under. It only started TIMING OUT once the missing-include preflight was
+    # fixed (2026-07-10) and the job got past 18s for the first time since 2026-07-07 -- the
+    # timeout was latent behind a hard failure. ccache makes warm runs minutes; 120 covers cold.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: Install ccache
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-native-${{ runner.os }}-${{ hashFiles('forge-kernel/src/native/**', 'forge-kernel/include/forge/native/**') }}
+          restore-keys: |
+            ccache-native-${{ runner.os }}-
       - name: Build + run in-house native kernel gates (pure C++, no deps, no WASM)
-        run: bash forge-kernel/test/native/run_native.sh
+        run: |
+          export PATH="/usr/lib/ccache:$PATH"
+          export CCACHE_DIR="$HOME/.ccache"
+          ccache --max-size=2G --zero-stats
+          bash forge-kernel/test/native/run_native.sh
+          ccache --show-stats
 
   kernel:
     runs-on: macos-latest
