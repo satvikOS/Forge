@@ -36,6 +36,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <chrono>
+#include <cstdlib>
 #include <map>
 #include <unordered_map>
 #include <vector>
@@ -315,6 +317,28 @@ static BoolResultN exactArrangementBoolean(const std::vector<double>& aPos,
                                            const std::vector<std::uint32_t>& bIdx,
                                            BoolOpN op) {
     BoolResultN R;
+
+    // WORK BUDGET. This stage runs an O(|A|.|B|) arrangement in arbitrary-precision ExactReal
+    // arithmetic, then an O(n^2) constrained retriangulation. On a tessellated sphere crossing a
+    // planar box face it does not finish: measured 42% CPU, 4.5 MB RSS, no result after 600s, which
+    // took CI's `native` job from 12 min to a 2-hour hard kill (2026-07-06 .. 2026-07-10). The
+    // commit that introduced the escalation (b7815380) hangs; its parent passes the gate in 61s.
+    //
+    // The contract of this file is "detect, never fake" -- ok=true only on a validated closed
+    // 2-manifold, ok=false otherwise. An honest ok=false is therefore a LEGAL result, and it is the
+    // right one when the arrangement cannot be completed in bounded time. Returning it costs the
+    // caller nothing it was not already prepared for, and it makes the failure loud instead of
+    // infinite. Override with FORGE_EXACT_BOOL_BUDGET_MS (0 or negative disables the bound).
+    const auto   t0 = std::chrono::steady_clock::now();
+    const double budgetMs = [] {
+        if (const char* e = std::getenv("FORGE_EXACT_BOOL_BUDGET_MS")) return std::atof(e);
+        return 5000.0;
+    }();
+    const auto overBudget = [&] {
+        if (budgetMs <= 0.0) return false;
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() > budgetMs;
+    };
+
     ExactPool pool;
     std::vector<Tri> A = ingest(aPos, aIdx, pool);
     std::vector<Tri> B = ingest(bPos, bIdx, pool);
@@ -342,6 +366,7 @@ static BoolResultN exactArrangementBoolean(const std::vector<double>& aPos,
     };
 
     for (std::size_t i = 0; i < A.size(); ++i) {
+        if ((i & 0xF) == 0 && overBudget()) { R.ok = false; R.reason = "exact arrangement over budget (imprint)"; return R; }
         for (std::size_t j = 0; j < B.size(); ++j) {
             if (!boxOverlap(ab[i], bb[j], eps)) continue;
             const Tri& fa = A[i]; const Tri& fb = B[j];
@@ -416,11 +441,13 @@ static BoolResultN exactArrangementBoolean(const std::vector<double>& aPos,
     // ── RE-TRIANGULATE every face → sub-faces (exact). ───────────────────────
     std::vector<SubTri> aSub, bSub;
     for (std::size_t i = 0; i < A.size(); ++i) {
+        if ((i & 0xF) == 0 && overBudget()) { R.ok = false; R.reason = "exact arrangement over budget (retriangulate A)"; return R; }
         std::vector<SubTri> sub;
         if (!exactRetriangulate(pool, A[i], aExtra[i], aCons[i], sub)) { R.ok = false; R.reason = "exact CDT failed on A"; return R; }
         aSub.insert(aSub.end(), sub.begin(), sub.end());
     }
     for (std::size_t j = 0; j < B.size(); ++j) {
+        if ((j & 0xF) == 0 && overBudget()) { R.ok = false; R.reason = "exact arrangement over budget (retriangulate B)"; return R; }
         std::vector<SubTri> sub;
         if (!exactRetriangulate(pool, B[j], bExtra[j], bCons[j], sub)) { R.ok = false; R.reason = "exact CDT failed on B"; return R; }
         bSub.insert(bSub.end(), sub.begin(), sub.end());
