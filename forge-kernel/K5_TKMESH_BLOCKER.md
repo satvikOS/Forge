@@ -59,16 +59,32 @@ volume-based A/B gate passing.
 
 ## Status of the OCCT-zero series after 2026-07-09
 
-    MERGED GREEN   k6-directmodeling-native      DirectModeling.cpp -> native Vec3
-                   k6-mold-migration             Mold.cpp -> native Vec3
-                   k3-general-fillet             native general-dihedral convex edge fillet
-    ROLLED BACK    k5-tkmesh-callers-swap        6 gate failures (this document)
-    UNMERGED       wf_fdf8f816_gapA              conflicts: src/Booleans.cpp
-                   k2-native-fuzzy-boolean       conflicts: src/BooleanTol.cpp
-                   k4-persp-hlr-sewheal          conflicts: src/Drawings.cpp
-                   k5-native-mesh                conflicts: CMakeLists.txt, roadmap
-                   k7-capi-skeleton              conflicts: test/capi/forge_capi_smoke.cpp
+Audited every branch against trunk by content, not by `git diff archdisc..<branch>` — which is
+misleading here, because these branches forked before recent trunk commits and so report trunk-only
+work as thousands of "deletions".
+
+    MERGED GREEN   k6-directmodeling-native   DirectModeling.cpp -> native Vec3
+                   k6-mold-migration          Mold.cpp -> native Vec3
+                   k3-general-fillet          native general-dihedral convex edge fillet
+
+    SUPERSEDED     wf_fdf8f816_gapA           trunk's Booleans.cpp is NEWER (07-07 vs 07-06): it keeps
+                                              the GAP A weld and drops the BRepMesh_IncrementalMesh
+                                              block for occtmesh::tessellateShapeToSoup
+                   k2-native-fuzzy-boolean    17/17 distinctive added lines already in trunk
+                   k4-persp-hlr-sewheal       Hlr.cpp / Hlr.hpp / Sewing.cpp / Drawings.hpp identical
+                   k5-native-mesh             OcctNativeMesh.{hpp,cpp} identical
+                   k7-capi-skeleton           forge_capi.{h,cpp} byte-identical; its smoke test is the
+                                              OLD, WRONG one — it asserts a full-cylinder bore
+                                              (pi*9*30) where FgCreateBox is corner-at-origin and
+                                              FgCreateCylinder is Z-axis-centred, so only a QUARTER
+                                              cylinder overlaps. Trunk's pi*9*30/4 is correct.
+
+    BLOCKED        k5-tkmesh-callers-swap     6 gate failures (this document)
+
+**So the series is landed except for the two mesh call sites.** The one genuinely outstanding item in
+the whole OCCT-replacement programme is making `occtmesh` watertight so `FeaTet.cpp` and
+`Tessellate.cpp` can swap and `TKMesh` can leave `OCCT_LIBS`.
 
 North-star unchanged: `otool -L forge-kernel.node | grep -ci opencascade` = **19** (was 22, target 0).
-These three merges migrate call sites off OCCT algebra; no toolkit can leave `OCCT_LIBS` until the
-last caller of that toolkit is gone.
+Merging call-site migrations does not lower that count. **No toolkit leaves `OCCT_LIBS` until its last
+caller is gone**, and the count only moves when a toolkit is actually removed from CMakeLists.
