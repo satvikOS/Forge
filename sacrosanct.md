@@ -1154,6 +1154,13 @@ Requirements:
 - **Still driven by Archie via CUA** — the model operates the native GUI like a human
   (computer-use works on any native window), so the pure-C++ move does not change the
   Archie-drives-Forge principle; e2e verification adapts to native-GUI automation.
+- **The interface is REIMPLEMENTED as Forge's own IP — modern, not a clone.** The C++
+  framework is only the foundation. Do NOT ship stock Qt widgets, nor a copy of the dated
+  NX/CATIA/Creo chrome. Build Forge's own bespoke, contemporary design language — custom
+  controls and a distinctive modern UI system — that *expresses the enterprise UX
+  principles* (feature-tree DNA, modal sketch sandbox, rollback/time-travel bar, radial
+  pie menus, keyboard chaining, 4-zone workspace) as proprietary Forge intellectual
+  property, not a lookalike of any existing CAD tool.
 
 This supersedes the Electron/React/Vite desktop stack. Peak technology, industrial grade,
 no lite version.
