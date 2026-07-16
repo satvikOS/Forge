@@ -1126,3 +1126,35 @@ The end state is:
 
 **Archie becomes the engineering operating system between human intent and the physical world.**
 
+---
+
+# **ADDENDUM (2026-07-16) — Forge desktop app must be PURE C++**
+
+The entire Forge desktop application must be built on a **pure C++ framework** — on
+**all three platforms: Windows, Linux, and macOS**. Forge renders complex 3D
+engineering graphics (large assemblies, dense B-Rep, live FEA/CFD visualization) and
+requires **maximum performance with extremely low latency — no lag, no stutter**.
+
+Requirements:
+
+- **No Electron / Node / web-frontend runtime.** The app is a native C++ executable per
+  platform. This removes the JavaScript/Chromium/Node-API bridge entirely.
+- **Direct in-process linkage to the native OCCT (and unified CGAL/Manifold/libfive/
+  PicoGK) C++ kernel** — no `.node` addon boundary, no serialization across a bridge;
+  geometry and rendering share memory.
+- **Native GPU rendering** at the lowest practical level for each OS — Metal on macOS,
+  Direct3D 12 on Windows, Vulkan on Linux (or Vulkan cross-platform via MoltenVK on
+  macOS) — targeting sustained high frame rates on massive scenes with sub-frame input
+  latency.
+- **A C++ UI framework** (e.g. Qt — the professional-CAD standard used by NX/Fusion/
+  FreeCAD — and/or an immediate-mode layer such as Dear ImGui), delivering the enterprise
+  NX/CATIA/Creo UI/UX blueprint above natively.
+- **Single shared C++ codebase** across the three platforms; platform code isolated to
+  thin backends (windowing, GPU device, file dialogs).
+- **Still driven by Archie via CUA** — the model operates the native GUI like a human
+  (computer-use works on any native window), so the pure-C++ move does not change the
+  Archie-drives-Forge principle; e2e verification adapts to native-GUI automation.
+
+This supersedes the Electron/React/Vite desktop stack. Peak technology, industrial grade,
+no lite version.
+
