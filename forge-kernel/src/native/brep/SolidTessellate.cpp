@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <tuple>
 #include <vector>
@@ -45,6 +46,29 @@ inline std::vector<Vec3> loopPts(const Loop* lp) {
         pts.push_back(Vec3{o->point.x, o->point.y, o->point.z});
     }
     return pts;
+}
+
+// G1/G2 surface-sampling tessellator (KERNEL_PARITY_PLAN). OFF by default; enabled
+// by env FORGE_SURFACE_TESSELLATE=1. When on, a curved analytic face is triangulated
+// by sampling its Surface over the (u,v) parameter window rather than fanning the
+// loop corners — the foundation for single-analytic-face primitives and watertight
+// periodic/curved tessellation. Watertightness is preserved by the shared vid weld
+// grid: adjacent co-parametrised faces sample a shared edge at IDENTICAL params (so
+// coincident positions weld), and a periodic face's u=u0 and u=u1 columns evaluate to
+// the same points (cos u0 == cos u1) so the seam welds automatically.
+inline bool surfaceTessEnabled() {
+    static const bool on = []() {
+        const char* e = std::getenv("FORGE_SURFACE_TESSELLATE");
+        return e && e[0] == '1';
+    }();
+    return on;
+}
+
+// Chord-tolerance segment count for a 3-D arc of length `arc` at target chord.
+inline int arcSegs(double arc, double chord) {
+    if (arc <= 0.0) return 1;
+    int n = static_cast<int>(std::ceil(arc / std::max(chord, 1e-9)));
+    return std::max(1, std::min(n, 512));
 }
 } // namespace
 
@@ -88,6 +112,63 @@ void tessellateSolid(const Solid& solid,
             if (f->surface) {
                 refN = f->surface->normalAt(0.5 * (f->u0 + f->u1),
                                             0.5 * (f->v0 + f->v1));
+            }
+
+            // G1/G2 SURFACE-SAMPLING (flag-gated, off by default): sample a curved
+            // analytic face over its (u,v) window into a conforming grid mesh, rather
+            // than fanning the loop corners. Skips planar faces (the fan is exact for
+            // them) and holed/boolean faces (handled by the CDT path below).
+            if (surfaceTessEnabled() && f->surface &&
+                f->surface->kind != SurfaceKind::Plane &&
+                f->innerLoops.empty() && !f->boolHoled) {
+                const Surface& S = *f->surface;
+                const double uu0 = f->u0, uu1 = f->u1, vv0 = f->v0, vv1 = f->v1;
+                Vec3 su, du, dv;
+                S.evaluateDeriv(0.5 * (uu0 + uu1), 0.5 * (vv0 + vv1), su, du, dv);
+                // Segment counts MUST be conforming across shared edges: two faces
+                // meeting on an edge must subdivide it identically or the weld grid
+                // leaves a crack. For an ANGULAR parameter direction we therefore base
+                // the count on the ANGLE span alone (constant per band) — NOT on arc
+                // length |dS/du|, which for a torus varies with v (radius R+r·cos v)
+                // and would give neighbouring bands different nu (the torus crack).
+                // Linear directions (cylinder/cone axial v) use chord over arc length,
+                // which is constant because every axial strip spans the full height.
+                const SurfaceKind kd = S.kind;
+                const bool angU = true;  // u is angular for every curved quadric here
+                const bool angV = (kd == SurfaceKind::Sphere || kd == SurfaceKind::Torus);
+                const double angDensity = 32.0 / M_PI;  // full 2*pi -> 64 segments
+                const double chord = 0.5;                // model-unit chord (linear dir)
+                const double uSpan = std::fabs(uu1 - uu0), vSpan = std::fabs(vv1 - vv0);
+                const int nu = angU ? std::max(1, (int)std::lround(uSpan * angDensity))
+                                    : arcSegs(vlen(du) * uSpan, chord);
+                const int nv = angV ? std::max(1, (int)std::lround(vSpan * angDensity))
+                                    : arcSegs(vlen(dv) * vSpan, chord);
+                for (int iu = 0; iu < nu; ++iu) {
+                    const double ua = uu0 + (uu1 - uu0) * (double(iu) / nu);
+                    const double ub = uu0 + (uu1 - uu0) * (double(iu + 1) / nu);
+                    for (int iv = 0; iv < nv; ++iv) {
+                        const double va = vv0 + (vv1 - vv0) * (double(iv) / nv);
+                        const double vb = vv0 + (vv1 - vv0) * (double(iv + 1) / nv);
+                        const Vec3 p00 = S.evaluate(ua, va);
+                        const Vec3 p10 = S.evaluate(ub, va);
+                        const Vec3 p11 = S.evaluate(ub, vb);
+                        const Vec3 p01 = S.evaluate(ua, vb);
+                        const Vec3 nrm = S.normalAt(0.5 * (ua + ub), 0.5 * (va + vb));
+                        auto emitTri = [&](const Vec3& A, const Vec3& B, const Vec3& C) {
+                            std::uint32_t a = vid(A), b = vid(B), c2 = vid(C);
+                            if (a == b || b == c2 || a == c2) return;  // degenerate (pole)
+                            Vec3 tn = vcross(vsub(B, A), vsub(C, A));
+                            if (vdot(tn, nrm) < 0.0) {
+                                indices.push_back(a); indices.push_back(c2); indices.push_back(b);
+                            } else {
+                                indices.push_back(a); indices.push_back(b); indices.push_back(c2);
+                            }
+                        };
+                        emitTri(p00, p10, p11);
+                        emitTri(p00, p11, p01);
+                    }
+                }
+                continue;
             }
 
             // HOLED ANALYTIC FACE (native boolean): triangulate the ANNULUS between
