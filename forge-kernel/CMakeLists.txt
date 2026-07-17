@@ -36,6 +36,19 @@ option(FORGE_BUILD_DESKTOP_FOUNDATION
 option(FORGE_BUILD_DESKTOP_RENDERER
        "Also build the standalone headless Vulkan/MoltenVK offscreen renderer probe" OFF)
 
+# ---------------------------------------------------------------- desktop UI (Pillar #10, Phase 1)
+# When ON, also build a standalone HEADLESS Dear ImGui UI probe
+# (forge-desktop/ui_probe.cpp) that renders a representative Forge IDE (menu bar,
+# model-tree / properties / viewport panels, status bar) to an offscreen 1280x800
+# framebuffer -> PNG with NO window/swapchain/GLFW, and composites the 3D kernel
+# box into the viewport panel via ImGui::Image. It vendors Dear ImGui + the Vulkan
+# backend (forge-desktop/third_party/imgui), needs the same Vulkan SDK as the
+# renderer, and links the node-free forge_kernel_core, so it REQUIRES
+# FORGE_BUILD_DESKTOP_FOUNDATION=ON too. OFF by DEFAULT so the CI build is
+# UNCHANGED (CI never sets it). Block lives at EOF.
+option(FORGE_BUILD_DESKTOP_UI
+       "Also build the standalone headless Dear ImGui Forge-UI offscreen probe" OFF)
+
 # ---------------------------------------------------------------- N-API
 # cmake-js injects CMAKE_JS_INC + CMAKE_JS_SRC + CMAKE_JS_LIB. When
 # building directly with cmake (no cmake-js) we fall back to node_modules
@@ -892,5 +905,110 @@ if(FORGE_BUILD_DESKTOP_RENDERER)
     # libvulkan has an ABSOLUTE install name, so no rpath is needed for it; forge_kernel_core
     # + OCCT still need the build tree + OCCT lib dir on the run path.
     set_target_properties(forge_renderer_probe PROPERTIES
+        BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+endif()
+
+# ============================================================================
+# DESKTOP UI (Pillar #10, Phase 1) — additive, option-gated, OFF by default.
+#
+# forge_ui_probe : a standalone HEADLESS Dear ImGui UI probe. It reuses the same
+#   headless Vulkan/MoltenVK setup as forge_renderer_probe (VkInstance + MoltenVK
+#   VkDevice + offscreen 1280x800 color image, no swapchain/window/GLFW), stands up
+#   the Dear ImGui Vulkan backend against that offscreen render pass, builds ONE
+#   frame of a representative Forge IDE (menu bar + model-tree / viewport /
+#   properties panels + status bar), renders it offscreen, reads the pixels back
+#   and writes a PNG (asserting the UI actually drew). It also composites the 3D
+#   kernel box (tessellateLOD(makeBox,High) via node-free forge_kernel_core) into
+#   the viewport panel through ImGui::Image.
+#
+# Vendors Dear ImGui + its Vulkan backend under forge-desktop/third_party/imgui
+# (core TUs + imgui_impl_vulkan.{cpp,h}; NO platform backend — headless). Two GLSL
+# shaders (forge-desktop/shaders/ui_viewport.{vert,frag}) are compiled to SPIR-V C
+# headers by glslangValidator at build time and #included by the probe.
+#
+# Requires the Vulkan SDK from Homebrew (molten-vk vulkan-headers vulkan-loader
+# glslang) AND FORGE_BUILD_DESKTOP_FOUNDATION=ON (it links forge_kernel_core). OFF
+# by default: CI never sets this option, so the default build stays byte-unchanged.
+# ============================================================================
+if(FORGE_BUILD_DESKTOP_UI)
+    if(NOT TARGET forge_kernel_core)
+        message(FATAL_ERROR
+            "FORGE_BUILD_DESKTOP_UI also needs FORGE_BUILD_DESKTOP_FOUNDATION=ON "
+            "(the UI probe links the node-free forge_kernel_core lib for the 3D viewport).")
+    endif()
+    if(NOT APPLE)
+        message(FATAL_ERROR "FORGE_BUILD_DESKTOP_UI targets MoltenVK on macOS only.")
+    endif()
+
+    # ---- Locate the Vulkan SDK via Homebrew (headers + loader + glslang) ----
+    find_program(BREW_EXE brew HINTS /opt/homebrew/bin /usr/local/bin REQUIRED)
+    execute_process(COMMAND ${BREW_EXE} --prefix vulkan-headers
+        OUTPUT_VARIABLE UI_VK_HEADERS_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${BREW_EXE} --prefix vulkan-loader
+        OUTPUT_VARIABLE UI_VK_LOADER_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${BREW_EXE} --prefix glslang
+        OUTPUT_VARIABLE UI_GLSLANG_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${BREW_EXE} --prefix molten-vk
+        OUTPUT_VARIABLE UI_MOLTENVK_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+    set(UI_VK_INC "${UI_VK_HEADERS_PREFIX}/include")
+    set(UI_VK_LOADER_LIB "${UI_VK_LOADER_PREFIX}/lib/libvulkan.dylib")
+    set(UI_GLSLANG_VALIDATOR "${UI_GLSLANG_PREFIX}/bin/glslangValidator")
+    if(NOT EXISTS "${UI_VK_INC}/vulkan/vulkan.h")
+        message(FATAL_ERROR "vulkan headers not found at ${UI_VK_INC} (brew install vulkan-headers).")
+    endif()
+    if(NOT EXISTS "${UI_VK_LOADER_LIB}")
+        message(FATAL_ERROR "vulkan loader not found at ${UI_VK_LOADER_LIB} (brew install vulkan-loader).")
+    endif()
+    if(NOT EXISTS "${UI_GLSLANG_VALIDATOR}")
+        message(FATAL_ERROR "glslangValidator not found at ${UI_GLSLANG_VALIDATOR} (brew install glslang).")
+    endif()
+    message(STATUS "forge_ui_probe: Vulkan headers=${UI_VK_INC} loader=${UI_VK_LOADER_LIB}")
+    message(STATUS "forge_ui_probe: MoltenVK ICD (set VK_ICD_FILENAMES to run) = "
+                   "${UI_MOLTENVK_PREFIX}/etc/vulkan/icd.d/MoltenVK_icd.json")
+
+    # ---- Compile the two viewport GLSL shaders to SPIR-V C headers at build time ----
+    set(_ui_shdir "${CMAKE_SOURCE_DIR}/../forge-desktop/shaders")
+    set(_ui_gendir "${CMAKE_BINARY_DIR}/forge_ui_shaders")
+    file(MAKE_DIRECTORY "${_ui_gendir}")
+    add_custom_command(
+        OUTPUT "${_ui_gendir}/ui_viewport_vert.spv.h"
+        COMMAND ${UI_GLSLANG_VALIDATOR} -V --target-env vulkan1.2
+                "${_ui_shdir}/ui_viewport.vert" --vn uiVertSpv -o "${_ui_gendir}/ui_viewport_vert.spv.h"
+        DEPENDS "${_ui_shdir}/ui_viewport.vert"
+        COMMENT "glslang: ui_viewport.vert -> ui_viewport_vert.spv.h" VERBATIM)
+    add_custom_command(
+        OUTPUT "${_ui_gendir}/ui_viewport_frag.spv.h"
+        COMMAND ${UI_GLSLANG_VALIDATOR} -V --target-env vulkan1.2
+                "${_ui_shdir}/ui_viewport.frag" --vn uiFragSpv -o "${_ui_gendir}/ui_viewport_frag.spv.h"
+        DEPENDS "${_ui_shdir}/ui_viewport.frag"
+        COMMENT "glslang: ui_viewport.frag -> ui_viewport_frag.spv.h" VERBATIM)
+
+    # ---- Vendored Dear ImGui (core + Vulkan backend; NO platform backend) ----
+    set(_imgui_dir "${CMAKE_SOURCE_DIR}/../forge-desktop/third_party/imgui")
+    set(_imgui_src
+        "${_imgui_dir}/imgui.cpp"
+        "${_imgui_dir}/imgui_draw.cpp"
+        "${_imgui_dir}/imgui_tables.cpp"
+        "${_imgui_dir}/imgui_widgets.cpp"
+        "${_imgui_dir}/imgui_impl_vulkan.cpp")
+
+    # ---- The probe: vendored ImGui + node-free forge_kernel_core + Vulkan loader ----
+    add_executable(forge_ui_probe
+        "${CMAKE_SOURCE_DIR}/../forge-desktop/ui_probe.cpp"
+        ${_imgui_src}
+        "${_ui_gendir}/ui_viewport_vert.spv.h"
+        "${_ui_gendir}/ui_viewport_frag.spv.h")
+    target_include_directories(forge_ui_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}"
+        "${UI_VK_INC}"
+        "${_imgui_dir}"
+        "${_ui_gendir}")
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_ui_probe PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_ui_probe PRIVATE forge_kernel_core "${UI_VK_LOADER_LIB}")
+    set_target_properties(forge_ui_probe PROPERTIES
         BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
 endif()
