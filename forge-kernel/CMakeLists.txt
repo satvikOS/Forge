@@ -16,6 +16,16 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # compiled as the fallback + A/B oracle until the migration completes (Phase D).
 option(FORGE_NATIVE_BREP "build/expose the in-house OCCT-free B-rep primitive path" ON)
 
+# ---------------------------------------------------------------- desktop foundation (Pillar #10, Phase 1)
+# When ON, also build a NODE-FREE core library `forge_kernel_core` (== forge_kernel
+# MINUS the 4 N-API binding translation units, src/binding*.cpp) plus a standalone
+# C++ probe (forge-desktop/foundation_probe.cpp) that drives the kernel headlessly
+# with ZERO Node. This is the pure-C++ desktop migration foundation and is OFF by
+# DEFAULT so the CI build is UNCHANGED — the forge-kernel.node target and every
+# gate stay byte-untouched. The additive block lives at the very end of this file.
+option(FORGE_BUILD_DESKTOP_FOUNDATION
+       "Also build the node-free forge_kernel_core lib + the standalone C++ foundation probe" OFF)
+
 # ---------------------------------------------------------------- N-API
 # cmake-js injects CMAKE_JS_INC + CMAKE_JS_SRC + CMAKE_JS_LIB. When
 # building directly with cmake (no cmake-js) we fall back to node_modules
@@ -630,4 +640,96 @@ if(APPLE AND NOT DEFINED CMAKE_JS_LIB)
     set_target_properties(forge_kernel PROPERTIES
         LINK_FLAGS "-undefined dynamic_lookup -Wl,-rpath,${OCCT_LIB}"
     )
+endif()
+
+# ============================================================================
+# DESKTOP FOUNDATION (Pillar #10, Phase 1) — additive, option-gated, OFF by default.
+#
+# forge_kernel_core : the SAME source set as forge_kernel MINUS the 4 N-API binding
+#                     translation units (src/binding*.cpp — the only files that
+#                     #include <napi.h> / node-addon-api) and MINUS any cmake-js
+#                     injected node glue. Links the identical OCCT_LIBS. It NEVER
+#                     references N-API, so it is a normal SHARED lib (NO
+#                     `-undefined dynamic_lookup`): the link FAILS LOUD if any
+#                     non-binding source unexpectedly needed a node symbol.
+#
+# forge_foundation_probe : a standalone C++ program that links forge_kernel_core and
+#                     drives the kernel headlessly through its public C++ API with
+#                     ZERO Node. Proves the C++ -> kernel bridge builds + runs.
+#
+# The source list is READ FROM the forge_kernel target (get_target_property SOURCES)
+# so the existing add_library(forge_kernel ...) block is byte-untouched — this block
+# only FILTERS that list; it never re-declares it.
+# ============================================================================
+if(FORGE_BUILD_DESKTOP_FOUNDATION)
+    get_target_property(_fk_all_sources forge_kernel SOURCES)
+
+    # Exclude the N-API binding TUs (src/binding.cpp / binding_field.cpp /
+    # binding_geom.cpp / binding_sketchdiag.cpp) and any cmake-js node glue that
+    # CMAKE_JS_SRC may have injected. Everything else is node-free geometry code.
+    set(_core_sources "")
+    foreach(_s IN LISTS _fk_all_sources)
+        if(_s MATCHES "(^|/)binding[^/]*\\.cpp$")
+            continue()  # the N-API layer — the ONLY files that include <napi.h>
+        endif()
+        if(_s MATCHES "win_delay_load|cmake_js|node_api")
+            continue()  # cmake-js / node runtime glue (empty on this macOS build)
+        endif()
+        list(APPEND _core_sources "${_s}")
+    endforeach()
+
+    add_library(forge_kernel_core SHARED ${_core_sources})
+    set_target_properties(forge_kernel_core PROPERTIES OUTPUT_NAME "forge_kernel_core")
+
+    # Same includes as forge_kernel EXCEPT the node headers (CMAKE_JS_INC /
+    # node-addon-api) — the core must not need them, and omitting them is part of
+    # the proof that the geometry code is node-free.
+    target_include_directories(forge_kernel_core PRIVATE
+        "${OCCT_INC}"
+        "${CMAKE_SOURCE_DIR}/3rdParty/planegcs_eigen_shim"
+        "${BOOST_INC}"
+        "${PLANEGCS_DIR}"
+        "${CMAKE_SOURCE_DIR}/include"
+    )
+
+    # Match the default build's native-B-rep compile gate so makeBox/etc. route
+    # identically and ShapeRegistry's Entry layout is the same. (No NAPI_* defs.)
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_kernel_core PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+
+    target_link_directories(forge_kernel_core PRIVATE "${OCCT_LIB}")
+    target_link_libraries(forge_kernel_core PRIVATE ${OCCT_LIBS})
+
+    if(APPLE)
+        # Normal shared lib: rpath to the OCCT dylibs, but NO `-undefined
+        # dynamic_lookup` — every symbol must resolve at link time (the proof).
+        set_target_properties(forge_kernel_core PROPERTIES
+            LINK_FLAGS "-Wl,-rpath,${OCCT_LIB}"
+        )
+    endif()
+
+    # -------- standalone headless C++ probe (no Node, no graphics) --------
+    # The public C++ headers (ShapeRegistry.hpp) transitively include OCCT headers
+    # (TopoDS_Shape.hxx) and, under FORGE_NATIVE_BREP, the native B-rep headers — so
+    # the probe needs OCCT_INC on its include path and must match the library's
+    # FORGE_NATIVE_BREP compile gate (ShapeHandle is a uint32_t either way; matching
+    # the gate keeps the header view of ShapeRegistry byte-consistent with the lib).
+    # It links ONLY forge_kernel_core — no node-addon-api, no CMAKE_JS_LIB.
+    add_executable(forge_foundation_probe
+        "${CMAKE_SOURCE_DIR}/../forge-desktop/foundation_probe.cpp")
+    target_include_directories(forge_foundation_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}"
+    )
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_foundation_probe PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_foundation_probe PRIVATE forge_kernel_core)
+    if(APPLE)
+        # Find libforge_kernel_core.dylib (build tree) + OCCT at run time.
+        set_target_properties(forge_foundation_probe PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
+        )
+    endif()
 endif()
