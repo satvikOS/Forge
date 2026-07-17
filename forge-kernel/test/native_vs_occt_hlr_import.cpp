@@ -22,14 +22,14 @@
 //     kept cap-boundary rings ARE the outline, so native matches OCCT to the
 //     chordal tessellation tolerance (rel <= 1e-2).
 //
-// KNOWN, MEASURED LIMITATION (NON-FATAL — documented in K4_HLR_DROP_BRIEF.md):
+// RESOLVED (2026-07-17, attempt 3 — the GROUPED ANALYTIC SILHOUETTE):
 //   * ANALYTIC-QUADRIC import, view ACROSS the axis (cylinder front): OCCT draws
-//     the two analytic SILHOUETTE (outline) lines; the native path suppresses the
-//     wall's tessellation seams (correctly — they are not model edges) but does
-//     NOT reconstruct the curved solid's silhouette outline from the faceted
-//     import, so it under-draws by the two silhouette lines. This case is
-//     MEASURED and printed; it does NOT fail the gate. It is the precise
-//     remaining blocker to dropping TKHLR.
+//     the two analytic SILHOUETTE (outline) lines. The native HLR now GROUPS the
+//     faceted sub-faces by shared analytic-surface signature + connectivity and
+//     traces the silhouette over the whole cylinder's u in [0,2pi] (closed-form
+//     iso-u tangent lines), so it reconstructs BOTH outline lines and matches OCCT
+//     per-class (V=180 H=80) to rel 0 — native 160 -> 260. This case is now
+//     ASSERTED (mode 1, total within chordal tol), not merely measured.
 //
 // BUILD: see test/build_hlr_import_gate.sh (links OCCT + OcctImport.cpp, mirrors
 // build_occt_import_test.sh). Exit 0 iff every ASSERTED case passes.
@@ -168,9 +168,10 @@ int main() {
     abCase("CYLINDER r20 h50 top(-Z)  [assert total within chordal tol]",
            BRepPrimAPI_MakeCylinder(20.0, 50.0).Shape(), Vec3{0, 0, -1}, 1, 1e-2);
 
-    // ANALYTIC-QUADRIC import, view ACROSS axis — the KNOWN silhouette limitation.
-    abCase("CYLINDER r20 h50 front(-Y)  [MEASURE: known silhouette gap, non-fatal]",
-           BRepPrimAPI_MakeCylinder(20.0, 50.0).Shape(), Vec3{0, -1, 0}, 2, 0.0);
+    // ANALYTIC-QUADRIC import, view ACROSS axis — the grouped analytic silhouette
+    // now reconstructs the 2 outline lines; assert total within chordal tol.
+    abCase("CYLINDER r20 h50 front(-Y)  [assert total within chordal tol: silhouette restored]",
+           BRepPrimAPI_MakeCylinder(20.0, 50.0).Shape(), Vec3{0, -1, 0}, 1, 1e-2);
 
     std::printf("\n=== %d / %d ASSERTED checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;

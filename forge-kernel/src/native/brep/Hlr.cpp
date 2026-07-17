@@ -10,6 +10,8 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <string>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace forge {
@@ -407,6 +409,303 @@ inline std::vector<double> segmentSplitCandidates(
     return cuts;
 }
 
+// ===========================================================================
+// GROUPED ANALYTIC SILHOUETTE reconstruction for curved analytic faces.
+//
+// A curved analytic face imported by importOcctSolid is split into MANY narrow
+// (u,v) sub-faces (each a paramTri / rectangle strip carrying the SAME underlying
+// analytic Surface). A per-sub-face silhouette march scans only that strip's tiny
+// [u0,u1]x[v0,v1] window, so no single strip spans the tangent locus where the
+// surface normal is perpendicular to the view direction -> the outline is lost.
+//
+// We rebuild it by GROUPING the curved sub-faces by shared analytic-surface
+// SIGNATURE (quantised kind/axis/radii/origin) AND shared-edge connectivity — the
+// SAME grouping analyticFaceInventory (Query.cpp) uses to merge a STEP cylinder's
+// strips back into one logical face — then trace the silhouette over each GROUP's
+// FULL parameter range:
+//   * Cylinder / Cone: the silhouette is the ISO-U line(s) (u const, v spans) where
+//     the lateral normal is perpendicular to the view dir; solved in closed form
+//     (a cos u + b sin u + c == 0) -> the 2 axis-parallel / slant outline lines.
+//   * Sphere: the silhouette is the great circle in the plane through the centre
+//     perpendicular to the view dir (exact), clipped to the face's (u,v) trim.
+//   * Torus: the silhouette locus is traced by marching the grouped (u,v) grid in
+//     BOTH directions for normal.viewDir sign changes, greedily stitched (no closed
+//     form; strictly better than the per-strip march which finds none on an import).
+// Each emitted curve carries the whole group's face-id set as its skip set, so the
+// surface it lies on does not self-occlude its own outline (matching OCCT, which
+// classifies the silhouette via OutLineVCompound).
+// ===========================================================================
+struct SilhouetteCurve {
+    std::vector<Vec3> poly3d;
+    std::unordered_set<std::uint32_t> skipFaces;   // the group's own faces
+};
+
+// Quantised analytic-surface signature (CURVED kinds only). Plane / Nurbs / null
+// return a per-face UNIQUE key so they never group and never source a silhouette.
+inline std::string curvedSurfaceSignature(const Face* f, std::size_t seed) {
+    const Surface* s = f ? f->surface : nullptr;
+    if (!s) return "U" + std::to_string(seed);
+    SurfaceKind kind = s->kind;
+    if (kind == SurfaceKind::Cone && std::fabs(s->r1 - s->r2) <= 1e-12)
+        kind = SurfaceKind::Cylinder;             // a zero-taper cone IS a cylinder
+    switch (kind) {
+        case SurfaceKind::Cylinder:
+        case SurfaceKind::Cone:
+        case SurfaceKind::Sphere:
+        case SurfaceKind::Torus:
+            break;
+        default:
+            return "U" + std::to_string(seed);    // plane / nurbs -> unique
+    }
+    auto q = [](double x) { return std::llround(x / 1e-6); };
+    const Vec3 ax = vnorm(s->axis);
+    std::string key = "K" + std::to_string(static_cast<int>(kind));
+    auto app = [&](double x) { key += '|'; key += std::to_string(q(x)); };
+    app(ax.x); app(ax.y); app(ax.z);
+    app(s->r1); app(s->r2);
+    app(s->origin.x); app(s->origin.y); app(s->origin.z);
+    return key;
+}
+
+// Is angle u (modulo 2*pi) within the trim window [lo,hi]?
+inline bool angleInRange(double u, double lo, double hi) {
+    for (int k = -2; k <= 2; ++k) {
+        double uu = u + k * k2Pi;
+        if (uu >= lo - 1e-9 && uu <= hi + 1e-9) return true;
+    }
+    return false;
+}
+// The representative of angle u shifted into [lo,hi] (call only when in range).
+inline double angleRepresentative(double u, double lo, double hi) {
+    for (int k = -2; k <= 2; ++k) {
+        double uu = u + k * k2Pi;
+        if (uu >= lo - 1e-9 && uu <= hi + 1e-9) return uu;
+    }
+    return u;
+}
+
+std::vector<SilhouetteCurve> computeSilhouettes(
+        const std::vector<const Face*>& faces,
+        const HlrViewFrame& fr,
+        const HlrOptions& opt) {
+    std::vector<SilhouetteCurve> out;
+
+    // (1) Collect curved analytic faces (skip planes / nurbs / bare polygons).
+    std::vector<const Face*> cf;
+    cf.reserve(faces.size());
+    for (const Face* f : faces) {
+        const Surface* s = f ? f->surface : nullptr;
+        if (!s) continue;
+        if (s->kind == SurfaceKind::Plane || s->kind == SurfaceKind::Nurbs) continue;
+        cf.push_back(f);
+    }
+    const std::size_t n = cf.size();
+    if (n == 0) return out;
+
+    // (2) Signature + shared-edge union-find (== analyticFaceInventory grouping).
+    std::unordered_map<const Face*, std::size_t> idx;
+    idx.reserve(n * 2);
+    for (std::size_t i = 0; i < n; ++i) idx.emplace(cf[i], i);
+    std::vector<std::string> sig(n);
+    for (std::size_t i = 0; i < n; ++i) sig[i] = curvedSurfaceSignature(cf[i], i);
+    std::vector<std::size_t> parent(n);
+    for (std::size_t i = 0; i < n; ++i) parent[i] = i;
+    auto find = [&](std::size_t x) {
+        while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+        return x;
+    };
+    auto unite = [&](std::size_t a, std::size_t b) {
+        std::size_t ra = find(a), rb = find(b);
+        if (ra != rb) parent[std::max(ra, rb)] = std::min(ra, rb);
+    };
+    std::unordered_set<const Edge*> seen;
+    for (const Face* f : cf) {
+        std::vector<const Loop*> loops;
+        if (f->outerLoop) loops.push_back(f->outerLoop);
+        for (const Loop* il : f->innerLoops) loops.push_back(il);
+        for (const Loop* lp : loops) {
+            if (!lp || !lp->first) continue;
+            Coedge* c = lp->first;
+            for (std::size_t i = 0; i < lp->coedgeCount && c; ++i, c = c->next) {
+                Edge* e = c->edge;
+                if (!e || !seen.insert(e).second) continue;
+                Face* fa; Face* fb; edgeIncidentFaces(e, fa, fb);
+                if (!fa || !fb || fa == fb) continue;
+                auto ia = idx.find(fa), ib = idx.find(fb);
+                if (ia == idx.end() || ib == idx.end()) continue;
+                if (sig[ia->second] == sig[ib->second]) unite(ia->second, ib->second);
+            }
+        }
+    }
+
+    // (3) Aggregate each component: rep surface + full (u,v) range + face-id set.
+    struct Grp {
+        const Surface* rep = nullptr;
+        double uMin =  std::numeric_limits<double>::infinity();
+        double uMax = -std::numeric_limits<double>::infinity();
+        double vMin =  std::numeric_limits<double>::infinity();
+        double vMax = -std::numeric_limits<double>::infinity();
+        std::unordered_set<std::uint32_t> faceIds;
+    };
+    std::unordered_map<std::size_t, std::size_t> rootToGrp;
+    std::vector<Grp> grps;
+    for (std::size_t i = 0; i < n; ++i) {
+        std::size_t r = find(i);
+        std::size_t gi;
+        auto it = rootToGrp.find(r);
+        if (it == rootToGrp.end()) {
+            gi = grps.size(); rootToGrp.emplace(r, gi);
+            grps.push_back(Grp{}); grps[gi].rep = cf[r]->surface;
+        } else gi = it->second;
+        Grp& g = grps[gi];
+        g.faceIds.insert(cf[i]->id);
+        g.uMin = std::min(g.uMin, cf[i]->u0); g.uMax = std::max(g.uMax, cf[i]->u1);
+        g.vMin = std::min(g.vMin, cf[i]->v0); g.vMax = std::max(g.vMax, cf[i]->v1);
+    }
+
+    // (4) Trace each group's silhouette analytically over its FULL parameter range.
+    const Vec3 N = fr.N;
+    for (const Grp& g : grps) {
+        const Surface* s = g.rep;
+        if (!s) continue;
+        const Vec3 rd = vnorm(s->refDir);
+        const Vec3 ax = vnorm(s->axis);
+        const Vec3 bn = vcross(ax, rd);
+        std::vector<std::vector<Vec3>> polylines;
+
+        if (s->kind == SurfaceKind::Cylinder || s->kind == SurfaceKind::Cone) {
+            // Lateral normal(u) direction is (see Surface.cpp evaluateDeriv):
+            //   cylinder: (cos u, sin u, 0)          in the (refDir,binormal,axis) frame
+            //   cone:     (param cos u, param sin u, -(r2-r1))
+            // so normal.N == 0  <=>  a cos u + b sin u + c == 0 with:
+            double a, b, c;
+            if (s->kind == SurfaceKind::Cylinder) {
+                a = vdot(rd, N); b = vdot(bn, N); c = 0.0;
+            } else {
+                a = s->param * vdot(rd, N);
+                b = s->param * vdot(bn, N);
+                c = -(s->r2 - s->r1) * vdot(ax, N);
+            }
+            double R = std::hypot(a, b);
+            if (R > 1e-12) {                          // else: viewing along the axis
+                double rhs = -c / R;
+                if (rhs >= -1.0 - 1e-9 && rhs <= 1.0 + 1e-9) {
+                    rhs = std::clamp(rhs, -1.0, 1.0);
+                    double psi = std::atan2(b, a);    // a=R cos psi, b=R sin psi
+                    double d = std::acos(rhs);
+                    int nRoots = (d < 1e-9 || d > kPi - 1e-9) ? 1 : 2;
+                    double roots[2] = { psi + d, psi - d };
+                    for (int k = 0; k < nRoots; ++k) {
+                        double u = roots[k];
+                        if (!angleInRange(u, g.uMin, g.uMax)) continue;
+                        double uu = angleRepresentative(u, g.uMin, g.uMax);
+                        polylines.push_back({ s->evaluate(uu, g.vMin),
+                                              s->evaluate(uu, g.vMax) });
+                    }
+                }
+            }
+        } else if (s->kind == SurfaceKind::Sphere) {
+            // Silhouette == great circle in the plane through the centre perp to N.
+            double r = s->r1;
+            if (r > 0.0) {
+                Vec3 helper = (std::fabs(N.x) < 0.9) ? Vec3{1, 0, 0} : Vec3{0, 1, 0};
+                Vec3 e1 = vnorm(vcross(helper, N));
+                Vec3 e2 = vcross(N, e1);
+                std::size_t M = std::max<std::size_t>(opt.curveTess, 24);
+                std::vector<Vec3> run;
+                auto flush = [&]() {
+                    if (run.size() >= 2) polylines.push_back(run);
+                    run.clear();
+                };
+                for (std::size_t i = 0; i <= M; ++i) {
+                    double t = k2Pi * (double(i) / double(M));
+                    Vec3 p = vadd(s->origin,
+                                  vadd(vscale(e1, r * std::cos(t)),
+                                       vscale(e2, r * std::sin(t))));
+                    Vec3 rel = vsub(p, s->origin);
+                    double v = std::acos(std::clamp(vdot(rel, ax) / r, -1.0, 1.0));
+                    double u = std::atan2(vdot(rel, bn), vdot(rel, rd));
+                    bool inTrim = (v >= g.vMin - 1e-6 && v <= g.vMax + 1e-6) &&
+                                  angleInRange(u, g.uMin, g.uMax);
+                    if (inTrim) run.push_back(p);
+                    else flush();
+                }
+                flush();
+            }
+        } else if (s->kind == SurfaceKind::Torus) {
+            // No closed form: march normal.N == 0 over the FULL grouped (u,v) range
+            // in BOTH scan directions, then greedily stitch the crossing points.
+            std::size_t nu = std::max<std::size_t>(opt.curveTess, 24);
+            std::size_t nv = std::max<std::size_t>(opt.curveTess, 24);
+            auto dotN = [&](double u, double v) { return vdot(s->normalAt(u, v), N); };
+            std::vector<Vec3> pts;
+            for (std::size_t i = 0; i <= nu; ++i) {           // u-columns, scan v
+                double u = g.uMin + (g.uMax - g.uMin) * (double(i) / double(nu));
+                double prev = dotN(u, g.vMin);
+                for (std::size_t j = 1; j <= nv; ++j) {
+                    double v = g.vMin + (g.vMax - g.vMin) * (double(j) / double(nv));
+                    double cur = dotN(u, v);
+                    if ((prev <= 0.0) != (cur <= 0.0)) {
+                        double vp = g.vMin + (g.vMax - g.vMin) * (double(j - 1) / double(nv));
+                        double den = cur - prev;
+                        double tc = std::fabs(den) > 1e-300 ? (-prev / den) : 0.5;
+                        pts.push_back(s->evaluate(u, vp + (v - vp) * tc));
+                    }
+                    prev = cur;
+                }
+            }
+            for (std::size_t j = 0; j <= nv; ++j) {           // v-rows, scan u
+                double v = g.vMin + (g.vMax - g.vMin) * (double(j) / double(nv));
+                double prev = dotN(g.uMin, v);
+                for (std::size_t i = 1; i <= nu; ++i) {
+                    double u = g.uMin + (g.uMax - g.uMin) * (double(i) / double(nu));
+                    double cur = dotN(u, v);
+                    if ((prev <= 0.0) != (cur <= 0.0)) {
+                        double up = g.uMin + (g.uMax - g.uMin) * (double(i - 1) / double(nu));
+                        double den = cur - prev;
+                        double tc = std::fabs(den) > 1e-300 ? (-prev / den) : 0.5;
+                        pts.push_back(s->evaluate(up + (u - up) * tc, v));
+                    }
+                    prev = cur;
+                }
+            }
+            if (pts.size() >= 2) {
+                double diag = vlen(vsub(s->evaluate(g.uMax, g.vMax),
+                                        s->evaluate(g.uMin, g.vMin)));
+                double gap = 0.15 * (diag > 0.0 ? diag : 1.0);
+                std::vector<char> used(pts.size(), 0);
+                std::size_t cur = 0; used[0] = 1;
+                std::vector<Vec3> run{ pts[0] };
+                for (std::size_t count = 1; count < pts.size(); ) {
+                    double best = 1e300; std::size_t bi = pts.size();
+                    for (std::size_t k = 0; k < pts.size(); ++k) {
+                        if (used[k]) continue;
+                        double dd = vlen(vsub(pts[k], pts[cur]));
+                        if (dd < best) { best = dd; bi = k; }
+                    }
+                    if (bi == pts.size()) break;
+                    used[bi] = 1; ++count;
+                    if (best > gap) {
+                        if (run.size() >= 2) polylines.push_back(run);
+                        run.clear();
+                    }
+                    run.push_back(pts[bi]); cur = bi;
+                }
+                if (run.size() >= 2) polylines.push_back(run);
+            }
+        }
+
+        for (std::vector<Vec3>& pl : polylines) {
+            if (pl.size() < 2) continue;
+            SilhouetteCurve sc;
+            sc.poly3d = std::move(pl);
+            sc.skipFaces = g.faceIds;
+            out.push_back(std::move(sc));
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 // ===========================================================================
@@ -502,56 +801,24 @@ HlrResult hiddenLineRemoval(const Solid& solid,
         }
     }
 
-    // --- Add SILHOUETTE edges of curved analytic faces. ----------------------
-    // The silhouette is the locus on the face where the surface normal is ⟂ to
-    // the view direction (normal·N == 0). For an analytic quadric we find it by
-    // marching the curved (u) parameter, sampling the v-curve, and detecting the
-    // sign change of (normal·N) along v; the silhouette point is the zero crossing.
-    for (const Face* f : faces) {
-        const Surface* s = f->surface;
-        if (!s || s->kind == SurfaceKind::Plane) continue;
-        std::size_t nu = std::max<std::size_t>(opt.curveTess, 8);
-        std::size_t nv = std::max<std::size_t>(opt.curveTess, 8);
-        // For a cylinder/cone the silhouette runs along the axis (v) at the two
-        // u (angle) values where the side normal is ⟂ N; for a sphere it is a
-        // great circle. We collect silhouette points per u-isoline by detecting
-        // normal·N sign changes across v, then stitch consecutive u columns.
-        // General, kind-agnostic march: for each fixed u column, find v where the
-        // dot crosses zero; for each fixed v row, find u where it crosses zero.
-        auto dotN = [&](double u, double v) {
-            return vdot(s->normalAt(u, v), fr.N);
-        };
-        std::vector<Vec3> sil;
-        // March along u: at each u, scan v for a zero crossing of dotN.
-        for (std::size_t i = 0; i <= nu; ++i) {
-            double u = f->u0 + (f->u1 - f->u0) * (double(i) / double(nu));
-            double prev = dotN(u, f->v0);
-            for (std::size_t j = 1; j <= nv; ++j) {
-                double v = f->v0 + (f->v1 - f->v0) * (double(j) / double(nv));
-                double cur = dotN(u, v);
-                if ((prev <= 0.0 && cur > 0.0) || (prev >= 0.0 && cur < 0.0)) {
-                    double vprev = f->v0 + (f->v1 - f->v0) * (double(j - 1) / double(nv));
-                    double denom = (cur - prev);
-                    double tcross = (std::fabs(denom) > 1e-300) ? (-prev / denom) : 0.5;
-                    double vz = vprev + (v - vprev) * tcross;
-                    sil.push_back(s->evaluate(u, vz));
-                }
-                prev = cur;
-            }
-        }
-        if (sil.size() >= 2) {
-            // Order the silhouette points along the view-frame V axis (its long
-            // run) so the polyline is monotone; good enough for the depth split.
-            std::sort(sil.begin(), sil.end(), [&](const Vec3& a, const Vec3& b) {
-                return vdot(vsub(a, fr.origin), fr.V) < vdot(vsub(b, fr.origin), fr.V);
-            });
-            EdgeJob j;
-            j.edge = nullptr;
-            j.kind = HlrEdgeKind::Silhouette;
-            j.incidentFaces.insert(f->id);
-            j.poly3d = std::move(sil);
-            jobs.push_back(std::move(j));
-        }
+    // --- Add SILHOUETTE edges of curved analytic faces (GROUPED). ------------
+    // A faceted importOcctSolid body splits each curved face into many narrow
+    // (u,v) sub-faces, so a per-sub-face silhouette march never spans the tangent
+    // locus (and for a cylinder the radial normal is CONSTANT along v, so a v-scan
+    // finds no crossing at all). We GROUP the sub-faces by shared analytic-surface
+    // signature + shared-edge connectivity (like analyticFaceInventory) and trace
+    // the silhouette over each GROUP's FULL parameter range — closed form for
+    // cylinder/cone (iso-u outline lines) and sphere (great circle), marched for
+    // torus. Each curve skips its own group's faces so the surface does not
+    // self-occlude its outline (OCCT classifies the silhouette as OutLineVCompound).
+    for (SilhouetteCurve& sc : computeSilhouettes(faces, fr, opt)) {
+        if (sc.poly3d.size() < 2) continue;
+        EdgeJob j;
+        j.edge = nullptr;
+        j.kind = HlrEdgeKind::Silhouette;
+        j.incidentFaces = std::move(sc.skipFaces);
+        j.poly3d = std::move(sc.poly3d);
+        jobs.push_back(std::move(j));
     }
 
     out.totalEdges = static_cast<std::uint32_t>(jobs.size());
