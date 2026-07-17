@@ -77,8 +77,16 @@ bool forgeNativeFeaturesEnabled() {
 bool forgeNativeStepEnabled() {
     int ov = g_stepOverride.load(std::memory_order_relaxed);
     if (ov >= 0) return ov != 0;
-    static const bool envOn = readEnvFlag("FORGE_NATIVE_STEP");
-    return envOn;
+    // PRODUCTION DEFAULT ON (2026-07-17): native analytic STEP read/write is the
+    // default, so a Forge STEP round-trips native (import returns a NativeSolid usable
+    // by the native query/op layer). FORGE_NATIVE_STEP=0/off restores the OCCT STEP io.
+    // FOREIGN / non-analytic / trimmed-NURBS STEP still honestly falls back to OCCT —
+    // native StepAnalytic::read returns ok=false and importStep re-reads via OCCT.
+    // Verified safe: forge:kernel:test smoke chain + core.mjs 34/34 + coherence all
+    // green with native STEP on; the C++ native-gate suite is STEP-independent.
+    static const bool envSet = (std::getenv("FORGE_NATIVE_STEP") != nullptr);
+    static const bool envOn  = readEnvFlag("FORGE_NATIVE_STEP");
+    return envSet ? envOn : true;
 }
 
 bool forgeNativeInterferenceEnabled() {
