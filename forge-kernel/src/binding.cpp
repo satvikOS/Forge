@@ -514,39 +514,12 @@ Napi::Value UnifyFaces(const Napi::CallbackInfo& info) {
 Napi::Value FaceInventory(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto env = info.Env();
-        ShapeHandle h = requireHandle(info, 0);
-        auto vec3 = [&](const std::array<double, 3>& v) {
-            Napi::Array a = Napi::Array::New(env, 3);
-            for (uint32_t k = 0; k < 3; ++k) a.Set(k, Napi::Number::New(env, v[k]));
-            return a;
-        };
-        // NATIVE handle: canonical analytic faces via the OCCT-free native query
-        // (retires the OCCT BRepAdaptor face query for native solids, and replaces
-        // the 128-strip bridge shatter with the correct 3F/6F/1F identity).
-        if (ShapeRegistry::instance().kindOf(h) == ShapeKind::NativeSolid) {
-            using namespace forge::native::brep;
-            const std::vector<AnalyticFaceInfo> nf =
-                analyticFaceInventory(ShapeRegistry::instance().getNativeSolid(h));
-            Napi::Array out = Napi::Array::New(env, nf.size());
-            for (std::size_t i = 0; i < nf.size(); ++i) {
-                const AnalyticFaceInfo& f = nf[i];
-                Napi::Object o = Napi::Object::New(env);
-                o.Set("index", Napi::Number::New(env, double(i + 1)));
-                o.Set("kind", Napi::String::New(env, f.kind));
-                o.Set("area", Napi::Number::New(env, f.area));
-                o.Set("radius", Napi::Number::New(env, f.radius));
-                o.Set("minorRadius", Napi::Number::New(env, f.minorRadius));
-                o.Set("concave", Napi::Boolean::New(env, false));
-                o.Set("vMin", Napi::Number::New(env, 0.0));
-                o.Set("vMax", Napi::Number::New(env, 0.0));
-                o.Set("centroid", vec3({f.centroid.x, f.centroid.y, f.centroid.z}));
-                o.Set("direction", vec3({f.axis.x, f.axis.y, f.axis.z}));
-                o.Set("axisLocation", vec3({f.origin.x, f.origin.y, f.origin.z}));
-                out.Set(static_cast<uint32_t>(i), o);
-            }
-            return out;
-        }
-        const std::vector<FaceInfo> faces = faceInventory(h);
+        // NOTE: kept OCCT-indexed for native handles so its face indices stay
+        // CONSISTENT with direct.moveFace/pushPullFace (which address the OCCT
+        // faceMap). The canonical analytic face identity is available separately via
+        // forge.nativeFaceInventory; routing THIS query native must wait until
+        // direct-edit face ADDRESSING is native too (else index-based edits desync).
+        const std::vector<FaceInfo> faces = faceInventory(requireHandle(info, 0));
         Napi::Array out = Napi::Array::New(env, faces.size());
         for (std::size_t i = 0; i < faces.size(); ++i) {
             const FaceInfo& f = faces[i];
@@ -559,6 +532,11 @@ Napi::Value FaceInventory(const Napi::CallbackInfo& info) {
             o.Set("concave",  Napi::Boolean::New(env, f.concave));
             o.Set("vMin",     Napi::Number::New(env, f.vMin));
             o.Set("vMax",     Napi::Number::New(env, f.vMax));
+            auto vec3 = [&](const std::array<double,3>& v) {
+                Napi::Array a = Napi::Array::New(env, 3);
+                for (uint32_t k = 0; k < 3; ++k) a.Set(k, Napi::Number::New(env, v[k]));
+                return a;
+            };
             o.Set("centroid",     vec3(f.centroid));
             o.Set("direction",    vec3(f.direction));
             o.Set("axisLocation", vec3(f.axisLocation));
@@ -822,6 +800,22 @@ Napi::Value NativeFaceInventory(const Napi::CallbackInfo& info) {
             outArr.Set(uint32_t(i), o);
         }
         return outArr;
+    });
+}
+
+// nativeEdgeCount(handle) -> canonical analytic edge count (face-pair grouping), no
+// OCCT. cyl 3 / cone 3 / torus 2 / box 12.
+Napi::Value NativeEdgeCount(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        using namespace forge::native::brep;
+        ShapeHandle h = requireHandle(info, 0);
+        auto& reg = ShapeRegistry::instance();
+        if (reg.kindOf(h) != ShapeKind::NativeSolid) {
+            throw std::runtime_error(
+                "forge.nativeEdgeCount: handle is not a native analytic solid");
+        }
+        return Napi::Number::New(info.Env(),
+                                 double(analyticEdgeCount(reg.getNativeSolid(h))));
     });
 }
 
@@ -4454,16 +4448,10 @@ Napi::Value DirectInferFeature(const Napi::CallbackInfo& info) {
 
 Napi::Value DirectFaceCount(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
-        ShapeHandle h = requireHandle(info, 0);
-        // Native handle: count canonical analytic faces (consistent with the native
-        // faceInventory) — no OCCT. cyl 3 / box 6 / torus 1.
-        if (ShapeRegistry::instance().kindOf(h) == ShapeKind::NativeSolid) {
-            return Napi::Number::New(info.Env(),
-                static_cast<double>(forge::native::brep::analyticFaceInventory(
-                    ShapeRegistry::instance().getNativeSolid(h)).size()));
-        }
+        // OCCT-indexed for consistency with the OCCT-addressed direct-edit ops (see
+        // FaceInventory note). Canonical count is forge.nativeFaceInventory().length.
         return Napi::Number::New(info.Env(),
-            static_cast<double>(forge::direct::faceCount(h)));
+            static_cast<double>(forge::direct::faceCount(requireHandle(info, 0))));
     });
 }
 
@@ -4471,15 +4459,10 @@ Napi::Value DirectFaceCount(const Napi::CallbackInfo& info) {
 // can default to "all edges" when no selection is supplied.
 Napi::Value DirectEdgeCount(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
-        ShapeHandle h = requireHandle(info, 0);
-        // Native handle: canonical analytic edge count (face-pair grouping), no OCCT.
-        if (ShapeRegistry::instance().kindOf(h) == ShapeKind::NativeSolid) {
-            return Napi::Number::New(info.Env(),
-                static_cast<double>(forge::native::brep::analyticEdgeCount(
-                    ShapeRegistry::instance().getNativeSolid(h))));
-        }
+        // OCCT-indexed for consistency with OCCT-addressed direct-edit ops. Canonical
+        // native count is available via forge.nativeEdgeCount / analyticEdgeCount.
         return Napi::Number::New(info.Env(),
-            static_cast<double>(forge::direct::edgeCount(h)));
+            static_cast<double>(forge::direct::edgeCount(requireHandle(info, 0))));
     });
 }
 
@@ -6209,6 +6192,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("nativeMassProps",  Napi::Function::New(env, NativeMassProps));
     exports.Set("nativeTessellate", Napi::Function::New(env, NativeTessellate));
     exports.Set("nativeFaceInventory", Napi::Function::New(env, NativeFaceInventory));
+    exports.Set("nativeEdgeCount", Napi::Function::New(env, NativeEdgeCount));
     exports.Set("nativeBoolean",    Napi::Function::New(env, NativeBoolean)); // STEP 2
     // STEP 3a — A/B backend toggle + introspection for the live ops.
     exports.Set("setNativeBrep",     Napi::Function::New(env, SetNativeBrep));
