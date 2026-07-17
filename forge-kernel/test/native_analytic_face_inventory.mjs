@@ -9,6 +9,8 @@
 import { createRequire } from 'module';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import os from 'node:os';
+import fs from 'node:fs';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 const KERNEL = process.env.FORGE_KERNEL ||
@@ -78,6 +80,44 @@ for (let i = 0; i < CASES.length; i++) {
     const natEdges = k.nativeEdgeCount(c.build());
     ok(natEdges === occtEdges,
        `${c.label}: nativeEdgeCount ${natEdges} == OCCT ${occtEdges}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// STEP-IMPORT REGRESSION — native STEP is now the production DEFAULT (analytic
+// STEP -> NativeSolid). The native STEP reader mints a FRESH Surface per
+// ADVANCED_FACE, so a re-imported cylinder's 128 lateral strips carry 128 distinct
+// (but geometrically identical) Surfaces — pointer grouping would read 130 faces.
+// analyticFaceInventory must instead group by CONNECTIVITY + surface SIGNATURE so
+// the re-imported part reports the SAME canonical analytic faces as the built one
+// (cylinder -> 3, box -> 6).
+// ---------------------------------------------------------------------------
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'forge_faceinv_'));
+k.setNativeBrep(true);
+const IMPORT_CASES = [
+  { label: 'cylinder(10,20) re-import', build: () => k.makeCylinder(10, 20), n: 3, kinds: { cylinder: 1, plane: 2 } },
+  { label: 'box(10,10,10) re-import',   build: () => k.makeBox(10, 10, 10),  n: 6, kinds: { plane: 6 } },
+];
+for (const c of IMPORT_CASES) {
+  let reInv = null, reKind = 'n/a', err = null;
+  try {
+    const h = c.build();
+    const file = path.join(TMP, c.label.replace(/[^a-z0-9]+/gi, '_') + '.step');
+    const wrote = k.io.exportStep(h, file);
+    ok(wrote && fs.existsSync(file), `${c.label}: native exportStep wrote a .step`);
+    const hi = k.io.importStep(file);       // native STEP default -> NativeSolid
+    reKind = k.kindOf(hi);
+    ok(reKind === 'nativeSolid', `${c.label}: re-import is a NativeSolid (got ${reKind})`);
+    reInv = k.nativeFaceInventory(hi);
+  } catch (e) { err = e.message; }
+  ok(err === null, `${c.label}: export+reimport+inventory did not throw${err ? ' (' + err + ')' : ''}`);
+  if (reInv) {
+    const rh = hist(reInv);
+    ok(reInv.length === c.n && eqHist(rh, c.kinds),
+       `${c.label}: canonical analytic faces after import (got ${reInv.length} ${JSON.stringify(rh)}, want ${c.n} ${JSON.stringify(c.kinds)})`);
+    const strips = reInv.reduce((s, f) => s + (f.stripFaceCount || 0), 0);
+    ok(strips >= reInv.length,
+       `${c.label}: import strip faces merged (${strips} strips -> ${reInv.length} faces)`);
   }
 }
 

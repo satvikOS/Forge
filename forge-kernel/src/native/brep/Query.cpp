@@ -548,59 +548,176 @@ static void faceAreaCentroid(const Face* f, double& area, Vec3& centroid) {
     if (area > 1e-30) centroid = vscale(acc, 1.0 / area);
 }
 
+// ---------------------------------------------------------------------------
+// SURFACE SIGNATURE — a geometry key that is EQUAL for two faces lying on the
+// SAME analytic surface even when they are DIFFERENT Surface objects. This is the
+// crux of import-correctness: the native builders share ONE Surface across a
+// logical face's strips (pointer identity groups them), but the native STEP reader
+// mints a FRESH Surface per ADVANCED_FACE, so an imported cylinder's 128 lateral
+// strips carry 128 distinct-but-geometrically-identical Surfaces. Grouping by a
+// quantised (kind, axis, radii, origin) signature merges them again.
+// ---------------------------------------------------------------------------
+namespace {
+
+// Absolute quantum for the signature buckets. 1e-6 comfortably captures the ~1e-12
+// round-off of a native STEP round-trip (our own writer emits full double
+// precision) while keeping distinct primitives' parameters in separate buckets.
+constexpr double kSigQuantum = 1e-6;
+
+inline long long quantiseSig(double x) { return std::llround(x / kSigQuantum); }
+
+inline void appendQ(std::string& key, double x) {
+    key += std::to_string(quantiseSig(x));
+}
+
+// The analytic-surface signature of a face. Two faces on the same cylinder/plane/
+// cone/sphere/torus produce the SAME string; a bare-topology face (null surface),
+// a Nurbs face, or an unrecognised kind gets a per-face UNIQUE key (seeded by
+// `uniqueSeed`) so it NEVER merges — preserving the legacy one-logical-face-per-
+// such-face behaviour exactly.
+std::string surfaceSignature(const Face* f, std::size_t uniqueSeed) {
+    const Surface* s = f ? f->surface : nullptr;
+    if (!s) return "U" + std::to_string(uniqueSeed);   // bare topology
+    SurfaceKind kind = s->kind;
+    // A cone with equal radii IS a cylinder (buildCylinder routes through
+    // buildCone(r,r,h)); fold it so signatures agree with the reported kind.
+    if (kind == SurfaceKind::Cone && std::fabs(s->r1 - s->r2) <= 1e-12)
+        kind = SurfaceKind::Cylinder;
+    switch (kind) {
+        case SurfaceKind::Plane:
+        case SurfaceKind::Cylinder:
+        case SurfaceKind::Cone:
+        case SurfaceKind::Sphere:
+        case SurfaceKind::Torus:
+            break;
+        default:
+            // Nurbs / other: not a canonical analytic surface — keep it unique.
+            return "U" + std::to_string(uniqueSeed);
+    }
+    const Vec3 ax = vnorm(s->axis);
+    std::string key = "K";
+    key += std::to_string(static_cast<int>(kind));
+    key += '|'; appendQ(key, ax.x); key += ','; appendQ(key, ax.y); key += ','; appendQ(key, ax.z);
+    key += '|'; appendQ(key, s->r1);
+    key += '|'; appendQ(key, s->r2);
+    key += '|'; appendQ(key, s->origin.x); key += ','; appendQ(key, s->origin.y); key += ','; appendQ(key, s->origin.z);
+    return key;
+}
+
+// Identity (kind/radii/frame) of a merged logical face, taken from a representative
+// member's surface. Null surface => a planar face (the legacy bare-topology box).
+AnalyticFaceInfo infoFromSurface(const Surface* s) {
+    AnalyticFaceInfo af;
+    if (!s) { af.kind = "plane"; return af; }
+    switch (s->kind) {
+        case SurfaceKind::Plane:    af.kind = "plane"; break;
+        case SurfaceKind::Cylinder: af.kind = "cylinder"; break;
+        case SurfaceKind::Cone:
+            // a cone with equal radii IS a cylinder (buildCylinder routes through
+            // buildCone(r,r,h)); label it faithfully.
+            af.kind = (std::fabs(s->r1 - s->r2) <= 1e-12) ? "cylinder" : "cone";
+            break;
+        case SurfaceKind::Sphere:   af.kind = "sphere"; break;
+        case SurfaceKind::Torus:    af.kind = "torus"; break;
+        default:                    af.kind = "other"; break;
+    }
+    af.radius = s->r1;
+    af.minorRadius = s->r2;
+    af.origin = s->origin;
+    af.axis = s->axis;
+    return af;
+}
+
+} // namespace
+
 std::vector<AnalyticFaceInfo> analyticFaceInventory(const Solid& solid) {
-    std::vector<AnalyticFaceInfo> out;
-    std::vector<Vec3> centAccum;  // area-weighted centroid accumulator, per group
-    std::unordered_map<const Surface*, std::size_t> groupOf;
+    // Flatten the shells' faces into an indexed list (the union-find domain).
+    std::vector<const Face*> faces;
     for (const Shell* sh : solid.shells) {
         if (!sh) continue;
-        for (const Face* f : sh->faces) {
-            if (!f) continue;
-            const Surface* s = f->surface;
-            std::size_t gi;
-            if (s) {
-                auto it = groupOf.find(s);
-                if (it != groupOf.end()) {
-                    gi = it->second;
-                } else {
-                    gi = out.size();
-                    groupOf.emplace(s, gi);
-                    AnalyticFaceInfo af;
-                    switch (s->kind) {
-                        case SurfaceKind::Plane:    af.kind = "plane"; break;
-                        case SurfaceKind::Cylinder: af.kind = "cylinder"; break;
-                        case SurfaceKind::Cone:
-                            // a cone with equal radii IS a cylinder (buildCylinder
-                            // routes through buildCone(r,r,h)); label it faithfully.
-                            af.kind = (std::fabs(s->r1 - s->r2) <= 1e-12) ? "cylinder" : "cone";
-                            break;
-                        case SurfaceKind::Sphere:   af.kind = "sphere"; break;
-                        case SurfaceKind::Torus:    af.kind = "torus"; break;
-                        default:                    af.kind = "other"; break;
-                    }
-                    af.radius = s->r1;
-                    af.minorRadius = s->r2;
-                    af.origin = s->origin;
-                    af.axis = s->axis;
-                    out.push_back(std::move(af));
-                    centAccum.push_back(Vec3{0, 0, 0});
-                }
-            } else {
-                // Bare-topology face (no analytic surface, e.g. the box gate): each
-                // is its own planar logical face.
-                gi = out.size();
-                AnalyticFaceInfo af;
-                af.kind = "plane";
-                out.push_back(std::move(af));
-                centAccum.push_back(Vec3{0, 0, 0});
-            }
-            double fa;
-            Vec3 fc;
-            faceAreaCentroid(f, fa, fc);
-            out[gi].area += fa;
-            centAccum[gi] = vadd(centAccum[gi], vscale(fc, fa));
-            out[gi].stripFaceCount++;
+        for (const Face* f : sh->faces) if (f) faces.push_back(f);
+    }
+    const std::size_t n = faces.size();
+    if (n == 0) return {};
+
+    std::unordered_map<const Face*, std::size_t> faceIdx;
+    faceIdx.reserve(n * 2);
+    for (std::size_t i = 0; i < n; ++i) faceIdx.emplace(faces[i], i);
+
+    // (2) SURFACE SIGNATURE per face — equal for two faces on the SAME analytic
+    //     surface even when they are distinct Surface objects (the import case).
+    std::vector<std::string> sig(n);
+    for (std::size_t i = 0; i < n; ++i) sig[i] = surfaceSignature(faces[i], i);
+
+    // UNION-FIND over the face indices. `find` uses path-halving; `unite` roots the
+    // component at its LOWEST index so the representative (used for identity below)
+    // is deterministic.
+    std::vector<std::size_t> parent(n);
+    for (std::size_t i = 0; i < n; ++i) parent[i] = i;
+    auto find = [&](std::size_t x) {
+        while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+        return x;
+    };
+    auto unite = [&](std::size_t a, std::size_t b) {
+        std::size_t ra = find(a), rb = find(b);
+        if (ra != rb) parent[std::max(ra, rb)] = std::min(ra, rb);
+    };
+
+    // (3)+(4) ADJACENCY + UNION: union two faces IFF they share an EDGE AND carry
+    //     the SAME surface signature. Walk every face's outer + inner loops to reach
+    //     its edges; an edge's two incident faces are edge->coedge{A,B}->loop->face.
+    //     This (a) merges a built OR imported cylinder's strips into one lateral
+    //     face; (b) keeps a box's 6 planes separate (adjacent but different normals
+    //     => different signatures); (c) keeps two DISCONNECTED coplanar faces
+    //     separate (same signature but NOT adjacent) — matching OCCT.
+    auto faceOfCoedge = [](const Coedge* ce) -> const Face* {
+        return (ce && ce->loop) ? ce->loop->face : nullptr;
+    };
+    std::unordered_set<const Edge*> seenEdge;
+    seenEdge.reserve(n * 4);
+    auto visitLoop = [&](const Loop* lp) {
+        if (!lp || !lp->first) return;
+        const Coedge* c = lp->first;
+        for (std::size_t i = 0; i < lp->coedgeCount && c; ++i, c = c->next) {
+            const Edge* e = c->edge;
+            if (!e || !seenEdge.insert(e).second) continue;
+            const Face* fa = faceOfCoedge(e->coedgeA);
+            const Face* fb = faceOfCoedge(e->coedgeB);
+            if (!fa || !fb || fa == fb) continue;
+            const auto ia = faceIdx.find(fa), ib = faceIdx.find(fb);
+            if (ia == faceIdx.end() || ib == faceIdx.end()) continue;
+            if (sig[ia->second] == sig[ib->second]) unite(ia->second, ib->second);
         }
+    };
+    for (const Face* f : faces) {
+        visitLoop(f->outerLoop);
+        for (const Loop* il : f->innerLoops) visitLoop(il);
+    }
+
+    // (5) Aggregate each union COMPONENT into one AnalyticFaceInfo: identity from
+    //     the representative (lowest-index) member's surface, plus summed strip
+    //     area, area-weighted centroid and merged strip count.
+    std::unordered_map<std::size_t, std::size_t> rootToOut;
+    std::vector<Vec3> centAccum;  // area-weighted centroid accumulator, per group
+    std::vector<AnalyticFaceInfo> out;
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t r = find(i);
+        std::size_t gi;
+        auto it = rootToOut.find(r);
+        if (it != rootToOut.end()) {
+            gi = it->second;
+        } else {
+            gi = out.size();
+            rootToOut.emplace(r, gi);
+            out.push_back(infoFromSurface(faces[r]->surface));
+            centAccum.push_back(Vec3{0, 0, 0});
+        }
+        double fa;
+        Vec3 fc;
+        faceAreaCentroid(faces[i], fa, fc);
+        out[gi].area += fa;
+        centAccum[gi] = vadd(centAccum[gi], vscale(fc, fa));
+        out[gi].stripFaceCount++;
     }
     for (std::size_t i = 0; i < out.size(); ++i) {
         if (out[i].area > 1e-30) out[i].centroid = vscale(centAccum[i], 1.0 / out[i].area);
