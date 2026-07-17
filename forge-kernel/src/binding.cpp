@@ -644,8 +644,28 @@ Napi::Value Tessellate(const Napi::CallbackInfo& info) {
 // ----------------------------------------------------------- mass props
 Napi::Value MassProps(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
-        auto p = massProperties(requireHandle(info, 0));
         auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        // NATIVE handle: exact analytic mass properties via the native divergence-
+        // theorem integrator — no OCCT (verified identical to the OCCT bridge:
+        // cylinder vol/com/area match to round-off). Same JS shape as the OCCT path.
+        if (ShapeRegistry::instance().kindOf(h) == ShapeKind::NativeSolid) {
+            const forge::native::brep::MassProps mp =
+                forge::native::brep::massProperties(ShapeRegistry::instance().getNativeSolid(h));
+            auto out = Napi::Object::New(env);
+            out.Set("volume", mp.volume);
+            out.Set("area", mp.area);
+            auto com = Napi::Array::New(env, 3);
+            com.Set(uint32_t{0}, mp.com[0]);
+            com.Set(uint32_t{1}, mp.com[1]);
+            com.Set(uint32_t{2}, mp.com[2]);
+            out.Set("centerOfMass", com);
+            auto inertiaCom = Napi::Array::New(env, 9);
+            for (uint32_t k = 0; k < 9; ++k) inertiaCom.Set(k, mp.inertiaCom[k]);
+            out.Set("inertiaCom", inertiaCom);
+            return out;
+        }
+        auto p = massProperties(h);
         auto out = Napi::Object::New(env);
         out.Set("volume", p.volume);
         out.Set("area", p.area);
