@@ -71,6 +71,89 @@ inline void project(const HlrViewFrame& fr, const Vec3& p,
 }
 
 // ----------------------------------------------------------------------------
+// FEATURE-EDGE test: do faces `a` and `b` lie on the SAME underlying analytic
+// surface across their shared edge (so the edge is a triangulation diagonal / a
+// smooth tessellation seam, NOT a real model feature edge)? Returns true only
+// when BOTH faces carry an analytic Surface of the same kind whose defining
+// geometry coincides:
+//   * Plane    — coplanar: parallel normals AND b's origin lies in a's plane.
+//   * Cylinder — same axis LINE (parallel axes + zero perpendicular offset) and
+//                equal radius (an edge on one wall of a faceted/tessellated cyl).
+//   * Sphere   — same centre + equal radius.
+//   * Cone     — same axis/apex frame + equal base/top radius + equal height.
+//   * Torus    — same centre + axis + major/minor radius.
+//   * Nurbs / bare-polygon (surface==nullptr) — NEVER coincident (kept): the
+//     free-form tangent case is a follow-up, and null-surface faces (native
+//     buildBox) are unaffected so the A/B-exact box results never change.
+// The tolerance is relative so it is scale-free across mm/m models.
+// ----------------------------------------------------------------------------
+inline bool sameUnderlyingSurface(const Face* a, const Face* b, double relTol) {
+    if (!a || !b) return false;
+    const Surface* sa = a->surface;
+    const Surface* sb = b->surface;
+    if (!sa || !sb) return false;
+    if (sa->kind != sb->kind) return false;
+    auto parallel = [&](const Vec3& u, const Vec3& v) {
+        double lu = vlen(u), lv = vlen(v);
+        if (!(lu > 0.0) || !(lv > 0.0)) return false;
+        return std::fabs(vdot(u, v) / (lu * lv)) > 1.0 - relTol;
+    };
+    auto nearVal = [&](double x, double y, double scale) {
+        return std::fabs(x - y) <= relTol * (1.0 + std::fabs(scale));
+    };
+    switch (sa->kind) {
+        case SurfaceKind::Plane: {
+            if (!parallel(sa->axis, sb->axis)) return false;
+            Vec3 d = vsub(sb->origin, sa->origin);
+            Vec3 axn = vnorm(sa->axis);
+            double scale = 1.0 + vlen(sa->origin) + vlen(sb->origin);
+            return std::fabs(vdot(axn, d)) <= relTol * scale;  // b-origin in a-plane
+        }
+        case SurfaceKind::Cylinder: {
+            if (!parallel(sa->axis, sb->axis)) return false;
+            if (!nearVal(sa->r1, sb->r1, sa->r1)) return false;
+            Vec3 d = vsub(sb->origin, sa->origin);
+            Vec3 axn = vnorm(sa->axis);
+            Vec3 perp = vsub(d, vscale(axn, vdot(d, axn)));   // offset ⟂ to axis
+            return vlen(perp) <= relTol * (1.0 + sa->r1);
+        }
+        case SurfaceKind::Sphere: {
+            return nearVal(sa->r1, sb->r1, sa->r1) &&
+                   vlen(vsub(sa->origin, sb->origin)) <= relTol * (1.0 + sa->r1);
+        }
+        case SurfaceKind::Cone:
+        case SurfaceKind::Torus: {
+            return parallel(sa->axis, sb->axis) &&
+                   nearVal(sa->r1, sb->r1, sa->r1) &&
+                   nearVal(sa->r2, sb->r2, sa->r2) &&
+                   nearVal(sa->param, sb->param, sa->param) &&
+                   vlen(vsub(sa->origin, sb->origin)) <=
+                       relTol * (1.0 + sa->r1 + std::fabs(sa->param));
+        }
+        case SurfaceKind::Nurbs:
+        default:
+            return false;  // free-form: keep (conservative)
+    }
+}
+
+// The two DISTINCT incident faces of an edge (via its mated coedge slots), or
+// {a,nullptr}. A non-manifold / boundary edge yields a null second face.
+inline void edgeIncidentFaces(const Edge* e, Face*& fa, Face*& fb) {
+    fa = (e && e->coedgeA && e->coedgeA->loop) ? e->coedgeA->loop->face : nullptr;
+    fb = (e && e->coedgeB && e->coedgeB->loop) ? e->coedgeB->loop->face : nullptr;
+}
+
+// True iff `e` is a NON-FEATURE edge that should be suppressed under `opt`:
+// a manifold edge whose two distinct incident faces coincide on one surface.
+inline bool isSuppressedFeatureEdge(const Edge* e, const HlrOptions& opt) {
+    if (!opt.cullSmoothEdges) return false;
+    Face* fa; Face* fb;
+    edgeIncidentFaces(e, fa, fb);
+    if (!fa || !fb || fa == fb) return false;       // boundary / seam -> keep
+    return sameUnderlyingSurface(fa, fb, opt.smoothTol);
+}
+
+// ----------------------------------------------------------------------------
 // Sample a B-rep edge into an ordered 3D polyline of (n+1) points start->end.
 // Uses the exact analytic Curve when the edge carries one (curved edges), else a
 // straight segment between the two vertex positions.
@@ -381,6 +464,7 @@ HlrResult hiddenLineRemoval(const Solid& solid,
     };
     std::vector<EdgeJob> jobs;
     std::unordered_set<const Edge*> seenEdge;
+    std::unordered_set<const Edge*> suppressedEdges;   // non-feature (culled) edges
 
     for (const Face* f : faces) {
         // walk outer + inner loops
@@ -394,14 +478,23 @@ HlrResult hiddenLineRemoval(const Solid& solid,
                 Edge* e = c->edge;
                 if (e) {
                     if (seenEdge.insert(e).second) {
-                        EdgeJob j;
-                        j.edge = e;
-                        j.poly3d = sampleEdge(e, opt.samplesPerEdge);
-                        jobs.push_back(std::move(j));
+                        // First sight: a NON-FEATURE edge (facet diagonal / smooth
+                        // seam between two coincident analytic faces) is culled
+                        // instead of drawn — the OCCT-HLR feature-edge behaviour.
+                        if (isSuppressedFeatureEdge(e, opt)) {
+                            suppressedEdges.insert(e);
+                        } else {
+                            EdgeJob j;
+                            j.edge = e;
+                            j.poly3d = sampleEdge(e, opt.samplesPerEdge);
+                            jobs.push_back(std::move(j));
+                        }
                     }
-                    // Record this face as incident to the edge.
-                    for (EdgeJob& j : jobs) {
-                        if (j.edge == e) { j.incidentFaces.insert(f->id); break; }
+                    // Record this face as incident to the (kept) edge.
+                    if (!suppressedEdges.count(e)) {
+                        for (EdgeJob& j : jobs) {
+                            if (j.edge == e) { j.incidentFaces.insert(f->id); break; }
+                        }
                     }
                 }
                 c = c->next;
@@ -797,6 +890,7 @@ HlrResult hlrPerspective(const Solid& solid,
     };
     std::vector<EdgeJob> jobs;
     std::unordered_set<const Edge*> seenEdge;
+    std::unordered_set<const Edge*> suppressedEdges;   // non-feature (culled) edges
     for (const Face* f : faces) {
         std::vector<const Loop*> loops;
         if (f->outerLoop) loops.push_back(f->outerLoop);
@@ -808,13 +902,19 @@ HlrResult hlrPerspective(const Solid& solid,
                 Edge* e = c->edge;
                 if (e) {
                     if (seenEdge.insert(e).second) {
-                        EdgeJob j;
-                        j.edge = e;
-                        j.poly3d = sampleEdge(e, opt.samplesPerEdge);
-                        jobs.push_back(std::move(j));
+                        if (isSuppressedFeatureEdge(e, opt)) {
+                            suppressedEdges.insert(e);
+                        } else {
+                            EdgeJob j;
+                            j.edge = e;
+                            j.poly3d = sampleEdge(e, opt.samplesPerEdge);
+                            jobs.push_back(std::move(j));
+                        }
                     }
-                    for (EdgeJob& j : jobs)
-                        if (j.edge == e) { j.incidentFaces.insert(f->id); break; }
+                    if (!suppressedEdges.count(e)) {
+                        for (EdgeJob& j : jobs)
+                            if (j.edge == e) { j.incidentFaces.insert(f->id); break; }
+                    }
                 }
                 c = c->next;
             }

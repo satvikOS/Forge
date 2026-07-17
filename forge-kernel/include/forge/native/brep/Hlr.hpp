@@ -170,6 +170,29 @@ struct HlrOptions {
     // Lateral tolerance (model units) for "the ray hits this triangle": a sample
     // ray must land inside a triangle within this slack to count as occluded.
     double rayTol = 1e-9;
+
+    // FEATURE-EDGE SUPPRESSION (facet-diagonal / smooth-seam culling).
+    // When true, an interior MANIFOLD edge whose two DISTINCT incident faces lie
+    // on the SAME underlying analytic surface — two COPLANAR planes (a
+    // triangulation diagonal / an artificial planar split) OR the same
+    // cylinder / cone / sphere / torus (a tessellation seam of a curved wall) —
+    // is treated as a NON-FEATURE edge and is NOT drawn. Only SHARP feature edges
+    // (the two incident faces are genuinely different surfaces across the edge)
+    // and SILHOUETTE edges are kept — exactly what OCCT HLRBRep draws. This makes
+    // a FACETED import (importOcctSolid, which triangulates every analytic face in
+    // its (u,v) domain so each face's triangulation diagonal becomes a topological
+    // Edge) draw only the real model edges + outline, instead of every facet edge
+    // (a box imports as 18 edges = 12 real + 6 diagonals; culling restores 12).
+    //
+    // SAFETY: the test fires ONLY when BOTH incident faces carry an analytic
+    // Surface AND those surfaces coincide, so a native solid whose faces are bare
+    // polygons (surface == nullptr, e.g. TopologyBuilder::buildBox) is NEVER
+    // affected — its real feature edges are all kept and the A/B-exact box/hole
+    // results are unchanged. A NURBS/free-form wall's facet seams are conservatively
+    // KEPT (freeform tangent detection is a follow-up).
+    bool cullSmoothEdges = true;
+    // Relative tolerance for the same-underlying-surface coincidence test above.
+    double smoothTol = 1e-6;
 };
 
 // ===========================================================================

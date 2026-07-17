@@ -155,3 +155,78 @@ which are hand-built with clean Euler quad/loop topology (`tb.buildBox` / `nativ
 - `native_vs_occt_hlr` → **2/2**; `native_vs_occt_hlr_persp` → **PASS both scenes @ 4 and 64**.
 - `drawings_smoke.cjs` / `drawings_smoke.js` / `drawings_extra_smoke.js` → **ALL PASS** (OCCT path).
 - `npm run forge:coherence` → **DISCRIMINATION PASS** (clean 1.0000 vs incoherent 0.0443).
+
+---
+
+# VERIFICATION LOG + BLOCKER (2026-07-17, attempt 2 — FEATURE-EDGE SUPPRESSION SHIPPED, TKHLR still NOT dropped)
+
+**Outcome: the native-HLR feature-edge suppression from attempt-1's "concrete follow-up" is
+BUILT and A/B-verified — it fully closes the POLYHEDRAL import blocker (a box imports 18→12
+edges → front view `5 vis / 13 hid` → `4 vis / 4 hid`, per-class projected length matching OCCT
+to rel `0`). But the CURVED-import SILHOUETTE case (attempt-1 case 3) still diverges, so TKHLR is
+NOT dropped. `otool` opencascade stays 17.** Verified partial committed locally; all gates GREEN.
+
+## What shipped (the enhancement)
+- `include/forge/native/brep/Hlr.hpp` — new `HlrOptions::cullSmoothEdges` (**default ON**) +
+  `smoothTol`. When on, an interior MANIFOLD edge whose two DISTINCT incident faces lie on the
+  SAME underlying analytic surface is treated as a NON-FEATURE edge and NOT drawn — exactly what
+  OCCT HLRBRep does (it draws only sharp + outline edges).
+- `src/native/brep/Hlr.cpp` — `sameUnderlyingSurface(a,b,tol)` (coplanar Plane / same
+  Cylinder-axis+radius / same Sphere / same Cone / same Torus; NURBS + bare-polygon faces are
+  conservatively KEPT), `edgeIncidentFaces` (the ≤2 faces via the mated coedge slots), and
+  `isSuppressedFeatureEdge`. Wired into BOTH the orthographic and perspective edge-collection
+  loops: a first-seen non-feature edge is skipped (never sampled, never classified); kept edges
+  keep their exact incident-face set. **Silhouette edges are always kept.**
+- SAFETY: the cull fires ONLY when BOTH incident faces carry an analytic `Surface` AND those
+  surfaces coincide. Native solids whose faces are bare polygons (`surface==nullptr`, e.g.
+  `TopologyBuilder::buildBox` / `nativeBlockWithSquareHole`) are NEVER affected — so the A/B-exact
+  box + holed-block results are byte-identical (verified below).
+
+## What is VERIFIED good (measured, machine-precision) — `test/native_vs_occt_hlr_import.cpp`
+A NEW A/B gate (`test/build_hlr_import_gate.sh`, links OCCT + `OcctImport.cpp`) — the
+`importOcctSolid`-round-trip coverage this brief flagged as MISSING. It imports an OCCT box +
+cylinder and A/Bs native `hiddenLineRemoval(cullSmoothEdges=ON)` vs OCCT `HLRBRep_Algo`:
+- **BOX front(-Y):** OCCT `4 vis / 4 hid`, native `4 vis / 4 hid`, per-class length rel **0.000e+00**.
+- **BOX iso(-1,-1,-1):** OCCT `9 vis / 3 hid`, native `9 vis / 3 hid`, per-class length rel **5.2e-16**.
+- **CYLINDER top(-Z)** (view ALONG the cap normal — the cap rings ARE the outline): total length
+  rel **2.7e-3** (chordal 64-gon vs OCCT 24-sample — within tessellation tolerance). **9/9 asserted PASS.**
+
+## THE REMAINING BLOCKER — the curved-solid SILHOUETTE is not reconstructed from a faceted import
+- **CYLINDER front(-Y)** (view ACROSS the axis): OCCT draws the two analytic SILHOUETTE (outline)
+  lines (the frustum's vertical sides). Native suppresses the wall's tessellation seams correctly
+  (they are not model edges) but does NOT emit the curved solid's silhouette outline, so it
+  under-draws by exactly those two lines: OCCT tot `260.0` vs native `160.0` → **missing 100.0**
+  (= 2 × the 50-tall silhouette line). Measured, NON-FATAL in the gate.
+- ROOT CAUSE (code-confirmed, `Hlr.cpp`): the silhouette generator marches `normal·N==0` by
+  scanning **v** at each fixed **u**. For a cylinder the normal is radial — CONSTANT in v — so the
+  v-scan never finds a crossing; the silhouette runs along v at the single u where the radial
+  normal ⟂ N, which this march can't detect. (This latent gap was never exercised because the
+  A/B HLR gates were box-only.) Even a u-scanning fix would produce PER-FACET fragments on the
+  faceted import that don't stitch into the two clean full-height outline lines — the analytic
+  silhouette of a curved solid needs a GLOBAL silhouette-curve tracer on the (kept) analytic
+  surface, independent of the facet tessellation.
+- Before-suppression, native "drew" the outline only accidentally, via the facet seams straddling
+  the tangent angle (the `5 vis / 13 hid` box mess had the analogue); suppressing them — correct
+  for real model edges — removes that accidental outline, exposing the true silhouette gap.
+
+## What it takes to actually drop TKHLR now (concrete follow-up, narrowed)
+- **Native-HLR global SILHOUETTE tracer** for analytic-quadric faces: trace the `normal·viewDir==0`
+  locus as a continuous curve over each analytic surface's full (u,v) trim (u-scan AND v-scan, or
+  a proper level-set march), emit it as `HlrEdgeKind::Silhouette` outline polylines, so a
+  curved import's outline matches OCCT independent of faceting. Re-run `native_vs_occt_hlr_import`
+  → the CYLINDER front(-Y) case must reach the chordal tolerance (like top(-Z)).
+- THEN the drop sequence in this brief's top half is unblocked: flip the Drawings FEAT gate
+  default-ON, migrate `projectView` + section back-half off `HLRBuckets`/`runHLR` onto
+  `hiddenLineRemoval`, capture goldens + convert `native_vs_occt_hlr*` to native-only, remove the
+  OCCT HLR `#include`s + `runHLR`/`HLRBuckets`, drop `TKHLR` from `OCCT_LIBS`.
+
+## Gate results at the end of attempt 2 (all GREEN, TKHLR intact)
+- `otool -L build/Release/forge-kernel.node | grep -c opencascade` → **17** (TKHLR still linked).
+- `JOBS=3 bash test/native/run_native.sh` → **ALL 137 NATIVE GATES PASS**.
+- `FORGE_KERNEL=build/Release/forge-kernel.node node test/native_vs_occt_core.mjs` → **34/34**.
+- `native_vs_occt_hlr` → **2/2** (rel≤5e-15, box + holed block UNCHANGED under cull default-ON);
+  `native_vs_occt_hlr_persp` → **PASS both scenes**; `brep/hlr_test` → **29/29**.
+- `test/build_hlr_import_gate.sh` (`native_vs_occt_hlr_import`) → **9/9 asserted PASS** (NEW gate).
+- `drawings_smoke.cjs` / `.js` / `drawings_extra_smoke.js` → **ALL PASS** (OCCT path, FEAT gate OFF,
+  unchanged: front `visible=4 hidden=388`).
+- `node test/coherence_logic_score.mjs` → **DISCRIMINATION PASS** (clean 1.0000 vs incoherent 0.0435).
