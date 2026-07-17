@@ -32,6 +32,7 @@
 #include <TopAbs.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
@@ -113,13 +114,24 @@ struct EdgeSamples {
     std::vector<gp_Pnt> p;                      // GLOBAL 3-D points at t (shared)
     bool                usable = false;         // false => no 3-D curve (degenerate)
 };
-using EdgeCache = std::map<const void*, EdgeSamples>;
+// Keyed on the edge's (TShape + Location) identity — NOT the TShape alone. Two
+// edges can share a TShape yet sit at different Locations (a MakePrism top ring is
+// the bottom ring's TShape translated; a MakeRevol copy; a boolean operand placed by
+// BRepBuilderAPI_Transform(copy=false)). Because es.p holds GLOBAL points
+// (BRep_Tool::Curve applies the edge Location), a TShape-only key returned the
+// first-visited instance's points for every co-TShape edge => phantom facets at the
+// wrong place. TopTools_IndexedMapOfShape uses IsSame (TShape+Location, orientation-
+// independent) and is collision-safe, so idx.Add(e) is a stable per-placed-edge key.
+struct EdgeCache {
+    TopTools_IndexedMapOfShape idx;          // unique placed-edge index (IsSame)
+    std::map<int, EdgeSamples>  samples;     // idx -> discretisation
+};
 
 const EdgeSamples& edgeSamplesFor(const TopoDS_Edge& e, EdgeCache& cache,
                                   double linDefl, double angDefl) {
-    const void* key = e.TShape().get();
-    auto it = cache.find(key);
-    if (it != cache.end()) return it->second;
+    const int key = cache.idx.Add(e);   // stable per (TShape+Location); IsSame, orient-independent
+    auto it = cache.samples.find(key);
+    if (it != cache.samples.end()) return it->second;
 
     EdgeSamples es;
     Standard_Real rf = 0.0, rl = 0.0;
@@ -132,7 +144,7 @@ const EdgeSamples& edgeSamplesFor(const TopoDS_Edge& e, EdgeCache& cache,
         for (double t : es.t) es.p.push_back(c3d->Value(t));
         es.usable = es.p.size() >= 2;
     }
-    auto res = cache.emplace(key, std::move(es));
+    auto res = cache.samples.emplace(key, std::move(es));
     return res.first->second;
 }
 
