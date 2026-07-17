@@ -732,4 +732,26 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
             BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
         )
     endif()
+
+    # -------- standalone headless C++ MESH-FEED probe --------
+    # Same node-free linkage as forge_foundation_probe; drives the renderer's data
+    # feed — tessellateLOD(High) -> Mesh -> exportStl — and asserts the mesh/STL
+    # invariants (triangle-aligned, finite, AABB matches the solid, binary-STL layout
+    # exact). Proves the kernel->mesh pipeline the Vulkan renderer will consume works
+    # standalone C++ with zero Node (the renderer itself needs the Vulkan SDK, later).
+    add_executable(forge_mesh_probe
+        "${CMAKE_SOURCE_DIR}/../forge-desktop/mesh_probe.cpp")
+    target_include_directories(forge_mesh_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}"
+    )
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_mesh_probe PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_mesh_probe PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_mesh_probe PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
+        )
+    endif()
 endif()

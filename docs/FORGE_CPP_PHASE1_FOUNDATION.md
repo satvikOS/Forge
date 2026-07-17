@@ -154,3 +154,29 @@ adapter. The next Phase-1 steps (`docs/FORGE_CPP_MIGRATION.md` §2.1) — GLFW+V
 window, zero-copy tessellation into mapped Vulkan buffers, the viewport algorithms — build **on
 top of** this same `forge_kernel_core` link, calling `forge::tessellate` → `Mesh` (plain
 `std::vector`s, already `memcpy`-ready) with no Node in the process.
+
+---
+
+## 8. Mesh-feed probe (`forge_mesh_probe`) — the render data-feed, proven standalone
+
+The Vulkan renderer is blocked on this machine (no Vulkan SDK / MoltenVK installed:
+`VULKAN_SDK` unset, no `libvulkan`/`libMoltenVK`), so the renderer itself is a later step. But its
+**input** — the exact per-frame pipeline `ShapeHandle → tessellateLOD(High) → Mesh{positions,
+indices, normals} → GPU buffer` — is fully provable headlessly, and now is. `forge-desktop/mesh_probe.cpp`
+(a second option-gated target `forge_mesh_probe`, same node-free `forge_kernel_core` link) drives
+`forge::tessellateLOD` + `forge::io::exportStl` and asserts the mesh/STL invariants. Measured (real
+run, exit 0, **48/48 checks**):
+
+| body | verts | tris | AABB | STL (ascii) |
+|---|---|---|---|---|
+| `makeBox(10,10,10)`        | 8   | 12  | [0,10]³                    | 12 facets, 1480 B |
+| `makeCylinder(5,10)`       | 256 | 508 | [-5,5]×[-5,5]×[0,10]        | 508 facets |
+| `box − cyl(r2) through`    | 264 | 528 | [0,10]³ (bore adds a wall) | 528 facets |
+
+Checks per body: positions/indices triangle-aligned, every coordinate finite, one normal per
+vertex, every index in range, vertex AABB matches the solid's known bounds, the curved cylinder
+carries far more triangles than the planar box (the tessellator sampled the curve), and
+`exportStl` wrote a valid STL whose facet count matches the body (format-agnostic: ASCII facet
+count *or* binary offset-80 layout). Note: `forge::io::exportStl` emits **ASCII** STL regardless of
+the `ascii` argument on this build — documented here, not worked around. Build:
+`cmake -B build -DFORGE_BUILD_DESKTOP_FOUNDATION=ON && cmake --build build -j3 --target forge_mesh_probe && ./build/forge_mesh_probe`.
