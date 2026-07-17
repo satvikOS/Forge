@@ -68,7 +68,6 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <gp_Circ.hxx>
-#include <BRepBuilderAPI_Sewing.hxx>
 #include <BRep_Builder.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Geom_BSplineCurve.hxx>
@@ -87,7 +86,6 @@
 #include <Geom_Plane.hxx>
 #include <Law_Linear.hxx>
 #include <Precision.hxx>
-#include <ShapeFix_Shape.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>

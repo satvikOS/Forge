@@ -46,7 +46,6 @@
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomLProp_SLProps.hxx>
 #include <Precision.hxx>
-#include <ShapeFix_Wire.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array2OfPnt.hxx>
