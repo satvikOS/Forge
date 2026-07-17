@@ -66,3 +66,77 @@ globally flip FORGE_SURFACE_TESSELLATE).
   progress, and report honestly. No faked pass; the native tessellator reports failure rather than
   emit a non-watertight/degenerate mesh.
 ```
+
+---
+
+## VERIFICATION LOG — attempt 2026-07-17 (honest BLOCKER; TKMesh NOT dropped, tree reverted)
+
+**Corrected state:** otool `opencascade` count is **17** (K4/TKHLR was NOT dropped, per the earlier
+honest-blocker commit). K5 therefore targets **17 → 16**, not the stale "16 → 15" above.
+
+**Outcome:** TKMesh is **NOT dropped.** Both `BRepMesh_IncrementalMesh` sites remain. The tree is
+reverted **byte-identical to HEAD** (`git diff --stat` empty). Baseline re-verified after revert:
+`otool … | grep -c opencascade` = **17**, `native_vs_occt_core.mjs` = **ALL 34 GATES PASS**,
+`fea_smoke.cjs` = PASS. This is an honest verified blocker, not a fake pass.
+
+### What was tried (all routed through the already-in-tree native mesher)
+Both sites were routed through `forge::occtmesh::triangulateShapeInPlace` (the SAME in-house per-face
+mesher already shipping for the Booleans mixed-operand soup + Drawings HLR retry — attaches a native
+`Poly_Triangulation` per face; reads OCCT surfaces/pcurves only, never TKMesh). The two BRepMesh sites'
+readback code was left unchanged.
+
+- **`src/FeaTet.cpp:724` (tet seeding) — WORKS.** Contrary to the brief's "one real risk" framing, the
+  FeaTet path was the SAFE one: `fea_smoke.cjs` PASS (1874 nodes / 10224 **volume** tets,
+  `shellTetsOnly=false`, maxDisp 17.6 µm, σ 28.7 MPa — all in band), `fea_nafems_gate.mjs` hardFail=false
+  (cantilever −0.28 %, patch machine-precision, modal 0.22 %, thermoelastic EXACT; LE1/LE10/LE11 are the
+  pre-existing documented deferred-Tet10 accuracy gap, converging). The native shared-edge boundary is
+  watertight and seeds the tet mesher correctly.
+
+- **`src/Tessellate.cpp:68` (display/viewport) — THE BLOCKER.** `native_vs_occt_core.mjs` derives each
+  op's bbox AND topology signature from `f.tessellate(h, 0.05, 0.3)` — and for the **OCCT reference**
+  side of every A/B it runs the OCCT-handle branch, i.e. the site under test. The native mesher emits
+  **phantom / mis-placed facets** for several OCCT display shape classes, breaking 6 of the 34 gates
+  (prism, cut box-box, common box∩sphere, extrude rect, extrude L-profile, revolve90). Measured, e.g.:
+  - `extrudeProfile(rect 4×3, +Z 5)` OCCT tessellated to bbox **z=[−5,5]** (phantom cap at z=−5), 8 tris
+    (should be z=[0,5], 12 tris). Native/correct = z=[0,5].
+  - `cut(box 4³, box 2×2×6 @ (1,1,−1))` OCCT tessellated with faces at **tool-LOCAL** coords
+    (x∈[0,2], z∈[1,5]) instead of global (x∈[1,3], z∈[0,4]) → bbox z=[0,5] not [0,4].
+
+### Root cause (precisely diagnosed)
+`translate`/`rotate` on the OCCT path use `BRepBuilderAPI_Transform(…, copy=false)` — a rigid
+**`TopLoc_Location`, not baked geometry**. That leaves un-baked locations that the native mesher reads
+INCONSISTENTLY: the shared-edge cache in `OcctNativeMesh.cpp` uses global 3-D edge curves
+(`BRep_Tool::Curve`, which applies the edge location) while the per-face path evaluates the OCCT
+`Geom_Surface` in a frame that can differ. BRepMesh hides this by tessellating each face self-consistently
+in its own frame; the native mesher's global-shared-edge design does not.
+
+Two partial fixes were built and **measured**, neither sufficient alone:
+1. **`OcctNativeMesh.cpp` edge-cache keyed on `(TShape, edge-location)` instead of `TShape` alone.**
+   The cache ignored the edge location, so a `MakePrism` top ring (= bottom ring's TShape translated by
+   the extrusion vector) / `MakeRevol` copy got the first-visited instance's points → phantom. The
+   location-aware key **fixed 4 of 6** (extrude / revolve90 / prism now bbox- and topology-correct).
+   This is a genuine latent-bug fix that also helps the existing Booleans/Drawings consumers. **Remaining
+   2:** `cut box-box` and `common box∩sphere` (boolean RESULTS whose faces carry a residual location →
+   surface-frame ≠ edge-frame; the cache key can't fix a per-face surface read).
+2. **Hybrid `importOcctSolid → tessellateSolidForViewport`, occtmesh fallback** (the brief's step-1
+   recommendation). `importOcctSolid` **fixed `cut box-box`** (analytic planar boolean imports faithfully)
+   but **DEFERS on the curved boolean `common box∩sphere`** (falls to occtmesh → still phantom) and
+   `tessellateSolidForViewport` **THREW** on the `draft` mesh-bridge shape (a new regression). Also
+   `importOcctSolid` imports only the FIRST solid (unsafe for compounds/multi-solid display) and ignores
+   `linearTol`/`angularTol` (fixed native fan density, not tol-controlled LOD).
+
+The irreducible remainder is **`common box∩sphere`** (a curved boolean on a `copy=false`-translated
+operand): occtmesh phantoms it, importOcctSolid defers on it. No in-scope change makes the display path
+tessellate it correctly.
+
+### Why not dropped
+A mandatory gate (`native_vs_occt_core.mjs` must be 34/34) cannot be met while the display site is native,
+and a "commit the partial" is only allowed with EVERY gate green (it isn't). The only clean fixes are
+out-of-scope and regression-risky: (a) make `translate`/`rotate` bake geometry (`copy=true`) — a core-op
+change touching every downstream boolean/lineage/gate; or (b) rework `OcctNativeMesh.cpp`'s frame handling
+(and/or extend `importOcctSolid` to curved booleans + harden `tessellateSolidForViewport` for draft) —
+surgery on shipping mesher code used by Booleans/Drawings. Per K5 discipline (honest revert, no faked or
+unverified pass), the tree was reverted to HEAD. **Recommended follow-up for the human:** land the
+edge-cache `(TShape, location)` key fix on its own (verified to fix extrude/revolve/prism, benefits
+Booleans/Drawings), then close the boolean-frame gap via `copy=true` transforms or a frame-consistent
+per-face path before re-attempting the K5 display route.
