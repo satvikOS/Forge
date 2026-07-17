@@ -105,7 +105,7 @@ set(OCCT_LIBS
     TKernel TKMath
     TKG2d TKG3d TKGeomBase TKGeomAlgo
     TKBRep TKTopAlgo TKShHealing
-    TKPrim TKBO TKBool TKFillet TKOffset
+    TKPrim TKBool TKFillet TKOffset
     TKHLR TKMesh
     TKDE TKDESTEP TKXSBase
 )
