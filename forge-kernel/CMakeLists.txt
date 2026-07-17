@@ -774,4 +774,24 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
             BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
         )
     endif()
+
+    # -------- standalone headless C++ FEATURE+DRAFTING probe --------
+    # The modeling + drafting surface: shell (a modeling feature) + projectShape (2D
+    # orthographic HLR drawing), proving the desktop app's edit + draft ops run
+    # standalone C++ with zero Node. Same node-free forge_kernel_core link.
+    add_executable(forge_feature_probe
+        "${CMAKE_SOURCE_DIR}/../forge-desktop/feature_probe.cpp")
+    target_include_directories(forge_feature_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}"
+    )
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_feature_probe PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_feature_probe PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_feature_probe PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
+        )
+    endif()
 endif()

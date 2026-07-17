@@ -211,3 +211,31 @@ standalone C++ (node-free `forge_kernel_core`, zero Node in the process):
 Next (blocked here — needs the Vulkan SDK / MoltenVK, not installed): the GLFW+Vulkan offscreen
 renderer that uploads `forge::tessellateLOD` → `Mesh` into a mapped Vulkan vertex/index buffer.
 It builds on this same link with no further kernel-decoupling risk.
+
+---
+
+## 10. Feature+drafting probe (`forge_feature_probe`) — modeling + 2D drawings, standalone
+
+Beyond the data trilogy, a CAD app must EDIT geometry and produce DRAWINGS.
+`forge-desktop/feature_probe.cpp` (option-gated `forge_feature_probe`, same node-free link)
+proves both work standalone C++ (zero Node). Real run, exit 0, **9/9 checks**:
+
+| op | result |
+|---|---|
+| `forge::part::shell(box(10³), {face0}, t=1)` | box vol 1000.000 → shell vol **564.926** (real 1 mm wall, 1 face open; 0 < shellVol < boxVol) |
+| `forge::projectShape(box, frontView())` (ortho HLR) | **4 visible + 4 hidden** polylines, screen extent **10.000 × 10.000** (matches the cube face), all coords finite |
+
+`projectShape` runs on a NATIVE solid (the native analytic HLR is exact on a NativeSolid — no
+`importOcctSolid` faceting). The box's occluded back edges correctly appear as hidden lines.
+
+### App-critical kernel surface — all proven standalone C++
+The four probes together show every kernel surface the desktop app depends on runs with **zero
+Node** on the node-free `forge_kernel_core`:
+- **geometry** — `forge_foundation_probe` (12/12)
+- **render-feed** — `forge_mesh_probe` (48/48)
+- **file-IO** — `forge_step_probe` (21/21)
+- **modeling + drafting** — `forge_feature_probe` (9/9)
+
+The N-API bridge is a fully removable adapter across the app's entire kernel dependency. The
+remaining Phase-1 work is purely the presentation layer (Vulkan/MoltenVK renderer + ImGui UI),
+blocked here only by the absent Vulkan SDK.
