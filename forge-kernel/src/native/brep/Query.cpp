@@ -520,8 +520,35 @@ PointClass pointInSolid(const Solid& solid, const Vec3& p,
 // ---------------------------------------------------------------------------
 // (3) ANALYTIC FACE INVENTORY — native G1 face identity (no OCCT).
 // ---------------------------------------------------------------------------
+// Fan-triangulate a face's outer loop and return its polygon area + area-weighted
+// centroid (chordal for a curved strip — the sum over a group's strips converges to
+// the analytic surface area/centroid as the strip count rises).
+static void faceAreaCentroid(const Face* f, double& area, Vec3& centroid) {
+    area = 0.0;
+    centroid = Vec3{0, 0, 0};
+    const Loop* lp = f->outerLoop;
+    if (!lp || !lp->first) return;
+    std::vector<Vec3> pts;
+    const Coedge* c = lp->first;
+    for (std::size_t i = 0; i < lp->coedgeCount; ++i, c = c->next) {
+        const Vertex* o = c->originVertex();
+        pts.push_back(Vec3{o->point.x, o->point.y, o->point.z});
+    }
+    if (pts.size() < 3) return;
+    Vec3 acc{0, 0, 0};
+    for (std::size_t t = 1; t + 1 < pts.size(); ++t) {
+        const Vec3 a = pts[0], b = pts[t], d = pts[t + 1];
+        const double ta = 0.5 * vlen(vcross(vsub(b, a), vsub(d, a)));
+        const Vec3 tc = vscale(vadd(vadd(a, b), d), 1.0 / 3.0);
+        area += ta;
+        acc = vadd(acc, vscale(tc, ta));
+    }
+    if (area > 1e-30) centroid = vscale(acc, 1.0 / area);
+}
+
 std::vector<AnalyticFaceInfo> analyticFaceInventory(const Solid& solid) {
     std::vector<AnalyticFaceInfo> out;
+    std::vector<Vec3> centAccum;  // area-weighted centroid accumulator, per group
     std::unordered_map<const Surface*, std::size_t> groupOf;
     for (const Shell* sh : solid.shells) {
         if (!sh) continue;
@@ -554,6 +581,7 @@ std::vector<AnalyticFaceInfo> analyticFaceInventory(const Solid& solid) {
                     af.origin = s->origin;
                     af.axis = s->axis;
                     out.push_back(std::move(af));
+                    centAccum.push_back(Vec3{0, 0, 0});
                 }
             } else {
                 // Bare-topology face (no analytic surface, e.g. the box gate): each
@@ -562,9 +590,18 @@ std::vector<AnalyticFaceInfo> analyticFaceInventory(const Solid& solid) {
                 AnalyticFaceInfo af;
                 af.kind = "plane";
                 out.push_back(std::move(af));
+                centAccum.push_back(Vec3{0, 0, 0});
             }
+            double fa;
+            Vec3 fc;
+            faceAreaCentroid(f, fa, fc);
+            out[gi].area += fa;
+            centAccum[gi] = vadd(centAccum[gi], vscale(fc, fa));
             out[gi].stripFaceCount++;
         }
+    }
+    for (std::size_t i = 0; i < out.size(); ++i) {
+        if (out[i].area > 1e-30) out[i].centroid = vscale(centAccum[i], 1.0 / out[i].area);
     }
     return out;
 }

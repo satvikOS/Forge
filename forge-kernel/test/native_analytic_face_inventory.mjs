@@ -56,6 +56,18 @@ for (let i = 0; i < CASES.length; i++) {
   // Every logical face must actually merge >=1 strip and carry the surface geometry.
   const strips = nat.reduce((s, f) => s + (f.stripFaceCount || 0), 0);
   ok(strips >= nat.length, `${c.label}: strip faces merged (${strips} strips -> ${nat.length} faces)`);
+
+  // Total surface area must match OCCT (exact for planar, chordal <=0.5% for curved).
+  k.setNativeBrep(false);
+  const occtArea = k.faceInventory(c.build()).reduce((s, f) => s + (f.area || 0), 0);
+  k.setNativeBrep(true);
+  const natArea = nat.reduce((s, f) => s + (f.area || 0), 0);
+  const tol = c.kinds.plane === c.n ? 1e-6 : 5e-3;  // planar exact, curved chordal
+  ok(Math.abs(natArea - occtArea) <= tol * Math.max(occtArea, 1),
+     `${c.label}: native area ${natArea.toFixed(3)} ~= OCCT ${occtArea.toFixed(3)} (rel<=${tol})`);
+  // Every face carries a finite centroid.
+  ok(nat.every((f) => Array.isArray(f.centroid) && f.centroid.every(Number.isFinite)),
+     `${c.label}: every face has a finite centroid`);
 }
 
 console.log(`[native-face-inv] ${pass} passed, ${fail} failed`);

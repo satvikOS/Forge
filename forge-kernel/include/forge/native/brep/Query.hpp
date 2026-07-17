@@ -120,6 +120,8 @@ struct AnalyticFaceInfo {
     double minorRadius = 0.0;  // cone top r, torus minor r
     Vec3   origin{};           // a point on the axis / on the plane
     Vec3   axis{};             // surface axis (cyl/cone/torus) or plane normal
+    double area = 0.0;         // summed strip-face area (chordal for curved faces)
+    Vec3   centroid{};         // area-weighted centroid of the merged strips
     int    stripFaceCount = 0; // underlying strip faces merged into this one
 };
 

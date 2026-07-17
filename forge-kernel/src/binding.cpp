@@ -787,9 +787,11 @@ Napi::Value NativeFaceInventory(const Napi::CallbackInfo& info) {
             o.Set("kind", Napi::String::New(env, af.kind));
             o.Set("radius", Napi::Number::New(env, af.radius));
             o.Set("minorRadius", Napi::Number::New(env, af.minorRadius));
+            o.Set("area", Napi::Number::New(env, af.area));
             o.Set("stripFaceCount", Napi::Number::New(env, double(af.stripFaceCount)));
             o.Set("axisLocation", vec3(af.origin));
             o.Set("direction", vec3(af.axis));
+            o.Set("centroid", vec3(af.centroid));
             outArr.Set(uint32_t(i), o);
         }
         return outArr;
