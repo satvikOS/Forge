@@ -107,7 +107,7 @@ set(OCCT_LIBS
     TKBRep TKTopAlgo TKShHealing
     TKPrim TKBool TKFillet TKOffset
     TKHLR TKMesh
-    TKDE TKDESTEP TKXSBase
+    TKDESTEP TKXSBase
 )
 # OCCT-zero progress (2026-07-06): dropped 3 dead-linked dylibs TKDEIGES/TKDESTL/TKDEVRML —
 # IGES read is native (IgesRead.cpp), STL is native both ways (MeshExchange), no VRML path exists.
