@@ -9,10 +9,10 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
-#include <map>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 
 namespace forge {
 namespace native {
@@ -320,59 +320,213 @@ inline bool pointInTri(const ViewTri& T, double qu, double qv, double slack) {
     return b0 >= -slack && b1 >= -slack && b2 >= -slack;
 }
 
-// A planar/curved face's occlusion triangles, split into occluders + windows.
-struct FaceOccluder {
-    std::uint32_t faceId = 0;
-    std::vector<ViewTri> solid;   // outer-loop / surface triangles (occluders)
-    std::vector<ViewTri> window;  // inner-loop (hole) triangles (let view through)
-};
+// ===========================================================================
+// OccluderBVH — a 2D bounding-volume hierarchy over the PROJECTED occluder
+// triangle soup (the view (u,v) plane), the ACCELERATION structure that turns
+// the per-piece occlusion tests from O(triangles) into O(log n).
+//
+// The two hot occlusion tests (occludedPoint, segmentSplitCandidates) each used
+// to scan EVERY occluder triangle of EVERY face per edge piece — O(edges ×
+// samples × triangles). For a drilled box (~50k occluder triangles) that is the
+// ~5–20 s/view wall the K4 attempt-3 log measured. The BVH answers the two
+// spatial queries those tests actually need:
+//   * queryPoint(u,v)          -> triangles whose 2D AABB CONTAINS the point
+//   * queryBox(bbox of segment) -> triangles whose 2D AABB OVERLAPS the segment box
+// and the callers run the EXACT SAME interior tests (pointInTri / insideSegTri /
+// planeDepthAt) over that pruned candidate set.
+//
+// OUTPUT-PRESERVING (byte-for-byte): the BVH returns a conservative SUPERSET of
+// the triangles that could contribute — a triangle whose 2D AABB does not meet
+// the query cannot pass pointInTri / insideSegTri anyway, so it never added a
+// cut or an occlusion in the brute-force scan either. Every stored AABB is padded
+// by a tiny relative epsilon (>= the interior tests' 1e-9 / 1e-12 barycentric
+// slack footprint) so a triangle those tests would accept AT THEIR TOLERANCE is
+// never pruned. Both occlusion results are therefore identical to the pre-BVH
+// scan: the split-candidate MULTISET is identical (same triangles, same
+// arithmetic; sort+unique is order-independent) and the occludedPoint boolean is
+// identical (a per-face predicate OR'd over faces, order-independent).
+// The tree splits by the MEDIAN INDEX on the longer centroid axis, so depth is
+// log2(n) regardless of coordinate degeneracy.
+// ===========================================================================
+struct OccluderBVH {
+    struct Item {
+        double bmin[2], bmax[2];   // padded 2D AABB (u,v)
+        double cx, cy;             // centroid (for the split)
+        const ViewTri* tri;        // into the caller's stable triangle soup
+    };
+    struct Node {
+        double bmin[2], bmax[2];
+        std::uint32_t start = 0, count = 0;   // count>0 => leaf owning items[start..)
+        std::uint32_t left = 0, right = 0;    // internal children
+    };
+    std::vector<Item> items;
+    std::vector<Node> nodes;
 
-// Group the flat triangle soup by source face into occluder records.
-inline std::vector<FaceOccluder> groupByFace(const std::vector<ViewTri>& tris) {
-    std::map<std::uint32_t, std::size_t> idx;
-    std::vector<FaceOccluder> out;
-    for (const ViewTri& t : tris) {
-        auto it = idx.find(t.faceId);
-        std::size_t k;
-        if (it == idx.end()) { k = out.size(); idx[t.faceId] = k;
-                               out.push_back(FaceOccluder{t.faceId, {}, {}}); }
-        else k = it->second;
-        (t.isHole ? out[k].window : out[k].solid).push_back(t);
+    void build(const std::vector<ViewTri>& tris) {
+        items.clear();
+        nodes.clear();
+        if (tris.empty()) return;
+        items.reserve(tris.size());
+        double ext = 0.0;
+        for (const ViewTri& t : tris) {
+            Item it;
+            it.tri = &t;
+            it.bmin[0] = std::min({t.u[0], t.u[1], t.u[2]});
+            it.bmax[0] = std::max({t.u[0], t.u[1], t.u[2]});
+            it.bmin[1] = std::min({t.v[0], t.v[1], t.v[2]});
+            it.bmax[1] = std::max({t.v[0], t.v[1], t.v[2]});
+            it.cx = 0.5 * (it.bmin[0] + it.bmax[0]);
+            it.cy = 0.5 * (it.bmin[1] + it.bmax[1]);
+            ext = std::max(ext, std::max(it.bmax[0] - it.bmin[0],
+                                         it.bmax[1] - it.bmin[1]));
+            items.push_back(it);
+        }
+        // Pad each AABB by a tiny relative epsilon (far above the interior tests'
+        // ~1e-9·extent slack footprint) so pruning can NEVER drop a triangle the
+        // exact tests would accept -> output stays byte-for-byte identical.
+        const double pad = 1e-7 * (ext > 0.0 ? ext : 1.0);
+        for (Item& it : items) {
+            it.bmin[0] -= pad; it.bmin[1] -= pad;
+            it.bmax[0] += pad; it.bmax[1] += pad;
+        }
+        nodes.reserve(2 * items.size());
+        buildRange(0, static_cast<std::uint32_t>(items.size()));
     }
-    return out;
-}
+
+    void queryPoint(double qu, double qv, std::vector<const ViewTri*>& out) const {
+        if (nodes.empty()) return;
+        std::uint32_t stack[64];
+        int sp = 0;
+        stack[sp++] = 0;
+        while (sp > 0) {
+            const Node& nd = nodes[stack[--sp]];
+            if (qu < nd.bmin[0] || qu > nd.bmax[0] ||
+                qv < nd.bmin[1] || qv > nd.bmax[1]) continue;
+            if (nd.count > 0) {
+                for (std::uint32_t i = 0; i < nd.count; ++i) {
+                    const Item& it = items[nd.start + i];
+                    if (qu >= it.bmin[0] && qu <= it.bmax[0] &&
+                        qv >= it.bmin[1] && qv <= it.bmax[1])
+                        out.push_back(it.tri);
+                }
+            } else {
+                stack[sp++] = nd.left;
+                stack[sp++] = nd.right;
+            }
+        }
+    }
+
+    void queryBox(double xmin, double ymin, double xmax, double ymax,
+                  std::vector<const ViewTri*>& out) const {
+        if (nodes.empty()) return;
+        std::uint32_t stack[64];
+        int sp = 0;
+        stack[sp++] = 0;
+        while (sp > 0) {
+            const Node& nd = nodes[stack[--sp]];
+            if (xmax < nd.bmin[0] || xmin > nd.bmax[0] ||
+                ymax < nd.bmin[1] || ymin > nd.bmax[1]) continue;
+            if (nd.count > 0) {
+                for (std::uint32_t i = 0; i < nd.count; ++i) {
+                    const Item& it = items[nd.start + i];
+                    if (xmax >= it.bmin[0] && xmin <= it.bmax[0] &&
+                        ymax >= it.bmin[1] && ymin <= it.bmax[1])
+                        out.push_back(it.tri);
+                }
+            } else {
+                stack[sp++] = nd.left;
+                stack[sp++] = nd.right;
+            }
+        }
+    }
+
+private:
+    std::uint32_t buildRange(std::uint32_t first, std::uint32_t last) {
+        const std::uint32_t ni = static_cast<std::uint32_t>(nodes.size());
+        nodes.push_back(Node{});
+        Node nd;
+        nd.bmin[0] = nd.bmin[1] = std::numeric_limits<double>::infinity();
+        nd.bmax[0] = nd.bmax[1] = -std::numeric_limits<double>::infinity();
+        for (std::uint32_t i = first; i < last; ++i) {
+            nd.bmin[0] = std::min(nd.bmin[0], items[i].bmin[0]);
+            nd.bmin[1] = std::min(nd.bmin[1], items[i].bmin[1]);
+            nd.bmax[0] = std::max(nd.bmax[0], items[i].bmax[0]);
+            nd.bmax[1] = std::max(nd.bmax[1], items[i].bmax[1]);
+        }
+        const std::uint32_t n = last - first;
+        constexpr std::uint32_t kLeaf = 4;
+        if (n <= kLeaf) {
+            nd.start = first;
+            nd.count = n;
+            nodes[ni] = nd;              // indices (not refs) survive vector growth
+            return ni;
+        }
+        const int axis = (nd.bmax[0] - nd.bmin[0]) >= (nd.bmax[1] - nd.bmin[1]) ? 0 : 1;
+        const std::uint32_t mid = first + n / 2;
+        std::nth_element(items.begin() + first, items.begin() + mid,
+                         items.begin() + last,
+                         [axis](const Item& a, const Item& b) {
+                             return (axis == 0 ? a.cx : a.cy) <
+                                    (axis == 0 ? b.cx : b.cy);
+                         });
+        const std::uint32_t l = buildRange(first, mid);
+        const std::uint32_t r = buildRange(mid, last);
+        nd.count = 0;
+        nd.left = l;
+        nd.right = r;
+        nodes[ni] = nd;
+        return ni;
+    }
+};
 
 // ROBUST point occlusion (hole-aware): is the projected point (uq,vq,dq) hidden
 // by some face of the solid other than the edge's own incident faces? A face F
 // hides the point iff the point lands inside F's outer projection, F's plane sits
 // strictly in front (nearer the viewer by > depthBias), and the point is NOT
 // inside one of F's hole windows (which would let the view straight through F).
-inline bool occludedPoint(const std::vector<FaceOccluder>& faces,
+// BVH-accelerated: only triangles whose 2D AABB contains the point are tested;
+// per-face flags (bit0 = a solid tri occludes, bit1 = a window tri passes through)
+// are OR-aggregated over that candidate set, then a face hides iff bit0 && !bit1.
+// This is the SAME per-face predicate the pre-BVH scan applied, OR'd over faces.
+inline bool occludedPoint(const OccluderBVH& bvh,
                           double uq, double vq, double dq,
                           const std::unordered_set<std::uint32_t>& skipFaces,
                           double depthBias) {
-    for (const FaceOccluder& F : faces) {
-        if (skipFaces.count(F.faceId)) continue;
-        bool inFront = false;
-        for (const ViewTri& T : F.solid) {
-            if (!pointInTri(T, uq, vq, 1e-12)) continue;
-            double dT = planeDepthAt(T, uq, vq);
-            if (dT < dq - depthBias) { inFront = true; break; }
+    static thread_local std::vector<const ViewTri*> refs;
+    refs.clear();
+    bvh.queryPoint(uq, vq, refs);
+    if (refs.empty()) return false;
+    static thread_local std::vector<std::pair<std::uint32_t, unsigned char>> agg;
+    agg.clear();
+    auto flags = [&](std::uint32_t fid) -> unsigned char& {
+        for (auto& pr : agg) if (pr.first == fid) return pr.second;
+        agg.emplace_back(fid, static_cast<unsigned char>(0));
+        return agg.back().second;
+    };
+    for (const ViewTri* T : refs) {
+        if (skipFaces.count(T->faceId)) continue;
+        if (T->isHole) {
+            if (pointInTri(*T, uq, vq, 1e-9)) flags(T->faceId) |= 0x2;   // through
+        } else {
+            if (pointInTri(*T, uq, vq, 1e-12)) {
+                double dT = planeDepthAt(*T, uq, vq);
+                if (dT < dq - depthBias) flags(T->faceId) |= 0x1;        // in front
+            }
         }
-        if (!inFront) continue;
-        bool through = false;
-        for (const ViewTri& T : F.window)
-            if (pointInTri(T, uq, vq, 1e-9)) { through = true; break; }
-        if (!through) return true;
     }
+    for (const auto& pr : agg)
+        if ((pr.second & 0x1) && !(pr.second & 0x2)) return true;
     return false;
 }
 
 // ANALYTIC split candidates: every param t∈(0,1) at which the visibility of the
 // straight projected segment A->B could change — outline entry/exit against each
 // occluder / window triangle, plus the depth crossing of each occluder plane.
+// BVH-accelerated: only triangles whose 2D AABB overlaps the segment's bounding
+// box are tested; insideSegTri then filters to the exact contributing set, so the
+// candidate MULTISET (hence the sorted+unique result) is identical to the scan.
 inline std::vector<double> segmentSplitCandidates(
-        const std::vector<FaceOccluder>& faces,
+        const OccluderBVH& bvh,
         double uA, double vA, double dA,
         double uB, double vB, double dB,
         const std::unordered_set<std::uint32_t>& skipFaces) {
@@ -380,27 +534,31 @@ inline std::vector<double> segmentSplitCandidates(
     auto add = [&](double t) {
         if (t > 1e-12 && t < 1.0 - 1e-12) cuts.push_back(t);
     };
-    for (const FaceOccluder& F : faces) {
-        if (skipFaces.count(F.faceId)) continue;
-        auto handle = [&](const ViewTri& T, bool depthToo) {
-            double te, tx;
-            if (!insideSegTri(T, uA, vA, uB, vB, te, tx)) return;
-            add(te);                       // outline crossing (enter)
-            add(tx);                       // outline crossing (leave)
-            if (!depthToo) return;
-            // depth crossing g(t)=depth_seg-depth_plane==0 within the overlap.
-            double ue = uA + te * (uB - uA), ve = vA + te * (vB - vA);
-            double ux = uA + tx * (uB - uA), vx = vA + tx * (vB - vA);
-            double ge = (dA + te * (dB - dA)) - planeDepthAt(T, ue, ve);
-            double gx = (dA + tx * (dB - dA)) - planeDepthAt(T, ux, vx);
-            if ((ge <= 0.0) != (gx <= 0.0)) {
-                double denom = gx - ge;
-                if (std::fabs(denom) > 1e-300)
-                    add(te + (-ge / denom) * (tx - te));
-            }
-        };
-        for (const ViewTri& T : F.solid)  handle(T, true);
-        for (const ViewTri& T : F.window) handle(T, false);
+    auto handle = [&](const ViewTri& T, bool depthToo) {
+        double te, tx;
+        if (!insideSegTri(T, uA, vA, uB, vB, te, tx)) return;
+        add(te);                       // outline crossing (enter)
+        add(tx);                       // outline crossing (leave)
+        if (!depthToo) return;
+        // depth crossing g(t)=depth_seg-depth_plane==0 within the overlap.
+        double ue = uA + te * (uB - uA), ve = vA + te * (vB - vA);
+        double ux = uA + tx * (uB - uA), vx = vA + tx * (vB - vA);
+        double ge = (dA + te * (dB - dA)) - planeDepthAt(T, ue, ve);
+        double gx = (dA + tx * (dB - dA)) - planeDepthAt(T, ux, vx);
+        if ((ge <= 0.0) != (gx <= 0.0)) {
+            double denom = gx - ge;
+            if (std::fabs(denom) > 1e-300)
+                add(te + (-ge / denom) * (tx - te));
+        }
+    };
+    static thread_local std::vector<const ViewTri*> refs;
+    refs.clear();
+    const double qxmin = std::min(uA, uB), qxmax = std::max(uA, uB);
+    const double qymin = std::min(vA, vB), qymax = std::max(vA, vB);
+    bvh.queryBox(qxmin, qymin, qxmax, qymax, refs);
+    for (const ViewTri* T : refs) {
+        if (skipFaces.count(T->faceId)) continue;
+        handle(*T, !T->isHole);        // solid -> depth crossing too; window -> no
     }
     std::sort(cuts.begin(), cuts.end());
     cuts.erase(std::unique(cuts.begin(), cuts.end(),
@@ -749,10 +907,14 @@ HlrResult hiddenLineRemoval(const Solid& solid,
     }
     out.frame = fr;
 
-    // --- Build the occlusion triangle soup (view frame) + per-face grouping. --
+    // --- Build the occlusion triangle soup (view frame) + a 2D BVH over it. ---
+    // The BVH is built ONCE per view; the per-piece occlusion tests below query
+    // it (O(log n)) instead of scanning every triangle (O(n)). `tris` must outlive
+    // the BVH (it holds ViewTri pointers into it) — it does (function-local).
     std::vector<ViewTri> tris;
     for (const Face* f : faces) emitFaceTris(fr, f, opt.curveTess, tris);
-    std::vector<FaceOccluder> occFaces = groupByFace(tris);
+    OccluderBVH occBvh;
+    occBvh.build(tris);
 
     // --- Collect distinct B-rep edges + their incident face ids. -------------
     struct EdgeJob {
@@ -846,7 +1008,7 @@ HlrResult hiddenLineRemoval(const Solid& solid,
             // Analytic split points, then classify each piece by a robust
             // interior-midpoint depth test (hole-aware).
             std::vector<double> cuts = segmentSplitCandidates(
-                occFaces, uA, vA, dA, uB, vB, dB, j.incidentFaces);
+                occBvh, uA, vA, dA, uB, vB, dB, j.incidentFaces);
             cuts.insert(cuts.begin(), 0.0);
             cuts.push_back(1.0);
 
@@ -857,7 +1019,7 @@ HlrResult hiddenLineRemoval(const Solid& solid,
                 double um = uA + tm * (uB - uA);
                 double vm = vA + tm * (vB - vA);
                 double dm = dA + tm * (dB - dA);
-                char h = occludedPoint(occFaces, um, vm, dm,
+                char h = occludedPoint(occBvh, um, vm, dm,
                                        j.incidentFaces, opt.depthBias) ? 1 : 0;
                 Vec3 end = vadd(vscale(A, 1.0 - tb), vscale(B, tb));  // point at tb
                 pts.push_back(end);

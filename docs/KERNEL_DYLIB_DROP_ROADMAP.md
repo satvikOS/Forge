@@ -6,19 +6,18 @@ precise, audited plan to drop each remaining toolkit: its **direct #include coun
 `src/`**, its key sites, and the **native work** that eliminates the OCCT uses.
 
 **Active (2026-07-17):** `d493e095` (CI-green) made native `nativeFaceInventory` correct on
-STEP-imported native solids (connectivity+signature grouping). **K4 (TKHLR) ATTEMPTED → NOT
-dropped (honest blocker, all gates green, nothing shipped)** — see the VERIFICATION LOG in
-`docs/K4_HLR_DROP_BRIEF.md`. The measured blocker: `projectView`/`sectionView` take a raw
-`TopoDS_Shape`, so the only native route is `importOcctSolid → hiddenLineRemoval`, but
-`importOcctSolid` uses **faceted-topology-over-exact-geometry** — each analytic face's
-triangulation diagonal becomes a topological Edge and native HLR draws it (box → 13 hidden
-polylines incl. spurious diagonals vs OCCT's 4). This **corrects a false premise** (Drawings.cpp:411's
-"orthographic import route matches exactly" holds only for hand-built clean-topology A/B fixtures,
-never the import round-trip). Dropping TKHLR now requires native-HLR **feature-edge suppression**
-(cull coplanar + tangent/smooth edges) — a real HLR enhancement, AND curved-imported solids lose
-their analytic surface under faceting so silhouette parity is a further open question. **K5 (TKMesh
-→ 15) is the better next lead** (`docs/K5_TKMESH_DROP_BRIEF.md`) — tessellation WANTS facets, so it
-is the one drop the faceted-import limitation does not hurt.
+STEP-imported native solids (connectivity+signature grouping). **K4 (TKHLR) attempt 4 (2026-07-17):
+the native ortho HLR is now CORRECTNESS-COMPLETE (feature-edge suppression + grouped analytic
+silhouette, attempts 2–3) AND FAST — a 2D BVH over the projected occluder soup (`OccluderBVH` in
+`Hlr.cpp`) makes occlusion O(log n): ~40–50× faster, byte-for-byte identical output (drilled box
+5074→100 ms; faceted-import route attempt-3's ">100 s"→38 ms). PERF NO LONGER BLOCKS the drop.
+This perf fix is SHIPPED (all gates green).** But `TKHLR` is STILL NOT dropped on NON-perf walls:
+(a) **envelope regression** — `projectShape`/`projectView` DEFER to OCCT HLR for freeform-NURBS /
+NativeMesh / non-analytic imports (native envelope = polyhedral+analytic-quadric only); dropping
+`TKHLR` silently regresses those (Bible §0). (b) `projectView`/`sectionView` take a raw
+`TopoDS_Shape` (no handle) and the section back-half migration is UNVERIFIED. See the attempt-4
+VERIFICATION LOG in `docs/K4_HLR_DROP_BRIEF.md`. Follow-up: native freeform-silhouette tracer +
+re-plumb/A-B projectView/section, then flip+migrate+remove+drop → **16**.
 
 ## The two drop mechanisms
 1. **Transitive-only drop** (free): a toolkit with **0 direct `#include`s** is pulled only
@@ -40,7 +39,7 @@ core.mjs before pushing; CI Linux is the final proof.
 | Toolkit | #uses | Key sites | Native work to drop |
 |---|---|---|---|
 | **TKFillet** | 2 | `VarFillet.cpp` (BRepFilletAPI_MakeFillet), `Features.cpp:1138` (MakeChamfer/MakeFillet) | Native fillet (`FilletAnalytic`) covers only box-edge linear-law today. Extend native constant+variable fillet + chamfer to the general convex/concave edge-chain case, make it the default, delete the OCCT fillet path. (K3) |
-| **TKHLR** | 2 | `Drawings.cpp:211` `runHLR` + `:1018` `HLRBuckets` (HLRBRep_Algo, HLRToShape) | **K4 attempt 3 → SILHOUETTE blocker RESOLVED, still NOT dropped (perf wall).** The attempt-2 curved-silhouette gap is CLOSED: `brep::hiddenLineRemoval` now GROUPS the faceted sub-faces by analytic-surface signature + connectivity (== `analyticFaceInventory`) and traces the silhouette over each group's FULL range — closed-form iso-u lines (cyl/cone), great circle (sphere), marched (torus). **Cylinder front(-Y) 160→260, per-class V=180 H=80 rel `0`** (`native_vs_occt_hlr_import` 10/10, up from 9/9). Built-native + persp UNCHANGED (`native_vs_occt_hlr` 2/2, `hlr_test` 29/29). Native HLR is now geometrically COMPLETE (polyhedral+quadric, built AND faceted-import). REMAINING blockers to the DROP are **PERFORMANCE + plumbing**, not correctness: (a) `projectView`/`sectionView` only get a raw `TopoDS_Shape` → import route re-tessellates the ~64 bore strips via `emitFaceTris` into ~50k occluder triangles → **>100 s** vs OCCT ms; (b) even clean NativeSolid-direct native HLR is **~5.3 s/view** (~100–1000× OCCT). Needs occluder BVH + import-strip triangle reuse + re-plumb `projectView`/section bindings to pass the `ShapeHandle`. **`docs/K4_HLR_DROP_BRIEF.md` attempt-3 LOG.** |
+| **TKHLR** | 2 | `Drawings.cpp:211` `runHLR` + `:1018` `HLRBuckets` (HLRBRep_Algo, HLRToShape) | **K4 attempt 4 → PERF wall RESOLVED (2D-BVH), still NOT dropped (envelope + migration walls).** attempt-3's PERF blocker is GONE: a 2D BVH over the projected occluder soup (`OccluderBVH` in `Hlr.cpp`) makes `occludedPoint`/`segmentSplitCandidates` O(log n) — native ortho HLR is **~40–50× faster, OUTPUT BYTE-FOR-BYTE IDENTICAL**. Drilled box front (266 hidden segs): **5074 → 100 ms**; faceted-import route (attempt-3's ">100 s"): **~38 ms**; no blowup. Correctness UNCHANGED (`native_vs_occt_hlr` 2/2, `_persp` PASS, `hlr_import` 10/10, `hlr_test` 29/29, `run_native` 137/137, drawings smokes PASS, coherence PASS). REMAINING blockers are NOT perf: (a) **envelope regression** — `projectShape`/`projectView` DEFER to OCCT HLR for freeform-NURBS / NativeMesh / non-analytic imports (native's honest envelope = polyhedral+analytic-quadric); dropping `TKHLR` silently regresses those (Bible §0). (b) **`projectView`/`sectionView` migration UNVERIFIED** — raw `TopoDS_Shape` (no handle), section back-half reframe not A/B'd. `projectShape` native flip IS viable (`FORGE_NATIVE_FEATURES=1` smoke passes). Follow-up: native freeform-silhouette tracer + re-plumb+A/B projectView/section, then flip+migrate+remove+drop. **`docs/K4_HLR_DROP_BRIEF.md` attempt-4 LOG.** |
 | **TKMesh** | 2 | `Tessellate.cpp:68`, `FeaTet.cpp:724` (BRepMesh_IncrementalMesh) | **K5 ATTEMPTED → NOT dropped (measured blocker; tree reverted, otool 17).** Surprise: **FeaTet routing WORKS** (native shared-edge boundary is watertight, `fea_smoke`/`fea_nafems` pass). The BLOCKER is the **display** `Tessellate.cpp` path: the OCCT-reference side of `native_vs_occt_core.mjs` runs the site-under-test, and the in-house `occtmesh` mesher emits phantom/mislocated facets for shapes carrying un-baked `TopLoc_Location` transforms (`translate`/`rotate` use `BRepBuilderAPI_Transform(copy=false)`), breaking 6/34. Root cause: `OcctNativeMesh.cpp`'s shared-edge cache keys on `TShape` alone (ignores edge-location) + surface-frame≠edge-frame on boolean results. **Verified partial fix (recommended standalone): re-key the edge cache on `(TShape, edge-location)` → fixes 4/6 (extrude/revolve/prism) AND benefits Booleans/Drawings — a genuine latent-bug fix.** Irreducible remainder: `common box∩sphere` (curved boolean on a translated operand). Needs `copy=true`-baked transforms or a frame-consistent per-face path. **`docs/K5_TKMESH_DROP_BRIEF.md` VERIFICATION LOG.** |
 | **TKDESTEP** | 2 | `IoExchange.cpp`, `NativeOcctBridge.cpp` (STEPControl_Reader/Writer, IFSelect_ReturnStatus) | Native STEP write is default; native analytic STEP read is verified==OCCT but gated OFF. K1 = native **trimmed-NURBS STEP reader** for FOREIGN files → then STEP never touches OCCT. Biggest single interchange win. |
 | **TKXSBase** | 2 | `IoExchange.cpp` (IFSelect_ReturnStatus, Interface_Static), `NativeOcctBridge.cpp` | Coupled to TKDESTEP (STEP-io return-status/settings). Drops together with the K1 native STEP reader (or becomes transitive-only once the direct IFSelect/Interface uses are gone). |
@@ -79,11 +78,14 @@ through `importOcctSolid` inherit its **faceted topology** — fine for tessella
 2. **TKMesh** (K5, deferred) — FeaTet route already works; the display route needs step-0 + the
    `common box∩sphere` boolean-frame gap closed (`copy=true`-baked transforms or frame-consistent per-face
    read). Then drop → **16**.
-3. **TKHLR** (K4, deferred) — native-HLR feature-edge suppression (attempt 2) + grouped analytic
-   silhouette (attempt 3) are DONE; native HLR now matches OCCT on built + faceted-import solids.
-   Remaining is **performance**: an occluder BVH + import-strip triangle reuse (native `projectView`
-   is ~5–100 s/view vs OCCT ms) + re-plumb `projectView`/section bindings to pass the `ShapeHandle`
-   (avoid the faceted import for `NativeSolid` inputs), then flip gate + migrate + goldens + drop.
+3. **TKHLR** (K4, deferred) — feature-edge suppression (attempt 2) + grouped analytic silhouette
+   (attempt 3) + **2D-BVH occlusion (attempt 4)** are DONE; native ortho HLR now matches OCCT on
+   built + faceted-import solids AND is FAST (~40–50× faster; drilled box 5074→100 ms; import route
+   >100 s→38 ms; byte-for-byte identical output). Perf NO LONGER blocks. Remaining is NOT perf:
+   (a) close the **envelope regression** (native freeform-NURBS silhouette tracer, so dropping OCCT
+   HLR doesn't silently regress freeform/mesh/non-analytic inputs); (b) re-plumb + A/B
+   `projectView`/`sectionView` (raw `TopoDS_Shape`, section back-half) onto native BEFORE removing
+   the OCCT path; then flip gate + migrate + remove `runHLR`/`HLRBuckets` + drop → **16**.
 4. **K1 native STEP reader** → drops **TKDESTEP + TKXSBase** — biggest bounded win, larger build.
 5. **TKFillet** (general native fillet + chamfer) — genuinely hard geometry.
 6. **TKBool** (needs G3/G4 curved booleans) → **TKGeomAlgo/TKGeomBase/TKG2d/TKOffset**.

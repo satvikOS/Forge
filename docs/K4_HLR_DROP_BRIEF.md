@@ -321,3 +321,115 @@ flag and A/B-measured it. The silhouette is now correct, but:
   front now ASSERTED, silhouette RESTORED).
 - `drawings_smoke.cjs` / `.js` / `drawings_extra_smoke.js` → **ALL PASS** (OCCT path, FEAT gate OFF).
 - `node test/coherence_logic_score.mjs` → **DISCRIMINATION PASS** (clean 1.0000 vs incoherent 0.0435).
+
+---
+
+# VERIFICATION LOG + BLOCKER (2026-07-17, attempt 4 — PERF WALL RESOLVED (2D-BVH), TKHLR still NOT dropped)
+
+**Outcome: attempt-3's PERF blocker is RESOLVED. A 2D bounding-volume hierarchy over
+the projected occluder triangle soup turns the per-piece occlusion tests from
+O(triangles) into O(log n), making the native orthographic HLR ~40–50× faster on
+BOTH the clean-NativeSolid AND the faceted-import routes, with OUTPUT BYTE-FOR-BYTE
+IDENTICAL. But the FULL TKHLR DROP is deferred on NON-perf walls (below), so `TKHLR`
+is NOT dropped; `otool` opencascade stays 17. The perf fix is shipped + committed
+(all gates GREEN, output unchanged).**
+
+## What shipped (the fix — pure acceleration, output-preserving)
+- `src/native/brep/Hlr.cpp` — new internal `OccluderBVH`: a 2D BVH (median-index split
+  on the longer centroid axis, leaf 4, depth log2(n)) built ONCE per view over the
+  projected occluder ViewTri soup. The two hot tests now QUERY it instead of scanning
+  every triangle:
+    * `occludedPoint(...)` — `queryPoint(u,v)` returns triangles whose 2D AABB contains
+      the point; per-face flags (bit0 = a solid tri occludes, bit1 = a window/hole tri
+      passes through) are OR-aggregated over that candidate set → a face hides iff
+      `bit0 && !bit1` (the SAME per-face predicate the old scan applied, OR'd over faces).
+    * `segmentSplitCandidates(...)` — `queryBox(segment bbox)` returns triangles whose
+      2D AABB overlaps the segment; `insideSegTri` then filters to the exact contributing
+      set. The candidate MULTISET (hence the sort+unique cut list) is identical to the scan.
+  Replaced `FaceOccluder`/`groupByFace` (deleted — the BVH reads faceId+isHole off each
+  ViewTri directly). The PERSPECTIVE path (`occludedPersp`/`perspSplitCandidates`) is
+  UNCHANGED (it is native-only, not on the projectShape/projectView/section drop path).
+- BYTE-FOR-BYTE PROOF: every stored AABB is padded by `1e-7·extent` — far above the
+  interior tests' ~`1e-9·extent` barycentric-slack footprint — so pruning can never drop
+  a triangle those tests would accept at tolerance. The BVH returns a conservative
+  SUPERSET; the exact tests (`pointInTri`/`insideSegTri`/`planeDepthAt`) do the final
+  filtering, so the classified segments are identical (verified: the perf probe prints an
+  IDENTICAL `visSeg/hidSeg/V/H/totalEdges` line for the pre-BVH scan and the BVH build).
+
+## What is VERIFIED good (measured — before/after on the SAME probe, `test/build_hlr_perf.sh`)
+Drilled box 100×60×40, r10 through-bore, front(−Y). BEFORE = HEAD `99919134` Hlr.cpp
+(brute-force scan) swapped into the same probe; AFTER = the 2D-BVH. **Output byte-identical
+in every case** (`visSeg=4`, `V=280 H=440`).
+
+| bore nSeg | faces | hidden segs | BEFORE (ms) | AFTER (ms) | speedup |
+|-----------|-------|-------------|-------------|------------|---------|
+| 64        | 70    | 138         | 1323.56     | 34.24      | ~39×    |
+| 128       | 134   | 266         | **5074.21** | **100.54** | **~50×**|
+| 256       | 262   | 522         | 20143.01    | 425.16     | ~47×    |
+
+The nSeg=128 / 134-face / **266-hidden-segment** row IS attempt-3's `projectShape`
+drilled box (attempt-3 measured **~5306 ms**) → now **~100 ms**. The faceted-import
+route (attempt-3's **">100 s"** wall — `importOcctSolid` → ~400 faces / ~50k occluder
+triangles) is **~38 ms** now, correct output `visSeg=4 hidSeg=138 V=280 H=440`
+(`test/build_hlr_import_perf.sh`). **Both attempt-3 perf walls are GONE, no pathological
+blowup** — cost now scales ~linearly with tessellation.
+
+## THE REMAINING BLOCKERS — why the DROP itself is still deferred (NON-perf walls)
+Perf no longer blocks. Measured the drop's viable first step + identified two structural
+walls that keep TKHLR:
+
+1. **`projectShape` native flip is viable (measured):** `FORGE_NATIVE_FEATURES=1 node
+   test/drawings_smoke.js` (projectShape → native `hiddenLineRemoval`) PASSES —
+   front `visible=4 hidden=266` (native fragmentation; the smoke asserts `visible∈[4,12]`
+   + bbox≈50, both satisfied), top `visible=260 hidden=8`. So flipping the FEAT gate ON for
+   projectShape is clean.
+2. **WALL A — envelope regression (Bible §0 honesty):** `projectShape`/`projectView`
+   HONESTLY DEFER to OCCT `HLRBRep_Algo` for inputs OUTSIDE the native HLR envelope —
+   which `Hlr.hpp`'s own HONEST ENVELOPE names: **freeform trimmed-NURBS faces** (drawn
+   without smooth silhouette — "a follow-up"), plus **NativeMesh** handles and
+   **Torus/Revolution/non-analytic imports** where `importOcctSolid` returns `ok=false`.
+   Dropping `TKHLR` REMOVES that fallback, so those inputs would silently lose their
+   outline/silhouette (or produce an empty view + throw) — a real correctness regression on
+   non-analytic parts. Native HLR is complete for POLYHEDRAL + ANALYTIC-QUADRIC only; it is
+   NOT yet a total replacement for OCCT HLR across all inputs.
+3. **WALL B — `projectView`/`sectionView` migration is UNVERIFIED (esp. the section
+   back-half):** both take a raw `TopoDS_Shape` (not a `ShapeHandle`), so the drop needs the
+   binding re-plumb (pass the handle) + migrating `runHlrToPolylines`/`HLRBuckets` (incl. the
+   `sectionView` back-half's intricate ax2→plane-local reframe, `Drawings.cpp:1196-1248`)
+   onto native, A/B'd against OCCT BEFORE removing the OCCT path. `drawings_smoke.cjs`
+   asserts an exact-ish plain-box `hidden===4||0` (native import gives 4 ✓) but the section
+   back-half native output is not yet A/B-verified. This is bounded work, but it is a
+   backend swap that changes polyline fragmentation (native SVG ~1.7 MB vs OCCT ~220 KB —
+   payload, not correctness) and was not closed in this PERF-scoped session.
+
+## What it takes to actually drop TKHLR now (concrete follow-up, re-narrowed to NON-perf)
+- **Close the envelope (WALL A):** native-HLR freeform-NURBS smooth-silhouette tracer (the
+  documented `Hlr.hpp` follow-up), so a freeform/import part draws its outline without OCCT.
+  Until then, dropping OCCT HLR is a silent regression on non-analytic inputs — do NOT drop.
+- **Migrate + A/B `projectView`/`sectionView` (WALL B):** re-plumb the bindings to pass the
+  `ShapeHandle` (native for `NativeSolid`, `importOcctSolid` for `Occt`), route
+  visible/hidden/silhouette + the section back-half through `hiddenLineRemoval`, and A/B the
+  per-class projected lengths vs the current OCCT output on every drawings-smoke fixture
+  BEFORE removing `runHLR`/`runHlrToPolylines`/`HLRBuckets`. Update the count-sensitive smoke
+  prints to the native fragmentation (length-based, not OCCT-fragment-count).
+- THEN: remove the 3 `#include <HLR*.hxx>` + `runHLR`/`runHlrToPolylines`/`HLRBuckets`, drop
+  `TKHLR` from `OCCT_LIBS`, rebuild clean, `otool` == 16, and the true gate is **Linux CI
+  green** (macOS flat-namespace hides a bad drop). The standalone A/B gates
+  (`native_vs_occt_hlr*`, `build_hlr_import_gate.sh`) link their OWN `-lTKHLR` (brew OCCT), so
+  they keep compiling after the `.node` drop — golden conversion stays insurance, not a blocker.
+
+## Gate results at the end of attempt 4 (all GREEN, TKHLR intact — perf fix shipped)
+- `otool -L build/Release/forge-kernel.node | grep -c opencascade` → **17** (TKHLR still linked).
+- `JOBS=3 bash test/native/run_native.sh` → **ALL 137 NATIVE GATES PASS** (incl. `brep/hlr_test`
+  29/29; no new timeouts — `native_boolean_test` well within its 300 s cap; the BVH is HLR-local).
+- `node test/native_vs_occt_core.mjs` → **34/34**.
+- `native_vs_occt_hlr` → **2/2** (box iso + holed block, rel≤5e-15 UNCHANGED);
+  `native_vs_occt_hlr_persp` → **PASS both scenes** (persp path untouched);
+  `test/build_hlr_import_gate.sh` (`native_vs_occt_hlr_import`) → **10/10** (cylinder front 260,
+  box front 4v/4h — silhouette + feature-edge parity UNCHANGED under the BVH).
+- `drawings_smoke.cjs` / `.js` / `drawings_extra_smoke.js` → **ALL PASS** (OCCT path, FEAT gate
+  OFF, front `visible=4 hidden=388` unchanged).
+- `node test/coherence_logic_score.mjs` → **DISCRIMINATION PASS** (clean 1.0000 vs incoherent 0.0443).
+- PERF harnesses (new, standalone, not auto-run by `run_native.sh`): `test/build_hlr_perf.sh`
+  (native clean-solid) + `test/build_hlr_import_perf.sh` (OCCT faceted-import) — the before/after
+  evidence above.
