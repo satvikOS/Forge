@@ -9,8 +9,6 @@
 #include <STEPControl_Reader.hxx>
 #include <IFSelect_ReturnStatus.hxx>
 #include <TopoDS_Shape.hxx>
-#include <ShapeUpgrade_UnifySameDomain.hxx>
-#include <Standard_Failure.hxx>
 
 #include <atomic>
 #include <cstdint>
@@ -59,36 +57,6 @@ TopoDS_Shape occtFromNativeSolid(const native::brep::Solid& solid) {
     if (shape.IsNull()) {
         throw std::runtime_error("native->OCCT bridge: OCCT produced a null shape");
     }
-
-    // G1 ANALYTIC-FACE SURVIVAL (Parasolid/ACIS parity). The native analytic Solid
-    // carries each smooth surface (cylinder/cone/torus wall) as N angular STRIP
-    // faces (buildCylinder emits nSeg=128), so the STEP round-trip above hands OCCT
-    // 128 co-domain ADVANCED_FACEs for one cylinder — a shattered topology in which
-    // direct.* / naming / drawings / STEP-export have no well-defined analytic face
-    // to target (KERNEL_PARITY_PLAN G1, the #1 root-cause defect). Coalesce every
-    // maximal set of faces that share the SAME underlying surface into ONE analytic
-    // face here, at the single lazy-bridge point, so faceInventory/faceCount/direct
-    // all observe the canonical minimal B-rep (cylinder 3F, cone 3F, torus 1F —
-    // matching OCCT's own BRepPrimAPI). This is SAME-GEOMETRY (UnifySameDomain never
-    // moves a surface; volume/COM are byte-preserved) and SELF-LIMITING (a no-op on
-    // already-minimal planar solids: box stays 6F, so the brepExact A/B gate holds).
-    // The stored native Solid (getNativeSolid) is untouched, so native ops that
-    // consume the strip topology are unaffected. Defensive: any UnifySameDomain
-    // failure keeps the raw round-trip shape — the bridge is never made more fragile.
-    try {
-        ShapeUpgrade_UnifySameDomain unifier(
-            shape, Standard_True /*unifyEdges*/, Standard_True /*unifyFaces*/,
-            Standard_True /*concatBSplines*/);
-        unifier.Build();
-        const TopoDS_Shape unified = unifier.Shape();
-        if (!unified.IsNull()) {
-            shape = unified;
-        }
-    } catch (const Standard_Failure&) {
-        // Keep the un-unified round-trip shape (still valid): correctness of the
-        // returned solid is unchanged, only its face granularity.
-    }
-
     return shape;
 }
 
