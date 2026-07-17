@@ -18,6 +18,8 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace forge {
@@ -513,6 +515,58 @@ PointClass pointInSolid(const Solid& solid, const Vec3& p,
         if (crossings & 1) ++insideVotes; else ++outsideVotes;
     }
     return (insideVotes > outsideVotes) ? PointClass::Inside : PointClass::Outside;
+}
+
+// ---------------------------------------------------------------------------
+// (3) ANALYTIC FACE INVENTORY — native G1 face identity (no OCCT).
+// ---------------------------------------------------------------------------
+std::vector<AnalyticFaceInfo> analyticFaceInventory(const Solid& solid) {
+    std::vector<AnalyticFaceInfo> out;
+    std::unordered_map<const Surface*, std::size_t> groupOf;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) {
+            if (!f) continue;
+            const Surface* s = f->surface;
+            std::size_t gi;
+            if (s) {
+                auto it = groupOf.find(s);
+                if (it != groupOf.end()) {
+                    gi = it->second;
+                } else {
+                    gi = out.size();
+                    groupOf.emplace(s, gi);
+                    AnalyticFaceInfo af;
+                    switch (s->kind) {
+                        case SurfaceKind::Plane:    af.kind = "plane"; break;
+                        case SurfaceKind::Cylinder: af.kind = "cylinder"; break;
+                        case SurfaceKind::Cone:
+                            // a cone with equal radii IS a cylinder (buildCylinder
+                            // routes through buildCone(r,r,h)); label it faithfully.
+                            af.kind = (std::fabs(s->r1 - s->r2) <= 1e-12) ? "cylinder" : "cone";
+                            break;
+                        case SurfaceKind::Sphere:   af.kind = "sphere"; break;
+                        case SurfaceKind::Torus:    af.kind = "torus"; break;
+                        default:                    af.kind = "other"; break;
+                    }
+                    af.radius = s->r1;
+                    af.minorRadius = s->r2;
+                    af.origin = s->origin;
+                    af.axis = s->axis;
+                    out.push_back(std::move(af));
+                }
+            } else {
+                // Bare-topology face (no analytic surface, e.g. the box gate): each
+                // is its own planar logical face.
+                gi = out.size();
+                AnalyticFaceInfo af;
+                af.kind = "plane";
+                out.push_back(std::move(af));
+            }
+            out[gi].stripFaceCount++;
+        }
+    }
+    return out;
 }
 
 } // namespace brep

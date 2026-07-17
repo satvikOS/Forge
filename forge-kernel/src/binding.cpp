@@ -310,6 +310,7 @@
 #include "forge/native/implicit/SdfTree.hpp"
 #include "forge/native/implicit/IsoMesher.hpp"
 #include "forge/native/mesh/HalfEdgeMesh.hpp"
+#include "forge/native/brep/Query.hpp"
 #include "forge/native/mesh/MeshBooleanNative.hpp"
 // Task #46 — the remaining forge::native engines, bound below under exports.native
 // so Archie can call them via CUA. Pure C++20 stdlib (no OCCT/WASM/external deps).
@@ -752,6 +753,46 @@ Napi::Value NativeTessellate(const Napi::CallbackInfo& info) {
         out.Set("watertight", rep.isValid());
         out.Set("triangleCount", (double)(idx.size() / 3));
         return out;
+    });
+}
+
+// nativeFaceInventory(handle) -> [{index,kind,radius,minorRadius,axisLocation[3],
+// direction[3],stripFaceCount}] — the native G1 face-identity query. Groups the
+// native Solid's strip faces by shared Surface into canonical analytic faces
+// (cylinder=3, box=6, torus=1), matching OCCT's faceInventory WITHOUT OCCT.
+Napi::Value NativeFaceInventory(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        using namespace forge::native::brep;
+        auto env = info.Env();
+        ShapeHandle h = requireHandle(info, 0);
+        auto& reg = ShapeRegistry::instance();
+        if (reg.kindOf(h) != ShapeKind::NativeSolid) {
+            throw std::runtime_error(
+                "forge.nativeFaceInventory: handle is not a native analytic solid");
+        }
+        const Solid& s = reg.getNativeSolid(h);
+        const std::vector<AnalyticFaceInfo> faces = analyticFaceInventory(s);
+        Napi::Array outArr = Napi::Array::New(env, faces.size());
+        auto vec3 = [&](const Vec3& v) {
+            Napi::Array a = Napi::Array::New(env, 3);
+            a.Set(uint32_t(0), Napi::Number::New(env, v.x));
+            a.Set(uint32_t(1), Napi::Number::New(env, v.y));
+            a.Set(uint32_t(2), Napi::Number::New(env, v.z));
+            return a;
+        };
+        for (std::size_t i = 0; i < faces.size(); ++i) {
+            const AnalyticFaceInfo& af = faces[i];
+            Napi::Object o = Napi::Object::New(env);
+            o.Set("index", Napi::Number::New(env, double(i + 1)));
+            o.Set("kind", Napi::String::New(env, af.kind));
+            o.Set("radius", Napi::Number::New(env, af.radius));
+            o.Set("minorRadius", Napi::Number::New(env, af.minorRadius));
+            o.Set("stripFaceCount", Napi::Number::New(env, double(af.stripFaceCount)));
+            o.Set("axisLocation", vec3(af.origin));
+            o.Set("direction", vec3(af.axis));
+            outArr.Set(uint32_t(i), o);
+        }
+        return outArr;
     });
 }
 
@@ -6123,6 +6164,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 #ifdef FORGE_NATIVE_BREP
     exports.Set("nativeMassProps",  Napi::Function::New(env, NativeMassProps));
     exports.Set("nativeTessellate", Napi::Function::New(env, NativeTessellate));
+    exports.Set("nativeFaceInventory", Napi::Function::New(env, NativeFaceInventory));
     exports.Set("nativeBoolean",    Napi::Function::New(env, NativeBoolean)); // STEP 2
     // STEP 3a — A/B backend toggle + introspection for the live ops.
     exports.Set("setNativeBrep",     Napi::Function::New(env, SetNativeBrep));

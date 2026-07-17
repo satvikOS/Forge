@@ -52,6 +52,9 @@
 #include "forge/native/brep/Surface.hpp"    // Vec3 + vadd/vsub/... helpers
 #include "forge/native/brep/Topology.hpp"   // Solid
 
+#include <string>
+#include <vector>
+
 namespace forge {
 namespace native {
 namespace brep {
@@ -101,6 +104,26 @@ enum class PointClass {
 // the robust orient3d predicate so the in/out decision is stable away from ON.
 PointClass pointInSolid(const Solid& solid, const Vec3& p,
                         double onTol = 1e-9, double tessTol = 1e-9);
+
+// ---------------------------------------------------------------------------
+// (3) ANALYTIC FACE INVENTORY — the native G1 face-identity query
+// ---------------------------------------------------------------------------
+// The native builders emit each smooth analytic surface as N angular STRIP faces
+// that all share ONE Surface object (buildCone/buildSphere "Shared analytic
+// surface"). Grouping the strip faces by that Surface identity reports the solid's
+// CANONICAL analytic faces (a cylinder = 3: lateral + two caps), matching OCCT's
+// faceInventory WITHOUT OCCT and without changing topology. Two distinct planar
+// faces have distinct Surface objects, so the box still reports 6.
+struct AnalyticFaceInfo {
+    std::string kind;          // plane|cylinder|cone|sphere|torus|other
+    double radius = 0.0;       // cyl/sphere radius, cone base r, torus major R
+    double minorRadius = 0.0;  // cone top r, torus minor r
+    Vec3   origin{};           // a point on the axis / on the plane
+    Vec3   axis{};             // surface axis (cyl/cone/torus) or plane normal
+    int    stripFaceCount = 0; // underlying strip faces merged into this one
+};
+
+std::vector<AnalyticFaceInfo> analyticFaceInventory(const Solid& solid);
 
 } // namespace brep
 } // namespace native
