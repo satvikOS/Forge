@@ -26,6 +26,16 @@ option(FORGE_NATIVE_BREP "build/expose the in-house OCCT-free B-rep primitive pa
 option(FORGE_BUILD_DESKTOP_FOUNDATION
        "Also build the node-free forge_kernel_core lib + the standalone C++ foundation probe" OFF)
 
+# ---------------------------------------------------------------- desktop renderer (Pillar #10, Phase 1)
+# When ON, also build a standalone HEADLESS Vulkan/MoltenVK offscreen renderer probe
+# (forge-desktop/renderer_probe.cpp) that proves the desktop app's GPU backend runs
+# with NO window/swapchain on this Mac, and renders a real kernel mesh to a PNG. It
+# needs the Vulkan SDK (brew: molten-vk vulkan-headers vulkan-loader glslang) and links
+# the node-free forge_kernel_core, so it REQUIRES FORGE_BUILD_DESKTOP_FOUNDATION=ON too.
+# OFF by DEFAULT so the CI build is UNCHANGED (CI never sets it). Block lives at EOF.
+option(FORGE_BUILD_DESKTOP_RENDERER
+       "Also build the standalone headless Vulkan/MoltenVK offscreen renderer probe" OFF)
+
 # ---------------------------------------------------------------- N-API
 # cmake-js injects CMAKE_JS_INC + CMAKE_JS_SRC + CMAKE_JS_LIB. When
 # building directly with cmake (no cmake-js) we fall back to node_modules
@@ -794,4 +804,93 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
             BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
         )
     endif()
+endif()
+
+# ============================================================================
+# DESKTOP RENDERER (Pillar #10, Phase 1) — additive, option-gated, OFF by default.
+#
+# forge_renderer_probe : a standalone HEADLESS Vulkan-on-Metal (MoltenVK) offscreen
+#   renderer. With NO window/swapchain it creates a VkInstance + MoltenVK VkDevice,
+#   clears a 256x256 offscreen image to a known colour and reads a pixel back (the
+#   must-do smoke), then tessellates forge::makeBox via the node-free forge_kernel_core
+#   and rasterizes it with a minimal graphics pipeline into a PNG (the stretch). The
+#   two shaders (forge-desktop/shaders/renderer.{vert,frag}) are compiled to SPIR-V C
+#   headers by glslangValidator at build time and #included by the probe.
+#
+# Requires the Vulkan SDK from Homebrew (molten-vk vulkan-headers vulkan-loader
+# glslang) AND FORGE_BUILD_DESKTOP_FOUNDATION=ON (it links forge_kernel_core). OFF by
+# default: CI never sets this option, so the default build stays byte-unchanged.
+# ============================================================================
+if(FORGE_BUILD_DESKTOP_RENDERER)
+    if(NOT TARGET forge_kernel_core)
+        message(FATAL_ERROR
+            "FORGE_BUILD_DESKTOP_RENDERER also needs FORGE_BUILD_DESKTOP_FOUNDATION=ON "
+            "(the renderer probe links the node-free forge_kernel_core lib for Step 3).")
+    endif()
+    if(NOT APPLE)
+        message(FATAL_ERROR "FORGE_BUILD_DESKTOP_RENDERER targets MoltenVK on macOS only.")
+    endif()
+
+    # ---- Locate the Vulkan SDK via Homebrew (headers + loader + glslang) ----
+    find_program(BREW_EXE brew HINTS /opt/homebrew/bin /usr/local/bin REQUIRED)
+    execute_process(COMMAND ${BREW_EXE} --prefix vulkan-headers
+        OUTPUT_VARIABLE VK_HEADERS_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${BREW_EXE} --prefix vulkan-loader
+        OUTPUT_VARIABLE VK_LOADER_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${BREW_EXE} --prefix glslang
+        OUTPUT_VARIABLE GLSLANG_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND ${BREW_EXE} --prefix molten-vk
+        OUTPUT_VARIABLE MOLTENVK_PREFIX OUTPUT_STRIP_TRAILING_WHITESPACE)
+
+    set(VK_INC "${VK_HEADERS_PREFIX}/include")
+    set(VK_LOADER_LIB "${VK_LOADER_PREFIX}/lib/libvulkan.dylib")
+    set(GLSLANG_VALIDATOR "${GLSLANG_PREFIX}/bin/glslangValidator")
+    if(NOT EXISTS "${VK_INC}/vulkan/vulkan.h")
+        message(FATAL_ERROR "vulkan headers not found at ${VK_INC} (brew install vulkan-headers).")
+    endif()
+    if(NOT EXISTS "${VK_LOADER_LIB}")
+        message(FATAL_ERROR "vulkan loader not found at ${VK_LOADER_LIB} (brew install vulkan-loader).")
+    endif()
+    if(NOT EXISTS "${GLSLANG_VALIDATOR}")
+        message(FATAL_ERROR "glslangValidator not found at ${GLSLANG_VALIDATOR} (brew install glslang).")
+    endif()
+    message(STATUS "forge_renderer_probe: Vulkan headers=${VK_INC} loader=${VK_LOADER_LIB}")
+    message(STATUS "forge_renderer_probe: MoltenVK ICD (set VK_ICD_FILENAMES to run) = "
+                   "${MOLTENVK_PREFIX}/etc/vulkan/icd.d/MoltenVK_icd.json")
+
+    # ---- Compile the two GLSL shaders to SPIR-V C headers at build time ----
+    set(_shdir "${CMAKE_SOURCE_DIR}/../forge-desktop/shaders")
+    set(_gendir "${CMAKE_BINARY_DIR}/forge_renderer_shaders")
+    file(MAKE_DIRECTORY "${_gendir}")
+    add_custom_command(
+        OUTPUT "${_gendir}/renderer_vert.spv.h"
+        COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.2
+                "${_shdir}/renderer.vert" --vn vertSpv -o "${_gendir}/renderer_vert.spv.h"
+        DEPENDS "${_shdir}/renderer.vert"
+        COMMENT "glslang: renderer.vert -> renderer_vert.spv.h" VERBATIM)
+    add_custom_command(
+        OUTPUT "${_gendir}/renderer_frag.spv.h"
+        COMMAND ${GLSLANG_VALIDATOR} -V --target-env vulkan1.2
+                "${_shdir}/renderer.frag" --vn fragSpv -o "${_gendir}/renderer_frag.spv.h"
+        DEPENDS "${_shdir}/renderer.frag"
+        COMMENT "glslang: renderer.frag -> renderer_frag.spv.h" VERBATIM)
+
+    # ---- The probe: links forge_kernel_core (node-free) + the Vulkan loader ----
+    add_executable(forge_renderer_probe
+        "${CMAKE_SOURCE_DIR}/../forge-desktop/renderer_probe.cpp"
+        "${_gendir}/renderer_vert.spv.h"
+        "${_gendir}/renderer_frag.spv.h")
+    target_include_directories(forge_renderer_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}"
+        "${VK_INC}"
+        "${_gendir}")
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_renderer_probe PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_renderer_probe PRIVATE forge_kernel_core "${VK_LOADER_LIB}")
+    # libvulkan has an ABSOLUTE install name, so no rpath is needed for it; forge_kernel_core
+    # + OCCT still need the build tree + OCCT lib dir on the run path.
+    set_target_properties(forge_renderer_probe PROPERTIES
+        BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
 endif()
