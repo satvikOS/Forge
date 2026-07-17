@@ -4454,8 +4454,16 @@ Napi::Value DirectInferFeature(const Napi::CallbackInfo& info) {
 
 Napi::Value DirectFaceCount(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
+        ShapeHandle h = requireHandle(info, 0);
+        // Native handle: count canonical analytic faces (consistent with the native
+        // faceInventory) — no OCCT. cyl 3 / box 6 / torus 1.
+        if (ShapeRegistry::instance().kindOf(h) == ShapeKind::NativeSolid) {
+            return Napi::Number::New(info.Env(),
+                static_cast<double>(forge::native::brep::analyticFaceInventory(
+                    ShapeRegistry::instance().getNativeSolid(h)).size()));
+        }
         return Napi::Number::New(info.Env(),
-            static_cast<double>(forge::direct::faceCount(requireHandle(info, 0))));
+            static_cast<double>(forge::direct::faceCount(h)));
     });
 }
 
