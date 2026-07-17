@@ -180,3 +180,34 @@ carries far more triangles than the planar box (the tessellator sampled the curv
 count *or* binary offset-80 layout). Note: `forge::io::exportStl` emits **ASCII** STL regardless of
 the `ascii` argument on this build — documented here, not worked around. Build:
 `cmake -B build -DFORGE_BUILD_DESKTOP_FOUNDATION=ON && cmake --build build -j3 --target forge_mesh_probe && ./build/forge_mesh_probe`.
+
+---
+
+## 9. STEP-IO probe (`forge_step_probe`) — the file-IO backbone, proven standalone
+
+A CAD app must Open/Save. `forge-desktop/step_probe.cpp` (option-gated `forge_step_probe`,
+same node-free `forge_kernel_core` link) proves the persistence/interchange backbone —
+`ShapeHandle → exportStep → importStep → volume-preserved` — works standalone C++ with zero
+Node. Measured (real run, exit 0, **21/21 checks**):
+
+| body | vol(orig) | STEP | vol(reimport) | round-trip |
+|---|---|---|---|---|
+| `makeBox(10,10,10)`       | 1000.000000 | 6300 B   | 1000.000000 | exact |
+| `makeCylinder(5,10)`      | 785.398163  | 190251 B | 785.398163  | exact |
+| `box − cyl(r2) through`   | 874.336294  | 196102 B | 874.336294  | exact (=1000−π·4·10) |
+
+Per body: `exportStep` wrote a real STEP part file (ISO-10303-21 magic, non-trivial size),
+`importStep` re-read it to a positive-volume solid, the round-trip preserved volume to a tight
+tol (native STEP is **analytic + lossless**, so exact here), and the reimported body was itself
+re-savable (idempotent writer). Build: `cmake --build build -j3 --target forge_step_probe`.
+
+### Phase-1 foundation trilogy — COMPLETE
+The three essential kernel surfaces the desktop app depends on are now all proven to run
+standalone C++ (node-free `forge_kernel_core`, zero Node in the process):
+1. **geometry** — `forge_foundation_probe` (box/cylinder/boolean, 12/12)
+2. **render-feed** — `forge_mesh_probe` (tessellate→Mesh→STL, 48/48)
+3. **file-IO** — `forge_step_probe` (STEP round-trip, 21/21)
+
+Next (blocked here — needs the Vulkan SDK / MoltenVK, not installed): the GLFW+Vulkan offscreen
+renderer that uploads `forge::tessellateLOD` → `Mesh` into a mapped Vulkan vertex/index buffer.
+It builds on this same link with no further kernel-decoupling risk.
