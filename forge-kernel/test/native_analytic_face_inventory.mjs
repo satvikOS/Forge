@@ -68,6 +68,17 @@ for (let i = 0; i < CASES.length; i++) {
   // Every face carries a finite centroid.
   ok(nat.every((f) => Array.isArray(f.centroid) && f.centroid.every(Number.isFinite)),
      `${c.label}: every face has a finite centroid`);
+
+  // Native edge count == OCCT (except sphere, whose OCCT pole-degenerate edges the
+  // native seam model intentionally does not reproduce).
+  if (c.label.indexOf('sphere') === -1) {
+    k.setNativeBrep(false);
+    const occtEdges = k.direct.edgeCount(c.build());
+    k.setNativeBrep(true);
+    const natEdges = k.nativeEdgeCount(c.build());
+    ok(natEdges === occtEdges,
+       `${c.label}: nativeEdgeCount ${natEdges} == OCCT ${occtEdges}`);
+  }
 }
 
 console.log(`[native-face-inv] ${pass} passed, ${fail} failed`);
