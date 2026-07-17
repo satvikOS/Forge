@@ -127,6 +127,14 @@ struct AnalyticFaceInfo {
 
 std::vector<AnalyticFaceInfo> analyticFaceInventory(const Solid& solid);
 
+// Canonical analytic EDGE count (native G1, no OCCT). Groups the strip edges by the
+// unordered pair of LOGICAL faces they separate (a face pair = one edge): inter-face
+// pairs are the real feature edges, and a same-logical-face pair is a periodic seam
+// (counted once per periodic parameter direction — torus=2, cyl/cone/sphere=1). For
+// a cylinder this yields 3 (top circle + bottom circle + seam), box 12, torus 2 —
+// matching OCCT's TopExp edge count.
+int analyticEdgeCount(const Solid& solid);
+
 } // namespace brep
 } // namespace native
 } // namespace forge

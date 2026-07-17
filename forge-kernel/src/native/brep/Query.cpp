@@ -18,8 +18,10 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <set>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace forge {
@@ -604,6 +606,72 @@ std::vector<AnalyticFaceInfo> analyticFaceInventory(const Solid& solid) {
         if (out[i].area > 1e-30) out[i].centroid = vscale(centAccum[i], 1.0 / out[i].area);
     }
     return out;
+}
+
+int analyticEdgeCount(const Solid& solid) {
+    // Logical group index per Face (shared Surface*; a bare face is its own group).
+    std::unordered_map<const Surface*, int> surfGroup;
+    std::unordered_map<const Face*, int> faceGroup;
+    std::vector<const Surface*> groupSurf;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) {
+            if (!f) continue;
+            const Surface* s = f->surface;
+            int gi;
+            if (s) {
+                auto it = surfGroup.find(s);
+                if (it != surfGroup.end()) {
+                    gi = it->second;
+                } else {
+                    gi = static_cast<int>(groupSurf.size());
+                    surfGroup.emplace(s, gi);
+                    groupSurf.push_back(s);
+                }
+            } else {
+                gi = static_cast<int>(groupSurf.size());
+                groupSurf.push_back(nullptr);
+            }
+            faceGroup.emplace(f, gi);
+        }
+    }
+    auto faceOf = [](const Coedge* ce) -> const Face* {
+        return (ce && ce->loop) ? ce->loop->face : nullptr;
+    };
+    std::set<std::pair<int, int>> interPairs;  // distinct inter-face edges
+    std::set<int> seamGroups;                  // logical faces bearing a periodic seam
+    std::unordered_set<const Edge*> seen;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) {
+            if (!f) continue;
+            auto visit = [&](const Loop* lp) {
+                if (!lp || !lp->first) return;
+                const Coedge* c = lp->first;
+                for (std::size_t i = 0; i < lp->coedgeCount; ++i, c = c->next) {
+                    const Edge* e = c->edge;
+                    if (!e || !seen.insert(e).second) continue;
+                    const Face* fa = faceOf(e->coedgeA);
+                    const Face* fb = faceOf(e->coedgeB);
+                    if (!fa || !fb) continue;
+                    const auto ia = faceGroup.find(fa), ib = faceGroup.find(fb);
+                    if (ia == faceGroup.end() || ib == faceGroup.end()) continue;
+                    const int ga = ia->second, gb = ib->second;
+                    if (ga == gb) seamGroups.insert(ga);
+                    else interPairs.insert({std::min(ga, gb), std::max(ga, gb)});
+                }
+            };
+            visit(f->outerLoop);
+            for (const Loop* il : f->innerLoops) visit(il);
+        }
+    }
+    int count = static_cast<int>(interPairs.size());
+    for (const int g : seamGroups) {
+        const Surface* s =
+            (g >= 0 && g < static_cast<int>(groupSurf.size())) ? groupSurf[g] : nullptr;
+        count += (s && s->kind == SurfaceKind::Torus) ? 2 : 1;  // periodic directions
+    }
+    return count;
 }
 
 } // namespace brep

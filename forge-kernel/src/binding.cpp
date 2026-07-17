@@ -4471,8 +4471,15 @@ Napi::Value DirectFaceCount(const Napi::CallbackInfo& info) {
 // can default to "all edges" when no selection is supplied.
 Napi::Value DirectEdgeCount(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
+        ShapeHandle h = requireHandle(info, 0);
+        // Native handle: canonical analytic edge count (face-pair grouping), no OCCT.
+        if (ShapeRegistry::instance().kindOf(h) == ShapeKind::NativeSolid) {
+            return Napi::Number::New(info.Env(),
+                static_cast<double>(forge::native::brep::analyticEdgeCount(
+                    ShapeRegistry::instance().getNativeSolid(h))));
+        }
         return Napi::Number::New(info.Env(),
-            static_cast<double>(forge::direct::edgeCount(requireHandle(info, 0))));
+            static_cast<double>(forge::direct::edgeCount(h)));
     });
 }
 
