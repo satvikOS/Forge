@@ -128,8 +128,19 @@ $ otool -L build/Release/libforge_kernel_core.dylib | grep -iE 'napi|node'  → 
 ```
 
 The probe depends on `libforge_kernel_core` + libc++ + libSystem **only** — no Node, no N-API.
-`forge_kernel_core` links 17 OCCT dylibs and no Node lib. It links as a normal shared lib (all
-symbols resolved at link time), which by itself proves no non-binding source needed Node.
+`forge_kernel_core` links 17 OCCT dylibs and no Node lib, and carries **zero** `napi`/`node`
+undefined symbols — the load-bearing node-free proof.
+
+**Accuracy note (corrected after the `forge_ui_probe` strict link, 2026-07-17):** the shipping
+`build/` is a cmake-js tree that sets `-undefined dynamic_lookup` **globally**, so
+`forge_kernel_core` there inherits it and does NOT strictly resolve every symbol at link time — an
+earlier revision of this section overstated that. A truly strict (non-`dynamic_lookup`) link
+surfaced two deferred symbols: (1) `forge::native::implicit::MeshToSDF::build` — a real omitted-source
+gap (`MeshToSDF.cpp` was missing from the `add_library` list), **fixed in `602062dd`**; and (2)
+OCCT `TKBO` boolean symbols, resolved transitively via the linked toolkits' flat-namespace load
+(normal OCCT behavior, not a gap). Post-fix, `nm -u forge-kernel.node | c++filt | grep forge::`
+is **empty** — every in-house symbol resolves; only OCCT/system symbols remain deferred, which is
+the expected flat-namespace linkage and does not affect the node-free property.
 
 ---
 
