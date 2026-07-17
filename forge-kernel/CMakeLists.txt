@@ -609,6 +609,7 @@ add_library(forge_kernel SHARED
     src/native/implicit/IntervalMesh.cpp    # libfive — interval-arithmetic guaranteed meshing: interval-pruned octree + topology-aware dual contour (no missed thin features)
     src/native/implicit/AdaptiveIntervalMesh.cpp    # libfive — adaptive octree-refined interval mesher (2:1-balanced + minimal-edge dual contour; ~4x fewer tris at equal Hausdorff, watertight 2-manifold across level transitions)
     src/native/implicit/MeshToFRep.cpp
+    src/native/implicit/MeshToSDF.cpp    # mesh->signed-distance field (VoxelFieldOps::fromMesh); was omitted from the source list => MeshToSDF::build was an undefined symbol masked by -undefined dynamic_lookup
     src/native/voxel/Lattice.cpp
     src/native/voxel/Morphology.cpp
     src/native/viz/FieldViz.cpp         # #65 — CAE field-visualization: warp-by-vector + viridis colormap + isosurface (reuses implicit::IsoMesher) + RK4 streamline
