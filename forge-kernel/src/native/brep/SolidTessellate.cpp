@@ -57,9 +57,12 @@ inline std::vector<Vec3> loopPts(const Loop* lp) {
 // coincident positions weld), and a periodic face's u=u0 and u=u1 columns evaluate to
 // the same points (cos u0 == cos u1) so the seam welds automatically.
 inline bool surfaceTessEnabled() {
+    // DEFAULT ON (verified watertight for every analytic primitive: cyl/cone/
+    // sphere/torus). Opt out with FORGE_SURFACE_TESSELLATE=0 for the legacy
+    // loop-corner fan (kept as an escape hatch / A/B baseline).
     static const bool on = []() {
         const char* e = std::getenv("FORGE_SURFACE_TESSELLATE");
-        return e && e[0] == '1';
+        return !(e && e[0] == '0');
     }();
     return on;
 }
