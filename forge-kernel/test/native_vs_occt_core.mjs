@@ -25,7 +25,7 @@ const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
 const require = createRequire(import.meta.url);
 
 const KERNEL = process.env.FORGE_KERNEL ||
-  path.resolve(__dirname, '..', 'build-native', 'Release', 'forge-kernel.node');
+  path.resolve(__dirname, '..', 'build', 'Release', 'forge-kernel.node');
 
 let f;
 try { f = require(KERNEL); }

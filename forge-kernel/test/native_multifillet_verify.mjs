@@ -9,7 +9,7 @@ import { fileURLToPath } from 'url';
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const KERNEL = process.env.FORGE_KERNEL ||
-  path.resolve(__dirname, '..', 'build-native', 'Release', 'forge-kernel.node');
+  path.resolve(__dirname, '..', 'build', 'Release', 'forge-kernel.node');
 const f = require(KERNEL);
 if (typeof f.setNativeBrep !== 'function') { console.error('addon lacks setNativeBrep — need -DFORGE_NATIVE_BREP=ON'); process.exit(1); }
 f.setNativeBrep(true);
