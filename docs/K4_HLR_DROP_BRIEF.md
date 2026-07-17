@@ -230,3 +230,94 @@ cylinder and A/Bs native `hiddenLineRemoval(cullSmoothEdges=ON)` vs OCCT `HLRBRe
 - `drawings_smoke.cjs` / `.js` / `drawings_extra_smoke.js` → **ALL PASS** (OCCT path, FEAT gate OFF,
   unchanged: front `visible=4 hidden=388`).
 - `node test/coherence_logic_score.mjs` → **DISCRIMINATION PASS** (clean 1.0000 vs incoherent 0.0435).
+
+---
+
+# VERIFICATION LOG + BLOCKER (2026-07-17, attempt 3 — SILHOUETTE BLOCKER RESOLVED, TKHLR still NOT dropped)
+
+**Outcome: attempt-2's remaining silhouette blocker is RESOLVED — the grouped analytic
+silhouette makes an imported curved solid's outline match OCCT (cylinder front `160 → 260`,
+per-class `V=180 H=80`, rel `0`). The native HLR is now geometrically COMPLETE for the
+polyhedral + analytic-quadric envelope on BOTH the built-native and faceted-import routes.
+But the FULL TKHLR DROP hit TWO new, measured walls (below), so `TKHLR` is NOT dropped;
+`otool` opencascade stays 17. The silhouette fix is shipped + committed (all gates GREEN).**
+
+## What shipped (the fix — commit on branch `archdisc`)
+- `src/native/brep/Hlr.cpp` — the ORTHOGRAPHIC silhouette pass now GROUPS curved sub-faces by
+  shared analytic-surface **signature** (quantised kind/axis/radii/origin) + **shared-edge
+  connectivity** (the SAME grouping `analyticFaceInventory` uses) and traces the silhouette over
+  each GROUP's **FULL** parameter range instead of per-narrow-sub-face:
+    * **Cylinder / Cone** — closed-form iso-u outline line(s): `a cos u + b sin u + c == 0`
+      (`c=0` cylinder, `c=-(r2-r1)(axis·N)` cone), one straight line `S(u,vMin)→S(u,vMax)` per root
+      in the trim. This is the exact locus the old per-sub-face **v-scan** could never find (a
+      cylinder's radial normal is CONSTANT in v).
+    * **Sphere** — the exact great circle in the plane through the centre ⟂ N, clipped to the (u,v)
+      trim.
+    * **Torus** — marched `normal·N==0` locus over the grouped grid (both scan directions),
+      greedily stitched (no closed form; strictly better than the per-strip march that found none).
+  Each curve skips its whole group's face-id set so the surface does not self-occlude its outline
+  (== OCCT `OutLineVCompound`). The built-native and PERSPECTIVE paths are UNCHANGED.
+- `test/native_vs_occt_hlr_import.cpp` — the CYLINDER front(-Y) case is upgraded from MEASURE-only
+  to an ASSERTED total-length gate (native `260` == OCCT `260`, chordal tol). **10/10** (was 9/9).
+
+## What is VERIFIED good (measured, machine-precision — the fix)
+- `test/build_hlr_import_gate.sh` → **10/10 ASSERTED**. CYLINDER r20 h50 front(-Y): OCCT
+  `vis=4 hid=2 V=180 H=80 tot=260`, NATIVE `V=180 H=80 tot=260`, **totRel 0.000e+00** — the 2
+  analytic silhouette lines RESTORED. BOX front `4v/4h` rel `0`, iso `9v/3h` rel `5e-16` UNCHANGED.
+- `native_vs_occt_hlr` → **2/2** (box iso + holed block, rel≤5e-15 UNCHANGED — bare-polygon faces
+  are never grouped); `native_vs_occt_hlr_persp` → **PASS both scenes**; `brep/hlr_test` → **29/29**;
+  `run_native.sh` → **137/137**; `native_vs_occt_core.mjs` → **34/34**; drawings smokes → **ALL PASS**
+  (FEAT gate OFF, OCCT path unchanged); `forge:coherence` → **DISCRIMINATION PASS**.
+
+## THE REMAINING BLOCKERS — why the DROP itself is deferred (two measured walls)
+Wired the native HLR into `projectView`/`sectionView` (import → `hiddenLineRemoval`) behind the FEAT
+flag and A/B-measured it. The silhouette is now correct, but:
+
+1. **`projectView` / `sectionView` only receive a raw `TopoDS_Shape`** (the binding passes
+   `ShapeRegistry::get(h)`, not the handle), so the ONLY native route is
+   `importOcctSolid(shape) → hiddenLineRemoval`. `importOcctSolid` uses **faceted topology over
+   exact geometry**: a Ø20 bore imports as ~64 lateral strips. The occluder builder `emitFaceTris`
+   then **RE-tessellates every strip's narrow (u,v) window into an nu×nv = 48×8 = 768-triangle
+   grid** → ~**50 000 occluder triangles** for one drilled box, and the O(edges × samples ×
+   triangles) classifier makes native `projectView(drilled-box, front)` take **> 100 s** (vs OCCT
+   milliseconds). Measured: the SAME drilled box via `projectShape` (which uses the clean
+   **NativeSolid** directly — `forge.cut` returns native by default — with **one Surface per logical
+   face**, not 64 strips) runs in **5.3 s**; `projectView` importing the faceted `TopoDS_Shape` for
+   the identical shape/view runs **>100 s** (timed out at 2 min). Correctness is fine (plain box
+   `4v/4h`); the **performance is a wall** for a production HLR.
+
+2. **Even the clean NativeSolid-direct native HLR is ~5.3 s/view** for a drilled box (266 hidden
+   segments × per-segment occlusion over the bore's 768-tri fan) — **~100–1000× slower than OCCT
+   `HLRBRep_Algo`** (~ms). `projectShape`'s FEAT gate is default-OFF precisely so production uses
+   fast OCCT HLR; **dropping TKHLR removes that fast path** and forces the slow native HLR on every
+   `projectShape`/`projectView`/`sectionView` call. The drawings SMOKES pass (no time assertion),
+   but a 100–1000× HLR slowdown across all drawing generation is not an acceptable production drop.
+
+## What it takes to actually drop TKHLR now (concrete follow-up, re-narrowed)
+- **Native-HLR occluder acceleration (the real gate):** build a spatial index (BVH/grid) over the
+  occluder triangle soup so the point-occlusion + `segmentSplitCandidates` are `O(log n)` not
+  `O(n)`, AND make `emitFaceTris` **reuse a faceted-import sub-face's OWN triangle(s)** (a narrow
+  strip needs 1–2 depth triangles, not a 768-triangle re-tessellation). Target: native
+  `projectView(drilled-box)` within a small constant of OCCT (< ~50 ms).
+- **Re-plumb `projectView`/`sectionView` (public sig + `binding.cpp` `ProjectView2D`/`SectionView2D`)
+  to pass the `ShapeHandle`**, so a `NativeSolid` input (the default for `makeBox`/`cut`/…) runs the
+  native HLR on the CLEAN solid (one Surface/face) and never imports the faceted `TopoDS`. This
+  removes wall #1 for the common case; imported STEP (`ShapeKind::Occt`) bodies still need the
+  faceted-occluder acceleration above.
+- THEN the drop is unblocked: flip the FEAT gate, migrate `projectView`/section back-half off
+  `runHlrToPolylines`/`HLRBuckets`, capture goldens for `native_vs_occt_hlr*`, remove the 3
+  `#include <HLR*.hxx>` + `runHLR`/`runHlrToPolylines`/`HLRBuckets`, drop `TKHLR` from `OCCT_LIBS`.
+- NOTE the A/B oracle gates (`native_vs_occt_hlr*`, `build_hlr_import_gate.sh`) are STANDALONE
+  manual-clang builds that link their OWN `-lTKHLR` (system brew OCCT), so they keep compiling +
+  running after `TKHLR` is dropped from the `.node`'s `OCCT_LIBS` — the golden conversion is
+  insurance for the eventual full-OCCT removal, not a blocker for THIS drop.
+
+## Gate results at the end of attempt 3 (all GREEN, TKHLR intact — silhouette fix shipped)
+- `otool -L build/Release/forge-kernel.node | grep -c opencascade` → **17** (TKHLR still linked).
+- `JOBS=3 bash test/native/run_native.sh` → **ALL 137 NATIVE GATES PASS** (incl. `brep/hlr_test` 29/29).
+- `FORGE_KERNEL=build/Release/forge-kernel.node node test/native_vs_occt_core.mjs` → **34/34**.
+- `native_vs_occt_hlr` → **2/2**; `native_vs_occt_hlr_persp` → **PASS both scenes**;
+  `test/build_hlr_import_gate.sh` (`native_vs_occt_hlr_import`) → **10/10** (was 9/9 — CYLINDER
+  front now ASSERTED, silhouette RESTORED).
+- `drawings_smoke.cjs` / `.js` / `drawings_extra_smoke.js` → **ALL PASS** (OCCT path, FEAT gate OFF).
+- `node test/coherence_logic_score.mjs` → **DISCRIMINATION PASS** (clean 1.0000 vs incoherent 0.0435).
