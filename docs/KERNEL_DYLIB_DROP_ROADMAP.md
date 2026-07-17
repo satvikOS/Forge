@@ -5,6 +5,21 @@ The north-star is `otool -L build/Release/forge-kernel.node | grep -c opencascad
 precise, audited plan to drop each remaining toolkit: its **direct #include count in
 `src/`**, its key sites, and the **native work** that eliminates the OCCT uses.
 
+**Active (2026-07-17):** `d493e095` (CI-green) made native `nativeFaceInventory` correct on
+STEP-imported native solids (connectivity+signature grouping). **K4 (TKHLR) ATTEMPTED → NOT
+dropped (honest blocker, all gates green, nothing shipped)** — see the VERIFICATION LOG in
+`docs/K4_HLR_DROP_BRIEF.md`. The measured blocker: `projectView`/`sectionView` take a raw
+`TopoDS_Shape`, so the only native route is `importOcctSolid → hiddenLineRemoval`, but
+`importOcctSolid` uses **faceted-topology-over-exact-geometry** — each analytic face's
+triangulation diagonal becomes a topological Edge and native HLR draws it (box → 13 hidden
+polylines incl. spurious diagonals vs OCCT's 4). This **corrects a false premise** (Drawings.cpp:411's
+"orthographic import route matches exactly" holds only for hand-built clean-topology A/B fixtures,
+never the import round-trip). Dropping TKHLR now requires native-HLR **feature-edge suppression**
+(cull coplanar + tangent/smooth edges) — a real HLR enhancement, AND curved-imported solids lose
+their analytic surface under faceting so silhouette parity is a further open question. **K5 (TKMesh
+→ 15) is the better next lead** (`docs/K5_TKMESH_DROP_BRIEF.md`) — tessellation WANTS facets, so it
+is the one drop the faceted-import limitation does not hurt.
+
 ## The two drop mechanisms
 1. **Transitive-only drop** (free): a toolkit with **0 direct `#include`s** is pulled only
    via another linked toolkit's `DT_NEEDED`; remove its direct link and the parent still
@@ -25,8 +40,8 @@ core.mjs before pushing; CI Linux is the final proof.
 | Toolkit | #uses | Key sites | Native work to drop |
 |---|---|---|---|
 | **TKFillet** | 2 | `VarFillet.cpp` (BRepFilletAPI_MakeFillet), `Features.cpp:1138` (MakeChamfer/MakeFillet) | Native fillet (`FilletAnalytic`) covers only box-edge linear-law today. Extend native constant+variable fillet + chamfer to the general convex/concave edge-chain case, make it the default, delete the OCCT fillet path. (K3) |
-| **TKHLR** | 2 | `Drawings.cpp` (HLRBRep_Algo, HLRToShape) | Native `brep::hiddenLineRemoval` (ortho+persp analytic, 43 KB) exists but *defers to OCCT for OCCT-backed inputs*. Make native HLR handle OCCT-backed shapes (tessellate→native HLR) so Drawings never calls HLRBRep; then drop. (K4) |
-| **TKMesh** | 2 | `Tessellate.cpp:68`, `FeaTet.cpp:724` (BRepMesh_IncrementalMesh) | `forge::occtmesh` must watertight-tessellate arbitrary OCCT solids (K5_TKMESH_BLOCKER: today it mis-meshes revolves/caps). Then swap the 2 sites, drop TKMesh. (K5 — blocked on watertight OCCT-solid mesh) |
+| **TKHLR** | 2 | `Drawings.cpp:211` `runHLR` + `:1018` `HLRBuckets` (HLRBRep_Algo, HLRToShape) | **K4 ATTEMPTED → NOT dropped (measured blocker).** Native `brep::hiddenLineRemoval` is machine-precision vs OCCT on **clean native-built** solids (both A/B harnesses rel≤5e-15), and `projectShape` on a NativeSolid handle is exact. BUT `projectView`/`sectionView` take a raw `TopoDS_Shape` → only native route is `importOcctSolid→hiddenLineRemoval`, and `importOcctSolid`'s **faceted topology** makes native HLR draw triangulation diagonals (box → 13 hidden vs OCCT 4). To drop: add native-HLR **feature-edge suppression** (coplanar+tangent culling; solves polyhedral) AND resolve curved-imported silhouette parity (faceting drops the analytic surface). THEN convert `native_vs_occt_hlr*` to golden regressions (oracle removal) + drop. **`docs/K4_HLR_DROP_BRIEF.md` VERIFICATION LOG.** |
+| **TKMesh** | 2 | `Tessellate.cpp:68`, `FeaTet.cpp:724` (BRepMesh_IncrementalMesh) | **CORRECTED (K5 brief):** both uses are **OCCT-backed only** (native handles already bypass BRepMesh via `tessellateSolidForViewport`), so both are routable via `importOcctSolid`→native tessellator. The `FORGE_SURFACE_TESSELLATE` timeout is the **boolean** path, NOT display/FeaTet — so this drop likely dodges it (verify `native_boolean_test` timing). FeaTet tet-seed surface-mesh quality is the one real risk. **`docs/K5_TKMESH_DROP_BRIEF.md`.** |
 | **TKDESTEP** | 2 | `IoExchange.cpp`, `NativeOcctBridge.cpp` (STEPControl_Reader/Writer, IFSelect_ReturnStatus) | Native STEP write is default; native analytic STEP read is verified==OCCT but gated OFF. K1 = native **trimmed-NURBS STEP reader** for FOREIGN files → then STEP never touches OCCT. Biggest single interchange win. |
 | **TKXSBase** | 2 | `IoExchange.cpp` (IFSelect_ReturnStatus, Interface_Static), `NativeOcctBridge.cpp` | Coupled to TKDESTEP (STEP-io return-status/settings). Drops together with the K1 native STEP reader (or becomes transitive-only once the direct IFSelect/Interface uses are gone). |
 | **TKG2d** | 3 | `Nurbs.cpp` (Geom2d_TrimmedCurve/Line, GCE2d_MakeSegment), `OcctNativeMesh.cpp` + `OcctImport.cpp` (BRep_Tool::CurveOnSurface pcurves) | Replace OCCT 2D pcurves with native pcurves in the NURBS + import + occtmesh paths (needs native surface trimming). Then TKG2d is transitive-only via TKG3d/TKBRep → drop. |
@@ -49,12 +64,23 @@ core.mjs before pushing; CI Linux is the final proof.
 | **TKMath** | 35 | gp_/math_/Precision — pervasive. Migrate to native `Vec3`/`Matrix`/`linalg` (K6, partially done: DirectModeling/Mold/Airfoil). |
 | **TKernel / TKBRep / TKG3d** | core | The last three: TKernel (Standard_*, handles), TKBRep (`TopoDS`/`BRep_Tool`), TKG3d. Drop only when the whole B-rep is the native `Solid` and no op round-trips through `TopoDS` — the K7 opaque-handle-C-API endgame. `otool → 0`. |
 
-## Recommended order (leverage × tractability)
-1. **K1 native STEP reader** → drops **TKDESTEP + TKXSBase** (+ makes STEP fully native) — biggest bounded win.
-2. **TKFillet** (extend native fillet to general edges, delete OCCT fillet).
-3. **TKHLR** (native HLR on OCCT-backed inputs, delete OCCT HLR).
-4. **TKShHealing** + **TKPrim** (native healing/primitives already strong).
-5. **TKMesh** (needs K5 watertight OCCT-solid mesh first).
+## Recommended order (leverage × tractability — revised 2026-07-17 after the K4 attempt)
+The K4 attempt taught the key lesson: any drop that routes `projectView`-style raw-`TopoDS_Shape`
+consumers through `importOcctSolid` inherits its **faceted topology** — fine for tessellation, fatal
+for edge-based ops (HLR). Order accordingly:
+1. **TKMesh** (K5) — the one drop faceted-import does NOT hurt (tessellation wants facets). Native
+   viewport tessellator exists + is the shipping default for native handles; route the 2 OCCT-backed
+   sites (`Tessellate.cpp:68` display = low risk; `FeaTet.cpp:724` tet-seed = the one quality risk),
+   drop. → **16**. Even a partial (display-native only) is progress.
+2. **TKShHealing** + **TKPrim** — native healing/primitives already strong + mostly default; migrate
+   residual `ShapeFix_*`/`BRepPrimAPI_*` sites, drop.
+3. **TKHLR** (K4, deferred) — needs native-HLR **feature-edge suppression** (coplanar+tangent culling)
+   + curved-imported silhouette parity first; then flip gate + migrate `projectView`/section + goldens
+   + drop. Real HLR enhancement, not a flip.
+4. **K1 native STEP reader** → drops **TKDESTEP + TKXSBase** (+ makes STEP fully native) — biggest
+   bounded win but a larger build (foreign trimmed-NURBS reader).
+5. **TKFillet** (extend native fillet to general convex/concave edge chains + chamfer, delete OCCT
+   fillet) — genuinely hard geometry.
 6. **TKBool** (needs G3/G4 curved booleans) → **TKGeomAlgo/TKGeomBase/TKG2d/TKOffset**.
 7. **K6/K7**: TKMath/TKTopAlgo/TKG3d/TKBRep/TKernel — the native-`Solid`-everywhere endgame → **0**.
 
