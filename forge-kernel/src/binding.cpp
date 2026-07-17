@@ -514,7 +514,39 @@ Napi::Value UnifyFaces(const Napi::CallbackInfo& info) {
 Napi::Value FaceInventory(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto env = info.Env();
-        const std::vector<FaceInfo> faces = faceInventory(requireHandle(info, 0));
+        ShapeHandle h = requireHandle(info, 0);
+        auto vec3 = [&](const std::array<double, 3>& v) {
+            Napi::Array a = Napi::Array::New(env, 3);
+            for (uint32_t k = 0; k < 3; ++k) a.Set(k, Napi::Number::New(env, v[k]));
+            return a;
+        };
+        // NATIVE handle: canonical analytic faces via the OCCT-free native query
+        // (retires the OCCT BRepAdaptor face query for native solids, and replaces
+        // the 128-strip bridge shatter with the correct 3F/6F/1F identity).
+        if (ShapeRegistry::instance().kindOf(h) == ShapeKind::NativeSolid) {
+            using namespace forge::native::brep;
+            const std::vector<AnalyticFaceInfo> nf =
+                analyticFaceInventory(ShapeRegistry::instance().getNativeSolid(h));
+            Napi::Array out = Napi::Array::New(env, nf.size());
+            for (std::size_t i = 0; i < nf.size(); ++i) {
+                const AnalyticFaceInfo& f = nf[i];
+                Napi::Object o = Napi::Object::New(env);
+                o.Set("index", Napi::Number::New(env, double(i + 1)));
+                o.Set("kind", Napi::String::New(env, f.kind));
+                o.Set("area", Napi::Number::New(env, f.area));
+                o.Set("radius", Napi::Number::New(env, f.radius));
+                o.Set("minorRadius", Napi::Number::New(env, f.minorRadius));
+                o.Set("concave", Napi::Boolean::New(env, false));
+                o.Set("vMin", Napi::Number::New(env, 0.0));
+                o.Set("vMax", Napi::Number::New(env, 0.0));
+                o.Set("centroid", vec3({f.centroid.x, f.centroid.y, f.centroid.z}));
+                o.Set("direction", vec3({f.axis.x, f.axis.y, f.axis.z}));
+                o.Set("axisLocation", vec3({f.origin.x, f.origin.y, f.origin.z}));
+                out.Set(static_cast<uint32_t>(i), o);
+            }
+            return out;
+        }
+        const std::vector<FaceInfo> faces = faceInventory(h);
         Napi::Array out = Napi::Array::New(env, faces.size());
         for (std::size_t i = 0; i < faces.size(); ++i) {
             const FaceInfo& f = faces[i];
@@ -527,11 +559,6 @@ Napi::Value FaceInventory(const Napi::CallbackInfo& info) {
             o.Set("concave",  Napi::Boolean::New(env, f.concave));
             o.Set("vMin",     Napi::Number::New(env, f.vMin));
             o.Set("vMax",     Napi::Number::New(env, f.vMax));
-            auto vec3 = [&](const std::array<double,3>& v) {
-                Napi::Array a = Napi::Array::New(env, 3);
-                for (uint32_t k = 0; k < 3; ++k) a.Set(k, Napi::Number::New(env, v[k]));
-                return a;
-            };
             o.Set("centroid",     vec3(f.centroid));
             o.Set("direction",    vec3(f.direction));
             o.Set("axisLocation", vec3(f.axisLocation));
