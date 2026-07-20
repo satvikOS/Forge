@@ -3,9 +3,21 @@
 // See include/forge/OcctNativeMesh.hpp for the honesty statement. In one line:
 // every face is TRIANGULATED in-house (shared adaptive edge discretisation +
 // adaptive interior UV grid + the native constrained-Delaunay of the pure geom/
-// engine); OCCT is only READ for surface points, wire pcurves and 3D edge curves
-// (TKBRep/TKG3d/TKG2d/TKTopAlgo — never TKMesh). No BRepMesh_IncrementalMesh
+// engine); OCCT is only READ for surface points, 3D edge curves and 2D trim p-curves
+// (TKBRep/TKG3d/TKG2d/TKGeomAlgo/TKTopAlgo — never TKMesh). No BRepMesh_IncrementalMesh
 // symbol appears in this TU.
+//
+// BOUNDARY (u,v) RECOVERY: each boundary vertex's (u,v) is READ from the edge's stored
+// p-curve on this face (BRep_Tool::CurveOnSurface — TKG2d, already linked so otool stays
+// 15). This is exact and unambiguous even on FULL-WRAP periodic surfaces (sphere /
+// cylinder / torus, u:[0,2π]) where a seam edge's forward/reversed uses need the two
+// OPPOSITE-boundary trim curves — which the p-curve supplies directly. A K6 experiment
+// recovered (u,v) instead by NATIVE projection of the shared 3-D point onto the surface
+// (GeomAPI_ProjectPointOnSurf, no p-curve); that dropped no toolkit (TKG2d is still
+// linked for other TUs) yet DEFERRED on imported-STEP spheres because projection cannot
+// disambiguate the periodic seam branch → the reconstructed UV loop self-intersects and
+// the CDT fails. So the p-curve is the primary path; projection survives only as a
+// fallback for the rare face that carries no stored p-curve.
 //
 // WATERTIGHTNESS: each unique edge is discretised ONCE (by 3-D chord/angle
 // deflection on its own 3-D curve) and the resulting GLOBAL 3-D points are SHARED
@@ -25,6 +37,8 @@
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepTopAdaptor_FClass2d.hxx>
 #include <Geom2d_Curve.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <GeomAdaptor_Surface.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Surface.hxx>
 #include <Poly_Triangle.hxx>
@@ -195,63 +209,268 @@ FaceMesh tessellateFace(const TopoDS_Face& face, EdgeCache& cache,
         return id;
     };
 
-    // ---- boundary loops: SHARED edge samples mapped into this face's UV --------
+    // ---- native (u,v) recovery — NO OCCT p-curve (drops the last TKG2d symbol) ----
+    // Each boundary vertex's (u,v) is recovered by PROJECTING its shared GLOBAL 3-D
+    // point onto THIS face's surface (GeomAPI_ProjectPointOnSurf, TKGeomAlgo — kept),
+    // reproducing exactly what Geom2d_Curve::Value read from the stored p-curve, but
+    // without evaluating any 2-D curve. Seams and poles — where a 3-D point maps to
+    // TWO (u,v) branches so projection alone is ambiguous — are disambiguated NATIVELY
+    // from surface periodicity + edge topology (BRep_Tool::IsClosed / no-3-D-curve),
+    // so the reconstructed loop is the same crack-free trim rectangle.
+    GeomAdaptor_Surface gsurf(surf);
+    const bool    uPer    = gsurf.IsUPeriodic();
+    const bool    vPer    = gsurf.IsVPeriodic();
+    const double  uPeriod = uPer ? gsurf.UPeriod() : 0.0;
+    const double  vPeriod = vPer ? gsurf.VPeriod() : 0.0;
+    const gp_Trsf invTr   = locTr.Inverted();
+    const double  umid    = 0.5 * (umin + umax);
+    const double  vmid    = 0.5 * (vmin + vmax);
+
+    // interior-grid density (also used to subdivide a pole-bridge boundary).
+    const int nU = isoSegments([&](double u) { return Sloc(u, vmid); }, umin, umax, linDefl, angDefl);
+    const int nV = isoSegments([&](double v) { return Sloc(umid, v); }, vmin, vmax, linDefl, angDefl);
+
+    GeomAPI_ProjectPointOnSurf projector;
+    // shift a periodic coord by k*period to lie nearest `target` (continuity / box-pin).
+    auto shiftNear = [](double val, double period, bool per, double target) -> double {
+        if (!per || period <= 0.0) return val;
+        double best = val, bd = std::fabs(val - target);
+        for (int k = -3; k <= 3; ++k) {
+            const double c = val + k * period, d = std::fabs(c - target);
+            if (d < bd) { bd = d; best = c; }
+        }
+        return best;
+    };
+    // shift a whole (already locally-continuous) coord run by one k*period to minimise
+    // its total excursion outside the face box [lo,hi] — re-pins a full-wrap ring (e.g.
+    // a cylinder base circle) back into the face's own [umin,umax] the interior grid uses.
+    auto fitToBox = [](std::vector<double>& c, double period, bool per, double lo, double hi) {
+        if (!per || period <= 0.0 || c.empty()) return;
+        double bestK = 0.0, bestCost = 1e300;
+        for (int k = -3; k <= 3; ++k) {
+            double cost = 0.0;
+            for (double v : c) {
+                const double x = v + k * period;
+                if (x < lo) cost += lo - x; else if (x > hi) cost += x - hi;
+            }
+            if (cost < bestCost) { bestCost = cost; bestK = static_cast<double>(k); }
+        }
+        if (bestK != 0.0) for (double& v : c) v += bestK * period;
+    };
+    // bounded projection of a GLOBAL 3-D point onto this face's surface → (u,v).
+    auto projectUV = [&](const gp_Pnt& gpos, double& u, double& v) -> bool {
+        const gp_Pnt lp = gpos.Transformed(invTr);
+        projector.Init(lp, surf, umin, umax, vmin, vmax);
+        if (!projector.IsDone() || projector.NbPoints() < 1) {
+            projector.Init(lp, surf);
+            if (!projector.IsDone() || projector.NbPoints() < 1) return false;
+        }
+        projector.LowerDistanceParameters(u, v);
+        return true;
+    };
+
+    // resolved boundary samples for one edge (wire-forward, INCLUDING both endpoints).
+    struct EdgeUV {
+        std::vector<gp_Pnt2d> uv;
+        std::vector<gp_Pnt>   p3;
+        bool pole = false;    // no 3-D curve (collapsed / pole edge) — bridged from neighbours
+    };
+    // continuity anchor: the (u,v) of the last NON-seam, NON-pole edge processed.
+    double lastU = umid, lastV = vmid;
+    bool   haveAnchor = false;
+    // A seam edge appears TWICE in the wire (fwd + rev) with the SAME (TShape+Location)
+    // cache key; its two uses MUST land on OPPOSITE parameter boundaries (u=umin vs umax,
+    // or v=vmin vs vmax) or the trim rectangle collapses. Record the first use's boundary
+    // keyed by the shared edge id so the second use takes the opposite side.
+    std::map<int, double> uSeamPin, vSeamPin;
+
+    auto resolveEdge = [&](const TopoDS_Edge& e, EdgeUV& er) -> bool {
+        const EdgeSamples& es = edgeSamplesFor(e, cache, linDefl, angDefl);
+        if (!es.usable) { er.pole = true; return true; }   // no 3-D curve ⇒ collapsed edge; bridge later
+        const int  key  = cache.idx.Add(e);   // idempotent; SAME id for both seam uses (IsSame)
+        const bool rev  = (e.Orientation() == TopAbs_REVERSED);
+        const bool seam = (BRep_Tool::IsClosed(e, face) == Standard_True);
+        const int  n    = static_cast<int>(es.t.size());
+        if (n < 2) return false;
+
+        // ---- PRIMARY (u,v): read this edge's STORED p-curve on THIS face ----------
+        // BRep_Tool::CurveOnSurface returns the exact 2-D trim curve OCCT stored for
+        // (edge, face) at the edge's own orientation — so a seam edge's forward and
+        // reversed uses return the two OPPOSITE-boundary p-curves automatically, and a
+        // FULL-WRAP periodic face (sphere/cylinder/torus, u:[0,2π]) yields a clean,
+        // non-self-intersecting UV loop that the native CDT triangulates. The shared
+        // GLOBAL 3-D point es.p[k] is still used for the node position (watertight weld),
+        // and the p-curve is only READ for (u,v) — TKG2d is already linked (otool stays
+        // 15). Projecting the 3-D point onto a periodic surface (the code below) cannot
+        // disambiguate the seam branch, which is why imported-STEP spheres deferred; the
+        // p-curve removes that ambiguity. The projection path remains a fallback for the
+        // rare face carrying NO stored p-curve.
+        {
+            Standard_Real pf = 0.0, pl = 0.0;
+            Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, face, pf, pl);
+            if (!pc.IsNull() && pl > pf) {
+                const double span = (es.rl > es.rf) ? (es.rl - es.rf) : 1.0;
+                er.uv.reserve(n); er.p3.reserve(n);
+                for (int s = 0; s < n; ++s) {
+                    const int k = rev ? (n - 1 - s) : s;   // wire-forward order
+                    const double t  = es.t[k];
+                    const double tp = pf + (t - es.rf) / span * (pl - pf);
+                    const gp_Pnt2d q = pc->Value(tp);
+                    er.uv.emplace_back(q.X(), q.Y());
+                    er.p3.push_back(es.p[k]);
+                }
+                if (!seam) { lastU = er.uv.back().X(); lastV = er.uv.back().Y(); haveAnchor = true; }
+                return true;
+            }
+        }
+
+        std::vector<double> ru(n), rv(n);
+        std::vector<gp_Pnt> gp(n);
+        for (int s = 0; s < n; ++s) {
+            const int k = rev ? (n - 1 - s) : s;   // wire-forward order
+            gp[s] = es.p[k];
+            if (!projectUV(gp[s], ru[s], rv[s])) return false;
+        }
+
+        // POLE (apex) snapping: at a parametric pole the u- (or v-) surface derivative
+        // vanishes, so the projected u (or v) there is ARBITRARY — a meridian meeting a
+        // pole vertex would otherwise spike the loop off its iso-line and self-intersect
+        // (a sphere octant / cone apex). Detect degenerate samples (|S_u| or |S_v| ≈ 0)
+        // and snap that coordinate to the nearest NON-degenerate neighbour on the edge,
+        // reproducing the p-curve's iso-line branch natively.
+        std::vector<char> uDeg(n, 0), vDeg(n, 0);
+        {
+            std::vector<double> mu(n), mv(n);
+            double maxU = 0.0, maxV = 0.0;
+            for (int s = 0; s < n; ++s) {
+                gp_Pnt sp; gp_Vec du, dv;
+                surf->D1(ru[s], rv[s], sp, du, dv);
+                mu[s] = du.Magnitude(); mv[s] = dv.Magnitude();
+                maxU = std::max(maxU, mu[s]); maxV = std::max(maxV, mv[s]);
+            }
+            for (int s = 0; s < n; ++s) {
+                uDeg[s] = (maxU > 0.0 && mu[s] < 1e-3 * maxU) ? 1 : 0;
+                vDeg[s] = (maxV > 0.0 && mv[s] < 1e-3 * maxV) ? 1 : 0;
+            }
+            auto snap = [&](std::vector<double>& c, const std::vector<char>& deg) {
+                for (int s = 0; s < n; ++s) {
+                    if (!deg[s]) continue;
+                    int best = -1, bd = n + 1;
+                    for (int o = 0; o < n; ++o)
+                        if (!deg[o] && std::abs(o - s) < bd) { bd = std::abs(o - s); best = o; }
+                    if (best >= 0) c[s] = c[best];
+                }
+            };
+            snap(ru, uDeg);
+            snap(rv, vDeg);
+        }
+
+        // forward local-continuity (kill periodic branch jumps ALONG the edge)…
+        for (int s = 1; s < n; ++s) {
+            if (!uDeg[s]) ru[s] = shiftNear(ru[s], uPeriod, uPer, ru[s - 1]);
+            if (!vDeg[s]) rv[s] = shiftNear(rv[s], vPeriod, vPer, rv[s - 1]);
+        }
+        // …then re-pin the whole run into this face's parameter box.
+        fitToBox(ru, uPeriod, uPer, umin, umax);
+        fitToBox(rv, vPeriod, vPer, vmin, vmax);
+
+        if (seam) {
+            // A seam edge sits on a pinned param boundary; recover which axis is pinned
+            // (the near-constant one) and place the two seam uses on OPPOSITE boundaries.
+            const double uSpan = *std::max_element(ru.begin(), ru.end()) - *std::min_element(ru.begin(), ru.end());
+            const double vSpan = *std::max_element(rv.begin(), rv.end()) - *std::min_element(rv.begin(), rv.end());
+            const bool uSeam = uPer && (!vPer || uSpan <= vSpan);
+            const bool vSeam = vPer && !uSeam;
+            if (uSeam) {
+                double pin;
+                auto it = uSeamPin.find(key);
+                if (it != uSeamPin.end()) {        // 2nd use ⇒ the OPPOSITE boundary
+                    pin = (std::fabs(it->second - umin) < std::fabs(it->second - umax)) ? umax : umin;
+                } else {                           // 1st use ⇒ anchor to the adjoining edge (else orient)
+                    if (haveAnchor) pin = (std::fabs(umin - lastU) <= std::fabs(umax - lastU)) ? umin : umax;
+                    else            pin = rev ? umax : umin;
+                    uSeamPin[key] = pin;
+                }
+                er.uv.reserve(n); er.p3.reserve(n);
+                for (int s = 0; s < n; ++s) { er.uv.emplace_back(pin, rv[s]); er.p3.push_back(gp[s]); }
+                return true;
+            }
+            if (vSeam) {
+                double pin;
+                auto it = vSeamPin.find(key);
+                if (it != vSeamPin.end()) {
+                    pin = (std::fabs(it->second - vmin) < std::fabs(it->second - vmax)) ? vmax : vmin;
+                } else {
+                    if (haveAnchor) pin = (std::fabs(vmin - lastV) <= std::fabs(vmax - lastV)) ? vmin : vmax;
+                    else            pin = rev ? vmax : vmin;
+                    vSeamPin[key] = pin;
+                }
+                er.uv.reserve(n); er.p3.reserve(n);
+                for (int s = 0; s < n; ++s) { er.uv.emplace_back(ru[s], pin); er.p3.push_back(gp[s]); }
+                return true;
+            }
+            // undetermined seam ⇒ fall through to the regular embedding
+        }
+        er.uv.reserve(n); er.p3.reserve(n);
+        for (int s = 0; s < n; ++s) { er.uv.emplace_back(ru[s], rv[s]); er.p3.push_back(gp[s]); }
+        lastU = ru[n - 1]; lastV = rv[n - 1]; haveAnchor = true;
+        return true;
+    };
+
+    // ---- boundary loops: SHARED edge samples embedded in this face's UV ---------
     std::vector<geom::ConstraintEdge> cons;
     int wireCount = 0;
     for (TopExp_Explorer wexp(face, TopAbs_WIRE); wexp.More(); wexp.Next()) {
         const TopoDS_Wire wire = TopoDS::Wire(wexp.Current());
-        std::vector<int> loop;
-        for (BRepTools_WireExplorer we(wire, face); we.More(); we.Next()) {
-            const TopoDS_Edge e = we.Current();
-            double f = 0.0, l = 0.0;
-            Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, face, f, l);
-            if (pc.IsNull()) return out;   // HONEST DEFERRAL: no pcurve to read
-            if (!(l > f)) continue;
-            const bool rev = (e.Orientation() == TopAbs_REVERSED);
+        std::vector<TopoDS_Edge> wedges;
+        for (BRepTools_WireExplorer we(wire, face); we.More(); we.Next())
+            wedges.push_back(we.Current());
+        const int ne = static_cast<int>(wedges.size());
+        if (ne == 0) continue;
 
-            const EdgeSamples& es = edgeSamplesFor(e, cache, linDefl, angDefl);
-            if (es.usable) {
-                // Map each shared edge param t (in [es.rf,es.rl]) to this face's
-                // pcurve param, take UV there, but use the SHARED global 3-D point
-                // for the node position so adjacent faces weld exactly.
-                const double span = (es.rl > es.rf) ? (es.rl - es.rf) : 1.0;
-                const int n = static_cast<int>(es.t.size());
-                for (int s = 0; s + 1 < n; ++s) {        // skip last (shared w/ next)
-                    const int k = rev ? (n - 1 - s) : s;  // wire-forward order
-                    const double t  = es.t[k];
-                    const double tp = f + (t - es.rf) / span * (l - f);
-                    const gp_Pnt2d q = pc->Value(tp);
-                    loop.push_back(addPt(q.X(), q.Y(), es.p[k]));
-                }
-            } else {
-                // Degenerate edge (no 3-D curve, e.g. a pole seam): fall back to
-                // per-face pcurve sampling. Such edges collapse to a point / seam,
-                // so this does not open a crack against a neighbouring face.
-                auto isoPt = [&](double tt) -> gp_Pnt {
-                    gp_Pnt2d q = pc->Value(tt);
-                    return Sloc(q.X(), q.Y());
-                };
-                std::vector<double> ts = adaptiveSample(isoPt, f, l, linDefl, angDefl);
-                if (rev) std::reverse(ts.begin(), ts.end());
-                for (std::size_t s = 0; s + 1 < ts.size(); ++s) {
-                    const gp_Pnt2d q = pc->Value(ts[s]);
-                    loop.push_back(addPt(q.X(), q.Y(), Sglob(q.X(), q.Y())));
-                }
+        std::vector<EdgeUV> ex(ne);
+        bool ok = true;
+        for (int i = 0; i < ne; ++i) if (!resolveEdge(wedges[i], ex[i])) { ok = false; break; }
+        if (!ok) return out;   // HONEST DEFERRAL: an edge we could not read
+
+        // fill collapsed (pole) edges: bridge in (u,v) from the previous edge's last
+        // vertex to the next edge's first vertex; every 3-D point is the collapsed pole.
+        for (int i = 0; i < ne; ++i) {
+            if (!ex[i].pole) continue;
+            int pi = (i - 1 + ne) % ne;
+            for (int c = 0; c < ne && ex[pi].uv.empty(); ++c) pi = (pi - 1 + ne) % ne;
+            int ni = (i + 1) % ne;
+            for (int c = 0; c < ne && ex[ni].uv.empty(); ++c) ni = (ni + 1) % ne;
+            if (ex[pi].uv.empty() || ex[ni].uv.empty()) return out;
+            const gp_Pnt2d a = ex[pi].uv.back();
+            const gp_Pnt2d b = ex[ni].uv.front();
+            const gp_Pnt   pole = ex[pi].p3.back();   // the collapsed vertex (shared 3-D)
+            const int nb = std::max(1, std::min(nU + nV, 96));
+            ex[i].uv.reserve(nb + 1); ex[i].p3.reserve(nb + 1);
+            for (int s = 0; s <= nb; ++s) {
+                const double t = static_cast<double>(s) / nb;
+                ex[i].uv.emplace_back(a.X() + (b.X() - a.X()) * t, a.Y() + (b.Y() - a.Y()) * t);
+                ex[i].p3.push_back(pole);
             }
         }
+
+        // stitch: append every edge's samples EXCEPT its last (next edge repeats it).
+        std::vector<int> loop;
+        for (int i = 0; i < ne; ++i) {
+            const EdgeUV& er = ex[i];
+            const int m = static_cast<int>(er.uv.size());
+            for (int s = 0; s + 1 < m; ++s)
+                loop.push_back(addPt(er.uv[s].X(), er.uv[s].Y(), er.p3[s]));
+        }
         if (loop.size() < 3) continue;      // degenerate wire — skip
-        const int n = static_cast<int>(loop.size());
-        for (int k = 0; k < n; ++k)
-            cons.push_back(geom::ConstraintEdge{loop[k], loop[(k + 1) % n]});
+        const int nlp = static_cast<int>(loop.size());
+        for (int k = 0; k < nlp; ++k)
+            cons.push_back(geom::ConstraintEdge{loop[k], loop[(k + 1) % nlp]});
         ++wireCount;
     }
     if (wireCount == 0 || cons.size() < 3) return out;
 
     // ---- adaptive interior UV grid (only points strictly inside the trim) ------
-    const double umid = 0.5 * (umin + umax);
-    const double vmid = 0.5 * (vmin + vmax);
-    const int nU = isoSegments([&](double u) { return Sloc(u, vmid); }, umin, umax, linDefl, angDefl);
-    const int nV = isoSegments([&](double v) { return Sloc(umid, v); }, vmin, vmax, linDefl, angDefl);
     if (nU > 1 && nV > 1) {
         BRepTopAdaptor_FClass2d fclass(face, 1e-9);
         const double du = (umax - umin) / nU;
@@ -362,6 +581,81 @@ bool tessellateShapeToSoup(const TopoDS_Shape& shape,
         }
     }
     return anyFace && !idx.empty();
+}
+
+// ------------------------- public: viewport display contract -----------------
+// Smooth-normal accumulation identical to the BRepMesh readback in
+// src/Tessellate.cpp (area-weighted per-triangle face normal summed onto each
+// vertex, renormalised once per face) — so switching the display mesher from
+// BRepMesh to this native path is shading-identical.
+namespace {
+inline void vpAccumulate(float* dst, const gp_Vec& n) {
+    dst[0] += static_cast<float>(n.X());
+    dst[1] += static_cast<float>(n.Y());
+    dst[2] += static_cast<float>(n.Z());
+}
+inline void vpRenormalize(float* n) {
+    const float l = std::sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2]);
+    if (l > 1e-20f) { n[0] /= l; n[1] /= l; n[2] /= l; }
+    else            { n[0] = 0.0f; n[1] = 0.0f; n[2] = 1.0f; }
+}
+}  // namespace
+
+bool tessellateShapeForViewport(const TopoDS_Shape& shape,
+                                std::vector<float>& positions,
+                                std::vector<float>& normals,
+                                std::vector<std::uint32_t>& indices,
+                                std::vector<std::uint32_t>& faceIds,
+                                double linDefl,
+                                double angDefl) {
+    positions.clear(); normals.clear(); indices.clear(); faceIds.clear();
+    if (shape.IsNull()) return false;
+
+    EdgeCache cache;
+    std::uint32_t faceId = 0;   // 1-based, TopExp_Explorer(FACE) order (picking id)
+    bool anyFace = false;
+    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face face = TopoDS::Face(ex.Current());
+        ++faceId;
+        FaceMesh fm = tessellateFace(face, cache, linDefl, angDefl);
+        if (!fm.ok) {   // HONEST DEFERRAL: a face we could not read (no pcurve).
+            positions.clear(); normals.clear(); indices.clear(); faceIds.clear();
+            return false;
+        }
+        anyFace = true;
+
+        // Per-face vertex block (mirrors Tessellate.cpp: OCCT emits seam verts per
+        // face; the position-weld in the consumer/gate collapses shared-edge verts
+        // — which our GLOBAL shared-edge nodes make byte-identical across faces).
+        const std::uint32_t base =
+            static_cast<std::uint32_t>(positions.size() / 3);
+        for (const gp_Pnt& p : fm.nodes) {
+            positions.push_back(static_cast<float>(p.X()));
+            positions.push_back(static_cast<float>(p.Y()));
+            positions.push_back(static_cast<float>(p.Z()));
+        }
+        const std::size_t normalsBase = normals.size();
+        normals.resize(normalsBase + 3 * fm.nodes.size(), 0.0f);
+
+        for (const auto& t : fm.tris) {
+            const gp_Pnt& p1 = fm.nodes[t[0]];
+            const gp_Pnt& p2 = fm.nodes[t[1]];
+            const gp_Pnt& p3 = fm.nodes[t[2]];
+            // fm.tris already wound outward-consistent, so this normal points OUT.
+            const gp_Vec n = gp_Vec(p1, p2).Crossed(gp_Vec(p1, p3));
+            if (n.SquareMagnitude() < 1e-30) continue;   // degenerate — skip
+            vpAccumulate(normals.data() + normalsBase + 3 * t[0], n);
+            vpAccumulate(normals.data() + normalsBase + 3 * t[1], n);
+            vpAccumulate(normals.data() + normalsBase + 3 * t[2], n);
+            indices.push_back(base + static_cast<std::uint32_t>(t[0]));
+            indices.push_back(base + static_cast<std::uint32_t>(t[1]));
+            indices.push_back(base + static_cast<std::uint32_t>(t[2]));
+            faceIds.push_back(faceId);
+        }
+        for (std::size_t i = 0; i < fm.nodes.size(); ++i)
+            vpRenormalize(normals.data() + normalsBase + 3 * i);
+    }
+    return anyFace && !indices.empty();
 }
 
 // ------------------------- public: attach in place (HLR) ---------------------

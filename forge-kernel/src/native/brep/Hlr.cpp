@@ -89,6 +89,47 @@ inline void project(const HlrViewFrame& fr, const Vec3& p,
 //     buildBox) are unaffected so the A/B-exact box results never change.
 // The tolerance is relative so it is scale-free across mm/m models.
 // ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
+// Do two NURBS Surfaces carry the SAME rational control net? importOcctSolid
+// facets ONE freeform source face into many tiny sub-faces that each hold a VALUE
+// COPY of that face's single NurbsSurface (identical poles / weights / knots /
+// degrees), while two DISTINCT source faces carry DIFFERENT nets. Comparing the
+// full net (with dims / degrees / knot-endpoint early-outs) therefore tells a
+// tessellation seam of ONE surface (true -> a smooth facet chord to suppress /
+// silhouette) apart from a real face-face boundary (false -> a kept feature edge)
+// even when the two patches share their boundary control row (C0 adjacency): the
+// interior + far-side poles still differ. relTol is scale-relative.
+// ----------------------------------------------------------------------------
+inline bool sameNurbsSurface(const Surface* sa, const Surface* sb, double relTol) {
+    if (!sa || !sb) return false;
+    const NurbsSurface& A = sa->nurbs;
+    const NurbsSurface& B = sb->nurbs;
+    if (!A.valid() || !B.valid()) return false;
+    if (A.degreeU != B.degreeU || A.degreeV != B.degreeV) return false;
+    if (A.control.size() != B.control.size() || A.control.empty()) return false;
+    if (A.control[0].size() != B.control[0].size()) return false;
+    if (A.knotsU.size() != B.knotsU.size() ||
+        A.knotsV.size() != B.knotsV.size()) return false;
+    auto poleClose = [&](const Vec3& p, const Vec3& q) {
+        double s = 1.0 + vlen(p) + vlen(q);
+        return vlen(vsub(p, q)) <= relTol * s;
+    };
+    for (std::size_t i = 0; i < A.control.size(); ++i) {
+        if (A.control[i].size() != B.control[i].size()) return false;
+        for (std::size_t j = 0; j < A.control[i].size(); ++j)
+            if (!poleClose(A.control[i][j], B.control[i][j])) return false;
+    }
+    auto knotClose = [&](const std::vector<double>& a, const std::vector<double>& b) {
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            double s = 1.0 + std::fabs(a[i]) + std::fabs(b[i]);
+            if (std::fabs(a[i] - b[i]) > relTol * s) return false;
+        }
+        return true;
+    };
+    if (!knotClose(A.knotsU, B.knotsU) || !knotClose(A.knotsV, B.knotsV)) return false;
+    return true;
+}
+
 inline bool sameUnderlyingSurface(const Face* a, const Face* b, double relTol) {
     if (!a || !b) return false;
     const Surface* sa = a->surface;
@@ -133,6 +174,12 @@ inline bool sameUnderlyingSurface(const Face* a, const Face* b, double relTol) {
                        relTol * (1.0 + sa->r1 + std::fabs(sa->param));
         }
         case SurfaceKind::Nurbs:
+            // Two facet sub-faces of ONE freeform source face carry identical
+            // NurbsSurface copies -> coincident -> the interior chord is a smooth
+            // tessellation seam (suppressed, then re-added view-dependently as a
+            // MESH SILHOUETTE). A real boundary between two DISTINCT Nurbs faces
+            // has a different net -> kept as a feature edge.
+            return sameNurbsSurface(sa, sb, relTol);
         default:
             return false;  // free-form: keep (conservative)
     }
@@ -194,6 +241,25 @@ std::vector<Vec3> loopCorners(const Loop* lp) {
         c = c->next;
     }
     return pts;
+}
+
+// ----------------------------------------------------------------------------
+// Outward normal of a FACET Face from its outer-loop winding. importOcctSolid
+// orients every facet CCW-about-outward, so vnorm((c1-c0)x(c2-c0)) points OUT of
+// the solid consistently across all sibling facets of one surface — which is all
+// the mesh-silhouette straddle needs (it detects a SIGN CHANGE, invariant under a
+// consistent global flip). Falls back to the reversed-aware analytic normalAt at
+// the facet centroid if the ring is degenerate.
+// ----------------------------------------------------------------------------
+inline Vec3 facetOutwardNormal(const Face* f) {
+    std::vector<Vec3> c = loopCorners(f->outerLoop);
+    if (c.size() >= 3) {
+        Vec3 n = vcross(vsub(c[1], c[0]), vsub(c[2], c[0]));
+        if (vlen(n) > 0.0) return vnorm(n);
+    }
+    if (f->surface)
+        return f->surface->normalAt(0.5 * (f->u0 + f->u1), 0.5 * (f->v0 + f->v1));
+    return Vec3{0, 0, 1};
 }
 
 // ----------------------------------------------------------------------------
@@ -864,6 +930,78 @@ std::vector<SilhouetteCurve> computeSilhouettes(
     return out;
 }
 
+// ===========================================================================
+// FREEFORM MESH (FACET) SILHOUETTE — the non-analytic sibling of
+// computeSilhouettes. A freeform/NURBS source face imports as a FACET SOUP of
+// tiny sub-faces that all carry a copy of ONE NurbsSurface and share real B-rep
+// edges (mated coedges). The analytic tracer above skips Nurbs, so freeform parts
+// had NO outline (the WALL-A defer to OCCT). Here we reconstruct it LOCALLY:
+//
+//   walk each distinct MANIFOLD facet edge whose two incident facets lie on the
+//   SAME underlying Nurbs surface (sameNurbsSurface); if the two facets' outward
+//   normals STRADDLE the view direction — dot(n_a,N) and dot(n_b,N) have opposite
+//   sign (orthographic) — the shared edge is on the silhouette locus and is
+//   emitted as a Silhouette EdgeJob. Its skip set is ONLY its two facets, so the
+//   surface's own far-side facets still correctly hide the parts that wrap behind
+//   on a non-convex body (unlike the analytic path which skips the whole group).
+//
+// No union-find / (u,v) aggregation is needed (unlike computeSilhouettes) because
+// the mesh silhouette is purely LOCAL per edge. The result is CHORDED along the
+// tessellation (staircases), valid and convergent under refinement. Fires ONLY
+// when BOTH incident faces are kind==Nurbs, so buildBox / Plane / Cylinder faces
+// are never touched. Classified visible/hidden by the UNCHANGED main loop.
+// ===========================================================================
+std::vector<SilhouetteCurve> computeMeshSilhouettes(
+        const std::vector<const Face*>& faces,
+        const HlrViewFrame& fr,
+        const HlrOptions& opt) {
+    std::vector<SilhouetteCurve> out;
+    if (!opt.meshSilhouette) return out;
+    const Vec3 N = fr.N;
+    std::unordered_map<std::uint32_t, Vec3> nrmCache;   // facet normal, once per id
+    auto fnorm = [&](const Face* f) -> Vec3 {
+        auto it = nrmCache.find(f->id);
+        if (it != nrmCache.end()) return it->second;
+        Vec3 n = facetOutwardNormal(f);
+        nrmCache.emplace(f->id, n);
+        return n;
+    };
+    std::unordered_set<const Edge*> seen;
+    for (const Face* f : faces) {
+        const Surface* sf = f ? f->surface : nullptr;
+        if (!sf || sf->kind != SurfaceKind::Nurbs) continue;
+        std::vector<const Loop*> loops;
+        if (f->outerLoop) loops.push_back(f->outerLoop);
+        for (const Loop* il : f->innerLoops) loops.push_back(il);
+        for (const Loop* lp : loops) {
+            if (!lp || !lp->first) continue;
+            Coedge* c = lp->first;
+            for (std::size_t i = 0; i < lp->coedgeCount && c; ++i, c = c->next) {
+                Edge* e = c->edge;
+                if (!e || !seen.insert(e).second) continue;
+                Face* fa; Face* fb; edgeIncidentFaces(e, fa, fb);
+                if (!fa || !fb || fa == fb) continue;
+                const Surface* sa = fa->surface;
+                const Surface* sb = fb->surface;
+                if (!sa || !sb) continue;
+                if (sa->kind != SurfaceKind::Nurbs ||
+                    sb->kind != SurfaceKind::Nurbs) continue;
+                // A real face-face boundary (distinct nets) is NOT a facet seam.
+                if (!sameNurbsSurface(sa, sb, opt.smoothTol)) continue;
+                double da = vdot(fnorm(fa), N);
+                double db = vdot(fnorm(fb), N);
+                if ((da <= 0.0) == (db <= 0.0)) continue;   // no straddle -> interior
+                SilhouetteCurve sc;
+                sc.poly3d = sampleEdge(e, opt.samplesPerEdge);
+                sc.skipFaces.insert(fa->id);
+                sc.skipFaces.insert(fb->id);
+                out.push_back(std::move(sc));
+            }
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 // ===========================================================================
@@ -974,6 +1112,24 @@ HlrResult hiddenLineRemoval(const Solid& solid,
     // torus. Each curve skips its own group's faces so the surface does not
     // self-occlude its outline (OCCT classifies the silhouette as OutLineVCompound).
     for (SilhouetteCurve& sc : computeSilhouettes(faces, fr, opt)) {
+        if (sc.poly3d.size() < 2) continue;
+        EdgeJob j;
+        j.edge = nullptr;
+        j.kind = HlrEdgeKind::Silhouette;
+        j.incidentFaces = std::move(sc.skipFaces);
+        j.poly3d = std::move(sc.poly3d);
+        jobs.push_back(std::move(j));
+    }
+
+    // --- Add FREEFORM MESH (FACET) SILHOUETTE edges (non-analytic faces). ------
+    // A freeform/NURBS body imports as a facet soup sharing one NurbsSurface; the
+    // analytic tracer above skips it, so its interior facet chords were suppressed
+    // as smooth seams with NO outline re-added (WALL A). Here we re-add the
+    // view-dependent CHORDED outline: each same-surface facet chord whose two
+    // incident facets' outward normals STRADDLE the view is a silhouette edge. It
+    // skips ONLY its two facets, so the body's far side still hides wrap-behind
+    // portions. Classified by the UNCHANGED main loop below.
+    for (SilhouetteCurve& sc : computeMeshSilhouettes(faces, fr, opt)) {
         if (sc.poly3d.size() < 2) continue;
         EdgeJob j;
         j.edge = nullptr;

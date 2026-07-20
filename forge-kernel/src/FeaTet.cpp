@@ -7,11 +7,12 @@
 // inside-tests) and C++ std.
 
 #include "forge/FeaTet.hpp"
+#include "forge/OcctNativeMesh.hpp"   // K5 — native surface mesher (no TKMesh)
+#include <cstdio>
 
 #include <BRep_Tool.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
-#include <BRepMesh_IncrementalMesh.hxx>
 #include <Bnd_Box.hxx>
 #include <Poly_Triangle.hxx>
 #include <Poly_Triangulation.hxx>
@@ -720,10 +721,19 @@ Mesh meshShape(const TopoDS_Shape& shape, double targetEdge) {
         throw std::invalid_argument("forge::fea::tet::meshShape: targetEdge must be > 0");
     }
 
-    // 1. OCCT surface mesh.
-    BRepMesh_IncrementalMesh mesher(shape, targetEdge, /*relative*/ Standard_False,
-                                    /*ang*/ 0.5, /*parallel*/ Standard_True);
-    mesher.Perform();
+    // 1. Surface mesh — NATIVE (forge::occtmesh, no BRepMesh / TKMesh). Attaches a
+    // Poly_Triangulation to every face in-place; extractTrianglesAndVertices reads
+    // it back exactly like the old BRepMesh triangulation (and the tet seeder
+    // classifies inside/outside with BRepClass3d_SolidClassifier, so triangle
+    // winding is irrelevant to the result). TKMesh is dropped — there is NO
+    // BRepMesh fallback; an unreadable face is an HONEST DEFERRAL (below).
+    if (!forge::occtmesh::triangulateShapeInPlace(shape, targetEdge, /*ang*/ 0.5)) {
+        // HONEST DEFERRAL: TKMesh is gone — no BRepMesh fallback. extractTriangles
+        // below then finds no attached triangulation and meshShape throws its "no
+        // triangles" error for THIS shape (never a crash / silent bad mesh).
+        // Verified: no fea shape defers under fea_smoke / fea_nafems.
+        std::fprintf(stderr, "[K5][feaTet] native occtmesh DEFERRED (no BRepMesh)\n");
+    }
 
     // 2. Collect unique boundary vertices + triangles.
     Bnd_Box bb;

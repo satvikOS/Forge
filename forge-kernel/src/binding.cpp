@@ -325,6 +325,7 @@
 #include <algorithm>   // std::max  (composites Bmax)
 
 #include <array>
+#include <fstream>    // K1 ForeignStepInfo — slurp a STEP file for the native foreign reader
 
 #include <Standard_Version.hxx>
 #include <Standard_Failure.hxx>
@@ -339,6 +340,7 @@
 #include "forge/native/brep/SolidTessellate.hpp"
 #include "forge/native/brep/Boolean.hpp"          // IN-HOUSE KERNEL STEP 2 — native boolean
 #include "forge/native/brep/NativeRoute.hpp"      // IN-HOUSE KERNEL STEP 3a — live-op routing/gate
+#include "forge/native/brep/StepRead.hpp"         // K1 — native FOREIGN STEP reader (readForeignStep)
 #endif
 
 using namespace forge;
@@ -508,6 +510,41 @@ Napi::Value Common(const Napi::CallbackInfo& info) {
 Napi::Value UnifyFaces(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         return Napi::Number::New(info.Env(), unifyFaces(requireHandle(info, 0)));
+    });
+}
+
+// K1 measurement binding (read-only, additive — importStep is UNCHANGED): parse a STEP
+// file with the native FOREIGN reader (readForeignStep, OCCT-free) and report what it
+// reconstructed, so an A/B harness can compare native coverage vs OCCT WITHOUT wiring the
+// foreign reader into production. Returns {ok, volume, area, faces, vertices, edges,
+// closed, trimmedFaces, eulerCharacteristic, unsupported:{TYPE:count}, reason}.
+Napi::Value ForeignStepInfo(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        const std::string path = info[0].As<Napi::String>().Utf8Value();
+        std::ifstream in(path, std::ios::binary);
+        if (!in) throw std::runtime_error("foreignStepInfo: cannot open " + path);
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        forge::native::brep::ForeignReadResult rr = forge::native::brep::readForeignStep(text);
+        Napi::Object o = Napi::Object::New(env);
+        o.Set("ok",       Napi::Boolean::New(env, rr.ok));
+        o.Set("reason",   Napi::String::New(env, rr.reason));
+        o.Set("faces",    Napi::Number::New(env, static_cast<double>(rr.faces)));
+        o.Set("vertices", Napi::Number::New(env, static_cast<double>(rr.vertices)));
+        o.Set("edges",    Napi::Number::New(env, static_cast<double>(rr.edges)));
+        o.Set("closed",   Napi::Boolean::New(env, rr.closed));
+        o.Set("trimmedFaces", Napi::Number::New(env, static_cast<double>(rr.trimmedFaces.size())));
+        o.Set("eulerCharacteristic", Napi::Number::New(env, static_cast<double>(rr.eulerCharacteristic)));
+        o.Set("unitName", Napi::String::New(env, rr.unitName));
+        if (rr.ok && rr.solid) {
+            const forge::native::brep::MassProps mp = forge::native::brep::massProperties(*rr.solid);
+            o.Set("volume", Napi::Number::New(env, mp.volume));
+            o.Set("area",   Napi::Number::New(env, mp.area));
+        }
+        Napi::Object uns = Napi::Object::New(env);
+        for (const auto& kv : rr.unsupported) uns.Set(kv.first, Napi::Number::New(env, static_cast<double>(kv.second)));
+        o.Set("unsupported", uns);
+        return o;
     });
 }
 
@@ -6151,6 +6188,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("cut",    Napi::Function::New(env, Cut));
     exports.Set("unifyFaces",    Napi::Function::New(env, UnifyFaces));
     exports.Set("faceInventory", Napi::Function::New(env, FaceInventory));
+    exports.Set("foreignStepInfo", Napi::Function::New(env, ForeignStepInfo));
     exports.Set("defeature",     Napi::Function::New(env, Defeature));
     exports.Set("pushPullFace",  Napi::Function::New(env, PushPullFace));
     exports.Set("resizeBore",    Napi::Function::New(env, ResizeBore));

@@ -1,3 +1,22 @@
+# ============================================================================
+# BUILD NOTE (2026-07-20) — K6 native-pcurve deferral FIXED; source rebuilds green.
+# HISTORY: the K6 WIP in src/OcctNativeMesh.cpp recovered each boundary vertex's
+# (u,v) by PROJECTING its shared 3-D point onto the face surface (GeomAPI_
+# ProjectPointOnSurf) instead of reading the stored p-curve. That passed the kernel
+# A/B gates (34/34) on native primitives BUT DEFERRED on imported-STEP DOUBLY-
+# PERIODIC faces (sphere/torus, u:[0,2π]) — projection cannot disambiguate the
+# periodic seam branch, so the reconstructed UV trim loop self-intersected and the
+# native CDT failed → whole-shape empty mesh → OS STEP-import degenerate (e.g.
+# cadgenbench 112 face 35). FIX: resolveEdge now READS the edge's stored p-curve
+# (BRep_Tool::CurveOnSurface — TKG2d, which is STILL LINKED below, so otool stays 15)
+# for an exact, seam-correct UV loop, keeping projection only as a fallback for the
+# rare face with no stored p-curve. VERIFIED 2026-07-20: otool 15, kernel A/B 34/34,
+# Archie-OS suite 13/13, measure_step(112) faces=104 valid=True, and a full 81-file
+# gpt56 STEP sweep is at GOLD-15 parity (same 69-mesh/12-defer partition — the 12 are
+# pre-existing on GOLD15 too; identical bbox + volume-equivalent on all). The kernel-
+# internal gates are NECESSARY BUT NOT SUFFICIENT; the downstream Archie-OS 13/13 is
+# the true gate. GOLD15 backup kept at scratchpad/gold_backup_2026-07-20/.
+# ============================================================================
 cmake_minimum_required(VERSION 3.20)
 project(forge_kernel CXX)
 
@@ -138,13 +157,38 @@ set(OCCT_LIBS
     TKernel TKMath
     TKG2d TKG3d TKGeomBase TKGeomAlgo
     TKBRep TKTopAlgo TKShHealing
-    TKPrim TKBool TKFillet TKOffset
-    TKHLR TKMesh
+    TKPrim TKFillet TKOffset
+    TKHLR
     TKDESTEP TKXSBase
 )
 # OCCT-zero progress (2026-07-06): dropped 3 dead-linked dylibs TKDEIGES/TKDESTL/TKDEVRML —
 # IGES read is native (IgesRead.cpp), STL is native both ways (MeshExchange), no VRML path exists.
 # Verified zero #include of IGESControl/StlAPI/VrmlAPI in src/. 22 -> 19 OCCT dylibs.
+#
+# OCCT-zero progress (2026-07-18): dropped dead-linked TKBool. 17 -> 16 OCCT dylibs.
+#   MEASURED: `nm -m build/Release/forge-kernel.node | grep -c 'from libTKBool'` = 0, and
+#   the intersection {TKBool exports} ∩ {.node undefined symbols} = 0 — the .node imports
+#   NO symbol from TKBool. The boolean API the kernel actually uses (BRepAlgoAPI_Fuse/Cut/
+#   Common, BOPAlgo_*) lives in TKBO, which stays loaded transitively via TKOffset/TKFillet/
+#   TKDESTEP (all still directly linked), so runtime resolution is unaffected. TKBool was a
+#   historical mislink (the boolean toolkit is TKBO, not TKBool). Verified keep-if-green:
+#   otool 17->16, native_vs_occt_core.mjs 34/34 (incl. OCCT-path booleans), coherence
+#   discrimination PASS (clean 1.0000 vs incoherent 0.0443, baseline-identical).
+#
+# OCCT-zero progress (2026-07-19, K5): dropped TKMesh. 16 -> 15 OCCT dylibs.
+#   The DISPLAY tessellator (src/Tessellate.cpp) and the FEA tet surface seed
+#   (src/FeaTet.cpp) — the last two BRepMesh_IncrementalMesh call sites — now run
+#   through the native in-house triangulator forge::occtmesh
+#   (tessellateShapeForViewport / triangulateShapeInPlace; src/OcctNativeMesh.cpp),
+#   which READS OCCT surfaces/pcurves (TKBRep/TKG3d/TKG2d/TKTopAlgo) but does its
+#   own constrained-Delaunay faceting — NO BRepMesh / TKMesh symbol remains in src/.
+#   The stale "frame-phantom" blocker (K5_TKMESH_BLOCKER.md, 2026-07-09) was already
+#   cured by the (TShape+Location) edge-cache key: an occtmesh-vs-BRepMesh A/B over
+#   13 shapes (primitives, located-operand booleans incl. common box∩sphere, cut,
+#   fuse, extrude, revolve90, torus) MEASURED watertight + genus-identical, so no
+#   frame baking was needed. Verified keep-if-green: otool 16->15,
+#   native_vs_occt_core.mjs 34/34, coherence PASS (1.0000 vs 0.0443), run_native
+#   137/137, fea_smoke + fea_nafems + drawings_smoke PASS, ZERO native-mesh deferrals.
 
 # ---------------------------------------------------------------- Boost
 # planegcs uses boost::graph (connected_components) + boost::math::constants.

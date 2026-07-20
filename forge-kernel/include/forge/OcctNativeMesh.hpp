@@ -51,6 +51,25 @@ bool tessellateShapeToSoup(const TopoDS_Shape& shape,
                            double linDefl,
                            double angDefl);
 
+// Native-triangulate `shape` into the full VIEWPORT display contract — the same
+// arrays forge::tessellate() returns for the Three.js viewer: flat float xyz
+// `positions`, per-vertex smooth `normals` (area-weighted accumulation then
+// renormalised, per face — identical shading to the BRepMesh readback), flat
+// `indices`, and a 1-based `faceIds` per triangle in TopExp_Explorer(FACE) order
+// (the picking id the OCCT readback assigns). Coordinates are GLOBAL and triangles
+// are wound outward-consistent. This is the drop-in replacement for the
+// BRepMesh_IncrementalMesh display mesher (Tessellate.cpp) so TKMesh can leave the
+// link. Returns false (HONEST DEFERRAL, all output arrays cleared) if ANY face
+// could not be read (no pcurve) — NEVER a partial/faked mesh. NEVER references
+// BRepMesh / TKMesh.
+bool tessellateShapeForViewport(const TopoDS_Shape& shape,
+                                std::vector<float>& positions,
+                                std::vector<float>& normals,
+                                std::vector<std::uint32_t>& indices,
+                                std::vector<std::uint32_t>& faceIds,
+                                double linDefl,
+                                double angDefl);
+
 // Native-triangulate `shape` and ATTACH a Poly_Triangulation to every face
 // in-place (BRep_Builder::UpdateFace) — the drop-in replacement for the
 // BRepMesh_IncrementalMesh call that the OCCT HLR retry uses to give a curved

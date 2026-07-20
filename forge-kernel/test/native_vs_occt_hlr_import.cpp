@@ -41,6 +41,11 @@
 
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <GC_MakeArcOfCircle.hxx>
+#include <gp_Circ.hxx>
 #include <HLRBRep_Algo.hxx>
 #include <HLRBRep_HLRToShape.hxx>
 #include <HLRAlgo_Projector.hxx>
@@ -155,6 +160,24 @@ static void abCase(const char* label, const TopoDS_Shape& shape, const Vec3& vie
     }
 }
 
+// A lofted FREEFORM solid: BRepOffsetAPI_ThruSections (smooth, MakeSolid) over
+// `nSec` offset circle wires of varying radius -> a BSpline-walled barrel capped
+// by two planar disks. The wall imports as genuine NURBS faces (surface->kind ==
+// Nurbs), exercising the native MESH (FACET) SILHOUETTE path — NOT an analytic
+// quadric. `radii`/`zs` define the sections.
+static TopoDS_Shape makeLoftBarrel(const std::vector<double>& radii,
+                                   const std::vector<double>& zs) {
+    BRepOffsetAPI_ThruSections gen(/*isSolid=*/Standard_True, /*ruled=*/Standard_False);
+    for (std::size_t k = 0; k < radii.size(); ++k) {
+        gp_Circ circ(gp_Ax2(gp_Pnt(0, 0, zs[k]), gp_Dir(0, 0, 1)), radii[k]);
+        BRepBuilderAPI_MakeEdge me(circ);
+        BRepBuilderAPI_MakeWire mw(me.Edge());
+        gen.AddWire(mw.Wire());
+    }
+    gen.Build();
+    return gen.Shape();
+}
+
 int main() {
     std::printf("=== NATIVE HLR feature-edge suppression  vs  OCCT 7.9.3  (importOcctSolid A/B) ===\n");
 
@@ -172,6 +195,19 @@ int main() {
     // now reconstructs the 2 outline lines; assert total within chordal tol.
     abCase("CYLINDER r20 h50 front(-Y)  [assert total within chordal tol: silhouette restored]",
            BRepPrimAPI_MakeCylinder(20.0, 50.0).Shape(), Vec3{0, -1, 0}, 1, 1e-2);
+
+    // ---- FREEFORM (lofted BSpline-wall) — the native MESH (FACET) SILHOUETTE. ----
+    // A barrel lofted through 3 offset circles (r 15 -> 25 -> 15 over z 0..60): the
+    // wall imports as NURBS faces, so its outline comes ONLY from the new facet
+    // silhouette (no analytic quadric). MEASURE the per-class chording delta vs OCCT
+    // at 3 views. mode 2 = non-fatal MEASURE (the DECISION-GATE numbers).
+    TopoDS_Shape loft = makeLoftBarrel({15.0, 25.0, 15.0}, {0.0, 30.0, 60.0});
+    abCase("LOFT barrel(r15-25-15,h60) front(-Y)  [MEASURE facet silhouette across-view]",
+           loft, Vec3{0, -1, 0}, 2, 0.0);
+    abCase("LOFT barrel(r15-25-15,h60) iso(-1,-1,-1)  [MEASURE facet silhouette iso]",
+           loft, Vec3{-1, -1, -1}, 2, 0.0);
+    abCase("LOFT barrel(r15-25-15,h60) top(-Z)  [MEASURE facet silhouette along-axis]",
+           loft, Vec3{0, 0, -1}, 2, 0.0);
 
     std::printf("\n=== %d / %d ASSERTED checks passed ===\n", g_pass, g_total);
     return (g_pass == g_total) ? 0 : 1;

@@ -11,7 +11,6 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
-#include <BRepGProp_Face.hxx>
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepTools.hxx>
@@ -114,6 +113,7 @@
 #include "forge/native/brep/Boolean.hpp"           // booleanSolid, BoolOp, BooleanResult (lineage-carrying)
 #include "forge/native/brep/Sweep.hpp"             // prism, Profile, SweepResult (native extrude)
 #include "forge/native/brep/Topology.hpp"          // Solid, TopologyBuilder
+#include "forge/native/brep/FaceNormal.hpp"         // native BRepGProp_Face::Normal replacement
 #include <cstdint>
 #include <vector>
 #endif
@@ -184,11 +184,10 @@ NVec3 outwardNormal(const TopoDS_Face& face) {
     BRepAdaptor_Surface surf(face);
     const double u = 0.5 * (surf.FirstUParameter() + surf.LastUParameter());
     const double v = 0.5 * (surf.FirstVParameter() + surf.LastVParameter());
-    BRepGProp_Face gp(face);
-    gp_Pnt p;   // OCCT out-params required by BRepGProp_Face::Normal
+    gp_Pnt p;   // surface-point out-param, discarded (as with the OCCT out-param)
     gp_Vec n;
-    gp.Normal(u, v, p, n);
-    NVec3 nn = toN(n);              // read the OCCT normal into native at once
+    forge::native::brep::faceOrientedNormal(face, u, v, p, n);
+    NVec3 nn = toN(n);              // read the oriented normal into native at once
     if (nMag(nn) < kConfusion) {
         nn = NVec3{0.0, 0.0, 1.0};
     }

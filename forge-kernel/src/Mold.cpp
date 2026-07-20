@@ -9,7 +9,6 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
-#include <BRepGProp_Face.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
@@ -44,6 +43,7 @@
 // builder boundary because the ShapeRegistry stores TopoDS_Shape and the
 // primitive/boolean builders are K2/K3 territory (not yet native).
 #include "forge/native/brep/Nurbs.hpp"   // forge::native::brep::Vec3 (dependency-free)
+#include "forge/native/brep/FaceNormal.hpp"  // native BRepGProp_Face::Normal/Bounds replacement
 
 #include <algorithm>
 #include <cmath>
@@ -96,19 +96,18 @@ inline gp_Dir toDir(const NVec3& v) { return gp_Dir(v.x, v.y, v.z); }
 // Surface normal at the parametric centroid of `face`, oriented OUT of
 // the solid the face bounds, returned as a native unit NVec3.
 //
-// OCCT's BRepGProp_Face::Normal already returns an outward-pointing
-// normal (it inspects the face's TopAbs_Orientation internally). We do
-// NOT need to flip again for TopAbs_REVERSED — empirically verified on
-// BRepPrimAPI_MakeBox where the bottom face has TopAbs_REVERSED and
-// BRepGProp_Face::Normal returns -Z directly. Only fall back to a sane
-// default if OCCT returns a degenerate (zero-length) vector at the
-// sample point. The OCCT gp_Vec/gp_Pnt out-params exist only because
-// BRepGProp_Face::Normal requires them; the result is read into NVec3
-// immediately and all magnitude/normalise math is native.
+// faceOrientedNormal (native BRepGProp_Face::Normal replacement) already
+// returns an outward-pointing normal — it folds in the face's
+// TopAbs_Orientation (S_u x S_v, reversed when REVERSED), exactly as OCCT
+// did. We do NOT flip again for TopAbs_REVERSED — empirically verified on
+// BRepPrimAPI_MakeBox where the bottom face is TopAbs_REVERSED and the
+// oriented normal is -Z directly. Only fall back to a sane default if the
+// normal is degenerate (zero-length) at the sample point. The gp_Vec/gp_Pnt
+// out-params are read into NVec3 immediately; all magnitude/normalise math
+// is native.
 NVec3 faceOutwardNormal(const TopoDS_Face& face) {
-    BRepGProp_Face gp(face);
     Standard_Real u0, u1, v0, v1;
-    gp.Bounds(u0, u1, v0, v1);
+    forge::native::brep::faceUVBounds(face, u0, u1, v0, v1);
     if (!std::isfinite(u0) || !std::isfinite(u1) || u1 <= u0) {
         u0 = 0.0; u1 = 1.0;
     }
@@ -117,10 +116,10 @@ NVec3 faceOutwardNormal(const TopoDS_Face& face) {
     }
     const Standard_Real u = 0.5 * (u0 + u1);
     const Standard_Real v = 0.5 * (v0 + v1);
-    gp_Pnt p;   // OCCT out-params required by BRepGProp_Face::Normal
+    gp_Pnt p;   // surface-point out-param, discarded (as with the OCCT out-param)
     gp_Vec n;
-    gp.Normal(u, v, p, n);
-    const NVec3 nn = toN(n);            // read the OCCT normal into native at once
+    forge::native::brep::faceOrientedNormal(face, u, v, p, n);
+    const NVec3 nn = toN(n);            // read the oriented normal into native at once
     if (nMag(nn) < kConfusion) {
         // Degenerate normal — fall back to +Z so the caller still gets a
         // well-defined dot product instead of NaN.

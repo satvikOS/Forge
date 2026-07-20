@@ -44,8 +44,13 @@
 // HONEST ENVELOPE (do NOT overclaim — Bible §0):
 //   * Solids handled: POLYHEDRAL (planar faces) + ANALYTIC-QUADRIC (cylinder /
 //     cone / sphere / torus) faces, tessellated for the depth test. Freeform
-//     trimmed-NURBS faces are tessellated by their loop polygon only (no smooth
-//     silhouette precision) — a follow-up.
+//     trimmed-NURBS faces (imported as a facet soup sharing one NurbsSurface) now
+//     ALSO get a CHORDED MESH SILHOUETTE outline (HlrOptions::meshSilhouette,
+//     default ON): the view-dependent facet-chord straddle locus, mirroring the
+//     analytic silhouette pass but staircased along the tessellation (converges to
+//     the smooth outline under refinement, not bit-smooth like OCCT). PURE meshes
+//     with NO attached surface (surface==nullptr both sides) remain a follow-up
+//     (a crease-angle variant), so a native buildBox is untouched.
 //   * Views: ORTHOGRAPHIC (parallel projection, hiddenLineRemoval) AND
 //     PERSPECTIVE (pin-hole camera, hlrPerspective) — the perspective path
 //     divides the lateral image coordinates by eye-relative depth (foreshortens)
@@ -193,6 +198,21 @@ struct HlrOptions {
     bool cullSmoothEdges = true;
     // Relative tolerance for the same-underlying-surface coincidence test above.
     double smoothTol = 1e-6;
+
+    // FREEFORM MESH (FACET) SILHOUETTE. When true, freeform/NURBS faces (imported
+    // by importOcctSolid as a FACET SOUP of tiny Nurbs sub-faces that all carry a
+    // copy of ONE shared NurbsSurface) get a view-dependent CHORDED silhouette
+    // outline: an interior facet chord whose two same-underlying-surface incident
+    // facets' outward normals STRADDLE the view direction (one faces toward, one
+    // away) is emitted as a Silhouette edge — the freeform sibling of the analytic
+    // silhouette pass, so a freeform/NURBS part no longer defers to OCCT for its
+    // outline. The result is CHORDED (staircases along the tessellation), valid and
+    // convergent under refinement, NOT bit-smooth like OCCT. Fires ONLY when BOTH
+    // incident faces are kind==Nurbs with a matching control-net signature, so a
+    // native buildBox (surface==nullptr), an imported box (Plane) or cylinder
+    // (Cylinder) is NEVER touched (byte-for-byte unchanged). The genuine boundary
+    // between two DISTINCT Nurbs faces (different poles) keeps its feature edge.
+    bool meshSilhouette = true;
 };
 
 // ===========================================================================

@@ -59,14 +59,14 @@
 #include <TColStd_Array1OfReal.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array2OfReal.hxx>
-#include <Geom2d_Curve.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <gp_Pnt2d.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <BRepAdaptor_Surface.hxx>
-#include <BRepGProp_Face.hxx>
+#include "forge/native/brep/FaceNormal.hpp"  // native BRepGProp_Face::Normal replacement
 #include <GeomAbs_SurfaceType.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Cylinder.hxx>
@@ -710,9 +710,8 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             // OUTWARD already; this stays robust for a placed/flipped torus frame.
             Vec3 faceOutward{0, 0, 1};
             {
-                BRepGProp_Face gf(face);
                 gp_Pnt op; gp_Vec on;
-                gf.Normal(umin, vmin, op, on);
+                forge::native::brep::faceOrientedNormal(face, umin, vmin, op, on);
                 faceOutward = nb::vnorm(Vec3{on.X(), on.Y(), on.Z()});
             }
             Vec3 ndu, ndv; evalDeriv(fs, 0.0, 0.0, ndu, ndv);
@@ -795,9 +794,8 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             double ov = 0.5 * (vmin + vmax);
             Vec3 faceOutward{0, 0, 1};
             {
-                BRepGProp_Face gf(face);
                 gp_Pnt op; gp_Vec on;
-                gf.Normal(umin, ov, op, on);     // outward at native u=0
+                forge::native::brep::faceOrientedNormal(face, umin, ov, op, on);  // outward at native u=0
                 faceOutward = nb::vnorm(Vec3{on.X(), on.Y(), on.Z()});
             }
             double nv_mid = (fs.kind == nb::SurfaceKind::Sphere) ? (0.5 * kPi - ov)
@@ -931,14 +929,30 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         // so every shared edge ends up used by exactly two faces => closed manifold.
         TopoDS_Wire outer = BRepTools::OuterWire(face);
         std::vector<std::vector<BSample>> rings;
+        // Native OCCT (u,v) recovery for CURVED faces: project the shared 3-D boundary
+        // point onto this face's surface (GeomAPI_ProjectPointOnSurf, TKGeomAlgo — kept)
+        // instead of evaluating the stored 2-D p-curve (Geom2d_Curve::Value, TKG2d). This
+        // yields the SAME (u,v) the p-curve encodes. Only NON-full-periodic curved trims
+        // reach here (a full wrap is staged analytically above), so no seam branch is
+        // ambiguous; the existing occtToNative/unwrapU folds the result into native (u,v).
+        Handle(Geom_Surface) faceSurf = BRep_Tool::Surface(face);
+        GeomAPI_ProjectPointOnSurf faceProj;
+        auto projectOcctUV = [&](const gp_Pnt& q, double& uo, double& vo) -> bool {
+            faceProj.Init(q, faceSurf, umin, umax, vmin, vmax);
+            if (!faceProj.IsDone() || faceProj.NbPoints() < 1) {
+                faceProj.Init(q, faceSurf);
+                if (!faceProj.IsDone() || faceProj.NbPoints() < 1) return false;
+            }
+            faceProj.LowerDistanceParameters(uo, vo);
+            return true;
+        };
         auto addRing = [&](const TopoDS_Wire& w) {
             std::vector<BSample> ring;
             for (BRepTools_WireExplorer ex(w, face); ex.More(); ex.Next()) {
                 TopoDS_Edge e = ex.Current();
-                Standard_Real p2a, p2b, p3a, p3b;
-                Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, face, p2a, p2b);
+                Standard_Real p3a, p3b;
                 Handle(Geom_Curve)   c3 = BRep_Tool::Curve(e, p3a, p3b);
-                if (pc.IsNull() || c3.IsNull()) continue;
+                if (c3.IsNull()) continue;
                 const bool rev = (ex.Current().Orientation() == TopAbs_REVERSED);
                 // How many samples does THIS edge need? A STRAIGHT 3-D edge (a Line in
                 // model space) is fully described by its two endpoints: densifying it
@@ -1004,9 +1018,9 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
                         un = nb::vdot(d, fs.refDir);
                         vn = nb::vdot(d, pframeB);
                     } else {
-                        double f2 = rev ? (p2b + (p2a - p2b) * s) : (p2a + (p2b - p2a) * s);
-                        gp_Pnt2d q2 = pc->Value(f2);
-                        occtToNative(q2.X(), q2.Y(), un, vn);
+                        double uo = 0.0, vo = 0.0;
+                        projectOcctUV(q3, uo, vo);   // native projection ≡ the p-curve (u,v)
+                        occtToNative(uo, vo, un, vn);
                     }
                     es.push_back({P, {un, vn}});
                 }
@@ -1060,8 +1074,8 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
                 bool faceReversed = false;
                 {
                     double ou = 0.5 * (umin + umax), ov = 0.5 * (vmin + vmax);
-                    BRepGProp_Face gf(face);
-                    gp_Pnt occtP; gp_Vec occtN; gf.Normal(ou, ov, occtP, occtN);
+                    gp_Pnt occtP; gp_Vec occtN;
+                    forge::native::brep::faceOrientedNormal(face, ou, ov, occtP, occtN);
                     Vec3 faceOutward = nb::vnorm(Vec3{occtN.X(), occtN.Y(), occtN.Z()});
                     double un, vn; occtToNative(ou, ov, un, vn);
                     Vec3 ndu, ndv; evalDeriv(fs, un, vn, ndu, ndv);
@@ -1219,8 +1233,8 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         if (!cdt.ok) { res.reason = std::string("face CDT failed: ") + cdt.reason; return res; }
 
         // ---- per-face OUTWARD orientation, via OCCT's oriented normal ----------
-        // OCCT's BRepGProp_Face::Normal folds in the face's TopAbs orientation, so
-        // it points OUT of the solid. We wind each triangle ring CCW about that
+        // faceOrientedNormal (native BRepGProp_Face::Normal) folds in the face's
+        // TopAbs orientation, so it points OUT of the solid. We wind each ring CCW about that
         // outward normal (=> mated, opposite-sense shared coedges => closed
         // manifold) and set `reversed` so native normalAt also points OUTWARD.
         // Compare native du x dv vs OCCT's outward normal AT THE SAME physical point
@@ -1229,9 +1243,8 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         bool faceReversed = false;
         {
             double ou = 0.5 * (umin + umax), ov = 0.5 * (vmin + vmax);
-            BRepGProp_Face gf(face);
             gp_Pnt occtP; gp_Vec occtN;
-            gf.Normal(ou, ov, occtP, occtN);
+            forge::native::brep::faceOrientedNormal(face, ou, ov, occtP, occtN);
             Vec3 faceOutward = nb::vnorm(Vec3{occtN.X(), occtN.Y(), occtN.Z()});
             double un, vn; occtToNative(ou, ov, un, vn);
             Vec3 ndu, ndv; evalDeriv(fs, un, vn, ndu, ndv);

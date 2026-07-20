@@ -69,10 +69,38 @@ inline bool surfaceTessEnabled() {
     return on;
 }
 
-// Chord-tolerance segment count for a 3-D arc of length `arc` at target chord.
-inline int arcSegs(double arc, double chord) {
-    if (arc <= 0.0) return 1;
-    int n = static_cast<int>(std::ceil(arc / std::max(chord, 1e-9)));
+// CURVATURE-ADAPTIVE segment count for the v (non-angular) direction of a curved
+// face, driven by CHORD ERROR (sagitta) rather than arc LENGTH. Sampled at the
+// face's u-midpoint over [va,vb] (interior 1/4,1/2,3/4 points, worst sagitta):
+//
+//   * A RULED generator — a cylinder or cone axial line — has ZERO sagitta, so
+//     this returns 1 segment (the quad is geometrically exact along the axis).
+//     That is the fix for the surface-tessellator's cost blow-up: the old
+//     arcSegs(|dS/dv|*vSpan, 0.5) sliced a straight cylinder/cone wall into
+//     height/0.5 axial strips (a 12-unit bore wall -> 24 rows), inflating the
+//     watertight tessellation AND the boolean's point-in-solid validation soup
+//     (buildSoup -> pointInSoup is O(triangles) PER classified point), which is
+//     exactly what timed native_boolean_test out with FORGE_SURFACE_TESSELLATE on.
+//   * A genuinely curved param (e.g. a NURBS' linear direction) subdivides only
+//     as much as the chord tolerance `tol` demands: for an arc-like bulge the
+//     sagitta falls ~1/n^2 under n subdivisions, so n = ceil(sqrt(sag/tol)).
+//
+// WATERTIGHT: every strip of ONE analytic surface shares the same kind + v-span,
+// so nv is identical across the strips that meet on a shared vertical edge — the
+// weld grid still stitches them crack-free (a ruled wall is nv=1 everywhere).
+inline int chordSegs(const Surface& S, double uMid, double va, double vb, double tol) {
+    const Vec3 p0 = S.evaluate(uMid, va);
+    const Vec3 p1 = S.evaluate(uMid, vb);
+    double sag = 0.0;
+    for (double f : {0.25, 0.5, 0.75}) {
+        const Vec3 pm = S.evaluate(uMid, va + (vb - va) * f);
+        const Vec3 onChord{p0.x + (p1.x - p0.x) * f,
+                           p0.y + (p1.y - p0.y) * f,
+                           p0.z + (p1.z - p0.z) * f};
+        sag = std::max(sag, vlen(vsub(pm, onChord)));
+    }
+    if (sag <= tol) return 1;
+    int n = static_cast<int>(std::ceil(std::sqrt(sag / std::max(tol, 1e-12))));
     return std::max(1, std::min(n, 512));
 }
 } // namespace
@@ -128,26 +156,32 @@ void tessellateSolid(const Solid& solid,
                 f->innerLoops.empty() && !f->boolHoled) {
                 const Surface& S = *f->surface;
                 const double uu0 = f->u0, uu1 = f->u1, vv0 = f->v0, vv1 = f->v1;
-                Vec3 su, du, dv;
-                S.evaluateDeriv(0.5 * (uu0 + uu1), 0.5 * (vv0 + vv1), su, du, dv);
                 // Segment counts MUST be conforming across shared edges: two faces
                 // meeting on an edge must subdivide it identically or the weld grid
                 // leaves a crack. For an ANGULAR parameter direction we therefore base
                 // the count on the ANGLE span alone (constant per band) — NOT on arc
                 // length |dS/du|, which for a torus varies with v (radius R+r·cos v)
                 // and would give neighbouring bands different nu (the torus crack).
-                // Linear directions (cylinder/cone axial v) use chord over arc length,
-                // which is constant because every axial strip spans the full height.
+                // The non-angular v direction (cylinder/cone axial GENERATOR, or a
+                // NURBS linear param) is sized by the CURVATURE-ADAPTIVE chord ERROR
+                // (chordSegs): a ruled generator has zero sagitta -> nv=1 (exact),
+                // which stops a straight wall exploding into height/chord axial strips.
                 const SurfaceKind kd = S.kind;
-                const bool angU = true;  // u is angular for every curved quadric here
                 const bool angV = (kd == SurfaceKind::Sphere || kd == SurfaceKind::Torus);
-                const double angDensity = 32.0 / M_PI;  // full 2*pi -> 64 segments
-                const double chord = 0.5;                // model-unit chord (linear dir)
+                const double angDensity = 32.0 / M_PI;  // full 2*pi -> 64 segments (angular dir)
+                const double chordTol = 0.5;             // model-unit chord-ERROR tolerance
+                const double uMid = 0.5 * (uu0 + uu1);
                 const double uSpan = std::fabs(uu1 - uu0), vSpan = std::fabs(vv1 - vv0);
-                const int nu = angU ? std::max(1, (int)std::lround(uSpan * angDensity))
-                                    : arcSegs(vlen(du) * uSpan, chord);
+                // u is angular for every curved quadric here: size it by ANGLE span
+                // (constant per band = conforming). Do NOT use arc length |dS/du| or a
+                // torus's v-varying ring radius (R+r*cos v) cracks adjacent bands.
+                const int nu = std::max(1, (int)std::lround(uSpan * angDensity));
+                // v: angular for sphere/torus (angle span, conforming); otherwise a
+                // cylinder/cone axial GENERATOR (or a NURBS linear param) sized by the
+                // CURVATURE-ADAPTIVE chord error -> a ruled wall is nv=1 (exact), no
+                // longer exploding into height/chord strips.
                 const int nv = angV ? std::max(1, (int)std::lround(vSpan * angDensity))
-                                    : arcSegs(vlen(dv) * vSpan, chord);
+                                    : chordSegs(S, uMid, vv0, vv1, chordTol);
                 for (int iu = 0; iu < nu; ++iu) {
                     const double ua = uu0 + (uu1 - uu0) * (double(iu) / nu);
                     const double ub = uu0 + (uu1 - uu0) * (double(iu + 1) / nu);
