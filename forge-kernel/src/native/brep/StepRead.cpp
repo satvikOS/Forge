@@ -35,6 +35,8 @@
 #include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <set>
 #include <string>
@@ -642,6 +644,27 @@ bool buildBSplineCurve(const Resolver& R, const std::vector<std::string>& fields
     return out.knots.size() == out.controlPoints.size() + out.degree + 1;
 }
 
+// Unwrap a curve reference through the ISO-10303 "curve on surface" wrappers that
+// every commercial exporter emits: SURFACE_CURVE / SEAM_CURVE / INTERSECTION_CURVE
+// all carry the REAL 3D geometry as their FIRST field (curve_3d), followed by the
+// pcurve/surface associations. The native reader wants the literal 3D curve, so we
+// peel these wrappers (transitively) down to the underlying LINE/CIRCLE/ELLIPSE/
+// B_SPLINE. A non-wrapper id is returned unchanged.
+std::uint64_t resolve3dCurve(const Resolver& R, std::uint64_t curveId) {
+    for (int guard = 0; guard < 8; ++guard) {
+        Instance ci;
+        if (!R.get(curveId, ci)) return curveId;
+        if (ci.type != "SURFACE_CURVE" && ci.type != "SEAM_CURVE" &&
+            ci.type != "INTERSECTION_CURVE" && ci.type != "BOUNDED_SURFACE_CURVE")
+            return curveId;
+        auto cp = splitTopLevel(ci.params);
+        std::uint64_t inner = 0;
+        if (cp.size() < 2 || !parseRef(cp[1], inner)) return curveId;
+        curveId = inner;
+    }
+    return curveId;
+}
+
 EdgeGeom readEdgeGeom(const Resolver& R, std::uint64_t ecId, double scale) {
     EdgeGeom g;
     Instance ec; if (!R.get(ecId, ec) || ec.type != "EDGE_CURVE") { g.typeKeyword = "EDGE_CURVE"; return g; }
@@ -663,6 +686,7 @@ EdgeGeom readEdgeGeom(const Resolver& R, std::uint64_t ecId, double scale) {
     // The 3D curve geometry may be absent ('*') for a purely topological edge.
     if (ep[3] == "*" || ep[3] == "$") { g.kind = EdgeGeomKind::Line; g.ok = true; return g; }
     if (!parseRef(ep[3], curveId)) return g;
+    curveId = resolve3dCurve(R, curveId);   // peel SURFACE_CURVE / SEAM_CURVE wrappers
     Instance ci; if (!R.get(curveId, ci)) return g;
 
     if (ci.type == "LINE") {
@@ -913,16 +937,22 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         return true;
     };
 
-    // Resolve a FACE_(OUTER_)BOUND's EDGE_LOOP -> ordered ring of (vertexPos,
-    // hasCircle, circle geometry) in the loop traversal sense.
+    // Resolve a FACE_(OUTER_)BOUND's EDGE_LOOP -> a DENSELY SAMPLED ordered 3D ring
+    // that follows each edge's real curve geometry (lines contribute their start
+    // vertex; circular / elliptic / spline edges are sampled along the arc). This
+    // gives an accurate boundary polygon for a planar face (Green's theorem) and a
+    // faithful (u,v)-window sample set for a curved analytic face — and it is robust
+    // to the loop patterns commercial exporters emit that the vertex-only ring could
+    // not survive: single closed-circle loops (a flat round cap), seam edges (an
+    // EDGE_CURVE used twice on a full cylinder / cone), and degenerate collapses.
     struct LoopRing {
-        std::vector<Vec3> pts;
-        std::vector<bool> hasCircle;
-        std::vector<Vec3> circleCentre, circleNormal;
-        std::vector<double> circleRadius;
-        std::uint64_t loopId = 0;   // the EDGE_LOOP id (so a B-spline face can
-                                    // rebuild the REAL (u,v) trim loop from its edges)
+        std::vector<Vec3> pts;      // densified 3D ring, loop-traversal sense, deduped
+        std::uint64_t loopId = 0;   // EDGE_LOOP id (so a B-spline face can rebuild
+                                    // the REAL (u,v) trim loop from its edges)
         bool ok = false;
+        bool isSeam = false;        // an EDGE_CURVE is used >=2x (cylinder/cone seam)
+        bool hasFullCircle = false; // a closed full-circle edge (start vertex==end)
+        int  edgeCount = 0;
     };
     auto readEdgeLoop = [&](std::uint64_t loopId) -> LoopRing {
         LoopRing ring;
@@ -931,7 +961,10 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         if (!R.get(loopId, li) || li.type != "EDGE_LOOP") return ring;
         auto lp = splitTopLevel(li.params);
         std::vector<std::string> oeRefs;
-        if (lp.size() < 2 || !parseList(lp[1], oeRefs) || oeRefs.size() < 3) return ring;
+        if (lp.size() < 2 || !parseList(lp[1], oeRefs) || oeRefs.empty()) return ring;
+        ring.edgeCount = (int)oeRefs.size();
+        std::map<std::uint64_t, int> ecCount;
+        std::vector<Vec3> pts;
         for (const auto& oref : oeRefs) {
             std::uint64_t oeId = 0;
             if (!parseRef(oref, oeId)) return LoopRing{};
@@ -941,31 +974,69 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             if (op.size() < 5) return LoopRing{};
             std::uint64_t ecId = 0;
             if (!parseRef(op[3], ecId)) return LoopRing{};
-            bool sense = (op[4] == ".T.");
-            Instance ei;
-            if (!R.get(ecId, ei) || ei.type != "EDGE_CURVE") return LoopRing{};
-            auto ep = splitTopLevel(ei.params);
-            if (ep.size() < 5) return LoopRing{};
-            std::uint64_t vS = 0, vE = 0;
-            if (!parseRef(ep[1], vS) || !parseRef(ep[2], vE)) return LoopRing{};
-            std::uint64_t startVp = sense ? vS : vE;
-            // VERTEX_POINT -> CARTESIAN_POINT
-            Instance vpi;
-            if (!R.get(startVp, vpi) || vpi.type != "VERTEX_POINT") return LoopRing{};
-            auto vpp = splitTopLevel(vpi.params);
-            std::uint64_t cp = 0;
-            if (vpp.size() < 2 || !parseRef(vpp[1], cp)) return LoopRing{};
-            Vec3 pos;
-            if (!getPoint(R, cp, pos)) return LoopRing{};
-            pos = vscale(pos, scale);
-            ring.pts.push_back(pos);
-            EdgeCircle ecg = circleOfEdgeCurve(R, ecId, scale);
-            ring.hasCircle.push_back(ecg.ok);
-            ring.circleCentre.push_back(ecg.centre);
-            ring.circleNormal.push_back(ecg.normal);
-            ring.circleRadius.push_back(ecg.radius);
+            const bool sense = (op[4] == ".T.");
+            if (++ecCount[ecId] >= 2) ring.isSeam = true;      // shared seam edge
+            EdgeGeom eg = readEdgeGeom(R, ecId, scale);
+            if (!eg.ok) return LoopRing{};                     // unreadable edge geometry
+            const Vec3 pStart = sense ? eg.v0 : eg.v1;
+            const Vec3 pEnd   = sense ? eg.v1 : eg.v0;
+            const bool closedEdge = (vlen(vsub(eg.v0, eg.v1)) < 1e-9);
+            switch (eg.kind) {
+            case EdgeGeomKind::Line:
+                pts.push_back(pStart);
+                break;
+            case EdgeGeomKind::Circle:
+            case EdgeGeomKind::Ellipse: {
+                if (closedEdge) ring.hasFullCircle = true;
+                const Vec3 bdir = vcross(eg.axis, eg.refDir);
+                auto ang = [&](const Vec3& P) {
+                    const Vec3 r = vsub(P, eg.centre);
+                    return std::atan2(vdot(r, bdir), vdot(r, eg.refDir));
+                };
+                double a0 = ang(pStart), a1 = ang(pEnd);
+                while (a1 - a0 >  PI) a1 -= 2.0 * PI;
+                while (a1 - a0 < -PI) a1 += 2.0 * PI;
+                if (std::fabs(a1 - a0) < 1e-9) a1 = a0 + 2.0 * PI;   // closed full circle
+                int M = (int)std::llround(48.0 * std::fabs(a1 - a0) / (2.0 * PI));
+                if (M < 6) M = 6;
+                for (int i = 0; i < M; ++i) {                       // start + interiors (excl. end)
+                    const double t = a0 + (a1 - a0) * (double(i) / M);
+                    Vec3 P;
+                    if (eg.kind == EdgeGeomKind::Circle)
+                        P = vadd(eg.centre, vadd(vscale(eg.refDir, eg.radius * std::cos(t)),
+                                                 vscale(bdir, eg.radius * std::sin(t))));
+                    else
+                        P = vadd(eg.centre, vadd(vscale(eg.refDir, eg.radius * std::cos(t)),
+                                                 vscale(bdir, eg.radius2 * std::sin(t))));
+                    pts.push_back(P);
+                }
+                break;
+            }
+            case EdgeGeomKind::BSpline: {
+                if (closedEdge) ring.hasFullCircle = true;
+                if (eg.nurbs.knots.empty()) { pts.push_back(pStart); break; }
+                const double t0 = eg.nurbs.knots.front(), t1 = eg.nurbs.knots.back();
+                const Vec3 c0 = eg.nurbs.evaluate(t0);
+                const bool fwd = (vlen(vsub(c0, pStart)) <= vlen(vsub(c0, pEnd)));
+                const int M = 16;
+                for (int i = 0; i < M; ++i) {                       // start + interiors (excl. end)
+                    const double a = double(i) / M;
+                    const double t = fwd ? (t0 + (t1 - t0) * a) : (t1 + (t0 - t1) * a);
+                    pts.push_back(eg.nurbs.evaluate(t));
+                }
+                break;
+            }
+            }
         }
-        ring.ok = (ring.pts.size() >= 3);
+        // Consecutive-dedup (incl. wrap): folds out seam-collapse zero-length steps
+        // so the ring is a clean simple-ish polygon with no repeated adjacent vertex.
+        std::vector<Vec3> clean;
+        for (const Vec3& p : pts)
+            if (clean.empty() || vlen(vsub(clean.back(), p)) > 1e-9) clean.push_back(p);
+        while (clean.size() >= 2 && vlen(vsub(clean.front(), clean.back())) < 1e-9)
+            clean.pop_back();
+        ring.pts = std::move(clean);
+        ring.ok = ring.pts.size() >= 1;
         return ring;
     };
 
@@ -1102,18 +1173,19 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         return !out.segments.empty();
     };
 
-    // process each ADVANCED_FACE.
+    // process each ADVANCED_FACE. A face the reader cannot reconstruct is RECORDED
+    // (result.unsupported) and SKIPPED — never a hard failure of the whole part, so
+    // the reader still produces a solid from every face it CAN build (the divergence
+    // mass integral then runs over each face independently of shell closure).
     for (std::uint64_t fid : faceIds) {
         Instance fi;
-        if (!R.get(fid, fi) || fi.type != "ADVANCED_FACE")
-            return fail("readForeignStep: shell member #" + std::to_string(fid) + " not ADVANCED_FACE");
+        if (!R.get(fid, fi) || fi.type != "ADVANCED_FACE") { result.unsupported["NON_ADVANCED_FACE"]++; continue; }
         auto fp = splitTopLevel(fi.params);
-        if (fp.size() < 4) return fail("readForeignStep: ADVANCED_FACE arity");
+        if (fp.size() < 4) { result.unsupported["FACE_ARITY"]++; continue; }
         std::vector<std::string> boundRefs;
-        if (!parseList(fp[1], boundRefs) || boundRefs.empty())
-            return fail("readForeignStep: ADVANCED_FACE has no bounds");
+        if (!parseList(fp[1], boundRefs) || boundRefs.empty()) { result.unsupported["NO_BOUND"]++; continue; }
         std::uint64_t surfRef = 0;
-        if (!parseRef(fp[2], surfRef)) return fail("readForeignStep: face surface not a ref");
+        if (!parseRef(fp[2], surfRef)) { result.unsupported["NO_SURFACE"]++; continue; }
         bool sameSense = (fp[3] == ".T.");
 
         ForeignFaceInfo info;
@@ -1137,6 +1209,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         // additional FACE_BOUNDs are holes.
         std::vector<LoopRing> outerRings;     // 0 or 1
         std::vector<LoopRing> innerRings;
+        bool loopFail = false;
         for (const auto& bref : boundRefs) {
             std::uint64_t bId = 0;
             if (!parseRef(bref, bId)) continue;
@@ -1148,17 +1221,26 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             std::uint64_t lId = 0;
             if (!parseRef(bp[1], lId)) continue;
             LoopRing ring = readEdgeLoop(lId);
-            if (!ring.ok) return fail("readForeignStep: face #" + std::to_string(fid) +
-                                      " has an unreadable bound loop");
+            if (!ring.ok) { loopFail = true; break; }
             if (bi.type == "FACE_OUTER_BOUND" && outerRings.empty())
                 outerRings.push_back(std::move(ring));
             else
                 innerRings.push_back(std::move(ring));
         }
+        if (loopFail) {
+            info.supported = false;
+            result.unsupported["EDGE_LOOP(unreadable)"]++;
+            result.faceInfos.push_back(info);
+            continue;
+        }
         if (outerRings.empty()) {
             // No explicit FACE_OUTER_BOUND: promote the first inner ring to outer.
-            if (innerRings.empty())
-                return fail("readForeignStep: face #" + std::to_string(fid) + " has no usable bound");
+            if (innerRings.empty()) {
+                info.supported = false;
+                result.unsupported["NO_USABLE_BOUND"]++;
+                result.faceInfos.push_back(info);
+                continue;
+            }
             outerRings.push_back(std::move(innerRings.front()));
             innerRings.erase(innerRings.begin());
         }
@@ -1171,11 +1253,34 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             return vs;
         };
         std::vector<Vertex*> outerVerts = makeRingVertices(outerRings[0]);
-        // reject a degenerate consecutive repeat
-        for (std::size_t k = 0; k < outerVerts.size(); ++k)
-            if (vlen(vsub(PV(outerVerts[k]->point),
-                         PV(outerVerts[(k+1)%outerVerts.size()]->point))) < 1e-12)
-                return fail("readForeignStep: degenerate outer loop on face #" + std::to_string(fid));
+        // A face whose densified boundary collapses to < 3 distinct vertices carries
+        // no integrable area (a sliver / degenerate loop) — record & skip.
+        if (outerVerts.size() < 3) {
+            info.supported = false;
+            result.unsupported["DEGENERATE_LOOP"]++;
+            result.faceInfos.push_back(info);
+            continue;
+        }
+
+        // For a PLANAR face the exact divergence integral (integratePlanarExact) fans
+        // the boundary polygon with the SIGNED area about the outward normal, so the
+        // ring MUST wind counter-clockwise about that outward normal. Commercial
+        // exporters do not guarantee a consistent sense here, so NORMALISE it: compute
+        // the polygon's own normal (Newell) and reverse the ring if it opposes the
+        // face's outward normal (= plane axis, flipped by !same_sense).
+        if (protoSurf.kind == SurfaceKind::Plane) {
+            Vec3 nw{0, 0, 0};
+            const std::size_t np = outerVerts.size();
+            for (std::size_t k = 0; k < np; ++k) {
+                const Vec3 a = PV(outerVerts[k]->point);
+                const Vec3 b = PV(outerVerts[(k + 1) % np]->point);
+                nw.x += (a.y - b.y) * (a.z + b.z);
+                nw.y += (a.z - b.z) * (a.x + b.x);
+                nw.z += (a.x - b.x) * (a.y + b.y);
+            }
+            const Vec3 outward = protoSurf.reversed ? vscale(protoSurf.axis, -1.0) : protoSurf.axis;
+            if (vdot(nw, outward) < 0.0) std::reverse(outerVerts.begin(), outerVerts.end());
+        }
 
         Face* f = tb.makeFace();
         tb.addOuterLoopToFace(f, outerVerts);
@@ -1186,7 +1291,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         // hole loops
         for (const LoopRing& hr : innerRings) {
             std::vector<Vertex*> hv = makeRingVertices(hr);
-            tb.addInnerLoopToFace(f, hv);
+            if (hv.size() >= 3) tb.addInnerLoopToFace(f, hv);
         }
         info.innerLoopCount = innerRings.size();
 
@@ -1224,30 +1329,91 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                     tf.loops.push_back(std::move(hole));
                 }
             }
-            if (!trimOk) {
-                // HONEST: a face whose boundary uses unsupported edge geometry is
-                // recorded, not faked or dropped. The face is removed from the build
-                // (its native Face + verts were allocated but never sewn).
-                info.supported = false;
-                info.innerLoopCount = innerRings.size();
+            // The mass integral for a NURBS face runs over the FULL knot rectangle
+            // (integrateParametric), so the (u,v) TRIM loop is NOT needed for volume —
+            // it only feeds tessellation. When the trim inversion fails (a boundary
+            // edge that will not invert onto this patch) we therefore KEEP the face
+            // with its full-domain window rather than DROP it: a dropped face leaves a
+            // hole in the shell and corrupts the divergence volume far more than a
+            // patch that is (at worst) the exporter's untrimmed fit region. Only the
+            // tessellation trim is recorded when it succeeded.
+            if (trimOk) {
+                info.trimmedIndex = (long)result.trimmedFaces.size();
+                result.trimmedFaces.push_back(std::move(tf));
+            } else {
                 result.unsupported[unsupKw.empty() ? "EDGE_CURVE" : unsupKw]++;
+            }
+            f->surface = surf;
+            f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
+        } else if (protoSurf.kind == SurfaceKind::Plane) {
+            // PLANAR face — integrated EXACTLY by the divergence surface integral over
+            // its boundary polygon (Green's theorem via integratePlanarExact). The
+            // densified outer ring follows the true boundary (straight + circular +
+            // spline edges), so a disk / annulus / rounded plate all round-trip; inner
+            // FACE_BOUNDs are the holes, SUBTRACTED with the same plane normal.
+            *surf = protoSurf;
+            f->surface = surf;
+            if (!innerRings.empty()) f->boolHoled = true;
+        } else if (protoSurf.kind == SurfaceKind::Cylinder ||
+                   protoSurf.kind == SurfaceKind::Cone) {
+            // CYLINDER / CONE: the mass integral runs over the (u,v) trim rectangle
+            // (integrateParametric). Derive u = angular span, v = axial span DIRECTLY
+            // from the densified boundary samples with SEQUENTIAL theta-unwrapping (each
+            // sample within +/-pi of its predecessor along the loop) — robust for arcs
+            // of ANY span, unlike a fold-to-a-single-anchor bbox which aliases wide
+            // (>180deg) partial faces. A seam / closed full-circle rim ⇒ full 2*pi.
+            *surf = protoSurf;
+            f->surface = surf;
+            const std::vector<Vec3>& rp = outerRings[0].pts;
+            const Vec3 ax = vnorm(surf->axis), rd = vnorm(surf->refDir), bd = vcross(ax, rd);
+            double thPrev = 0.0, uMin = 0, uMax = 0, zMin = 0, zMax = 0;
+            for (std::size_t i = 0; i < rp.size(); ++i) {
+                const Vec3 rel = vsub(rp[i], surf->origin);
+                double th = std::atan2(vdot(rel, bd), vdot(rel, rd));
+                const double z = vdot(rel, ax);
+                if (i == 0) { thPrev = th; uMin = uMax = th; zMin = zMax = z; }
+                else {
+                    while (th - thPrev >  PI) th -= 2.0 * PI;
+                    while (th - thPrev < -PI) th += 2.0 * PI;
+                    thPrev = th;
+                    uMin = std::min(uMin, th); uMax = std::max(uMax, th);
+                    zMin = std::min(zMin, z);  zMax = std::max(zMax, z);
+                }
+            }
+            const bool fullU = outerRings[0].isSeam || outerRings[0].hasFullCircle;
+            if (fullU) { uMin = 0.0; uMax = 2.0 * PI; }
+            f->u0 = uMin; f->u1 = uMax;
+            if (protoSurf.kind == SurfaceKind::Cylinder) {
+                f->v0 = zMin; f->v1 = zMax;      // axial z is absolute along the axis
+            } else {
+                // CONE height recovery: v is normalised [0,1] over height `param`, with
+                // radius r1 at v=0 and r2 at v=1. buildSurface left r1=r2=refRadius and
+                // param=tan(halfAngle); rebuild them for the actual axial [zMin,zMax].
+                const double H = zMax - zMin;
+                if (H < 1e-12) { info.supported = false; result.unsupported["QUADRIC_PARAM"]++; result.faceInfos.push_back(info); continue; }
+                const double refR = surf->r1, slope = surf->param;
+                surf->origin = vadd(surf->origin, vscale(ax, zMin));
+                surf->r1 = refR + slope * zMin;
+                surf->r2 = refR + slope * zMax;
+                surf->param = H;
+                f->v0 = 0.0; f->v1 = 1.0;
+            }
+        } else {
+            // SPHERE / TORUS: keep the vertex-based parameterisation (pole/phi handling).
+            *surf = protoSurf;
+            f->surface = surf;
+            const std::vector<bool>   hc(outerVerts.size(), false);
+            const std::vector<Vec3>   cz(outerVerts.size(), Vec3{0, 0, 0});
+            const std::vector<double> rz(outerVerts.size(), 0.0);
+            if (!parameteriseQuadric(f, surf, outerVerts, hc, cz, cz, rz)) {
+                info.supported = false;
+                result.unsupported["QUADRIC_PARAM"]++;
                 result.faceInfos.push_back(info);
                 continue;
             }
-            info.trimmedIndex = (long)result.trimmedFaces.size();
-            result.trimmedFaces.push_back(std::move(tf));
-            f->surface = surf;
-            // set a coarse param window over the domain for the divergence path.
-            f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
-        } else {
-            *surf = protoSurf;
-            f->surface = surf;
-            // parameterise over the quadric (trim window + vertexUV + disk caps).
-            const LoopRing& orr = outerRings[0];
-            std::vector<bool> hc = orr.hasCircle;
-            if (!parameteriseQuadric(f, surf, outerVerts, hc,
-                                     orr.circleCentre, orr.circleNormal, orr.circleRadius))
-                return fail("readForeignStep: could not parameterise quadric face #" + std::to_string(fid));
+            if (outerRings[0].isSeam || outerRings[0].hasFullCircle) {
+                f->u0 = 0.0; f->u1 = 2.0 * PI;
+            }
         }
 
         info.nativeFace = f;

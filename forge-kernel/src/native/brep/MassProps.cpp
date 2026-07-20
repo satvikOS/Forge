@@ -226,8 +226,14 @@ void integratePlanarExact(const Face* f, Accum& acc) {
         const Vec3& P1 = pts[t];
         const Vec3& P2 = pts[t + 1];
         Vec3 e1 = vsub(P1, P0), e2 = vsub(P2, P0);
-        double A = 0.5 * vlen(vcross(e1, e2)); // triangle area
-        if (A <= 0.0) continue;
+        // SIGNED planar triangle area (projected onto the face normal). For a
+        // correctly-wound CONVEX face every fan triangle is CCW about `n`, so this
+        // is BYTE-IDENTICAL to the previous 0.5*|e1 x e2| there; but for a NON-CONVEX
+        // outer polygon (a plate with a notch/slot — common in imported STEP) the
+        // concave fan triangles now carry the correct NEGATIVE area, so the fan sum
+        // equals the true polygon integral instead of over-counting the sweep.
+        double A = 0.5 * vdot(vcross(e1, e2), n);
+        if (A == 0.0) continue;
         // The 4-point rule weights q.w sum to 1, so ∫_T f dA ≈ A * Σ q.w f(b_i).
         for (const auto& q : rule) {
             Vec3 p = vadd(vadd(vscale(P0, q.a), vscale(P1, q.b)), vscale(P2, q.c));
