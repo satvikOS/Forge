@@ -32,6 +32,7 @@
 #include "forge/native/brep/Sew.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
@@ -519,6 +520,80 @@ bool parameteriseQuadric(Face* f, Surface* surf,
         }
     }
     return true;
+}
+
+// ---------------------------------------------------------------------------
+// buildRegionPolygon — the (u,v) BOUNDARY POLYGON of a densified 3D ring on an
+// analytic quadric surface, in the surface's OWN parameter space (matching
+// Surface::evaluateDeriv exactly), for the trimmed-region mass integral
+// (MassProps::integrateParametricRegion). Angles are SEQUENTIALLY unwrapped
+// (each sample within +/-pi of its predecessor); a torus phi is unwrapped too.
+// The surface MUST already be fully configured (cone origin shifted / param=H)
+// so v matches evaluateDeriv. `thetaAnchor` (NaN = anchor to the ring's own first
+// angle; else force the first angle into that 2*pi branch) lets a hole ring share
+// the outer ring's branch. One (u,v) per densified 3D point; the caller uses it
+// only when it has >= 3 points, else keeps the rectangle path.
+// ---------------------------------------------------------------------------
+std::vector<std::array<double, 2>> buildRegionPolygon(
+        const std::vector<Vec3>& pts, const Surface* sf, double thetaAnchor) {
+    std::vector<std::array<double, 2>> poly;
+    poly.reserve(pts.size());
+    const Vec3 ax = vnorm(sf->axis), rd = vnorm(sf->refDir), bd = vcross(ax, rd);
+    bool haveTh = false;  double thPrev = 0.0;
+    bool havePhi = false; double phiPrev = 0.0;
+    for (const Vec3& P : pts) {
+        const Vec3 rel = vsub(P, sf->origin);
+        const double x = vdot(rel, rd), y = vdot(rel, bd), z = vdot(rel, ax);
+        double u = 0.0, v = 0.0;
+        switch (sf->kind) {
+        case SurfaceKind::Cylinder: u = std::atan2(y, x); v = z; break;
+        case SurfaceKind::Cone:
+            u = std::atan2(y, x);
+            v = (std::fabs(sf->param) > 1e-12) ? z / sf->param : z;
+            break;
+        case SurfaceKind::Sphere: {
+            u = std::atan2(y, x);
+            const double rr = vlen(rel);
+            v = (rr > 1e-12) ? std::acos(std::max(-1.0, std::min(1.0, z / rr))) : 0.0;
+            break;
+        }
+        case SurfaceKind::Torus: {
+            u = std::atan2(y, x);
+            const double ringR = std::sqrt(x * x + y * y) - sf->r1;
+            v = std::atan2(z, ringR);
+            break;
+        }
+        default: u = x; v = y; break;
+        }
+        const bool radial = (x * x + y * y > 1e-18);
+        if (radial) {
+            if (!haveTh) {
+                if (std::isnan(thetaAnchor)) { thPrev = u; }
+                else {
+                    while (u - thetaAnchor >  PI) u -= 2.0 * PI;
+                    while (u - thetaAnchor < -PI) u += 2.0 * PI;
+                    thPrev = u;
+                }
+                haveTh = true;
+            } else {
+                while (u - thPrev >  PI) u -= 2.0 * PI;
+                while (u - thPrev < -PI) u += 2.0 * PI;
+                thPrev = u;
+            }
+        } else if (haveTh) {
+            u = thPrev;   // pole / on-axis degeneracy: hold the previous angle
+        }
+        if (sf->kind == SurfaceKind::Torus) {
+            if (!havePhi) { phiPrev = v; havePhi = true; }
+            else {
+                while (v - phiPrev >  PI) v -= 2.0 * PI;
+                while (v - phiPrev < -PI) v += 2.0 * PI;
+                phiPrev = v;
+            }
+        }
+        poly.push_back({u, v});
+    }
+    return poly;
 }
 
 // ---------------------------------------------------------------------------
@@ -1514,6 +1589,45 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             }
             if (outerRings[0].isSeam || outerRings[0].hasFullCircle) {
                 f->u0 = 0.0; f->u1 = 2.0 * PI;
+            }
+        }
+
+        // TRIMMED-REGION (u,v) polygon for the SCAN-LINE mass integral. For a
+        // curved analytic quadric (cylinder/cone/sphere/torus) the reader's
+        // [u0,u1]x[v0,v1] rectangle over-counts whenever the real trim is not a
+        // full rectangle (inner holes, closed-inner-circle edges, non-rectangular
+        // trims, or an OCCT-split-vs-native-merged periodic face wrongly forced to
+        // 2*pi). Two cases, distinguished by whether the OUTER boundary is a SIMPLE
+        // (u,v) loop:
+        //   * NO closed full-circle RIM edge on the outer loop: the densified
+        //     boundary (arcs + lines + seams) inverts to a PROPER simple (u,v)
+        //     loop — build it and integrate the REAL region (this recovers both the
+        //     genuinely-partial faces AND the periodic faces the reader wrongly
+        //     forced to 2*pi).
+        //   * A closed full-circle RIM edge on the outer loop (genuinely full 2*pi
+        //     periodic): the raw boundary is disconnected full circles, which do
+        //     NOT form a simple (u,v) loop (scan-line would mis-read it), so KEEP
+        //     the byte-identical rectangle path when there are no holes, and only
+        //     when the face DOES carry holes synthesize a CLEAN rectangle outer
+        //     [u0,u1]x[v0,v1] so the holes are cut out.
+        // Native primitives never take this path (regionUV stays false), so the
+        // core mass gate is byte-identical.
+        if (f->surface &&
+            (f->surface->kind == SurfaceKind::Cylinder ||
+             f->surface->kind == SurfaceKind::Cone ||
+             f->surface->kind == SurfaceKind::Sphere ||
+             f->surface->kind == SurfaceKind::Torus)) {
+            const double thA = 0.5 * (f->u0 + f->u1);
+            std::vector<std::array<double, 2>> outerPoly =
+                buildRegionPolygon(outerRings[0].pts, f->surface, std::nan(""));
+            if (outerPoly.size() >= 3) {
+                f->regionOuterUV = std::move(outerPoly);
+                for (const LoopRing& hr : innerRings) {
+                    std::vector<std::array<double, 2>> hp =
+                        buildRegionPolygon(hr.pts, f->surface, thA);
+                    if (hp.size() >= 3) f->regionInnerUV.push_back(std::move(hp));
+                }
+                f->regionUV = true;
             }
         }
 

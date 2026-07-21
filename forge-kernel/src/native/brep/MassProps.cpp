@@ -6,6 +6,7 @@
 #include "forge/native/brep/MassProps.hpp"
 #include "forge/native/brep/Surface.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <vector>
@@ -130,6 +131,99 @@ void integrateParametric(const Face* f, int gaussN, Accum& acc) {
             Vec3 n = s->normalAt(u, v);
             double w = jac * gw[a] * gwv[b] * du * dv;
             addSample(acc, p, n, w);
+        }
+    }
+}
+
+// Integrate one CURVED analytic face over its ACTUAL trimmed (u,v) region — the
+// outer boundary polygon f->regionOuterUV minus the hole polygons
+// f->regionInnerUV, in the surface's OWN parameter space — by a SCAN-LINE
+// (even-odd) quadrature. A vertical line u = const is swept across the region's
+// u-range; every boundary edge it crosses contributes a v-crossing, and the
+// sorted crossings pair up into the interior v-intervals (a hole shows up as the
+// excluded GAP between two pairs, so it is cut out with NO explicit
+// subtraction). Each (u-strip x v-interval) cell is integrated with tensor
+// Gauss-Legendre of the analytic |S_u x S_v| Jacobian and the topological
+// outward normal (honours `reversed`; the global acc.vol<0 flip fixes a globally
+// inward parameterization exactly as integrateParametric does). This is the
+// general non-rectangular replacement for integrateParametric: for a GENUINE
+// full rectangle every scan-line yields the single interval [v0,v1], so it
+// converges to the same integral. Native primitives never set regionUV, so
+// their rectangle path (integrateParametric) stays byte-identical (core 34/34).
+void integrateParametricRegion(const Face* f, Accum& acc) {
+    const Surface* s = f->surface;
+    const std::vector<std::array<double, 2>>& outer = f->regionOuterUV;
+    if (outer.size() < 3) return;
+
+    // Gather every boundary edge (outer + holes) as (u,v) segment endpoints.
+    struct Seg { double ua, va, ub, vb; };
+    std::vector<Seg> segs;
+    auto addLoop = [&](const std::vector<std::array<double, 2>>& poly) {
+        const std::size_t n = poly.size();
+        if (n < 3) return;
+        for (std::size_t i = 0; i < n; ++i) {
+            const std::array<double, 2>& a = poly[i];
+            const std::array<double, 2>& b = poly[(i + 1) % n];
+            segs.push_back({a[0], a[1], b[0], b[1]});
+        }
+    };
+    addLoop(outer);
+    for (const std::vector<std::array<double, 2>>& h : f->regionInnerUV) addLoop(h);
+    if (segs.empty()) return;
+
+    double uMin = outer[0][0], uMax = outer[0][0];
+    for (const Seg& g : segs) {
+        uMin = std::min(uMin, std::min(g.ua, g.ub));
+        uMax = std::max(uMax, std::max(g.ua, g.ub));
+    }
+    const double uSpan = uMax - uMin;
+    if (uSpan <= 0.0) return;
+
+    // Scan-line resolution: fine in u to resolve the periodic (trig) integrand
+    // (~0.15 rad per strip), Gauss per strip in u and per interval in v so each
+    // cell is exact for the low-degree part of the integrand.
+    int nStrip = (int)std::ceil(uSpan / 0.15);
+    if (nStrip < 10)  nStrip = 10;
+    if (nStrip > 240) nStrip = 240;
+    std::vector<double> gU, gUw, gV, gVw;
+    gauss01(4, gU, gUw);   // 4 Gauss nodes per u-strip
+    gauss01(8, gV, gVw);   // 8 Gauss nodes per v-interval
+    const double du = uSpan / nStrip;
+
+    std::vector<double> xs;
+    xs.reserve(16);
+    for (int is = 0; is < nStrip; ++is) {
+        const double uStrip0 = uMin + du * is;
+        for (std::size_t a = 0; a < gU.size(); ++a) {
+            const double u = uStrip0 + du * gU[a];
+            // v-crossings of the vertical line u=const with every boundary edge.
+            // Half-open [min,max) test so a shared vertex is counted exactly once.
+            xs.clear();
+            for (const Seg& g : segs) {
+                const double u0 = g.ua, u1 = g.ub;
+                if ((u0 <= u && u < u1) || (u1 <= u && u < u0)) {
+                    const double t = (u - u0) / (u1 - u0);
+                    xs.push_back(g.va + t * (g.vb - g.va));
+                }
+            }
+            if (xs.size() < 2) continue;
+            std::sort(xs.begin(), xs.end());
+            const std::size_t nEven = xs.size() & ~std::size_t(1); // floor to even
+            for (std::size_t k = 0; k + 1 < nEven; k += 2) {
+                const double vLo = xs[k], vHi = xs[k + 1];
+                const double dv = vHi - vLo;
+                if (dv <= 0.0) continue;
+                for (std::size_t b = 0; b < gV.size(); ++b) {
+                    const double v = vLo + dv * gV[b];
+                    Vec3 p, sU, sV;
+                    s->evaluateDeriv(u, v, p, sU, sV);
+                    const double jac = vlen(vcross(sU, sV));
+                    if (jac <= 0.0) continue;
+                    const Vec3 n = s->normalAt(u, v);
+                    const double w = jac * gUw[a] * gVw[b] * du * dv;
+                    addSample(acc, p, n, w);
+                }
+            }
         }
     }
 }
@@ -309,6 +403,8 @@ MassProps massProperties(const Solid& solid, int gaussN) {
             if (f->surface->kind == SurfaceKind::Plane) {
                 if (f->surface->isDisk) integrateDiskExact(f, acc);
                 else                    integratePlanarExact(f, acc);
+            } else if (f->regionUV && f->regionOuterUV.size() >= 3) {
+                integrateParametricRegion(f, acc);
             } else if (f->paramTri) {
                 integrateParametricTri(f, acc);
             } else {

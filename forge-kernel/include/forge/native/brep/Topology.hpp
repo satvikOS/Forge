@@ -230,6 +230,23 @@ struct Face {
     // non-boolean inner-loop face (e.g. a fillet fragment copy) keeps the original
     // outer-loop-only integration byte-for-byte (marker isolation). Default false.
     bool boolHoled = false;
+
+    // K1 FOREIGN-STEP TRIMMED-REGION integration (additive, ISOLATED). When
+    // `regionUV` is true this CURVED analytic face is integrated over its ACTUAL
+    // trimmed (u,v) region — the outer boundary polygon `regionOuterUV` minus the
+    // hole polygons `regionInnerUV`, both in the surface's OWN parameter space
+    // (theta-unwrapped for periodic surfaces) — instead of the axis-aligned
+    // rectangle [u0,u1]x[v0,v1]. MassProps::integrateParametricRegion scan-line
+    // (even-odd) integrates the region with per-cell Gauss quadrature of the
+    // analytic |S_u x S_v| Jacobian, so inner holes, closed-inner-circle edges,
+    // non-rectangular trims and OCCT-split-vs-native-merged periodic faces all
+    // integrate correctly (a genuine full rectangle converges to the same value
+    // as the rectangle path). Set ONLY by the foreign STEP reader; every native
+    // primitive leaves it false, so integrateParametric stays byte-identical
+    // (protects the core 34/34 gate). Default false / empty.
+    bool regionUV = false;
+    std::vector<std::array<double, 2>> regionOuterUV;               // outer loop (u,v), ring order
+    std::vector<std::vector<std::array<double, 2>>> regionInnerUV;  // hole loops (u,v)
 };
 
 // ----------------------------------------------------------------------------
