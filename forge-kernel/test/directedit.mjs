@@ -15,9 +15,14 @@ const require = createRequire(import.meta.url)
 // Accept EITHER a directory or the .node file itself. Every other suite in this repo passes the
 // file path (see native_vs_occt_core.mjs); this test originally demanded a directory, which made
 // `FORGE_KERNEL=/abs/forge-kernel.node` fail with MODULE_NOT_FOUND on a perfectly good kernel.
-const env = process.env.FORGE_KERNEL ?? 'build/Release'
+// The DEFAULT (no FORGE_KERNEL) resolves relative to THIS test file (like native_vs_occt_core.mjs),
+// not process.cwd() — so `node forge-kernel/test/directedit.mjs` from the repo root (as CI runs it)
+// finds forge-kernel/build/Release/ regardless of the working directory.
+const env = process.env.FORGE_KERNEL
 const forge = require(
-  env.endsWith('.node') ? path.resolve(env) : path.resolve(process.cwd(), env, 'forge-kernel.node'),
+  env
+    ? (env.endsWith('.node') ? path.resolve(env) : path.resolve(process.cwd(), env, 'forge-kernel.node'))
+    : path.resolve(import.meta.dirname, '..', 'build', 'Release', 'forge-kernel.node'),
 )
 
 const PI = Math.PI

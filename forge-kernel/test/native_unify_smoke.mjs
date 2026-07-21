@@ -20,9 +20,13 @@ import assert from 'node:assert/strict'
 import path from 'node:path'
 
 const require = createRequire(import.meta.url)
-const env = process.env.FORGE_KERNEL ?? 'build/Release'
+// DEFAULT (no FORGE_KERNEL) resolves relative to THIS test file, not process.cwd(), so CI's
+// `node forge-kernel/test/native_unify_smoke.mjs` from the repo root finds the built .node.
+const env = process.env.FORGE_KERNEL
 const f = require(
-  env.endsWith('.node') ? path.resolve(env) : path.resolve(process.cwd(), env, 'forge-kernel.node'),
+  env
+    ? (env.endsWith('.node') ? path.resolve(env) : path.resolve(process.cwd(), env, 'forge-kernel.node'))
+    : path.resolve(import.meta.dirname, '..', 'build', 'Release', 'forge-kernel.node'),
 )
 
 const near = (a, b, tol, what) =>
