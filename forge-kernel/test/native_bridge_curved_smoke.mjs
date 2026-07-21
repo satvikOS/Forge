@@ -81,9 +81,13 @@ const CASES = [
     build: () => forge.makeTorus(20, 5),
     volume: 2 * PI * PI * 20 * 5 * 5,               // 9869.6044
     faceKind: 'torus',
-    // A torus is NOT yet a native co-toroidal merge, so unifyFaces still falls
-    // through to the OCCT bridge (an OCCT-backed handle).
-    unifyKind: 'occt',
+    // A torus now MERGES NATIVELY (co-toroidal unifySameDomain, UnifyFaces.cpp) —
+    // the doubly-periodic fundamental-polygon face — a strict improvement over the
+    // old defer-to-OCCT. unifyFaces returns the native single toroidal face;
+    // forge.faceInventory still bridges it through occtFromNativeSolid ->
+    // occtTorusFromNativeSolid, so the analytic-reconstruction guarantee this gate
+    // exists to prove is verified exactly as before.
+    unifyKind: 'nativeSolid',
   },
 ];
 
@@ -99,12 +103,10 @@ for (const c of CASES) {
      `${c.label}: native volume ${natVol.toFixed(4)} == analytic ${c.volume.toFixed(4)}`);
 
   // unifyFaces is the documented bridge/merge trigger (test/directedit.mjs `canon`).
-  // A torus is still ineligible for the native curved merge, so it falls through to
-  // ShapeRegistry::get -> occtFromNativeSolid and returns an OCCT-BACKED handle; a
-  // sphere now takes the native co-spherical merge and returns the native single
-  // spherical face. Either way forge.faceInventory below reconstructs it through the
-  // SAME occtFromNativeSolid bridge (ShapeRegistry::get bridges a native handle), so
-  // this gate still proves the analytic reconstruction it was written for.
+  // A sphere and a torus now BOTH take the native co-spherical / co-toroidal merge and
+  // return the native single analytic face. forge.faceInventory below reconstructs it
+  // through the SAME occtFromNativeSolid bridge (ShapeRegistry::get bridges a native
+  // handle), so this gate still proves the analytic reconstruction it was written for.
   const bridged = forge.unifyFaces(c.build());
   ok(forge.kindOf(bridged) === c.unifyKind,
      `${c.label}: unifyFaces -> ${c.unifyKind} (got ${forge.kindOf(bridged)})`);
@@ -121,9 +123,10 @@ for (const c of CASES) {
      `${c.label}: bridged solid carries NO plane facets (faceted fallback NOT taken)`);
 
   // (3) INTEGRATED VOLUME of the (bridged/merged) solid == exact analytic volume —
-  // NOT the faceted-garbage value. The torus is the OCCT mass path; the sphere is the
-  // native divergence-theorem integrator (analytic-exact to ~3e-8 rel). Tight tol
-  // (1e-6 rel) — the faceted torus (9849.80) misses this by 0.03%, i.e. ~3e-4 rel.
+  // NOT the faceted-garbage value. Both are now the native divergence-theorem
+  // integrator (analytic-exact: sphere ~3e-8 rel, the merged torus ~1e-11 rel via the
+  // v-subdivided region path). Tight tol (1e-6 rel) — the faceted torus (9849.80)
+  // misses this by 0.03%, i.e. ~3e-4 rel.
   const occtVol = forge.massProps(bridged).volume;
   ok(Math.abs(occtVol - c.volume) <= 1e-6 * c.volume,
      `${c.label}: integrated volume ${occtVol.toFixed(6)} == analytic ` +

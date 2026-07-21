@@ -271,18 +271,37 @@ void integrateParametricRegion(const Face* f, Accum& acc) {
             std::sort(xs.begin(), xs.end());
             const std::size_t nEven = xs.size() & ~std::size_t(1); // floor to even
             for (std::size_t k = 0; k + 1 < nEven; k += 2) {
-                const double vLo = xs[k], vHi = xs[k + 1];
-                const double dv = vHi - vLo;
-                if (dv <= 0.0) continue;
-                for (std::size_t b = 0; b < gV.size(); ++b) {
-                    const double v = vLo + dv * gV[b];
-                    Vec3 p, sU, sV;
-                    s->evaluateDeriv(u, v, p, sU, sV);
-                    const double jac = vlen(vcross(sU, sV));
-                    if (jac <= 0.0) continue;
-                    const Vec3 n = s->normalAt(u, v);
-                    const double w = jac * gUw[a] * gVw[b] * du * dv;
-                    addSample(acc, p, n, w);
+                const double vLoAll = xs[k], vHiAll = xs[k + 1];
+                const double vSpan = vHiAll - vLoAll;
+                if (vSpan <= 0.0) continue;
+                // A doubly-periodic TORUS's minor angle (v = phi) carries harmonics up
+                // to 3 over a FULL 2π period, which a single 8-node Gauss v-interval
+                // under-resolves (~1e-4 rel on the merged one-face torus). Subdivide the
+                // v-interval into ~0.15-wide sub-panels — the SAME rule the u strips use
+                // — so a full-period toroidal region face integrates to the analytic
+                // volume. Gated to Torus so EVERY cylinder/cone/sphere/plane region face
+                // (native primitives never set regionUV; imported cyl/cone/sphere trims
+                // and merged cyl/cone/sphere) stays BYTE-IDENTICAL (nSubV==1 reproduces
+                // the prior single-interval arithmetic exactly).
+                int nSubV = 1;
+                if (s->kind == SurfaceKind::Torus) {
+                    nSubV = static_cast<int>(std::ceil(vSpan / 0.15));
+                    if (nSubV < 1)   nSubV = 1;
+                    if (nSubV > 512) nSubV = 512;
+                }
+                const double dv = vSpan / nSubV;
+                for (int sv = 0; sv < nSubV; ++sv) {
+                    const double vLo = vLoAll + dv * sv;
+                    for (std::size_t b = 0; b < gV.size(); ++b) {
+                        const double v = vLo + dv * gV[b];
+                        Vec3 p, sU, sV;
+                        s->evaluateDeriv(u, v, p, sU, sV);
+                        const double jac = vlen(vcross(sU, sV));
+                        if (jac <= 0.0) continue;
+                        const Vec3 n = s->normalAt(u, v);
+                        const double w = jac * gUw[a] * gVw[b] * du * dv;
+                        addSample(acc, p, n, w);
+                    }
                 }
             }
         }

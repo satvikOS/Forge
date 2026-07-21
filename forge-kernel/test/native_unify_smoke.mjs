@@ -282,20 +282,130 @@ for (const R of [3, 1.5]) {
 }
 
 // ---------------------------------------------------------------------------
-// DEFERRED-to-OCCT (the honest scope boundary). Cylinder / cone / sphere now merge
-// natively; a TORUS (co-toroidal, not built), a multi-cylinder TUBE (two ruled
-// groups + annular caps), and a HOLED bored plate are NOT handled by the native
-// curved merge and must fall through to OCCT ShapeUpgrade_UnifySameDomain UNCHANGED
-// (unifyFaces returns an OCCT-backed handle). This locks the boundary so the native
-// path never misfires on a shape it cannot merge exactly.
+// CURVED co-TOROIDAL A/B (ADDITIVE). A native torus (buildTorus -> N*M = 8192 quad
+// patches on ONE toroidal surface, DOUBLY periodic — genus 1, no poles, no caps)
+// merges into ONE periodic toroidal face IN-HOUSE. A torus cut along its two seams
+// (the theta=0 minor meridian + the phi=0 outer equator) is a disk, so the single
+// face's boundary is the fundamental-polygon word b·a·b^-1·a^-1 — every seam edge
+// used once each way (its own mate), the four square corners the ONE corner vertex.
+// V=N+M-1, E=N+M, F=1 => chi=0 (a genus-1 torus). Proven like the sphere: (a) native
+// stripFaceCount 8192 -> 1; (b) bridged to OCCT it matches OCCT ShapeUpgrade 1:1 on
+// FACE + EDGE count and VOLUME. The single-face regionUV mass resolves the FULL 2π
+// minor period with a v-subdivided scan-line integrator, so it matches OCCT's analytic
+// torus volume to ~1e-11 (machine); the topology (1F/2E) is EXACT. OCCT's torus is a
+// seam-clean single toroidal face, so f.direct.edgeCount agrees with OCCT directly (2).
+// ---------------------------------------------------------------------------
+let tppassed = 0
+console.log('\n  native unifySameDomain (curved co-toroidal)  —  A/B vs OCCT ShapeUpgrade_UnifySameDomain\n')
+for (const [R, r] of [[5, 2], [3, 1]]) {
+  const name = `torus(R=${R}, r=${r})`
+  f.setNativeBrep(true)
+  const tor = f.makeTorus(R, r)
+  assert.equal(f.kindOf(tor), 'nativeSolid', `${name}: built as a NativeSolid`)
+  const rawStrips = stripCountOf(f.nativeFaceInventory(tor), 'torus')
+  assert.ok(rawStrips >= 64, `${name}: raw torus is many patches (got ${rawStrips})`)
+
+  const u = f.unifyFaces(tor)
+  assert.equal(f.kindOf(u), 'nativeSolid',
+    `${name}: native curved unify must return a NativeSolid (proves the native path fired, not OCCT fallback)`)
+  const inv = f.nativeFaceInventory(u)
+  assert.equal(stripCountOf(inv, 'torus'), 1,
+    `${name}: merged to ONE native torus face (stripFaceCount ${rawStrips} -> ${stripCountOf(inv, 'torus')})`)
+  assert.ok(inv.length === 1 && hist(inv).torus === 1,
+    `${name}: native inventory is {torus:1} (got ${JSON.stringify(hist(inv))})`)
+
+  const nat = { faces: f.direct.faceCount(u), edges: f.direct.edgeCount(u), vol: f.massProps(u).volume }
+
+  f.setNativeBrep(false)
+  const occU = f.unifyFaces(f.makeTorus(R, r))
+  assert.equal(f.kindOf(occU), 'occt', `${name}: native-off unify must be an OCCT shape`)
+  const occ = { faces: f.direct.faceCount(occU), edges: f.direct.edgeCount(occU), vol: f.massProps(occU).volume }
+
+  // A/B: native merge == OCCT merge on face + edge count (EXACT) and volume.
+  assert.equal(nat.faces, occ.faces, `${name}: face count native(${nat.faces}) vs OCCT(${occ.faces})`)
+  assert.equal(nat.edges, occ.edges, `${name}: edge count native(${nat.edges}) vs OCCT(${occ.edges})`)
+  near(nat.vol, occ.vol, 1e-6, `${name}: volume native vs OCCT`)
+  near(occ.vol, 2 * Math.PI * Math.PI * R * r * r, 1e-6, `${name}: OCCT volume is 2π²Rr²`)
+  // known answer: OCCT MakeTorus = 1 toroidal face, 2 seam edges (minor + outer-equator).
+  assert.equal(nat.faces, 1, `${name}: torus = 1 face`)
+  assert.equal(nat.edges, 2, `${name}: torus = 2 edges`)
+
+  tppassed++
+  console.log(`  PASS  ${name}`)
+  console.log(`          native: ${rawStrips} patches -> 1 torus face, bridged ${nat.faces}F/${nat.edges}E vol ${nat.vol}`)
+  console.log(`          OCCT  : ${occ.faces}F/${occ.edges}E vol ${occ.vol}`)
+}
+
+// ---------------------------------------------------------------------------
+// CURVED co-CYLINDRICAL BORE / HOLED-PLATE A/B (ADDITIVE). A bored plate (box minus a
+// coaxial cylinder) is emitted by the native boolean as its 6 box planes — the top and
+// bottom now BOOLEAN-HOLED (an inner loop = the bore rim) — plus the bore wall as N=128
+// angular cylinder strips. unifyFaces merges those strips into ONE periodic wall face
+// IN-HOUSE while copying every planar face 1:1 (the holes PRESERVED), matching OCCT
+// ShapeUpgrade_UnifySameDomain 1:1 (7 faces {plane:6, cylinder:1}, exact volume). Like
+// the clean cylinder, FACE count is measured through the OCCT oracle both ways, but EDGE
+// count uses the native CANONICAL counter (f.nativeEdgeCount): the native->OCCT bridge's
+// analytic-cylinder reconstruction emits ONE spurious extra seam edge (16 vs 15) — the
+// same bridge artifact ORTHOGONAL to this merge — whereas the native topology's canonical
+// count is the true 15 == OCCT.
+// ---------------------------------------------------------------------------
+let bppassed = 0
+console.log('\n  native unifySameDomain (curved co-cylindrical BORE / holed plate)  —  A/B vs OCCT ShapeUpgrade_UnifySameDomain\n')
+{
+  const name = 'bored plate: box(10,10,4) - cyl(r=2,h=4) through hole'
+  const build = (f) => f.cut(f.makeBox(10, 10, 4), f.translate(f.makeCylinder(2, 4), 5, 5, 0))
+  const exactVol = 400 - Math.PI * 2 * 2 * 4
+
+  f.setNativeBrep(true)
+  const plate = build(f)
+  assert.equal(f.kindOf(plate), 'nativeSolid', `${name}: built as a NativeSolid`)
+  const rawStrips = stripCountOf(f.nativeFaceInventory(plate), 'cylinder')
+  assert.ok(rawStrips >= 8, `${name}: raw bore wall is many strips (got ${rawStrips})`)
+
+  const u = f.unifyFaces(plate)
+  assert.equal(f.kindOf(u), 'nativeSolid',
+    `${name}: native BORE unify must return a NativeSolid (proves the native path fired, not OCCT fallback)`)
+  const inv = f.nativeFaceInventory(u)
+  assert.equal(stripCountOf(inv, 'cylinder'), 1,
+    `${name}: bore wall merged to ONE native cylinder face (stripFaceCount ${rawStrips} -> ${stripCountOf(inv, 'cylinder')})`)
+  const nh = hist(inv)
+  assert.ok(inv.length === 7 && nh.cylinder === 1 && nh.plane === 6,
+    `${name}: native inventory is {cylinder:1, plane:6} (got ${JSON.stringify(nh)})`)
+
+  const nat = { faces: f.direct.faceCount(u), edges: f.nativeEdgeCount(u), vol: f.massProps(u).volume }
+
+  f.setNativeBrep(false)
+  const occU = f.unifyFaces(build(f))
+  assert.equal(f.kindOf(occU), 'occt', `${name}: native-off unify must be an OCCT shape`)
+  const occ = { faces: f.direct.faceCount(occU), edges: f.direct.edgeCount(occU), vol: f.massProps(occU).volume }
+
+  // A/B: native merge == OCCT merge on face count, edge count and volume.
+  assert.equal(nat.faces, occ.faces, `${name}: face count native(${nat.faces}) vs OCCT(${occ.faces})`)
+  assert.equal(nat.edges, occ.edges, `${name}: edge count native(${nat.edges}) vs OCCT(${occ.edges})`)
+  near(nat.vol, occ.vol, 1e-9, `${name}: volume native vs OCCT`)
+  // known answer: 6 planes (2 holed caps + 4 walls) + 1 bore wall = 7F; hole preserved.
+  assert.equal(nat.faces, 7, `${name}: bored plate = 7 faces`)
+  near(nat.vol, exactVol, 1e-6, `${name}: expected volume box - πr²h`)
+
+  bppassed++
+  console.log(`  PASS  ${name}`)
+  console.log(`          native: ${rawStrips} strips -> 1 bore wall, bridged ${nat.faces}F/${nat.edges}E vol ${nat.vol}`)
+  console.log(`          OCCT  : ${occ.faces}F/${occ.edges}E vol ${occ.vol}`)
+}
+
+// ---------------------------------------------------------------------------
+// DEFERRED-to-OCCT (the honest scope boundary). Cylinder / cone / sphere / TORUS and the
+// through-BORED plate (holed caps) now merge natively; a multi-cylinder TUBE (TWO ruled
+// groups + annular caps shattered into coplanar-holed planar strips) is NOT handled by
+// the native curved merge and must fall through to OCCT ShapeUpgrade_UnifySameDomain
+// UNCHANGED (unifyFaces returns an OCCT-backed handle). This locks the boundary so the
+// native path never misfires on a shape it cannot merge exactly.
 // ---------------------------------------------------------------------------
 let dpassed = 0
 console.log('\n  deferred-to-OCCT (honest scope boundary)\n')
 f.setNativeBrep(true)
 const deferred = [
-  { name: 'torus(5,2)  — co-toroidal (not built)',      build: (f) => f.makeTorus(5, 2) },
-  { name: 'tube(2,1,4) — two ruled groups + annular caps', build: (f) => f.makeTube(2, 1, 4) },
-  { name: 'bored plate — holed caps',                   build: (f) => f.cut(f.makeBox(10, 10, 4), f.translate(f.makeCylinder(2, 4), 5, 5, 0)) },
+  { name: 'tube(2,1,4) — two ruled groups + shattered annular caps', build: (f) => f.makeTube(2, 1, 4) },
 ]
 for (const d of deferred) {
   const h = f.unifyFaces(d.build(f))
@@ -306,4 +416,4 @@ for (const d of deferred) {
 
 // restore default gate
 f.setNativeBrep(true)
-console.log(`\n  ${passed}/${cases.length} planar + ${cpassed}/${curvedCases.length} cyl + ${konpassed}/${coneCases.length} cone + ${sppassed}/2 sphere A/B + ${dpassed}/${deferred.length} deferred cases passed`)
+console.log(`\n  ${passed}/${cases.length} planar + ${cpassed}/${curvedCases.length} cyl + ${konpassed}/${coneCases.length} cone + ${sppassed}/2 sphere + ${tppassed}/2 torus + ${bppassed}/1 bored A/B + ${dpassed}/${deferred.length} deferred cases passed`)

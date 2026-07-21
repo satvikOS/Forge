@@ -103,6 +103,19 @@ ShapeHandle unifyFaces(ShapeHandle body) {
                 if (merged) return reg.addNativeSolid(std::move(owner), merged);
                 // merged == nullptr: could not merge exactly -> OCCT fallback.
             }
+            // ADDITIVE (curved co-cylindrical BORE merge, holed-face aware): a bored
+            // plate — ONE ruled wall group (the coaxial hole's N strips) + planar caps
+            // whose top/bottom carry the bore rim as an inner (hole) loop — merges the
+            // strips into ONE periodic wall face IN-HOUSE while copying the holed caps
+            // 1:1 (holes preserved). A tube / blind bore / shattered annular cap is
+            // ineligible and falls through to OCCT's ShapeUpgrade_UnifySameDomain.
+            else if (native::brep::nativeUnifyBoredEligible(s)) {
+                std::shared_ptr<native::brep::TopologyBuilder> owner;
+                native::brep::Solid* merged =
+                    native::brep::unifySameDomainBored(s, owner);
+                if (merged) return reg.addNativeSolid(std::move(owner), merged);
+                // merged == nullptr: could not merge exactly -> OCCT fallback.
+            }
         }
     }
 #endif

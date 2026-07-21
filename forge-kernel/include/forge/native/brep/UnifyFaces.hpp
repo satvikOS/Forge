@@ -19,13 +19,14 @@
 //     validated TopologyBuilder (shared edges / mated coedges), so native
 //     mass-props / tessellation / the STEP bridge all keep working on it.
 //
-//   * CO-CYLINDRICAL / co-CONICAL / co-SPHERICAL merge (ADDITIVE increments, A/B vs
-//     OCCT in test/native_unify_smoke.mjs). The primitive builders emit a quadric of
-//     revolution as N angular STRIP faces on ONE shared analytic surface (a cylinder
-//     = buildCone(r,r,h) -> 128 Cone(r1==r2) sectors; a cone/frustum -> 128 Cone
-//     sectors; a sphere -> N*M spherical patches with pole triangle fans).
-//     `unifySameDomainCurved` merges those strips back into the ONE periodic analytic
-//     face OCCT produces, IN-HOUSE (no OCCT bridge):
+//   * CO-CYLINDRICAL / co-CONICAL / co-SPHERICAL / co-TOROIDAL merge + the through-BORED
+//     plate (ADDITIVE increments, A/B vs OCCT in test/native_unify_smoke.mjs). The
+//     primitive builders emit a quadric of revolution as N angular STRIP faces on ONE
+//     shared analytic surface (a cylinder = buildCone(r,r,h) -> 128 Cone(r1==r2) sectors;
+//     a cone/frustum -> 128 Cone sectors; a sphere -> N*M spherical patches with pole
+//     triangle fans; a torus -> N*M quad patches, doubly periodic). `unifySameDomainCurved`
+//     / `unifySameDomainBored` merge those strips back into the ONE periodic analytic face
+//     OCCT produces, IN-HOUSE (no OCCT bridge):
 //       - CYLINDER / cone FRUSTUM: drop the N-1 interior seam edges (keep one as the
 //         face SEAM), re-trace the two boundary rings (bottom + top circle) and splice
 //         them through the seam; copy the two planar caps 1:1 (== OCCT 3F).
@@ -33,21 +34,30 @@
 //         the loop is base-ring + seam-to-apex; copy the one planar cap 1:1 (== OCCT 2F).
 //       - SPHERE: one periodic spherical face whose boundary is a there-and-back seam
 //         meridian with the two poles as degenerate vertices, no caps (== OCCT 1F).
+//       - TORUS: one DOUBLY-periodic toroidal face whose boundary is the fundamental-
+//         polygon word b·a·b^-1·a^-1 (the phi=0 outer-equator circle + the theta=0 minor
+//         meridian, each traversed once each way — its own mate), the four square corners
+//         the ONE corner vertex; V=N+M-1, E=N+M, F=1 => chi=0 (== OCCT 1F/2E). Its full-2π
+//         minor-period mass is resolved by the v-subdivided region integrator (MassProps).
+//       - BORED PLATE (through hole): ONE ruled wall group's N strips merge into ONE
+//         periodic wall face (two rim rings spliced through a seam) while EVERY planar
+//         face is copied 1:1 INCLUDING its inner (hole) loops — so the holed top/bottom
+//         caps survive (== OCCT 7F {plane:6, cylinder:1}).
 //     Each rebuilds a fresh closed 2-manifold Solid (analyticFaceInventory stripFaceCount
 //     N -> 1), is VOLUME-cross-checked against the input (never a wrong shape), and,
 //     when bridged to OCCT for counting, matches OCCT ShapeUpgrade_UnifySameDomain 1:1
-//     (face/edge count + exact volume). Fires ONLY for a CLEAN single primitive body
-//     (one co-surface group forming a full 2*pi lateral + its expected cap count, no
-//     holes) so bored plates / tubes / partial (fillet) surfaces stay on the OCCT path.
+//     (face/edge count + exact volume). Fires ONLY for a CLEAN single-primitive body or a
+//     single through-bore (one co-surface group forming a full 2*pi lateral + its expected
+//     cap count / exactly two holed caps) so tubes / partial (fillet) surfaces stay OCCT.
 //
 // What is explicitly TARGETED (NOT built here — the remaining coverage gap for the
 // eventual TKShHealing drop):
-//   * Co-TOROIDAL merge (torus), the cut-cylinder / bored-plate holed-annulus merge,
-//     multi-cylinder (tube) bodies, and hemispheres (sphere + a planar cut cap) — those
-//     defer to OCCT ShapeUpgrade_UnifySameDomain (a torus/nurbs face, a second
-//     cyl/cone/sphere group, or a holed/multi-shell/extra-cap input makes both
-//     eligibility checks return false, so `unifyFaces` (DirectEdit.cpp) falls back
-//     unchanged).
+//   * The multi-cylinder TUBE (two coaxial ruled groups + annular caps SHATTERED into
+//     coplanar-holed planar strips), a BLIND bore (one holed cap), and hemispheres
+//     (sphere + a planar cut cap) — those defer to OCCT ShapeUpgrade_UnifySameDomain (a
+//     second cyl/cone/sphere group, a holed-plane count != 2, or a nurbs / multi-shell /
+//     extra-cap input makes every eligibility check return false, so `unifyFaces`
+//     (DirectEdit.cpp) falls back unchanged).
 //
 // Pure C++20, ZERO external deps (stdlib + existing forge native headers).
 // CONVENTIONS: namespace forge::native::brep.
@@ -106,6 +116,27 @@ bool nativeUnifyCurvedEligible(const Solid& s);
 // must fall back to OCCT rather than emit a wrong shape).
 Solid* unifySameDomainCurved(const Solid& s,
                              std::shared_ptr<TopologyBuilder>& outOwner);
+
+// ADDITIVE (curved co-cylindrical BORE merge, holed-face aware). True iff `s` is a
+// clean single BORED body: exactly ONE ruled group (>= 2 Cylinder/Cone strip faces on
+// ONE shared surface, forming a full 2π wall — a coaxial hole) plus planar faces, of
+// which EXACTLY TWO are boolean-holed plate faces (the bore's rim is those faces' inner
+// loop — a through hole). Every other planar face is a simple wall; no torus/nurbs/
+// sphere face, no split (paramTri) or imported (regionUV) strip. A tube (two ruled
+// groups), a blind bore, a shattered annular cap or any non-boolean holed face makes
+// this false so the caller defers to OCCT ShapeUpgrade_UnifySameDomain unchanged.
+bool nativeUnifyBoredEligible(const Solid& s);
+
+// Merge the ONE ruled BORE-wall group of `s` (its N angular strips) into the ONE
+// periodic cylindrical/conical wall face OCCT produces (drop the interior seams, keep
+// one, splice the two rim rings through it), copying EVERY planar face 1:1 INCLUDING
+// its inner (hole) loops — so the bored plate's holed top/bottom caps and box walls are
+// preserved exactly — into a NEW native Solid owned by `outOwner`. Returns the merged
+// Solid or nullptr if it cannot be completed EXACTLY (the boundary does not trace to the
+// two rim rings, no seam is found, the rebuilt solid is not a closed 2-manifold, or its
+// volume does not match the input — in every such case the caller falls back to OCCT).
+Solid* unifySameDomainBored(const Solid& s,
+                            std::shared_ptr<TopologyBuilder>& outOwner);
 
 } // namespace brep
 } // namespace native
