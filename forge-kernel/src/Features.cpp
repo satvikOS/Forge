@@ -84,8 +84,7 @@
 #include <GeomFill_NSections.hxx>
 #include <TColGeom_SequenceOfCurve.hxx>
 #include <TColgp_Array1OfPnt.hxx>
-#include <BRepPrimAPI_MakeCone.hxx>
-#include <BRepPrimAPI_MakeCylinder.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRep_Tool.hxx>
@@ -1620,7 +1619,7 @@ ShapeHandle holeWizard(ShapeHandle shape,
     // axis.
     auto cyl = [&](double r, double h, double offset) -> TopoDS_Shape {
         gp_Ax2 ax2(origin.Translated(gp_Vec(axisDir) * offset), axisDir);
-        return BRepPrimAPI_MakeCylinder(ax2, r, h).Shape();
+        return forge::occtCylinderSolid(ax2, r, h);
     };
 
     TopoDS_Shape result = fetch(shape);
@@ -1666,8 +1665,8 @@ ShapeHandle holeWizard(ShapeHandle shape,
                 "forge.part.holeWizard: countersink geometry degenerate");
         }
         gp_Ax2 ax2(origin, axisDir);
-        TopoDS_Shape cone = BRepPrimAPI_MakeCone(
-            ax2, headR, spec.diameter * 0.5, coneH).Shape();
+        TopoDS_Shape cone = ::forge::occtConeSolid(
+            ax2, headR, spec.diameter * 0.5, coneH);
         BRepAlgoAPI_Cut op(result, cone);
         op.Build();
         if (!op.IsDone()) {

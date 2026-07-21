@@ -65,9 +65,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
-#include <BRepPrimAPI_MakeBox.hxx>
-#include <BRepPrimAPI_MakeCylinder.hxx>
-#include <BRepPrimAPI_MakePrism.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic box + cylinder
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
@@ -727,11 +725,10 @@ TopoDS_Shape reliefSolid(const gp_Pnt& centre, const gp_Vec& along,
     if (type == ReliefType::Round) {
         // Cylinder of radius width/2, depth into the sheet.
         const double r = std::max(0.5 * width, 0.01);
-        BRepPrimAPI_MakeCylinder mk(
+        return forge::occtCylinderSolid(
             gp_Ax2(gp_Pnt(centre.X(), centre.Y(), centre.Z() - 0.5 * t),
                    gp_Dir(0, 0, 1)),
             r, std::max(t + 0.2, depth + t));
-        return mk.Shape();
     }
 
     if (type == ReliefType::Rectangular) {
@@ -740,14 +737,14 @@ TopoDS_Shape reliefSolid(const gp_Pnt& centre, const gp_Vec& along,
                    centre.Y() - 0.5 * e[1],
                    centre.Z() - 0.1 * t);
         gp_Pnt high(low.X() + e[0], low.Y() + e[1], low.Z() + e[2]);
-        return BRepPrimAPI_MakeBox(low, high).Shape();
+        return forge::occtBoxSolid(low, high);
     }
 
     // Tear-drop: combine a cylinder with a small extension towards the
     // bend, modelled as cylinder + rectangle slot. We fuse them in
     // BRepAlgoAPI_Fuse.
     const double r = std::max(0.5 * width, 0.01);
-    BRepPrimAPI_MakeCylinder cyl(
+    const TopoDS_Shape cyl = forge::occtCylinderSolid(
         gp_Ax2(gp_Pnt(centre.X(), centre.Y(), centre.Z() - 0.5 * t),
                gp_Dir(0, 0, 1)),
         r, std::max(t + 0.2, depth + t));
@@ -756,10 +753,10 @@ TopoDS_Shape reliefSolid(const gp_Pnt& centre, const gp_Vec& along,
                centre.Y() - 0.5  * e[1],
                centre.Z() - 0.1  * t);
     gp_Pnt high(low.X() + 0.5 * e[0], low.Y() + e[1], low.Z() + e[2]);
-    TopoDS_Shape slot = BRepPrimAPI_MakeBox(low, high).Shape();
-    BRepAlgoAPI_Fuse f(cyl.Shape(), slot);
+    TopoDS_Shape slot = forge::occtBoxSolid(low, high);
+    BRepAlgoAPI_Fuse f(cyl, slot);
     f.Build();
-    return f.IsDone() ? f.Shape() : cyl.Shape();
+    return f.IsDone() ? f.Shape() : cyl;
 }
 
 } // namespace

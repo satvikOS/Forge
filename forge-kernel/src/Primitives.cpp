@@ -8,13 +8,8 @@
 #include <memory>
 #endif
 
-#include <BRepPrimAPI_MakeBox.hxx>
-#include <BRepPrimAPI_MakeCylinder.hxx>
-#include <BRepPrimAPI_MakeSphere.hxx>
-#include <BRepPrimAPI_MakeCone.hxx>
-#include <BRepPrimAPI_MakeTorus.hxx>
-#include <BRepPrimAPI_MakeWedge.hxx>
-#include <BRepPrimAPI_MakePrism.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic OCCT primitive solids
+#include <BRepPrimAPI_MakePrism.hxx>   // still used by makePrism (arbitrary-face sweep)
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -65,8 +60,7 @@ ShapeHandle makeBox(double dx, double dy, double dz) {
     if (native::brep::forgeNativeBrepEnabled())
         return registerNative([&](native::brep::SolidFactory& f){ return f.buildBox(dx, dy, dz); });
 #endif
-    BRepPrimAPI_MakeBox mk(dx, dy, dz);
-    return ShapeRegistry::instance().add(mk.Shape());
+    return ShapeRegistry::instance().add(occtBoxSolid(dx, dy, dz));
 }
 
 ShapeHandle makeCylinder(double r, double h) {
@@ -76,8 +70,7 @@ ShapeHandle makeCylinder(double r, double h) {
     if (native::brep::forgeNativeBrepEnabled())
         return registerNative([&](native::brep::SolidFactory& f){ return f.buildCylinder(r, h); });
 #endif
-    BRepPrimAPI_MakeCylinder mk(r, h);
-    return ShapeRegistry::instance().add(mk.Shape());
+    return ShapeRegistry::instance().add(occtCylinderSolid(r, h));
 }
 
 ShapeHandle makeSphere(double r) {
@@ -86,8 +79,7 @@ ShapeHandle makeSphere(double r) {
     if (native::brep::forgeNativeBrepEnabled())
         return registerNative([&](native::brep::SolidFactory& f){ return f.buildSphere(r); });
 #endif
-    BRepPrimAPI_MakeSphere mk(r);
-    return ShapeRegistry::instance().add(mk.Shape());
+    return ShapeRegistry::instance().add(occtSphereSolid(r));
 }
 
 ShapeHandle makeCone(double r1, double r2, double h) {
@@ -103,8 +95,7 @@ ShapeHandle makeCone(double r1, double r2, double h) {
     if (native::brep::forgeNativeBrepEnabled())
         return registerNative([&](native::brep::SolidFactory& f){ return f.buildCone(r1, r2, h); });
 #endif
-    BRepPrimAPI_MakeCone mk(r1, r2, h);
-    return ShapeRegistry::instance().add(mk.Shape());
+    return ShapeRegistry::instance().add(occtConeSolid(r1, r2, h));
 }
 
 ShapeHandle makeTorus(double R, double r) {
@@ -117,8 +108,7 @@ ShapeHandle makeTorus(double R, double r) {
     if (native::brep::forgeNativeBrepEnabled())
         return registerNative([&](native::brep::SolidFactory& f){ return f.buildTorus(R, r); });
 #endif
-    BRepPrimAPI_MakeTorus mk(R, r);
-    return ShapeRegistry::instance().add(mk.Shape());
+    return ShapeRegistry::instance().add(occtTorusSolid(R, r));
 }
 
 // ----------------------------------------------------------------------------
@@ -169,8 +159,7 @@ ShapeHandle makeWedge(double dx, double dy, double dz, double ltx) {
     if (native::brep::forgeNativeBrepEnabled())
         return registerNative([&](native::brep::SolidFactory& f){ return f.buildWedge(dx, dy, dz, ltx); });
 #endif
-    BRepPrimAPI_MakeWedge mk(dx, dy, dz, ltx);
-    return ShapeRegistry::instance().add(mk.Shape());
+    return ShapeRegistry::instance().add(occtWedgeSolid(dx, dy, dz, ltx));
 }
 
 // Rectangular-base pyramid: base dx×dy centred on the origin (z=0) lofted as a
@@ -218,12 +207,12 @@ ShapeHandle makeEllipsoid(double rx, double ry, double rz) {
     // buildEllipsoid is a faceted approximation (~0.1% volume error, fails the
     // analytic A/B gate). Stays on the EXACT OCCT GTransform path until native has
     // general-quadric support (a later wave), then re-enable behind the A/B gate.
-    BRepPrimAPI_MakeSphere unit(1.0);
+    const TopoDS_Solid unit = occtSphereSolid(1.0);  // TKPrim-free unit sphere
     gp_GTrsf g;  // identity; set the linear diagonal (1-indexed rows/cols).
     g.SetValue(1, 1, rx);
     g.SetValue(2, 2, ry);
     g.SetValue(3, 3, rz);
-    BRepBuilderAPI_GTransform mk(unit.Shape(), g, Standard_True);
+    BRepBuilderAPI_GTransform mk(unit, g, Standard_True);
     if (!mk.IsDone()) {
         throw std::runtime_error("forge: ellipsoid GTransform build failed");
     }

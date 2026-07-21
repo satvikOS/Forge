@@ -45,8 +45,7 @@
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
-#include <BRepPrimAPI_MakeBox.hxx>
-#include <BRepPrimAPI_MakeCylinder.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic box
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <Precision.hxx>
@@ -179,20 +178,17 @@ TopoDS_Shape sweepRectTubeAlongSegment(const StructuralProfile& p,
         const double tx = std::min(a.X(), b.X());
         const double ty = a.Y() - w * 0.5;
         const double tz = a.Z() - h * 0.5;
-        BRepPrimAPI_MakeBox mk(gp_Pnt(tx, ty, tz), gp_Pnt(tx + L, ty + w, tz + h));
-        return mk.Shape();
+        return forge::occtBoxSolid(gp_Pnt(tx, ty, tz), gp_Pnt(tx + L, ty + w, tz + h));
     } else if (ay >= ax && ay >= az) {
         const double tx = a.X() - w * 0.5;
         const double ty = std::min(a.Y(), b.Y());
         const double tz = a.Z() - h * 0.5;
-        BRepPrimAPI_MakeBox mk(gp_Pnt(tx, ty, tz), gp_Pnt(tx + w, ty + L, tz + h));
-        return mk.Shape();
+        return forge::occtBoxSolid(gp_Pnt(tx, ty, tz), gp_Pnt(tx + w, ty + L, tz + h));
     } else {
         const double tx = a.X() - w * 0.5;
         const double ty = a.Y() - h * 0.5;
         const double tz = std::min(a.Z(), b.Z());
-        BRepPrimAPI_MakeBox mk(gp_Pnt(tx, ty, tz), gp_Pnt(tx + w, ty + h, tz + L));
-        return mk.Shape();
+        return forge::occtBoxSolid(gp_Pnt(tx, ty, tz), gp_Pnt(tx + w, ty + h, tz + L));
     }
 }
 
@@ -386,9 +382,9 @@ ShapeHandle endCap(ShapeHandle shape,
         // native deferred -> OCCT path below (unchanged).
     }
 #endif
-    BRepPrimAPI_MakeBox capMk(gp_Pnt(xmax, ymin, zmin),
-                              gp_Pnt(xmax + capThickness, ymax, zmax));
-    BRepAlgoAPI_Fuse fuser(src, capMk.Shape());
+    const TopoDS_Shape capBox = forge::occtBoxSolid(gp_Pnt(xmax, ymin, zmin),
+                                                    gp_Pnt(xmax + capThickness, ymax, zmax));
+    BRepAlgoAPI_Fuse fuser(src, capBox);
     fuser.Build();
     TopoDS_Shape out = fuser.IsDone() ? fuser.Shape() : src;
     auto h = ShapeRegistry::instance().add(out);
@@ -435,10 +431,10 @@ ShapeHandle gusset(ShapeHandle shape,
         // native deferred -> OCCT path below (unchanged).
     }
 #endif
-    BRepPrimAPI_MakeBox gussetMk(
+    const TopoDS_Shape gussetBox = forge::occtBoxSolid(
         gp_Pnt(xmin, ymin, zmin),
         gp_Pnt(xmin + gussetSize, ymin + gussetSize, zmin + thickness));
-    BRepAlgoAPI_Fuse fuser(src, gussetMk.Shape());
+    BRepAlgoAPI_Fuse fuser(src, gussetBox);
     fuser.Build();
     TopoDS_Shape out = fuser.IsDone() ? fuser.Shape() : src;
     auto h = ShapeRegistry::instance().add(out);
@@ -488,10 +484,10 @@ ShapeHandle weldBead(ShapeHandle shape,
         const double mx = 0.5 * (a.X() + b.X());
         const double my = 0.5 * (a.Y() + b.Y());
         const double mz = 0.5 * (a.Z() + b.Z());
-        BRepPrimAPI_MakeBox beadMk(
+        const TopoDS_Shape beadBox = forge::occtBoxSolid(
             gp_Pnt(mx - beadSize, my - beadSize, mz - beadSize),
             gp_Pnt(mx + beadSize, my + beadSize, mz + beadSize));
-        BRepAlgoAPI_Fuse fuser(acc, beadMk.Shape());
+        BRepAlgoAPI_Fuse fuser(acc, beadBox);
         fuser.Build();
         if (fuser.IsDone()) acc = fuser.Shape();
         ++added;

@@ -8,7 +8,7 @@
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepGProp.hxx>
-#include <BRepPrimAPI_MakeCylinder.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cylinder
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <GProp_GProps.hxx>
 #include <ShapeFix_Shape.hxx>
@@ -65,7 +65,7 @@ TopoDS_Shape makeCylinder(const std::array<double, 3>& base,
                           double radius, double length) {
     const auto a = unit(axis);
     gp_Ax2 ax(gp_Pnt(base[0], base[1], base[2]), gp_Dir(a[0], a[1], a[2]));
-    return BRepPrimAPI_MakeCylinder(ax, radius, length).Shape();
+    return forge::occtCylinderSolid(ax, radius, length);
 }
 
 } // namespace

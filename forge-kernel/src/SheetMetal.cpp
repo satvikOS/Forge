@@ -81,8 +81,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBndLib.hxx>
-#include <BRepPrimAPI_MakeBox.hxx>
-#include <BRepPrimAPI_MakeCylinder.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic box
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <Bnd_Box.hxx>
 #include <BRep_Tool.hxx>
@@ -203,9 +202,8 @@ void wireXYBox(const TopoDS_Wire& w, double& dx, double& dy) {
 // resulting fused shape and see every flange as a separate brick face.
 TopoDS_Shape brickAt(double lx, double ly, double lz,
                      double tx, double ty, double tz) {
-    BRepPrimAPI_MakeBox mk(gp_Pnt(tx, ty, tz),
-                           gp_Pnt(tx + lx, ty + ly, tz + lz));
-    return mk.Shape();
+    return forge::occtBoxSolid(gp_Pnt(tx, ty, tz),
+                               gp_Pnt(tx + lx, ty + ly, tz + lz));
 }
 
 ShapeHandle attachAndReturn(const TopoDS_Shape& newShape, SheetMetalPart p) {

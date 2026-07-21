@@ -259,6 +259,7 @@ add_library(forge_kernel SHARED
     ${CMAKE_JS_SRC}
     src/binding.cpp
     src/ShapeRegistry.cpp
+    src/OcctPrimBuilder.cpp       # TKPrim-free analytic OCCT primitive solids (Geom_ + BRepBuilderAPI)
     src/NativeOcctBridge.cpp
     src/OcctImport.cpp
     src/Primitives.cpp

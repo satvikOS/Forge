@@ -23,9 +23,7 @@
 #include <Geom_Plane.hxx>
 #include <Geom2d_Line.hxx>
 #include <Geom_CylindricalSurface.hxx>
-#include <BRepPrimAPI_MakeCone.hxx>
-#include <BRepPrimAPI_MakeSphere.hxx>
-#include <BRepPrimAPI_MakeTorus.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic primitive solids (cone/sphere/torus)
 #include <Geom_Surface.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
@@ -642,12 +640,15 @@ TopoDS_Shape occtConeFromNativeSolid(const Solid& solid) {
     const gp_Pnt O(cone->origin.x, cone->origin.y, cone->origin.z);
     const gp_Dir A(cone->axis.x, cone->axis.y, cone->axis.z);
     const gp_Dir R(cone->refDir.x, cone->refDir.y, cone->refDir.z);
-    // gp_Ax2: base circle centre O, +Z = A (base→top), +X = R. MakeCone puts the
-    // r1 circle at O and the r2 circle at O + A*height — the native convention.
-    BRepPrimAPI_MakeCone mk(gp_Ax2(O, A, R), cone->r1, cone->r2, cone->param);
-    mk.Build();
-    if (!mk.IsDone()) return TopoDS_Shape();
-    const TopoDS_Shape out = mk.Shape();
+    // gp_Ax2: base circle centre O, +Z = A (base→top), +X = R. The r1 circle sits at
+    // O and the r2 circle at O + A*height — the native convention. TKPrim-free: one
+    // Geom_ConicalSurface lateral + planar caps (see OcctPrimBuilder), NOT MakeCone.
+    TopoDS_Shape out;
+    try {
+        out = occtConeSolid(gp_Ax2(O, A, R), cone->r1, cone->r2, cone->param);
+    } catch (const std::exception&) {
+        return TopoDS_Shape();
+    }
     if (out.IsNull()) return TopoDS_Shape();
 
     GProp_GProps vp;
@@ -695,10 +696,15 @@ TopoDS_Shape occtSphereFromNativeSolid(const Solid& solid) {
     if (!sph) return TopoDS_Shape();  // no sphere face -> not our case
 
     const gp_Pnt C(sph->origin.x, sph->origin.y, sph->origin.z);
-    BRepPrimAPI_MakeSphere mk(C, sph->r1);
-    mk.Build();
-    if (!mk.IsDone()) return TopoDS_Shape();
-    const TopoDS_Shape out = mk.Shape();
+    // TKPrim-free: ONE Geom_SphericalSurface periodic face (see OcctPrimBuilder),
+    // NOT BRepPrimAPI_MakeSphere. The native sphere carries no meaningful frame, so
+    // the canonical +Z/+X axis is used (a whole sphere is frame-invariant).
+    TopoDS_Shape out;
+    try {
+        out = occtSphereSolid(gp_Ax2(C, gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), sph->r1);
+    } catch (const std::exception&) {
+        return TopoDS_Shape();
+    }
     if (out.IsNull()) return TopoDS_Shape();
 
     GProp_GProps vp;
@@ -750,12 +756,15 @@ TopoDS_Shape occtTorusFromNativeSolid(const Solid& solid) {
     const gp_Pnt O(tor->origin.x, tor->origin.y, tor->origin.z);
     const gp_Dir A(tor->axis.x, tor->axis.y, tor->axis.z);
     const gp_Dir R(tor->refDir.x, tor->refDir.y, tor->refDir.z);
-    // gp_Ax2: torus centre O, +Z = symmetry axis A, +X = R. MakeTorus(R1,R2) with
-    // R1 = major radius (centre -> tube centre), R2 = minor (tube) radius.
-    BRepPrimAPI_MakeTorus mk(gp_Ax2(O, A, R), tor->r1, tor->r2);
-    mk.Build();
-    if (!mk.IsDone()) return TopoDS_Shape();
-    const TopoDS_Shape out = mk.Shape();
+    // gp_Ax2: torus centre O, +Z = symmetry axis A, +X = R. R1 = major radius
+    // (centre -> tube centre), R2 = minor (tube) radius. TKPrim-free: ONE
+    // Geom_ToroidalSurface doubly-periodic face (see OcctPrimBuilder), NOT MakeTorus.
+    TopoDS_Shape out;
+    try {
+        out = occtTorusSolid(gp_Ax2(O, A, R), tor->r1, tor->r2);
+    } catch (const std::exception&) {
+        return TopoDS_Shape();
+    }
     if (out.IsNull()) return TopoDS_Shape();
 
     GProp_GProps vp;

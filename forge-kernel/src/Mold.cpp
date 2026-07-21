@@ -9,8 +9,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
-#include <BRepPrimAPI_MakeCone.hxx>
-#include <BRepPrimAPI_MakeCylinder.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <Bnd_Box.hxx>
 #include <BRep_Builder.hxx>
@@ -398,8 +397,7 @@ TopoDS_Shape insertCoolingChannels(const TopoDS_Shape&                moldBlock,
         // IsDone() returns false until Shape() is queried — calling
         // Shape() triggers Build() and throws StdFail_NotDone on real
         // failure, which propagates through the safe() wrapper.
-        BRepPrimAPI_MakeCylinder cylMk(frame, 0.5 * ch.diameter, length);
-        const TopoDS_Shape cylinder = cylMk.Shape();
+        const TopoDS_Shape cylinder = forge::occtCylinderSolid(frame, 0.5 * ch.diameter, length);
         BRepAlgoAPI_Cut cut(result, cylinder);
         cut.Build();
         if (!cut.IsDone()) {
@@ -452,11 +450,10 @@ RunnerSystem buildRunnerSystem(const gp_Pnt&              sprueTop,
     // of the cone (R1) is at sprueTop and the apex direction (R2 at +H)
     // is at sprueTop - sprueLength·Z.
     const gp_Ax2 sprueFrame(sprueTop, toDir(NVec3{0.0, 0.0, -1.0}));
-    BRepPrimAPI_MakeCone sprueMk(sprueFrame, sprueR1, sprueR2, sprueLength);
-    // Shape() internally triggers Build() and throws StdFail_NotDone on
-    // genuine failure (negative radii, zero height etc.); the safe()
-    // wrapper surfaces that as a real JS error.
-    result.sprue = sprueMk.Shape();
+    // TKPrim-free: Geom_ConicalSurface lateral + planar caps (OcctPrimBuilder),
+    // matching BRepPrimAPI_MakeCone(sprueFrame, R1, R2, len) 1:1 (base R1 at the
+    // frame origin, top R2 at +len·axis). Throws on degenerate input via safe().
+    result.sprue = forge::occtConeSolid(sprueFrame, sprueR1, sprueR2, sprueLength);
 
     // Sprue bottom centre — runners radiate from here to each gate. Computed
     // natively (sprueTop shifted down by sprueLength), converted to gp_Pnt at
@@ -476,15 +473,13 @@ RunnerSystem buildRunnerSystem(const gp_Pnt&              sprueTop,
         }
         const gp_Dir runnerDir = toDir(nNormalize(runnerAxis));
         const gp_Ax2 runnerFrame(toPnt(sprueBottom), runnerDir);
-        BRepPrimAPI_MakeCylinder runnerMk(runnerFrame, 0.5 * runnerDia, runnerLen);
-        result.runners.push_back(runnerMk.Shape());
+        result.runners.push_back(forge::occtCylinderSolid(runnerFrame, 0.5 * runnerDia, runnerLen));
 
         // Gate: short cylinder of length runnerDia, dia gateDia, axially
         // aligned with the runner, anchored at the gate entry point.
         const double gateLen = runnerDia;
         const gp_Ax2 gateFrame(gateEntry, runnerDir);
-        BRepPrimAPI_MakeCylinder gateMk(gateFrame, 0.5 * gateDia, gateLen);
-        result.gates.push_back(gateMk.Shape());
+        result.gates.push_back(forge::occtCylinderSolid(gateFrame, 0.5 * gateDia, gateLen));
     }
 
     return result;
