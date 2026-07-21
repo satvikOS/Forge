@@ -18,6 +18,7 @@
 #include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
 #include <Geom_CylindricalSurface.hxx>
+#include <BRepPrimAPI_MakeCone.hxx>
 #include <Geom_Surface.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
@@ -501,6 +502,69 @@ TopoDS_Shape occtAnalyticFromNativeSolid(const Solid& solid) {
     return out;
 }
 
+// Rebuild a native CONE / FRUSTUM body as an EXACT OCCT cone via the OCCT
+// primitive builder (Geom_ConicalSurface + planar caps), instead of the faceted
+// polyhedron fallback. The faceted path builds hundreds of plane facets whose
+// re-imported B-rep integrates to the WRONG volume (the planar tri-faces carry no
+// pcurves, so BRepGProp / BOP mis-read them) — which silently produces a bad solid
+// that breaks every downstream boolean (e.g. forge.mold cavity/core split → an
+// empty cavity). A native cone carries its full analytic definition on the shared
+// lateral Surface (origin = base centre, axis, refDir, r1 = base radius, r2 = top
+// radius, param = height), so BRepPrimAPI_MakeCone reproduces it 1:1. Triggers ONLY
+// when EVERY face is a Plane cap or the SAME single Cone lateral, and the rebuilt
+// volume matches the native volume (else null → unchanged faceted fallback).
+TopoDS_Shape occtConeFromNativeSolid(const Solid& solid) {
+    const Surface* cone = nullptr;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) {
+            if (!f) continue;
+            const Surface* s = f->surface;
+            if (!s) return TopoDS_Shape();               // bare topology → decline
+            if (s->kind == SurfaceKind::Plane) continue;  // a cap
+            if (s->kind != SurfaceKind::Cone) return TopoDS_Shape();  // other curve → decline
+            // A true frustum/cone lateral (equal radii would be a cylinder shim).
+            if (std::fabs(s->r1 - s->r2) <= 1e-9 * std::max(1.0, std::fabs(s->r1)))
+                return TopoDS_Shape();
+            if (!cone) { cone = s; continue; }
+            // Every cone face must share ONE lateral surface (same r1/r2/height/frame).
+            auto dist = [](const native::brep::Vec3& a, const native::brep::Vec3& b) {
+                const double dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+                return std::sqrt(dx * dx + dy * dy + dz * dz);
+            };
+            const bool same =
+                std::fabs(cone->r1 - s->r1) <= 1e-9 * std::max(1.0, std::fabs(cone->r1)) &&
+                std::fabs(cone->r2 - s->r2) <= 1e-9 * std::max(1.0, std::fabs(cone->r2)) &&
+                std::fabs(cone->param - s->param) <= 1e-9 * std::max(1.0, std::fabs(cone->param)) &&
+                dist(cone->origin, s->origin) <= 1e-9 * std::max(1.0, cone->param) &&
+                dist(cone->axis, s->axis) <= 1e-9 &&
+                dist(cone->refDir, s->refDir) <= 1e-9;
+            if (!same) return TopoDS_Shape();
+        }
+    }
+    if (!cone) return TopoDS_Shape();  // no cone lateral → not our case
+    if (!(cone->param > 1e-12)) return TopoDS_Shape();
+
+    const gp_Pnt O(cone->origin.x, cone->origin.y, cone->origin.z);
+    const gp_Dir A(cone->axis.x, cone->axis.y, cone->axis.z);
+    const gp_Dir R(cone->refDir.x, cone->refDir.y, cone->refDir.z);
+    // gp_Ax2: base circle centre O, +Z = A (base→top), +X = R. MakeCone puts the
+    // r1 circle at O and the r2 circle at O + A*height — the native convention.
+    BRepPrimAPI_MakeCone mk(gp_Ax2(O, A, R), cone->r1, cone->r2, cone->param);
+    mk.Build();
+    if (!mk.IsDone()) return TopoDS_Shape();
+    const TopoDS_Shape out = mk.Shape();
+    if (out.IsNull()) return TopoDS_Shape();
+
+    GProp_GProps vp;
+    BRepGProp::VolumeProperties(out, vp);
+    const double vol = vp.Mass();
+    const double ref = native::brep::massProperties(solid).volume;
+    if (!(vol > 1e-12)) return TopoDS_Shape();
+    if (std::fabs(vol - ref) > 1e-6 * std::max(1.0, std::fabs(ref))) return TopoDS_Shape();
+    return out;
+}
+
 }  // namespace
 
 // native analytic Solid -> OCCT TopoDS_Shape, built DIRECTLY via BRepBuilderAPI
@@ -568,6 +632,15 @@ TopoDS_Shape occtFromNativeSolid(const Solid& solid) {
     {
         const TopoDS_Shape analytic = occtAnalyticFromNativeSolid(solid);
         if (!analytic.IsNull()) return analytic;
+    }
+
+    // CONE / FRUSTUM: rebuild as an EXACT OCCT cone (Geom_ConicalSurface) instead of
+    // the faceted polyhedron, whose plane-facet re-import integrates to the wrong
+    // volume and breaks downstream booleans. Volume-cross-checked → decline to the
+    // faceted path on any mismatch (zero regression for non-cone bodies).
+    {
+        const TopoDS_Shape coneShape = occtConeFromNativeSolid(solid);
+        if (!coneShape.IsNull()) return coneShape;
     }
 
     return occtFacetedFromNativeSolid(solid);
