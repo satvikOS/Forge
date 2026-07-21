@@ -612,6 +612,7 @@ add_library(forge_kernel SHARED
     src/native/brep/NurbsSurfaceIntersect.cpp   # K1.3 — NURBS-aware SSI: subdivision-localize + marching intersector + pcurves (removes the NURBS-face deferral)
     src/native/brep/Boolean.cpp
     src/native/brep/Pattern.cpp         # analytic feature pattern: linear/circular/mirror array of a tool solid, boolean-merged into one B-rep
+    src/native/brep/UnifyFaces.cpp      # native unify-same-domain (coplanar planar face merge) — in-house ShapeUpgrade_UnifySameDomain replacement (TKShHealing-drop blocker #1); wired as the native path in DirectEdit unifyFaces, OCCT fallback for curved/holed
     # IN-HOUSE KERNEL STEP 3a — the live-op ROUTING LAYER (runtime gate +
     # transformSolid placement fix + native viewport-tessellate + mesh massprops)
     # and the MESH-BRIDGE feature ops (native fillet/chamfer). Always compiled;

@@ -25,6 +25,11 @@
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 
+#ifdef FORGE_NATIVE_BREP
+#include <memory>
+#include "forge/native/brep/UnifyFaces.hpp"
+#endif
+
 namespace forge {
 namespace {
 
@@ -66,6 +71,29 @@ TopoDS_Shape makeCylinder(const std::array<double, 3>& base,
 } // namespace
 
 ShapeHandle unifyFaces(ShapeHandle body) {
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE ALTERNATIVE PATH (gated to NativeSolid handles). For a native
+    // analytic solid whose ONLY same-domain merges are coplanar planar faces
+    // (e.g. a boolean fuse whose seam split the caps into coplanar strips), run
+    // the in-house native unifySameDomain — merge coplanar-adjacent faces, drop
+    // the shared edges, collapse collinear vertices — WITHOUT the OCCT bridge.
+    // Any curved / holed / disk / multi-shell solid is ineligible and falls
+    // through to OCCT's ShapeUpgrade_UnifySameDomain below (so the analytic
+    // cylinder-strip case and every OCCT-backed handle are unchanged).
+    {
+        ShapeRegistry& reg = ShapeRegistry::instance();
+        if (reg.kindOf(body) == ShapeKind::NativeSolid) {
+            const native::brep::Solid& s = reg.getNativeSolid(body);
+            if (native::brep::nativeUnifyPlanarEligible(s)) {
+                std::shared_ptr<native::brep::TopologyBuilder> owner;
+                native::brep::Solid* merged =
+                    native::brep::unifySameDomainPlanar(s, owner);
+                if (merged) return reg.addNativeSolid(std::move(owner), merged);
+                // merged == nullptr: could not merge exactly -> OCCT fallback.
+            }
+        }
+    }
+#endif
     const TopoDS_Shape& shape = ShapeRegistry::instance().get(body);
     ShapeUpgrade_UnifySameDomain u(shape, Standard_True, Standard_True, Standard_True);
     u.Build();
