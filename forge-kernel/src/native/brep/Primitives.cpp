@@ -624,6 +624,260 @@ Solid* SolidFactory::buildEllipsoid(double rx, double ry, double rz) {
     return solid;
 }
 
+// ===========================================================================
+// PRISM FROM PROFILE — analytic linear extrude of an ARBITRARY planar polygon.
+//   `profileIn` : (x,y) of a SIMPLE polygon in the Z=0 sketch plane (any winding;
+//                 reoriented CCW internally). (vx,vy,vz): extrude vector. The
+//                 profile normal is +Z so |vz| must be non-zero. Every face is
+//                 PLANAR (side = parallelogram per edge; caps = the profile), so
+//                 the solid is EXACT analytic even for a non-convex profile.
+//   Matches OCCT BRepPrimAPI_MakePrism(faceOnZ0, gp_Vec(vx,vy,vz)) 1:1.
+// ===========================================================================
+Solid* SolidFactory::buildPrismFromProfile(
+        const std::vector<std::array<double, 2>>& profileIn,
+        double vx, double vy, double vz) {
+    const int n = static_cast<int>(profileIn.size());
+    if (n < 3) return nullptr;
+    if (std::fabs(vz) < 1e-12) return nullptr;   // extrude must clear the profile plane
+
+    // Signed area (shoelace) — reject a zero-area profile and reorient to CCW.
+    double a2 = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const auto& p = profileIn[i];
+        const auto& q = profileIn[(i + 1) % n];
+        a2 += p[0] * q[1] - q[0] * p[1];
+    }
+    if (std::fabs(a2) < 1e-14) return nullptr;
+    std::vector<std::array<double, 2>> prof(profileIn.begin(), profileIn.end());
+    if (a2 < 0.0) std::reverse(prof.begin(), prof.end());   // force CCW (+area)
+
+    TopologyBuilder& tb = tb_;
+    Solid* solid = tb.makeSolid();
+    Shell* shell = tb.makeShell();
+    tb.addShellToSolid(solid, shell);
+
+    const Vec3 ext{vx, vy, vz};
+    const double zsgn = (vz > 0.0) ? 1.0 : -1.0;
+
+    std::vector<Vertex*> bot(n), top(n);
+    for (int i = 0; i < n; ++i) {
+        bot[i] = tb.makeVertex({prof[i][0], prof[i][1], 0.0});
+        top[i] = tb.makeVertex({prof[i][0] + vx, prof[i][1] + vy, vz});
+    }
+
+    // Side faces: one planar parallelogram per profile edge (buildPrism winding).
+    for (int i = 0; i < n; ++i) {
+        int j = (i + 1) % n;
+        std::vector<Vertex*> ring = {bot[i], bot[j], top[j], top[i]};
+        Face* f = tb.makeFace();
+        tb.addFaceToShell(shell, f);
+        tb.addOuterLoopToFace(f, ring);
+        Vec3 o = V3(ring[0]->point);
+        Vec3 edge = vsub(V3(bot[j]->point), V3(bot[i]->point));
+        Vec3 ref{edge.y, -edge.x, 0.0};              // CCW right-normal (out of polygon)
+        Vec3 faceN = vcross(edge, ext);               // wall normal (perp to edge & ext)
+        Vec3 outward = (vdot(faceN, ref) >= 0.0) ? faceN : vscale(faceN, -1.0);
+        attachPlanarFace(tb, f, ring, o,
+                         vsub(V3(ring[1]->point), o),
+                         vsub(V3(ring[3]->point), o), outward);
+    }
+    // Bottom cap (z=0, outward -zsgn*Z): CCW seen from outside == reversed ring.
+    {
+        std::vector<Vertex*> capCCW(bot.rbegin(), bot.rend());
+        Face* f = tb.makeFace();
+        tb.addFaceToShell(shell, f);
+        tb.addOuterLoopToFace(f, capCCW);
+        Vec3 o = V3(capCCW[0]->point);
+        attachPlanarFace(tb, f, capCCW, o,
+                         vsub(V3(capCCW[1]->point), o),
+                         vsub(V3(capCCW[2]->point), o), Vec3{0, 0, -zsgn});
+    }
+    // Top cap (z=vz, outward +zsgn*Z): profile order.
+    {
+        Face* f = tb.makeFace();
+        tb.addFaceToShell(shell, f);
+        tb.addOuterLoopToFace(f, top);
+        Vec3 o = V3(top[0]->point);
+        attachPlanarFace(tb, f, top, o,
+                         vsub(V3(top[1]->point), o),
+                         vsub(V3(top[2]->point), o), Vec3{0, 0, zsgn});
+    }
+    return solid;
+}
+
+// ===========================================================================
+// REVOLVE FROM PROFILE — analytic rotational sweep of a closed (r,z) polygon
+// about the +Z axis through `angleRad` (0 < angle <= 2*pi). Every profile vertex
+// spawns a ring of vertices around the axis (a single POLE where r==0); every
+// profile EDGE spawns a band of analytic faces:
+//   * constant z  -> PLANAR disk/annulus sector (exact polar mass integral),
+//   * else        -> CONE sector (covers the cylinder r1==r2 case; apex where a
+//                    ring collapses to a pole).
+// A segment on the axis (both r==0) yields no face. A PARTIAL angle additionally
+// emits the two planar end-wall faces (the profile cross-section at theta=0 and
+// theta=angle) that close the pie. Faceted TOPOLOGY over EXACT analytic GEOMETRY:
+// mass is exact regardless of nSeg. Matches OCCT MakeRevol(faceInXZ, OZ, angle).
+// ===========================================================================
+Solid* SolidFactory::buildRevolveProfile(
+        const std::vector<std::array<double, 2>>& profileIn, double angleRad) {
+    const int n = static_cast<int>(profileIn.size());
+    if (n < 3) return nullptr;
+    if (angleRad <= 1e-9 || angleRad > 2.0 * kPi + 1e-9) return nullptr;
+    const double eps = 1e-12;
+
+    // Signed area in (r,z) — reject zero area, reorient CCW so edge right-normals
+    // (dz,-dr) point out of the material.
+    double a2 = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const auto& p = profileIn[i];
+        const auto& q = profileIn[(i + 1) % n];
+        a2 += p[0] * q[1] - q[0] * p[1];
+    }
+    if (std::fabs(a2) < 1e-14) return nullptr;
+    std::vector<std::array<double, 2>> prof(profileIn.begin(), profileIn.end());
+    if (a2 < 0.0) std::reverse(prof.begin(), prof.end());
+    for (const auto& p : prof) if (p[0] < -eps) return nullptr;  // r must be >= 0
+
+    const bool full = (angleRad >= 2.0 * kPi - 1e-9);
+    const int N = opt_.nSeg;                        // angular sectors
+    const int ringPts = full ? N : (N + 1);         // vertices per non-pole ring
+    auto theta = [&](int i) { return angleRad * static_cast<double>(i) / N; };
+
+    TopologyBuilder& tb = tb_;
+    Solid* solid = tb.makeSolid();
+    Shell* shell = tb.makeShell();
+    tb.addShellToSolid(solid, shell);
+
+    // A ring of vertices per profile vertex (single pole where r==0).
+    std::vector<std::vector<Vertex*>> ringOf(n);
+    std::vector<char> isPole(n, 0);
+    for (int k = 0; k < n; ++k) {
+        const double rk = prof[k][0], zk = prof[k][1];
+        if (rk <= eps) {
+            isPole[k] = 1;
+            ringOf[k].push_back(tb.makeVertex({0.0, 0.0, zk}));
+        } else {
+            ringOf[k].resize(ringPts);
+            for (int i = 0; i < ringPts; ++i) {
+                const double th = theta(i);
+                ringOf[k][i] = tb.makeVertex({rk * std::cos(th), rk * std::sin(th), zk});
+            }
+        }
+    }
+    auto vtx = [&](int k, int i) -> Vertex* {
+        return isPole[k] ? ringOf[k][0] : ringOf[k][i];
+    };
+    auto jOf = [&](int i) { return full ? (i + 1) % N : (i + 1); };
+
+    // --- side faces: one analytic band per profile edge ---------------------
+    for (int k = 0; k < n; ++k) {
+        int k1 = (k + 1) % n;
+        const double rk = prof[k][0], zk = prof[k][1];
+        const double rk1 = prof[k1][0], zk1 = prof[k1][1];
+        const double dr = rk1 - rk, dz = zk1 - zk;
+        if (rk <= eps && rk1 <= eps) continue;                 // axis segment
+        if (std::fabs(dr) < eps && std::fabs(dz) < eps) continue; // zero length
+
+        const bool radial = std::fabs(dz) < eps;                // constant z
+        Surface* coneSurf = nullptr;
+        if (!radial) {
+            coneSurf = tb.makeSurface();
+            coneSurf->kind = SurfaceKind::Cone;                 // r1==r2 => cylinder
+            coneSurf->origin = {0, 0, zk};
+            coneSurf->axis = {0, 0, 1};
+            coneSurf->refDir = {1, 0, 0};
+            coneSurf->r1 = rk; coneSurf->r2 = rk1; coneSurf->param = dz;
+            // Orient the analytic normal to the topological outward side: compare
+            // normalAt (reversed still false) against the (r,z) CCW right-normal
+            // (dz,-dr) mapped to 3D at a sample angle (rotationally uniform).
+            const double thc = 0.5 * angleRad;
+            const double len = std::sqrt(dr * dr + dz * dz);
+            const double drn = dr / len, dzn = dz / len;
+            Vec3 out3{dzn * std::cos(thc), dzn * std::sin(thc), -drn};
+            if (vdot(coneSurf->normalAt(thc, 0.5), out3) < 0.0) coneSurf->reversed = true;
+        }
+
+        for (int i = 0; i < N; ++i) {
+            int j = jOf(i);
+            const double u0 = theta(i), u1 = theta(i + 1);       // un-wrapped, u1>u0
+            Vertex* A0 = vtx(k, i);  Vertex* A1 = vtx(k, j);
+            Vertex* B0 = vtx(k1, i); Vertex* B1 = vtx(k1, j);
+
+            std::vector<Vertex*> ring;
+            std::vector<std::array<double, 2>> cuv;
+            if (isPole[k]) {                 // A collapses -> triangle {A0,B1,B0}
+                ring = {A0, B1, B0};
+                cuv  = {{u0, 0.0}, {u1, 1.0}, {u0, 1.0}};
+            } else if (isPole[k1]) {         // B collapses -> triangle {A0,A1,B0}
+                ring = {A0, A1, B0};
+                cuv  = {{u0, 0.0}, {u1, 0.0}, {u0, 1.0}};
+            } else {                          // full quad {A0,A1,B1,B0}
+                ring = {A0, A1, B1, B0};
+                cuv  = {{u0, 0.0}, {u1, 0.0}, {u1, 1.0}, {u0, 1.0}};
+            }
+            Face* f = tb.makeFace();
+            tb.addFaceToShell(shell, f);
+            tb.addOuterLoopToFace(f, ring);
+            if (radial) {
+                // Planar disk/annulus sector (mirror buildTube's annular quad):
+                // exact polar mass integral over [u0,u1] x [rIn,rOut].
+                Vec3 o = V3(ring[0]->point);
+                Vec3 outN{0, 0, (dr > 0.0) ? -1.0 : 1.0};
+                attachPlanarFace(tb, f, ring, o, Vec3{1, 0, 0}, Vec3{0, 1, 0}, outN);
+                Surface* s = f->surface;
+                s->isDisk = true;
+                s->origin = {0, 0, zk};
+                s->diskOuter = std::max(rk, rk1);
+                s->diskInner = std::min(rk, rk1);
+                f->u0 = u0; f->u1 = u1; f->v0 = s->diskInner; f->v1 = s->diskOuter;
+            } else {
+                attachCurvedFace(f, coneSurf, u0, u1, 0.0, 1.0, cuv);
+            }
+        }
+    }
+
+    // --- end walls (partial angle only): the profile cross-section ----------
+    if (!full) {
+        // theta=0 wall: profile order (mates the i=0 sector boundary edges).
+        {
+            std::vector<Vertex*> ring;
+            for (int k = 0; k < n; ++k) {
+                Vertex* v = vtx(k, 0);
+                if (!ring.empty() && ring.back() == v) continue;
+                ring.push_back(v);
+            }
+            if (ring.size() > 1 && ring.front() == ring.back()) ring.pop_back();
+            if (ring.size() >= 3) {
+                Face* f = tb.makeFace();
+                tb.addFaceToShell(shell, f);
+                tb.addOuterLoopToFace(f, ring);
+                Vec3 o = V3(ring[0]->point);
+                // plane through the axis at theta=0 (XZ half-plane); outward -Y.
+                attachPlanarFace(tb, f, ring, o, Vec3{1, 0, 0}, Vec3{0, 0, 1}, Vec3{0, -1, 0});
+            }
+        }
+        // theta=angle wall: reverse profile order (mates the i=N-1 sector edges).
+        {
+            const double ca = std::cos(angleRad), sa = std::sin(angleRad);
+            std::vector<Vertex*> ring;
+            for (int k = n - 1; k >= 0; --k) {
+                Vertex* v = vtx(k, N);
+                if (!ring.empty() && ring.back() == v) continue;
+                ring.push_back(v);
+            }
+            if (ring.size() > 1 && ring.front() == ring.back()) ring.pop_back();
+            if (ring.size() >= 3) {
+                Face* f = tb.makeFace();
+                tb.addFaceToShell(shell, f);
+                tb.addOuterLoopToFace(f, ring);
+                Vec3 o = V3(ring[0]->point);
+                attachPlanarFace(tb, f, ring, o, Vec3{ca, sa, 0}, Vec3{0, 0, 1}, Vec3{-sa, ca, 0});
+            }
+        }
+    }
+    return solid;
+}
+
 } // namespace brep
 } // namespace native
 } // namespace forge

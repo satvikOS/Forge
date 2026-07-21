@@ -35,6 +35,9 @@
 #ifndef FORGE_NATIVE_BREP_PRIMITIVES_HPP
 #define FORGE_NATIVE_BREP_PRIMITIVES_HPP
 
+#include <array>
+#include <vector>
+
 #include "forge/native/brep/Topology.hpp"
 
 namespace forge {
@@ -73,6 +76,41 @@ public:
     // --- NURBS-skin primitives (no single quadric describes the side) ------
     Solid* buildPyramid(double dx, double dy, double h);  // planar skin via planar faces
     Solid* buildEllipsoid(double rx, double ry, double rz); // NURBS skin
+
+    // --- analytic SWEPT solids (linear extrude + rotational revolve) -------
+    //
+    // ADDITIVE analytic replacements for OCCT BRepPrimAPI_MakePrism / MakeRevol.
+    // Both return a REAL analytic brep::Solid (not a mesh): every face carries an
+    // exact Plane / Cylinder / Cone Surface, so massProperties() is exact. They
+    // are NEW entry points — no existing primitive/feature path calls them, so the
+    // production default is byte-identical (Bible §0/§9). On a case they cannot do
+    // analytically yet they DECLINE (return nullptr) — never a fake result.
+
+    // PRISM / linear extrude: extrude the planar polygon `profile` (sketch (x,y)
+    // in the Z=0 plane; simple, any winding — reoriented CCW internally) along the
+    // vector (vx,vy,vz). Side faces are planar parallelograms (one per profile
+    // edge); the two caps are the profile at z=0 and z=vz. Placement matches OCCT
+    // BRepPrimAPI_MakePrism(faceOnZ0, gp_Vec(vx,vy,vz)) 1:1. All-planar => EXACT
+    // analytic solid, so a non-convex (L / T / U) profile integrates exactly. The
+    // profile normal is +Z, so a non-zero out-of-plane component is required:
+    // returns nullptr on |vz| ~ 0, a degenerate/zero-area profile, or < 3 points.
+    Solid* buildPrismFromProfile(const std::vector<std::array<double, 2>>& profile,
+                                 double vx, double vy, double vz);
+
+    // REVOLVE / rotational sweep: rotate the closed planar polygon `profileRZ`
+    // (points (r,z), r >= 0, simple, reoriented CCW in the (r,z) half-plane) about
+    // the +Z axis through `angleRad` (0 < angle <= 2*pi). Each profile edge sweeps
+    // an analytic face: a segment at constant r -> CYLINDER, at constant z -> a
+    // PLANAR annulus / disk, otherwise -> CONE (frustum, or apex where r hits 0).
+    // A segment lying on the axis (both r == 0) contributes no face. A partial
+    // angle additionally emits the two planar end-wall faces (the profile cross
+    // section) that close the pie. Placement matches OCCT BRepPrimAPI_MakeRevol(
+    // faceInXZhalfPlane, gp::OZ(), angle) 1:1. Faceted TOPOLOGY over EXACT analytic
+    // GEOMETRY: mass is exact regardless of the angular segment count. Returns
+    // nullptr on a degenerate/zero-area profile, < 3 points, or a non-positive /
+    // over-full angle.
+    Solid* buildRevolveProfile(const std::vector<std::array<double, 2>>& profileRZ,
+                               double angleRad);
 
 private:
     PrimitiveOptions opt_;
