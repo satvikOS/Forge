@@ -179,21 +179,82 @@ void integrateParametricRegion(const Face* f, Accum& acc) {
     const double uSpan = uMax - uMin;
     if (uSpan <= 0.0) return;
 
-    // Scan-line resolution: fine in u to resolve the periodic (trig) integrand
-    // (~0.15 rad per strip), Gauss per strip in u and per interval in v so each
-    // cell is exact for the low-degree part of the integrand.
-    int nStrip = (int)std::ceil(uSpan / 0.15);
-    if (nStrip < 10)  nStrip = 10;
-    if (nStrip > 240) nStrip = 240;
     std::vector<double> gU, gUw, gV, gVw;
     gauss01(4, gU, gUw);   // 4 Gauss nodes per u-strip
     gauss01(8, gV, gVw);   // 8 Gauss nodes per v-interval
-    const double du = uSpan / nStrip;
+
+    // A crenellated trim (an imported flange rim with slots/teeth) has an interior-
+    // height function that JUMPS at its vertical tooth walls — axial cylinder edges,
+    // which map to constant-u (Δu≈0) segments in (u,v). A uniform Gauss strip that
+    // STRADDLES such a jump mis-quadratures it (the 4-node Gauss rule is exact only
+    // for a smooth integrand), over-counting a fine comb by ~1.8% in area (measured:
+    // a r=75 flange rim integrated 1620.8 vs the true 1592.6). Placing a strip
+    // boundary exactly at each vertical-wall u makes the crossing set CONSTANT within
+    // every strip, so its Gauss quadrature is area-exact.
+    //
+    // Do this ONLY for a RECTILINEAR trim — every boundary segment axis-aligned in
+    // (u,v): horizontal (a cut plane perpendicular to the axis → constant v) or
+    // vertical (an axial edge → constant u). Such a boundary is CHORD-ERROR-FREE, so
+    // the region polygon equals the true trimmed face EXACTLY (verified: the r=75
+    // comb integrated 1592.5988 == OCCT), and snapping makes the quadrature match it.
+    // A DIAGONAL segment (e.g. a cylinder∩inclined-plane sinusoid) means the densified
+    // polygon only APPROXIMATES the trim; snapping it would integrate the imperfect
+    // chord polygon exactly (measured: regressed a saddle-cut cylinder), so those keep
+    // the prior coarse uniform sampling — which is preserved byte-for-byte below.
+    // (regionUV path only — native primitives use integrateParametric, unaffected.)
+    double vMin = segs[0].va, vMax = segs[0].va;
+    for (const Seg& g : segs) {
+        vMin = std::min(vMin, std::min(g.va, g.vb));
+        vMax = std::max(vMax, std::max(g.va, g.vb));
+    }
+    const double uEps = 1e-4 * std::max(1.0, uSpan);
+    const double vEps = 1e-4 * std::max(1.0, vMax - vMin);
+    bool rectilinear = true;
+    for (const Seg& g : segs) {
+        if (std::fabs(g.ua - g.ub) > uEps && std::fabs(g.va - g.vb) > vEps) {
+            rectilinear = false; break;
+        }
+    }
+    std::vector<double> ubk;
+    ubk.reserve(segs.size() + 2);
+    if (rectilinear) {
+        for (const Seg& g : segs) {
+            if (std::fabs(g.ua - g.ub) > uEps) continue;     // not a vertical wall
+            const double uw = 0.5 * (g.ua + g.ub);
+            if (uw >= uMin - 1e-12 && uw <= uMax + 1e-12) ubk.push_back(uw);
+        }
+    }
+    ubk.push_back(uMin); ubk.push_back(uMax);
+    std::sort(ubk.begin(), ubk.end());
+    ubk.erase(std::unique(ubk.begin(), ubk.end(),
+                          [](double p, double q) { return std::fabs(p - q) < 1e-9; }),
+              ubk.end());
+    // Old uniform strip width (kept, so a face with NO vertical walls has a single
+    // gap [uMin,uMax] subdivided into exactly the old nStrip strips at the old
+    // boundaries — byte-identical to the prior code — and only comb faces change).
+    int nStrip = (int)std::ceil(uSpan / 0.15);
+    if (nStrip < 10)  nStrip = 10;
+    if (nStrip > 240) nStrip = 240;
+    const double duOld = uSpan / nStrip;
+    std::vector<std::array<double, 2>> strips;
+    strips.reserve(nStrip + ubk.size() + 8);
+    for (std::size_t i = 0; i + 1 < ubk.size(); ++i) {
+        const double a = ubk[i], b = ubk[i + 1];
+        const double w = b - a;
+        if (w <= 1e-12) continue;
+        int sub = (int)std::lround(w / duOld);
+        if (sub < 1)   sub = 1;
+        if (sub > 512) sub = 512;
+        const double sw = w / sub;
+        for (int k = 0; k < sub; ++k) strips.push_back({a + sw * k, a + sw * (k + 1)});
+    }
+    if (strips.empty()) return;
 
     std::vector<double> xs;
     xs.reserve(16);
-    for (int is = 0; is < nStrip; ++is) {
-        const double uStrip0 = uMin + du * is;
+    for (const auto& st : strips) {
+        const double uStrip0 = st[0];
+        const double du = st[1] - st[0];
         for (std::size_t a = 0; a < gU.size(); ++a) {
             const double u = uStrip0 + du * gU[a];
             // v-crossings of the vertical line u=const with every boundary edge.
