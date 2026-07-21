@@ -19,6 +19,8 @@
 #include <gp_Circ.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
+#include <BRepPrimAPI_MakeSphere.hxx>
+#include <BRepPrimAPI_MakeTorus.hxx>
 #include <Geom_Surface.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
@@ -565,6 +567,114 @@ TopoDS_Shape occtConeFromNativeSolid(const Solid& solid) {
     return out;
 }
 
+// Rebuild a native SPHERE body as an EXACT OCCT sphere via the OCCT primitive
+// builder (one Geom_SphericalSurface face), instead of the faceted polyhedron
+// fallback. The faceted path shatters the sphere into ~N*M plane facets whose
+// re-imported B-rep mis-integrates in OCCT booleans / mass (the identical bug the
+// cone path fixes: a bridged cone read 24627 vs a true 19603 mm3 and broke the
+// mold split). A native sphere carries its full analytic definition on the ONE
+// shared spherical Surface (origin = centre, r1 = radius) that every strip face
+// points at, so BRepPrimAPI_MakeSphere reproduces it 1:1. Triggers ONLY when EVERY
+// face shares that SAME single sphere (centre + radius), and the rebuilt volume
+// matches the native volume (else null -> unchanged faceted fallback; zero
+// regression for any non-sphere or partial-sphere body).
+TopoDS_Shape occtSphereFromNativeSolid(const Solid& solid) {
+    auto dist = [](const native::brep::Vec3& a, const native::brep::Vec3& b) {
+        const double dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    const Surface* sph = nullptr;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) {
+            if (!f) continue;
+            const Surface* s = f->surface;
+            if (!s) return TopoDS_Shape();                              // bare topology -> decline
+            if (s->kind != SurfaceKind::Sphere) return TopoDS_Shape();  // any other face -> decline
+            if (!(s->r1 > 1e-12)) return TopoDS_Shape();
+            if (!sph) { sph = s; continue; }
+            // Every sphere face must share ONE surface (same centre + radius).
+            const bool same =
+                std::fabs(sph->r1 - s->r1) <= 1e-9 * std::max(1.0, std::fabs(sph->r1)) &&
+                dist(sph->origin, s->origin) <= 1e-9 * std::max(1.0, sph->r1);
+            if (!same) return TopoDS_Shape();
+        }
+    }
+    if (!sph) return TopoDS_Shape();  // no sphere face -> not our case
+
+    const gp_Pnt C(sph->origin.x, sph->origin.y, sph->origin.z);
+    BRepPrimAPI_MakeSphere mk(C, sph->r1);
+    mk.Build();
+    if (!mk.IsDone()) return TopoDS_Shape();
+    const TopoDS_Shape out = mk.Shape();
+    if (out.IsNull()) return TopoDS_Shape();
+
+    GProp_GProps vp;
+    BRepGProp::VolumeProperties(out, vp);
+    const double vol = vp.Mass();
+    const double ref = native::brep::massProperties(solid).volume;
+    if (!(vol > 1e-12)) return TopoDS_Shape();
+    if (std::fabs(vol - ref) > 1e-6 * std::max(1.0, std::fabs(ref))) return TopoDS_Shape();
+    return out;
+}
+
+// Rebuild a native TORUS body as an EXACT OCCT torus via the OCCT primitive builder
+// (one Geom_ToroidalSurface face), instead of the faceted polyhedron fallback (same
+// mis-integration bug as sphere/cone — a faceted torus void even collapses the
+// enclosing boolean). A native torus carries its full analytic definition on the
+// ONE shared toroidal Surface (origin = centre, axis, refDir, r1 = major R,
+// r2 = minor r) that every strip face points at, so BRepPrimAPI_MakeTorus
+// reproduces it 1:1. Triggers ONLY when EVERY face shares that SAME single torus
+// (centre + frame + both radii), and the rebuilt volume matches the native volume
+// (else null -> unchanged faceted fallback; zero regression).
+TopoDS_Shape occtTorusFromNativeSolid(const Solid& solid) {
+    auto dist = [](const native::brep::Vec3& a, const native::brep::Vec3& b) {
+        const double dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+        return std::sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    const Surface* tor = nullptr;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) {
+            if (!f) continue;
+            const Surface* s = f->surface;
+            if (!s) return TopoDS_Shape();                             // bare topology -> decline
+            if (s->kind != SurfaceKind::Torus) return TopoDS_Shape();  // any other face -> decline
+            // A valid ring torus: 0 < minor < major.
+            if (!(s->r1 > 1e-12) || !(s->r2 > 1e-12) || !(s->r2 < s->r1)) return TopoDS_Shape();
+            if (!tor) { tor = s; continue; }
+            // Every torus face must share ONE surface (same radii + frame + centre).
+            const bool same =
+                std::fabs(tor->r1 - s->r1) <= 1e-9 * std::max(1.0, std::fabs(tor->r1)) &&
+                std::fabs(tor->r2 - s->r2) <= 1e-9 * std::max(1.0, std::fabs(tor->r2)) &&
+                dist(tor->origin, s->origin) <= 1e-9 * std::max(1.0, tor->r1) &&
+                dist(tor->axis, s->axis) <= 1e-9 &&
+                dist(tor->refDir, s->refDir) <= 1e-9;
+            if (!same) return TopoDS_Shape();
+        }
+    }
+    if (!tor) return TopoDS_Shape();  // no torus face -> not our case
+
+    const gp_Pnt O(tor->origin.x, tor->origin.y, tor->origin.z);
+    const gp_Dir A(tor->axis.x, tor->axis.y, tor->axis.z);
+    const gp_Dir R(tor->refDir.x, tor->refDir.y, tor->refDir.z);
+    // gp_Ax2: torus centre O, +Z = symmetry axis A, +X = R. MakeTorus(R1,R2) with
+    // R1 = major radius (centre -> tube centre), R2 = minor (tube) radius.
+    BRepPrimAPI_MakeTorus mk(gp_Ax2(O, A, R), tor->r1, tor->r2);
+    mk.Build();
+    if (!mk.IsDone()) return TopoDS_Shape();
+    const TopoDS_Shape out = mk.Shape();
+    if (out.IsNull()) return TopoDS_Shape();
+
+    GProp_GProps vp;
+    BRepGProp::VolumeProperties(out, vp);
+    const double vol = vp.Mass();
+    const double ref = native::brep::massProperties(solid).volume;
+    if (!(vol > 1e-12)) return TopoDS_Shape();
+    if (std::fabs(vol - ref) > 1e-6 * std::max(1.0, std::fabs(ref))) return TopoDS_Shape();
+    return out;
+}
+
 }  // namespace
 
 // native analytic Solid -> OCCT TopoDS_Shape, built DIRECTLY via BRepBuilderAPI
@@ -641,6 +751,22 @@ TopoDS_Shape occtFromNativeSolid(const Solid& solid) {
     {
         const TopoDS_Shape coneShape = occtConeFromNativeSolid(solid);
         if (!coneShape.IsNull()) return coneShape;
+    }
+
+    // SPHERE: rebuild as an EXACT OCCT sphere (one Geom_SphericalSurface face)
+    // instead of the ~N*M plane-facet polyhedron. Volume-cross-checked → decline to
+    // the faceted path on any mismatch (zero regression for non-sphere bodies).
+    {
+        const TopoDS_Shape sphereShape = occtSphereFromNativeSolid(solid);
+        if (!sphereShape.IsNull()) return sphereShape;
+    }
+
+    // TORUS: rebuild as an EXACT OCCT torus (one Geom_ToroidalSurface face) instead
+    // of the faceted polyhedron, whose plane-facet void even collapses the enclosing
+    // boolean. Volume-cross-checked → decline to the faceted path on any mismatch.
+    {
+        const TopoDS_Shape torusShape = occtTorusFromNativeSolid(solid);
+        if (!torusShape.IsNull()) return torusShape;
     }
 
     return occtFacetedFromNativeSolid(solid);
