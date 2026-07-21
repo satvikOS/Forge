@@ -111,6 +111,7 @@ for (const c of cases) {
 //       OCCT ShapeUpgrade_UnifySameDomain 1:1 (3 faces, 3 edges, exact volume).
 // ---------------------------------------------------------------------------
 const cylStrips = (inv) => { const c = inv.find(x => x.kind === 'cylinder'); return c ? c.stripFaceCount : 0 }
+const stripCountOf = (inv, kind) => { const c = inv.find(x => x.kind === kind); return c ? c.stripFaceCount : 0 }
 const hist = (inv) => { const h = {}; for (const x of inv) h[x.kind] = (h[x.kind] || 0) + 1; return h }
 
 const curvedCases = [
@@ -172,18 +173,128 @@ for (const c of curvedCases) {
 }
 
 // ---------------------------------------------------------------------------
-// DEFERRED-to-OCCT (the honest scope boundary). Curved non-cylinder bodies (sphere),
-// multi-cylinder bodies (tube), and holed bodies (a bored plate) are NOT handled by
-// the native curved merge and must fall through to OCCT ShapeUpgrade_UnifySameDomain
-// UNCHANGED (unifyFaces returns an OCCT-backed handle). This locks the boundary so
-// the native path never misfires on a shape it cannot merge exactly.
+// CURVED co-CONICAL A/B (ADDITIVE). A native cone (buildCone -> 128 Cone sectors)
+// merges its strips into ONE periodic conical face IN-HOUSE (no OCCT bridge). A
+// FRUSTUM (r2>0) keeps its two planar caps (== OCCT 3F); a POINTED cone (r2==0)
+// collapses its top ring to the apex vertex and keeps one cap (== OCCT 2F). Proven
+// like the cylinder: (a) native stripFaceCount 128 -> 1; (b) bridged to OCCT it
+// matches OCCT ShapeUpgrade_UnifySameDomain 1:1 (face/edge count + exact volume).
+// The cone bridge (occtConeFromNativeSolid -> BRepPrimAPI_MakeCone) is seam-clean,
+// so f.direct.edgeCount agrees with OCCT directly (== 3, seam + the circle(s)).
+// ---------------------------------------------------------------------------
+const coneCases = [
+  { name: 'cone frustum (r1=5, r2=3, h=10)', build: (f) => f.makeCone(5, 3, 10),
+    faces: 3, planes: 2, vol: (Math.PI * 10 / 3) * (25 + 15 + 9) },
+  { name: 'pointed cone (r1=5, r2=0, h=10)', build: (f) => f.makeCone(5, 0, 10),
+    faces: 2, planes: 1, vol: Math.PI * 25 * 10 / 3 },
+]
+let konpassed = 0
+console.log('\n  native unifySameDomain (curved co-conical)  —  A/B vs OCCT ShapeUpgrade_UnifySameDomain\n')
+for (const c of coneCases) {
+  f.setNativeBrep(true)
+  const cone = c.build(f)
+  assert.equal(f.kindOf(cone), 'nativeSolid', `${c.name}: built as a NativeSolid`)
+  const rawStrips = stripCountOf(f.nativeFaceInventory(cone), 'cone')
+  assert.ok(rawStrips >= 8, `${c.name}: raw cone lateral is many strips (got ${rawStrips})`)
+
+  const u = f.unifyFaces(cone)
+  assert.equal(f.kindOf(u), 'nativeSolid',
+    `${c.name}: native curved unify must return a NativeSolid (proves the native path fired, not OCCT fallback)`)
+  const inv = f.nativeFaceInventory(u)
+  assert.equal(stripCountOf(inv, 'cone'), 1,
+    `${c.name}: lateral merged to ONE native cone face (stripFaceCount ${rawStrips} -> ${stripCountOf(inv, 'cone')})`)
+  const nh = hist(inv)
+  assert.ok(inv.length === 1 + c.planes && nh.cone === 1 && nh.plane === c.planes,
+    `${c.name}: native inventory is {cone:1, plane:${c.planes}} (got ${JSON.stringify(nh)})`)
+
+  const nat = { faces: f.direct.faceCount(u), edges: f.direct.edgeCount(u), vol: f.massProps(u).volume }
+
+  f.setNativeBrep(false)
+  const occU = f.unifyFaces(c.build(f))
+  assert.equal(f.kindOf(occU), 'occt', `${c.name}: native-off unify must be an OCCT shape`)
+  const occ = { faces: f.direct.faceCount(occU), edges: f.direct.edgeCount(occU), vol: f.massProps(occU).volume }
+
+  // A/B: native merge == OCCT merge on face count, edge count and volume.
+  assert.equal(nat.faces, occ.faces, `${c.name}: face count native(${nat.faces}) vs OCCT(${occ.faces})`)
+  assert.equal(nat.edges, occ.edges, `${c.name}: edge count native(${nat.edges}) vs OCCT(${occ.edges})`)
+  near(nat.vol, occ.vol, 1e-9, `${c.name}: volume native vs OCCT`)
+  // known answer: frustum = 3F (1 cone + 2 caps); apex = 2F (1 cone + 1 cap); 3 edges.
+  assert.equal(nat.faces, c.faces, `${c.name}: expected ${c.faces} faces`)
+  assert.equal(nat.edges, 3, `${c.name}: expected 3 edges`)
+  near(nat.vol, c.vol, 1e-6, `${c.name}: expected analytic cone volume`)
+
+  konpassed++
+  console.log(`  PASS  ${c.name}`)
+  console.log(`          native: ${rawStrips} strips -> 1 lateral, bridged ${nat.faces}F/${nat.edges}E vol ${nat.vol}`)
+  console.log(`          OCCT  : ${occ.faces}F/${occ.edges}E vol ${occ.vol}`)
+}
+
+// ---------------------------------------------------------------------------
+// CURVED co-SPHERICAL A/B (ADDITIVE). A native sphere (128*64 = 8192 spherical
+// patches on ONE surface, poles as triangle fans) merges into ONE periodic spherical
+// face IN-HOUSE — a there-and-back seam meridian with the two poles as degenerate
+// vertices (== OCCT BRepPrimAPI_MakeSphere: 1 face, 3 edges). Proven: (a) native
+// stripFaceCount 8192 -> 1; (b) bridged to OCCT it matches OCCT ShapeUpgrade 1:1 on
+// FACE + EDGE count and VOLUME. The native single-face regionUV mass resolves the
+// polar (phi) span with the shared scan-line integrator's 8-node Gauss rule, so it
+// matches OCCT's analytic-exact volume to ~1e-5 abs (2.8e-8 relative) — the honest
+// precision of that path on a full sphere; the topology (1F/3E) is EXACT.
+// ---------------------------------------------------------------------------
+let sppassed = 0
+console.log('\n  native unifySameDomain (curved co-spherical)  —  A/B vs OCCT ShapeUpgrade_UnifySameDomain\n')
+for (const R of [3, 1.5]) {
+  const name = `sphere(r=${R})`
+  f.setNativeBrep(true)
+  const sph = f.makeSphere(R)
+  assert.equal(f.kindOf(sph), 'nativeSolid', `${name}: built as a NativeSolid`)
+  const rawStrips = stripCountOf(f.nativeFaceInventory(sph), 'sphere')
+  assert.ok(rawStrips >= 64, `${name}: raw sphere is many patches (got ${rawStrips})`)
+
+  const u = f.unifyFaces(sph)
+  assert.equal(f.kindOf(u), 'nativeSolid',
+    `${name}: native curved unify must return a NativeSolid (proves the native path fired, not OCCT fallback)`)
+  const inv = f.nativeFaceInventory(u)
+  assert.equal(stripCountOf(inv, 'sphere'), 1,
+    `${name}: merged to ONE native sphere face (stripFaceCount ${rawStrips} -> ${stripCountOf(inv, 'sphere')})`)
+  assert.ok(inv.length === 1 && hist(inv).sphere === 1,
+    `${name}: native inventory is {sphere:1} (got ${JSON.stringify(hist(inv))})`)
+
+  const nat = { faces: f.direct.faceCount(u), edges: f.direct.edgeCount(u), vol: f.massProps(u).volume }
+
+  f.setNativeBrep(false)
+  const occU = f.unifyFaces(f.makeSphere(R))
+  assert.equal(f.kindOf(occU), 'occt', `${name}: native-off unify must be an OCCT shape`)
+  const occ = { faces: f.direct.faceCount(occU), edges: f.direct.edgeCount(occU), vol: f.massProps(occU).volume }
+
+  // A/B: native merge == OCCT merge on face + edge count (EXACT) and volume.
+  assert.equal(nat.faces, occ.faces, `${name}: face count native(${nat.faces}) vs OCCT(${occ.faces})`)
+  assert.equal(nat.edges, occ.edges, `${name}: edge count native(${nat.edges}) vs OCCT(${occ.edges})`)
+  near(nat.vol, occ.vol, 1e-5, `${name}: volume native vs OCCT (8-node polar Gauss precision)`)
+  near(occ.vol, 4 / 3 * Math.PI * R * R * R, 1e-6, `${name}: OCCT volume is (4/3)πr³`)
+  // known answer: OCCT MakeSphere = 1 face, 3 edges (seam meridian + 2 pole-degenerate).
+  assert.equal(nat.faces, 1, `${name}: sphere = 1 face`)
+  assert.equal(nat.edges, 3, `${name}: sphere = 3 edges`)
+
+  sppassed++
+  console.log(`  PASS  ${name}`)
+  console.log(`          native: ${rawStrips} patches -> 1 sphere face, bridged ${nat.faces}F/${nat.edges}E vol ${nat.vol}`)
+  console.log(`          OCCT  : ${occ.faces}F/${occ.edges}E vol ${occ.vol}`)
+}
+
+// ---------------------------------------------------------------------------
+// DEFERRED-to-OCCT (the honest scope boundary). Cylinder / cone / sphere now merge
+// natively; a TORUS (co-toroidal, not built), a multi-cylinder TUBE (two ruled
+// groups + annular caps), and a HOLED bored plate are NOT handled by the native
+// curved merge and must fall through to OCCT ShapeUpgrade_UnifySameDomain UNCHANGED
+// (unifyFaces returns an OCCT-backed handle). This locks the boundary so the native
+// path never misfires on a shape it cannot merge exactly.
 // ---------------------------------------------------------------------------
 let dpassed = 0
 console.log('\n  deferred-to-OCCT (honest scope boundary)\n')
 f.setNativeBrep(true)
 const deferred = [
-  { name: 'sphere(3)  — curved non-cylinder',          build: (f) => f.makeSphere(3) },
-  { name: 'tube(2,1,4) — two cylinders + annular caps', build: (f) => f.makeTube(2, 1, 4) },
+  { name: 'torus(5,2)  — co-toroidal (not built)',      build: (f) => f.makeTorus(5, 2) },
+  { name: 'tube(2,1,4) — two ruled groups + annular caps', build: (f) => f.makeTube(2, 1, 4) },
   { name: 'bored plate — holed caps',                   build: (f) => f.cut(f.makeBox(10, 10, 4), f.translate(f.makeCylinder(2, 4), 5, 5, 0)) },
 ]
 for (const d of deferred) {
@@ -195,4 +306,4 @@ for (const d of deferred) {
 
 // restore default gate
 f.setNativeBrep(true)
-console.log(`\n  ${passed}/${cases.length} planar + ${cpassed}/${curvedCases.length} curved A/B + ${dpassed}/${deferred.length} deferred cases passed`)
+console.log(`\n  ${passed}/${cases.length} planar + ${cpassed}/${curvedCases.length} cyl + ${konpassed}/${coneCases.length} cone + ${sppassed}/2 sphere A/B + ${dpassed}/${deferred.length} deferred cases passed`)

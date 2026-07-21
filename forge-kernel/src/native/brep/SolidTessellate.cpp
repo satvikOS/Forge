@@ -286,8 +286,26 @@ void tessellateSolid(const Solid& solid,
                 std::fabs(std::fabs(f->u1 - f->u0) - 2.0 * M_PI) <= 1e-6) {
                 const Surface& S = *f->surface;
                 const double uu0 = f->u0, uu1 = f->u1, vv0 = f->v0, vv1 = f->v1;
-                const int nu = static_cast<int>((lp->coedgeCount - 2) / 2); // == cap rim
-                const int nv = chordSegs(S, 0.5 * (uu0 + uu1), vv0, vv1, 0.5);
+                // Angular resolution from the loop rim. A cylinder / cone-frustum loop
+                // is [botRing(n), seam, topRing(n), seam] -> coedgeCount = 2n+2, so
+                // nu = (coedgeCount-2)/2 == n == the cap rim (conforming). A pointed
+                // cone's top ring COLLAPSES to the apex, so its loop is [botRing(n),
+                // seam, apex] -> coedgeCount = n+2 and the base rim is n = coedgeCount-2
+                // (NOT halved) — sampling at n keeps it conforming with the single cap.
+                // A sphere has BOTH ends degenerate (poles) and no adjacent cap, so the
+                // halved count is left unchanged (self-contained, watertight either way).
+                const double uMid = 0.5 * (uu0 + uu1);
+                auto endDegenerate = [&](double vEnd) {
+                    const Vec3 a = S.evaluate(uu0, vEnd);
+                    const Vec3 b = S.evaluate(uMid, vEnd);
+                    return vlen(vsub(b, a)) <= 1e-9 * std::max(1.0, vlen(a));
+                };
+                const bool degBot = endDegenerate(vv0);
+                const bool degTop = endDegenerate(vv1);
+                const int nu = (degBot != degTop)
+                                   ? static_cast<int>(lp->coedgeCount - 2)       // apex cone
+                                   : static_cast<int>((lp->coedgeCount - 2) / 2); // cyl/frustum/sphere
+                const int nv = chordSegs(S, uMid, vv0, vv1, 0.5);
                 for (int iu = 0; iu < nu; ++iu) {
                     const double ua = uu0 + (uu1 - uu0) * (double(iu) / nu);
                     const double ub = uu0 + (uu1 - uu0) * (double(iu + 1) / nu);

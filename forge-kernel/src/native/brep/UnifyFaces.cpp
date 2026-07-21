@@ -347,47 +347,71 @@ Solid* unifySameDomainPlanar(const Solid& s,
 }
 
 // ===========================================================================
-// CURVED (co-CYLINDRICAL) UNIFY — merge a native cylinder's N angular strip
-// faces back into ONE periodic cylindrical face. See the header for scope.
+// CURVED (co-CYLINDRICAL / co-CONICAL / co-SPHERICAL) UNIFY — merge a native
+// quadric-of-revolution primitive's N angular strip faces back into the ONE
+// periodic analytic face OCCT produces. See the header for scope.
+//
+//   * cylinder / cone frustum: N angular strips + two planar caps  ->  ONE
+//     periodic lateral (drop N-1 interior seams, keep one; splice the two cap
+//     rings through it) + the caps copied 1:1  (== OCCT: 3 faces).
+//   * cone with apex (top radius 0): N triangular strips + one planar cap  ->
+//     ONE periodic conical face whose top ring collapses to the apex vertex
+//     (the seam edge runs cap-rim -> apex) + the cap copied 1:1 (== OCCT: 2F).
+//   * sphere: N*M patches (poles are triangle fans) on ONE spherical surface ->
+//     ONE periodic spherical face with a there-and-back seam meridian and two
+//     degenerate pole vertices (== OCCT BRepPrimAPI_MakeSphere: 1 face).
 // ===========================================================================
 namespace {
 
-constexpr double kCylRadTol = 1e-9;   // |r1-r2| for "cone is a cylinder"
-constexpr double kTwoPi     = 2.0 * 3.14159265358979323846;
-constexpr double kFullTol   = 1e-6;   // |Δu - 2π| for "full-2π lateral"
+constexpr double kTwoPi = 2.0 * 3.14159265358979323846;
+constexpr double kPiC   = 3.14159265358979323846;
+constexpr double kFullTol = 1e-6;   // |Δu - 2π| for "full-2π lateral"
 
-// Is `f` a CYLINDER lateral strip? (a genuine Cylinder, or the equal-radii Cone the
-// primitive builder emits for buildCylinder = buildCone(r,r,h)).
-bool isCylFace(const Face* f) {
+// Is `f` a CYLINDER or CONE lateral strip? Both are ruled surfaces of revolution
+// the primitive builders emit as N angular sectors on ONE shared Surface —
+// buildCylinder = buildCone(r,r,h) (equal-radii Cone), a frustum (r1!=r2, both>0)
+// and a pointed cone (r2==0). All merge with the same seam machinery.
+bool isRuledLateral(const Face* f) {
     const Surface* s = f ? f->surface : nullptr;
     if (!s) return false;
-    if (s->kind == SurfaceKind::Cylinder) return true;
-    if (s->kind == SurfaceKind::Cone &&
-        std::fabs(s->r1 - s->r2) <= kCylRadTol * std::max(1.0, std::fabs(s->r1)))
-        return true;
-    return false;
+    return s->kind == SurfaceKind::Cylinder || s->kind == SurfaceKind::Cone;
 }
 
-// Quantised geometric key of the INFINITE cylinder a face lies on (radius +
-// sign-normalised axis direction + the axis line's foot-point nearest the world
-// origin) — two faces on the SAME cylinder share this key even with distinct
-// Surface copies. Mirrors NativeOcctBridge::cylinderKey so grouping agrees with the
-// bridge that later counts the merged solid.
-std::string cylKey(const Surface* s) {
+// Is `f` a SPHERE patch?
+bool isSphereFace(const Face* f) {
+    const Surface* s = f ? f->surface : nullptr;
+    return s && s->kind == SurfaceKind::Sphere;
+}
+
+// Quantised geometric key of the ruled surface (cylinder/cone) a face lies on:
+// the analytic radii + height + axis DIRECTION + the axis line's foot-point
+// nearest the world origin. Two strips on the SAME cylinder/cone share this key
+// even with distinct Surface copies (the boolean case). The axis is NOT sign-
+// normalised: a cone is not symmetric under axis reversal (r1 base, r2 top), and
+// every strip of one body carries the builder/boolean's consistent orientation.
+std::string ruledKey(const Surface* s) {
     double ax = s->axis.x, ay = s->axis.y, az = s->axis.z;
     const double an = std::sqrt(ax * ax + ay * ay + az * az);
     if (an < 1e-12) return "bad";
     ax /= an; ay /= an; az /= an;
-    const double sgn = std::fabs(ax) > 1e-9 ? ax : (std::fabs(ay) > 1e-9 ? ay : az);
-    if (sgn < 0.0) { ax = -ax; ay = -ay; az = -az; }
     const double dp = s->origin.x * ax + s->origin.y * ay + s->origin.z * az;
     const double fx = s->origin.x - dp * ax;
     const double fy = s->origin.y - dp * ay;
     const double fz = s->origin.z - dp * az;
     auto q = [](double v) -> long long { return std::llround(v / 1e-6); };
-    char buf[256];
-    std::snprintf(buf, sizeof(buf), "C:%lld:%lld:%lld:%lld:%lld:%lld:%lld",
-                  q(s->r1), q(ax), q(ay), q(az), q(fx), q(fy), q(fz));
+    char buf[320];
+    std::snprintf(buf, sizeof(buf), "R:%d:%lld:%lld:%lld:%lld:%lld:%lld:%lld:%lld:%lld",
+                  static_cast<int>(s->kind), q(s->r1), q(s->r2), q(s->param),
+                  q(ax), q(ay), q(az), q(fx), q(fy), q(fz));
+    return std::string(buf);
+}
+
+// Quantised geometric key of the sphere a face lies on: centre + radius.
+std::string sphereKey(const Surface* s) {
+    auto q = [](double v) -> long long { return std::llround(v / 1e-6); };
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), "S:%lld:%lld:%lld:%lld",
+                  q(s->r1), q(s->origin.x), q(s->origin.y), q(s->origin.z));
     return std::string(buf);
 }
 
@@ -399,9 +423,9 @@ bool nativeUnifyCurvedEligible(const Solid& s) {
     const Shell* sh = s.shells[0];
     if (sh->faces.empty()) return false;
 
-    int nPlane = 0, nCyl = 0;
-    std::string key0;
-    bool haveKey = false;
+    int nPlane = 0, nRuled = 0, nSphere = 0;
+    std::string ruledKey0, sphKey0;
+    bool haveR = false, haveS = false;
     for (const Face* f : sh->faces) {
         if (!f->surface) return false;
         if (!f->outerLoop || !f->outerLoop->first) return false;
@@ -412,45 +436,64 @@ bool nativeUnifyCurvedEligible(const Solid& s) {
         const SurfaceKind k = f->surface->kind;
         if (k == SurfaceKind::Plane) {
             ++nPlane;
-        } else if (isCylFace(f)) {
-            const std::string key = cylKey(f->surface);
-            if (!haveKey) { key0 = key; haveKey = true; }
-            else if (key != key0) return false;      // a 2nd cylinder (tube) -> defer
-            ++nCyl;
+        } else if (isRuledLateral(f)) {
+            const std::string key = ruledKey(f->surface);
+            if (!haveR) { ruledKey0 = key; haveR = true; }
+            else if (key != ruledKey0) return false; // a 2nd cyl/cone (tube) -> defer
+            ++nRuled;
+        } else if (isSphereFace(f)) {
+            const std::string key = sphereKey(f->surface);
+            if (!haveS) { sphKey0 = key; haveS = true; }
+            else if (key != sphKey0) return false;   // a 2nd sphere -> defer
+            ++nSphere;
         } else {
-            return false;                            // sphere/cone/torus/nurbs -> defer
+            return false;                            // torus/nurbs/ellipse -> defer
         }
     }
-    // A single co-cylindrical group of >= 2 strips + EXACTLY the two planar caps.
-    // (A tube's 2N annular quads or a bored plate's box walls make nPlane != 2.)
-    return nCyl >= 2 && nPlane == 2;
+    // A clean FULL sphere: only patches of ONE sphere (>= 2), no caps, nothing else.
+    // (A hemisphere has a planar cap -> nPlane != 0 -> defer; a fused/cut sphere has
+    // planar or other faces -> defer.)
+    if (nSphere >= 2 && nRuled == 0 && nPlane == 0) return true;
+    // A clean single cylinder/cone body: ONE ruled group (>= 2 strips) + its cap(s).
+    // Cylinder / cone frustum -> exactly TWO planar caps; a pointed cone (apex) ->
+    // exactly ONE. (A tube's 2N annular quads / two cylinders, or a bored plate's
+    // box walls + holes, break these counts -> defer to OCCT.)
+    if (nRuled >= 2 && nSphere == 0 && (nPlane == 1 || nPlane == 2)) return true;
+    return false;
 }
 
-// ---------------------------------------------------------------------------
-Solid* unifySameDomainCurved(const Solid& s,
-                             std::shared_ptr<TopologyBuilder>& outOwner) {
-    if (!nativeUnifyCurvedEligible(s)) return nullptr;
+namespace {
+
+// Merge a native CYLINDER or CONE body (N angular strip laterals on ONE ruled
+// surface + its planar cap(s)) into ONE periodic lateral face + the caps copied
+// 1:1. Handles the CYLINDER / cone FRUSTUM (two caps -> two boundary rings spliced
+// through one seam) and the pointed cone APEX (one cap -> one boundary ring, whose
+// seam runs to the apex vertex). Returns nullptr (defer to OCCT) on anything it
+// cannot merge exactly.
+Solid* mergeRuledLateral(const Solid& s,
+                         std::shared_ptr<TopologyBuilder>& outOwner) {
     const Shell* sh = s.shells[0];
 
-    // Partition faces into the planar caps and the single co-cylindrical group.
+    // Partition faces into the planar caps and the single ruled lateral group.
     std::vector<Face*> planarFaces;
-    std::vector<Face*> cylFaces;
+    std::vector<Face*> curvedFaces;
     for (Face* f : sh->faces) {
-        if (isCylFace(f)) cylFaces.push_back(f);
-        else              planarFaces.push_back(f);   // Plane (eligibility guaranteed)
+        if (isRuledLateral(f)) curvedFaces.push_back(f);
+        else                   planarFaces.push_back(f);   // Plane (eligibility guaranteed)
     }
-    if (cylFaces.size() < 2 || planarFaces.size() != 2) return nullptr;
-    std::unordered_set<const Face*> cylSet(cylFaces.begin(), cylFaces.end());
+    if (curvedFaces.size() < 2 || planarFaces.empty() || planarFaces.size() > 2)
+        return nullptr;
+    std::unordered_set<const Face*> curvedSet(curvedFaces.begin(), curvedFaces.end());
 
-    // 1. Classify the group's edges: INTERIOR (both incident faces cylindrical — the
-    //    vertical seams between adjacent strips) vs BOUNDARY (the other face is a
-    //    cap). Collect the group's boundary COEDGES (already oriented for the lateral
-    //    face) to re-trace, and the interior edges to source the seam from.
+    // 1. Classify the group's edges: INTERIOR (both incident faces on the ruled group
+    //    — the vertical/radial seams between adjacent strips) vs BOUNDARY (the other
+    //    face is a cap). Collect the boundary COEDGES (oriented for the lateral) to
+    //    re-trace, and the interior edges to source the seam from.
     std::vector<Coedge*> bnd;
     std::vector<Edge*> interior;
     std::unordered_set<const Edge*> seen;
     double minU0 = 1e300, maxU1 = -1e300, minV0 = 1e300, maxV1 = -1e300;
-    for (Face* f : cylFaces) {
+    for (Face* f : curvedFaces) {
         minU0 = std::min(minU0, f->u0); maxU1 = std::max(maxU1, f->u1);
         minV0 = std::min(minV0, f->v0); maxV1 = std::max(maxV1, f->v1);
         Coedge* c = f->outerLoop->first;
@@ -459,8 +502,8 @@ Solid* unifySameDomainCurved(const Solid& s,
             if (!e || !e->coedgeA || !e->coedgeB) return nullptr;   // open edge
             Face* fa = faceOfCoedge(e->coedgeA);
             Face* fb = faceOfCoedge(e->coedgeB);
-            const bool bothCyl = fa && fb && cylSet.count(fa) && cylSet.count(fb);
-            if (bothCyl) {
+            const bool bothCurved = fa && fb && curvedSet.count(fa) && curvedSet.count(fb);
+            if (bothCurved) {
                 if (seen.insert(e).second) interior.push_back(e);
             } else {
                 bnd.push_back(c);   // this coedge is on the lateral boundary
@@ -469,11 +512,12 @@ Solid* unifySameDomainCurved(const Solid& s,
     }
     // A full 2π lateral: the strips' angular trim windows must tile a full turn.
     if (std::fabs((maxU1 - minU0) - kTwoPi) > kFullTol) return nullptr;
-    if (bnd.size() < 6 || interior.empty()) return nullptr;
+    if (bnd.size() < 3 || interior.empty()) return nullptr;
 
     // 2. Trace the boundary coedges into closed vertex rings (origin->dest chaining,
-    //    on the ORIGINAL vertices). A full cylinder yields EXACTLY two rings (the
-    //    bottom + top circles), each in the lateral face's boundary orientation.
+    //    on the ORIGINAL vertices). A cylinder / frustum yields TWO rings (bottom +
+    //    top circle); a pointed cone yields ONE (the base circle; the top is the
+    //    apex vertex, reached only by interior radial edges).
     std::unordered_map<Vertex*, std::vector<Coedge*>> byOrigin;
     for (Coedge* c : bnd) byOrigin[c->originVertex()].push_back(c);
     std::unordered_set<Coedge*> used;
@@ -503,25 +547,51 @@ Solid* unifySameDomainCurved(const Solid& s,
         if (ring.size() < 3) return nullptr;
         rings.push_back(std::move(ring));
     }
-    if (rings.size() != 2) return nullptr;                    // not a full 2-ring tube
+    // 2 rings <=> two caps (cylinder / frustum); 1 ring <=> one cap (apex cone).
+    if (rings.size() != planarFaces.size()) return nullptr;
+    if (rings.size() != 1 && rings.size() != 2) return nullptr;
 
-    // 3. Seam: an interior (vertical) edge joining a vertex of ring 0 to a vertex of
-    //    ring 1 becomes the single kept seam edge (the rest are dropped).
-    std::unordered_map<Vertex*, int> ringOf;
-    for (int r = 0; r < 2; ++r)
-        for (Vertex* v : rings[r]) ringOf[v] = r;
-    Vertex* seamA = nullptr;   // on ring 0
-    Vertex* seamB = nullptr;   // on ring 1
-    for (Edge* e : interior) {
-        auto ia = ringOf.find(e->start), ib = ringOf.find(e->end);
-        if (ia == ringOf.end() || ib == ringOf.end()) continue;
-        if (ia->second == 0 && ib->second == 1) { seamA = e->start; seamB = e->end; break; }
-        if (ia->second == 1 && ib->second == 0) { seamA = e->end;   seamB = e->start; break; }
+    auto rotated = [](const std::vector<Vertex*>& r, Vertex* startAt) {
+        std::vector<Vertex*> out;
+        std::size_t s = 0;
+        for (; s < r.size(); ++s) if (r[s] == startAt) break;
+        if (s == r.size()) return out;   // startAt not in ring
+        for (std::size_t i = 0; i < r.size(); ++i) out.push_back(r[(s + i) % r.size()]);
+        return out;
+    };
+
+    // 3. Locate the seam. FRUSTUM/CYLINDER: an interior edge joining ring0 to ring1
+    //    is the single kept seam (seamA on ring0, seamB on ring1). APEX CONE: the
+    //    apex is the unique interior-edge endpoint that is not on the base ring; the
+    //    seam runs base-rim -> apex.
+    Vertex* seamA = nullptr;   // on ring 0 (base)
+    Vertex* seamB = nullptr;   // on ring 1, or the apex vertex for a pointed cone
+    bool apexCone = (rings.size() == 1);
+    if (!apexCone) {
+        std::unordered_map<Vertex*, int> ringOf;
+        for (int r = 0; r < 2; ++r)
+            for (Vertex* v : rings[r]) ringOf[v] = r;
+        for (Edge* e : interior) {
+            auto ia = ringOf.find(e->start), ib = ringOf.find(e->end);
+            if (ia == ringOf.end() || ib == ringOf.end()) continue;
+            if (ia->second == 0 && ib->second == 1) { seamA = e->start; seamB = e->end; break; }
+            if (ia->second == 1 && ib->second == 0) { seamA = e->end;   seamB = e->start; break; }
+        }
+    } else {
+        std::unordered_set<Vertex*> baseSet(rings[0].begin(), rings[0].end());
+        for (Edge* e : interior) {
+            for (Vertex* v : {e->start, e->end}) {
+                if (baseSet.count(v)) continue;
+                if (seamB && seamB != v) return nullptr;   // more than one non-base vertex
+                seamB = v;                                 // the apex
+            }
+        }
+        if (seamB) seamA = rings[0][0];                    // any base vertex as the seam foot
     }
     if (!seamA || !seamB) return nullptr;
 
-    // 4. Rebuild a fresh closed 2-manifold solid: copy the planar caps 1:1, and emit
-    //    ONE periodic lateral face whose loop splices the two rings through the seam.
+    // 4. Rebuild a fresh closed 2-manifold solid: copy the planar cap(s) 1:1 and emit
+    //    ONE periodic lateral face whose loop splices the rings through the seam.
     auto ob = std::make_shared<TopologyBuilder>();
     Solid* solid = ob->makeSolid();
     Shell* shell = ob->makeShell();
@@ -550,7 +620,7 @@ Solid* unifySameDomainCurved(const Solid& s,
         return out;
     };
 
-    // 4a. planar caps — faithful 1:1 copy (surface frame, disk annotation, trim,
+    // 4a. planar cap(s) — faithful 1:1 copy (surface frame, disk annotation, trim,
     //     vertexUV, boolHoled), so their exact mass / circle-detected bridge is
     //     unchanged.
     for (Face* pf : planarFaces) {
@@ -565,41 +635,36 @@ Solid* unifySameDomainCurved(const Solid& s,
         nf->boolHoled = pf->boolHoled;
     }
 
-    // 4b. merged lateral: ring0 (from seamA) + seam up + ring1 (from seamB) + seam
-    //     down. Rotating each traced ring to start at its seam vertex, the origin
-    //     sequence [ring0.., seamA, ring1.., seamB] closes with the seam edge used
-    //     once each direction (the periodic face seam).
-    auto rotated = [](const std::vector<Vertex*>& r, Vertex* startAt) {
-        std::vector<Vertex*> out;
-        std::size_t s = 0;
-        for (; s < r.size(); ++s) if (r[s] == startAt) break;
-        if (s == r.size()) return out;   // startAt not in ring
-        for (std::size_t i = 0; i < r.size(); ++i) out.push_back(r[(s + i) % r.size()]);
-        return out;
-    };
+    // 4b. merged lateral loop. FRUSTUM/CYLINDER: ring0 (from seamA) + seam up +
+    //     ring1 (from seamB) + seam down — the seam edge used once each direction.
+    //     APEX CONE: base ring (from seamA) + seam up to the apex + seam down (the
+    //     top ring degenerates to the single apex vertex).
     std::vector<Vertex*> r0 = rotated(rings[0], seamA);
-    std::vector<Vertex*> r1 = rotated(rings[1], seamB);
-    if (r0.empty() || r1.empty()) return nullptr;
-
+    if (r0.empty()) return nullptr;
     std::vector<Vertex*> mergedRing;
-    mergedRing.reserve(r0.size() + r1.size() + 2);
-    for (Vertex* v : r0) mergedRing.push_back(mapV(v));   // bottom ring [seamA..]
+    for (Vertex* v : r0) mergedRing.push_back(mapV(v));   // base ring [seamA..]
     mergedRing.push_back(mapV(seamA));                    // seam up start
-    for (Vertex* v : r1) mergedRing.push_back(mapV(v));   // top ring [seamB..]
-    mergedRing.push_back(mapV(seamB));                    // seam down start
+    if (!apexCone) {
+        std::vector<Vertex*> r1 = rotated(rings[1], seamB);
+        if (r1.empty()) return nullptr;
+        for (Vertex* v : r1) mergedRing.push_back(mapV(v)); // top ring [seamB..]
+        mergedRing.push_back(mapV(seamB));                  // seam down start
+    } else {
+        mergedRing.push_back(mapV(seamB));                  // apex (single top point)
+    }
+    if (mergedRing.size() < 4) return nullptr;
 
     Face* lat = ob->makeFace();
     ob->addFaceToShell(shell, lat);
     ob->addOuterLoopToFace(lat, mergedRing);
-    lat->surface = copySurface(cylFaces[0]->surface);
+    lat->surface = copySurface(curvedFaces[0]->surface);
     lat->u0 = minU0; lat->u1 = maxU1;   // [0, 2π] full lateral
     lat->v0 = minV0; lat->v1 = maxV1;
-    // Mass over the full-2π lateral via the REGION integrator (scan-line, ~42 angular
-    // strips) NOT a single tensor-Gauss panel: a full period of the single-component
-    // divergence integrand (r·cos²θ …) is under-resolved by one 8-node Gauss panel
-    // over [0,2π] (off ~4e-6), but the strip-subdivided region path recovers the
-    // exact analytic volume — matching the 128-strip primitive to round-off. The
-    // region is the axis-aligned (u,v) rectangle [u0,u1]×[v0,v1].
+    // Mass over the full-2π lateral via the REGION integrator (scan-line, strip-
+    // subdivided in u) NOT one tensor-Gauss panel: a full period of the divergence
+    // integrand is under-resolved by a single 8-node Gauss panel over [0,2π], but the
+    // strip-subdivided region path recovers the exact analytic volume — matching the
+    // 128-strip primitive to round-off. The region is the (u,v) rectangle.
     lat->regionUV = true;
     lat->regionOuterUV = {
         {lat->u0, lat->v0}, {lat->u1, lat->v0},
@@ -616,6 +681,135 @@ Solid* unifySameDomainCurved(const Solid& s,
 
     outOwner = std::move(ob);
     return solid;
+}
+
+// Merge a native SPHERE body (N*M patches on ONE spherical surface, poles as
+// triangle fans) into the ONE periodic spherical face OCCT's BRepPrimAPI_MakeSphere
+// produces: a single face whose boundary is a there-and-back seam meridian with the
+// two poles as degenerate vertices. Every seam edge is used twice (opposite sense)
+// within the one face, so the result is a valid closed 2-manifold with no caps. The
+// seam reuses the primitive's real θ=0 meridian vertices (found by local frame), so
+// the merge is faithful; mass is the analytic region integral over [0,2π]×[0,π].
+Solid* mergeSphere(const Solid& s,
+                   std::shared_ptr<TopologyBuilder>& outOwner) {
+    const Shell* sh = s.shells[0];
+
+    // The single shared sphere surface (all faces same key by eligibility).
+    const Surface* sph = nullptr;
+    for (Face* f : sh->faces) { if (isSphereFace(f)) { sph = f->surface; break; } }
+    if (!sph) return nullptr;
+    const double r = sph->r1;
+    if (!(r > 1e-12)) return nullptr;
+    const Vec3 O  = sph->origin;
+    const Vec3 ax = vnorm(sph->axis);
+    const Vec3 rf = vnorm(sph->refDir);
+    const Vec3 bn = vcross(ax, rf);   // binormal (local +Y)
+    const double tol = 1e-6 * std::max(1.0, r);
+
+    // Local (refDir, binormal, axis) coordinates of a vertex, relative to centre.
+    auto local = [&](const Point3& p, double& pr, double& pb, double& pa) {
+        Vec3 rel = vsub(P2V(p), O);
+        pr = vdot(rel, rf); pb = vdot(rel, bn); pa = vdot(rel, ax);
+    };
+
+    // Poles = extreme axis projection; θ=0 meridian interior = the +refDir half-plane
+    // (binormal≈0, refDir>0), which is exactly buildSphere's i=0 column.
+    Vertex* north = nullptr; Vertex* south = nullptr;
+    double bestN = -1e300, bestS = 1e300;
+    std::unordered_set<Vertex*> seenV;
+    for (Face* f : sh->faces) {
+        Coedge* c = f->outerLoop->first;
+        for (std::size_t k = 0; k < f->outerLoop->coedgeCount; ++k, c = c->next) {
+            Vertex* v = c->originVertex();
+            if (!seenV.insert(v).second) continue;
+            double pr, pb, pa; local(v->point, pr, pb, pa);
+            if (pa > bestN) { bestN = pa; north = v; }
+            if (pa < bestS) { bestS = pa; south = v; }
+        }
+    }
+    if (!north || !south || north == south) return nullptr;
+
+    std::vector<std::pair<double, Vertex*>> meridian;   // (axis proj, vertex)
+    seenV.clear();
+    for (Face* f : sh->faces) {
+        Coedge* c = f->outerLoop->first;
+        for (std::size_t k = 0; k < f->outerLoop->coedgeCount; ++k, c = c->next) {
+            Vertex* v = c->originVertex();
+            if (v == north || v == south) continue;
+            if (!seenV.insert(v).second) continue;
+            double pr, pb, pa; local(v->point, pr, pb, pa);
+            if (std::fabs(pb) <= tol && pr > tol) meridian.push_back({pa, v});
+        }
+    }
+    if (meridian.size() < 2) return nullptr;   // too coarse to be a periodic face
+    // North -> south order: axis projection descending (phi ascending).
+    std::sort(meridian.begin(), meridian.end(),
+              [](const std::pair<double, Vertex*>& a,
+                 const std::pair<double, Vertex*>& b) { return a.first > b.first; });
+
+    auto ob = std::make_shared<TopologyBuilder>();
+    Solid* solid = ob->makeSolid();
+    Shell* shell = ob->makeShell();
+    ob->addShellToSolid(solid, shell);
+    std::unordered_map<Vertex*, Vertex*> vmap;
+    auto mapV = [&](Vertex* old) -> Vertex* {
+        auto it = vmap.find(old);
+        if (it != vmap.end()) return it->second;
+        Vertex* nv = ob->makeVertex(old->point);
+        nv->tolerance = old->tolerance;
+        vmap.emplace(old, nv);
+        return nv;
+    };
+
+    // There-and-back seam loop: [north, m1..mk, south, mk..m1]. Each seam edge is
+    // used once down and once up (opposite sense) -> its own mate; the poles are
+    // degenerate vertices incident only to the seam's end edges.
+    std::vector<Vertex*> ring;
+    ring.push_back(mapV(north));
+    for (const auto& m : meridian) ring.push_back(mapV(m.second));
+    ring.push_back(mapV(south));
+    for (std::size_t i = meridian.size(); i-- > 0; ) ring.push_back(mapV(meridian[i].second));
+    if (ring.size() < 6) return nullptr;
+
+    Face* nf = ob->makeFace();
+    ob->addFaceToShell(shell, nf);
+    ob->addOuterLoopToFace(nf, ring);
+    Surface* srf = ob->makeSurface();
+    *srf = *sph;   // POD copy of the spherical surface (centre + radius + frame)
+    nf->surface = srf;
+    nf->u0 = 0.0; nf->u1 = kTwoPi; nf->v0 = 0.0; nf->v1 = kPiC;
+    nf->regionUV = true;
+    nf->regionOuterUV = {
+        {0.0, 0.0}, {kTwoPi, 0.0}, {kTwoPi, kPiC}, {0.0, kPiC}};
+
+    if (!ob->isClosedTwoManifold()) return nullptr;       // never emit a wrong shape
+
+    const double volRef = massProperties(s).volume;
+    const double volNew = massProperties(*solid).volume;
+    if (!(volRef > 1e-12)) return nullptr;
+    if (std::fabs(volNew - volRef) > 1e-6 * std::max(1.0, std::fabs(volRef)))
+        return nullptr;
+
+    outOwner = std::move(ob);
+    return solid;
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+Solid* unifySameDomainCurved(const Solid& s,
+                             std::shared_ptr<TopologyBuilder>& outOwner) {
+    if (!nativeUnifyCurvedEligible(s)) return nullptr;
+    const Shell* sh = s.shells[0];
+
+    bool anyRuled = false, anySphere = false;
+    for (Face* f : sh->faces) {
+        if (isRuledLateral(f)) anyRuled = true;
+        else if (isSphereFace(f)) anySphere = true;
+    }
+    if (anySphere && !anyRuled) return mergeSphere(s, outOwner);
+    if (anyRuled && !anySphere) return mergeRuledLateral(s, outOwner);
+    return nullptr;   // a mixed curved body is not a clean single primitive
 }
 
 } // namespace brep

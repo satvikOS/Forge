@@ -69,12 +69,21 @@ const CASES = [
     build: () => forge.makeSphere(10),
     volume: (4 / 3) * PI * 10 * 10 * 10,            // 4188.7902
     faceKind: 'sphere',
+    // A sphere now MERGES NATIVELY (co-spherical unifySameDomain, UnifyFaces.cpp) —
+    // a strict improvement over the old defer-to-OCCT. unifyFaces returns the native
+    // single spherical face; forge.faceInventory still bridges it through
+    // occtFromNativeSolid -> occtSphereFromNativeSolid, so the analytic-reconstruction
+    // guarantee this gate exists to prove is verified exactly as before.
+    unifyKind: 'nativeSolid',
   },
   {
     label: 'torus(R=20, r=5)',
     build: () => forge.makeTorus(20, 5),
     volume: 2 * PI * PI * 20 * 5 * 5,               // 9869.6044
     faceKind: 'torus',
+    // A torus is NOT yet a native co-toroidal merge, so unifyFaces still falls
+    // through to the OCCT bridge (an OCCT-backed handle).
+    unifyKind: 'occt',
   },
 ];
 
@@ -89,17 +98,20 @@ for (const c of CASES) {
   ok(Math.abs(natVol - c.volume) <= 1e-6 * c.volume,
      `${c.label}: native volume ${natVol.toFixed(4)} == analytic ${c.volume.toFixed(4)}`);
 
-  // FORCE the native->OCCT bridge. forge.unifyFaces is a documented bridge trigger
-  // (test/directedit.mjs `canon`): for a curved native solid it is ineligible for
-  // the native planar-unify shortcut, so it falls through to ShapeRegistry::get ->
-  // occtFromNativeSolid and returns an OCCT-BACKED handle. massProps/faceInventory on
-  // that handle therefore report the OCCT integration of the BRIDGED solid.
+  // unifyFaces is the documented bridge/merge trigger (test/directedit.mjs `canon`).
+  // A torus is still ineligible for the native curved merge, so it falls through to
+  // ShapeRegistry::get -> occtFromNativeSolid and returns an OCCT-BACKED handle; a
+  // sphere now takes the native co-spherical merge and returns the native single
+  // spherical face. Either way forge.faceInventory below reconstructs it through the
+  // SAME occtFromNativeSolid bridge (ShapeRegistry::get bridges a native handle), so
+  // this gate still proves the analytic reconstruction it was written for.
   const bridged = forge.unifyFaces(c.build());
-  ok(forge.kindOf(bridged) === 'occt',
-     `${c.label}: unifyFaces bridged to an OCCT-backed handle (got ${forge.kindOf(bridged)})`);
+  ok(forge.kindOf(bridged) === c.unifyKind,
+     `${c.label}: unifyFaces -> ${c.unifyKind} (got ${forge.kindOf(bridged)})`);
 
   // (2) ANALYTIC PATH TAKEN: exactly ONE analytic face of the expected kind — NOT
   // the hundreds/thousands of plane facets the faceted fallback would emit.
+  // (forge.faceInventory bridges a native handle through occtFromNativeSolid.)
   const inv = forge.faceInventory(bridged);
   const h = hist(inv);
   ok(inv.length === 1 && h[c.faceKind] === 1,
@@ -108,13 +120,13 @@ for (const c of CASES) {
   ok(!('plane' in h),
      `${c.label}: bridged solid carries NO plane facets (faceted fallback NOT taken)`);
 
-  // (3) OCCT-INTEGRATED VOLUME of the bridged solid == exact analytic volume. This is
-  // the OCCT mass path (bridged handle is OCCT-backed), NOT the native integrator and
-  // NOT the faceted-garbage value. Tight tol (1e-6 rel) — the faceted torus (9849.80)
-  // misses this by 0.03%, i.e. ~3e-4 rel.
+  // (3) INTEGRATED VOLUME of the (bridged/merged) solid == exact analytic volume —
+  // NOT the faceted-garbage value. The torus is the OCCT mass path; the sphere is the
+  // native divergence-theorem integrator (analytic-exact to ~3e-8 rel). Tight tol
+  // (1e-6 rel) — the faceted torus (9849.80) misses this by 0.03%, i.e. ~3e-4 rel.
   const occtVol = forge.massProps(bridged).volume;
   ok(Math.abs(occtVol - c.volume) <= 1e-6 * c.volume,
-     `${c.label}: OCCT-integrated bridged volume ${occtVol.toFixed(6)} == analytic ` +
+     `${c.label}: integrated volume ${occtVol.toFixed(6)} == analytic ` +
      `${c.volume.toFixed(6)} (rel<=1e-6)`);
 
   console.log(`  ${c.label}: bridged kind=${forge.kindOf(bridged)} faces=${inv.length} ` +
