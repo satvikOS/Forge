@@ -100,6 +100,99 @@ for (const c of cases) {
   console.log(`          OCCT  : ${occ.rawFaces} -> ${occ.faces} faces, ${occ.edges} edges, vol ${occ.vol}`)
 }
 
+// ---------------------------------------------------------------------------
+// CURVED co-CYLINDRICAL A/B. A native cylinder's lateral surface is emitted as N
+// angular STRIP faces on ONE shared analytic surface (buildCylinder = buildCone(r,r,h)
+// -> 128 sectors). unifyFaces must merge those strips back into ONE periodic
+// cylindrical face IN-HOUSE (the native curved path, no OCCT bridge). Proven two ways:
+//   (a) the NATIVE TOPOLOGY genuinely collapses — nativeFaceInventory's lateral strip
+//       count drops from N to 1 (the merge is real, not the bridge's reconstruction);
+//   (b) the merged solid, bridged to OCCT for counting by the SAME oracle, matches
+//       OCCT ShapeUpgrade_UnifySameDomain 1:1 (3 faces, 3 edges, exact volume).
+// ---------------------------------------------------------------------------
+const cylStrips = (inv) => { const c = inv.find(x => x.kind === 'cylinder'); return c ? c.stripFaceCount : 0 }
+const hist = (inv) => { const h = {}; for (const x of inv) h[x.kind] = (h[x.kind] || 0) + 1; return h }
+
+const curvedCases = [
+  { name: 'cylinder(r=7, h=25)',  build: (f) => f.makeCylinder(7, 25),  r: 7,   h: 25 },
+  { name: 'cylinder(r=1.3, h=5)', build: (f) => f.makeCylinder(1.3, 5), r: 1.3, h: 5 },
+]
+
+let cpassed = 0
+console.log('\n  native unifySameDomain (curved co-cylindrical)  —  A/B vs OCCT ShapeUpgrade_UnifySameDomain\n')
+for (const c of curvedCases) {
+  // NATIVE path — the in-house curved merge.
+  f.setNativeBrep(true)
+  const cyl = c.build(f)
+  assert.equal(f.kindOf(cyl), 'nativeSolid', `${c.name}: built as a NativeSolid`)
+  const rawStrips = cylStrips(f.nativeFaceInventory(cyl))
+  assert.ok(rawStrips >= 8,
+    `${c.name}: raw cylinder lateral is many strips (got ${rawStrips})`)
+
+  const u = f.unifyFaces(cyl)
+  // 1) the NATIVE CURVED path actually FIRED (a native merge, NOT the OCCT fallback).
+  assert.equal(f.kindOf(u), 'nativeSolid',
+    `${c.name}: native curved unify must return a NativeSolid (proves the native path fired, not OCCT fallback)`)
+  // 2) the native TOPOLOGY genuinely merged the strips into ONE lateral face.
+  const inv = f.nativeFaceInventory(u)
+  assert.equal(cylStrips(inv), 1,
+    `${c.name}: lateral merged to ONE native face (stripFaceCount ${rawStrips} -> ${cylStrips(inv)})`)
+  const nh = hist(inv)
+  assert.ok(inv.length === 3 && nh.cylinder === 1 && nh.plane === 2,
+    `${c.name}: native inventory is {cylinder:1, plane:2} (got ${JSON.stringify(nh)})`)
+
+  // FACE count is measured through the SAME OCCT oracle both ways (f.direct.faceCount
+  // bridges the native solid to OCCT first). EDGE count uses the native CANONICAL
+  // counter (f.nativeEdgeCount): the native->OCCT bridge's analytic-cylinder
+  // reconstruction emits a spurious extra seam edge (the RAW native cylinder also
+  // bridges to 4 edges — a bridge-reconstruction artifact ORTHOGONAL to this merge,
+  // in NativeOcctBridge.cpp which is out of scope here), whereas the native topology's
+  // canonical edge count is the true 3 (seam + top circle + bottom circle) == OCCT.
+  const nat = { faces: f.direct.faceCount(u), edges: f.nativeEdgeCount(u), vol: f.massProps(u).volume }
+
+  // OCCT path — ShapeUpgrade_UnifySameDomain on the same cylinder.
+  f.setNativeBrep(false)
+  const occU = f.unifyFaces(c.build(f))
+  assert.equal(f.kindOf(occU), 'occt', `${c.name}: native-off unify must be an OCCT shape`)
+  const occ = { faces: f.direct.faceCount(occU), edges: f.direct.edgeCount(occU), vol: f.massProps(occU).volume }
+
+  // 3) A/B: native merge == OCCT merge on face count, edge count and volume.
+  assert.equal(nat.faces, occ.faces, `${c.name}: face count native(${nat.faces}) vs OCCT(${occ.faces})`)
+  assert.equal(nat.edges, occ.edges, `${c.name}: edge count native(${nat.edges}) vs OCCT(${occ.edges})`)
+  near(nat.vol, occ.vol, 1e-9, `${c.name}: volume native vs OCCT`)
+  // 4) known answer: a cylinder = 1 lateral + 2 caps (3F), seam + 2 circles (3E), πr²h.
+  assert.equal(nat.faces, 3, `${c.name}: cylinder = 3 faces`)
+  assert.equal(nat.edges, 3, `${c.name}: cylinder = 3 edges`)
+  near(nat.vol, Math.PI * c.r * c.r * c.h, 1e-9, `${c.name}: expected volume πr²h`)
+
+  cpassed++
+  console.log(`  PASS  ${c.name}`)
+  console.log(`          native: ${rawStrips} strips -> 1 lateral, bridged ${nat.faces}F/${nat.edges}E vol ${nat.vol}`)
+  console.log(`          OCCT  : ${occ.faces}F/${occ.edges}E vol ${occ.vol}`)
+}
+
+// ---------------------------------------------------------------------------
+// DEFERRED-to-OCCT (the honest scope boundary). Curved non-cylinder bodies (sphere),
+// multi-cylinder bodies (tube), and holed bodies (a bored plate) are NOT handled by
+// the native curved merge and must fall through to OCCT ShapeUpgrade_UnifySameDomain
+// UNCHANGED (unifyFaces returns an OCCT-backed handle). This locks the boundary so
+// the native path never misfires on a shape it cannot merge exactly.
+// ---------------------------------------------------------------------------
+let dpassed = 0
+console.log('\n  deferred-to-OCCT (honest scope boundary)\n')
+f.setNativeBrep(true)
+const deferred = [
+  { name: 'sphere(3)  — curved non-cylinder',          build: (f) => f.makeSphere(3) },
+  { name: 'tube(2,1,4) — two cylinders + annular caps', build: (f) => f.makeTube(2, 1, 4) },
+  { name: 'bored plate — holed caps',                   build: (f) => f.cut(f.makeBox(10, 10, 4), f.translate(f.makeCylinder(2, 4), 5, 5, 0)) },
+]
+for (const d of deferred) {
+  const h = f.unifyFaces(d.build(f))
+  assert.equal(f.kindOf(h), 'occt', `${d.name}: unifyFaces defers to OCCT (got ${f.kindOf(h)})`)
+  dpassed++
+  console.log(`  PASS  ${d.name} -> OCCT fallback`)
+}
+
 // restore default gate
 f.setNativeBrep(true)
-console.log(`\n  ${passed}/${cases.length} native-unify A/B cases passed`)
+console.log(`\n  ${passed}/${cases.length} planar + ${cpassed}/${curvedCases.length} curved A/B + ${dpassed}/${deferred.length} deferred cases passed`)

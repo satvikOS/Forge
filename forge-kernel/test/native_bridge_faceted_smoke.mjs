@@ -108,8 +108,13 @@ console.log('\n=== (A) DEFAULT bridge: analytic reconstruction (exact) ===');
 delete process.env.FORGE_BRIDGE_FACETED;
 for (const c of CASES) {
   const bridged = forge.unifyFaces(c.build());
-  ok(forge.kindOf(bridged) === 'occt',
-     `${c.label}: unifyFaces bridged to an OCCT-backed handle (got ${forge.kindOf(bridged)})`);
+  // unifyFaces now merges a plain CYLINDER natively (co-cylindrical native unify,
+  // UnifyFaces.cpp) → a NativeSolid; a CONE/FRUSTUM is still ineligible so it bridges
+  // to OCCT via ShapeUpgrade. Either way the analytic native->OCCT reconstruction is
+  // exercised LAZILY by the faceInventory/massProps calls below (ShapeRegistry::get),
+  // so accept both handle kinds and let those queries verify the reconstruction.
+  ok(forge.kindOf(bridged) === 'occt' || forge.kindOf(bridged) === 'nativeSolid',
+     `${c.label}: unifyFaces handle is an analytic solid (occt bridge or native merge) (got ${forge.kindOf(bridged)})`);
   const inv = forge.faceInventory(bridged);
   const h = hist(inv);
   ok((h[c.analyticKind] || 0) >= 1,
@@ -137,9 +142,18 @@ for (const c of CASES) {
     inv = forge.faceInventory(bridged);
   } catch (e) { threw = String((e && e.message) || e); }
 
-  // No throw — the volume self-check must PASS on a genuine watertight body.
+  // No throw — the volume self-check must PASS on a genuine watertight body. This is
+  // the CORE guard: the forced-faceted bridge tessellates the body and rebuilds a
+  // watertight OCCT polyhedron, self-checking its volume (throwing on the mold-cone
+  // malformation). A merged-cylinder native handle (co-cylindrical native unify)
+  // exercises this via the faceInventory bridge below — its full-2π lateral now
+  // tessellates watertight (SolidTessellate full-period surface-sampling), so it must
+  // NOT throw either.
   ok(threw === null, `${c.label}: forced-faceted bridge did not throw (${threw})`);
-  ok(kind === 'occt', `${c.label}: forced-faceted handle is OCCT-backed (got ${kind})`);
+  // The cylinder now unifies to a NativeSolid (native merge); the cone/frustum still
+  // bridge to an OCCT handle. Both drive the forced-faceted bridge via faceInventory.
+  ok(kind === 'occt' || kind === 'nativeSolid',
+     `${c.label}: forced-faceted handle is an analytic solid (occt bridge or native merge) (got ${kind})`);
 
   // The faceted path was ACTUALLY taken: inventory is all planes, no analytic curved
   // face survives. (unifyFaces may merge the coplanar cap fans, so face count varies.)

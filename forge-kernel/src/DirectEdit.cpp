@@ -91,6 +91,18 @@ ShapeHandle unifyFaces(ShapeHandle body) {
                 if (merged) return reg.addNativeSolid(std::move(owner), merged);
                 // merged == nullptr: could not merge exactly -> OCCT fallback.
             }
+            // ADDITIVE (curved co-cylindrical merge): a native cylinder whose lateral
+            // surface was emitted as N angular strips is merged back into ONE periodic
+            // cylindrical face IN-HOUSE (no OCCT bridge). Any body that is not a clean
+            // single-cylinder (sphere/cone/torus, tube, bored plate, partial cylinder)
+            // is ineligible and falls through to OCCT's ShapeUpgrade_UnifySameDomain.
+            else if (native::brep::nativeUnifyCurvedEligible(s)) {
+                std::shared_ptr<native::brep::TopologyBuilder> owner;
+                native::brep::Solid* merged =
+                    native::brep::unifySameDomainCurved(s, owner);
+                if (merged) return reg.addNativeSolid(std::move(owner), merged);
+                // merged == nullptr: could not merge exactly -> OCCT fallback.
+            }
         }
     }
 #endif

@@ -267,6 +267,55 @@ void tessellateSolid(const Solid& solid,
                 // CDT miss: fall through to the fan (best-effort, keeps the gate honest).
             }
 
+            // FULL-PERIOD curved face (a native-merged / imported periodic cylinder):
+            // its outer loop WRAPS a full 2*pi turn (bottom ring + seam + top ring +
+            // seam), so the corner FAN is geometrically invalid (a cylinder cannot be
+            // fanned from one vertex). Surface-SAMPLE it instead — sampling the ANGULAR
+            // (u) direction at the loop's OWN rim resolution nu = (coedgeCount-2)/2 so
+            // the rim sample points coincide with the neighbouring cap polygons (the
+            // caps reuse the same rim vertices → the weld grid stitches them crack-free),
+            // and the axial (v) direction curvature-adaptively (a ruled cylinder wall is
+            // nv=1, exact). This runs ONLY when the flagged surface-tessellator above did
+            // not (default OFF) AND only for the rare full-period single face: every
+            // primitive strip has a SMALL u-span (2*pi/nSeg), so this never perturbs the
+            // box/primitive/fillet meshes the C++ native gates assert on. It is the
+            // tessellation counterpart of unifySameDomainCurved (UnifyFaces.cpp).
+            if (f->surface && f->surface->kind != SurfaceKind::Plane &&
+                f->innerLoops.empty() && !f->boolHoled &&
+                lp->coedgeCount >= 6 && (lp->coedgeCount % 2) == 0 &&
+                std::fabs(std::fabs(f->u1 - f->u0) - 2.0 * M_PI) <= 1e-6) {
+                const Surface& S = *f->surface;
+                const double uu0 = f->u0, uu1 = f->u1, vv0 = f->v0, vv1 = f->v1;
+                const int nu = static_cast<int>((lp->coedgeCount - 2) / 2); // == cap rim
+                const int nv = chordSegs(S, 0.5 * (uu0 + uu1), vv0, vv1, 0.5);
+                for (int iu = 0; iu < nu; ++iu) {
+                    const double ua = uu0 + (uu1 - uu0) * (double(iu) / nu);
+                    const double ub = uu0 + (uu1 - uu0) * (double(iu + 1) / nu);
+                    for (int iv = 0; iv < nv; ++iv) {
+                        const double va = vv0 + (vv1 - vv0) * (double(iv) / nv);
+                        const double vb = vv0 + (vv1 - vv0) * (double(iv + 1) / nv);
+                        const Vec3 p00 = S.evaluate(ua, va);
+                        const Vec3 p10 = S.evaluate(ub, va);
+                        const Vec3 p11 = S.evaluate(ub, vb);
+                        const Vec3 p01 = S.evaluate(ua, vb);
+                        const Vec3 nrm = S.normalAt(0.5 * (ua + ub), 0.5 * (va + vb));
+                        auto emitTri = [&](const Vec3& A, const Vec3& B, const Vec3& C) {
+                            std::uint32_t a = vid(A), b = vid(B), c2 = vid(C);
+                            if (a == b || b == c2 || a == c2) return;   // degenerate
+                            Vec3 tn = vcross(vsub(B, A), vsub(C, A));
+                            if (vdot(tn, nrm) < 0.0) {
+                                indices.push_back(a); indices.push_back(c2); indices.push_back(b);
+                            } else {
+                                indices.push_back(a); indices.push_back(b); indices.push_back(c2);
+                            }
+                        };
+                        emitTri(p00, p10, p11);
+                        emitTri(p00, p11, p01);
+                    }
+                }
+                continue;
+            }
+
             // Fan-triangulate the (convex-or-simple) loop polygon.
             std::uint32_t i0 = vid(pts[0]);
             for (std::size_t t = 1; t + 1 < pts.size(); ++t) {

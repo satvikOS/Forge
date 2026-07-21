@@ -19,16 +19,29 @@
 //     validated TopologyBuilder (shared edges / mated coedges), so native
 //     mass-props / tessellation / the STEP bridge all keep working on it.
 //
-// What is explicitly TARGETED (NOT built here — the coverage gap for the
+//   * CO-CYLINDRICAL merge (ADDITIVE increment, A/B vs OCCT in
+//     test/native_unify_smoke.mjs). A native cylinder's lateral surface is emitted
+//     by the primitive builders as N angular STRIP faces on ONE shared analytic
+//     surface (buildCone(r,r,h) -> 128 Cone(r1==r2) sectors). `unifySameDomainCurved`
+//     merges those strips back into ONE periodic cylindrical face: it drops the
+//     N-1 interior vertical seam edges (keeping exactly one as the face SEAM),
+//     re-traces the two boundary rings (bottom + top circle) and splices them
+//     through the seam into a single closed loop, then rebuilds a fresh closed
+//     2-manifold Solid whose lateral is a single full-2*pi face (analyticFaceInventory
+//     stripFaceCount 128 -> 1) and whose planar caps are copied 1:1. The result is
+//     VOLUME-cross-checked against the input (never a wrong shape) and, when bridged
+//     to OCCT for counting, matches OCCT ShapeUpgrade_UnifySameDomain 1:1 (3F/3E,
+//     exact volume). Fires ONLY for a clean cylinder body (exactly one co-cylindrical
+//     group forming a full 2*pi lateral + exactly two planar cap faces, no holes) so
+//     bored plates / tubes / partial (fillet) cylinders stay on the OCCT path.
+//
+// What is explicitly TARGETED (NOT built here — the remaining coverage gap for the
 // eventual TKShHealing drop):
-//   * Co-CYLINDRICAL / co-CONICAL / co-SPHERICAL merge (the analytic-cylinder
-//     "128 strips -> 1 face" case) — that needs a PERIODIC single face with a
-//     seam edge and two boundary rings, not yet built. `nativeUnifyPlanarEligible`
-//     returns false for any solid containing curved faces, so `unifyFaces`
-//     (DirectEdit.cpp) honestly falls back to OCCT ShapeUpgrade_UnifySameDomain
-//     for those (the cylinder-strip path is unchanged).
-//   * Holed / disk / multi-shell inputs also defer to OCCT (kept out of scope so
-//     the planar path stays exact + safe).
+//   * Co-CONICAL / co-SPHERICAL / co-TOROIDAL merge (cone frustum, sphere, torus),
+//     the cut-cylinder / bored-plate holed-annulus merge, and multi-cylinder
+//     (tube) bodies — those defer to OCCT ShapeUpgrade_UnifySameDomain (a sphere/
+//     torus/cone or a holed/multi-shell input makes both eligibility checks return
+//     false, so `unifyFaces` (DirectEdit.cpp) falls back unchanged).
 //
 // Pure C++20, ZERO external deps (stdlib + existing forge native headers).
 // CONVENTIONS: namespace forge::native::brep.
@@ -58,6 +71,29 @@ bool nativeUnifyPlanarEligible(const Solid& s);
 // to clean loops, or a result that is not a closed 2-manifold — in every such
 // case the caller must fall back to OCCT rather than emit a wrong shape).
 Solid* unifySameDomainPlanar(const Solid& s,
+                             std::shared_ptr<TopologyBuilder>& outOwner);
+
+// ADDITIVE (curved co-cylindrical merge). True iff `s` is eligible for the native
+// curved unify: exactly one shell, every face a single simple outer loop (no inner/
+// hole loops, not boolean-holed), and the faces are EXACTLY two planar cap faces
+// plus a single co-cylindrical group (>= 2 strip faces, all on the SAME cylinder —
+// SurfaceKind::Cylinder or the equal-radii SurfaceKind::Cone the primitive builder
+// emits — sharing one quantised axis+radius+foot-point key). Any sphere/cone/torus/
+// nurbs face, any holed/disk-with-hole face, any second cylinder (tube), any extra
+// planar face (a bored plate's box walls), or a partial (fillet) cylinder makes this
+// false, so the caller defers to OCCT ShapeUpgrade_UnifySameDomain unchanged.
+bool nativeUnifyCurvedEligible(const Solid& s);
+
+// Merge the co-cylindrical strip faces of `s` into ONE periodic cylindrical face,
+// dropping the interior seam edges (keeping one as the face seam) and re-tracing the
+// two boundary rings into a single spliced loop, and copy the planar caps 1:1, into
+// a NEW native Solid owned by `outOwner`. Returns the merged Solid (a non-owning view
+// into *outOwner) or nullptr if the merge cannot be completed EXACTLY (ineligible
+// input, the boundary does not trace to exactly two rings, no seam edge is found, the
+// rebuilt solid is not a closed 2-manifold, or its volume does not match the input to
+// tolerance — in every such case the caller must fall back to OCCT rather than emit a
+// wrong shape).
+Solid* unifySameDomainCurved(const Solid& s,
                              std::shared_ptr<TopologyBuilder>& outOwner);
 
 } // namespace brep

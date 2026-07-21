@@ -24,10 +24,12 @@
 
 #include "forge/native/brep/UnifyFaces.hpp"
 #include "forge/native/brep/Surface.hpp"
+#include "forge/native/brep/MassProps.hpp"   // massProperties — curved-merge volume safety gate
 
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -339,6 +341,278 @@ Solid* unifySameDomainPlanar(const Solid& s,
     }
 
     if (!ob->isClosedTwoManifold()) return nullptr;    // never emit a wrong shape
+
+    outOwner = std::move(ob);
+    return solid;
+}
+
+// ===========================================================================
+// CURVED (co-CYLINDRICAL) UNIFY — merge a native cylinder's N angular strip
+// faces back into ONE periodic cylindrical face. See the header for scope.
+// ===========================================================================
+namespace {
+
+constexpr double kCylRadTol = 1e-9;   // |r1-r2| for "cone is a cylinder"
+constexpr double kTwoPi     = 2.0 * 3.14159265358979323846;
+constexpr double kFullTol   = 1e-6;   // |Δu - 2π| for "full-2π lateral"
+
+// Is `f` a CYLINDER lateral strip? (a genuine Cylinder, or the equal-radii Cone the
+// primitive builder emits for buildCylinder = buildCone(r,r,h)).
+bool isCylFace(const Face* f) {
+    const Surface* s = f ? f->surface : nullptr;
+    if (!s) return false;
+    if (s->kind == SurfaceKind::Cylinder) return true;
+    if (s->kind == SurfaceKind::Cone &&
+        std::fabs(s->r1 - s->r2) <= kCylRadTol * std::max(1.0, std::fabs(s->r1)))
+        return true;
+    return false;
+}
+
+// Quantised geometric key of the INFINITE cylinder a face lies on (radius +
+// sign-normalised axis direction + the axis line's foot-point nearest the world
+// origin) — two faces on the SAME cylinder share this key even with distinct
+// Surface copies. Mirrors NativeOcctBridge::cylinderKey so grouping agrees with the
+// bridge that later counts the merged solid.
+std::string cylKey(const Surface* s) {
+    double ax = s->axis.x, ay = s->axis.y, az = s->axis.z;
+    const double an = std::sqrt(ax * ax + ay * ay + az * az);
+    if (an < 1e-12) return "bad";
+    ax /= an; ay /= an; az /= an;
+    const double sgn = std::fabs(ax) > 1e-9 ? ax : (std::fabs(ay) > 1e-9 ? ay : az);
+    if (sgn < 0.0) { ax = -ax; ay = -ay; az = -az; }
+    const double dp = s->origin.x * ax + s->origin.y * ay + s->origin.z * az;
+    const double fx = s->origin.x - dp * ax;
+    const double fy = s->origin.y - dp * ay;
+    const double fz = s->origin.z - dp * az;
+    auto q = [](double v) -> long long { return std::llround(v / 1e-6); };
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "C:%lld:%lld:%lld:%lld:%lld:%lld:%lld",
+                  q(s->r1), q(ax), q(ay), q(az), q(fx), q(fy), q(fz));
+    return std::string(buf);
+}
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+bool nativeUnifyCurvedEligible(const Solid& s) {
+    if (s.shells.size() != 1) return false;
+    const Shell* sh = s.shells[0];
+    if (sh->faces.empty()) return false;
+
+    int nPlane = 0, nCyl = 0;
+    std::string key0;
+    bool haveKey = false;
+    for (const Face* f : sh->faces) {
+        if (!f->surface) return false;
+        if (!f->outerLoop || !f->outerLoop->first) return false;
+        if (f->outerLoop->coedgeCount < 3) return false;
+        if (!f->innerLoops.empty()) return false;   // holed face -> defer to OCCT
+        if (f->boolHoled) return false;
+        if (f->regionUV || f->paramTri) return false;
+        const SurfaceKind k = f->surface->kind;
+        if (k == SurfaceKind::Plane) {
+            ++nPlane;
+        } else if (isCylFace(f)) {
+            const std::string key = cylKey(f->surface);
+            if (!haveKey) { key0 = key; haveKey = true; }
+            else if (key != key0) return false;      // a 2nd cylinder (tube) -> defer
+            ++nCyl;
+        } else {
+            return false;                            // sphere/cone/torus/nurbs -> defer
+        }
+    }
+    // A single co-cylindrical group of >= 2 strips + EXACTLY the two planar caps.
+    // (A tube's 2N annular quads or a bored plate's box walls make nPlane != 2.)
+    return nCyl >= 2 && nPlane == 2;
+}
+
+// ---------------------------------------------------------------------------
+Solid* unifySameDomainCurved(const Solid& s,
+                             std::shared_ptr<TopologyBuilder>& outOwner) {
+    if (!nativeUnifyCurvedEligible(s)) return nullptr;
+    const Shell* sh = s.shells[0];
+
+    // Partition faces into the planar caps and the single co-cylindrical group.
+    std::vector<Face*> planarFaces;
+    std::vector<Face*> cylFaces;
+    for (Face* f : sh->faces) {
+        if (isCylFace(f)) cylFaces.push_back(f);
+        else              planarFaces.push_back(f);   // Plane (eligibility guaranteed)
+    }
+    if (cylFaces.size() < 2 || planarFaces.size() != 2) return nullptr;
+    std::unordered_set<const Face*> cylSet(cylFaces.begin(), cylFaces.end());
+
+    // 1. Classify the group's edges: INTERIOR (both incident faces cylindrical — the
+    //    vertical seams between adjacent strips) vs BOUNDARY (the other face is a
+    //    cap). Collect the group's boundary COEDGES (already oriented for the lateral
+    //    face) to re-trace, and the interior edges to source the seam from.
+    std::vector<Coedge*> bnd;
+    std::vector<Edge*> interior;
+    std::unordered_set<const Edge*> seen;
+    double minU0 = 1e300, maxU1 = -1e300, minV0 = 1e300, maxV1 = -1e300;
+    for (Face* f : cylFaces) {
+        minU0 = std::min(minU0, f->u0); maxU1 = std::max(maxU1, f->u1);
+        minV0 = std::min(minV0, f->v0); maxV1 = std::max(maxV1, f->v1);
+        Coedge* c = f->outerLoop->first;
+        for (std::size_t k = 0; k < f->outerLoop->coedgeCount; ++k, c = c->next) {
+            Edge* e = c->edge;
+            if (!e || !e->coedgeA || !e->coedgeB) return nullptr;   // open edge
+            Face* fa = faceOfCoedge(e->coedgeA);
+            Face* fb = faceOfCoedge(e->coedgeB);
+            const bool bothCyl = fa && fb && cylSet.count(fa) && cylSet.count(fb);
+            if (bothCyl) {
+                if (seen.insert(e).second) interior.push_back(e);
+            } else {
+                bnd.push_back(c);   // this coedge is on the lateral boundary
+            }
+        }
+    }
+    // A full 2π lateral: the strips' angular trim windows must tile a full turn.
+    if (std::fabs((maxU1 - minU0) - kTwoPi) > kFullTol) return nullptr;
+    if (bnd.size() < 6 || interior.empty()) return nullptr;
+
+    // 2. Trace the boundary coedges into closed vertex rings (origin->dest chaining,
+    //    on the ORIGINAL vertices). A full cylinder yields EXACTLY two rings (the
+    //    bottom + top circles), each in the lateral face's boundary orientation.
+    std::unordered_map<Vertex*, std::vector<Coedge*>> byOrigin;
+    for (Coedge* c : bnd) byOrigin[c->originVertex()].push_back(c);
+    std::unordered_set<Coedge*> used;
+    std::vector<std::vector<Vertex*>> rings;
+    for (Coedge* start : bnd) {
+        if (used.count(start)) continue;
+        std::vector<Vertex*> ring;
+        Coedge* c = start;
+        std::size_t guard = 0;
+        while (true) {
+            if (used.count(c)) return nullptr;                // tangled boundary
+            used.insert(c);
+            ring.push_back(c->originVertex());
+            Vertex* dst = c->destVertex();
+            auto it = byOrigin.find(dst);
+            if (it == byOrigin.end()) return nullptr;         // open boundary
+            Coedge* nxt = nullptr;
+            for (Coedge* cand : it->second)
+                if (!used.count(cand)) { nxt = cand; break; }
+            if (!nxt) {                                       // ring closes back
+                if (dst != ring.front()) return nullptr;
+                break;
+            }
+            c = nxt;
+            if (++guard > bnd.size() + 4) return nullptr;
+        }
+        if (ring.size() < 3) return nullptr;
+        rings.push_back(std::move(ring));
+    }
+    if (rings.size() != 2) return nullptr;                    // not a full 2-ring tube
+
+    // 3. Seam: an interior (vertical) edge joining a vertex of ring 0 to a vertex of
+    //    ring 1 becomes the single kept seam edge (the rest are dropped).
+    std::unordered_map<Vertex*, int> ringOf;
+    for (int r = 0; r < 2; ++r)
+        for (Vertex* v : rings[r]) ringOf[v] = r;
+    Vertex* seamA = nullptr;   // on ring 0
+    Vertex* seamB = nullptr;   // on ring 1
+    for (Edge* e : interior) {
+        auto ia = ringOf.find(e->start), ib = ringOf.find(e->end);
+        if (ia == ringOf.end() || ib == ringOf.end()) continue;
+        if (ia->second == 0 && ib->second == 1) { seamA = e->start; seamB = e->end; break; }
+        if (ia->second == 1 && ib->second == 0) { seamA = e->end;   seamB = e->start; break; }
+    }
+    if (!seamA || !seamB) return nullptr;
+
+    // 4. Rebuild a fresh closed 2-manifold solid: copy the planar caps 1:1, and emit
+    //    ONE periodic lateral face whose loop splices the two rings through the seam.
+    auto ob = std::make_shared<TopologyBuilder>();
+    Solid* solid = ob->makeSolid();
+    Shell* shell = ob->makeShell();
+    ob->addShellToSolid(solid, shell);
+
+    std::unordered_map<Vertex*, Vertex*> vmap;
+    auto mapV = [&](Vertex* old) -> Vertex* {
+        auto it = vmap.find(old);
+        if (it != vmap.end()) return it->second;
+        Vertex* nv = ob->makeVertex(old->point);
+        nv->tolerance = old->tolerance;
+        vmap.emplace(old, nv);
+        return nv;
+    };
+    auto copySurface = [&](const Surface* src) -> Surface* {
+        Surface* d = ob->makeSurface();
+        *d = *src;   // POD copy: kind/frame/radii/param/reversed/isDisk/nurbs
+        return d;
+    };
+    auto copyLoopVerts = [&](const Loop* lp) {
+        std::vector<Vertex*> out;
+        if (!lp || !lp->first) return out;
+        Coedge* c = lp->first;
+        for (std::size_t i = 0; i < lp->coedgeCount; ++i, c = c->next)
+            out.push_back(mapV(c->originVertex()));
+        return out;
+    };
+
+    // 4a. planar caps — faithful 1:1 copy (surface frame, disk annotation, trim,
+    //     vertexUV, boolHoled), so their exact mass / circle-detected bridge is
+    //     unchanged.
+    for (Face* pf : planarFaces) {
+        std::vector<Vertex*> ring = copyLoopVerts(pf->outerLoop);
+        if (ring.size() < 3) return nullptr;
+        Face* nf = ob->makeFace();
+        ob->addFaceToShell(shell, nf);
+        ob->addOuterLoopToFace(nf, ring);
+        nf->surface = copySurface(pf->surface);
+        nf->u0 = pf->u0; nf->u1 = pf->u1; nf->v0 = pf->v0; nf->v1 = pf->v1;
+        nf->vertexUV = pf->vertexUV;
+        nf->boolHoled = pf->boolHoled;
+    }
+
+    // 4b. merged lateral: ring0 (from seamA) + seam up + ring1 (from seamB) + seam
+    //     down. Rotating each traced ring to start at its seam vertex, the origin
+    //     sequence [ring0.., seamA, ring1.., seamB] closes with the seam edge used
+    //     once each direction (the periodic face seam).
+    auto rotated = [](const std::vector<Vertex*>& r, Vertex* startAt) {
+        std::vector<Vertex*> out;
+        std::size_t s = 0;
+        for (; s < r.size(); ++s) if (r[s] == startAt) break;
+        if (s == r.size()) return out;   // startAt not in ring
+        for (std::size_t i = 0; i < r.size(); ++i) out.push_back(r[(s + i) % r.size()]);
+        return out;
+    };
+    std::vector<Vertex*> r0 = rotated(rings[0], seamA);
+    std::vector<Vertex*> r1 = rotated(rings[1], seamB);
+    if (r0.empty() || r1.empty()) return nullptr;
+
+    std::vector<Vertex*> mergedRing;
+    mergedRing.reserve(r0.size() + r1.size() + 2);
+    for (Vertex* v : r0) mergedRing.push_back(mapV(v));   // bottom ring [seamA..]
+    mergedRing.push_back(mapV(seamA));                    // seam up start
+    for (Vertex* v : r1) mergedRing.push_back(mapV(v));   // top ring [seamB..]
+    mergedRing.push_back(mapV(seamB));                    // seam down start
+
+    Face* lat = ob->makeFace();
+    ob->addFaceToShell(shell, lat);
+    ob->addOuterLoopToFace(lat, mergedRing);
+    lat->surface = copySurface(cylFaces[0]->surface);
+    lat->u0 = minU0; lat->u1 = maxU1;   // [0, 2π] full lateral
+    lat->v0 = minV0; lat->v1 = maxV1;
+    // Mass over the full-2π lateral via the REGION integrator (scan-line, ~42 angular
+    // strips) NOT a single tensor-Gauss panel: a full period of the single-component
+    // divergence integrand (r·cos²θ …) is under-resolved by one 8-node Gauss panel
+    // over [0,2π] (off ~4e-6), but the strip-subdivided region path recovers the
+    // exact analytic volume — matching the 128-strip primitive to round-off. The
+    // region is the axis-aligned (u,v) rectangle [u0,u1]×[v0,v1].
+    lat->regionUV = true;
+    lat->regionOuterUV = {
+        {lat->u0, lat->v0}, {lat->u1, lat->v0},
+        {lat->u1, lat->v1}, {lat->u0, lat->v1}};
+
+    if (!ob->isClosedTwoManifold()) return nullptr;       // never emit a wrong shape
+
+    // Safety: the merge must PRESERVE the shape exactly (both native mass, no OCCT).
+    const double volRef = massProperties(s).volume;
+    const double volNew = massProperties(*solid).volume;
+    if (!(volRef > 1e-12)) return nullptr;
+    if (std::fabs(volNew - volRef) > 1e-6 * std::max(1.0, std::fabs(volRef)))
+        return nullptr;
 
     outOwner = std::move(ob);
     return solid;
