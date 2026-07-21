@@ -62,7 +62,15 @@ enum class SurfaceKind {
     Cone,      // apex/axis cone; r1 = base radius at v=0, r2 at v=1, height in axis
     Sphere,    // centre origin, radius r1
     Torus,     // centre origin, axis; major radius r1, minor radius r2
-    Nurbs      // fallback (ellipsoid, pyramid sides) — exact rational surface
+    Nurbs,     // fallback (ellipsoid, pyramid sides) — exact rational surface
+    EllipseExtrusion  // linear extrusion of an ELLIPSE with the extrusion vector
+                      // PERPENDICULAR to the ellipse plane (an elliptical cylinder):
+                      // origin = ellipse centre, axis = extrusion dir, refDir = major
+                      // axis; r1 = semi-major a, r2 = semi-minor b; u = ellipse angle,
+                      // v = signed distance along axis. Exact analytic mass path (its
+                      // periodic seam is handled by the same angular-unwrap region
+                      // integrator as the cylinder — the tensor-NURBS form's point
+                      // inversion could not close the seam).
 };
 
 // ---------------------------------------------------------------------------

@@ -547,6 +547,11 @@ std::vector<std::array<double, 2>> buildRegionPolygon(
         double u = 0.0, v = 0.0;
         switch (sf->kind) {
         case SurfaceKind::Cylinder: u = std::atan2(y, x); v = z; break;
+        case SurfaceKind::EllipseExtrusion:
+            // u = ellipse angle (cos u = x/a, sin u = y/b); v = distance along axis.
+            u = std::atan2(y / (sf->r2 > 1e-12 ? sf->r2 : 1.0),
+                           x / (sf->r1 > 1e-12 ? sf->r1 : 1.0));
+            v = z; break;
         case SurfaceKind::Cone:
             u = std::atan2(y, x);
             v = (std::fabs(sf->param) > 1e-12) ? z / sf->param : z;
@@ -882,14 +887,104 @@ EdgeGeom readEdgeGeom(const Resolver& R, std::uint64_t ecId, double scale) {
     return g;
 }
 
+// Build the EXACT rational quadratic NURBS for a full ellipse (or circle when
+// a==b) in the placement frame (centre O, in-plane axes refDir=+X, bdir=+Y):
+// the classic 9-control-point / degree-2 representation (Piegl & Tiller A7.1),
+// where each unit-circle corner (cx,cy) maps to O + a*cx*refDir + b*cy*bdir and
+// the corner weights are cos(45deg)=sqrt(2)/2. This is geometrically EXACT (the
+// rational quadratic reproduces the conic), so an ellipse/circle-profile
+// extrusion sweeps to the true surface. Centre/radii are already scaled to mm.
+void buildEllipseNurbs(const Vec3& O, const Vec3& refDir, const Vec3& bdir,
+                       double a, double b, NurbsCurve& out) {
+    static const double cx[9] = { 1,  1,  0, -1, -1, -1,  0,  1,  1};
+    static const double cy[9] = { 0,  1,  1,  1,  0, -1, -1, -1,  0};
+    const double s = std::sqrt(2.0) / 2.0;
+    static const double wq[9] = { 1,  0,  1,  0,  1,  0,  1,  0,  1};   // 0 -> corner
+    out.degree = 2;
+    out.controlPoints.clear(); out.weights.clear();
+    out.controlPoints.reserve(9); out.weights.reserve(9);
+    for (int i = 0; i < 9; ++i) {
+        out.controlPoints.push_back(
+            vadd(O, vadd(vscale(refDir, a * cx[i]), vscale(bdir, b * cy[i]))));
+        out.weights.push_back(wq[i] == 1 ? 1.0 : s);
+    }
+    out.knots = {0,0,0, 0.25,0.25, 0.5,0.5, 0.75,0.75, 1,1,1};
+}
+
+// Build the EXACT NURBS SURFACE OF REVOLUTION: revolve a generatrix NurbsCurve
+// (control points Pj, weights wj, degree q, knots V — already scaled to mm) a
+// FULL 2*pi about the axis (aLoc, aDir). The revolved surface is the tensor product
+// of a rational-quadratic full circle in U (9 control points, the Piegl & Tiller
+// A8.1 construction) with the generatrix in V: each generatrix control point sweeps
+// a circle of radius = its distance to the axis, so the surface reproduces the
+// revolved geometry EXACTLY (a spindle torus, barrel, ogive, etc.). A generatrix
+// point ON the axis collapses its circle to a pole. Returns false if the generatrix
+// is invalid.
+bool revolveCurveToNurbs(const NurbsCurve& gen, const Vec3& aLoc, const Vec3& aDir,
+                         NurbsSurface& out) {
+    if (!gen.valid()) return false;
+    const Vec3 A = vnorm(aDir);
+    const double s = std::sqrt(2.0) / 2.0;
+    const std::size_t m = gen.controlPoints.size();
+    out = NurbsSurface{};
+    out.degreeU = 2;
+    out.knotsU  = {0,0,0, 0.25,0.25, 0.5,0.5, 0.75,0.75, 1,1,1};
+    out.degreeV = gen.degree;
+    out.knotsV  = gen.knots;
+    out.control.assign(9, std::vector<Vec3>(m));
+    out.weights.assign(9, std::vector<double>(m));
+    // circle-control multipliers (relative to O_j, in the (X,Y) axis frame) and
+    // their rational weights.
+    static const double cx[9] = { 1,  1,  0, -1, -1, -1,  0,  1,  1};
+    static const double cy[9] = { 0,  1,  1,  1,  0, -1, -1, -1,  0};
+    for (std::size_t j = 0; j < m; ++j) {
+        const Vec3 Pj = gen.controlPoints[j];
+        const double wj = (j < gen.weights.size()) ? gen.weights[j] : 1.0;
+        const double along = vdot(vsub(Pj, aLoc), A);
+        const Vec3 Oj = vadd(aLoc, vscale(A, along));       // foot on axis
+        const Vec3 Xv = vsub(Pj, Oj);
+        const double rj = vlen(Xv);
+        for (int i = 0; i < 9; ++i) {
+            const double cw = (i % 2 == 1) ? s : 1.0;       // corner weight
+            out.weights[i][j] = cw * wj;
+            if (rj < 1e-12) { out.control[i][j] = Pj; continue; }  // pole
+            const Vec3 X = vscale(Xv, 1.0 / rj);
+            const Vec3 Y = vcross(A, X);                    // unit (A ⟂ X)
+            out.control[i][j] = vadd(Oj, vadd(vscale(X, rj * cx[i]), vscale(Y, rj * cy[i])));
+        }
+    }
+    return out.valid();
+}
+
 // Resolve a RAW curve id (the generatrix / profile of a SURFACE_OF_LINEAR_EXTRUSION
 // — NOT wrapped in an EDGE_CURVE) into a NurbsCurve, scaled to mm. Handles the plain
-// B_SPLINE_CURVE_WITH_KNOTS and its COMPLEX (rational) record — the only profile
-// kinds these extrusion faces use. Returns false (no fabrication) for anything else,
-// so the face is honestly recorded unsupported rather than mis-built.
+// B_SPLINE_CURVE_WITH_KNOTS and its COMPLEX (rational) record, plus the analytic
+// ELLIPSE / CIRCLE conics (represented as the exact rational quadratic NURBS above),
+// which are common extrusion profiles. Returns false (no fabrication) for anything
+// else, so the face is honestly recorded unsupported rather than mis-built.
 bool buildProfileCurve(const Resolver& R, std::uint64_t curveId, double scale, NurbsCurve& out) {
     curveId = resolve3dCurve(R, curveId);
     Instance ci; if (!R.get(curveId, ci)) return false;
+    if (ci.type == "ELLIPSE") {
+        auto p = splitTopLevel(ci.params);
+        std::uint64_t ax = 0; double r1 = 0, r2 = 0;
+        if (p.size() < 4 || !parseRef(p[1], ax) || !stepNum(p[2], r1) || !stepNum(p[3], r2)) return false;
+        Vec3 o, a, rd;
+        if (!getAxis2(R, ax, o, a, rd)) return false;
+        const Vec3 bd = vcross(vnorm(a), vnorm(rd));
+        buildEllipseNurbs(vscale(o, scale), vnorm(rd), bd, r1 * scale, r2 * scale, out);
+        return out.valid();
+    }
+    if (ci.type == "CIRCLE") {
+        auto p = splitTopLevel(ci.params);
+        std::uint64_t ax = 0; double rad = 0;
+        if (p.size() < 3 || !parseRef(p[1], ax) || !stepNum(p[2], rad)) return false;
+        Vec3 o, a, rd;
+        if (!getAxis2(R, ax, o, a, rd)) return false;
+        const Vec3 bd = vcross(vnorm(a), vnorm(rd));
+        buildEllipseNurbs(vscale(o, scale), vnorm(rd), bd, rad * scale, rad * scale, out);
+        return out.valid();
+    }
     if (ci.type == "B_SPLINE_CURVE_WITH_KNOTS") {
         auto p = splitTopLevel(ci.params);
         if (p.size() < 2) return false;
@@ -1109,39 +1204,52 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             Vec3 aLoc, aDir;
             if (!getAxis1(R, axId, aLoc, aDir)) { localWhy = "revolution axis1"; return false; }
             aLoc = vscale(aLoc, scale);
+            surfType = "SURFACE_OF_REVOLUTION";
+
+            // Analytic TORUS fast path: a CIRCLE generatrix in a plane CONTAINING the
+            // axis and well CLEAR of it (majR >= 1.5*minor) is an exact torus (major R
+            // = centre->axis distance, minor r = circle radius) — the exact quadric
+            // mass path. A near-axis / spindle circle and any non-circle generatrix are
+            // handled by the general NURBS-of-revolution below instead.
+            bool builtTorus = false;
             Instance ci;
-            if (!R.get(curveId, ci) || ci.type != "CIRCLE") {
-                localWhy = "revolution generator '" + (ci.type.empty() ? std::string("?") : ci.type) + "'";
-                surfType = "SURFACE_OF_REVOLUTION"; return false;
+            if (R.get(curveId, ci) && ci.type == "CIRCLE") {
+                auto cp = splitTopLevel(ci.params);
+                std::uint64_t cax = 0; double crad = 0;
+                if (cp.size() >= 3 && parseRef(cp[1], cax) && stepNum(cp[2], crad)) {
+                    Vec3 cc, cca, ccref;
+                    if (getAxis2(R, cax, cc, cca, ccref)) {
+                        cc = vscale(cc, scale); crad *= scale;
+                        const Vec3 rel = vsub(cc, aLoc);
+                        const double along = vdot(rel, aDir);
+                        const Vec3 foot = vadd(aLoc, vscale(aDir, along));
+                        const Vec3 radial = vsub(cc, foot);
+                        const double majR = vlen(radial);
+                        const bool planeContainsAxis = std::fabs(vdot(vnorm(cca), aDir)) < 1e-3;
+                        if (majR >= 1.5 * crad && planeContainsAxis) {
+                            s.kind = SurfaceKind::Torus; s.origin = foot; s.axis = aDir;
+                            s.refDir = vscale(radial, 1.0 / majR);
+                            s.r1 = majR; s.r2 = crad;
+                            builtTorus = true;
+                        }
+                    }
+                }
             }
-            auto cp = splitTopLevel(ci.params);
-            std::uint64_t cax = 0; double crad = 0;
-            if (cp.size() < 3 || !parseRef(cp[1], cax) || !stepNum(cp[2], crad)) { localWhy = "revolution circle"; return false; }
-            Vec3 cc, cca, ccref;
-            if (!getAxis2(R, cax, cc, cca, ccref)) { localWhy = "revolution circle axis2"; return false; }
-            cc = vscale(cc, scale); crad *= scale;
-            // Perpendicular distance from the circle centre to the revolution axis line.
-            const Vec3 rel = vsub(cc, aLoc);
-            const double along = vdot(rel, aDir);
-            const Vec3 foot = vadd(aLoc, vscale(aDir, along));  // centre projected onto axis
-            const Vec3 radial = vsub(cc, foot);
-            const double majR = vlen(radial);
-            // Only reconstruct the UNAMBIGUOUS standard torus (generating circle in a
-            // plane containing the axis, well clear of it). A near-axis circle (sphere
-            // / spindle torus / degenerate) is left HONESTLY unsupported rather than
-            // faked as a giant sphere (which corrupted the volume, e.g. 140).
-            // (Measured: allowing the spindle torus majR<=crad and integrating its
-            // trimmed region drove 140 from 3.9% to 43% and 147 worse — the poloidal
-            // (theta,phi) region degenerates through the self-intersection — so the
-            // spindle case stays unsupported. Reverted 2026-07-20.)
-            const bool circlePlaneContainsAxis = std::fabs(vdot(vnorm(cca), aDir)) < 1e-3;
-            if (majR < 1.5 * crad || !circlePlaneContainsAxis) {
-                localWhy = "revolution circle (non-torus)";
-                surfType = "SURFACE_OF_REVOLUTION"; return false;
+            if (!builtTorus) {
+                // GENERAL surface of revolution: revolve the generatrix curve (a
+                // B-spline, or a spindle/near-axis circle the analytic quadric cannot
+                // represent) a full 2*pi about the axis as an EXACT rational NURBS,
+                // then route it through the same B-spline face path (trim + region /
+                // full-domain mass integral). This recovers the revolved faces the
+                // reader previously DROPPED (e.g. 101/147/140/211).
+                NurbsCurve gen;
+                if (!buildProfileCurve(R, curveId, scale, gen) ||
+                    !revolveCurveToNurbs(gen, aLoc, aDir, nurbsOut)) {
+                    localWhy = "revolution generatrix"; return false;
+                }
+                isBSpline = true;
+                return true;
             }
-            s.kind = SurfaceKind::Torus; s.origin = foot; s.axis = aDir;
-            s.refDir = vscale(radial, 1.0 / majR);
-            s.r1 = majR; s.r2 = crad;
         } else if (ins.type == "SURFACE_OF_LINEAR_EXTRUSION") {
             // S(u,v) = C(u) + v*V : a profile CURVE C swept along the VECTOR V.
             // Parse the profile + direction here; the tensor NURBS (degree-1 in v)
@@ -1160,11 +1268,50 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                 localWhy = "extrusion vector fields"; surfType = "SURFACE_OF_LINEAR_EXTRUSION"; return false;
             }
             extrDir = vscale(vnorm(dvec), mag * scale);        // V in mm
-            if (vlen(extrDir) < 1e-12 || !buildProfileCurve(R, curveId, scale, extrProfile)) {
-                localWhy = "extrusion profile"; surfType = "SURFACE_OF_LINEAR_EXTRUSION"; return false;
+            surfType = "SURFACE_OF_LINEAR_EXTRUSION";
+            if (vlen(extrDir) < 1e-12) { localWhy = "extrusion vector"; return false; }
+
+            // ANALYTIC fast path: a CIRCLE / ELLIPSE profile extruded PERPENDICULAR
+            // to its own plane is an EXACT (elliptical) cylinder. Build the analytic
+            // surface so its periodic seam integrates through the robust angular-
+            // unwrap region path (the tensor-NURBS form's point inversion cannot
+            // close the seam — it wraps u inconsistently and corrupts the region
+            // polygon). Oblique or spline profiles fall through to the general NURBS
+            // extrusion path below.
+            {
+                const std::uint64_t rawId = resolve3dCurve(R, curveId);
+                Instance pc;
+                if (R.get(rawId, pc) && (pc.type == "CIRCLE" || pc.type == "ELLIPSE")) {
+                    auto cpf = splitTopLevel(pc.params);
+                    std::uint64_t cax = 0; double aMaj = 0, bMin = 0;
+                    bool okc = (cpf.size() >= 3) && parseRef(cpf[1], cax) && stepNum(cpf[2], aMaj);
+                    if (pc.type == "ELLIPSE") okc = okc && cpf.size() >= 4 && stepNum(cpf[3], bMin);
+                    else bMin = aMaj;
+                    Vec3 co, cAxis, cRef;
+                    if (okc && getAxis2(R, cax, co, cAxis, cRef)) {
+                        const Vec3 vN = vnorm(extrDir);
+                        if (std::fabs(vdot(vN, vnorm(cAxis))) > 1.0 - 1e-6) {   // V ⊥ profile plane
+                            s.origin = vscale(co, scale);
+                            s.axis   = vN;
+                            s.refDir = vnorm(vsub(vnorm(cRef), vscale(vN, vdot(vnorm(cRef), vN))));
+                            if (pc.type == "CIRCLE") {
+                                s.kind = SurfaceKind::Cylinder; s.r1 = aMaj * scale;
+                            } else {
+                                s.kind = SurfaceKind::EllipseExtrusion;
+                                s.r1 = aMaj * scale;   // semi-major along refDir
+                                s.r2 = bMin * scale;   // semi-minor along binormal
+                            }
+                            s.reversed = !sameSense;
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            if (!buildProfileCurve(R, curveId, scale, extrProfile)) {
+                localWhy = "extrusion profile"; return false;
             }
             isExtrusion = true;
-            surfType = "SURFACE_OF_LINEAR_EXTRUSION";
             return true;
         } else {
             localWhy = "unsupported surface entity '" + ins.type + "'";
@@ -1814,21 +1961,27 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             f->surface = surf;
             if (!innerRings.empty()) f->boolHoled = true;
         } else if (protoSurf.kind == SurfaceKind::Cylinder ||
-                   protoSurf.kind == SurfaceKind::Cone) {
-            // CYLINDER / CONE: the mass integral runs over the (u,v) trim rectangle
-            // (integrateParametric). Derive u = angular span, v = axial span DIRECTLY
-            // from the densified boundary samples with SEQUENTIAL theta-unwrapping (each
-            // sample within +/-pi of its predecessor along the loop) — robust for arcs
-            // of ANY span, unlike a fold-to-a-single-anchor bbox which aliases wide
-            // (>180deg) partial faces. A seam / closed full-circle rim ⇒ full 2*pi.
+                   protoSurf.kind == SurfaceKind::Cone ||
+                   protoSurf.kind == SurfaceKind::EllipseExtrusion) {
+            // CYLINDER / CONE / ELLIPSE-EXTRUSION: the mass integral runs over the
+            // (u,v) trim rectangle (integrateParametric) or its region. Derive u =
+            // angular span, v = axial span DIRECTLY from the densified boundary
+            // samples with SEQUENTIAL theta-unwrapping (each sample within +/-pi of
+            // its predecessor along the loop) — robust for arcs of ANY span. A seam /
+            // closed full-circle rim ⇒ full 2*pi. For the elliptical cylinder u is the
+            // ELLIPSE angle (cos u = x/a, sin u = y/b), v the axial distance.
             *surf = protoSurf;
             f->surface = surf;
             const std::vector<Vec3>& rp = outerRings[0].pts;
             const Vec3 ax = vnorm(surf->axis), rd = vnorm(surf->refDir), bd = vcross(ax, rd);
+            const bool ellExt = (protoSurf.kind == SurfaceKind::EllipseExtrusion);
             double thPrev = 0.0, uMin = 0, uMax = 0, zMin = 0, zMax = 0;
             for (std::size_t i = 0; i < rp.size(); ++i) {
                 const Vec3 rel = vsub(rp[i], surf->origin);
-                double th = std::atan2(vdot(rel, bd), vdot(rel, rd));
+                double th = ellExt
+                    ? std::atan2(vdot(rel, bd) / (surf->r2 > 1e-12 ? surf->r2 : 1.0),
+                                 vdot(rel, rd) / (surf->r1 > 1e-12 ? surf->r1 : 1.0))
+                    : std::atan2(vdot(rel, bd), vdot(rel, rd));
                 const double z = vdot(rel, ax);
                 if (i == 0) { thPrev = th; uMin = uMax = th; zMin = zMax = z; }
                 else {
@@ -1847,7 +2000,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             const double uSpan = uMax - uMin;
             if (uSpan >= 1.9 * PI) { uMin = 0.0; uMax = 2.0 * PI; }
             f->u0 = uMin; f->u1 = uMax;
-            if (protoSurf.kind == SurfaceKind::Cylinder) {
+            if (protoSurf.kind == SurfaceKind::Cylinder || ellExt) {
                 f->v0 = zMin; f->v1 = zMax;      // axial z is absolute along the axis
             } else {
                 // CONE height recovery: v is normalised [0,1] over height `param`, with
@@ -1904,7 +2057,8 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             (f->surface->kind == SurfaceKind::Cylinder ||
              f->surface->kind == SurfaceKind::Cone ||
              f->surface->kind == SurfaceKind::Sphere ||
-             f->surface->kind == SurfaceKind::Torus)) {
+             f->surface->kind == SurfaceKind::Torus ||
+             f->surface->kind == SurfaceKind::EllipseExtrusion)) {
             const double thA = 0.5 * (f->u0 + f->u1);
             std::vector<std::array<double, 2>> outerPoly =
                 buildRegionPolygon(outerRings[0].pts, f->surface, std::nan(""));

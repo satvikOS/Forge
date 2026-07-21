@@ -52,6 +52,11 @@ Vec3 Surface::evaluate(double u, double v) const {
         Vec3 inplane = vadd(vscale(refDir, ring * ct), vscale(b, ring * st));
         return vadd(origin, vadd(inplane, vscale(axis, r2 * sp)));
     }
+    case SurfaceKind::EllipseExtrusion: {
+        const double c = std::cos(u), s2 = std::sin(u);
+        Vec3 radial = vadd(vscale(refDir, r1 * c), vscale(b, r2 * s2));
+        return vadd(origin, vadd(radial, vscale(axis, v)));
+    }
     case SurfaceKind::Nurbs: {
         SurfaceSample ss = evaluatePoint(nurbs, u, v);
         return ss.point;
@@ -109,6 +114,14 @@ void Surface::evaluateDeriv(double u, double v, Vec3& s, Vec3& du, Vec3& dv) con
         du = vadd(vscale(refDir, -ring * st), vscale(b, ring * ct));        // d/dtheta
         dv = vadd(vadd(vscale(refDir, -r2 * sp * ct), vscale(b, -r2 * sp * st)),
                   vscale(axis, r2 * cp));                                    // d/dphi
+        return;
+    }
+    case SurfaceKind::EllipseExtrusion: {
+        const double c = std::cos(u), si = std::sin(u);
+        s  = vadd(origin, vadd(vadd(vscale(refDir, r1 * c), vscale(b, r2 * si)),
+                               vscale(axis, v)));
+        du = vadd(vscale(refDir, -r1 * si), vscale(b, r2 * c));  // d/dtheta
+        dv = axis;                                              // d/dv (along axis)
         return;
     }
     case SurfaceKind::Nurbs: {
