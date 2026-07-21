@@ -139,6 +139,16 @@ std::vector<Vec3> boxCorners(double L) {
     };
 }
 
+// General axis-aligned rectangular box [0,Lx] x [0,Ly] x [0,Lz] at the origin.
+// Same v0..v7 corner layout / edge-and-face enumeration as boxCorners(L) and
+// TopologyBuilder::buildBox, so boxEdge()/kBoxFaces index it identically.
+std::vector<Vec3> boxCorners(double Lx, double Ly, double Lz) {
+    return {
+        {0,  0,  0}, {Lx, 0,  0}, {Lx, Ly, 0}, {0,  Ly, 0},   // 0..3 bottom z=0
+        {0,  0,  Lz}, {Lx, 0,  Lz}, {Lx, Ly, Lz}, {0,  Ly, Lz}, // 4..7 top    z=Lz
+    };
+}
+
 struct BoxEdge {
     int c0, c1;        // endpoint corner indices (edge runs c0 -> c1)
     Vec3 nA, nB;       // outward normals of the two faces sharing the edge
@@ -2521,19 +2531,30 @@ Face* emitVariableArcSweep(TopologyBuilder& tb,
 
 } // namespace
 
+// UNIFORM-CUBE overload — the original entry point, now a thin delegator to the
+// GENERAL rectangular-box implementation below with Lx=Ly=Lz=L. Byte-for-byte the
+// same behaviour as before (all callers + the A/B gate go through here unchanged).
 AnalyticVariableFilletResult filletBoxEdgeVariable(TopologyBuilder& tb,
                                                    double L, double R0, double R1,
+                                                   int edgeIndex) {
+    return filletBoxEdgeVariable(tb, L, L, L, R0, R1, edgeIndex);
+}
+
+AnalyticVariableFilletResult filletBoxEdgeVariable(TopologyBuilder& tb,
+                                                   double Lx, double Ly, double Lz,
+                                                   double R0, double R1,
                                                    int edgeIndex) {
     AnalyticVariableFilletResult res;
     auto bail = [&](const char* why) { res.ok = false; res.reason = why; return res; };
 
-    if (!(L > 0.0) || !std::isfinite(L)) return bail("box edge length L must be positive finite");
+    if (!(Lx > 0.0) || !std::isfinite(Lx)) return bail("box dim Lx must be positive finite");
+    if (!(Ly > 0.0) || !std::isfinite(Ly)) return bail("box dim Ly must be positive finite");
+    if (!(Lz > 0.0) || !std::isfinite(Lz)) return bail("box dim Lz must be positive finite");
     if (!(R0 > 0.0) || !std::isfinite(R0)) return bail("start radius R0 must be positive finite");
     if (!(R1 > 0.0) || !std::isfinite(R1)) return bail("end radius R1 must be positive finite");
     if (edgeIndex < 0 || edgeIndex > 11) return bail("edgeIndex out of range [0,11]");
-    if (!(R0 < L) || !(R1 < L)) return bail("radii R0,R1 must be < L (tangent line would overflow the face)");
 
-    const std::vector<Vec3> C = boxCorners(L);
+    const std::vector<Vec3> C = boxCorners(Lx, Ly, Lz);
     const BoxEdge be = boxEdge(edgeIndex);
     const Vec3 P0 = C[be.c0];
     const Vec3 P1 = C[be.c1];
@@ -2548,6 +2569,20 @@ AnalyticVariableFilletResult filletBoxEdgeVariable(TopologyBuilder& tb,
     if (std::fabs(ndot) > 1e-9)
         return bail("adjacent face normals are not orthogonal (only the 90-degree "
                     "convex box edge is in this increment's scope)");
+
+    // The two adjacent faces are re-trimmed R inward along the two axes PERPENDICULAR
+    // to the edge (the axes of nA and nB); the tangent lines / L-polygon corner must
+    // stay on those faces, so R0,R1 must be < the box extent along BOTH of those axes.
+    // For the uniform cube both extents are L, recovering the old R < L bound exactly.
+    auto dimAlongAxisOf = [&](const Vec3& n) -> double {
+        if (std::fabs(n.x) > 0.5) return Lx;
+        if (std::fabs(n.y) > 0.5) return Ly;
+        return Lz;
+    };
+    const double rMax = std::min(dimAlongAxisOf(nA), dimAlongAxisOf(nB));
+    if (!(R0 < rMax) || !(R1 < rMax))
+        return bail("radii R0,R1 must be < the box extent along BOTH axes perpendicular "
+                    "to the edge (tangent line would overflow an adjacent face)");
 
     // Rolling-ball spine (axis feet) at the two ends, with the linear radius law.
     // F(t) = P0 + t*e + R(t)*(-nA) + R(t)*(-nB).

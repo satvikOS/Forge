@@ -36,13 +36,15 @@
 // DEFAULT IS OFF: with the gate off, the original OCCT BRepFilletAPI_MakeFillet +
 // Law_Linear/Law_S path below runs byte-for-byte unchanged. This mirrors the just-landed
 // Sewing.cpp (commit 19840b66) / ShapeFix.cpp / ShapeCheck wires: the native branch is
-// taken only when the input handle is a NativeSolid that is an axis-aligned CUBE [0,L]^3
-// with a SINGLE LINEAR-law (smooth=false) edge spec whose edge maps to one of the native
-// box's 12 edges; ANY other input (OCCT-backed shape, non-cube native solid, multi-edge,
-// Law_S/smooth, or an unmappable edge) HONESTLY DEFERS to OCCT — the native analytic
-// variable fillet's certified scope is exactly the box-edge linear-law case (see the
-// HONEST SCOPE block in FilletAnalytic.hpp and the A/B harness in
-// test/native_vs_occt_fillet_var.cpp). No silent degrade: every gap defers, never fakes.
+// taken only when the input handle is a NativeSolid that is an axis-aligned rectangular
+// BOX [0,Lx]x[0,Ly]x[0,Lz] anchored at the origin (rectangular prism / plate / bar, or the
+// cube special case Lx==Ly==Lz) with a SINGLE LINEAR-law (smooth=false) edge spec whose
+// edge maps to one of the native box's 12 edges; ANY other input (OCCT-backed shape,
+// non-origin/non-box native solid, multi-edge, Law_S/smooth, or an unmappable edge)
+// HONESTLY DEFERS to OCCT — the native analytic variable fillet's certified scope is
+// exactly the box-edge linear-law case (see the HONEST SCOPE block in FilletAnalytic.hpp
+// and the A/B harness in test/native_vs_occt_fillet_var.cpp). No silent degrade: every gap
+// defers, never fakes.
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"     // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/FilletAnalytic.hpp"  // filletBoxEdgeVariable, AnalyticVariableFilletResult
@@ -84,20 +86,22 @@ namespace {
 // carries no OCCT TopoDS_Shape, so there is no OCCT TopExp_EDGE order to walk — the cube
 // edge enumeration IS the addressing scheme for the native path).
 //
-// Unit-cube corner positions (multiply by L). Index matches v0..v7 above. Used to
-// confirm a registered native solid really is the cube [0,L]^3 the native fillet rebuilds.
-constexpr std::array<std::array<double, 3>, 8> kCubeCorners = {{
+// Unit-box corner positions (component i multiplied by Lx/Ly/Lz). Index matches
+// v0..v7 above. Used to confirm a registered native solid really is the axis-aligned
+// box [0,Lx]x[0,Ly]x[0,Lz] at the origin that the native fillet rebuilds.
+constexpr std::array<std::array<double, 3>, 8> kUnitBoxCorners = {{
     {0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0},
     {0, 0, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1, 1},
 }};
 
-// Detect whether the native Solid is exactly an axis-aligned CUBE [0,L]^3 (corner at the
-// origin, equal side L). Returns true + sets `L` on success. Conservative: requires the
-// canonical 8 distinct corners at {0,L}^3 with one corner at the origin and side L>0. Any
-// other native solid (translated/non-cube/non-uniform box, cylinder, boolean result, ...)
-// returns false so the caller HONESTLY DEFERS to OCCT — the native analytic variable
-// fillet builds its OWN box [0,L]^3 internally, so only a matching cube can be served.
-bool isOriginCube(const native::brep::Solid& s, double& L) {
+// Detect whether the native Solid is an axis-aligned RECTANGULAR BOX [0,Lx]x[0,Ly]x
+// [0,Lz] anchored at the origin (the CUBE is the special case Lx==Ly==Lz). Returns
+// true + sets Lx,Ly,Lz on success. Conservative: requires the canonical 8 distinct
+// corners at {0,Lx}x{0,Ly}x{0,Lz} with one corner at the origin and all dims > 0. Any
+// other native solid (translated box, cylinder, boolean result, ...) returns false so
+// the caller HONESTLY DEFERS to OCCT — the native analytic variable fillet builds its
+// OWN origin box internally, so only a matching origin box can be served.
+bool isOriginBox(const native::brep::Solid& s, double& Lx, double& Ly, double& Lz) {
     using namespace forge::native::brep;
     // Gather distinct vertices via the shells' faces' loops' coedges.
     std::vector<const Vertex*> verts;
@@ -122,23 +126,24 @@ bool isOriginCube(const native::brep::Solid& s, double& L) {
             }
         }
     }
-    if (verts.size() != 8) return false;              // a cube has exactly 8 vertices
-    // Min corner must sit at the origin and the box must be a uniform cube.
+    if (verts.size() != 8) return false;              // a box has exactly 8 vertices
+    // Min corner must sit at the origin and every dim must be strictly positive.
     const double tol = 1e-9;
     if (std::fabs(mn[0]) > tol || std::fabs(mn[1]) > tol || std::fabs(mn[2]) > tol)
         return false;                                 // not anchored at the origin
-    const double Lx = mx[0] - mn[0], Ly = mx[1] - mn[1], Lz = mx[2] - mn[2];
-    if (Lx <= tol) return false;
-    if (std::fabs(Lx - Ly) > 1e-9 * Lx || std::fabs(Lx - Lz) > 1e-9 * Lx)
-        return false;                                 // not a uniform cube (Lx==Ly==Lz)
-    L = Lx;
-    // Confirm every vertex coincides with a canonical {0,L}^3 corner.
+    Lx = mx[0] - mn[0]; Ly = mx[1] - mn[1]; Lz = mx[2] - mn[2];
+    if (!(Lx > tol) || !(Ly > tol) || !(Lz > tol)) return false;
+    // Confirm every vertex coincides with a canonical {0,Lx}x{0,Ly}x{0,Lz} corner
+    // (rejects non-box 8-vertex solids whose bbox happens to be this box).
+    const double d[3] = { Lx, Ly, Lz };
+    const double sc[3] = { 1e-9 * Lx, 1e-9 * Ly, 1e-9 * Lz };
     for (const Vertex* v : verts) {
+        const double px[3] = { v->point.x, v->point.y, v->point.z };
         bool onCorner = false;
-        for (const auto& c : kCubeCorners) {
-            if (std::fabs(v->point.x - c[0] * L) <= 1e-9 * L &&
-                std::fabs(v->point.y - c[1] * L) <= 1e-9 * L &&
-                std::fabs(v->point.z - c[2] * L) <= 1e-9 * L) { onCorner = true; break; }
+        for (const auto& c : kUnitBoxCorners) {
+            if (std::fabs(px[0] - c[0] * d[0]) <= sc[0] &&
+                std::fabs(px[1] - c[1] * d[1]) <= sc[1] &&
+                std::fabs(px[2] - c[2] * d[2]) <= sc[2]) { onCorner = true; break; }
         }
         if (!onCorner) return false;
     }
@@ -156,10 +161,11 @@ bool isOriginCube(const native::brep::Solid& s, double& L) {
 //     edge-chain analytic API is a DIFFERENT function with no variable-radius variant);
 //     multi-edge variable fillet defers to OCCT's multi-Add loop.
 //   * the input handle is NOT a NativeSolid (OCCT-backed shape — no OCCT->native importer).
-//   * the native solid is not an axis-aligned cube [0,L]^3 anchored at the origin, OR the
-//     selected edge doesn't map to one of its 12 box edges. filletBoxEdgeVariable rebuilds
-//     its OWN box [0,L]^3 and fillets edge `edgeIndex` of it, so it is geometrically valid
-//     ONLY for that exact cube; any other native solid defers.
+//   * the native solid is not an axis-aligned box [0,Lx]x[0,Ly]x[0,Lz] anchored at the
+//     origin (rectangular prism / plate / bar, or the cube special case), OR the selected
+//     edge doesn't map to one of its 12 box edges. filletBoxEdgeVariable rebuilds its OWN
+//     origin box and fillets edge `edgeIndex` of it, so it is geometrically valid ONLY for
+//     that exact box; any other native solid defers.
 bool tryNativeVarFillet(ShapeHandle solid,
                         const std::vector<EdgeSpec>& specs,
                         bool smooth,
@@ -176,25 +182,25 @@ bool tryNativeVarFillet(ShapeHandle solid,
     if (reg.kindOf(solid) != ShapeKind::NativeSolid) return false;
 
     const Solid& s = reg.getNativeSolid(solid);
-    double L = 0.0;
-    if (!isOriginCube(s, L)) return false;            // native scope is the cube [0,L]^3
+    double Lx = 0.0, Ly = 0.0, Lz = 0.0;
+    if (!isOriginBox(s, Lx, Ly, Lz)) return false;    // native scope is the origin box
 
     const EdgeSpec& sp = specs[0];
-    // Radii must be valid for the native rolling-ball scope: 0 < R0,R1 < L (the tangent
-    // lines stay on both faces). Out-of-band radii defer to OCCT (it may still build them).
+    // Radii must be positive; the exact rolling-ball bound (R < the two perpendicular box
+    // extents) is enforced inside filletBoxEdgeVariable, which returns ok==false (-> defer)
+    // for an out-of-band radius, so OCCT still gets a shot at those.
     if (!(sp.radiusStart > 0.0) || !(sp.radiusEnd > 0.0)) return false;
-    if (sp.radiusStart >= L || sp.radiusEnd >= L) return false;
 
     // A NativeSolid carries no OCCT TopoDS_Shape, so the edge is addressed directly by the
-    // native cube's 0..11 enumeration (see the comment above kCubeCorners). Out-of-range
+    // native box's 0..11 enumeration (see the comment above kUnitBoxCorners). Out-of-range
     // indices defer; filletBoxEdgeVariable itself rejects out-of-scope edges (ok==false),
     // which we treat as a final defer below.
-    if (sp.edgeIndex > 11) return false;              // outside the cube's 12-edge range
+    if (sp.edgeIndex > 11) return false;              // outside the box's 12-edge range
     const int edgeIndex = static_cast<int>(sp.edgeIndex);
 
     auto owner = std::make_shared<TopologyBuilder>();
     AnalyticVariableFilletResult vf =
-        filletBoxEdgeVariable(*owner, L, sp.radiusStart, sp.radiusEnd, edgeIndex);
+        filletBoxEdgeVariable(*owner, Lx, Ly, Lz, sp.radiusStart, sp.radiusEnd, edgeIndex);
     if (!vf.ok || vf.solid == nullptr) return false;  // out-of-scope edge -> defer to OCCT
 
     out = reg.addNativeSolid(std::move(owner), vf.solid);

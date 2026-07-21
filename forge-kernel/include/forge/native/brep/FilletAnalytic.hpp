@@ -433,6 +433,33 @@ AnalyticVariableFilletResult filletBoxEdgeVariable(TopologyBuilder& tb,
                                                    double L, double R0, double R1,
                                                    int edgeIndex = 4);
 
+// ---------------------------------------------------------------------------
+// filletBoxEdgeVariable (GENERAL RECTANGULAR BOX overload) — the same analytic
+// LINEAR-law variable-radius rolling-ball fillet, but on an arbitrary axis-aligned
+// rectangular box [0,Lx] x [0,Ly] x [0,Lz] anchored at the origin (NOT restricted
+// to the uniform cube L^3). This broadens the native variable fillet from the cube
+// to the common rectangular PRISM / PLATE / BAR case: a var-fillet on such a box
+// edge that previously DEFERRED to OCCT BRepFilletAPI_MakeFillet (VarFillet.cpp's
+// isOriginCube gate) now stays OCCT-free, shrinking the TKFillet include-surface.
+//
+// The rolling-ball contact, re-trim, sector caps and exact rational-NURBS blend are
+// identical to the cube path (every box edge is orthogonal, so the math is
+// unchanged); only the box CORNERS and the radius BOUND differ. The two adjacent
+// faces are re-trimmed R inward along the two axes PERPENDICULAR to the edge, so R0
+// and R1 must be < the box extent along BOTH of those axes (for the cube this is the
+// old R < L). The single-L overload above delegates here with Lx=Ly=Lz=L, so the
+// uniform-cube behaviour is byte-for-byte unchanged.
+//
+// filleted volume = Lx*Ly*Lz - (1 - pi/4) * L_edge * (R0^2 + R0*R1 + R1^2) / 3,
+// where L_edge is the box extent ALONG the filleted edge's axis. Requires
+// Lx,Ly,Lz > 0, R0,R1 > 0 with R0,R1 < min(perp extents), edgeIndex in [0,11].
+// `ok` is false with a `reason` for any out-of-scope input (never a faked solid).
+// ---------------------------------------------------------------------------
+AnalyticVariableFilletResult filletBoxEdgeVariable(TopologyBuilder& tb,
+                                                   double Lx, double Ly, double Lz,
+                                                   double R0, double R1,
+                                                   int edgeIndex = 4);
+
 } // namespace brep
 } // namespace native
 } // namespace forge
