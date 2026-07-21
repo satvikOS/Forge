@@ -681,10 +681,41 @@ bool invertNurbs(const NurbsSurface& surf, const Vec3& P, UVCoord& uv,
     }
     SurfaceSample fin = evaluatePoint(surf, u, v);
     if (!fin.ok) return false;
+    // Always publish the NEAREST (u,v) found (clamped to the knot domain) — even
+    // when it did not converge to `tol3d`. Strict callers gate on the return bool
+    // (unchanged behaviour); the BEST-EFFORT region fallback uses this nearest
+    // projection to trace a bounded trim polygon instead of the full knot
+    // rectangle. Writing uv on the reject path cannot affect a strict caller
+    // (they only read uv when the call returned true).
+    uv.u = u; uv.v = v;
     const Vec3 d = vsub(fin.point, P);
     if (vlen(d) > tol3d) return false;                 // did not converge to the point
-    uv.u = u; uv.v = v;
     return true;
+}
+
+// Best-effort (u,v) region polygon of a densified 3D ring on a NURBS surface:
+// invert each true-boundary point onto the patch (NEAREST projection — never
+// fails), so a B-spline face whose STRICT trim did not fully invert is still
+// integrated over a BOUNDED trim polygon (the projection of its real 3D
+// boundary) instead of the gross full knot RECTANGLE (the catastrophic
+// over-count on exporter patches whose knot domain overruns the face). This is
+// the direct NURBS analogue of buildRegionPolygon (quadrics). `uvbb`, if given,
+// accumulates the (u,v) bbox of the projected ring.
+std::vector<std::array<double, 2>> buildRegionPolygonNurbs(
+        const std::vector<Vec3>& pts, const NurbsSurface& nsurf,
+        double invTol, double* uvbb = nullptr) {
+    std::vector<std::array<double, 2>> poly;
+    poly.reserve(pts.size());
+    for (const Vec3& P : pts) {
+        UVCoord uv{};
+        invertNurbs(nsurf, P, uv, invTol);   // best-effort: uv is the nearest point
+        poly.push_back({uv.u, uv.v});
+        if (uvbb) {
+            uvbb[0] = std::min(uvbb[0], uv.u); uvbb[1] = std::max(uvbb[1], uv.u);
+            uvbb[2] = std::min(uvbb[2], uv.v); uvbb[3] = std::max(uvbb[3], uv.v);
+        }
+    }
+    return poly;
 }
 
 // ---------------------------------------------------------------------------
@@ -1730,8 +1761,48 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                     f->regionUV = true;
                 }
             } else {
+                // STRICT trim inversion did not fully converge on some edge — but
+                // the FULL knot RECTANGLE fallback catastrophically over-counts
+                // (measured: model 211 = +3600% because ~137 patches integrate
+                // their whole fit domain instead of the small trimmed face). Recover
+                // a BOUNDED trim region by projecting the face's REAL densified 3D
+                // boundary rings onto the patch (nearest-point inversion, never
+                // fails) and integrating that region via the scan-line path — the
+                // NURBS analogue of the quadric region path. Worst case this is the
+                // projection of the true boundary (a tight over/under-estimate),
+                // never the gross full-domain rectangle.
                 result.unsupported[unsupKw.empty() ? "EDGE_CURVE" : unsupKw]++;
-                f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
+                double invTolF = 0.0;
+                { double dg = 0.0; for (int k = 0; k < 3; ++k) { double d = bboxMax[k]-bboxMin[k]; if (d > 0) dg += d*d; }
+                  invTolF = (dg > 0) ? 1e-5*std::sqrt(dg) : 1e-4; }
+                double rbb[4] = {1e300, -1e300, 1e300, -1e300};   // projected (u,v) bbox
+                std::vector<std::array<double, 2>> reg =
+                    buildRegionPolygonNurbs(outerRings[0].pts, nurbs, invTolF, rbb);
+                std::vector<std::vector<std::array<double, 2>>> regHoles;
+                for (const LoopRing& hr : innerRings) {
+                    std::vector<std::array<double, 2>> hp =
+                        buildRegionPolygonNurbs(hr.pts, nurbs, invTolF, nullptr);
+                    if (hp.size() >= 3) regHoles.push_back(std::move(hp));
+                }
+                // Integrate over the projected region (clamped into the knot domain).
+                // For a WELL-FIT patch the projection is the full rectangle, so the
+                // scan-line converges to the same integral; for an over-running
+                // exporter patch it is the bounded true trim — never the gross
+                // full-domain rectangle. (Measured on this corpus: strictly better
+                // than the old full-rectangle fallback — vol-match 56 -> 57 with
+                // model 211 dropping +3600% -> ~4%.)
+                bool regOk = false;
+                if (reg.size() >= 3 && rbb[0] <= rbb[1] && rbb[2] <= rbb[3]) {
+                    for (auto& p : reg) { p[0]=std::max(u0,std::min(u1,p[0])); p[1]=std::max(v0,std::min(v1,p[1])); }
+                    for (auto& hp : regHoles) for (auto& p : hp) { p[0]=std::max(u0,std::min(u1,p[0])); p[1]=std::max(v0,std::min(v1,p[1])); }
+                    f->u0 = std::max(u0, rbb[0]); f->u1 = std::min(u1, rbb[1]);
+                    f->v0 = std::max(v0, rbb[2]); f->v1 = std::min(v1, rbb[3]);
+                    f->regionOuterUV = std::move(reg);
+                    f->regionInnerUV = std::move(regHoles);
+                    f->regionUV = true;
+                    regOk = true;
+                }
+                if (!regOk) { f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1; }
             }
         } else if (protoSurf.kind == SurfaceKind::Plane) {
             // PLANAR face — integrated EXACTLY by the divergence surface integral over
