@@ -7,11 +7,18 @@
 #include "forge/native/brep/Topology.hpp"        // Solid / Shell / Face / Loop / Coedge / Vertex
 #include "forge/native/brep/Surface.hpp"         // SurfaceKind
 #include "forge/native/brep/SolidTessellate.hpp" // tessellateSolid (faceted fallback)
+#include "forge/native/brep/MassProps.hpp"       // massProperties (analytic volume cross-check)
 
 #include <gp_Pnt.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Vec.hxx>
 #include <gp_XYZ.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
+#include <gp_Circ.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_Surface.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Vertex.hxx>
@@ -28,14 +35,18 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <stdexcept>
 #include <unordered_map>
+#include <string>
 #include <vector>
 
 namespace forge {
@@ -242,6 +253,254 @@ TopoDS_Shape occtFacetedFromNativeSolid(const Solid& solid) {
     return s;
 }
 
+// ===========================================================================
+// ANALYTIC RECONSTRUCTION — native curved analytic solid -> the MINIMAL analytic
+// OCCT B-rep that keeps each analytic surface as ONE face (see occtFromNativeSolid).
+// ===========================================================================
+
+// Ordered 3-D points of a native loop (origin vertex of each coedge, ring order).
+std::vector<gp_Pnt> loopPoints(const Loop* lp) {
+    std::vector<gp_Pnt> ring;
+    if (!lp || !lp->first) return ring;
+    const Coedge* c = lp->first;
+    for (std::size_t i = 0; i < lp->coedgeCount && c; ++i, c = c->next) {
+        const Vertex* v = c->originVertex();
+        if (!v) return {};
+        ring.emplace_back(v->point.x, v->point.y, v->point.z);
+    }
+    return ring;
+}
+
+// Newell normal + centroid of a ring (false if degenerate / collinear).
+bool ringPlane(const std::vector<gp_Pnt>& r, gp_Pnt& ctr, gp_Dir& nrm) {
+    const std::size_t n = r.size();
+    if (n < 3) return false;
+    gp_XYZ nn(0, 0, 0), cc(0, 0, 0);
+    for (std::size_t i = 0; i < n; ++i) {
+        const gp_Pnt& p0 = r[i];
+        const gp_Pnt& p1 = r[(i + 1) % n];
+        nn += gp_XYZ((p0.Y() - p1.Y()) * (p0.Z() + p1.Z()),
+                     (p0.Z() - p1.Z()) * (p0.X() + p1.X()),
+                     (p0.X() - p1.X()) * (p0.Y() + p1.Y()));
+        cc += p0.XYZ();
+    }
+    if (nn.Modulus() < 1e-14) return false;
+    cc /= static_cast<double>(n);
+    ctr = gp_Pnt(cc);
+    nrm = gp_Dir(nn);
+    return true;
+}
+
+// A tessellated circle? (>= 8 vertices, all equidistant from the ring centroid,
+// coplanar) -> its centre / radius / normal. Distinguishes a cap's 128-gon rim (a
+// real circle) from a box face's 4 corners (a polygon).
+bool ringIsCircle(const std::vector<gp_Pnt>& r, gp_Pnt& center, double& radius, gp_Dir& nrm) {
+    if (r.size() < 8) return false;
+    gp_Pnt ctr;
+    gp_Dir nn;
+    if (!ringPlane(r, ctr, nn)) return false;
+    double rsum = 0.0;
+    for (const auto& p : r) rsum += p.Distance(ctr);
+    const double rad = rsum / static_cast<double>(r.size());
+    if (rad < 1e-9) return false;
+    for (const auto& p : r) {
+        if (std::fabs(p.Distance(ctr) - rad) > 1e-6 * std::max(1.0, rad)) return false;
+    }
+    center = ctr;
+    radius = rad;
+    nrm = nn;
+    return true;
+}
+
+// Wire around a ring: an EXACT circle when the ring is a tessellated circle,
+// otherwise a straight polygon through the ring vertices. Null on failure. The
+// circle's sense follows the ring's own Newell normal, so an inner (hole) loop —
+// stored wound opposite the outer loop — yields an opposite-sense hole wire.
+TopoDS_Wire wireForRing(const std::vector<gp_Pnt>& r) {
+    gp_Pnt c;
+    double rad;
+    gp_Dir nrm;
+    if (ringIsCircle(r, c, rad, nrm)) {
+        const gp_Circ circ(gp_Ax2(c, nrm), rad);
+        BRepBuilderAPI_MakeEdge me(circ);
+        if (!me.IsDone()) return TopoDS_Wire();
+        BRepBuilderAPI_MakeWire mw(me.Edge());
+        return mw.IsDone() ? mw.Wire() : TopoDS_Wire();
+    }
+    BRepBuilderAPI_MakePolygon mp;
+    for (const auto& p : r) mp.Add(p);
+    mp.Close();
+    return mp.IsDone() ? mp.Wire() : TopoDS_Wire();
+}
+
+// One analytic OCCT planar face for a native planar face (outer loop + hole loops).
+TopoDS_Face buildAnalyticPlanarFace(const Face* f) {
+    std::vector<gp_Pnt> outer = loopPoints(f->outerLoop);
+    if (outer.size() < 3) return TopoDS_Face();
+    gp_Pnt ctr;
+    gp_Dir nrm;
+    if (!ringPlane(outer, ctr, nrm)) return TopoDS_Face();
+    const gp_Pln pln(ctr, nrm);
+    const TopoDS_Wire ow = wireForRing(outer);
+    if (ow.IsNull()) return TopoDS_Face();
+    BRepBuilderAPI_MakeFace mf(pln, ow);
+    if (!mf.IsDone()) return TopoDS_Face();
+    for (const Loop* il : f->innerLoops) {
+        const std::vector<gp_Pnt> inner = loopPoints(il);
+        if (inner.size() < 3) return TopoDS_Face();
+        const TopoDS_Wire iw = wireForRing(inner);
+        if (iw.IsNull()) return TopoDS_Face();
+        mf.Add(iw);
+        if (!mf.IsDone()) return TopoDS_Face();
+    }
+    return mf.Face();
+}
+
+// ONE cylindrical OCCT face from the native strip-faces sharing a single cylinder
+// surface. Handles a FULL 2*pi lateral (a complete cylinder / through bore); a
+// partial patch returns null (caller then facets the whole body).
+TopoDS_Face buildAnalyticCylinderFace(const Surface* s, const std::vector<gp_Pnt>& groupPts) {
+    const double rad = s->r1;
+    if (rad < 1e-9 || groupPts.empty()) return TopoDS_Face();
+    const gp_Pnt O(s->origin.x, s->origin.y, s->origin.z);
+    const gp_Dir A(s->axis.x, s->axis.y, s->axis.z);
+    const gp_Dir R(s->refDir.x, s->refDir.y, s->refDir.z);
+    const gp_Vec Av(A), Rv(R);
+    const gp_Vec Bv = Av.Crossed(Rv);
+    double zMin = 1e300, zMax = -1e300;
+    std::vector<double> ang;
+    ang.reserve(groupPts.size());
+    for (const auto& p : groupPts) {
+        const gp_Vec d(O, p);
+        const double t = d.Dot(Av);
+        zMin = std::min(zMin, t);
+        zMax = std::max(zMax, t);
+        double u = std::atan2(d.Dot(Bv), d.Dot(Rv));
+        if (u < 0.0) u += 2.0 * M_PI;
+        ang.push_back(u);
+    }
+    if (zMax - zMin < 1e-9) return TopoDS_Face();
+    std::sort(ang.begin(), ang.end());
+    double maxGap = ang.front() + 2.0 * M_PI - ang.back();
+    for (std::size_t i = 1; i < ang.size(); ++i)
+        maxGap = std::max(maxGap, ang[i] - ang[i - 1]);
+    if (maxGap > M_PI / 4.0) return TopoDS_Face();  // partial patch -> decline
+    Handle(Geom_CylindricalSurface) cyl = new Geom_CylindricalSurface(gp_Ax3(O, A, R), rad);
+    BRepBuilderAPI_MakeFace mf(cyl, 0.0, 2.0 * M_PI, zMin, zMax, 1e-7);
+    if (!mf.IsDone()) return TopoDS_Face();
+    return mf.Face();
+}
+
+// Geometric key for an infinite cylinder (radius + sign-normalised axis direction
+// + the axis line's foot-point nearest the world origin). Two faces on the SAME
+// cylinder share this key even when a boolean gave each its own Surface COPY, so a
+// bore's strip-faces regroup into ONE lateral face (a plain Surface-pointer key
+// would strand each boolean strip in its own group and decline).
+std::string cylinderKey(const Surface* s) {
+    double ax = s->axis.x, ay = s->axis.y, az = s->axis.z;
+    const double an = std::sqrt(ax * ax + ay * ay + az * az);
+    if (an < 1e-12) return "bad";
+    ax /= an; ay /= an; az /= an;
+    const double sgn = std::fabs(ax) > 1e-9 ? ax : (std::fabs(ay) > 1e-9 ? ay : az);
+    if (sgn < 0.0) { ax = -ax; ay = -ay; az = -az; }
+    const double dp = s->origin.x * ax + s->origin.y * ay + s->origin.z * az;
+    const double fx = s->origin.x - dp * ax;
+    const double fy = s->origin.y - dp * ay;
+    const double fz = s->origin.z - dp * az;
+    auto q = [](double v) -> long long { return std::llround(v / 1e-6); };
+    char buf[256];
+    std::snprintf(buf, sizeof(buf), "C:%lld:%lld:%lld:%lld:%lld:%lld:%lld",
+                  q(s->r1), q(ax), q(ay), q(az), q(fx), q(fy), q(fz));
+    return std::string(buf);
+}
+
+// Rebuild a native analytic Solid as the MINIMAL analytic OCCT B-rep: planar faces
+// (incl. drilled / holed caps) 1:1, and each cylinder's strip-faces collapsed to
+// one Geom_CylindricalSurface face. Returns a null shape if ANY face/group is not
+// a supported analytic form OR the rebuilt volume does not match the native volume
+// (the caller then falls back to the unchanged faceted path — no regression).
+TopoDS_Shape occtAnalyticFromNativeSolid(const Solid& solid) {
+    std::vector<const Face*> faces;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) if (f) faces.push_back(f);
+    }
+    if (faces.empty()) return TopoDS_Shape();
+
+    std::vector<const Face*> planar;
+    std::unordered_map<std::string, std::vector<const Face*>> cylGroups;
+    std::unordered_map<std::string, const Surface*> cylRep;
+    for (const Face* f : faces) {
+        const Surface* s = f->surface;
+        if (!s) return TopoDS_Shape();  // bare topology -> decline
+        const bool isCyl =
+            s->kind == SurfaceKind::Cylinder ||
+            (s->kind == SurfaceKind::Cone &&
+             std::fabs(s->r1 - s->r2) <= 1e-9 * std::max(1.0, std::fabs(s->r1)));
+        if (s->kind == SurfaceKind::Plane) {
+            planar.push_back(f);
+        } else if (isCyl) {
+            const std::string k = cylinderKey(s);
+            cylGroups[k].push_back(f);
+            cylRep.emplace(k, s);
+        } else {
+            return TopoDS_Shape();  // cone / sphere / torus / nurbs -> faceted path
+        }
+    }
+
+    BRepBuilderAPI_Sewing sew(1e-6);
+    int added = 0;
+    for (const Face* f : planar) {
+        const TopoDS_Face pf = buildAnalyticPlanarFace(f);
+        if (pf.IsNull()) return TopoDS_Shape();
+        sew.Add(pf);
+        ++added;
+    }
+    for (const auto& kv : cylGroups) {
+        std::vector<gp_Pnt> pts;
+        for (const Face* f : kv.second) {
+            const std::vector<gp_Pnt> r = loopPoints(f->outerLoop);
+            pts.insert(pts.end(), r.begin(), r.end());
+        }
+        const TopoDS_Face cf = buildAnalyticCylinderFace(cylRep[kv.first], pts);
+        if (cf.IsNull()) return TopoDS_Shape();
+        sew.Add(cf);
+        ++added;
+    }
+    if (added == 0) return TopoDS_Shape();
+
+    sew.Perform();
+    const TopoDS_Shape sewn = sew.SewedShape();
+    if (sewn.IsNull()) return TopoDS_Shape();
+    TopoDS_Shell shell;
+    if (sewn.ShapeType() == TopAbs_SHELL) {
+        shell = TopoDS::Shell(sewn);
+    } else {
+        TopExp_Explorer ex(sewn, TopAbs_SHELL);
+        if (ex.More()) shell = TopoDS::Shell(ex.Current());
+    }
+    if (shell.IsNull()) return TopoDS_Shape();
+
+    BRep_Builder bb;
+    TopoDS_Solid out;
+    bb.MakeSolid(out);
+    bb.Add(out, shell);
+    GProp_GProps vp;
+    BRepGProp::VolumeProperties(out, vp);
+    if (vp.Mass() < 0.0) out.Reverse();
+
+    // Cross-check the rebuilt volume against the EXACT native volume: any subtle
+    // orientation / hole / seam defect surfaces here and we decline to the faceted
+    // path rather than emit a wrong solid.
+    GProp_GProps vp2;
+    BRepGProp::VolumeProperties(out, vp2);
+    const double vol = vp2.Mass();
+    const double ref = native::brep::massProperties(solid).volume;
+    if (!(vol > 1e-12)) return TopoDS_Shape();
+    if (std::fabs(vol - ref) > 1e-6 * std::max(1.0, std::fabs(ref))) return TopoDS_Shape();
+    return out;
+}
+
 }  // namespace
 
 // native analytic Solid -> OCCT TopoDS_Shape, built DIRECTLY via BRepBuilderAPI
@@ -299,6 +558,16 @@ TopoDS_Shape occtFromNativeSolid(const Solid& solid) {
             if (!s.IsNull()) return s;
         }
         // otherwise: honest fall-through to the faceted path.
+    }
+
+    // ANALYTIC RECONSTRUCTION: a curved body (cylinder / through-bore / degenerate
+    // cone) whose faces we can rebuild EXACTLY keeps its analytic B-rep — ONE
+    // cylindrical face per surface instead of hundreds of triangle planes — so
+    // ShapeUpgrade_UnifySameDomain and every face-level direct edit work. Best
+    // effort: a null result falls through to the (unchanged) faceted path.
+    {
+        const TopoDS_Shape analytic = occtAnalyticFromNativeSolid(solid);
+        if (!analytic.IsNull()) return analytic;
     }
 
     return occtFacetedFromNativeSolid(solid);
