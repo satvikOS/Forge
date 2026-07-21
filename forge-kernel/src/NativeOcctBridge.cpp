@@ -17,6 +17,11 @@
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Pnt2d.hxx>
+#include <gp_Dir2d.hxx>
+#include <gp_Vec2d.hxx>
+#include <Geom_Plane.hxx>
+#include <Geom2d_Line.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
@@ -42,11 +47,14 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
+#include <BRep_Tool.hxx>
+#include <BRepLib.hxx>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
 #include <unordered_map>
 #include <string>
@@ -114,24 +122,54 @@ TopoDS_Shape buildSewnPlanarSolid(const std::vector<std::vector<gp_Pnt>>& faces)
     return solid;
 }
 
+// Native polyhedron signed volume (divergence theorem, tri-fan of every loop, in
+// the loop's AS-WOUND orientation). For a watertight CCW-from-outside soup this is
+// the exact enclosed volume — the ground truth the OCCT rebuild must reproduce.
+double polyhedronSignedVolume(const std::vector<gp_Pnt>& pts,
+                              const std::vector<std::vector<int>>& faces) {
+    double v = 0.0;
+    for (const auto& loop : faces) {
+        if (loop.size() < 3) continue;
+        for (std::size_t i = 1; i + 1 < loop.size(); ++i) {
+            const gp_Pnt& A = pts[loop[0]];
+            const gp_Pnt& B = pts[loop[i]];
+            const gp_Pnt& C = pts[loop[i + 1]];
+            v += (A.X() * (B.Y() * C.Z() - B.Z() * C.Y()) -
+                  A.Y() * (B.X() * C.Z() - B.Z() * C.X()) +
+                  A.Z() * (B.X() * C.Y() - B.Y() * C.X())) / 6.0;
+        }
+    }
+    return v;
+}
+
 // Build a closed OCCT solid from a vertex list + a set of SINGLE-LOOP polygonal
 // faces (each face = ordered global vertex indices, wound CCW as seen from OUTSIDE
-// the solid). This is used for BOTH bridge paths:
-//   * analytic-planar : the native topology's faces fed 1:1 (box/prism/wedge/… stay
-//                        the minimal analytic B-rep — 6F/12E box, 8F/18E prism, …),
-//   * faceted fallback: the native tessellation's triangles (curved / holed bodies).
+// the solid). Feeds the faceted fallback (native tessellation triangles of a curved
+// / mixed / booleaned body).
 //
 // Edges are SHARED across faces by their UNORDERED index pair, so the resulting
 // shell is watertight AND carries the EXACT topological edge count (no proximity
-// sewing, no STEP round-trip). Each face is built on the plane through its loop with
-// the OUTWARD (Newell) normal — which also stamps the pcurves that OCCT's mass /
-// mesh / BREP-write paths require. Returns a null shape only on total failure (the
-// caller then throws or, from the planar path, falls back to the faceted path).
+// sewing, no STEP round-trip).
+//
+// CRITICAL: a planar TopoDS_Face is USELESS to BRepGProp / BOP unless every one of
+// its boundary edges carries a PCURVE (a Geom2d curve) on THAT face's surface —
+// BRepTools::UVBounds derives the integration domain from the pcurves, and with none
+// it returns the plane's infinite natural bounds, so BRepGProp integrates garbage
+// that CANCELS across faces. BRepBuilderAPI_MakeFace(pln, wire) does NOT reliably
+// re-stamp a pcurve on the SECOND face of a shared edge (the edge already carries the
+// first face's pcurve), which is exactly why the faceted bridge produced a solid that
+// OCCT re-integrated at -99% (cylinder) / -53% (frustum) — the mold-cone malformation
+// (b8251e83). We therefore build each face DIRECTLY (BRep_Builder::MakeFace on a
+// Geom_Plane) and EXPLICITLY stamp, per edge, a Geom2d_Line pcurve in that plane's
+// (u,v) frame (BRep_Builder::UpdateEdge + Range), then BRepLib::SameParameter, then a
+// volume SELF-CHECK against the native signed volume that THROWS rather than emit a
+// wrong solid. Returns a null shape only on total failure.
 TopoDS_Shape buildOcctSolidFromPolyhedron(
         const std::vector<gp_Pnt>& pts,
         const std::vector<std::vector<int>>& faces) {
     if (pts.empty() || faces.empty()) return TopoDS_Shape();
 
+    const double kTol = 1e-7;
     BRep_Builder bb;
 
     // One OCCT vertex per input point.
@@ -139,10 +177,11 @@ TopoDS_Shape buildOcctSolidFromPolyhedron(
     verts.reserve(pts.size());
     for (const auto& p : pts) verts.push_back(BRepBuilderAPI_MakeVertex(p));
 
-    // Straight edges SHARED by unordered vertex-index pair (min<<32 | max),
-    // oriented min->max in their FORWARD sense. Both faces that meet along an
-    // edge reference the same TopoDS_Edge (same TShape) → TopExp counts it once
-    // and the shell is watertight.
+    // Straight edges SHARED by unordered vertex-index pair (min<<32 | max), ALWAYS
+    // built in the canonical lo->hi FORWARD sense so the per-face pcurve (also stamped
+    // lo->hi) and the 3D curve are co-parameterised. Both faces that meet along an
+    // edge reference the same TopoDS_Edge (same TShape) → TopExp counts it once and
+    // the shell is watertight.
     std::unordered_map<std::uint64_t, TopoDS_Edge> emap;
     emap.reserve(faces.size() * 2);
     auto edgeKey = [](int a, int b) -> std::uint64_t {
@@ -151,10 +190,12 @@ TopoDS_Shape buildOcctSolidFromPolyhedron(
         return (static_cast<std::uint64_t>(lo) << 32) | static_cast<std::uint64_t>(hi);
     };
     auto edgeFor = [&](int a, int b) -> TopoDS_Edge {
+        const int lo = a < b ? a : b;
+        const int hi = a < b ? b : a;
         const std::uint64_t k = edgeKey(a, b);
         auto it = emap.find(k);
         if (it != emap.end()) return it->second;
-        BRepBuilderAPI_MakeEdge me(verts[a], verts[b]);
+        BRepBuilderAPI_MakeEdge me(verts[lo], verts[hi]);  // FORWARD sense = lo->hi
         TopoDS_Edge e = me.IsDone() ? me.Edge() : TopoDS_Edge();
         emap.emplace(k, e);
         return e;
@@ -191,24 +232,51 @@ TopoDS_Shape buildOcctSolidFromPolyhedron(
         const gp_Dir planeNormal(nrm);
         const gp_Pln pln(planeOrigin, planeNormal);
 
-        // Wire from the SHARED oriented edges, in loop order (no reordering).
+        // The face's plane and its (u,v) frame (Z = outward Newell normal). Every
+        // pcurve is stamped in THIS exact frame so it matches the Geom_Plane surface.
+        const gp_Ax3 ax = pln.Position();
+        const gp_Pnt O = ax.Location();
+        const gp_Vec Xd(ax.XDirection());
+        const gp_Vec Yd(ax.YDirection());
+        Handle(Geom_Plane) gplane = new Geom_Plane(pln);
+
+        // Empty face on the plane, then its bounding wire.
+        TopoDS_Face face;
+        bb.MakeFace(face, gplane, kTol);
         TopoDS_Wire wire;
         bb.MakeWire(wire);
+
         bool ok = true;
         for (std::size_t i = 0; i < n; ++i) {
             const int a = loop[i];
             const int b = loop[(i + 1) % n];
             TopoDS_Edge e = edgeFor(a, b);
             if (e.IsNull()) { ok = false; break; }
+
+            // The edge's CANONICAL forward endpoints (lo->hi); its 3D range is the
+            // arc length [0, |hi-lo|]. Project both onto this plane's (u,v) frame and
+            // build a co-parameterised Geom2d_Line, then stamp it on THIS face.
+            const int lo = a < b ? a : b;
+            const int hi = a < b ? b : a;
+            const gp_Vec dLo(O, pts[lo]);
+            const gp_Vec dHi(O, pts[hi]);
+            const gp_Pnt2d uvLo(dLo.Dot(Xd), dLo.Dot(Yd));
+            const gp_Pnt2d uvHi(dHi.Dot(Xd), dHi.Dot(Yd));
+            const gp_Vec2d dir2d(uvLo, uvHi);
+            if (dir2d.Magnitude() < 1e-12) { ok = false; break; }
+            Handle(Geom2d_Line) pc = new Geom2d_Line(uvLo, gp_Dir2d(dir2d));
+            Standard_Real f3 = 0.0, l3 = 0.0;
+            BRep_Tool::Range(e, f3, l3);            // 3D arc-length range [0, len]
+            bb.UpdateEdge(e, pc, face, kTol);       // pcurve on THIS face's surface
+            bb.Range(e, face, f3, l3);              // co-parameterise pcurve with 3D
+
             e.Orientation(a < b ? TopAbs_FORWARD : TopAbs_REVERSED);
             bb.Add(wire, e);
         }
         if (!ok) continue;
 
-        // Planar face on `pln` bounded by `wire`; MakeFace stamps the pcurves.
-        BRepBuilderAPI_MakeFace mf(pln, wire);
-        if (!mf.IsDone()) continue;
-        bb.Add(shell, mf.Face());
+        bb.Add(face, wire);
+        bb.Add(shell, face);
         ++built;
     }
 
@@ -218,11 +286,35 @@ TopoDS_Shape buildOcctSolidFromPolyhedron(
     bb.MakeSolid(solid);
     bb.Add(solid, shell);
 
-    // Orient positive: with every loop wound CCW-from-outside the Newell normals
-    // are outward and the volume is already positive; this is the safety net.
+    // Recompute the 2D curves to be exactly same-parameter with the 3D curves (our
+    // pcurves already are; this is the mandated B-rep hygiene + repairs any residue).
+    BRepLib::SameParameter(solid, kTol, Standard_True);
+
+    // Orient positive: with every loop wound CCW-from-outside the Newell normals are
+    // outward and the volume is already positive; this is the safety net.
     GProp_GProps vp;
     BRepGProp::VolumeProperties(solid, vp);
     if (vp.Mass() < 0.0) solid.Reverse();
+
+    // VOLUME SELF-CHECK: the OCCT-integrated volume of the rebuilt solid MUST match
+    // the native polyhedron's own signed volume (both integrate the SAME inscribed
+    // triangle soup, so they agree to rounding). A gross gap means the OCCT faces do
+    // not carry valid pcurves / consistent orientation (the -99% mold-cone
+    // malformation) — THROW rather than hand a silently-wrong solid downstream.
+    const double occtVol = std::fabs(vp.Mass());
+    const double nativeVol = std::fabs(polyhedronSignedVolume(pts, faces));
+    if (!(nativeVol > 1e-12)) {
+        throw std::runtime_error(
+            "native->OCCT bridge: faceted polyhedron has ~zero native volume");
+    }
+    if (std::fabs(occtVol - nativeVol) > 1e-3 * std::max(1.0, nativeVol)) {
+        char msg[256];
+        std::snprintf(msg, sizeof(msg),
+            "native->OCCT bridge: faceted solid mis-integrates "
+            "(OCCT %.4f vs native polyhedron %.4f) — malformed B-rep, refusing",
+            occtVol, nativeVol);
+        throw std::runtime_error(msg);
+    }
     return solid;
 }
 
@@ -688,7 +780,22 @@ TopoDS_Shape occtTorusFromNativeSolid(const Solid& solid) {
 //     exact-count contract the A/B brep-signature gate asserts.
 //   * everything else (curved faces, disk caps, holed faces, or a planar build that
 //     fails) falls back to the FACETED path (native tessellation -> OCCT solid).
+
+// Test/diagnostic hook: FORGE_BRIDGE_FACETED=1 forces the FACETED fallback for the
+// whole bridge, skipping ALL analytic reconstruction (planar-sewn, cylinder, cone,
+// sphere, torus). This lets an A/B smoke drive a KNOWN analytic body (a cylinder or
+// cone whose exact volume is closed-form) through occtFacetedFromNativeSolid and
+// measure the OCCT-integrated volume of the faceted solid against truth — the exact
+// mis-integration path the mold-cone bug (b8251e83) exposed. OFF by default → zero
+// effect on the production path (each analytic reconstructor runs as before).
+bool bridgeForceFaceted() {
+    const char* e = std::getenv("FORGE_BRIDGE_FACETED");
+    return e && e[0] == '1';
+}
+
 TopoDS_Shape occtFromNativeSolid(const Solid& solid) {
+    if (bridgeForceFaceted()) return occtFacetedFromNativeSolid(solid);
+
     // Gather every face and decide whether the whole body is all-planar-simple.
     std::vector<const Face*> allFaces;
     for (const Shell* sh : solid.shells) {
