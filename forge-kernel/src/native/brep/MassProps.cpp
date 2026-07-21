@@ -375,10 +375,29 @@ void integratePlanarExact(const Face* f, Accum& acc) {
             }
             if (ip.size() < 3) continue;
             const Vec3& Q0 = ip[0];
+            // NON-CONVEX-EXACT hole area (K1 imported-face fix). The hole is fanned
+            // from Q0 with the SIGNED triangle area 0.5*(a1 x a2)·n — NOT the unsigned
+            // |a1 x a2| — because the unsigned per-triangle magnitude DOUBLE-COUNTS a
+            // NON-CONVEX hole (its reflex triangles overlap and all add positively),
+            // subtracting far more than the hole's real area (measured on an imported
+            // 146-vertex non-convex hole: unsigned fan 1324 vs true area 650, halving
+            // the face and dropping the part's volume ~5%). The signed fan cancels the
+            // overlap exactly (the same reason the OUTER loop above uses the signed
+            // area). Orient the whole hole positive about `n` (sgnH) so a hole wound
+            // either way subtracts its true POSITIVE area. For a CONVEX planar hole —
+            // every native boolean drilled round bore — the loop is coplanar with `n`,
+            // so |0.5*(a1 x a2)·n| == 0.5*|a1 x a2| for every triangle and this is
+            // BYTE-IDENTICAL to the previous unsigned code (protects the core gate).
+            double AtotH = 0.0;
             for (std::size_t t = 1; t + 1 < ip.size(); ++t) {
                 Vec3 a1 = vsub(ip[t], Q0), a2 = vsub(ip[t + 1], Q0);
-                double Ah = 0.5 * vlen(vcross(a1, a2));
-                if (Ah <= 0.0) continue;
+                AtotH += 0.5 * vdot(vcross(a1, a2), n);
+            }
+            const double sgnH = (AtotH < 0.0) ? -1.0 : 1.0;
+            for (std::size_t t = 1; t + 1 < ip.size(); ++t) {
+                Vec3 a1 = vsub(ip[t], Q0), a2 = vsub(ip[t + 1], Q0);
+                double Ah = sgnH * 0.5 * vdot(vcross(a1, a2), n);
+                if (Ah == 0.0) continue;
                 for (const auto& q : rule) {
                     Vec3 p = vadd(vadd(vscale(Q0, q.a), vscale(ip[t], q.b)), vscale(ip[t + 1], q.c));
                     addSample(acc, p, n, -q.w * Ah); // SUBTRACT the hole contribution
