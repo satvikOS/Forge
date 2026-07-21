@@ -29,6 +29,8 @@
 #include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
 #include "forge/native/brep/DraftAnalytic.hpp"    // analytic face-draft -> square frustum (B-rep)
 #include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
+#include "forge/native/brep/OffsetShape.hpp"  // native whole-solid grow/shrink offset (offsetSolidShape)
+#include "forge/native/brep/Surface.hpp"    // SurfaceKind (planar-eligibility gate for offsetSolid)
 #include "forge/native/brep/Pattern.hpp"    // GAP1: RigidTransform / transformSolidInPlace
 // IN-HOUSE KERNEL STEP 3b — native sketch-feature ops (extrude/revolve/sweep/loft).
 #include "forge/native/brep/Sweep.hpp"        // brep::Profile, sweep(), prism()
@@ -64,8 +66,12 @@
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffsetAPI_MakeOffsetShape.hxx>   // OCCT whole-solid offset (fallback for offsetSolid)
 #include <BRepOffset_MakeOffset.hxx>
 #include <BRepOffset.hxx>
+#include <BRepOffset_Mode.hxx>                  // BRepOffset_Skin
+#include <BRepBuilderAPI_MakeSolid.hxx>         // wrap the OCCT offset shell into a solid
+#include <TopoDS_Shell.hxx>
 #include <GeomAbs_JoinType.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -898,6 +904,94 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
                                  "(surface may be non-manifold or self-intersecting)");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+}
+
+// ============================================================ offsetSolid
+//
+// Whole-solid GROW / SHRINK offset — the "Offset Solid" command (SolidWorks
+// Move Face > Offset all, Fusion Offset Faces (whole body), NX Offset Region):
+// slide EVERY boundary face along its OWN outward normal by the signed
+// `distance` and re-trim adjacent faces to their new mutual intersections. A box
+// L grown by d becomes L+2d about its centre; shrunk by d becomes L-2d. This is
+// OCCT's BRepOffsetAPI_MakeOffsetShape (BRepOffset_Skin, sharp/Intersection join)
+// — DISTINCT from `shell` (MakeThickSolidByJoin, which HOLLOWS to a wall) and
+// from `thickenSurface` (skins an OPEN shell).
+//
+// NATIVE ROUTE (FORGE_NATIVE_BREP + runtime gate): when the input is an analytic
+// NativeSolid whose faces are ALL PLANAR (box, prism, wedge, pyramid — a convex
+// polyhedron), route to the OCCT-FREE analytic offsetSolidShape and return a real
+// analytic NativeSolid (EXACT offset volume + centroid, watertight). We GATE to
+// PLANAR faces on purpose: the analytic planar 3-plane corner meet is exact
+// (A/B == OCCT to machine epsilon in volume AND position), whereas the native
+// QUADRIC (cylinder/cone/sphere) offset — though volume-exact — currently mis-
+// places the offset body along its axis (a centroid/placement discrepancy vs
+// OCCT), so a curved-face solid is HONESTLY DEFERRED to OCCT rather than shipped
+// as a wrong (mispositioned) shape. offsetSolidShape ALSO self-defers (ok=false)
+// on a shrink that would collapse the solid or a re-trim that fails to close; any
+// such case FALLS THROUGH to the byte-for-byte-unchanged OCCT path below.
+ShapeHandle offsetSolid(ShapeHandle shape, double distance) {
+    requirePositive(std::abs(distance), "offsetSolid distance");
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        namespace nb = ::forge::native::brep;
+        const nb::Solid& srcSolid = ShapeRegistry::instance().getNativeSolid(shape);
+        // Eligibility: every face must carry a PLANAR analytic surface. Any curved
+        // (cylinder/cone/sphere/torus) or NURBS face => defer to OCCT.
+        bool allPlanar = !srcSolid.shells.empty();
+        for (const nb::Shell* sh : srcSolid.shells) {
+            if (!sh) { allPlanar = false; break; }
+            for (const nb::Face* fa : sh->faces) {
+                if (fa == nullptr || fa->surface == nullptr ||
+                    fa->surface->kind != nb::SurfaceKind::Plane) { allPlanar = false; break; }
+            }
+            if (!allPlanar) break;
+        }
+        if (allPlanar) {
+            // Clone into a fresh builder (offsetSolidShape allocates the offset
+            // faces onto it) so the input handle is never mutated.
+            const double I[9] = {1,0,0, 0,1,0, 0,0,1};
+            const double t0[3] = {0,0,0};
+            auto owner = std::make_shared<nb::TopologyBuilder>();
+            nb::Solid* clone = nb::transformSolid(srcSolid, I, t0, owner);
+            nb::OffsetShapeOptions opt;
+            opt.distance = distance;
+            nb::OffsetShapeResult r = nb::offsetSolidShape(*owner, clone, opt);
+            // Only accept a CLOSED (watertight) analytic offset solid.
+            if (r.ok && r.solid && r.closedManifold) {
+                return ShapeRegistry::instance().addNativeSolid(owner, r.solid);
+            }
+            // else: honest fall-through to the unchanged OCCT offset path below.
+        }
+    }
+#endif
+    const TopoDS_Shape& src = fetch(shape);
+
+    // OCCT whole-solid offset: BRepOffset_Skin with the sharp INTERSECTION join
+    // (matches the native intersection-join corner re-trim). PerformByJoin
+    // delivers a SHELL; wrap it into a solid so mass/tessellation integrate the
+    // enclosed (offset) volume.
+    BRepOffsetAPI_MakeOffsetShape mk;
+    mk.PerformByJoin(src, distance, 1.0e-7, BRepOffset_Skin,
+                     /*Intersection*/ Standard_False,
+                     /*SelfInter*/    Standard_False,
+                     GeomAbs_Intersection);
+    if (!mk.IsDone()) {
+        throw std::runtime_error("forge.part.offsetSolid: MakeOffsetShape build failed "
+                                 "(distance may collapse a feature or exceed geometry limits)");
+    }
+    TopoDS_Shape off = mk.Shape();
+    if (off.ShapeType() == TopAbs_SHELL) {
+        BRepBuilderAPI_MakeSolid ms(TopoDS::Shell(off));
+        if (ms.IsDone()) off = ms.Solid();
+    } else if (off.ShapeType() == TopAbs_COMPOUND) {
+        TopExp_Explorer ex(off, TopAbs_SHELL);
+        if (ex.More()) {
+            BRepBuilderAPI_MakeSolid ms(TopoDS::Shell(ex.Current()));
+            if (ms.IsDone()) off = ms.Solid();
+        }
+    }
+    return ShapeRegistry::instance().add(off);
 }
 
 // ============================================================ filletEdges

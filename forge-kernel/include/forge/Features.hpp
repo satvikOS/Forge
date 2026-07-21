@@ -94,6 +94,14 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
 // the given wall thickness. `side`: -1 inward, +1 outward, 0 symmetric.
 ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side);
 
+// Whole-solid GROW / SHRINK offset (the "Offset Solid" command): move EVERY
+// boundary face along its outward normal by the signed `distance` (>0 grows,
+// <0 shrinks) and re-trim adjacent faces to their new intersections. OCCT
+// BRepOffsetAPI_MakeOffsetShape (sharp/Intersection join); routes analytic
+// NativeSolids (box/prism/cylinder/cone/sphere) to the OCCT-free native path.
+// DISTINCT from shell (hollow-to-wall) and thickenSurface (skin open shell).
+ShapeHandle offsetSolid(ShapeHandle shape, double distance);
+
 // Slice-14 routing: sweep a circular profile of `radius` along the polyline
 // `pts` (flat [x,y,z] triples) → a 3D pipe solid. Turns a route centerline
 // into visible tube geometry.

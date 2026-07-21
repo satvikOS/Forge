@@ -4878,6 +4878,14 @@ Napi::Value PartThickenSurface(const Napi::CallbackInfo& info) {
     });
 }
 
+Napi::Value PartOffsetSolid(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        double d = requireNumber(info, 1, "distance");
+        return Napi::Number::New(info.Env(), forge::part::offsetSolid(h, d));
+    });
+}
+
 Napi::Value PartPipeFromPolyline(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto env = info.Env();
@@ -6486,6 +6494,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     part.Set("loft",                Napi::Function::New(env, PartLoft));
     part.Set("shell",               Napi::Function::New(env, PartShell));
     part.Set("thickenSurface",      Napi::Function::New(env, PartThickenSurface));
+    part.Set("offsetSolid",         Napi::Function::New(env, PartOffsetSolid));
     part.Set("pipeFromPolyline",    Napi::Function::New(env, PartPipeFromPolyline));
     part.Set("profileWire",         Napi::Function::New(env, PartProfileWire));
     part.Set("sweepPolyline",       Napi::Function::New(env, PartSweepPolyline));
