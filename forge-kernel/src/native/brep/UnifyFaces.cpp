@@ -25,6 +25,7 @@
 #include "forge/native/brep/UnifyFaces.hpp"
 #include "forge/native/brep/Surface.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <unordered_map>
