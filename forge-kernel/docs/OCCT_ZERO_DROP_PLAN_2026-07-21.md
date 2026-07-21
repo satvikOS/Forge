@@ -103,3 +103,14 @@ Each has a bounded wiring win available now, but the full drop waits on the K6 c
 - **Everything in Phases C–D is one interlocked substrate program:** the native curved-preserving B-rep (K6a) + native surface-handle kind + OCCT-TopoDS→native importer. Until that lands, TKBRep/TKG3d/TKTopAlgo/TKGeomBase/TKGeomAlgo/TKShHealing/TKFillet/TKOffset/TKPrim all stay pinned, and TKMath/TKernel cannot even start. This is the true long pole to otool 0, not a sequence of bounded drops.
 
 ## Per-toolkit dossiers (measured)
+
+## Parallel-assessment blocker maps (measured 2026-07-21, worktree agents)
+
+### TKFillet — BLOCKED (K6-gated), confirmed by source analysis
+5 BRepFilletAPI sites in Features.cpp (filletEdges:1136, variableFilletEdge:1170 [NO native branch at all], chamferEdges:1236) + VarFillet.cpp (fillet:235). Native fillet (src/native/brep/Fillet.cpp) is a mesh rolling-ball approx that ingests NativeSolid ONLY; production default (forgeNativeFeaturesEnabled OFF) + all imported-STEP/boolean-bridge handles route to OCCT. NATIVE WORK TO UNBLOCK: (1) native B-rep fillet/chamfer that ingests OCCT/imported handles (no OCCT->native fillet importer exists), (2) anchor-law variable fillet (variableFilletEdge has zero native path), (3) per-edge/asymmetric chamfer.
+
+### TKShHealing — BLOCKED, confirmed (nm-verified symbols exclusive to libTKShHealing)
+Blockers: unifyFaces (DirectEdit.cpp:70) + simplifyShape (Healing.cpp:387) = ShapeUpgrade_UnifySameDomain (NO native coplanar-merge exists); autoFillMissingFaces (Healing.cpp:407-446) = ShapeAnalysis_FreeBounds + cap fabrication (SurfaceFill/GregoryFill exist but UNWIRED); harmonizeNormals (Healing.cpp:517-531) = ShapeFix_Shape+ShapeAnalysis_Shell (unwired); + 6 ShapeFix_Shape heal sites (DirectModeling:435/482/530/628, DirectEdit:53, ShapeFix.cpp:295, Healing:488) on non-analytic/boolean shapes native healBRep defers. NATIVE WORK TO UNBLOCK: (1) native unifySameDomain, (2) wire SurfaceFill/GregoryFill into a free-wire cap pipeline, (3) extend native heal to non-analytic/boolean-result shapes.
+
+### Takeaway
+After the 2 native-already-built drops (TKG2d, TKHLR), EVERY remaining toolkit needs a real native subsystem completed first. Near-term drop = TKDESTEP (reader parity 61->~78 + wire readForeignStep; STEPControl_Writer already eliminated -> 3 exclusive syms left). All others (TKFillet/TKOffset/TKShHealing/TKPrim/TKG3d/TKBRep/TKMath/TKernel) are K6-substrate or native-subsystem gated.
