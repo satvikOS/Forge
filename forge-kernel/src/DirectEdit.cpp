@@ -8,8 +8,7 @@
 #include <BRepAlgoAPI_Defeaturing.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepGProp.hxx>
-#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cylinder
-#include <BRepPrimAPI_MakePrism.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cylinder + linear sweep
 #include <GProp_GProps.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -239,7 +238,7 @@ ShapeHandle pushPullFace(ShapeHandle body, int faceIndex,
 
     const auto d = unit(dir);
     const gp_Vec v(d[0] * std::abs(distance), d[1] * std::abs(distance), d[2] * std::abs(distance));
-    const TopoDS_Shape prism = BRepPrimAPI_MakePrism(face, distance > 0 ? v : -v).Shape();
+    const TopoDS_Shape prism = occtPrism(face, distance > 0 ? v : -v);
 
     TopoDS_Shape result;
     if (distance > 0) {

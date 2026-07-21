@@ -1,5 +1,6 @@
 #include "forge/DirectModeling.hpp"
 #include "forge/Healing.hpp"
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free linear sweep (occtPrism)
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -12,7 +13,6 @@
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
 #include <BRepOffsetAPI_MakeFilling.hxx>
-#include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
@@ -243,12 +243,9 @@ TopoDS_Shape extrudeFace(const TopoDS_Face& face, const NVec3& vec) {
     if (nMag(vec) < kConfusion) {
         throw std::runtime_error("forge.direct: extrusion vector is zero-length");
     }
-    // gp_Vec built ONLY here, at the BRepPrimAPI_MakePrism builder boundary.
-    BRepPrimAPI_MakePrism mk(face, toVec(vec), /*Copy*/ Standard_False, /*Canonize*/ Standard_True);
-    if (!mk.IsDone()) {
-        throw std::runtime_error("forge.direct: prism extrusion failed");
-    }
-    return mk.Shape();
+    // gp_Vec built ONLY here, at the sweep-builder boundary. TKPrim-free linear
+    // sweep (Geom_SurfaceOfLinearExtrusion + caps, OcctPrimBuilder::occtPrism).
+    return occtPrism(face, toVec(vec));
 }
 
 } // namespace
@@ -416,13 +413,9 @@ ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {
     } else {
         // Pull inward (pocket): subtract the prism from the original shape.
         // Extrude inward — the prism we just made was along +n; flip it.
-        // Native scale; gp_Vec built ONLY at the MakePrism builder boundary.
-        BRepPrimAPI_MakePrism mk(face, toVec(nScale(n, -std::abs(distance))),
-                                 Standard_False, Standard_True);
-        if (!mk.IsDone()) {
-            throw std::runtime_error("forge.direct.pushPullFace: inward prism failed");
-        }
-        BRepAlgoAPI_Cut op(s, mk.Shape());
+        // Native scale; gp_Vec built ONLY at the sweep-builder boundary.
+        const TopoDS_Shape inwardPrism = occtPrism(face, toVec(nScale(n, -std::abs(distance))));
+        BRepAlgoAPI_Cut op(s, inwardPrism);
         op.Build();
         if (!op.IsDone()) {
             throw std::runtime_error("forge.direct.pushPullFace: cut failed");

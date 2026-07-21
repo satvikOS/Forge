@@ -8,8 +8,7 @@
 #include <memory>
 #endif
 
-#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic OCCT primitive solids
-#include <BRepPrimAPI_MakePrism.hxx>   // still used by makePrism (arbitrary-face sweep)
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic OCCT primitive solids + sweeps
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -141,8 +140,8 @@ ShapeHandle makePrism(int n, double R, double h) {
     if (!face.IsDone()) {
         throw std::runtime_error("forge: prism base face build failed");
     }
-    BRepPrimAPI_MakePrism mk(face.Face(), gp_Vec(0, 0, h));
-    return ShapeRegistry::instance().add(mk.Shape());
+    // TKPrim-free linear sweep (Geom_SurfaceOfLinearExtrusion + caps, OcctPrimBuilder).
+    return ShapeRegistry::instance().add(occtPrism(face.Face(), gp_Vec(0, 0, h)));
 }
 
 // Right-angular wedge (BRepPrimAPI_MakeWedge): a box dx×dy×dz with the +Y face

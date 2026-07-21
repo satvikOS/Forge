@@ -72,6 +72,7 @@
 #include "forge/native/brep/Sweep.hpp"         // brep::prism, brep::Profile (native extrude)
 #include "forge/OcctImport.hpp"                // importOcctProfile (OCCT wire -> native Profile)
 #include <memory>
+#include <cstdint>                             // std::uint32_t (was transitively pulled by the dropped BRepPrimAPI headers; explicit for Linux libstdc++)
 #endif
 
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -81,8 +82,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBndLib.hxx>
-#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic box
-#include <BRepPrimAPI_MakePrism.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic box + linear sweep
 #include <Bnd_Box.hxx>
 #include <BRep_Tool.hxx>
 #include <Precision.hxx>
@@ -398,17 +398,14 @@ ShapeHandle baseFlange(ShapeHandle wireSketchHandle, const SheetMetalParams& par
         throw std::runtime_error("forge.sheetMetal.baseFlange: face from wire failed");
     }
     gp_Vec extrude(0.0, 0.0, params.thickness);
-    BRepPrimAPI_MakePrism mkPrism(mkFace.Face(), extrude);
-    mkPrism.Build();
-    if (!mkPrism.IsDone()) {
-        throw std::runtime_error("forge.sheetMetal.baseFlange: prism failed");
-    }
+    // TKPrim-free linear sweep (Geom_SurfaceOfLinearExtrusion + caps, OcctPrimBuilder).
+    const TopoDS_Shape prism = occtPrism(mkFace.Face(), extrude);
 
     SheetMetalPart part{};
     part.params = params;
     wireXYBox(wire, part.baseLen, part.baseWid);
 
-    return attachAndReturn(mkPrism.Shape(), std::move(part));
+    return attachAndReturn(prism, std::move(part));
 }
 
 // ===================================================================

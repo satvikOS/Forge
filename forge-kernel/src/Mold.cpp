@@ -9,8 +9,7 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
-#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder
-#include <BRepPrimAPI_MakePrism.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder + linear sweep
 #include <Bnd_Box.hxx>
 #include <BRep_Builder.hxx>
 #include <GProp_GProps.hxx>
@@ -293,15 +292,8 @@ PartingResult computeParting(const TopoDS_Shape& part,
     shift.SetTranslation(toVec(halfOffset));
     BRepBuilderAPI_Transform shiftMk(faceMk.Face(), shift, /*Copy*/ true);
     const TopoDS_Shape shiftedFace = shiftMk.Shape();
-    BRepPrimAPI_MakePrism prismMk(shiftedFace,
-                                  toVec(nScale(pullVec, slabThk)));
-    prismMk.Build();
-    if (!prismMk.IsDone()) {
-        throw std::runtime_error(
-            "forge.mold.computeParting: parting surface extrusion failed");
-    }
-
-    result.partingSurface = prismMk.Shape();
+    // TKPrim-free linear sweep (Geom_SurfaceOfLinearExtrusion + caps, OcctPrimBuilder).
+    result.partingSurface = occtPrism(shiftedFace, toVec(nScale(pullVec, slabThk)));
     return result;
 }
 

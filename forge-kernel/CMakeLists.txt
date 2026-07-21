@@ -162,8 +162,26 @@ set(OCCT_LIBS
     TKernel TKMath
     TKG3d TKGeomBase TKGeomAlgo
     TKBRep TKTopAlgo TKShHealing
-    TKPrim TKFillet TKOffset
+    TKFillet TKOffset
 )
+# OCCT-zero progress (2026-07-21, K-PRIM): dropped TKPrim. 11 -> 10 OCCT dylibs.
+#   The canonical primitive SOLIDS (box/cylinder/cone/sphere/torus/wedge) were already
+#   TKPrim-free (OcctPrimBuilder analytic Geom_ + BRepBuilderAPI, commit 20849c16). This
+#   drop retires the LAST TKPrim consumers — the linear/rotational SWEEPS of arbitrary
+#   OCCT sketch faces (BRepPrimAPI_MakePrism / _MakeRevol) across extrude / revolve / rib
+#   (Features.cpp), push/pull (DirectEdit.cpp, DirectModeling.cpp), the polygon prism
+#   (Primitives.cpp), the parting-slab (Mold.cpp) and the base flange (SheetMetal.cpp).
+#   Every site now calls forge::occtPrism / occtRevol (src/OcctPrimBuilder.cpp): each
+#   profile boundary edge is swept into a Geom_SurfaceOfLinearExtrusion / _SurfaceOfRevolution
+#   (TKG3d) lateral face trimmed to the edge param x sweep param, closed with cap / end-wall
+#   faces and sewn watertight (TKBRep) + BRepLib::OrientClosedSolid — the SAME analytic B-rep
+#   BRepSweep builds, minus the TKPrim wrapper (closed-form area*|v.n| / Pappus volume
+#   self-check throws on a wrong sweep). VERIFIED keep-if-green: otool opencascade 11->10,
+#   libTKPrim gone from otool -L, nm -u | grep BRepPrimAPI == 0, occt_drop_gate.sh TKPrim
+#   EXCLUSIVE=0; native_vs_occt_core 34/34 (prism 8F/18E brepExact + extrude/revolve A/B vs
+#   the independent native sweep — the post-drop oracle, BRepPrimAPI being unavailable);
+#   Models-OS 13/13; part_features / mold_split / sheet_metal / weldments smokes PASS.
+#   Linux run_native.sh CI (ubuntu strict-link) is the ultimate gate.
 # OCCT-zero progress (2026-07-21, K-STEP): dropped TKDESTEP + TKXSBase. 13 -> 11 OCCT dylibs.
 #   STEP READ was the sole consumer of the Data-Exchange toolkits (STEPControl_Reader /
 #   XSControl_Reader / Interface_Static, all in src/IoExchange.cpp::importStep). It now runs

@@ -84,9 +84,7 @@
 #include <GeomFill_NSections.hxx>
 #include <TColGeom_SequenceOfCurve.hxx>
 #include <TColgp_Array1OfPnt.hxx>
-#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder
-#include <BRepPrimAPI_MakePrism.hxx>
-#include <BRepPrimAPI_MakeRevol.hxx>
+#include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder + prism/revol sweeps
 #include <BRep_Tool.hxx>
 #include <BRepGProp.hxx>
 #include <BRepLib.hxx>
@@ -319,12 +317,8 @@ ShapeHandle extrudeProfile(SketchHandle sketch, double distance,
     TopoDS_Wire w = firstWire(sketch, "extrudeProfile");
     TopoDS_Face f = faceFromWire(w);
     gp_Vec dir(dirX / dl * distance, dirY / dl * distance, dirZ / dl * distance);
-    BRepPrimAPI_MakePrism mk(f, dir);
-    mk.Build();
-    if (!mk.IsDone()) {
-        throw std::runtime_error("forge.part.extrudeProfile: prism build failed");
-    }
-    return ShapeRegistry::instance().add(mk.Shape());
+    // TKPrim-free linear sweep (Geom_SurfaceOfLinearExtrusion + caps, OcctPrimBuilder).
+    return ShapeRegistry::instance().add(occtPrism(f, dir));
 }
 
 // ===================================================== extrudeProfileOnPlane
@@ -397,13 +391,8 @@ ShapeHandle extrudeProfileOnPlane(SketchHandle sketch, double distance,
 
     const double s = (sign < 0.0) ? -1.0 : 1.0;
     gp_Vec dir(n.Multiplied(s * distance));
-    BRepPrimAPI_MakePrism mk(placedFace, dir);
-    mk.Build();
-    if (!mk.IsDone()) {
-        throw std::runtime_error(
-            "forge.part.extrudeProfileOnPlane: prism build failed");
-    }
-    return ShapeRegistry::instance().add(mk.Shape());
+    // TKPrim-free linear sweep (Geom_SurfaceOfLinearExtrusion + caps, OcctPrimBuilder).
+    return ShapeRegistry::instance().add(occtPrism(placedFace, dir));
 }
 
 // ============================================================ revolveProfile
@@ -494,12 +483,11 @@ ShapeHandle revolveProfile(SketchHandle sketch,
     TopoDS_Wire w = firstWire(sketch, "revolveProfile");
     TopoDS_Face f = faceFromWire(w);
     gp_Ax1 ax(gp_Pnt(ox, oy, oz), gp_Dir(dx, dy, dz));
-    BRepPrimAPI_MakeRevol mk(f, ax, angleRad);
-    mk.Build();
-    if (!mk.IsDone()) {
-        throw std::runtime_error("forge.part.revolveProfile: revol build failed");
-    }
-    return ShapeRegistry::instance().add(mk.Shape());
+    // A negative angle sweeps the opposite sense: MakeRevol(f,ax,-t) == revol about
+    // the reversed axis by +t. occtRevol takes a positive angle in (0, 2pi].
+    if (angleRad < 0.0) ax.Reverse();
+    // TKPrim-free rotational sweep (Geom_SurfaceOfRevolution + end caps, OcctPrimBuilder).
+    return ShapeRegistry::instance().add(occtRevol(f, ax, std::abs(angleRad)));
 }
 
 // ============================================================ sweep
@@ -1751,14 +1739,9 @@ ShapeHandle rib(SketchHandle profileSketch, double depth, double thickness,
     // the rib its width and then extrude along Z by `depth`.
     BRepBuilderAPI_MakeFace mkf(gp_Pln(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), w);
     if (mkf.IsDone()) {
-        // Closed profile case — straight extrude.
+        // Closed profile case — straight extrude (TKPrim-free linear sweep).
         TopoDS_Face f = mkf.Face();
-        BRepPrimAPI_MakePrism prism(f, gp_Vec(0, 0, depth));
-        prism.Build();
-        if (!prism.IsDone()) {
-            throw std::runtime_error("forge.part.rib: closed-profile prism failed");
-        }
-        return ShapeRegistry::instance().add(prism.Shape());
+        return ShapeRegistry::instance().add(occtPrism(f, gp_Vec(0, 0, depth)));
     }
 
     // Open profile: extrude the wire perpendicular-in-plane to thickness,
@@ -1766,17 +1749,12 @@ ShapeHandle rib(SketchHandle profileSketch, double depth, double thickness,
     // straight along +Y by thickness (callers can re-orient via translate
     // / rotate). For unit tests we use a simple linear extrude of the
     // wire as a sheet body, then extrude the sheet in Z.
-    BRepPrimAPI_MakePrism ribbon(w, gp_Vec(0, thickness, 0));
-    ribbon.Build();
-    if (!ribbon.IsDone()) {
-        throw std::runtime_error("forge.part.rib: ribbon prism failed");
-    }
-    BRepPrimAPI_MakePrism solid(ribbon.Shape(), gp_Vec(0, 0, depth));
-    solid.Build();
-    if (!solid.IsDone()) {
-        throw std::runtime_error("forge.part.rib: ribbon→solid prism failed");
-    }
-    return ShapeRegistry::instance().add(solid.Shape());
+    // TKPrim-free: sweep the open wire in-plane by `thickness` -> a lateral SHELL,
+    // then sweep that shell along Z by `depth` -> the rib body (a compound of the
+    // per-face prisms — same result the shell-swept BRepPrimAPI_MakePrism yields).
+    const TopoDS_Shape ribbon = occtPrism(w, gp_Vec(0, thickness, 0));
+    const TopoDS_Shape ribBody = occtPrism(ribbon, gp_Vec(0, 0, depth));
+    return ShapeRegistry::instance().add(ribBody);
 }
 
 // ============================================================ linearPattern
