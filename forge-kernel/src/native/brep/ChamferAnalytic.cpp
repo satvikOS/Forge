@@ -403,6 +403,77 @@ AnalyticChamferResult chamferBoxEdgeAsymmetric(TopologyBuilder& tb,
     return chamferBoxEdgeTwoDistance(tb, L, dA, dB, edgeIndex);
 }
 
+// ---------------------------------------------------------------------------
+// Canonical-cube recognition — reuses the SAME boxCorners() / boxEdge() tables the
+// analytic chamfer builds from (anonymous namespace above), so the recognition and
+// the construction can never drift apart.
+// ---------------------------------------------------------------------------
+double canonicalBoxSide(const Solid& src, double tol) {
+    if (src.shells.empty() || src.shells[0] == nullptr) return 0.0;
+    const Shell* sh = src.shells[0];
+    if (sh->faces.size() != 6) return 0.0;
+
+    // Gather the distinct corner positions by walking each face's outer loop. Box
+    // faces are quads; a non-quad face (holed / non-box) disqualifies immediately.
+    std::vector<Vec3> verts;
+    auto addDistinct = [&](const Point3& p) {
+        const Vec3 v{p.x, p.y, p.z};
+        for (const Vec3& q : verts)
+            if (vlen(vsub(v, q)) <= tol) return;
+        verts.push_back(v);
+    };
+    for (const Face* f : sh->faces) {
+        if (f == nullptr || f->outerLoop == nullptr || f->outerLoop->first == nullptr)
+            return 0.0;
+        const Loop* lp = f->outerLoop;
+        if (lp->coedgeCount != 4) return 0.0;
+        Coedge* c = lp->first;
+        for (std::size_t k = 0; k < lp->coedgeCount && c != nullptr; ++k) {
+            Vertex* vv = c->originVertex();
+            if (vv == nullptr) return 0.0;
+            addDistinct(vv->point);
+            c = c->next;
+        }
+    }
+    if (verts.size() != 8) return 0.0;
+
+    // AABB: require the min corner at the origin and an equal side L on all axes.
+    Vec3 mn = verts[0], mx = verts[0];
+    for (const Vec3& v : verts) {
+        mn.x = std::min(mn.x, v.x); mn.y = std::min(mn.y, v.y); mn.z = std::min(mn.z, v.z);
+        mx.x = std::max(mx.x, v.x); mx.y = std::max(mx.y, v.y); mx.z = std::max(mx.z, v.z);
+    }
+    if (std::fabs(mn.x) > tol || std::fabs(mn.y) > tol || std::fabs(mn.z) > tol) return 0.0;
+    const double L = mx.x;
+    if (!(L > tol)) return 0.0;
+    if (std::fabs(mx.y - L) > tol || std::fabs(mx.z - L) > tol) return 0.0;
+
+    // Every one of the 8 canonical corners must be present (rules out a same-AABB
+    // but non-cube vertex set).
+    const std::vector<Vec3> C = boxCorners(L);
+    for (const Vec3& corner : C) {
+        bool found = false;
+        for (const Vec3& v : verts)
+            if (vlen(vsub(v, corner)) <= tol) { found = true; break; }
+        if (!found) return 0.0;
+    }
+    return L;
+}
+
+int canonicalBoxEdgeIndex(double L, const Point3& a, const Point3& b, double tol) {
+    if (!(L > 0.0)) return -1;
+    const std::vector<Vec3> C = boxCorners(L);
+    const Vec3 A{a.x, a.y, a.z}, B{b.x, b.y, b.z};
+    for (int i = 0; i < 12; ++i) {
+        const BoxEdge be = boxEdge(i);
+        const Vec3 P0 = C[be.c0], P1 = C[be.c1];
+        const bool fwd = vlen(vsub(A, P0)) <= tol && vlen(vsub(B, P1)) <= tol;
+        const bool rev = vlen(vsub(A, P1)) <= tol && vlen(vsub(B, P0)) <= tol;
+        if (fwd || rev) return i;
+    }
+    return -1;
+}
+
 } // namespace brep
 } // namespace native
 } // namespace forge

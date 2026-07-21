@@ -237,15 +237,23 @@ const cases = [
   { name: 'chamfer ALL box edges (mesh-bridge)', tol: 1.5e-2, meshBridge: true,
     build: f => { const b=f.makeBox(3,3,3); return f.part.chamferEdges(b, allBoxEdges(f,b), 0.3, -1); } },
   // DRAFT (taper): draft the 4 SIDE walls of a box by +5° about the BOTTOM neutral
-  // plane (z=0, pull=+Z). OCCT's BRepOffsetAPI_DraftAngle and the native mesh-bridge
-  // applyDraft both apply the SAME linear-taper draft — the top ring shrinks inward
-  // by H·tan(5°) per side while the bottom ring is fixed — so for PLANAR box walls
-  // they agree to floating-point noise (the faces stay planar; no faceting error).
-  // The drafted-box (square-frustum) analytic volume is 22.55117 for a 3×3×3 box at
-  // +5°, which BOTH kernels reproduce. faceIds select the 4 side walls in EACH
-  // kernel's own face order (boxSideFaces: normal ⟂ pull), since OCCT and native
-  // enumerate the box's faces in a different order. Result is a NativeMesh handle.
-  { name: 'draft 4 sides +5deg (mesh-bridge)', tol: MESH_TOL, meshBridge: true,
+  // plane (z=0, pull=+Z). OCCT's BRepOffsetAPI_DraftAngle and the native draft both
+  // apply the SAME linear-taper — the top ring shrinks inward by H·tan(5°) per side
+  // while the bottom ring is fixed — so for PLANAR box walls they agree to floating-
+  // point noise (the faces stay planar; no faceting error). The drafted-box (square-
+  // frustum) analytic volume is 22.55117 for a 3×3×3 box at +5°, which BOTH kernels
+  // reproduce. faceIds select the 4 side walls in EACH kernel's own face order
+  // (boxSideFaces: normal ⟂ pull), since OCCT and native enumerate the box's faces
+  // in a different order.
+  //
+  // As of the ANALYTIC face-draft wiring (draftBoxAnalytic, part.draftFaces native
+  // routing) this canonical all-four-walls cube draft NO LONGER rides the mesh
+  // bridge: it is drafted ENTIRELY natively into a real analytic NativeSolid (four
+  // tilted planar trapezoid walls + two square caps — the square frustum), so its
+  // mass matches OCCT's analytic DraftAngle EXACTLY (both are planar-exact, ~1e-9,
+  // not the old ~mesh ceiling). Result is a NativeSolid handle; the tight analytic
+  // tolerances apply.
+  { name: 'draft 4 sides +5deg (analytic)', tol: ANALYTIC_TOL,
     build: f => { const b=f.makeBox(3,3,3);
       return f.part.draftFaces(b, { origin:[0,0,0], normal:[0,0,1] },
                                boxSideFaces(f, b, [0,0,1]), 5*Math.PI/180); } },

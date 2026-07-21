@@ -25,7 +25,9 @@
 #include "forge/native/brep/Fillet.hpp"
 #include "forge/native/brep/FilletAnalytic.hpp"  // topology-sourced analytic edge fillet
 #include "forge/native/brep/Chamfer.hpp"
+#include "forge/native/brep/ChamferAnalytic.hpp"  // analytic flat-bevel chamfer + canonical-cube recognition
 #include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
+#include "forge/native/brep/DraftAnalytic.hpp"    // analytic face-draft -> square frustum (B-rep)
 #include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
 #include "forge/native/brep/Pattern.hpp"    // GAP1: RigidTransform / transformSolidInPlace
 // IN-HOUSE KERNEL STEP 3b — native sketch-feature ops (extrude/revolve/sweep/loft).
@@ -36,6 +38,7 @@
 #include "forge/native/mesh/HalfEdgeMesh.hpp"   // sharp-convex-edge enumeration
 #include "forge/native/mesh/FeatureEdges.hpp"   // detectFeatureEdges
 #include "forge/native/Predicates.hpp"          // orient3d convex test
+#include <algorithm>                            // std::all_of (native draft side-wall gate)
 #include <array>                                // edge enumeration
 #include <chrono>                               // OCCT-fillet watchdog deadline
 #include <cmath>                                // std::sqrt for edge dirs
@@ -1204,6 +1207,41 @@ ShapeHandle chamferEdges(ShapeHandle shape,
         // NB: fully qualify nb::chamferEdges — the enclosing forge::part::
         // chamferEdges (this very function) would shadow it via a `using`.
         namespace nb = ::forge::native::brep;
+        // ── ANALYTIC EXACT PATH (preferred) ─────────────────────────────────
+        // A SINGLE SYMMETRIC chamfer of ONE straight convex edge of the canonical
+        // axis-aligned cube [0,L]^3 builds the EXACT flat bevel on the analytic
+        // B-rep (a real plane bevel face + re-trimmed planar faces + clipped end
+        // pentagons) → a native analytic Solid, retiring OCCT
+        // BRepFilletAPI_MakeChamfer / the mesh bridge for that case. The edgeId is
+        // read in the SAME sharp-convex-edge enumeration part.filletEdges honors
+        // (so direct.edgeSegments ids select it); its endpoints map to the canonical
+        // box-edge index. ANY ineligible input — asymmetric (distance2>0), multi-
+        // edge, a non-cube solid, a non-canonical edge, or an analytic refusal —
+        // FALLS THROUGH to the proven mesh bridge below, byte-for-byte unchanged.
+        if (edgeIds.size() == 1 && !(distance2 > Precision::Confusion())) {
+            const nb::Solid& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            const double L = nb::canonicalBoxSide(solid);
+            if (L > 0.0) {
+                std::vector<double> spos; std::vector<std::uint32_t> sidx;
+                nb::tessellateSolid(solid, spos, sidx);
+                const std::vector<nb::SharpConvexEdge> sharp =
+                    nb::enumerateSharpConvexEdges(spos, sidx);
+                if (edgeIds[0] < sharp.size()) {
+                    const nb::SharpConvexEdge& se = sharp[edgeIds[0]];
+                    const nb::Point3 ea{se.ax, se.ay, se.az};
+                    const nb::Point3 eb{se.bx, se.by, se.bz};
+                    const int ei = nb::canonicalBoxEdgeIndex(L, ea, eb);
+                    if (ei >= 0) {
+                        auto owner = std::make_shared<nb::TopologyBuilder>();
+                        nb::AnalyticChamferResult ar =
+                            nb::chamferBoxEdgeAnalytic(*owner, L, distance, ei);
+                        if (ar.ok && ar.solid)
+                            return ShapeRegistry::instance().addNativeSolid(owner, ar.solid);
+                        // analytic declined -> honest fallback to the mesh bridge.
+                    }
+                }
+            }
+        }
         std::vector<double> pos; std::vector<std::uint32_t> idx;
         nb::tessellateSolid(ShapeRegistry::instance().getNativeSolid(shape), pos, idx);
         nb::ChamferResult cr = nb::chamferEdges(pos, idx, distance);
@@ -1294,6 +1332,54 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
         // kernel its own side-face ids — the A/B harness does exactly this.)
         namespace nb = ::forge::native::brep;
         const nb::Solid& sol = ShapeRegistry::instance().getNativeSolid(shape);
+
+        // ── ANALYTIC EXACT PATH (preferred) ─────────────────────────────────
+        // Drafting ALL FOUR side walls of the canonical cube [0,L]^3 about the base
+        // neutral plane z=0 (pull +Z) by a mold-release angle with tan(alpha)<1/2
+        // builds the EXACT square FRUSTUM on the analytic B-rep (four planar tilted
+        // trapezoid walls + two square caps) → a native analytic Solid, retiring
+        // OCCT BRepOffsetAPI_DraftAngle / the mesh bridge for that case. ANY
+        // ineligible input — a non-cube solid, a neutral plane that is not z=0/+Z, a
+        // selection that is not exactly the four side walls, or a too-large angle
+        // (draftBoxAnalytic itself refuses tan(alpha)>=1/2) — FALLS THROUGH to the
+        // proven mesh bridge below, byte-for-byte unchanged.
+        {
+            const double L = nb::canonicalBoxSide(sol);
+            const bool neutralZ0 =
+                std::fabs(neutral.nx) < 1e-9 && std::fabs(neutral.ny) < 1e-9 &&
+                std::fabs(neutral.nz - 1.0) < 1e-9 && std::fabs(neutral.oz) < 1e-9;
+            const double alphaDeg = angleRad * 180.0 / M_PI;
+            if (L > 0.0 && neutralZ0 && angleRad > 0.0 && std::tan(angleRad) < 0.5) {
+                const nb::Shell* sh = sol.shells.empty() ? nullptr : sol.shells[0];
+                if (sh != nullptr && sh->faces.size() == 6) {
+                    // The four side walls (outward normal ⟂ +Z) in this solid's own
+                    // 0-based face order — exactly the analytic draft's target set.
+                    std::vector<std::uint32_t> sideIds;
+                    bool planar = true;
+                    for (std::size_t i = 0; i < sh->faces.size(); ++i) {
+                        const nb::Face* fc = sh->faces[i];
+                        if (fc == nullptr || fc->surface == nullptr) { planar = false; break; }
+                        const nb::Vec3 n = fc->surface->reversed
+                            ? nb::vscale(fc->surface->axis, -1.0) : fc->surface->axis;
+                        if (std::fabs(nb::vdot(n, nb::Vec3{0, 0, 1})) < 0.5)
+                            sideIds.push_back(static_cast<std::uint32_t>(i));
+                    }
+                    std::unordered_set<std::uint32_t> want(faceIds.begin(), faceIds.end());
+                    const bool exactlySideWalls =
+                        planar && sideIds.size() == 4 && want.size() == 4 &&
+                        std::all_of(sideIds.begin(), sideIds.end(),
+                                    [&](std::uint32_t id){ return want.count(id) > 0; });
+                    if (exactlySideWalls) {
+                        auto owner = std::make_shared<nb::TopologyBuilder>();
+                        nb::AnalyticDraftResult dr =
+                            nb::draftBoxAnalytic(*owner, L, alphaDeg);
+                        if (dr.ok && dr.solid)
+                            return ShapeRegistry::instance().addNativeSolid(owner, dr.solid);
+                        // analytic declined -> honest fallback to the mesh bridge.
+                    }
+                }
+            }
+        }
 
         // Geometry (double positions + indices) for the draft op.
         std::vector<double> pos;

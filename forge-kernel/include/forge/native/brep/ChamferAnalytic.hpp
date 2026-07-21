@@ -139,6 +139,29 @@ AnalyticChamferResult chamferBoxEdgeAsymmetric(TopologyBuilder& tb,
                                                double L, double dA, double dB,
                                                int edgeIndex = 4);
 
+// ---------------------------------------------------------------------------
+// CANONICAL-CUBE RECOGNITION (pure geometry, no side effects) — the eligibility
+// predicates the part.chamferEdges / part.draftFaces NATIVE routing uses to decide
+// whether an input NativeSolid can be built by the box-hardcoded analytic chamfer/
+// draft above. (The analytic chamfer/draft REBUILD the canonical box [0,L]^3 from
+// scratch, so they are correct ONLY when the input solid IS exactly that cube; any
+// other solid falls back to the existing mesh-bridge / OCCT path unchanged.)
+// ---------------------------------------------------------------------------
+
+// If `src` is EXACTLY the canonical axis-aligned cube [0,L]^3 — min corner at the
+// origin, equal side L>0, 8 corner vertices, 6 planar QUAD faces whose corner set
+// matches boxCorners(L) — return L; otherwise return 0.0. Matches by the SET of
+// corner positions (topology-order independent), so a boolean/rebuilt cube of the
+// same geometry still qualifies. `tol` is an absolute position tolerance.
+double canonicalBoxSide(const Solid& src, double tol = 1e-7);
+
+// Map the straight edge with endpoints (a,b) of the canonical cube [0,L]^3 to its
+// canonical edgeIndex 0..11 (the same enumeration chamferBoxEdgeAnalytic /
+// FilletAnalytic use), or -1 if (a,b) is not one of the 12 canonical box edges to
+// `tol`. Order-independent (a,b may be given either way round).
+int canonicalBoxEdgeIndex(double L, const Point3& a, const Point3& b,
+                          double tol = 1e-7);
+
 } // namespace brep
 } // namespace native
 } // namespace forge
