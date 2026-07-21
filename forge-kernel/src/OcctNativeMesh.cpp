@@ -3,21 +3,24 @@
 // See include/forge/OcctNativeMesh.hpp for the honesty statement. In one line:
 // every face is TRIANGULATED in-house (shared adaptive edge discretisation +
 // adaptive interior UV grid + the native constrained-Delaunay of the pure geom/
-// engine); OCCT is only READ for surface points, 3D edge curves and 2D trim p-curves
-// (TKBRep/TKG3d/TKG2d/TKGeomAlgo/TKTopAlgo — never TKMesh). No BRepMesh_IncrementalMesh
-// symbol appears in this TU.
+// engine); OCCT is only READ for surface points, 3D edge curves and 2D trim endpoints
+// (TKBRep/TKG3d/TKGeomAlgo/TKTopAlgo — never TKMesh, and no longer TKG2d). No
+// BRepMesh_IncrementalMesh symbol appears in this TU.
 //
-// BOUNDARY (u,v) RECOVERY: each boundary vertex's (u,v) is READ from the edge's stored
-// p-curve on this face (BRep_Tool::CurveOnSurface — TKG2d, already linked so otool stays
-// 15). This is exact and unambiguous even on FULL-WRAP periodic surfaces (sphere /
-// cylinder / torus, u:[0,2π]) where a seam edge's forward/reversed uses need the two
-// OPPOSITE-boundary trim curves — which the p-curve supplies directly. A K6 experiment
-// recovered (u,v) instead by NATIVE projection of the shared 3-D point onto the surface
-// (GeomAPI_ProjectPointOnSurf, no p-curve); that dropped no toolkit (TKG2d is still
-// linked for other TUs) yet DEFERRED on imported-STEP spheres because projection cannot
-// disambiguate the periodic seam branch → the reconstructed UV loop self-intersects and
-// the CDT fails. So the p-curve is the primary path; projection survives only as a
-// fallback for the rare face that carries no stored p-curve.
+// BOUNDARY (u,v) RECOVERY: an interior/non-seam boundary vertex's (u,v) is recovered by
+// NATIVE projection of its shared GLOBAL 3-D point onto this face's surface
+// (GeomAPI_ProjectPointOnSurf — unambiguous for such edges). The one case projection
+// cannot resolve is a SEAM edge on a FULL-WRAP periodic surface (sphere / cylinder /
+// cone / torus, u:[0,2π]): its shared 3-D point maps to TWO (u,v) branches (u=umin and
+// u=umax), so projection alone self-intersects the trim loop and the CDT fails. For seam
+// edges we therefore read only the two 2-D ENDPOINTS the BRep stores for the edge on the
+// face via BRep_Tool::UVPoints (TKBRep) — which, like CurveOnSurface, is ORIENTATION-
+// CORRECT so the forward/reversed seam uses land on the two OPPOSITE boundaries — and
+// LINEARLY interpolate between them. The seam p-curve is a straight ISO-LINE, so this
+// reproduces it EXACTLY without evaluating any 2-D curve (Geom2d_Curve::Value, the last
+// exclusive TKG2d symbol, is gone → TKG2d dropped, otool 15→14). An earlier K6 attempt
+// that used projection for seams too DEFERRED on imported-STEP spheres for exactly the
+// branch-ambiguity reason; the endpoint read fixes that without re-linking TKG2d.
 //
 // WATERTIGHTNESS: each unique edge is discretised ONCE (by 3-D chord/angle
 // deflection on its own 3-D curve) and the resulting GLOBAL 3-D points are SHARED
@@ -36,7 +39,6 @@
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepTopAdaptor_FClass2d.hxx>
-#include <Geom2d_Curve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomAdaptor_Surface.hxx>
 #include <Geom_Curve.hxx>
@@ -293,35 +295,41 @@ FaceMesh tessellateFace(const TopoDS_Face& face, EdgeCache& cache,
         const int  n    = static_cast<int>(es.t.size());
         if (n < 2) return false;
 
-        // ---- PRIMARY (u,v): read this edge's STORED p-curve on THIS face ----------
-        // BRep_Tool::CurveOnSurface returns the exact 2-D trim curve OCCT stored for
-        // (edge, face) at the edge's own orientation — so a seam edge's forward and
-        // reversed uses return the two OPPOSITE-boundary p-curves automatically, and a
-        // FULL-WRAP periodic face (sphere/cylinder/torus, u:[0,2π]) yields a clean,
-        // non-self-intersecting UV loop that the native CDT triangulates. The shared
-        // GLOBAL 3-D point es.p[k] is still used for the node position (watertight weld),
-        // and the p-curve is only READ for (u,v) — TKG2d is already linked (otool stays
-        // 15). Projecting the 3-D point onto a periodic surface (the code below) cannot
-        // disambiguate the seam branch, which is why imported-STEP spheres deferred; the
-        // p-curve removes that ambiguity. The projection path remains a fallback for the
-        // rare face carrying NO stored p-curve.
-        {
-            Standard_Real pf = 0.0, pl = 0.0;
-            Handle(Geom2d_Curve) pc = BRep_Tool::CurveOnSurface(e, face, pf, pl);
-            if (!pc.IsNull() && pl > pf) {
+        // ---- SEAM (u,v): reconstruct the ISO-LINE trim from its stored 2-D endpoints ----
+        // A seam edge (BRep_Tool::IsClosed) sits on a pinned parameter boundary and its
+        // stored p-curve is a straight ISO-LINE (constant u OR constant v) — sphere /
+        // cylinder / cone / torus, u:[0,2π] and periodic B-spline seams. We read only the
+        // edge's two 2-D ENDPOINTS via BRep_Tool::UVPoints (TKBRep, NOT TKG2d): like
+        // CurveOnSurface it is ORIENTATION-CORRECT, so a seam edge's forward and reversed
+        // uses return the two OPPOSITE-boundary endpoints (u=umin vs u=umax) automatically —
+        // the exact disambiguation a 3-D-point projection cannot do. LINEARLY interpolating
+        // between those endpoints at the same param fraction reproduces the p-curve EXACTLY
+        // for an iso-line — WITHOUT evaluating any 2-D curve, so the last exclusive TKG2d
+        // symbol (Geom2d_Curve::Value) is gone while the seam branch is preserved. The
+        // shared GLOBAL 3-D point es.p[k] is still the node position (watertight weld); the
+        // endpoints only fix the trim rectangle for the native CDT. A full-wrap seam has
+        // endpoints DISTINCT in param space (e.g. (0,0) and (0,2π)) even where the 3-D
+        // point coincides, so the interpolated run spans the whole face. Non-seam edges —
+        // whose p-curve may be an arbitrary (non-iso) curve — fall through to unambiguous
+        // 3-D-point projection below (projection is exact for them; only the periodic seam
+        // branch was ever ambiguous).
+        if (seam) {
+            gp_Pnt2d uvF, uvL;
+            BRep_Tool::UVPoints(e, face, uvF, uvL);   // endpoints at pf..pl (edge param dir), oriented
+            const double dseg = std::hypot(uvL.X() - uvF.X(), uvL.Y() - uvF.Y());
+            if (dseg > 1e-12) {   // stored endpoints exist & are non-degenerate
                 const double span = (es.rl > es.rf) ? (es.rl - es.rf) : 1.0;
                 er.uv.reserve(n); er.p3.reserve(n);
                 for (int s = 0; s < n; ++s) {
                     const int k = rev ? (n - 1 - s) : s;   // wire-forward order
-                    const double t  = es.t[k];
-                    const double tp = pf + (t - es.rf) / span * (pl - pf);
-                    const gp_Pnt2d q = pc->Value(tp);
-                    er.uv.emplace_back(q.X(), q.Y());
+                    const double g = (es.t[k] - es.rf) / span;   // param fraction (0 at pf, 1 at pl)
+                    er.uv.emplace_back(uvF.X() + (uvL.X() - uvF.X()) * g,
+                                       uvF.Y() + (uvL.Y() - uvF.Y()) * g);
                     er.p3.push_back(es.p[k]);
                 }
-                if (!seam) { lastU = er.uv.back().X(); lastV = er.uv.back().Y(); haveAnchor = true; }
                 return true;
             }
+            // no usable stored endpoints ⇒ fall through to the projection seam handling.
         }
 
         std::vector<double> ru(n), rv(n);

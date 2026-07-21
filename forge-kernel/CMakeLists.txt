@@ -1,21 +1,26 @@
 # ============================================================================
-# BUILD NOTE (2026-07-20) — K6 native-pcurve deferral FIXED; source rebuilds green.
-# HISTORY: the K6 WIP in src/OcctNativeMesh.cpp recovered each boundary vertex's
-# (u,v) by PROJECTING its shared 3-D point onto the face surface (GeomAPI_
-# ProjectPointOnSurf) instead of reading the stored p-curve. That passed the kernel
-# A/B gates (34/34) on native primitives BUT DEFERRED on imported-STEP DOUBLY-
-# PERIODIC faces (sphere/torus, u:[0,2π]) — projection cannot disambiguate the
-# periodic seam branch, so the reconstructed UV trim loop self-intersected and the
-# native CDT failed → whole-shape empty mesh → OS STEP-import degenerate (e.g.
-# cadgenbench 112 face 35). FIX: resolveEdge now READS the edge's stored p-curve
-# (BRep_Tool::CurveOnSurface — TKG2d, which is STILL LINKED below, so otool stays 15)
-# for an exact, seam-correct UV loop, keeping projection only as a fallback for the
-# rare face with no stored p-curve. VERIFIED 2026-07-20: otool 15, kernel A/B 34/34,
-# Archie-OS suite 13/13, measure_step(112) faces=104 valid=True, and a full 81-file
-# gpt56 STEP sweep is at GOLD-15 parity (same 69-mesh/12-defer partition — the 12 are
-# pre-existing on GOLD15 too; identical bbox + volume-equivalent on all). The kernel-
-# internal gates are NECESSARY BUT NOT SUFFICIENT; the downstream Archie-OS 13/13 is
-# the true gate. GOLD15 backup kept at scratchpad/gold_backup_2026-07-20/.
+# BUILD NOTE (2026-07-20) — K5.1: TKG2d DROPPED (otool 15 -> 14); FIRST real toolkit drop.
+# HISTORY: the display mesher src/OcctNativeMesh.cpp recovers each boundary vertex's
+# (u,v). A K6 WIP did it by PROJECTING the shared 3-D point onto the face surface
+# (GeomAPI_ProjectPointOnSurf); that passed kernel A/B (34/34) on native primitives BUT
+# DEFERRED on imported-STEP full-wrap PERIODIC faces (sphere/torus, u:[0,2π]) — projection
+# cannot disambiguate the periodic seam branch, so the UV trim loop self-intersected and
+# the native CDT failed → empty mesh → OS STEP-import degenerate (e.g. cadgenbench 112
+# face 35). An interim FIX read the stored p-curve (BRep_Tool::CurveOnSurface +
+# Geom2d_Curve::Value — TKG2d) which kept otool at 15. NOW (K5.1) that single
+# Geom2d_Curve::Value call site — the .node's ONLY exclusive TKG2d symbol — is replaced by
+# BRep_Tool::UVPoints (TKBRep): for a SEAM edge it reads the two stored 2-D ENDPOINTS
+# orientation-correctly (fwd/rev seam uses → OPPOSITE boundaries) and LINEARLY interpolates
+# them (a seam p-curve is a straight ISO-LINE, so this reproduces Value() EXACTLY); non-seam
+# edges use native projection. No new exclusive Geom2d symbol. TKG2d is removed from
+# OCCT_LIBS below; it still loads transitively (TKBRep DT_NEEDs it) but the .node no longer
+# names it → otool 14 and strict-link-safe. VERIFIED 2026-07-20: occt_drop_gate.sh TKG2d =
+# DROP-SAFE (0 exclusive); nm -u | Geom2d_Curve5Value EMPTY; otool 14; kernel A/B 34/34;
+# Archie-OS suite 13/13; foreign_step_ab 49/81; part-112 sphere-patch mesh watertight (2860
+# tris, byte-identical to the p-curve path). Kernel-internal gates are NECESSARY BUT NOT
+# SUFFICIENT; downstream Archie-OS 13/13 is the true drop gate, and Linux run_native CI
+# (strict-link) is the ultimate one — push to confirm. GOLD15 backup at
+# scratchpad/rebuildclean_2026-07-20/forge-kernel.node.K1_49match.
 # ============================================================================
 cmake_minimum_required(VERSION 3.20)
 project(forge_kernel CXX)
@@ -155,7 +160,7 @@ endif()
 # TKShHealing, TKBO, TKBool, TKFillet, TKOffset, TKHLR, TKMesh) are stable.
 set(OCCT_LIBS
     TKernel TKMath
-    TKG2d TKG3d TKGeomBase TKGeomAlgo
+    TKG3d TKGeomBase TKGeomAlgo
     TKBRep TKTopAlgo TKShHealing
     TKPrim TKFillet TKOffset
     TKHLR
@@ -189,6 +194,25 @@ set(OCCT_LIBS
 #   frame baking was needed. Verified keep-if-green: otool 16->15,
 #   native_vs_occt_core.mjs 34/34, coherence PASS (1.0000 vs 0.0443), run_native
 #   137/137, fea_smoke + fea_nafems + drawings_smoke PASS, ZERO native-mesh deferrals.
+#
+# OCCT-zero progress (2026-07-20, K5.1): dropped TKG2d — the FIRST real toolkit drop.
+#   15 -> 14 OCCT dylibs. The .node's SOLE exclusive TKG2d symbol was
+#   Geom2d_Curve::Value(double) const, from ONE call site: the display mesher's
+#   periodic-face p-curve read (src/OcctNativeMesh.cpp) that recovers seam-edge (u,v)
+#   on full-wrap periodic faces (sphere/cylinder/cone/torus) — the branch a 3-D-point
+#   projection cannot disambiguate. That read is now BRep_Tool::UVPoints (TKBRep, NOT
+#   TKG2d): it returns the edge's two stored 2-D ENDPOINTS orientation-correctly (the
+#   two seam uses land on OPPOSITE boundaries, as CurveOnSurface did), and since a seam
+#   p-curve is a straight ISO-LINE, LINEARLY interpolating those endpoints reproduces the
+#   old Value() sampling EXACTLY. Non-seam edges use unambiguous native projection. No new
+#   exclusive Geom2d symbol is introduced. TKBRep itself DT_NEEDs TKG2d, so TKG2d still
+#   loads transitively at runtime — the .node's OWN link line just no longer names it.
+#   Verified keep-if-green: `scripts/occt_drop_gate.sh TKG2d` = 0 exclusive / DROP-SAFE;
+#   `nm -u forge-kernel.node | grep Geom2d_Curve5Value` EMPTY; otool 15->14;
+#   native_vs_occt_core.mjs 34/34; Models-OS 13/13; foreign_step_ab 49/81 (part 112
+#   sphere-patch mesh watertight, 2860 tris — byte-identical to the p-curve path).
+#   NB (Linux ultimate gate): the .node no longer references any TKG2d symbol directly,
+#   so strict-link is satisfied by TKBRep's transitive TKG2d — push for run_native CI.
 
 # ---------------------------------------------------------------- Boost
 # planegcs uses boost::graph (connected_components) + boost::math::constants.
