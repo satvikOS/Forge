@@ -196,6 +196,16 @@ struct View2D {
 // HLR produces no edges at all.
 View2D projectView(const TopoDS_Shape& shape, ViewDirection dir);
 
+#ifdef FORGE_NATIVE_BREP
+// projectViewNative — HANDLE-AWARE native HLR (TKHLR-free). Projects a native
+// analytic Solid DIRECTLY (the binding passes reg.getNativeSolid(h) for a
+// NativeSolid handle), avoiding the lossy native->OCCT->native round-trip that the
+// TopoDS_Shape overload would incur for a native body (reg.get() materialises an
+// OCCT proxy via a STEP round-trip whose re-import is fragile). Same View2D output
+// as projectView. Throws if the native HLR produces no edges.
+View2D projectViewNative(const native::brep::Solid& solid, ViewDirection dir);
+#endif
+
 // SectionView — the cross-section through a cutting plane.
 //   sectionEdges = polylines from the intersection of `shape` with the
 //                  cutting plane (BRepAlgoAPI_Section).

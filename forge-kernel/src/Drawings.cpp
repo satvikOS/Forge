@@ -32,9 +32,12 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <GCPnts_QuasiUniformDeflection.hxx>
-#include <HLRAlgo_Projector.hxx>
-#include <HLRBRep_Algo.hxx>
-#include <HLRBRep_HLRToShape.hxx>
+// TKHLR DROPPED (otool 14->13): the OCCT hidden-line-removal headers
+// (HLRBRep_Algo / HLRBRep_HLRToShape / HLRAlgo_Projector) are GONE. Every
+// orthographic HLR call site below now runs the native analytic HLR
+// (forge::native::brep::hiddenLineRemoval) via emitNativeHlr(). Perspective HLR
+// was already native (projectShapePerspective -> hlrPerspective). No OCCT HLR
+// symbol remains in the .node, so libTKHLR is no longer linked.
 #include <Precision.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -97,6 +100,80 @@
 #include "forge/native/brep/Topology.hpp"      // Solid graph
 #include "forge/OcctImport.hpp"                // importOcctSolid (OCCT analytic -> native Solid)
 #endif
+
+#ifdef FORGE_NATIVE_BREP
+namespace {
+// ---------------------------------------------------------------------------
+// emitNativeHlr — THE shared native orthographic HLR emitter (TKHLR-free).
+//
+// Runs forge::native::brep::hiddenLineRemoval on an already-resolved native
+// Solid, re-projects every classified segment's 3D polyline into the SAME OCCT
+// gp_Ax2 screen frame the drawing pipeline uses (identical math to the section
+// path's worldToScreen, so the 2D image is pixel-faithful to the former OCCT
+// path), and hands each kept screen polyline + its class to `emit`.
+//
+// EDGE-ON DROP (why counts match OCCT, not inflate): OCCT's HLRBRep omits an
+// edge that projects to a POINT (an edge parallel to the view direction — e.g.
+// a box's 4 depth edges in a front view). The native pass DOES collect those
+// edges (they are real model edges); each collapses to a zero-extent screen
+// polyline. We drop any polyline whose 2D bounding box is smaller than a
+// point-tolerance, exactly reproducing OCCT's omission (a plain box front view
+// -> 4 hidden back edges, not 8). This is a faithful match, not a fabrication:
+// a zero-length projected edge carries no drawable ink.
+//
+// Class routing (mirrors collectEdges' V/H/OutLine buckets exactly):
+//   Visible  -> emit(NativeHlrClass::Visible, ...)   (solid line)
+//   Hidden   -> emit(NativeHlrClass::Hidden,  ...)   (dashed line)
+//   Silhouette (visible) -> emit(NativeHlrClass::Outline, ...) (OutLineV analogue)
+// ---------------------------------------------------------------------------
+enum class NativeHlrClass { Visible, Hidden, Outline };
+
+template <class EmitFn>
+void emitNativeHlr(const forge::native::brep::Solid& solid,
+                   const gp_Ax2& ax2, EmitFn&& emit) {
+    using namespace forge::native::brep;
+    const gp_Dir& az = ax2.Direction();
+    // Native HLR looks ALONG +N; the projector's gp_Ax2 main direction is the
+    // equivalent look direction, so both backends project the SAME view.
+    HlrResult res = hiddenLineRemoval(solid, Vec3{ az.X(), az.Y(), az.Z() });
+    if (!res.ok) return;
+
+    const gp_Pnt& loc = ax2.Location();
+    const gp_Dir& xd  = ax2.XDirection();
+    const gp_Dir& yd  = ax2.YDirection();
+
+    for (const HlrSegment& seg : res.segments) {
+        if (seg.poly3d.size() < 2) continue;
+        std::vector<std::pair<double, double>> pl;
+        pl.reserve(seg.poly3d.size());
+        double minx =  std::numeric_limits<double>::infinity();
+        double miny =  std::numeric_limits<double>::infinity();
+        double maxx = -std::numeric_limits<double>::infinity();
+        double maxy = -std::numeric_limits<double>::infinity();
+        for (const Vec3& p : seg.poly3d) {
+            const double dx = p.x - loc.X();
+            const double dy = p.y - loc.Y();
+            const double dz = p.z - loc.Z();
+            const double sx = dx * xd.X() + dy * xd.Y() + dz * xd.Z();
+            const double sy = dx * yd.X() + dy * yd.Y() + dz * yd.Z();
+            pl.emplace_back(sx, sy);
+            if (sx < minx) minx = sx;
+            if (sx > maxx) maxx = sx;
+            if (sy < miny) miny = sy;
+            if (sy > maxy) maxy = sy;
+        }
+        if (pl.size() < 2) continue;
+        // Edge-on projection -> a point: OCCT HLR does not draw these; drop them.
+        if (std::hypot(maxx - minx, maxy - miny) <= 1e-7) continue;
+        const NativeHlrClass cls =
+            (seg.visibility == HlrVisibility::Hidden) ? NativeHlrClass::Hidden
+          : (seg.kind == HlrEdgeKind::Silhouette)     ? NativeHlrClass::Outline
+          :                                             NativeHlrClass::Visible;
+        emit(cls, pl);
+    }
+}
+} // namespace
+#endif // FORGE_NATIVE_BREP
 
 namespace forge {
 
@@ -205,57 +282,33 @@ void collectEdges(const TopoDS_Shape& compound,
     }
 }
 
-// Run HLR once and pull everything we care about out into `view`.
-// Returns false if Update / Hide threw — the caller can decide whether to
-// fall back to tessellation-first retry.
+// Run the NATIVE orthographic HLR on an OCCT-backed shape and pull everything we
+// care about out into `view` (visible / hidden / outline buckets). TKHLR-free:
+// the shape is imported to a native analytic Solid (forge::importOcctSolid) and
+// projected by forge::native::brep::hiddenLineRemoval via emitNativeHlr. Returns
+// false (never throws) when the shape cannot be imported to an analytic solid or
+// the HLR degenerates — there is NO OCCT HLR fallback (libTKHLR dropped).
 bool runHLR(const TopoDS_Shape& shape,
             const gp_Ax2& ax2,
             ProjectedView& view,
             double deflection)
 {
-    Handle(HLRBRep_Algo) hlr = new HLRBRep_Algo();
-    hlr->Add(shape);
-    HLRAlgo_Projector projector(ax2);
-    hlr->Projector(projector);
-
-    try {
-        hlr->Update();
-        hlr->Hide();
-    } catch (const Standard_Failure&) {
-        return false;
-    } catch (...) {
-        return false;
-    }
-
-    HLRBRep_HLRToShape extractor(hlr);
-
-    // ----- visible -----
-    {
-        TopoDS_Shape vc = extractor.VCompound();
-        if (!vc.IsNull()) { BRepLib::BuildCurves3d(vc); collectEdges(vc, view.visible, deflection); }
-        TopoDS_Shape rg1 = extractor.Rg1LineVCompound();
-        if (!rg1.IsNull()) { BRepLib::BuildCurves3d(rg1); collectEdges(rg1, view.visible, deflection); }
-        TopoDS_Shape rgn = extractor.RgNLineVCompound();
-        if (!rgn.IsNull()) { BRepLib::BuildCurves3d(rgn); collectEdges(rgn, view.visible, deflection); }
-    }
-
-    // ----- hidden -----
-    {
-        TopoDS_Shape hc = extractor.HCompound();
-        if (!hc.IsNull()) { BRepLib::BuildCurves3d(hc); collectEdges(hc, view.hidden, deflection); }
-        TopoDS_Shape rg1 = extractor.Rg1LineHCompound();
-        if (!rg1.IsNull()) { BRepLib::BuildCurves3d(rg1); collectEdges(rg1, view.hidden, deflection); }
-        TopoDS_Shape rgn = extractor.RgNLineHCompound();
-        if (!rgn.IsNull()) { BRepLib::BuildCurves3d(rgn); collectEdges(rgn, view.hidden, deflection); }
-    }
-
-    // ----- silhouette / outline (visible only) -----
-    {
-        TopoDS_Shape ol = extractor.OutLineVCompound();
-        if (!ol.IsNull()) { BRepLib::BuildCurves3d(ol); collectEdges(ol, view.outline, deflection); }
-    }
-
-    return true;
+    (void)deflection;  // native HLR chords curved edges internally
+#ifdef FORGE_NATIVE_BREP
+    ImportResult imported = importOcctSolid(shape);
+    if (!imported.ok || imported.solid == nullptr) return false;  // defer -> empty
+    emitNativeHlr(*imported.solid, ax2,
+                  [&](NativeHlrClass cls, std::vector<std::pair<double, double>>& pl) {
+                      if (cls == NativeHlrClass::Hidden)      view.hidden.push_back(std::move(pl));
+                      else if (cls == NativeHlrClass::Outline) view.outline.push_back(std::move(pl));
+                      else                                     view.visible.push_back(std::move(pl));
+                  });
+    return !view.visible.empty() || !view.hidden.empty() || !view.outline.empty();
+#else
+    (void)shape; (void)ax2; (void)view;
+    throw std::runtime_error(
+        "forge.drawings: HLR requires the native B-rep build (FORGE_NATIVE_BREP)");
+#endif
 }
 
 #ifdef FORGE_NATIVE_BREP
@@ -313,32 +366,20 @@ bool tryNativeProjectShape(ShapeHandle h, const gp_Ax2& ax2, ProjectedView& view
     }
     const Solid& solid = *solidPtr;
 
-    // The native HLR looks ALONG +N of its own view frame; the OCCT projector's
-    // gp_Ax2 Z axis (its main direction) is the equivalent look direction. Drive the
-    // native HLR with that exact direction so both backends project the SAME view.
-    const gp_Dir& az = ax2.Direction();
-    const Vec3 viewDir{ az.X(), az.Y(), az.Z() };
-
-    HlrResult res = hiddenLineRemoval(solid, viewDir);
-    if (!res.ok || res.segments.empty()) return false;           // degenerate -> defer
-
-    for (const HlrSegment& seg : res.segments) {
-        if (seg.poly3d.size() < 2) continue;
-        Polyline2D pl;
-        pl.reserve(seg.poly3d.size());
-        for (const Vec3& p : seg.poly3d) pl.push_back(nativeWorldToScreen(ax2, p));
-        if (pl.size() < 2) continue;
-        if (seg.visibility == HlrVisibility::Hidden) {
-            view.hidden.push_back(std::move(pl));
-        } else if (seg.kind == HlrEdgeKind::Silhouette) {
-            view.outline.push_back(std::move(pl));   // visible silhouette == OutLineV
-        } else {
-            view.visible.push_back(std::move(pl));
-        }
-    }
-    // ok==true with at least one routed polyline; an all-degenerate result already
-    // returned false above (res.segments non-empty but every poly3d < 2 is treated
-    // as a defer so OCCT's own retry path can try a tessellation-first pass).
+    // Route every classified segment through the shared native HLR emitter, which
+    // drives brep::hiddenLineRemoval along the projector's main direction, re-projects
+    // each segment into the SAME OCCT screen frame (so the image matches), and drops
+    // edge-on (zero-2D-extent) projections exactly as OCCT HLR omits them. `imported`
+    // stays alive for the whole call.
+    emitNativeHlr(solid, ax2,
+                  [&](NativeHlrClass cls, std::vector<std::pair<double, double>>& pl) {
+                      if (cls == NativeHlrClass::Hidden)      view.hidden.push_back(std::move(pl));
+                      else if (cls == NativeHlrClass::Outline) view.outline.push_back(std::move(pl));
+                      else                                     view.visible.push_back(std::move(pl));
+                  });
+    // A routed polyline in any bucket == success; an empty result (mesh input,
+    // non-analytic import, or an all-degenerate projection) returns false so the
+    // caller surfaces an honest empty view (no OCCT HLR fallback — libTKHLR dropped).
     return !view.visible.empty() || !view.hidden.empty() || !view.outline.empty();
 }
 #endif
@@ -346,55 +387,24 @@ bool tryNativeProjectShape(ShapeHandle h, const gp_Ax2& ax2, ProjectedView& view
 } // namespace
 
 ProjectedView projectShape(ShapeHandle h, ProjectionDirection direction) {
-    const auto& shape = ShapeRegistry::instance().get(h);
-    if (shape.IsNull()) {
-        throw std::runtime_error("forge.drawings.projectShape: shape is null");
-    }
-
     const gp_Ax2 ax2 = makeProjectionAx2(direction);
-
-    // Curve-sampling deflection. Tight enough that a 100 mm radius circle
-    // becomes ~100 vertices, which renders smoothly in SVG without blowing
-    // up message size for typical assembly views.
-    constexpr double kDeflection = 0.05;
-
     ProjectedView view;
 
 #ifdef FORGE_NATIVE_BREP
-    // GATE: native HLR is opt-in via the FEAT gate (default OFF). When on AND the
-    // input handle is a NativeSolid, classify visible/hidden/silhouette via
-    // brep::hiddenLineRemoval (re-projected into the OCCT screen frame, so the
-    // regression image matches); otherwise fall through to OCCT (an OCCT-backed
-    // input HONESTLY DEFERS — no behavior change in the default build).
-    if (native::brep::forgeNativeFeaturesEnabled()) {
-        ProjectedView nativeView;
-        if (tryNativeProjectShape(h, ax2, nativeView)) return nativeView;
-        // native deferred -> OCCT path below (unchanged).
-    }
-#endif
-
-    bool ok = runHLR(shape, ax2, view, kDeflection);
-
-    // Heuristic retry: if the first pass produced nothing visible, OCCT
-    // may have rejected the shape because it lacks a triangulation
-    // (some versions of HLR refuse curved faces without it). Force a
-    // tessellation and try once more.
-    if (!ok || view.visible.empty()) {
-        // K5 — attach a NATIVE per-face triangulation (in-house triangulator,
-        // reads only OCCT surfaces/pcurves; NO BRepMesh / TKMesh) so the OCCT HLR
-        // pass has a polyhedral facing to fall back on for curved faces.
-        occtmesh::triangulateShapeInPlace(shape, /*linDefl*/ 0.1, /*angDefl*/ 0.5);
-
-        ProjectedView retry;
-        if (runHLR(shape, ax2, retry, kDeflection)) {
-            // Prefer the retry if it found visible edges; otherwise stick
-            // with whatever the first pass produced (could legitimately
-            // be empty for a pathological shape).
-            if (!retry.visible.empty()) view = std::move(retry);
-        }
-    }
-
+    // HLR is now NATIVE-ONLY (libTKHLR dropped). tryNativeProjectShape projects the
+    // NATIVE analytic solid DIRECTLY for a NativeSolid handle (no lossy native->OCCT
+    // round-trip) and imports an OCCT-backed analytic body otherwise; both run the
+    // native analytic orthographic HLR (edge-on projections dropped as OCCT did).
+    // A NativeMesh / non-analytic input yields an honest empty view — there is no
+    // OCCT HLR fallback and NO tessellate-and-retry (that OCCT crutch re-imported a
+    // faceted round-trip and is meaningless for the analytic native path).
+    (void)tryNativeProjectShape(h, ax2, view);
     return view;
+#else
+    (void)h; (void)ax2;
+    throw std::runtime_error(
+        "forge.drawings.projectShape: HLR requires the native B-rep build (FORGE_NATIVE_BREP)");
+#endif
 }
 
 ProjectedView projectShapePerspective(ShapeHandle h, PerspectiveCamera cam) {
@@ -1018,59 +1028,32 @@ bool runHlrToPolylines(const TopoDS_Shape& shape,
                        HLRBuckets& out,
                        double deflection)
 {
-    Handle(HLRBRep_Algo) hlr = new HLRBRep_Algo();
-    hlr->Add(shape);
-    HLRAlgo_Projector projector(ax2);
-    hlr->Projector(projector);
-    try {
-        hlr->Update();
-        hlr->Hide();
-    } catch (const Standard_Failure&) {
-        return false;
-    } catch (...) {
-        return false;
-    }
-
-    HLRBRep_HLRToShape extractor(hlr);
-
-    auto walk = [&](const TopoDS_Shape& compound,
-                    std::vector<Polyline>& dst) {
-        if (compound.IsNull()) return;
-        BRepLib::BuildCurves3d(compound);
-        for (TopExp_Explorer ex(compound, TopAbs_EDGE); ex.More(); ex.Next()) {
-            TopoDS_Edge e = TopoDS::Edge(ex.Current());
-            if (e.IsNull()) continue;
-            try {
-                BRepAdaptor_Curve adaptor(e);
-                GCPnts_QuasiUniformDeflection sampler(adaptor, deflection);
-                Polyline pl;
-                if (sampler.IsDone() && sampler.NbPoints() >= 2) {
-                    pl.reserve(sampler.NbPoints());
-                    for (int i = 1; i <= sampler.NbPoints(); ++i) {
-                        gp_Pnt p = sampler.Value(i);
-                        pl.emplace_back(p.X(), p.Y());
-                    }
-                } else {
-                    gp_Pnt a = adaptor.Value(adaptor.FirstParameter());
-                    gp_Pnt b = adaptor.Value(adaptor.LastParameter());
-                    pl.emplace_back(a.X(), a.Y());
-                    pl.emplace_back(b.X(), b.Y());
-                }
-                if (pl.size() >= 2) dst.push_back(std::move(pl));
-            } catch (...) {
-                // skip pathological edges
-            }
-        }
-    };
-
-    walk(extractor.VCompound(),        out.visible);
-    walk(extractor.Rg1LineVCompound(), out.visible);
-    walk(extractor.RgNLineVCompound(), out.visible);
-    walk(extractor.OutLineVCompound(), out.visible);
-    walk(extractor.HCompound(),        out.hidden);
-    walk(extractor.Rg1LineHCompound(), out.hidden);
-    walk(extractor.RgNLineHCompound(), out.hidden);
-    return true;
+    (void)deflection;  // native HLR chords curved edges internally
+#ifdef FORGE_NATIVE_BREP
+    // TKHLR-free: import the OCCT shape to a native analytic Solid and run the
+    // native orthographic HLR (emitNativeHlr re-projects into this ax2 screen frame
+    // and drops edge-on projections exactly as OCCT HLR omits them). Returns false
+    // (empty) when the shape cannot be imported / the HLR degenerates — no OCCT HLR
+    // fallback remains.
+    forge::ImportResult imported = forge::importOcctSolid(shape);
+    if (!imported.ok || imported.solid == nullptr) return false;
+    emitNativeHlr(*imported.solid, ax2,
+                  [&](NativeHlrClass cls, std::vector<std::pair<double, double>>& pl) {
+                      Polyline poly;
+                      poly.reserve(pl.size());
+                      for (const auto& xy : pl) poly.emplace_back(xy.first, xy.second);
+                      // HLRBuckets carries only visible + hidden; the silhouette /
+                      // outline class joins visible (matching the original walk(),
+                      // which routed OutLineVCompound into out.visible).
+                      if (cls == NativeHlrClass::Hidden) out.hidden.push_back(std::move(poly));
+                      else                               out.visible.push_back(std::move(poly));
+                  });
+    return !out.visible.empty() || !out.hidden.empty();
+#else
+    (void)shape; (void)ax2; (void)out;
+    throw std::runtime_error(
+        "forge::drawings: HLR requires the native B-rep build (FORGE_NATIVE_BREP)");
+#endif
 }
 
 // Compute (and write into the view) the 2D bbox of the visible + hidden
@@ -1111,20 +1094,11 @@ View2D projectView(const TopoDS_Shape& shape, ViewDirection dir) {
     constexpr double kDeflection = 0.05;
 
     HLRBuckets buckets;
-    bool ok = runHlrToPolylines(shape, ax2, buckets, kDeflection);
-
-    // If HLR produced no visible edges (some curved-face shapes need
-    // a triangulation first), tessellate and retry once.
-    if (!ok || buckets.visible.empty()) {
-        // K5 — attach a NATIVE per-face triangulation (in-house triangulator,
-        // reads only OCCT surfaces/pcurves; NO BRepMesh / TKMesh) so the OCCT HLR
-        // pass has a polyhedral facing to fall back on for curved faces.
-        occtmesh::triangulateShapeInPlace(shape, /*linDefl*/ 0.1, /*angDefl*/ 0.5);
-        HLRBuckets retry;
-        if (runHlrToPolylines(shape, ax2, retry, kDeflection) && !retry.visible.empty()) {
-            buckets = std::move(retry);
-        }
-    }
+    runHlrToPolylines(shape, ax2, buckets, kDeflection);
+    // NO tessellate-and-retry: the native HLR reads analytic surfaces directly, so
+    // triangulating the shape and re-running (the old OCCT crutch for curved faces
+    // that lacked a facing) is pointless and harmful — it would re-import a faceted
+    // round-trip. A degenerate result is reported honestly below.
 
     if (buckets.visible.empty() && buckets.hidden.empty()) {
         throw std::runtime_error(
@@ -1137,6 +1111,33 @@ View2D projectView(const TopoDS_Shape& shape, ViewDirection dir) {
     computeBbox(view);
     return view;
 }
+
+#ifdef FORGE_NATIVE_BREP
+View2D projectViewNative(const forge::native::brep::Solid& solid, ViewDirection dir) {
+    const gp_Ax2 ax2 = buildAx2(toLegacyDir(dir));
+    HLRBuckets buckets;
+    // Project the native solid DIRECTLY (no OCCT round-trip). emitNativeHlr drops
+    // edge-on projections exactly as OCCT HLR omitted them; silhouette/outline joins
+    // visible (matching projectView's OutLineVCompound -> visibleEdges routing).
+    emitNativeHlr(solid, ax2,
+                  [&](NativeHlrClass cls, std::vector<std::pair<double, double>>& pl) {
+                      Polyline poly;
+                      poly.reserve(pl.size());
+                      for (const auto& xy : pl) poly.emplace_back(xy.first, xy.second);
+                      if (cls == NativeHlrClass::Hidden) buckets.hidden.push_back(std::move(poly));
+                      else                               buckets.visible.push_back(std::move(poly));
+                  });
+    if (buckets.visible.empty() && buckets.hidden.empty()) {
+        throw std::runtime_error(
+            "forge::drawings::projectView: native HLR produced no edges (shape may be degenerate)");
+    }
+    View2D view;
+    view.visibleEdges = std::move(buckets.visible);
+    view.hiddenEdges  = std::move(buckets.hidden);
+    computeBbox(view);
+    return view;
+}
+#endif
 
 SectionView sectionView(const TopoDS_Shape& shape, gp_Pln cuttingPlane) {
     if (shape.IsNull()) {

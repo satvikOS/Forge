@@ -1955,7 +1955,17 @@ Napi::Value ProjectView2D(const Napi::CallbackInfo& info) {
         ShapeHandle h = requireHandle(info, 0);
         auto dir = drawings_v2_bind::parseViewDirection(env,
             info.Length() > 1 ? info[1] : env.Undefined());
-        const TopoDS_Shape& shape = ShapeRegistry::instance().get(h);
+        auto& reg = ShapeRegistry::instance();
+#ifdef FORGE_NATIVE_BREP
+        // HANDLE-AWARE (TKHLR dropped): a NativeSolid is projected via its analytic
+        // solid DIRECTLY (native HLR), avoiding the lossy — and for some booleans
+        // pathological — native->OCCT->native round-trip that reg.get() would force.
+        if (reg.kindOf(h) == ShapeKind::NativeSolid) {
+            auto v = forge::drawings::projectViewNative(reg.getNativeSolid(h), dir);
+            return drawings_v2_bind::view2DToObj(env, v);
+        }
+#endif
+        const TopoDS_Shape& shape = reg.get(h);
         auto v = forge::drawings::projectView(shape, dir);
         return drawings_v2_bind::view2DToObj(env, v);
     });

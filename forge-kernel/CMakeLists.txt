@@ -163,9 +163,18 @@ set(OCCT_LIBS
     TKG3d TKGeomBase TKGeomAlgo
     TKBRep TKTopAlgo TKShHealing
     TKPrim TKFillet TKOffset
-    TKHLR
     TKDESTEP TKXSBase
 )
+# OCCT-zero progress (2026-07-20): dropped TKHLR. 14 -> 13 OCCT dylibs.
+#   The engineering-drawing hidden-line-removal path (src/Drawings.cpp) was the sole
+#   consumer of OCCT's HLR (HLRBRep_Algo / HLRBRep_HLRToShape / HLRAlgo_Projector).
+#   Every orthographic HLR call site now runs the NATIVE analytic HLR
+#   (forge::native::brep::hiddenLineRemoval) via emitNativeHlr(); perspective HLR was
+#   already native (projectShapePerspective -> hlrPerspective). NativeSolid handles
+#   project their analytic solid DIRECTLY (projectViewNative / tryNativeProjectShape),
+#   avoiding the lossy native->OCCT round-trip. VERIFIED: occt_drop_gate.sh TKHLR = 0
+#   exclusive symbols; nm -u | grep -iE 'HLRBRep|HLRAlgo' EMPTY; core 34/34, Models-OS
+#   13/13, drawings smoke PASS, foreign reader 49/81 all unchanged.
 # OCCT-zero progress (2026-07-06): dropped 3 dead-linked dylibs TKDEIGES/TKDESTL/TKDEVRML —
 # IGES read is native (IgesRead.cpp), STL is native both ways (MeshExchange), no VRML path exists.
 # Verified zero #include of IGESControl/StlAPI/VrmlAPI in src/. 22 -> 19 OCCT dylibs.
