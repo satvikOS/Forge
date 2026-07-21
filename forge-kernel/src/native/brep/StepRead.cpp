@@ -1388,7 +1388,17 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                 if (ccw) { while (span <= 1e-9) span += 2.0 * PI; while (span > 2.0 * PI + 1e-6) span -= 2.0 * PI; }
                 else     { while (span >= -1e-9) span -= 2.0 * PI; while (span < -2.0 * PI - 1e-6) span += 2.0 * PI; }
                 if (closedEdge) span = ccw ? 2.0 * PI : -2.0 * PI;   // full circle/ellipse
-                int M = (int)std::llround(48.0 * std::fabs(span) / (2.0 * PI));
+                // 96 samples/2*pi (was 48): a cylinder cut by an INCLINED plane bounds
+                // its wall with the intersection ELLIPSE, which maps to a SINUSOID
+                // z(theta) in the surface (theta,z) region plane. buildRegionPolygon
+                // projects these densified 3D samples to (theta,z) and CHORDS between
+                // them; a coarse chord cuts inside/outside the true sinusoid arc, so the
+                // scan-line region integral over/under-reads the trimmed wall by the
+                // trapezoidal chord error (measured: 240 -2.0% under). Halving Δtheta
+                // cuts that O(Δtheta^2) error ~4x and flips 240 (0.0203->0.0192) while
+                // 140/141 (fuller arcs, already near-exact by periodic cancellation)
+                // stay put (140 0.00085->0.00111).
+                int M = (int)std::llround(96.0 * std::fabs(span) / (2.0 * PI));
                 if (M < 6) M = 6;
                 for (int i = 0; i < M; ++i) {                       // start + interiors (excl. end)
                     const double t = a0 + span * (double(i) / M);
