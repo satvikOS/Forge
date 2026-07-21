@@ -5,15 +5,22 @@
 // OCCT_ZERO Wave-0 (B2): <BRepMesh_IncrementalMesh.hxx> REMOVED — STL export no
 // longer meshes via OCCT; it tessellates the native body (tessellateSolid /
 // HalfEdgeMesh::toSoup) and writes through the native ASCII STL codec.
+// OCCT-ZERO (TKDESTEP+TKXSBase DROP, 2026-07-21): the Data-Exchange STEP toolkits
+// are NO LONGER linked into the native .node. STEP READ is now the in-house
+// TKDESTEP-free transfer (forge::native::brep::foreignStepToOcct, StepReadOcct.cpp)
+// which builds the OCCT B-rep DIRECTLY via the modeling toolkits — ONE shared edge
+// per EDGE_CURVE on each analytic surface, reproducing STEPControl_Reader's clean
+// topology (part 135 -> 38F/81E, A/B-verified). STEP WRITE was already OCCT-free
+// (StepAnalytic / StepFaceted). The STEPControl_Reader / STEPControl_Writer /
+// Interface_Static / IFSelect headers below are therefore compiled ONLY into the
+// pure-OCCT fallback build (FORGE_NATIVE_BREP undefined), which is the sole path
+// that still references TKDESTEP/TKXSBase.
+#ifndef FORGE_NATIVE_BREP
 #include <STEPControl_Reader.hxx>
-// OCCT_ZERO (TKDESTEP-prep): STEPControl_Writer is referenced ONLY by the
-// pure-OCCT build's exportStep (#else branch). In the native build
-// (FORGE_NATIVE_BREP=1 — the shipped .node) STEP EXPORT is fully OCCT-free: a
-// NativeSolid → StepAnalytic, a NativeMesh / OCCT-backed handle → StepFaceted (via
-// the kernel tessellator). So no STEPControl_Writer symbol is linked there. The
-// header include is harmless (a class declaration emits no undefined symbol unless
-// referenced); it stays for the pure-OCCT fallback build.
 #include <STEPControl_Writer.hxx>
+#include <IFSelect_ReturnStatus.hxx>
+#include <Interface_Static.hxx>
+#endif
 // OCCT_ZERO Wave-0 (B2): <StlAPI_Reader.hxx> / <StlAPI_Writer.hxx> REMOVED — STL
 // read/write is now the in-house ASCII codec (forge/native/brep/MeshExchange.hpp),
 // whose std::to_chars/from_chars coordinate round-trip is bit-exact (A/B-certified
@@ -21,8 +28,6 @@
 // OCCT_ZERO Wave-0 (B1): <IGESControl_Reader.hxx> REMOVED — IGES read is now the
 // in-house native reader (forge/native/brep/IgesRead.hpp), A/B-certified vs OCCT
 // in test/native_vs_occt_iges.cpp. OCCT's TKDEIGES reader is no longer linked here.
-#include <IFSelect_ReturnStatus.hxx>
-#include <Interface_Static.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Compound.hxx>
@@ -33,6 +38,7 @@
 #include <stdexcept>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
 
 // IN-HOUSE KERNEL STEP 3c — gated native STEP route. Compiled in only under
 // -DFORGE_NATIVE_BREP; taken at runtime only when forgeNativeStepEnabled().
@@ -41,6 +47,7 @@
 #include "forge/Tessellate.hpp"                     // OCCT-zero STEP export — soup for an OCCT-handle body
 #include "forge/native/brep/NativeRoute.hpp"        // forgeNativeBrepEnabled
 #include "forge/native/brep/StepAnalytic.hpp"       // analytic codec (NativeSolid)
+#include "forge/native/brep/StepReadOcct.hpp"        // TKDESTEP-free foreign STEP -> OCCT transfer
 #include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh + OCCT-handle export)
 #include "forge/native/brep/SolidTessellate.hpp"    // soup for a faceted-solid fallback
 #include "forge/native/brep/IgesRead.hpp"           // OCCT-zero B1 — native foreign-IGES reader
@@ -70,22 +77,27 @@ void spillFile(const std::string& filepath, const std::string& text) {
 
 ShapeHandle importStep(const std::string& filepath) {
 #ifdef FORGE_NATIVE_BREP
+    // OCCT-ZERO STEP READ (TKDESTEP+TKXSBase DROPPED). No STEPControl_Reader.
+    //   * A Forge analytic STEP round-trips native (StepAnalytic -> NativeSolid,
+    //     usable directly by the native query/op layer) when the native gate is on.
+    //   * ANY other (foreign / OCCT-dialect / third-party) STEP is transferred to an
+    //     OCCT B-rep DIRECTLY by the in-house TKDESTEP-free reader — ONE shared edge
+    //     per EDGE_CURVE on each analytic surface (PLANE/CYL/CONE/SPHERE/TORUS),
+    //     healed to valid via ShapeFix. This reproduces STEPControl_Reader's clean
+    //     topology (A/B-verified: part 135 -> 38F/81E, exact volume; bracket 6F/12E).
+    // An unsupported entity is an HONEST throw (Bible §0/§9), never a faked read.
+    std::string text = slurpFile(filepath);
     if (native::brep::forgeNativeStepEnabled()) {
-        // Native analytic route: parse the part-21 into an in-house Solid. On any
-        // unsupported feature (a surface entity the native reader can't rebuild)
-        // we fall back to the OCCT importer below — preserving the "imports any
-        // STEP" behaviour (OCCT stays linked) rather than throwing. Stated plainly.
-        std::string text = slurpFile(filepath);
         auto rr = native::brep::StepAnalytic::read(text);
         if (rr.ok && rr.solid && rr.owner) {
             return ShapeRegistry::instance().addNativeSolid(rr.owner, rr.solid);
         }
-        // else: honest fall-through to OCCT (e.g. a B_SPLINE_SURFACE face, or a
-        // non-analytic third-party STEP the native reader does not reconstruct).
     }
-#endif
-    // STEPControl_Reader supports AP203, AP214, AP242 — TKDESTEP picks
-    // the right schema automatically from the file header.
+    return ShapeRegistry::instance().add(native::brep::foreignStepToOcct(text));
+#else
+    // PURE-OCCT build (FORGE_NATIVE_BREP undefined): the OCCT AP203/214/242 reader.
+    // This is the ONLY reference to STEPControl_Reader / TKDESTEP, so it is absent
+    // from the shipped native .node (which never compiles this branch).
     STEPControl_Reader reader;
     Interface_Static::SetCVal("xstep.cascade.unit", "MM");
     const auto stat = reader.ReadFile(filepath.c_str());
@@ -101,12 +113,9 @@ ShapeHandle importStep(const std::string& filepath) {
     if (nShapes == 0) {
         throw std::runtime_error("forge.io: STEP transfer produced no shapes");
     }
-
-    // Multi-shape files come back as a compound — preserves the file's
-    // hierarchy so the JS layer can walk it (Forge-21b will add
-    // sub-shape iteration; for now we hand back the root).
     TopoDS_Shape shape = nShapes == 1 ? reader.Shape(1) : reader.OneShape();
     return ShapeRegistry::instance().add(shape);
+#endif
 }
 
 bool exportStep(ShapeHandle h, const std::string& filepath) {

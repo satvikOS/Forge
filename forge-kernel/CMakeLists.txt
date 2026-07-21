@@ -163,8 +163,20 @@ set(OCCT_LIBS
     TKG3d TKGeomBase TKGeomAlgo
     TKBRep TKTopAlgo TKShHealing
     TKPrim TKFillet TKOffset
-    TKDESTEP TKXSBase
 )
+# OCCT-zero progress (2026-07-21, K-STEP): dropped TKDESTEP + TKXSBase. 13 -> 11 OCCT dylibs.
+#   STEP READ was the sole consumer of the Data-Exchange toolkits (STEPControl_Reader /
+#   XSControl_Reader / Interface_Static, all in src/IoExchange.cpp::importStep). It now runs
+#   the in-house TKDESTEP-free transfer forge::native::brep::foreignStepToOcct
+#   (src/native/brep/StepReadOcct.cpp): parse ISO-10303-21 with the shared StepPart21 lexer,
+#   then build the OCCT B-rep DIRECTLY with the modeling toolkits (TKBRep/TKG3d/TKGeomBase/
+#   TKTopAlgo) — ONE shared TopoDS_Edge per EDGE_CURVE (exact LINE/CIRCLE/ELLIPSE 3D curve)
+#   on each analytic Geom surface (PLANE/CYLINDRICAL/CONICAL/SPHERICAL/TOROIDAL), healed to a
+#   valid solid via ShapeFix (pcurves + orientation). STEP WRITE was already OCCT-free
+#   (StepAnalytic/StepFaceted). VERIFIED keep-if-green: otool opencascade 13->11, TKDESTEP/
+#   TKXSBase gone, nm -u STEPControl==0; native reader on part 135 -> 38F/81E/valid, exact
+#   volume; Models-OS 13/13 (test_compile score 0.459305 reproduced); native_vs_occt_core
+#   34/34; forge:kernel:test smoke all green.
 # OCCT-zero progress (2026-07-20): dropped TKHLR. 14 -> 13 OCCT dylibs.
 #   The engineering-drawing hidden-line-removal path (src/Drawings.cpp) was the sole
 #   consumer of OCCT's HLR (HLRBRep_Algo / HLRBRep_HLRToShape / HLRAlgo_Projector).
@@ -581,6 +593,7 @@ add_library(forge_kernel SHARED
     src/native/brep/LoftSweep.cpp       # analytic loft through N planar sections + translational sweep along a path -> closed B-rep solid (ThruSections/MakePipe analogue)
     src/native/brep/HelicalSweep.cpp    # helical sweep: circular profile along a constant-pitch helix -> coil/spring/thread (RMF-transported, MakePipe analogue)
     src/native/brep/IgesRead.cpp        # foreign IGES (ASCII) read: 144 trimmed-surface / 186 manifold-solid-brep / 128 NURBS -> native TrimmedFace -> sew -> shell/solid
+    src/native/brep/StepReadOcct.cpp    # TKDESTEP-free foreign STEP -> OCCT B-rep transfer (one shared edge per EDGE_CURVE on analytic surfaces) — importStep after the TKDESTEP drop
     src/native/brep/MeshExchange.cpp    # OCCT-zero B2 — native ASCII mesh I/O (STL/OBJ/OFF/PLY); exact std::to_chars/from_chars coord round-trip. Wired into src/IoExchange.cpp importStl/exportStl (replaces StlAPI + BRepMesh).
     src/native/brep/Hlr.cpp             # hidden-line removal for drawings: orthographic project + z-buffer occlusion split of B-rep edges into visible/hidden spans
     src/native/brep/Section.cpp         # planar section / cut views: plane-solid SSI section wires + filled cross-section area + centroid (section properties)
