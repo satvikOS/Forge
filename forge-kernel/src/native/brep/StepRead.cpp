@@ -682,7 +682,7 @@ bool invertNurbs(const NurbsSurface& surf, const Vec3& P, UVCoord& uv,
     SurfaceSample fin = evaluatePoint(surf, u, v);
     if (!fin.ok) return false;
     const Vec3 d = vsub(fin.point, P);
-    if (vlen(d) > tol3d) return false;                // did not converge to the point
+    if (vlen(d) > tol3d) return false;                 // did not converge to the point
     uv.u = u; uv.v = v;
     return true;
 }
@@ -851,6 +851,45 @@ EdgeGeom readEdgeGeom(const Resolver& R, std::uint64_t ecId, double scale) {
     return g;
 }
 
+// Resolve a RAW curve id (the generatrix / profile of a SURFACE_OF_LINEAR_EXTRUSION
+// — NOT wrapped in an EDGE_CURVE) into a NurbsCurve, scaled to mm. Handles the plain
+// B_SPLINE_CURVE_WITH_KNOTS and its COMPLEX (rational) record — the only profile
+// kinds these extrusion faces use. Returns false (no fabrication) for anything else,
+// so the face is honestly recorded unsupported rather than mis-built.
+bool buildProfileCurve(const Resolver& R, std::uint64_t curveId, double scale, NurbsCurve& out) {
+    curveId = resolve3dCurve(R, curveId);
+    Instance ci; if (!R.get(curveId, ci)) return false;
+    if (ci.type == "B_SPLINE_CURVE_WITH_KNOTS") {
+        auto p = splitTopLevel(ci.params);
+        if (p.size() < 2) return false;
+        std::vector<std::string> fields(p.begin() + 1, p.end());   // drop name
+        return buildBSplineCurve(R, fields, nullptr, scale, out) && out.valid();
+    }
+    if (ci.type.empty()) {   // COMPLEX rational b-spline curve record
+        auto subs = splitComplex(ci.params);
+        const SubRecord* base = nullptr; const SubRecord* knots = nullptr; const SubRecord* rational = nullptr;
+        for (const auto& sr : subs) {
+            if (sr.type == "B_SPLINE_CURVE") base = &sr;
+            else if (sr.type == "B_SPLINE_CURVE_WITH_KNOTS") knots = &sr;
+            else if (sr.type == "RATIONAL_B_SPLINE_CURVE") rational = &sr;
+        }
+        if (base && knots) {
+            auto bf = splitTopLevel(base->params);
+            auto kf = splitTopLevel(knots->params);
+            if (bf.size() >= 5 && kf.size() >= 2) {
+                std::vector<std::string> fields;
+                fields.push_back(bf[0]); fields.push_back(bf[1]); fields.push_back(bf[2]);
+                fields.push_back(bf[3]); fields.push_back(bf[4]);
+                fields.push_back(kf[0]); fields.push_back(kf[1]);
+                std::vector<double> w; const std::vector<double>* wp = nullptr;
+                if (rational) { auto rf = splitTopLevel(rational->params); if (!rf.empty() && parseRealList(rf[0], w)) wp = &w; }
+                return buildBSplineCurve(R, fields, wp, scale, out) && out.valid();
+            }
+        }
+    }
+    return false;
+}
+
 } // namespace
 
 // ===========================================================================
@@ -950,10 +989,12 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
     // For unsupported surfaces returns false with the type recorded by the caller.
     auto buildSurface = [&](std::uint64_t surfId, bool sameSense, Surface& s,
                             std::string& surfType, bool& isBSpline,
-                            NurbsSurface& nurbsOut, std::string& localWhy) -> bool {
+                            NurbsSurface& nurbsOut, std::string& localWhy,
+                            bool& isExtrusion, NurbsCurve& extrProfile, Vec3& extrDir) -> bool {
         Instance ins;
         if (!R.get(surfId, ins)) { localWhy = "dangling surface ref"; return false; }
         isBSpline = false;
+        isExtrusion = false;
         // COMPLEX surface record: (BOUNDED_SURFACE()B_SPLINE_SURFACE(...)
         //   B_SPLINE_SURFACE_WITH_KNOTS(...)(RATIONAL_B_SPLINE_SURFACE(...))...)
         if (ins.type.empty()) {
@@ -1058,6 +1099,10 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             // plane containing the axis, well clear of it). A near-axis circle (sphere
             // / spindle torus / degenerate) is left HONESTLY unsupported rather than
             // faked as a giant sphere (which corrupted the volume, e.g. 140).
+            // (Measured: allowing the spindle torus majR<=crad and integrating its
+            // trimmed region drove 140 from 3.9% to 43% and 147 worse — the poloidal
+            // (theta,phi) region degenerates through the self-intersection — so the
+            // spindle case stays unsupported. Reverted 2026-07-20.)
             const bool circlePlaneContainsAxis = std::fabs(vdot(vnorm(cca), aDir)) < 1e-3;
             if (majR < 1.5 * crad || !circlePlaneContainsAxis) {
                 localWhy = "revolution circle (non-torus)";
@@ -1066,6 +1111,30 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             s.kind = SurfaceKind::Torus; s.origin = foot; s.axis = aDir;
             s.refDir = vscale(radial, 1.0 / majR);
             s.r1 = majR; s.r2 = crad;
+        } else if (ins.type == "SURFACE_OF_LINEAR_EXTRUSION") {
+            // S(u,v) = C(u) + v*V : a profile CURVE C swept along the VECTOR V.
+            // Parse the profile + direction here; the tensor NURBS (degree-1 in v)
+            // is assembled in the face loop once the trim's v-extent is known.
+            std::uint64_t curveId = 0, vecId = 0;
+            if (p.size() < 3 || !parseRef(p[1], curveId) || !parseRef(p[2], vecId)) {
+                localWhy = "extrusion refs"; surfType = "SURFACE_OF_LINEAR_EXTRUSION"; return false;
+            }
+            Instance vi;
+            if (!R.get(vecId, vi) || vi.type != "VECTOR") { localWhy = "extrusion vector"; surfType = "SURFACE_OF_LINEAR_EXTRUSION"; return false; }
+            auto vparams = splitTopLevel(vi.params);
+            std::uint64_t dirId = 0; double mag = 0;
+            Vec3 dvec;
+            if (vparams.size() < 3 || !parseRef(vparams[1], dirId) || !stepNum(vparams[2], mag) ||
+                !getDir(R, dirId, dvec)) {
+                localWhy = "extrusion vector fields"; surfType = "SURFACE_OF_LINEAR_EXTRUSION"; return false;
+            }
+            extrDir = vscale(vnorm(dvec), mag * scale);        // V in mm
+            if (vlen(extrDir) < 1e-12 || !buildProfileCurve(R, curveId, scale, extrProfile)) {
+                localWhy = "extrusion profile"; surfType = "SURFACE_OF_LINEAR_EXTRUSION"; return false;
+            }
+            isExtrusion = true;
+            surfType = "SURFACE_OF_LINEAR_EXTRUSION";
+            return true;
         } else {
             localWhy = "unsupported surface entity '" + ins.type + "'";
             return false;
@@ -1196,10 +1265,16 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
     // every inverted trim point so the caller can integrate the B-spline face over
     // the TRIMMED (u,v) window instead of the full knot rectangle (the dominant
     // over/under-count on exporter patches whose knot domain overruns the face).
+    // `regionPoly` (optional): the ORDERED (u,v) boundary polygon of this loop in
+    // the surface's OWN parameter space — one vertex per densified boundary point,
+    // in ring-traversal order, so MassProps::integrateParametricRegion can scan-line
+    // integrate the B-spline face over its TRUE trimmed region instead of the knot
+    // rectangle (the direct extension of the quadric region path to NURBS patches).
     auto buildTrimLoopNurbs = [&](std::uint64_t loopId, const NurbsSurface& nsurf,
                                   bool isOuter, TrimLoop& out,
                                   std::string& unsupportedKw,
-                                  double* uvbb = nullptr) -> bool {
+                                  double* uvbb = nullptr,
+                                  std::vector<std::array<double, 2>>* regionPoly = nullptr) -> bool {
         auto grow = [&](const UVCoord& uv) {
             if (!uvbb) return;
             uvbb[0] = std::min(uvbb[0], uv.u); uvbb[1] = std::max(uvbb[1], uv.u);
@@ -1217,7 +1292,17 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         // accumulated so far (fall back to a generous absolute if the box is empty).
         double diag = 0.0;
         for (int k = 0; k < 3; ++k) { double d = bboxMax[k]-bboxMin[k]; if (d > 0) diag += d*d; }
-        const double invTol = (diag > 0) ? 1e-7 * std::sqrt(diag) : 1e-6;
+        // 3D convergence tolerance for the Gauss-Newton point inversion, RELATIVE to
+        // the model size. The prior 1e-7*diag was ultra-tight: measured, the "failing"
+        // boundary edges of exporter B-spline patches invert to a genuine on-patch
+        // point whose residual is ~1e-5..1e-3 mm on 70..430 mm parts (10 ppm of the
+        // part), i.e. they ARE on the patch and the strict tol merely REJECTED them —
+        // dooming the whole face to the full knot-RECTANGLE fallback (a gross
+        // over/under-count). 1e-5*diag (10 ppm) accepts these true inversions so the
+        // face's real trim loop is built and it is region-integrated; a genuinely
+        // off-patch point (shared edge on a different patch) still has an mm-scale
+        // residual and is honestly rejected.
+        const double invTol = (diag > 0) ? 1e-5 * std::sqrt(diag) : 1e-4;
         (void)bspTol3d;
 
         out.segments.clear();
@@ -1252,6 +1337,10 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             switch (eg.kind) {
             case EdgeGeomKind::Line:
                 out.segments.push_back(PCurve::makeLine2(uvStart, uvEnd));
+                // Ring vertex: the directed START (the segment's END == the next
+                // segment's START, so pushing only the start avoids a duplicate; the
+                // loop closes back to poly[0] in integrateParametricRegion).
+                if (regionPoly) regionPoly->push_back({uvStart.u, uvStart.v});
                 break;
             case EdgeGeomKind::Circle:
             case EdgeGeomKind::Ellipse:
@@ -1324,6 +1413,12 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                 pc.knots.push_back(0.0);
                 for (std::size_t i = 0; i < np; ++i) pc.knots.push_back(double(i) / double(np - 1));
                 pc.knots.push_back(1.0);
+                // Ring vertices: every densified (u,v) sample of this curved edge
+                // EXCEPT the last (== next segment's start), so the region polygon
+                // traces the true curved trim boundary in parameter space.
+                if (regionPoly)
+                    for (std::size_t i = 0; i + 1 < pc.controlPoints.size(); ++i)
+                        regionPoly->push_back({pc.controlPoints[i].x, pc.controlPoints[i].y});
                 out.segments.push_back(PCurve::makeBSpline2(pc));
                 break;
             }
@@ -1354,7 +1449,11 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         bool isBSpline = false;
         NurbsSurface nurbs;
         std::string surfType, localWhy;
-        bool surfOk = buildSurface(surfRef, sameSense, protoSurf, surfType, isBSpline, nurbs, localWhy);
+        bool isExtrusion = false;
+        NurbsCurve extrProfile;
+        Vec3 extrDir{};
+        bool surfOk = buildSurface(surfRef, sameSense, protoSurf, surfType, isBSpline, nurbs, localWhy,
+                                   isExtrusion, extrProfile, extrDir);
         info.surfaceType = surfType;
         if (!surfOk) {
             // HONEST: record the unsupported surface, do NOT fabricate or drop.
@@ -1402,6 +1501,59 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             }
             outerRings.push_back(std::move(innerRings.front()));
             innerRings.erase(innerRings.begin());
+        }
+
+        // SURFACE_OF_LINEAR_EXTRUSION -> exact tensor NURBS. A linear extrusion
+        // S(u,v)=C(u)+v*V is a RULED surface: degree-1 in v with two control rows
+        // (the profile at v=vLo and at v=vHi), so it is represented EXACTLY as a
+        // NURBS with the profile's own (u-degree,u-knots) and vKnots={vLo,vLo,vHi,vHi}.
+        // The v-extent [vLo,vHi] is recovered from the face's own boundary ring: for
+        // any boundary point P, v=(P-C(u))·V/|V|^2, and C(u)·V lies in the profile
+        // control points' [cMin,cMax] hull, so [ (pMin-cMax), (pMax-cMin) ]/|V|^2
+        // is a tight superset of the true v-range. Building it (vs. dropping the
+        // face) CLOSES the shell; it then flows through the identical NURBS trim +
+        // region mass path. Genuinely off-hull margin is trimmed by the region loop.
+        if (isExtrusion) {
+            const std::vector<Vec3>& rp = outerRings[0].pts;
+            const double VdotV = vdot(extrDir, extrDir);
+            if (rp.size() >= 3 && VdotV > 1e-24 && extrProfile.valid()) {
+                double cMin = 1e300, cMax = -1e300;
+                for (const Vec3& c : extrProfile.controlPoints) {
+                    const double d = vdot(c, extrDir);
+                    cMin = std::min(cMin, d); cMax = std::max(cMax, d);
+                }
+                double pMin = 1e300, pMax = -1e300;
+                for (const Vec3& P : rp) {
+                    const double d = vdot(P, extrDir);
+                    pMin = std::min(pMin, d); pMax = std::max(pMax, d);
+                }
+                double vLo = (pMin - cMax) / VdotV, vHi = (pMax - cMin) / VdotV;
+                if (vHi > vLo + 1e-12) {
+                    const double margin = 0.02 * (vHi - vLo);
+                    vLo -= margin; vHi += margin;
+                    const std::size_t nU = extrProfile.controlPoints.size();
+                    nurbs = NurbsSurface{};
+                    nurbs.degreeU = extrProfile.degree;
+                    nurbs.knotsU  = extrProfile.knots;
+                    nurbs.degreeV = 1;
+                    nurbs.knotsV  = {vLo, vLo, vHi, vHi};
+                    nurbs.control.assign(nU, {});
+                    nurbs.weights.assign(nU, {});
+                    for (std::size_t i = 0; i < nU; ++i) {
+                        const Vec3 c = extrProfile.controlPoints[i];
+                        const double w = (i < extrProfile.weights.size()) ? extrProfile.weights[i] : 1.0;
+                        nurbs.control[i] = { vadd(c, vscale(extrDir, vLo)), vadd(c, vscale(extrDir, vHi)) };
+                        nurbs.weights[i] = { w, w };
+                    }
+                    if (nurbs.valid()) isBSpline = true;
+                }
+            }
+            if (!isBSpline) {   // could not assemble a valid extrusion patch — honest skip
+                info.supported = false;
+                result.unsupported["SURFACE_OF_LINEAR_EXTRUSION"]++;
+                result.faceInfos.push_back(info);
+                continue;
+            }
         }
 
         // Build the native face with its outer ring (INDEPENDENT vertices/edges).
@@ -1475,18 +1627,23 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             std::string unsupKw;
             TrimLoop outer;
             double obb[4] = {1e300, -1e300, 1e300, -1e300};   // outer-loop (u,v) bbox
+            std::vector<std::array<double, 2>> outerRegionPoly;               // real trim (u,v) outer
+            std::vector<std::vector<std::array<double, 2>>> innerRegionPolys; // real trim (u,v) holes
             if (!buildTrimLoopNurbs(outerRings[0].loopId, nurbs, /*isOuter=*/true,
-                                    outer, unsupKw, obb)) {
+                                    outer, unsupKw, obb, &outerRegionPoly)) {
                 trimOk = false;
             } else {
                 tf.loops.push_back(std::move(outer));
                 for (const LoopRing& hr : innerRings) {
                     TrimLoop hole;
                     std::string hk;
-                    if (!buildTrimLoopNurbs(hr.loopId, nurbs, /*isOuter=*/false, hole, hk)) {
+                    std::vector<std::array<double, 2>> holePoly;
+                    if (!buildTrimLoopNurbs(hr.loopId, nurbs, /*isOuter=*/false, hole, hk,
+                                            nullptr, &holePoly)) {
                         trimOk = false; unsupKw = hk; break;
                     }
                     tf.loops.push_back(std::move(hole));
+                    if (holePoly.size() >= 3) innerRegionPolys.push_back(std::move(holePoly));
                 }
             }
             // The mass integral for a NURBS face runs over the FULL knot rectangle
@@ -1511,6 +1668,27 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                     f->v0 = std::max(v0, obb[2]); f->v1 = std::min(v1, obb[3]);
                 } else {
                     f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
+                }
+                // Route the trimmed B-spline face through the SCAN-LINE region
+                // integrator over its REAL (u,v) trim polygon (outer minus holes),
+                // exactly like the quadric region path — this replaces the knot/bbox
+                // RECTANGLE (which over-counts when the true trim is not a rectangle)
+                // with the actual trimmed region. Clamp the polygon into the clamped
+                // knot domain so an inversion that drifted slightly outside cannot
+                // sample the surface off its defined parameter range.
+                if (outerRegionPoly.size() >= 3) {
+                    for (auto& p : outerRegionPoly) {
+                        p[0] = std::max(u0, std::min(u1, p[0]));
+                        p[1] = std::max(v0, std::min(v1, p[1]));
+                    }
+                    for (auto& hp : innerRegionPolys)
+                        for (auto& p : hp) {
+                            p[0] = std::max(u0, std::min(u1, p[0]));
+                            p[1] = std::max(v0, std::min(v1, p[1]));
+                        }
+                    f->regionOuterUV = std::move(outerRegionPoly);
+                    f->regionInnerUV = std::move(innerRegionPolys);
+                    f->regionUV = true;
                 }
             } else {
                 result.unsupported[unsupKw.empty() ? "EDGE_CURVE" : unsupKw]++;
