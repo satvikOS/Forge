@@ -654,6 +654,7 @@ add_library(forge_kernel SHARED
     src/native/brep/StepAnalytic.cpp
     src/native/brep/IgesWrite.cpp       # native IGES write: 186 manifold-solid-brep + 108 plane + 128 NURBS (round-trip sibling of IgesRead)
     src/native/brep/StepRead.cpp        # K6 — foreign STEP AP203/214 read: EXPRESS instance graph -> analytic+B-spline ADVANCED_FACE -> TrimmedFace -> sew -> native shell/solid
+    src/native/brep/StepWatertight.cpp  # K6 — watertight welded boundary-fan soup + GWN watertightness self-test + GWN face reorientation of the foreign import
     # Task #46 — bind the remaining forge::native engines into the addon so
     # Archie can call them via CUA. Pure C++20 stdlib (no new link libs).
     # geom/AABBTree + voxel/VoxelBoolean are cam's #include dependencies; list

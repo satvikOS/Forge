@@ -30,6 +30,7 @@
 #include "forge/native/brep/NurbsSurface.hpp"
 #include "forge/native/brep/Curve.hpp"
 #include "forge/native/brep/Sew.hpp"
+#include "forge/native/brep/StepWatertight.hpp"
 
 #include <algorithm>
 #include <array>
@@ -2116,6 +2117,37 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
         if (sh) { tb.addShellToSolid(solid, sh); result.shells.push_back(sh); }
     }
     // ensure every built face is owned by some shell (sewFaces builds the shells).
+
+    // --- WATERTIGHT-SOUP keystone (StepWatertight.hpp), both OFF by default -----
+    // GWN face REORIENTATION: with the welded shell as an orientation-independent
+    // oracle, align each face's analytic outward normal to the material exterior so
+    // the divergence mass integral is over a consistently-outward boundary. NO-OP
+    // unless FORGE_WT_REORIENT is set AND the welded soup is watertight enough to
+    // trust — so the default build is byte-identical (native primitives never reach
+    // here; the foreign A/B parity is unchanged when the flag is unset).
+    if (solid && std::getenv("FORGE_WT_REORIENT")) {
+        ReorientResult ro = reorientByGWN(*solid);
+        if (std::getenv("FORGE_WT_PROBE"))
+            std::fprintf(stderr, "[wt-reorient] faces=%d flipped=%d wnSign=%+.0f reliable=%d\n",
+                         ro.faces, ro.flipped, ro.wnSign, (int)ro.reliable);
+    }
+    // WATERTIGHTNESS SELF-TEST: prove the welded boundary-fan soup is watertight
+    // (freeEdges->0, |wn(centroid)|->1) versus the naive per-face param-grid soup
+    // (the cracked "before": high freeEdges, wn->0). Read-only; stderr only.
+    if (solid && std::getenv("FORGE_WT_PROBE")) {
+        const WatertightReport w = probeWatertightWelded(*solid);
+        const WatertightReport n = probeWatertightNaive(*solid);
+        std::fprintf(stderr,
+            "[wt-probe] WELDED  faces=%zu tris=%zu free=%zu nonManif=%zu conflicts=%d "
+            "wnCentroid=%+.4f wnInterior=%+.4f near1=%d watertight=%d\n",
+            w.faces, w.triangles, w.freeEdges, w.nonManifoldEdges, w.orientationConflicts,
+            w.wnCentroid, w.wnBestInterior, w.interiorNearOne, (int)w.watertight);
+        std::fprintf(stderr,
+            "[wt-probe] NAIVE   faces=%zu tris=%zu free=%zu nonManif=%zu conflicts=%d "
+            "wnCentroid=%+.4f wnInterior=%+.4f near1=%d watertight=%d\n",
+            n.faces, n.triangles, n.freeEdges, n.nonManifoldEdges, n.orientationConflicts,
+            n.wnCentroid, n.wnBestInterior, n.interiorNearOne, (int)n.watertight);
+    }
 
     result.ok = true;
     result.owner = owner;
