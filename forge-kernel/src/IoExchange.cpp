@@ -6,6 +6,13 @@
 // longer meshes via OCCT; it tessellates the native body (tessellateSolid /
 // HalfEdgeMesh::toSoup) and writes through the native ASCII STL codec.
 #include <STEPControl_Reader.hxx>
+// OCCT_ZERO (TKDESTEP-prep): STEPControl_Writer is referenced ONLY by the
+// pure-OCCT build's exportStep (#else branch). In the native build
+// (FORGE_NATIVE_BREP=1 — the shipped .node) STEP EXPORT is fully OCCT-free: a
+// NativeSolid → StepAnalytic, a NativeMesh / OCCT-backed handle → StepFaceted (via
+// the kernel tessellator). So no STEPControl_Writer symbol is linked there. The
+// header include is harmless (a class declaration emits no undefined symbol unless
+// referenced); it stays for the pure-OCCT fallback build.
 #include <STEPControl_Writer.hxx>
 // OCCT_ZERO Wave-0 (B2): <StlAPI_Reader.hxx> / <StlAPI_Writer.hxx> REMOVED — STL
 // read/write is now the in-house ASCII codec (forge/native/brep/MeshExchange.hpp),
@@ -31,9 +38,10 @@
 // -DFORGE_NATIVE_BREP; taken at runtime only when forgeNativeStepEnabled().
 // The OCCT path below stays the default (flag OFF -> byte-identical behaviour).
 #ifdef FORGE_NATIVE_BREP
+#include "forge/Tessellate.hpp"                     // OCCT-zero STEP export — soup for an OCCT-handle body
 #include "forge/native/brep/NativeRoute.hpp"        // forgeNativeBrepEnabled
 #include "forge/native/brep/StepAnalytic.hpp"       // analytic codec (NativeSolid)
-#include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh)
+#include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh + OCCT-handle export)
 #include "forge/native/brep/SolidTessellate.hpp"    // soup for a faceted-solid fallback
 #include "forge/native/brep/IgesRead.hpp"           // OCCT-zero B1 — native foreign-IGES reader
 #include "forge/native/brep/MeshExchange.hpp"        // OCCT-zero B2 — native ASCII STL codec
@@ -103,9 +111,9 @@ ShapeHandle importStep(const std::string& filepath) {
 
 bool exportStep(ShapeHandle h, const std::string& filepath) {
 #ifdef FORGE_NATIVE_BREP
+    auto& reg = ShapeRegistry::instance();
+    const ShapeKind k = reg.kindOf(h);
     if (native::brep::forgeNativeStepEnabled()) {
-        auto& reg = ShapeRegistry::instance();
-        const ShapeKind k = reg.kindOf(h);
         if (k == ShapeKind::NativeSolid) {
             // ANALYTIC route: emit real CYLINDRICAL/CONICAL/SPHERICAL/TOROIDAL/
             // PLANE surfaces + LINE/CIRCLE edges (NOT a tessellation).
@@ -133,10 +141,40 @@ bool exportStep(ShapeHandle h, const std::string& filepath) {
             spillFile(filepath, wr.text);
             return true;
         }
-        // k == Occt: fall through to the OCCT writer below (a native-gate session
+        // k == Occt: fall to the native FACETED route below (a native-gate session
         // can still hold OCCT-backed handles, e.g. an OCCT-imported part).
     }
-#endif
+    // OCCT-ZERO STEP EXPORT (TKDESTEP-prep): an OCCT-backed handle — or ANY handle
+    // when the native STEP gate is off — is exported through the IN-HOUSE FACETED
+    // codec instead of STEPControl_Writer (removed from the native build). The
+    // kernel tessellator produces the triangle soup (native for a NativeSolid/Mesh,
+    // OCCT BRepMesh for an OCCT-backed shape) and StepFaceted::write serialises it.
+    // HONEST: an OCCT handle carries no native analytic surface here, so its STEP is
+    // a tessellated MANIFOLD_SOLID_BREP (flat PLANE triangles) — stated plainly; keep
+    // the body in the native kernel and it exports analytically via the branch above.
+    // The angular tolerance (~0.08 rad ⇒ ≳78 facets/turn) keeps a curved OCCT body's
+    // enclosed volume within a few 1e-4 of the analytic truth.
+    {
+        forge::Mesh mesh = forge::tessellate(h, /*linearTol*/ 0.05, /*angularTol*/ 0.08);
+        if (mesh.indices.empty()) {
+            throw std::runtime_error(
+                "forge.io: STEP export produced an empty tessellation for " + filepath);
+        }
+        native::brep::StepMesh sm;
+        sm.positions.assign(mesh.positions.begin(), mesh.positions.end());  // float -> double
+        sm.indices = mesh.indices;
+        auto wr = native::brep::StepFaceted::write(sm, "forge_occt_faceted_solid");
+        if (!wr.ok) {
+            throw std::runtime_error(
+                "forge.io OCCT-handle faceted STEP export failed: " + wr.reason);
+        }
+        spillFile(filepath, wr.text);
+        return true;
+    }
+#else
+    // PURE-OCCT build (FORGE_NATIVE_BREP undefined): the OCCT AP242 writer. This is
+    // the ONLY reference to STEPControl_Writer, so it is absent from the shipped
+    // native .node (which never compiles this branch).
     const auto& shape = ShapeRegistry::instance().get(h);
     STEPControl_Writer writer;
     Interface_Static::SetCVal("write.step.schema", "AP242DIS");
@@ -150,6 +188,7 @@ bool exportStep(ShapeHandle h, const std::string& filepath) {
         throw std::runtime_error("forge.io: STEP write failed for " + filepath);
     }
     return true;
+#endif
 }
 
 ShapeHandle importBrep(const std::string& filepath) {
