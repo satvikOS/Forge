@@ -177,6 +177,20 @@ bool getAxis2(const Resolver& R, std::uint64_t id, Vec3& origin, Vec3& axis, Vec
     return true;
 }
 
+// Resolve AXIS1_PLACEMENT -> (location, axis dir). Location left in raw file units.
+bool getAxis1(const Resolver& R, std::uint64_t id, Vec3& loc, Vec3& axis) {
+    Instance ins; if (!R.get(id, ins)) return false;
+    if (ins.type != "AXIS1_PLACEMENT") return false;
+    auto p = splitTopLevel(ins.params);
+    if (p.size() < 2) return false;
+    std::uint64_t oId = 0, aId = 0;
+    if (!parseRef(p[1], oId) || !getPoint(R, oId, loc)) return false;
+    if (p.size() >= 3 && parseRef(p[2], aId)) { if (!getDir(R, aId, axis)) return false; }
+    else axis = Vec3{0, 0, 1};
+    axis = vnorm(axis);
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // UNIT context — find the length scale to millimetres.
 // ---------------------------------------------------------------------------
@@ -608,6 +622,11 @@ enum class EdgeGeomKind { Line, Circle, Ellipse, BSpline };
 struct EdgeGeom {
     bool ok = false;
     EdgeGeomKind kind = EdgeGeomKind::Line;
+    bool sameSense = true;            // EDGE_CURVE.same_sense: does the 3D curve run
+                                      // v0->v1 (t increasing) or v1->v0? Needed so a
+                                      // CIRCLE/ELLIPSE arc is sampled on the CORRECT
+                                      // side (CCW vs CW about its axis), not always
+                                      // the <=pi short arc.
     Vec3 v0{}, v1{};                  // the two VERTEX_POINTs (scaled, file sense start->end)
     // CIRCLE / ELLIPSE
     Vec3 centre{}, axis{}, refDir{};  // placement frame (axis = plane normal, refDir = +X)
@@ -672,6 +691,7 @@ EdgeGeom readEdgeGeom(const Resolver& R, std::uint64_t ecId, double scale) {
     if (ep.size() < 5) return g;
     std::uint64_t vS = 0, vE = 0, curveId = 0;
     if (!parseRef(ep[1], vS) || !parseRef(ep[2], vE)) return g;
+    g.sameSense = (ep.size() > 4) ? (ep[4] == ".T.") : true;   // EDGE_CURVE same_sense
     // endpoint vertices (file sense start->end, before ORIENTED_EDGE flip).
     auto vertexPos = [&](std::uint64_t vp, Vec3& out) -> bool {
         Instance vpi;
@@ -929,6 +949,48 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             std::vector<std::string> fields(p.begin() + 1, p.end());
             if (!buildBSplineSurface(R, fields, nullptr, scale, nurbsOut, localWhy)) return false;
             isBSpline = true; return true;
+        } else if (ins.type == "SURFACE_OF_REVOLUTION") {
+            // Revolve a generating CURVE about AXIS1. The common mechanical case is a
+            // CIRCLE generator (fillet/round face): revolving a circle about a coplanar
+            // axis gives a TORUS (major R = axis->centre distance, minor r = circle r),
+            // or a SPHERE when the axis passes through the circle centre. Build it as
+            // the native analytic quadric so the exact mass path integrates it.
+            std::uint64_t curveId = 0, axId = 0;
+            if (p.size() < 3 || !parseRef(p[1], curveId) || !parseRef(p[2], axId)) {
+                localWhy = "revolution refs"; return false;
+            }
+            Vec3 aLoc, aDir;
+            if (!getAxis1(R, axId, aLoc, aDir)) { localWhy = "revolution axis1"; return false; }
+            aLoc = vscale(aLoc, scale);
+            Instance ci;
+            if (!R.get(curveId, ci) || ci.type != "CIRCLE") {
+                localWhy = "revolution generator '" + (ci.type.empty() ? std::string("?") : ci.type) + "'";
+                surfType = "SURFACE_OF_REVOLUTION"; return false;
+            }
+            auto cp = splitTopLevel(ci.params);
+            std::uint64_t cax = 0; double crad = 0;
+            if (cp.size() < 3 || !parseRef(cp[1], cax) || !stepNum(cp[2], crad)) { localWhy = "revolution circle"; return false; }
+            Vec3 cc, cca, ccref;
+            if (!getAxis2(R, cax, cc, cca, ccref)) { localWhy = "revolution circle axis2"; return false; }
+            cc = vscale(cc, scale); crad *= scale;
+            // Perpendicular distance from the circle centre to the revolution axis line.
+            const Vec3 rel = vsub(cc, aLoc);
+            const double along = vdot(rel, aDir);
+            const Vec3 foot = vadd(aLoc, vscale(aDir, along));  // centre projected onto axis
+            const Vec3 radial = vsub(cc, foot);
+            const double majR = vlen(radial);
+            // Only reconstruct the UNAMBIGUOUS standard torus (generating circle in a
+            // plane containing the axis, well clear of it). A near-axis circle (sphere
+            // / spindle torus / degenerate) is left HONESTLY unsupported rather than
+            // faked as a giant sphere (which corrupted the volume, e.g. 140).
+            const bool circlePlaneContainsAxis = std::fabs(vdot(vnorm(cca), aDir)) < 1e-3;
+            if (majR < 1.5 * crad || !circlePlaneContainsAxis) {
+                localWhy = "revolution circle (non-torus)";
+                surfType = "SURFACE_OF_REVOLUTION"; return false;
+            }
+            s.kind = SurfaceKind::Torus; s.origin = foot; s.axis = aDir;
+            s.refDir = vscale(radial, 1.0 / majR);
+            s.r1 = majR; s.r2 = crad;
         } else {
             localWhy = "unsupported surface entity '" + ins.type + "'";
             return false;
@@ -993,14 +1055,21 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                     const Vec3 r = vsub(P, eg.centre);
                     return std::atan2(vdot(r, bdir), vdot(r, eg.refDir));
                 };
-                double a0 = ang(pStart), a1 = ang(pEnd);
-                while (a1 - a0 >  PI) a1 -= 2.0 * PI;
-                while (a1 - a0 < -PI) a1 += 2.0 * PI;
-                if (std::fabs(a1 - a0) < 1e-9) a1 = a0 + 2.0 * PI;   // closed full circle
-                int M = (int)std::llround(48.0 * std::fabs(a1 - a0) / (2.0 * PI));
+                // Traverse the arc on the CORRECT side. STEP parameterises the curve
+                // CCW about eg.axis; the loop runs pStart->pEnd CCW iff the EDGE_CURVE
+                // same_sense agrees with the ORIENTED_EDGE orientation. Picking the
+                // signed span (which can EXCEED pi) fixes reflex arcs that the old
+                // "unwrap to +/-pi" always mis-sampled as the short complementary arc.
+                const bool ccw = (eg.sameSense == sense);
+                const double a0 = ang(pStart), a1 = ang(pEnd);
+                double span = a1 - a0;
+                if (ccw) { while (span <= 1e-9) span += 2.0 * PI; while (span > 2.0 * PI + 1e-6) span -= 2.0 * PI; }
+                else     { while (span >= -1e-9) span -= 2.0 * PI; while (span < -2.0 * PI - 1e-6) span += 2.0 * PI; }
+                if (closedEdge) span = ccw ? 2.0 * PI : -2.0 * PI;   // full circle/ellipse
+                int M = (int)std::llround(48.0 * std::fabs(span) / (2.0 * PI));
                 if (M < 6) M = 6;
                 for (int i = 0; i < M; ++i) {                       // start + interiors (excl. end)
-                    const double t = a0 + (a1 - a0) * (double(i) / M);
+                    const double t = a0 + span * (double(i) / M);
                     Vec3 P;
                     if (eg.kind == EdgeGeomKind::Circle)
                         P = vadd(eg.centre, vadd(vscale(eg.refDir, eg.radius * std::cos(t)),
@@ -1048,9 +1117,19 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
     // BSpline2 in the surface parameter plane). Segments are appended in ring
     // order so the end of each meets the start of the next. Returns false (with
     // `unsupportedKw` set) on genuinely unsupported edge geometry — NO fabrication.
+    // `uvbb` (optional, [uMin,uMax,vMin,vMax]) accumulates the (u,v) bounding box of
+    // every inverted trim point so the caller can integrate the B-spline face over
+    // the TRIMMED (u,v) window instead of the full knot rectangle (the dominant
+    // over/under-count on exporter patches whose knot domain overruns the face).
     auto buildTrimLoopNurbs = [&](std::uint64_t loopId, const NurbsSurface& nsurf,
                                   bool isOuter, TrimLoop& out,
-                                  std::string& unsupportedKw) -> bool {
+                                  std::string& unsupportedKw,
+                                  double* uvbb = nullptr) -> bool {
+        auto grow = [&](const UVCoord& uv) {
+            if (!uvbb) return;
+            uvbb[0] = std::min(uvbb[0], uv.u); uvbb[1] = std::max(uvbb[1], uv.u);
+            uvbb[2] = std::min(uvbb[2], uv.v); uvbb[3] = std::max(uvbb[3], uv.v);
+        };
         Instance li;
         if (!R.get(loopId, li) || li.type != "EDGE_LOOP") { unsupportedKw = "EDGE_LOOP"; return false; }
         auto lp = splitTopLevel(li.params);
@@ -1093,6 +1172,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                 !invertNurbs(nsurf, pEnd, uvEnd, invTol)) {
                 unsupportedKw = "EDGE_CURVE(uninvertible)"; return false;
             }
+            grow(uvStart); grow(uvEnd);
 
             switch (eg.kind) {
             case EdgeGeomKind::Line:
@@ -1129,12 +1209,15 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                         const Vec3 rel = vsub(P, eg.centre);
                         return std::atan2(vdot(rel, bdir), vdot(rel, eg.refDir));
                     };
-                    double a0 = angleOf(pStart), a1 = angleOf(pEnd);
-                    while (a1 - a0 >  PI) a1 -= 2.0 * PI;
-                    while (a1 - a0 < -PI) a1 += 2.0 * PI;
-                    if (std::fabs(a1 - a0) < 1e-12) a1 = a0 + 2.0 * PI;   // full circle
+                    const bool closedArc = (vlen(vsub(eg.v0, eg.v1)) < 1e-9);
+                    const bool ccw = (eg.sameSense == sense);
+                    const double a0 = angleOf(pStart), a1 = angleOf(pEnd);
+                    double aspan = a1 - a0;
+                    if (ccw) { while (aspan <= 1e-9) aspan += 2.0 * PI; while (aspan > 2.0 * PI + 1e-6) aspan -= 2.0 * PI; }
+                    else     { while (aspan >= -1e-9) aspan -= 2.0 * PI; while (aspan < -2.0 * PI - 1e-6) aspan += 2.0 * PI; }
+                    if (closedArc) aspan = ccw ? 2.0 * PI : -2.0 * PI;
                     for (int i = 0; i <= M; ++i) {
-                        const double t = a0 + (a1 - a0) * (double(i) / M);
+                        const double t = a0 + aspan * (double(i) / M);
                         Vec3 P;
                         if (eg.kind == EdgeGeomKind::Circle)
                             P = vadd(eg.centre, vadd(vscale(eg.refDir, eg.radius * std::cos(t)),
@@ -1152,6 +1235,7 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                     UVCoord uv{};
                     if (!invertNurbs(nsurf, P, uv, invTol)) { unsupportedKw = "EDGE_CURVE(uninvertible)"; return false; }
                     pc.controlPoints.push_back(Vec3{uv.u, uv.v, 0.0});
+                    grow(uv);
                 }
                 // force the exact directed endpoints (the inversion of a vertex is
                 // exact; clamp interior to avoid drift at the seam).
@@ -1315,8 +1399,9 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             bool trimOk = true;
             std::string unsupKw;
             TrimLoop outer;
+            double obb[4] = {1e300, -1e300, 1e300, -1e300};   // outer-loop (u,v) bbox
             if (!buildTrimLoopNurbs(outerRings[0].loopId, nurbs, /*isOuter=*/true,
-                                    outer, unsupKw)) {
+                                    outer, unsupKw, obb)) {
                 trimOk = false;
             } else {
                 tf.loops.push_back(std::move(outer));
@@ -1337,14 +1422,25 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             // hole in the shell and corrupts the divergence volume far more than a
             // patch that is (at worst) the exporter's untrimmed fit region. Only the
             // tessellation trim is recorded when it succeeded.
+            f->surface = surf;
             if (trimOk) {
                 info.trimmedIndex = (long)result.trimmedFaces.size();
                 result.trimmedFaces.push_back(std::move(tf));
+                // Integrate over the TRIMMED (u,v) window (clamped into the knot
+                // domain), not the full knot rectangle: exporter B-spline patches
+                // routinely carry a knot domain wider than the actual face, so the
+                // full-rectangle divergence integral over/under-counts the patch.
+                // A well-fit patch (knot domain == face) leaves the window ~unchanged.
+                if (obb[0] <= obb[1] && obb[2] <= obb[3]) {
+                    f->u0 = std::max(u0, obb[0]); f->u1 = std::min(u1, obb[1]);
+                    f->v0 = std::max(v0, obb[2]); f->v1 = std::min(v1, obb[3]);
+                } else {
+                    f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
+                }
             } else {
                 result.unsupported[unsupKw.empty() ? "EDGE_CURVE" : unsupKw]++;
+                f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
             }
-            f->surface = surf;
-            f->u0 = u0; f->u1 = u1; f->v0 = v0; f->v1 = v1;
         } else if (protoSurf.kind == SurfaceKind::Plane) {
             // PLANAR face — integrated EXACTLY by the divergence surface integral over
             // its boundary polygon (Green's theorem via integratePlanarExact). The
@@ -1380,8 +1476,13 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
                     zMin = std::min(zMin, z);  zMax = std::max(zMax, z);
                 }
             }
-            const bool fullU = outerRings[0].isSeam || outerRings[0].hasFullCircle;
-            if (fullU) { uMin = 0.0; uMax = 2.0 * PI; }
+            // Close to a full periodic wrap ONLY when the (now correctly-sampled)
+            // boundary GENUINELY spans ~2*pi. With sense-aware arc sampling the
+            // sequential theta-unwrap yields the true angular extent, so a seam /
+            // closed-circle edge no longer needs to force 2*pi (that mis-read a
+            // partial/half cylinder that merely reuses a seam curve — e.g. 122/136).
+            const double uSpan = uMax - uMin;
+            if (uSpan >= 1.9 * PI) { uMin = 0.0; uMax = 2.0 * PI; }
             f->u0 = uMin; f->u1 = uMax;
             if (protoSurf.kind == SurfaceKind::Cylinder) {
                 f->v0 = zMin; f->v1 = zMax;      // axial z is absolute along the axis
