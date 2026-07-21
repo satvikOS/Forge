@@ -316,17 +316,39 @@ void integratePlanarExact(const Face* f, Accum& acc) {
         {0.2, 0.2, 0.6, 25.0 / 48.0},
     };
     const Vec3& P0 = pts[0];
+    // WINDING-CONSISTENT ORIENTATION (K1 imported-face fix, byte-identical for
+    // native primitives). The face's outward normal is `n` (== normalAt, honours
+    // `reversed`), and the analytic quadric faces are ALWAYS integrated with that
+    // outward normal and a POSITIVE Jacobian weight (integrateParametric/Region) —
+    // their sign is topological, NOT winding-derived. A planar face must use the
+    // SAME convention or a shell that mixes the two gets a self-cancelling volume.
+    // The fan below uses the SIGNED triangle area 0.5*(e1 x e2)·n, whose sign is
+    // (correctly) +1 when the ring winds CCW about `n` and -1 when it winds CW.
+    // An imported STEP outer loop is occasionally emitted CW about the face's own
+    // outward normal (its total signed area comes out negative): that faces's flux
+    // ∮ x n_x dA is then integrated INWARD, corrupting the divergence volume far
+    // more than its area (a handful of large CW planar faces flip ~40% of the
+    // volume while barely moving the area). Detect it via the polygon's TOTAL
+    // signed area and, when negative, orient the WHOLE face CCW about `n` (multiply
+    // every fan triangle by -1). This keeps the non-convex fan sum exact (relative
+    // triangle signs are preserved) while making the face's outward flux agree with
+    // its topological normal; the global acc.vol<0 guard then fixes a uniformly
+    // inward shell. For a correctly-wound face (every native primitive, and most
+    // imported faces) the total signed area is already >= 0, sgn = +1, and this is
+    // BYTE-IDENTICAL to the previous code (protects core 34/34).
+    double Atot = 0.0;
+    for (std::size_t t = 1; t + 1 < pts.size(); ++t) {
+        Vec3 e1 = vsub(pts[t], P0), e2 = vsub(pts[t + 1], P0);
+        Atot += 0.5 * vdot(vcross(e1, e2), n);
+    }
+    const double sgn = (Atot < 0.0) ? -1.0 : 1.0;
     for (std::size_t t = 1; t + 1 < pts.size(); ++t) {
         const Vec3& P1 = pts[t];
         const Vec3& P2 = pts[t + 1];
         Vec3 e1 = vsub(P1, P0), e2 = vsub(P2, P0);
-        // SIGNED planar triangle area (projected onto the face normal). For a
-        // correctly-wound CONVEX face every fan triangle is CCW about `n`, so this
-        // is BYTE-IDENTICAL to the previous 0.5*|e1 x e2| there; but for a NON-CONVEX
-        // outer polygon (a plate with a notch/slot — common in imported STEP) the
-        // concave fan triangles now carry the correct NEGATIVE area, so the fan sum
-        // equals the true polygon integral instead of over-counting the sweep.
-        double A = 0.5 * vdot(vcross(e1, e2), n);
+        // SIGNED planar triangle area (projected onto the face normal), oriented so
+        // the whole face is CCW about its outward normal `n` (sgn above).
+        double A = sgn * 0.5 * vdot(vcross(e1, e2), n);
         if (A == 0.0) continue;
         // The 4-point rule weights q.w sum to 1, so ∫_T f dA ≈ A * Σ q.w f(b_i).
         for (const auto& q : rule) {

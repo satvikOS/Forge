@@ -1503,6 +1503,45 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
             innerRings.erase(innerRings.begin());
         }
 
+        // ROBUST OUTER-LOOP SELECTION (PLANAR faces, imported-only). Some exporters
+        // mis-tag a small feature loop as FACE_OUTER_BOUND (or tag every bound as a
+        // plain FACE_BOUND), so the reader can pick a tiny inner loop as "outer" and
+        // leave the REAL boundary as a "hole". integratePlanarExact then SUBTRACTS a
+        // hole LARGER than the face — driving that face's area (and, far worse, its
+        // signed volume flux ∮ x n_x dA) strongly negative and corrupting the whole
+        // shell's divergence volume (measured: part 108 lost ~43% of its volume to
+        // exactly two such faces). A hole is ALWAYS strictly interior to its face,
+        // hence has SMALLER planar area than the outer boundary — so the true outer
+        // loop is simply the one with the LARGEST area. If any inner ring's planar
+        // (Newell) area exceeds the current outer's, swap the largest one in. This
+        // is confined to PLANAR foreign faces (the swap is skipped for curved
+        // quadric/NURBS faces, whose periodic seam rings are the same size and are
+        // handled by the region/rectangle path), and it is a NO-OP for every
+        // correctly-tagged face — so the currently-passing parts are unchanged.
+        if (protoSurf.kind == SurfaceKind::Plane && !innerRings.empty()) {
+            auto ringArea = [](const std::vector<Vec3>& p) -> double {
+                Vec3 nw{0, 0, 0};
+                const std::size_t n = p.size();
+                if (n < 3) return 0.0;
+                for (std::size_t k = 0; k < n; ++k) {
+                    const Vec3& a = p[k];
+                    const Vec3& b = p[(k + 1) % n];
+                    nw.x += (a.y - b.y) * (a.z + b.z);
+                    nw.y += (a.z - b.z) * (a.x + b.x);
+                    nw.z += (a.x - b.x) * (a.y + b.y);
+                }
+                return 0.5 * vlen(nw);
+            };
+            double outerArea = ringArea(outerRings[0].pts);
+            int bestInner = -1;
+            double bestArea = outerArea;
+            for (std::size_t i = 0; i < innerRings.size(); ++i) {
+                const double a = ringArea(innerRings[i].pts);
+                if (a > bestArea) { bestArea = a; bestInner = (int)i; }
+            }
+            if (bestInner >= 0) std::swap(outerRings[0], innerRings[(std::size_t)bestInner]);
+        }
+
         // SURFACE_OF_LINEAR_EXTRUSION -> exact tensor NURBS. A linear extrusion
         // S(u,v)=C(u)+v*V is a RULED surface: degree-1 in v with two control rows
         // (the profile at v=vLo and at v=vHi), so it is represented EXACTLY as a
