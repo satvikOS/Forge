@@ -63,7 +63,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const REPO = path.resolve(__dirname, '..', '..');          // /Users/.../archdisc-Mech
-const KERNEL_PATH = path.resolve(__dirname, '..', 'build', 'Release', 'forge-kernel.node');
+// Honor FORGE_KERNEL (like every sibling test, e.g. native_vs_occt_core.mjs) so this
+// harness can be measured against an alternate .node — otherwise a kernel swap (e.g. a
+// toolkit-drop build) is silently measured against the default build, yielding false passes.
+const KERNEL_PATH = process.env.FORGE_KERNEL || path.resolve(__dirname, '..', 'build', 'Release', 'forge-kernel.node');
 const BRIDGE_PATH = path.resolve(REPO, 'frontend', 'src', 'ai', 'ForgeToolBridge.js');
 const MODELS_FORGE = '/Users/account_clawteam1/archdisc-Models/data/forge';
 
