@@ -36,6 +36,10 @@
 #include <Geom_Line.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_Ellipse.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColStd_Array1OfInteger.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Surface.hxx>
 #include <TopoDS.hxx>
@@ -53,6 +57,7 @@
 #include <BRep_Builder.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepLib.hxx>
@@ -278,6 +283,37 @@ Handle(Geom_Curve) buildCurve3d(const Resolver& R, std::uint64_t rawId, double s
         if (!getAxis2(R, axId, scale, ax)) fail("ELLIPSE axis");
         return new Geom_Ellipse(ax, a * scale, b * scale);
     }
+    if (ci.type == "B_SPLINE_CURVE_WITH_KNOTS") {
+        // B_SPLINE_CURVE_WITH_KNOTS('', degree, (ctrl_pts), form, closed, self_int,
+        //                           (knot_multiplicities), (knots), knot_spec).
+        // Maps 1:1 onto Geom_BSplineCurve(Poles, Knots, Mults, Degree). Poles are
+        // CARTESIAN_POINTs (getPoint applies the mm scale); knots are PARAMETRIC (unscaled).
+        double degd = 0;
+        if (p.size() < 8 || !stepNum(p[1], degd)) fail("B_SPLINE arity");
+        const int degree = static_cast<int>(std::lround(degd));
+        std::vector<std::string> ctrlToks, multToks, knotToks;
+        if (!parseList(p[2], ctrlToks) || ctrlToks.empty()) fail("B_SPLINE control points");
+        if (!parseList(p[6], multToks) || multToks.empty()) fail("B_SPLINE multiplicities");
+        if (!parseList(p[7], knotToks) || knotToks.empty()) fail("B_SPLINE knots");
+        if (knotToks.size() != multToks.size()) fail("B_SPLINE knot/mult length mismatch");
+        TColgp_Array1OfPnt poles(1, static_cast<int>(ctrlToks.size()));
+        for (int i = 0; i < static_cast<int>(ctrlToks.size()); ++i) {
+            std::uint64_t cpId = 0; gp_Pnt cp;
+            if (!parseRef(ctrlToks[i], cpId) || !getPoint(R, cpId, scale, cp)) fail("B_SPLINE pole");
+            poles.SetValue(i + 1, cp);
+        }
+        TColStd_Array1OfReal    knots(1, static_cast<int>(knotToks.size()));
+        TColStd_Array1OfInteger mults(1, static_cast<int>(multToks.size()));
+        for (int i = 0; i < static_cast<int>(knotToks.size()); ++i) {
+            double kv = 0, mv = 0;
+            if (!stepNum(knotToks[i], kv) || !stepNum(multToks[i], mv)) fail("B_SPLINE knot/mult value");
+            knots.SetValue(i + 1, kv);
+            mults.SetValue(i + 1, static_cast<int>(std::lround(mv)));
+        }
+        // STEP 'closed' flag (p[4]==".T.") -> build non-periodic; a clamped closed spline
+        // simply has coincident first/last poles, which OCCT handles as an open range.
+        return new Geom_BSplineCurve(poles, knots, mults, degree, Standard_False);
+    }
     fail("unsupported 3D edge curve '" + (ci.type.empty() ? std::string("COMPLEX") : ci.type) + "'");
 }
 
@@ -338,6 +374,20 @@ TopoDS_Edge edgeOf(Xfer& X, std::uint64_t ecId) {
     if (kind == "LINE") {
         BRepBuilderAPI_MakeEdge me(curve, Vs, Ve);
         if (!me.IsDone()) fail("MakeEdge(line) failed");
+        e = me.Edge();
+    } else if (kind == "B_SPLINE_CURVE_WITH_KNOTS") {
+        // Non-rational spline reconstruction (poles/knots/mults -> Geom_BSplineCurve) is exact.
+        // The edge build projects the STEP vertices for explicit parameters; this SUCCEEDS for
+        // clamped low-degree splines. It STILL fails for the kernel-writer's own export splines
+        // (degree-8, and the RATIONAL_B_SPLINE COMPLEX form which this branch does not yet
+        // reconstruct with weights) whose trimmed edges don't land on the reconstructed curve
+        // within tolerance -> the whole STEP import aborts (measure-skip, non-fatal to callers).
+        // This exact round-trip is the deferred "BSpline edge-trim" hard case (see memory).
+        GeomAPI_ProjectPointOnCurve pr0(Ps, curve), pr1(Pe, curve);
+        if (pr0.NbPoints() < 1 || pr1.NbPoints() < 1) fail("B_SPLINE vertex projection");
+        BRepBuilderAPI_MakeEdge me(curve, Vs, Ve,
+                                   pr0.LowerDistanceParameter(), pr1.LowerDistanceParameter());
+        if (!me.IsDone()) fail("MakeEdge(bspline) failed");
         e = me.Edge();
     } else {
         // CIRCLE / ELLIPSE — periodic. Parameterise the two vertices on the curve
