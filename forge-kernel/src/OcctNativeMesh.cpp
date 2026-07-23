@@ -64,6 +64,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <map>
 #include <tuple>
@@ -553,9 +554,11 @@ bool tessellateShapeToSoup(const TopoDS_Shape& shape,
                            std::vector<double>& pos,
                            std::vector<std::uint32_t>& idx,
                            double linDefl,
-                           double angDefl) {
+                           double angDefl,
+                           int* deferredFaces) {
     pos.clear();
     idx.clear();
+    if (deferredFaces) *deferredFaces = 0;
     if (shape.IsNull()) return false;
 
     // Global weld: shared edge vertices are byte-identical, so this collapses them
@@ -575,10 +578,12 @@ bool tessellateShapeToSoup(const TopoDS_Shape& shape,
 
     EdgeCache cache;
     bool anyFace = false;
+    int total = 0, deferred = 0;
     for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
         const TopoDS_Face face = TopoDS::Face(ex.Current());
+        ++total;
         FaceMesh fm = tessellateFace(face, cache, linDefl, angDefl);
-        if (!fm.ok) return false;    // HONEST DEFERRAL: a face we could not read
+        if (!fm.ok) { ++deferred; continue; }   // PER-FACE HONEST DEFERRAL (below)
         anyFace = true;
         for (const auto& t : fm.tris) {
             const std::uint32_t a = vid(fm.nodes[t[0]]);
@@ -588,6 +593,17 @@ bool tessellateShapeToSoup(const TopoDS_Shape& shape,
             idx.push_back(a); idx.push_back(b); idx.push_back(c);
         }
     }
+    // PER-FACE FALLBACK (was a whole-shape deferral): one unmeshable face no
+    // longer empties the whole soup — every meshable face is emitted and the
+    // deferred count is reported honestly. Display/mesh consumers tolerate a
+    // partial (non-watertight) soup; a consumer that NEEDS watertightness must
+    // check the report (deferred>0 => the soup has boundary cracks there).
+    if (deferred > 0) {
+        std::fprintf(stderr,
+            "[K5][soup] %d/%d faces DEFERRED (no BRepMesh — unresolvable trim) "
+            "— PARTIAL mesh emitted\n", deferred, total);
+    }
+    if (deferredFaces) *deferredFaces = deferred;
     return anyFace && !idx.empty();
 }
 
@@ -622,13 +638,17 @@ bool tessellateShapeForViewport(const TopoDS_Shape& shape,
     EdgeCache cache;
     std::uint32_t faceId = 0;   // 1-based, TopExp_Explorer(FACE) order (picking id)
     bool anyFace = false;
+    int deferred = 0;
     for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
         const TopoDS_Face face = TopoDS::Face(ex.Current());
         ++faceId;
         FaceMesh fm = tessellateFace(face, cache, linDefl, angDefl);
-        if (!fm.ok) {   // HONEST DEFERRAL: a face we could not read (no pcurve).
-            positions.clear(); normals.clear(); indices.clear(); faceIds.clear();
-            return false;
+        if (!fm.ok) {
+            // PER-FACE HONEST DEFERRAL (was whole-shape): skip only THIS face —
+            // faceId still advances so picking ids stay stable. The viewport
+            // tolerates the hole; the count is reported below.
+            ++deferred;
+            continue;
         }
         anyFace = true;
 
@@ -662,6 +682,12 @@ bool tessellateShapeForViewport(const TopoDS_Shape& shape,
         }
         for (std::size_t i = 0; i < fm.nodes.size(); ++i)
             vpRenormalize(normals.data() + normalsBase + 3 * i);
+    }
+    if (deferred > 0) {
+        std::fprintf(stderr,
+            "[K5][viewport] %u face(s) of %u DEFERRED (no BRepMesh) — PARTIAL "
+            "display mesh emitted\n", static_cast<unsigned>(deferred),
+            static_cast<unsigned>(faceId));
     }
     return anyFace && !indices.empty();
 }

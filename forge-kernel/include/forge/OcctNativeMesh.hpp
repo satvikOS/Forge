@@ -42,14 +42,19 @@ namespace occtmesh {
 // orientation is honoured). `linDefl` is the absolute chord tolerance (mm) and
 // `angDefl` the angular tolerance (rad) used to refine curved faces.
 //
-// Returns false (and does not guarantee a usable soup) when NO face could be
-// triangulated OR any boundary edge lacks a pcurve — an honest deferral so the
-// caller can fall back to OCCT. NEVER references BRepMesh / TKMesh.
+// PER-FACE DEFERRAL (2026-07-23): an unmeshable face no longer empties the
+// whole soup — every meshable face is emitted and the number of deferred faces
+// is reported through `deferredFaces` (when non-null) and on stderr. A caller
+// that REQUIRES a watertight soup (the mesh-boolean engines) must pass
+// `deferredFaces` and treat a non-zero count as its old whole-shape deferral;
+// display/export consumers tolerate the partial (crack-bounded) soup.
+// Returns false only when NO face could be triangulated at all.
 bool tessellateShapeToSoup(const TopoDS_Shape& shape,
                            std::vector<double>& pos,
                            std::vector<std::uint32_t>& idx,
                            double linDefl,
-                           double angDefl);
+                           double angDefl,
+                           int* deferredFaces = nullptr);
 
 // Native-triangulate `shape` into the full VIEWPORT display contract — the same
 // arrays forge::tessellate() returns for the Three.js viewer: flat float xyz

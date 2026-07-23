@@ -37,6 +37,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 
@@ -48,6 +49,7 @@
 #include "forge/native/brep/NativeRoute.hpp"        // forgeNativeBrepEnabled
 #include "forge/native/brep/StepAnalytic.hpp"       // analytic codec (NativeSolid)
 #include "forge/native/brep/StepReadOcct.hpp"        // TKDESTEP-free foreign STEP -> OCCT transfer
+#include "forge/native/brep/StepWriteOcct.hpp"       // ANALYTIC STEP write for OCCT-backed handles
 #include "forge/native/brep/StepFaceted.hpp"        // faceted codec (NativeMesh + OCCT-handle export)
 #include "forge/native/brep/SolidTessellate.hpp"    // soup for a faceted-solid fallback
 #include "forge/native/brep/IgesRead.hpp"           // OCCT-zero B1 — native foreign-IGES reader
@@ -150,8 +152,33 @@ bool exportStep(ShapeHandle h, const std::string& filepath) {
             spillFile(filepath, wr.text);
             return true;
         }
-        // k == Occt: fall to the native FACETED route below (a native-gate session
-        // can still hold OCCT-backed handles, e.g. an OCCT-imported part).
+        if (k == ShapeKind::Occt) {
+            // ANALYTIC route for an OCCT-BACKED handle (StepWriteOcct): the
+            // B-rep's REAL surfaces/curves (plane/cyl/cone/sphere/torus +
+            // B-spline records + pcurves) are written directly — reader/writer
+            // roundtrip closure with StepReadOcct, NO tessellation required.
+            // This replaces the previous whole-shape faceted fallback, whose
+            // occtmesh soup came back EMPTY on B-spline-rich imports ("[K5] no
+            // BRepMesh") and killed every edit export. An unwritable face
+            // facets PER-FACE inside the writer; only an unwritable shared
+            // EDGE defers the whole analytic write — then the faceted route
+            // below stays the honest fallback.
+            auto wr = native::brep::StepWriteOcct::write(reg.get(h), "forge_occt_solid");
+            if (wr.ok) {
+                if (wr.facetedFaces > 0) {
+                    std::fprintf(stderr,
+                        "[io][step] analytic OCCT write: %d/%d faces fell back to "
+                        "per-face faceting (unwritable surface class)\n",
+                        wr.facetedFaces, wr.totalFaces);
+                }
+                spillFile(filepath, wr.text);
+                return true;
+            }
+            std::fprintf(stderr,
+                "[io][step] analytic OCCT STEP write DEFERRED (%s) — falling "
+                "back to the faceted route\n", wr.reason.c_str());
+            // fall through to the faceted route below.
+        }
     }
     // OCCT-ZERO STEP EXPORT (TKDESTEP-prep): an OCCT-backed handle — or ANY handle
     // when the native STEP gate is off — is exported through the IN-HOUSE FACETED

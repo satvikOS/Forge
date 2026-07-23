@@ -143,7 +143,12 @@ bool tryNativeFuzzyBoolean(ShapeHandle a, ShapeHandle b,
             diag = std::sqrt(dx * dx + dy * dy + dz * dz);
         }
         const double linDefl = std::max(1e-4, 0.001 * diag);
-        return occtmesh::tessellateShapeToSoup(sh, pos, idx, linDefl, /*angDefl*/ 0.1);
+        // watertight-required consumer (mesh boolean): a partial soup (per-face
+        // deferral) must still count as a whole-shape deferral here.
+        int deferred = 0;
+        const bool ok = occtmesh::tessellateShapeToSoup(sh, pos, idx, linDefl,
+                                                        /*angDefl*/ 0.1, &deferred);
+        return ok && deferred == 0;
     };
     std::vector<double> aPos, bPos;
     std::vector<std::uint32_t> aIdx, bIdx;

@@ -298,7 +298,15 @@ bool tessellateOcctOperandToSoup(const TopoDS_Shape& shape,
         diag = std::sqrt(dx * dx + dy * dy + dz * dz);
     }
     const double linDefl = std::max(1e-4, 0.001 * diag);
-    return occtmesh::tessellateShapeToSoup(shape, pos, idx, linDefl, /*angDefl*/ 0.1);
+    // The mesh-operand boolean REQUIRES a watertight operand: with the mesher's
+    // per-face fallback (2026-07-23) a partial soup now returns true, so the
+    // deferred-face count restores this caller's old whole-shape deferral —
+    // any unmeshed face => honest OCCT fallback, never an open-mesh boolean.
+    int deferred = 0;
+    const bool ok =
+        occtmesh::tessellateShapeToSoup(shape, pos, idx, linDefl, /*angDefl*/ 0.1,
+                                        &deferred);
+    return ok && deferred == 0;
 }
 
 // Try to resolve a boolean NATIVELY. Returns true + sets `out` on success; returns
