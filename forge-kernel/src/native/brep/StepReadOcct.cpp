@@ -28,6 +28,9 @@
 #include <gp_Circ.hxx>
 #include <gp_Elips.hxx>
 #include <gp_Lin.hxx>
+#include <gp_Pln.hxx>
+#include <gp_Pnt2d.hxx>
+#include <gp.hxx>
 #include <ElCLib.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -49,6 +52,11 @@
 #include <Standard_Failure.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Surface.hxx>
+#include <Geom2d_Curve.hxx>   // handle type only — construction routes through GeomAPI::To2d
+#include <GeomAPI.hxx>        // To2d lives in TKGeomAlgo (already linked); TKG2d stays dropped
+#include <Geom2dAPI_ProjectPointOnCurve.hxx>   // TKGeomAlgo
+#include <ShapeAnalysis_Surface.hxx>           // TKShHealing
+#include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Vertex.hxx>
@@ -185,6 +193,63 @@ bool getAxis1(const Resolver& R, std::uint64_t id, double scale, gp_Ax1& out) {
         if (parseRef(p[2], dId)) { if (!getDir(R, dId, d)) return false; }
     }
     out = gp_Ax1(loc, d);
+    return true;
+}
+
+// ------------------------------------------------------ 2D (parameter-space)
+// P0 pcurve fidelity: the file's own PCURVEs are 2D curves in a surface's
+// parameter space. Their CARTESIAN_POINTs / DIRECTIONs are 2-component and
+// PARAMETRIC — never mm-scaled. Each is materialised as a 3D curve in the
+// w=0 plane (u->X, v->Y) with the already-linked Geom_ builders, then converted
+// EXACTLY (pole-wise / axis-wise, parameterisation preserved) by GeomAPI::To2d.
+
+bool getPoint2dAs3d(const Resolver& R, std::uint64_t id, gp_Pnt& out) {
+    Instance ins;
+    if (!R.get(id, ins) || ins.type != "CARTESIAN_POINT") return false;
+    auto p = splitTopLevel(ins.params);
+    if (p.size() < 2) return false;
+    std::vector<std::string> xy;
+    if (!parseList(p[1], xy) || xy.size() < 2) return false;
+    double x, y;
+    if (!stepNum(xy[0], x) || !stepNum(xy[1], y)) return false;
+    out = gp_Pnt(x, y, 0.0);
+    return true;
+}
+
+bool getDir2dAs3d(const Resolver& R, std::uint64_t id, gp_Dir& out) {
+    Instance ins;
+    if (!R.get(id, ins) || ins.type != "DIRECTION") return false;
+    auto p = splitTopLevel(ins.params);
+    if (p.size() < 2) return false;
+    std::vector<std::string> xy;
+    if (!parseList(p[1], xy) || xy.size() < 2) return false;
+    double x, y;
+    if (!stepNum(xy[0], x) || !stepNum(xy[1], y)) return false;
+    if (x * x + y * y < 1e-24) return false;
+    out = gp_Dir(x, y, 0.0);
+    return true;
+}
+
+// AXIS2_PLACEMENT_2D('', location, ref_direction(optional)) -> gp_Ax2 in the
+// w=0 plane. STEP 2D placements have +90°-CCW implied Y, which the +Z normal
+// reproduces, so circle/ellipse parameterisation (CCW from ref) is preserved.
+bool getAxis22d(const Resolver& R, std::uint64_t id, gp_Ax2& out) {
+    Instance ins;
+    if (!R.get(id, ins) || ins.type != "AXIS2_PLACEMENT_2D") return false;
+    auto p = splitTopLevel(ins.params);
+    if (p.size() < 2) return false;
+    std::uint64_t locId = 0;
+    if (!parseRef(p[1], locId)) return false;
+    gp_Pnt loc;
+    if (!getPoint2dAs3d(R, locId, loc)) return false;
+    gp_Dir x(1, 0, 0);
+    if (p.size() >= 3 && p[2] != "$" && p[2] != "*") {
+        std::uint64_t xId = 0;
+        if (parseRef(p[2], xId)) {
+            if (!getDir2dAs3d(R, xId, x)) return false;
+        }
+    }
+    out = gp_Ax2(loc, gp_Dir(0, 0, 1), x);
     return true;
 }
 
@@ -536,10 +601,16 @@ std::uint64_t resolve3dCurve(const Resolver& R, std::uint64_t id) {
 // when non-null, is the RATIONAL_B_SPLINE_CURVE weight list "(w,..)" — one
 // weight per pole. Poles are CARTESIAN_POINTs (mm-scaled by getPoint); knots
 // are PARAMETRIC (unscaled). Only the CLAMPED/open knot form is built.
+// `planar2d` reads 2-component parametric poles into the w=0 plane, unscaled —
+// the PCURVE path (the caller converts the result with GeomAPI::To2d);
+// `planarVScale` scales the v (Y) pole coordinate — the ISO->OCCT parametric
+// convention factor on cones (axial vs slant v) and extrusions (vector
+// magnitude vs unit direction). Exact: an affine map of B-spline poles.
 Handle(Geom_Curve) buildBSplineCurveGeom(const Resolver& R,
                                          const std::vector<std::string>& fields,
                                          const std::string* weightsField,
-                                         double scale) {
+                                         double scale, bool planar2d = false,
+                                         double planarVScale = 1.0) {
     if (fields.size() < 7) fail("B_SPLINE arity");
     double degd = 0;
     if (!stepNum(fields[0], degd)) fail("B_SPLINE degree");
@@ -554,7 +625,10 @@ Handle(Geom_Curve) buildBSplineCurveGeom(const Resolver& R,
     TColgp_Array1OfPnt poles(1, nPoles);
     for (int i = 0; i < nPoles; ++i) {
         std::uint64_t cpId = 0; gp_Pnt cp;
-        if (!parseRef(ctrlToks[i], cpId) || !getPoint(R, cpId, scale, cp)) fail("B_SPLINE pole");
+        if (!parseRef(ctrlToks[i], cpId)) fail("B_SPLINE pole");
+        if (planar2d ? !getPoint2dAs3d(R, cpId, cp) : !getPoint(R, cpId, scale, cp))
+            fail("B_SPLINE pole");
+        if (planar2d && planarVScale != 1.0) cp.SetY(cp.Y() * planarVScale);
         poles.SetValue(i + 1, cp);
     }
     TColStd_Array1OfReal    knots(1, static_cast<int>(knotToks.size()));
@@ -590,6 +664,45 @@ Handle(Geom_Curve) buildBSplineCurveGeom(const Resolver& R,
         const char* m = e.GetMessageString();
         fail(std::string("Geom_BSplineCurve construction: ") + (m && *m ? m : "invalid data"));
     }
+}
+
+// COMPLEX curve record — the rational form OCCT's own writer emits:
+//   (BOUNDED_CURVE() B_SPLINE_CURVE(deg,(ctrl),form,closed,selfInt)
+//    B_SPLINE_CURVE_WITH_KNOTS((mults),(knots),spec) CURVE() ...
+//    RATIONAL_B_SPLINE_CURVE((weights)) REPRESENTATION_ITEM(''))
+// Assemble the post-name field list from the two B-spline sub-records + the
+// optional weights. Returns null when the record is not that B-spline form
+// (the caller falls through to its own honest fail). `planar2d` is the PCURVE
+// path (2-component parametric poles, unscaled).
+Handle(Geom_Curve) assembleComplexBSplineCurve(const Resolver& R, const std::string& raw,
+                                               double scale, bool planar2d,
+                                               double planarVScale = 1.0) {
+    auto subs = splitComplex(raw);
+    const SubRecord* base = nullptr;      // B_SPLINE_CURVE (deg + ctrl + form)
+    const SubRecord* knots = nullptr;     // B_SPLINE_CURVE_WITH_KNOTS (mults + knots)
+    const SubRecord* rational = nullptr;  // RATIONAL_B_SPLINE_CURVE (weights)
+    for (const auto& sr : subs) {
+        if (sr.type == "B_SPLINE_CURVE") base = &sr;
+        else if (sr.type == "B_SPLINE_CURVE_WITH_KNOTS") knots = &sr;
+        else if (sr.type == "RATIONAL_B_SPLINE_CURVE") rational = &sr;
+    }
+    if (!base || !knots) return nullptr;
+    auto bf = splitTopLevel(base->params);   // deg,(ctrl),form,closed,selfInt
+    auto kf = splitTopLevel(knots->params);  // (mults),(knots)[,spec]
+    if (bf.size() < 5 || kf.size() < 2) fail("complex B_SPLINE_CURVE arity");
+    std::vector<std::string> fields;
+    fields.reserve(8);
+    for (int i = 0; i < 5; ++i) fields.push_back(bf[i]);
+    for (std::size_t i = 0; i < kf.size() && i < 3; ++i) fields.push_back(kf[i]);
+    std::string weightList;
+    const std::string* wp = nullptr;
+    if (rational) {
+        auto rf = splitTopLevel(rational->params);
+        if (rf.empty()) fail("RATIONAL_B_SPLINE_CURVE arity");
+        weightList = rf[0];
+        wp = &weightList;
+    }
+    return buildBSplineCurveGeom(R, fields, wp, scale, planar2d, planarVScale);
 }
 
 // ------------------------------------------------------------------ 3D curves
@@ -637,52 +750,157 @@ Handle(Geom_Curve) buildCurve3d(const Resolver& R, std::uint64_t rawId, double s
         return buildBSplineCurveGeom(R, fields, nullptr, scale);
     }
     if (ci.type.empty()) {
-        // COMPLEX curve record — the rational form OCCT's own writer emits:
-        //   (BOUNDED_CURVE() B_SPLINE_CURVE(deg,(ctrl),form,closed,selfInt)
-        //    B_SPLINE_CURVE_WITH_KNOTS((mults),(knots),spec) CURVE() ...
-        //    RATIONAL_B_SPLINE_CURVE((weights)) REPRESENTATION_ITEM(''))
-        // Assemble the post-name field list from the two B-spline sub-records +
-        // the optional weights (same pattern as the COMPLEX surface branch).
-        auto subs = splitComplex(ci.params);
-        const SubRecord* base = nullptr;      // B_SPLINE_CURVE (deg + ctrl + form)
-        const SubRecord* knots = nullptr;     // B_SPLINE_CURVE_WITH_KNOTS (mults + knots)
-        const SubRecord* rational = nullptr;  // RATIONAL_B_SPLINE_CURVE (weights)
-        for (const auto& sr : subs) {
-            if (sr.type == "B_SPLINE_CURVE") base = &sr;
-            else if (sr.type == "B_SPLINE_CURVE_WITH_KNOTS") knots = &sr;
-            else if (sr.type == "RATIONAL_B_SPLINE_CURVE") rational = &sr;
-        }
-        if (base && knots) {
-            auto bf = splitTopLevel(base->params);   // deg,(ctrl),form,closed,selfInt
-            auto kf = splitTopLevel(knots->params);  // (mults),(knots)[,spec]
-            if (bf.size() < 5 || kf.size() < 2) fail("complex B_SPLINE_CURVE arity");
-            std::vector<std::string> fields;
-            fields.reserve(8);
-            for (int i = 0; i < 5; ++i) fields.push_back(bf[i]);
-            for (std::size_t i = 0; i < kf.size() && i < 3; ++i) fields.push_back(kf[i]);
-            std::string weightList;
-            const std::string* wp = nullptr;
-            if (rational) {
-                auto rf = splitTopLevel(rational->params);
-                if (rf.empty()) fail("RATIONAL_B_SPLINE_CURVE arity");
-                weightList = rf[0];
-                wp = &weightList;
-            }
+        // COMPLEX curve record (rational B-spline) — shared assembly helper.
+        Handle(Geom_Curve) c = assembleComplexBSplineCurve(R, ci.params, scale, false);
+        if (!c.IsNull()) {
             kind = "B_SPLINE_CURVE_WITH_KNOTS";   // edge assembly takes the spline path
-            return buildBSplineCurveGeom(R, fields, wp, scale);
+            return c;
         }
     }
     fail("unsupported 3D edge curve '" + (ci.type.empty() ? std::string("COMPLEX") : ci.type) + "'");
 }
 
+// ------------------------------------------------------------------ 2D curves
+// P0 pcurve fidelity: build the file's own PCURVE 2D geometry (the curve in the
+// basis surface's parameter space). Supported: LINE / CIRCLE / ELLIPSE /
+// B_SPLINE_CURVE_WITH_KNOTS / COMPLEX rational B-spline — the complete 2D
+// inventory of the OCCT-writer fixture corpus. The curve is materialised in the
+// w=0 plane with the linked Geom_ builders and converted EXACTLY (type-wise,
+// parameterisation preserved) by GeomAPI::To2d — the Geom2d_ constructors
+// themselves live in TKG2d, which the OCCT-zero program dropped from the link.
+// `vScale` maps the file's ISO parametric v to OCCT's (1/cos(semiangle) on
+// cones — ISO v runs along the AXIS, OCCT's along the GENERATOR; the VECTOR
+// magnitude on extrusion surfaces). Exact for B-splines (affine pole map); a
+// LINE under vScale != 1 is rebuilt as the exact degree-1 segment over the
+// edge range [ef,el] (its param is no longer arclength, so Geom_Line cannot
+// carry it). Returns null for an unsupported form (also a 2D LINE with
+// non-unit VECTOR magnitude, which would reparameterise the curve); the CALLER
+// decides the honest consequence (skip on open surfaces — the pre-P0
+// projection path — honest import fail on closed ones).
+Handle(Geom2d_Curve) buildCurve2d(const Resolver& R, std::uint64_t id,
+                                  double vScale, double ef, double el) {
+    Instance ci;
+    if (!R.get(id, ci)) return Handle(Geom2d_Curve)();
+    Handle(Geom_Curve) c3;
+    try {
+        auto p = splitTopLevel(ci.params);
+        if (ci.type == "LINE") {
+            std::uint64_t ptId = 0, vecId = 0;
+            if (p.size() < 3 || !parseRef(p[1], ptId) || !parseRef(p[2], vecId))
+                return Handle(Geom2d_Curve)();
+            gp_Pnt o;
+            if (!getPoint2dAs3d(R, ptId, o)) return Handle(Geom2d_Curve)();
+            Instance vi;
+            if (!R.get(vecId, vi) || vi.type != "VECTOR") return Handle(Geom2d_Curve)();
+            auto vp = splitTopLevel(vi.params);
+            std::uint64_t dirId = 0; gp_Dir d; double mag = 1.0;
+            if (vp.size() < 3 || !parseRef(vp[1], dirId) || !getDir2dAs3d(R, dirId, d) ||
+                !stepNum(vp[2], mag) || std::fabs(mag - 1.0) > 1e-9)
+                return Handle(Geom2d_Curve)();
+            if (vScale == 1.0) {
+                c3 = new Geom_Line(o, d);
+            } else {
+                // The v-scaled image of a line is STILL a line; scale origin and
+                // direction into OCCT's parametric convention. gp_Dir renormalises,
+                // so the parameter becomes arclength in the SCALED (OCCT) UV —
+                // exactly the slant-arclength a cone generator's 3D edge uses.
+                // The locus is exact; the range candidates validate endpoints.
+                c3 = new Geom_Line(gp_Pnt(o.X(), o.Y() * vScale, 0.0),
+                                   gp_Dir(d.X(), d.Y() * vScale, 0.0));
+            }
+        } else if (ci.type == "CIRCLE") {
+            if (vScale != 1.0) return Handle(Geom2d_Curve)();  // would shear to an ellipse
+            std::uint64_t axId = 0; double r = 0;
+            if (p.size() < 3 || !parseRef(p[1], axId) || !stepNum(p[2], r) || !(r > 0.0))
+                return Handle(Geom2d_Curve)();
+            gp_Ax2 ax;
+            if (!getAxis22d(R, axId, ax)) return Handle(Geom2d_Curve)();
+            c3 = new Geom_Circle(ax, r);          // parametric radius — unscaled
+        } else if (ci.type == "ELLIPSE") {
+            if (vScale != 1.0) return Handle(Geom2d_Curve)();
+            std::uint64_t axId = 0; double a = 0, bb = 0;
+            if (p.size() < 4 || !parseRef(p[1], axId) || !stepNum(p[2], a) ||
+                !stepNum(p[3], bb) || !(a > 0.0) || !(bb > 0.0))
+                return Handle(Geom2d_Curve)();
+            gp_Ax2 ax;
+            if (!getAxis22d(R, axId, ax)) return Handle(Geom2d_Curve)();
+            c3 = new Geom_Ellipse(ax, a, bb);
+        } else if (ci.type == "B_SPLINE_CURVE_WITH_KNOTS") {
+            if (p.size() < 8) return Handle(Geom2d_Curve)();
+            std::vector<std::string> fields(p.begin() + 1, p.end());
+            c3 = buildBSplineCurveGeom(R, fields, nullptr, 1.0, /*planar2d=*/true, vScale);
+        } else if (ci.type.empty()) {
+            c3 = assembleComplexBSplineCurve(R, ci.params, 1.0, /*planar2d=*/true, vScale);
+        }
+    } catch (const Standard_Failure&) {
+        return Handle(Geom2d_Curve)();
+    } catch (const std::exception&) {
+        return Handle(Geom2d_Curve)();
+    }
+    if (c3.IsNull()) return Handle(Geom2d_Curve)();
+    try {
+        return GeomAPI::To2d(c3, gp_Pln(gp_Ax3(gp::XOY())));
+    } catch (const Standard_Failure&) {
+        return Handle(Geom2d_Curve)();
+    }
+}
+
 // ------------------------------------------------------------------ transfer state
+// A PCURVE the file associates with an EDGE_CURVE: the basis SURFACE entity id
+// + the DEFINITIONAL_REPRESENTATION's 2D curve entity id.
+struct PcRef { std::uint64_t surfId; std::uint64_t c2dId; };
+
 struct Xfer {
     Resolver R;
     double scale = 1.0;
     double tol = Precision::Confusion();   // file's declared uncertainty (mm), floored at 1e-7
     std::map<std::uint64_t, TopoDS_Vertex> verts;   // VERTEX_POINT id -> vertex
     std::map<std::uint64_t, TopoDS_Edge>   edges;    // EDGE_CURVE id -> shared edge (v1->v2)
+    std::map<std::uint64_t, std::vector<PcRef>> edgePcurves;  // EDGE_CURVE id -> file pcurves
 };
+
+// Record the PCURVE list of an EDGE_CURVE's SURFACE_CURVE / SEAM_CURVE wrapper
+// (associated_geometry -> PCURVE(basis_surface, DEFINITIONAL_REPRESENTATION ->
+// 2D curve)). This is the data resolve3dCurve used to DISCARD — the loss the
+// fidelity diagnosis pinned as the dominant wrong-region class on periodic
+// surfaces. Purely additive bookkeeping: never fails, never alters the 3D path.
+void collectPcurves(Xfer& X, std::uint64_t ecId, std::uint64_t id) {
+    for (int g = 0; g < 8; ++g) {
+        Instance ci;
+        if (!X.R.get(id, ci)) return;
+        if (ci.type != "SURFACE_CURVE" && ci.type != "SEAM_CURVE" &&
+            ci.type != "INTERSECTION_CURVE" && ci.type != "BOUNDED_SURFACE_CURVE")
+            return;
+        auto cp = splitTopLevel(ci.params);
+        if (cp.size() >= 3) {
+            std::vector<std::string> refs;
+            if (parseList(cp[2], refs)) {
+                for (const auto& r : refs) {
+                    std::uint64_t pcId = 0;
+                    if (!parseRef(r, pcId)) continue;
+                    Instance pi;
+                    if (!X.R.get(pcId, pi) || pi.type != "PCURVE") continue;
+                    auto pp = splitTopLevel(pi.params);
+                    std::uint64_t sid = 0, drId = 0;
+                    if (pp.size() < 3 || !parseRef(pp[1], sid) || !parseRef(pp[2], drId)) continue;
+                    Instance di;
+                    if (!X.R.get(drId, di) || di.type != "DEFINITIONAL_REPRESENTATION") continue;
+                    auto dp = splitTopLevel(di.params);
+                    std::vector<std::string> items;
+                    std::uint64_t c2dId = 0;
+                    if (dp.size() < 2 || !parseList(dp[1], items) || items.empty() ||
+                        !parseRef(items[0], c2dId)) continue;
+                    X.edgePcurves[ecId].push_back({sid, c2dId});
+                }
+                auto it = X.edgePcurves.find(ecId);
+                if (it != X.edgePcurves.end() && !it->second.empty()) return;  // outermost wins
+            }
+        }
+        std::uint64_t inner = 0;
+        if (cp.size() < 2 || !parseRef(cp[1], inner)) return;
+        id = inner;
+    }
+}
 
 TopoDS_Vertex vertexOf(Xfer& X, std::uint64_t vpId) {
     auto it = X.verts.find(vpId);
@@ -790,6 +1008,7 @@ TopoDS_Edge edgeOf(Xfer& X, std::uint64_t ecId) {
         kind = "LINE";
     } else {
         if (!parseRef(p[3], curveId)) fail("EDGE_CURVE curve ref");
+        collectPcurves(X, ecId, curveId);   // P0: keep the file's own pcurves
         curve = buildCurve3d(X.R, curveId, X.scale, kind);
     }
 
@@ -866,8 +1085,11 @@ TopoDS_Edge edgeOf(Xfer& X, std::uint64_t ecId) {
     return e;
 }
 
-// EDGE_LOOP -> wire of oriented shared edges.
-TopoDS_Wire buildWire(Xfer& X, std::uint64_t loopId) {
+// EDGE_LOOP -> wire of oriented shared edges. `ecIdsOut`, when non-null,
+// receives the loop's EDGE_CURVE ids IN ORDER (with repetition — a seam edge
+// appears twice), for the per-face pcurve attachment pass.
+TopoDS_Wire buildWire(Xfer& X, std::uint64_t loopId,
+                      std::vector<std::uint64_t>* ecIdsOut = nullptr) {
     Instance li;
     if (!X.R.get(loopId, li) || li.type != "EDGE_LOOP") fail("EDGE_LOOP #" + std::to_string(loopId));
     auto lp = splitTopLevel(li.params);
@@ -887,9 +1109,240 @@ TopoDS_Wire buildWire(Xfer& X, std::uint64_t loopId) {
         TopoDS_Edge e = edgeOf(X, ecId);   // forward (v0->v1)
         TopoDS_Edge oe = orient ? e : TopoDS::Edge(e.Reversed());
         mw.Add(oe);
+        if (ecIdsOut) ecIdsOut->push_back(ecId);
     }
     // NB: MakeWire may report NotDone on an out-of-order add; the healer fixes it.
     return mw.Wire();
+}
+
+// P0 — attach the file's own pcurves to this face's edges (BRep_Builder
+// UpdateEdge on the face's surface handle, identity location). With real
+// pcurves present the whole-shell ShapeFix stops INVENTING them by projection —
+// the projection is what wound wrongly on periodic surfaces (torus / sphere /
+// closed B-spline), turning sliver patches into full-wrap complements (the
+// diagnosis's dominant 24-fixture failure class). The heal pass stays on as
+// reconciler (orientation, seam order via FixShifted, SameParameter).
+//
+// Honesty rule: a pcurve the file DOES carry but we cannot faithfully rebuild
+// leaves the edge to the status-quo projection on OPEN surfaces (reliable
+// there) but FAILS the import on a closed(-periodic) surface, where projection
+// is proven ambiguous — never ship a guessed region (Bible §0/§9).
+// The ISO->OCCT parametric v factor for a face's surface entity: ISO 10303-42
+// parameterises a cone's v ALONG THE AXIS (radius + v*tan(a)) while OCCT's
+// Geom_ConicalSurface runs v along the GENERATOR (radius + v*sin(a), axial
+// v*cos(a)) -> v_occt = v_iso / cos(a). An extrusion surface's ISO v is in
+// units of the (non-unit) sweep VECTOR while OCCT sweeps the unit direction ->
+// v_occt = v_iso * |V| * mmScale. All other supported surfaces agree.
+double pcurveVScale(const Resolver& R, std::uint64_t surfId, double scale) {
+    Instance si;
+    if (!R.get(surfId, si)) return 1.0;
+    if (si.type == "CONICAL_SURFACE") {
+        auto p = splitTopLevel(si.params);
+        double ang = 0;
+        if (p.size() >= 4 && stepNum(p[3], ang)) {
+            const double c = std::cos(ang);
+            if (std::fabs(c) > 1e-9) return 1.0 / c;
+        }
+        return 1.0;
+    }
+    if (si.type == "SURFACE_OF_LINEAR_EXTRUSION") {
+        auto p = splitTopLevel(si.params);
+        std::uint64_t vecId = 0;
+        Instance vi;
+        if (p.size() >= 3 && parseRef(p[2], vecId) && R.get(vecId, vi) && vi.type == "VECTOR") {
+            auto vp = splitTopLevel(vi.params);
+            double mag = 1.0;
+            if (vp.size() >= 3 && stepNum(vp[2], mag) && mag > 0.0) return mag * scale;
+        }
+        return 1.0;
+    }
+    return 1.0;
+}
+
+void attachFilePcurves(Xfer& X, const std::vector<std::uint64_t>& faceEcIds,
+                       std::uint64_t surfId, const Handle(Geom_Surface)& surf) {
+    if (faceEcIds.empty()) return;
+    // Parametric v-coordinates follow the file's length unit; the corpus is
+    // MILLI/scale==1.0 — gate the whole path on that (diagnosis P0) and fall
+    // back to the pre-P0 behaviour otherwise.
+    if (X.scale != 1.0) return;
+    // PLANES are excluded on purpose: their pcurves are an exact, unambiguous
+    // projection OCCT computes on demand (BRep_Tool::CurveOnSurface) — file
+    // pcurves add nothing there, and a rational-circle 2D form accepted with a
+    // mismatched range poisoned whole planar faces (fixtures 229/225/202/218:
+    // one plane face each blown to 1e6x). The periodic wrong-region class P0
+    // targets never occurs on a plane.
+    {
+        Instance si;
+        if (X.R.get(surfId, si) && si.type == "PLANE") return;
+    }
+    const bool closedSurf = surf->IsUClosed() || surf->IsVClosed();
+    const double tol = std::max(Precision::Confusion(), X.tol);
+    const double vScale = pcurveVScale(X.R, surfId, X.scale);
+    const TopLoc_Location loc0;
+    Handle(ShapeAnalysis_Surface) sas = new ShapeAnalysis_Surface(surf);  // shared inverter
+    BRep_Builder b;
+    std::map<std::uint64_t, int> occ;
+    for (auto id : faceEcIds) occ[id]++;
+    for (const auto& kv : occ) {
+        const std::uint64_t ecId = kv.first;
+        const int n = kv.second;
+        auto pit = X.edgePcurves.find(ecId);
+        if (pit == X.edgePcurves.end()) continue;   // file offers none — status quo
+        std::vector<std::uint64_t> c2dIds;
+        for (const auto& pr : pit->second)
+            if (pr.surfId == surfId) c2dIds.push_back(pr.c2dId);
+        if (c2dIds.empty()) continue;               // pcurves belong to other faces
+        auto eit = X.edges.find(ecId);
+        if (eit == X.edges.end()) continue;
+        TopoDS_Edge e = eit->second;
+        double f = 0, l = 0;
+        Handle(Geom_Curve) c3 = BRep_Tool::Curve(e, f, l);
+        if (c3.IsNull()) continue;
+        // LOCUS guard (not a co-parameterisation check): over a candidate range,
+        // the pcurve's mapped endpoints must land on the edge's endpoints
+        // (either order). Rejects garbage loci — e.g. a bounded 2D curve
+        // evaluated far outside its span — while accepting locus-exact pcurves
+        // with a different parameterisation.
+        auto locusOk = [&](const Handle(Geom2d_Curve)& c2, double r0, double r1) -> bool {
+            gp_Pnt Pf, Pl;
+            c3->D0(f, Pf); c3->D0(l, Pl);
+            gp_Pnt2d q0, q1;
+            c2->D0(r0, q0); c2->D0(r1, q1);
+            gp_Pnt S0, S1;
+            surf->D0(q0.X(), q0.Y(), S0);
+            surf->D0(q1.X(), q1.Y(), S1);
+            const double g = std::max(1.0, 10.0 * tol);
+            bool ok = (S0.Distance(Pf) <= g && S1.Distance(Pl) <= g) ||
+                      (S0.Distance(Pl) <= g && S1.Distance(Pf) <= g);
+            // Degenerate acceptance guard: a CLOSED 2D curve maps both range ends
+            // to one point — that only validates a genuinely closed edge. A short
+            // open arc must not "match" a full-circle pcurve through its seam.
+            if (ok && S0.Distance(S1) <= Precision::Confusion() * 10.0 &&
+                Pf.Distance(Pl) > g)
+                ok = false;
+            return ok;
+        };
+        // Candidate (c): derive the range by PROJECTION — invert the edge's 3D
+        // endpoints to UV (period-normalised toward the pcurve's own span) and
+        // project onto the 2D curve. Covers pcurves that are neither
+        // co-parameterised nor trimmed-to-edge (an edge that is a SUB-SEGMENT
+        // of a differently-parameterised pcurve, e.g. a rational-circle span).
+        auto projRange = [&](const Handle(Geom2d_Curve)& c2, double& r0, double& r1) -> bool {
+            try {
+                const double prec = std::max(1e-6, tol);
+                gp_Pnt Pf3, Pl3;
+                c3->D0(f, Pf3); c3->D0(l, Pl3);
+                gp_Pnt2d uvF = sas->ValueOfUV(Pf3, prec);
+                gp_Pnt2d uvL = sas->ValueOfUV(Pl3, prec);
+                double w0 = c2->FirstParameter(), w1 = c2->LastParameter();
+                if (Precision::IsNegativeInfinite(w0) || Precision::IsPositiveInfinite(w1)) {
+                    w0 = f; w1 = l;
+                }
+                gp_Pnt2d anchor;
+                c2->D0(0.5 * (w0 + w1), anchor);
+                auto shiftToAnchor = [&](gp_Pnt2d uv) {
+                    if (surf->IsUPeriodic()) {
+                        const double p = surf->UPeriod();
+                        uv.SetX(uv.X() + p * std::round((anchor.X() - uv.X()) / p));
+                    }
+                    if (surf->IsVPeriodic()) {
+                        const double p = surf->VPeriod();
+                        uv.SetY(uv.Y() + p * std::round((anchor.Y() - uv.Y()) / p));
+                    }
+                    return uv;
+                };
+                Geom2dAPI_ProjectPointOnCurve pF(shiftToAnchor(uvF), c2);
+                Geom2dAPI_ProjectPointOnCurve pL(shiftToAnchor(uvL), c2);
+                if (pF.NbPoints() < 1 || pL.NbPoints() < 1) return false;
+                const double a = pF.LowerDistanceParameter();
+                const double q = pL.LowerDistanceParameter();
+                r0 = std::min(a, q); r1 = std::max(a, q);
+                if (r1 - r0 <= Precision::PConfusion()) return false;
+                return locusOk(c2, r0, r1);
+            } catch (const Standard_Failure&) {
+                return false;
+            }
+        };
+        // The range the pcurve is valid over. STEP writers use SEVERAL
+        // conventions:
+        //   (a) the pcurve is co-parameterised with the 3D curve and the edge
+        //       covers [f,l] of it (OCCT writer; also full-curve pcurves whose
+        //       edge is a SUB-SEGMENT after topology splits),
+        //   (b) the pcurve is its OWN trimmed span (bounded 2D B-spline written
+        //       exactly over the edge, differently parameterised),
+        //   (c) neither — recover the span by endpoint projection.
+        // For a BOUNDED pcurve the projection (c) is authoritative — the
+        // endpoint-locus test alone accepted wrong (a) correspondences on tiny
+        // hole edges (a few mm) whose extrapolation stays inside the gate,
+        // which bled area off heavily-holed cone faces (fixture 208). For an
+        // unbounded/periodic one, co-parameterisation (a) is the convention.
+        // Returns false when nothing binds the edge's endpoints — honest-fail.
+        auto pickRange = [&](const Handle(Geom2d_Curve)& c2, double& r0, double& r1) -> bool {
+            const double w0 = c2->FirstParameter(), w1 = c2->LastParameter();
+            const bool bounded = !c2->IsPeriodic() &&
+                                 !Precision::IsNegativeInfinite(w0) &&
+                                 !Precision::IsPositiveInfinite(w1);
+            if (bounded) {
+                if (projRange(c2, r0, r1)) return true;          // (c) projection
+                r0 = w0; r1 = w1;
+                if (locusOk(c2, r0, r1)) return true;            // (b) own span
+                r0 = f; r1 = l;
+                if (locusOk(c2, r0, r1)) return true;            // (a) co-param
+                return false;
+            }
+            r0 = f; r1 = l;
+            if (locusOk(c2, r0, r1)) return true;                // (a) co-param
+            if (projRange(c2, r0, r1)) return true;              // (c) projection
+            return false;
+        };
+        auto honest = [&](const char* why) {
+            // A pcurve the file DOES carry but we cannot faithfully rebuild: on a
+            // closed(-periodic) surface projection is proven ambiguous (blown
+            // full-wrap complements), so shipping the heal's guess would be wrong
+            // geometry — fail the import honestly instead (Bible §0/§9). Open
+            // surfaces keep the status-quo projection path (reliable there).
+            if (closedSurf)
+                fail(std::string("file pcurve unusable on closed surface (") + why +
+                     ") EDGE_CURVE #" + std::to_string(ecId) +
+                     " surface #" + std::to_string(surfId));
+        };
+        // Attach + set the picked range; the 2D parameterisation is NOT
+        // asserted equal to the 3D one — clear SameRange/SameParameter and let
+        // the standing heal (ShapeFix + BRepLib::SameParameter) reconcile, which
+        // preserves the pcurve's locus instead of re-inventing it by projection.
+        if (n == 1 && c2dIds.size() == 1) {
+            Handle(Geom2d_Curve) c2 = buildCurve2d(X.R, c2dIds[0], vScale, f, l);
+            if (c2.IsNull()) { honest("unsupported 2D form"); continue; }
+            double r0 = 0, r1 = 0;
+            if (!pickRange(c2, r0, r1)) { honest("locus mismatch"); continue; }
+            b.UpdateEdge(e, c2, surf, loc0, tol);
+            b.Range(e, surf, loc0, r0, r1);
+            b.SameRange(e, Standard_False);
+            b.SameParameter(e, Standard_False);
+        } else if (n == 2 && c2dIds.size() == 2) {
+            // SEAM edge: this EDGE_CURVE bounds the face twice (opposite
+            // orientations) and both file pcurves live on THIS surface. Attach
+            // the dual representation (OCCT closed-surface seam convention) in
+            // file order — ShapeFix_Wire::FixShifted swaps fwd/rev if needed.
+            Handle(Geom2d_Curve) cA = buildCurve2d(X.R, c2dIds[0], vScale, f, l);
+            Handle(Geom2d_Curve) cB = buildCurve2d(X.R, c2dIds[1], vScale, f, l);
+            if (cA.IsNull() || cB.IsNull()) { honest("unsupported 2D seam form"); continue; }
+            double r0 = 0, r1 = 0;
+            if (!pickRange(cA, r0, r1) || !locusOk(cB, r0, r1)) {
+                honest("seam locus mismatch");
+                continue;
+            }
+            b.UpdateEdge(e, cA, cB, surf, loc0, tol);
+            b.Range(e, surf, loc0, r0, r1);
+            b.SameRange(e, Standard_False);
+            b.SameParameter(e, Standard_False);
+        } else {
+            // Ambiguous pairing (e.g. shared-surface neighbour faces) — absent
+            // from the corpus; never guess.
+            honest("ambiguous pcurve pairing");
+        }
+    }
 }
 
 }  // anonymous namespace
@@ -972,6 +1425,7 @@ TopoDS_Shape foreignStepToOcct(const std::string& text) {
             // the surface's NATURAL parametric bounds (no wire).
             struct B { TopoDS_Wire w; bool outer; double diag; };
             std::vector<B> bounds;
+            std::vector<std::uint64_t> faceEcIds;   // P0: EDGE_CURVEs of ALL bounds
             for (const auto& br : boundRefs) {
                 std::uint64_t bid = 0;
                 if (!parseRef(br, bid)) fail("bound ref");
@@ -987,8 +1441,17 @@ TopoDS_Shape foreignStepToOcct(const std::string& text) {
                 if (li.type == "VERTEX_LOOP") continue;      // degenerate -> natural bounds
                 if (li.type != "EDGE_LOOP")
                     fail("unsupported loop '" + li.type + "' #" + std::to_string(loopId));
-                TopoDS_Wire w = buildWire(X, loopId);
+                TopoDS_Wire w = buildWire(X, loopId, &faceEcIds);
                 if (!bOrient) w = TopoDS::Wire(w.Reversed());
+                // ADVANCED_FACE same_sense=.F.: STEP loop directions are CCW
+                // w.r.t. the FACE normal (= -surface normal), i.e. CW in the
+                // surface's own UV. OCCT wires must wind CCW w.r.t. the SURFACE
+                // normal, so the wire is reversed here IN ADDITION to the final
+                // face reversal (TKDESTEP does both). On a closed surface the
+                // winding picks patch-vs-COMPLEMENT — leaving it CW was the
+                // whole-complement blowup class (203: 7 same_sense=F tori each
+                // 934,9xx mm^2 = full-torus-minus-patch).
+                if (!faceSame) w = TopoDS::Wire(w.Reversed());
                 Bnd_Box bb; BRepBndLib::Add(w, bb);
                 double xmin, ymin, zmin, xmax, ymax, zmax;
                 double diag = 0;
@@ -999,6 +1462,11 @@ TopoDS_Shape foreignStepToOcct(const std::string& text) {
                 }
                 bounds.push_back({w, bi.type == "FACE_OUTER_BOUND", diag});
             }
+
+            // P0: give every edge of this face the FILE's pcurves on THIS surface
+            // before the face is made — the heal then reconciles instead of
+            // inventing parametric regions by projection.
+            attachFilePcurves(X, faceEcIds, surfId, surf);
 
             TopoDS_Face face;
             if (bounds.empty()) {
