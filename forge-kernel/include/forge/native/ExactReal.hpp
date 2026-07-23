@@ -110,6 +110,15 @@ public:
     const BigInt& num() const { return num_; }
     const BigInt& den() const { return den_; }
 
+    // Conservative double bracket of the exact value: lo() <= num/den <= hi()
+    // always (the same invariant sign()/cmp() already rely on). Exposed so
+    // predicate-level interval FILTERS (ExactPredicates3D.cpp) can prove a sign
+    // from double arithmetic before touching the big-integer path. A filter may
+    // never decide from a bracket that straddles 0 — it must fall through to
+    // the exact evaluation, so exactness never depends on these.
+    double lo() const { return lo_; }
+    double hi() const { return hi_; }
+
 private:
     BigInt num_, den_;     // value = num_/den_, den_ > 0
     double lo_, hi_;       // interval bracketing num_/den_

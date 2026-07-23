@@ -72,6 +72,14 @@ int exactOrient3D(const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d);
 int exactInSphere(const ExactPoint3& a, const ExactPoint3& b, const ExactPoint3& c,
                   const ExactPoint3& d, const ExactPoint3& e);
 
+// Exact sign of the triple product ((b-a) x (c-a)) . n — the 2D orientation of
+// (a,b,c) inside the plane whose (not necessarily unit) normal is n. This is the
+// hot leaf of the mesh boolean's exact retriangulation; like exactOrient3D it is
+// interval-filtered (double fast path, exact ExactReal fallback), so it is exact
+// but does not pay big-integer cost in the far-from-degenerate common case.
+int exactPlanarOrient3D(const ExactPoint3& a, const ExactPoint3& b,
+                        const ExactPoint3& c, const ExactPoint3& n);
+
 // ── (2) EXACT CONSTRUCTIONS ──────────────────────────────────────────────────
 
 // Intersection of the line through (P0,P1) with the supporting PLANE of triangle

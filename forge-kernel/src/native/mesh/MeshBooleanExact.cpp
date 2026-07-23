@@ -133,16 +133,13 @@ std::vector<Tri> ingest(const std::vector<double>& pos, const std::vector<std::u
 // i.e. we keep everything in 3D and never form a double 2D coordinate for a sign.
 
 // Exact 2D orientation of (a,b,c) inside the plane of triangle face `f` — i.e. the
-// sign of the triple product (b-a)x(c-a) . n where n is the face normal. Exact.
+// sign of the triple product (b-a)x(c-a) . n where n is the face normal. Exact —
+// delegates to the interval-filtered predicate (ExactPredicates3D.cpp), which
+// answers the far-from-degenerate common case without big-integer arithmetic and
+// falls through to the identical ExactReal evaluation otherwise.
 int exactPlanarOrient(const ExactPoint3& a, const ExactPoint3& b, const ExactPoint3& c,
                       const ExactPoint3& n) {
-    ExactReal ux = b.x - a.x, uy = b.y - a.y, uz = b.z - a.z;
-    ExactReal vx = c.x - a.x, vy = c.y - a.y, vz = c.z - a.z;
-    ExactReal cx = uy * vz - uz * vy;
-    ExactReal cy = uz * vx - ux * vz;
-    ExactReal cz = ux * vy - uy * vx;
-    ExactReal dot = cx * n.x + cy * n.y + cz * n.z;
-    return dot.sign();
+    return exactPlanarOrient3D(a, b, c, n);
 }
 
 ExactPoint3 faceNormal(const ExactPool& pool, const Tri& t) {
@@ -456,9 +453,14 @@ static BoolResultN exactArrangementBoolean(const std::vector<double>& aPos,
     // ── SELECT per op (exact in/out + exact coincident-wall handling). ───────
     bool keepInside; bool flipPrimaryWall;  // wall sense
     std::vector<SubTri> selected;
+    // Returns false iff the work budget expired mid-select (same honest-failure
+    // contract as the imprint/retriangulate checks above — the SELECT stage's
+    // exact classification is O(|subs|*|other|) and previously ran UNBOUNDED).
     auto selectFrom = [&](const std::vector<SubTri>& subs, const std::vector<Tri>& other,
-                          bool primary) {
-        for (const SubTri& s : subs) {
+                          bool primary) -> bool {
+        for (std::size_t si = 0; si < subs.size(); ++si) {
+            if ((si & 0xF) == 0 && overBudget()) return false;
+            const SubTri& s = subs[si];
             const ExactPoint3& A0 = pool.pts[s.v[0]];
             const ExactPoint3& A1 = pool.pts[s.v[1]];
             const ExactPoint3& A2 = pool.pts[s.v[2]];
@@ -493,6 +495,7 @@ static BoolResultN exactArrangementBoolean(const std::vector<double>& aPos,
             if (flipPrimaryWall && !primary) selected.push_back({ s.v[0], s.v[2], s.v[1] });
             else                             selected.push_back({ s.v[0], s.v[1], s.v[2] });
         }
+        return true;
     };
 
     if (op == BoolOpN::UNION) { keepInside = false; flipPrimaryWall = false; }
@@ -502,7 +505,9 @@ static BoolResultN exactArrangementBoolean(const std::vector<double>& aPos,
     // For DIFFERENCE, A keeps OUTSIDE B, B keeps INSIDE A (reversed). We special-case.
     if (op == BoolOpN::DIFFERENCE) {
         // A side: keep A outside B.
-        for (const SubTri& s : aSub) {
+        for (std::size_t si = 0; si < aSub.size(); ++si) {
+            if ((si & 0xF) == 0 && overBudget()) { R.ok = false; R.reason = "exact arrangement over budget (select)"; return R; }
+            const SubTri& s = aSub[si];
             const ExactPoint3& A0 = pool.pts[s.v[0]]; const ExactPoint3& A1 = pool.pts[s.v[1]]; const ExactPoint3& A2 = pool.pts[s.v[2]];
             ExactPoint3 cen((A0.x+A1.x+A2.x)/ExactReal(3LL),(A0.y+A1.y+A2.y)/ExactReal(3LL),(A0.z+A1.z+A2.z)/ExactReal(3LL));
             ExactReal ux=A1.x-A0.x,uy=A1.y-A0.y,uz=A1.z-A0.z, vx=A2.x-A0.x,vy=A2.y-A0.y,vz=A2.z-A0.z;
@@ -515,7 +520,9 @@ static BoolResultN exactArrangementBoolean(const std::vector<double>& aPos,
             if (!pointInSolidExact(probe, B, pool, extent)) selected.push_back({s.v[0],s.v[1],s.v[2]});
         }
         // B side: keep B inside A, reversed.
-        for (const SubTri& s : bSub) {
+        for (std::size_t si = 0; si < bSub.size(); ++si) {
+            if ((si & 0xF) == 0 && overBudget()) { R.ok = false; R.reason = "exact arrangement over budget (select)"; return R; }
+            const SubTri& s = bSub[si];
             const ExactPoint3& A0 = pool.pts[s.v[0]]; const ExactPoint3& A1 = pool.pts[s.v[1]]; const ExactPoint3& A2 = pool.pts[s.v[2]];
             ExactPoint3 cen((A0.x+A1.x+A2.x)/ExactReal(3LL),(A0.y+A1.y+A2.y)/ExactReal(3LL),(A0.z+A1.z+A2.z)/ExactReal(3LL));
             ExactReal ux=A1.x-A0.x,uy=A1.y-A0.y,uz=A1.z-A0.z, vx=A2.x-A0.x,vy=A2.y-A0.y,vz=A2.z-A0.z;
@@ -528,8 +535,10 @@ static BoolResultN exactArrangementBoolean(const std::vector<double>& aPos,
             if (pointInSolidExact(probe, A, pool, extent)) selected.push_back({s.v[0],s.v[2],s.v[1]});
         }
     } else {
-        selectFrom(aSub, B, /*primary=*/true);
-        selectFrom(bSub, A, /*primary=*/false);
+        if (!selectFrom(aSub, B, /*primary=*/true) ||
+            !selectFrom(bSub, A, /*primary=*/false)) {
+            R.ok = false; R.reason = "exact arrangement over budget (select)"; return R;
+        }
     }
 
     // ── ASSEMBLE: net-cancel coincident duplicate walls, build + validate. ────
