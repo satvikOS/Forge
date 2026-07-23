@@ -1,1 +1,0 @@
-{"base_shape": "cylindrical housing (flange with central bore)", "overall_dims_mm": {"diameter": 108, "height": 52}, "features": [{"type": "central_bore", "dia_mm": 34.0, "through": true}, {"type": "flange", "thickness_mm": 12}], "complexity": "medium"}

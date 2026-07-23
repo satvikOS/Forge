@@ -1,1 +1,0 @@
-{"base_shape": "cylinder", "overall_dims_mm": {"x": 102.5, "y": 84.3679, "z": 100}, "features": [{"type": "bolt_hole", "count": 4, "diameter_mm": 8.5}, {"type": "boss", "height_mm": 103.2, "diameter_mm": 48}], "complexity": "high", "feature_count": 10}

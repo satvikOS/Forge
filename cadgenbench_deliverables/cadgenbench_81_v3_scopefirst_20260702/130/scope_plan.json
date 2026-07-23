@@ -1,1 +1,0 @@
-{"base_shape": "box", "overall_dims_mm": {"x": 104, "y": 82.5, "z": 36}, "features": [{"type": "central_bore", "diameter_mm": 20.5, "through_hole": true}, {"type": "side_bore", "diameter_mm": 10.5, "through_hole": true}, {"type": "fillet_edges", "radius_mm": 2}], "complexity": "medium"}

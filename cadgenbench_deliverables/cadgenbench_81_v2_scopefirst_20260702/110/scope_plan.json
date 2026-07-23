@@ -1,1 +1,0 @@
-{"base_shape": "cuboid", "overall_dims_mm": {"x": 105, "y": 82.34769, "z": 100}, "features": [{"type": "bolt_hole", "count": 2, "diameter_mm": 8.5}, {"type": "fillet", "radius_mm": 10}], "complexity": "medium"}

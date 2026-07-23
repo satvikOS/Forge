@@ -1,1 +1,0 @@
-{"base_shape": "rectangular box", "overall_dims_mm": {"x": 104.5, "y": 82.3679, "z": 10}, "features": [{"type": "bend", "angle_degrees": 45.3, "radius_mm": 0}, {"type": "bent_edge"}, {"count": 2}], "complexity": "medium", "feature_count": 10, "has_bends": true}

@@ -1,1 +1,0 @@
-{"base_shape": "cylinder", "overall_dims_mm": {"x": 104.5, "y": 82.3679, "z": 10}, "features": [{"type": "bolt_hole", "count": 2, "diameter_mm": 8.5}, {"type": "threaded_bore", "length_mm": 30, "diameter_mm": 12.5}, {"type": "fillet_edge", "radius_mm": 3}], "complexity": "medium"}

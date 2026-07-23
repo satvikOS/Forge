@@ -1,1 +1,0 @@
-{"base_shape": "U-shaped bracket (hollow vertical wall with curved bottom)", "overall_dims_mm": {"x": 105, "y": 82.34}, "features": [{"type": "central_bore", "diameter_mm": 10, "through_hole": true}, {"type": "mounting\u5b54s", "count": 2, "diameter_mm": 8.5}], "complexity": "medium"}

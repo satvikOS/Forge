@@ -1,3 +1,0 @@
-/Users/account_clawteam1/archdisc-Mech/build-native/CMakeFiles/forge_kernel.dir
-/Users/account_clawteam1/archdisc-Mech/build-native/CMakeFiles/edit_cache.dir
-/Users/account_clawteam1/archdisc-Mech/build-native/CMakeFiles/rebuild_cache.dir

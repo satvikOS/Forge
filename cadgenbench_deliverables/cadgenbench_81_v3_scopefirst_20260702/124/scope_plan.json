@@ -1,1 +1,0 @@
-{"base_shape": "cylindrical body with a stepped shaft and an integrated arm", "overall_dims_mm": {"x": 104.5, "y": 82.3679}, "features": [{"type": "bore", "diameter_mm": 10, "length_mm": 38.5}, {"type": "fillet", "radius_mm": 2.47, "on_edge_of": {"feature_type": "bore"}}], "complexity": "medium", "features_count": 2}

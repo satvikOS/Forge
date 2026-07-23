@@ -1,1 +1,0 @@
-{"base_shape": "cylindrical body (shaft) with a central bore", "overall_dims_mm": {"diameter": 30, "length": 125}, "features": [{"type": "central_bore", "dia_mm": 8.0, "length_mm": 125}, {"type": "threaded_section", "diameter_mm": 8.0, "length_mm": 42, "pitch_mm": 1.5}, {"type": "shoulder", "diameter_mm": 8.0, "length_mm": 24}], "complexity": "medium"}

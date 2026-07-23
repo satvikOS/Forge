@@ -1,1 +1,0 @@
-{"base_shape": "box", "overall_dims_mm": {"x": 210.0, "y": 65.0, "z": 48.3}, "features": [{"type": "extruded_cut", "count": 1}, {"type": "fillet", "radius_mm": 3.0, "edges": [4]}, {"type": "hole", "count": 2}], "complexity": "medium"}

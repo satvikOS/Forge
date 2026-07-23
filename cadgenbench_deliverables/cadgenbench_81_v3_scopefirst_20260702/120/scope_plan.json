@@ -1,1 +1,0 @@
-{"base_shape": "rectangular box (cuboid)", "overall_dims_mm": {"x": 104, "y": 86.5, "z": 32}, "features": [{"type": "central_cavity", "depth_mm": 18.5, "wall_thickness_mm": 6}, {"type": "corner_holes", "count": 4, "diameter_mm": 5.2}], "complexity": "medium (internal cavity, corner holes)", "feature_count": 2, "has_bosses_or_rivets": "no"}
