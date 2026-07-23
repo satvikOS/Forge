@@ -45,6 +45,7 @@
 
 #include "forge/native/brep/Surface.hpp"
 #include "forge/native/brep/Sew.hpp"
+#include "forge/native/brep/ChamferAnalytic.hpp"  // AnalyticChamferResult + topology-sourced chamfer
 
 #include <algorithm>
 #include <array>
@@ -1307,6 +1308,204 @@ AnalyticFilletResult filletSolidStraightConvexEdgeAnalytic(TopologyBuilder& tb,
         ? "ok (analytic constant-radius rolling-ball fillet of a TOPOLOGY-SOURCED "
           "convex straight planar-planar edge at a GENERAL dihedral angle; watertight)"
         : "general-dihedral fillet assembly did not sew into a closed shell";
+    return res;
+}
+
+// ===========================================================================
+// TOPOLOGY-SOURCED FLAT-BEVEL CHAMFER of ONE straight CONVEX planar-planar edge at
+// ANY dihedral — the flat sibling of filletSolidStraightConvexEdgeAnalytic. Shares
+// this TU's proven topology walk + emitPlanarPolygon + copyFaceFragment + sewFaces
+// helpers; only the blend differs (one PLANAR bevel patch + convex-pentagon end caps
+// instead of the cylinder patch + sector-disk caps). See ChamferAnalytic.hpp.
+// ===========================================================================
+AnalyticChamferResult chamferSolidStraightConvexEdgeAnalytic(TopologyBuilder& tb,
+                                                             const Solid& src,
+                                                             std::uint32_t edgeId,
+                                                             double d) {
+    auto cfail = [](const char* why) {
+        AnalyticChamferResult r; r.ok = false; r.reason = why; return r;
+    };
+    if (!(d > 0.0) || !std::isfinite(d)) return cfail("chamfer setback d must be positive and finite");
+    if (src.shells.empty() || src.shells[0] == nullptr) return cfail("solid has no shell");
+
+    std::vector<Edge*> edges = enumerateSolidStraightEdges(src);
+    if (edges.empty()) return cfail("solid has no enumerable edges");
+    if (edgeId >= edges.size()) return cfail("edgeId out of range for this solid's edge enumeration");
+    Edge* E = edges[edgeId];
+
+    // -------- resolve the two adjacent faces (via the edge's two coedges) -----
+    if (!E->coedgeA || !E->coedgeB) return cfail("edge is not shared by two coedges (open / non-manifold)");
+    if (!E->coedgeA->loop || !E->coedgeB->loop) return cfail("edge coedge has no loop");
+    Face* FA = E->coedgeA->loop->face;
+    Face* FB = E->coedgeB->loop->face;
+    if (!FA || !FB || FA == FB) return cfail("could not resolve two distinct adjacent faces");
+    if (!FA->surface || FA->surface->kind != SurfaceKind::Plane ||
+        !FB->surface || FB->surface->kind != SurfaceKind::Plane)
+        return cfail("both adjacent faces must be PLANAR (curved-face chamfer is a follow-up)");
+    if (!FA->innerLoops.empty() || !FB->innerLoops.empty())
+        return cfail("an adjacent face has inner (hole) loops; holed-face re-trim is a follow-up");
+
+    Vertex* VP0 = E->start;
+    Vertex* VP1 = E->end;
+    const Vec3 P0 = P2V(VP0->point);
+    const Vec3 P1 = P2V(VP1->point);
+    Vec3 e = vsub(P1, P0);
+    const double edgeLen = vlen(e);
+    if (!(edgeLen > 0.0)) return cfail("degenerate (zero-length) edge");
+    e = vscale(e, 1.0 / edgeLen);
+
+    // Outward normals from the real loop winding (CCW-from-outside -> outward).
+    const Vec3 nA = vnorm(ringNormal(outerRingVerts(FA)));
+    const Vec3 nB = vnorm(ringNormal(outerRingVerts(FB)));
+    const double ndot = vdot(nA, nB);
+    if (ndot > 1.0 - 1e-7)
+        return cfail("adjacent faces are (near) coplanar — no genuine dihedral edge to chamfer");
+    if (ndot < -1.0 + 1e-7)
+        return cfail("adjacent faces are (near) flat/anti-parallel — a smooth 180-degree join, nothing to bevel");
+
+    // In-plane into-material directions (perpendicular to the edge). iA lies in plane
+    // A pointing into FA's interior; iB in plane B into FB's interior — the SAME
+    // construction the fillet's convex test uses. Convex edge test: iA is on the
+    // material side of plane B (iA.nB < 0) and iB on the material side of plane A.
+    Coedge* cA = (E->coedgeA->loop->face == FA) ? E->coedgeA : E->coedgeB;
+    const Vec3 dAc = vnorm(vsub(P2V(cA->destVertex()->point), P2V(cA->originVertex()->point)));
+    const Vec3 iA = vnorm(vcross(nA, dAc));
+    Coedge* cB = (E->coedgeA->loop->face == FB) ? E->coedgeA : E->coedgeB;
+    const Vec3 dBc = vnorm(vsub(P2V(cB->destVertex()->point), P2V(cB->originVertex()->point)));
+    const Vec3 iB = vnorm(vcross(nB, dBc));
+    if (!(vdot(iA, nB) < -1e-7) || !(vdot(iB, nA) < -1e-7))
+        return cfail("edge is concave (reflex) or tangent — convex-only in this increment");
+
+    const double theta = std::acos(std::max(-1.0, std::min(1.0, ndot)));
+    const double interiorDihedralDeg = 180.0 - theta * 180.0 / kPi;
+
+    // Setback-overflow guard: the setback line must stay strictly inside BOTH adjacent
+    // faces (the smallest positive into-material projection of the face's non-edge
+    // vertices is the available room).
+    auto faceRoom = [&](Face* F, const Vec3& into) -> double {
+        double room = 1e300;
+        for (Vertex* v : outerRingVerts(F)) {
+            if (v == VP0 || v == VP1) continue;
+            const double proj = vdot(vsub(P2V(v->point), P0), into);
+            if (proj > 1e-12) room = std::min(room, proj);
+        }
+        return room;
+    };
+    if (!(d < faceRoom(FA, iA) - 1e-9) || !(d < faceRoom(FB, iB) - 1e-9))
+        return cfail("chamfer setback overflows an adjacent face (setback line crosses the far side)");
+
+    // Setback points on each adjacent face at both edge ends.
+    const Vec3 TA0 = vadd(P0, vscale(iA, d)), TA1 = vadd(P1, vscale(iA, d));
+    const Vec3 TB0 = vadd(P0, vscale(iB, d)), TB1 = vadd(P1, vscale(iB, d));
+
+    AnalyticChamferResult res;
+    std::vector<Face*> frags;
+    int adjacentCount = 0, endCount = 0;
+
+    for (Face* F : src.shells[0]->faces) {
+        std::vector<Vertex*> ring = outerRingVerts(F);
+        if (ring.empty()) return cfail("a face has an empty outer loop");
+        bool has0 = false, has1 = false;
+        for (Vertex* v : ring) { if (v == VP0) has0 = true; if (v == VP1) has1 = true; }
+
+        if (has0 && has1) {
+            // ADJACENT face (FA or FB): re-trim its two sharp-edge corners to the
+            // setback points; the rest of the polygon is unchanged.
+            if (F != FA && F != FB)
+                return cfail("a non-adjacent face contains both edge endpoints (unsupported topology)");
+            ++adjacentCount;
+            const bool isA = (F == FA);
+            const Vec3 fn = isA ? nA : nB;
+            const Vec3 T0 = isA ? TA0 : TB0;
+            const Vec3 T1 = isA ? TA1 : TB1;
+            std::vector<Vec3> rp;
+            rp.reserve(ring.size());
+            for (Vertex* v : ring) {
+                if (v == VP0)      rp.push_back(T0);
+                else if (v == VP1) rp.push_back(T1);
+                else               rp.push_back(P2V(v->point));
+            }
+            Face* rf = emitPlanarPolygon(tb, rp, fn);
+            frags.push_back(rf);
+            if (isA) res.trimmedFaceA = rf; else res.trimmedFaceB = rf;
+            continue;
+        }
+
+        if (has0 || has1) {
+            // PERPENDICULAR END face (one sharp corner): clip the corner with the
+            // straight bevel chord (the setback point on A -> the setback point on B),
+            // turning the polygon into a CONVEX one-corner-sliced shape. The chord edge
+            // MATES the bevel patch's short end; a convex polygon is integrated EXACTLY
+            // by the planar polygon-moment path (no triangulation / sector cap needed).
+            if (!F->surface || F->surface->kind != SurfaceKind::Plane || !F->innerLoops.empty())
+                return cfail("an edge endpoint meets a non-planar or holed face (setback follow-up)");
+            const Vec3 fn = vnorm(ringNormal(ring));
+            if (!(std::fabs(vdot(fn, e)) > 1.0 - 1e-6))
+                return cfail("an end face is not perpendicular to the edge (mitre/setback follow-up)");
+            ++endCount;
+            const bool atStart = has0;
+            Vertex* Vsharp = atStart ? VP0 : VP1;
+            const Vec3 Ta = atStart ? TA0 : TA1;   // setback on FA's plane at this end
+            const Vec3 Tb = atStart ? TB0 : TB1;   // setback on FB's plane at this end
+
+            const int n = static_cast<int>(ring.size());
+            int slot = -1;
+            for (int k = 0; k < n; ++k) if (ring[k] == Vsharp) { slot = k; break; }
+            if (slot < 0) return cfail("internal: sharp corner not located in end-face loop");
+            const Vec3 prevPos = P2V(ring[(slot - 1 + n) % n]->point);
+            const double dTa = vlen(vsub(Ta, prevPos)), dTb = vlen(vsub(Tb, prevPos));
+            const Vec3 nearPrev = (dTa <= dTb) ? Ta : Tb;
+            const Vec3 nearNext = (dTa <= dTb) ? Tb : Ta;
+
+            std::vector<Vec3> pent;
+            pent.reserve(ring.size() + 1);
+            for (int k = 0; k < n; ++k) {
+                if (k == slot) { pent.push_back(nearPrev); pent.push_back(nearNext); }
+                else           { pent.push_back(P2V(ring[k]->point)); }
+            }
+            frags.push_back(emitPlanarPolygon(tb, pent, fn));
+            continue;
+        }
+
+        // UNTOUCHED face: faithful independent copy (any surface, holes preserved).
+        frags.push_back(copyFaceFragment(tb, F));
+    }
+
+    if (adjacentCount != 2)
+        return cfail("the edge is not shared by exactly two re-trimmable adjacent faces");
+    if (endCount != 2)
+        return cfail("the edge does not terminate against exactly two perpendicular end faces");
+
+    // -------- the flat bevel PATCH: planar quad TA0 -> TB0 -> TB1 -> TA1 --------
+    Vec3 bevelN = vnorm(vcross(vsub(TB0, TA0), e));
+    if (vdot(bevelN, vadd(nA, nB)) < 0.0) bevelN = vscale(bevelN, -1.0);
+    Face* bev = emitPlanarPolygon(tb, {TA0, TB0, TB1, TA1}, bevelN);
+    frags.push_back(bev);
+    res.bevelFace = bev;
+
+    // -------- sew every fragment into one closed 2-manifold -------------------
+    Solid* solid = tb.makeSolid();
+    SewOptions so; so.tol = 1e-7; so.midSamples = 3; so.weldVertices = true;
+    SewResult sr = sewFaces(tb, frags, so);
+    for (Shell* sh : sr.shells) tb.addShellToSolid(solid, sh);
+
+    res.solid       = solid;
+    res.setback     = d;
+    res.setbackA    = d;
+    res.setbackB    = d;
+    res.edgeLength  = edgeLen;
+    res.dihedralDeg = interiorDihedralDeg;
+    res.chamferAngleDeg  = 45.0;   // symmetric bevel bisects the dihedral
+    res.chamferAngleADeg = 45.0;
+    res.chamferAngleBDeg = 45.0;
+    res.bevelNormal = bevelN;
+    res.tangentA    = TA0;
+    res.tangentB    = TB0;
+    res.ok = sr.ok && sr.diagnosis.closed;
+    res.reason = res.ok
+        ? "ok (analytic symmetric flat-bevel chamfer of a TOPOLOGY-SOURCED convex "
+          "straight planar-planar edge at a GENERAL dihedral angle; watertight)"
+        : "general-dihedral chamfer assembly did not sew into a closed shell";
     return res;
 }
 

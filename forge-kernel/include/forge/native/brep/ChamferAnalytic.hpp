@@ -59,6 +59,8 @@
 #ifndef FORGE_NATIVE_BREP_CHAMFERANALYTIC_HPP
 #define FORGE_NATIVE_BREP_CHAMFERANALYTIC_HPP
 
+#include <cstdint>                             // std::uint32_t
+
 #include "forge/native/brep/Topology.hpp"   // Point3, Solid, TopologyBuilder, Surface
 #include "forge/native/brep/Surface.hpp"    // Vec3 helpers, SurfaceKind
 
@@ -138,6 +140,37 @@ AnalyticChamferResult chamferBoxEdgeAnalytic(TopologyBuilder& tb,
 AnalyticChamferResult chamferBoxEdgeAsymmetric(TopologyBuilder& tb,
                                                double L, double dA, double dB,
                                                int edgeIndex = 4);
+
+// ---------------------------------------------------------------------------
+// chamferSolidStraightConvexEdgeAnalytic — the TOPOLOGY-SOURCED flat-bevel
+// chamfer: the symmetric setback-`d` flat bevel of ONE straight CONVEX edge of an
+// ARBITRARY native analytic Solid, resolved by WALKING the real B-rep of `src`
+// (NOT box-hardcoded like chamferBoxEdgeAnalytic). It is the flat-bevel SIBLING of
+// filletSolidStraightConvexEdgeAnalytic (FilletAnalytic.hpp) and shares that path's
+// topology walk, re-trim, faithful-copy and watertight-sew machinery; only the
+// blend differs — a single PLANAR bevel patch + convex-pentagon end caps instead of
+// the rolling-ball cylinder patch + sector-disk caps. So a prism / wedge /
+// rectangular-box / boolean / STEP-imported convex straight planar-planar edge (at
+// ANY genuine dihedral) that previously deferred to OCCT BRepFilletAPI_MakeChamfer
+// or the mesh bridge is now chamfered OCCT-free, shrinking the TKFillet
+// include-surface. `edgeId` indexes enumerateSolidStraightEdges(src) (the same
+// enumeration the fillet path and part.filletEdges honor).
+//
+// HONEST SCOPE (each REFUSED with `reason`, never faked): straight CONVEX edge shared
+// by two PLANAR faces at a genuine dihedral (faces neither coplanar nor flat/anti-
+// parallel), ending against two PLANAR faces PERPENDICULAR to the edge, with the
+// setback `d` staying strictly inside both adjacent faces. A curved / concave /
+// coplanar / holed / oblique-end input, or a setback that overflows a face, is
+// refused (not fabricated). Faces touching NEITHER endpoint are copied faithfully.
+// Every emitted face is PLANAR, so the polygon-moment mass is bit-exact: the removed
+// material is the right-triangle prism  (1/2) d^2 sin(delta) * L  (delta = interior
+// dihedral), == (1/2) d^2 L at the 90-degree edge — the closed-form A/B ground truth.
+// `ok` is true only when the sew is a watertight closed 2-manifold.
+// ---------------------------------------------------------------------------
+AnalyticChamferResult chamferSolidStraightConvexEdgeAnalytic(TopologyBuilder& tb,
+                                                             const Solid& src,
+                                                             std::uint32_t edgeId,
+                                                             double d);
 
 // ---------------------------------------------------------------------------
 // CANONICAL-CUBE RECOGNITION (pure geometry, no side effects) — the eligibility

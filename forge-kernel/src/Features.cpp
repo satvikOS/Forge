@@ -1301,14 +1301,17 @@ ShapeHandle chamferEdges(ShapeHandle shape,
         // FALLS THROUGH to the proven mesh bridge below, byte-for-byte unchanged.
         if (edgeIds.size() == 1 && !(distance2 > Precision::Confusion())) {
             const nb::Solid& solid = ShapeRegistry::instance().getNativeSolid(shape);
-            const double L = nb::canonicalBoxSide(solid);
-            if (L > 0.0) {
-                std::vector<double> spos; std::vector<std::uint32_t> sidx;
-                nb::tessellateSolid(solid, spos, sidx);
-                const std::vector<nb::SharpConvexEdge> sharp =
-                    nb::enumerateSharpConvexEdges(spos, sidx);
-                if (edgeIds[0] < sharp.size()) {
-                    const nb::SharpConvexEdge& se = sharp[edgeIds[0]];
+            std::vector<double> spos; std::vector<std::uint32_t> sidx;
+            nb::tessellateSolid(solid, spos, sidx);
+            const std::vector<nb::SharpConvexEdge> sharp =
+                nb::enumerateSharpConvexEdges(spos, sidx);
+            if (edgeIds[0] < sharp.size()) {
+                const nb::SharpConvexEdge& se = sharp[edgeIds[0]];
+                // (1) CANONICAL-CUBE fast path (exact, proven): a single symmetric
+                // chamfer of a cube edge builds chamferBoxEdgeAnalytic directly. Tried
+                // FIRST so the certified cube behaviour is byte-for-byte unchanged.
+                const double L = nb::canonicalBoxSide(solid);
+                if (L > 0.0) {
                     const nb::Point3 ea{se.ax, se.ay, se.az};
                     const nb::Point3 eb{se.bx, se.by, se.bz};
                     const int ei = nb::canonicalBoxEdgeIndex(L, ea, eb);
@@ -1316,6 +1319,48 @@ ShapeHandle chamferEdges(ShapeHandle shape,
                         auto owner = std::make_shared<nb::TopologyBuilder>();
                         nb::AnalyticChamferResult ar =
                             nb::chamferBoxEdgeAnalytic(*owner, L, distance, ei);
+                        if (ar.ok && ar.solid)
+                            return ShapeRegistry::instance().addNativeSolid(owner, ar.solid);
+                        // analytic declined -> fall through to the topology path / mesh bridge.
+                    }
+                }
+                // (2) TOPOLOGY-SOURCED general path (exact): resolve the selected
+                // SharpConvexEdge to the solid's B-rep edge enumeration (the SAME
+                // (midpoint,direction) key part.filletEdges uses) and build the flat
+                // bevel natively for ANY convex straight planar-planar edge — a prism /
+                // wedge / rectangular box / boolean / STEP solid — retiring OCCT
+                // BRepFilletAPI_MakeChamfer / the mesh bridge for that case. This mirrors
+                // the fillet path's filletSolidStraightConvexEdgeAnalytic dispatch. ANY
+                // decline (non-planar/curved/concave/oblique-end/overflow/non-watertight)
+                // FALLS THROUGH to the proven mesh bridge below — strictly adds capability.
+                {
+                    const std::vector<nb::Edge*> topo = nb::enumerateSolidStraightEdges(solid);
+                    int hit = -1;
+                    for (std::size_t i = 0; i < topo.size(); ++i) {
+                        const nb::Edge* E = topo[i];
+                        const double emx = 0.5 * (E->start->point.x + E->end->point.x);
+                        const double emy = 0.5 * (E->start->point.y + E->end->point.y);
+                        const double emz = 0.5 * (E->start->point.z + E->end->point.z);
+                        double dx = E->end->point.x - E->start->point.x;
+                        double dy = E->end->point.y - E->start->point.y;
+                        double dz = E->end->point.z - E->start->point.z;
+                        const double dl = std::sqrt(dx * dx + dy * dy + dz * dz);
+                        if (!(dl > 0.0)) continue;
+                        dx /= dl; dy /= dl; dz /= dl;
+                        const double dmid = std::sqrt((emx - se.mx) * (emx - se.mx) +
+                                                      (emy - se.my) * (emy - se.my) +
+                                                      (emz - se.mz) * (emz - se.mz));
+                        const double cx = dy * se.dz - dz * se.dy;   // edge dir x sel dir
+                        const double cy = dz * se.dx - dx * se.dz;
+                        const double cz = dx * se.dy - dy * se.dx;
+                        const double cl = std::sqrt(cx * cx + cy * cy + cz * cz);
+                        if (dmid <= 1e-6 && cl <= 1e-6) { hit = static_cast<int>(i); break; }
+                    }
+                    if (hit >= 0) {
+                        auto owner = std::make_shared<nb::TopologyBuilder>();
+                        nb::AnalyticChamferResult ar =
+                            nb::chamferSolidStraightConvexEdgeAnalytic(
+                                *owner, solid, static_cast<std::uint32_t>(hit), distance);
                         if (ar.ok && ar.solid)
                             return ShapeRegistry::instance().addNativeSolid(owner, ar.solid);
                         // analytic declined -> honest fallback to the mesh bridge.
