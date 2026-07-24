@@ -740,18 +740,36 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
         }
         if (su0 > su1) { su0 = parent->u0; su1 = parent->u1; } // all-apex guard
         const double vspan = std::max(1e-12, sv1 - sv0);
+        const double uspan = std::max(1e-12, su1 - su0);
         // collect distinct cut v-levels strictly inside (sv0,sv1)
         std::vector<double> cutsV;
         for (const auto& cv : curves3D) {
             double vmin = 1e300, vmax = -1e300; bool any = false;
+            double umin = 1e300, umax = -1e300;
             for (const Vec3& p : cv) {
                 double u, v; if (!toParam(p, u, v)) continue;
                 // only count samples whose u lies within this sector
                 if (u < su0 - 1e-7 || u > su1 + 1e-7) continue;
                 vmin = std::min(vmin, v); vmax = std::max(vmax, v); any = true;
+                umin = std::min(umin, u); umax = std::max(umax, u);
             }
             if (!any) continue;
-            if (vmax - vmin > 1e-4 * vspan) return false; // not constant-v -> defer
+            if (vmax - vmin > 1e-4 * vspan) {
+                // A VERTICAL (constant-u, large-v) imprint curve is a plane PARALLEL to
+                // the axis slicing this lateral along a GENERATOR line (not a cap plane).
+                // When that generator lies at (within tol of) this sector's OWN u-edge —
+                // the tessellation seam a corner/partial cut aligns to (e.g. a box side
+                // face slicing the bore quadrant along u=0 / u=pi/2) — it is the sector's
+                // existing boundary and induces NO band split, so SKIP it rather than
+                // deferring the whole op to the mesh fallback. A genuinely INTERIOR
+                // vertical cut (would need a u-split) still defers honestly.
+                const bool constU = (umax - umin) < 1e-3 * uspan;
+                const double uc = 0.5 * (umin + umax);
+                const bool atUedge = std::fabs(uc - su0) < 1e-2 * uspan ||
+                                     std::fabs(uc - su1) < 1e-2 * uspan;
+                if (constU && atUedge) continue;   // boundary-coincident generator: no-op
+                return false;                       // oblique / interior cut -> defer
+            }
             double vc = 0.5 * (vmin + vmax);
             if (vc > sv0 + 1e-7 * vspan && vc < sv1 - 1e-7 * vspan) cutsV.push_back(vc);
         }
@@ -991,6 +1009,48 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
     }
 
     geom::CDTResult cdt = geom::constrainedDelaunay2D(pts, cons);
+    if (!cdt.ok) {
+        // ROBUST RETRY (near-coincident PSLG conditioning). Independently-computed
+        // imprint curves from MANY partner faces — e.g. a bore's 128 cylinder-sector
+        // faces all crossing ONE box side face along the SAME line — deposit
+        // near-coincident-but-not-identical points (SSI clip overshoot ~1e-5) and the
+        // duplicate / reversed / near-zero constraints they induce. constrainedDelaunay2D
+        // de-dups only EXACTLY (bit-equal), so it cannot merge them and rejects the PSLG
+        // as self-intersecting (collinear overlap / T-junction). SNAP near-coincident
+        // points to a shared representative coordinate (so the CDT's exact de-dup then
+        // collapses them), drop the resulting zero-length constraints, dedup undirected
+        // edges, and retry the CDT ONCE. A well-formed PSLG succeeds on the FIRST call
+        // above and NEVER reaches this retry, so every currently-passing imprint is
+        // byte-identical (zero regression) — this only rescues the shatter case.
+        double mnx = 1e300, mxx = -1e300, mny = 1e300, mxy = -1e300;
+        for (const auto& p : pts) {
+            mnx = std::min(mnx, p.x); mxx = std::max(mxx, p.x);
+            mny = std::min(mny, p.y); mxy = std::max(mxy, p.y);
+        }
+        const double ext  = std::max(1.0, std::max(mxx - mnx, mxy - mny));
+        const double snap = 1e-5 * ext;   // >> the ~1e-5 SSI clip noise, << any real feature
+        std::vector<int> rep(pts.size());
+        for (std::size_t i = 0; i < pts.size(); ++i) {
+            rep[i] = static_cast<int>(i);
+            for (std::size_t j = 0; j < i; ++j)
+                if (std::fabs(pts[i].x - pts[j].x) <= snap &&
+                    std::fabs(pts[i].y - pts[j].y) <= snap) { rep[i] = rep[j]; break; }
+        }
+        for (std::size_t i = 0; i < pts.size(); ++i)
+            pts[i] = pts[static_cast<std::size_t>(rep[i])];   // rep is always a cluster root
+        std::vector<geom::ConstraintEdge> c3; c3.reserve(cons.size());
+        std::set<std::uint64_t> seenC;
+        for (const auto& e : cons) {
+            int a = rep[e.a], b = rep[e.b];
+            if (a == b) continue;                                   // zero-length after snap
+            const std::uint32_t lo = static_cast<std::uint32_t>(a < b ? a : b);
+            const std::uint32_t hi = static_cast<std::uint32_t>(a < b ? b : a);
+            const std::uint64_t key = (static_cast<std::uint64_t>(lo) << 32) | hi;
+            if (seenC.insert(key).second) c3.push_back({a, b});     // dedup undirected
+        }
+        cons.swap(c3);
+        cdt = geom::constrainedDelaunay2D(pts, cons);
+    }
     if (!cdt.ok) {
 #ifdef FORGE_BOOL_IMPRINT_DEBUG
         std::fprintf(stderr, "    [imprint CDT FAIL] kind=%d pts=%zu cons=%zu reason=%s\n",
