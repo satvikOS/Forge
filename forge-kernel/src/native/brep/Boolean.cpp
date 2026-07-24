@@ -929,6 +929,38 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
     }
     const double pad = 1e-6 * std::max(1.0, std::max(bu1 - bu0, bv1 - bv0));
 
+    // BOUNDARY-TOUCH SNAP. An SSI cut curve that reaches a face edge TERMINATES on
+    // that edge, but trig/rounding leaves the endpoint a hair off it. The corner
+    // notch's arc endpoint on the box BOTTOM face is (0,4,0) via cos(pi/2): its (u,v)
+    // lands at v = 2.4e-16 (not the exact 0 of the x=0 boundary) — just INSIDE the
+    // face. The EXACT PSLG conditioning below (geom::segmentIntersect) then correctly
+    // sees it as NOT on the boundary, so the boundary edge is never T-split there and
+    // the CDT emits a near-degenerate sliver triangle whose three edges never mate
+    // (the x=0-side unmated edges; the symmetric y=0 endpoint (4,0,0) has an EXACT
+    // sin(0)=0 so it already lands on its boundary — hence the asymmetry). Snapping a
+    // projected curve point that is within a scale-relative 1e-9*extent of a boundary
+    // segment EXACTLY onto that segment lets the T-junction split fire, yielding the
+    // same clean 2-region cut as the y=0 face. The tolerance is >=1e4x below the SSI
+    // clip overshoot (~1e-5, handled by the window pad above / PROPER_CROSS below) and
+    // >=1e6x below any real CAD feature, so a genuinely-interior point never moves.
+    const double snapB = 1e-9 * std::max(1.0, std::max(bu1 - bu0, bv1 - bv0));
+    auto snapToBoundary = [&](double& u, double& v) {
+        double best = snapB, su = u, sv = v; bool hit = false;
+        std::size_t n = boundIdx.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            const geom::Point2& A = pts[boundIdx[i]];
+            const geom::Point2& B = pts[boundIdx[(i + 1) % n]];
+            const double dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy;
+            if (L2 < 1e-30) continue;
+            double t = ((u - A.x) * dx + (v - A.y) * dy) / L2;
+            if (t < 0.0 || t > 1.0) continue;   // only onto the segment span
+            const double px = A.x + t * dx, py = A.y + t * dy;
+            const double d = std::hypot(u - px, v - py);
+            if (d < best) { best = d; su = px; sv = py; hit = true; }
+        }
+        if (hit) { u = su; v = sv; }
+    };
+
     auto flushChain = [&](std::vector<int>& chain) {
         for (std::size_t j = 0; j + 1 < chain.size(); ++j)
             if (chain[j] != chain[j + 1]) cons.push_back({chain[j], chain[j + 1]});
@@ -945,6 +977,7 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
                 flushChain(chain);
                 continue;
             }
+            snapToBoundary(u, v);   // pin a boundary-terminating endpoint exactly on
             int id = addPoint(u, v);
             if (chain.empty() || chain.back() != id) chain.push_back(id);
         }
@@ -1420,6 +1453,29 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
                 const Vec3& b = vpos[kv.first.second];
                 std::fprintf(stderr, "    [unmated x%d] (%.6g,%.6g,%.6g)-(%.6g,%.6g,%.6g)\n",
                              kv.second, a.x, a.y, a.z, b.x, b.y, b.z);
+                // Name every oface that uses this undirected edge (surface kind + normal
+                // + ring centroid) so the contributing faces are identified directly.
+                int e0 = kv.first.first, e1 = kv.first.second;
+                for (const OrientedFace& of : ofaces) {
+                    auto usesEdge = [&](const std::vector<int>& r) {
+                        std::size_t n = r.size();
+                        for (std::size_t i = 0; i < n; ++i) {
+                            int x = r[i], y = r[(i + 1) % n];
+                            if ((x == e0 && y == e1) || (x == e1 && y == e0)) return true;
+                        }
+                        return false;
+                    };
+                    bool hit = usesEdge(of.vids);
+                    for (const auto& iv : of.innerVids) if (usesEdge(iv)) hit = true;
+                    if (!hit) continue;
+                    Vec3 cc{0,0,0}; for (int vv : of.vids) cc = vadd(cc, vpos[vv]);
+                    if (!of.vids.empty()) cc = vscale(cc, 1.0 / of.vids.size());
+                    const SubFace* sf = of.sf;
+                    std::fprintf(stderr, "        used by kind=%d fromA=%d axis=(%.2g,%.2g,%.2g) nring=%zu centroid=(%.5g,%.5g,%.5g)\n",
+                                 sf ? (int)sf->kind : -1, sf ? (int)sf->fromA : -1,
+                                 sf ? sf->axis.x : 0.0, sf ? sf->axis.y : 0.0, sf ? sf->axis.z : 0.0,
+                                 of.vids.size(), cc.x, cc.y, cc.z);
+                }
             }
         }
     }
