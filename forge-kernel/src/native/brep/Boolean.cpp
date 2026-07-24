@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <map>
 #include <set>
@@ -1220,11 +1221,30 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
     // opposite directions). makeCoedge ASSERTS on a 3rd use, so we must never feed
     // it a non-manifold ring set; instead we detect it here and return ok=false
     // (the caller then falls back honestly).
+    // Characteristic size (subface-ring bbox diagonal). Sets BOTH the orientation
+    // probe step (eps) AND the scale-relative corner-weld floor (wtol) below.
+    double diag = 0.0;
+    {
+        Aabb bb;
+        for (SubFace& sf : subs) for (const Vec3& p : sf.ring) bb.add(p);
+        diag = vlen(vsub(bb.hi, bb.lo));
+    }
+    const double eps = std::max(1e-7, 1e-5 * diag);
+
     std::map<std::tuple<long long, long long, long long>, int> weld;
     std::vector<Vec3> vpos;
-    // Corner-weld grid. Default 1e-7; a fuzzy boolean widens it (weldGrid) so
-    // near-coincident corners of the two operands collapse to one shared vertex.
-    const double wtol = weldGrid;
+    // Corner-weld grid. A fuzzy boolean passes a widened weldGrid; INDEPENDENTLY we
+    // floor the grid at a SCALE-RELATIVE 1e-6*diag so the ~1e-5 SSI clip-overshoot
+    // noise on a shared cut vertex collapses to ONE welded vertex. A partial cylinder
+    // wall meeting a box side face deposits the SAME analytic corner as z=0 on one
+    // contributing face and z=-1e-5 on the other (the SSI clip overshoots the
+    // parametric boundary by ~1e-5); at the old fixed 1e-7 grid those land 100 cells
+    // apart and split into two unmated boundary edges (the corner-notch stitch's 14
+    // unmated edges). The 1e-6*diag floor (~5e-5 at a 50mm model) absorbs that noise
+    // while staying >=1e4x below the smallest real CAD feature, so genuinely distinct
+    // corners never merge — and the EXACT manifold pre-check below still guards it
+    // (a wrong merge would fail the pre-check and fall back to mesh, not corrupt).
+    const double wtol = std::max(weldGrid, 1e-6 * diag);
     auto vid = [&](const Vec3& p) -> int {
         auto key = std::make_tuple((long long)std::llround(p.x / wtol),
                                    (long long)std::llround(p.y / wtol),
@@ -1248,15 +1268,6 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
         SubFace* sf = nullptr;
     };
     std::vector<OrientedFace> ofaces;
-
-    // Characteristic size for the orientation probe step.
-    double diag = 0.0;
-    {
-        Aabb bb;
-        for (SubFace& sf : subs) for (const Vec3& p : sf.ring) bb.add(p);
-        diag = vlen(vsub(bb.hi, bb.lo));
-    }
-    const double eps = std::max(1e-7, 1e-5 * diag);
 
     for (SubFace& sf : subs) {
         if (sf.ring.size() < 3) continue;
@@ -1385,6 +1396,33 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
         std::fprintf(stderr, "\n");
     }
 #endif
+    // Runtime diagnostic (env-gated, zero-cost when unset): the corner-notch stitch
+    // fails the manifold pre-check; this reports the honest edge-multiplicity
+    // histogram + the count of UNMATED undirected edges (mult != 2) so the closure
+    // work can be measured before/after without a special compile.
+    if (std::getenv("FORGE_BOOL_DIAG")) {
+        std::map<int,int> hist;
+        int unmated = 0, unopp = 0;
+        for (const auto& kv : undirected) { hist[kv.second]++; if (kv.second != 2) ++unmated; }
+        for (const auto& kv : directed) {
+            auto opp = directed.find({kv.first.second, kv.first.first});
+            if (kv.second != 1 || opp == directed.end() || opp->second != 1) ++unopp;
+        }
+        std::fprintf(stderr, "[bool-diag stitch '%s'] faces=%zu verts=%zu edgeMultHist:",
+                     reason ? reason : "?", ofaces.size(), vpos.size());
+        for (auto& h : hist) std::fprintf(stderr, " %dx:%d", h.first, h.second);
+        std::fprintf(stderr, " | UNMATED(mult!=2)=%d unoppositelyMated=%d wtol=%.3g\n",
+                     unmated, unopp, wtol);
+        if (std::getenv("FORGE_BOOL_DIAG_EDGES")) {
+            for (const auto& kv : undirected) {
+                if (kv.second == 2) continue;
+                const Vec3& a = vpos[kv.first.first];
+                const Vec3& b = vpos[kv.first.second];
+                std::fprintf(stderr, "    [unmated x%d] (%.6g,%.6g,%.6g)-(%.6g,%.6g,%.6g)\n",
+                             kv.second, a.x, a.y, a.z, b.x, b.y, b.z);
+            }
+        }
+    }
     for (const auto& kv : undirected)
         if (kv.second != 2) { res.reason = "analytic stitch: edge not shared by exactly 2 faces"; return res; }
     for (const auto& kv : directed) {
@@ -1812,6 +1850,9 @@ BooleanResult booleanSolid(const Solid& A, const Solid& B, BoolOp op,
 #ifdef FORGE_BOOL_DEBUG
     std::fprintf(stderr, "[booleanSolid] analytic miss: %s\n", a.reason);
 #endif
+    if (std::getenv("FORGE_BOOL_DIAG"))
+        std::fprintf(stderr, "[bool-diag] analytic miss -> mesh fallback: %s\n",
+                     a.reason ? a.reason : "(no reason)");
     // Analytic envelope miss — route through the proven mesh arrangement, FLAGGED.
     return booleanSolidMeshFallback(A, B, op, opts);
 }
