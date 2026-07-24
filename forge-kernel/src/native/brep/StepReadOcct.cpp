@@ -27,6 +27,8 @@
 #include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
 #include <gp_Elips.hxx>
+#include <gp_Hypr.hxx>
+#include <gp_Parab.hxx>
 #include <gp_Lin.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt2d.hxx>
@@ -40,6 +42,8 @@
 #include <Geom_Line.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_Ellipse.hxx>
+#include <Geom_Hyperbola.hxx>   // TKG3d (directly linked) — no toolkit change
+#include <Geom_Parabola.hxx>    // TKG3d (directly linked) — no toolkit change
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_SurfaceOfLinearExtrusion.hxx>
@@ -75,6 +79,10 @@
 #include <ShapeAnalysis_Curve.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_Sewing.hxx>     // TKTopAlgo — already used by ClassASurfacing
+#include <BRepBuilderAPI_MakeSolid.hxx>  // TKTopAlgo
+#include <TopExp.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <BRepLib.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
@@ -742,6 +750,28 @@ Handle(Geom_Curve) buildCurve3d(const Resolver& R, std::uint64_t rawId, double s
         if (!getAxis2(R, axId, scale, ax)) fail("ELLIPSE axis");
         return new Geom_Ellipse(ax, a * scale, b * scale);
     }
+    if (ci.type == "HYPERBOLA") {
+        // HYPERBOLA('', axis2_placement_3d, semi_axis, semi_imag_axis) — the
+        // OCCT writer's cone/plane chamfer intersection curve (gen 104/145/147/
+        // 150). Geom_Hyperbola lives in TKG3d (directly linked): otool stays 10.
+        std::uint64_t axId = 0; double a = 0, b = 0;
+        if (p.size() < 4 || !parseRef(p[1], axId) || !stepNum(p[2], a) || !stepNum(p[3], b))
+            fail("HYPERBOLA");
+        if (!(a > 0.0) || !(b > 0.0)) fail("HYPERBOLA semi-axes");
+        gp_Ax2 ax;
+        if (!getAxis2(R, axId, scale, ax)) fail("HYPERBOLA axis");
+        return new Geom_Hyperbola(ax, a * scale, b * scale);
+    }
+    if (ci.type == "PARABOLA") {
+        // PARABOLA('', axis2_placement_3d, focal_dist) — zero corpus occurrences
+        // today; 6-line sibling of HYPERBOLA kept for symmetry (also TKG3d).
+        std::uint64_t axId = 0; double f = 0;
+        if (p.size() < 3 || !parseRef(p[1], axId) || !stepNum(p[2], f)) fail("PARABOLA");
+        if (!(f > 0.0)) fail("PARABOLA focal distance");
+        gp_Ax2 ax;
+        if (!getAxis2(R, axId, scale, ax)) fail("PARABOLA axis");
+        return new Geom_Parabola(ax, f * scale);
+    }
     if (ci.type == "B_SPLINE_CURVE_WITH_KNOTS") {
         // B_SPLINE_CURVE_WITH_KNOTS('', degree, (ctrl_pts), form, closed, self_int,
         //                           (knot_multiplicities), (knots), knot_spec).
@@ -1051,6 +1081,26 @@ TopoDS_Edge edgeOf(Xfer& X, std::uint64_t ecId) {
         } else {
             fail("B_SPLINE degenerate trim (coincident parameters)");
         }
+    } else if (kind == "HYPERBOLA" || kind == "PARABOLA") {
+        // Unbounded NON-periodic conics. Closed-form vertex parameterisation via
+        // ElCLib (asinh on the hyperbola), LINE-style direction handling: build
+        // forward when u1>u0, else build reversed. Deliberately NOT paramOnCurve —
+        // its endpoint snap evaluates FirstParameter()/LastParameter(), which are
+        // +/-infinite on these curves.
+        double u0 = 0, u1 = 0;
+        if (kind == "HYPERBOLA") {
+            gp_Hypr hy = Handle(Geom_Hyperbola)::DownCast(curve)->Hypr();
+            u0 = ElCLib::Parameter(hy, Ps);
+            u1 = ElCLib::Parameter(hy, Pe);
+        } else {
+            gp_Parab pb = Handle(Geom_Parabola)::DownCast(curve)->Parab();
+            u0 = ElCLib::Parameter(pb, Ps);
+            u1 = ElCLib::Parameter(pb, Pe);
+        }
+        if (std::fabs(u1 - u0) <= Precision::PConfusion())
+            fail(kind + " degenerate trim (coincident parameters)");
+        if (u1 > u0) e = ladderEdge(curve, Vs, Ve, u0, u1, "MakeEdge(conic)");
+        else         e = TopoDS::Edge(ladderEdge(curve, Ve, Vs, u1, u0, "MakeEdge(conic)").Reversed());
     } else {
         // CIRCLE / ELLIPSE — periodic. Parameterise the two vertices on the curve
         // and pick the arc respecting same_sense (curve natural dir vs edge dir).
@@ -1533,6 +1583,62 @@ TopoDS_Shape foreignStepToOcct(const std::string& text) {
         if (vp.Mass() < 0.0) fixed = fixed.Reversed();
     }
     if (fixed.IsNull()) fail("transfer produced a null shape");
+
+    // Closed-shell backstop (boolean-operand robustness). Part of the corpus
+    // imports as an OPEN shell: edge sharing broke into byte-coincident
+    // duplicate edge pairs (211/243/248 <=1e-7 apart, 249 <=1e-5), leaving
+    // 29-111 free single-face edges — BOPAlgo then refuses the shape as a
+    // boolean operand (pushPullFace fuse IsDone()=false) and the harness
+    // validity gate refuses the open output. One sewing pass merges the
+    // duplicates; the solid is rebuilt ONLY when the sew actually closes the
+    // shell and loses no faces (exactness guard). If it stays open (240-class
+    // deeper B-spline trim defect), return the open shape unchanged — the
+    // harness passthrough stays the honest floor; never fail the import here.
+    const auto countFreeInfo = [](const TopoDS_Shape& s, int& facesOut) -> int {
+        facesOut = 0;
+        for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) ++facesOut;
+        TopTools_IndexedDataMapOfShapeListOfShape e2f;
+        TopExp::MapShapesAndAncestors(s, TopAbs_EDGE, TopAbs_FACE, e2f);
+        int freeEdges = 0;
+        for (int i = 1; i <= e2f.Extent(); ++i) {
+            const TopoDS_Edge& e = TopoDS::Edge(e2f.FindKey(i));
+            if (BRep_Tool::Degenerated(e)) continue;
+            if (e2f.FindFromIndex(i).Extent() < 2) ++freeEdges;   // seam edges list the face twice
+        }
+        if (e2f.Extent() == 0) freeEdges = 1;   // no edges at all is not a closed solid
+        return freeEdges;
+    };
+    int facesBefore = 0;
+    const int freeBefore = countFreeInfo(fixed, facesBefore);
+    if (freeBefore > 0) {
+        try {
+            BRepBuilderAPI_Sewing sew(std::max(X.tol, 1e-5));
+            sew.Add(fixed);
+            sew.Perform();
+            const TopoDS_Shape sewn = sew.SewedShape();
+            int facesSewn = 0;
+            if (!sewn.IsNull() && countFreeInfo(sewn, facesSewn) == 0 && facesSewn == facesBefore) {
+                BRepBuilderAPI_MakeSolid mk;
+                int nShells = 0;
+                for (TopExp_Explorer ex(sewn, TopAbs_SHELL); ex.More(); ex.Next()) {
+                    mk.Add(TopoDS::Shell(ex.Current()));
+                    ++nShells;
+                }
+                if (nShells > 0 && mk.IsDone()) {
+                    TopoDS_Shape solid = mk.Solid();
+                    BRepLib::SameParameter(solid, 1e-6, Standard_True);
+                    int facesSolid = 0;
+                    if (!solid.IsNull() && countFreeInfo(solid, facesSolid) == 0 &&
+                        facesSolid == facesBefore) {
+                        GProp_GProps vp;
+                        BRepGProp::VolumeProperties(solid, vp);
+                        if (vp.Mass() < 0.0) solid = solid.Reversed();
+                        return solid;
+                    }
+                }
+            }
+        } catch (const Standard_Failure&) { /* keep the honest open shape */ }
+    }
     return fixed;
 }
 
