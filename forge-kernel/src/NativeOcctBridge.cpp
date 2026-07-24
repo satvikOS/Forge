@@ -23,6 +23,7 @@
 #include <Geom_Plane.hxx>
 #include <Geom2d_Line.hxx>
 #include <Geom_CylindricalSurface.hxx>
+#include <Geom_ConicalSurface.hxx>
 #include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic primitive solids (cone/sphere/torus)
 #include <Geom_Surface.hxx>
 #include <TopoDS.hxx>
@@ -484,6 +485,51 @@ TopoDS_Face buildAnalyticCylinderFace(const Surface* s, const std::vector<gp_Pnt
     return mf.Face();
 }
 
+// ONE conical OCCT face from the native strip-faces sharing a single cone surface.
+// Mirrors buildAnalyticCylinderFace, but on a Geom_ConicalSurface (base radius r1 at
+// the surface origin, top radius r2 at origin + axis*height, half-angle atan2(r2-r1,h)
+// — the EXACT construction occtConeSolid uses). Handles a FULL 2*pi lateral (a complete
+// cone / frustum recess); a partial angular patch returns null (caller then facets the
+// whole body). The v (slant) range is bounded to the group points' actual axial extent
+// so a boolean that used only part of the cone height still trims to one exact face
+// whose rim radii match the abutting planar caps.
+TopoDS_Face buildAnalyticConeFace(const Surface* s, const std::vector<gp_Pnt>& groupPts) {
+    const double r1 = s->r1, r2 = s->r2, h = s->param;
+    if (!(h > 1e-9) || groupPts.empty()) return TopoDS_Face();
+    if (std::fabs(r1 - r2) <= 1e-9 * std::max(1.0, std::fabs(r1))) return TopoDS_Face();  // a cylinder
+    const gp_Pnt O(s->origin.x, s->origin.y, s->origin.z);
+    const gp_Dir A(s->axis.x, s->axis.y, s->axis.z);
+    const gp_Dir R(s->refDir.x, s->refDir.y, s->refDir.z);
+    const gp_Vec Av(A), Rv(R);
+    const gp_Vec Bv = Av.Crossed(Rv);
+    double tMin = 1e300, tMax = -1e300;
+    std::vector<double> ang;
+    ang.reserve(groupPts.size());
+    for (const auto& p : groupPts) {
+        const gp_Vec d(O, p);
+        const double t = d.Dot(Av);
+        tMin = std::min(tMin, t);
+        tMax = std::max(tMax, t);
+        double u = std::atan2(d.Dot(Bv), d.Dot(Rv));
+        if (u < 0.0) u += 2.0 * M_PI;
+        ang.push_back(u);
+    }
+    if (tMax - tMin < 1e-9) return TopoDS_Face();
+    std::sort(ang.begin(), ang.end());
+    double maxGap = ang.front() + 2.0 * M_PI - ang.back();
+    for (std::size_t i = 1; i < ang.size(); ++i)
+        maxGap = std::max(maxGap, ang[i] - ang[i - 1]);
+    if (maxGap > M_PI / 4.0) return TopoDS_Face();  // partial patch -> decline
+    const double semiAng = std::atan2(r2 - r1, h);  // signed: r2<r1 -> negative
+    const double cs = std::cos(semiAng);
+    if (std::fabs(cs) < 1e-12) return TopoDS_Face();
+    Handle(Geom_ConicalSurface) cone = new Geom_ConicalSurface(gp_Ax3(O, A, R), semiAng, r1);
+    const double vLo = tMin / cs, vHi = tMax / cs;  // slant param = axial height / cos
+    BRepBuilderAPI_MakeFace mf(cone, 0.0, 2.0 * M_PI, std::min(vLo, vHi), std::max(vLo, vHi), 1e-7);
+    if (!mf.IsDone()) return TopoDS_Face();
+    return mf.Face();
+}
+
 // Geometric key for an infinite cylinder (radius + sign-normalised axis direction
 // + the axis line's foot-point nearest the world origin). Two faces on the SAME
 // cylinder share this key even when a boolean gave each its own Surface COPY, so a
@@ -507,11 +553,41 @@ std::string cylinderKey(const Surface* s) {
     return std::string(buf);
 }
 
+// Geometric key for a cone lateral. Unlike an infinite cylinder, a cone has a
+// definite apex + orientation, so two strip-faces on the SAME cone share ALL of
+// {r1, r2, height, base-centre origin, axis, refDir} — key on the quantised tuple
+// so a boolean that gave each strip its own Surface COPY still regroups into ONE
+// conical face.
+std::string coneKey(const Surface* s) {
+    auto q = [](double v) -> long long { return std::llround(v / 1e-6); };
+    char buf[384];
+    std::snprintf(buf, sizeof(buf),
+                  "K:%lld:%lld:%lld:%lld:%lld:%lld:%lld:%lld:%lld:%lld:%lld:%lld",
+                  q(s->r1), q(s->r2), q(s->param),
+                  q(s->origin.x), q(s->origin.y), q(s->origin.z),
+                  q(s->axis.x), q(s->axis.y), q(s->axis.z),
+                  q(s->refDir.x), q(s->refDir.y), q(s->refDir.z));
+    return std::string(buf);
+}
+
 // Rebuild a native analytic Solid as the MINIMAL analytic OCCT B-rep: planar faces
-// (incl. drilled / holed caps) 1:1, and each cylinder's strip-faces collapsed to
-// one Geom_CylindricalSurface face. Returns a null shape if ANY face/group is not
-// a supported analytic form OR the rebuilt volume does not match the native volume
-// (the caller then falls back to the unchanged faceted path — no regression).
+// (incl. drilled / holed caps) 1:1, each cylinder's strip-faces collapsed to one
+// Geom_CylindricalSurface face, and each cone/frustum's strip-faces collapsed to one
+// Geom_ConicalSurface face. This is what makes a MIXED analytic body — a box with a
+// tapered (conical) bore/pocket, a countersunk hole, a multi-cone body — keep ONE
+// face per analytic surface instead of shattering into hundreds of plane facets (the
+// face-identity that caps face-level edits + the interface/topology benchmark halves).
+//
+// A PURE single cone/frustum (one cone group, no cylinders, only circular disk caps)
+// is DECLINED here so the seam-clean dedicated reconstructor (occtConeFromNativeSolid
+// -> occtConeSolid, 3 edges) handles it instead: the sew-based analytic lateral leaves
+// a spurious extra seam edge (the same benign artifact the cylinder bridge carries),
+// which is acceptable for a mixed body being rescued from a 500-facet shatter but must
+// not perturb the canonical primitive topology the A/B gates assert.
+//
+// Returns a null shape if ANY face/group is not a supported analytic form (sphere /
+// torus / nurbs) OR the rebuilt volume does not match the native volume (the caller
+// then falls back to the unchanged faceted path — no regression).
 TopoDS_Shape occtAnalyticFromNativeSolid(const Solid& solid) {
     std::vector<const Face*> faces;
     for (const Shell* sh : solid.shells) {
@@ -523,6 +599,8 @@ TopoDS_Shape occtAnalyticFromNativeSolid(const Solid& solid) {
     std::vector<const Face*> planar;
     std::unordered_map<std::string, std::vector<const Face*>> cylGroups;
     std::unordered_map<std::string, const Surface*> cylRep;
+    std::unordered_map<std::string, std::vector<const Face*>> coneGroups;
+    std::unordered_map<std::string, const Surface*> coneRep;
     for (const Face* f : faces) {
         const Surface* s = f->surface;
         if (!s) return TopoDS_Shape();  // bare topology -> decline
@@ -530,15 +608,38 @@ TopoDS_Shape occtAnalyticFromNativeSolid(const Solid& solid) {
             s->kind == SurfaceKind::Cylinder ||
             (s->kind == SurfaceKind::Cone &&
              std::fabs(s->r1 - s->r2) <= 1e-9 * std::max(1.0, std::fabs(s->r1)));
+        const bool isCone =
+            s->kind == SurfaceKind::Cone &&
+            std::fabs(s->r1 - s->r2) > 1e-9 * std::max(1.0, std::fabs(s->r1));
         if (s->kind == SurfaceKind::Plane) {
             planar.push_back(f);
         } else if (isCyl) {
             const std::string k = cylinderKey(s);
             cylGroups[k].push_back(f);
             cylRep.emplace(k, s);
+        } else if (isCone) {
+            const std::string k = coneKey(s);
+            coneGroups[k].push_back(f);
+            coneRep.emplace(k, s);
         } else {
-            return TopoDS_Shape();  // cone / sphere / torus / nurbs -> faceted path
+            return TopoDS_Shape();  // sphere / torus / nurbs -> dedicated / faceted path
         }
+    }
+
+    // A PURE single cone/frustum (one cone group, no cylinders, only circular disk
+    // caps) has a seam-CLEAN dedicated reconstructor (occtConeFromNativeSolid, which
+    // runs right after this function returns null). Decline so that canonical path
+    // keeps the exact primitive topology (3 edges) the A/B gates assert, rather than
+    // the sew-based cone lateral's spurious extra seam edge. MIXED cone bodies (box +
+    // cone bore/pocket, multi-cone) have NO dedicated path and are rescued below.
+    if (coneGroups.size() == 1 && cylGroups.empty()) {
+        bool allDiskCaps = true;
+        for (const Face* f : planar) {
+            if (!f->innerLoops.empty()) { allDiskCaps = false; break; }
+            gp_Pnt cc; double rr; gp_Dir nn;
+            if (!ringIsCircle(loopPoints(f->outerLoop), cc, rr, nn)) { allDiskCaps = false; break; }
+        }
+        if (allDiskCaps) return TopoDS_Shape();
     }
 
     BRepBuilderAPI_Sewing sew(1e-6);
@@ -556,6 +657,17 @@ TopoDS_Shape occtAnalyticFromNativeSolid(const Solid& solid) {
             pts.insert(pts.end(), r.begin(), r.end());
         }
         const TopoDS_Face cf = buildAnalyticCylinderFace(cylRep[kv.first], pts);
+        if (cf.IsNull()) return TopoDS_Shape();
+        sew.Add(cf);
+        ++added;
+    }
+    for (const auto& kv : coneGroups) {
+        std::vector<gp_Pnt> pts;
+        for (const Face* f : kv.second) {
+            const std::vector<gp_Pnt> r = loopPoints(f->outerLoop);
+            pts.insert(pts.end(), r.begin(), r.end());
+        }
+        const TopoDS_Face cf = buildAnalyticConeFace(coneRep[kv.first], pts);
         if (cf.IsNull()) return TopoDS_Shape();
         sew.Add(cf);
         ++added;
