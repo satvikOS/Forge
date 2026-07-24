@@ -31,6 +31,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <map>
 #include <set>
@@ -740,18 +741,36 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
         }
         if (su0 > su1) { su0 = parent->u0; su1 = parent->u1; } // all-apex guard
         const double vspan = std::max(1e-12, sv1 - sv0);
+        const double uspan = std::max(1e-12, su1 - su0);
         // collect distinct cut v-levels strictly inside (sv0,sv1)
         std::vector<double> cutsV;
         for (const auto& cv : curves3D) {
             double vmin = 1e300, vmax = -1e300; bool any = false;
+            double umin = 1e300, umax = -1e300;
             for (const Vec3& p : cv) {
                 double u, v; if (!toParam(p, u, v)) continue;
                 // only count samples whose u lies within this sector
                 if (u < su0 - 1e-7 || u > su1 + 1e-7) continue;
                 vmin = std::min(vmin, v); vmax = std::max(vmax, v); any = true;
+                umin = std::min(umin, u); umax = std::max(umax, u);
             }
             if (!any) continue;
-            if (vmax - vmin > 1e-4 * vspan) return false; // not constant-v -> defer
+            if (vmax - vmin > 1e-4 * vspan) {
+                // A VERTICAL (constant-u, large-v) imprint curve is a plane PARALLEL to
+                // the axis slicing this lateral along a GENERATOR line (not a cap plane).
+                // When that generator lies at (within tol of) this sector's OWN u-edge —
+                // the tessellation seam a corner/partial cut aligns to (e.g. a box side
+                // face slicing the bore quadrant along u=0 / u=pi/2) — it is the sector's
+                // existing boundary and induces NO band split, so SKIP it rather than
+                // deferring the whole op to the mesh fallback. A genuinely INTERIOR
+                // vertical cut (would need a u-split) still defers honestly.
+                const bool constU = (umax - umin) < 1e-3 * uspan;
+                const double uc = 0.5 * (umin + umax);
+                const bool atUedge = std::fabs(uc - su0) < 1e-2 * uspan ||
+                                     std::fabs(uc - su1) < 1e-2 * uspan;
+                if (constU && atUedge) continue;   // boundary-coincident generator: no-op
+                return false;                       // oblique / interior cut -> defer
+            }
             double vc = 0.5 * (vmin + vmax);
             if (vc > sv0 + 1e-7 * vspan && vc < sv1 - 1e-7 * vspan) cutsV.push_back(vc);
         }
@@ -910,6 +929,38 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
     }
     const double pad = 1e-6 * std::max(1.0, std::max(bu1 - bu0, bv1 - bv0));
 
+    // BOUNDARY-TOUCH SNAP. An SSI cut curve that reaches a face edge TERMINATES on
+    // that edge, but trig/rounding leaves the endpoint a hair off it. The corner
+    // notch's arc endpoint on the box BOTTOM face is (0,4,0) via cos(pi/2): its (u,v)
+    // lands at v = 2.4e-16 (not the exact 0 of the x=0 boundary) — just INSIDE the
+    // face. The EXACT PSLG conditioning below (geom::segmentIntersect) then correctly
+    // sees it as NOT on the boundary, so the boundary edge is never T-split there and
+    // the CDT emits a near-degenerate sliver triangle whose three edges never mate
+    // (the x=0-side unmated edges; the symmetric y=0 endpoint (4,0,0) has an EXACT
+    // sin(0)=0 so it already lands on its boundary — hence the asymmetry). Snapping a
+    // projected curve point that is within a scale-relative 1e-9*extent of a boundary
+    // segment EXACTLY onto that segment lets the T-junction split fire, yielding the
+    // same clean 2-region cut as the y=0 face. The tolerance is >=1e4x below the SSI
+    // clip overshoot (~1e-5, handled by the window pad above / PROPER_CROSS below) and
+    // >=1e6x below any real CAD feature, so a genuinely-interior point never moves.
+    const double snapB = 1e-9 * std::max(1.0, std::max(bu1 - bu0, bv1 - bv0));
+    auto snapToBoundary = [&](double& u, double& v) {
+        double best = snapB, su = u, sv = v; bool hit = false;
+        std::size_t n = boundIdx.size();
+        for (std::size_t i = 0; i < n; ++i) {
+            const geom::Point2& A = pts[boundIdx[i]];
+            const geom::Point2& B = pts[boundIdx[(i + 1) % n]];
+            const double dx = B.x - A.x, dy = B.y - A.y, L2 = dx * dx + dy * dy;
+            if (L2 < 1e-30) continue;
+            double t = ((u - A.x) * dx + (v - A.y) * dy) / L2;
+            if (t < 0.0 || t > 1.0) continue;   // only onto the segment span
+            const double px = A.x + t * dx, py = A.y + t * dy;
+            const double d = std::hypot(u - px, v - py);
+            if (d < best) { best = d; su = px; sv = py; hit = true; }
+        }
+        if (hit) { u = su; v = sv; }
+    };
+
     auto flushChain = [&](std::vector<int>& chain) {
         for (std::size_t j = 0; j + 1 < chain.size(); ++j)
             if (chain[j] != chain[j + 1]) cons.push_back({chain[j], chain[j + 1]});
@@ -926,6 +977,7 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
                 flushChain(chain);
                 continue;
             }
+            snapToBoundary(u, v);   // pin a boundary-terminating endpoint exactly on
             int id = addPoint(u, v);
             if (chain.empty() || chain.back() != id) chain.push_back(id);
         }
@@ -991,6 +1043,48 @@ bool imprintFace(const Face* parent, bool fromA, int parentFaceIdx,
     }
 
     geom::CDTResult cdt = geom::constrainedDelaunay2D(pts, cons);
+    if (!cdt.ok) {
+        // ROBUST RETRY (near-coincident PSLG conditioning). Independently-computed
+        // imprint curves from MANY partner faces — e.g. a bore's 128 cylinder-sector
+        // faces all crossing ONE box side face along the SAME line — deposit
+        // near-coincident-but-not-identical points (SSI clip overshoot ~1e-5) and the
+        // duplicate / reversed / near-zero constraints they induce. constrainedDelaunay2D
+        // de-dups only EXACTLY (bit-equal), so it cannot merge them and rejects the PSLG
+        // as self-intersecting (collinear overlap / T-junction). SNAP near-coincident
+        // points to a shared representative coordinate (so the CDT's exact de-dup then
+        // collapses them), drop the resulting zero-length constraints, dedup undirected
+        // edges, and retry the CDT ONCE. A well-formed PSLG succeeds on the FIRST call
+        // above and NEVER reaches this retry, so every currently-passing imprint is
+        // byte-identical (zero regression) — this only rescues the shatter case.
+        double mnx = 1e300, mxx = -1e300, mny = 1e300, mxy = -1e300;
+        for (const auto& p : pts) {
+            mnx = std::min(mnx, p.x); mxx = std::max(mxx, p.x);
+            mny = std::min(mny, p.y); mxy = std::max(mxy, p.y);
+        }
+        const double ext  = std::max(1.0, std::max(mxx - mnx, mxy - mny));
+        const double snap = 1e-5 * ext;   // >> the ~1e-5 SSI clip noise, << any real feature
+        std::vector<int> rep(pts.size());
+        for (std::size_t i = 0; i < pts.size(); ++i) {
+            rep[i] = static_cast<int>(i);
+            for (std::size_t j = 0; j < i; ++j)
+                if (std::fabs(pts[i].x - pts[j].x) <= snap &&
+                    std::fabs(pts[i].y - pts[j].y) <= snap) { rep[i] = rep[j]; break; }
+        }
+        for (std::size_t i = 0; i < pts.size(); ++i)
+            pts[i] = pts[static_cast<std::size_t>(rep[i])];   // rep is always a cluster root
+        std::vector<geom::ConstraintEdge> c3; c3.reserve(cons.size());
+        std::set<std::uint64_t> seenC;
+        for (const auto& e : cons) {
+            int a = rep[e.a], b = rep[e.b];
+            if (a == b) continue;                                   // zero-length after snap
+            const std::uint32_t lo = static_cast<std::uint32_t>(a < b ? a : b);
+            const std::uint32_t hi = static_cast<std::uint32_t>(a < b ? b : a);
+            const std::uint64_t key = (static_cast<std::uint64_t>(lo) << 32) | hi;
+            if (seenC.insert(key).second) c3.push_back({a, b});     // dedup undirected
+        }
+        cons.swap(c3);
+        cdt = geom::constrainedDelaunay2D(pts, cons);
+    }
     if (!cdt.ok) {
 #ifdef FORGE_BOOL_IMPRINT_DEBUG
         std::fprintf(stderr, "    [imprint CDT FAIL] kind=%d pts=%zu cons=%zu reason=%s\n",
@@ -1160,11 +1254,30 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
     // opposite directions). makeCoedge ASSERTS on a 3rd use, so we must never feed
     // it a non-manifold ring set; instead we detect it here and return ok=false
     // (the caller then falls back honestly).
+    // Characteristic size (subface-ring bbox diagonal). Sets BOTH the orientation
+    // probe step (eps) AND the scale-relative corner-weld floor (wtol) below.
+    double diag = 0.0;
+    {
+        Aabb bb;
+        for (SubFace& sf : subs) for (const Vec3& p : sf.ring) bb.add(p);
+        diag = vlen(vsub(bb.hi, bb.lo));
+    }
+    const double eps = std::max(1e-7, 1e-5 * diag);
+
     std::map<std::tuple<long long, long long, long long>, int> weld;
     std::vector<Vec3> vpos;
-    // Corner-weld grid. Default 1e-7; a fuzzy boolean widens it (weldGrid) so
-    // near-coincident corners of the two operands collapse to one shared vertex.
-    const double wtol = weldGrid;
+    // Corner-weld grid. A fuzzy boolean passes a widened weldGrid; INDEPENDENTLY we
+    // floor the grid at a SCALE-RELATIVE 1e-6*diag so the ~1e-5 SSI clip-overshoot
+    // noise on a shared cut vertex collapses to ONE welded vertex. A partial cylinder
+    // wall meeting a box side face deposits the SAME analytic corner as z=0 on one
+    // contributing face and z=-1e-5 on the other (the SSI clip overshoots the
+    // parametric boundary by ~1e-5); at the old fixed 1e-7 grid those land 100 cells
+    // apart and split into two unmated boundary edges (the corner-notch stitch's 14
+    // unmated edges). The 1e-6*diag floor (~5e-5 at a 50mm model) absorbs that noise
+    // while staying >=1e4x below the smallest real CAD feature, so genuinely distinct
+    // corners never merge — and the EXACT manifold pre-check below still guards it
+    // (a wrong merge would fail the pre-check and fall back to mesh, not corrupt).
+    const double wtol = std::max(weldGrid, 1e-6 * diag);
     auto vid = [&](const Vec3& p) -> int {
         auto key = std::make_tuple((long long)std::llround(p.x / wtol),
                                    (long long)std::llround(p.y / wtol),
@@ -1188,15 +1301,6 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
         SubFace* sf = nullptr;
     };
     std::vector<OrientedFace> ofaces;
-
-    // Characteristic size for the orientation probe step.
-    double diag = 0.0;
-    {
-        Aabb bb;
-        for (SubFace& sf : subs) for (const Vec3& p : sf.ring) bb.add(p);
-        diag = vlen(vsub(bb.hi, bb.lo));
-    }
-    const double eps = std::max(1e-7, 1e-5 * diag);
 
     for (SubFace& sf : subs) {
         if (sf.ring.size() < 3) continue;
@@ -1325,6 +1429,56 @@ BooleanResult stitch(std::vector<SubFace>& subs, const char* reason,
         std::fprintf(stderr, "\n");
     }
 #endif
+    // Runtime diagnostic (env-gated, zero-cost when unset): the corner-notch stitch
+    // fails the manifold pre-check; this reports the honest edge-multiplicity
+    // histogram + the count of UNMATED undirected edges (mult != 2) so the closure
+    // work can be measured before/after without a special compile.
+    if (std::getenv("FORGE_BOOL_DIAG")) {
+        std::map<int,int> hist;
+        int unmated = 0, unopp = 0;
+        for (const auto& kv : undirected) { hist[kv.second]++; if (kv.second != 2) ++unmated; }
+        for (const auto& kv : directed) {
+            auto opp = directed.find({kv.first.second, kv.first.first});
+            if (kv.second != 1 || opp == directed.end() || opp->second != 1) ++unopp;
+        }
+        std::fprintf(stderr, "[bool-diag stitch '%s'] faces=%zu verts=%zu edgeMultHist:",
+                     reason ? reason : "?", ofaces.size(), vpos.size());
+        for (auto& h : hist) std::fprintf(stderr, " %dx:%d", h.first, h.second);
+        std::fprintf(stderr, " | UNMATED(mult!=2)=%d unoppositelyMated=%d wtol=%.3g\n",
+                     unmated, unopp, wtol);
+        if (std::getenv("FORGE_BOOL_DIAG_EDGES")) {
+            for (const auto& kv : undirected) {
+                if (kv.second == 2) continue;
+                const Vec3& a = vpos[kv.first.first];
+                const Vec3& b = vpos[kv.first.second];
+                std::fprintf(stderr, "    [unmated x%d] (%.6g,%.6g,%.6g)-(%.6g,%.6g,%.6g)\n",
+                             kv.second, a.x, a.y, a.z, b.x, b.y, b.z);
+                // Name every oface that uses this undirected edge (surface kind + normal
+                // + ring centroid) so the contributing faces are identified directly.
+                int e0 = kv.first.first, e1 = kv.first.second;
+                for (const OrientedFace& of : ofaces) {
+                    auto usesEdge = [&](const std::vector<int>& r) {
+                        std::size_t n = r.size();
+                        for (std::size_t i = 0; i < n; ++i) {
+                            int x = r[i], y = r[(i + 1) % n];
+                            if ((x == e0 && y == e1) || (x == e1 && y == e0)) return true;
+                        }
+                        return false;
+                    };
+                    bool hit = usesEdge(of.vids);
+                    for (const auto& iv : of.innerVids) if (usesEdge(iv)) hit = true;
+                    if (!hit) continue;
+                    Vec3 cc{0,0,0}; for (int vv : of.vids) cc = vadd(cc, vpos[vv]);
+                    if (!of.vids.empty()) cc = vscale(cc, 1.0 / of.vids.size());
+                    const SubFace* sf = of.sf;
+                    std::fprintf(stderr, "        used by kind=%d fromA=%d axis=(%.2g,%.2g,%.2g) nring=%zu centroid=(%.5g,%.5g,%.5g)\n",
+                                 sf ? (int)sf->kind : -1, sf ? (int)sf->fromA : -1,
+                                 sf ? sf->axis.x : 0.0, sf ? sf->axis.y : 0.0, sf ? sf->axis.z : 0.0,
+                                 of.vids.size(), cc.x, cc.y, cc.z);
+                }
+            }
+        }
+    }
     for (const auto& kv : undirected)
         if (kv.second != 2) { res.reason = "analytic stitch: edge not shared by exactly 2 faces"; return res; }
     for (const auto& kv : directed) {
@@ -1752,6 +1906,9 @@ BooleanResult booleanSolid(const Solid& A, const Solid& B, BoolOp op,
 #ifdef FORGE_BOOL_DEBUG
     std::fprintf(stderr, "[booleanSolid] analytic miss: %s\n", a.reason);
 #endif
+    if (std::getenv("FORGE_BOOL_DIAG"))
+        std::fprintf(stderr, "[bool-diag] analytic miss -> mesh fallback: %s\n",
+                     a.reason ? a.reason : "(no reason)");
     // Analytic envelope miss — route through the proven mesh arrangement, FLAGGED.
     return booleanSolidMeshFallback(A, B, op, opts);
 }

@@ -268,6 +268,115 @@ ShapeHandle storeNativeMesh(::forge::native::mesh::HalfEdgeMesh&& m) {
     return ShapeRegistry::instance().addNativeMesh(std::move(mp));
 }
 
+// ---- native VARIABLE-RADIUS fillet routing helpers (variableFilletEdge) --------
+// These convert the part.variableFilletEdge inputs into the exact ingredients the
+// A/B-certified analytic engine forge::native::brep::filletBoxEdgeVariable needs
+// (origin box dims + a box 0..11 edge index + a LINEAR two-radius law), so a
+// NativeSolid box-edge linear-law variable fillet stays OCCT-free instead of hitting
+// BRepFilletAPI_MakeFillet (TKFillet). Every gap DEFERS to OCCT — never fakes.
+
+// Detect an axis-aligned RECTANGULAR BOX [0,Lx]x[0,Ly]x[0,Lz] anchored at the origin
+// (cube = Lx==Ly==Lz) directly from the native Solid's straight-edge vertices. Sets
+// Lx,Ly,Lz + returns true on success. Conservative: exactly 8 distinct vertices, min
+// corner at the origin, positive dims, every vertex on a canonical box corner — the
+// SAME certified scope filletBoxEdgeVariable rebuilds (mirrors VarFillet.cpp isOriginBox).
+bool nativeOriginBoxDims(const nb::Solid& s, double& Lx, double& Ly, double& Lz) {
+    const std::vector<nb::Edge*> edges = nb::enumerateSolidStraightEdges(s);
+    std::vector<const nb::Vertex*> verts;
+    auto push = [&](const nb::Vertex* v) {
+        if (!v) return;
+        for (const nb::Vertex* u : verts) if (u == v) return;
+        verts.push_back(v);
+    };
+    for (const nb::Edge* e : edges) { if (!e) continue; push(e->start); push(e->end); }
+    if (verts.size() != 8) return false;              // a box has exactly 8 vertices
+    double mn[3] = { 1e300,  1e300,  1e300};
+    double mx[3] = {-1e300, -1e300, -1e300};
+    for (const nb::Vertex* v : verts) {
+        mn[0] = std::min(mn[0], v->point.x); mx[0] = std::max(mx[0], v->point.x);
+        mn[1] = std::min(mn[1], v->point.y); mx[1] = std::max(mx[1], v->point.y);
+        mn[2] = std::min(mn[2], v->point.z); mx[2] = std::max(mx[2], v->point.z);
+    }
+    const double tol = 1e-9;
+    if (std::fabs(mn[0]) > tol || std::fabs(mn[1]) > tol || std::fabs(mn[2]) > tol)
+        return false;                                 // not anchored at the origin
+    Lx = mx[0] - mn[0]; Ly = mx[1] - mn[1]; Lz = mx[2] - mn[2];
+    if (!(Lx > tol) || !(Ly > tol) || !(Lz > tol)) return false;
+    static constexpr std::array<std::array<double, 3>, 8> kUnit = {{
+        {{0,0,0}}, {{1,0,0}}, {{1,1,0}}, {{0,1,0}},
+        {{0,0,1}}, {{1,0,1}}, {{1,1,1}}, {{0,1,1}},
+    }};
+    const double d[3]  = { Lx, Ly, Lz };
+    const double sc[3] = { 1e-9 * Lx, 1e-9 * Ly, 1e-9 * Lz };
+    for (const nb::Vertex* v : verts) {
+        const double px[3] = { v->point.x, v->point.y, v->point.z };
+        bool onCorner = false;
+        for (const auto& c : kUnit)
+            if (std::fabs(px[0] - c[0] * d[0]) <= sc[0] &&
+                std::fabs(px[1] - c[1] * d[1]) <= sc[1] &&
+                std::fabs(px[2] - c[2] * d[2]) <= sc[2]) { onCorner = true; break; }
+        if (!onCorner) return false;
+    }
+    return true;
+}
+
+// Map a straight edge (endpoints A,B) of the origin box [0,Lx]x[0,Ly]x[0,Lz] to its
+// canonical 0..11 edge index — the SAME enumeration filletBoxEdgeVariable's internal
+// boxEdge()/boxCorners() use (verified against FilletAnalytic.cpp), so the index we
+// pass fillets the geometric edge the caller selected. Returns -1 if (A,B) is not one
+// of the box's 12 edges (scale-relative endpoint match, orientation-agnostic).
+int rectBoxEdgeIndex(double Lx, double Ly, double Lz,
+                     double ax, double ay, double az,
+                     double bx, double by, double bz) {
+    const double C[8][3] = {
+        {0,0,0}, {Lx,0,0}, {Lx,Ly,0}, {0,Ly,0},
+        {0,0,Lz}, {Lx,0,Lz}, {Lx,Ly,Lz}, {0,Ly,Lz},
+    };
+    static constexpr int E[12][2] = {
+        {0,1},{1,2},{2,3},{3,0},{4,5},{5,6},{6,7},{7,4},{0,4},{1,5},{2,6},{3,7},
+    };
+    const double diag = std::sqrt(Lx*Lx + Ly*Ly + Lz*Lz);
+    const double tol = 1e-7 * (diag > 0.0 ? diag : 1.0);
+    auto coincident = [&](const double* p, const double* q) {
+        return std::fabs(p[0]-q[0]) <= tol && std::fabs(p[1]-q[1]) <= tol &&
+               std::fabs(p[2]-q[2]) <= tol;
+    };
+    const double A[3] = {ax,ay,az}, B[3] = {bx,by,bz};
+    for (int i = 0; i < 12; ++i) {
+        const double* P0 = C[E[i][0]];
+        const double* P1 = C[E[i][1]];
+        if ((coincident(A,P0) && coincident(B,P1)) ||
+            (coincident(A,P1) && coincident(B,P0))) return i;
+    }
+    return -1;
+}
+
+// The native analytic variable fillet implements the LINEAR law R(t)=R0+(R1-R0)*u,
+// u in [0,1] along the edge. Accept the caller's anchors ONLY when they describe
+// exactly that: they must span u≈0..1 and every (u,r) must lie on the straight line
+// through the endpoints (R0=r@u=0, R1=r@u=1). Any non-linear / partial-range law
+// defers to OCCT's Pnt2d-array path (no silent degrade). Returns true + R0,R1.
+bool anchorsAreLinearLaw(const std::vector<VariableRadiusAnchor>& anchors,
+                         double& R0, double& R1) {
+    double u0 = 1e300, u1 = -1e300, r0 = 0.0, r1 = 0.0;
+    for (const auto& a : anchors) {
+        if (a.u < u0) { u0 = a.u; r0 = a.r; }
+        if (a.u > u1) { u1 = a.u; r1 = a.r; }
+    }
+    const double uTol = 1e-9;
+    if (std::fabs(u0 - 0.0) > uTol || std::fabs(u1 - 1.0) > uTol) return false; // span [0,1]
+    if (!(u1 - u0 > uTol)) return false;
+    const double rSpan = std::max(std::fabs(r0), std::fabs(r1));
+    const double rTol = 1e-9 * (rSpan > 0.0 ? rSpan : 1.0) + 1e-12;
+    for (const auto& a : anchors) {
+        const double expect = r0 + (r1 - r0) * (a.u - u0) / (u1 - u0);
+        if (std::fabs(a.r - expect) > rTol) return false;    // not collinear -> defer
+    }
+    if (!(r0 > 0.0) || !(r1 > 0.0)) return false;
+    R0 = r0; R1 = r1;
+    return true;
+}
+
 #endif  // FORGE_NATIVE_BREP
 
 }  // namespace
@@ -1250,6 +1359,51 @@ ShapeHandle variableFilletEdge(ShapeHandle shape, std::uint32_t edgeId,
         throw std::invalid_argument(
             "forge.part.variableFilletEdge: need >= 2 anchor radii");
     }
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE analytic VARIABLE-RADIUS fillet — LINEAR law on an origin axis-aligned
+    // box edge — routes forge::native::brep::filletBoxEdgeVariable so a NativeSolid
+    // box-edge linear-law variable fillet stays OCCT-free, retiring the
+    // BRepFilletAPI_MakeFillet(Pnt2d-array) fallback below for that case. This is the
+    // variableFilletEdge analogue of the constant filletEdges native branch above +
+    // VarFillet.cpp's tryNativeVarFillet; the engine (filletBoxEdgeVariable) is already
+    // A/B-certified (native_vs_occt_fillet_var.cpp / native_vs_occt_varfillet_box.mjs).
+    // GATE DEFAULT OFF: with FORGE_NATIVE_FEATURES unset the OCCT path below runs
+    // byte-for-byte unchanged. ANY out-of-scope input — an OCCT-backed handle, a
+    // non-origin-box native solid, a non-linear / partial-range law, or an edge that
+    // does not map to one of the box's 12 edges — HONESTLY DEFERS to OCCT (no fake).
+    if (native::brep::forgeNativeFeaturesEnabled() &&
+        ShapeRegistry::instance().kindOf(shape) == ShapeKind::NativeSolid) {
+        double R0 = 0.0, R1 = 0.0;
+        if (anchorsAreLinearLaw(anchors, R0, R1)) {
+            const nb::Solid& solid = ShapeRegistry::instance().getNativeSolid(shape);
+            double Lx = 0.0, Ly = 0.0, Lz = 0.0;
+            if (nativeOriginBoxDims(solid, Lx, Ly, Lz)) {
+                // edgeId indexes THIS solid's own sharp-convex enumeration — the SAME
+                // ids direct.edgeSegments emits and part.filletEdges honors — so the
+                // selection is consistent with the constant-radius native path.
+                std::vector<double> pos; std::vector<std::uint32_t> idx;
+                nb::tessellateSolid(solid, pos, idx);
+                const std::vector<nb::SharpConvexEdge> sharp =
+                    nb::enumerateSharpConvexEdges(pos, idx);
+                if (edgeId < sharp.size()) {
+                    const nb::SharpConvexEdge& se = sharp[edgeId];
+                    const int boxIdx = rectBoxEdgeIndex(Lx, Ly, Lz,
+                                                        se.ax, se.ay, se.az,
+                                                        se.bx, se.by, se.bz);
+                    if (boxIdx >= 0) {
+                        auto owner = std::make_shared<nb::TopologyBuilder>();
+                        nb::AnalyticVariableFilletResult vf = nb::filletBoxEdgeVariable(
+                            *owner, Lx, Ly, Lz, R0, R1, boxIdx);
+                        if (vf.ok && vf.solid)
+                            return ShapeRegistry::instance().addNativeSolid(owner, vf.solid);
+                        // analytic declined (out-of-band radius, ...) -> OCCT fallback.
+                    }
+                }
+            }
+        }
+        // native deferred -> OCCT path below (unchanged).
+    }
+#endif
     const auto& src = fetch(shape);
     BRepFilletAPI_MakeFillet mk(src);
     TopoDS_Edge e = edgeById(src, edgeId);
