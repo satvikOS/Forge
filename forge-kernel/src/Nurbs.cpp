@@ -36,9 +36,10 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
-#include <Geom2d_TrimmedCurve.hxx>
+#include <Geom2d_Curve.hxx>
 #include <Geom2d_Line.hxx>
-#include <GCE2d_MakeSegment.hxx>
+#include <gp_Dir2d.hxx>
+#include <gp_Vec2d.hxx>
 #include <BRepLib.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_Plane.hxx>
@@ -566,10 +567,18 @@ ShapeHandle trimNurbsFace(ShapeHandle face, const std::vector<double>& trimUV) {
     for (std::size_t i = 0; i < n; ++i) {
         gp_Pnt2d a = uv(i);
         gp_Pnt2d b = uv((i + 1) % n);
-        if (a.Distance(b) < Precision::PConfusion()) continue;
-        Handle(Geom2d_TrimmedCurve) seg = GCE2d_MakeSegment(a, b);
-        if (seg.IsNull()) continue;
-        BRepBuilderAPI_MakeEdge edgeMk(seg, s);
+        const double segLen = a.Distance(b);
+        if (segLen < Precision::PConfusion()) continue;
+        // Native straight UV pcurve: a Geom2d_Line through `a` toward `b`,
+        // bounded to [0, |b-a|] by MakeEdge's parametric (pcurve,surface,p1,p2)
+        // overload. Geometrically identical to GCE2d_MakeSegment(a,b) — origin
+        // a, unit direction a->b, trim [0,dist] — but reached with only the
+        // already-resolved Geom2d_Line ctor + the directly-linked TKTopAlgo
+        // edge builder, dropping the TKGeomBase-exclusive GCE2d symbols
+        // (OCCT-zero drop-gate: TKGeomBase 12 -> 10 exclusive uses).
+        Handle(Geom2d_Curve) seg =
+            new Geom2d_Line(a, gp_Dir2d(gp_Vec2d(a, b)));
+        BRepBuilderAPI_MakeEdge edgeMk(seg, s, 0.0, segLen);
         if (!edgeMk.IsDone()) continue;
         wireMk.Add(edgeMk.Edge());
     }
