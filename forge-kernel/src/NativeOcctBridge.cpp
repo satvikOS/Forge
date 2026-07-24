@@ -56,6 +56,7 @@
 #include <cstdlib>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <vector>
 
@@ -66,6 +67,7 @@ using native::brep::Shell;
 using native::brep::Face;
 using native::brep::Loop;
 using native::brep::Coedge;
+using native::brep::Edge;
 using native::brep::Vertex;
 using native::brep::Surface;
 using native::brep::SurfaceKind;
@@ -888,6 +890,552 @@ TopoDS_Shape occtTorusFromNativeSolid(const Solid& solid) {
     return out;
 }
 
+// ===========================================================================
+// MERGED-STRIP ANALYTIC RECONSTRUCTION — a BOOLEAN-RESULT native solid.
+//
+// A native boolean result (box - corner cylinder = a "corner notch") does NOT
+// arrive as clean logical faces: it is a soup of CDT STRIP faces — the corner
+// notch is 106 strips (its 6 logical PLANES shattered into ~74 triangles + its
+// ONE quarter-cylinder wall split into 32 angular strips). occtAnalyticFromNativeSolid
+// declines it (the notch's cylinder is a PARTIAL 90-degree arc, not a full 2*pi
+// lateral, so buildAnalyticCylinderFace bails), so it used to fall to the FACETED
+// path and export 140 {plane:140} faces — the analytic identity of the wall (and
+// therefore every face-level edit + the interface/topology benchmark halves) is lost.
+//
+// This reconstructs ONE OCCT face per LOGICAL analytic face — the SAME
+// signature + shared-edge grouping forge.nativeFaceInventory reports (7 for the
+// notch: {plane:6, cylinder:1}) — so the exported B-rep carries the exact clean
+// faces with the exact volume:
+//   * strips are grouped into components by surface SIGNATURE + shared-edge
+//     connectivity (analyticFaceInventory's grouping);
+//   * each CYLINDER/CONE component becomes ONE analytic (u,v) patch face over its
+//     ACTUAL angular sector [theta0,theta1] x axial extent — a partial wall, not a
+//     full lateral;
+//   * each PLANAR component's boundary loop is RECOVERED from its strips (the edges
+//     used by exactly one strip of the component), and each maximal run of chords
+//     that traces a bordering cylinder/cone rim is COLLAPSED back into ONE true
+//     circular ARC (identical to that wall's rim arc, so the two sew);
+//   * the faces are sewn, solidified, and the rebuilt volume is cross-checked
+//     against the EXACT native volume — any mismatch declines to the (unchanged)
+//     faceted path (ZERO regression). It runs ONLY after every dedicated
+//     reconstructor (analytic/cone/sphere/torus) has already declined.
+//
+// (These helpers live in the SAME anonymous namespace as the reconstructors above.)
+// ===========================================================================
+
+// A boolean-result MERGE diagnostic (FORGE_BRIDGE_MERGE_DIAG=1 -> stderr the reason
+// a reconstruction declined). OFF by default -> zero effect on the production path.
+inline bool mergeDiagOn() {
+    const char* e = std::getenv("FORGE_BRIDGE_MERGE_DIAG");
+    return e && e[0] == '1';
+}
+#define MERGE_BAIL(msg) do { if (mergeDiagOn()) std::fprintf(stderr, "[bridge-merge] decline: %s\n", (msg)); return TopoDS_Shape(); } while (0)
+
+// The shared analytic surface of a CYLINDER / CONE component plus its axis frame —
+// used to build the ONE lateral patch face AND to recognise the arc runs a bordering
+// planar cap traces along this component's rim.
+struct CurvedComp {
+    const Surface* surf = nullptr;
+    gp_Pnt O;       // axis base point (surface origin)
+    gp_Dir A;       // unit axis
+    gp_Dir R;       // unit refDir
+    bool   isCone = false;
+};
+
+// Distance of P from the component's axis line, and its signed height along the axis.
+void axisMetrics(const CurvedComp& c, const gp_Pnt& P, double& dist, double& height) {
+    const gp_Vec d(c.O, P);
+    const gp_Vec Av(c.A);
+    height = d.Dot(Av);
+    const gp_Vec radial = d - Av * height;
+    dist = radial.Magnitude();
+}
+
+// The component's analytic radius at axial height t (cone tapers; cylinder is constant).
+double compRadiusAt(const CurvedComp& c, double t) {
+    if (!c.isCone) return c.surf->r1;
+    const double h = c.surf->param;
+    if (!(std::fabs(h) > 1e-12)) return c.surf->r1;
+    return c.surf->r1 + (c.surf->r2 - c.surf->r1) * (t / h);
+}
+
+// Is P on this component's lateral surface (within scale-relative tol)? Returns its
+// axial height in `height`.
+bool onCurvedRim(const CurvedComp& c, const gp_Pnt& P, double& height) {
+    double dist = 0.0;
+    axisMetrics(c, P, dist, height);
+    const double want = compRadiusAt(c, height);
+    return std::fabs(dist - want) <= 1e-6 * std::max(1.0, std::fabs(want));
+}
+
+// A circular ARC edge from S to E through interior point M (all on a circle of radius
+// `rad` centred at O). Chooses the circle sense so the S->E arc actually contains M
+// (the ring-order midpoint), so a >pi notch sector is honoured rather than the
+// complementary minor arc. Null on degeneracy.
+TopoDS_Edge makeArcEdge(const gp_Pnt& O, double rad,
+                        const gp_Pnt& S, const gp_Pnt& E, const gp_Pnt& M) {
+    const gp_Vec os(O, S), om(O, M), oe(O, E);
+    if (os.Magnitude() < 1e-12 || om.Magnitude() < 1e-12 || oe.Magnitude() < 1e-12)
+        return TopoDS_Edge();
+    gp_Vec nrm = os.Crossed(om);
+    if (nrm.Magnitude() < 1e-12) return TopoDS_Edge();  // S,O,M collinear
+    gp_Ax2 ax(O, gp_Dir(nrm), gp_Dir(os));
+    const gp_Vec xd(ax.XDirection()), yd(ax.YDirection());
+    auto ang = [&](const gp_Vec& v) {
+        double a = std::atan2(v.Dot(yd), v.Dot(xd));
+        if (a < 0.0) a += 2.0 * M_PI;
+        return a;
+    };
+    // With +X toward S, S is at angle 0 and M is CCW-positive (nrm = os x om). If E is
+    // NOT further CCW than M, flip the sense so the S->E CCW arc sweeps through M.
+    if (!(ang(oe) > ang(om))) {
+        nrm.Reverse();
+        ax = gp_Ax2(O, gp_Dir(nrm), gp_Dir(os));
+    }
+    const gp_Circ circ(ax, rad);
+    BRepBuilderAPI_MakeEdge me(circ, S, E);
+    return me.IsDone() ? me.Edge() : TopoDS_Edge();
+}
+
+// ONE analytic OCCT patch face for a CYLINDER / CONE component, bounded to the strips'
+// ACTUAL angular sector [u0,u1] and axial extent (a PARTIAL wall — the notch quarter
+// cylinder — not a full 2*pi lateral). Its rim arcs are true circles that coincide with
+// the bordering caps' collapsed arcs, so they sew.
+TopoDS_Face buildCurvedPatchFace(const CurvedComp& c, const std::vector<gp_Pnt>& pts) {
+    if (pts.empty()) return TopoDS_Face();
+    const gp_Vec Av(c.A), Rv(c.R);
+    const gp_Vec Bv = Av.Crossed(Rv);
+    double tMin = 1e300, tMax = -1e300;
+    std::vector<double> ang;
+    ang.reserve(pts.size());
+    for (const auto& p : pts) {
+        const gp_Vec d(c.O, p);
+        const double t = d.Dot(Av);
+        tMin = std::min(tMin, t);
+        tMax = std::max(tMax, t);
+        double u = std::atan2(d.Dot(Bv), d.Dot(Rv));
+        if (u < 0.0) u += 2.0 * M_PI;
+        ang.push_back(u);
+    }
+    if (tMax - tMin < 1e-9) return TopoDS_Face();
+    std::sort(ang.begin(), ang.end());
+    // Occupied angular span = COMPLEMENT of the largest gap between successive angles
+    // (the wrap gap is between the last and first+2pi).
+    double maxGap = ang.front() + 2.0 * M_PI - ang.back();  // wrap gap
+    std::size_t gapIdx = ang.size();                        // sentinel: wrap gap wins
+    for (std::size_t i = 1; i < ang.size(); ++i) {
+        const double g = ang[i] - ang[i - 1];
+        if (g > maxGap) { maxGap = g; gapIdx = i; }
+    }
+    double u0, u1;
+    if (maxGap < M_PI / 6.0) {           // no real gap -> a full 2*pi lateral
+        u0 = 0.0; u1 = 2.0 * M_PI;
+    } else if (gapIdx == ang.size()) {   // wrap gap is largest -> occupied is [front,back]
+        u0 = ang.front(); u1 = ang.back();
+    } else {                             // internal gap -> occupied wraps around it
+        u0 = ang[gapIdx]; u1 = ang[gapIdx - 1] + 2.0 * M_PI;
+    }
+    if (u1 - u0 < 1e-9) return TopoDS_Face();
+    if (!c.isCone) {
+        Handle(Geom_CylindricalSurface) cyl =
+            new Geom_CylindricalSurface(gp_Ax3(c.O, c.A, c.R), c.surf->r1);
+        BRepBuilderAPI_MakeFace mf(cyl, u0, u1, tMin, tMax, 1e-7);
+        return mf.IsDone() ? mf.Face() : TopoDS_Face();
+    }
+    const double r1 = c.surf->r1, r2 = c.surf->r2, h = c.surf->param;
+    if (!(h > 1e-9)) return TopoDS_Face();
+    const double semiAng = std::atan2(r2 - r1, h);
+    const double cs = std::cos(semiAng);
+    if (std::fabs(cs) < 1e-12) return TopoDS_Face();
+    Handle(Geom_ConicalSurface) cone =
+        new Geom_ConicalSurface(gp_Ax3(c.O, c.A, c.R), semiAng, r1);
+    const double vLo = tMin / cs, vHi = tMax / cs;
+    BRepBuilderAPI_MakeFace mf(cone, u0, u1, std::min(vLo, vHi), std::max(vLo, vHi), 1e-7);
+    return mf.IsDone() ? mf.Face() : TopoDS_Face();
+}
+
+// Recover the boundary loop(s) of one component from its BOUNDARY edges (an edge used
+// by exactly one strip OF the component). Each boundary vertex of a clean manifold
+// component has degree 2, so the edges chain into closed rings. Returns the ordered
+// 3D point rings; empty on any open / non-manifold boundary (caller then declines).
+std::vector<std::vector<gp_Pnt>> recoverBoundaryLoops(const std::vector<const Edge*>& be) {
+    std::unordered_map<const Vertex*, std::vector<std::pair<const Vertex*, const Edge*>>> adj;
+    adj.reserve(be.size() * 2);
+    for (const Edge* e : be) {
+        if (!e->start || !e->end) return {};
+        adj[e->start].push_back({e->end, e});
+        adj[e->end].push_back({e->start, e});
+    }
+    for (const auto& kv : adj) if (kv.second.size() != 2) return {};  // non-manifold boundary
+
+    std::unordered_set<const Edge*> used;
+    used.reserve(be.size() * 2);
+    std::vector<std::vector<gp_Pnt>> loops;
+    for (const Edge* e0 : be) {
+        if (used.count(e0)) continue;
+        const Vertex* start = e0->start;
+        const Vertex* cur = e0->end;
+        used.insert(e0);
+        const Edge* prev = e0;
+        std::vector<const Vertex*> ring;
+        ring.push_back(start);
+        ring.push_back(cur);
+        bool ok = true;
+        while (cur != start) {
+            const auto it = adj.find(cur);
+            if (it == adj.end()) { ok = false; break; }
+            const Edge* nxt = nullptr;
+            const Vertex* nv = nullptr;
+            for (const auto& pr : it->second) {
+                if (pr.second != prev && !used.count(pr.second)) { nxt = pr.second; nv = pr.first; break; }
+            }
+            if (!nxt) { ok = false; break; }
+            used.insert(nxt);
+            prev = nxt;
+            cur = nv;
+            if (cur != start) ring.push_back(cur);
+        }
+        if (!ok || ring.size() < 3) return {};
+        std::vector<gp_Pnt> pl;
+        pl.reserve(ring.size());
+        for (const Vertex* v : ring) pl.emplace_back(v->point.x, v->point.y, v->point.z);
+        loops.push_back(std::move(pl));
+    }
+    return loops;
+}
+
+// Signed-area magnitude of a planar ring (Newell), used to pick a face's OUTER loop.
+double ringArea(const std::vector<gp_Pnt>& r) {
+    gp_XYZ nn(0, 0, 0);
+    const std::size_t m = r.size();
+    for (std::size_t i = 0; i < m; ++i) {
+        const gp_Pnt& p0 = r[i];
+        const gp_Pnt& p1 = r[(i + 1) % m];
+        nn += gp_XYZ((p0.Y() - p1.Y()) * (p0.Z() + p1.Z()),
+                     (p0.Z() - p1.Z()) * (p0.X() + p1.X()),
+                     (p0.X() - p1.X()) * (p0.Y() + p1.Y()));
+    }
+    return 0.5 * nn.Modulus();
+}
+
+// Collapse a recovered boundary ring into a wire of MAXIMAL analytic edges: collinear
+// chord runs -> ONE straight edge; a run of chords tracing a bordering cylinder/cone
+// rim (both endpoints on the wall, at equal axial height => a planar circle) -> ONE
+// true circular ARC. A ring that is itself a full tessellated circle (a hole) is a full
+// gp_Circ. Null on any run it cannot certify (caller then declines).
+TopoDS_Wire collapseLoopToWire(const std::vector<gp_Pnt>& ring,
+                               const std::vector<CurvedComp>& curved) {
+    const std::size_t m = ring.size();
+    if (m < 3) return TopoDS_Wire();
+
+    // Whole-ring circle (e.g. a through-bore hole): reuse the exact-circle path.
+    {
+        gp_Pnt cc; double rr; gp_Dir nn;
+        if (ringIsCircle(ring, cc, rr, nn)) {
+            const gp_Circ circ(gp_Ax2(cc, nn), rr);
+            BRepBuilderAPI_MakeEdge me(circ);
+            if (!me.IsDone()) return TopoDS_Wire();
+            BRepBuilderAPI_MakeWire mw(me.Edge());
+            return mw.IsDone() ? mw.Wire() : TopoDS_Wire();
+        }
+    }
+
+    // Classify each ring edge i = (ring[i], ring[i+1]) as an arc of curved comp k, or
+    // straight (-1). An edge is an arc of k iff BOTH endpoints lie on comp k's wall AND
+    // are at equal axial height (=> the intersection is a planar circle, not an ellipse
+    // and not an axial generator line).
+    std::vector<int> cls(m, -1);
+    for (std::size_t i = 0; i < m; ++i) {
+        const gp_Pnt& a = ring[i];
+        const gp_Pnt& b = ring[(i + 1) % m];
+        for (std::size_t k = 0; k < curved.size(); ++k) {
+            double ha = 0.0, hb = 0.0;
+            if (onCurvedRim(curved[k], a, ha) && onCurvedRim(curved[k], b, hb) &&
+                std::fabs(ha - hb) <= 1e-6 * std::max(1.0, std::fabs(ha))) {
+                cls[i] = static_cast<int>(k);
+                break;
+            }
+        }
+    }
+
+    // Corner = a ring vertex j where the incoming edge (j-1) and outgoing edge (j)
+    // cannot be part of the same analytic edge: their classification differs, or both
+    // are straight but the direction turns.
+    std::vector<std::size_t> corners;
+    for (std::size_t j = 0; j < m; ++j) {
+        const std::size_t jp = (j + m - 1) % m;
+        bool isCorner = false;
+        if (cls[jp] != cls[j]) {
+            isCorner = true;
+        } else if (cls[j] == -1) {
+            const gp_Vec u(ring[jp], ring[j]);
+            const gp_Vec v(ring[j], ring[(j + 1) % m]);
+            if (u.Magnitude() < 1e-12 || v.Magnitude() < 1e-12) isCorner = true;
+            else if (u.Crossed(v).Magnitude() > 1e-9 * u.Magnitude() * v.Magnitude()) isCorner = true;
+        }
+        if (isCorner) corners.push_back(j);
+    }
+    if (corners.empty()) return TopoDS_Wire();  // not a full circle, yet no corners
+
+    BRepBuilderAPI_MakeWire mw;
+    const std::size_t C = corners.size();
+    for (std::size_t ci = 0; ci < C; ++ci) {
+        const std::size_t s = corners[ci];
+        const std::size_t e = corners[(ci + 1) % C];
+        const int segCls = cls[s];
+        const gp_Pnt& S = ring[s];
+        const gp_Pnt& E = ring[e];
+        if (segCls < 0) {
+            BRepBuilderAPI_MakeEdge me(S, E);
+            if (!me.IsDone()) return TopoDS_Wire();
+            mw.Add(me.Edge());
+            continue;
+        }
+        // Arc segment: need a strictly-interior ring vertex, all at one axial height on
+        // comp segCls => a planar circle whose centre is that wall's axis foot.
+        std::size_t steps = 0, t = s;
+        while (t != e) { t = (t + 1) % m; ++steps; }
+        if (steps < 2) return TopoDS_Wire();  // single chord -> ambiguous arc
+        const std::size_t mid = (s + steps / 2) % m;
+        const CurvedComp& cc = curved[static_cast<std::size_t>(segCls)];
+        double hS = 0.0;
+        onCurvedRim(cc, S, hS);
+        const gp_Pnt center = cc.O.Translated(gp_Vec(cc.A) * hS);
+        const double radius = S.Distance(center);
+        if (radius < 1e-9) return TopoDS_Wire();
+        if (std::fabs(E.Distance(center) - radius) > 1e-6 * std::max(1.0, radius)) return TopoDS_Wire();
+        const TopoDS_Edge ae = makeArcEdge(center, radius, S, E, ring[mid]);
+        if (ae.IsNull()) return TopoDS_Wire();
+        mw.Add(ae);
+    }
+    return mw.IsDone() ? mw.Wire() : TopoDS_Wire();
+}
+
+// ONE analytic planar OCCT face for a merged planar component: its outer wire is the
+// largest recovered loop; any remaining loops are holes.
+TopoDS_Face buildMergedPlanarFace(const Surface* ps,
+                                  const std::vector<std::vector<gp_Pnt>>& loops,
+                                  const std::vector<CurvedComp>& curved) {
+    if (loops.empty()) return TopoDS_Face();
+    const gp_Pnt O(ps->origin.x, ps->origin.y, ps->origin.z);
+    const gp_Dir N(ps->axis.x, ps->axis.y, ps->axis.z);
+    const gp_Pln pln(O, N);
+
+    std::size_t outer = 0;
+    double best = -1.0;
+    for (std::size_t i = 0; i < loops.size(); ++i) {
+        const double a = ringArea(loops[i]);
+        if (a > best) { best = a; outer = i; }
+    }
+    const TopoDS_Wire ow = collapseLoopToWire(loops[outer], curved);
+    if (ow.IsNull()) return TopoDS_Face();
+    BRepBuilderAPI_MakeFace mf(pln, ow);
+    if (!mf.IsDone()) return TopoDS_Face();
+    for (std::size_t i = 0; i < loops.size(); ++i) {
+        if (i == outer) continue;
+        const TopoDS_Wire iw = collapseLoopToWire(loops[i], curved);
+        if (iw.IsNull()) return TopoDS_Face();
+        mf.Add(iw);
+        if (!mf.IsDone()) return TopoDS_Face();
+    }
+    return mf.Face();
+}
+
+// The MERGED-strip analytic reconstructor (see the block comment above).
+TopoDS_Shape occtMergedAnalyticFromNativeSolid(const Solid& solid) {
+    std::vector<const Face*> faces;
+    for (const Shell* sh : solid.shells) {
+        if (!sh) continue;
+        for (const Face* f : sh->faces) if (f) faces.push_back(f);
+    }
+    const std::size_t n = faces.size();
+    if (n < 4) MERGE_BAIL("fewer than 4 faces");
+
+    std::unordered_map<const Face*, std::size_t> idx;
+    idx.reserve(n * 2);
+    for (std::size_t i = 0; i < n; ++i) idx.emplace(faces[i], i);
+
+    // Per-face analytic signature (plane: signed normal+offset; cyl/cone: geometric
+    // key). Decline on ANY non-plane/cyl/cone surface (sphere/torus/nurbs boolean
+    // results keep the existing dedicated / faceted paths).
+    auto q = [](double v) -> long long { return std::llround(v / 1e-6); };
+    std::vector<std::string> sig(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        const Surface* s = faces[i]->surface;
+        if (!s) MERGE_BAIL("bare-topology face");
+        SurfaceKind kind = s->kind;
+        if (kind == SurfaceKind::Cone &&
+            std::fabs(s->r1 - s->r2) <= 1e-9 * std::max(1.0, std::fabs(s->r1)))
+            kind = SurfaceKind::Cylinder;
+        if (kind == SurfaceKind::Plane) {
+            double ax = s->axis.x, ay = s->axis.y, az = s->axis.z;
+            const double nn = std::sqrt(ax * ax + ay * ay + az * az);
+            if (nn < 1e-12) MERGE_BAIL("degenerate plane normal");
+            ax /= nn; ay /= nn; az /= nn;
+            const double d = s->origin.x * ax + s->origin.y * ay + s->origin.z * az;
+            char buf[128];
+            std::snprintf(buf, sizeof(buf), "P:%lld:%lld:%lld:%lld",
+                          q(ax), q(ay), q(az), q(d));
+            sig[i] = buf;
+        } else if (kind == SurfaceKind::Cylinder) {
+            sig[i] = cylinderKey(s);
+        } else if (kind == SurfaceKind::Cone) {
+            sig[i] = coneKey(s);
+        } else {
+            MERGE_BAIL("non-analytic (sphere/torus/nurbs) face");
+        }
+    }
+
+    // Union-find: merge two faces IFF they share an edge AND carry the same signature
+    // (== analyticFaceInventory grouping). First gather unique edges.
+    std::unordered_set<const Edge*> seen;
+    seen.reserve(n * 4);
+    std::vector<const Edge*> edges;
+    auto visit = [&](const Loop* lp) {
+        if (!lp || !lp->first) return;
+        const Coedge* c = lp->first;
+        for (std::size_t i = 0; i < lp->coedgeCount && c; ++i, c = c->next) {
+            const Edge* e = c->edge;
+            if (e && seen.insert(e).second) edges.push_back(e);
+        }
+    };
+    for (const Face* f : faces) {
+        visit(f->outerLoop);
+        for (const Loop* il : f->innerLoops) visit(il);
+    }
+
+    std::vector<std::size_t> parent(n);
+    for (std::size_t i = 0; i < n; ++i) parent[i] = i;
+    auto find = [&](std::size_t x) {
+        while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; }
+        return x;
+    };
+    auto unite = [&](std::size_t a, std::size_t b) {
+        const std::size_t ra = find(a), rb = find(b);
+        if (ra != rb) parent[std::max(ra, rb)] = std::min(ra, rb);
+    };
+    auto faceOf = [](const Coedge* ce) -> const Face* {
+        return (ce && ce->loop) ? ce->loop->face : nullptr;
+    };
+    for (const Edge* e : edges) {
+        const Face* fa = faceOf(e->coedgeA);
+        const Face* fb = faceOf(e->coedgeB);
+        if (!fa || !fb) MERGE_BAIL("edge with fewer than 2 incident faces (open shell)");
+        if (fa == fb) continue;
+        const auto ia = idx.find(fa), ib = idx.find(fb);
+        if (ia == idx.end() || ib == idx.end()) continue;
+        if (sig[ia->second] == sig[ib->second]) unite(ia->second, ib->second);
+    }
+
+    std::unordered_map<std::size_t, std::vector<std::size_t>> comp;
+    for (std::size_t i = 0; i < n; ++i) comp[find(i)].push_back(i);
+    if (comp.size() >= n) MERGE_BAIL("no strips merged (already-clean solid)");
+
+    // Curved components (cyl/cone) + their axis frames; planar component roots.
+    std::unordered_map<std::size_t, CurvedComp> curvedByRoot;
+    std::vector<std::size_t> planarRoots;
+    for (const auto& kv : comp) {
+        const Surface* s = faces[kv.second.front()]->surface;
+        SurfaceKind kind = s->kind;
+        if (kind == SurfaceKind::Cone &&
+            std::fabs(s->r1 - s->r2) <= 1e-9 * std::max(1.0, std::fabs(s->r1)))
+            kind = SurfaceKind::Cylinder;
+        if (kind == SurfaceKind::Plane) {
+            planarRoots.push_back(kv.first);
+        } else {
+            CurvedComp cc;
+            cc.surf = s;
+            cc.O = gp_Pnt(s->origin.x, s->origin.y, s->origin.z);
+            cc.A = gp_Dir(s->axis.x, s->axis.y, s->axis.z);
+            cc.R = gp_Dir(s->refDir.x, s->refDir.y, s->refDir.z);
+            cc.isCone = (kind == SurfaceKind::Cone);
+            curvedByRoot.emplace(kv.first, cc);
+        }
+    }
+    if (curvedByRoot.empty()) MERGE_BAIL("no curved component to rescue (all-planar)");
+
+    // Boundary edges per component root (an edge whose two faces are in DIFFERENT
+    // components is a boundary edge of BOTH).
+    std::unordered_map<std::size_t, std::vector<const Edge*>> bEdges;
+    for (const Edge* e : edges) {
+        const Face* fa = faceOf(e->coedgeA);
+        const Face* fb = faceOf(e->coedgeB);
+        if (!fa || !fb) MERGE_BAIL("open edge in boundary pass");
+        const std::size_t ra = find(idx[fa]), rb = find(idx[fb]);
+        if (ra == rb) continue;
+        bEdges[ra].push_back(e);
+        bEdges[rb].push_back(e);
+    }
+
+    std::vector<CurvedComp> curvedList;
+    curvedList.reserve(curvedByRoot.size());
+    for (const auto& kv : curvedByRoot) curvedList.push_back(kv.second);
+
+    BRepBuilderAPI_Sewing sew(1e-6);
+    int added = 0;
+
+    // ONE lateral patch face per curved component.
+    for (const auto& kv : curvedByRoot) {
+        std::vector<gp_Pnt> pts;
+        for (const std::size_t fi : comp[kv.first]) {
+            const std::vector<gp_Pnt> r = loopPoints(faces[fi]->outerLoop);
+            pts.insert(pts.end(), r.begin(), r.end());
+        }
+        const TopoDS_Face cf = buildCurvedPatchFace(kv.second, pts);
+        if (cf.IsNull()) MERGE_BAIL("curved patch face build failed");
+        sew.Add(cf);
+        ++added;
+    }
+
+    // ONE planar face per planar component (boundary recovered + arcs collapsed).
+    for (const std::size_t root : planarRoots) {
+        const auto it = bEdges.find(root);
+        if (it == bEdges.end()) MERGE_BAIL("planar component has no boundary edges");
+        const std::vector<std::vector<gp_Pnt>> loops = recoverBoundaryLoops(it->second);
+        if (loops.empty()) MERGE_BAIL("planar boundary loop recovery failed");
+        const Surface* ps = faces[comp[root].front()]->surface;
+        const TopoDS_Face pf = buildMergedPlanarFace(ps, loops, curvedList);
+        if (pf.IsNull()) MERGE_BAIL("merged planar face build failed");
+        sew.Add(pf);
+        ++added;
+    }
+    if (added == 0) MERGE_BAIL("no faces added");
+
+    sew.Perform();
+    const TopoDS_Shape sewn = sew.SewedShape();
+    if (sewn.IsNull()) MERGE_BAIL("sew produced a null shape");
+    TopoDS_Shell shell;
+    if (sewn.ShapeType() == TopAbs_SHELL) {
+        shell = TopoDS::Shell(sewn);
+    } else {
+        TopExp_Explorer ex(sewn, TopAbs_SHELL);
+        if (ex.More()) shell = TopoDS::Shell(ex.Current());
+    }
+    if (shell.IsNull()) MERGE_BAIL("no shell after sew (faces did not stitch watertight)");
+
+    BRep_Builder bb;
+    TopoDS_Solid out;
+    bb.MakeSolid(out);
+    bb.Add(out, shell);
+    GProp_GProps vp;
+    BRepGProp::VolumeProperties(out, vp);
+    if (vp.Mass() < 0.0) out.Reverse();
+
+    GProp_GProps vp2;
+    BRepGProp::VolumeProperties(out, vp2);
+    const double vol = vp2.Mass();
+    const double ref = native::brep::massProperties(solid).volume;
+    if (!(vol > 1e-12)) MERGE_BAIL("rebuilt volume non-positive");
+    if (std::fabs(vol - ref) > 1e-6 * std::max(1.0, std::fabs(ref))) {
+        if (mergeDiagOn())
+            std::fprintf(stderr, "[bridge-merge] decline: volume %.6f != native %.6f\n", vol, ref);
+        return TopoDS_Shape();
+    }
+    return out;
+}
+
+#undef MERGE_BAIL
+
 }  // namespace
 
 // native analytic Solid -> OCCT TopoDS_Shape, built DIRECTLY via BRepBuilderAPI
@@ -995,6 +1543,19 @@ TopoDS_Shape occtFromNativeSolid(const Solid& solid) {
     {
         const TopoDS_Shape torusShape = occtTorusFromNativeSolid(solid);
         if (!torusShape.IsNull()) return torusShape;
+    }
+
+    // MERGED-STRIP ANALYTIC: a BOOLEAN-RESULT strip soup none of the dedicated
+    // reconstructors accepted (the corner-notch = box - corner cylinder: 6 planes
+    // shattered into ~74 triangles + a 32-strip PARTIAL cylinder wall). Group the
+    // strips into their logical analytic faces (signature + shared-edge, exactly like
+    // nativeFaceInventory) and rebuild ONE OCCT face each — so faceInventory / the
+    // exported STEP carry the exact clean faces {plane:6, cylinder:1} instead of the
+    // faceted shatter. Volume-cross-checked → decline to the faceted path on any
+    // mismatch (zero regression: every earlier path had its chance first).
+    {
+        const TopoDS_Shape merged = occtMergedAnalyticFromNativeSolid(solid);
+        if (!merged.IsNull()) return merged;
     }
 
     return occtFacetedFromNativeSolid(solid);
