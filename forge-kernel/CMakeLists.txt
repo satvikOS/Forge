@@ -188,9 +188,22 @@ set(OCCT_LIBS
 # A/B toggle (default ON = the drop). -DFORGE_GEOM_DROP_NATIVE=OFF rebuilds the OCCT
 # GeomConvert/GeomAPI_Project* fallback for an apples-to-apples baseline on the STEP
 # round-trip battery (proves the native routines match OCCT before removing TKGeomBase).
-option(FORGE_GEOM_DROP_NATIVE "use R1/R2 native geom routines (TKGeomBase drop); OFF=OCCT A/B baseline" ON)
+option(FORGE_GEOM_DROP_NATIVE "use R1/R2/R3 native geom routines; OFF=OCCT A/B baseline" ON)
 if(FORGE_NATIVE_BREP AND FORGE_GEOM_DROP_NATIVE)
-    add_compile_definitions(FORGE_NATIVE_PROJECTION=1 FORGE_NATIVE_NURBS_CONVERT=1)
+    # R1/R2 (TKGeomBase drop, landed) + R3-partial (TKGeomAlgo): GeomAPI::To2d/To3d
+    # (occtconv) and Law_Linear/Law_S (occtlaw/NativeLaw.cpp) are routed native and VERIFIED
+    # equivalent to OCCT (STEP round-trip A/B within tessellation tol; varfillet Law exact).
+    # Each call site keeps the OCCT symbol under #else for a -DFORGE_GEOM_DROP_NATIVE=OFF A/B.
+    #
+    # TKGeomAlgo is NOT yet droppable: the native GeomAPI_PointsToBSpline (occtconv::
+    # pointsToBSpline) fits a correct single curve (profileToFace area == OCCT) but returns a
+    # denser/different pole+knot representation than OCCT's smooth approximation, which
+    # BRepOffsetAPI_ThruSections then lofts BADLY — airfoil trapezoidalWing regressed 3.2x
+    # (5.11e6 vs OCCT 1.59e6 mm^3, analytic ~1.9e6). So the PointsToBSpline + GeomFill_NSections
+    # (loft-fit) call sites stay on OCCT until the native fit's loft-compatibility is fixed;
+    # they still reference TKGeomAlgo, so it remains in OCCT_LIBS. See the drop report.
+    add_compile_definitions(FORGE_NATIVE_PROJECTION=1 FORGE_NATIVE_NURBS_CONVERT=1
+                            FORGE_NATIVE_LAW=1)
 endif()
 # OCCT-zero progress (2026-07-21, K-PRIM): dropped TKPrim. 11 -> 10 OCCT dylibs.
 #   The canonical primitive SOLIDS (box/cylinder/cone/sphere/torus/wedge) were already
@@ -612,6 +625,7 @@ add_library(forge_kernel SHARED
     src/native/geom/Geom.cpp
     src/native/geom/NativeProjection.cpp   # R1 — native point->surface + point->curve-2d projection (Gauss-Newton; drops TKGeomAlgo GeomAPI_Project* + TKGeomBase Extrema)
     src/native/geom/NativeNurbsConvert.cpp # R2 — native analytic->NURBS + points->NURBS lsq fit (drops TKGeomBase GeomConvert + TKGeomAlgo PointsToBSpline)
+    src/native/geom/NativeLaw.cpp          # R3 — native 1-D evolution laws (Law_Linear/Law_S) for VarFillet — pure std, unguarded (drops TKGeomAlgo Law_*)
     src/native/geom/Delaunay.cpp
     src/native/gdt/Gdt.cpp
     src/native/mesh/HalfEdgeMesh.cpp

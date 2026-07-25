@@ -60,6 +60,7 @@
 #include <GeomAPI.hxx>        // To2d lives in TKGeomAlgo (already linked); TKG2d stays dropped
 #include <Geom2dAPI_ProjectPointOnCurve.hxx>   // TKGeomAlgo
 #include "forge/native/geom/NativeProjection.hpp"  // R1 native point→curve-2d (drops TKGeomBase Extrema)
+#include "forge/native/geom/NativeNurbsConvert.hpp"  // R3 native GeomAPI::To2d replacement (drops TKGeomAlgo)
 #include <ShapeAnalysis_Surface.hxx>           // TKShHealing
 #include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
@@ -870,7 +871,11 @@ Handle(Geom2d_Curve) buildCurve2d(const Resolver& R, std::uint64_t id,
     }
     if (c3.IsNull()) return Handle(Geom2d_Curve)();
     try {
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+        return forge::occtconv::to2d(c3, gp_Pln(gp_Ax3(gp::XOY())));   // R3 native (drops TKGeomAlgo GeomAPI::To2d)
+#else
         return GeomAPI::To2d(c3, gp_Pln(gp_Ax3(gp::XOY())));
+#endif
     } catch (const Standard_Failure&) {
         return Handle(Geom2d_Curve)();
     }

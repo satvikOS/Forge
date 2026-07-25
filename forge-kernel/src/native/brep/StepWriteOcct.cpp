@@ -424,7 +424,11 @@ std::uint64_t emitPcurve2d(Emit& E, const Handle(Geom2d_Curve)& c2,
     if (c2.IsNull()) return 0;
     Handle(Geom_Curve) c3;
     try {
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+        c3 = forge::occtconv::to3d(c2, gp_Pln(gp_Ax3(gp::XOY())));   // R3 native (drops TKGeomAlgo GeomAPI::To3d)
+#else
         c3 = GeomAPI::To3d(c2, gp_Pln(gp_Ax3(gp::XOY())));
+#endif
     } catch (const Standard_Failure&) {
         return 0;
     }
@@ -876,8 +880,13 @@ OcctStepWriteResult StepWriteOcct::write(const TopoDS_Shape& shape,
                         // failing on a wrong file pcurve. Never ship a pcurve
                         // the roundtrip would disprove.
                         try {
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+                            Handle(Geom_Curve) probe =
+                                forge::occtconv::to3d(c2, gp_Pln(gp_Ax3(gp::XOY())));   // R3 native
+#else
                             Handle(Geom_Curve) probe =
                                 GeomAPI::To3d(c2, gp_Pln(gp_Ax3(gp::XOY())));
+#endif
                             if (probe.IsNull()) return 0;
                             gp_Pnt q0 = probe->Value(f2), q1 = probe->Value(l2);
                             gp_Pnt s0 = fi.surf->Value(q0.X(), q0.Y());

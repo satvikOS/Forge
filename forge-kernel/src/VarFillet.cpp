@@ -14,9 +14,12 @@
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <TColgp_Array1OfPnt2d.hxx>
 #include <gp_Pnt2d.hxx>
+#include "forge/native/geom/NativeLaw.hpp"   // R3 native Law_Linear/Law_S (drops TKGeomAlgo Law_*)
+#if !defined(FORGE_NATIVE_LAW)
 #include <Law_Function.hxx>
 #include <Law_Linear.hxx>
 #include <Law_S.hxx>
+#endif
 #include <Precision.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
@@ -276,6 +279,18 @@ ShapeHandle fillet(ShapeHandle solid,
         // documented working path and is fed identical radii at every
         // sample, so geometry matches calling SetRadius(law) exactly.
         constexpr int N = 9;
+#if defined(FORGE_NATIVE_LAW)
+        // R3 native evolution law (drops TKGeomAlgo Law_Linear/Law_S). Same
+        // (u, r) samples fed to the Pnt2d-array Add overload as the OCCT path.
+        const forge::occtlaw::Law law = smooth
+            ? forge::occtlaw::Law::S(0.0, sp.radiusStart, 1.0, sp.radiusEnd)
+            : forge::occtlaw::Law::Linear(0.0, sp.radiusStart, 1.0, sp.radiusEnd);
+        TColgp_Array1OfPnt2d uvs(1, N);
+        for (int s = 0; s < N; ++s) {
+            const double u = static_cast<double>(s) / (N - 1);
+            uvs.SetValue(s + 1, gp_Pnt2d(u, law.Value(u)));
+        }
+#else
         Handle(Law_Function) law;
         if (smooth) {
             Handle(Law_S) lawS = new Law_S();
@@ -291,6 +306,7 @@ ShapeHandle fillet(ShapeHandle solid,
             const double u = static_cast<double>(s) / (N - 1);
             uvs.SetValue(s + 1, gp_Pnt2d(u, law->Value(u)));
         }
+#endif
         mk.Add(uvs, e);
     }
 
