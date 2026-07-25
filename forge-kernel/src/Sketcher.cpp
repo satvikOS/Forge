@@ -21,7 +21,6 @@
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_TrimmedCurve.hxx>
-#include <GC_MakeArcOfCircle.hxx>
 #include <GC_MakeCircle.hxx>
 #include <Precision.hxx>
 #include <TopoDS.hxx>
@@ -529,10 +528,11 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
         // MINOR-ARC NORMALISATION (fix #1). addArc stores start/end angles via
         // atan2 (each in (-pi, pi]), so a corner arc whose sweep straddles the
         // +/-pi branch cut (e.g. a centred rounded-rect's bottom-left corner:
-        // start at pi, end at -pi/2) gives a raw sweep of -3pi/2 and the midpoint
-        // below lands the GC_MakeArcOfCircle on the MAJOR arc — a concave bite
-        // into the profile instead of the convex rounded corner. Bring the sweep
-        // into (-pi, pi] so the SHORTER arc is always taken. Corner/fillet arcs
+        // start at pi, end at -pi/2) gives a raw sweep of -3pi/2, which would make
+        // the native trim below span the MAJOR arc — a concave bite into the profile
+        // instead of the convex rounded corner. Bring the sweep into (-pi, pi] so the
+        // SHORTER arc is always taken (the trim spans [min(sa,ea), max(sa,ea)], which
+        // is the short arc only while |ea - sa| <= pi). Corner/fillet arcs
         // are <= 90deg, so this is unambiguous; a true semicircle (sweep == pi)
         // is preserved unchanged.
         {
@@ -545,12 +545,28 @@ std::vector<TopoDS_Wire> extractWires(SketchHandle h) {
         if (r < Precision::Confusion() || std::abs(ea - sa) < 1e-9) {
             continue;
         }
-        const double ma = sa + 0.5 * (ea - sa);
-        gp_Pnt mp(center.X() + r * std::cos(ma),
-                  center.Y() + r * std::sin(ma), 0.0);
-        GC_MakeArcOfCircle mk(sp, mp, ep);
+        // NATIVE ARC (OCCT-zero: no GC_MakeArcOfCircle / TKGeomBase). addArc stores
+        // the exact circle for this arc: center, r = |start - center|, and start/end
+        // angles as atan2 about center. So `sp` lies exactly on Geom_Circle(center, r)
+        // at parameter sa, and the SHORTER arc to ep spans the normalised angular range
+        // [min(sa,ea), max(sa,ea)] (|ea - sa| <= pi, guaranteed above). Build the circle
+        // in the global XY frame (X dir = +X so param u -> center + r*(cos u, sin u),
+        // matching the stored atan2 angles), trim to that CCW span (which passes through
+        // the mid-angle, i.e. IS the short arc), and pin the edge vertices to the stored
+        // sp/ep so the stitcher's shared-vertex wire assembly stays exact.
+        gp_Ax2 arcFrame(center, gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+        Handle(Geom_Circle) arcCirc = new Geom_Circle(gp_Circ(arcFrame, r));
+        const double u1 = std::min(sa, ea);
+        const double u2 = std::max(sa, ea);
+        Handle(Geom_TrimmedCurve) arcCurve =
+            new Geom_TrimmedCurve(arcCirc, u1, u2, Standard_True);
+        // pa/pb are the stored endpoints at the (u1,u2) ends so the edge's parameter
+        // order increases (BRepBuilderAPI_MakeEdge requires param(pa) < param(pb)).
+        const gp_Pnt& pa = (sa <= ea) ? sp : ep;
+        const gp_Pnt& pb = (sa <= ea) ? ep : sp;
+        BRepBuilderAPI_MakeEdge mk(arcCurve, pa, pb);
         if (!mk.IsDone()) continue;
-        TopoDS_Edge e = BRepBuilderAPI_MakeEdge(mk.Value()).Edge();
+        TopoDS_Edge e = mk.Edge();
         segs.push_back({e, sp, ep});
     }
 
