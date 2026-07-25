@@ -15,8 +15,9 @@
 //      BRepLib::BuildCurves3d hoists them into 3D so we can use a
 //      BRepAdaptor_Curve to sample. The Z-coordinate after lift equals
 //      0 in the projector frame; X and Y are the screen coords.
-//   5. Discretise each edge with GCPnts_QuasiUniformDeflection at a
-//      tight tolerance so circles / NURBS render smoothly in SVG.
+//   5. Discretise each edge with the native curvature-adaptive sampler
+//      (forge::nativeQuasiUniformDeflectionParams) at a tight tolerance so
+//      circles / NURBS render smoothly in SVG.
 //
 // We don't invert Y here — the JS layer decides Y orientation when
 // composing a sheet (SVG conventionally has Y pointing down, but we
@@ -31,7 +32,7 @@
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
-#include <GCPnts_QuasiUniformDeflection.hxx>
+#include "forge/OcctCurveSampling.hpp"  // K6: native GCPnts_QuasiUniformDeflection replacement
 // TKHLR DROPPED (otool 14->13): the OCCT hidden-line-removal headers
 // (HLRBRep_Algo / HLRBRep_HLRToShape / HLRAlgo_Projector) are GONE. Every
 // orthographic HLR call site below now runs the native analytic HLR
@@ -245,8 +246,11 @@ Polyline2D discretiseEdge(const TopoDS_Edge& edge, double deflection) {
     if (edge.IsNull()) return out;
 
     BRepAdaptor_Curve adaptor(edge);
-    GCPnts_QuasiUniformDeflection sampler(adaptor, deflection);
-    if (!sampler.IsDone() || sampler.NbPoints() < 2) {
+    // K6 (TKGeomBase drop): native curvature-adaptive sampler replaces
+    // GCPnts_QuasiUniformDeflection(adaptor, deflection).
+    std::vector<double> ps;
+    forge::nativeQuasiUniformDeflectionParams(adaptor, deflection, ps);
+    if (ps.size() < 2) {
         // Fallback: two endpoints only.
         try {
             gp_Pnt a = adaptor.Value(adaptor.FirstParameter());
@@ -259,9 +263,9 @@ Polyline2D discretiseEdge(const TopoDS_Edge& edge, double deflection) {
         return out;
     }
 
-    out.reserve(sampler.NbPoints());
-    for (int i = 1; i <= sampler.NbPoints(); ++i) {
-        gp_Pnt p = sampler.Value(i);
+    out.reserve(ps.size());
+    for (double t : ps) {
+        gp_Pnt p = adaptor.Value(t);
         out.emplace_back(p.X(), p.Y());
     }
     return out;
@@ -814,11 +818,14 @@ ProjectedView projectShapeSection(ShapeHandle h,
                 if (e.IsNull()) continue;
                 try {
                     BRepAdaptor_Curve adaptor(e);
-                    GCPnts_QuasiUniformDeflection sampler(adaptor, 0.1);
+                    // K6 (TKGeomBase drop): native replacement for
+                    // GCPnts_QuasiUniformDeflection(adaptor, 0.1).
+                    std::vector<double> ps;
+                    forge::nativeQuasiUniformDeflectionParams(adaptor, 0.1, ps);
                     Polyline2D pl;
-                    if (sampler.IsDone() && sampler.NbPoints() >= 2) {
-                        for (int i = 1; i <= sampler.NbPoints(); ++i) {
-                            gp_Pnt p = sampler.Value(i);
+                    if (ps.size() >= 2) {
+                        for (double t : ps) {
+                            gp_Pnt p = adaptor.Value(t);
                             double sx, sy;
                             worldToScreen(ax, p, sx, sy);
                             pl.emplace_back(sx, sy);
@@ -1164,7 +1171,10 @@ SectionView sectionView(const TopoDS_Shape& shape, gp_Pln cuttingPlane) {
                 if (e.IsNull()) continue;
                 try {
                     BRepAdaptor_Curve adaptor(e);
-                    GCPnts_QuasiUniformDeflection sampler(adaptor, 0.1);
+                    // K6 (TKGeomBase drop): native replacement for
+                    // GCPnts_QuasiUniformDeflection(adaptor, 0.1).
+                    std::vector<double> ps;
+                    forge::nativeQuasiUniformDeflectionParams(adaptor, 0.1, ps);
                     Polyline pl;
                     auto push = [&](const gp_Pnt& p) {
                         const double dx = p.X() - origin.X();
@@ -1174,10 +1184,10 @@ SectionView sectionView(const TopoDS_Shape& shape, gp_Pln cuttingPlane) {
                         const double sy = dx * yd.X() + dy * yd.Y() + dz * yd.Z();
                         pl.emplace_back(sx, sy);
                     };
-                    if (sampler.IsDone() && sampler.NbPoints() >= 2) {
-                        pl.reserve(sampler.NbPoints());
-                        for (int i = 1; i <= sampler.NbPoints(); ++i) {
-                            push(sampler.Value(i));
+                    if (ps.size() >= 2) {
+                        pl.reserve(ps.size());
+                        for (double t : ps) {
+                            push(adaptor.Value(t));
                         }
                     } else {
                         push(adaptor.Value(adaptor.FirstParameter()));

@@ -49,7 +49,7 @@
 #include <BRepGProp.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
-#include <GCPnts_QuasiUniformDeflection.hxx>
+#include "forge/OcctCurveSampling.hpp"  // K6: native GCPnts_QuasiUniformDeflection replacement
 #include <GProp_GProps.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
@@ -156,14 +156,17 @@ sampleWireXY(const TopoDS_Wire& wire, double deflection) {
         TopoDS_Edge e = ex.Current();
         try {
             BRepAdaptor_Curve adaptor(e);
-            GCPnts_QuasiUniformDeflection sampler(adaptor, deflection);
-            if (!sampler.IsDone() || sampler.NbPoints() < 2) continue;
+            // K6 (TKGeomBase drop): native replacement for
+            // GCPnts_QuasiUniformDeflection(adaptor, deflection).
+            std::vector<double> ps;
+            forge::nativeQuasiUniformDeflectionParams(adaptor, deflection, ps);
+            if (ps.size() < 2) continue;
 
             const bool reversed = (e.Orientation() == TopAbs_REVERSED);
-            const int n = sampler.NbPoints();
+            const int n = static_cast<int>(ps.size());
             for (int i = 1; i <= n; ++i) {
                 const int idx = reversed ? (n - i + 1) : i;
-                gp_Pnt p = sampler.Value(idx);
+                gp_Pnt p = adaptor.Value(ps[idx - 1]);
                 if (!out.empty()) {
                     auto& back = out.back();
                     if (std::abs(back[0] - p.X()) < kEps &&
