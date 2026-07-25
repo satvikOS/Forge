@@ -809,6 +809,11 @@ add_library(forge_kernel SHARED
     src/native/viz/FieldViz.cpp         # #65 — CAE field-visualization: warp-by-vector + viridis colormap + isosurface (reuses implicit::IsoMesher) + RK4 streamline
     # Wave-0 — PlaneGCS constraint diagnostics (sketcher-constraints.md Phase A)
     src/binding_sketchdiag.cpp
+    # Declarative feature-tree IR — the emission target Archie is trained to
+    # produce (a compact typed op-list), + the C++ compiler that walks it into
+    # native forge-kernel calls -> real 3D CAD -> STEP. Replaces scope-plan-JSON.
+    src/ft/FeatureTreeCompiler.cpp   # parser (text->FeatureTree) + compiler (->native kernel)
+    src/ft/binding_ft.cpp            # N-API surface forge.ft.compile(irText[, outStep])
     # KEYSTONE K7 — Parasolid-style opaque-handle C-API black box wrapping the
     # native brep/mesh/csg kernel (include/forge/capi/forge_capi.h). Strict
     # extern "C"; no C++ types cross the boundary. Verify batch also compiles

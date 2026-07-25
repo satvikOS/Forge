@@ -6188,6 +6188,7 @@ namespace forge { namespace bind {
 void InitGeom(Napi::Env, Napi::Object);
 void InitField(Napi::Env, Napi::Object);
 void InitSketchdiag(Napi::Env, Napi::Object);
+void InitFt(Napi::Env, Napi::Object);   // declarative feature-tree IR compiler (forge.ft.*)
 } }  // namespace forge::bind
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
@@ -17844,6 +17845,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     forge::bind::InitGeom(env, exports);
     forge::bind::InitField(env, exports);
     forge::bind::InitSketchdiag(env, exports);
+    forge::bind::InitFt(env, exports);
 
     return exports;
 }
