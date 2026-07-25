@@ -11,7 +11,9 @@
 
 #include "forge/VarFillet.hpp"
 
-#include <BRepFilletAPI_MakeFillet.hxx>
+#ifndef FORGE_FILLET_DROP_NATIVE
+#include <BRepFilletAPI_MakeFillet.hxx>   // OCCT A/B baseline only; compiled out under the drop
+#endif
 #include <TColgp_Array1OfPnt2d.hxx>
 #include <gp_Pnt2d.hxx>
 #include "forge/native/geom/NativeLaw.hpp"   // R3 native Law_Linear/Law_S (drops TKGeomAlgo Law_*)
@@ -253,31 +255,52 @@ ShapeHandle fillet(ShapeHandle solid,
     // fallback below uses (edgeById). A non-linear/smooth (Law_S) law, a curved/concave
     // edge, or an unresolvable edge makes makeVariableFillet DEFER (ok==false) and we
     // fall through to the OCCT BRepFilletAPI path below unchanged. GATE DEFAULT OFF.
-    if (native::brep::forgeNativeFeaturesEnabled()) {
-        std::vector<forge::occtfillet::VariableFilletSpec> nspecs;
-        nspecs.reserve(specs.size());
-        bool built = true;
-        for (const auto& sp : specs) {
-            if (!(sp.radiusStart > Precision::Confusion()) ||
-                !(sp.radiusEnd   > Precision::Confusion())) { built = false; break; }
-            forge::occtfillet::VariableFilletSpec vs;
-            try { vs.edge = edgeById(src, sp.edgeIndex); }
-            catch (...) { built = false; break; }
-            vs.law = smooth
-                ? forge::occtlaw::Law::S(0.0, sp.radiusStart, 1.0, sp.radiusEnd)
-                : forge::occtlaw::Law::Linear(0.0, sp.radiusStart, 1.0, sp.radiusEnd);
-            nspecs.push_back(std::move(vs));
-        }
-        if (built && !nspecs.empty()) {
-            forge::occtfillet::Result nr =
-                forge::occtfillet::makeVariableFillet(src, nspecs);
-            if (nr.ok && !nr.shape.IsNull())
-                return ShapeRegistry::instance().add(nr.shape);
-            // native deferred (non-linear law / curved / concave) -> OCCT path below.
+    // Under the TKFillet DROP the native occtfillet variable-fillet is the ONLY path (no
+    // BRepFilletAPI_MakeFillet compiled) — attempt unconditionally and REFUSE on decline.
+    // A/B baseline keeps it FEAT-gated and falls through to the OCCT Pnt2d-array path.
+    {
+#ifdef FORGE_FILLET_DROP_NATIVE
+        const bool tryNativeVarFil = true;
+#else
+        const bool tryNativeVarFil = native::brep::forgeNativeFeaturesEnabled();
+#endif
+        if (tryNativeVarFil) {
+            std::vector<forge::occtfillet::VariableFilletSpec> nspecs;
+            nspecs.reserve(specs.size());
+            bool built = true;
+            std::string declineReason =
+                "radii must be > Precision::Confusion, or an edge index is out of range";
+            for (const auto& sp : specs) {
+                if (!(sp.radiusStart > Precision::Confusion()) ||
+                    !(sp.radiusEnd   > Precision::Confusion())) { built = false; break; }
+                forge::occtfillet::VariableFilletSpec vs;
+                try { vs.edge = edgeById(src, sp.edgeIndex); }
+                catch (...) { built = false; break; }
+                vs.law = smooth
+                    ? forge::occtlaw::Law::S(0.0, sp.radiusStart, 1.0, sp.radiusEnd)
+                    : forge::occtlaw::Law::Linear(0.0, sp.radiusStart, 1.0, sp.radiusEnd);
+                nspecs.push_back(std::move(vs));
+            }
+            if (built && !nspecs.empty()) {
+                forge::occtfillet::Result nr =
+                    forge::occtfillet::makeVariableFillet(src, nspecs);
+                if (nr.ok && !nr.shape.IsNull())
+                    return ShapeRegistry::instance().add(nr.shape);
+                declineReason = nr.reason;
+                // native deferred (S/non-linear law / curved / concave) -> OCCT baseline.
+            }
+#ifdef FORGE_FILLET_DROP_NATIVE
+            throw std::runtime_error(
+                "forge.varfillet.fillet: native (TKFillet-free) variable fillet covers only a "
+                "convex straight planar-planar edge under a LINEAR radius law; this request "
+                "(smooth/S-law, curved, concave, or multi-edge corner) is out of native scope "
+                "and TKFillet is dropped (no OCCT fallback) — refused. reason: " + declineReason);
+#endif
         }
     }
-#endif
+#endif  // FORGE_NATIVE_BREP
 
+#ifndef FORGE_FILLET_DROP_NATIVE
     BRepFilletAPI_MakeFillet mk(src);
 
     // For each edge spec, drive BRepFilletAPI_MakeFillet through its
@@ -353,6 +376,12 @@ ShapeHandle fillet(ShapeHandle solid,
             "forge.varfillet.fillet: BRepFilletAPI_MakeFillet failed to build");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    // TKFillet DROPPED: the native block above always returns or throws under the drop;
+    // keeps the non-void function well-formed with the OCCT MakeFillet path compiled out.
+    throw std::runtime_error(
+        "forge.varfillet.fillet: native variable-fillet path exhausted (TKFillet dropped)");
+#endif  // FORGE_FILLET_DROP_NATIVE
 }
 
 }  // namespace forge::varfillet

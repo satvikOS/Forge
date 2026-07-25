@@ -162,8 +162,32 @@ set(OCCT_LIBS
     TKernel TKMath
     TKG3d
     TKBRep TKTopAlgo TKShHealing
-    TKFillet TKOffset
+    TKOffset
 )
+# ── TKFillet DROP (authored 2026-07-25; DEFAULT OFF — NOT gate-passing yet) ────────
+# FORGE_FILLET_DROP_NATIVE routes forge::part::{filletEdges,chamferEdges,variableFilletEdge}
+# + forge::varfillet::fillet through the TKFillet-free native occtfillet::make{Fillet,Chamfer,
+# VariableFillet} (src/native/brep/NativeFilletChamfer.cpp + NativeVariableFillet.cpp) and
+# COMPILES OUT the OCCT BRepFilletAPI fallback (each call site: native-or-throw under the
+# macro, OCCT baseline under #else). ON removes TKFillet from the link list; OFF keeps it so
+# the OCCT A/B baseline still links.
+#   DEFAULT OFF — the native routines cover ONLY a convex STRAIGHT edge between two
+#   AS-YET-UNFILLETED PLANAR faces (single / non-adjacent). Severing the fallback therefore
+#   (a) throws on curved / concave / S-law fillets on OCCT-backed shapes, AND (b) reds the
+#   core.mjs drop gate itself: its 'fillet ALL box edges' / 'fillet 4 VERTICAL box edges' /
+#   'chamfer ALL box edges' cases fillet MULTIPLE ADJACENT box edges, and occtfillet DEFERS
+#   the moment a shared face carries a prior fillet/chamfer arc (non-straight boundary) →
+#   the OCCT-reference side (setNativeBrep(false)) would throw → FAIL. Flip ON only after a
+#   general MULTI-EDGE / curved native fillet (corner ball-blend + arced-face retrim) lands.
+option(FORGE_FILLET_DROP_NATIVE
+       "route fillet/chamfer native & DROP TKFillet (needs general multi-edge/curved native fillet first)"
+       OFF)
+if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
+    add_compile_definitions(FORGE_FILLET_DROP_NATIVE=1)
+    message(STATUS "FORGE_FILLET_DROP_NATIVE=ON — TKFillet dropped; BRepFilletAPI fallback compiled out")
+else()
+    list(APPEND OCCT_LIBS TKFillet)   # OCCT BRepFilletAPI baseline still linked (default)
+endif()
 # OCCT-zero progress (2026-07-25, R1+R2 → TKGeomBase): DROPPED TKGeomBase. 10 -> 9 OCCT dylibs.
 #   (TKGeomBase still loads transitively — TKBRep/TKG3d/TKGeomAlgo DT_NEED it — but the .node
 #   no longer LINKS it directly.)

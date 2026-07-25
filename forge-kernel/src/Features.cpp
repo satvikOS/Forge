@@ -27,6 +27,7 @@
 #include "forge/native/brep/Chamfer.hpp"
 #include "forge/native/brep/ChamferAnalytic.hpp"  // analytic flat-bevel chamfer + canonical-cube recognition
 #include "forge/native/brep/NativeFilletChamfer.hpp"  // R3 TKFillet-free const-radius fillet/chamfer on an ARBITRARY OCCT shape (occtfillet::makeFillet/makeChamfer)
+#include "forge/native/brep/NativeVariableFillet.hpp"  // R3-V TKFillet-free VARIABLE-radius (linear-law) fillet on an ARBITRARY OCCT shape (occtfillet::makeVariableFillet)
 #include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
 #include "forge/native/brep/DraftAnalytic.hpp"    // analytic face-draft -> square frustum (B-rep)
 #include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
@@ -61,8 +62,13 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
+#ifndef FORGE_FILLET_DROP_NATIVE
+// TKFillet headers — referenced ONLY by the OCCT A/B baseline path, which is compiled
+// out under -DFORGE_FILLET_DROP_NATIVE (the drop build). Guarding the includes keeps the
+// drop build from pulling any BRepFilletAPI/ChFi3d declaration into the TU.
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
+#endif
 #include <BRepOffsetAPI_DraftAngle.hxx>
 #include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
@@ -1264,27 +1270,52 @@ ShapeHandle filletEdges(ShapeHandle shape,
     // ok==false and we FALL THROUGH to the OCCT BRepFilletAPI path below unchanged.
     // GATE DEFAULT OFF (forgeNativeFeaturesEnabled()): the production build is byte-
     // for-byte the OCCT path until the FEAT gate is flipped on.
-    if (native::brep::forgeNativeFeaturesEnabled()) {
-        std::vector<::forge::occtfillet::FilletSpec> nspecs;
-        nspecs.reserve(edgeIds.size());
-        bool built = true;
-        std::unordered_set<std::uint32_t> nseen;
-        for (std::uint32_t id : edgeIds) {
-            if (!nseen.insert(id).second) continue;   // dedup, like the analytic path
-            ::forge::occtfillet::FilletSpec fs;
-            try { fs.edge = edgeById(src, id); }
-            catch (...) { built = false; break; }     // out-of-range id -> defer to OCCT
-            fs.radius = radius;
-            nspecs.push_back(fs);
-        }
-        if (built && !nspecs.empty()) {
-            ::forge::occtfillet::Result nr = ::forge::occtfillet::makeFillet(src, nspecs);
-            if (nr.ok && !nr.shape.IsNull())
-                return ShapeRegistry::instance().add(nr.shape);
-            // native deferred (ok==false) -> OCCT BRepFilletAPI path below unchanged.
+    // Under the TKFillet DROP (FORGE_FILLET_DROP_NATIVE) the native occtfillet path is the
+    // ONLY fillet backend (no BRepFilletAPI compiled), so attempt it UNCONDITIONALLY and, on
+    // an out-of-native-scope decline, REFUSE (throw) — there is no OCCT fallback. In the A/B
+    // baseline it stays FEAT-gated and falls through to the OCCT path on decline (unchanged).
+    {
+#ifdef FORGE_FILLET_DROP_NATIVE
+        const bool tryNativeFillet = true;
+#else
+        const bool tryNativeFillet = native::brep::forgeNativeFeaturesEnabled();
+#endif
+        if (tryNativeFillet) {
+            std::vector<::forge::occtfillet::FilletSpec> nspecs;
+            nspecs.reserve(edgeIds.size());
+            bool built = true;
+            std::unordered_set<std::uint32_t> nseen;
+            for (std::uint32_t id : edgeIds) {
+                if (!nseen.insert(id).second) continue;   // dedup, like the analytic path
+                ::forge::occtfillet::FilletSpec fs;
+                try { fs.edge = edgeById(src, id); }
+                catch (...) { built = false; break; }     // out-of-range id
+                fs.radius = radius;
+                nspecs.push_back(fs);
+            }
+            std::string declineReason = built ? "no unique edges to fillet"
+                                              : "an edge id is out of range";
+            if (built && !nspecs.empty()) {
+                ::forge::occtfillet::Result nr = ::forge::occtfillet::makeFillet(src, nspecs);
+                if (nr.ok && !nr.shape.IsNull())
+                    return ShapeRegistry::instance().add(nr.shape);
+                declineReason = nr.reason;
+                // native deferred (ok==false) -> OCCT BRepFilletAPI baseline (if compiled).
+            }
+#ifdef FORGE_FILLET_DROP_NATIVE
+            // TKFillet DROPPED — no OCCT fallback. Out-of-native-scope (curved / concave /
+            // a face already carrying a prior fillet arc / dense-faceted / unresolved id) is
+            // an HONEST feature refusal, not a silent OCCT round.
+            throw std::runtime_error(
+                "forge.part.filletEdges: native (TKFillet-free) fillet covers only a convex "
+                "straight edge between two as-yet-unfilleted planar faces; this request is out "
+                "of native scope and TKFillet is dropped (no OCCT fallback) — refused. reason: "
+                + declineReason);
+#endif
         }
     }
-#endif
+#endif  // FORGE_NATIVE_BREP
+#ifndef FORGE_FILLET_DROP_NATIVE
     // ───────────────── PRE-DETECT: dense/faceted body fillet guard ────────────
     // ROOT CAUSE of the dense-bolt-circle+fillet stall (measured 2026-06-28):
     // a NativeSolid boolean result — e.g. a bolt-circle plate (140×130×16 box −
@@ -1388,6 +1419,12 @@ ShapeHandle filletEdges(ShapeHandle shape,
     }
     worker.join();
     return ShapeRegistry::instance().add(fut.get());   // rethrows any worker error
+#else
+    // TKFillet DROPPED: the native block above always returns or throws; this keeps the
+    // non-void function well-formed with the entire OCCT BRepFilletAPI path compiled out.
+    throw std::runtime_error(
+        "forge.part.filletEdges: native fillet path exhausted (TKFillet dropped)");
+#endif  // FORGE_FILLET_DROP_NATIVE
 }
 
 // ============================================================ variableFilletEdge
@@ -1443,6 +1480,53 @@ ShapeHandle variableFilletEdge(ShapeHandle shape, std::uint32_t edgeId,
     }
 #endif
     const auto& src = fetch(shape);
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKFillet-free) VARIABLE-radius fillet on an ARBITRARY OCCT shape via the
+    // exact rational-NURBS variable-arc blend (occtfillet::makeVariableFillet): a CONVEX
+    // straight edge between two PLANAR faces under a LINEAR radius law. Under the TKFillet
+    // DROP this is the ONLY path (no BRepFilletAPI_MakeFillet compiled) and REFUSES on
+    // decline; the A/B baseline keeps it FEAT-gated and falls through to the OCCT
+    // Pnt2d-array path on any decline (non-linear anchors, curved/concave edge, ...).
+    {
+#ifdef FORGE_FILLET_DROP_NATIVE
+        const bool tryNativeVarFil = true;
+#else
+        // This site had NO native occtfillet attempt before the drop, so keep it OFF in
+        // the baseline (unlike the const fillet/chamfer siblings, whose native attempt was
+        // already FEAT-gated) — guarantees byte-for-byte baseline + A/B behavior.
+        const bool tryNativeVarFil = false;
+#endif
+        if (tryNativeVarFil) {
+            std::string declineReason = "variable-fillet anchors are not a linear law "
+                "(the native TKFillet-free variable blend is linear-law only)";
+            double R0 = 0.0, R1 = 0.0;
+            if (anchorsAreLinearLaw(anchors, R0, R1)) {
+                TopoDS_Edge ne; bool haveEdge = true;
+                try { ne = edgeById(src, edgeId); } catch (...) { haveEdge = false; }
+                if (!haveEdge) {
+                    declineReason = "edge id out of range";
+                } else {
+                    ::forge::occtfillet::VariableFilletSpec vs;
+                    vs.edge = ne;
+                    vs.law  = ::forge::occtlaw::Law::Linear(0.0, R0, 1.0, R1);
+                    ::forge::occtfillet::Result nr =
+                        ::forge::occtfillet::makeVariableFillet(src, {vs});
+                    if (nr.ok && !nr.shape.IsNull())
+                        return ShapeRegistry::instance().add(nr.shape);
+                    declineReason = nr.reason;
+                }
+            }
+#ifdef FORGE_FILLET_DROP_NATIVE
+            throw std::runtime_error(
+                "forge.part.variableFilletEdge: native (TKFillet-free) variable fillet covers "
+                "only a convex straight planar-planar edge under a LINEAR radius law; this "
+                "request is out of native scope and TKFillet is dropped (no OCCT fallback) — "
+                "refused. reason: " + declineReason);
+#endif
+        }
+    }
+#endif  // FORGE_NATIVE_BREP
+#ifndef FORGE_FILLET_DROP_NATIVE
     BRepFilletAPI_MakeFillet mk(src);
     TopoDS_Edge e = edgeById(src, edgeId);
 
@@ -1460,6 +1544,12 @@ ShapeHandle variableFilletEdge(ShapeHandle shape, std::uint32_t edgeId,
             "forge.part.variableFilletEdge: fillet build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    // TKFillet DROPPED: the native block above always returns or throws; keeps the
+    // non-void function well-formed with the OCCT Pnt2d-array MakeFillet path gone.
+    throw std::runtime_error(
+        "forge.part.variableFilletEdge: native variable-fillet path exhausted (TKFillet dropped)");
+#endif  // FORGE_FILLET_DROP_NATIVE
 }
 
 // ============================================================ chamferEdges
@@ -1583,37 +1673,58 @@ ShapeHandle chamferEdges(ShapeHandle shape,
     // TopExp face touching the edge), so the native distance->face assignment matches
     // OCCT. ANY out-of-scope edge DEFERS (ok==false) to the OCCT path below unchanged.
     // GATE DEFAULT OFF.
-    if (native::brep::forgeNativeFeaturesEnabled()) {
-        std::vector<::forge::occtfillet::ChamferSpec> nspecs;
-        nspecs.reserve(edgeIds.size());
-        bool built = true;
-        std::unordered_set<std::uint32_t> nseen;
-        for (std::uint32_t id : edgeIds) {
-            if (!nseen.insert(id).second) continue;
-            ::forge::occtfillet::ChamferSpec cs;
-            try { cs.edge = edgeById(src, id); }
-            catch (...) { built = false; break; }
-            cs.dist  = distance;
-            cs.dist2 = asymmetric ? distance2 : 0.0;   // <=0 => symmetric
-            if (asymmetric) {
-                for (TopExp_Explorer fe(src, TopAbs_FACE); fe.More(); fe.Next()) {
-                    bool found = false;
-                    for (TopExp_Explorer ee(fe.Current(), TopAbs_EDGE); ee.More(); ee.Next()) {
-                        if (ee.Current().IsSame(cs.edge)) { found = true; break; }
+    // Under the TKFillet DROP the native occtfillet chamfer is the ONLY path (no
+    // BRepFilletAPI_MakeChamfer compiled) — attempt unconditionally and REFUSE on decline.
+    // A/B baseline keeps it FEAT-gated and falls through to OCCT on decline (unchanged).
+    {
+#ifdef FORGE_FILLET_DROP_NATIVE
+        const bool tryNativeChamfer = true;
+#else
+        const bool tryNativeChamfer = native::brep::forgeNativeFeaturesEnabled();
+#endif
+        if (tryNativeChamfer) {
+            std::vector<::forge::occtfillet::ChamferSpec> nspecs;
+            nspecs.reserve(edgeIds.size());
+            bool built = true;
+            std::unordered_set<std::uint32_t> nseen;
+            for (std::uint32_t id : edgeIds) {
+                if (!nseen.insert(id).second) continue;
+                ::forge::occtfillet::ChamferSpec cs;
+                try { cs.edge = edgeById(src, id); }
+                catch (...) { built = false; break; }
+                cs.dist  = distance;
+                cs.dist2 = asymmetric ? distance2 : 0.0;   // <=0 => symmetric
+                if (asymmetric) {
+                    for (TopExp_Explorer fe(src, TopAbs_FACE); fe.More(); fe.Next()) {
+                        bool found = false;
+                        for (TopExp_Explorer ee(fe.Current(), TopAbs_EDGE); ee.More(); ee.Next()) {
+                            if (ee.Current().IsSame(cs.edge)) { found = true; break; }
+                        }
+                        if (found) { cs.contact = TopoDS::Face(fe.Current()); break; }
                     }
-                    if (found) { cs.contact = TopoDS::Face(fe.Current()); break; }
                 }
+                nspecs.push_back(cs);
             }
-            nspecs.push_back(cs);
-        }
-        if (built && !nspecs.empty()) {
-            ::forge::occtfillet::Result nr = ::forge::occtfillet::makeChamfer(src, nspecs);
-            if (nr.ok && !nr.shape.IsNull())
-                return ShapeRegistry::instance().add(nr.shape);
-            // native deferred -> OCCT BRepFilletAPI_MakeChamfer path below unchanged.
+            std::string declineReason = built ? "no unique edges to chamfer"
+                                              : "an edge id is out of range";
+            if (built && !nspecs.empty()) {
+                ::forge::occtfillet::Result nr = ::forge::occtfillet::makeChamfer(src, nspecs);
+                if (nr.ok && !nr.shape.IsNull())
+                    return ShapeRegistry::instance().add(nr.shape);
+                declineReason = nr.reason;
+                // native deferred -> OCCT BRepFilletAPI_MakeChamfer baseline (if compiled).
+            }
+#ifdef FORGE_FILLET_DROP_NATIVE
+            throw std::runtime_error(
+                "forge.part.chamferEdges: native (TKFillet-free) chamfer covers only a convex "
+                "straight edge between two as-yet-beveled planar faces; this request is out of "
+                "native scope and TKFillet is dropped (no OCCT fallback) — refused. reason: "
+                + declineReason);
+#endif
         }
     }
-#endif
+#endif  // FORGE_NATIVE_BREP
+#ifndef FORGE_FILLET_DROP_NATIVE
     // PRE-DETECT: same dense/faceted-body guard as filletEdges — OCCT
     // BRepFilletAPI_MakeChamfer crashes/hangs on the thousands-of-edge faceted
     // bridge of a many-hole NativeSolid boolean result (the app's chamferAllEdges
@@ -1661,6 +1772,12 @@ ShapeHandle chamferEdges(ShapeHandle shape,
         throw std::runtime_error("forge.part.chamferEdges: chamfer build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    // TKFillet DROPPED: the native block above always returns or throws; keeps the
+    // non-void function well-formed with the OCCT BRepFilletAPI_MakeChamfer path gone.
+    throw std::runtime_error(
+        "forge.part.chamferEdges: native chamfer path exhausted (TKFillet dropped)");
+#endif  // FORGE_FILLET_DROP_NATIVE
 }
 
 // ============================================================ draftFaces
