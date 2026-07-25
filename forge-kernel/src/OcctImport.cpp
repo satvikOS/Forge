@@ -42,7 +42,6 @@
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_FindPlane.hxx>
-#include <GCPnts_UniformAbscissa.hxx>
 #include <GeomAbs_CurveType.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Curve.hxx>
@@ -74,6 +73,7 @@
 #include <gp_Sphere.hxx>
 #include <gp_Torus.hxx>
 #include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Ax3.hxx>
 
@@ -1480,12 +1480,85 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
 // ===========================================================================
 namespace {
 
+// Native arc-length uniform sampler over an adaptor curve on [f, l] — the drop-in
+// replacement for GCPnts_UniformAbscissa (a TKGeomBase symbol). Fills `params` with
+// `nPts` parameters ordered f -> l whose 3-D points are equally spaced by ARC LENGTH
+// (params.front()==f, params.back()==l). Method: (1) build a fine cumulative
+// arc-length table by composite Simpson integration of the curve speed |C'(t)|
+// (adaptor D1, TKG3d — not TKGeomBase); (2) for each target abscissa s_k = k*L/N,
+// bracket it in the table and refine the parameter by Newton on
+// g(t)=arclen(f,t)-s_k with g'(t)=|C'(t)|, clamped to the bracket. Returns false if
+// the curve has ~zero length (caller then falls back to uniform-parameter sampling).
+bool nativeUniformAbscissaParams(BRepAdaptor_Curve& ad, int nPts,
+                                 double f, double l,
+                                 std::vector<double>& params) {
+    params.clear();
+    if (nPts < 2) return false;
+    const int N = nPts - 1;                    // sub-intervals between sample points
+    auto speed = [&](double t) -> double {
+        gp_Pnt P;
+        gp_Vec V;
+        ad.D1(t, P, V);
+        return V.Magnitude();
+    };
+    // Fine cumulative arc-length table in the parameter direction f -> l.
+    const int M = std::max(N * 16, 256);
+    std::vector<double> tt(M + 1), ss(M + 1);
+    const double h = (l - f) / M;
+    tt[0] = f;
+    ss[0] = 0.0;
+    double sPrev = speed(f);
+    for (int i = 1; i <= M; ++i) {
+        const double t0 = f + h * (i - 1);
+        const double t1 = f + h * i;
+        const double tm = 0.5 * (t0 + t1);
+        const double sm = speed(tm), s1 = speed(t1);
+        const double seg = std::fabs(h) / 6.0 * (sPrev + 4.0 * sm + s1);  // Simpson
+        tt[i] = t1;
+        ss[i] = ss[i - 1] + seg;
+        sPrev = s1;
+    }
+    const double L = ss[M];
+    if (!(L > 0.0)) return false;
+    params.assign(nPts, f);
+    params[N] = l;                             // exact endpoints
+    const double hsgn = (h >= 0.0) ? 1.0 : -1.0;
+    const double eps = std::fabs(l - f) * 1e-12;
+    int j = 0;
+    for (int k = 1; k < N; ++k) {
+        const double sk = L * (double)k / N;
+        while (j < M && ss[j + 1] < sk) ++j;   // advance monotone bracket
+        const double segLen = ss[j + 1] - ss[j];
+        double t = (segLen > 0.0)
+                     ? tt[j] + (tt[j + 1] - tt[j]) * (sk - ss[j]) / segLen
+                     : tt[j];
+        const double lo = std::min(tt[j], tt[j + 1]);
+        const double hi = std::max(tt[j], tt[j + 1]);
+        for (int it = 0; it < 12; ++it) {
+            const double tm2 = 0.5 * (tt[j] + t);
+            const double localLen = std::fabs(t - tt[j]) / 6.0 *
+                (speed(tt[j]) + 4.0 * speed(tm2) + speed(t));
+            const double g = (ss[j] + localLen) - sk;
+            const double gp = speed(t);        // |C'(t)|
+            if (gp < 1e-30) break;
+            double tn = t - g / gp * hsgn;     // Newton step in param space
+            if (tn < lo) tn = lo;
+            if (tn > hi) tn = hi;
+            const bool converged = std::fabs(tn - t) < eps;
+            t = tn;
+            if (converged) break;
+        }
+        params[k] = t;
+    }
+    return true;
+}
+
 // Discretise ONE oriented wire edge into ordered 3-D points, in the wire's
 // traversal sense. A line edge contributes its two endpoints; a curved edge is
-// sampled by GCPnts_UniformAbscissa (uniform arc length) into kProfileEdgeSamples
-// points. The edge's END vertex is NOT appended here — the wire explorer's next
-// edge contributes it (so the ring has no duplicated shared vertex). Returns false
-// only if the edge's 3-D curve cannot be read.
+// sampled by nativeUniformAbscissaParams (uniform arc length) into
+// kProfileEdgeSamples points. The edge's END vertex is NOT appended here — the wire
+// explorer's next edge contributes it (so the ring has no duplicated shared vertex).
+// Returns false only if the edge's 3-D curve cannot be read.
 bool sampleEdge3D(const TopoDS_Edge& e, bool reversed, std::vector<Vec3>& out) {
     BRepAdaptor_Curve ad(e);
     Standard_Real f = ad.FirstParameter(), l = ad.LastParameter();
@@ -1501,15 +1574,16 @@ bool sampleEdge3D(const TopoDS_Edge& e, bool reversed, std::vector<Vec3>& out) {
         emit(reversed ? l : f);
         return true;
     }
-    // curved edge — uniform-abscissa discretisation over [f,l].
-    GCPnts_UniformAbscissa ua(ad, kProfileEdgeSamples + 1, f, l);
-    if (ua.IsDone() && ua.NbPoints() >= 2) {
-        const int n = ua.NbPoints();
+    // curved edge — native arc-length uniform discretisation over [f,l].
+    std::vector<double> uaParams;
+    if (nativeUniformAbscissaParams(ad, kProfileEdgeSamples + 1, f, l, uaParams) &&
+        uaParams.size() >= 2) {
+        const int n = (int)uaParams.size();
         // emit all but the LAST point (the shared end goes to the next edge),
         // honouring traversal direction.
         for (int i = 0; i < n - 1; ++i) {
-            int idx = reversed ? (n - i) : (i + 1);   // 1-based GCPnts index
-            emit(ua.Parameter(idx));
+            int idx = reversed ? (n - 1 - i) : i;     // 0-based sample index
+            emit(uaParams[idx]);
         }
         return true;
     }
