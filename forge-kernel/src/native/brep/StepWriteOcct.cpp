@@ -25,6 +25,7 @@
 #include <Geom2d_Curve.hxx>             // handle type only — inspected via GeomAPI::To3d
 #include <GeomAPI.hxx>                  // To3d (TKGeomAlgo) — mirror of the reader's To2d
 #include <GeomConvert.hxx>              // TKGeomBase — B-spline conversion fallback
+#include "forge/native/geom/NativeNurbsConvert.hpp"  // R2 native analytic→NURBS (drops TKGeomBase GeomConvert)
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_BezierCurve.hxx>
@@ -386,7 +387,11 @@ std::uint64_t emitCurve3d(Emit& E, Handle(Geom_Curve) c, double f, double l,
     }
     if (Handle(Geom_BezierCurve) bz = Handle(Geom_BezierCurve)::DownCast(c); !bz.IsNull()) {
         try {
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+            Handle(Geom_BSplineCurve) conv = forge::occtconv::curveToBSpline(bz);
+#else
             Handle(Geom_BSplineCurve) conv = GeomConvert::CurveToBSplineCurve(bz);
+#endif
             if (!conv.IsNull()) return emitBSplineCurve(E, conv, false, 1.0);
         } catch (const Standard_Failure&) {}
         return 0;
@@ -394,7 +399,11 @@ std::uint64_t emitCurve3d(Emit& E, Handle(Geom_Curve) c, double f, double l,
     // anything else (parabola / hyperbola / offset curve): trim + convert.
     try {
         Handle(Geom_TrimmedCurve) tr = new Geom_TrimmedCurve(c, f, l);
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+        Handle(Geom_BSplineCurve) conv = forge::occtconv::curveToBSpline(tr);
+#else
         Handle(Geom_BSplineCurve) conv = GeomConvert::CurveToBSplineCurve(tr);
+#endif
         if (!conv.IsNull()) {
             if (conv->IsPeriodic()) conv->SetNotPeriodic();
             return emitBSplineCurve(E, conv, false, 1.0);
@@ -487,7 +496,11 @@ std::uint64_t emitPcurve2d(Emit& E, const Handle(Geom2d_Curve)& c2,
         if (bs.IsNull()) {
             // conic under scaling / indirect frame / other: exact-span convert.
             Handle(Geom_TrimmedCurve) tr = new Geom_TrimmedCurve(c3, f2, l2);
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+            bs = forge::occtconv::curveToBSpline(tr);
+#else
             bs = GeomConvert::CurveToBSplineCurve(tr);
+#endif
             if (bs.IsNull()) return 0;
         } else {
             bs = clampedBSpline(bs, f2, l2);
@@ -588,7 +601,11 @@ std::uint64_t emitSurface(Emit& E, const TopoDS_Face& face, FaceInfo& fi) {
             return emitBSplineSurface(E, bs);
         } else if (Handle(Geom_BezierSurface) bz =
                        Handle(Geom_BezierSurface)::DownCast(S); !bz.IsNull()) {
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+            Handle(Geom_BSplineSurface) conv = forge::occtconv::surfaceToBSpline(bz);
+#else
             Handle(Geom_BSplineSurface) conv = GeomConvert::SurfaceToBSplineSurface(bz);
+#endif
             if (!conv.IsNull()) return emitBSplineSurface(E, conv);
         } else if (Handle(Geom_SurfaceOfLinearExtrusion) ex =
                        Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(S); !ex.IsNull()) {
@@ -630,7 +647,11 @@ std::uint64_t emitSurface(Emit& E, const TopoDS_Face& face, FaceInfo& fi) {
         if (u1 > u0 && v1 > v0) {
             Handle(Geom_RectangularTrimmedSurface) win =
                 new Geom_RectangularTrimmedSurface(S, u0, u1, v0, v1);
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+            Handle(Geom_BSplineSurface) conv = forge::occtconv::surfaceToBSpline(win);
+#else
             Handle(Geom_BSplineSurface) conv = GeomConvert::SurfaceToBSplineSurface(win);
+#endif
             if (!conv.IsNull()) return emitBSplineSurface(E, conv);
         }
     } catch (const Standard_Failure&) {

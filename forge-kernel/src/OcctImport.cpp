@@ -59,6 +59,8 @@
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array2OfReal.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
+#include "forge/native/geom/NativeProjection.hpp"     // R1 native point→surface (drops TKGeomBase Extrema)
+#include "forge/native/geom/NativeNurbsConvert.hpp"   // R2 native analytic→NURBS (drops TKGeomBase GeomConvert)
 #include <gp_Pnt2d.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
@@ -321,8 +323,13 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
     Handle(Geom_Curve) basis = ext->BasisCurve();
     if (basis.IsNull()) { why = "extrusion has null basis curve"; return false; }
     Handle(Geom_BSplineCurve) cb;
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+    try { cb = forge::occtconv::curveToBSpline(basis); }
+    catch (const Standard_Failure&) { cb.Nullify(); }
+#else
     try { cb = GeomConvert::CurveToBSplineCurve(basis); }
     catch (const Standard_Failure&) { cb.Nullify(); }
+#endif
     if (cb.IsNull()) { why = "extrusion basis curve -> B-spline failed"; return false; }
 
     const gp_Dir D = ext->Direction();
@@ -502,7 +509,11 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
         Handle(Geom_BezierSurface) bz = Handle(Geom_BezierSurface)::DownCast(gs);
         if (bz.IsNull()) { why = "Bezier face had no Geom_BezierSurface"; return false; }
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+        Handle(Geom_BSplineSurface) bs = forge::occtconv::surfaceToBSpline(bz);
+#else
         Handle(Geom_BSplineSurface) bs = GeomConvert::SurfaceToBSplineSurface(bz);
+#endif
         if (bs.IsNull()) { why = "Bezier->BSpline conversion failed"; return false; }
         if (!readBSplineSurface(bs, out.nurbs, why)) return false;
         out.kind = nb::SurfaceKind::Nurbs;
@@ -936,6 +947,17 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
         // reach here (a full wrap is staged analytically above), so no seam branch is
         // ambiguous; the existing occtToNative/unwrapU folds the result into native (u,v).
         Handle(Geom_Surface) faceSurf = BRep_Tool::Surface(face);
+#ifdef FORGE_NATIVE_PROJECTION
+        auto projectOcctUV = [&](const gp_Pnt& q, double& uo, double& vo) -> bool {
+            auto r = forge::occtproj::projectPointOnSurface(q, faceSurf, umin, umax, vmin, vmax);
+            if (!r.IsDone() || r.NbPoints() < 1) {
+                r = forge::occtproj::projectPointOnSurface(q, faceSurf);
+                if (!r.IsDone() || r.NbPoints() < 1) return false;
+            }
+            r.LowerDistanceParameters(uo, vo);
+            return true;
+        };
+#else
         GeomAPI_ProjectPointOnSurf faceProj;
         auto projectOcctUV = [&](const gp_Pnt& q, double& uo, double& vo) -> bool {
             faceProj.Init(q, faceSurf, umin, umax, vmin, vmax);
@@ -946,6 +968,7 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
             faceProj.LowerDistanceParameters(uo, vo);
             return true;
         };
+#endif
         auto addRing = [&](const TopoDS_Wire& w) {
             std::vector<BSample> ring;
             for (BRepTools_WireExplorer ex(w, face); ex.More(); ex.Next()) {

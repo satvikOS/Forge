@@ -117,6 +117,15 @@
 //  are removed from OCCT_LIBS; revert-if-red just undefines the macro.
 // ===========================================================================
 
+// OCCT-boundary native file: like NativeNurbsConvert.cpp / StepReadOcct.cpp /
+// StepWriteOcct.cpp, the whole body is compiled only under FORGE_NATIVE_BREP so
+// the OCCT-FREE pure-native harness (test/native/run_native.sh, which globs
+// src/native/*/*.cpp and provides NO OCCT include path) skips it cleanly. The
+// FORGE_NATIVE_PROJECTION call-site gate is defined only alongside FORGE_NATIVE_BREP
+// (CMakeLists), so `#ifdef FORGE_NATIVE_PROJECTION` at the call sites implies this
+// TU is compiled and forge::occtproj:: is defined.
+#ifdef FORGE_NATIVE_BREP
+
 #include "forge/native/geom/NativeProjection.hpp"
 
 // CI portability: name EVERY standard header used (libstdc++ is stricter than
@@ -420,3 +429,5 @@ Curve2dProjResult projectPointOnCurve2d(const gp_Pnt2d& P,
 
 } // namespace forge::occtproj
 } // namespace forge
+
+#endif  // FORGE_NATIVE_BREP

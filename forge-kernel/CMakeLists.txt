@@ -160,10 +160,38 @@ endif()
 # TKShHealing, TKBO, TKBool, TKFillet, TKOffset, TKHLR, TKMesh) are stable.
 set(OCCT_LIBS
     TKernel TKMath
-    TKG3d TKGeomBase TKGeomAlgo
+    TKG3d TKGeomAlgo
     TKBRep TKTopAlgo TKShHealing
     TKFillet TKOffset
 )
+# OCCT-zero progress (2026-07-25, R1+R2 → TKGeomBase): DROPPED TKGeomBase. 10 -> 9 OCCT dylibs.
+#   (TKGeomBase still loads transitively — TKBRep/TKG3d/TKGeomAlgo DT_NEED it — but the .node
+#   no longer LINKS it directly.)
+#   TKGeomBase's 4 remaining EXCLUSIVE symbols (GeomConvert::Curve/SurfaceToBSplineCurve/Surface +
+#   the Extrema_GenExtPS / Extrema_PCFOfEPCOfExtPC2d pulled transitively through
+#   GeomAPI_ProjectPointOnSurf / Geom2dAPI_ProjectPointOnCurve) are now served by the in-house
+#   R1 (forge::occtproj point→surface / point→curve-2d Gauss-Newton, NativeProjection.cpp) and
+#   R2 (forge::occtconv analytic→NURBS + points→NURBS lsq fit, NativeNurbsConvert.cpp) routines.
+#   Every call site is switched behind FORGE_NATIVE_PROJECTION / FORGE_NATIVE_NURBS_CONVERT
+#   (default-ON below) with the OCCT symbol kept compiled under the #else fallback for revert.
+#   Verified keep-if-green: otool libTK 10->9, libTKGeomBase gone; nm -u | grep
+#   GeomConvert|Extrema_GenExtPS|Extrema_PCFOfEPCOfExtPC2d == 0; occt_drop_gate TKGeomBase
+#   EXCLUSIVE=0. NB: TKGeomAlgo is KEPT (still linked) — GeomAPI_ProjectPointOnSurf lives there;
+#   we only removed OUR object files' references to the Extrema symbols it inlines.
+#
+# R1/R2 native geometry routines are the DEFAULT (drop-enabling) path, coupled to the
+# FORGE_NATIVE_BREP master switch. Both NativeProjection.cpp AND NativeNurbsConvert.cpp are
+# OCCT-boundary native files wrapped in `#ifdef FORGE_NATIVE_BREP` (so the OCCT-free
+# run_native.sh harness skips them). Defining the call-site gates only when FORGE_NATIVE_BREP
+# is ON guarantees `#ifdef FORGE_NATIVE_PROJECTION` at a call site implies forge::occtproj:: is
+# actually compiled — no undefined-symbol landmine for a -DFORGE_NATIVE_BREP=OFF build.
+# A/B toggle (default ON = the drop). -DFORGE_GEOM_DROP_NATIVE=OFF rebuilds the OCCT
+# GeomConvert/GeomAPI_Project* fallback for an apples-to-apples baseline on the STEP
+# round-trip battery (proves the native routines match OCCT before removing TKGeomBase).
+option(FORGE_GEOM_DROP_NATIVE "use R1/R2 native geom routines (TKGeomBase drop); OFF=OCCT A/B baseline" ON)
+if(FORGE_NATIVE_BREP AND FORGE_GEOM_DROP_NATIVE)
+    add_compile_definitions(FORGE_NATIVE_PROJECTION=1 FORGE_NATIVE_NURBS_CONVERT=1)
+endif()
 # OCCT-zero progress (2026-07-21, K-PRIM): dropped TKPrim. 11 -> 10 OCCT dylibs.
 #   The canonical primitive SOLIDS (box/cylinder/cone/sphere/torus/wedge) were already
 #   TKPrim-free (OcctPrimBuilder analytic Geom_ + BRepBuilderAPI, commit 20849c16). This

@@ -77,6 +77,7 @@
 #include <Geom_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomLProp_SLProps.hxx>
+#include "forge/native/geom/NativeProjection.hpp"  // R1 native point→surface (drops TKGeomBase Extrema)
 #include <Precision.hxx>
 #include <TopAbs_ShapeEnum.hxx>
 #include <TopExp.hxx>
@@ -479,10 +480,18 @@ ContinuityReport continuityCheck(ShapeHandle face1, ShapeHandle face2,
         // Project edgePt onto each face to find (uA, vA), (uB, vB).
         double uA = 0.0, vA = 0.0, uB = 0.0, vB = 0.0;
         try {
+#ifdef FORGE_NATIVE_PROJECTION
+            auto projA = forge::occtproj::projectPointOnSurface(edgePt, sA);
+#else
             GeomAPI_ProjectPointOnSurf projA(edgePt, sA);
+#endif
             if (projA.NbPoints() < 1) continue;
             projA.LowerDistanceParameters(uA, vA);
+#ifdef FORGE_NATIVE_PROJECTION
+            auto projB = forge::occtproj::projectPointOnSurface(edgePt, sB);
+#else
             GeomAPI_ProjectPointOnSurf projB(edgePt, sB);
+#endif
             if (projB.NbPoints() < 1) continue;
             projB.LowerDistanceParameters(uB, vB);
         } catch (...) {

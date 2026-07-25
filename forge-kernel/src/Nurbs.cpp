@@ -45,6 +45,7 @@
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
+#include "forge/native/geom/NativeProjection.hpp"  // R1 native point→surface (drops TKGeomBase Extrema)
 #include <GeomLProp_SLProps.hxx>
 #include <Precision.hxx>
 #include <TColStd_Array1OfInteger.hxx>
@@ -713,7 +714,11 @@ PointOnSurface projectPointToSurface(ShapeHandle face,
     TopoDS_Face f = firstFaceOf(fetch(face), "projectPointToSurface");
     Handle(Geom_Surface) s = surfaceOf(f, "projectPointToSurface");
     gp_Pnt P(px, py, pz);
+#ifdef FORGE_NATIVE_PROJECTION
+    auto proj = forge::occtproj::projectPointOnSurface(P, s);
+#else
     GeomAPI_ProjectPointOnSurf proj(P, s);
+#endif
     if (proj.NbPoints() < 1) {
         throw std::runtime_error(
             "forge.surfacing.projectPointToSurface: no projection found");

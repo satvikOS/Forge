@@ -59,6 +59,7 @@
 #include <Geom2d_Curve.hxx>   // handle type only — construction routes through GeomAPI::To2d
 #include <GeomAPI.hxx>        // To2d lives in TKGeomAlgo (already linked); TKG2d stays dropped
 #include <Geom2dAPI_ProjectPointOnCurve.hxx>   // TKGeomAlgo
+#include "forge/native/geom/NativeProjection.hpp"  // R1 native point→curve-2d (drops TKGeomBase Extrema)
 #include <ShapeAnalysis_Surface.hxx>           // TKShHealing
 #include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
@@ -1302,8 +1303,13 @@ void attachFilePcurves(Xfer& X, const std::vector<std::uint64_t>& faceEcIds,
                     }
                     return uv;
                 };
+#ifdef FORGE_NATIVE_PROJECTION
+                auto pF = forge::occtproj::projectPointOnCurve2d(shiftToAnchor(uvF), c2);
+                auto pL = forge::occtproj::projectPointOnCurve2d(shiftToAnchor(uvL), c2);
+#else
                 Geom2dAPI_ProjectPointOnCurve pF(shiftToAnchor(uvF), c2);
                 Geom2dAPI_ProjectPointOnCurve pL(shiftToAnchor(uvL), c2);
+#endif
                 if (pF.NbPoints() < 1 || pL.NbPoints() < 1) return false;
                 const double a = pF.LowerDistanceParameter();
                 const double q = pL.LowerDistanceParameter();
