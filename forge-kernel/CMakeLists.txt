@@ -160,7 +160,7 @@ endif()
 # TKShHealing, TKBO, TKBool, TKFillet, TKOffset, TKHLR, TKMesh) are stable.
 set(OCCT_LIBS
     TKernel TKMath
-    TKG3d TKGeomAlgo
+    TKG3d
     TKBRep TKTopAlgo TKShHealing
     TKFillet TKOffset
 )
@@ -190,18 +190,27 @@ set(OCCT_LIBS
 # round-trip battery (proves the native routines match OCCT before removing TKGeomBase).
 option(FORGE_GEOM_DROP_NATIVE "use R1/R2/R3 native geom routines; OFF=OCCT A/B baseline" ON)
 if(FORGE_NATIVE_BREP AND FORGE_GEOM_DROP_NATIVE)
-    # R1/R2 (TKGeomBase drop, landed) + R3-partial (TKGeomAlgo): GeomAPI::To2d/To3d
-    # (occtconv) and Law_Linear/Law_S (occtlaw/NativeLaw.cpp) are routed native and VERIFIED
-    # equivalent to OCCT (STEP round-trip A/B within tessellation tol; varfillet Law exact).
+    # R1/R2/R3 (TKGeomBase drop + TKGeomAlgo drop, both landed): GeomAPI::To2d/To3d,
+    # GeomAPI_PointsToBSpline, GeomFill_NSections (occtconv/occtfill) and Law_Linear/Law_S
+    # (occtlaw/NativeLaw.cpp) are routed native and VERIFIED equivalent to OCCT (STEP
+    # round-trip A/B within tessellation tol; varfillet Law exact; trapezoidalWing loft).
     # Each call site keeps the OCCT symbol under #else for a -DFORGE_GEOM_DROP_NATIVE=OFF A/B.
     #
-    # TKGeomAlgo is NOT yet droppable: the native GeomAPI_PointsToBSpline (occtconv::
-    # pointsToBSpline) fits a correct single curve (profileToFace area == OCCT) but returns a
-    # denser/different pole+knot representation than OCCT's smooth approximation, which
-    # BRepOffsetAPI_ThruSections then lofts BADLY — airfoil trapezoidalWing regressed 3.2x
-    # (5.11e6 vs OCCT 1.59e6 mm^3, analytic ~1.9e6). So the PointsToBSpline + GeomFill_NSections
-    # (loft-fit) call sites stay on OCCT until the native fit's loft-compatibility is fixed;
-    # they still reference TKGeomAlgo, so it remains in OCCT_LIBS. See the drop report.
+    # OCCT-zero progress (2026-07-25, R2 → TKGeomAlgo): DROPPED TKGeomAlgo. 9 -> 8 OCCT dylibs.
+    #   The last 6 exclusive TKGeomAlgo symbols were GeomAPI_PointsToBSpline (ctor + Curve())
+    #   and GeomFill_NSections (ctor + ComputeSurface + BSplineSurface + vtable), at
+    #   src/Airfoil.cpp (profileToFace / stationToWorldWire), src/Features.cpp (loftWithGuides).
+    #   PointsToBSpline is now forge::occtconv::pointsToBSpline — a BOUNDED, overshoot-guarded
+    #   least-squares fit: the earlier native fit was correct AS A CURVE but its ill-conditioned
+    #   n≈r normal-equation control net spiked poles >7e4 mm off a 200 mm airfoil, and
+    #   BRepOffsetAPI_ThruSections (which interpolates POLES across stations) ballooned the
+    #   trapezoidalWing loft 3.2x (5.11e6 vs OCCT 1.59e6). The sane-net guard rejects spiking
+    #   fits and keeps the largest bounded net → loft = 1.588e6 (0.06% of OCCT 1.588912e6).
+    #   GeomFill_NSections is now forge::occtfill::sectionFillSurface (P&T ch.10.3 skinned
+    #   surface, src/native/brep/NativeSectionFill.cpp). Verified keep-if-green: occt_drop_gate
+    #   TKGeomAlgo EXCLUSIVE=0; nm -u | grep PointsToBSpline|GeomFill_NSections == 0; airfoil
+    #   trapezoidalWing 1.588e6; core 34/34; directedit 9/9; part_features / mold / weldments PASS.
+    #   Linux run_native.sh CI (ubuntu strict-link) is the ultimate gate.
     add_compile_definitions(FORGE_NATIVE_PROJECTION=1 FORGE_NATIVE_NURBS_CONVERT=1
                             FORGE_NATIVE_LAW=1)
 endif()
@@ -654,6 +663,7 @@ add_library(forge_kernel SHARED
     src/native/brep/CadScoreGates.cpp   # CADGenBench pre-submit gates: in-kernel Betti b0/b1/b2 + watertight/manifold validity + interface keep-in/keep-out IoU (RL-reward terms)
     src/native/brep/DraftAnalytic.cpp   # analytic face draft about a neutral plane (planar side faces -> frustum), OCCT BRepOffsetAPI_DraftAngle analogue
     src/native/brep/LoftSweep.cpp       # analytic loft through N planar sections + translational sweep along a path -> closed B-rep solid (ThruSections/MakePipe analogue)
+    src/native/brep/NativeSectionFill.cpp # R2 — native N-section B-spline skin (P&T ch.10.3 skinned surface) — drops TKGeomAlgo GeomFill_NSections (loftWithGuides)
     src/native/brep/HelicalSweep.cpp    # helical sweep: circular profile along a constant-pitch helix -> coil/spring/thread (RMF-transported, MakePipe analogue)
     src/native/brep/IgesRead.cpp        # foreign IGES (ASCII) read: 144 trimmed-surface / 186 manifold-solid-brep / 128 NURBS -> native TrimmedFace -> sew -> shell/solid
     src/native/brep/StepReadOcct.cpp    # TKDESTEP-free foreign STEP -> OCCT B-rep transfer (one shared edge per EDGE_CURVE on analytic surfaces) — importStep after the TKDESTEP drop

@@ -614,21 +614,47 @@ Handle(Geom_BSplineCurve) pointsToBSpline(const TColgp_Array1OfPnt& Q,
     // Few points, or a low target degree: interpolate (exact, residual 0).
     if (r <= p + 2) return interpolate();
 
-    // --- least-squares approximation with n+1 control points, n < r
-    //     (P&T sec 9.4.1, algorithm A9.6). Endpoints interpolated.
-    for (int n = std::max(p + 2, r / 2);; n = std::min(r - 1, n + std::max(1, (r - n) / 2))) {
+    // Data extent (bbox diagonal) — used to reject an ill-conditioned fit whose
+    // control polygon spikes far outside the data (those poles trace a fine curve
+    // but WRECK a pole-interpolating skinner such as BRepOffsetAPI_ThruSections).
+    double dblo[3] = { 1e300, 1e300, 1e300 }, dbhi[3] = { -1e300, -1e300, -1e300 };
+    for (int k = 0; k <= r; ++k) {
+        const gp_Pnt& P = Q.Value(lo + k);
+        double c[3] = { P.X(), P.Y(), P.Z() };
+        for (int a = 0; a < 3; ++a) { dblo[a] = std::min(dblo[a], c[a]); dbhi[a] = std::max(dbhi[a], c[a]); }
+    }
+    const double dataDiag = std::sqrt((dbhi[0]-dblo[0])*(dbhi[0]-dblo[0])
+                                    + (dbhi[1]-dblo[1])*(dbhi[1]-dblo[1])
+                                    + (dbhi[2]-dblo[2])*(dbhi[2]-dblo[2]));
+    auto polesSane = [&](const Handle(Geom_BSplineCurve)& c) -> bool {
+        if (c.IsNull()) return false;
+        const double lim = 2.0 * dataDiag + 1e-9;      // no pole may sit > 2·diag from the box
+        for (Standard_Integer i = 1; i <= c->NbPoles(); ++i) {
+            gp_Pnt P = c->Pole(i);
+            double cc[3] = { P.X(), P.Y(), P.Z() };
+            for (int a = 0; a < 3; ++a)
+                if (cc[a] < dblo[a] - lim || cc[a] > dbhi[a] + lim) return false;
+        }
+        return true;
+    };
+
+    // --- one least-squares solve with n+1 control points (P&T sec 9.4.1, alg
+    //     A9.6): endpoints interpolated, interior poles from the normal equations.
+    //     Returns null if the target degree/knots make N^T N rank-deficient.
+    auto fitAt = [&](int n) -> Handle(Geom_BSplineCurve) {
+        if (n < p + 1) n = p + 1;
+        if (n > r) n = r;
         // knots (P&T eq 9.68/9.69).
         std::vector<double> U(n + p + 2, 0.0);
         double dd = double(r + 1) / double(n - p + 1);
         for (int j = 1; j <= n - p; ++j) {
             int i = int(j * dd); double alpha = j * dd - i;
+            if (i < 1) i = 1; if (i > r) i = r;
             U[p + j] = (1.0 - alpha) * ubar[i - 1] + alpha * ubar[i];
         }
         for (int j = n + 1; j <= n + p + 1; ++j) U[j] = 1.0;
-
-        // Assemble the (n-1)x(n-1) normal-equation matrix and RHS for interior
-        // control points (P_0=Q_0, P_n=Q_r fixed).
         const int I = n - 1;                     // # unknown interior poles
+        if (I <= 0) return Handle(Geom_BSplineCurve)();
         std::vector<double> NtN(I * I, 0.0);
         std::vector<double> Rx(I, 0.0), Ry(I, 0.0), Rz(I, 0.0);
         const gp_Pnt Q0 = Q.Value(lo + 0), Qr = Q.Value(lo + r);
@@ -636,14 +662,13 @@ Handle(Geom_BSplineCurve) pointsToBSpline(const TColgp_Array1OfPnt& Q,
         for (int k = 1; k <= r - 1; ++k) {
             int span = findSpan(n, p, ubar[k], U);
             basisFuns(span, ubar[k], p, U, Nb);
-            // full N_{i,p}(ubar_k) for i=span-p..span; keep i in 1..n-1.
             double N0 = 0.0, Nn = 0.0;
             std::vector<std::pair<int, double>> row;
             for (int t = 0; t <= p; ++t) {
                 int idx = span - p + t;
                 if (idx == 0) N0 = Nb[t];
                 else if (idx == n) Nn = Nb[t];
-                else row.emplace_back(idx - 1, Nb[t]);   // 0-based interior index
+                else row.emplace_back(idx - 1, Nb[t]);
             }
             double rx = Q.Value(lo + k).X() - N0 * Q0.X() - Nn * Qr.X();
             double ry = Q.Value(lo + k).Y() - N0 * Q0.Y() - Nn * Qr.Y();
@@ -654,24 +679,51 @@ Handle(Geom_BSplineCurve) pointsToBSpline(const TColgp_Array1OfPnt& Q,
             }
         }
         std::vector<double> L = NtN;
-        bool ok = (I > 0) && choleskyFactor(L, I);
-        if (ok) {
-            choleskySolve(L, I, Rx); choleskySolve(L, I, Ry); choleskySolve(L, I, Rz);
-            std::vector<gp_Pnt> poles(n + 1);
-            poles[0] = Q0; poles[n] = Qr;
-            for (int i = 1; i <= n - 1; ++i) poles[i] = gp_Pnt(Rx[i - 1], Ry[i - 1], Rz[i - 1]);
-            std::vector<double> kn; std::vector<int> mu; knotsDistinct(U, kn, mu);
-            Handle(Geom_BSplineCurve) fit = buildCurve(poles, {}, kn, mu, p);
-            // residual check: max distance data->fit at the sample params.
-            double maxr = 0.0;
-            for (int k = 0; k <= r; ++k)
-                maxr = std::max(maxr, fit->Value(ubar[k]).Distance(Q.Value(lo + k)));
-            if (maxr <= tol || n >= r - 1) return fit;
-        } else if (n >= r - 1) {
-            return interpolate();
+        if (!choleskyFactor(L, I)) return Handle(Geom_BSplineCurve)();
+        choleskySolve(L, I, Rx); choleskySolve(L, I, Ry); choleskySolve(L, I, Rz);
+        std::vector<gp_Pnt> poles(n + 1);
+        poles[0] = Q0; poles[n] = Qr;
+        for (int i = 1; i <= n - 1; ++i) poles[i] = gp_Pnt(Rx[i - 1], Ry[i - 1], Rz[i - 1]);
+        std::vector<double> kn; std::vector<int> mu; knotsDistinct(U, kn, mu);
+        return buildCurve(poles, {}, kn, mu, p);
+    };
+    auto maxResidual = [&](const Handle(Geom_BSplineCurve)& fit) -> double {
+        double maxr = 0.0;
+        for (int k = 0; k <= r; ++k)
+            maxr = std::max(maxr, fit->Value(ubar[k]).Distance(Q.Value(lo + k)));
+        return maxr;
+    };
+
+    // ---------------------------------------------------------------------
+    //  STRATEGY.  OCCT GeomAPI_PointsToBSpline is a SMOOTHING approximation:
+    //  it keeps the SMALLEST control-net that meets the tolerance and never
+    //  drifts into the ill-conditioned n≈r regime (whose control polygon
+    //  spikes and ruins a pole-interpolating skinner). We mirror that: sweep n
+    //  upward from a small seed, accept the FIRST fit that is within tol AND
+    //  has a sane (non-spiking) control polygon. Only if no bounded fit is
+    //  sane/accurate do we fall back to stable LU interpolation.
+    //
+    //  Why the sanity guard matters (measured): the direct normal-equation
+    //  fit at n≈r-1 is ill-conditioned — Cholesky can squeak through and return
+    //  poles that spike >7e4 mm off a 200 mm airfoil. Those wild poles still
+    //  trace a fine CURVE (they cancel over a near-coincident knot span), so the
+    //  section looked correct, but BRepOffsetAPI_ThruSections interpolates the
+    //  POLES across stations, ballooning the trapezoidalWing loft 3.2x
+    //  (5.11e6 vs OCCT 1.59e6). Rejecting spiking nets + keeping the largest
+    //  SANE bounded net restores the loft to 1.588e6 (0.06% of OCCT).
+    // ---------------------------------------------------------------------
+    Handle(Geom_BSplineCurve) best;   // best sane fit so far (largest n that stayed sane)
+    for (int n = std::max(p + 2, (r + 3) / 4); n <= r - 1;
+         n = std::min(r - 1, n + std::max(1, (r - n) / 2))) {
+        Handle(Geom_BSplineCurve) fit = fitAt(n);
+        if (!fit.IsNull() && polesSane(fit)) {
+            best = fit;
+            if (maxResidual(fit) <= tol) return fit;   // accurate AND sane -> done
         }
-        if (n >= r - 1) return interpolate();
+        if (n >= r - 1) break;
     }
+    if (!best.IsNull()) return best;   // tol not met but a sane bounded fit exists
+    return interpolate();              // last resort: stable full interpolation
 }
 
 // ---- planar 2D<->3D lift (GeomAPI::To3d / To2d) ----------------------------

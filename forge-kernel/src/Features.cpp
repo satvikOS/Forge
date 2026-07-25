@@ -84,6 +84,10 @@
 #include <GeomFill_NSections.hxx>
 #include <TColGeom_SequenceOfCurve.hxx>
 #include <TColgp_Array1OfPnt.hxx>
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+#include "forge/native/geom/NativeNurbsConvert.hpp"   // native GeomAPI_PointsToBSpline (drops TKGeomAlgo)
+#include "forge/native/brep/NativeSectionFill.hpp"    // native GeomFill_NSections   (drops TKGeomAlgo)
+#endif
 #include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder + prism/revol sweeps
 #include <BRep_Tool.hxx>
 #include <BRepGProp.hxx>
@@ -2295,8 +2299,12 @@ ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
         for (std::size_t i = 0; i < pts.size(); ++i) {
             arr.SetValue(static_cast<Standard_Integer>(i + 1), pts[i]);
         }
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+        return forge::occtconv::pointsToBSpline(arr, 1, 5, 1.0e-3);
+#else
         GeomAPI_PointsToBSpline bs(arr, 1, 5, GeomAbs_C2);
         return bs.Curve();
+#endif
     };
 
     TColGeom_SequenceOfCurve seqCurves;
@@ -2310,9 +2318,16 @@ ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
     }
     (void)guides;  // guides are advisory at the GeomFill level for now;
                   // the caller's smoke ensures the API contract is met.
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+    // Native N-section skin (drops TKGeomAlgo GeomFill_NSections). Interpolates
+    // through every section — a faithful, stronger contract than the OCCT
+    // tolerance-bounded approximation. Null => honest defer (throws below).
+    Handle(Geom_BSplineSurface) skin = forge::occtfill::sectionFillSurface(seqCurves, 3);
+#else
     GeomFill_NSections filler(seqCurves);
     filler.ComputeSurface();
     Handle(Geom_BSplineSurface) skin = filler.BSplineSurface();
+#endif
     if (skin.IsNull()) {
         throw std::runtime_error(
             "forge.part.loftWithGuides: GeomFill_NSections returned no surface");

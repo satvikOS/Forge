@@ -7,6 +7,9 @@
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <GeomAPI_PointsToBSpline.hxx>
 #include <Geom_BSplineCurve.hxx>
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+#include "forge/native/geom/NativeNurbsConvert.hpp"
+#endif
 #include <Precision.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TopoDS.hxx>
@@ -391,12 +394,17 @@ ShapeHandle profileToFace(const Profile& p, double chordMm) {
         arr.SetValue(static_cast<Standard_Integer>(i + 1),
                      gp_Pnt(pts[i].x * chordMm, pts[i].y * chordMm, 0.0));
     }
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+    Handle(Geom_BSplineCurve) bspl =
+        forge::occtconv::pointsToBSpline(arr, 3, 3, 1.0e-6 * chordMm);
+#else
     GeomAPI_PointsToBSpline interp(arr,
                                    /*deg min*/ 3,
                                    /*deg max*/ 3,
                                    /*continuity*/ GeomAbs_C2,
                                    /*tol*/ 1.0e-6 * chordMm);
     Handle(Geom_BSplineCurve) bspl = interp.Curve();
+#endif
     if (bspl.IsNull()) {
         throw std::runtime_error("forge.airfoil.profileToFace: BSpline interpolation failed");
     }
@@ -447,8 +455,16 @@ TopoDS_Wire stationToWorldWire(const WingStation& st) {
         arr.SetValue(static_cast<Standard_Integer>(i + 1),
                      gp_Pnt(pts[i].x * st.chordMm, 0.0, pts[i].y * st.chordMm));
     }
+#if defined(FORGE_NATIVE_NURBS_CONVERT)
+    // Native least-squares B-spline fit (drops TKGeomAlgo GeomAPI_PointsToBSpline).
+    // Bounded, overshoot-guarded control net so the per-station sections skin
+    // cleanly through BRepOffsetAPI_ThruSections (see NativeNurbsConvert.cpp).
+    Handle(Geom_BSplineCurve) bspl =
+        forge::occtconv::pointsToBSpline(arr, 3, 3, 1.0e-6 * st.chordMm);
+#else
     GeomAPI_PointsToBSpline interp(arr, 3, 3, GeomAbs_C2, 1.0e-6 * st.chordMm);
     Handle(Geom_BSplineCurve) bspl = interp.Curve();
+#endif
     if (bspl.IsNull()) {
         throw std::runtime_error("forge.airfoil.loftWing: BSpline interp failed");
     }
