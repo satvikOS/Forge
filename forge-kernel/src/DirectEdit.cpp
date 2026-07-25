@@ -27,6 +27,8 @@
 #ifdef FORGE_NATIVE_BREP
 #include <memory>
 #include "forge/native/brep/UnifyFaces.hpp"
+#include "forge/native/brep/NativeRoute.hpp"      // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/NativeShapeHeal.hpp"  // occtheal::finalizeShape (TKShHealing-free light heal)
 #endif
 
 namespace forge {
@@ -54,6 +56,18 @@ std::array<double, 3> unit(const std::array<double, 3>& v) {
 }
 
 TopoDS_Shape heal(const TopoDS_Shape& s) {
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKShHealing-free) LIGHT finalize behind the FEAT gate: SameParameter
+    // reconcile + outward orient by signed volume + closed-shell->solid promote
+    // (occtheal::finalizeShape — surface-preserving, no faceting). This is the
+    // load-bearing part of the defensive post-boolean ShapeFix_Shape pass these
+    // DirectEdit ops use. The OCCT ShapeFix_Shape path is kept as the #else fallback;
+    // GATE DEFAULT OFF (forgeNativeFeaturesEnabled()), so the production build runs the
+    // OCCT path byte-for-byte until the FEAT gate is flipped on.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        return forge::occtheal::finalizeShape(s, 0.0, 0.0).shape;
+    }
+#endif
     ShapeFix_Shape fixer(s);
     fixer.Perform();
     return fixer.Shape();

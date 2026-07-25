@@ -700,6 +700,8 @@ add_library(forge_kernel SHARED
     src/native/brep/Boolean.cpp
     src/native/brep/Pattern.cpp         # analytic feature pattern: linear/circular/mirror array of a tool solid, boolean-merged into one B-rep
     src/native/brep/UnifyFaces.cpp      # native unify-same-domain (coplanar planar face merge) — in-house ShapeUpgrade_UnifySameDomain replacement (TKShHealing-drop blocker #1); wired as the native path in DirectEdit unifyFaces, OCCT fallback for curved/holed
+    src/native/brep/NativeShapeHeal.cpp      # R4 — TKShHealing-free heal subset (valueOfUV / projectPointOnCurve / freeBounds / solidFromShell / finalizeShape LIGHT-heal) on surviving foundation toolkits; native hot-path behind FORGE_NATIVE_BREP, OCCT ShapeFix/ShapeAnalysis fallback kept
+    src/native/brep/NativeShapeHealBridge.cpp # R4-bridge — RICH ShapeFix_Shape replacement: OCCT shape -> importOcctSolid -> healBRep -> occtFromNativeSolid (TopoDS in/out); whole-file FORGE_NATIVE_BREP, defers (returns input) on open/curved-changed shapes so OCCT fallback stays
     # IN-HOUSE KERNEL STEP 3a — the live-op ROUTING LAYER (runtime gate +
     # transformSolid placement fix + native viewport-tessellate + mesh massprops)
     # and the MESH-BRIDGE feature ops (native fillet/chamfer). Always compiled;
@@ -713,6 +715,8 @@ add_library(forge_kernel SHARED
     src/native/brep/Fillet.cpp
     src/native/brep/FilletAnalytic.cpp  # analytic rolling-ball constant-radius fillet on a convex straight edge between two planar faces (true cylinder blend surface); + concave (reflex) edges + edge-chains (shared-vertex corners honestly reported)
     src/native/brep/ChamferAnalytic.cpp # analytic symmetric flat-bevel chamfer on a convex straight edge between two planar faces (true plane bevel face)
+    src/native/brep/NativeFilletChamfer.cpp  # R3 — TKFillet-free const-radius fillet / flat-bevel chamfer on an ARBITRARY OCCT TopoDS_Shape (local-neighbourhood retrim + sew); native hot-path behind FORGE_NATIVE_BREP, OCCT BRepFilletAPI fallback kept (prismatic convex planar edges only, else honest defer)
+    src/native/brep/NativeVariableFillet.cpp # R3-V — TKFillet-free VARIABLE-radius (linear-law) rolling-ball fillet on prismatic convex planar edges (exact rational Geom_BSplineSurface blend); native hot-path behind FORGE_NATIVE_BREP, OCCT fallback kept (non-linear law / curved / concave defer)
     src/native/brep/Shell.cpp           # offset/shell: hollow a solid to a uniform wall (analytic face offset + SSI re-trim + sew), open or closed
     src/native/brep/OffsetShape.cpp     # offset-shape: grow/shrink a solid by offsetting all faces +/-t (MakeOffsetShape, intersection join)
     src/native/brep/Chamfer.cpp

@@ -51,6 +51,7 @@
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"     // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/FilletAnalytic.hpp"  // filletBoxEdgeVariable, AnalyticVariableFilletResult
+#include "forge/native/brep/NativeVariableFillet.hpp"  // R3-V occtfillet::makeVariableFillet (arbitrary OCCT shape, linear law)
 #include "forge/native/brep/Topology.hpp"        // TopologyBuilder, Solid/Shell/Face/Loop/Coedge/Vertex/Point3
 #include <algorithm>
 #include <array>
@@ -240,6 +241,42 @@ ShapeHandle fillet(ShapeHandle solid,
     if (src.IsNull()) {
         throw std::invalid_argument("forge.varfillet.fillet: null solid handle");
     }
+
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKFillet-free) VARIABLE-radius fillet on an ARBITRARY OCCT shape:
+    // prismatic CONVEX straight edges with a LINEAR radius law R(u)=R0+(R1-R0)u are
+    // rounded by an exact rational Geom_BSplineSurface blend via
+    // forge::occtfillet::makeVariableFillet — NO BRepFilletAPI symbol referenced. This
+    // is DISTINCT from tryNativeVarFillet above (which serves only NativeSolid box
+    // handles): it handles the OCCT-backed shapes this OCCT branch resolves (imported
+    // STEP / boolean results). Edges are addressed by the SAME TopExp order the OCCT
+    // fallback below uses (edgeById). A non-linear/smooth (Law_S) law, a curved/concave
+    // edge, or an unresolvable edge makes makeVariableFillet DEFER (ok==false) and we
+    // fall through to the OCCT BRepFilletAPI path below unchanged. GATE DEFAULT OFF.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        std::vector<forge::occtfillet::VariableFilletSpec> nspecs;
+        nspecs.reserve(specs.size());
+        bool built = true;
+        for (const auto& sp : specs) {
+            if (!(sp.radiusStart > Precision::Confusion()) ||
+                !(sp.radiusEnd   > Precision::Confusion())) { built = false; break; }
+            forge::occtfillet::VariableFilletSpec vs;
+            try { vs.edge = edgeById(src, sp.edgeIndex); }
+            catch (...) { built = false; break; }
+            vs.law = smooth
+                ? forge::occtlaw::Law::S(0.0, sp.radiusStart, 1.0, sp.radiusEnd)
+                : forge::occtlaw::Law::Linear(0.0, sp.radiusStart, 1.0, sp.radiusEnd);
+            nspecs.push_back(std::move(vs));
+        }
+        if (built && !nspecs.empty()) {
+            forge::occtfillet::Result nr =
+                forge::occtfillet::makeVariableFillet(src, nspecs);
+            if (nr.ok && !nr.shape.IsNull())
+                return ShapeRegistry::instance().add(nr.shape);
+            // native deferred (non-linear law / curved / concave) -> OCCT path below.
+        }
+    }
+#endif
 
     BRepFilletAPI_MakeFillet mk(src);
 

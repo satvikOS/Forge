@@ -26,6 +26,7 @@
 #include "forge/native/brep/FilletAnalytic.hpp"  // topology-sourced analytic edge fillet
 #include "forge/native/brep/Chamfer.hpp"
 #include "forge/native/brep/ChamferAnalytic.hpp"  // analytic flat-bevel chamfer + canonical-cube recognition
+#include "forge/native/brep/NativeFilletChamfer.hpp"  // R3 TKFillet-free const-radius fillet/chamfer on an ARBITRARY OCCT shape (occtfillet::makeFillet/makeChamfer)
 #include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
 #include "forge/native/brep/DraftAnalytic.hpp"    // analytic face-draft -> square frustum (B-rep)
 #include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
@@ -1251,6 +1252,39 @@ ShapeHandle filletEdges(ShapeHandle shape,
     }
 #endif
     const auto& src = fetch(shape);
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKFillet-free) constant-radius fillet on an ARBITRARY OCCT shape:
+    // CONVEX STRAIGHT edges shared by two PLANAR faces are rounded by an exact
+    // rolling-ball cylinder blend (local-neighbourhood retrim + watertight sew) via
+    // forge::occtfillet::makeFillet — NO BRepFilletAPI symbol referenced. Edges are
+    // addressed by the SAME TopExp order the OCCT fallback below uses (edgeById), so
+    // the selection is identical on both backends and the A/B harness drives the same
+    // geometric set. ANY out-of-scope edge (curved / concave / >3-face vertex /
+    // non-perpendicular end face / dense faceted body) makes makeFillet return
+    // ok==false and we FALL THROUGH to the OCCT BRepFilletAPI path below unchanged.
+    // GATE DEFAULT OFF (forgeNativeFeaturesEnabled()): the production build is byte-
+    // for-byte the OCCT path until the FEAT gate is flipped on.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        std::vector<::forge::occtfillet::FilletSpec> nspecs;
+        nspecs.reserve(edgeIds.size());
+        bool built = true;
+        std::unordered_set<std::uint32_t> nseen;
+        for (std::uint32_t id : edgeIds) {
+            if (!nseen.insert(id).second) continue;   // dedup, like the analytic path
+            ::forge::occtfillet::FilletSpec fs;
+            try { fs.edge = edgeById(src, id); }
+            catch (...) { built = false; break; }     // out-of-range id -> defer to OCCT
+            fs.radius = radius;
+            nspecs.push_back(fs);
+        }
+        if (built && !nspecs.empty()) {
+            ::forge::occtfillet::Result nr = ::forge::occtfillet::makeFillet(src, nspecs);
+            if (nr.ok && !nr.shape.IsNull())
+                return ShapeRegistry::instance().add(nr.shape);
+            // native deferred (ok==false) -> OCCT BRepFilletAPI path below unchanged.
+        }
+    }
+#endif
     // ───────────────── PRE-DETECT: dense/faceted body fillet guard ────────────
     // ROOT CAUSE of the dense-bolt-circle+fillet stall (measured 2026-06-28):
     // a NativeSolid boolean result — e.g. a bolt-circle plate (140×130×16 box −
@@ -1539,6 +1573,47 @@ ShapeHandle chamferEdges(ShapeHandle shape,
 #endif
     const bool asymmetric = distance2 > Precision::Confusion();
     const auto& src = fetch(shape);
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKFillet-free) flat-bevel chamfer on an ARBITRARY OCCT shape: CONVEX
+    // STRAIGHT edges shared by two PLANAR faces are beveled by an exact plane bevel
+    // face (local-neighbourhood retrim + watertight sew) via forge::occtfillet::
+    // makeChamfer — NO BRepFilletAPI_MakeChamfer symbol referenced. Edges are
+    // addressed by the SAME TopExp order the OCCT fallback below uses; for an
+    // asymmetric two-distance chamfer the contact face is picked the SAME way (first
+    // TopExp face touching the edge), so the native distance->face assignment matches
+    // OCCT. ANY out-of-scope edge DEFERS (ok==false) to the OCCT path below unchanged.
+    // GATE DEFAULT OFF.
+    if (native::brep::forgeNativeFeaturesEnabled()) {
+        std::vector<::forge::occtfillet::ChamferSpec> nspecs;
+        nspecs.reserve(edgeIds.size());
+        bool built = true;
+        std::unordered_set<std::uint32_t> nseen;
+        for (std::uint32_t id : edgeIds) {
+            if (!nseen.insert(id).second) continue;
+            ::forge::occtfillet::ChamferSpec cs;
+            try { cs.edge = edgeById(src, id); }
+            catch (...) { built = false; break; }
+            cs.dist  = distance;
+            cs.dist2 = asymmetric ? distance2 : 0.0;   // <=0 => symmetric
+            if (asymmetric) {
+                for (TopExp_Explorer fe(src, TopAbs_FACE); fe.More(); fe.Next()) {
+                    bool found = false;
+                    for (TopExp_Explorer ee(fe.Current(), TopAbs_EDGE); ee.More(); ee.Next()) {
+                        if (ee.Current().IsSame(cs.edge)) { found = true; break; }
+                    }
+                    if (found) { cs.contact = TopoDS::Face(fe.Current()); break; }
+                }
+            }
+            nspecs.push_back(cs);
+        }
+        if (built && !nspecs.empty()) {
+            ::forge::occtfillet::Result nr = ::forge::occtfillet::makeChamfer(src, nspecs);
+            if (nr.ok && !nr.shape.IsNull())
+                return ShapeRegistry::instance().add(nr.shape);
+            // native deferred -> OCCT BRepFilletAPI_MakeChamfer path below unchanged.
+        }
+    }
+#endif
     // PRE-DETECT: same dense/faceted-body guard as filletEdges — OCCT
     // BRepFilletAPI_MakeChamfer crashes/hangs on the thousands-of-edge faceted
     // bridge of a many-hole NativeSolid boolean result (the app's chamferAllEdges

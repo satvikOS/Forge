@@ -109,6 +109,7 @@
 #include "forge/native/brep/SolidTessellate.hpp"   // tessellateSolid (native edge picking)
 #include "forge/native/brep/Fillet.hpp"            // enumerateSharpConvexEdges
 #include "forge/native/brep/NativeRoute.hpp"       // forgeNativeFeaturesEnabled()
+#include "forge/native/brep/NativeShapeHeal.hpp"    // occtheal::finalizeShape (TKShHealing-free light heal)
 #include "forge/native/brep/Boolean.hpp"           // booleanSolid, BoolOp, BooleanResult (lineage-carrying)
 #include "forge/native/brep/Sweep.hpp"             // prism, Profile, SweepResult (native extrude)
 #include "forge/native/brep/Topology.hpp"          // Solid, TopologyBuilder
@@ -502,6 +503,13 @@ ShapeHandle pushPullFace(ShapeHandle shape, FaceId faceId, double distance) {
     }
 
     // Light heal pass — closes any sub-µm gaps the boolean engine left.
+#ifdef FORGE_NATIVE_BREP
+    // NATIVE (TKShHealing-free) light finalize behind the FEAT gate (SameParameter +
+    // outward orient + closed-shell->solid); OCCT ShapeFix_Shape kept as #else. Default OFF.
+    if (native::brep::forgeNativeFeaturesEnabled())
+        return ShapeRegistry::instance().add(
+            forge::occtheal::finalizeShape(out, 0.0, 0.0).shape);
+#endif
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(out);
     fixer->Perform();
     return ShapeRegistry::instance().add(fixer->Shape());
@@ -549,6 +557,11 @@ ShapeHandle moveFace(ShapeHandle shape, FaceId faceId,
         work = op.Shape();
     }
 
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeFeaturesEnabled())
+        return ShapeRegistry::instance().add(
+            forge::occtheal::finalizeShape(work, 0.0, 0.0).shape);   // TKShHealing-free light heal; OCCT #else kept
+#endif
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(work);
     fixer->Perform();
     return ShapeRegistry::instance().add(fixer->Shape());
@@ -597,6 +610,11 @@ ShapeHandle rotateFace(ShapeHandle shape, FaceId faceId,
     if (!op.IsDone()) {
         throw std::runtime_error("forge.direct.rotateFace: fuse failed");
     }
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeFeaturesEnabled())
+        return ShapeRegistry::instance().add(
+            forge::occtheal::finalizeShape(op.Shape(), 0.0, 0.0).shape);   // TKShHealing-free light heal; OCCT #else kept
+#endif
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(op.Shape());
     fixer->Perform();
     return ShapeRegistry::instance().add(fixer->Shape());
@@ -695,6 +713,11 @@ ShapeHandle replaceFace(ShapeHandle shape, FaceId faceId, const SurfaceSpec& spe
     sew.Add(shell);
     sew.Perform();
     TopoDS_Shape sewn = sew.SewedShape();
+#ifdef FORGE_NATIVE_BREP
+    if (native::brep::forgeNativeFeaturesEnabled())
+        return ShapeRegistry::instance().add(
+            forge::occtheal::finalizeShape(sewn, 0.0, 0.0).shape);   // TKShHealing-free light heal; OCCT #else kept
+#endif
     Handle(ShapeFix_Shape) fixer = new ShapeFix_Shape(sewn);
     fixer->Perform();
     return ShapeRegistry::instance().add(fixer->Shape());
