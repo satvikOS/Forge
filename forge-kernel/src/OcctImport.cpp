@@ -51,6 +51,9 @@
 #include <Geom_SurfaceOfRevolution.hxx>
 #include <Geom_SurfaceOfLinearExtrusion.hxx>
 #include <Geom_OffsetSurface.hxx>
+#include <Geom_CylindricalSurface.hxx>   // K6a: offset-of-quadric exact native import
+#include <Geom_SphericalSurface.hxx>
+#include <Geom_ToroidalSurface.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <GeomConvert.hxx>
 #include <Standard_Failure.hxx>
@@ -77,6 +80,7 @@
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Ax3.hxx>
 
 // --- native (emit side) ----------------------------------------------------
@@ -109,6 +113,16 @@ struct FaceSurf {
     bool reversed = false;     // flip native normal so it points OUT of the solid
     bool angular = false;      // u is an angle (cylinder/cone/sphere) -> unwrap
     bool sphere = false;       // v maps as native_v = pi/2 - occt_v
+    // Surface-of-REVOLUTION path (kind == Nurbs, revolution == true): the native
+    // NURBS carries the EXACT rational-quadratic tensor form of the revolution, but its
+    // U-parameter is the B-spline knot param (0..revNSeg), NOT OCCT's uniform revolution
+    // ANGLE. So occtToNative maps the projected OCCT angle (uo) into this param via
+    // revAngleToParam(uo - revU0, revDelta, revNSeg) — the exact inverse of the arc's
+    // param->angle law. (V is the basis-curve param, carried through identically.)
+    bool revolution = false;
+    double revU0 = 0.0;        // OCCT angle at the face's u-window start (segment 0 start)
+    double revDelta = 0.0;     // angular width of each rational-quadratic segment
+    int revNSeg = 0;           // number of segments spanning the face's angular window
     // BSpline/Bezier path (kind == Nurbs): the EXACT rational tensor-product
     // surface (poles/weights/clamped knots/degrees). For a Nurbs face the native
     // (u,v) == OCCT's surface (u,v) directly (the p-curves CurveOnSurface returns
@@ -367,6 +381,248 @@ bool readExtrusionSurface(const Handle(Geom_SurfaceOfLinearExtrusion)& ext,
     return readBSplineSurface(bs, out, why);
 }
 
+// ---------------------------------------------------------------------------
+// REVOLUTION angle -> B-spline U-parameter (the map occtToNative uses for a
+// surface-of-revolution imported as an exact rational-quadratic tensor NURBS).
+//
+// The revolution's U-domain is `nSeg` equal angular segments of width `delta`,
+// each an EXACT rational-quadratic circular arc (weight cos(delta/2) on the mid
+// control) occupying B-spline knot-interval [k,k+1]. Within a segment the Bezier
+// parameter t and the swept angle phi (from the segment start) satisfy EXACTLY
+//     tan(phi/2) = t*sin(delta/2) / ( 1 - t*(1-cos(delta/2)) )
+// (derived from the rational-quadratic circle: the denominator D+N_x collapses to
+// 2*A^2 with A = 1 - t*(1-cos(delta/2)), so tan(phi/2) = N_y/(D+N_x) = t*sin/[A]).
+// The inverse used here is
+//     t = tan(phi/2) / ( sin(delta/2) + tan(phi/2)*(1-cos(delta/2)) ).
+// `angle` is measured from the face's u-window start (revU0); returns k+t in
+// [0,nSeg]. This is EXACT: native NURBS at k+t reproduces OCCT's Value(revU0+angle,·).
+double revAngleToParam(double angle, double delta, int nSeg) {
+    if (nSeg < 1 || !(delta > 0.0)) return 0.0;
+    const double total = delta * (double)nSeg;
+    if (angle <= 0.0) return 0.0;
+    if (angle >= total) return (double)nSeg;
+    int k = (int)std::floor(angle / delta);
+    if (k < 0) k = 0;
+    if (k >= nSeg) k = nSeg - 1;
+    const double local = angle - (double)k * delta;    // [0, delta]
+    const double s = std::sin(0.5 * delta);
+    const double c = std::cos(0.5 * delta);
+    const double tau = std::tan(0.5 * local);
+    const double denom = s + tau * (1.0 - c);
+    double t = (denom != 0.0) ? (tau / denom) : 0.0;
+    if (t < 0.0) t = 0.0;
+    if (t > 1.0) t = 1.0;
+    return (double)k + t;
+}
+
+// ---------------------------------------------------------------------------
+// EXACT surface of REVOLUTION -> native NurbsSurface, built DIRECTLY as the rational
+// tensor product  (exact rational-quadratic circle in U)  x  (basis-curve B-spline in V).
+// This is geometrically EXACT — the circle is the standard weight-cos(delta/2) rational
+// quadratic (traces the true circle, no chordal error) and the meridian basis is carried
+// 1:1 by curveToBSpline — NOT a facet and NOT a toleranced fit. The U-knot parameter is
+// the arc's projective param (NOT OCCT's uniform angle), so the importer converts the
+// projected OCCT angle to it via revAngleToParam (occtToNative); V is the basis param,
+// passed through identically. We ACCEPT only after a RUNTIME round-trip self-check versus
+// OCCT's own Value(angle,v): any validated-sample mismatch (e.g. a CONIC meridian whose
+// curveToBSpline reparameterises V, which we do not remap) DEFERS honestly — never a
+// mis-parameterised or facet-faked body. Returns false (with `why`) on any defer.
+bool readRevolutionSurface(const Handle(Geom_SurfaceOfRevolution)& rev,
+                           const TopoDS_Face& face,
+                           FaceSurf& out, std::string& why) {
+    if (rev.IsNull()) { why = "null revolution surface"; return false; }
+    Handle(Geom_Curve) basis = rev->BasisCurve();
+    if (basis.IsNull()) { why = "revolution has null basis curve"; return false; }
+
+    Handle(Geom_BSplineCurve) cb;
+#if defined(FORGE_NATIVE_NURBS_CONVERT) && defined(FORGE_NATIVE_BREP)
+    try { cb = forge::occtconv::curveToBSpline(basis); }
+    catch (const Standard_Failure&) { cb.Nullify(); }
+#else
+    try { cb = GeomConvert::CurveToBSplineCurve(basis); }
+    catch (const Standard_Failure&) { cb.Nullify(); }
+#endif
+    if (cb.IsNull()) { why = "revolution basis curve -> B-spline failed"; return false; }
+
+    const gp_Ax1 ax = rev->Axis();
+    const Vec3 Aloc = toV3(ax.Location());
+    const Vec3 Adir = nb::vnorm(toV3(ax.Direction()));
+
+    double u0, u1, v0, v1;
+    BRepTools::UVBounds(face, u0, u1, v0, v1);   // u = revolution angle window, v = basis param
+    double sweep = u1 - u0;
+    if (!(sweep > 1e-9)) { why = "revolution angular window degenerate"; return false; }
+    if (sweep > 2.0 * kPi + 1e-6) sweep = 2.0 * kPi;      // clamp a hairline over-period
+    int nSeg = (int)std::ceil(sweep / (0.5 * kPi) - 1e-9);
+    if (nSeg < 1) nSeg = 1;
+    const double delta = sweep / nSeg;                    // each segment <= 90 deg
+    const double cw = std::cos(0.5 * delta);              // mid-control weight (>0)
+    if (!(cw > 1e-9)) { why = "revolution segment weight degenerate"; return false; }
+    const double secw = 1.0 / cw;                         // mid-control radial scale
+
+    const int nV = cb->NbPoles();
+    if (nV < 2) { why = "revolution basis pole count < 2"; return false; }
+    const bool basisRational = cb->IsRational();
+    const int nU = 2 * nSeg + 1;                          // deg-2, interior mult 2
+
+    // Tensor poles/weights: for each meridian pole Q_j (radius rho_j about the axis,
+    // axial foot axfoot_j) lay the exact circle control net over [u0,u1] in that pole's
+    // own (eX,eY) plane; a pole ON the axis collapses its whole U-row to axfoot.
+    TColgp_Array2OfPnt poles(1, nU, 1, nV);
+    TColStd_Array2OfReal wts(1, nU, 1, nV);
+    for (int j = 1; j <= nV; ++j) {
+        gp_Pnt Qp = cb->Pole(j);
+        const double wq = basisRational ? cb->Weight(j) : 1.0;
+        const Vec3 Q = toV3(Qp);
+        const double h = nb::vdot(nb::vsub(Q, Aloc), Adir);
+        const Vec3 axfoot = nb::vadd(Aloc, nb::vscale(Adir, h));
+        const Vec3 radial = nb::vsub(Q, axfoot);
+        const double rho = nb::vlen(radial);
+        const bool onAxis = !(rho > 1e-12);
+        Vec3 eX{}, eY{};
+        if (!onAxis) {
+            eX = nb::vscale(radial, 1.0 / rho);
+            eY = nb::vcross(Adir, eX);            // unit (Adir _|_ eX, both unit)
+        }
+        for (int ku = 0; ku < nU; ++ku) {
+            const bool mid = (ku % 2) == 1;       // odd index = segment mid control
+            const int seg = mid ? (ku - 1) / 2 : ku / 2;
+            const double phi = u0 + delta * (double)seg + (mid ? 0.5 * delta : 0.0);
+            const double rr = onAxis ? 0.0 : (mid ? rho * secw : rho);
+            Vec3 P = axfoot;
+            if (!onAxis) {
+                const Vec3 dir = nb::vadd(nb::vscale(eX, std::cos(phi)),
+                                          nb::vscale(eY, std::sin(phi)));
+                P = nb::vadd(axfoot, nb::vscale(dir, rr));
+            }
+            poles.SetValue(ku + 1, j, gp_Pnt(P.x, P.y, P.z));
+            wts.SetValue(ku + 1, j, (mid ? cw : 1.0) * wq);
+        }
+    }
+
+    // U knots 0..nSeg (interior mult 2, ends mult 3 -> degree-2 clamped).
+    TColStd_Array1OfReal uk(1, nSeg + 1);
+    TColStd_Array1OfInteger um(1, nSeg + 1);
+    for (int i = 0; i <= nSeg; ++i) {
+        uk.SetValue(i + 1, (double)i);
+        um.SetValue(i + 1, (i == 0 || i == nSeg) ? 3 : 2);
+    }
+    // V knots straight from the basis B-spline (its parameterisation is preserved).
+    const int nVk = cb->NbKnots();
+    TColStd_Array1OfReal vk(1, nVk); cb->Knots(vk);
+    TColStd_Array1OfInteger vm(1, nVk); cb->Multiplicities(vm);
+
+    Handle(Geom_BSplineSurface) bs;
+    try {
+        bs = new Geom_BSplineSurface(poles, wts, uk, vk, um, vm,
+                                     2, cb->Degree(), Standard_False, cb->IsPeriodic());
+    } catch (const Standard_Failure& f) {
+        why = std::string("revolution tensor surface build failed: ") + f.GetMessageString();
+        return false;
+    }
+    // 1:1 extract into the native rational surface (de-periodise/validate path).
+    if (!readBSplineSurface(bs, out.nurbs, why)) return false;
+
+    // ---- RUNTIME round-trip self-check: native(revAngleToParam(angle),v) == OCCT ------
+    // Sample the interior of the (angle,v) window; require EVERY validated sample within
+    // tol. Catches any V-reparameterisation (conic meridian) or build slip -> honest defer.
+    {
+        int okCount = 0;
+        double scale = 1.0;
+        for (int i = 0; i <= 4; ++i)
+            for (int jj = 0; jj <= 4; ++jj) {
+                const double a  = u0 + (u1 - u0) * ((double)i  + 0.5) / 5.5;   // interior
+                const double vv = v0 + (v1 - v0) * ((double)jj + 0.5) / 5.5;
+                gp_Pnt occ = rev->Value(a, vv);
+                const double up = revAngleToParam(a - u0, delta, nSeg);
+                nb::SurfaceSample ss = nb::evaluatePoint(out.nurbs, up, vv);
+                if (!ss.ok) continue;                       // singular sample (pole) — skip
+                const Vec3 o{occ.X(), occ.Y(), occ.Z()};
+                const double mag = nb::vlen(o); if (mag > scale) scale = mag;
+                const double dst = nb::vlen(nb::vsub(o, ss.point));
+                if (dst > 1e-6 * std::max(1.0, scale)) {
+                    why = "revolution native/OCCT round-trip mismatch (basis reparameterised "
+                          "or non-uniform-angle meridian — deferred, not facet-faked)";
+                    return false;
+                }
+                ++okCount;
+            }
+        if (okCount < 4) { why = "revolution self-check validated no samples (defer)"; return false; }
+    }
+
+    out.kind = nb::SurfaceKind::Nurbs;
+    out.revolution = true;
+    out.revU0 = u0;
+    out.revDelta = delta;
+    out.revNSeg = nSeg;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// EXACT native import of an OFFSET surface WHEN its base is an elementary quadric.
+// The offset of a plane/cylinder/sphere/torus is the SAME analytic kind with a shifted
+// origin/radius, and Geom_OffsetSurface PRESERVES the base (u,v) parameterisation
+// (Value(u,v) = base(u,v) + d*N(u,v)), so projecting onto the offset surface returns the
+// base's (u,v) and the existing native analytic path (angular unwrap / colatitude / wrap
+// grid) indexes it directly — no remap, no facet. A CONE base (fiddly apex re-anchor) or
+// any FREE-FORM base (whose offset is genuinely non-rational — a true mathematical limit,
+// not laziness) is DEFERRED honestly. Fills `out` analytic fields on success.
+bool readOffsetSurface(const Handle(Geom_OffsetSurface)& off,
+                       FaceSurf& out, std::string& why) {
+    if (off.IsNull()) { why = "null offset surface"; return false; }
+    const double d = off->Offset();                  // signed offset along base normal
+    Handle(Geom_Surface) base = off->BasisSurface();
+    if (base.IsNull()) { why = "offset has null basis surface"; return false; }
+
+    if (Handle(Geom_Plane) pl = Handle(Geom_Plane)::DownCast(base)) {
+        gp_Pln p = pl->Pln();
+        const gp_Ax3& a = p.Position();
+        out.kind   = nb::SurfaceKind::Plane;
+        out.axis   = nb::vnorm(toV3(a.Direction()));
+        out.refDir = toV3(a.XDirection());
+        out.origin = nb::vadd(toV3(a.Location()), nb::vscale(out.axis, d));
+        return true;
+    }
+    if (Handle(Geom_CylindricalSurface) cyl = Handle(Geom_CylindricalSurface)::DownCast(base)) {
+        gp_Cylinder cy = cyl->Cylinder();
+        const gp_Ax3& a = cy.Position();
+        const double r = cy.Radius() + d;            // gp_Cylinder normal is outward radial
+        if (!(r > 1e-9)) { why = "offset cylinder radius <= 0 (inverted — deferred)"; return false; }
+        out.kind   = nb::SurfaceKind::Cylinder;
+        out.origin = toV3(a.Location());
+        out.axis   = toV3(a.Direction());
+        out.refDir = toV3(a.XDirection());
+        out.r1 = r; out.angular = true;
+        return true;
+    }
+    if (Handle(Geom_SphericalSurface) sph = Handle(Geom_SphericalSurface)::DownCast(base)) {
+        gp_Sphere s = sph->Sphere();
+        const gp_Ax3& a = s.Position();
+        const double r = s.Radius() + d;             // outward normal -> +d
+        if (!(r > 1e-9)) { why = "offset sphere radius <= 0 (inverted — deferred)"; return false; }
+        out.kind   = nb::SurfaceKind::Sphere;
+        out.origin = toV3(a.Location());
+        out.axis   = toV3(a.Direction());
+        out.refDir = toV3(a.XDirection());
+        out.r1 = r; out.angular = true; out.sphere = true;
+        return true;
+    }
+    if (Handle(Geom_ToroidalSurface) tor = Handle(Geom_ToroidalSurface)::DownCast(base)) {
+        gp_Torus t = tor->Torus();
+        const gp_Ax3& a = t.Position();
+        const double minor = t.MinorRadius() + d;    // offset grows the tube radius
+        if (!(minor > 1e-9)) { why = "offset torus minor radius <= 0 (inverted — deferred)"; return false; }
+        out.kind   = nb::SurfaceKind::Torus;
+        out.origin = toV3(a.Location());
+        out.axis   = toV3(a.Direction());
+        out.refDir = toV3(a.XDirection());
+        out.r1 = t.MajorRadius(); out.r2 = minor; out.angular = true;
+        return true;
+    }
+    why = "offset of non-elementary base (cone / free-form: no exact rational offset — deferred)";
+    return false;
+}
+
 // Build the native FaceSurf from an OCCT analytic face. Returns false (with
 // `why` set) for a non-analytic surface type.
 bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
@@ -460,34 +716,36 @@ bool readSurface(const TopoDS_Face& face, FaceSurf& out, std::string& why) {
         return true;
     }
     case GeomAbs_SurfaceOfRevolution: {
-        // HONEST DEFER. A surface of revolution sweeps the profile around the axis through
-        // a TRUE-ANGLE u parameter (OCCT's u is the revolution angle, uniform). The only
-        // exact representation of a circular sweep as a B-spline is a RATIONAL QUADRATIC,
-        // whose u parameter is NON-uniform in the angle (the tan(theta/2) reparameterisation)
-        // — so NO rational B-spline surface can simultaneously (a) trace the exact circle
-        // AND (b) keep OCCT's uniform-angle u domain that the face's CurveOnSurface p-curves
-        // live in. GeomConvert::SurfaceToBSplineSurface confirms this: it returns a degree-2
-        // NON-rational (polynomial) approximation that misses the true surface by ~0.16 at
-        // model scale (~4.6% volume) and is parameter-mismatched. Rather than import a
-        // facet-grade-inexact, p-curve-misindexed body, we DEFER until the native kernel
-        // grows a first-class revolved-surface geometry (which would re-derive the p-curves
-        // in its own parameterisation). [A native Torus IS supported — that quadric's
-        // parameterisation IS uniform-angle and matches OCCT exactly.]
-        why = "non-analytic face Revolution (no exact uniform-angle NURBS; GeomConvert "
-              "approximation ~4.6% volume / 0.16 abs — deferred, not facet-faked)";
-        return false;
+        // A surface of revolution (a turned/lathe profile swept about an axis) has NO
+        // dedicated native analytic kind, but it IS an EXACT rational tensor B-spline:
+        // (rational-quadratic circle in u) x (meridian basis curve in v). We build it
+        // DIRECTLY (readRevolutionSurface) — the circle traces the TRUE circle (no chordal
+        // error) and the meridian is carried 1:1 — so the result is exact, never a facet.
+        // OCCT's uniform-ANGLE u is mapped onto the arc's projective u-param by occtToNative
+        // (revAngleToParam); a runtime native/OCCT round-trip self-check accepts only the
+        // exactly-reproduced cases (e.g. a conic meridian that reparameterises v defers
+        // honestly). This is the first-class revolved-surface support the earlier defer
+        // note called for — realised on the existing native NURBS substrate.
+        Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+        Handle(Geom_SurfaceOfRevolution) rev =
+            Handle(Geom_SurfaceOfRevolution)::DownCast(gs);
+        if (rev.IsNull()) { why = "revolution face had no Geom_SurfaceOfRevolution"; return false; }
+        if (!readRevolutionSurface(rev, face, out, why)) return false;
+        return true;   // out.kind == Nurbs, out.revolution == true (occtToNative remaps u).
     }
     case GeomAbs_OffsetSurface: {
-        // HONEST DEFER. An OffsetSurface is the base surface displaced by a constant along
-        // its normal; it is exactly a rational B-spline ONLY for special bases, and for a
-        // free-form base GeomConvert::SurfaceToBSplineSurface yields a TOLERANCED (fitted)
-        // approximation, not an exact surface — and (like the revolution) its (u,v)
-        // parameterisation need not match the offset's p-curve domain. With no verified
-        // exact-and-parameter-matched case, we DEFER honestly rather than import an
-        // approximate offset wall.
-        why = "non-analytic face Offset (offset->NURBS is a toleranced fit, not exact — "
-              "deferred, not facet-faked)";
-        return false;
+        // An OffsetSurface displaces a base surface by a constant along its normal. When the
+        // base is an elementary quadric (plane/cylinder/sphere/torus) the offset is the SAME
+        // native analytic kind with a shifted origin/radius AND preserves the base (u,v)
+        // parameterisation, so it imports EXACTLY through the existing analytic path
+        // (readOffsetSurface fills the frame; falls through to the reortho + analytic route
+        // below). A CONE base or any FREE-FORM base — whose offset is genuinely non-rational,
+        // a true mathematical limit — DEFERS honestly.
+        Handle(Geom_Surface) gs = BRep_Tool::Surface(face);
+        Handle(Geom_OffsetSurface) off = Handle(Geom_OffsetSurface)::DownCast(gs);
+        if (off.IsNull()) { why = "offset face had no Geom_OffsetSurface"; return false; }
+        if (!readOffsetSurface(off, out, why)) return false;
+        break;   // -> frame reorthonormalise + return true (analytic quadric path)
     }
     case GeomAbs_BSplineSurface: {
         // The biggest OCCT-zero gap: real CAD parts (fillet blends, lofts, sweeps)
@@ -926,10 +1184,19 @@ ImportResult importOcctSolid(const TopoDS_Shape& shape) {
                 // are angles, so just keep each within a contiguous window for the CDT.
                 un = unwrapU(uo); vn = unwrapV(vo); return;
             case nb::SurfaceKind::Nurbs:
-                // IDENTITY: the native NURBS surface keeps OCCT's parameter domain,
-                // and CurveOnSurface returns the p-curve in that same (u,v), so the
-                // native (u,v) == OCCT's (u,v) with no remap.
-                un = uo; vn = vo; return;
+                if (fs.revolution) {
+                    // REVOLUTION NURBS: the native U-param is the rational-quadratic arc
+                    // param, NOT OCCT's uniform revolution ANGLE (uo). Map angle -> param
+                    // by the exact inverse (revAngleToParam); V (basis param) passes through.
+                    un = revAngleToParam(uo - fs.revU0, fs.revDelta, fs.revNSeg);
+                    vn = vo;
+                } else {
+                    // IDENTITY: a plain B-spline/Bezier/extrusion NURBS surface keeps OCCT's
+                    // parameter domain, and CurveOnSurface returns the p-curve in that same
+                    // (u,v), so the native (u,v) == OCCT's (u,v) with no remap.
+                    un = uo; vn = vo;
+                }
+                return;
             default: un = uo; vn = vo; return;
             }
         };

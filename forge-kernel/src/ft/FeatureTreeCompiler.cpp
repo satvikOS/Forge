@@ -38,6 +38,8 @@
 #include "forge/Healing.hpp"
 #include "forge/DirectModeling.hpp"
 #include "forge/Tessellate.hpp"
+#include "forge/LoftGuide.hpp"   // loftguide::loft (real 3D loft over profileWire sections)
+#include "forge/VarFillet.hpp"   // varfillet::fillet (variable-radius BLEND)
 
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"
@@ -104,14 +106,18 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
     static const std::unordered_map<std::string, OpCode> tbl = {
         {"RECT", OpCode::Rect}, {"RRECT", OpCode::RRect}, {"CIRCLE", OpCode::Circle},
         {"SLOT", OpCode::Slot}, {"POLY", OpCode::Poly}, {"REGPOLY", OpCode::RegPoly},
+        {"RING", OpCode::Ring}, {"WIRE", OpCode::Wire},
         {"BOX", OpCode::Box}, {"CYL", OpCode::Cyl}, {"CONE", OpCode::Cone},
         {"SPHERE", OpCode::Sphere}, {"TORUS", OpCode::Torus}, {"PRISM", OpCode::Prism},
         {"TUBE", OpCode::Tube},
         {"EXTRUDE", OpCode::Extrude}, {"REVOLVE", OpCode::Revolve}, {"LOFT", OpCode::Loft},
+        {"SWEEP", OpCode::Sweep},
         {"FUSE", OpCode::Fuse}, {"CUT", OpCode::Cut}, {"COMMON", OpCode::Common},
         {"TRANSLATE", OpCode::Translate}, {"ROTATE", OpCode::Rotate},
+        {"MIRROR", OpCode::Mirror}, {"PATTERN", OpCode::Pattern},
         {"HOLE", OpCode::Hole}, {"CBORE", OpCode::Cbore}, {"FILLET", OpCode::Fillet},
-        {"CHAMFER", OpCode::Chamfer}, {"SHELL", OpCode::Shell}, {"HEAL", OpCode::Heal},
+        {"CHAMFER", OpCode::Chamfer}, {"BLEND", OpCode::Blend},
+        {"SHELL", OpCode::Shell}, {"FOLD", OpCode::Fold}, {"HEAL", OpCode::Heal},
     };
     auto it = tbl.find(nameUpper);
     known = (it != tbl.end());
@@ -196,7 +202,26 @@ FeatureTree parse(const std::string& text) {
                 std::string t = trim(argStr);
                 if (t.empty()) continue;
                 Token tok;
-                if (t[0] == '%') {
+                if (t[0] == '[') {
+                    // a 2D/3D point ring:  [x y; x y; ...]  or  [x y z; x y z; ...]
+                    std::size_t b0 = t.find('['), b1 = t.rfind(']');
+                    if (b0 == std::string::npos || b1 == std::string::npos || b1 < b0)
+                        fail("malformed point list `" + t + "`");
+                    std::string body = t.substr(b0 + 1, b1 - b0 - 1);
+                    tok.kind = TokKind::Points;
+                    for (auto& ptStr : splitTop(body, ';')) {
+                        std::string ps = trim(ptStr);
+                        if (ps.empty()) continue;
+                        std::istringstream ss(ps);
+                        double x = 0, y = 0, z = 0;
+                        int got = 0;
+                        if (ss >> x) ++got; if (ss >> y) ++got; if (ss >> z) ++got;
+                        if (got < 2) fail("point needs `x y` or `x y z`");
+                        if (tok.dim == 0) tok.dim = (got >= 3) ? 3 : 2;
+                        tok.pts.push_back(Point3{x, y, z});
+                    }
+                    if (tok.pts.empty()) fail("empty point list");
+                } else if (t[0] == '%') {
                     double v;
                     if (!parseDouble(t.substr(1), v)) fail("bad %ref `" + t + "`");
                     tok.kind = TokKind::Ref;
@@ -220,7 +245,7 @@ FeatureTree parse(const std::string& text) {
 namespace {
 
 struct Val {
-    enum Kind { Profile, Solid } kind = Solid;
+    enum Kind { Profile, Wire, Solid } kind = Solid;
     Handle h = 0;
 };
 
@@ -241,6 +266,9 @@ public:
             case OpCode::Slot:    return profSlot(op);
             case OpCode::Poly:    return profPoly(op);
             case OpCode::RegPoly: return profRegPoly(op);
+            // ---- 3D section rings (WIRE) ----
+            case OpCode::Ring:    return wireRing(op);
+            case OpCode::Wire:    return wireExplicit(op);
             // ---- 3D primitives ----
             case OpCode::Box:     return primBox(op);
             case OpCode::Cyl:     return primCyl(op);
@@ -249,23 +277,28 @@ public:
             case OpCode::Torus:   return primTorus(op);
             case OpCode::Prism:   return primPrism(op);
             case OpCode::Tube:    return primTube(op);
-            // ---- sketch -> solid ----
+            // ---- sketch/wire -> solid ----
             case OpCode::Extrude: return opExtrude(op, env);
             case OpCode::Revolve: return opRevolve(op, env);
             case OpCode::Loft:    return opLoft(op, env);
+            case OpCode::Sweep:   return opSweep(op, env);
             // ---- booleans ----
             case OpCode::Fuse:    return opBool(op, env, 0);
             case OpCode::Cut:     return opBool(op, env, 1);
             case OpCode::Common:  return opBool(op, env, 2);
-            // ---- transforms ----
+            // ---- transforms / replication ----
             case OpCode::Translate: return opTranslate(op, env);
             case OpCode::Rotate:    return opRotate(op, env);
+            case OpCode::Mirror:    return opMirror(op, env);
+            case OpCode::Pattern:   return opPattern(op, env);
             // ---- features ----
             case OpCode::Hole:    return opHole(op, env);
             case OpCode::Cbore:   return opCbore(op, env);
             case OpCode::Fillet:  return opFillet(op, env);
             case OpCode::Chamfer: return opChamfer(op, env);
+            case OpCode::Blend:   return opBlend(op, env);
             case OpCode::Shell:   return opShell(op, env);
+            case OpCode::Fold:    return opFold(op, env);
             case OpCode::Heal:    return opHeal(op, env);
         }
         throw OpError(op.id, "unhandled op");
@@ -277,6 +310,8 @@ public:
             case OpCode::Rect: case OpCode::RRect: case OpCode::Circle:
             case OpCode::Slot: case OpCode::Poly:  case OpCode::RegPoly:
                 return Val::Profile;
+            case OpCode::Ring: case OpCode::Wire:
+                return Val::Wire;
             default:
                 return Val::Solid;
         }
@@ -316,6 +351,29 @@ private:
         if (it->second.kind != Val::Profile)
             throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is a SOLID, expected a PROFILE");
         return it->second.h;  // a SketchHandle
+    }
+    Handle refWire(const Op& op, std::size_t i, std::unordered_map<int, Val>& env) {
+        if (i >= op.args.size() || op.args[i].kind != TokKind::Ref)
+            throw OpError(op.id, op.name + ": arg #" + std::to_string(i) + " must be a %ref");
+        auto it = env.find(op.args[i].ref);
+        if (it == env.end())
+            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) + " is undefined");
+        if (it->second.kind != Val::Wire)
+            throw OpError(op.id, op.name + ": %" + std::to_string(op.args[i].ref) +
+                          " is not a WIRE section (use RING(...) or WIRE([...]))");
+        return it->second.h;  // a TopoDS_Wire ShapeHandle
+    }
+    // A mandatory bracketed point list at arg i.
+    const std::vector<Point3>& pointsArg(const Op& op, std::size_t i) {
+        if (i >= op.args.size() || op.args[i].kind != TokKind::Points)
+            throw OpError(op.id, op.name + ": arg #" + std::to_string(i) + " must be a [x y; ...] point list");
+        return op.args[i].pts;
+    }
+    // A mandatory keyword (mode/selector) at arg i.
+    std::string kwReq(const Op& op, std::size_t i) {
+        if (i >= op.args.size() || op.args[i].kind != TokKind::Keyword)
+            throw OpError(op.id, op.name + ": arg #" + std::to_string(i) + " must be a keyword");
+        return op.args[i].kw;
     }
 
     // ---- placement: re-aim a +Z-based primitive to `axis`, base at (cx,cy,cz) --
@@ -440,6 +498,40 @@ private:
         return s;
     }
 
+    // ---- 3D section rings (return a TopoDS_Wire ShapeHandle) -----------------
+    // A superellipse ring |x/rx|^p + |y/ry|^p = 1 sampled to `seg` points at
+    // height z. p=2 => circle/ellipse; p=4..6 => rounded-rect (impeller hub,
+    // nozzle, transition-duct sections). Mirrors native_compile.mjs sectionRing.
+    Handle wireRing(const Op& op) {
+        double rx = num(op, 0), ry = num(op, 1), z = num(op, 2);
+        double cx = numOpt(op, 3, 0), cy = numOpt(op, 4, 0);
+        double p = numOpt(op, 5, 2.0);
+        int seg = static_cast<int>(numOpt(op, 6, 48));
+        if (rx <= 0 || ry <= 0) throw OpError(op.id, "RING: rx, ry must be > 0");
+        if (p < 2.0) p = 2.0;
+        if (seg < 8) seg = 8;
+        std::vector<double> pts;
+        pts.reserve(static_cast<std::size_t>(seg) * 3);
+        for (int i = 0; i < seg; ++i) {
+            double t = 2.0 * kPi * i / seg;
+            double ct = std::cos(t), st = std::sin(t);
+            double sgnc = (ct > 0) - (ct < 0), sgns = (st > 0) - (st < 0);
+            double x = cx + rx * sgnc * std::pow(std::fabs(ct), 2.0 / p);
+            double y = cy + ry * sgns * std::pow(std::fabs(st), 2.0 / p);
+            pts.push_back(x); pts.push_back(y); pts.push_back(z);
+        }
+        return forge::part::profileWire(pts, /*closed*/ true);
+    }
+    // An explicit closed 3D ring — airfoil / organic / sharp-cornered section.
+    Handle wireExplicit(const Op& op) {
+        const auto& P = pointsArg(op, 0);
+        if (P.size() < 3) throw OpError(op.id, "WIRE needs >= 3 points");
+        std::vector<double> pts;
+        pts.reserve(P.size() * 3);
+        for (const auto& q : P) { pts.push_back(q.x); pts.push_back(q.y); pts.push_back(q.z); }
+        return forge::part::profileWire(pts, /*closed*/ true);
+    }
+
     // ---- primitive builders (return a ShapeHandle) --------------------------
     Handle primBox(const Op& op) {
         double dx = num(op, 0), dy = num(op, 1), dz = num(op, 2);
@@ -492,19 +584,68 @@ private:
         double dx = numOpt(op, 2, 0), dy = numOpt(op, 3, 0), dz = numOpt(op, 4, 1);
         return forge::part::extrudeProfile(sk, amount, dx, dy, dz);
     }
+    // REVOLVE — partial angle (0<a<=360) about an ARBITRARY axis line. The
+    // native revolveProfile already takes (origin, dir, angleRad); this only
+    // validates the range + a non-degenerate axis so a bad emission fails loud.
     Handle opRevolve(const Op& op, std::unordered_map<int, Val>& env) {
         SketchHandle sk = refProfile(op, 0, env);
         double angDeg = num(op, 1);
+        if (angDeg <= 0.0 || angDeg > 360.0)
+            throw OpError(op.id, "REVOLVE: angleDeg must be in (0, 360]");
         double ox = numOpt(op, 2, 0), oy = numOpt(op, 3, 0), oz = numOpt(op, 4, 0);
         double ax = numOpt(op, 5, 0), ay = numOpt(op, 6, 1), az = numOpt(op, 7, 0);
+        if (ax * ax + ay * ay + az * az < 1e-18)
+            throw OpError(op.id, "REVOLVE: axis direction is zero");
         return forge::part::revolveProfile(sk, ox, oy, oz, ax, ay, az, angDeg * kPi / 180.0);
     }
+    // LOFT — skin >= 2 WIRE sections (each placed in 3D via profileWire) with
+    // loftguide::loft (BSpline-smoothed lateral faces + planar caps). Trailing
+    // flags: RULED (straight rulings, no smoothing), OPEN (shell, uncapped).
     Handle opLoft(const Op& op, std::unordered_map<int, Val>& env) {
-        std::vector<SketchHandle> secs;
-        for (std::size_t i = 0; i < op.args.size(); ++i)
-            secs.push_back(refProfile(op, i, env));
-        if (secs.size() < 2) throw OpError(op.id, "LOFT needs >= 2 profiles");
-        return forge::part::loft(secs, {}, false, false);
+        std::vector<Handle> wires;
+        bool ruled = false, solid = true;
+        for (std::size_t i = 0; i < op.args.size(); ++i) {
+            if (op.args[i].kind == TokKind::Ref) {
+                wires.push_back(refWire(op, i, env));
+            } else if (op.args[i].kind == TokKind::Keyword) {
+                const std::string& kw = op.args[i].kw;
+                if (kw == "RULED") ruled = true;
+                else if (kw == "OPEN") solid = false;
+                else throw OpError(op.id, "LOFT: unknown flag `" + kw + "` (want RULED|OPEN)");
+            } else {
+                throw OpError(op.id, "LOFT: arg #" + std::to_string(i) +
+                              " must be a %wire ref or a flag (RULED|OPEN)");
+            }
+        }
+        if (wires.size() < 2)
+            throw OpError(op.id, "LOFT needs >= 2 WIRE sections (RING/WIRE)");
+        return forge::loftguide::loft(wires, {}, solid, ruled);
+    }
+    // SWEEP — circular pipe (radius arg) or arbitrary-profile sweep along a 3D
+    // polyline path. Routes to pipeFromPolyline / sweepPolyline, the robust
+    // native verbs (part::sweep collapses when profile+path are coplanar).
+    Handle opSweep(const Op& op, std::unordered_map<int, Val>& env) {
+        (void)env;
+        const std::vector<Point3>& path = pointsArg(op, 1);
+        if (path.size() < 2) throw OpError(op.id, "SWEEP: path needs >= 2 points");
+        std::vector<double> pathFlat;
+        pathFlat.reserve(path.size() * 3);
+        for (const auto& q : path) { pathFlat.push_back(q.x); pathFlat.push_back(q.y); pathFlat.push_back(q.z); }
+
+        if (!op.args.empty() && op.args[0].kind == TokKind::Number) {
+            double r = num(op, 0);
+            if (r <= 0) throw OpError(op.id, "SWEEP: pipe radius must be > 0");
+            return forge::part::pipeFromPolyline(pathFlat, r);
+        }
+        if (!op.args.empty() && op.args[0].kind == TokKind::Points) {
+            const std::vector<Point3>& prof = op.args[0].pts;
+            if (prof.size() < 3) throw OpError(op.id, "SWEEP: profile ring needs >= 3 points");
+            std::vector<double> profFlat;
+            profFlat.reserve(prof.size() * 2);
+            for (const auto& q : prof) { profFlat.push_back(q.x); profFlat.push_back(q.y); }
+            return forge::part::sweepPolyline(profFlat, pathFlat);
+        }
+        throw OpError(op.id, "SWEEP: arg #0 must be a pipe radius or a [x y; ...] profile ring");
     }
 
     // ---- booleans -----------------------------------------------------------
@@ -532,6 +673,61 @@ private:
         cur = forge::rotate(cur, ax, ay, az, ang);
         if (ox || oy || oz) cur = forge::translate(cur, ox, oy, oz);
         return cur;
+    }
+
+    // MIRROR — reflect the body across a plane and FUSE with the original
+    // (symmetrize). Plane by keyword XY|YZ|XZ (through origin) or explicit
+    // (point + normal). Maps to native part::mirrorPattern.
+    Handle opMirror(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle a = refSolid(op, 0, env);
+        double ox = 0, oy = 0, oz = 0, nx = 0, ny = 0, nz = 1;
+        if (op.args.size() > 1 && op.args[1].kind == TokKind::Keyword) {
+            const std::string& pl = op.args[1].kw;
+            if (pl == "YZ")      { nx = 1; ny = 0; nz = 0; }   // reflect across X=0
+            else if (pl == "XZ") { nx = 0; ny = 1; nz = 0; }   // reflect across Y=0
+            else if (pl == "XY") { nx = 0; ny = 0; nz = 1; }   // reflect across Z=0
+            else throw OpError(op.id, "MIRROR: plane must be XY|YZ|XZ or 6 numbers");
+        } else {
+            ox = num(op, 1); oy = num(op, 2); oz = num(op, 3);
+            nx = num(op, 4); ny = num(op, 5); nz = num(op, 6);
+            if (nx * nx + ny * ny + nz * nz < 1e-18)
+                throw OpError(op.id, "MIRROR: plane normal is zero");
+        }
+        return forge::part::mirrorPattern(a, ox, oy, oz, nx, ny, nz);
+    }
+
+    // PATTERN — LINEAR / POLAR / GRID replication of a solid, fused into one
+    // body. Maps to native part::linearPattern / circularPattern (GRID = two
+    // orthogonal linear passes). `n`/`nx`/`ny` are TOTAL instance counts (incl.
+    // the original). POLAR step = totalAngle / n (use 360 for a full ring).
+    Handle opPattern(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle a = refSolid(op, 0, env);
+        std::string mode = kwReq(op, 1);
+        if (mode == "LINEAR") {
+            int n = static_cast<int>(num(op, 2));
+            if (n < 1) throw OpError(op.id, "PATTERN LINEAR: n must be >= 1");
+            double dx = num(op, 3), dy = numOpt(op, 4, 0), dz = numOpt(op, 5, 0);
+            return forge::part::linearPattern(a, static_cast<std::uint32_t>(n), dx, dy, dz);
+        }
+        if (mode == "POLAR") {
+            int n = static_cast<int>(num(op, 2));
+            if (n < 1) throw OpError(op.id, "PATTERN POLAR: n must be >= 1");
+            double angDeg = num(op, 3);
+            double ox = numOpt(op, 4, 0), oy = numOpt(op, 5, 0), oz = numOpt(op, 6, 0);
+            double ax = numOpt(op, 7, 0), ay = numOpt(op, 8, 0), az = numOpt(op, 9, 1);
+            if (ax * ax + ay * ay + az * az < 1e-18)
+                throw OpError(op.id, "PATTERN POLAR: axis is zero");
+            return forge::part::circularPattern(a, static_cast<std::uint32_t>(n),
+                                                ox, oy, oz, ax, ay, az, angDeg * kPi / 180.0);
+        }
+        if (mode == "GRID") {
+            int nx = static_cast<int>(num(op, 2)), ny = static_cast<int>(num(op, 3));
+            if (nx < 1 || ny < 1) throw OpError(op.id, "PATTERN GRID: nx, ny must be >= 1");
+            double dx = num(op, 4), dy = num(op, 5);
+            Handle row = forge::part::linearPattern(a, static_cast<std::uint32_t>(nx), dx, 0, 0);
+            return forge::part::linearPattern(row, static_cast<std::uint32_t>(ny), 0, dy, 0);
+        }
+        throw OpError(op.id, "PATTERN: mode must be LINEAR|POLAR|GRID");
     }
 
     // ---- features -----------------------------------------------------------
@@ -626,6 +822,38 @@ private:
         throw OpError(op.id, "CHAMFER: kernel declined at every distance");
     }
 
+    // BLEND — variable-radius fillet: radius sweeps rStart -> rEnd along each
+    // selected edge (linear law, or S-law with SMOOTH). Maps to native
+    // varfillet::fillet. Same shrinking-radius retry as FILLET.
+    Handle opBlend(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        double r0 = num(op, 1), r1 = num(op, 2);
+        std::string sel = "ALL";
+        bool smooth = false;
+        for (std::size_t i = 3; i < op.args.size(); ++i) {
+            if (op.args[i].kind != TokKind::Keyword) continue;
+            const std::string& kw = op.args[i].kw;
+            if (kw == "SMOOTH") smooth = true;
+            else sel = kw;
+        }
+        auto ids = selectEdges(body, sel, op.id);
+        for (double scale : {1.0, 0.75, 0.5, 0.35, 0.2}) {
+            std::vector<forge::varfillet::EdgeSpec> specs;
+            specs.reserve(ids.size());
+            for (auto id : ids) {
+                forge::varfillet::EdgeSpec s;
+                s.edgeIndex   = id;
+                s.radiusStart = r0 * scale;
+                s.radiusEnd   = r1 * scale;
+                specs.push_back(s);
+            }
+            try { return forge::varfillet::fillet(body, specs, smooth); }
+            catch (...) { /* try smaller radii */ }
+        }
+        throw OpError(op.id, "BLEND: kernel declined at every radius (r=" +
+                      std::to_string(r0) + "->" + std::to_string(r1) + ")");
+    }
+
     Handle opShell(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
         double wall = num(op, 1);
@@ -643,6 +871,37 @@ private:
         }
         if (best == 0) throw OpError(op.id, "SHELL: no face faces the open axis");
         return forge::part::shell(body, {best}, -std::fabs(wall), {});
+    }
+
+    // FOLD — sheet-metal flange macro (EXTRUDE + ROTATE-about-hinge + FUSE),
+    // composed entirely from verified native ops (makeBox/rotate/translate/fuse).
+    // The hinge (fold line) starts at (hx,hy,hz) and runs `len` along the XY
+    // direction runDeg (deg from +X): u = (cos, sin, 0). A flange box of
+    // len x flangeH x thk sits flush in-plane from the hinge, extending along
+    // the in-plane perpendicular w = zhat x u, then rotates up about the hinge
+    // axis by angleDeg (90 => vertical wall). Place the hinge on a plate edge
+    // with w pointing off the plate so the wall folds up cleanly.
+    Handle opFold(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        double hx = num(op, 1), hy = num(op, 2), hz = num(op, 3);
+        double len = num(op, 4), fh = num(op, 5), t = num(op, 6);
+        double angDeg = num(op, 7);
+        double runDeg = numOpt(op, 8, 0);
+        if (len <= 0 || fh <= 0 || t <= 0)
+            throw OpError(op.id, "FOLD: len, flangeH, thk must be > 0");
+        double runRad = runDeg * kPi / 180.0;
+        // flange box: local x in [0,len], y in [0,flangeH], z in [0,thk]
+        Handle flange = forge::makeBox(len, fh, t);
+        // orient local x->u, y->w by rotating about +Z (box corner is at origin)
+        if (runDeg != 0.0) flange = forge::rotate(flange, 0, 0, 1, runRad);
+        flange = forge::translate(flange, hx, hy, hz);   // hinge corner -> hinge point
+        // fold about the hinge axis line (through (hx,hy,hz), dir u)
+        double ux = std::cos(runRad), uy = std::sin(runRad), uz = 0;
+        double ang = angDeg * kPi / 180.0;
+        flange = forge::translate(flange, -hx, -hy, -hz);
+        flange = forge::rotate(flange, ux, uy, uz, ang);
+        flange = forge::translate(flange, hx, hy, hz);
+        return forge::fuse(body, flange);
     }
 
     Handle opHeal(const Op& op, std::unordered_map<int, Val>& env) {

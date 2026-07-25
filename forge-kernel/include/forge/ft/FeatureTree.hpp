@@ -22,9 +22,13 @@
 //
 // ------------------------------------- IR VALUE MODEL -----------------------
 // Every op produces exactly one value, addressed by its 1-based creation id
-// (like the v18 builders' `body = nk.op(body, ...)` chain). A value is either a
+// (like the v18 builders' `body = nk.op(body, ...)` chain). A value is one of:
 //   * PROFILE — a 2D sketch/face on the Z=0 plane (a SketchHandle), consumed by
 //               EXTRUDE / REVOLVE, or
+//   * WIRE    — a 3D closed section ring placed anywhere in space (a TopoDS_Wire
+//               ShapeHandle via forge::part::profileWire), consumed by LOFT. This
+//               is what makes a real vertical/organic loft possible — the always
+//               Z=0 sketcher cannot express a section at a different height/plane.
 //   * SOLID   — a 3D body (a ShapeHandle), consumed by booleans / transforms /
 //               features and exported.
 // Ops reference prior ids by "%N". Creation order == evaluation order.
@@ -38,8 +42,8 @@
 // Z-axis cylinder at the origin is simply `CYL(r, h)`). Token forms:
 //   * number   3.5   -2   139.2
 //   * ref      %7                    (a prior op id)
-//   * keyword  ALL VERTICAL RIM ...  (bare identifier, for selectors)
-//   * points   [x y; x y; ...]       (POLY only — the outline ring)
+//   * keyword  ALL VERTICAL RIM ...  (bare identifier, for selectors / modes)
+//   * points   [x y; x y; ...]       (POLY / WIRE / SWEEP — a 2D or 3D point ring)
 //
 // The full op set + per-op arg lists + defaults are documented in
 // docs/feature_tree_ir.md and enumerated in the OpCode table below.
@@ -55,6 +59,7 @@ namespace ft {
 using Handle = std::uint32_t;   // mirrors forge::ShapeHandle / SketchHandle
 
 struct Point2 { double x = 0.0; double y = 0.0; };
+struct Point3 { double x = 0.0; double y = 0.0; double z = 0.0; };
 
 // --------------------------------------------------------------------- op set
 enum class OpCode {
@@ -66,6 +71,12 @@ enum class OpCode {
     Poly,        // POLY([x y; x y; ...])                       organic closed silhouette
     RegPoly,     // REGPOLY(r, n [, cx=0, cy=0, rotDeg=0])      n-gon (vertex radius)
 
+    // --- 3D section rings (produce a WIRE — a loft cross-section placed in 3D) ---
+    Ring,        // RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48]) superellipse ring @ height z
+                 //   p=2 circle/ellipse, p=4..6 rounded-rect (impeller/nozzle/duct sections)
+    Wire,        // WIRE([x y z; x y z; ...])                    explicit closed 3D ring
+                 //   (airfoil / organic / sharp-cornered loft section)
+
     // --- 3D primitives (produce a SOLID) ---
     Box,         // BOX(dx, dy, dz [, cx=0, cy=0, cz=0])        centred in XY, base at cz
     Cyl,         // CYL(r, h [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1])  base at centre, along axis
@@ -75,37 +86,52 @@ enum class OpCode {
     Prism,       // PRISM(nSides, circumR, h [, cx, cy, cz])
     Tube,        // TUBE(rOuter, rInner, h [, cx, cy, cz])
 
-    // --- sketch -> solid ---
+    // --- sketch/wire -> solid ---
     Extrude,     // EXTRUDE(%profile, amount [, dirx=0, diry=0, dirz=1])
     Revolve,     // REVOLVE(%profile, angleDeg [, ox=0, oy=0, oz=0, axx=0, axy=1, axz=0])
-    Loft,        // LOFT(%p0, %p1 [, %p2 ...])                   ruled=false, closed=false
+                 //   partial angle (0<a<=360) about an ARBITRARY axis line — already general
+    Loft,        // LOFT(%w0, %w1 [, %w2 ...] [, RULED] [, OPEN])   skin >=2 WIRE sections
+                 //   default: BSpline-smoothed, capped solid. RULED=straight rulings; OPEN=shell
+    Sweep,       // SWEEP(r, [x y z; ...])            circular pipe of radius r along a 3D path
+                 // SWEEP([x y; ...], [x y z; ...])   sweep a 2D profile ring along a 3D path
 
     // --- booleans ---
     Fuse,        // FUSE(%a, %b)
     Cut,         // CUT(%a, %b)
     Common,      // COMMON(%a, %b)
 
-    // --- transforms ---
+    // --- transforms / replication ---
     Translate,   // TRANSLATE(%a, dx, dy, dz)
     Rotate,      // ROTATE(%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0])
+    Mirror,      // MIRROR(%a, PLANE)                   PLANE = XY|YZ|XZ (through origin)
+                 // MIRROR(%a, px,py,pz, nx,ny,nz)      arbitrary plane; reflect + FUSE (symmetrize)
+    Pattern,     // PATTERN(%a, LINEAR, n, dx [, dy=0, dz=0])
+                 // PATTERN(%a, POLAR, n, totalAngleDeg [, ox,oy,oz, axx,axy,axz=+Z])  step=angle/n
+                 // PATTERN(%a, GRID, nx, ny, dx, dy)   nx*ny fused instances in XY
 
     // --- features ---
     Hole,        // HOLE(%body, dia, cx, cy, cz [, axx=0, axy=0, axz=1, depth<=0 => through])
     Cbore,       // CBORE(%body, dia, cboreDia, cboreDepth, cx, cy, cz [, axx, axy, axz])
     Fillet,      // FILLET(%body, radius [, sel=ALL])           sel: ALL|VERTICAL|RIM|CONVEX
     Chamfer,     // CHAMFER(%body, dist [, sel=ALL])
+    Blend,       // BLEND(%body, rStart, rEnd [, sel=ALL] [, SMOOTH])  variable-radius fillet
+                 //   linear r-law start->end along each selected edge; SMOOTH = S-law (C^1)
     Shell,       // SHELL(%body, wall [, openAxx=0, openAxy=0, openAxz=-1])   hollow (inward)
+    Fold,        // FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0])
+                 //   sheet-metal flange macro: BOX + ROTATE(about hinge) + FUSE
     Heal,        // HEAL(%body)
 };
 
 // --------------------------------------------------------------------- tokens
-enum class TokKind { Number, Ref, Keyword };
+enum class TokKind { Number, Ref, Keyword, Points };
 
 struct Token {
-    TokKind     kind = TokKind::Number;
-    double      num  = 0.0;   // kind == Number
-    int         ref  = 0;     // kind == Ref  (a prior op id)
-    std::string kw;           // kind == Keyword
+    TokKind             kind = TokKind::Number;
+    double              num  = 0.0;   // kind == Number
+    int                 ref  = 0;     // kind == Ref  (a prior op id)
+    std::string         kw;           // kind == Keyword
+    std::vector<Point3> pts;          // kind == Points ([x y; ...] 2D → z=0, or [x y z; ...])
+    int                 dim  = 0;     // kind == Points: 2 or 3 (coords per source point)
 };
 
 // --------------------------------------------------------------------- one op

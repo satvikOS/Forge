@@ -26,6 +26,7 @@
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_ToroidalSurface.hxx>
+#include <Geom_RectangularTrimmedSurface.hxx>
 #include <Geom_Line.hxx>
 #include <Geom_Circle.hxx>
 
@@ -493,6 +494,78 @@ FinalizeResult finalizeShape(const TopoDS_Shape& shape, double precision, double
             }
         }
     }
+    return r;
+}
+
+// ---------------------------------------------------------------------------
+// (7) finalizeShapeCurvedSafe  (curved-preserving light heal — the first
+//     tractable chunk of the surface-exact OCCT-zero heal path)
+// ---------------------------------------------------------------------------
+namespace {
+
+// True iff EVERY face of `shape` is one of the five elementary analytic surfaces
+// (Plane / Cylinder / Cone / Sphere / Torus) — precisely the surfaces
+// occtFromNativeSolid's reconstructors rebuild EXACTLY. A Geom_RectangularTrimmed
+// wrapper is unwrapped to its basis (a trim does not change the surface TYPE); any
+// BSpline / Bezier / SurfaceOfRevolution / SurfaceOfLinearExtrusion / OffsetSurface
+// / OtherSurface face makes the body NON-elementary (return false), so the caller
+// keeps its own faceting-tolerant path rather than risk the round-trip. Uses only
+// TKG3d Geom_ DownCasts (identical to analyticUV above) + TKBRep BRep_Tool — ZERO
+// TKShHealing symbols. A shape with no faces is NOT an analytic solid (false).
+bool isAllAnalyticElementary(const TopoDS_Shape& shape) {
+    bool sawFace = false;
+    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+        sawFace = true;
+        Handle(Geom_Surface) s = BRep_Tool::Surface(TopoDS::Face(ex.Current()));
+        // Unwrap any rectangular-trim wrapper down to the underlying basis surface.
+        for (;;) {
+            Handle(Geom_RectangularTrimmedSurface) rt =
+                Handle(Geom_RectangularTrimmedSurface)::DownCast(s);
+            if (rt.IsNull()) break;
+            s = rt->BasisSurface();
+        }
+        if (s.IsNull()) return false;
+        const bool elementary =
+            !Handle(Geom_Plane)::DownCast(s).IsNull()             ||
+            !Handle(Geom_CylindricalSurface)::DownCast(s).IsNull() ||
+            !Handle(Geom_ConicalSurface)::DownCast(s).IsNull()     ||
+            !Handle(Geom_SphericalSurface)::DownCast(s).IsNull()   ||
+            !Handle(Geom_ToroidalSurface)::DownCast(s).IsNull();
+        if (!elementary) return false;
+    }
+    return sawFace;
+}
+
+}  // namespace
+
+CurvedSafeResult finalizeShapeCurvedSafe(const TopoDS_Shape& shape,
+                                         double precision, double maxTol) {
+    CurvedSafeResult r;
+    r.shape = shape;
+    if (shape.IsNull()) { r.reason = "null input shape"; return r; }
+
+    // Classify BEFORE touching anything: any non-elementary face => DEFER, returning
+    // the input UNCHANGED (the caller keeps its OCCT / fixShapeGeneral path). This is
+    // the honest boundary — we never facet a body we cannot heal surface-exactly.
+    if (!isAllAnalyticElementary(shape)) {
+        r.deferred = true;
+        r.reason   = "non-elementary (freeform / swept / offset) or face-less shape — "
+                     "deferred to caller path to avoid a faceting round-trip";
+        return r;
+    }
+    r.allAnalytic = true;
+
+    // All faces are elementary analytic surfaces: heal IN PLACE on the OCCT B-rep.
+    // finalizeShape does SameParameter + outward-orient + shell->solid — none of them
+    // tessellate, so every Geom_ surface survives bit-exact (no import/heal/export
+    // round-trip; a cylinder stays a cylinder). This is the curved-safe light heal.
+    FinalizeResult fr = finalizeShape(shape, precision, maxTol);
+    r.shape              = fr.shape;
+    r.sameParamApplied   = fr.sameParamApplied;
+    r.orientationFlipped = fr.orientationFlipped;
+    r.promotedToSolid    = fr.promotedToSolid;
+    r.healApplied        = true;
+    r.reason             = "curved-safe heal (analytic surfaces preserved; no faceting)";
     return r;
 }
 

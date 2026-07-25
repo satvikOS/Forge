@@ -522,6 +522,61 @@ HealReport healBRep(TopologyBuilder& tb,
         else       { for (std::size_t k = ring.size(); k-- > 0; ) vs.push_back(tb.makeVertex(ring[k])); }
         return vs;
     };
+    // ---- CHUNK 2 (curved-preserving heal): carry the source face's ANALYTIC ------
+    // SURFACE + parameter-domain trim window onto every REBUILT face, so a healed
+    // curved/analytic solid keeps its EXACT geometry on export instead of faceting.
+    //
+    // WHY: healBRep rebuilds each face as a fresh bare polygon (surface==null). On
+    // export, occtFromNativeSolid mis-classifies a null-surface curved face as
+    // "planarSimple" (NativeOcctBridge.cpp:1483-1484 skips the kind test when
+    // surface==null) and rebuilds it as planar polygons — the measured
+    // 28.2289-vs-28.2743 cylinder regression. Re-attaching `surface` makes the
+    // analytic reconstructors (occtAnalytic/Cone/Sphere/Torus-FromNativeSolid) fire
+    // (they key off face->surface + its kind, and re-derive the trim from the 3D
+    // ring points), and makes the export VOLUME CROSS-CHECK pass: that check
+    // compares the rebuilt OCCT volume against native massProperties, whose
+    // curved-face integrator integrates the analytic surface over [u0,u1]x[v0,v1]
+    // (MassProps.cpp:116-121) — so u0..v1 must be carried too, else it integrates
+    // the default [0,1]^2 domain and the cross-check declines back to faceted.
+    //
+    // LIFETIME: the source faces are cloneFaceIndependent clones owned by THIS same
+    // builder `tb` (NativeShapeHealBridge.cpp:44), and their Surface objects live in
+    // tb->surfaces_; we still CLONE (makeSurface + copy) rather than share, matching
+    // cloneFaceIndependent, so the rebuilt face aliases nothing.
+    //
+    // FLIP / SLIVER-MERGE (the honest conservative part): `surface` and the trim
+    // window [u0,u1]x[v0,v1] are the surface's PARAMETER DOMAIN — invariant under a
+    // 3D-ring winding flip or a sub-tol weld-snap, so they are ALWAYS carried. The
+    // ORDER/COUNT-SENSITIVE parameter-space data (vertexUV param-triangle + regionUV
+    // trimmed-region polygons, both in 1:1 correspondence with the ORIGINAL outer
+    // ring) is carried ONLY when the rebuilt ring is that ring VERBATIM — no
+    // orientation flip AND unchanged corner count. When pass (6)/(8) flipped the ring
+    // or the weld/collapse changed its cardinality, that correspondence is broken, so
+    // those fields are DROPPED and massProperties falls back to the flip-invariant
+    // [u0,u1]x[v0,v1] rectangle integral (correct for a full analytic patch). This is
+    // the ring-flip/face-merge interaction the Chunk-1 header flagged as needing the
+    // core.mjs 34/34 curved-solid gate to validate (main-thread build-gated).
+    auto carryFaceGeometry = [&tb](Face* nf, const FaceRings& fr, bool fl) {
+        Face* sf = fr.src;
+        if (sf == nullptr) return;
+        if (sf->surface != nullptr) {
+            Surface* ns = tb.makeSurface();
+            *ns = *sf->surface;          // deep copy into tb (no aliasing)
+            nf->surface = ns;
+        }
+        nf->u0 = sf->u0; nf->u1 = sf->u1; nf->v0 = sf->v0; nf->v1 = sf->v1;
+        const bool ringVerbatim =
+            !fl && (sf->vertexUV.empty() || sf->vertexUV.size() == fr.outer.size());
+        if (ringVerbatim) {
+            nf->paramTri      = sf->paramTri;
+            nf->vertexUV      = sf->vertexUV;
+            nf->regionUV      = sf->regionUV;
+            nf->regionOuterUV = sf->regionOuterUV;
+            nf->regionInnerUV = sf->regionInnerUV;
+            nf->boolHoled     = sf->boolHoled;
+        }
+    };
+
     // Rebuild every surviving (non-removed, >=3-gon) ring into a fresh face and sew.
     // `flip` is indexed by frs position; `faceOfRing` maps each built face back to its
     // frs index so the orientation/non-manifold passes can act per source ring.
@@ -540,6 +595,7 @@ HealReport healBRep(TopologyBuilder& tb,
                 // inner loops are oriented opposite the outer, so flip them WITH it.
                 if (ir.size() >= 3) tb.addInnerLoopToFace(nf, buildRingVerts(ir, fl));
             }
+            carryFaceGeometry(nf, frs[fi], fl);   // CHUNK 2: keep analytic geometry
             healedOut.push_back(nf);
             faceOfRing.push_back(fi);
         }
@@ -893,6 +949,7 @@ HealReport healBRep(TopologyBuilder& tb,
             tb.addOuterLoopToFace(nf, buildRingVerts(frs[fi].outer, fl));
             for (const auto& ir : frs[fi].inners)
                 if (ir.size() >= 3) tb.addInnerLoopToFace(nf, buildRingVerts(ir, fl));
+            carryFaceGeometry(nf, frs[fi], fl);   // CHUNK 2: keep analytic geometry
             withSlivers.push_back(nf);
         }
         if (!withSlivers.empty()) {

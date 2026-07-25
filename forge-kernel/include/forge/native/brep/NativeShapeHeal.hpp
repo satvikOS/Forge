@@ -73,6 +73,8 @@
 
 #ifdef FORGE_NATIVE_BREP   // OCCT-typed; empty in the OCCT-free run_native.sh harness
 
+#include <string>
+
 #include <gp_Pnt.hxx>
 #include <gp_Pnt2d.hxx>
 #include <Geom_Surface.hxx>
@@ -162,6 +164,52 @@ struct FinalizeResult {
     bool promotedToSolid = false;    // a closed shell was wrapped into a solid
 };
 FinalizeResult finalizeShape(const TopoDS_Shape& shape, double precision, double maxTol);
+
+// ---------------------------------------------------------------------------
+// (7) CURVED-PRESERVING light heal — the FIRST tractable chunk of the OCCT-zero
+// heal path that keeps analytic surfaces EXACT through the operation instead of
+// faceting them.
+//
+// THE FACETING IT AVOIDS. The RICH native heal pipe (NativeShapeHealBridge.cpp
+// fixShapeGeneral: importOcctSolid -> healBRep -> occtFromNativeSolid) preserves
+// analytic surfaces ONLY up to the heal: healBRep's rebuild mints fresh BARE
+// polygonal faces (Heal.cpp:537-538 sets no `surface`), so on export every
+// occtFromNativeSolid analytic reconstructor DECLINES (they key off
+// `face->surface`, now null) and the body drops to the FACETED tessellation
+// fallback (NativeOcctBridge.cpp:1561) — a cylinder returns as a triangulated
+// polyhedron (the measured 28.2289-vs-28.2743 regression). See §A in the .cpp.
+//
+// THE CURVED-SAFE STRATEGY (this function). For a solid whose EVERY face is an
+// elementary analytic surface (Plane / Cylinder / Cone / Sphere / Torus — the
+// surfaces occtFromNativeSolid reconstructs exactly), do NOT round-trip through
+// the native importer/healer/exporter at all. Heal IN PLACE on the OCCT B-rep
+// via finalizeShape (SameParameter + outward-orient + shell->solid). None of
+// those steps tessellate — every Geom_ surface is preserved bit-exact, so a
+// cylinder stays a cylinder. A shape with ANY non-elementary face (BSpline /
+// Bezier / SurfaceOfRevolution / LinearExtrusion / OffsetSurface / other), or a
+// shape needing genuine structural weld/gap/self-intersection repair beyond the
+// light finalizeShape subset, DEFERS: the INPUT is returned unchanged (never
+// faceted) so the caller keeps its existing OCCT / fixShapeGeneral path.
+//
+// SCOPE (honest): this covers the LIGHT-heal call sites on curved analytic bodies
+// (SameParameter reconcile / outward-orient / shell->solid) — the load-bearing
+// defensive heal after a boolean or STEP transfer. It does NOT do the RICH
+// structural repair (weld / gap-fill / sliver / self-intersection) on a curved
+// body; that still needs the surface-preserving healBRep rebuild (.cpp §A), which
+// is specified there but deferred to a build window (its ring-flip/normal and
+// face-merge interactions need the core.mjs 34/34 curved-solid gate to validate).
+struct CurvedSafeResult {
+    TopoDS_Shape shape;                 // healed shape (or the INPUT, on defer)
+    bool allAnalytic       = false;     // every face was an elementary analytic surface
+    bool healApplied       = false;     // finalizeShape ran (true only when allAnalytic)
+    bool deferred          = false;     // a non-elementary face -> input returned unchanged
+    bool sameParamApplied  = false;     // pass-through of finalizeShape (when healApplied)
+    bool orientationFlipped= false;
+    bool promotedToSolid   = false;
+    std::string reason;                 // honest note (defer cause / curved-safe pass)
+};
+CurvedSafeResult finalizeShapeCurvedSafe(const TopoDS_Shape& shape,
+                                         double precision, double maxTol);
 
 }  // namespace occtheal
 }  // namespace forge

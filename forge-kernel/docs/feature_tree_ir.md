@@ -28,7 +28,11 @@ Every op produces exactly one value, addressed by its `%id` (creation order,
 like the v18 builders' `body = nk.op(body, ...)` chain). A value is either:
 
 - **PROFILE** — a 2D sketch/face on the Z=0 plane (a kernel `SketchHandle`),
-  consumed by `EXTRUDE` / `REVOLVE` / `LOFT`.
+  consumed by `EXTRUDE` / `REVOLVE`.
+- **WIRE** — a closed 3D section ring placed anywhere in space (a `TopoDS_Wire`
+  `ShapeHandle` via `part::profileWire`), consumed by `LOFT`. This is what a
+  real vertical/organic loft needs — the always-Z=0 sketcher can't put a section
+  at a different height/plane. Produced by `RING` / `WIRE`.
 - **SOLID** — a 3D body (a kernel `ShapeHandle`), consumed by booleans /
   transforms / features and exported.
 
@@ -49,12 +53,12 @@ RESULT(%<id>)                 # optional; else the LAST solid produced is the re
 Args are **positional** and comma-separated. Trailing args have **defaults**
 (a Z-axis cylinder at the origin is just `CYL(r, h)`). Token forms:
 
-| form      | example            | meaning                          |
-|-----------|--------------------|----------------------------------|
-| number    | `3.5` `-12` `139.2`| a scalar                         |
-| ref       | `%7`               | a prior op's value               |
-| keyword   | `ALL` `VERTICAL`   | a bare selector identifier       |
-| points    | `[x y; x y; ...]`  | POLY outline ring (space+`;`)    |
+| form      | example                | meaning                              |
+|-----------|------------------------|--------------------------------------|
+| number    | `3.5` `-12` `139.2`    | a scalar                             |
+| ref       | `%7`                   | a prior op's value                   |
+| keyword   | `ALL` `VERTICAL` `POLAR`| a bare selector / mode identifier   |
+| points    | `[x y; ...]` `[x y z; ...]`| a 2D or 3D point ring (POLY/WIRE/SWEEP) |
 
 Angles are **degrees**. Positions/axes are world-space. The convention (from the
 v18 builders): primitives are **centred in XY** and sit with their base at `cz`,
@@ -73,6 +77,13 @@ extending along `+axis`.
 | `POLY`    | `[x y; x y; ...]` | sketch: N lines (organic silhouette) |
 | `REGPOLY` | `r, n [, cx=0, cy=0, rotDeg=0]` | sketch: n-gon |
 
+### 3D section rings (produce a WIRE — a loft cross-section placed in 3D)
+
+| op | args (defaults in `[]`) | native call |
+|----|--------------------------|-------------|
+| `RING` | `rx, ry, z [, cx=0, cy=0, p=2, seg=48]` | `part::profileWire` — superellipse ring `\|x/rx\|^p+\|y/ry\|^p=1` sampled to `seg` pts at height `z`. `p=2` circle/ellipse; `p=4..6` rounded-rect (impeller/nozzle/duct sections). |
+| `WIRE` | `[x y z; x y z; ...]` | `part::profileWire` — explicit closed 3D ring (airfoil / organic / sharp-cornered section). |
+
 ### 3D primitives (produce a SOLID)
 
 | op | args | native call |
@@ -85,15 +96,16 @@ extending along `+axis`.
 | `PRISM`  | `nSides, circumR, h [, cx, cy, cz]` | `makePrism` |
 | `TUBE`   | `rOuter, rInner, h [, cx, cy, cz]` | `makeTube` |
 
-### Sketch → solid
+### Sketch / wire → solid
 
 | op | args | native call |
 |----|------|-------------|
 | `EXTRUDE` | `%profile, amount [, dirx=0, diry=0, dirz=1]` | `part::extrudeProfile` |
-| `REVOLVE` | `%profile, angleDeg [, ox=0, oy=0, oz=0, axx=0, axy=1, axz=0]` | `part::revolveProfile` |
-| `LOFT`    | `%p0, %p1 [, %p2 ...]` | `part::loft` (ruled=false, closed=false) |
+| `REVOLVE` | `%profile, angleDeg [, ox=0, oy=0, oz=0, axx=0, axy=1, axz=0]` | `part::revolveProfile`. Partial angle `0<a<=360` about an **arbitrary axis line** (validated: throws on out-of-range angle / zero axis). |
+| `LOFT`    | `%w0, %w1 [, %w2 ...] [, RULED] [, OPEN]` | `loftguide::loft(wires, {}, solid, ruled)` over ≥2 **WIRE** sections. Default: BSpline-smoothed lateral skin + planar end caps. `RULED` = straight rulings; `OPEN` = uncapped shell. Fails loud if a ref is a PROFILE (use `RING`/`WIRE`). |
+| `SWEEP`   | `r, [x y z; ...]`  **or**  `[x y; ...], [x y z; ...]` | number arg ⇒ `part::pipeFromPolyline` (circular pipe of radius `r` along the 3D path). A 2D profile ring ⇒ `part::sweepPolyline` (arbitrary profile along the 3D path). Both are the watertight native verbs (`part::sweep` collapses when profile+path are coplanar). |
 
-### Booleans / transforms
+### Booleans / transforms / replication
 
 | op | args | native call |
 |----|------|-------------|
@@ -102,6 +114,8 @@ extending along `+axis`.
 | `COMMON` | `%a, %b` | `common` |
 | `TRANSLATE` | `%a, dx, dy, dz` | `translate` |
 | `ROTATE` | `%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0]` | `translate`∘`rotate`∘`translate` (arbitrary pivot) |
+| `MIRROR` | `%a, PLANE`  **or**  `%a, px,py,pz, nx,ny,nz` | `part::mirrorPattern` — reflect across the plane and **FUSE with the original** (symmetrize). `PLANE` = `XY`/`YZ`/`XZ` (through origin), else explicit point+normal. |
+| `PATTERN` | `%a, LINEAR, n, dx [, dy=0, dz=0]`<br>`%a, POLAR, n, totalAngleDeg [, ox,oy,oz, axx,axy,axz=+Z]`<br>`%a, GRID, nx, ny, dx, dy` | `part::linearPattern` / `circularPattern` (GRID = two orthogonal linear passes). Counts are **total** instances (incl. original), all fused. POLAR step = `totalAngle / n` (use `360` for a full ring). |
 
 ### Features
 
@@ -111,8 +125,15 @@ extending along `+axis`.
 | `CBORE`   | `%body, dia, cboreDia, cboreDepth, cx, cy, cz [, axis=+Z]` | through pilot + coaxial counterbore recess from the entry face. |
 | `FILLET`  | `%body, radius [, sel=ALL]` | select edges by `sel`, `part::filletEdges` with retry-shrink. |
 | `CHAMFER` | `%body, dist [, sel=ALL]` | select edges by `sel`, `part::chamferEdges`. |
+| `BLEND`   | `%body, rStart, rEnd [, sel=ALL] [, SMOOTH]` | variable-radius fillet: radius sweeps `rStart→rEnd` along each selected edge (`varfillet::fillet`, linear law; `SMOOTH` = C¹ S-law), retry-shrink like FILLET. |
 | `SHELL`   | `%body, wall [, openAxx=0, openAxy=0, openAxz=-1]` | hollow inward, opening the largest face facing the open axis (`part::shell`). |
+| `FOLD`    | `%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0]` | sheet-metal flange **macro** — `makeBox` + `rotate`-about-hinge + `fuse`. Hinge starts at `(hx,hy,hz)`, runs `len` along XY dir `runDeg`; a `len×flangeH×thk` wall folds up `angleDeg` about the hinge (90 ⇒ vertical). Place the hinge on a plate edge with `w = ẑ×û` pointing off the plate. |
 | `HEAL`    | `%body` | `heal::simplifyShape` (unify faces/edges). |
+
+**Pattern / mirror note:** `PATTERN` and `MIRROR` operate on a whole SOLID and
+fuse the copies. To replicate just a *feature* (a boss, a blade), build the
+feature as its own solid, `PATTERN`/`MIRROR` **it**, then `FUSE` the base — see
+the impeller example (`ft_organic_smoke.mjs`).
 
 **Edge selectors** (`sel`): `ALL`, `VERTICAL` (Z-parallel straight edges — plate
 corner / boss blends), `RIM`/`HORIZONTAL` (constant-Z edges — end rims).
@@ -149,6 +170,38 @@ faceCount = 35, edgeCount = 112, volume = 56 116.8 mm³, bbox 100.00 × 139.20 �
 STEP is a genuine AP242 analytic B-rep (1 `MANIFOLD_SOLID_BREP`, 35
 `ADVANCED_FACE`, 17 `PLANE` + 10 `CYLINDRICAL_SURFACE`).
 
+## Worked example — an impeller (freeform blades + polar array + hub)
+
+The organic-frontier vocabulary: a freeform blade lofted between two 3D `WIRE`
+sections, arrayed 6× about the axis, then fused to a hub. (From
+`test/ft/ft_organic_smoke.mjs`.)
+
+```
+%1 = WIRE([15 -2 5; 40 -1 5; 40 1 5; 15 2 5])     # blade root section @ z=5
+%2 = WIRE([15 -2 35; 38 3 35; 40 5 35; 17 1 35])  # twisted tip section @ z=35
+%3 = LOFT(%1, %2)                # one freeform BSpline blade skin (solid)
+%4 = PATTERN(%3, POLAR, 6, 360)  # 6 blades evenly around +Z (step 360/6 = 60°)
+%5 = CYL(15, 40)                 # Ø30 hub, 40 tall
+%6 = FUSE(%5, %4)
+RESULT(%6)
+```
+
+And a round→square transition duct — three superellipse `RING` sections at
+rising `z`, skinned by `LOFT`:
+
+```
+%1 = RING(20, 20, 0)             # Ø40 circular inlet at z=0
+%2 = RING(18, 14, 25, 0, 0, 3)   # mid superellipse (p=3) at z=25
+%3 = RING(15, 15, 50, 0, 0, 5)   # rounded-square outlet (p=5) at z=50
+%4 = LOFT(%1, %2, %3)
+RESULT(%4)
+```
+
+`ft_organic_smoke.mjs` carries one hand-authored part per new op (LOFT round/
+square + blade, SWEEP pipe + duct, REVOLVE 270°, PATTERN LINEAR/POLAR/GRID,
+MIRROR, BLEND, FOLD) as the exact serialized IR the VLM emits — the main-thread
+build compiles + measures each post-train (hard gate `ok && volume>0`).
+
 ## Coverage (honest)
 
 **Covered end-to-end and each individually verified building a `valid=true`
@@ -165,21 +218,43 @@ type-checker + loud failure are verified: an unknown op, an undefined `%ref`, or
 profile-where-solid-expected each abort with the exact op/line id and never
 silently degrade.
 
-**Deferred / not yet covered (flagged, not faked):**
-- `LOFT` is wired to `part::loft` but currently **degenerate**: all sketches live
-  on the Z=0 plane, so a two-section loft has zero height (builds `valid` but
-  `volume = 0`). A real vertical loft needs per-section 3D placement — route the
-  sections through `part::profileWire` (3D point rings) instead of Z=0 sketches.
-  This is the next slice for freeform/impeller-skin parts.
+**Organic-frontier ops added (this build) — grammar + kernel mapping above:**
+- `LOFT` (**real**) — now skins ≥2 **WIRE** sections placed at real 3D heights
+  (`RING`/`WIRE` → `part::profileWire` → `loftguide::loft`), producing a genuine
+  BSpline freeform skin + planar caps (impeller blades, transition ducts,
+  nozzles). The old Z=0-degenerate `part::loft` path is retired; feeding a
+  PROFILE to `LOFT` now fails loud.
+- `RING` / `WIRE` — 3D loft-section producers (superellipse ring / explicit ring).
+- `SWEEP` — circular pipe (`pipeFromPolyline`) or arbitrary-profile sweep
+  (`sweepPolyline`) along a 3D polyline path (tubing, cast runners, manifolds).
+- `PATTERN` — `LINEAR`/`POLAR`/`GRID` as a single op (`part::linearPattern` /
+  `circularPattern`), replacing hand-enumerated instances (blade arrays,
+  bolt-circles, fin combs, post grids).
+- `MIRROR` — reflect+fuse (symmetrize) across a principal or arbitrary plane
+  (`part::mirrorPattern`).
+- `REVOLVE` — confirmed general: partial angle + arbitrary axis, now range/axis
+  validated.
+- `BLEND` — variable-radius fillet (`varfillet::fillet`), retry-shrink like FILLET.
+- `FOLD` — sheet-metal flange as a `BOX`+`ROTATE`(about hinge)+`FUSE` macro
+  (built only from verified ops).
+
+**Still deferred / caveats (flagged, not faked):**
+- `LOFT`/`SWEEP`/`BLEND`/`FOLD` freeform results: the compiler reports `valid`
+  (watertight/manifold) but does **not** hard-guarantee it for every input —
+  watertightness is geometry-dependent (a self-crossing airfoil ring, a fold that
+  overlaps the plate, a BLEND radius the kernel declines). The op fails loud on
+  kernel decline; the smoke test hard-gates only `ok && volume>0` for these and
+  reports `valid` honestly. Each new op is **authored + clang `-fsyntax-only`
+  verified**; the main-thread single-track build runs `ft_organic_smoke.mjs` to
+  confirm the runtime geometry post-train.
+- `RING` circular sections are polyline (`seg`-point) approximations of a circle —
+  the loft *surface* between sections is true BSpline, but each cross-section is
+  faceted at `seg` segments (default 48). For an exact analytic cone/cylinder use
+  `CONE`/`CYL`, not a loft.
+- `PATTERN`/`MIRROR` act on a whole SOLID (then fuse); replicate a lone *feature*
+  by patterning it as its own solid before fusing the base.
 - `FILLET` on an edge already adjacent to a rounded (cylindrical) corner face —
   OCCT `filletEdges` declines it; use a sharp RECT base, or fillet before rounding.
-- Organic **variable-radius** blends (`peanut_blend`), **radial-blade-array** and
-  **polar/linear feature patterns** as single ops — today expressed by explicitly
-  enumerating the placed instances (the v18 builders do the same via `nk.polar`);
-  a `PATTERN` op mapping to `part::circularPattern` / `linearPattern` is the next
-  slice.
-- **Sheet-metal fold walls** as a first-class op — expressible now via
-  EXTRUDE + ROTATE + FUSE (as p103/p106 do), but no dedicated `FOLD`/flange verb.
-- **Freeform guided loft / sweep-with-guides** and `MIRROR` — kernel entry points
-  exist (`loftWithGuides`, `sweepWithGuides`, mirror transform) but are not yet
-  wired to IR ops.
+- **Guided** loft / sweep-with-guides (`loftWithGuides`, `sweepWithGuides`) and
+  true multi-thickness shell exist in the kernel but are not yet wired to IR ops —
+  the next slice for guide-curve-driven Class-A surfaces.
