@@ -1,0 +1,20 @@
+Geom2dAPI_ProjectPointOnCurve::Geom2dAPI_ProjectPointOnCurve(gp_Pnt2d const&, opencascade::handle<Geom2d_Curve> const&)
+GeomAPI_PointsToBSpline::Curve() const
+GeomAPI_PointsToBSpline::GeomAPI_PointsToBSpline(NCollection_Array1<gp_Pnt> const&, int, int, GeomAbs_Shape, double)
+GeomAPI_ProjectPointOnSurf::GeomAPI_ProjectPointOnSurf()
+GeomAPI_ProjectPointOnSurf::GeomAPI_ProjectPointOnSurf(gp_Pnt const&, opencascade::handle<Geom_Surface> const&, Extrema_ExtAlgo)
+GeomAPI_ProjectPointOnSurf::Init(gp_Pnt const&, opencascade::handle<Geom_Surface> const&, double, double, double, double, Extrema_ExtAlgo)
+GeomAPI_ProjectPointOnSurf::Init(gp_Pnt const&, opencascade::handle<Geom_Surface> const&, Extrema_ExtAlgo)
+GeomAPI_ProjectPointOnSurf::IsDone() const
+GeomAPI_ProjectPointOnSurf::LowerDistance() const
+GeomAPI_ProjectPointOnSurf::LowerDistanceParameters(double&, double&) const
+GeomAPI_ProjectPointOnSurf::NearestPoint() const
+GeomAPI::To2d(opencascade::handle<Geom_Curve> const&, gp_Pln const&)
+GeomAPI::To3d(opencascade::handle<Geom2d_Curve> const&, gp_Pln const&)
+GeomFill_NSections::BSplineSurface() const
+GeomFill_NSections::ComputeSurface()
+GeomFill_NSections::GeomFill_NSections(NCollection_Sequence<opencascade::handle<Geom_Curve>> const&)
+Law_Linear::Law_Linear()
+Law_Linear::Set(double, double, double, double)
+Law_S::Law_S()
+Law_S::Set(double, double, double, double)

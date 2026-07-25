@@ -1,0 +1,20 @@
+ShapeAnalysis_Curve::Project(opencascade::handle<Geom_Curve> const&, gp_Pnt const&, double, gp_Pnt&, double&, bool) const
+ShapeAnalysis_FreeBounds::ShapeAnalysis_FreeBounds(TopoDS_Shape const&, double, bool, bool)
+ShapeAnalysis_Shell::CheckOrientedShells(TopoDS_Shape const&, bool, bool)
+ShapeAnalysis_Shell::LoadShells(TopoDS_Shape const&)
+ShapeAnalysis_Shell::ShapeAnalysis_Shell()
+ShapeAnalysis_Surface::ShapeAnalysis_Surface(opencascade::handle<Geom_Surface> const&)
+ShapeAnalysis_Surface::ValueOfUV(gp_Pnt const&, double)
+ShapeFix_Shape::Perform(Message_ProgressRange const&)
+ShapeFix_Shape::Shape() const
+ShapeFix_Shape::ShapeFix_Shape(TopoDS_Shape const&)
+ShapeFix_Shape::Status(ShapeExtend_Status) const
+ShapeFix_Solid::ShapeFix_Solid()
+ShapeFix_Solid::ShapeFix_Solid(TopoDS_Solid const&)
+ShapeFix_Solid::Solid() const
+ShapeFix_Solid::SolidFromShell(TopoDS_Shell const&)
+ShapeUpgrade_UnifySameDomain::Build()
+ShapeUpgrade_UnifySameDomain::ShapeUpgrade_UnifySameDomain(TopoDS_Shape const&, bool, bool, bool)
+vtable for ShapeFix_Root
+vtable for ShapeFix_Shape
+vtable for ShapeUpgrade_UnifySameDomain
