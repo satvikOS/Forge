@@ -768,6 +768,38 @@ private:
         return place(forge::makeCylinder(dia / 2.0, h), cx, cy, cz, ax, ay, az);
     }
 
+    // A cutter guaranteed to pass CLEAN THROUGH `body` along `a`, whatever the
+    // part's proportions.
+    //
+    // The previous rule — centre a cutter of length (bbox diagonal + 2) on the
+    // op's own (cx,cy,cz) — only reaches diag/2 beyond that point. Since the IR
+    // states a hole's position on the face it enters (z=0 for a part sitting on
+    // the origin plane), a part TALLER than diag/2 got a BLIND hole and no
+    // error: CYL(9.633, 104.100) + HOLE(dia 17.045) cut just 54.8 mm of 104.1.
+    // Projecting the bounding box onto the axis is exact for any proportion and
+    // any axis direction.
+    struct ThroughCutter { double sx, sy, sz, ax, ay, az, len; };
+    ThroughCutter throughAxis(Handle body, double cx, double cy, double cz,
+                              double ax, double ay, double az) {
+        double L = std::sqrt(ax * ax + ay * ay + az * az);
+        if (L < 1e-12) { ax = 0; ay = 0; az = 1; L = 1; }
+        ax /= L; ay /= L; az /= L;
+        auto bb = bboxOf(body);
+        double tMin = 1e300, tMax = -1e300;
+        for (int i = 0; i < 8; ++i) {
+            const double c[3] = {(i & 1) ? bb[3] : bb[0],
+                                 (i & 2) ? bb[4] : bb[1],
+                                 (i & 4) ? bb[5] : bb[2]};
+            const double t = (c[0] - cx) * ax + (c[1] - cy) * ay + (c[2] - cz) * az;
+            tMin = std::min(tMin, t);
+            tMax = std::max(tMax, t);
+        }
+        const double pad = 1.0;
+        tMin -= pad; tMax += pad;
+        return ThroughCutter{cx + ax * tMin, cy + ay * tMin, cz + az * tMin,
+                             ax, ay, az, tMax - tMin};
+    }
+
     Handle opHole(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
         double dia = num(op, 1);
@@ -776,15 +808,8 @@ private:
         double depth = numOpt(op, 8, -1);   // <=0 => through
         if (depth > 0)
             return forge::cut(body, cylCutter(dia, cx, cy, cz, ax, ay, az, depth));
-        // through: length from bbox diagonal, cutter centred on `at`
-        auto bb = bboxOf(body);
-        double dx = bb[3] - bb[0], dy = bb[4] - bb[1], dz = bb[5] - bb[2];
-        double diag = std::sqrt(dx * dx + dy * dy + dz * dz) + 2.0;
-        double L = std::sqrt(ax * ax + ay * ay + az * az);
-        if (L < 1e-12) { ax = 0; ay = 0; az = 1; L = 1; }
-        ax /= L; ay /= L; az /= L;
-        double sx = cx - ax * diag / 2, sy = cy - ay * diag / 2, sz = cz - az * diag / 2;
-        return forge::cut(body, cylCutter(dia, sx, sy, sz, ax, ay, az, diag));
+        auto c = throughAxis(body, cx, cy, cz, ax, ay, az);
+        return forge::cut(body, cylCutter(dia, c.sx, c.sy, c.sz, c.ax, c.ay, c.az, c.len));
     }
 
     Handle opCbore(const Op& op, std::unordered_map<int, Val>& env) {
@@ -792,15 +817,11 @@ private:
         double dia = num(op, 1), cbd = num(op, 2), cbdep = num(op, 3);
         double cx = num(op, 4), cy = num(op, 5), cz = num(op, 6);
         double ax = numOpt(op, 7, 0), ay = numOpt(op, 8, 0), az = numOpt(op, 9, 1);
-        // 1) through pilot hole
-        auto bb = bboxOf(body);
-        double dx = bb[3] - bb[0], dy = bb[4] - bb[1], dz = bb[5] - bb[2];
-        double diag = std::sqrt(dx * dx + dy * dy + dz * dz) + 2.0;
-        double L = std::sqrt(ax * ax + ay * ay + az * az);
-        if (L < 1e-12) { ax = 0; ay = 0; az = 1; L = 1; }
-        ax /= L; ay /= L; az /= L;
-        double sx = cx - ax * diag / 2, sy = cy - ay * diag / 2, sz = cz - az * diag / 2;
-        Handle r = forge::cut(body, cylCutter(dia, sx, sy, sz, ax, ay, az, diag));
+        // 1) through pilot hole — same full-extent rule as opHole (a counterbore
+        //    on a tall boss got a blind pilot under the old bbox-diagonal rule)
+        auto c = throughAxis(body, cx, cy, cz, ax, ay, az);
+        ax = c.ax; ay = c.ay; az = c.az;
+        Handle r = forge::cut(body, cylCutter(dia, c.sx, c.sy, c.sz, ax, ay, az, c.len));
         // 2) counterbore recess: from (at - axis*cbdep) toward the face at `at`
         double bx = cx - ax * cbdep, by = cy - ay * cbdep, bz = cz - az * cbdep;
         return forge::cut(r, cylCutter(cbd, bx, by, bz, ax, ay, az, cbdep));
@@ -1221,9 +1242,30 @@ private:
             else if (key == "edges")   got = static_cast<double>(forge::direct::edgeCount(body));
             else if (key == "volume")  got = forge::massProperties(body).volume;
             else if (key == "holes" || key == "bores") {
-                const auto inv = forge::faceInventory(body);
+                // Count on the UNIFIED body. Face identity is only meaningful
+                // after unification (DirectEdit.hpp) — an edit that produces a
+                // new body via booleans can leave one bore split across several
+                // cylindrical faces, so counting raw faces answers a different
+                // question than "how many holes does this part have".
+                Handle probe = body;
+                try { probe = forge::unifyFaces(body); } catch (...) { probe = body; }
+                const auto inv = forge::faceInventory(probe);
                 long n = 0;
-                for (const auto& f : inv) if (f.kind == "cylinder" && f.concave) ++n;
+                std::vector<std::array<double, 3>> seen;
+                for (const auto& f : inv) {
+                    if (f.kind != "cylinder" || !f.concave) continue;
+                    // one hole == one axis; coaxial strips are the same hole
+                    const std::array<double, 3> key3{{f.axisLocation[0], f.axisLocation[1],
+                                                      f.radius}};
+                    bool dup = false;
+                    for (const auto& s : seen)
+                        if (std::fabs(s[0] - key3[0]) < 1e-6 &&
+                            std::fabs(s[1] - key3[1]) < 1e-6 &&
+                            std::fabs(s[2] - key3[2]) < 1e-6) { dup = true; break; }
+                    if (dup) continue;
+                    seen.push_back(key3);
+                    ++n;
+                }
                 got = static_cast<double>(n);
             } else if (key.rfind("bbox.", 0) == 0 && key.size() == 6) {
                 int ax = key[5] - 'x';

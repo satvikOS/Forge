@@ -52,6 +52,28 @@ RESULT(%3)
   near(r.volume, 60 * 40 * 10 - 2 * PI * 16 * 10, 1e-6, 'gen volume')
 })
 
+test('gen: a through HOLE goes THROUGH, whatever the part proportions', () => {
+  // Regression: the through-cutter was centred on the op's own z and only
+  // reached (bbox diagonal)/2 beyond it, so a part taller than that got a BLIND
+  // hole and no error. CYL(9.633, 104.1) + HOLE(17.045) cut 54.8 of 104.1 mm —
+  // a 2.7x volume error, silently, in the most-used op in the corpus.
+  for (const [R, T, dia] of [[9.633, 104.1, 17.045], [137.812, 393.75, 196.875], [30, 10, 24]]) {
+    const r = forge.ft.compile(`%1 = CYL(${R}, ${T}, 0, 0, 0)\n%2 = HOLE(%1, ${dia}, 0, 0, 0)\nRESULT(%2)`)
+    assert.ok(r.ok, `tube ${R}x${T} failed: ${r.error}`)
+    near(r.volume, PI * (R * R - (dia / 2) ** 2) * T, 1e-3 * R * R * T,
+         `through-hole volume for CYL(${R}, ${T})`)
+  }
+})
+
+test('gen: a through CBORE pilot also goes through a tall boss', () => {
+  const R = 12, T = 90
+  const r = forge.ft.compile(
+    `%1 = CYL(${R}, ${T}, 0, 0, 0)\n%2 = CBORE(%1, 10, 16, 6, 0, 0, ${T})\nRESULT(%2)`)
+  assert.ok(r.ok, `cbore failed: ${r.error}`)
+  const expect = PI * R * R * T - PI * 25 * T - PI * (64 - 25) * 6
+  near(r.volume, expect, 1e-3 * expect, 'cbore volume (through pilot + recess)')
+})
+
 // ---------------------------------------------------------------------------
 // 2. EDIT through the SAME entry: INPUT() binds a STEP, edit ops modify it
 // ---------------------------------------------------------------------------
