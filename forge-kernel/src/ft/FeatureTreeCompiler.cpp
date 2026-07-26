@@ -1322,6 +1322,11 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
 
     if (ft.ops.empty()) { out.error = "empty feature tree"; return out; }
 
+    // Each tree is an independent body and gets its own boolean hang-guard
+    // budget. Without this, a batch run shares one process-global window and
+    // healthy trees start failing once earlier trees have spent it.
+    forge::resetBooleanBudget();
+
     std::unordered_map<int, Val> env;
     Builder builder;
     builder.inputStep = inputStepPath;   // backs INPUT() for edit trees

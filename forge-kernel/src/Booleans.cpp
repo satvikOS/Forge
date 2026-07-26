@@ -440,6 +440,13 @@ void throwIfTangentPinch(ShapeHandle a, ShapeHandle b,
 
 }  // namespace
 
+void resetBooleanBudget() {
+    BoolBudgetState& bs = boolBudget();
+    std::lock_guard<std::mutex> lk(bs.mx);
+    bs.active = false;                 // the next boolean opens a fresh window
+    bs.spent = std::chrono::milliseconds{0};
+}
+
 ShapeHandle fuse(ShapeHandle a, ShapeHandle b) {
 #ifdef FORGE_NATIVE_BREP
     if (native::brep::forgeNativeBrepEnabled()) {
