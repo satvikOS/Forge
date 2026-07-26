@@ -131,6 +131,32 @@ RESULT(%1)
 })
 
 // ---------------------------------------------------------------------------
+// 2b. POSITIONAL selection — the interface lever. With four equal-radius bolt
+//     holes, WHICH ones an edit removes is the entire content of the edit, and
+//     no rank-based selector can express it.
+// ---------------------------------------------------------------------------
+test('edit: "hole:at=x,y" removes exactly the named bores, leaving the others', () => {
+  const ir = `
+%0 = INPUT()
+%1 = DEFEATURE(%0, "hole:at=21.75,0", "hole:at=-21.75,0")
+%2 = VERIFY(%1, "holes=3")
+RESULT(%2)
+`
+  const r = forge.ft.compile(ir, { out: stepPath('positional'), input: BASE_STEP })
+  assert.ok(r.ok, `positional compile failed: ${r.error}`)
+  // exactly two of the four O4.02 bores filled — central + two small survive
+  near(r.volume, PLATE - BORE(14.34) - 2 * BORE(4.02), 1e-4, 'positional volume')
+})
+
+test('a position matching no bore fails loudly', () => {
+  const r = forge.ft.compile(
+    `%0 = INPUT()\n%1 = DEFEATURE(%0, "hole:at=99,99")\nRESULT(%1)`,
+    { input: BASE_STEP })
+  assert.ok(!r.ok, 'an unmatched position must fail')
+  assert.match(r.error, /no bore at/, `error: ${r.error}`)
+})
+
+// ---------------------------------------------------------------------------
 // 3. VERIFY — the in-IR do-no-harm gate must PASS truth and FAIL falsehood
 // ---------------------------------------------------------------------------
 test('VERIFY passes true invariants and records them', () => {

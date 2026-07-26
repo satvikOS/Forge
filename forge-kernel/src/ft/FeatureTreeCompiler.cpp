@@ -77,12 +77,21 @@ std::string upper(std::string s) {
     return s;
 }
 
-// Split on `delim` at the TOP level (never inside [ ... ]).
+// Split on `delim` at the TOP level — never inside [ ... ] and never inside a
+// quoted string. A face selector legitimately contains the delimiter
+// ("hole:at=21.75,0"), so quote-awareness is required, not cosmetic.
 std::vector<std::string> splitTop(const std::string& s, char delim) {
     std::vector<std::string> out;
     int depth = 0;
+    char quote = 0;
     std::string cur;
     for (char c : s) {
+        if (quote) {
+            cur.push_back(c);
+            if (c == quote) quote = 0;
+            continue;
+        }
+        if (c == '"' || c == '\'') { quote = c; cur.push_back(c); continue; }
         if (c == '[') ++depth;
         else if (c == ']') --depth;
         if (c == delim && depth == 0) { out.push_back(cur); cur.clear(); }
@@ -1026,6 +1035,38 @@ private:
             if (cand.empty())
                 throw OpError(opId, "selector `" + selRaw + "` matched no candidate face");
 
+            // positional: "hole:at=21.75,0" — select the bore whose axis sits at
+            // (x,y). This is what a bolt-pattern edit needs: with N equal-radius
+            // holes, WHICH ones are removed is the whole content of the edit, and
+            // a rank-based selector cannot say it.
+            std::size_t ap = sel.find("at=");
+            if (ap != std::string::npos) {
+                std::string coords = sel.substr(ap + 3);
+                for (char& c : coords)
+                    if (c == '(' || c == ')' || c == ';') c = ' ';
+                double wx = 0, wy = 0;
+                std::size_t comma = coords.find(',');
+                if (comma == std::string::npos ||
+                    !parseDouble(trim(coords.substr(0, comma)), wx) ||
+                    !parseDouble(trim(coords.substr(comma + 1)), wy))
+                    throw OpError(opId, "bad position in `" + selRaw + "` (want at=x,y)");
+                const double tol = 1e-2;
+                for (const auto* f : cand) {
+                    // a bore's axis position: prefer the axis location, fall back
+                    // to the centroid for a full cylindrical face
+                    double fx = f->axisLocation[0], fy = f->axisLocation[1];
+                    if (fx == 0.0 && fy == 0.0 && f->kind == "cylinder") {
+                        fx = f->centroid[0]; fy = f->centroid[1];
+                    }
+                    if (std::fabs(fx - wx) <= tol && std::fabs(fy - wy) <= tol)
+                        out.push_back(f->index);
+                }
+                if (out.empty())
+                    throw OpError(opId, "no bore at (" + std::to_string(wx) + ", " +
+                                            std::to_string(wy) + ") for `" + selRaw + "`");
+                return out;
+            }
+
             // optional exact radius: "bore:r=47.5", "fillet:r<=3"
             std::size_t rp = sel.find("r=");
             std::size_t rle = sel.find("r<=");
@@ -1132,10 +1173,20 @@ private:
         }
     }
 
+    // DEFEATURE(%body, "sel" [, "sel2", ...]) — the union of every selector's
+    // resolution is removed in ONE healing pass. A bolt-pattern edit names the
+    // holes it removes individually; healing them one at a time would invalidate
+    // the face indices of the ones not yet removed.
     Handle opDefeature(const Op& op, std::unordered_map<int, Val>& env) {
         Handle body = refSolid(op, 0, env);
-        std::string sel = strArg(op, 1);
-        auto idx = resolveSelector(op.id, body, sel);
+        std::vector<int> idx;
+        for (std::size_t i = 1; i < op.args.size(); ++i) {
+            if (op.args[i].kind != TokKind::Str) continue;
+            for (int f : resolveSelector(op.id, body, op.args[i].str))
+                if (std::find(idx.begin(), idx.end(), f) == idx.end()) idx.push_back(f);
+        }
+        if (idx.empty())
+            throw OpError(op.id, "DEFEATURE: no face selector given");
         try {
             return forge::defeature(body, idx);
         } catch (const std::exception& e) {
