@@ -956,6 +956,27 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
         )
     endif()
 
+    # -------- forge_verify : the VERIFIER, native (Law 3: everything C++) --------
+    # Reads Unified-IR jobs as NDJSON on stdin, compiles each through the ONE entry
+    # (forge::ft::compileText) and writes the kernel's own measurement — volume,
+    # bbox, weld-betti genus, deduped bores — back as NDJSON. Same node-free
+    # linkage as forge_foundation_probe: this replaces a node worker that had put a
+    # JS runtime inside the one path that has to be trustworthy.
+    add_executable(forge_verify "${CMAKE_SOURCE_DIR}/src/tools/forge_verify.cpp")
+    target_include_directories(forge_verify PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}"
+    )
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_verify PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_verify PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_verify PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
+        )
+    endif()
+
     # -------- standalone headless C++ MESH-FEED probe --------
     # Same node-free linkage as forge_foundation_probe; drives the renderer's data
     # feed — tessellateLOD(High) -> Mesh -> exportStl — and asserts the mesh/STL
