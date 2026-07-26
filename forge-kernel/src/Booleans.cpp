@@ -177,6 +177,14 @@ struct BoolBudgetState {
   std::mutex mx;
   std::chrono::steady_clock::time_point winStart{};
   std::chrono::steady_clock::time_point lastEnd{};
+  // Time actually SPENT INSIDE boolean Build() calls in this window. The budget
+  // must meter boolean work, not wall-clock: metering elapsed time since the
+  // window opened counts every millisecond the caller spent doing something
+  // else, so a sustained stream of FAST booleans (a corpus build doing thousands
+  // of 50 ms cuts back to back) tripped the hang guard after 20 s of ordinary
+  // progress. That is the opposite of the intent — the guard exists to collapse
+  // a storm of SLOW degenerate ops, which accumulates real Build() time quickly.
+  std::chrono::milliseconds spent{0};
   bool active = false;
 };
 inline BoolBudgetState& boolBudget() { static BoolBudgetState s; return s; }
@@ -210,8 +218,10 @@ ShapeHandle runBoolean(ShapeHandle a, ShapeHandle b, const char* opName) {
     BoolBudgetState& bs = boolBudget();
     std::lock_guard<std::mutex> lk(bs.mx);
     const BoolClock::time_point now = BoolClock::now();
-    if (!bs.active || (now - bs.lastEnd) > kGap) { bs.winStart = now; bs.active = true; }
-    const auto used = std::chrono::duration_cast<std::chrono::milliseconds>(now - bs.winStart);
+    if (!bs.active || (now - bs.lastEnd) > kGap) {
+      bs.winStart = now; bs.active = true; bs.spent = std::chrono::milliseconds{0};
+    }
+    const auto used = bs.spent;
     if (used >= kBudget)
       throw std::runtime_error(
           std::string("forge: boolean ") + opName +
@@ -238,12 +248,16 @@ ShapeHandle runBoolean(ShapeHandle a, ShapeHandle b, const char* opName) {
         return holder->op->Shape();
       });
   std::future<TopoDS_Shape> fut = task->get_future();
+  const BoolClock::time_point callStart = BoolClock::now();
   std::thread worker([task]() { (*task)(); });
   const std::future_status st = fut.wait_for(remaining);
   {
     BoolBudgetState& bs = boolBudget();
     std::lock_guard<std::mutex> lk(bs.mx);
-    bs.lastEnd = BoolClock::now();
+    const BoolClock::time_point done = BoolClock::now();
+    // charge the window ONLY for the time this Build() actually took
+    bs.spent += std::chrono::duration_cast<std::chrono::milliseconds>(done - callStart);
+    bs.lastEnd = done;
   }
   if (st == std::future_status::timeout) {
     worker.detach();   // abandon the non-cancellable OCCT build (no inner hook)
