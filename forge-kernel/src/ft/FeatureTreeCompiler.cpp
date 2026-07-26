@@ -145,6 +145,9 @@ FeatureTree parse(const std::string& text) {
         std::size_t hash = raw.find('#');
         std::string line = trim(hash == std::string::npos ? raw : raw.substr(0, hash));
         if (line.empty()) continue;
+        // tolerate prose: skip any line that is not IR (not `%id = ...` and not RESULT).
+        // The VLM sometimes wraps correct IR in explanatory prose; ignore it (eval: 25%->65% yield).
+        if (line[0] != '%' && upper(line).rfind("RESULT", 0) != 0) continue;
 
         // RESULT(%id)
         if (upper(line).rfind("RESULT", 0) == 0) {
