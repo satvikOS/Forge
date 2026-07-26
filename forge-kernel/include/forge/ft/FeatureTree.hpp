@@ -120,15 +120,28 @@ enum class OpCode {
     Fold,        // FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0])
                  //   sheet-metal flange macro: BOX + ROTATE(about hinge) + FUSE
     Heal,        // HEAL(%body)
+
+    // --- edit ops (transform an EXISTING solid; SACROSANCT "one structure") ----
+    // These make the feature-tree IR the single emission format for BOTH
+    // generation and editing. Face SELECTORs are quoted predicate strings
+    // resolved against the live faceInventory at compile time (see
+    // resolveSelector in FeatureTreeCompiler.cpp).
+    Input,       // INPUT()                                bind the task's input STEP as a solid
+    PushFace,    // PUSHFACE(%body, "sel", dist)           move planar face along its outward normal
+    ResizeBore,  // RESIZEBORE(%body, "sel", newRadius)    set a cylindrical bore's radius exactly
+    Defeature,   // DEFEATURE(%body, "sel")                delete the selected faces + heal the wound
+    Verify,      // VERIFY(%body, "expr", ...)             assert do-no-harm invariants (loud failure)
 };
 
 // --------------------------------------------------------------------- tokens
-enum class TokKind { Number, Ref, Keyword, Points };
+enum class TokKind { Number, Ref, Keyword, Points, Str };
 
 struct Token {
     TokKind             kind = TokKind::Number;
     double              num  = 0.0;   // kind == Number
     int                 ref  = 0;     // kind == Ref  (a prior op id)
+    std::string         str;          // kind == Str — quoted literal, case + punctuation
+                                      // preserved (face selectors: "bore:r=47.5")
     std::string         kw;           // kind == Keyword
     std::vector<Point3> pts;          // kind == Points ([x y; ...] 2D → z=0, or [x y z; ...])
     int                 dim  = 0;     // kind == Points: 2 or 3 (coords per source point)
@@ -170,17 +183,30 @@ struct CompileResult {
     double      bboxMin[3] = {0, 0, 0};
     double      bboxMax[3] = {0, 0, 0};
     bool        exported   = false;  // STEP written (only if a path was given)
+
+    // VERIFY(...) results — one entry per assertion, "PASS <expr>" / "FAIL <expr> (got ...)".
+    // A failed assertion is a LOUD failure: ok=false, error names the assertion.
+    std::vector<std::string> verify;
 };
 
 // Walk a FeatureTree into native forge-kernel calls, building the solid.
 // Never throws for a modelling failure — the failing op id + reason land in the
 // returned CompileResult (ok=false). Fails LOUDLY (does not silently degrade).
-CompileResult compile(const FeatureTree& ft);
+//
+// `inputStepPath` backs the edit op `INPUT()`: it is imported (and face-unified)
+// to become the body an edit tree modifies. Empty for pure generation trees; an
+// IR that uses INPUT() without one fails loudly.
+CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath = std::string());
 
 // Convenience: parse + compile, and (if exportStepPath is non-empty) write the
 // result solid to STEP via forge::io::exportStep. A parse error is reported the
 // same way as a compile error (ok=false, error set).
-CompileResult compileText(const std::string& text, const std::string& exportStepPath);
+//
+// This is THE one kernel entry for both halves of the Unified IR: construction
+// trees build from nothing; trees that open with `%0 = INPUT()` edit the solid
+// at `inputStepPath` through the same parser, the same walker, the same measure.
+CompileResult compileText(const std::string& text, const std::string& exportStepPath,
+                          const std::string& inputStepPath = std::string());
 
 }  // namespace ft
 }  // namespace forge

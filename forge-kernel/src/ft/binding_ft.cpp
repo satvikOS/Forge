@@ -45,10 +45,23 @@ Napi::Value Compile(const Napi::CallbackInfo& info) {
         if (info.Length() < 1 || !info[0].IsString())
             throw Napi::TypeError::New(env, "forge.ft.compile(irText[, outStepPath]): irText must be a string");
         std::string text = info[0].As<Napi::String>().Utf8Value();
-        std::string outPath =
-            (info.Length() > 1 && info[1].IsString()) ? info[1].As<Napi::String>().Utf8Value() : std::string();
+        std::string outPath, inPath;
+        // forge.ft.compile(ir, outStepPath [, inputStepPath])
+        // forge.ft.compile(ir, { out: <path>, input: <path> })     <- edit trees
+        if (info.Length() > 1 && info[1].IsObject() && !info[1].IsString()) {
+            auto opts = info[1].As<Napi::Object>();
+            if (opts.Has("out") && opts.Get("out").IsString())
+                outPath = opts.Get("out").As<Napi::String>().Utf8Value();
+            if (opts.Has("input") && opts.Get("input").IsString())
+                inPath = opts.Get("input").As<Napi::String>().Utf8Value();
+        } else {
+            if (info.Length() > 1 && info[1].IsString())
+                outPath = info[1].As<Napi::String>().Utf8Value();
+            if (info.Length() > 2 && info[2].IsString())
+                inPath = info[2].As<Napi::String>().Utf8Value();
+        }
 
-        forge::ft::CompileResult r = forge::ft::compileText(text, outPath);
+        forge::ft::CompileResult r = forge::ft::compileText(text, outPath, inPath);
 
         auto out = Napi::Object::New(env);
         out.Set("ok", Napi::Boolean::New(env, r.ok));
@@ -60,6 +73,12 @@ Napi::Value Compile(const Napi::CallbackInfo& info) {
         out.Set("edgeCount", Napi::Number::New(env, static_cast<double>(r.edgeCount)));
         out.Set("volume", Napi::Number::New(env, r.volume));
         out.Set("exported", Napi::Boolean::New(env, r.exported));
+
+        // VERIFY(...) assertion log — "PASS holes=2" / "FAIL volume<=100 (got 140)"
+        auto verify = Napi::Array::New(env, r.verify.size());
+        for (uint32_t i = 0; i < r.verify.size(); ++i)
+            verify.Set(i, Napi::String::New(env, r.verify[i]));
+        out.Set("verify", verify);
 
         auto mkVec = [&](const double v[3]) {
             auto a = Napi::Array::New(env, 3);

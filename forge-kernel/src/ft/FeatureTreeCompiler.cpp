@@ -37,6 +37,7 @@
 #include "forge/MassProps.hpp"
 #include "forge/Healing.hpp"
 #include "forge/DirectModeling.hpp"
+#include "forge/DirectEdit.hpp"   // edit ops: faceInventory/defeature/pushPullFace/resizeBore
 #include "forge/Tessellate.hpp"
 #include "forge/LoftGuide.hpp"   // loftguide::loft (real 3D loft over profileWire sections)
 #include "forge/VarFillet.hpp"   // varfillet::fillet (variable-radius BLEND)
@@ -118,6 +119,10 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"HOLE", OpCode::Hole}, {"CBORE", OpCode::Cbore}, {"FILLET", OpCode::Fillet},
         {"CHAMFER", OpCode::Chamfer}, {"BLEND", OpCode::Blend},
         {"SHELL", OpCode::Shell}, {"FOLD", OpCode::Fold}, {"HEAL", OpCode::Heal},
+        // edit ops — the same grammar, dispatched to DirectEdit
+        {"INPUT", OpCode::Input}, {"PUSHFACE", OpCode::PushFace},
+        {"RESIZEBORE", OpCode::ResizeBore}, {"DEFEATURE", OpCode::Defeature},
+        {"VERIFY", OpCode::Verify},
     };
     auto it = tbl.find(nameUpper);
     known = (it != tbl.end());
@@ -224,6 +229,15 @@ FeatureTree parse(const std::string& text) {
                         tok.pts.push_back(Point3{x, y, z});
                     }
                     if (tok.pts.empty()) fail("empty point list");
+                } else if (t[0] == '"' || t[0] == '\'') {
+                    // a quoted literal — a face SELECTOR or a VERIFY assertion.
+                    // Case and punctuation are preserved ("bore:r=47.5"), unlike
+                    // bare keywords which are upper-cased.
+                    char q = t[0];
+                    std::size_t close = t.rfind(q);
+                    if (close == 0) fail("unterminated string " + t);
+                    tok.kind = TokKind::Str;
+                    tok.str = t.substr(1, close - 1);
                 } else if (t[0] == '%') {
                     double v;
                     if (!parseDouble(t.substr(1), v)) fail("bad %ref `" + t + "`");
@@ -303,6 +317,12 @@ public:
             case OpCode::Shell:   return opShell(op, env);
             case OpCode::Fold:    return opFold(op, env);
             case OpCode::Heal:    return opHeal(op, env);
+            // ---- edit ops (same walker, DirectEdit backend) ----
+            case OpCode::Input:      return opInput(op);
+            case OpCode::PushFace:   return opPushFace(op, env);
+            case OpCode::ResizeBore: return opResizeBore(op, env);
+            case OpCode::Defeature:  return opDefeature(op, env);
+            case OpCode::Verify:     return opVerify(op, env);
         }
         throw OpError(op.id, "unhandled op");
     }
@@ -912,11 +932,289 @@ private:
         auto r = forge::heal::simplifyShape(body, {});
         return r.handle != forge::kInvalidHandle ? r.handle : body;
     }
+
+    // ======================================================================
+    // EDIT OPS — the second half of the Unified IR, executed by the SAME
+    // walker. Selectors are resolved against the live faceInventory, so an
+    // edit tree never carries a face index the model had to guess.
+    // ======================================================================
+
+    static std::string strArg(const Op& op, std::size_t i) {
+        if (i >= op.args.size() || op.args[i].kind != TokKind::Str)
+            throw OpError(op.id, op.name + ": arg #" + std::to_string(i) +
+                                     " must be a quoted string (a face selector)");
+        return op.args[i].str;
+    }
+
+    static std::string lower(std::string s) {
+        for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        return s;
+    }
+
+    // Resolve a face SELECTOR predicate against `body`'s live face inventory.
+    // Returns 1-based face indices, ordered most-relevant-first. Throws (loudly)
+    // when the predicate matches nothing — a silent empty selection would let a
+    // wrong edit report success.
+    static std::vector<int> resolveSelector(int opId, Handle body, const std::string& selRaw) {
+        std::vector<forge::FaceInfo> inv;
+        try {
+            inv = forge::faceInventory(body);
+        } catch (const std::exception& e) {
+            throw OpError(opId, std::string("faceInventory failed: ") + e.what());
+        }
+        if (inv.empty()) throw OpError(opId, "faceInventory returned no faces");
+
+        const std::string sel = lower(trim(selRaw));
+        std::vector<int> out;
+
+        auto axisPick = [&](int axis, double sign) {
+            // The planar face whose outward normal is most aligned with the axis
+            // and which lies furthest along it — "the +Z face".
+            int best = 0;
+            double bestPos = -1e300;
+            for (const auto& f : inv) {
+                if (f.kind != "plane") continue;
+                if (f.direction[axis] * sign < 0.7) continue;   // must face that way
+                double pos = f.centroid[axis] * sign;
+                if (pos > bestPos) { bestPos = pos; best = f.index; }
+            }
+            if (best) out.push_back(best);
+        };
+
+        // ---- axis-extreme planes: "+Z" "-X" ... ----
+        if (sel.size() == 2 && (sel[0] == '+' || sel[0] == '-') &&
+            (sel[1] == 'x' || sel[1] == 'y' || sel[1] == 'z')) {
+            axisPick(sel[1] - 'x', sel[0] == '+' ? 1.0 : -1.0);
+        }
+        // ---- "plane:max-area" ----
+        else if (sel == "plane:max-area" || sel == "plane:largest") {
+            int best = 0; double bestA = -1.0;
+            for (const auto& f : inv)
+                if (f.kind == "plane" && f.area > bestA) { bestA = f.area; best = f.index; }
+            if (best) out.push_back(best);
+        }
+        // ---- explicit index: "face:12" ----
+        else if (sel.rfind("face:", 0) == 0) {
+            double v;
+            if (!parseDouble(sel.substr(5), v)) throw OpError(opId, "bad selector `" + selRaw + "`");
+            int idx = static_cast<int>(v);
+            if (idx < 1 || idx > static_cast<int>(inv.size()))
+                throw OpError(opId, "face:" + std::to_string(idx) + " out of range (1.." +
+                                        std::to_string(inv.size()) + ")");
+            out.push_back(idx);
+        }
+        // ---- bores / holes / bosses / fillets ----
+        else {
+            // gather the candidate cylindrical set for this predicate family
+            const bool wantConcave = (sel.rfind("bore", 0) == 0 || sel.rfind("hole", 0) == 0);
+            const bool wantConvex  = (sel.rfind("boss", 0) == 0 || sel.rfind("shaft", 0) == 0);
+            const bool wantFillet  = (sel.rfind("fillet", 0) == 0 || sel.rfind("blend", 0) == 0);
+
+            std::vector<const forge::FaceInfo*> cand;
+            for (const auto& f : inv) {
+                if (wantFillet) {
+                    // A rolling-ball blend is a torus (rounded edge) or, on a
+                    // straight edge, a cylinder. Both are collected; an explicit
+                    // radius bound may narrow it.
+                    if (f.kind == "torus" || f.kind == "cylinder") cand.push_back(&f);
+                } else if (f.kind == "cylinder") {
+                    if (wantConcave && !f.concave) continue;
+                    if (wantConvex && f.concave) continue;
+                    cand.push_back(&f);
+                }
+            }
+            if (cand.empty())
+                throw OpError(opId, "selector `" + selRaw + "` matched no candidate face");
+
+            // optional exact radius: "bore:r=47.5", "fillet:r<=3"
+            std::size_t rp = sel.find("r=");
+            std::size_t rle = sel.find("r<=");
+            if (rle != std::string::npos) {
+                double bound;
+                if (!parseDouble(sel.substr(rle + 3), bound))
+                    throw OpError(opId, "bad radius bound in `" + selRaw + "`");
+                for (const auto* f : cand)
+                    if (f->radius <= bound + 1e-6) out.push_back(f->index);
+            } else if (rp != std::string::npos) {
+                double want;
+                if (!parseDouble(sel.substr(rp + 2), want))
+                    throw OpError(opId, "bad radius in `" + selRaw + "`");
+                // match on radius (accept a diameter-shaped value too: the model
+                // sometimes writes the Ø it read off the drawing)
+                for (const auto* f : cand) {
+                    const double tol = std::max(1e-3, 1e-3 * want);
+                    if (std::fabs(f->radius - want) <= tol ||
+                        std::fabs(2.0 * f->radius - want) <= tol)
+                        out.push_back(f->index);
+                }
+                if (out.empty())
+                    throw OpError(opId, "no face with radius " + sel.substr(rp + 2) +
+                                            " for selector `" + selRaw + "`");
+            } else {
+                // rank-based: sort by radius then take max / min / smallest:N / largest:N / all
+                std::vector<const forge::FaceInfo*> byR = cand;
+                std::sort(byR.begin(), byR.end(),
+                          [](const forge::FaceInfo* a, const forge::FaceInfo* b) {
+                              return a->radius < b->radius;
+                          });
+                auto takeN = [&](bool smallest, std::size_t n) {
+                    n = std::min(n, byR.size());
+                    for (std::size_t k = 0; k < n; ++k)
+                        out.push_back(smallest ? byR[k]->index : byR[byR.size() - 1 - k]->index);
+                };
+                std::size_t colon = sel.rfind(':');
+                double nv = 0;
+                const bool hasN = colon != std::string::npos &&
+                                  parseDouble(sel.substr(colon + 1), nv) && nv >= 1;
+                if (sel.find("max") != std::string::npos || sel.find("largest") != std::string::npos)
+                    takeN(false, hasN ? static_cast<std::size_t>(nv) : 1);
+                else if (sel.find("min") != std::string::npos ||
+                         sel.find("smallest") != std::string::npos)
+                    takeN(true, hasN ? static_cast<std::size_t>(nv) : 1);
+                else if (sel.find("all") != std::string::npos)
+                    for (const auto* f : byR) out.push_back(f->index);
+                else
+                    throw OpError(opId, "unsupported selector `" + selRaw + "`");
+            }
+        }
+
+        if (out.empty())
+            throw OpError(opId, "selector `" + selRaw + "` resolved to no face");
+        return out;
+    }
+
+    Handle opInput(const Op& op) {
+        if (inputStep.empty())
+            throw OpError(op.id, "INPUT() used but no input STEP was supplied to the compiler");
+        Handle h = 0;
+        try {
+            h = forge::io::importStep(inputStep);
+        } catch (const std::exception& e) {
+            throw OpError(op.id, std::string("INPUT(): cannot import ") + inputStep + ": " + e.what());
+        }
+        if (h == 0 || h == forge::kInvalidHandle)
+            throw OpError(op.id, "INPUT(): import produced no solid from " + inputStep);
+        // Face identity is meaningless on a strip-faceted body — unify first so
+        // "the bore" is one face, exactly as DirectEdit.hpp requires.
+        try { h = forge::unifyFaces(h); } catch (...) {}
+        return h;
+    }
+
+    Handle opPushFace(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        std::string sel = strArg(op, 1);
+        double dist = num(op, 2);
+        auto idx = resolveSelector(op.id, body, sel);
+        const auto inv = forge::faceInventory(body);
+        const forge::FaceInfo* f = nullptr;
+        for (const auto& fi : inv) if (fi.index == idx[0]) { f = &fi; break; }
+        if (!f) throw OpError(op.id, "PUSHFACE: selector resolved to an unknown face");
+        if (f->kind != "plane")
+            throw OpError(op.id, "PUSHFACE: selector `" + sel + "` is a " + f->kind +
+                                     " face, not planar");
+        try {
+            return forge::pushPullFace(body, f->index, f->direction, dist);
+        } catch (const std::exception& e) {
+            throw OpError(op.id, std::string("PUSHFACE failed: ") + e.what());
+        }
+    }
+
+    Handle opResizeBore(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        std::string sel = strArg(op, 1);
+        double r = num(op, 2);
+        if (r <= 0) throw OpError(op.id, "RESIZEBORE: newRadius must be > 0");
+        auto idx = resolveSelector(op.id, body, sel);
+        try {
+            return forge::resizeBore(body, idx[0], r);
+        } catch (const std::exception& e) {
+            throw OpError(op.id, std::string("RESIZEBORE failed: ") + e.what());
+        }
+    }
+
+    Handle opDefeature(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        std::string sel = strArg(op, 1);
+        auto idx = resolveSelector(op.id, body, sel);
+        try {
+            return forge::defeature(body, idx);
+        } catch (const std::exception& e) {
+            throw OpError(op.id, std::string("DEFEATURE failed: ") + e.what());
+        }
+    }
+
+    // VERIFY(%body, "faces=8", "volume<=12345", "holes=2", "bbox.z=5.61", ...)
+    // Assertions are measured on the LIVE body — this is the in-IR do-no-harm
+    // gate. A failed assertion is a compile failure, never a warning.
+    Handle opVerify(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        for (std::size_t i = 1; i < op.args.size(); ++i) {
+            if (op.args[i].kind != TokKind::Str) continue;
+            const std::string expr = op.args[i].str;
+            std::string key, cmp, valStr;
+            for (const char* c : {"<=", ">=", "=", "<", ">"}) {
+                std::size_t p = expr.find(c);
+                if (p != std::string::npos) {
+                    key = lower(trim(expr.substr(0, p)));
+                    cmp = c;
+                    valStr = trim(expr.substr(p + std::string(c).size()));
+                    break;
+                }
+            }
+            double want = 0;
+            if (key.empty() || !parseDouble(valStr, want))
+                throw OpError(op.id, "VERIFY: cannot parse assertion `" + expr + "`");
+
+            double got = 0;
+            if (key == "faces")        got = static_cast<double>(forge::direct::faceCount(body));
+            else if (key == "edges")   got = static_cast<double>(forge::direct::edgeCount(body));
+            else if (key == "volume")  got = forge::massProperties(body).volume;
+            else if (key == "holes" || key == "bores") {
+                const auto inv = forge::faceInventory(body);
+                long n = 0;
+                for (const auto& f : inv) if (f.kind == "cylinder" && f.concave) ++n;
+                got = static_cast<double>(n);
+            } else if (key.rfind("bbox.", 0) == 0 && key.size() == 6) {
+                int ax = key[5] - 'x';
+                if (ax < 0 || ax > 2) throw OpError(op.id, "VERIFY: bad bbox axis in `" + expr + "`");
+                Mesh m = forge::tessellate(body, 0.3, 0.6);
+                double mn = 1e300, mx = -1e300;
+                for (std::size_t k = 0; k + 2 < m.positions.size(); k += 3) {
+                    double v = m.positions[k + ax];
+                    mn = std::min(mn, v); mx = std::max(mx, v);
+                }
+                got = mx - mn;
+            } else {
+                throw OpError(op.id, "VERIFY: unknown quantity `" + key + "` in `" + expr + "`");
+            }
+
+            const double tol = std::max(1e-6, 1e-3 * std::fabs(want));
+            bool pass = false;
+            if (cmp == "=")       pass = std::fabs(got - want) <= tol;
+            else if (cmp == "<=") pass = got <= want + tol;
+            else if (cmp == ">=") pass = got >= want - tol;
+            else if (cmp == "<")  pass = got < want;
+            else if (cmp == ">")  pass = got > want;
+
+            std::ostringstream note;
+            note << (pass ? "PASS " : "FAIL ") << expr << " (got " << got << ")";
+            if (res) res->verify.push_back(note.str());
+            if (!pass) throw OpError(op.id, "VERIFY failed: " + expr + " (got " +
+                                                std::to_string(got) + ")");
+        }
+        return body;   // pass-through: VERIFY asserts, it does not modify
+    }
+
+public:
+    std::string    inputStep;        // backs INPUT()
+    CompileResult* res = nullptr;    // VERIFY writes its per-assertion log here
+
+private:
 };
 
 }  // namespace
 
-CompileResult compile(const FeatureTree& ft) {
+CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
     CompileResult out;
 
 #ifdef FORGE_NATIVE_BREP
@@ -933,6 +1231,8 @@ CompileResult compile(const FeatureTree& ft) {
 
     std::unordered_map<int, Val> env;
     Builder builder;
+    builder.inputStep = inputStepPath;   // backs INPUT() for edit trees
+    builder.res = &out;                  // VERIFY records each assertion here
     Handle lastSolid = 0;
 
     for (const auto& op : ft.ops) {
@@ -1004,7 +1304,8 @@ CompileResult compile(const FeatureTree& ft) {
     return out;
 }
 
-CompileResult compileText(const std::string& text, const std::string& exportStepPath) {
+CompileResult compileText(const std::string& text, const std::string& exportStepPath,
+                          const std::string& inputStepPath) {
     CompileResult out;
     FeatureTree ft;
     try {
@@ -1013,7 +1314,7 @@ CompileResult compileText(const std::string& text, const std::string& exportStep
         out.error = e.what();
         return out;
     }
-    out = compile(ft);
+    out = compile(ft, inputStepPath);
     if (out.ok && !exportStepPath.empty()) {
         try { out.exported = forge::io::exportStep(out.handle, exportStepPath); }
         catch (const std::exception& e) { out.error = std::string("STEP export failed: ") + e.what(); }
