@@ -32,6 +32,8 @@
 #include "forge/DirectEdit.hpp"
 #include "forge/MassProps.hpp"
 #include "forge/Tessellate.hpp"
+#include "forge/VoxelIoU.hpp"
+#include "forge/IoExchange.hpp"
 #include "forge/ft/FeatureTree.hpp"
 
 namespace {
@@ -206,8 +208,10 @@ int main(int argc, char** argv) {
     while (std::getline(std::cin, line)) {
         if (line.find_first_not_of(" \t\r\n") == std::string::npos) continue;
 
-        std::string id, ir, inStep, outStep, censusFlag;
+        std::string id, ir, inStep, outStep, censusFlag, refStep, gridStr;
         jsonString(line, "id", id);
+        jsonString(line, "refStep", refStep);   // reference solid -> Voxel IoU
+        jsonString(line, "iouGrid", gridStr);
         jsonString(line, "ir", ir);
         jsonString(line, "inputStep", inStep);
         jsonString(line, "outStep", outStep);
@@ -343,6 +347,33 @@ int main(int argc, char** argv) {
                     o << "]}";
                 }
             } catch (...) { /* additive */ }
+
+            // VOXEL IoU against a reference STEP — the metric BenchCAD
+            // Vision2Code scores. Volume and IoU disagree exactly where it
+            // matters: a part can match volume to 0.1% and sit in the wrong
+            // place. Both solids are voxelised on ONE grid spanning the union of
+            // their bounding boxes, so an offset candidate is penalised rather
+            // than silently re-centred.
+            if (!refStep.empty()) {
+                try {
+                    const forge::ShapeHandle ref = forge::io::importStep(refStep);
+                    if (ref != 0) {
+                        int grid = 64;
+                        if (!gridStr.empty()) {
+                            try { grid = std::stoi(gridStr); } catch (...) { grid = 64; }
+                        }
+                        forge::VoxelIoUResult v;
+                        if (forge::voxelIoU(r.handle, ref, v, grid)) {
+                            o << ",\"voxelIoU\":" << num(v.iou)
+                              << ",\"iouGrid\":" << v.gridN
+                              << ",\"iouCells\":{\"candidate\":" << v.inA
+                              << ",\"reference\":" << v.inB
+                              << ",\"intersection\":" << v.intersection
+                              << ",\"union\":" << v.unionCount << "}";
+                        }
+                    }
+                } catch (...) { /* additive: a missing reference must not fail a build */ }
+            }
         }
 
         o << "}";
