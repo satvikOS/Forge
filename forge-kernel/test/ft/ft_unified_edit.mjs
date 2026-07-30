@@ -178,6 +178,38 @@ test('a position matching no bore fails loudly', () => {
   assert.match(r.error, /no bore at/, `error: ${r.error}`)
 })
 
+test('selectors COMPOSE: position AND radius narrow together', () => {
+  // A human disambiguates a hole on a drawing by saying both where it is and how
+  // big it is. The position clause used to return immediately, so "the O4 bore at
+  // (-25, 0)" was inexpressible — the two filters could never be combined.
+  const base = `%1 = BOX(80, 80, 6, 0, 0, 0)
+%2 = HOLE(%1, 12, 0, 0, 0)
+%3 = HOLE(%2, 4, -25, 0, 0)
+%4 = HOLE(%3, 8, 25, 0, 0)
+%5 = HOLE(%4, 4, 0, 25, 0)
+`
+  const run = (sel) => forge.ft.compile(`${base}%6 = DEFEATURE(%5, ${sel})\nRESULT(%6)`)
+
+  const posOnly = run('"hole:at=-25,0"')
+  assert.ok(posOnly.ok, `position selector failed: ${posOnly.error}`)
+
+  const composed = run('"hole:at=-25,0:r=2"')
+  assert.ok(composed.ok, `composed selector failed: ${composed.error}`)
+  near(composed.volume, posOnly.volume, 1e-6,
+       'position+radius must resolve the same single bore as position alone')
+
+  // and the composition must actually FILTER, not be decoration
+  const wrong = run('"hole:at=-25,0:r=99"')
+  assert.ok(!wrong.ok, 'a position that matches with a radius that does not must fail')
+  assert.match(wrong.error, /no face with radius/, `error: ${wrong.error}`)
+
+  // radius alone is broader — it takes BOTH O4 bores
+  const radiusOnly = run('"bore:r=2"')
+  assert.ok(radiusOnly.ok, `radius selector failed: ${radiusOnly.error}`)
+  assert.ok(radiusOnly.volume > composed.volume,
+            'radius-only removes two bores, so more material returns than the single-bore case')
+})
+
 // ---------------------------------------------------------------------------
 // 3. VERIFY — the in-IR do-no-harm gate must PASS truth and FAIL falsehood
 // ---------------------------------------------------------------------------

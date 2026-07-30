@@ -1037,6 +1037,7 @@ private:
         // ---- bores / holes / bosses / fillets ----
         else {
             // gather the candidate cylindrical set for this predicate family
+            std::string sel_tail;   // filter text after a position clause, if any
             const bool wantConcave = (sel.rfind("bore", 0) == 0 || sel.rfind("hole", 0) == 0);
             const bool wantConvex  = (sel.rfind("boss", 0) == 0 || sel.rfind("shaft", 0) == 0);
             const bool wantFillet  = (sel.rfind("fillet", 0) == 0 || sel.rfind("blend", 0) == 0);
@@ -1057,22 +1058,32 @@ private:
             if (cand.empty())
                 throw OpError(opId, "selector `" + selRaw + "` matched no candidate face");
 
-            // positional: "hole:at=21.75,0" — select the bore whose axis sits at
-            // (x,y). This is what a bolt-pattern edit needs: with N equal-radius
-            // holes, WHICH ones are removed is the whole content of the edit, and
-            // a rank-based selector cannot say it.
+            // POSITION filter: "hole:at=21.75,0" — narrow to the bore(s) whose axis
+            // sits at (x,y). This is what a bolt-pattern edit needs: with N
+            // equal-radius holes, WHICH ones are removed is the whole content of
+            // the edit, and no rank-based selector can say it.
+            //
+            // It is a FILTER, not a terminal branch. It previously returned
+            // immediately, so "the O4.02 bore at (21.75, 0)" was inexpressible —
+            // position and radius could never be combined, which is exactly how a
+            // human disambiguates a hole on a drawing.
             std::size_t ap = sel.find("at=");
             if (ap != std::string::npos) {
                 std::string coords = sel.substr(ap + 3);
                 for (char& c : coords)
                     if (c == '(' || c == ')' || c == ';') c = ' ';
+                // stop the coordinate pair at the next filter, so
+                // "hole:at=21.75,0:r=4.02" parses as position THEN radius
+                std::size_t cut = coords.find(':');
+                std::string pair = (cut == std::string::npos) ? coords : coords.substr(0, cut);
                 double wx = 0, wy = 0;
-                std::size_t comma = coords.find(',');
+                std::size_t comma = pair.find(',');
                 if (comma == std::string::npos ||
-                    !parseDouble(trim(coords.substr(0, comma)), wx) ||
-                    !parseDouble(trim(coords.substr(comma + 1)), wy))
+                    !parseDouble(trim(pair.substr(0, comma)), wx) ||
+                    !parseDouble(trim(pair.substr(comma + 1)), wy))
                     throw OpError(opId, "bad position in `" + selRaw + "` (want at=x,y)");
                 const double tol = 1e-2;
+                std::vector<const forge::FaceInfo*> at;
                 for (const auto* f : cand) {
                     // a bore's axis position: prefer the axis location, fall back
                     // to the centroid for a full cylindrical face
@@ -1081,26 +1092,34 @@ private:
                         fx = f->centroid[0]; fy = f->centroid[1];
                     }
                     if (std::fabs(fx - wx) <= tol && std::fabs(fy - wy) <= tol)
-                        out.push_back(f->index);
+                        at.push_back(f);
                 }
-                if (out.empty())
+                if (at.empty())
                     throw OpError(opId, "no bore at (" + std::to_string(wx) + ", " +
                                             std::to_string(wy) + ") for `" + selRaw + "`");
-                return out;
+                cand.swap(at);
+                // a bare position selects what it matched; a further r=/rank
+                // filter below narrows it
+                if (cut == std::string::npos) {
+                    for (const auto* f : cand) out.push_back(f->index);
+                    return out;
+                }
+                sel_tail = sel.substr(ap + 3 + cut + 1);
             }
 
             // optional exact radius: "bore:r=47.5", "fillet:r<=3"
-            std::size_t rp = sel.find("r=");
-            std::size_t rle = sel.find("r<=");
+            const std::string& fsel = sel_tail.empty() ? sel : sel_tail;
+            std::size_t rp = fsel.find("r=");
+            std::size_t rle = fsel.find("r<=");
             if (rle != std::string::npos) {
                 double bound;
-                if (!parseDouble(sel.substr(rle + 3), bound))
+                if (!parseDouble(fsel.substr(rle + 3), bound))
                     throw OpError(opId, "bad radius bound in `" + selRaw + "`");
                 for (const auto* f : cand)
                     if (f->radius <= bound + 1e-6) out.push_back(f->index);
             } else if (rp != std::string::npos) {
                 double want;
-                if (!parseDouble(sel.substr(rp + 2), want))
+                if (!parseDouble(fsel.substr(rp + 2), want))
                     throw OpError(opId, "bad radius in `" + selRaw + "`");
                 // match on radius (accept a diameter-shaped value too: the model
                 // sometimes writes the Ø it read off the drawing)
@@ -1111,7 +1130,7 @@ private:
                         out.push_back(f->index);
                 }
                 if (out.empty())
-                    throw OpError(opId, "no face with radius " + sel.substr(rp + 2) +
+                    throw OpError(opId, "no face with radius " + fsel.substr(rp + 2) +
                                             " for selector `" + selRaw + "`");
             } else {
                 // rank-based: sort by radius then take max / min / smallest:N / largest:N / all
@@ -1125,16 +1144,16 @@ private:
                     for (std::size_t k = 0; k < n; ++k)
                         out.push_back(smallest ? byR[k]->index : byR[byR.size() - 1 - k]->index);
                 };
-                std::size_t colon = sel.rfind(':');
+                std::size_t colon = fsel.rfind(':');
                 double nv = 0;
                 const bool hasN = colon != std::string::npos &&
-                                  parseDouble(sel.substr(colon + 1), nv) && nv >= 1;
-                if (sel.find("max") != std::string::npos || sel.find("largest") != std::string::npos)
+                                  parseDouble(fsel.substr(colon + 1), nv) && nv >= 1;
+                if (fsel.find("max") != std::string::npos || fsel.find("largest") != std::string::npos)
                     takeN(false, hasN ? static_cast<std::size_t>(nv) : 1);
-                else if (sel.find("min") != std::string::npos ||
-                         sel.find("smallest") != std::string::npos)
+                else if (fsel.find("min") != std::string::npos ||
+                         fsel.find("smallest") != std::string::npos)
                     takeN(true, hasN ? static_cast<std::size_t>(nv) : 1);
-                else if (sel.find("all") != std::string::npos)
+                else if (fsel.find("all") != std::string::npos)
                     for (const auto* f : byR) out.push_back(f->index);
                 else
                     throw OpError(opId, "unsupported selector `" + selRaw + "`");
