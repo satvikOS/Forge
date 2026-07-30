@@ -1258,9 +1258,15 @@ private:
                 throw OpError(op.id, "VERIFY: cannot parse assertion `" + expr + "`");
 
             double got = 0;
-            if (key == "faces")        got = static_cast<double>(forge::direct::faceCount(body));
-            else if (key == "edges")   got = static_cast<double>(forge::direct::edgeCount(body));
-            else if (key == "volume")  got = forge::massProperties(body).volume;
+            // Accept the names a planner naturally writes. Rejecting "faceCount"
+            // while accepting "faces" fails a tree for spelling, not for being
+            // wrong about the geometry — and the emitted trees do write faceCount.
+            if (key == "faces" || key == "facecount" || key == "nfaces")
+                got = static_cast<double>(forge::direct::faceCount(body));
+            else if (key == "edges" || key == "edgecount")
+                got = static_cast<double>(forge::direct::edgeCount(body));
+            else if (key == "volume" || key == "vol")
+                got = forge::massProperties(body).volume;
             else if (key == "holes" || key == "bores") {
                 // Count on the UNIFIED body. Face identity is only meaningful
                 // after unification (DirectEdit.hpp) — an edit that produces a
