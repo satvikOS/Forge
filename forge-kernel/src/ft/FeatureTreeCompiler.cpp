@@ -141,6 +141,41 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
     return known ? it->second : OpCode::Box;
 }
 
+// The rotational symmetry ORDER of a set of angles: the largest N for which
+// rotating every angle by 2*pi/N maps the set onto itself.
+//
+// Binning was the wrong tool twice over. Scoring bins by evenness*N returned 14 for
+// a 7-blade hub (a harmonic — each blade's faces straddle two bins), and taking the
+// smallest bin-balanced N returned 2 (a coincidence of the face distribution).
+// Either answer removes the wrong amount of material. Symmetry is not a histogram
+// property; it is whether the part maps onto itself under rotation, so that is what
+// is tested.
+inline int rotationalOrder(std::vector<double> angs) {
+    if (angs.size() < 2) return 0;
+    std::sort(angs.begin(), angs.end());
+    const double twoPi = 2.0 * 3.14159265358979323846;
+    int best = 0;
+    for (int N = 16; N >= 2; --N) {
+        const double step = twoPi / N;
+        const double tol = std::min(0.05, step * 0.20);
+        bool ok = true;
+        for (double a : angs) {
+            double t = a + step;
+            if (t >= twoPi) t -= twoPi;
+            // nearest angle to t, circularly
+            double best_d = 1e300;
+            for (double b : angs) {
+                double d = std::fabs(b - t);
+                if (d > twoPi / 2) d = twoPi - d;
+                best_d = std::min(best_d, d);
+            }
+            if (best_d > tol) { ok = false; break; }
+        }
+        if (ok) { best = N; break; }        // largest N wins: the true fold count
+    }
+    return best;
+}
+
 }  // namespace
 
 // ============================================================================
@@ -1167,6 +1202,86 @@ private:
                                         std::to_string(inv.size()) + ")");
             out.push_back(idx);
         }
+        // ---- REPEATED RADIAL FEATURES: "radial:k" / "radial:all" ------------
+        // Ground truth 203 asks to "locate 7 radial blade solids about the hub
+        // axis; select 2 (symmetric)". No selector could say that: bores, planes
+        // and bosses name ONE face, and a blade is a GROUP of faces repeated about
+        // an axis. This is the family every impeller, spoke, lug and rib edit
+        // needs, and without it that whole class of benchmark task is inexpressible.
+        //
+        // A radial group is found from the face inventory alone: take every face
+        // whose centroid lies off the Z axis, bin it by angle, and test candidate
+        // fold counts for how evenly the mass distributes. The fold count with the
+        // most even occupancy IS the repeat count — an impeller with 7 blades has 7
+        // populated bins and 7-fold symmetry, and nothing else does.
+        else if (sel.rfind("radial", 0) == 0 || sel.rfind("blade", 0) == 0 ||
+                 sel.rfind("lug", 0) == 0 || sel.rfind("spoke", 0) == 0) {
+            // radius of the on-axis core: faces closer than this are hub, not feature
+            double maxR = 0.0;
+            for (const auto& f : inv) {
+                const double r = std::hypot(f.centroid[0], f.centroid[1]);
+                maxR = std::max(maxR, r);
+            }
+            if (maxR < 1e-9)
+                throw OpError(opId, "selector `" + selRaw +
+                                        "` needs an off-axis feature; every face is on the axis");
+            const double coreR = 0.35 * maxR;
+
+            struct Item { int index; double ang; };
+            std::vector<Item> items;
+            for (const auto& f : inv) {
+                const double r = std::hypot(f.centroid[0], f.centroid[1]);
+                if (r < coreR) continue;
+                double a = std::atan2(f.centroid[1], f.centroid[0]);
+                if (a < 0) a += 2.0 * kPi;
+                items.push_back(Item{f.index, a});
+            }
+            if (items.size() < 2)
+                throw OpError(opId, "selector `" + selRaw + "` found no off-axis features");
+
+            // pick the fold count whose bins are most evenly occupied
+            std::vector<double> allAng;
+            allAng.reserve(items.size());
+            for (const auto& it : items) allAng.push_back(it.ang);
+            const int bestN = rotationalOrder(allAng);
+            if (bestN < 2)
+                throw OpError(opId, "selector `" + selRaw +
+                                        "` found no rotationally repeated feature group");
+
+            // how many members to take
+            std::size_t want = 1;
+            const std::size_t colon = sel.rfind(':');
+            if (colon != std::string::npos) {
+                const std::string tail = sel.substr(colon + 1);
+                if (tail == "all") want = static_cast<std::size_t>(bestN);
+                else {
+                    double v = 0;
+                    if (!parseDouble(tail, v) || v < 1)
+                        throw OpError(opId, "bad count in `" + selRaw + "` (want radial:<k> or radial:all)");
+                    want = static_cast<std::size_t>(v);
+                }
+            }
+            if (want > static_cast<std::size_t>(bestN))
+                throw OpError(opId, "selector `" + selRaw + "` asks for " +
+                                        std::to_string(want) + " of a " +
+                                        std::to_string(bestN) + "-fold group");
+
+            // take members SYMMETRICALLY — evenly spaced around the group, which is
+            // what "select 2 (symmetric)" means and what keeps the part balanced
+            const double step = static_cast<double>(bestN) / static_cast<double>(want);
+            std::vector<int> chosenBins;
+            for (std::size_t i = 0; i < want; ++i)
+                chosenBins.push_back(static_cast<int>(i * step) % bestN);
+            for (const auto& it : items) {
+                const int b = std::min(bestN - 1,
+                                       static_cast<int>(it.ang / (2.0 * kPi / bestN)));
+                if (std::find(chosenBins.begin(), chosenBins.end(), b) != chosenBins.end())
+                    out.push_back(it.index);
+            }
+            if (out.empty())
+                throw OpError(opId, "selector `" + selRaw + "` resolved to no face");
+            return out;
+        }
         // ---- bores / holes / bosses / fillets ----
         else {
             // gather the candidate cylindrical set for this predicate family
@@ -1464,11 +1579,33 @@ private:
         }
         if (idx.empty())
             throw OpError(op.id, "DEFEATURE: no face selector given");
+        double volBefore = 0.0;
+        bool haveBefore = false;
+        try { volBefore = forge::massProperties(body).volume; haveBefore = true; } catch (...) {}
+        Handle result = 0;
         try {
-            return forge::defeature(body, idx);
+            result = forge::defeature(body, idx);
         } catch (const std::exception& e) {
             throw OpError(op.id, std::string("DEFEATURE failed: ") + e.what());
         }
+        // A DEFEATURE that changes NOTHING and reports success is the worst
+        // outcome available: asked to remove 2 of 7 blades it returned the input
+        // untouched, volume identical to the last digit, and a following
+        // VERIFY "blades=7" then PASSED — a wrong part with every assertion green.
+        // Removing a face group only deletes a feature the healer can close over;
+        // a whole solid protrusion is not that, and the op must say so.
+        if (haveBefore) {
+            double volAfter = volBefore;
+            try { volAfter = forge::massProperties(result).volume; } catch (...) {}
+            if (std::fabs(volAfter - volBefore) <= 1e-9 * std::max(1.0, std::fabs(volBefore)))
+                throw OpError(op.id,
+                              "DEFEATURE removed the selected faces but the solid is "
+                              "UNCHANGED (volume identical). The selection is not a "
+                              "removable feature — a whole solid protrusion (blade, "
+                              "boss, rib) cannot be deleted by face removal; it has to "
+                              "be CUT.");
+        }
+        return result;
     }
 
     // VERIFY(%body, "faces=8", "volume<=12345", "holes=2", "bbox.z=5.61", ...)
@@ -1529,6 +1666,27 @@ private:
                     ++n;
                 }
                 got = static_cast<double>(n);
+            } else if (key == "radial" || key == "blades" || key == "lugs" ||
+                       key == "spokes") {
+                // the fold count of the dominant radial group — how GT 203 says
+                // "verify blade count = 5"
+                Handle probe = body;
+                try { probe = forge::unifyFaces(body); } catch (...) { probe = body; }
+                const auto inv2 = forge::faceInventory(probe);
+                double maxR = 0.0;
+                for (const auto& f : inv2)
+                    maxR = std::max(maxR, std::hypot(f.centroid[0], f.centroid[1]));
+                const double coreR = 0.35 * maxR;
+                std::vector<double> angs;
+                for (const auto& f : inv2) {
+                    const double r = std::hypot(f.centroid[0], f.centroid[1]);
+                    if (r < coreR) continue;
+                    double a = std::atan2(f.centroid[1], f.centroid[0]);
+                    if (a < 0) a += 2.0 * 3.14159265358979323846;
+                    angs.push_back(a);
+                }
+                const int bestN = rotationalOrder(angs);
+                got = static_cast<double>(bestN);
             } else if (key == "genus" || key == "shells" || key == "shellcount") {
                 // Topology is 0.2 of the CADGenBench metric, and the failure it
                 // catches is the one volume cannot: v18/205 measured 0.7% volume
