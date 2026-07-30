@@ -130,6 +130,7 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"CHAMFER", OpCode::Chamfer}, {"BLEND", OpCode::Blend},
         {"SHELL", OpCode::Shell}, {"FOLD", OpCode::Fold}, {"HEAL", OpCode::Heal},
         // edit ops — the same grammar, dispatched to DirectEdit
+        {"TAG", OpCode::Tag},
         {"INPUT", OpCode::Input}, {"PUSHFACE", OpCode::PushFace},
         {"RESIZEBORE", OpCode::ResizeBore}, {"DEFEATURE", OpCode::Defeature},
         {"VERIFY", OpCode::Verify},
@@ -295,6 +296,22 @@ struct OpError : std::runtime_error {
 
 class Builder {
 public:
+    // ---- L4: persistent feature identity -----------------------------------
+    // A face index is not an identity: DEFEATURE of one bolt hole permutes the
+    // indices of the holes it did not touch (measured 6->8, 10->9, 9->10), and
+    // %id addresses a whole body SNAPSHOT, not a feature. A NAME binds to a
+    // measurable SIGNATURE and is re-found by that signature after any op, so
+    // "the mounting bore" still means the same bore once the tree has moved.
+    struct FaceSig {
+        std::string kind;
+        double radius = 0, minorRadius = 0, area = 0;
+        double at[3] = {0, 0, 0};      // axis location (curved) or centroid (planar)
+        double dir[3] = {0, 0, 0};     // axis or outward normal
+        bool concave = false;
+        bool valid = false;
+    };
+    std::unordered_map<std::string, FaceSig> names;
+
     Handle build(const Op& op, std::unordered_map<int, Val>& env) {
         switch (op.code) {
             // ---- 2D profiles ----
@@ -339,6 +356,7 @@ public:
             case OpCode::Fold:    return opFold(op, env);
             case OpCode::Heal:    return opHeal(op, env);
             // ---- edit ops (same walker, DirectEdit backend) ----
+            case OpCode::Tag:        return opTag(op, env);
             case OpCode::Input:      return opInput(op);
             case OpCode::PushFace:   return opPushFace(op, env);
             case OpCode::ResizeBore: return opResizeBore(op, env);
@@ -997,7 +1015,50 @@ private:
     // Returns 1-based face indices, ordered most-relevant-first. Throws (loudly)
     // when the predicate matches nothing — a silent empty selection would let a
     // wrong edit report success.
-    static std::vector<int> resolveSelector(int opId, Handle body, const std::string& selRaw) {
+    static FaceSig sigOf(const forge::FaceInfo& f) {
+        FaceSig s;
+        s.kind = f.kind;
+        s.radius = f.radius;
+        s.minorRadius = f.minorRadius;
+        s.area = f.area;
+        const bool curved = (f.kind != "plane");
+        for (int k = 0; k < 3; ++k) {
+            s.at[k] = curved ? f.axisLocation[k] : f.centroid[k];
+            s.dir[k] = f.direction[k];
+        }
+        s.concave = f.concave;
+        s.valid = true;
+        return s;
+    }
+
+    // How far a candidate is from a remembered feature. Kind and concavity must
+    // match exactly — a bore never becomes a boss — and the rest is a distance so
+    // a feature that was merely RESIZED or MOVED is still recognisably itself.
+    static double sigDistance(const FaceSig& want, const forge::FaceInfo& f) {
+        if (f.kind != want.kind || f.concave != want.concave) return 1e300;
+        double d = 0;
+        const bool curved = (f.kind != "plane");
+        for (int k = 0; k < 3; ++k) {
+            const double p = curved ? f.axisLocation[k] : f.centroid[k];
+            d += (p - want.at[k]) * (p - want.at[k]);
+            const double dd = f.direction[k] - want.dir[k];
+            d += 4.0 * dd * dd;                       // orientation weighted higher
+        }
+        d = std::sqrt(d);
+        d += 0.25 * std::fabs(f.radius - want.radius);
+        return d;
+    }
+
+    // Split "@name|legacy-sel" -> {"@name", "legacy-sel"}; "" when absent.
+    static void splitWitness(const std::string& sel, std::string& nameRef,
+                             std::string& witness) {
+        const std::size_t bar = sel.find('|');
+        if (bar == std::string::npos) { nameRef = sel; witness.clear(); return; }
+        nameRef = trim(sel.substr(0, bar));
+        witness = trim(sel.substr(bar + 1));
+    }
+
+    std::vector<int> resolveSelector(int opId, Handle body, const std::string& selRaw) {
         std::vector<forge::FaceInfo> inv;
         try {
             inv = forge::faceInventory(body);
@@ -1008,6 +1069,66 @@ private:
 
         const std::string sel = lower(trim(selRaw));
         std::vector<int> out;
+
+        // ---- @name / @name|witness: resolve a PERSISTENT feature ------------
+        if (!sel.empty() && sel[0] == '@') {
+            std::string nameRef, witness;
+            splitWitness(sel, nameRef, witness);
+            const std::string key = nameRef.substr(1);
+            auto it = names.find(key);
+            if (it == names.end())
+                throw OpError(opId, "selector `" + selRaw + "` names @" + key +
+                                        ", which was never declared by a TAG");
+            const FaceSig& want = it->second;
+
+            int best = 0;
+            double bestD = 1e300, secondD = 1e300, bestPos = 1e300;
+            for (const auto& f : inv) {
+                const double d = sigDistance(want, f);
+                if (d < bestD) {
+                    secondD = bestD; bestD = d; best = f.index;
+                    bestPos = 0;
+                    const bool curved = (f.kind != "plane");
+                    for (int k = 0; k < 3; ++k) {
+                        const double p = curved ? f.axisLocation[k] : f.centroid[k];
+                        bestPos += (p - want.at[k]) * (p - want.at[k]);
+                    }
+                    bestPos = std::sqrt(bestPos);
+                } else if (d < secondD) { secondD = d; }
+            }
+            // NEAREST IS NOT ENOUGH. Deleting a named corner hole left its name
+            // resolving happily to a DIFFERENT corner hole 60 mm away — a silent
+            // retarget, the exact failure a name exists to prevent. A feature may
+            // be resized or nudged and still be itself; one that has moved further
+            // than its own diameter is a different feature, and the name is dead.
+            const double posTol = std::max(1.0, 2.0 * want.radius);
+            if (!best || bestD > 1e299 || bestPos > posTol)
+                throw OpError(opId, "@" + key + " no longer matches any face — the "
+                                    "feature it named is gone (deleted, or merged by a "
+                                    "boolean); nearest candidate is " +
+                                    std::to_string(bestPos) + " mm away, tolerance " +
+                                    std::to_string(posTol));
+            // Two candidates equally close means the name is no longer a name.
+            if (secondD < 1e299 && std::fabs(secondD - bestD) < 1e-6)
+                throw OpError(opId, "@" + key + " is ambiguous: two faces match it "
+                                    "equally well (a PATTERN duplicated the feature?)");
+
+            // Law 6 — identity is CHECKED, not asserted. When a witness predicate
+            // is carried alongside the name, the two independent derivations must
+            // agree, or the name has silently retargeted and we say so.
+            if (!witness.empty()) {
+                const std::vector<int> byPredicate = resolveSelector(opId, body, witness);
+                if (std::find(byPredicate.begin(), byPredicate.end(), best) ==
+                    byPredicate.end())
+                    throw OpError(opId, "@" + key + " and its witness `" + witness +
+                                            "` disagree: the name resolves to face " +
+                                            std::to_string(best) +
+                                            ", the predicate does not include it — the "
+                                            "name has retargeted");
+            }
+            out.push_back(best);
+            return out;
+        }
 
         auto axisPick = [&](int axis, double sign) {
             // The planar face whose outward normal is most aligned with the axis
@@ -1174,6 +1295,40 @@ private:
         if (out.empty())
             throw OpError(opId, "selector `" + selRaw + "` resolved to no face");
         return out;
+    }
+
+    // TAG(%body, "@name", "declaring-sel") — pass-through, binds a name.
+    Handle opTag(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle body = refSolid(op, 0, env);
+        std::string nameArg = strArg(op, 1);
+        std::string decl = strArg(op, 2);
+        std::string key = lower(trim(nameArg));
+        if (key.empty() || key[0] != '@')
+            throw OpError(op.id, "TAG: the name must start with '@' (got `" + nameArg + "`)");
+        key = key.substr(1);
+        if (key.empty())
+            throw OpError(op.id, "TAG: empty name");
+        for (char c : key)
+            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '_'))
+                throw OpError(op.id, "TAG: name `@" + key +
+                                         "` must be [a-z0-9_] so it survives lowercasing");
+
+        const std::vector<int> idx = resolveSelector(op.id, body, decl);
+        if (idx.size() != 1)
+            throw OpError(op.id, "TAG: `" + decl + "` matches " +
+                                     std::to_string(idx.size()) +
+                                     " faces; a name must denote exactly ONE feature");
+        const auto inv = forge::faceInventory(body);
+        for (const auto& f : inv) {
+            if (f.index != idx[0]) continue;
+            names[key] = sigOf(f);
+            if (res)
+                res->verify.push_back("TAG @" + key + " -> " + f.kind + " face " +
+                                      std::to_string(f.index));
+            return body;                       // pass-through: never alters geometry
+        }
+        throw OpError(op.id, "TAG: resolved face " + std::to_string(idx[0]) +
+                                 " vanished from the inventory");
     }
 
     Handle opInput(const Op& op) {
@@ -1376,6 +1531,7 @@ private:
 public:
     std::string    inputStep;        // backs INPUT()
     CompileResult* res = nullptr;    // VERIFY writes its per-assertion log here
+
 
 private:
 };

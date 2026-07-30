@@ -211,6 +211,69 @@ test('selectors COMPOSE: position AND radius narrow together', () => {
 })
 
 // ---------------------------------------------------------------------------
+// 2c. L4 — PERSISTENT FEATURE IDENTITY. A face index is not an identity:
+//     deleting one bolt hole permutes the indices of the holes it never touched.
+//     A TAG'd name binds to a measurable signature and is re-found by it.
+// ---------------------------------------------------------------------------
+const L4_BASE = `%1 = BOX(90, 90, 8, 0, 0, 0)
+%2 = HOLE(%1, 20, 0, 0, 0)
+%3 = HOLE(%2, 6, -30, -30, 0)
+%4 = HOLE(%3, 6, 30, -30, 0)
+%5 = HOLE(%4, 6, -30, 30, 0)
+%6 = HOLE(%5, 6, 30, 30, 0)
+`
+
+test('L4: a name survives an edit that permutes face indices', () => {
+  const r = forge.ft.compile(L4_BASE +
+    '%7 = TAG(%6, "@main_bore", "bore:max")\n' +
+    '%8 = DEFEATURE(%7, "hole:at=-30,-30")\n' +
+    '%9 = RESIZEBORE(%8, "@main_bore", 12)\n' +
+    '%10 = VERIFY(%9, "holes=4")\nRESULT(%10)')
+  assert.ok(r.ok, `named edit after a permuting delete failed: ${r.error}`)
+  // Assert the EXACT geometric consequence: plate, minus the central bore now at
+  // r=12, minus the three surviving O6 bolt holes. If the name had retargeted to
+  // a bolt hole this volume would be wrong, so the number is the proof.
+  const expect = 90 * 90 * 8 - PI * 144 * 8 - 3 * PI * 9 * 8
+  near(r.volume, expect, 1e-3, 'the NAMED bore is the one that was resized')
+})
+
+test('L4: a name and its witness predicate must agree', () => {
+  const ok = forge.ft.compile(L4_BASE +
+    '%7 = TAG(%6, "@main_bore", "bore:max")\n' +
+    '%8 = RESIZEBORE(%7, "@main_bore|bore:max", 12)\nRESULT(%8)')
+  assert.ok(ok.ok, `agreeing witness failed: ${ok.error}`)
+
+  const bad = forge.ft.compile(L4_BASE +
+    '%7 = TAG(%6, "@main_bore", "bore:max")\n' +
+    '%8 = RESIZEBORE(%7, "@main_bore|bore:min", 12)\nRESULT(%8)')
+  assert.ok(!bad.ok, 'a disagreeing witness must fail')
+  assert.match(bad.error, /disagree/, `error: ${bad.error}`)
+})
+
+test('L4: a name whose feature was DELETED must not retarget', () => {
+  // Nearest-match alone resolved this happily to a different corner hole 60 mm
+  // away — a silent retarget, which is the failure a name exists to prevent.
+  const r = forge.ft.compile(L4_BASE +
+    '%7 = TAG(%6, "@corner", "hole:at=-30,-30")\n' +
+    '%8 = DEFEATURE(%7, "hole:at=-30,-30")\n' +
+    '%9 = RESIZEBORE(%8, "@corner", 4)\nRESULT(%9)')
+  assert.ok(!r.ok, 'a name pointing at a deleted feature must fail')
+  assert.match(r.error, /no longer matches any face/, `error: ${r.error}`)
+})
+
+test('L4: an undeclared name fails loudly; TAG never alters geometry', () => {
+  const undeclared = forge.ft.compile(L4_BASE + '%7 = RESIZEBORE(%6, "@nope", 4)\nRESULT(%7)')
+  assert.ok(!undeclared.ok, 'an undeclared name must fail')
+  assert.match(undeclared.error, /never declared by a TAG/, `error: ${undeclared.error}`)
+
+  const plain = forge.ft.compile(L4_BASE + 'RESULT(%6)')
+  const tagged = forge.ft.compile(L4_BASE +
+    '%7 = TAG(%6, "@main_bore", "bore:max")\nRESULT(%7)')
+  assert.ok(tagged.ok, `TAG failed: ${tagged.error}`)
+  near(tagged.volume, plain.volume, 1e-9, 'TAG is pass-through and must not change the solid')
+})
+
+// ---------------------------------------------------------------------------
 // 3. VERIFY — the in-IR do-no-harm gate must PASS truth and FAIL falsehood
 // ---------------------------------------------------------------------------
 test('VERIFY passes true invariants and records them', () => {

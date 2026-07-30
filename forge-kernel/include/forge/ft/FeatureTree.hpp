@@ -126,6 +126,11 @@ enum class OpCode {
     // generation and editing. Face SELECTORs are quoted predicate strings
     // resolved against the live faceInventory at compile time (see
     // resolveSelector in FeatureTreeCompiler.cpp).
+    Tag,         // TAG(%body, "@name", "declaring-sel")   bind a PERSISTENT name to a feature
+                 //   Pass-through like VERIFY: it returns %body unchanged. A naming
+                 //   mechanism that can alter the solid is a defect generator.
+                 //   Afterwards "@name" is legal anywhere a selector is legal, and
+                 //   survives ops that renumber faces — which every edit does.
     Input,       // INPUT()                                bind the task's input STEP as a solid
     PushFace,    // PUSHFACE(%body, "sel", dist)           move planar face along its outward normal
     ResizeBore,  // RESIZEBORE(%body, "sel", newRadius)    set a cylindrical bore's radius exactly
