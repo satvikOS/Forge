@@ -52,6 +52,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <fstream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -1334,9 +1335,49 @@ private:
     Handle opInput(const Op& op) {
         if (inputStep.empty())
             throw OpError(op.id, "INPUT() used but no input STEP was supplied to the compiler");
+        // Dispatch on CONTENT, not on the extension. INPUT() was STEP-only, which
+        // forced every non-STEP artefact through a node bridge just to reach the
+        // verifier — a Law 3 (everything C++) compromise living outside the kernel
+        // for want of ten lines inside it. A scanned mesh is how a real part comes
+        // back from the shop floor; it must enter through the same door.
+        enum class Fmt { Step, Brep, Stl, Unknown };
+        Fmt fmt = Fmt::Unknown;
+        {
+            std::ifstream probe(inputStep, std::ios::binary);
+            if (!probe)
+                throw OpError(op.id, "INPUT(): cannot open " + inputStep);
+            char head[512] = {0};
+            probe.read(head, sizeof head - 1);
+            const std::string h0(head, static_cast<std::size_t>(probe.gcount()));
+            if (h0.find("ISO-10303") != std::string::npos) fmt = Fmt::Step;
+            else if (h0.rfind("DBRep_DrawableShape", 0) == 0 ||
+                     h0.find("CASCADE Topology") != std::string::npos) fmt = Fmt::Brep;
+            else if (h0.rfind("solid", 0) == 0 || h0.find("facet normal") != std::string::npos)
+                fmt = Fmt::Stl;
+            else {
+                // binary STL: 80-byte header then a uint32 triangle count that must
+                // account for exactly the remaining bytes
+                probe.clear();
+                probe.seekg(0, std::ios::end);
+                const std::streamoff sz = probe.tellg();
+                if (sz > 84) {
+                    probe.seekg(80, std::ios::beg);
+                    std::uint32_t nTri = 0;
+                    probe.read(reinterpret_cast<char*>(&nTri), 4);
+                    if (static_cast<std::streamoff>(84 + 50ull * nTri) == sz) fmt = Fmt::Stl;
+                }
+            }
+        }
+        if (fmt == Fmt::Unknown)
+            throw OpError(op.id, "INPUT(): " + inputStep +
+                                     " is not a STEP, BREP or STL file (content sniffed, "
+                                     "not guessed from the extension)");
+
         Handle h = 0;
         try {
-            h = forge::io::importStep(inputStep);
+            h = (fmt == Fmt::Step) ? forge::io::importStep(inputStep)
+              : (fmt == Fmt::Brep) ? forge::io::importBrep(inputStep)
+                                   : forge::io::importStl(inputStep);
         } catch (const std::exception& e) {
             throw OpError(op.id, std::string("INPUT(): cannot import ") + inputStep + ": " + e.what());
         }
