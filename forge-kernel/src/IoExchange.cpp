@@ -252,6 +252,40 @@ ShapeHandle importStl(const std::string& filepath) {
     // welded soup is built into a NativeMesh (HalfEdgeMesh) handle; a non-manifold /
     // inconsistently-wound STL fails LOUD (no silent repair — Bible §0/§9).
     std::string text = slurpFile(filepath);
+
+    // BINARY STL. The reader was ASCII-only, so a structurally valid binary STL was
+    // classified correctly by the INPUT() sniffer and then rejected by the reader —
+    // the binary branch was dead code. A scanned part arrives as binary STL far more
+    // often than ASCII, and L13's feedback loop depends on it entering the kernel,
+    // so this is transcoded here rather than in a Python pre-pass outside the kernel
+    // (Law 3). Layout: 80-byte header, uint32 triangle count, then per triangle a
+    // 12-float record (normal + 3 vertices) and a uint16 attribute word.
+    const bool looksAscii =
+        text.size() > 5 && (text.compare(0, 5, "solid") == 0 ||
+                            text.find("facet normal") != std::string::npos);
+    if (!looksAscii && text.size() > 84) {
+        std::uint32_t nTri = 0;
+        std::memcpy(&nTri, text.data() + 80, 4);
+        if (static_cast<std::size_t>(84) + static_cast<std::size_t>(50) * nTri == text.size()) {
+            std::ostringstream ascii;
+            ascii.precision(17);
+            ascii << "solid binary\n";
+            for (std::uint32_t t = 0; t < nTri; ++t) {
+                const char* rec = text.data() + 84 + static_cast<std::size_t>(50) * t;
+                float v[12];
+                std::memcpy(v, rec, 48);
+                ascii << "facet normal " << v[0] << ' ' << v[1] << ' ' << v[2]
+                      << "\nouter loop\n";
+                for (int k = 1; k <= 3; ++k)
+                    ascii << "vertex " << v[k * 3] << ' ' << v[k * 3 + 1] << ' '
+                          << v[k * 3 + 2] << '\n';
+                ascii << "endloop\nendfacet\n";
+            }
+            ascii << "endsolid binary\n";
+            text = ascii.str();
+        }
+    }
+
     native::brep::ReadResult rr = native::brep::MeshExchange::readSTL(text);
     if (!rr.ok) {
         throw std::runtime_error("forge.io: STL read failed for " + filepath + " — " + rr.reason);
