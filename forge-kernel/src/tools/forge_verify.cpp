@@ -206,11 +206,14 @@ int main(int argc, char** argv) {
     while (std::getline(std::cin, line)) {
         if (line.find_first_not_of(" \t\r\n") == std::string::npos) continue;
 
-        std::string id, ir, inStep, outStep;
+        std::string id, ir, inStep, outStep, censusFlag;
         jsonString(line, "id", id);
         jsonString(line, "ir", ir);
         jsonString(line, "inputStep", inStep);
         jsonString(line, "outStep", outStep);
+        // "census":"full" -> also emit the GROUND-TRUTH face census (see below)
+        const bool wantCensus =
+            jsonString(line, "census", censusFlag) && censusFlag == "full";
 
         std::ostringstream o;
         o << "{\"id\":\"" << jsonEscape(id) << "\"";
@@ -287,6 +290,58 @@ int main(int argc, char** argv) {
                       << ",\"r\":" << num(bores[i][2]) << ",\"span\":" << num(bores[i][3]) << "}";
                 }
                 o << "]";
+
+                // FULL FACE CENSUS, in the GROUND-TRUTH schema.
+                //
+                // The retained ground-truth records (archie_edit_203/209/214) condition
+                // every edit on a COMPLETE per-face inventory of the input solid — 156,
+                // 190 and 430 faces — not on a summary. Each entry carries kind, area and
+                // centroid, plus radius for cylinder/sphere/cone and major/minor for
+                // torus. "Shrink the largest bore" can only be GROUNDED by a planner that
+                // can see every bore; a summarised census is the difference between a
+                // measured quantity and a guess.
+                if (wantCensus) {
+                    const auto full = forge::faceInventory(probe);
+                    std::map<std::string, long> hist;
+                    for (const auto& f : full) hist[f.kind]++;
+                    o << ",\"census\":{\"faceCount\":" << full.size() << ",\"kind_histogram\":{";
+                    bool first = true;
+                    for (const auto& kv : hist) {
+                        if (!first) o << ",";
+                        first = false;
+                        o << "\"" << jsonEscape(kv.first) << "\":" << kv.second;
+                    }
+                    o << "},\"bbox\":{\"min\":[" << num(r.bboxMin[0]) << "," << num(r.bboxMin[1])
+                      << "," << num(r.bboxMin[2]) << "],\"max\":[" << num(r.bboxMax[0]) << ","
+                      << num(r.bboxMax[1]) << "," << num(r.bboxMax[2]) << "]},\"faces\":[";
+                    for (std::size_t i = 0; i < full.size(); ++i) {
+                        const auto& f = full[i];
+                        if (i) o << ",";
+                        o << "{\"kind\":\"" << jsonEscape(f.kind) << "\",\"area\":" << num(f.area)
+                          << ",\"centroid\":[" << num(f.centroid[0]) << "," << num(f.centroid[1])
+                          << "," << num(f.centroid[2]) << "]";
+                        if (f.kind == "cylinder" || f.kind == "sphere" || f.kind == "cone")
+                            o << ",\"radius\":" << num(f.radius);
+                        if (f.kind == "torus")
+                            o << ",\"major\":" << num(f.radius)
+                              << ",\"minor\":" << num(f.minorRadius);
+                        // Beyond ground truth, but free here and load-bearing for
+                        // selection: a plan cannot say "the concave bore at (x, y)"
+                        // without an axis position, and cannot say "+Z face" without a
+                        // normal.
+                        if (f.kind == "cylinder" || f.kind == "cone" || f.kind == "torus")
+                            o << ",\"axis\":[" << num(f.direction[0]) << ","
+                              << num(f.direction[1]) << "," << num(f.direction[2])
+                              << "],\"axisAt\":[" << num(f.axisLocation[0]) << ","
+                              << num(f.axisLocation[1]) << "," << num(f.axisLocation[2]) << "]";
+                        if (f.kind == "plane")
+                            o << ",\"normal\":[" << num(f.direction[0]) << ","
+                              << num(f.direction[1]) << "," << num(f.direction[2]) << "]";
+                        o << ",\"concave\":" << (f.concave ? "true" : "false")
+                          << ",\"index\":" << f.index << "}";
+                    }
+                    o << "]}";
+                }
             } catch (...) { /* additive */ }
         }
 
