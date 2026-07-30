@@ -188,6 +188,23 @@ if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
 else()
     list(APPEND OCCT_LIBS TKFillet)   # OCCT BRepFilletAPI baseline still linked (default)
 endif()
+# ── ★ MEASURED 2026-07-30: the direct-link count UNDERSTATES the closure ────────
+# Dropping TKFillet does not take the count 8 -> 7. It takes it 8 -> 9, because two
+# libraries were reaching the link ONLY THROUGH TKFillet and become visible the
+# moment it goes:
+#   TKBO   BRepAlgoAPI_{Fuse,Cut,Common,Section,Splitter,Defeaturing},
+#          BRepOffsetAPI_MakeFilling  — i.e. the boolean and defeature paths
+#   TKG2d  Geom2d_Line — the native->OCCT bridge, the NURBS trimmer, occtconv::to2d
+# Without naming them the drop build fails to link with "symbol(s) not found".
+# So `otool -L | grep opencascade` counts DIRECT LINK RECORDS, not the dependency
+# CLOSURE, and a count that falls because one library hides behind another is not
+# progress. These are appended only in the drop branch, where they are genuinely
+# required — inflating the default list would corrupt the historical series instead
+# of correcting it. The closure is tracked separately; see
+# reports/OCCT_ZERO_NEXT_STEP_2026-07-30.md §1b.
+if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
+    list(APPEND OCCT_LIBS TKBO TKG2d)
+endif()
 # OCCT-zero progress (2026-07-25, R1+R2 → TKGeomBase): DROPPED TKGeomBase. 10 -> 9 OCCT dylibs.
 #   (TKGeomBase still loads transitively — TKBRep/TKG3d/TKGeomAlgo DT_NEED it — but the .node
 #   no longer LINKS it directly.)

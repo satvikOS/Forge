@@ -123,21 +123,62 @@ gp_Pnt faceCentroid(const TopoDS_Face& f) {
     return sp.CentreOfMass();
 }
 
-// Ordered outer-boundary vertices of a face; `allStraight` reports whether every
-// outer-wire edge is a line (required for the polygon re-trim). Returns false on
-// a null/empty outer wire.
-bool orderedOuterVertices(const TopoDS_Face& f,
-                          std::vector<gp_Pnt>& pts, bool& allStraight) {
-    pts.clear();
+// One edge of an outer boundary: its start vertex, and — when the edge is a
+// circular arc — the circle it lies on.
+//
+// A ring of POINTS cannot describe an arc, which is why the retrim used to reject
+// any face whose outer boundary was not entirely straight. That rejection is what
+// blocked the TKFillet drop: makeFillet applies specs sequentially, so the FIRST
+// filleted edge leaves a circular arc on each of its two adjacent faces, and every
+// later edge then hit "adjacent face has a non-straight outer boundary". A ring of
+// SEGMENTS carries the arc through, so the second edge is no longer poisoned by
+// the first.
+struct RingSeg {
+    gp_Pnt  p;                 // start vertex of this segment
+    bool    isArc = false;
+    gp_Circ circ;              // valid when isArc
+    bool    arcSense = true;   // edge orientation is FORWARD on the circle
+};
+
+// Ordered outer boundary of a face as segments. `allStraight` still reports whether
+// every edge is a line, for callers that genuinely need a polygon.
+bool orderedOuterRing(const TopoDS_Face& f,
+                      std::vector<RingSeg>& segs, bool& allStraight) {
+    segs.clear();
     allStraight = true;
     const TopoDS_Wire ow = BRepTools::OuterWire(f);
     if (ow.IsNull()) return false;
     for (BRepTools_WireExplorer ex(ow, f); ex.More(); ex.Next()) {
         BRepAdaptor_Curve ac(ex.Current());
-        if (ac.GetType() != GeomAbs_Line) allStraight = false;
-        pts.push_back(BRep_Tool::Pnt(ex.CurrentVertex()));
+        RingSeg sg;
+        sg.p = BRep_Tool::Pnt(ex.CurrentVertex());
+        if (ac.GetType() == GeomAbs_Circle) {
+            sg.isArc = true;
+            sg.circ = ac.Circle();
+            sg.arcSense = (ex.Current().Orientation() != TopAbs_REVERSED);
+        } else if (ac.GetType() != GeomAbs_Line) {
+            allStraight = false;   // ellipse/bspline: still not retrimmable
+        }
+        segs.push_back(sg);
     }
+    return segs.size() >= 3;
+}
+
+// Point-only view, kept for callers that only need the corners.
+bool orderedOuterVertices(const TopoDS_Face& f,
+                          std::vector<gp_Pnt>& pts, bool& allStraight) {
+    std::vector<RingSeg> segs;
+    if (!orderedOuterRing(f, segs, allStraight)) return false;
+    pts.clear();
+    for (const RingSeg& sg : segs) pts.push_back(sg.p);
     return pts.size() >= 3;
+}
+
+// True when every segment is a line or a circular arc — i.e. this ring can be
+// rebuilt exactly. Arcs are fine; anything else is not.
+bool ringIsRebuildable(const std::vector<RingSeg>& segs, bool allStraight) {
+    if (!allStraight) return false;          // an ellipse/bspline was seen
+    return segs.size() >= 3;
 }
 
 // The inner (hole) wires of a face, preserved verbatim on re-trim.
@@ -169,6 +210,69 @@ gp_Vec ringNormal(const std::vector<gp_Pnt>& r) {
 // Build a planar face from an ordered outer ring (CCW-oriented to `outN`) plus
 // any preserved inner wires. `pln` supplies the support plane. Returns a null
 // face on failure (caller defers).
+// Rebuild a planar face from a ring of SEGMENTS, preserving circular arcs.
+// Straight segments become lines; arcs are rebuilt on their own circle through the
+// (possibly moved) endpoints, so a retrim that does not touch an arc's ends
+// reproduces it exactly.
+TopoDS_Face planarFaceFromSegs(std::vector<RingSeg> segs, const gp_Pln& pln,
+                               const gp_Dir& outN,
+                               const std::vector<TopoDS_Wire>& inner) {
+    const std::size_t n = segs.size();
+    if (n < 3) return TopoDS_Face();
+
+    std::vector<gp_Pnt> pts;
+    pts.reserve(n);
+    for (const RingSeg& sg : segs) pts.push_back(sg.p);
+    if (ringNormal(pts).Dot(gp_Vec(outN)) < 0.0) {
+        std::reverse(segs.begin(), segs.end());
+        // after reversal each segment's curve now spans to the PREVIOUS point, so
+        // rotate the curve data one step to keep (start -> next) pairing intact
+        std::vector<RingSeg> r = segs;
+        for (std::size_t i = 0; i < n; ++i) {
+            r[i].p = segs[i].p;
+            const RingSeg& src = segs[(i + 1) % n];
+            r[i].isArc = src.isArc; r[i].circ = src.circ;
+            r[i].arcSense = !src.arcSense;
+        }
+        segs.swap(r);
+    }
+
+    BRepBuilderAPI_MakeWire mw;
+    for (std::size_t i = 0; i < n; ++i) {
+        const gp_Pnt& a = segs[i].p;
+        const gp_Pnt& b = segs[(i + 1) % n].p;
+        if (a.Distance(b) < 1e-9) continue;          // degenerate
+        TopoDS_Edge e;
+        if (segs[i].isArc) {
+            // Only reuse the arc when BOTH endpoints still lie on its circle —
+            // a retrim that moved an end makes the old circle wrong, and a
+            // silently wrong arc is worse than a chord.
+            const double R = segs[i].circ.Radius();
+            const gp_Pnt O = segs[i].circ.Location();
+            const double da = std::fabs(O.Distance(a) - R);
+            const double db = std::fabs(O.Distance(b) - R);
+            if (da < 1e-6 && db < 1e-6) {
+                BRepBuilderAPI_MakeEdge me(segs[i].circ, a, b);
+                if (me.IsDone()) e = me.Edge();
+            }
+        }
+        if (e.IsNull()) {
+            BRepBuilderAPI_MakeEdge me(a, b);
+            if (!me.IsDone()) return TopoDS_Face();
+            e = me.Edge();
+        }
+        mw.Add(e);
+    }
+    if (!mw.IsDone()) return TopoDS_Face();
+
+    gp_Pln facePln(pln.Location(), outN);
+    BRepBuilderAPI_MakeFace mf(facePln, mw.Wire());
+    if (!mf.IsDone()) return TopoDS_Face();
+    for (const TopoDS_Wire& w : inner) mf.Add(w);
+    if (!mf.IsDone()) return TopoDS_Face();
+    return mf.Face();
+}
+
 TopoDS_Face planarFaceFromRing(std::vector<gp_Pnt> ring, const gp_Pln& pln,
                                const gp_Dir& outN,
                                const std::vector<TopoDS_Wire>& inner) {
@@ -291,13 +395,14 @@ inline gp_Pnt shift(const gp_Pnt& p, const gp_Dir& d, double s) {
 TopoDS_Face retrimAdjacentFace(const EdgeContext& c, const TopoDS_Face& f,
                                const gp_Dir& outN, const gp_Pln& pln,
                                const gp_Pnt& s0, const gp_Pnt& s1) {
-    std::vector<gp_Pnt> ring; bool straight = false;
-    if (!orderedOuterVertices(f, ring, straight) || !straight) return TopoDS_Face();
-    for (gp_Pnt& p : ring) {
-        if      (pntEq(p, c.P0)) p = s0;
-        else if (pntEq(p, c.P1)) p = s1;
+    std::vector<RingSeg> segs; bool straight = false;
+    if (!orderedOuterRing(f, segs, straight) || !ringIsRebuildable(segs, straight))
+        return TopoDS_Face();
+    for (RingSeg& sg : segs) {
+        if      (pntEq(sg.p, c.P0)) sg.p = s0;
+        else if (pntEq(sg.p, c.P1)) sg.p = s1;
     }
-    return planarFaceFromRing(ring, pln, outN, innerWires(f));
+    return planarFaceFromSegs(segs, pln, outN, innerWires(f));
 }
 
 // Chamfer end face: clip the corner at `corner` (== P0 or P1) — replace it in the
@@ -306,21 +411,30 @@ TopoDS_Face clipEndFaceChamfer(const TopoDS_Face& f, const gp_Pnt& corner,
                                const gp_Pnt& sA, const gp_Pnt& sB) {
     gp_Pln pln; gp_Dir outN;
     if (!planarFaceNormal(f, pln, outN)) return TopoDS_Face();
-    std::vector<gp_Pnt> ring; bool straight = false;
-    if (!orderedOuterVertices(f, ring, straight) || !straight) return TopoDS_Face();
-    const std::size_t n = ring.size();
+    std::vector<RingSeg> segs; bool straight = false;
+    if (!orderedOuterRing(f, segs, straight) || !ringIsRebuildable(segs, straight))
+        return TopoDS_Face();
+    const std::size_t n = segs.size();
     std::size_t k = n;
-    for (std::size_t i = 0; i < n; ++i) if (pntEq(ring[i], corner)) { k = i; break; }
+    for (std::size_t i = 0; i < n; ++i) if (pntEq(segs[i].p, corner)) { k = i; break; }
     if (k == n) return TopoDS_Face();
     // Order the two setbacks so the one nearer the previous ring vertex comes first.
-    const gp_Pnt& prev = ring[(k + n - 1) % n];
+    const gp_Pnt& prev = segs[(k + n - 1) % n].p;
     const bool aFirst = prev.Distance(sA) <= prev.Distance(sB);
-    std::vector<gp_Pnt> out;
+    std::vector<RingSeg> out;
     for (std::size_t i = 0; i < n; ++i) {
-        if (i == k) { out.push_back(aFirst ? sA : sB); out.push_back(aFirst ? sB : sA); }
-        else        { out.push_back(ring[i]); }
+        if (i == k) {
+            // the clipped corner becomes two straight setbacks; the chamfer face
+            // between them is built separately
+            RingSeg a; a.p = aFirst ? sA : sB;
+            RingSeg b; b.p = aFirst ? sB : sA;
+            b.isArc = segs[i].isArc; b.circ = segs[i].circ; b.arcSense = segs[i].arcSense;
+            out.push_back(a); out.push_back(b);
+        } else {
+            out.push_back(segs[i]);
+        }
     }
-    return planarFaceFromRing(out, pln, outN, innerWires(f));
+    return planarFaceFromSegs(out, pln, outN, innerWires(f));
 }
 
 // Choose the circle-axis normal (± the end-plane normal) so the arc traversed in
@@ -353,20 +467,35 @@ TopoDS_Face clipEndFaceFillet(const TopoDS_Face& f, const gp_Pnt& corner,
                               const gp_Dir& endOutN) {
     gp_Pln pln; gp_Dir outN;
     if (!planarFaceNormal(f, pln, outN)) return TopoDS_Face();
-    std::vector<gp_Pnt> ring; bool straight = false;
-    if (!orderedOuterVertices(f, ring, straight) || !straight) return TopoDS_Face();
-    const std::size_t n = ring.size();
+    // Segments, not points: an end face that already carries a fillet arc from an
+    // EARLIER edge must keep it. Rejecting it here is what made multi-edge fillets
+    // fail after the first edge.
+    std::vector<RingSeg> segs; bool straight = false;
+    if (!orderedOuterRing(f, segs, straight) || !ringIsRebuildable(segs, straight))
+        return TopoDS_Face();
+    const std::size_t n = segs.size();
     std::size_t k = n;
-    for (std::size_t i = 0; i < n; ++i) if (pntEq(ring[i], corner)) { k = i; break; }
+    for (std::size_t i = 0; i < n; ++i) if (pntEq(segs[i].p, corner)) { k = i; break; }
     if (k == n) return TopoDS_Face();
-    const gp_Pnt& prev = ring[(k + n - 1) % n];
+    const gp_Pnt& prev = segs[(k + n - 1) % n].p;
     const bool aFirst = prev.Distance(sA) <= prev.Distance(sB);
     const gp_Pnt p1 = aFirst ? sA : sB;   // setback nearer the previous ring vertex
     const gp_Pnt p2 = aFirst ? sB : sA;   // setback nearer the next ring vertex
     // Clipped ring: replace the sharp corner by [p1, p2] (keeps the loop simple).
+    // Pre-existing arcs travel with their start vertex.
+    std::vector<RingSeg> segSeq;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (i != k) { segSeq.push_back(segs[i]); }
+        else {
+            RingSeg a; a.p = p1;                       // the new fillet arc, added below
+            RingSeg b; b.p = p2;
+            b.isArc = segs[i].isArc; b.circ = segs[i].circ; b.arcSense = segs[i].arcSense;
+            segSeq.push_back(a); segSeq.push_back(b);
+        }
+    }
     std::vector<gp_Pnt> seq;
-    for (std::size_t i = 0; i < n; ++i)
-        if (i != k) seq.push_back(ring[i]); else { seq.push_back(p1); seq.push_back(p2); }
+    seq.reserve(segSeq.size());
+    for (const RingSeg& sg : segSeq) seq.push_back(sg.p);
     // Orient the loop CCW wrt the OUTWARD normal so MakeFace bounds the FINITE side
     // (a REVERSED source face would otherwise wind CW -> the complementary region).
     // The arc is approximated by its chord for this winding-sign test.
@@ -390,9 +519,24 @@ TopoDS_Face clipEndFaceFillet(const TopoDS_Face& f, const gp_Pnt& corner,
             ed = me.Edge();
         } else {
             if (a.Distance(b) <= kTol) continue;
-            BRepBuilderAPI_MakeEdge me(a, b);
-            if (!me.IsDone()) return TopoDS_Face();
-            ed = me.Edge();
+            // A segment that was ALREADY an arc (from an earlier filleted edge)
+            // is reproduced on its own circle, provided both ends still lie on it.
+            const RingSeg* src = nullptr;
+            for (const RingSeg& sg : segSeq) if (pntEq(sg.p, a)) { src = &sg; break; }
+            if (src && src->isArc) {
+                const double R0 = src->circ.Radius();
+                const gp_Pnt O0 = src->circ.Location();
+                if (std::fabs(O0.Distance(a) - R0) < 1e-6 &&
+                    std::fabs(O0.Distance(b) - R0) < 1e-6) {
+                    BRepBuilderAPI_MakeEdge mea(src->circ, a, b);
+                    if (mea.IsDone()) ed = mea.Edge();
+                }
+            }
+            if (ed.IsNull()) {
+                BRepBuilderAPI_MakeEdge me(a, b);
+                if (!me.IsDone()) return TopoDS_Face();
+                ed = me.Edge();
+            }
         }
         mw.Add(ed);
     }
