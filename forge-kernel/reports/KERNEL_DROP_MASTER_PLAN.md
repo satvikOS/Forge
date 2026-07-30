@@ -19,7 +19,12 @@
 ## ★KEY: drops are COUPLED through shared native routines → author by ROUTINE, not keystone
 - **R1 Projection** — native Newton point→surface (`GeomAPI_ProjectPointOnSurf`) + point→curve-2d
   (`Geom2dAPI_ProjectPointOnCurve`). Unblocks TKGeomAlgo (11 of its 24) AND TKGeomBase (its Extrema
-  blockers 3+4). HIGHEST LEVERAGE.
+  blockers 3+4). HIGHEST LEVERAGE. ★ACCELERATOR (prep 2026-07-25): native scaffolding ALREADY
+  EXISTS — `SurfaceProjector` struct src/native/mesh/Remesh.cpp:220 + `evalSurface`
+  src/native/geom/Bezier.cpp:169. R1 = generalize SurfaceProjector to the call-site API
+  (LowerDistanceParameters(u,v) / NearestPoint() / IsDone() / NbPoints()) used at
+  ClassASurfacing.cpp:482/485, OcctImport.cpp:939, OcctNativeMesh, Nurbs.cpp:716; then wire in.
+  NOT from-scratch.
 - **R2 NURBS** — analytic→bspline (`GeomConvert::Curve/SurfaceToBSpline`) + points→bspline lsq fit
   (`GeomAPI_PointsToBSpline`) + `GeomAPI::To2d/To3d`. Unblocks TKGeomBase (blockers 1+2) AND
   TKGeomAlgo. Spec READY: reports/nurbs_forms_reference.md.

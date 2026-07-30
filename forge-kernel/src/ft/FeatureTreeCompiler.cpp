@@ -156,8 +156,19 @@ FeatureTree parse(const std::string& text) {
 
     while (std::getline(in, raw)) {
         ++lineNo;
-        // strip inline comment
-        std::size_t hash = raw.find('#');
+        // Strip an inline comment — but NOT a '#' inside a quoted selector.
+        // splitTop() is quote-aware; this was not, so any selector containing '#'
+        // was silently truncated into a parse error.
+        std::size_t hash = std::string::npos;
+        {
+            char q = 0;
+            for (std::size_t i = 0; i < raw.size(); ++i) {
+                const char c = raw[i];
+                if (q) { if (c == q) q = 0; continue; }
+                if (c == '"' || c == '\'') { q = c; continue; }
+                if (c == '#') { hash = i; break; }
+            }
+        }
         std::string line = trim(hash == std::string::npos ? raw : raw.substr(0, hash));
         if (line.empty()) continue;
         // tolerate prose: skip any line that is not IR (not `%id = ...` and not RESULT).
@@ -1187,6 +1198,10 @@ private:
         std::string sel = strArg(op, 1);
         double dist = num(op, 2);
         auto idx = resolveSelector(op.id, body, sel);
+        if (idx.size() > 1)
+            throw OpError(op.id, "PUSHFACE: selector `" + sel + "` matches " +
+                                     std::to_string(idx.size()) +
+                                     " faces; PUSHFACE moves ONE — name it precisely");
         const auto inv = forge::faceInventory(body);
         const forge::FaceInfo* f = nullptr;
         for (const auto& fi : inv) if (fi.index == idx[0]) { f = &fi; break; }
@@ -1207,6 +1222,31 @@ private:
         double r = num(op, 2);
         if (r <= 0) throw OpError(op.id, "RESIZEBORE: newRadius must be > 0");
         auto idx = resolveSelector(op.id, body, sel);
+        // RESIZEBORE edits ONE face. Taking idx[0] from an ambiguous match
+        // silently resized 1 of 4 identical bolt holes and reported success — the
+        // part was wrong and every do-no-harm assertion still passed. An ambiguous
+        // selector is a question the IR failed to answer, not a licence to guess.
+        if (idx.size() > 1)
+            throw OpError(op.id, "RESIZEBORE: selector `" + sel + "` matches " +
+                                     std::to_string(idx.size()) +
+                                     " faces; name ONE (add at=x,y or r=<value>)");
+        // Resizing is defined in bore semantics; on a convex boss it completes and
+        // changes nothing, which is the silent no-op this refuses to perform.
+        {
+            const auto inv = forge::faceInventory(body);
+            for (const auto& f : inv) {
+                if (f.index != idx[0]) continue;
+                if (f.kind != "cylinder")
+                    throw OpError(op.id, "RESIZEBORE: selector `" + sel + "` is a " +
+                                             f.kind + " face, not cylindrical");
+                if (!f.concave)
+                    throw OpError(op.id, "RESIZEBORE: selector `" + sel +
+                                             "` is a CONVEX cylinder (a boss, not a bore); "
+                                             "resizing is defined in bore semantics and "
+                                             "would change nothing");
+                break;
+            }
+        }
         try {
             return forge::resizeBore(body, idx[0], r);
         } catch (const std::exception& e) {
