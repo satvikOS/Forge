@@ -1503,6 +1503,17 @@ Napi::Value ProjectShape(const Napi::CallbackInfo& info) {
                     "forge.drawings.projectShape: direction must be Float64Array[3]");
             }
             dir = { arr.Data()[0], arr.Data()[1], arr.Data()[2] };
+        } else if (info.Length() > 1 && !info[1].IsUndefined() && !info[1].IsNull()) {
+            // Anything else silently fell through to the FRONT view. A caller
+            // passing {x,y,z} — the obvious guess, and what the C++ signature takes
+            // — got four identical "views" back and no indication why. A wrong
+            // answer delivered confidently is the worst failure mode there is, so
+            // an unrecognised direction is now an error rather than a default.
+            throw Napi::TypeError::New(env,
+                "forge.drawings.projectShape: direction must be a preset string "
+                "(\"front\"|\"top\"|\"right\"|\"iso\") or a Float64Array[3]; a plain "
+                "{x,y,z} object is NOT accepted and previously fell through to the "
+                "front view silently");
         }
 
         ProjectedView pv = projectShape(h, dir);
