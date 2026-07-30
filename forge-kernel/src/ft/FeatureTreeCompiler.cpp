@@ -39,6 +39,7 @@
 #include "forge/DirectModeling.hpp"
 #include "forge/DirectEdit.hpp"   // edit ops: faceInventory/defeature/pushPullFace/resizeBore
 #include "forge/Tessellate.hpp"
+#include "forge/Topology.hpp"   // VERIFY "genus=" / "shells=" — topology is 0.2 of the metric
 #include "forge/LoftGuide.hpp"   // loftguide::loft (real 3D loft over profileWire sections)
 #include "forge/VarFillet.hpp"   // varfillet::fillet (variable-radius BLEND)
 
@@ -1267,6 +1268,15 @@ private:
                     ++n;
                 }
                 got = static_cast<double>(n);
+            } else if (key == "genus" || key == "shells" || key == "shellcount") {
+                // Topology is 0.2 of the CADGenBench metric, and the failure it
+                // catches is the one volume cannot: v18/205 measured 0.7% volume
+                // error with genus 24 collapsed to 1. A tree that cannot ASSERT
+                // its own genus cannot be trusted to have preserved it.
+                forge::TopoSignature sig;
+                if (!forge::topologySignature(body, sig))
+                    throw OpError(op.id, "VERIFY: cannot measure topology of this body");
+                got = static_cast<double>(key == "genus" ? sig.genus : sig.shellCount);
             } else if (key.rfind("bbox.", 0) == 0 && key.size() == 6) {
                 int ax = key[5] - 'x';
                 if (ax < 0 || ax > 2) throw OpError(op.id, "VERIFY: bad bbox axis in `" + expr + "`");
