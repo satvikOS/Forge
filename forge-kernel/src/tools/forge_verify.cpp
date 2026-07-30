@@ -362,14 +362,33 @@ int main(int argc, char** argv) {
                         if (!gridStr.empty()) {
                             try { grid = std::stoi(gridStr); } catch (...) { grid = 64; }
                         }
+                        std::string alignStr;
+                        jsonString(line, "iouAlign", alignStr);
+                        forge::IoUAlign align = forge::IoUAlign::Raw;
+                        if (alignStr == "centred" || alignStr == "centered")
+                            align = forge::IoUAlign::Centred;
+                        else if (alignStr == "centred-scaled" || alignStr == "centered-scaled")
+                            align = forge::IoUAlign::CentredScaled;
                         forge::VoxelIoUResult v;
-                        if (forge::voxelIoU(r.handle, ref, v, grid)) {
+                        const bool okIoU = forge::voxelIoU(r.handle, ref, v, grid, align);
+                        if (!okIoU) {
+                            // say WHY, rather than omitting the field and leaving
+                            // the caller to guess whether it was 0 or unmeasurable
+                            o << ",\"voxelIoUError\":\"" << jsonEscape(v.failure) << "\"";
+                        }
+                        if (okIoU) {
                             o << ",\"voxelIoU\":" << num(v.iou)
                               << ",\"iouGrid\":" << v.gridN
                               << ",\"iouCells\":{\"candidate\":" << v.inA
                               << ",\"reference\":" << v.inB
                               << ",\"intersection\":" << v.intersection
-                              << ",\"union\":" << v.unionCount << "}";
+                              << ",\"union\":" << v.unionCount << "}"
+                              << ",\"iouAlign\":\"" << jsonEscape(
+                                     align == forge::IoUAlign::Raw ? "raw" :
+                                     align == forge::IoUAlign::Centred ? "centred" :
+                                     "centred-scaled") << "\"";
+                            if (!v.failure.empty())
+                                o << ",\"voxelIoUNote\":\"" << jsonEscape(v.failure) << "\"";
                         }
                     }
                 } catch (...) { /* additive: a missing reference must not fail a build */ }
