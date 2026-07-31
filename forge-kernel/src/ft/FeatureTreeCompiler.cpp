@@ -176,6 +176,37 @@ inline int rotationalOrder(std::vector<double> angs) {
     return best;
 }
 
+// Count angular CLUSTERS of off-axis faces — i.e. how many repeated protrusions the
+// part has RIGHT NOW.
+//
+// This is a different question from rotationalOrder() and conflating them was a bug.
+// Symmetry order answers "is this N-fold symmetric"; after removing 2 of 7 blades the
+// remaining 5 are NOT symmetric, so symmetry order is 0 — while the part plainly
+// still has 5 blades. GT 203 asks to "verify blade count = 5", which is the count,
+// not the symmetry. Clusters are separated by angular gaps much larger than the
+// within-cluster spread, so a gap threshold recovers them without assuming any fold.
+inline int angularClusterCount(std::vector<double> angs) {
+    if (angs.empty()) return 0;
+    if (angs.size() == 1) return 1;
+    std::sort(angs.begin(), angs.end());
+    const double twoPi = 2.0 * 3.14159265358979323846;
+    std::vector<double> gaps;
+    gaps.reserve(angs.size());
+    for (std::size_t i = 0; i < angs.size(); ++i) {
+        const double a = angs[i];
+        const double b = (i + 1 < angs.size()) ? angs[i + 1] : angs[0] + twoPi;
+        gaps.push_back(b - a);
+    }
+    std::vector<double> sorted = gaps;
+    std::sort(sorted.begin(), sorted.end());
+    const double median = sorted[sorted.size() / 2];
+    // a separator is a gap several times the typical within-cluster gap
+    const double cut = std::max(median * 3.0, 0.15);
+    int clusters = 0;
+    for (double g : gaps) if (g > cut) ++clusters;
+    return clusters > 0 ? clusters : 1;
+}
+
 }  // namespace
 
 // ============================================================================
@@ -1293,18 +1324,52 @@ private:
                                         std::to_string(want) + " of a " +
                                         std::to_string(bestN) + "-fold group");
 
+            // MEMBERSHIP IS BY NEAREST GROUP CENTRE, NOT BY ANGULAR SECTOR.
+            //
+            // Sector membership was wrong and silently removed the wrong count: on a
+            // 7-blade hub, "blade:2" removed THREE blades (volume delta was exactly
+            // 3 x one blade). A blade is not a sector — the blade centred on 51.43
+            // degrees has a side face at ~45.6 degrees, which falls in sector 0 and
+            // was selected along with blade 0; defeature then took that face and the
+            // healer ate the neighbouring blade. The volume-changed guard passed it
+            // because the volume DID change, which is why that guard is necessary and
+            // nowhere near sufficient.
+            //
+            // The group centres are recovered by folding every angle into one period
+            // and taking the CIRCULAR MEAN — that gives the phase; centres are then
+            // phase + k*2pi/N. Each face joins the centre it is actually nearest to.
+            const double period = 2.0 * kPi / bestN;
+            double sx = 0.0, sy = 0.0;
+            for (const auto& it : items) {
+                const double folded = std::fmod(it.ang, period) * static_cast<double>(bestN);
+                sx += std::cos(folded);
+                sy += std::sin(folded);
+            }
+            double phase = std::atan2(sy, sx) / static_cast<double>(bestN);
+            if (phase < 0) phase += period;
+
+            auto memberOf = [&](double a) {
+                int best = 0;
+                double bestD = 1e300;
+                for (int k = 0; k < bestN; ++k) {
+                    const double c = phase + k * period;
+                    double d = std::fabs(a - c);
+                    while (d > kPi) d = std::fabs(d - 2.0 * kPi);
+                    if (d < bestD) { bestD = d; best = k; }
+                }
+                return best;
+            };
+
             // take members SYMMETRICALLY — evenly spaced around the group, which is
             // what "select 2 (symmetric)" means and what keeps the part balanced
             const double step = static_cast<double>(bestN) / static_cast<double>(want);
-            std::vector<int> chosenBins;
+            std::vector<int> chosen;
             for (std::size_t i = 0; i < want; ++i)
-                chosenBins.push_back(static_cast<int>(i * step) % bestN);
-            for (const auto& it : items) {
-                const int b = std::min(bestN - 1,
-                                       static_cast<int>(it.ang / (2.0 * kPi / bestN)));
-                if (std::find(chosenBins.begin(), chosenBins.end(), b) != chosenBins.end())
+                chosen.push_back(static_cast<int>(i * step) % bestN);
+            for (const auto& it : items)
+                if (std::find(chosen.begin(), chosen.end(), memberOf(it.ang)) != chosen.end())
                     out.push_back(it.index);
-            }
+
             if (out.empty())
                 throw OpError(opId, "selector `" + selRaw + "` resolved to no face");
             return out;
@@ -1712,7 +1777,9 @@ private:
                     if (a < 0) a += 2.0 * 3.14159265358979323846;
                     angs.push_back(a);
                 }
-                const int bestN = rotationalOrder(angs);
+                // COUNT the repeated features, do not ask whether they are
+                // symmetric — an asymmetric survivor set still has members.
+                const int bestN = angularClusterCount(angs);
                 got = static_cast<double>(bestN);
             } else if (key == "genus" || key == "shells" || key == "shellcount") {
                 // Topology is 0.2 of the CADGenBench metric, and the failure it
