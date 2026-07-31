@@ -1903,8 +1903,24 @@ private:
             std::ostringstream note;
             note << (pass ? "PASS " : "FAIL ") << expr << " (got " << got << ")";
             if (res) res->verify.push_back(note.str());
-            if (!pass) throw OpError(op.id, "VERIFY failed: " + expr + " (got " +
-                                                std::to_string(got) + ")");
+            if (!pass) {
+                // A false self-assertion is still a HARD FAILURE — ok=false is set at
+                // the end of compilation, and nothing that fails here can pass a gate
+                // or reach the self-distillation corpus.
+                //
+                // But it no longer ABORTS. Throwing here abandoned the rest of the
+                // tree, so the final solid was never built and never measured, and
+                // the result was indistinguishable from a tree that would not parse.
+                // Those are completely different failures: measured on the holdout,
+                // ho61 built 77 ops and then mis-claimed its own faceCount by one
+                // face — its geometry may have been entirely correct, and there was
+                // no way to find out. VERIFY is pass-through, so continuing costs
+                // nothing and buys the geometry.
+                if (firstVerifyFail.empty())
+                    firstVerifyFail = "op %" + std::to_string(op.id) + " (line " +
+                                      std::to_string(op.srcLine) + "): VERIFY failed: " +
+                                      expr + " (got " + std::to_string(got) + ")";
+            }
         }
         return body;   // pass-through: VERIFY asserts, it does not modify
     }
@@ -1912,6 +1928,9 @@ private:
 public:
     std::string    inputStep;        // backs INPUT()
     CompileResult* res = nullptr;    // VERIFY writes its per-assertion log here
+    // The FIRST failed assertion, kept so compilation can finish and still fail
+    // loudly at the end. Empty means every assertion the tree made was true.
+    std::string firstVerifyFail;
 
 
 private:
@@ -2042,6 +2061,16 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
             }
         for (int k = 0; k < 3; ++k) { out.bboxMin[k] = mn[k]; out.bboxMax[k] = mx[k]; }
     } catch (...) {}
+
+    // A tree that asserted something false about itself FAILS — but only after every
+    // geometry field above has been filled in, so the caller can see BOTH that the
+    // claim was wrong AND what was actually built. Those are separate facts and
+    // collapsing them into one throw threw the more useful one away.
+    if (!builder.firstVerifyFail.empty()) {
+        out.ok = false;
+        out.error = builder.firstVerifyFail;
+        return out;
+    }
 
     out.ok = true;
     return out;

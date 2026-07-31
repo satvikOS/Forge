@@ -248,7 +248,13 @@ int main(int argc, char** argv) {
         }
         o << "]";
 
-        if (r.ok) {
+        // Report the measured geometry whenever the solid was actually BUILT, not
+        // only when the tree passed. A tree can now fail solely because it asserted
+        // something false about itself while having constructed a perfectly good
+        // solid; suppressing the measurement in that case discards the very fact
+        // that distinguishes "wrong claim, right part" from "did not build".
+        // r.handle != 0 is the honest test of "there is something to measure".
+        if (r.ok || r.handle != 0) {
             o << ",\"valid\":" << (r.valid ? "true" : "false")
               << ",\"volume\":" << num(r.volume)
               << ",\"faceCount\":" << r.faceCount
