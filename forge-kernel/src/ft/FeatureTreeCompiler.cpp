@@ -1995,6 +1995,39 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
         out.valid = rep.isClosed && rep.isManifold && rep.isOriented &&
                     !rep.hasSelfIntersect && rep.badFaces.empty() && rep.badEdges.empty();
     } catch (...) { out.valid = false; }
+
+    // An invalid tree used to report only "not a valid watertight solid" — the
+    // TERMINAL symptom, with no indication of which op caused it. That complaint is
+    // fed straight back to the planner, so a whole repair round was spent guessing.
+    //
+    // The op that REPORTS the damage is routinely not the op that DID it: a tangent
+    // FUSE emits a pinched, non-manifold body and a later MIRROR merely reflects it,
+    // so the failure surfaces one op downstream of its cause. Every op's output is
+    // still live in the registry, so the first bad one can be named without
+    // rebuilding anything. Runs only on the failure path.
+    if (!out.valid) {
+        for (const auto& op : ft.ops) {
+            auto it = env.find(op.id);
+            if (it == env.end() || it->second.kind != Val::Solid || it->second.h == 0) continue;
+            bool bad = false;
+            std::string why;
+            try {
+                auto r = forge::heal::checkValidity(it->second.h);
+                if (!r.isManifold)          { bad = true; why = "not manifold (surfaces meet at a point or line, not over an area)"; }
+                else if (!r.isClosed)       { bad = true; why = "not closed"; }
+                else if (!r.isOriented)     { bad = true; why = "not consistently oriented"; }
+                else if (r.hasSelfIntersect){ bad = true; why = "self-intersecting"; }
+                else if (!r.badEdges.empty()) { bad = true; why = "has " + std::to_string(r.badEdges.size()) + " bad edge(s)"; }
+                else if (!r.badFaces.empty()) { bad = true; why = "has " + std::to_string(r.badFaces.size()) + " bad face(s)"; }
+            } catch (...) { bad = true; why = "validity check threw"; }
+            if (bad) {
+                out.error = "first invalid solid is produced by op %" +
+                            std::to_string(op.id) + " " + op.name + " (line " +
+                            std::to_string(op.srcLine) + "): " + why;
+                break;
+            }
+        }
+    }
     try { out.faceCount = static_cast<long>(forge::direct::faceCount(result)); } catch (...) {}
     try { out.edgeCount = static_cast<long>(forge::direct::edgeCount(result)); } catch (...) {}
     try { out.volume = forge::massProperties(result).volume; } catch (...) {}
