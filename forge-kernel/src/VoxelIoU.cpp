@@ -234,4 +234,53 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
     return true;
 }
 
+// --------------------------------------------------------------- PointInSolid
+// The same classifier the loop above uses, held open so a caller can ask the
+// question one point at a time. The classifier is loaded in the constructor
+// precisely because loading is the expensive half; a caller that asks thousands
+// of times pays for it once.
+
+struct PointInSolid::Impl {
+    mutable BRepClass3d_SolidClassifier cls;   // Perform() mutates; the SOLID does not
+    bool loaded = false;
+    std::string why;
+};
+
+PointInSolid::PointInSolid(ShapeHandle body) : impl_(new Impl) {
+    try {
+        const TopoDS_Shape& s = ShapeRegistry::instance().get(body);
+        if (s.IsNull()) {
+            impl_->why = "shape behind handle " + std::to_string(body) + " is null";
+            return;
+        }
+        impl_->cls.Load(s);
+        impl_->loaded = true;
+    } catch (const std::exception& e) {
+        // Name what threw. A bare catch-all that invents a cause sends the
+        // reader somewhere the bug is not — see the note above voxelIoU.
+        impl_->why = std::string("cannot classify handle ") + std::to_string(body) +
+                     ": " + e.what();
+    } catch (...) {
+        impl_->why = "cannot classify handle " + std::to_string(body) +
+                     " (non-standard exception)";
+    }
+}
+
+PointInSolid::~PointInSolid() = default;
+
+bool PointInSolid::loaded() const { return impl_->loaded; }
+
+const std::string& PointInSolid::why() const { return impl_->why; }
+
+PointInSolid::State PointInSolid::at(double x, double y, double z) const {
+    if (!impl_->loaded) return State::Error;
+    try {
+        impl_->cls.Perform(gp_Pnt(x, y, z), 1e-7);
+        const TopAbs_State st = impl_->cls.State();
+        return (st == TopAbs_IN || st == TopAbs_ON) ? State::In : State::Out;
+    } catch (...) {
+        return State::Error;
+    }
+}
+
 }  // namespace forge

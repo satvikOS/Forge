@@ -16,6 +16,7 @@
 // rather than silently re-centred. Occupancy is decided by point-in-solid
 // classification at each cell centre.
 
+#include <memory>
 #include <string>
 
 #include "forge/ShapeRegistry.hpp"
@@ -74,5 +75,40 @@ struct VoxelIoUResult {
 // Returns false when either solid cannot be classified.
 bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
               int gridN = 64, IoUAlign align = IoUAlign::Raw);
+
+// Point-in-solid, exposed as a reusable QUERY.
+//
+// voxelIoU answers "how much do two solids overlap"; several measurements need
+// the underlying question directly — "is this point in the material?" — asked
+// many times against ONE solid. Loading the classifier per query would dominate
+// the cost, so it is loaded once and reused.
+//
+// It lives in the kernel rather than in the caller because a caller must not
+// have to link OCCT to ask a geometric question. forge_verify decides what is a
+// bore by asking whether the solid closes all the way round a cylinder's axis,
+// and that tool links forge_kernel_core and nothing else.
+class PointInSolid {
+public:
+    // Tri-state ON PURPOSE. A classification that threw is not "outside": in
+    // every caller so far OUTSIDE is the answer that REMOVES a feature, and
+    // silently removing one is worse than declining to measure it.
+    enum class State { In, Out, Error };
+
+    explicit PointInSolid(ShapeHandle body);
+    ~PointInSolid();
+    PointInSolid(const PointInSolid&) = delete;
+    PointInSolid& operator=(const PointInSolid&) = delete;
+
+    // False when the shape could not be loaded; why() says what happened.
+    bool loaded() const;
+    const std::string& why() const;
+
+    // Points ON the boundary count as In.
+    State at(double x, double y, double z) const;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 } // namespace forge

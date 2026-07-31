@@ -1,8 +1,10 @@
-# `bores` counts fillets as holes — measured, open, and NOT fixed by the obvious rule
+# `bores` counted fillets as holes — measured, and NOT fixed by the obvious rule
 
-**Status: OPEN.** A fix was attempted on 2026-07-31, regressed real bores to zero, and
-was reverted. This document exists so the next attempt starts from the measurement
-rather than from the same wrong hypothesis.
+**Status: FIXED 2026-07-31** in `src/tools/forge_verify.cpp`, gated by
+`test/ft/ft_bore_count.mjs` (15 cases). See "What the fix actually measures" at the
+end. The rest of this document is the record of the measurement and of the
+hypothesis that does NOT work — keep it, because the wrong rule is the plausible
+one and was tried twice.
 
 ## The defect
 
@@ -73,6 +75,46 @@ fillet, internal-corner fillet.
 
 **Do not ship a partial fix.** Under-counting bores is worse than over-counting,
 because the gate then passes parts that are missing holes entirely.
+
+## What the fix actually measures
+
+Not the face — the SOLID around it. A cylindrical face is a bore wall when, at some
+station inside its own axial extent, the axis is in air AND the material closes all
+the way round it at radius `r * 1.01` (24 samples). `forge::PointInSolid`
+(`src/VoxelIoU.cpp`, the classifier `voxelIoU` already used) answers each point.
+
+| case | axis in air | ring closed | counts |
+|---|:--:|:--:|:--:|
+| through bore, blind bore, counterbore recess | yes | yes | **yes** |
+| convex edge blend (axis sits under the edge) | no  | —   | no |
+| internal-corner blend | yes | no (~half open) | no |
+| slot end / half cylinder | yes | no (~half open) | no |
+| a boss / the outside of a tube | no | no | no |
+
+Three things follow from measuring the solid instead of the face, and each is a
+fixture in the gate:
+
+- **A split wall is still one hole.** The surrounding material is the same whichever
+  piece of wall you start from, so the dedup key is the AXIS LINE alone — not the
+  face, and not the radius. A seam split, a clevis with an air gap between two
+  uprights, and a pilot + counterbore all come out as one.
+- **The station test is EXISTENTIAL.** Two bores that cut each other have stations
+  where neither ring is closed; requiring every station to close would delete both.
+- **The face-orientation flag is not used.** It is unreliable: of a box's four
+  identical convex corner blends, two report `concave` and two do not.
+
+Guard, because under-counting is worse than the over-count it replaces: the
+classifier must first be shown to discriminate — step off a mesh triangle's centroid
+both ways along its normal and require the two sides to differ. If it cannot, or if
+a face cannot be measured, the OLD concave-cylinder rule stands in for it and the
+record says so in `boresDegraded` / `boresFellBack`. Measured over 298 corpus solids:
+0 degraded, 0 fallbacks.
+
+The correction runs in BOTH directions. On 87 fillet-bearing corpus trees the count
+fell by 3–12 on 52 of them and never rose. But the old dedup key `(axisLocation.x,
+axisLocation.y, r)` also collapsed distinct NON-Z-axis holes that differ only in z:
+a 16-hole vented panel reported 4, and a pipe elbow's two 9-hole flanges reported 15.
+The axis-line key separates them, so some ground truths go UP.
 
 ## Provenance
 

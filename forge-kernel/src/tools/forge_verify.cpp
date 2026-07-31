@@ -9,8 +9,15 @@
 // Protocol — one JSON object per line on stdin, one per line on stdout:
 //   in : {"id":"..","ir":"%1 = BOX(...)\n...","inputStep":"..","outStep":".."}
 //   out: {"id","ok","error","failedOpId","valid","volume","faceCount","edgeCount",
-//         "bbox":{"min":[..],"max":[..]},"genus","shellCount","bores":[{r,cx,cy,span}],
-//         "verify":[..]}
+//         "bbox":{"min":[..],"max":[..]},"genus","shellCount",
+//         "bores":[{r,cx,cy,span,at,axis,faces}],"verify":[..]}
+//
+// One `bores` entry is one HOLE, keyed on its AXIS LINE: a wall split at a seam,
+// across the gap of a clevis, or into pilot + counterbore is still one hole. `r`
+// is the smallest radius on that axis (the pilot), `span` the total axial length
+// of cylindrical wall on it, `at`+`axis` the line itself, and cx/cy its x,y for
+// the Z-axis case older callers assume. See BORE DETECTION below for what makes
+// a cylindrical face count at all.
 //
 // `inputStep` binds INPUT() for edit trees; `outStep` writes the built STEP so a
 // caller can measure the artefact independently.
@@ -18,9 +25,11 @@
 // The JSON reader here is deliberately minimal and self-contained: this tool must
 // not acquire a third-party dependency to do the one job the kernel exists for.
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <functional>
 #include <iostream>
 #include <map>
@@ -34,6 +43,7 @@
 #include "forge/Tessellate.hpp"
 #include "forge/VoxelIoU.hpp"
 #include "forge/IoExchange.hpp"
+#include "forge/ShapeRegistry.hpp"
 #include "forge/ft/FeatureTree.hpp"
 
 namespace {
@@ -197,6 +207,192 @@ bool weldBetti(const forge::Mesh& m, Topo& out) {
     return true;
 }
 
+// ============================================================== BORE DETECTION
+//
+// A concave cylindrical face is NOT a hole. An edge blend, an internal-corner
+// blend and the end of a slot are all concave cylinders, so counting them was
+// counting fillets as holes: BOX(60,60,20) + one O5 hole + FILLET(3) reported
+// SEVEN bores where there is one.
+//
+// The obvious face-local discriminator does not work, and this is measured, not
+// assumed. Angular sweep is derivable from area/(radius*axialExtent), and a
+// genuine O5 bore and the fillet faces on the same part BOTH report 1.5708 —
+// `area` is not the full swept area that formula assumes. A rule built on it
+// counted ZERO bores on a plain hole.
+//
+// What separates a bore is not the face but the SOLID around it. A bore's wall
+// bounds a full cylindrical VOID: at some station along the axis, the axis
+// itself is outside the material and the material closes right round it at a
+// radius just past the wall. Measured that way:
+//
+//   convex edge blend     — axis sits UNDER the edge, inside the material: out
+//   internal-corner blend — axis is in air, but the ring is ~half open:   out
+//   slot end              — axis is in air, but the ring is ~half open:   out
+//   through / blind bore  — axis in air, ring closed:                      IN
+//
+// Measuring the solid rather than the face is also what makes a bore whose wall
+// is split into several faces come out as ONE hole — at a seam, across the air
+// gap of a clevis, or into pilot + counterbore. The surrounding material is the
+// same whichever piece of wall you start from, and the pieces share one axis,
+// so the dedup key is the AXIS LINE and nothing else.
+
+struct V3 { double x = 0, y = 0, z = 0; };
+
+inline V3 v3cross(const V3& a, const V3& b) {
+    return V3{a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+}
+inline double v3dot(const V3& a, const V3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+inline bool v3unit(V3& a) {
+    const double n = std::sqrt(v3dot(a, a));
+    if (!(n > 1e-300)) return false;
+    a.x /= n; a.y /= n; a.z /= n;
+    return true;
+}
+
+// Point-in-solid comes from the kernel (forge::PointInSolid, src/VoxelIoU.cpp) —
+// the same BRepClass3d machinery the IoU metric already relies on. This tool
+// adds no geometry code, only queries, and links nothing OCCT of its own.
+using State = forge::PointInSolid::State;
+
+inline State stateAt(const forge::PointInSolid& probe, const V3& p) {
+    return probe.at(p.x, p.y, p.z);
+}
+
+// The classifier has to be shown to WORK before its answers are allowed to
+// REMOVE anything from the bore list. A classifier that answered OUT everywhere
+// would silently zero the hole count, and nothing downstream could tell that
+// from a part that genuinely has no holes.
+//
+// The probe is a MESH TRIANGLE, not a face centroid and not a lattice cell,
+// because only a triangle gives a point that is certainly ON the boundary with
+// a normal that is certainly across it. Both alternatives were measured and
+// both fail on ordinary parts: a rectangular tube's annular end face has its
+// centroid in the HOLE, so stepping either way from it lands outside; and a
+// lattice coarse enough to be cheap steps clean over an 8 mm wall on a 559 mm
+// part. Either one declines to measure a part it could have measured.
+//
+// It is also orientation-agnostic by construction — it asks only whether the
+// two sides DIFFER, never which side is which. That matters here: the
+// face-orientation flag is what produced this defect, and it is measurably
+// unreliable (of a box's four identical convex corner blends, two report
+// concave and two do not).
+bool probeDiscriminates(const forge::PointInSolid& probe, const forge::Mesh& mesh,
+                        const double lo[3], const double hi[3], double volume,
+                        std::string& why) {
+    double span = 0.0;
+    for (int k = 0; k < 3; ++k) span = std::max(span, hi[k] - lo[k]);
+    if (!(span > 0.0)) { why = "bounding box has no extent"; return false; }
+    const double eps = 1e-4 * span;
+
+    const auto& P = mesh.positions;
+    const auto& I = mesh.indices;
+    const std::size_t nTri = I.size() / 3;
+    if (nTri > 0) {
+        const std::size_t kSamples = std::min<std::size_t>(nTri, 64);
+        const std::size_t stride = std::max<std::size_t>(1, nTri / kSamples);
+        for (std::size_t t = 0; t < nTri; t += stride) {
+            const std::size_t a = I[t * 3] * 3, b = I[t * 3 + 1] * 3, c = I[t * 3 + 2] * 3;
+            if (c + 2 >= P.size()) continue;
+            const V3 v0{P[a], P[a + 1], P[a + 2]};
+            const V3 v1{P[b], P[b + 1], P[b + 2]};
+            const V3 v2{P[c], P[c + 1], P[c + 2]};
+            V3 n = v3cross(V3{v1.x - v0.x, v1.y - v0.y, v1.z - v0.z},
+                           V3{v2.x - v0.x, v2.y - v0.y, v2.z - v0.z});
+            if (!v3unit(n)) continue;                       // degenerate triangle
+            const V3 m{(v0.x + v1.x + v2.x) / 3.0, (v0.y + v1.y + v2.y) / 3.0,
+                       (v0.z + v1.z + v2.z) / 3.0};
+            const auto in = stateAt(probe, V3{m.x - n.x * eps, m.y - n.y * eps, m.z - n.z * eps});
+            const auto out = stateAt(probe, V3{m.x + n.x * eps, m.y + n.y * eps, m.z + n.z * eps});
+            if (in == State::Error || out == State::Error) continue;
+            if ((in == State::In) != (out == State::In)) return true;
+        }
+    }
+
+    // No mesh (tessellation declined). Fall back to asking whether a coarse
+    // lattice over the bounding box finds the solid at all.
+    const int N = 10;
+    long inCount = 0;
+    for (int i = 0; i < N; ++i)
+        for (int j = 0; j < N; ++j)
+            for (int k = 0; k < N; ++k) {
+                const V3 p{lo[0] + (i + 0.5) * (hi[0] - lo[0]) / N,
+                           lo[1] + (j + 0.5) * (hi[1] - lo[1]) / N,
+                           lo[2] + (k + 0.5) * (hi[2] - lo[2]) / N};
+                if (stateAt(probe, p) == State::In) ++inCount;
+            }
+    if (inCount > 0) return true;
+    why = volume > 0.0
+              ? "point-in-solid could not tell inside from outside anywhere on a "
+                "solid of volume " + num(volume)
+              : "point-in-solid found no material and the solid has no volume";
+    return false;
+}
+
+// Does the SOLID close all the way round this cylindrical face's axis?
+//    1  yes — a full cylindrical void: this face is a bore wall
+//    0  no  — material ON the axis (a blend under a convex edge), or an open
+//             ring (an internal-corner blend, the end of a slot)
+//   -1  could not measure — the caller must FALL BACK, never drop a hole
+//
+// EXISTENTIAL over axial stations, deliberately. A real bore crossed by another
+// feature (a cross-drilling, a groove) has stations where the ring is broken by
+// the intersecting void; requiring every station to close would delete it. One
+// station that closes is proof the void is a full cylinder; a blend has none.
+int surroundsAxis(const forge::PointInSolid& probe, const forge::FaceInfo& f,
+                  std::string* dbg) {
+    V3 d{f.direction[0], f.direction[1], f.direction[2]};
+    if (!v3unit(d)) return -1;
+    const double r = f.radius;
+    if (!(r > 1e-12)) return -1;
+    const double v0 = f.vMin, v1 = f.vMax;
+    if (!(v1 > v0)) return -1;
+
+    // An orthonormal pair spanning the plane normal to the axis.
+    V3 t = (std::fabs(d.x) < 0.9) ? V3{1, 0, 0} : V3{0, 1, 0};
+    V3 e1 = v3cross(d, t);
+    if (!v3unit(e1)) return -1;
+    V3 e2 = v3cross(d, e1);
+    if (!v3unit(e2)) return -1;
+
+    // Just past the wall, in units of the bore's OWN radius, so the test is
+    // scale-free: a part modelled in metres must behave exactly as one in mm.
+    // A fixed millimetre offset would step clean through the wall of a small
+    // part and fail to leave the surface of a large one.
+    const double off = 0.01 * r;
+    const int kAng = 24;                       // 15 deg; a blend leaves ~half open
+    static const double kStations[] = {0.1, 0.3, 0.5, 0.7, 0.9};
+
+    bool sawError = false;
+    for (double s : kStations) {
+        const double v = v0 + s * (v1 - v0);
+        const V3 c{f.axisLocation[0] + d.x * v, f.axisLocation[1] + d.y * v,
+                   f.axisLocation[2] + d.z * v};
+        const auto axisState = stateAt(probe, c);
+        if (axisState == State::Error) { sawError = true; continue; }
+        // Material ON the axis is a blend sitting under a convex edge, or a
+        // boss — not the wall of a void.
+        if (axisState != State::Out) continue;
+
+        bool closed = true, err = false;
+        for (int k = 0; k < kAng; ++k) {
+            const double a = 2.0 * 3.14159265358979323846 * k / kAng;
+            const double ca = std::cos(a) * (r + off), sa = std::sin(a) * (r + off);
+            const V3 p{c.x + ca * e1.x + sa * e2.x, c.y + ca * e1.y + sa * e2.y,
+                       c.z + ca * e1.z + sa * e2.z};
+            const auto st = stateAt(probe, p);
+            if (st == State::Error) { err = true; break; }
+            if (st != State::In) { closed = false; break; }
+        }
+        if (err) { sawError = true; continue; }
+        if (closed) {
+            if (dbg) *dbg = "closed at v=" + num(v);
+            return 1;
+        }
+    }
+    if (dbg) *dbg = sawError ? "classification error" : "ring open at every station";
+    return sawError ? -1 : 0;
+}
+
 }  // namespace
 
 
@@ -264,42 +460,140 @@ int main(int argc, char** argv) {
               << "," << num(r.bboxMin[2]) << "],\"max\":[" << num(r.bboxMax[0]) << ","
               << num(r.bboxMax[1]) << "," << num(r.bboxMax[2]) << "]}";
 
+            // Tessellated ONCE and shared: the weld-betti genus below reads it, and
+            // so does the bore measurement, which uses a triangle as the one point
+            // it can be sure lies on the boundary.
+            forge::Mesh mesh;
+            try { mesh = forge::tessellate(r.handle, 0.3, 0.6); } catch (...) { /* additive */ }
+
             // topology — additive: never fail a real build because genus is unavailable
             try {
-                forge::Mesh m = forge::tessellate(r.handle, 0.3, 0.6);
                 Topo t;
-                if (weldBetti(m, t)) {
+                if (weldBetti(mesh, t)) {
                     o << ",\"genus\":" << t.genus << ",\"shellCount\":" << t.shellCount
                       << ",\"vertexCount\":" << t.vertexCount;
                 }
             } catch (...) { /* additive */ }
 
-            // bores — deduped by axis+radius, so coaxial strips count as ONE hole
+            // bores — a cylindrical face counts only when the SOLID closes right
+            // round its axis (see BORE DETECTION above), and coaxial faces are
+            // ONE hole however the wall is split.
             try {
                 forge::ShapeHandle probe = r.handle;
                 try { probe = forge::unifyFaces(r.handle); } catch (...) {}
                 const auto inv = forge::faceInventory(probe);
-                std::vector<std::array<double, 4>> bores;   // cx, cy, r, span
-                for (const auto& f : inv) {
-                    if (f.kind != "cylinder" || !f.concave) continue;
-                    const double cx = f.axisLocation[0] != 0.0 ? f.axisLocation[0] : f.centroid[0];
-                    const double cy = f.axisLocation[1] != 0.0 ? f.axisLocation[1] : f.centroid[1];
-                    bool dup = false;
-                    for (const auto& b : bores)
-                        if (std::fabs(b[0] - cx) < 1e-4 && std::fabs(b[1] - cy) < 1e-4 &&
-                            std::fabs(b[2] - f.radius) < 1e-4) { dup = true; break; }
-                    if (dup) continue;
-                    const double span =
-                        f.radius > 1e-9 ? f.area / (2.0 * 3.14159265358979323846 * f.radius) : 0.0;
-                    bores.push_back({{cx, cy, f.radius, span}});
+
+                const bool boreDebug = std::getenv("FORGE_VERIFY_BORE_DEBUG") != nullptr;
+
+                // Classify against the SAME shape the faces came from, so a face's
+                // own axis coordinates address the same solid.
+                forge::PointInSolid solid(probe);
+                std::string degraded = solid.why();
+                bool measured = solid.loaded();
+                if (measured && !probeDiscriminates(solid, mesh, r.bboxMin, r.bboxMax,
+                                                    r.volume, degraded)) {
+                    measured = false;
                 }
+
+                // One accumulated hole per AXIS LINE. Radius is NOT part of the
+                // key: a counterbore is a pilot and a recess on one axis and is
+                // one hole, not two.
+                struct Bore {
+                    V3 dir;          // canonical (largest component positive)
+                    V3 foot;         // the axis' closest point to the origin
+                    double rMin;     // the pilot diameter is what "the hole" means
+                    double span;     // total axial length of cylindrical wall
+                    int faces;
+                };
+                std::vector<Bore> bores;
+
+                double partSpan = 0.0;
+                for (int k = 0; k < 3; ++k)
+                    partSpan = std::max(partSpan, r.bboxMax[k] - r.bboxMin[k]);
+                const double axisTol = std::max(1e-7, 1e-6 * partSpan);
+
+                long fellBack = 0;
+                for (const auto& f : inv) {
+                    if (f.kind != "cylinder") continue;
+
+                    bool isBore;
+                    std::string wS;
+                    if (!measured) {
+                        isBore = f.concave;                // exactly the old rule
+                    } else {
+                        const int s = surroundsAxis(solid, f, boreDebug ? &wS : nullptr);
+                        if (s < 0) { ++fellBack; isBore = f.concave; }
+                        else       { isBore = (s == 1); }
+                    }
+                    if (boreDebug) {
+                        std::fprintf(stderr,
+                            "[bore] face %d r=%.4f concave=%d v=[%.4f,%.4f] area=%.3f "
+                            "axis=(%.3f,%.3f,%.3f)@(%.3f,%.3f,%.3f) -> %s  %s\n",
+                            f.index, f.radius, f.concave ? 1 : 0, f.vMin, f.vMax, f.area,
+                            f.direction[0], f.direction[1], f.direction[2],
+                            f.axisLocation[0], f.axisLocation[1], f.axisLocation[2],
+                            isBore ? "BORE" : "not-a-bore", wS.c_str());
+                    }
+                    if (!isBore) continue;
+
+                    V3 d{f.direction[0], f.direction[1], f.direction[2]};
+                    if (!v3unit(d)) continue;
+                    // A line has no preferred sense; fix one so the two walls of a
+                    // split bore cannot land on opposite keys.
+                    const double ax = std::fabs(d.x), ay = std::fabs(d.y), az = std::fabs(d.z);
+                    const double dom = (ax >= ay && ax >= az) ? d.x : (ay >= az ? d.y : d.z);
+                    if (dom < 0) { d.x = -d.x; d.y = -d.y; d.z = -d.z; }
+
+                    const V3 p{f.axisLocation[0], f.axisLocation[1], f.axisLocation[2]};
+                    const double t = v3dot(p, d);
+                    const V3 foot{p.x - d.x * t, p.y - d.y * t, p.z - d.z * t};
+
+                    const double wall =
+                        f.radius > 1e-12
+                            ? f.area / (2.0 * 3.14159265358979323846 * f.radius) : 0.0;
+
+                    Bore* hit = nullptr;
+                    for (auto& b : bores) {
+                        if (std::fabs(v3dot(b.dir, d)) < 1.0 - 1e-9) continue;
+                        if (std::fabs(b.foot.x - foot.x) > axisTol ||
+                            std::fabs(b.foot.y - foot.y) > axisTol ||
+                            std::fabs(b.foot.z - foot.z) > axisTol) continue;
+                        hit = &b;
+                        break;
+                    }
+                    if (hit) {
+                        hit->rMin = std::min(hit->rMin, f.radius);
+                        hit->span += wall;
+                        hit->faces += 1;
+                    } else {
+                        bores.push_back(Bore{d, foot, f.radius, wall, 1});
+                    }
+                }
+
                 o << ",\"bores\":[";
                 for (std::size_t i = 0; i < bores.size(); ++i) {
                     if (i) o << ",";
-                    o << "{\"cx\":" << num(bores[i][0]) << ",\"cy\":" << num(bores[i][1])
-                      << ",\"r\":" << num(bores[i][2]) << ",\"span\":" << num(bores[i][3]) << "}";
+                    // cx/cy are the axis' x,y — the hole's position for the Z-axis
+                    // case every consumer of this field assumes. `at` and `axis`
+                    // are the whole truth: two X-axis holes at the same y and
+                    // different z share cx/cy and are NOT the same hole, and the
+                    // old key could not tell them apart (a 16-hole vented panel
+                    // reported 4).
+                    o << "{\"cx\":" << num(bores[i].foot.x) << ",\"cy\":" << num(bores[i].foot.y)
+                      << ",\"r\":" << num(bores[i].rMin) << ",\"span\":" << num(bores[i].span)
+                      << ",\"at\":[" << num(bores[i].foot.x) << "," << num(bores[i].foot.y)
+                      << "," << num(bores[i].foot.z) << "]"
+                      << ",\"axis\":[" << num(bores[i].dir.x) << "," << num(bores[i].dir.y)
+                      << "," << num(bores[i].dir.z) << "],\"faces\":" << bores[i].faces << "}";
                 }
                 o << "]";
+                // Say so when the measurement was declined and the old
+                // concave-cylinder rule stood in, rather than let a silently
+                // over-counted list look like a measured one.
+                if (!measured)
+                    o << ",\"boresDegraded\":\"" << jsonEscape(degraded) << "\"";
+                else if (fellBack)
+                    o << ",\"boresFellBack\":" << fellBack;
 
                 // FULL FACE CENSUS, in the GROUND-TRUTH schema.
                 //
