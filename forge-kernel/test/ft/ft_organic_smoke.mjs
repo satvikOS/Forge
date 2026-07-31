@@ -113,11 +113,16 @@ RESULT(%4)
 ` },
 
   // -- MIRROR: symmetrize a single arm across the YZ plane --------------------
+  // The hub radius MUST exceed the arm's root offset (12 > 10). With R == 10 the
+  // arm's inner face x=10 is EXACTLY TANGENT to the hub wall x^2+y^2=100: the two
+  // bodies meet along the single line (10, 0, z) and their union is a pinched,
+  // non-manifold set no boolean can make watertight (measured: Euler V-E+F = 4,
+  // i.e. two shells, and BRepCheck reports 1 non-manifold edge). Do not shrink it.
   { name: 'MIRROR symmetric two-arm bracket', hardValid: true,
     step: `${OUT}/ft_mirror.step`, ir: `
 %1 = BOX(20, 10, 40, 20, 0, 0)   # one arm, offset +X (x in [10,30])
-%2 = CYL(10, 15)                 # central hub on the axis
-%3 = FUSE(%2, %1)
+%2 = CYL(12, 15)                 # central hub, R12 > the arm root at x=10
+%3 = FUSE(%2, %1)                # arm roots 2 mm INTO the hub (transversal join)
 %4 = MIRROR(%3, YZ)              # reflect across X=0 and fuse -> two symmetric arms
 RESULT(%4)
 ` },
