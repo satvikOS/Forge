@@ -63,11 +63,21 @@ bool normalise(const TopoDS_Shape& in, const Box& b, IoUAlign align,
     const double cy = 0.5 * (b.lo[1] + b.hi[1]);
     const double cz = 0.5 * (b.lo[2] + b.hi[2]);
     double s = 1.0;
-    if (align == IoUAlign::CentredScaled) {
+    if (align == IoUAlign::CentredScaled || align == IoUAlign::CentredLongest) {
         const double dx = b.hi[0] - b.lo[0], dy = b.hi[1] - b.lo[1], dz = b.hi[2] - b.lo[2];
-        const double diag = std::sqrt(dx * dx + dy * dy + dz * dz);
-        if (!(diag > 1e-9)) { why = "degenerate extent; cannot scale to unit diagonal"; return false; }
-        s = 1.0 / diag;
+        // Diagonal and longest-axis are different normalisations, not variants of
+        // one: they agree only when the extent is confined to a single axis, and
+        // differ by sqrt(3) for a cube. BenchCAD uses the longest axis.
+        const double d = (align == IoUAlign::CentredLongest)
+                             ? std::max(dx, std::max(dy, dz))
+                             : std::sqrt(dx * dx + dy * dy + dz * dz);
+        if (!(d > 1e-9)) {
+            why = (align == IoUAlign::CentredLongest)
+                      ? "degenerate extent; cannot scale to unit longest axis"
+                      : "degenerate extent; cannot scale to unit diagonal";
+            return false;
+        }
+        s = 1.0 / d;
     }
     try {
         gp_Trsf move;

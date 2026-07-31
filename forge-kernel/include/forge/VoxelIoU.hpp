@@ -33,8 +33,26 @@ namespace forge {
 enum class IoUAlign {
     Raw,            // world placement as-is; an offset part is penalised
     Centred,        // translate both bbox centres to the origin
-    CentredScaled,  // centre, then scale each to a unit bbox diagonal
+    CentredScaled,  // centre, then scale each to a unit bbox DIAGONAL
+    CentredLongest, // centre, then scale each so its LONGEST AXIS is 1
 };
+
+// CentredScaled and CentredLongest are NOT interchangeable, and the difference is
+// not small. Dividing by the bbox diagonal sqrt(dx^2+dy^2+dz^2) and dividing by
+// max(dx,dy,dz) agree only for a shape whose extent lies on one axis; for a cube
+// they differ by sqrt(3). Two parts with different aspect ratios are therefore
+// scaled by different factors under one convention and matched under the other.
+//
+// This exists because BenchCAD normalises by LONGEST AXIS while this file only
+// offered the diagonal. Every IoU we had produced was consequently on a scale no
+// published BenchCAD figure uses — not wrong, but not comparable, which is worse
+// when the whole point of the number is to sit beside a leaderboard.
+//
+// Caveat that must travel with any BenchCAD comparison: the convention above was
+// established from a second-hand transcription; `benchcad_core` is not installed
+// on this machine, so it has not been confirmed against the upstream source.
+// BenchCAD also scores at res=64, where far fewer of our references are certified
+// than at grid 16.
 
 struct VoxelIoUResult {
     long gridN        = 0;     // cells per axis (the grid is gridN^3)

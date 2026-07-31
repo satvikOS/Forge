@@ -383,9 +383,35 @@ int main(int argc, char** argv) {
                             align = forge::IoUAlign::Centred;
                         else if (alignStr == "centred-scaled" || alignStr == "centered-scaled")
                             align = forge::IoUAlign::CentredScaled;
+                        // BenchCAD's own convention: normalise by the LONGEST AXIS,
+                        // not the bbox diagonal. Without this the tool could not
+                        // produce a number comparable to a published BenchCAD figure.
+                        else if (alignStr == "centred-longest" ||
+                                 alignStr == "centered-longest" || alignStr == "benchcad")
+                            align = forge::IoUAlign::CentredLongest;
+                        bool alignUnknown = false;
+                        if (!alignStr.empty() && alignStr != "raw" &&
+                            alignStr != "centred" && alignStr != "centered" &&
+                            alignStr != "centred-scaled" && alignStr != "centered-scaled" &&
+                            alignStr != "centred-longest" && alignStr != "centered-longest" &&
+                            alignStr != "benchcad") {
+                            alignUnknown = true;
+                        }
                         forge::VoxelIoUResult v;
-                        const bool okIoU = forge::voxelIoU(r.handle, ref, v, grid, align);
-                        if (!okIoU) {
+                        // An unrecognised convention REFUSES the measurement. Falling
+                        // back to raw would answer a question the caller did not ask,
+                        // in a normalisation they did not choose — and IoU conventions
+                        // are not interchangeable (centring alone moved a 41-task mean
+                        // from 0.372 to 0.439). A number under the wrong convention is
+                        // not a slightly-off number; it is not comparable at all.
+                        const bool okIoU = !alignUnknown &&
+                                           forge::voxelIoU(r.handle, ref, v, grid, align);
+                        if (alignUnknown) {
+                            o << ",\"voxelIoUError\":\"unknown iouAlign '"
+                              << jsonEscape(alignStr)
+                              << "'; refusing to measure (raw|centred|centred-scaled|"
+                                 "centred-longest)\"";
+                        } else if (!okIoU) {
                             // say WHY, rather than omitting the field and leaving
                             // the caller to guess whether it was 0 or unmeasurable
                             o << ",\"voxelIoUError\":\"" << jsonEscape(v.failure) << "\"";
@@ -400,6 +426,8 @@ int main(int argc, char** argv) {
                               << ",\"iouAlign\":\"" << jsonEscape(
                                      align == forge::IoUAlign::Raw ? "raw" :
                                      align == forge::IoUAlign::Centred ? "centred" :
+                                     align == forge::IoUAlign::CentredLongest
+                                         ? "centred-longest" :
                                      "centred-scaled") << "\"";
                             if (!v.failure.empty())
                                 o << ",\"voxelIoUNote\":\"" << jsonEscape(v.failure) << "\"";
