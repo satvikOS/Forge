@@ -49,6 +49,7 @@
 #include <TopoDS_Iterator.hxx>
 #include <TopAbs.hxx>
 #include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
@@ -73,6 +74,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <vector>
 
 namespace forge {
@@ -93,12 +96,41 @@ inline gp_Pnt shift(const gp_Pnt& p, const gp_Dir& d, double s) {
     return gp_Pnt(p.X() + d.X() * s, p.Y() + d.Y() * s, p.Z() + d.Z() * s);
 }
 
-// Outward unit normal of a PLANAR face (orientation-corrected). false if not planar.
+// Outward unit normal of a GEOMETRICALLY PLANAR face (orientation-corrected).
+// false only if the face is genuinely curved.
+//
+// ★ Same correction as NativeFilletChamfer.cpp (see the long note there):
+//   `GetType() == GeomAbs_Plane` is a REPRESENTATION test, not a planarity test.
+//   The side faces of an EXTRUDE / PRISM body carry Geom_SurfaceOfLinearExtrusion
+//   (MEASURED: RECT+EXTRUDE -> Plane x2 + SurfaceOfLinearExtrusion x4), which is a
+//   plane, and which OCCT's own BRepFilletAPI blends. Refusing it drops the
+//   capability rather than the library.
 bool planarFaceNormal(const TopoDS_Face& f, gp_Pln& pln, gp_Dir& outN) {
     BRepAdaptor_Surface as(f);
-    if (as.GetType() != GeomAbs_Plane) return false;
-    pln = as.Plane();
-    outN = pln.Axis().Direction();
+    if (as.GetType() == GeomAbs_Plane) {
+        pln = as.Plane();
+        outN = pln.Axis().Direction();
+    } else {
+        const double u0 = as.FirstUParameter(), u1 = as.LastUParameter();
+        const double v0 = as.FirstVParameter(), v1 = as.LastVParameter();
+        if (!std::isfinite(u0) || !std::isfinite(u1) ||
+            !std::isfinite(v0) || !std::isfinite(v1)) return false;
+        if (!(u1 - u0 > 1e-12) || !(v1 - v0 > 1e-12)) return false;
+        gp_Pnt P; gp_Vec dU, dV;
+        as.D1(0.5 * (u0 + u1), 0.5 * (v0 + v1), P, dU, dV);
+        const gp_Vec nv = dU.Crossed(dV);
+        if (nv.Magnitude() <= 1e-7) return false;
+        const gp_Dir N(nv);
+        const gp_Vec Nv(N);
+        for (int i = 0; i <= 4; ++i)
+            for (int j = 0; j <= 4; ++j) {
+                const gp_Pnt Q = as.Value(u0 + (u1 - u0) * i * 0.25,
+                                          v0 + (v1 - v0) * j * 0.25);
+                if (std::fabs(gp_Vec(P, Q).Dot(Nv)) > 1e-7) return false;   // curved
+            }
+        pln = gp_Pln(P, N);
+        outN = N;
+    }
     if (f.Orientation() == TopAbs_REVERSED) outN.Reverse();
     return true;
 }
@@ -523,21 +555,52 @@ Result variableFilletOneEdge(const TopoDS_Shape& shape, const VariableFilletSpec
 
 // Re-resolve a reference edge in a rebuilt shape by geometry (identical to R3), so a
 // multi-edge request can be applied sequentially against the running shape.
+//
+// ★ Carries the SAME two corrections as NativeFilletChamfer.cpp::resolveEdge:
+//   (1) TopExp_Explorer visits a shared edge ONCE PER ADJACENT FACE (measured: 24
+//       visits for a box's 12 edges), so the old `nHit == 1` test could never
+//       succeed and EVERY multi-edge request deferred at spec #2. Walk the UNIQUE
+//       edge map.
+//   (2) A neighbouring blend SHORTENS this edge, moving its midpoint; fall back to
+//       the unique COLLINEAR, span-overlapping survivor.
 TopoDS_Edge resolveEdge(const TopoDS_Shape& shape, const TopoDS_Edge& ref) {
     gp_Pnt rp0, rp1; gp_Dir rd;
     if (!lineEdge(ref, rp0, rp1, rd)) return TopoDS_Edge();
     const gp_Pnt rmid((rp0.X() + rp1.X()) * 0.5, (rp0.Y() + rp1.Y()) * 0.5, (rp0.Z() + rp1.Z()) * 0.5);
+    const double refLen = rp0.Distance(rp1);
+
+    TopTools_IndexedMapOfShape emap;
+    TopExp::MapShapes(shape, TopAbs_EDGE, emap);
+
     TopoDS_Edge hit; int nHit = 0;
-    for (TopExp_Explorer ex(shape, TopAbs_EDGE); ex.More(); ex.Next()) {
-        const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+    for (int i = 1; i <= emap.Extent(); ++i) {
+        const TopoDS_Edge e = TopoDS::Edge(emap(i));
         gp_Pnt p0, p1; gp_Dir d;
         if (!lineEdge(e, p0, p1, d)) continue;
         const gp_Pnt mid((p0.X() + p1.X()) * 0.5, (p0.Y() + p1.Y()) * 0.5, (p0.Z() + p1.Z()) * 0.5);
-        if (mid.Distance(rmid) <= 1e-6 && std::fabs(std::fabs(gp_Vec(d).Dot(gp_Vec(rd))) - 1.0) <= 1e-6) {
-            hit = e; ++nHit;
-        }
+        if (mid.Distance(rmid) <= 1e-6 &&
+            std::fabs(std::fabs(gp_Vec(d).Dot(gp_Vec(rd))) - 1.0) <= 1e-6) { hit = e; ++nHit; }
     }
-    return (nHit == 1) ? hit : TopoDS_Edge();
+    if (nHit == 1) return hit;
+
+    TopoDS_Edge best; double bestOv = 0.0; int nBest = 0;
+    const gp_Vec rdv(rd);
+    for (int i = 1; i <= emap.Extent(); ++i) {
+        const TopoDS_Edge e = TopoDS::Edge(emap(i));
+        gp_Pnt p0, p1; gp_Dir d;
+        if (!lineEdge(e, p0, p1, d)) continue;
+        if (std::fabs(std::fabs(gp_Vec(d).Dot(rdv)) - 1.0) > 1e-6) continue;
+        const gp_Vec v0(rp0, p0), v1(rp0, p1);
+        const double t0 = v0.Dot(rdv), t1 = v1.Dot(rdv);
+        if ((v0 - rdv * t0).Magnitude() > 1e-6) continue;
+        if ((v1 - rdv * t1).Magnitude() > 1e-6) continue;
+        const double lo = std::min(t0, t1), hi = std::max(t0, t1);
+        const double ov = std::min(hi, refLen) - std::max(lo, 0.0);
+        if (!(ov > 1e-9)) continue;
+        if (ov > bestOv + 1e-9)      { bestOv = ov; best = e; nBest = 1; }
+        else if (ov > bestOv - 1e-9) { ++nBest; }
+    }
+    return (nBest == 1) ? best : TopoDS_Edge();
 }
 
 }  // namespace
@@ -547,20 +610,43 @@ Result makeVariableFillet(const TopoDS_Shape& shape,
                           const std::vector<VariableFilletSpec>& specs) {
     if (shape.IsNull()) return defer("null shape");
     if (specs.empty())  return defer("no variable-fillet edges supplied");
+    // Repeat requests for the SAME topological edge: the call sites address edges by
+    // TopExp INDEX, and that stream visits a shared edge once per adjacent face, so a
+    // selector delivers each edge twice. Applying it twice is fatal (the second pass
+    // cannot re-resolve what the first consumed). FIRST spec wins.
+    std::vector<VariableFilletSpec> uspecs;
+    for (const VariableFilletSpec& s : specs) {
+        if (s.edge.IsNull()) continue;
+        bool dup = false;
+        for (const VariableFilletSpec& u : uspecs) if (u.edge.IsSame(s.edge)) { dup = true; break; }
+        if (!dup) uspecs.push_back(s);
+    }
+    if (uspecs.empty()) return defer("no variable-fillet edges supplied");
     TopoDS_Shape work = shape;
     try {
-        for (std::size_t i = 0; i < specs.size(); ++i) {
-            VariableFilletSpec s = specs[i];
+        for (std::size_t i = 0; i < uspecs.size(); ++i) {
+            VariableFilletSpec s = uspecs[i];
             if (i > 0) {                      // re-resolve against the rebuilt shape
-                s.edge = resolveEdge(work, specs[i].edge);
-                if (s.edge.IsNull()) return defer("could not re-resolve a variable-fillet edge after a prior op");
+                s.edge = resolveEdge(work, uspecs[i].edge);
+                if (s.edge.IsNull()) {
+                    if (std::getenv("FORGE_FILLET_DEBUG"))
+                        std::fprintf(stderr, "[occtvarfillet] deferred: could not re-resolve\n");
+                    return defer("could not re-resolve a variable-fillet edge after a prior op");
+                }
             }
             Result r = variableFilletOneEdge(work, s);
-            if (!r.ok) return r;              // honest deferral -> whole op defers
+            if (!r.ok) {                      // honest deferral -> whole op defers
+                if (std::getenv("FORGE_FILLET_DEBUG"))
+                    std::fprintf(stderr, "[occtvarfillet] deferred: %s\n", r.reason.c_str());
+                return r;
+            }
             work = r.shape;
         }
     } catch (...) {
-        return defer("native variable fillet raised an OCCT exception — deferring");
+        Result e = defer("native variable fillet raised an OCCT exception");
+        if (std::getenv("FORGE_FILLET_DEBUG"))
+            std::fprintf(stderr, "[occtvarfillet] deferred: %s\n", e.reason.c_str());
+        return e;
     }
     Result r; r.ok = true; r.shape = work;
     r.reason = "native variable-radius fillet (prismatic convex edges, linear law)";

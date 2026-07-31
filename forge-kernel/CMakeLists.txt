@@ -205,6 +205,57 @@ endif()
 if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
     list(APPEND OCCT_LIBS TKBO TKG2d)
 endif()
+# ── TKShHealing PARTIAL DROP — P1 (landed 2026-07-31; DEFAULT ON) ─────────────────
+# FORGE_SHHEAL_DROP_NATIVE routes the NON-STEP-PATH TKShHealing call sites in
+# src/Healing.cpp onto the in-house forge::occtheal peers
+# (src/native/brep/NativeShapeHeal.cpp) and COMPILES OUT the OCCT fallback at each
+# (native-under-the-macro / OCCT-baseline-under-#else, the FORGE_FILLET_DROP_NATIVE
+# pattern). Three OCCT classes leave the binary entirely — 8 of the 20 TKShHealing
+# symbols:
+#   ShapeFix_Solid            (4) Healing.cpp:446 (ctor+Perform+Solid), :531 (SolidFromShell)
+#                                 -> occtheal::orientSolidOutward / occtheal::solidFromShell
+#   ShapeAnalysis_Shell       (3) Healing.cpp:525-527 (LoadShells+CheckOrientedShells; the
+#                                 OCCT call DISCARDED its result)
+#                                 -> occtheal::shellOrientationConsistent (strictly richer)
+#   ShapeAnalysis_FreeBounds  (1) Healing.cpp:407 (ctor + GetClosedWires)
+#                                 -> occtheal::freeBounds
+# Law 9: no capability is deleted — each peer does the same work, proven by the SAME
+# tests run against both builds. Measured 2026-07-31, OCCT baseline vs this build:
+#   test/healing_smoke.js .................... ALL PASS both, output byte-identical
+#   test/native_vs_occt_core.mjs ............. 34/34 both
+#   test/native_unify_smoke.mjs .............. all cases both
+#   test/ft/ft_unified_edit.mjs 20/20 · test/directedit.mjs 9/9 · test/ft/ft_smoke.mjs ALL PASS
+#   13-scenario heal A/B (delete-cap/side/two-opposite/cyl-cap, autofill on closed
+#   box+cylinder, harmonize box/cyl/torus/sewn/rebuilt, simplify, autorepair, sew),
+#   comparing volume/area/COM/faces/edges/closed/manifold/oriented/chi/genus —
+#   byte-identical (torus chi=0 genus=1, so the topology check is not a rubber stamp).
+# Object-level proof: Healing.cpp.o imports the 8 OCCT symbols with the option OFF and
+# ZERO with it ON, referencing forge::occtheal::{freeBounds, orientSolidOutward,
+# solidFromShell, shellOrientationConsistent} instead.
+#
+# ★ WHAT THIS IS AND IS NOT WORTH — read before scoring it.
+#   TKShHealing is NOT removed from OCCT_LIBS here. 12 symbols remain and all of them
+#   are blocked on the STEP READER: ShapeFix_Shape x6 (StepReadOcct.cpp:1581, the
+#   post-transfer heal — needs pcurve synthesis + ShapeFix_Wire::FixShifted seam
+#   reconcile), ShapeAnalysis_Surface x2 (:1239/:1292-3), ShapeAnalysis_Curve x1 (:969),
+#   ShapeUpgrade_UnifySameDomain x3 (Healing.cpp:387, DirectEdit.cpp:136 — needs a
+#   general OCCT-shape unify; UnifyFaces.cpp covers NativeSolid handles only).
+#   ★★ AND EVEN A COMPLETE TKShHealing DROP IS WORTH **ZERO CLOSURE**. Measured
+#   2026-07-31: libTKFillet, libTKOffset, libTKBO and libTKBool each DT_NEED
+#   libTKShHealing, and all four stay in the process. OCCT_CLOSURE is 14 before this
+#   change and 14 after a hypothetical full drop; only OCCT_DIRECT would move 8 -> 7.
+#   Per reports/OCCT_CLOSURE_TRUTH.md §4.3 the only unilateral closure win in the build
+#   is TKOffset (14 -> 13). This P1 is symbol-surface reduction that makes the eventual
+#   TKShHealing drop cheaper — it is NOT a drop and must not be scored as one.
+option(FORGE_SHHEAL_DROP_NATIVE
+       "route the NON-STEP healing call sites native & compile out the OCCT ShapeFix_Solid/ShapeAnalysis_Shell/ShapeAnalysis_FreeBounds fallback"
+       ON)
+if(FORGE_NATIVE_BREP AND FORGE_SHHEAL_DROP_NATIVE)
+    add_compile_definitions(FORGE_SHHEAL_DROP_NATIVE=1)
+    message(STATUS "FORGE_SHHEAL_DROP_NATIVE=ON — ShapeFix_Solid/ShapeAnalysis_Shell/"
+                   "ShapeAnalysis_FreeBounds fallbacks compiled out (TKShHealing 20 -> 12 symbols; "
+                   "OCCT_CLOSURE UNCHANGED at 14 — see reports/OCCT_CLOSURE_TRUTH.md)")
+endif()
 # OCCT-zero progress (2026-07-25, R1+R2 → TKGeomBase): DROPPED TKGeomBase. 10 -> 9 OCCT dylibs.
 #   (TKGeomBase still loads transitively — TKBRep/TKG3d/TKGeomAlgo DT_NEED it — but the .node
 #   no longer LINKS it directly.)

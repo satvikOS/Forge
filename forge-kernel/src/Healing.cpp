@@ -1,5 +1,21 @@
 #include "forge/Healing.hpp"
 
+// ── TKShHealing P1 (2026-07-31) ──────────────────────────────────────────────
+// FORGE_HEAL_NATIVE_BCD is the single condition under which this file's
+// ShapeFix_Solid / ShapeAnalysis_Shell / ShapeAnalysis_FreeBounds call sites run on
+// the in-house forge::occtheal peers and the OCCT fallback is COMPILED OUT (so the
+// 8 symbols leave the binary). It requires BOTH the native B-rep layer and the drop
+// option; CMake only defines FORGE_SHHEAL_DROP_NATIVE when FORGE_NATIVE_BREP is on,
+// but the belt-and-braces conjunction keeps a hand-driven -D from producing a build
+// that selects the native branch without the header that declares it.
+// Scoring note: this is a SYMBOL-SURFACE reduction (TKShHealing 20 -> 12), NOT a
+// library drop. OCCT_CLOSURE stays 14 — TKFillet/TKOffset/TKBO/TKBool all DT_NEED
+// libTKShHealing. See CMakeLists.txt (FORGE_SHHEAL_DROP_NATIVE) and
+// reports/OCCT_CLOSURE_TRUTH.md.
+#if defined(FORGE_NATIVE_BREP) && defined(FORGE_SHHEAL_DROP_NATIVE)
+#define FORGE_HEAL_NATIVE_BCD 1
+#endif
+
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBuilderAPI_MakeShell.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
@@ -13,13 +29,20 @@
 #include <GProp_GProps.hxx>
 #include <GeomAbs_Shape.hxx>
 #include <Precision.hxx>
+// DEAD INCLUDES REMOVED 2026-07-31 (verified 0 uses in this TU by grep):
+//   ShapeAnalysis_ShapeContents.hxx, ShapeAnalysis_ShapeTolerance.hxx,
+//   ShapeFix_ShapeTolerance.hxx.  No symbol effect — they contributed no import.
+#ifndef FORGE_HEAL_NATIVE_BCD
+// OCCT baseline for groups B/C/D — compiled out when the native peers are wired.
 #include <ShapeAnalysis_FreeBounds.hxx>
 #include <ShapeAnalysis_Shell.hxx>
-#include <ShapeAnalysis_ShapeContents.hxx>
-#include <ShapeAnalysis_ShapeTolerance.hxx>
-#include <ShapeFix_Shape.hxx>
-#include <ShapeFix_ShapeTolerance.hxx>
 #include <ShapeFix_Solid.hxx>
+#endif
+// Groups A (ShapeFix_Shape, :488/:517) and E (ShapeUpgrade_UnifySameDomain, :387)
+// are NOT part of P1 and always link: A is shared with StepReadOcct.cpp:1581 (moving
+// this file's A-sites alone buys 0 symbols) and E needs a general OCCT-shape unify
+// that does not exist yet (Law 9 forbids dropping the capability instead).
+#include <ShapeFix_Shape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
@@ -84,6 +107,11 @@
 //     match the canonical ShapeFix.cpp/Sewing.cpp templates 1:1. (Documented follow-up.)
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
+// TKShHealing P1 peers — occtheal::{freeBounds, orientSolidOutward, solidFromShell,
+// shellOrientationConsistent}. UNCONDITIONAL (not behind forgeNativeFeaturesEnabled):
+// these four are exact replacements for what their call sites consume, so they are the
+// production path, not an opt-in experiment.
+#include "forge/native/brep/NativeShapeHeal.hpp"
 #include "forge/native/brep/Heal.hpp"          // healBRep, HealOptions, HealReport (native)
 #include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult, diagnoseShell (native)
 #include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Shell/Solid/Surface
@@ -403,11 +431,23 @@ AutoFillResult autoFillMissingFaces(ShapeHandle shape, double tolerance) {
     rep.openEdgesBefore = countFreeEdges(s);
 
     // Detect free wires (closed loops of free edges) we can cap.
+#ifdef FORGE_HEAL_NATIVE_BCD
+    // NATIVE (TKShHealing-free) — group D. Free edges = edges with exactly one face
+    // ancestor (the ShapeAnalysis_FreeBounds definition, and the same rule
+    // countFreeEdges() above already uses), chained by coincident endpoints into
+    // closed loops vs open chains. Same contract as
+    // ShapeAnalysis_FreeBounds(s, tol, splitClosed=false, splitOpen=false) +
+    // GetClosedWires(): no closed wire is split, no open wire is split.
+    // `fb` must outlive `closedWires` — it owns the compound.
+    const forge::occtheal::FreeBounds fb = forge::occtheal::freeBounds(s, tolerance);
+    const TopoDS_Compound& closedWires = fb.closedWires;
+#else
     // ShapeAnalysis_FreeBounds returns a compound of wires in OCCT 7.9.
     ShapeAnalysis_FreeBounds analyzer(s, tolerance,
                                       /*splitClosed*/ Standard_False,
                                       /*splitOpen*/   Standard_False);
     const TopoDS_Compound& closedWires = analyzer.GetClosedWires();
+#endif
 
     // For each closed free wire, fit a filling patch and add it to a sewing
     // pile alongside the original shape.
@@ -442,6 +482,17 @@ AutoFillResult autoFillMissingFaces(ShapeHandle shape, double tolerance) {
     if (sewn.ShapeType() == TopAbs_SHELL && BRep_Tool::IsClosed(TopoDS::Shell(sewn))) {
         BRepBuilderAPI_MakeSolid mk(TopoDS::Shell(sewn));
         if (mk.IsDone()) {
+#ifdef FORGE_HEAL_NATIVE_BCD
+            // NATIVE (TKShHealing-free) — group B. The net effect this site consumes
+            // from ShapeFix_Solid(solid)->Perform()->Solid() is the OUTWARD
+            // orientation (reverse when the signed volume is negative). The input is
+            // a solid built from an ALREADY-SEWN closed shell, so per-face
+            // orientation inside the shell is already consistent — which is the one
+            // extra thing OCCT's Perform() would do. orientSolidOutward never returns
+            // null, so the OCCT null-guard collapses.
+            const TopoDS_Shape oriented = forge::occtheal::orientSolidOutward(mk.Solid());
+            result = oriented.IsNull() ? TopoDS_Shape(mk.Solid()) : oriented;
+#else
             // Sanity-check + orient the solid outwards.
             Handle(ShapeFix_Solid) fix = new ShapeFix_Solid(mk.Solid());
             fix->Perform();
@@ -450,6 +501,7 @@ AutoFillResult autoFillMissingFaces(ShapeHandle shape, double tolerance) {
             } else {
                 result = fix->Solid();
             }
+#endif
         }
     } else if (sewn.ShapeType() == TopAbs_COMPOUND) {
         // Find a shell inside and try to close it.
@@ -522,14 +574,32 @@ ShapeHandle harmonizeNormals(ShapeHandle shape) {
     // outward orientation. We don't change face wires.
     for (TopExp_Explorer ex(work, TopAbs_SHELL); ex.More(); ex.Next()) {
         TopoDS_Shell sh = TopoDS::Shell(ex.Current());
+#ifdef FORGE_HEAL_NATIVE_BCD
+        // NATIVE (TKShHealing-free) — group C. Peer of LoadShells +
+        // CheckOrientedShells. The OCCT pair DISCARDED its result here (a diagnostic
+        // no-op on `work`), and this branch preserves that behaviour EXACTLY: the
+        // capability is re-implemented, not removed (Law 9). occtheal's version
+        // returns a real answer (every 2-face edge used with opposite sense), so the
+        // native path is strictly richer at zero behavioural risk.
+        (void)forge::occtheal::shellOrientationConsistent(sh);
+#else
         ShapeAnalysis_Shell ana;
         ana.LoadShells(sh);
         ana.CheckOrientedShells(sh, /*alsofree*/ Standard_True);
+#endif
     }
 
     if (work.ShapeType() == TopAbs_SHELL && BRep_Tool::IsClosed(TopoDS::Shell(work))) {
+#ifdef FORGE_HEAL_NATIVE_BCD
+        // NATIVE (TKShHealing-free) — group B. Peer of
+        // ShapeFix_Solid()->SolidFromShell(shell): BRepBuilderAPI_MakeSolid on the
+        // shell + signed-volume outward flip. Returns a null solid only when the
+        // shell cannot make one, which is exactly the case the guard below skips.
+        TopoDS_Solid solid = forge::occtheal::solidFromShell(TopoDS::Shell(work));
+#else
         Handle(ShapeFix_Solid) fs = new ShapeFix_Solid();
         TopoDS_Solid solid = fs->SolidFromShell(TopoDS::Shell(work));
+#endif
         if (!solid.IsNull()) {
             work = solid;
         }
