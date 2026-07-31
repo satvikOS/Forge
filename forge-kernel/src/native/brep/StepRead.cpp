@@ -230,9 +230,70 @@ double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& t
             }
         }
     }
-    // PASS 2 — SI length unit (only when no imperial conversion is present). The
-    // SIMPLE SI length unit appears as a COMPLEX record:
-    // (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))
+    // PASS 1.5 — THE UNIT THE GEOMETRY IS ACTUALLY IN. A file may declare several
+    // LENGTH_UNITs and use only one; the geometric context names which:
+    //
+    //   #248=(GEOMETRIC_REPRESENTATION_CONTEXT(3)
+    //         GLOBAL_UNIT_ASSIGNED_CONTEXT((#250,#252,#253)) ...)
+    //   #250=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.CENTI.,.METRE.))   <- referenced
+    //   #251=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.))         <- NOT referenced
+    //
+    // The scan below considers every LENGTH_UNIT in the file and returns whichever
+    // an unordered_map happens to yield first. On the file above that is a coin
+    // flip between scale 10 and scale 1000 — a 100x error, and a nondeterministic
+    // one. Measured on the neuralCAD-Edit corpus: a 76.3 mm part read as 7630 mm.
+    // (This is the same nondeterminism PASS 1 documents fixing for imperial units;
+    // the SI case was left exposed.) The file banner has always claimed the unit is
+    // resolved from the GEOMETRIC_REPRESENTATION_CONTEXT — now it actually is.
+    for (const auto& kv : tab) {
+        const Instance& ins = kv.second;
+        if (!ins.type.empty()) continue;                 // contexts are complex records
+        auto subs = splitComplex(ins.params);
+        bool isGeoCtx = false;
+        std::vector<std::uint64_t> unitIds;
+        for (const auto& s : subs) {
+            if (s.type == "GEOMETRIC_REPRESENTATION_CONTEXT") isGeoCtx = true;
+            if (s.type == "GLOBAL_UNIT_ASSIGNED_CONTEXT") {
+                // params are a single list argument, `(#250,#252,#253)`. Read the
+                // entity refs straight out of the text — nesting depth here is fixed
+                // by the schema, so there is nothing a split would buy.
+                for (std::size_t i = 0; i + 1 < s.params.size(); ++i) {
+                    if (s.params[i] != '#') continue;
+                    std::uint64_t uid = 0;
+                    std::size_t j = i + 1;
+                    while (j < s.params.size() && std::isdigit(static_cast<unsigned char>(s.params[j])))
+                        uid = uid * 10 + static_cast<std::uint64_t>(s.params[j++] - '0');
+                    if (j > i + 1) unitIds.push_back(uid);
+                    i = j - 1;
+                }
+            }
+        }
+        if (!isGeoCtx || unitIds.empty()) continue;
+        for (std::uint64_t uid : unitIds) {
+            auto it = tab.find(uid);
+            if (it == tab.end() || !it->second.type.empty()) continue;
+            auto usubs = splitComplex(it->second.params);
+            bool isLength = false;
+            std::string prefix;
+            for (const auto& s : usubs) {
+                if (s.type == "LENGTH_UNIT") isLength = true;
+                if (s.type == "SI_UNIT") {
+                    auto f = splitTopLevel(s.params);
+                    if (f.size() >= 2 && f[1].find("METRE") != std::string::npos) prefix = f[0];
+                }
+            }
+            if (isLength && !prefix.empty()) {
+                unitNameOut = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE"
+                            : (prefix.find("CENTI") != std::string::npos) ? "CENTIMETRE"
+                                                                         : "METRE";
+                return siMetreScale(prefix);
+            }
+        }
+    }
+
+    // PASS 2 — SI length unit (only when no imperial conversion is present, and no
+    // geometric context named one). The SIMPLE SI length unit appears as a COMPLEX
+    // record: (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))
     for (const auto& kv : tab) {
         const Instance& ins = kv.second;
         if (ins.type.empty()) {
