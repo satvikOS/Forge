@@ -333,6 +333,28 @@ FeatureTree parse(const std::string& text) {
             continue;
         }
 
+        // `%406 = RESULT(%405)` — RESULT written in ASSIGNMENT form. RESULT is a
+        // terminator, not an operation, so the branch above only catches it at the
+        // start of a line; written this way it fell through to generic op handling
+        // and died as an unknown/misapplied op. That failure lands on the LAST line
+        // of the tree, so it discards everything: measured on the honest holdout, a
+        // complete 406-op emission lost at line 406. Bind the result and move on.
+        if (line[0] == '%' && upper(line).find("=") != std::string::npos) {
+            std::size_t e = line.find('=');
+            std::string r = trim(line.substr(e + 1));
+            if (upper(r).rfind("RESULT", 0) == 0) {
+                std::size_t lp2 = r.find('('), rp2 = r.rfind(')');
+                if (lp2 != std::string::npos && rp2 != std::string::npos && rp2 > lp2) {
+                    std::string in2 = trim(r.substr(lp2 + 1, rp2 - lp2 - 1));
+                    double rv;
+                    if (!in2.empty() && in2[0] == '%' && parseDouble(in2.substr(1), rv)) {
+                        ft.resultId = static_cast<int>(rv);
+                        continue;
+                    }
+                }
+            }
+        }
+
         // %id = OP(args)
         std::size_t eq = line.find('=');
         if (eq == std::string::npos) {
