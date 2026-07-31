@@ -187,7 +187,26 @@ FeatureTree parse(const std::string& text) {
     std::string raw;
     int lineNo = 0;
 
+    // A generation cut off at the token ceiling ends mid-statement. Failing the
+    // WHOLE text for that discards every complete op before it — measured, five of
+    // five long emissions (99, 126, 79, 227 and 299 ops) died on their own final
+    // line and yielded ZERO information, which made every long-tree experiment
+    // unreadable. The parser already tolerates prose for the same reason; a
+    // truncated tail is the same problem. Count the lines so the LAST one can be
+    // dropped rather than fatal.
+    int totalLines = 0;
+    {
+        std::istringstream count(text);
+        std::string tmp;
+        while (std::getline(count, tmp)) ++totalLines;
+    }
+
+    bool truncatedTail = false;
     auto fail = [&](const std::string& why) {
+        // The final line of a truncated generation is not a syntax error in the
+        // author's intent — it is where the decoder stopped. Drop it and keep
+        // everything already parsed; anything earlier is a real error.
+        if (lineNo >= totalLines) { truncatedTail = true; return; }
         throw std::runtime_error("ft parse line " + std::to_string(lineNo) + ": " + why);
     };
 
@@ -211,12 +230,15 @@ FeatureTree parse(const std::string& text) {
         // tolerate prose: skip any line that is not IR (not `%id = ...` and not RESULT).
         // The VLM sometimes wraps correct IR in explanatory prose; ignore it (eval: 25%->65% yield).
         if (line[0] != '%' && upper(line).rfind("RESULT", 0) != 0) continue;
+        truncatedTail = false;
 
         // RESULT(%id)
         if (upper(line).rfind("RESULT", 0) == 0) {
             std::size_t lp = line.find('('), rp = line.rfind(')');
-            if (lp == std::string::npos || rp == std::string::npos || rp < lp)
+            if (lp == std::string::npos || rp == std::string::npos || rp < lp) {
                 fail("malformed RESULT(...)");
+                if (truncatedTail) break;
+            }
             std::string inner = trim(line.substr(lp + 1, rp - lp - 1));
             if (inner.empty() || inner[0] != '%') fail("RESULT expects %id");
             double v;
@@ -227,7 +249,10 @@ FeatureTree parse(const std::string& text) {
 
         // %id = OP(args)
         std::size_t eq = line.find('=');
-        if (eq == std::string::npos) fail("expected `%id = OP(...)` or `RESULT(%id)`");
+        if (eq == std::string::npos) {
+            fail("expected `%id = OP(...)` or `RESULT(%id)`");
+            if (truncatedTail) break;
+        }
         std::string lhs = trim(line.substr(0, eq));
         std::string rhs = trim(line.substr(eq + 1));
         if (lhs.empty() || lhs[0] != '%') fail("left side must be %id");
@@ -235,8 +260,10 @@ FeatureTree parse(const std::string& text) {
         if (!parseDouble(lhs.substr(1), idv)) fail("bad %id on left side");
 
         std::size_t lp = rhs.find('('), rp = rhs.rfind(')');
-        if (lp == std::string::npos || rp == std::string::npos || rp < lp)
+        if (lp == std::string::npos || rp == std::string::npos || rp < lp) {
             fail("expected OP( ... )");
+            if (truncatedTail) break;
+        }
         std::string name = trim(rhs.substr(0, lp));
         std::string inner = trim(rhs.substr(lp + 1, rp - lp - 1));
 
