@@ -381,7 +381,29 @@ FeatureTree parse(const std::string& text) {
         op.srcLine = lineNo;
         bool known = false;
         op.code = opFromName(upper(name), known);
-        if (!known) fail("unknown op `" + name + "`");
+        if (!known) {
+            // Say what the tree COULD have said. An invented op is usually a
+            // COMPOSITE of real ones — measured on the edit benchmark, the planner
+            // emitted `HOLEPATTERN`, which the IR already expresses as PATTERN of
+            // HOLE. This message is handed back as the repair instruction, so
+            // naming the constituents converts a dead end into a fixable one.
+            const std::string U = upper(name);
+            std::string hint;
+            for (const char* k : {"RECT","RRECT","CIRCLE","SLOT","POLY","REGPOLY","RING",
+                                  "WIRE","BOX","CYL","CONE","SPHERE","TORUS","PRISM","TUBE",
+                                  "EXTRUDE","REVOLVE","LOFT","SWEEP","FUSE","CUT","COMMON",
+                                  "TRANSLATE","ROTATE","MIRROR","PATTERN","HOLE","CBORE",
+                                  "FILLET","CHAMFER","BLEND","SHELL","FOLD","HEAL","TAG",
+                                  "INPUT","PUSHFACE","RESIZEBORE","DEFEATURE","VERIFY"}) {
+                if (U.find(k) != std::string::npos) {
+                    if (!hint.empty()) hint += ", ";
+                    hint += k;
+                }
+            }
+            fail("unknown op `" + name + "`" +
+                 (hint.empty() ? "" : " — the IR spells this with " + hint +
+                                      " (compose them; there is no combined op)"));
+        }
 
         if (op.code == OpCode::Poly) {
             // POLY([x y; x y; ...])
