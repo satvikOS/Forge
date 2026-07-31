@@ -913,3 +913,23 @@ analyze.py, strat.jsonl, pump.jsonl, fam_*.jsonl}`.
 (industrial grade — every number here is a measurement, and where I could not measure
 something I say so); Prime Directive 6 (never optimise a proxy uncorrelated with the
 true metric — see §6 on `otool` vs the load closure).*
+
+---
+
+## Family A (BRepOffsetAPI_MakeOffset) — implemented, measured, and held OFF (2026-07-31)
+
+`FORGE_OFFSET_DROP_MAKEOFFSET` routes `forge::cam::inwardOffset` (src/Cam.cpp, the
+only call site of this class in the tree) through the in-house
+`forge::native::geom::PolygonOffset2D`. It works on 365 of 382 corpus parts.
+
+**It is held OFF, and the reason is a single routine.** `PolygonOffset2D::cleanRawLoop`
+wrongly reports `"loop collapsed under inward offset"` once a **non-convex** sampled
+outline exceeds roughly **112–142 vertices**. That costs the offset on **17 of 382
+parts (4.5%)** — all `ribbed_bracket` — where OCCT succeeds. Losing a capability OCCT
+has is a Law 9 reject, so the flag stays default-OFF until `cleanRawLoop` is fixed.
+Fixing that one routine unblocks family A.
+
+**And family A alone still drops nothing.** It removes 4 of TKOffset's 42 symbols —
+a blocking-set reduction 42 → 38, not a drop. `OCCT_CLOSURE` cannot move until
+**every** TKOffset symbol is gone (families B..I), and family F (`MakePipeShell`, 7
+symbols) has no native engine anywhere in the tree. Do not report family A as a drop.
