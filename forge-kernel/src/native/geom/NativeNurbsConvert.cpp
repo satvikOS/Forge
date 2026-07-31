@@ -89,12 +89,26 @@
 #include <Geom_TrimmedCurve.hxx>
 
 // ---- Geom2d_ concrete curves (TKG2d — survive the drop) --------------------
+// TKG2d SYMBOL BUDGET. Every one of the kernel's TKG2d references is emitted by
+// THIS translation unit (measured 2026-07-31, `nm -u` per object over the whole
+// build: 36/36; Nurbs.cpp.o and NativeOcctBridge.cpp.o add only the Geom2d_Line
+// ctor, which this file also references). to3d() therefore reads
+// OCCT-produced pcurves through the CHEAPEST accessor that carries the same data —
+// the gp_ value getters (Lin2d/Circ2d/Elips2d) and the bulk array getters
+// (Poles/Knots/Multiplicities/Weights) — instead of the per-component ones. Same
+// bytes, fewer imported symbols. Do NOT "simplify" these back to Location()/
+// Direction()/Radius()/Pole(i)/Knot(i): each such call re-imports a TKG2d symbol.
 #include <Geom2d_BSplineCurve.hxx>
 #include <Geom2d_BezierCurve.hxx>
 #include <Geom2d_Circle.hxx>
 #include <Geom2d_Ellipse.hxx>
 #include <Geom2d_Line.hxx>
 #include <Geom2d_TrimmedCurve.hxx>
+
+// ---- gp_ 2D value types (TKMath, header-inline accessors) ------------------
+#include <gp_Circ2d.hxx>
+#include <gp_Elips2d.hxx>
+#include <gp_Lin2d.hxx>
 
 // ---- collection arrays -----------------------------------------------------
 #include <Precision.hxx>
@@ -754,26 +768,39 @@ Handle(Geom_Curve) to3d(const Handle(Geom2d_Curve)& c2, const gp_Pln& pln) {
     const gp_Dir Zn = pln.Axis().Direction();          // plane normal -> 2D +Z image
     try {
         if (Handle(Geom2d_Line) ln = Handle(Geom2d_Line)::DownCast(c2); !ln.IsNull()) {
-            gp_Pnt2d o = ln->Location(); gp_Dir2d d = ln->Direction();
+            // TKG2d symbol budget: ONE call (Lin2d) instead of Location()+Direction().
+            // gp_Lin2d is a TKMath VALUE with header-inline accessors, so reading it
+            // costs no further TKG2d symbol. Probe-verified identical against OCCT
+            // 7.9.3 for both direct and indirect 2D frames.
+            const gp_Lin2d L = ln->Lin2d();
+            gp_Pnt2d o = L.Location(); gp_Dir2d d = L.Direction();
             gp_Vec dv = dir2dTo3d(pln, d.X(), d.Y());
             return new Geom_Line(map2dTo3d(pln, o.X(), o.Y()), gp_Dir(dv));
         }
         if (Handle(Geom2d_Circle) ci = Handle(Geom2d_Circle)::DownCast(c2); !ci.IsNull()) {
-            gp_Pnt2d o = ci->Location();
-            gp_Dir2d xd = ci->XAxis().Direction(), yd = ci->YAxis().Direction();
+            // ONE call (Circ2d) instead of Radius() + Geom2d_Conic::XAxis()/YAxis()
+            // (Location() was already header-inline on Geom2d_Conic). gp_Circ2d holds
+            // the SAME gp_Ax22d, so the indirect (clockwise) frame that drives the
+            // `sense` test below is preserved bit-for-bit — probe-verified.
+            const gp_Circ2d C = ci->Circ2d();
+            gp_Pnt2d o = C.Location();
+            gp_Dir2d xd = C.XAxis().Direction(), yd = C.YAxis().Direction();
             // preserve 2D sense: normal = +N for a direct (CCW) frame, -N for indirect.
             double sense = xd.X() * yd.Y() - xd.Y() * yd.X();
             gp_Dir N = (sense >= 0.0) ? Zn : Zn.Reversed();
             gp_Ax2 ax(map2dTo3d(pln, o.X(), o.Y()), N, gp_Dir(dir2dTo3d(pln, xd.X(), xd.Y())));
-            return new Geom_Circle(ax, ci->Radius());
+            return new Geom_Circle(ax, C.Radius());
         }
         if (Handle(Geom2d_Ellipse) el = Handle(Geom2d_Ellipse)::DownCast(c2); !el.IsNull()) {
-            gp_Pnt2d o = el->Location();
-            gp_Dir2d xd = el->XAxis().Direction(), yd = el->YAxis().Direction();
+            // ONE call (Elips2d) instead of MajorRadius() + MinorRadius() (+ the
+            // Conic::XAxis()/YAxis() pair now retired by the circle branch above).
+            const gp_Elips2d E = el->Elips2d();
+            gp_Pnt2d o = E.Location();
+            gp_Dir2d xd = E.XAxis().Direction(), yd = E.YAxis().Direction();
             double sense = xd.X() * yd.Y() - xd.Y() * yd.X();
             gp_Dir N = (sense >= 0.0) ? Zn : Zn.Reversed();
             gp_Ax2 ax(map2dTo3d(pln, o.X(), o.Y()), N, gp_Dir(dir2dTo3d(pln, xd.X(), xd.Y())));
-            return new Geom_Ellipse(ax, el->MajorRadius(), el->MinorRadius());
+            return new Geom_Ellipse(ax, E.MajorRadius(), E.MinorRadius());
         }
         if (Handle(Geom2d_TrimmedCurve) tr = Handle(Geom2d_TrimmedCurve)::DownCast(c2); !tr.IsNull()) {
             Handle(Geom_Curve) b = to3d(tr->BasisCurve(), pln);
@@ -781,29 +808,53 @@ Handle(Geom_Curve) to3d(const Handle(Geom2d_Curve)& c2, const gp_Pln& pln) {
             return new Geom_TrimmedCurve(b, tr->FirstParameter(), tr->LastParameter());
         }
         if (Handle(Geom2d_BSplineCurve) bs = Handle(Geom2d_BSplineCurve)::DownCast(c2); !bs.IsNull()) {
-            const int np = bs->NbPoles();
+            // BULK accessors: Poles()/Knots()/Multiplicities()/Weights() each cost ONE
+            // TKG2d symbol and carry their own length, retiring NbPoles/Pole/NbKnots/
+            // Knot/Multiplicity/Weight/IsRational (8 symbols -> 5). NCollection_Array1
+            // indexing is header-inline, so the loops themselves are free.
+            // Weights()==nullptr IFF !IsRational() — probe-verified against OCCT 7.9.3
+            // (BSplCLib::NoWeights() == 0x0); that is what replaces the IsRational call.
+            const TColgp_Array1OfPnt2d&     P = bs->Poles();
+            const TColStd_Array1OfReal&     K = bs->Knots();
+            const TColStd_Array1OfInteger&  M = bs->Multiplicities();
+            const TColStd_Array1OfReal*     W = bs->Weights();
+            const int np = P.Length(), nk = K.Length();
             std::vector<gp_Pnt> poles(np);
-            for (int i = 0; i < np; ++i) { gp_Pnt2d q = bs->Pole(i + 1); poles[i] = map2dTo3d(pln, q.X(), q.Y()); }
-            std::vector<double> kn(bs->NbKnots()); std::vector<int> mu(bs->NbKnots());
-            for (int i = 0; i < bs->NbKnots(); ++i) { kn[i] = bs->Knot(i + 1); mu[i] = bs->Multiplicity(i + 1); }
-            if (bs->IsRational()) {
+            for (int i = 0; i < np; ++i) {
+                const gp_Pnt2d& q = P.Value(P.Lower() + i);
+                poles[i] = map2dTo3d(pln, q.X(), q.Y());
+            }
+            std::vector<double> kn(nk); std::vector<int> mu(nk);
+            for (int i = 0; i < nk; ++i) { kn[i] = K.Value(K.Lower() + i); mu[i] = M.Value(M.Lower() + i); }
+            if (W) {
                 std::vector<double> w(np);
-                for (int i = 0; i < np; ++i) w[i] = bs->Weight(i + 1);
+                for (int i = 0; i < np; ++i) w[i] = W->Value(W->Lower() + i);
                 return buildCurve(poles, w, kn, mu, bs->Degree());
             }
             return buildCurve(poles, {}, kn, mu, bs->Degree());
         }
         if (Handle(Geom2d_BezierCurve) bz = Handle(Geom2d_BezierCurve)::DownCast(c2); !bz.IsNull()) {
-            const int np = bz->NbPoles();
+            // Geom2d_BezierCurve::Poles() and ::Weights() are HEADER-INLINE in OCCT
+            // 7.9.3 (Geom2d_BezierCurve.hxx:266,285) — unlike the Geom2d_BSplineCurve
+            // pair, they emit NO out-of-line symbol at all. Degree is poles-1 by
+            // definition, so this whole branch now costs ZERO TKG2d symbols beyond the
+            // typeinfo the DownCast needs (was 5: Degree/IsRational/NbPoles/Pole/Weight).
+            const TColgp_Array1OfPnt2d& P = bz->Poles();
+            const TColStd_Array1OfReal* W = bz->Weights();   // nullptr <=> non-rational
+            const int np  = P.Length();
+            const int deg = np - 1;
             std::vector<gp_Pnt> poles(np);
-            for (int i = 0; i < np; ++i) { gp_Pnt2d q = bz->Pole(i + 1); poles[i] = map2dTo3d(pln, q.X(), q.Y()); }
-            std::vector<double> kn{ 0.0, 1.0 }; std::vector<int> mu{ bz->Degree() + 1, bz->Degree() + 1 };
-            if (bz->IsRational()) {
-                std::vector<double> w(np);
-                for (int i = 0; i < np; ++i) w[i] = bz->Weight(i + 1);
-                return buildCurve(poles, w, kn, mu, bz->Degree());
+            for (int i = 0; i < np; ++i) {
+                const gp_Pnt2d& q = P.Value(P.Lower() + i);
+                poles[i] = map2dTo3d(pln, q.X(), q.Y());
             }
-            return buildCurve(poles, {}, kn, mu, bz->Degree());
+            std::vector<double> kn{ 0.0, 1.0 }; std::vector<int> mu{ deg + 1, deg + 1 };
+            if (W) {
+                std::vector<double> w(np);
+                for (int i = 0; i < np; ++i) w[i] = W->Value(W->Lower() + i);
+                return buildCurve(poles, w, kn, mu, deg);
+            }
+            return buildCurve(poles, {}, kn, mu, deg);
         }
     } catch (const Standard_Failure&) { return Handle(Geom_Curve)(); }
     return Handle(Geom_Curve)();

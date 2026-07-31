@@ -4876,6 +4876,19 @@ Napi::Value PartShell(const Napi::CallbackInfo& info) {
     });
 }
 
+// TKOffset family G gate entry — the native TopoDS thick-solid with NO OCCT
+// fallback. Throws "DECLINED" outside its supported class, so a passing gate has
+// necessarily measured native geometry (see test/native_thicksolid_closedform.mjs).
+Napi::Value PartShellNativeThick(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto h = requireHandle(info, 0);
+        auto faces = part_bind::readU32Array(info, 1, "faceIdsToRemove");
+        double t = requireNumber(info, 2, "thickness");
+        return Napi::Number::New(info.Env(),
+                                 forge::part::shellNativeThick(h, faces, t));
+    });
+}
+
 Napi::Value PartThickenSurface(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto h = requireHandle(info, 0);
@@ -6505,6 +6518,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     part.Set("sweep",               Napi::Function::New(env, PartSweep));
     part.Set("loft",                Napi::Function::New(env, PartLoft));
     part.Set("shell",               Napi::Function::New(env, PartShell));
+    part.Set("shellNativeThick",    Napi::Function::New(env, PartShellNativeThick));
     part.Set("thickenSurface",      Napi::Function::New(env, PartThickenSurface));
     part.Set("offsetSolid",         Napi::Function::New(env, PartOffsetSolid));
     part.Set("pipeFromPolyline",    Napi::Function::New(env, PartPipeFromPolyline));

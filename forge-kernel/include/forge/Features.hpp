@@ -81,6 +81,22 @@ ShapeHandle shell(ShapeHandle shape,
                   double thickness,
                   const std::vector<FaceThickness>& multiThickness);
 
+// TKOffset family G — the NATIVE TopoDS thick-solid ONLY
+// (forge::occtoffset::makeThickSolid, src/native/brep/NativeThickSolid.cpp).
+// Hollows an OCCT-backed solid to a uniform wall of `thickness`, opening the
+// faces named in `faceIdsToRemove` (empty => a fully-enclosed void). Exact
+// analytic surfaces throughout: planes, cylinders, cones, spheres and tori keep
+// their type in the cavity — nothing is tessellated.
+//
+// It NEVER falls back to BRepOffsetAPI_MakeThickSolid: outside the class it
+// supports it THROWS, so a gate can tell "declined" from "wrong answer". That
+// is what makes it the entry point the closed-form gate
+// (test/native_thicksolid_closedform.mjs) drives; production `shell()` above
+// keeps the OCCT fallback.
+ShapeHandle shellNativeThick(ShapeHandle shape,
+                             const std::vector<std::uint32_t>& faceIdsToRemove,
+                             double thickness);
+
 // Forge-36: true multi-thickness shell. Each entry in `perFaceOverrides`
 // causes a per-face BRepOffsetAPI_MakeThickSolid pass at the override
 // thickness, and the results are fused into one body. The base `thickness`

@@ -31,6 +31,7 @@
 #include "forge/native/brep/Draft.hpp"      // applyDraft (mesh-bridge taper)
 #include "forge/native/brep/DraftAnalytic.hpp"    // analytic face-draft -> square frustum (B-rep)
 #include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
+#include "forge/native/brep/NativeThickSolid.hpp"  // TKOffset family G: TKOffset-free thick-solid on a TopoDS_Shape
 #include "forge/native/brep/OffsetShape.hpp"  // native whole-solid grow/shrink offset (offsetSolidShape)
 #include "forge/native/brep/Surface.hpp"    // SurfaceKind (planar-eligibility gate for offsetSolid)
 #include "forge/native/brep/Pattern.hpp"    // GAP1: RigidTransform / transformSolidInPlace
@@ -964,6 +965,28 @@ ShapeHandle shell(ShapeHandle shape,
         facesToRemove.Append(faceById(src, id));
     }
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family G — the TKOffset-FREE thick-solid on the OCCT shape itself
+    // (src/native/brep/NativeThickSolid.cpp). Exact planar + quadric hollow; a
+    // null return is an HONEST DEFER and we fall through to OCCT below, so this
+    // can only ever ADD coverage, never remove it.
+    //
+    // OPT-IN (FORGE_THICKSOLID_NATIVE=1) while the corpus A/B demanded by
+    // reports/TKOFFSET_DECOMPOSITION.md §5 step 6 is outstanding: the flip gate
+    // is "native success rate >= the measured OCCT baseline", not "it compiles".
+    // The engine itself is always built and is gated directly, without this
+    // switch, by forge::part::shellNativeThick + test/native_thicksolid_closedform.mjs.
+    static const bool kThickSolidNative = [] {
+        const char* v = std::getenv("FORGE_THICKSOLID_NATIVE");
+        return v && (*v == '1' || *v == 'y' || *v == 'Y' || *v == 't' || *v == 'T');
+    }();
+    if (multiThickness.empty() && kThickSolidNative) {
+        TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
+            src, std::abs(thickness), facesToRemove, 1.0e-3);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+
     BRepOffsetAPI_MakeThickSolid mk;
     mk.MakeThickSolidByJoin(src, facesToRemove, thickness, 1.0e-3);
     // Per-face thickness overrides aren't natively supported by the join
@@ -978,6 +1001,37 @@ ShapeHandle shell(ShapeHandle shape,
         throw std::runtime_error("forge.part.shell: ThickSolid build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+}
+
+// ============================================================ shellNativeThick
+//
+// TKOffset family G gate entry — the NATIVE thick-solid, alone, with NO OCCT
+// fallback (see Features.hpp). A shape the native engine does not support is an
+// exception, never a silently-substituted OCCT answer, so a gate that passes has
+// necessarily measured the native geometry.
+ShapeHandle shellNativeThick(ShapeHandle shape,
+                             const std::vector<std::uint32_t>& faceIdsToRemove,
+                             double thickness) {
+    requirePositive(thickness, "shell thickness");
+#ifdef FORGE_NATIVE_BREP
+    const TopoDS_Shape& src = fetch(shape);
+    TopTools_ListOfShape facesToRemove;
+    for (auto id : faceIdsToRemove) facesToRemove.Append(faceById(src, id));
+
+    TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
+        src, std::abs(thickness), facesToRemove, 1.0e-3);
+    if (nat.IsNull()) {
+        throw std::runtime_error(
+            "forge.part.shellNativeThick: native thick-solid DECLINED this shape "
+            "(unsupported surface, non-circular trim, partial revolution, collapsed "
+            "offset, or a sew that did not close) — no OCCT fallback on this entry point");
+    }
+    return ShapeRegistry::instance().add(nat);
+#else
+    (void)shape; (void)faceIdsToRemove;
+    throw std::runtime_error(
+        "forge.part.shellNativeThick: built without FORGE_NATIVE_BREP");
+#endif
 }
 
 // ============================================================ thickenSurface
