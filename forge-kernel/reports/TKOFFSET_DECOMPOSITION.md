@@ -675,6 +675,25 @@ which Law 9 forbids regardless of what the link count does.
 | drop **TKOffset** | 7 | **13** | TKOffset |
 | drop TKOffset + TKFillet *(DT_NEED arithmetic only)* | 6 | 9 | TKOffset, TKFillet, TKBO, TKBool, TKPrim |
 | drop TKOffset + TKFillet *(honest — TKBO/TKBool/TKG2d must then be linked directly, because 31 live `BRepAlgoAPI_*`/`BOPAlgo_*` and 36 `Geom2d_*` symbols lose their transitive provider)* | **9** | **12** | TKOffset, TKFillet, TKPrim |
+| drop TKOffset + TKFillet *(**MEASURED 2026-07-31**, not estimated — a real `FORGE_FILLET_DROP_NATIVE=ON` build was configured and linked)* | **9** | **11** | TKOffset, TKFillet, **TKBool** |
+
+> **Correction, 2026-07-31.** The two estimated joint-drop rows above are superseded by
+> the measured one. The freed toolkit is **TKBool, not TKPrim** — TKPrim survives because
+> TKBO still pulls it. Closure lands at **11**, one better than the honest estimate.
+>
+> The rows for the *individual* drops (TKFillet → 14, TKOffset → 13) were already correct
+> here and are confirmed by `otool -L`: `libTKOffset` DT_NEEDs `libTKFillet`, and the
+> reverse is **not** true. The programme note claiming "TKFillet and TKOffset must drop
+> together, the only way closure falls below 14" was therefore wrong, and this document
+> was right. **TKOffset alone is a unilateral win; TKFillet alone is worth exactly zero
+> and can only ever follow it.**
+>
+> A `FORGE_FILLET_DROP_NATIVE=ON` build links cleanly and sheds all 11 TKFillet symbols,
+> but `native_vs_occt_core.mjs` then fails `fillet ALL box edges` and `chamfer ALL box
+> edges`: the native engine honestly declines a vertex where exactly two blended edges
+> meet, because the two-edge corner surface is not authored. Filleting every edge of a
+> box is ordinary work, so enabling it would delete a real capability (Law 9) while
+> moving closure by zero. Bank the corner-blend work; never score it as a drop.
 
 Measured supporting numbers: `TKOffset` `DT_NEED`s
 `TKBO TKBRep TKBool TKFillet TKG2d TKG3d TKGeomAlgo TKGeomBase TKMath TKPrim TKShHealing TKTopAlgo TKernel`;
