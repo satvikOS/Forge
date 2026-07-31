@@ -280,6 +280,23 @@ FeatureTree parse(const std::string& text) {
             upper(line).rfind("VERIFY", 0) != 0) continue;
         truncatedTail = false;
 
+        // The FORMAT SPEC echoed back as though it were a statement. Every system
+        // prompt says `One statement per line as %id = OP(args)`, and the model
+        // frequently opens its answer by copying that literal — which then fails as
+        // "bad %id on left side, line 1" and takes the ENTIRE tree with it. Measured
+        // on the honest holdout: a complete 77-op emission discarded for this alone.
+        //
+        // Matched EXACTLY, not by "the left side isn't a number". A general rule
+        // would silently swallow `%plate = BOX(...)`, dropping a real statement and
+        // yielding a tree that compiles to the wrong solid — trading a loud failure
+        // for a quiet wrong answer, which is the worse of the two by far.
+        {
+            std::string flat;
+            for (char c : line)
+                if (!std::isspace(static_cast<unsigned char>(c))) flat += c;
+            if (flat == "%id=OP(args)" || flat == "%id=OP(...)") continue;
+        }
+
         // A BARE `VERIFY "holes=4"` — the form ground-truth trees actually use, with
         // no `%id =` in front of it. The prose filter above swallowed it whole, so
         // the assertion did NOTHING: measured, `VERIFY "holes=99"` on a one-hole
