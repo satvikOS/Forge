@@ -98,14 +98,30 @@ bool voxelIoU(ShapeHandle candidate, ShapeHandle reference, VoxelIoUResult& out,
     TopoDS_Shape rawA, rawB;
     try {
         rawA = ShapeRegistry::instance().get(candidate);
+    } catch (const std::exception& e) {
+        // Report what actually threw. A bare catch-all here asserted "not in the
+        // shape registry" for 62 B-spline-heavy references whose real failure was
+        // something else entirely — an audit chased that wording and could not
+        // isolate the mechanism, because the message was fiction. A diagnostic
+        // that names the wrong cause is worse than none: it sends the reader
+        // somewhere the bug is not.
+        out.failure = std::string("candidate handle ") + std::to_string(candidate) +
+                      " could not be resolved: " + e.what();
+        return false;
     } catch (...) {
-        out.failure = "candidate handle is not in the shape registry";
+        out.failure = "candidate handle " + std::to_string(candidate) +
+                      " could not be resolved (non-standard exception)";
         return false;
     }
     try {
         rawB = ShapeRegistry::instance().get(reference);
+    } catch (const std::exception& e) {
+        out.failure = std::string("reference handle ") + std::to_string(reference) +
+                      " could not be resolved: " + e.what();
+        return false;
     } catch (...) {
-        out.failure = "reference handle is not in the shape registry";
+        out.failure = "reference handle " + std::to_string(reference) +
+                      " could not be resolved (non-standard exception)";
         return false;
     }
     if (rawA.IsNull()) { out.failure = "candidate shape is null"; return false; }

@@ -356,7 +356,21 @@ int main(int argc, char** argv) {
             // than silently re-centred.
             if (!refStep.empty()) {
                 try {
-                    const forge::ShapeHandle ref = forge::io::importStep(refStep);
+                    forge::ShapeHandle ref = 0;
+                    try {
+                        ref = forge::io::importStep(refStep);
+                    } catch (const std::exception& e) {
+                        // Say that the REFERENCE failed to import, and why. This
+                        // was previously indistinguishable from an IoU that simply
+                        // could not be computed.
+                        o << ",\"voxelIoUError\":\"reference import failed: "
+                          << jsonEscape(e.what()) << "\"";
+                        throw;
+                    }
+                    if (ref == 0) {
+                        o << ",\"voxelIoUError\":\"reference imported as handle 0 from "
+                          << jsonEscape(refStep) << "\"";
+                    }
                     if (ref != 0) {
                         int grid = 64;
                         if (!gridStr.empty()) {
