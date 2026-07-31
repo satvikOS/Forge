@@ -1878,8 +1878,34 @@ private:
                 if (!forge::topologySignature(body, sig))
                     throw OpError(op.id, "VERIFY: cannot measure topology of this body");
                 got = static_cast<double>(key == "genus" ? sig.genus : sig.shellCount);
-            } else if (key.rfind("bbox.", 0) == 0 && key.size() == 6) {
-                int ax = key[5] - 'x';
+            } else if ((key.rfind("bbox.", 0) == 0 && (key.size() == 6 || key.size() == 9)) ||
+                       (key.size() == 2 && (key[0] == '+' || key[0] == '-') &&
+                        key[1] >= 'x' && key[1] <= 'z')) {
+                // EXTENT *or* POSITION. An edit says "move this face to z = 40"; the
+                // vocabulary only had extents, so the whole class was inexpressible
+                // and the planner improvised — measured on the edit benchmark, 4 of
+                // 16 non-compiling emissions asked for a position (`+Z=56851.058`,
+                // `bbox.z @ -33100.0`). That is the IR missing a concept the task
+                // requires, not the planner being wrong.
+                //
+                //   bbox.z                    the EXTENT along z   (unchanged)
+                //   bbox.zmin / bbox.zmax     the extreme COORDINATE
+                //   -z / +z                   aliases for zmin / zmax
+                int ax;
+                enum { Extent, Min, Max } want_ = Extent;
+                if (key[0] == '+' || key[0] == '-') {
+                    ax = key[1] - 'x';
+                    want_ = (key[0] == '+') ? Max : Min;
+                } else {
+                    ax = key[5] - 'x';
+                    if (key.size() == 9) {
+                        const std::string suf = key.substr(6);
+                        if (suf == "min") want_ = Min;
+                        else if (suf == "max") want_ = Max;
+                        else throw OpError(op.id, "VERIFY: bad bbox suffix in `" + expr +
+                                                  "` (use bbox.zmin / bbox.zmax)");
+                    }
+                }
                 if (ax < 0 || ax > 2) throw OpError(op.id, "VERIFY: bad bbox axis in `" + expr + "`");
                 Mesh m = forge::tessellate(body, 0.3, 0.6);
                 double mn = 1e300, mx = -1e300;
@@ -1887,9 +1913,15 @@ private:
                     double v = m.positions[k + ax];
                     mn = std::min(mn, v); mx = std::max(mx, v);
                 }
-                got = mx - mn;
+                got = (want_ == Extent) ? (mx - mn) : (want_ == Min ? mn : mx);
             } else {
-                throw OpError(op.id, "VERIFY: unknown quantity `" + key + "` in `" + expr + "`");
+                // Name the vocabulary. This string is handed back to the planner as
+                // its repair instruction, and "unknown quantity" alone tells it that
+                // it failed without telling it what it may say instead.
+                throw OpError(op.id, "VERIFY: unknown quantity `" + key + "` in `" + expr +
+                                     "` — known: volume, faces/faceCount, edges/edgeCount, "
+                                     "holes/bores, genus, shells, blades, bbox.x|y|z (extent), "
+                                     "bbox.xmin|xmax|... and +x|-x|+y|-y|+z|-z (position)");
             }
 
             const double tol = std::max(1e-6, 1e-3 * std::fabs(want));
