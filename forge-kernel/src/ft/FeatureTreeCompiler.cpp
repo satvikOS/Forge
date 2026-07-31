@@ -233,6 +233,12 @@ FeatureTree parse(const std::string& text) {
     }
 
     bool truncatedTail = false;
+
+    // The most recent `%id` defined, so a VERIFY written without an explicit body
+    // can be bound to the thing it plainly means. Synthetic ids run NEGATIVE, a
+    // space no emitted tree uses, so they can never collide with a model's own.
+    int lastDefinedId = -1;
+    int syntheticId = -1;
     auto fail = [&](const std::string& why) {
         // The final line of a truncated generation is not a syntax error in the
         // author's intent — it is where the decoder stopped. Drop it and keep
@@ -243,25 +249,57 @@ FeatureTree parse(const std::string& text) {
 
     while (std::getline(in, raw)) {
         ++lineNo;
-        // Strip an inline comment — but NOT a '#' inside a quoted selector.
-        // splitTop() is quote-aware; this was not, so any selector containing '#'
-        // was silently truncated into a parse error.
-        std::size_t hash = std::string::npos;
+        // Strip an inline comment — '#' OR '//' — but never one inside a quoted
+        // selector. splitTop() is quote-aware; this was not, so any selector
+        // containing '#' was silently truncated into a parse error.
+        //
+        // '//' was missing here entirely, and the omission was not cosmetic: the
+        // argument scan takes the LAST ')' on the line, so a trailing comment that
+        // merely contains a parenthesis stole it. `FUSE(%0, %1)  // fuse (boss) on`
+        // parsed its final argument as `%1)  // fuse (boss` and the whole tree was
+        // rejected. Ground-truth trees annotate constantly — `// O10 (clearance)`,
+        // `// (through)` — so a model trained on GT framing emits exactly the form
+        // that broke. Measured on the honest holdout: 2 of 26 non-compiling rounds.
+        std::size_t cut = std::string::npos;
         {
             char q = 0;
             for (std::size_t i = 0; i < raw.size(); ++i) {
                 const char c = raw[i];
                 if (q) { if (c == q) q = 0; continue; }
                 if (c == '"' || c == '\'') { q = c; continue; }
-                if (c == '#') { hash = i; break; }
+                if (c == '#') { cut = i; break; }
+                if (c == '/' && i + 1 < raw.size() && raw[i + 1] == '/') { cut = i; break; }
             }
         }
-        std::string line = trim(hash == std::string::npos ? raw : raw.substr(0, hash));
+        std::string line = trim(cut == std::string::npos ? raw : raw.substr(0, cut));
         if (line.empty()) continue;
         // tolerate prose: skip any line that is not IR (not `%id = ...` and not RESULT).
         // The VLM sometimes wraps correct IR in explanatory prose; ignore it (eval: 25%->65% yield).
-        if (line[0] != '%' && upper(line).rfind("RESULT", 0) != 0) continue;
+        // VERIFY is exempt: see below — dropping it as prose made assertions silent.
+        if (line[0] != '%' && upper(line).rfind("RESULT", 0) != 0 &&
+            upper(line).rfind("VERIFY", 0) != 0) continue;
         truncatedTail = false;
+
+        // A BARE `VERIFY "holes=4"` — the form ground-truth trees actually use, with
+        // no `%id =` in front of it. The prose filter above swallowed it whole, so
+        // the assertion did NOTHING: measured, `VERIFY "holes=99"` on a one-hole
+        // part compiled and reported PASS. A checker that silently ignores what it
+        // was asked to check is far worse than no checker, because it turns a wrong
+        // part into a green one — and since GT framing is exactly this bare form,
+        // every VERIFY the model learns to emit would have been a no-op scored as
+        // verified. Rewrite it to the explicit form against the newest solid.
+        if (line[0] != '%' && upper(line).rfind("VERIFY", 0) == 0) {
+            if (lastDefinedId < 0) {
+                fail("VERIFY before any solid is defined");
+                if (truncatedTail) break;
+                continue;
+            }
+            std::string rest = trim(line.substr(6));
+            if (rest.size() >= 2 && rest.front() == '(' && rest.back() == ')')
+                rest = trim(rest.substr(1, rest.size() - 2));
+            line = "%" + std::to_string(syntheticId--) + " = VERIFY(%" +
+                   std::to_string(lastDefinedId) + (rest.empty() ? "" : ", " + rest) + ")";
+        }
 
         // RESULT(%id)
         if (upper(line).rfind("RESULT", 0) == 0) {
@@ -367,6 +405,17 @@ FeatureTree parse(const std::string& text) {
                 op.args.push_back(tok);
             }
         }
+        // `%8 = VERIFY("holes=4")` — assignment form, body left implicit. Same
+        // intent as the bare form, so it gets the same binding rather than the
+        // "arg #0 must be a %ref" rejection that failed 3 of 26 holdout rounds.
+        if (op.code == OpCode::Verify &&
+            (op.args.empty() || op.args[0].kind != TokKind::Ref) && lastDefinedId >= 0) {
+            Token body;
+            body.kind = TokKind::Ref;
+            body.ref = lastDefinedId;
+            op.args.insert(op.args.begin(), body);
+        }
+        if (op.id >= 0) lastDefinedId = op.id;
         ft.ops.push_back(std::move(op));
     }
     return ft;
