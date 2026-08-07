@@ -100,7 +100,7 @@ extending along `+axis`.
 
 | op | args | native call |
 |----|------|-------------|
-| `EXTRUDE` | `%profile, amount [, dirx=0, diry=0, dirz=1]` | `part::extrudeProfile` |
+| `EXTRUDE` | `%profile, amount [, dirx=0, diry=0, dirz=1] [, CENTERED]` | `part::extrudeProfile`. `CENTERED` (aliases `CENTRED`/`BOTH`/`SYM`/`SYMMETRIC`) extrudes **symmetrically about the profile plane** — identical to full precision to `EXTRUDE(%p, L)` + `TRANSLATE(…, 0, 0, -L/2)`, which is what the CadQuery transpiler had to emit **907 times** in the training corpus (46.6 % of all adjacent EXTRUDE→TRANSLATE pairs, 633 rows) because the IR could not say it. The flag is a mode, not a quantity, so it is spelled like `LOFT`'s `RULED`/`OPEN` and may sit in any trailing position. Verified: 210/210 profile × length × direction combinations bit-identical to the two-op form, and 633/633 corpus rows unchanged. |
 | `REVOLVE` | `%profile, angleDeg [, ox=0, oy=0, oz=0, axx=0, axy=1, axz=0]` | `part::revolveProfile`. Partial angle `0<a<=360` about an **arbitrary axis line** (validated: throws on out-of-range angle / zero axis). |
 | `LOFT`    | `%w0, %w1 [, %w2 ...] [, RULED] [, OPEN]` | `loftguide::loft(wires, {}, solid, ruled)` over ≥2 **WIRE** sections. Default: BSpline-smoothed lateral skin + planar end caps. `RULED` = straight rulings; `OPEN` = uncapped shell. Fails loud if a ref is a PROFILE (use `RING`/`WIRE`). |
 | `SWEEP`   | `r, [x y z; ...]`  **or**  `[x y; ...], [x y z; ...]` | number arg ⇒ `part::pipeFromPolyline` (circular pipe of radius `r` along the 3D path). A 2D profile ring ⇒ `part::sweepPolyline` (arbitrary profile along the 3D path). Both are the watertight native verbs (`part::sweep` collapses when profile+path are coplanar). |
@@ -113,6 +113,7 @@ extending along `+axis`.
 | `CUT`    | `%a, %b` | `cut` |
 | `COMMON` | `%a, %b` | `common` |
 | `TRANSLATE` | `%a, dx, dy, dz` | `translate` |
+| `ALIGN` | `%moved, %reference, SPEC [, clearance] [, SPEC [, clearance]] …` | **relational placement** — `translate` by a delta the kernel computes from the two bodies' exact AABBs (`boundingBox`, analytic, never the mesh). See below. |
 | `ROTATE` | `%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0]` | `translate`∘`rotate`∘`translate` (arbitrary pivot) |
 | `MIRROR` | `%a, PLANE`  **or**  `%a, px,py,pz, nx,ny,nz` | `part::mirrorPattern` — reflect across the plane and **FUSE with the original** (symmetrize). `PLANE` = `XY`/`YZ`/`XZ` (through origin), else explicit point+normal. |
 | `PATTERN` | `%a, LINEAR, n, dx [, dy=0, dz=0]`<br>`%a, POLAR, n, totalAngleDeg [, ox,oy,oz, axx,axy,axz=+Z]`<br>`%a, GRID, nx, ny, dx, dy` | `part::linearPattern` / `circularPattern` (GRID = two orthogonal linear passes). Counts are **total** instances (incl. original), all fused. POLAR step = `totalAngle / n` (use `360` for a full ring). |
@@ -129,6 +130,64 @@ extending along `+axis`.
 | `SHELL`   | `%body, wall [, openAxx=0, openAxy=0, openAxz=-1]` | hollow inward, opening the largest face facing the open axis (`part::shell`). |
 | `FOLD`    | `%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0]` | sheet-metal flange **macro** — `makeBox` + `rotate`-about-hinge + `fuse`. Hinge starts at `(hx,hy,hz)`, runs `len` along XY dir `runDeg`; a `len×flangeH×thk` wall folds up `angleDeg` about the hinge (90 ⇒ vertical). Place the hinge on a plate edge with `w = ẑ×û` pointing off the plate. |
 | `HEAL`    | `%body` | `heal::simplifyShape` (unify faces/edges). |
+
+### `ALIGN` — say the relationship, let the kernel do the arithmetic
+
+`ALIGN(%moved, %reference, SPEC [, clearance] …)` translates `%moved` rigidly (no
+scale, no rotation; `%reference` is untouched) so that its axis-aligned extent stands
+in a named relation to `%reference`'s **on each axis named, and only there**. An axis
+with no `SPEC` is not moved.
+
+`SPEC`, for `A` in `X`/`Y`/`Z`:
+
+| spec | meaning | alias |
+|---|---|---|
+| `MIN_A` | flush low — `moved.min.A == ref.min.A` | `<A` |
+| `MAX_A` | flush high — `moved.max.A == ref.max.A` | `>A` |
+| `MID_A` | centred — the two mid-points coincide | `\|A`, `CENTER_A`, `CENTRE_A`, `CTR_A` |
+| `ABUT_MAX_A` | `moved.min.A == ref.max.A` (sits just past the high face) | — |
+| `ABUT_MIN_A` | `moved.max.A == ref.min.A` (sits just before the low face) | — |
+
+A **number directly after a SPEC** is a signed clearance added along that axis after
+the relation is satisfied: `ALIGN(%b, %a, MAX_X, -2)` is "flush with the +X wall, held
+back 2 mm". A number that does *not* follow a spec is rejected — the thing it most
+plausibly is (a raw offset) is `TRANSLATE`, a different op.
+
+`MIN`/`MAX`/`MID` reuse the axis-extreme vocabulary the **face selectors** are already
+built on (`"+Z"` / `"-X"` pick the extreme plane along an axis), and the CadQuery
+spellings `>A` / `<A` / `|A` are accepted alongside for the same reason the selector
+grammar accepts both. Constraining one axis twice, naming no axis at all, or handing
+`ALIGN` a PROFILE is a **loud** failure, never a silent no-op.
+
+**Why the op exists.** 22.1 % of the non-zero `TRANSLATE`/`ROTATE` arguments in the
+training corpus — 42.0 % on held-out, against a 0.1 % null rate for the same detector
+on random values at the same scale — are an exact arithmetic function of numbers
+appearing *earlier in the same program*: `x/2`, `(x−y)/2`, `x−y`. Those are not three
+formulae, they are three *relations*: `x−y` is flush-max, `(x−y)/2` is centred, `x/2`
+is centred on a body based at the origin. The emitter was being asked to do exact
+arithmetic across its own output in order to place a feature.
+
+`l_bracket_000146` is the case in one line. Ground truth writes
+
+```
+%5 = TRANSLATE(%4, 1.605, 1.605, 68.985)      # 1.605 = (29.95 − 26.74)/2
+```
+
+which makes the cutter flush with the +X and +Y walls and leaves an **L-angle**
+(8 faces, 18 edges, volume 25 107.0766). Any other offset leaves a **channel** — with
+the *same volume to eight significant figures*; only the face count (10, not 8) tells
+them apart. The whole program becomes, with no derived constant anywhere:
+
+```
+%1 = BOX(29.95, 29.95, 137.97, 0, 0, -68.985)
+%2 = RECT(26.74, 26.74, 0, 0)
+%3 = EXTRUDE(%2, 1303.76, CENTERED)
+%4 = ALIGN(%3, %1, MAX_X, MAX_Y)
+%5 = CUT(%1, %4)
+```
+
+**Never validate a placement on volume.** The tube reading and the angle reading of
+that part have identical volume; face count is the discriminator.
 
 **Pattern / mirror note:** `PATTERN` and `MIRROR` operate on a whole SOLID and
 fuse the copies. To replicate just a *feature* (a boss, a blade), build the

@@ -126,6 +126,7 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
         {"SWEEP", OpCode::Sweep},
         {"FUSE", OpCode::Fuse}, {"CUT", OpCode::Cut}, {"COMMON", OpCode::Common},
         {"TRANSLATE", OpCode::Translate}, {"ROTATE", OpCode::Rotate},
+        {"ALIGN", OpCode::Align},
         {"MIRROR", OpCode::Mirror}, {"PATTERN", OpCode::Pattern},
         {"HOLE", OpCode::Hole}, {"CBORE", OpCode::Cbore}, {"FILLET", OpCode::Fillet},
         {"CHAMFER", OpCode::Chamfer}, {"BLEND", OpCode::Blend},
@@ -392,7 +393,7 @@ FeatureTree parse(const std::string& text) {
             for (const char* k : {"RECT","RRECT","CIRCLE","SLOT","POLY","REGPOLY","RING",
                                   "WIRE","BOX","CYL","CONE","SPHERE","TORUS","PRISM","TUBE",
                                   "EXTRUDE","REVOLVE","LOFT","SWEEP","FUSE","CUT","COMMON",
-                                  "TRANSLATE","ROTATE","MIRROR","PATTERN","HOLE","CBORE",
+                                  "TRANSLATE","ALIGN","ROTATE","MIRROR","PATTERN","HOLE","CBORE",
                                   "FILLET","CHAMFER","BLEND","SHELL","FOLD","HEAL","TAG",
                                   "INPUT","PUSHFACE","RESIZEBORE","DEFEATURE","VERIFY"}) {
                 if (U.find(k) != std::string::npos) {
@@ -547,6 +548,7 @@ public:
             case OpCode::Common:  return opBool(op, env, 2);
             // ---- transforms / replication ----
             case OpCode::Translate: return opTranslate(op, env);
+            case OpCode::Align:     return opAlign(op, env);
             case OpCode::Rotate:    return opRotate(op, env);
             case OpCode::Mirror:    return opMirror(op, env);
             case OpCode::Pattern:   return opPattern(op, env);
@@ -844,11 +846,61 @@ private:
     }
 
     // ---- sketch -> solid ----------------------------------------------------
+    // EXTRUDE(%profile, amount [, dirx, diry, dirz] [, CENTERED])
+    //
+    // CENTERED extrudes symmetrically about the profile plane. It is a FLAG, not a
+    // sixth number, for the same reason LOFT spells RULED/OPEN as flags: it selects
+    // a mode, it is not a quantity, and a positional slot after the direction vector
+    // would be read as more direction.
+    //
+    // It is exactly the pair the CadQuery transpiler was forced to emit —
+    //   %b = EXTRUDE(%a, L)  ;  %c = TRANSLATE(%b, 0, 0, -L/2)
+    // — 907 times in the training corpus, because CadQuery centres natively and the
+    // IR could not. Lowering it into two ops turned a MODE into a derived constant,
+    // and a derived constant is a thing the emitter can get wrong.
+    //
+    // "Symmetric about the profile plane" is the shift by minus HALF THE EXTRUSION
+    // VECTOR, not minus half of Z: extrudeProfile translates the Z=0 face along
+    // normalize(dir)*amount, so an oblique CENTERED extrude straddles the profile
+    // plane along that same direction. For the canonical +Z case this is exactly
+    // (0, 0, -amount/2), which is why the two forms agree bit for bit.
     Handle opExtrude(const Op& op, std::unordered_map<int, Val>& env) {
         SketchHandle sk = refProfile(op, 0, env);
         double amount = num(op, 1);
-        double dx = numOpt(op, 2, 0), dy = numOpt(op, 3, 0), dz = numOpt(op, 4, 1);
-        return forge::part::extrudeProfile(sk, amount, dx, dy, dz);
+        // Direction defaults to +Z; a partial vector fills from the front, which is
+        // exactly what the previous positional numOpt(2..4, {0,0,1}) reading did.
+        double dir[3] = {0, 0, 1};
+        int nDir = 0;
+        bool centered = false;
+        for (std::size_t i = 2; i < op.args.size(); ++i) {
+            const Token& t = op.args[i];
+            if (t.kind == TokKind::Number) {
+                if (nDir >= 3)
+                    throw OpError(op.id, "EXTRUDE: too many numbers — takes amount then "
+                                         "at most a 3-component direction");
+                dir[nDir++] = t.num;
+            } else if (t.kind == TokKind::Keyword) {
+                // CENTRED/BOTH/SYM are the same request under the spellings a
+                // transpiler or a model is liable to reach for; rejecting them would
+                // fail a tree whose INTENT was unambiguous.
+                if (t.kw == "CENTERED" || t.kw == "CENTRED" ||
+                    t.kw == "BOTH" || t.kw == "SYM" || t.kw == "SYMMETRIC")
+                    centered = true;
+                else
+                    throw OpError(op.id, "EXTRUDE: unknown flag `" + t.kw +
+                                             "` (want CENTERED)");
+            } else {
+                throw OpError(op.id, "EXTRUDE: arg #" + std::to_string(i) +
+                                         " must be a direction component or the "
+                                         "CENTERED flag");
+            }
+        }
+        Handle solid = forge::part::extrudeProfile(sk, amount, dir[0], dir[1], dir[2]);
+        if (!centered) return solid;
+        const double dl = std::sqrt(dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]);
+        if (dl < 1e-12) throw OpError(op.id, "EXTRUDE: direction is zero");
+        const double half = 0.5 * amount / dl;
+        return forge::translate(solid, -dir[0] * half, -dir[1] * half, -dir[2] * half);
     }
     // REVOLVE — partial angle (0<a<=360) about an ARBITRARY axis line. The
     // native revolveProfile already takes (origin, dir, angleRad); this only
@@ -927,6 +979,135 @@ private:
     Handle opTranslate(const Op& op, std::unordered_map<int, Val>& env) {
         Handle a = refSolid(op, 0, env);
         return forge::translate(a, num(op, 1), num(op, 2), num(op, 3));
+    }
+
+    // ---- ALIGN: RELATIONAL placement ---------------------------------------
+    //
+    // ALIGN(%moved, %reference, SPEC [, clearance] [, SPEC [, clearance]] ...)
+    //
+    // Translate %moved rigidly so its axis-aligned extent stands in a named relation
+    // to %reference's, on each axis NAMED and only there. Nothing is scaled, nothing
+    // is rotated, %reference is not touched.
+    //
+    // WHY THE IR NEEDS THIS. 22.1% of the non-zero TRANSLATE/ROTATE arguments in the
+    // training corpus (42.0% on held-out; 0.1% for the same detector run against
+    // random values at the same scale, so 200-400x chance) are an exact arithmetic
+    // function of numbers that appeared EARLIER in the same program — x/2, (x-y)/2,
+    // or x-y. Those are not three arbitrary formulae, they are three RELATIONS:
+    // x-y is "flush with the far wall", (x-y)/2 is "centred in the pocket", x/2 is
+    // "centred on a body based at the origin". The emitter was being asked to do
+    // exact arithmetic across its own output in order to place a feature. Naming the
+    // relation moves that arithmetic to the kernel, which can measure.
+    //
+    // l_bracket_000146 is the case that made it concrete: ground truth writes
+    // TRANSLATE(%4, 1.605, 1.605, 68.985) where 1.605 = (29.95 - 26.74)/2, which puts
+    // the cutter flush against the +X and +Y walls and leaves an L-angle. A model that
+    // reproduced the op sequence EXACTLY but wrote a different offset produced a
+    // channel — same ops, same volume, different solid. ALIGN(%4, %1, MAX_X, MAX_Y)
+    // is the same placement, with nothing left to get wrong.
+    //
+    // GRAMMAR. SPEC is a bare keyword (the existing convention for a mode: LOFT's
+    // RULED/OPEN, MIRROR's XY/YZ/XZ, PATTERN's LINEAR/POLAR/GRID) naming a relation
+    // and an axis. MIN/MAX/MID reuse the axis-extreme vocabulary the face selectors
+    // are already built on — "+Z"/"-X" pick the extreme plane along an axis — and the
+    // CadQuery spellings >A / <A / |A are accepted alongside, exactly as the selector
+    // grammar accepts both. A number directly after a SPEC is a signed clearance on
+    // that axis; a number NOT after a SPEC is rejected rather than guessed at, since
+    // the one thing it plausibly is (a TRANSLATE-style delta) is a different op.
+    //
+    // The AABBs come from forge::boundingBox — exact analytic bounds, not the
+    // tessellated box, so `flush` is flush to the last bit and does not depend on
+    // whether something meshed the shape earlier.
+    static bool parseAlignSpec(const std::string& kw, int& axis, int& mode) {
+        // modes: 0 = flush-min, 1 = flush-max, 2 = centred,
+        //        3 = abut past the reference's max, 4 = abut before its min
+        if (kw.size() == 2 && (kw[1] == 'X' || kw[1] == 'Y' || kw[1] == 'Z')) {
+            axis = kw[1] - 'X';
+            if (kw[0] == '>') { mode = 1; return true; }   // CadQuery ">Z"
+            if (kw[0] == '<') { mode = 0; return true; }   // CadQuery "<Z"
+            if (kw[0] == '|') { mode = 2; return true; }   // CadQuery "|Z"
+            return false;
+        }
+        if (kw.size() < 2) return false;
+        const char last = kw.back();
+        if (last != 'X' && last != 'Y' && last != 'Z') return false;
+        axis = last - 'X';
+        std::string head = kw.substr(0, kw.size() - 1);
+        if (!head.empty() && head.back() == '_') head.pop_back();
+        if (head == "MIN") { mode = 0; return true; }
+        if (head == "MAX") { mode = 1; return true; }
+        if (head == "MID" || head == "CENTER" || head == "CENTRE" || head == "CTR") {
+            mode = 2; return true;
+        }
+        if (head == "ABUT_MAX" || head == "ABUTMAX") { mode = 3; return true; }
+        if (head == "ABUT_MIN" || head == "ABUTMIN") { mode = 4; return true; }
+        return false;
+    }
+
+    Handle opAlign(const Op& op, std::unordered_map<int, Val>& env) {
+        Handle moved = refSolid(op, 0, env);
+        Handle ref   = refSolid(op, 1, env);
+
+        const forge::BBox bm = forge::boundingBox(moved);
+        const forge::BBox br = forge::boundingBox(ref);
+        if (!bm.valid)
+            throw OpError(op.id, "ALIGN: %" + std::to_string(op.args[0].ref) +
+                                     " has no bounding box (empty solid?)");
+        if (!br.valid)
+            throw OpError(op.id, "ALIGN: reference %" + std::to_string(op.args[1].ref) +
+                                     " has no bounding box (empty solid?)");
+
+        bool seen[3] = {false, false, false};
+        int  mode[3] = {0, 0, 0};
+        double clear[3] = {0, 0, 0};
+        int pending = -1;          // axis whose clearance a following number would set
+        static const char* kAxisName = "XYZ";
+
+        for (std::size_t i = 2; i < op.args.size(); ++i) {
+            const Token& t = op.args[i];
+            if (t.kind == TokKind::Keyword) {
+                int axis = 0, m = 0;
+                if (!parseAlignSpec(t.kw, axis, m))
+                    throw OpError(op.id, "ALIGN: unknown relation `" + t.kw +
+                                             "` — want MIN_A|MAX_A|MID_A|ABUT_MIN_A|"
+                                             "ABUT_MAX_A for A in X|Y|Z (or <A|>A||A)");
+                if (seen[axis])
+                    throw OpError(op.id, std::string("ALIGN: axis ") + kAxisName[axis] +
+                                             " is constrained twice — one relation per axis");
+                seen[axis] = true;
+                mode[axis] = m;
+                pending = axis;
+            } else if (t.kind == TokKind::Number) {
+                if (pending < 0)
+                    throw OpError(op.id, "ALIGN: the number " + std::to_string(t.num) +
+                                             " does not follow a relation — a clearance "
+                                             "belongs directly after its axis keyword, and "
+                                             "a raw offset is TRANSLATE, not ALIGN");
+                clear[pending] = t.num;
+                pending = -1;      // exactly one clearance per relation
+            } else {
+                throw OpError(op.id, "ALIGN: arg #" + std::to_string(i) +
+                                         " must be an axis relation or a clearance number");
+            }
+        }
+        if (!seen[0] && !seen[1] && !seen[2])
+            throw OpError(op.id, "ALIGN: no axis relation given — ALIGN that constrains "
+                                 "nothing is a no-op, and a silent no-op is a defect");
+
+        double d[3] = {0, 0, 0};
+        for (int a = 0; a < 3; ++a) {
+            if (!seen[a]) continue;               // an unnamed axis is not moved
+            switch (mode[a]) {
+                case 0: d[a] = br.lo[a] - bm.lo[a]; break;
+                case 1: d[a] = br.hi[a] - bm.hi[a]; break;
+                case 2: d[a] = 0.5 * (br.lo[a] + br.hi[a]) - 0.5 * (bm.lo[a] + bm.hi[a]); break;
+                case 3: d[a] = br.hi[a] - bm.lo[a]; break;
+                case 4: d[a] = br.lo[a] - bm.hi[a]; break;
+                default: break;
+            }
+            d[a] += clear[a];
+        }
+        return forge::translate(moved, d[0], d[1], d[2]);
     }
     Handle opRotate(const Op& op, std::unordered_map<int, Val>& env) {
         Handle a = refSolid(op, 0, env);

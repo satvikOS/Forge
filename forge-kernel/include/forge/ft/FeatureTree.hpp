@@ -87,7 +87,19 @@ enum class OpCode {
     Tube,        // TUBE(rOuter, rInner, h [, cx, cy, cz])
 
     // --- sketch/wire -> solid ---
-    Extrude,     // EXTRUDE(%profile, amount [, dirx=0, diry=0, dirz=1])
+    Extrude,     // EXTRUDE(%profile, amount [, dirx=0, diry=0, dirz=1] [, CENTERED])
+                 //   CENTERED extrudes SYMMETRICALLY about the profile plane —
+                 //   the profile ends up halfway along the extrusion instead of at
+                 //   its start. Identical, to full precision, to the two-op form
+                 //     %b = EXTRUDE(%a, L)  /  %c = TRANSLATE(%b, 0, 0, -L/2)
+                 //   which the CadQuery transpiler emitted because the IR had no way
+                 //   to say it (measured: 907 of the 1945 adjacent EXTRUDE->TRANSLATE
+                 //   pairs in the training corpus, 633 rows). The point is not brevity:
+                 //   the two-op form makes -L/2 a number the EMITTER has to compute
+                 //   from a number it just emitted, and that arithmetic is where a
+                 //   generative model silently fails. Flags may appear in any trailing
+                 //   position; spelled as a flag, not a 6th number, because it is not
+                 //   a quantity (same treatment as LOFT's RULED/OPEN).
     Revolve,     // REVOLVE(%profile, angleDeg [, ox=0, oy=0, oz=0, axx=0, axy=1, axz=0])
                  //   partial angle (0<a<=360) about an ARBITRARY axis line — already general
     Loft,        // LOFT(%w0, %w1 [, %w2 ...] [, RULED] [, OPEN])   skin >=2 WIRE sections
@@ -102,6 +114,39 @@ enum class OpCode {
 
     // --- transforms / replication ---
     Translate,   // TRANSLATE(%a, dx, dy, dz)
+    Align,       // ALIGN(%moved, %reference, SPEC [, offset] [, SPEC [, offset]] ...)
+                 //   RELATIONAL placement: translate %moved (rigidly, no scaling, no
+                 //   rotation) so that its axis-aligned extent stands in a named
+                 //   relation to %reference's on each axis NAMED. An axis not named is
+                 //   not moved. Returns the moved body; %reference is untouched.
+                 //
+                 //   SPEC is one of, for A in {X, Y, Z}:
+                 //     MIN_A       flush low  — moved.min.A == ref.min.A      (alias <A)
+                 //     MAX_A       flush high — moved.max.A == ref.max.A      (alias >A)
+                 //     MID_A       centred    — the two mid-points coincide   (alias |A,
+                 //                              CENTER_A, CENTRE_A, CTR_A)
+                 //     ABUT_MAX_A  moved.min.A == ref.max.A   (sits just past the high face)
+                 //     ABUT_MIN_A  moved.max.A == ref.min.A   (sits just before the low face)
+                 //   An optional NUMBER immediately after a SPEC is a signed clearance
+                 //   added along that axis after the relation is satisfied, so
+                 //   `ALIGN(%b, %a, MAX_X, -2)` is "flush with the +X wall, held back 2 mm".
+                 //
+                 //   MIN/MAX/MID are the axis-extreme vocabulary the face selectors
+                 //   already use ("+Z"/"-X" pick the extreme plane along an axis); the
+                 //   CadQuery spellings <A/>A/|A are accepted for the same reason the
+                 //   selector grammar accepts them.
+                 //
+                 //   WHY THIS OP EXISTS. 22.1% of non-zero TRANSLATE/ROTATE arguments in
+                 //   the training corpus (42.0% held-out; 0.1% for the same detector on
+                 //   random values) are an exact arithmetic function — x/2, (x-y)/2, x-y —
+                 //   of numbers appearing EARLIER in the same program. Those three forms
+                 //   ARE these three relations: x-y is flush-max, (x-y)/2 is centred, x/2
+                 //   is centred on a body based at the origin. Writing the relation lets
+                 //   the KERNEL do the arithmetic from measured geometry. Worked case
+                 //   l_bracket_000146: GT wrote TRANSLATE(%4, 1.605, 1.605, 68.985) where
+                 //   1.605 = (29.95-26.74)/2 makes the cutter flush with two walls and the
+                 //   result an L-angle; a model that wrote any other offset produced a
+                 //   channel with the SAME volume. ALIGN(%4, %1, MAX_X, MAX_Y) says it.
     Rotate,      // ROTATE(%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0])
     Mirror,      // MIRROR(%a, PLANE)                   PLANE = XY|YZ|XZ (through origin)
                  // MIRROR(%a, px,py,pz, nx,ny,nz)      arbitrary plane; reflect + FUSE (symmetrize)
