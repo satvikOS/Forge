@@ -23,9 +23,21 @@ KERNEL="$(cd "$HERE/../.." && pwd)"
 OUT="${OUT:-$KERNEL/test/ft/.s0build}"
 mkdir -p "$OUT"
 
-OCCT_INC="${OCCT_INC:-/opt/homebrew/include/opencascade}"
-if [ ! -d "$OCCT_INC" ]; then
-  echo "OCCT headers not found at $OCCT_INC (set OCCT_INC=...)" >&2
+# Search the usual prefixes instead of assuming one. Hardcoding the Homebrew path made this
+# suite unrunnable on Linux, which is where CI runs — it failed with a macOS path in the message.
+# Order: explicit override, Apple Silicon brew, Intel brew, Debian/Ubuntu, /usr/local.
+if [ -z "${OCCT_INC:-}" ]; then
+  for _c in /opt/homebrew/include/opencascade \
+            /opt/homebrew/opt/opencascade/include/opencascade \
+            /usr/local/opt/opencascade/include/opencascade \
+            /usr/include/opencascade \
+            /usr/local/include/opencascade ; do
+    [ -d "$_c" ] && { OCCT_INC="$_c"; break; }
+  done
+fi
+OCCT_INC="${OCCT_INC:-}"
+if [ -z "$OCCT_INC" ] || [ ! -d "$OCCT_INC" ]; then
+  echo "OCCT headers not found. Searched the standard prefixes; set OCCT_INC=/path/to/include/opencascade" >&2
   exit 2
 fi
 
