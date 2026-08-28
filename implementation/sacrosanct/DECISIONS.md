@@ -151,3 +151,27 @@ train split). Contaminating an eval set is not.
 **Follow-up owed:** re-measure the baseline post-strip, and check whether any *other* published
 number in `reports/` was produced against a corpus overlapping its own eval set. This one was found
 only because the guard was hardened; there is no reason to assume it is unique.
+
+---
+
+## SHA-256 is implemented a second time in `orchestration/`, not reused from `forge::ft`
+
+*2026-08-28, TRACK ARCHIE (s11.1/s11.2 durable workflow + research node).*
+
+`forge::ft::sha256Hex` already exists and is FIPS-verified. The durable checkpoint chain in
+`orchestration/` needs the same primitive, and reuse was tried first. It does not link:
+`forge-kernel/src/ft/ChunkChain.cpp` calls `forge::ft::parse`, which lives in
+`FeatureTreeCompiler.cpp`, which pulls in the feature-tree compiler and the kernel behind it.
+Measured, not assumed — linking `ChunkChain.o` alone fails with
+`Undefined symbols ... forge::ft::parse(std::string const&)`.
+
+**Decision. Implement it once more in `orchestration/src/Digest.cpp` and verify it against the same
+FIPS 180-4 vectors.** The alternative — extracting a shared `sha256` translation unit out of
+`ChunkChain.cpp` — edits a kernel file that the main checkout already holds modified and unpushed
+(see `RECONCILIATION_OWED.md`), to serve a module that must stay buildable with no kernel, no OCCT
+and no network. Taking that dependency to avoid ~90 lines of a fully specified, vector-checked
+standard algorithm is the worse trade while the reconciliation is outstanding.
+
+**Follow-up owed:** once the kernel reconciliation lands, extract one `forge::hash::sha256` used by
+both `forge::ft` and `forge::orch`. Until then the duplication is deliberate and both copies are
+independently checked against FIPS 180-4 in their own gates.
