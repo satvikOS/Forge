@@ -5,52 +5,61 @@ rejected and why, whether it is reversible, and the measurement that would settl
 
 ---
 
-## D-001 — Desktop UI stack: Qt 6 Widgets vs Dear ImGui — **OPEN, needs the user**
+## D-001 — Desktop UI stack: **Dear ImGui** — **RESOLVED by the user, 2026-08-28**
 
-**Question.** Sacrosanct 3.1 §19.2 mandates Qt 6 Widgets + KDDockWidgets. The repository's own
-committed `docs/FORGE_CPP_MIGRATION.md` (2026-07-16) is headed **"NOT Qt"** and commits to Dear
-ImGui, which `forge-desktop/` already vendors. Which governs?
+**Decision.** Dear ImGui, **not** Qt — but it must deliver the robustness, UI/UX system design,
+layout, framework, structure, shell, browser/tree ("branches"), and overlays of **Siemens NX,
+CATIA, and Blender**, in pure C++. A CAD workstation, not a debug overlay.
 
-**Constraints.**
-- Sacrosanct is the constitution and 3.1 (2026-08-28) is six weeks newer than the migration doc.
-- The migration doc's reasoning is substantive, not stylistic.
-- Whatever is chosen must eventually reproduce a **~445-function** kernel surface (today exposed by
-  a 1,635-line `preload.js` via `contextBridge`), not merely 24 IPC channels.
+**Standing of this decision against Sacrosanct.** §19.2 names Qt 6 Widgets + KDDockWidgets. The
+user has overridden that specific *technology* selection while keeping every *capability* §19.2
+requires. This is the permitted direction of change: Sacrosanct says an implementation "may improve
+these requirements but may not silently weaken them." Nothing is weakened here — the capability
+list below is carried over verbatim and is now owed on ImGui. §19.2's technology row is superseded;
+its contract rows are not.
 
-**Evidence — where the two documents actually agree.**
-The migration doc names its own flip condition: *"if enterprise procurement hard-requires certified
-accessibility (screen-reader/AT trees), rich-text document editing, printing pipelines, or
-20-language i18n inside the app chrome."* Sacrosanct §19.2 selects Qt for, verbatim, *"native menus,
-actions, text, input, **accessibility**, model/view, dialogs, **printing**, and platform
-integration."* 3.1 asserts the flip condition as a requirement. **On capability reasoning the
-documents converge on Qt.**
+**Why this is coherent rather than a shortcut.** The repository's own
+`docs/FORGE_CPP_MIGRATION.md` §1.2 already argued this position in detail on 2026-07-16 — headed
+"NOT Qt", with four recorded grounds. Two of them survive scrutiny independently of taste:
 
-**Evidence — what does not resolve.**
-1. **Licensing.** Qt LGPLv3 allows proprietary use only via **dynamic linking** and requires a
-   *prominent in-user-interface notice* plus a relink path. The migration doc records that Forge is
-   free-but-proprietary and wants a statically-linkable binary with no attribution-in-UI obligation.
-   3.1's Law 16 requires the *dependency stack* to be open source and source-buildable — it does
-   **not** make Forge itself open source, and it never addresses this obligation. KDDockWidgets
-   (GPL / commercial dual licence) raises the same question again.
-2. **Latency.** ImGui composites UI into the *same* Vulkan command buffer as the scene. Qt places
-   the scene in a separate context or an FBO copied per frame. 3.1 §19.2 independently selects
-   **Diligent Engine with a Metal backend** — not Vulkan — so the migration doc's specific latency
-   argument is about a renderer 3.1 does not choose, and needs re-measuring rather than re-quoting.
+1. **Licensing.** Qt LGPLv3 permits proprietary use only via dynamic linking and compels a
+   *prominent in-user-interface notice*. Forge is free-but-proprietary and wants a statically
+   linkable binary. Sacrosanct Law 16 binds the *dependency stack* to be open source and
+   source-buildable — it does **not** make Forge itself open source, so it never dissolved this
+   obligation. KDDockWidgets (GPL/commercial) raised the same question again. **ImGui is MIT.**
+   Both obligations disappear rather than being accepted.
+2. **Latency.** ImGui emits draw lists into the *same* command buffer as the CAD scene — no second
+   context, no per-frame FBO copy, and overlays can blend freely over geometry (translucent HUDs,
+   modal sketch dimming, radial menus over the part).
 
-**Status.** OPEN. Sacrosanct governs, so **Qt 6 is the working default** and no UI work will be
-built on Dear ImGui in the meantime. But this is a licensing commitment on the shippable binary and
-a multi-month build, so it is escalated rather than resolved silently.
+The capability argument that favoured Qt — accessibility trees, rich-text, printing, deep i18n —
+is real and is **not** waived. It becomes owed work on the ImGui path, recorded below.
 
-**What would settle it.**
-- A licensing determination: is Forge shipped proprietary? If yes, Qt LGPL dynamic-linking plus the
-  in-UI notice must be accepted explicitly, or a Qt commercial licence obtained.
-- A measured comparison on the *actual* 3.1 stack (Diligent/Metal), not the Vulkan stack the
-  migration doc assumed: frame latency and input-to-photon for Qt-hosted vs ImGui-composited.
+**What is now owed (carried from §19.2 and §19.2.1, unchanged):**
+- One versioned C++ command registry. Every command has a stable ID, label, category, shortcut,
+  required selection signature, enabled predicate, parameter schema, preview policy, side-effect
+  class, undo contract, and equivalent feature-IR operation. Menus, toolbars, command search,
+  context and radial menus, shortcuts, macros, **and Archie tool calls** all route through it. The
+  UI is never wired directly to a widget callback.
+- A typed selection service with separate preselection / selection / focus / committed states,
+  resolving to stable topology references — never a raw face index.
+- Saveable dockable workspaces with deterministic default layouts and multi-monitor recovery. This
+  is the one thing KDDockWidgets would have supplied for free; on ImGui it must be an explicit
+  dock/layout serialization model, and it is now a first-class deliverable rather than a library
+  call.
+- Workspace profiles: Part, Sketch, Assembly, Surface, Manufacturing, Drawing, Simulation, Archie.
+- Input-map profiles — Forge-native, NX-like, CATIA-like, Blender-like — over the *same* command IDs.
+- A feature-tree UI that virtualizes enormous graphs (§19.4).
+- **Accessibility, printing, and i18n remain owed.** They were Qt's strongest argument. Choosing
+  ImGui converts them from free wins into scheduled work; it does not delete them. Tracked as
+  follow-on, not silently dropped.
 
-**Reversible?** Cheaply now (`forge-desktop/` is 6 probe programs, not an app). Expensively later.
-This is the right moment to decide.
+**Consequence for the renderer.** §19.2 selects Diligent Engine with a Metal backend, while the
+existing `forge-desktop/` probes vendor Vulkan GLSL shaders. That is a separate, still-open
+question — this decision settles the *UI framework*, not the *render backend*. Recorded as D-006.
 
----
+**Reversible?** Cheaply today — `forge-desktop/` is six headless probe programs, not an app, so
+almost nothing is sunk. Expensive once the 445-function kernel surface has a UI on top of it.
 
 ## D-002 — Sacrosanct 3.1 placed at `docs/sacrosanct/`, not `output/pdf/` — **DECIDED**
 
@@ -92,3 +101,17 @@ invalidated (the SHA held during the census and results were re-verified), but t
 binding: **parallel writers get their own worktree; audits pin a SHA and report against it, never
 against `HEAD`;** and any manifest derived from a census is re-validated against the SHA actually
 checked out when it executes.
+
+---
+
+## D-006 — Render backend: Diligent/Metal vs the existing Vulkan probes — **OPEN**
+
+D-001 settled the UI framework (ImGui). It did not settle the renderer. Sacrosanct §19.2 selects
+**Diligent Engine with a Metal backend** on Apple Silicon and requires ONE authoritative
+interactive renderer. `forge-desktop/` currently vendors **4 Vulkan GLSL shaders**, and the
+migration doc's latency argument assumed a Vulkan command buffer.
+
+On macOS, Vulkan is only available through MoltenVK translation, so "Vulkan on M4 Max" is Metal
+with a layer in front. §19.2's Metal-first selection is therefore the better-supported path and the
+ImGui co-composite argument holds equally well on Metal. Leaning Diligent/Metal, but it needs a
+measured comparison rather than a document quote, and no UI work depends on it yet.
