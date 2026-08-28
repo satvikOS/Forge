@@ -176,26 +176,26 @@ All paths are relative to the workspace root.
   refproof  : forge-kernel/reports/OCCT_DROP_ORDER.md:12:> (the TKShHealing P1 work — `build-shheal/`, `build-shheal-off/`, `test/healing_smoke.js`).
   recovery  : cd forge-kernel && cmake -S . -B build-shheal-off && cmake --build build-shheal-off -j
 
-  path      : .git/worktrees/wf_5dcbcd5f-963-6
-  bytes     : 410708  (0.000 GiB)
-  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
-  reason    : protected class SESSION_ARTIFACT is never auto-disposable
-  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-6
-  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-6   (record is re-created from the branch; `git worktree prune` removes it)
-
-  path      : .git/worktrees/wf_5dcbcd5f-963-7
-  bytes     : 409859  (0.000 GiB)
-  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
-  reason    : protected class SESSION_ARTIFACT is never auto-disposable
-  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-7
-  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-7   (record is re-created from the branch; `git worktree prune` removes it)
-
   path      : .git/worktrees/wf_5dcbcd5f-963-5
-  bytes     : 408070  (0.000 GiB)
+  bytes     : 413216  (0.000 GiB)
   class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
   reason    : protected class SESSION_ARTIFACT is never auto-disposable
   refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-5
   recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-5   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_5dcbcd5f-963-4
+  bytes     : 412620  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-4
+  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-4   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_5dcbcd5f-963-8
+  bytes     : 412412  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-8
+  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-8   (record is re-created from the branch; `git worktree prune` removes it)
 
   path      : .git/worktrees/align-op
   bytes     : 407858  (0.000 GiB)
@@ -204,28 +204,14 @@ All paths are relative to the workspace root.
   refproof  : checkout exists on disk: .claude/worktrees/align-op
   recovery  : git worktree add <path> refs/heads/worktree-align-op   (record is re-created from the branch; `git worktree prune` removes it)
 
-  path      : .git/worktrees/wf_5dcbcd5f-963-4
-  bytes     : 406493  (0.000 GiB)
-  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
-  reason    : protected class SESSION_ARTIFACT is never auto-disposable
-  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-4
-  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-4   (record is re-created from the branch; `git worktree prune` removes it)
-
-  path      : .git/worktrees/wf_5dcbcd5f-963-8
-  bytes     : 406493  (0.000 GiB)
-  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
-  reason    : protected class SESSION_ARTIFACT is never auto-disposable
-  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-8
-  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-8   (record is re-created from the branch; `git worktree prune` removes it)
-
 --- EXCLUSIONS (refused authority) ---
   (none)
 
 --- TOTALS ---
   provably disposable : 1.518 GiB  (1629409640 B)
   needs proof         : 0.000 GiB  (0 B)
-  must pin            : 1.675 GiB  (1798470491 B)
-  headroom before     : 66.237 GiB
-  headroom projected  : 67.754 GiB   (disposable bytes ONLY; unproven bytes are never projected)
+  must pin            : 1.674 GiB  (1797667116 B)
+  headroom before     : 66.556 GiB
+  headroom projected  : 68.073 GiB   (disposable bytes ONLY; unproven bytes are never projected)
 
-generated: 20260828T055308Z  (dry run — nothing was deleted)
+generated: 20260828T055744Z  (dry run — nothing was deleted)
