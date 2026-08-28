@@ -46,11 +46,20 @@ echo "[live] starting the stub sidecar on 127.0.0.1"
 python3 retrieval/test/stub_sidecar.py > "$OUT/port.txt" 2> "$OUT/stub.err" &
 STUB_PID=$!
 
+# A sub-second sleep, without depending on perl. The old line was
+#   perl -e 'select undef,undef,undef,0.1' 2>/dev/null || true
+# which on a host with no perl waits ZERO time and is swallowed by `|| true`, so the 5-second
+# grace period below collapsed to ~0.13s of pure spinning and a stub that took longer than that
+# to bind was reported as "stub did not report a port" — a false failure of a passing transport.
+# `sleep 0.1` is accepted by BSD and GNU sleep; the integer fallback keeps a strict POSIX sleep
+# waiting rather than not waiting at all.
+nap() { sleep 0.1 2>/dev/null || sleep 1; }
+
 PORT=""
 for _ in $(seq 1 50); do
   PORT="$(head -1 "$OUT/port.txt" 2>/dev/null)"
   [ -n "$PORT" ] && break
-  perl -e 'select undef,undef,undef,0.1' 2>/dev/null || true
+  nap
 done
 if [ -z "$PORT" ]; then
   echo "[live] stub did not report a port"
