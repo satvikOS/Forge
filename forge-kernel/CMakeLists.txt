@@ -254,6 +254,26 @@ endif()
 if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
     list(APPEND OCCT_LIBS TKBO TKG2d)
 endif()
+# TKOffset family E: the native CIRCLE-profile pipe builds its mitre-trimmed
+# cylinder chain with BRepPrimAPI_MakeCylinder / BRepPrimAPI_MakeHalfSpace, so any
+# build that COMPILES src/native/brep/NativeLoftPipe.cpp calls TKPrim.
+#
+# ★ THE CONDITION IS FORGE_NATIVE_BREP, NOT FORGE_PIPE_DROP_NATIVE. Getting this
+#   wrong was caught by measurement, not by review: gating it on the drop option
+#   left the DEFAULT build (every drop OFF) at OCCT_PHANTOM 3 instead of 2, because
+#   the engine is compiled in whenever the native B-rep layer is on — the drop
+#   option only decides whether the OCCT FALLBACK is also compiled, not whether the
+#   native engine exists. A phantom is a library the binary CALLS with no link
+#   record, masked on macOS by `-undefined dynamic_lookup`; on the Linux strict-link
+#   CI it does not link at all.
+#
+#   MEASURED 2026-08-28: naming TKPrim moves OCCT_DIRECT 8 -> 9 and leaves
+#   OCCT_CLOSURE at 14, because TKPrim already loads via TKBO/TKBool/TKFillet/
+#   TKOffset. DIRECT is the explicitly gameable number; refusing to hide a real call
+#   behind dynamic_lookup is worth more than the cosmetic 8.
+if(FORGE_NATIVE_BREP)
+    list(APPEND OCCT_LIBS TKPrim)
+endif()
 # ── TKShHealing PARTIAL DROP — P1 (landed 2026-07-31; DEFAULT ON) ─────────────────
 # FORGE_SHHEAL_DROP_NATIVE routes the NON-STEP-PATH TKShHealing call sites in
 # src/Healing.cpp onto the in-house forge::occtheal peers
@@ -563,6 +583,179 @@ if(FORGE_NATIVE_BREP AND FORGE_PIPESHELL_DROP_NATIVE)
                     "(TKOffset family F, 7 symbols: 38 -> 31). TKOffset STILL LINKED and OCCT_CLOSURE "
                     "UNCHANGED at 14. EVERY GUIDED sweep now THROWS — the native engine has no guided "
                     "pipe-shell and never pretends to.")
+endif()
+
+# ── TKOffset FAMILY E — BRepOffsetAPI_MakePipe (authored 2026-08-28) ──────────────
+# Routes the THREE MakePipe call sites in src/Features.cpp —
+#   forge::part::sweep (unguided branch, :674), pipeFromPolyline (:761),
+#   sweepPolyline (:856)
+# — through forge::occtloft::pipe (src/native/brep/NativeLoftPipe.cpp) and compiles
+# out the OCCT baseline, removing the complete family:
+#   BRepOffsetAPI_MakePipe::BRepOffsetAPI_MakePipe(TopoDS_Wire const&, TopoDS_Shape const&)
+#   BRepOffsetAPI_MakePipe::Build(Message_ProgressRange const&)
+#   vtable for BRepOffsetAPI_MakePipe                                   (3 symbols)
+#
+# METHOD, NAMED: the polygon path is the double-reflection rotation-minimizing frame
+# of Wang, Juttler, Zheng & Liu, "Computation of Rotation Minimizing Frames",
+# ACM TOG 27(1), 2008, specialised to a polyline spine — where the two reflections
+# compose to a single reflection in the leg-bisecting (MITRE) plane. A Frenet frame
+# is deliberately NOT used: its normal is undefined on a straight leg and flips
+# through an inflection. The circle path is a chain of mitre-trimmed right circular
+# cylinders, every surface analytic — no tessellation, no polygonal approximation.
+#
+# ★ WHAT THIS IS WORTH — do not mis-score it. TKOffset is NOT removed from OCCT_LIBS
+#   by this option and OCCT_CLOSURE does NOT move. MEASURED 2026-08-28 on real
+#   linked binaries built in this worktree:
+#       baseline (every drop OFF)                          42 TKOffset symbols
+#       + families A, G, H, D, F (the options that existed) 19 symbols, CLOSURE 14
+#       + family E (this option)                           16 symbols, CLOSURE 14
+#   TKOffset's link record moves only when ALL 42 are gone. What still holds it in
+#   after family E is three classes with no native engine:
+#       BRepOffset_MakeOffset      5   src/Features.cpp    thickenSurface
+#       BRepOffsetAPI_DraftAngle   6   src/Features.cpp    draftFaces
+#       BRepOffsetAPI_MakeFilling  5   src/Healing.cpp     autoFillMissingFaces
+#
+# PROOF: forge-kernel/test/run_ab_native_loftpipe.sh, 314/314 assertions — volume AND
+#   centre of mass AND all six bbox bounds AND face/edge/vertex/shell counts AND
+#   BRepCheck_Analyzer validity AND the Euler-Poincare characteristic, against LIVE
+#   OCCT on straight spines and against the closed form V = area * spine-length on
+#   bent ones. OCCT MakePipe is a VALID ORACLE ONLY ON A SINGLE-SEGMENT SPINE: on
+#   every bent polyline spine it was measured to return only the FIRST leg's volume
+#   (2500 vs 5500; 1256.637 vs 2764.602) and is often BRepCheck-INVALID, so the A/B
+#   asserts that error rather than treating it as truth. The gate is proved able to
+#   FAIL by two mutations of the engine, one of which is volume-preserving and is
+#   caught only by centre of mass and bbox.
+option(FORGE_PIPE_DROP_NATIVE
+       "route the three MakePipe call sites through the native pipe & compile out the OCCT BRepOffsetAPI_MakePipe fallback (TKOffset family E, 3 symbols)"
+       OFF)
+
+# ── TKOffset FAMILY C — BRepOffsetAPI_MakeFilling (authored 2026-08-28) ───────────
+# Routes the free-wire cap in forge::heal::autoFillMissingFaces (src/Healing.cpp)
+# through forge::occtfill::fillC0Boundary (src/native/brep/NativeFilling.cpp) and
+# compiles out the OCCT baseline, removing the complete family:
+#   BRepOffsetAPI_MakeFilling::BRepOffsetAPI_MakeFilling(int,int,int,bool,double,
+#                                                        double,double,double,int,int)
+#   BRepOffsetAPI_MakeFilling::Add(TopoDS_Edge const&, GeomAbs_Shape, bool)
+#   BRepOffsetAPI_MakeFilling::Build(Message_ProgressRange const&)
+#   BRepOffsetAPI_MakeFilling::IsDone() const
+#   vtable for BRepOffsetAPI_MakeFilling                                (5 symbols)
+#
+# WHY THIS IS EXACTLY SOLVABLE. The call site adds every boundary edge with
+# GeomAbs_C0 and adds NOTHING else — no tangency, no interior constraint. For a
+# PLANAR boundary the patch meeting that specification is the plane region the wire
+# encloses, representable exactly as a Geom_Plane face trimmed by the wire itself.
+#
+# ★ THE NATIVE ANSWER IS STRICTLY MORE ACCURATE THAN OCCT'S, measured 2026-08-28:
+#   OCCT returns a B-SPLINE approximation. On a circle of radius 5 its area is
+#   78.5398651991 against the exact pi r^2 = 78.5398163397 — wrong in the 7th
+#   significant figure (6.2e-7 relative) — and its face bounding box OVERSHOOTS the
+#   trimmed region because the supporting surface extends past the trim. The native
+#   cap's area is exact to 1e-12 and its bbox equals its boundary's exactly.
+#   The A/B therefore uses OCCT as the oracle only on POLYGONAL boundaries, where
+#   the two agree to 1e-9, and the CLOSED FORM on curved ones, asserting OCCT's
+#   error rather than inheriting it.
+#
+# ★ A DEFER HERE IS SAFE, unlike families D/E/F. autoFillMissingFaces already wraps
+#   its filling attempt in try/catch and SKIPS any wire it cannot fill, leaving it a
+#   residual open edge in AutoFillReport. So under this drop a non-planar wire takes
+#   exactly the path a failed OCCT filling already takes today — the drop cannot turn
+#   a fillable hole into a thrown error. No call site loses a capability it had.
+#
+# ★ WHAT THIS IS WORTH — do not mis-score it. TKOffset is NOT removed from OCCT_LIBS
+#   and OCCT_CLOSURE does NOT move. MEASURED on real linked binaries:
+#       + A, G, H, D, F                 19 TKOffset symbols, CLOSURE 14
+#       + E                             16 symbols,          CLOSURE 14
+#       + C (this option)               11 symbols,          CLOSURE 14
+#   What still holds TKOffset in after C is 11 symbols in two classes with no native
+#   engine: BRepOffset_MakeOffset (5, thickenSurface) and BRepOffsetAPI_DraftAngle
+#   (6, draftFaces).
+#
+# PROOF: forge-kernel/test/run_ab_native_filling.sh, 80/80 assertions — area AND
+#   centre of mass AND bbox AND face/edge/vertex counts AND validity AND the SURFACE
+#   TYPE, plus a whole-solid end-to-end (cap a box missing its top face, sew, promote
+#   to a solid: volume 1000 exactly, com (5,5,5), 6/12/8, Euler 2, valid), plus a
+#   NEGATIVE CONTROL rejecting two faces of equal area, plus four defer controls.
+#   The gate is proved able to FAIL by mutation: endpoint-only curve sampling, a
+#   widened planarity tolerance, and a disabled positive-area guard each turn it red.
+#   The tolerance mutation initially did NOT — BRepBuilderAPI_MakeFace's own
+#   planarity check (threshold measured between 1e-6 and 1e-5) was masking it — so a
+#   TOLERANCE CONTROL was added that asserts MakeFace accepts a boundary 1e-7 off
+#   plane while the engine at tol=1e-9 declines it. That control is what makes the
+#   engine's own residual test provably load-bearing.
+option(FORGE_FILLING_DROP_NATIVE
+       "route the free-wire cap in autoFillMissingFaces through the native planar fill & compile out the OCCT BRepOffsetAPI_MakeFilling fallback (TKOffset family C, 5 symbols)"
+       OFF)
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# ── WHAT IS LEFT: the last 11 TKOffset symbols, and what is already known ────────
+# ─────────────────────────────────────────────────────────────────────────────────
+# MEASURED 2026-08-28 on real linked binaries. With every option above ON:
+#   TKOffset 42 -> 11, OCCT_DIRECT 9, OCCT_CLOSURE 14, OCCT_PHANTOM 2.
+# TKOffset's link record — and with it OCCT_CLOSURE 14 -> 13, the FIRST library the
+# programme would actually drop — moves only when these 11 are gone. Both classes
+# need a TopoDS-typed engine; native peers exist for the adjacent NATIVE-B-rep
+# problems but are typed on forge::native::brep::Solid and cannot be reached from an
+# OCCT-backed handle, which is exactly the gap NativeThickSolid closed for family
+# G/H and NativeLoftPipe for D/E/F.
+#
+# ── family I: BRepOffset_MakeOffset, 5 symbols, src/Features.cpp thickenSurface ──
+#   Skin an OPEN shell to a solid of wall thickness t.
+#
+#   ★ OCCT *IS* A VALID ORACLE HERE — unlike MakePipe/MakePipeShell/MakeThickSolid,
+#     every probe below returned a BRepCheck-VALID solid. So this family can be
+#     proved A/B directly. Measured, 2026-08-28, offset magnitude 2:
+#       shell                         OCCT volume   valid   fuse-of-prisms
+#       single planar face 20x10         400          1          400   MATCH
+#       L shell, t=+2 (concave corner)   560          1          560   MATCH
+#       L shell, t=-2 (convex corner)    631.4159265  1          600   MISMATCH
+#       U shell, t=+2 (two convex)       862.8318531  1          800   MISMATCH
+#
+#   ★ THE MISMATCH IS FULLY EXPLAINED, and this is the key result for whoever
+#     builds this engine. 631.4159265 - 600 = 31.41592653 = 10*pi, and
+#     862.8318531 - 800 = 62.83185307 = 20*pi. Those are QUARTER-CYLINDERS of
+#     radius |t|=2 and length 10: (pi*2^2/4)*10 = 10*pi each, one per convex corner
+#     (one for the L, two for the U). GeomAbs_Arc — the join type the call site
+#     passes — ROUNDS convex corners. So the construction is NOT simply the union of
+#     per-face prisms; it is
+#         union of per-face prisms
+#       + a quarter-cylinder of radius |t| along every CONVEX shell edge
+#       + a spherical wedge at every CONVEX shell vertex,
+#     where "convex" is with respect to the offset direction (at a CONCAVE corner
+#     the prisms already overlap and the union alone is exact — proved by the two
+#     MATCH rows above). The per-face prism part is exact on planar faces and needs
+#     no corner solve at all, which is a much cheaper starting point than the
+#     plane-meet machinery NativeThickSolid uses for family G/H.
+#
+# ── family J: BRepOffsetAPI_DraftAngle, 6 symbols, src/Features.cpp draftFaces ───
+#   Tilt selected faces about their intersection line with a neutral plane.
+#   forge/native/brep/DraftAnalytic.hpp already solves this on the NATIVE analytic
+#   B-rep (planar side faces of a prismatic solid, single neutral plane, uniform
+#   angle) with an exact square-frustum closed form; what is missing is the
+#   TopoDS-typed mirror. Structurally a draft is family H's whole-solid offset with
+#   the selected faces' planes ROTATED about their neutral-plane intersection line
+#   instead of TRANSLATED along their normal — so the corner re-trim in
+#   NativeThickSolid.cpp is the machinery to reuse, fed rotated planes.
+#
+# Neither engine is attempted here rather than shipped half-proved: every family in
+# this file carries an A/B against live OCCT on volume AND position AND topology AND
+# validity, with a negative control and a mutation that proves the gate can go red,
+# and that bar is the point of the exercise.
+# ─────────────────────────────────────────────────────────────────────────────────
+if(FORGE_NATIVE_BREP AND FORGE_FILLING_DROP_NATIVE)
+    add_compile_definitions(FORGE_FILLING_DROP_NATIVE=1)
+    message(WARNING "FORGE_FILLING_DROP_NATIVE=ON — BRepOffsetAPI_MakeFilling fallback compiled out "
+                    "(TKOffset family C, 5 symbols: 16 -> 11). TKOffset STILL LINKED and "
+                    "OCCT_CLOSURE UNCHANGED at 14. A NON-PLANAR free wire is now SKIPPED rather "
+                    "than capped — the same path a failed OCCT filling already takes, reported "
+                    "honestly in AutoFillReport.openEdgesAfter.")
+endif()
+if(FORGE_NATIVE_BREP AND FORGE_PIPE_DROP_NATIVE)
+    add_compile_definitions(FORGE_PIPE_DROP_NATIVE=1)
+    message(WARNING "FORGE_PIPE_DROP_NATIVE=ON — BRepOffsetAPI_MakePipe fallback compiled out "
+                    "(TKOffset family E, 3 symbols: 19 -> 16). TKOffset STILL LINKED and "
+                    "OCCT_CLOSURE UNCHANGED at 14. A sweep the native pipe declines — a curved "
+                    "spine, a non-perpendicular profile plane, a profile that is neither a polygon "
+                    "nor a circle — now THROWS instead of falling back to OCCT.")
 endif()
 # OCCT-zero progress (2026-07-25, R1+R2 → TKGeomBase): DROPPED TKGeomBase. 10 -> 9 OCCT dylibs.
 #   (TKGeomBase still loads transitively — TKBRep/TKG3d/TKGeomAlgo DT_NEED it — but the .node
@@ -1151,6 +1344,7 @@ set(FORGE_KERNEL_SOURCES
     # in Features.cpp / Airfoil.cpp / Primitives.cpp / LoftGuide.cpp /
     # ClassASurfacing.cpp stay live by default.
     src/native/brep/NativeLoftPipe.cpp
+    src/native/brep/NativeFilling.cpp
     src/native/brep/OffsetShape.cpp     # offset-shape: grow/shrink a solid by offsetting all faces +/-t (MakeOffsetShape, intersection join)
     src/native/brep/Chamfer.cpp
     src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)

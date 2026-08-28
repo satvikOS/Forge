@@ -72,7 +72,13 @@
 #include <BRepFilletAPI_MakeFillet.hxx>
 #endif
 #include <BRepOffsetAPI_DraftAngle.hxx>
+#ifndef FORGE_PIPE_DROP_NATIVE
+// TKOffset family E header — referenced ONLY by the OCCT baseline path, which is
+// compiled out under -DFORGE_PIPE_DROP_NATIVE. Guarding the include keeps the drop
+// build from pulling any BRepOffsetAPI_MakePipe declaration (and hence its vtable
+// reference) into the TU.
 #include <BRepOffsetAPI_MakePipe.hxx>
+#endif
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>   // OCCT whole-solid offset (fallback for offsetSolid)
@@ -671,12 +677,27 @@ ShapeHandle sweep(SketchHandle profileSketch, SketchHandle pathSketch,
         // Plain MakePipe — if profile is a TopoDS_Face it returns a
         // solid; with just a wire it returns a shell whose volume is 0.
         TopoDS_Face profileFace = faceFromWire(profile);
+#ifdef FORGE_NATIVE_BREP
+        // TKOffset family E — TKOffset-free pipe on the OCCT wires themselves.
+        // See NativeLoftPipe.hpp; a defer returns a null shape and falls through.
+        if (::forge::occtloft::pipeNativeEnabled()) {
+            const TopoDS_Shape nat = ::forge::occtloft::pipe(spine, profileFace);
+            if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+        }
+#endif
+#ifndef FORGE_PIPE_DROP_NATIVE
         BRepOffsetAPI_MakePipe mk(spine, profileFace);
         mk.Build();
         if (!mk.IsDone()) {
             throw std::runtime_error("forge.part.sweep: pipe build failed");
         }
         return ShapeRegistry::instance().add(mk.Shape());
+#else
+        throw std::runtime_error(
+            "forge.part.sweep: the native pipe declined this input and the "
+            "OCCT BRepOffsetAPI_MakePipe fallback is compiled out "
+            "(FORGE_PIPE_DROP_NATIVE=ON)");
+#endif
     }
 
     // Guided sweep: every other wire in pathSketch beyond [0] acts as a
@@ -758,12 +779,27 @@ ShapeHandle pipeFromPolyline(const std::vector<double>& pts, double radius) {
     }
     TopoDS_Face profileFace = mkProfile.Face();
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family E. This is the CIRCLE-profile call site the native engine's
+    // mitre-trimmed cylinder chain exists for.
+    if (::forge::occtloft::pipeNativeEnabled()) {
+        const TopoDS_Shape nat = ::forge::occtloft::pipe(spine, profileFace);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPE_DROP_NATIVE
     BRepOffsetAPI_MakePipe pipeMk(spine, profileFace);
     pipeMk.Build();
     if (!pipeMk.IsDone()) {
         throw std::runtime_error("forge.part.pipeFromPolyline: pipe build failed");
     }
     return ShapeRegistry::instance().add(pipeMk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.pipeFromPolyline: the native pipe declined this input and the "
+        "OCCT BRepOffsetAPI_MakePipe fallback is compiled out "
+        "(FORGE_PIPE_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ profileWire
@@ -853,12 +889,26 @@ ShapeHandle sweepPolyline(const std::vector<double>& profileXY,
         throw std::runtime_error("forge.part.sweepPolyline: profile face build failed");
     }
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family E.
+    if (::forge::occtloft::pipeNativeEnabled()) {
+        const TopoDS_Shape nat = ::forge::occtloft::pipe(spine, mkProfile.Face());
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPE_DROP_NATIVE
     BRepOffsetAPI_MakePipe pipeMk(spine, mkProfile.Face());
     pipeMk.Build();
     if (!pipeMk.IsDone()) {
         throw std::runtime_error("forge.part.sweepPolyline: pipe build failed");
     }
     return ShapeRegistry::instance().add(pipeMk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.sweepPolyline: the native pipe declined this input and the "
+        "OCCT BRepOffsetAPI_MakePipe fallback is compiled out "
+        "(FORGE_PIPE_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ loft

@@ -105,16 +105,22 @@
 #include <cstdlib>
 #include <vector>
 
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepGProp.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
+#include <Geom_Circle.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_Line.hxx>
 #include <Geom_TrimmedCurve.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <Standard_Type.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -123,7 +129,10 @@
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>
 #include <TopoDS_Vertex.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
 #include <gp_Dir.hxx>
+#include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 
@@ -395,78 +404,81 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
 }
 
 // =========================================================== family F
-TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
-                       const TopoDS_Shape& profile,
-                       const std::vector<TopoDS_Wire>& guides,
-                       bool makeSolid, double tol) {
-    // There is no native guided pipe-shell anywhere in the tree. Say so.
-    if (!guides.empty()) return kNull;
-    const double t = std::max(tol, 1.0e-9);
+namespace {
 
-    // ---- spine: an OPEN polyline of line segments -> ordered vertices ----
-    if (spine.IsNull()) return kNull;
-    if (BRep_Tool::IsClosed(spine)) return kNull;     // a closed spine has no ends
-    std::vector<gp_Pnt> node;
-    TopoDS_Vertex lastV;
+// ---------------------------------------------------------------- spine
+// The shared POLYLINE-SPINE parser for families E and F. On success `node` holds
+// the ordered spine vertices (consecutive duplicates collapsed, the free end
+// appended) and `leg` the unit direction of each segment. A closed spine, a
+// curved edge, or a zero-length spine is an HONEST DEFER (false).
+bool spinePolyline(const TopoDS_Wire& spine, double t,
+                   std::vector<gp_Pnt>& node, std::vector<gp_Dir>& leg) {
+    node.clear();
+    leg.clear();
+    if (spine.IsNull()) return false;
+    if (BRep_Tool::IsClosed(spine)) return false;     // a closed spine has no ends
     for (BRepTools_WireExplorer ex(spine); ex.More(); ex.Next()) {
         const TopoDS_Edge& e = ex.Current();
-        if (!isLineEdge(e)) return kNull;
+        if (!isLineEdge(e)) return false;
         const gp_Pnt p = BRep_Tool::Pnt(ex.CurrentVertex());
         if (node.empty() || p.Distance(node.back()) > t) node.push_back(p);
-        lastV = ex.CurrentVertex();
     }
     // BRepTools_WireExplorer yields each edge's FIRST vertex, so the spine's own
     // end point is ALWAYS still missing — including for a single-segment spine,
-    // where `node` holds exactly one point at this line. Append it before any
-    // size test.
-    if (node.empty()) return kNull;
+    // where `node` holds exactly one point here. Append it before any size test.
+    if (node.empty()) return false;
     {
-        TopoDS_Vertex v1, v2;
         int nEdge = 0;
         TopoDS_Edge last;
         for (TopExp_Explorer ex(spine, TopAbs_EDGE); ex.More(); ex.Next()) {
             last = TopoDS::Edge(ex.Current());
             ++nEdge;
         }
-        if (nEdge == 0) return kNull;
-        TopExp_Explorer vx(last, TopAbs_VERTEX);
+        if (nEdge == 0) return false;
         gp_Pnt best;
         double bestD = -1.0;
-        for (; vx.More(); vx.Next()) {
+        for (TopExp_Explorer vx(last, TopAbs_VERTEX); vx.More(); vx.Next()) {
             const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()));
             const double d = p.Distance(node.back());
             if (d > bestD) { bestD = d; best = p; }
         }
-        if (bestD <= t) return kNull;
+        if (bestD <= t) return false;
         node.push_back(best);
-        (void)lastV;
     }
-    const std::size_t nNode = node.size();
-
-    std::vector<gp_Dir> leg;
-    leg.reserve(nNode - 1);
-    for (std::size_t j = 0; j + 1 < nNode; ++j) {
-        gp_Vec d = vec(node[j], node[j + 1]);
-        if (d.Magnitude() <= t) return kNull;
+    for (std::size_t j = 0; j + 1 < node.size(); ++j) {
+        const gp_Vec d = vec(node[j], node[j + 1]);
+        if (d.Magnitude() <= t) return false;
         leg.push_back(gp_Dir(d));
     }
+    return !leg.empty();
+}
 
-    // ---- profile: a closed planar polygon ----
-    std::vector<gp_Pnt> ring;
-    if (!profileRing(profile, ring, t)) return kNull;
-    double area = 0.0;
-    if (!ringPlanar(ring, t, area)) return kNull;
+// ---------------------------------------------------------------- transport
+// THE MITRE / ROTATION-MINIMIZING TRANSPORT — the shared core of families E and
+// F. `node`/`leg` come from spinePolyline, `ring` is the ordered section.
+//
+// METHOD, NAMED: this is the DOUBLE-REFLECTION rotation-minimizing frame of
+// Wang, Juttler, Zheng & Liu, "Computation of Rotation Minimizing Frames",
+// ACM TOG 27(1), 2008, specialised to a polyline spine. Double reflection
+// transports the frame from x_j to x_j+1 by reflecting it in two planes; for a
+// polyline the two reflections compose to a SINGLE reflection in the plane that
+// bisects the incoming and outgoing legs — the MITRE plane, normal
+// n_j = normalize(d_j + d_j+1) through A_j. So on a polyline the mitre IS the
+// RMF, and it is exact rather than sampled: no Frenet frame is formed anywhere,
+// which matters because the Frenet normal is undefined on a straight leg (zero
+// curvature) and flips through an inflection.
+//
+// A section point p is carried along d_j until it meets that plane, at
+//     s = ((A_j+1 - p) . n_j) / (d_j . n_j),
+// well defined iff d_j . n_j > 0 (the turn is not a reversal). The map
+// p -> p + s(p) d_j is AFFINE in p, so each lateral quad
+// (p_i, p_i+1, m_i+1, m_i) lies in span{p_i+1 - p_i, d_j} — PLANAR by
+// construction, which is what keeps this engine exact.
+TopoDS_Shape sweepPolygonMitre(const std::vector<gp_Pnt>& node,
+                               const std::vector<gp_Dir>& leg,
+                               const std::vector<gp_Pnt>& ring,
+                               bool makeSolid, double t) {
     const std::size_t n = ring.size();
-
-    // A multi-segment spine needs the profile plane PERPENDICULAR to the first
-    // leg, otherwise the mitre map is not the rigid transport this engine
-    // derives (PART 3) and the answer would be a guess.
-    if (leg.size() > 1) {
-        const gp_Vec nv = newell(ring);
-        const gp_Dir pn(nv);
-        if (std::fabs(std::fabs(pn.Dot(leg[0])) - 1.0) > 1.0e-9) return kNull;
-    }
-
     BRepBuilderAPI_Sewing sew(std::max(t, 1.0e-6));
 
     // Carry the ring leg by leg. `cur` is the section at the start of leg j.
@@ -477,7 +489,7 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
         std::vector<gp_Pnt> nxt(n);
         if (j + 1 < leg.size()) {
             // Interior node: carry to the MITRE plane at node[j+1].
-            gp_Vec nvv = gp_Vec(leg[j]) + gp_Vec(leg[j + 1]);
+            const gp_Vec nvv = gp_Vec(leg[j]) + gp_Vec(leg[j + 1]);
             if (nvv.Magnitude() <= 1.0e-12) return kNull;   // 180-degree reversal
             const gp_Dir mn(nvv);
             const double denom = gp_Vec(leg[j]).Dot(gp_Vec(mn));
@@ -511,6 +523,256 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
     }
 
     return sewAndClose(sew, makeSolid);
+}
+
+// Shared front half of families E and F for a POLYGON profile: parse the spine,
+// extract and validate the section, enforce the perpendicularity precondition,
+// then transport. Returns kNull on any defer.
+TopoDS_Shape sweepPolygonProfile(const TopoDS_Wire& spine,
+                                 const TopoDS_Shape& profile,
+                                 bool makeSolid, double t) {
+    std::vector<gp_Pnt> node;
+    std::vector<gp_Dir> leg;
+    if (!spinePolyline(spine, t, node, leg)) return kNull;
+
+    std::vector<gp_Pnt> ring;
+    if (!profileRing(profile, ring, t)) return kNull;
+    double area = 0.0;
+    if (!ringPlanar(ring, t, area)) return kNull;
+
+    // A multi-segment spine needs the profile plane PERPENDICULAR to the first
+    // leg, otherwise the mitre map is not the rigid transport this engine
+    // derives and the answer would be a guess.
+    if (leg.size() > 1) {
+        const gp_Dir pn(newell(ring));
+        if (std::fabs(std::fabs(pn.Dot(leg[0])) - 1.0) > 1.0e-9) return kNull;
+    }
+    return sweepPolygonMitre(node, leg, ring, makeSolid, t);
+}
+
+}  // namespace
+
+TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
+                       const TopoDS_Shape& profile,
+                       const std::vector<TopoDS_Wire>& guides,
+                       bool makeSolid, double tol) {
+    // There is no native guided pipe-shell anywhere in the tree. Say so.
+    if (!guides.empty()) return kNull;
+    return sweepPolygonProfile(spine, profile, makeSolid, std::max(tol, 1.0e-9));
+}
+
+// =========================================================== family E
+//
+// BRepOffsetAPI_MakePipe(spine, profileFace) — sweep a FACE along a spine and
+// return the SOLID.
+//
+// ── WHAT OCCT ACTUALLY DOES HERE, MEASURED 2026-08-28 (probe in the A/B) ─────
+// MakePipe is a TRUSTWORTHY ORACLE ON A SINGLE-SEGMENT SPINE ONLY. Measured on
+// a 10x10 square profile and a 4-radius circle:
+//     spine                       OCCT volume     closed form     OCCT valid
+//     (0,0,0)->(0,0,25)              2500            2500             1
+//     circle, ->(0,0,30)          1507.96447      1507.96447          1
+//     (0,0,0)->(0,0,25)->(30,0,25)   2500            5500             0   <-- INVALID
+//     3-leg Z spine                  2000            5500             0   <-- INVALID
+//     circle, 2-leg L spine       1256.63706      2764.60154          1   <-- WRONG VOLUME
+// On every BENT polyline spine OCCT either fails BRepCheck_Analyzer outright or
+// returns a shape whose volume is only the FIRST leg's contribution
+// (2500 = 100*25, 2000 = 100*20, 1256.637 = pi*16*25) while its bounding box
+// spans the whole spine. So the bent-spine path here is proved against a CLOSED
+// FORM, and the A/B ASSERTS OCCT's invalidity / volume error so the claim is on
+// the record rather than merely asserted. This is the same situation the prior
+// wave measured for MakePipeShell and reports/TKOFFSET_DECOMPOSITION.md §4.2
+// measured for MakeThickSolid.
+//
+// ── THE TWO PROFILE KINDS ───────────────────────────────────────────────────
+// POLYGON: the mitre / double-reflection RMF transport above, shared with
+//   family F. Exact for any number of legs.
+// CIRCLE: a chain of mitre-trimmed right circular cylinders. Needed because
+//   forge::part::pipeFromPolyline feeds a CIRCLE profile, so a polygon-only
+//   engine would leave that entry point permanently deferring — i.e. dead under
+//   the drop. Each leg is a Geom_CylindricalSurface cylinder cut by the two
+//   station half-spaces (start cap plane, interior MITRE planes, end cap plane)
+//   and the legs are fused. Every surface stays ANALYTIC: no tessellation, no
+//   spline fitting, no polygonal approximation of the circle anywhere.
+//
+// CLOSED FORM. With the profile plane perpendicular to the first leg and the
+// section centroid ON the spine, the mitred sweep encloses exactly
+//     V = area(profile) * (total spine length),
+// for BOTH profile kinds. That identity is the independent oracle.
+//
+// DROP HYGIENE. TKPrim (MakeCylinder / MakeHalfSpace) and TKBO/TKBool
+// (Common / Fuse) are used here. Both are ALREADY in the load closure and are
+// already called directly by the binary; neither is TKOffset. The A/B asserts
+// this file's object imports ZERO TKOffset symbols.
+
+namespace {
+
+// A CIRCULAR profile: one wire, one edge, a Geom_Circle. Reports its centre,
+// axis and radius. Anything else is not this kind (false, not an error).
+bool circleProfile(const TopoDS_Shape& s, gp_Pnt& c, gp_Dir& ax, double& r) {
+    if (s.IsNull()) return false;
+    TopoDS_Wire w;
+    if (s.ShapeType() == TopAbs_WIRE) {
+        w = TopoDS::Wire(s);
+    } else if (s.ShapeType() == TopAbs_FACE) {
+        int nw = 0;
+        for (TopExp_Explorer ex(s, TopAbs_WIRE); ex.More(); ex.Next()) {
+            w = TopoDS::Wire(ex.Current());
+            ++nw;
+        }
+        if (nw != 1) return false;      // a face with a hole is not this kind
+    } else {
+        return false;
+    }
+    if (w.IsNull()) return false;
+    int ne = 0;
+    TopoDS_Edge e;
+    for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) {
+        e = TopoDS::Edge(ex.Current());
+        ++ne;
+    }
+    if (ne != 1) return false;
+    Standard_Real f = 0.0, l = 0.0;
+    Handle(Geom_Curve) cv = BRep_Tool::Curve(e, f, l);
+    while (!cv.IsNull() && cv->IsKind(STANDARD_TYPE(Geom_TrimmedCurve))) {
+        cv = Handle(Geom_TrimmedCurve)::DownCast(cv)->BasisCurve();
+    }
+    if (cv.IsNull() || !cv->IsKind(STANDARD_TYPE(Geom_Circle))) return false;
+    const gp_Circ ci = Handle(Geom_Circle)::DownCast(cv)->Circ();
+    c = ci.Location();
+    ax = ci.Axis().Direction();
+    r = ci.Radius();
+    return r > 0.0;
+}
+
+// The closed half-space bounded by the plane (q, n) that CONTAINS `inside`.
+TopoDS_Shape halfSpaceThrough(const gp_Pnt& q, const gp_Dir& n,
+                              const gp_Pnt& inside) {
+    const gp_Pln pl(q, n);
+    BRepBuilderAPI_MakeFace mkf(pl);
+    if (!mkf.IsDone()) return kNull;
+    BRepPrimAPI_MakeHalfSpace hs(mkf.Face(), inside);
+    if (!hs.IsDone()) return kNull;
+    return hs.Solid();
+}
+
+// The mitre-trimmed cylinder chain (family E, CIRCLE profile).
+TopoDS_Shape pipeCircleMitre(const std::vector<gp_Pnt>& node,
+                             const std::vector<gp_Dir>& leg,
+                             const gp_Pnt& c0, const gp_Dir& ax0, double r,
+                             double t) {
+    // Preconditions, mirroring the polygon path: the section plane is
+    // perpendicular to the first leg and its centre sits ON the spine start.
+    // Without both, the mitre map is not the rigid transport derived above.
+    if (std::fabs(std::fabs(gp_Vec(ax0).Dot(gp_Vec(leg[0]))) - 1.0) > 1.0e-9) return kNull;
+    if (c0.Distance(node[0]) > std::max(t, 1.0e-9)) return kNull;
+
+    const std::size_t k = leg.size();
+
+    // ---- station planes: 0 = start cap, 1..k-1 = MITRE, k = end cap --------
+    std::vector<gp_Dir> sn;   // station normal, oriented along the travel sense
+    sn.reserve(k + 1);
+    sn.push_back(leg[0]);
+    for (std::size_t j = 1; j < k; ++j) {
+        const gp_Vec b = gp_Vec(leg[j - 1]) + gp_Vec(leg[j]);
+        if (b.Magnitude() <= 1.0e-12) return kNull;          // 180-degree reversal
+        const gp_Dir mn(b);
+        if (gp_Vec(leg[j - 1]).Dot(gp_Vec(mn)) <= 1.0e-12) return kNull;
+        sn.push_back(mn);
+    }
+    sn.push_back(leg[k - 1]);
+
+    // ---- one trimmed cylinder per leg -------------------------------------
+    TopoDS_Shape acc;
+    for (std::size_t j = 0; j < k; ++j) {
+        // Axial margin needed so the raw cylinder fully spans each oblique cut:
+        // the plane's extreme axial excursion over a circle of radius r is
+        // r*tan(theta), theta the angle between the leg and the station normal.
+        auto margin = [&](std::size_t st) -> double {
+            const double m = std::fabs(gp_Vec(leg[j]).Dot(gp_Vec(sn[st])));
+            if (m <= 1.0e-9) return -1.0;                    // grazing — defer
+            return r * std::sqrt(std::max(0.0, 1.0 - m * m)) / m;
+        };
+        const double m0 = margin(j), m1 = margin(j + 1);
+        if (m0 < 0.0 || m1 < 0.0) return kNull;
+        const double pad = 1.0e-6 + 1.0e-6 * r;
+        const double len = node[j].Distance(node[j + 1]) + m0 + m1 + 2.0 * pad;
+        const gp_Pnt base = node[j].Translated(-(m0 + pad) * gp_Vec(leg[j]));
+
+        BRepPrimAPI_MakeCylinder mkc(gp_Ax2(base, leg[j]), r, len);
+        mkc.Build();
+        if (!mkc.IsDone()) return kNull;
+        TopoDS_Shape piece = mkc.Shape();
+
+        // Trim to the two station planes. The material side is the one holding
+        // the leg midpoint, which is interior to this leg by construction.
+        const gp_Pnt mid((node[j].X() + node[j + 1].X()) * 0.5,
+                         (node[j].Y() + node[j + 1].Y()) * 0.5,
+                         (node[j].Z() + node[j + 1].Z()) * 0.5);
+        for (std::size_t st : {j, j + 1}) {
+            const TopoDS_Shape h = halfSpaceThrough(node[st], sn[st], mid);
+            if (h.IsNull()) return kNull;
+            BRepAlgoAPI_Common cut(piece, h);
+            cut.Build();
+            if (!cut.IsDone()) return kNull;
+            piece = cut.Shape();
+            if (piece.IsNull()) return kNull;
+        }
+        if (acc.IsNull()) {
+            acc = piece;
+        } else {
+            BRepAlgoAPI_Fuse fu(acc, piece);
+            fu.Build();
+            if (!fu.IsDone()) return kNull;
+            acc = fu.Shape();
+            if (acc.IsNull()) return kNull;
+        }
+    }
+    if (acc.IsNull()) return kNull;
+
+    // The legs meet exactly on their shared mitre plane, so the fuse leaves a
+    // seam face pair; unify it away so the answer carries the same face count a
+    // one-piece sweep would. A failure here is a defer, never a shipped seam.
+    ShapeUpgrade_UnifySameDomain uni(acc, Standard_True, Standard_True, Standard_True);
+    uni.Build();
+    const TopoDS_Shape out = uni.Shape();
+    if (out.IsNull()) return kNull;
+
+    GProp_GProps props;
+    BRepGProp::VolumeProperties(out, props);
+    if (props.Mass() <= 1.0e-12) return kNull;
+    return out;
+}
+
+}  // namespace
+
+bool pipeNativeEnabled() {
+#ifdef FORGE_PIPE_DROP_NATIVE
+    return true;   // the OCCT fallback is compiled out; this is the only path
+#else
+    static const bool on = envOn("FORGE_PIPE_NATIVE");
+    return on;
+#endif
+}
+
+TopoDS_Shape pipe(const TopoDS_Wire& spine, const TopoDS_Shape& profile,
+                  double tol) {
+    const double t = std::max(tol, 1.0e-9);
+
+    // POLYGON profile — the proven mitre transport, always a SOLID (MakePipe
+    // fed a FACE returns a solid).
+    const TopoDS_Shape poly = sweepPolygonProfile(spine, profile, /*makeSolid*/ true, t);
+    if (!poly.IsNull()) return poly;
+
+    // CIRCLE profile — the mitre-trimmed cylinder chain.
+    gp_Pnt c0;
+    gp_Dir ax0;
+    double r = 0.0;
+    if (!circleProfile(profile, c0, ax0, r)) return kNull;
+    std::vector<gp_Pnt> node;
+    std::vector<gp_Dir> leg;
+    if (!spinePolyline(spine, t, node, leg)) return kNull;
+    return pipeCircleMitre(node, leg, c0, ax0, r, t);
 }
 
 }  // namespace occtloft

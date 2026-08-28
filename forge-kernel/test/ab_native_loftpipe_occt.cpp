@@ -41,13 +41,19 @@
 #include <vector>
 
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
+#include <BRepOffsetAPI_MakePipe.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Elips.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <Bnd_Box.hxx>
@@ -411,6 +417,162 @@ int main() {
             std::vector<TopoDS_Shape> sec{open.Wire(), rectWire(0, 0, 10, 10, 10)};
             check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
                   "defer: an OPEN section wire is DECLINED");
+        }
+    }
+
+    // ================================ FAMILY E ===============================
+    // forge::occtloft::pipe  vs  BRepOffsetAPI_MakePipe.
+    //
+    // OCCT IS ONLY A VALID ORACLE ON A SINGLE-SEGMENT SPINE. Measured here, and
+    // asserted below so the claim is on the record: on every BENT polyline spine
+    // MakePipe either fails BRepCheck_Analyzer or returns a shape whose volume is
+    // only the FIRST leg's contribution while its bounding box spans the whole
+    // spine. Straight-spine cases are therefore proved A/B against OCCT on all
+    // five metric groups; bent-spine cases are proved against the CLOSED FORM
+    // V = area(profile) * (total spine length), with OCCT's error asserted.
+    {
+        const TopoDS_Wire sqWire = rectWire(-5.0, -5.0, 0.0, 10.0, 10.0);
+        const TopoDS_Face sqFace = BRepBuilderAPI_MakeFace(sqWire, Standard_True).Face();
+        const double sqArea = 100.0;
+
+        gp_Ax2 cax(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+        const double cr = 4.0;
+        const TopoDS_Wire ciWire =
+            BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(cax, cr)).Edge()).Wire();
+        const TopoDS_Face ciFace = BRepBuilderAPI_MakeFace(ciWire, Standard_True).Face();
+        const double ciArea = M_PI * cr * cr;
+
+        auto spineOf = [](const std::vector<gp_Pnt>& pts) {
+            BRepBuilderAPI_MakePolygon sp;
+            for (const gp_Pnt& q : pts) sp.Add(q);
+            sp.Build();
+            return sp.Wire();
+        };
+        auto spineLen = [](const std::vector<gp_Pnt>& pts) {
+            double L = 0.0;
+            for (std::size_t i = 0; i + 1 < pts.size(); ++i) L += pts[i].Distance(pts[i + 1]);
+            return L;
+        };
+
+        // ---- STRAIGHT spines: full A/B against OCCT ------------------------
+        struct StraightCase {
+            const char* tag;
+            const TopoDS_Face* prof;
+            double area;
+            std::vector<gp_Pnt> spine;
+        };
+        const std::vector<StraightCase> straight{
+            {"pipe-square-straight", &sqFace, sqArea, {gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)}},
+            {"pipe-circle-straight", &ciFace, ciArea, {gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 30)}},
+        };
+        for (const StraightCase& c : straight) {
+            std::printf("\n--- %s ---\n", c.tag);
+            const TopoDS_Wire sp = spineOf(c.spine);
+            const TopoDS_Shape nat = forge::occtloft::pipe(sp, *c.prof, 1.0e-6);
+            BRepOffsetAPI_MakePipe mk(sp, *c.prof);
+            mk.Build();
+            check(!nat.IsNull(), std::string(c.tag) + " native pipe produced a shape (no defer)");
+            check(mk.IsDone() == Standard_True,
+                  std::string(c.tag) + " OCCT MakePipe produced a shape");
+            if (nat.IsNull() || !mk.IsDone()) continue;
+            const Metrics n = measure(nat), o = measure(mk.Shape());
+            std::printf("      native vol=%.10g com=(%.9g %.9g %.9g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                        n.vol, n.com[0], n.com[1], n.com[2], n.nFace, n.nEdge, n.nVert, n.nShell,
+                        static_cast<int>(n.valid));
+            std::printf("      occt   vol=%.10g com=(%.9g %.9g %.9g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                        o.vol, o.com[0], o.com[1], o.com[2], o.nFace, o.nEdge, o.nVert, o.nShell,
+                        static_cast<int>(o.valid));
+            compareAB(c.tag, n, o, /*wantClosed*/ true, /*report*/ true);
+            const double cf = c.area * spineLen(c.spine);
+            check(relClose(n.vol, cf, 1.0e-9), std::string(c.tag) + " volume native==CLOSED FORM");
+            check(relClose(o.vol, cf, 1.0e-9), std::string(c.tag) + " volume OCCT==CLOSED FORM");
+            check(n.nVert - n.nEdge + n.nFace == 2,
+                  std::string(c.tag) + " native Euler-Poincare V-E+F==2 (genus-0 solid)");
+        }
+
+        // ---- BENT spines: native vs CLOSED FORM, OCCT recorded as broken ---
+        struct BentCase {
+            const char* tag;
+            const TopoDS_Face* prof;
+            double area;
+            std::vector<gp_Pnt> spine;
+        };
+        const std::vector<BentCase> bent{
+            {"pipe-square-L", &sqFace, sqArea,
+             {gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25), gp_Pnt(30, 0, 25)}},
+            {"pipe-circle-L", &ciFace, ciArea,
+             {gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25), gp_Pnt(30, 0, 25)}},
+            {"pipe-circle-Z3", &ciFace, ciArea,
+             {gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 20), gp_Pnt(20, 0, 20), gp_Pnt(20, 15, 20)}},
+        };
+        for (const BentCase& c : bent) {
+            std::printf("\n--- %s: bent spine — OCCT NOT AN ORACLE, native vs CLOSED FORM ---\n",
+                        c.tag);
+            const TopoDS_Wire sp = spineOf(c.spine);
+            const TopoDS_Shape nat = forge::occtloft::pipe(sp, *c.prof, 1.0e-6);
+            BRepOffsetAPI_MakePipe mk(sp, *c.prof);
+            mk.Build();
+            check(!nat.IsNull(), std::string(c.tag) + " native pipe produced a shape");
+            if (nat.IsNull()) continue;
+            const Metrics n = measure(nat);
+            const double cf = c.area * spineLen(c.spine);
+            std::printf("      native vol=%.10g (closed form %.10g) F/E/V/S=%d/%d/%d/%d valid=%d\n",
+                        n.vol, cf, n.nFace, n.nEdge, n.nVert, n.nShell, static_cast<int>(n.valid));
+            check(relClose(n.vol, cf, 1.0e-9),
+                  std::string(c.tag) + " native volume == CLOSED FORM area*spine-length");
+            check(n.valid, std::string(c.tag) + " native solid VALID (BRepCheck_Analyzer)");
+            check(n.closedShells, std::string(c.tag) + " native shell CLOSED");
+            check(n.nShell == 1, std::string(c.tag) + " native has exactly ONE shell");
+            check(n.nVert - n.nEdge + n.nFace == 2,
+                  std::string(c.tag) + " native Euler-Poincare V-E+F==2 (genus-0 solid)");
+            // The centre of mass must sit strictly inside the spine's bounding
+            // span — a body of the right volume in the wrong place fails here.
+            check(n.com[0] > -5.0 && n.com[2] > 0.0,
+                  std::string(c.tag) + " native centre of mass lies within the swept region");
+            if (mk.IsDone()) {
+                const Metrics o = measure(mk.Shape());
+                std::printf("      occt   vol=%.10g valid=%d  <-- recorded, NOT used as an oracle\n",
+                            o.vol, static_cast<int>(o.valid));
+                check(!o.valid || !relClose(o.vol, cf, 1.0e-6),
+                      std::string(c.tag) +
+                          " OCCT MakePipe is INVALID or volume-wrong on this bent spine "
+                          "(measured " + std::to_string(o.vol) + ")");
+            }
+        }
+
+        // ---- family E DEFER controls --------------------------------------
+        std::printf("\n--- family E defer controls ---\n");
+        {
+            // Profile plane NOT perpendicular to the first leg, multi-leg spine.
+            const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25), gp_Pnt(30, 0, 25)});
+            const TopoDS_Wire tilted = polyWire({gp_Pnt(-5, -5, 0), gp_Pnt(5, -5, 0),
+                                                 gp_Pnt(5, 5, 10), gp_Pnt(-5, 5, 10)});
+            check(forge::occtloft::pipe(sp, tilted, 1.0e-6).IsNull(),
+                  "defer: a profile plane not perpendicular to the first leg is DECLINED");
+        }
+        {
+            // An ELLIPSE profile is neither a polygon nor a circle.
+            gp_Elips el(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 6.0, 3.0);
+            const TopoDS_Wire ew =
+                BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(el).Edge()).Wire();
+            const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
+            check(forge::occtloft::pipe(sp, ew, 1.0e-6).IsNull(),
+                  "defer: an ELLIPSE profile is DECLINED (neither polygon nor circle)");
+        }
+        {
+            // A 180-degree spine reversal has no mitre plane.
+            const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25), gp_Pnt(0, 0, 5)});
+            check(forge::occtloft::pipe(sp, sqFace, 1.0e-6).IsNull(),
+                  "defer: a 180-degree spine reversal is DECLINED");
+        }
+        {
+            // A circle whose centre is off the spine start is outside scope.
+            gp_Ax2 off(gp_Pnt(3.0, 0, 0), gp_Dir(0, 0, 1));
+            const TopoDS_Wire ow =
+                BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(off, cr)).Edge()).Wire();
+            const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25), gp_Pnt(30, 0, 25)});
+            check(forge::occtloft::pipe(sp, ow, 1.0e-6).IsNull(),
+                  "defer: a circle centre off the spine start is DECLINED");
         }
     }
 

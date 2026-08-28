@@ -152,6 +152,36 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
                        const std::vector<TopoDS_Wire>& guides,
                        bool makeSolid, double tol = 1.0e-6);
 
+// ---------------------------------------------------------------- family E
+// Sweep `profile` along the polyline `spine` and return the SOLID. 1:1 drop-in
+// for the three BRepOffsetAPI_MakePipe call sites in src/Features.cpp
+// (forge::part::{sweep (unguided branch), pipeFromPolyline, sweepPolyline}):
+//   BRepOffsetAPI_MakePipe mk(spine, profileFace);
+//   mk.Build();  return mk.Shape();
+//
+//   family E  BRepOffsetAPI_MakePipe::{ctor(Wire,Shape), Build} + vtable  (3 symbols)
+//
+// TWO PROFILE KINDS, both EXACT:
+//   * POLYGON  — the same rotation-minimizing mitre transport pipeShell() uses
+//     (see the MITRE derivation in the .cpp banner). Any number of legs.
+//   * CIRCLE   — a chain of mitre-trimmed circular cylinders, every lateral face
+//     an analytic Geom_CylindricalSurface and every cap a Geom_Plane. This kind
+//     exists because forge::part::pipeFromPolyline feeds a CIRCLE, so a
+//     polygon-only engine would leave that entry point permanently deferring.
+//
+// Returns a null TopoDS_Shape on HONEST DEFER — never a plausible wrong shape.
+// Defers: a closed/curved/zero-length spine, a profile that is neither a polygon
+// nor a circle, a profile plane not perpendicular to the first leg on a
+// multi-leg spine, a 180-degree spine reversal, a non-planar lateral quad, and a
+// mitre trim or leg union that does not close.
+TopoDS_Shape pipe(const TopoDS_Wire& spine, const TopoDS_Shape& profile,
+                  double tol = 1.0e-6);
+
+// Routing for family E, mirroring loftNativeEnabled/pipeShellNativeEnabled:
+// always true under FORGE_PIPE_DROP_NATIVE (the OCCT fallback is compiled out),
+// otherwise the env opt-in FORGE_PIPE_NATIVE=1, default OFF.
+bool pipeNativeEnabled();
+
 }  // namespace occtloft
 }  // namespace forge
 
