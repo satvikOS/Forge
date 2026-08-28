@@ -113,11 +113,16 @@ jobs:
     # Phase 1 runs the gate normally; phase 2 re-runs the ENTIRE gate under an LD_PRELOAD/
     # DYLD_INSERT_LIBRARIES interposer that aborts a real socket(). Law 13 says every non-browser
     # function must behave identically with the network denied — phase 2 is that proof.
-    runs-on: ubuntu-latest
+    # macOS, deliberately. Phase 2 re-runs the WHOLE gate under a __DATA,__interpose dyld
+    # interposer that aborts a real socket() — that is the Law 13 / s12.4 proof this job is NAMED
+    # after, and it is macOS-only. Running it on ubuntu-latest meant phase 2 silently skipped while
+    # the check went green carrying "incl. network-denied phase" in its title. The script now hard
+    # fails on a platform where the proof cannot run, so this can never regress into a silent skip.
+    runs-on: macos-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: retrieval gates
+      - name: retrieval gates (phase 1 + network-denied phase 2)
         run: bash retrieval/run_retrieval_tests.sh
 
   s0_conformance:

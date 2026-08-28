@@ -13,11 +13,23 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DEPS="python3 $REPO/tools/deps/forge_deps.py"
 PLANEGCS="$REPO/forge-kernel/3rdParty/planegcs/GCS.cpp"
 BACKUP="$(mktemp "${TMPDIR:-/tmp}/GCS.cpp.orig.XXXXXX")"
+# Populate the backup IMMEDIATELY. mktemp creates a ZERO-BYTE file, and restore()'s `[ -f ]` guard
+# cannot tell that placeholder from a real backup — so before this line existed, any exit between
+# mktemp and the `cp` further down (a failed `brew --prefix`, a missing prefix, ^C) fired the EXIT
+# trap and copied an EMPTY file over the vendored GCS.cpp, truncating real source to zero bytes.
+cp "$PLANEGCS" "$BACKUP"
+BACKUP_VALID=1
 PASS=0
 FAIL=0
 
 restore() {
-  if [ -f "$BACKUP" ]; then cp "$BACKUP" "$PLANEGCS"; rm -f "$BACKUP"; fi
+  # Restore only from a backup we KNOW holds the original bytes. Existence is not validity.
+  if [ "${BACKUP_VALID:-0}" = "1" ] && [ -s "$BACKUP" ]; then
+    cp "$BACKUP" "$PLANEGCS"
+  elif [ -f "$BACKUP" ]; then
+    echo "[drift-gate] REFUSING to restore: backup is empty or unverified — leaving $PLANEGCS untouched" >&2
+  fi
+  rm -f "$BACKUP"
 }
 trap restore EXIT
 
@@ -75,6 +87,7 @@ run_case missing_prefix fail "installed_anchor_sha256 could not be computed" \
 
 # 4. Patch drift: revert one of the recorded Forge edits in the vendored planegcs
 #    source and confirm the patch contract catches it.
+# (backup already taken at startup; this re-take is a no-op kept for clarity)
 cp "$PLANEGCS" "$BACKUP"
 python3 - "$PLANEGCS" <<'PY'
 import sys, pathlib

@@ -63,6 +63,29 @@ echo "[retrieval] phase 1 (fixtures) PASSED"
 # a hard abort, then the WHOLE gate is re-run under it. If any code path in the
 # retrieval module reaches the network, this phase dies with SIGABRT. This is
 # the SACROSANCT 12.4 / 20.2 "works with network denied" proof.
+# A named proof must never SILENTLY not happen. Before this guard was explicit, phase 2 was
+# skipped on every non-Darwin host and the gate still exited 0 — while the CI job carrying its
+# name, "SearXNG client + redaction (incl. network-denied phase)", ran on ubuntu-latest. The
+# check was green and the proof it is named after had not run. That is the exact
+# green-signal-not-earned failure this suite exists to prevent, so an unsupported platform is now
+# a HARD FAILURE unless the operator explicitly opts out.
+if [ "$(uname -s)" != "Darwin" ]; then
+  if [ "${FORGE_ALLOW_NO_DENIAL_PROOF:-0}" = "1" ]; then
+    echo "[retrieval] phase 2 SKIPPED on $(uname -s): the dyld interposer is macOS-only."
+    echo "[retrieval] FORGE_ALLOW_NO_DENIAL_PROOF=1 was set, so this is an explicit, recorded"
+    echo "[retrieval] opt-out. THIS RUN DOES NOT PROVE THE NETWORK-DENIED PROPERTY."
+    echo "[retrieval] phase 1 result stands on its own; phase 2 is UNPROVEN here."
+    exit 0
+  fi
+  echo "[retrieval] FATAL: phase 2 (the network-denied proof) cannot run on $(uname -s)." >&2
+  echo "[retrieval] retrieval/test/net_denied_interpose.c is a __DATA,__interpose dyld" >&2
+  echo "[retrieval] interposer and is macOS-only. Run this gate on macOS, or port the" >&2
+  echo "[retrieval] interposer to LD_PRELOAD for glibc." >&2
+  echo "[retrieval] Refusing to exit 0: a gate must not claim a proof it did not perform." >&2
+  echo "[retrieval] Set FORGE_ALLOW_NO_DENIAL_PROOF=1 to accept phase 1 only, explicitly." >&2
+  exit 1
+fi
+
 if [ "$(uname -s)" = "Darwin" ]; then
   CC="${CC:-clang}"
   if ! "$CC" -dynamiclib -O1 retrieval/test/net_denied_interpose.c -o "$OUT/net_denied.dylib"; then

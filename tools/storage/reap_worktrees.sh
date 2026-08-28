@@ -31,6 +31,7 @@ RECEIPT="$RECEIPTS/reap-$STAMP.md"
 SURVIVING_REFS=$(git for-each-ref --format='%(refname)' refs/heads refs/remotes 2>/dev/null)
 
 reclaimed=0; kept=0; phantom=0; bytes=0
+removed_ok=0; removed_fail=0
 PHANTOM_UNLOCK=()
 plan=""
 
@@ -140,6 +141,10 @@ if [ $APPLY -eq 1 ]; then
     case "$wt" in "$REGISTERED_ROOT"/*) : ;; *) continue ;; esac
     [ "$wt" = "$CUR" ] && continue
     if [ ! -d "$wt" ]; then continue; fi
+    # The apply loop re-derives its decisions, so it must repeat EVERY dry-run guard. Omitting the
+    # symlink-escape check meant a path the plan printed as KEEP could still be deleted here.
+    real="$(cd "$wt" 2>/dev/null && pwd -P)" || real=""
+    case "$real" in "$REGISTERED_ROOT"/*) : ;; *) echo "    skip (escapes registered root): $wt"; continue ;; esac
     dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
     [ "${dirty:-1}" != "0" ] && continue
     head=$(git -C "$wt" rev-parse HEAD 2>/dev/null)
@@ -150,8 +155,23 @@ if [ $APPLY -eq 1 ]; then
       git merge-base --is-ancestor "$head" "$r" 2>/dev/null && { ok=1; break; }
     done
     [ $ok -eq 1 ] || continue
-    git worktree remove --force "$wt" 2>&1 | sed 's/^/    /'
-    echo "    removed $wt"
+    # Capture the STATUS, not a pipeline's. Piping into sed discarded git's exit code and the
+    # unconditional echo below then reported a removal that may never have happened — the same
+    # "reports work it did not do" defect this script's post-condition check exists to catch.
+    # A worktree locked by a live agent needs --force TWICE; one --force is refused.
+    rm_out="$(git worktree remove --force "$wt" 2>&1)"; rm_rc=$?
+    if [ $rm_rc -ne 0 ]; then
+      rm_out="$(git worktree remove --force --force "$wt" 2>&1)"; rm_rc=$?
+    fi
+    printf '%s\n' "$rm_out" | sed 's/^/    /'
+    if [ $rm_rc -eq 0 ] && [ ! -d "$wt" ]; then
+      echo "    removed $wt"
+      removed_ok=$((removed_ok+1))
+    else
+      echo "    ⚠ NOT REMOVED (rc=$rm_rc, still on disk): $wt"
+      note "APPLY-FAILED $wt (rc=$rm_rc) — the plan plotted removal and git refused it"
+      removed_fail=$((removed_fail+1))
+    fi
   done < <(git worktree list)
 
   # release stale locks so prune can actually collect the phantom records
@@ -166,6 +186,11 @@ if [ $APPLY -eq 1 ]; then
   note ""
   note "APPLIED at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   note "worktree records: $before_n -> $after_n  (delta $((before_n - after_n)))"
+  note "removals: $removed_ok succeeded, $removed_fail REFUSED BY GIT"
+  if [ "$removed_fail" -gt 0 ]; then
+    note "WARNING: $removed_fail planned removal(s) did not happen. The receipt above lists them as"
+    note "         APPLY-FAILED. Do not read this run as having reclaimed them."
+  fi
   # A cleanup that reports removal it did not perform is worse than one that removes nothing.
   if [ "$before_n" = "$after_n" ] && [ $phantom -gt 0 ]; then
     note "WARNING: $phantom records were planned for prune but the count did NOT change."
