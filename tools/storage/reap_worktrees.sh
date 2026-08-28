@@ -84,22 +84,25 @@ _flush
 # plan was printed and a lock may have been taken in between. A bare `locked` record (no
 # reason) counts: the record's presence is the lock.
 is_locked_now() {
-  # FAIL CLOSED. This previously treated a failed `git worktree list` as "not locked", which is the
-  # fifth fail-open found in this script and, like the others, it pointed toward DELETION. If we
-  # cannot read the lock state we do not know it is unlocked — and a lock is the owner's explicit
-  # statement that this tree must not be removed.
-  local _wt="$1" _out _rc
-  _out="$(git worktree list --porcelain 2>&1)"; _rc=$?
-  if [ $_rc -ne 0 ]; then
-    echo "UNKNOWN"      # caller treats anything but "no" as locked
-    return 0
+  # FAIL CLOSED (CodeRabbit): a FAILED `git worktree list` used to fall through to the final test
+  # with cur="" and report "not locked" — the fifth fail-open in this script, and like every other
+  # it pointed toward DELETION. If the lock state cannot be read we do not know it is unlocked, and
+  # a lock is the owner's explicit statement that this tree must not be removed.
+  # The -z parsing below is deliberate and must not be "simplified": worktree paths contain spaces
+  # (the gate's own fixtures use "done agent"), so a whitespace-splitting parse truncates them.
+  if ! git worktree list --porcelain -z >/dev/null 2>&1; then
+    return 0   # unreadable => treat as LOCKED
   fi
-  if printf '%s\n' "$_out" | awk -v w="$_wt" '
-        $1=="worktree" { cur=$2 } $1=="locked" && cur==w { found=1 } END { exit(found?0:1) }'; then
-    echo "yes"
-  else
-    echo "no"
-  fi
+  local want="$1" cur="" locked=0 entry
+  while IFS= read -r -d '' entry; do
+    case "$entry" in
+      "worktree "*)
+        if [ "$cur" = "$want" ] && [ "$locked" = "1" ]; then return 0; fi
+        cur="${entry#worktree }"; locked=0 ;;
+      "locked"|"locked "*) locked=1 ;;
+    esac
+  done < <(git worktree list --porcelain -z)
+  [ "$cur" = "$want" ] && [ "$locked" = "1" ]
 }
 
 i=0
@@ -203,12 +206,27 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
   case "$wt_base" in
     wf_*|agent-*)
       run_id="${wt_base%-*}"
-      recent="$(find "$HOME/.claude/projects" -type d -name "${run_id}*" -mmin -30 2>/dev/null | head -1)"
-      live_claude="$(ps -Ao comm= 2>/dev/null | grep -c '[c]laude' || true)"
-      if [ -n "$recent" ] || [ "${live_claude:-0}" -gt 0 ]; then
+      # Liveness must be scoped to THIS run, not to the machine. The first version OR-ed in
+      # `ps | grep claude`, which is true whenever any agent is alive anywhere — so during a fanout
+      # every worktree was KEPT and the reaper reclaimed nothing at exactly the moment disk pressure
+      # peaks. Correct, and useless.
+      #
+      # Scope by the run's own transcript directory, and fail CLOSED on ignorance:
+      #   dir exists and touched recently  -> ACTIVE, keep
+      #   dir exists and stale             -> not active by this signal, fall through to the other checks
+      #   dir does not exist               -> UNKNOWN run, keep (uncertainty means keep)
+      tdir_root="$HOME/.claude/projects"
+      run_dir="$(find "$tdir_root" -type d -name "${run_id}*" 2>/dev/null | head -1)"
+      if [ -z "$run_dir" ]; then
         note "KEEP    $wt"
-        note "        reason: ACTIVE-AGENT worktree — run ${run_id} has transcript activity in the"
-        note "                last 30 min or a claude process is live. Not-yet-dirty is not finished."
+        note "        reason: UNKNOWN agent run ${run_id} — no transcript directory found, so its"
+        note "                liveness cannot be established. Uncertainty means keep."
+        kept=$((kept+1)); continue
+      fi
+      if [ -n "$(find "$run_dir" -mmin -30 2>/dev/null | head -1)" ]; then
+        note "KEEP    $wt"
+        note "        reason: ACTIVE-AGENT worktree — run ${run_id} has transcript activity within"
+        note "                30 min. Not-yet-dirty is not finished."
         kept=$((kept+1)); continue
       fi
       ;;
