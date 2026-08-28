@@ -273,10 +273,10 @@ int main() {
                  rep.maxProbeDelta, kProbeEnvelope);
         t.predicate("confirmation verdict is inside BOTH declared envelopes",
                     rep.withinEnvelope,
-                    "maxPositionDelta=" + std::to_string(rep.maxPositionDelta) +
-                    " (bound " + std::to_string(rep.declaredEnvelope) + ") maxProbeDelta=" +
-                    std::to_string(rep.maxProbeDelta) + " (bound " +
-                    std::to_string(rep.declaredProbeEnvelope) + ")");
+                    "maxPositionDelta=" + forge::simtest::fmtG(rep.maxPositionDelta) +
+                    " (bound " + forge::simtest::fmtG(rep.declaredEnvelope) + ") maxProbeDelta=" +
+                    forge::simtest::fmtG(rep.maxProbeDelta) + " (bound " +
+                    forge::simtest::fmtG(rep.declaredProbeEnvelope) + ")");
         // Halving dt MUST change the answer at some digit. The SEQUENCE HASHES
         // cannot show that: solverStep is hashed and the refined run's ladder
         // is twice as fine by construction, so they differ even if the refined
@@ -288,14 +288,14 @@ int main() {
         // above.
         t.predicate("the refinement genuinely moved the trajectory (delta > 0)",
                     rep.maxPositionDelta > 0.0,
-                    "maxPositionDelta=" + std::to_string(rep.maxPositionDelta) +
-                    " must be > 0 and <= " + std::to_string(rep.declaredEnvelope));
+                    "maxPositionDelta=" + forge::simtest::fmtG(rep.maxPositionDelta) +
+                    " must be > 0 and <= " + forge::simtest::fmtG(rep.declaredEnvelope));
         t.equalU64("the confirmation's live half reproduces the main run's hash",
                    rep.liveSequenceHash, run.sequenceHash);
-        t.note("confirmation: dt " + std::to_string(rep.liveDt) + " -> " +
-               std::to_string(rep.confirmationDt) + ", maxPosDelta=" +
-               std::to_string(rep.maxPositionDelta) + " m, worst probe \"" +
-               rep.maxProbeName + "\" delta=" + std::to_string(rep.maxProbeDelta));
+        t.note("confirmation: dt " + forge::simtest::fmtG(rep.liveDt) + " -> " +
+               forge::simtest::fmtG(rep.confirmationDt) + ", maxPosDelta=" +
+               forge::simtest::fmtG(rep.maxPositionDelta) + " m, worst probe \"" +
+               rep.maxProbeName + "\" delta=" + forge::simtest::fmtG(rep.maxProbeDelta));
     }
 
     // ---- 6. the frames ARE the integrator's trajectory --------------------

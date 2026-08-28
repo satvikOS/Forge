@@ -188,8 +188,8 @@ int main() {
                  rep.maxProbeDelta, kProbeEnvelope);
         t.predicate("confirmation verdict is inside BOTH declared envelopes",
                     rep.withinEnvelope,
-                    "maxPositionDelta=" + std::to_string(rep.maxPositionDelta) +
-                    " maxProbeDelta=" + std::to_string(rep.maxProbeDelta) +
+                    "maxPositionDelta=" + forge::simtest::fmtG(rep.maxPositionDelta) +
+                    " maxProbeDelta=" + forge::simtest::fmtG(rep.maxProbeDelta) +
                     " (worst probe \"" + rep.maxProbeName + "\")");
         // NOT a hash comparison: see the ConfirmationReport note. solverStep is
         // hashed and the refined ladder is twice as fine, so the hashes differ
@@ -199,12 +199,12 @@ int main() {
         // would put frame i at twice the simulated time and miss by ~0.1 m.
         t.predicate("the refinement genuinely moved the trajectory (delta > 0)",
                     rep.maxPositionDelta > 0.0,
-                    "maxPositionDelta=" + std::to_string(rep.maxPositionDelta) +
-                    " must be > 0 and <= " + std::to_string(rep.declaredEnvelope));
-        t.note("confirmation: dt " + std::to_string(rep.liveDt) + " -> " +
-               std::to_string(rep.confirmationDt) + ", maxPosDelta=" +
-               std::to_string(rep.maxPositionDelta) + " m, worst probe \"" +
-               rep.maxProbeName + "\" delta=" + std::to_string(rep.maxProbeDelta));
+                    "maxPositionDelta=" + forge::simtest::fmtG(rep.maxPositionDelta) +
+                    " must be > 0 and <= " + forge::simtest::fmtG(rep.declaredEnvelope));
+        t.note("confirmation: dt " + forge::simtest::fmtG(rep.liveDt) + " -> " +
+               forge::simtest::fmtG(rep.confirmationDt) + ", maxPosDelta=" +
+               forge::simtest::fmtG(rep.maxPositionDelta) + " m, worst probe \"" +
+               rep.maxProbeName + "\" delta=" + forge::simtest::fmtG(rep.maxProbeDelta));
     }
 
     // ---- 6. the closed form itself is the open branch we build from -------
