@@ -379,6 +379,63 @@ std::vector<std::pair<std::string, double>> scanNumericLiterals(const std::strin
   return out;
 }
 
+// ── SHORT REGISTERED TERMS ───────────────────────────────────────────────────
+// A registered term of one or two normalized characters used to be skipped by
+// BOTH the classifier and the independent residue scan, so a one- or two-letter
+// customer code, project codename or part prefix went to the wire AND the
+// post-check called the buffer clean. Two layers with one blind spot is exactly
+// the failure a default-deny design exists to prevent.
+//
+// The floor existed for precision, not for safety: a naive substring scan for
+// "q" redacts "torque", "quality" and "sequence", and a redactor that destroys
+// the question is useless in its own way. The fix keeps the precision and drops
+// the hole: a SHORT term must match a COMPLETE alphanumeric run. "Zx" matches
+// "Zx", "Zx-1" and "zx." — it does not match "zxy" or "azx".
+constexpr std::size_t kShortTermMaxLen = 2;
+
+// True when [begin, end) inside `s` is a whole alphanumeric run: neither
+// neighbouring byte is an ASCII alphanumeric.
+bool isWholeAlnumRun(const std::string& s, std::size_t begin, std::size_t end) {
+  if (begin > 0 && isAsciiAlnum(static_cast<unsigned char>(s[begin - 1]))) return false;
+  if (end < s.size() && isAsciiAlnum(static_cast<unsigned char>(s[end]))) return false;
+  return true;
+}
+
+// normalizeForMatch() plus the index map that carries a normalized offset back
+// to the byte offset it came from. Both matching layers need the map, because
+// the whole-run test above can only be made in the ORIGINAL bytes: normalization
+// deletes the very punctuation that marks a token boundary.
+std::string normalizeWithMap(const std::string& s, std::vector<std::size_t>& map) {
+  std::string out;
+  out.reserve(s.size());
+  map.clear();
+  map.reserve(s.size());
+  for (std::size_t i = 0; i < s.size(); ++i) {
+    const unsigned char c = static_cast<unsigned char>(s[i]);
+    if (isAsciiAlnum(c)) {
+      out.push_back(static_cast<char>(std::tolower(c)));
+      map.push_back(i);
+    }
+  }
+  return out;
+}
+
+// Find the next occurrence of `needle` in `norm` at or after `from` that the
+// term's length is allowed to claim. Returns npos when there is none.
+std::size_t findRegisteredTerm(const std::string& norm, const std::vector<std::size_t>& map,
+                               const std::string& source, const std::string& needle,
+                               std::size_t from) {
+  const bool whole_run_only = needle.size() <= kShortTermMaxLen;
+  for (std::size_t at = norm.find(needle, from); at != std::string::npos;
+       at = norm.find(needle, at + 1)) {
+    if (!whole_run_only) return at;
+    const std::size_t begin = map[at];
+    const std::size_t end = map[at + needle.size() - 1] + 1;
+    if (isWholeAlnumRun(source, begin, end)) return at;
+  }
+  return std::string::npos;
+}
+
 }  // namespace
 
 const char* redactionKindName(RedactionKind kind) {
@@ -549,29 +606,22 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   // Match every lexicon term against a punctuation- and case-insensitive
   // normalization of the input, so "ACME-4471-B", "acme 4471 b" and "Acme4471B"
   // are all the same term. An index map carries matches back to raw offsets.
-  std::string norm;
   std::vector<std::size_t> map;
-  norm.reserve(raw.size());
-  map.reserve(raw.size());
-  for (std::size_t i = 0; i < raw.size(); ++i) {
-    const unsigned char c = static_cast<unsigned char>(raw[i]);
-    if (isAsciiAlnum(c)) {
-      norm.push_back(static_cast<char>(std::tolower(c)));
-      map.push_back(i);
-    }
-  }
+  const std::string norm = normalizeWithMap(raw, map);
 
   std::vector<Span> spans;
   auto markCategory = [&](const std::vector<std::string>& terms, RedactionKind kind) {
     for (const std::string& term : terms) {
       const std::string needle = detail::normalizeForMatch(term);
-      if (needle.size() < 3) continue;  // too short to match without false hits
-      std::size_t at = norm.find(needle, 0);
+      // An empty term would match everywhere; a SHORT one matches whole
+      // alphanumeric runs only. Length never buys a term an exemption.
+      if (needle.empty()) continue;
+      std::size_t at = findRegisteredTerm(norm, map, raw, needle, 0);
       while (at != std::string::npos) {
         const std::size_t begin = map[at];
         const std::size_t end = map[at + needle.size() - 1] + 1;
         spans.push_back(Span{begin, end, kind});
-        at = norm.find(needle, at + 1);
+        at = findRegisteredTerm(norm, map, raw, needle, at + 1);
       }
     }
   };
@@ -741,14 +791,21 @@ RedactionResult Redactor::redact(const std::string& raw) const {
 bool Redactor::verifyNoResidue(const std::string& wire, std::vector<std::string>& residue) const {
   residue.clear();
   const std::string decoded = detail::decodeForResidueScan(wire);
-  const std::string norm = detail::normalizeForMatch(decoded);
+  std::vector<std::size_t> map;
+  const std::string norm = normalizeWithMap(decoded, map);
 
   // (a) registered terms, by normalized substring — independent of the classifier.
+  //     Short terms use the same whole-alphanumeric-run rule as the classifier,
+  //     so this layer's reach matches what redact() is expected to have removed.
+  //     Note the deliberate consequence for a ONE-character term: `wire` may be a
+  //     whole HTTP request, whose envelope carries runs like "q" and "1", so such
+  //     a term makes the client refuse to send. That is fail-CLOSED, and the only
+  //     honest answer when a registered secret is a single character.
   auto scanCategory = [&](const std::vector<std::string>& terms, const char* label) {
     for (std::size_t i = 0; i < terms.size(); ++i) {
       const std::string needle = detail::normalizeForMatch(terms[i]);
-      if (needle.size() < 3) continue;
-      if (norm.find(needle) != std::string::npos) {
+      if (needle.empty()) continue;
+      if (findRegisteredTerm(norm, map, decoded, needle, 0) != std::string::npos) {
         // NEVER echo the secret itself into a diagnostic string.
         residue.push_back(std::string(label) + " lexicon entry #" + std::to_string(i) +
                           " survives in the outgoing buffer");

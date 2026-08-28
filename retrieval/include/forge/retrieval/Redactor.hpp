@@ -26,7 +26,9 @@
 // POST-CONDITION: verifyNoResidue() re-scans the fully serialized outgoing bytes
 // (percent-decoded) for private residue using checks that do NOT depend on the
 // classifier that produced them — a normalized substring scan for every lexicon
-// term and a parsed-value scan for every registered secret dimension. A bug in
+// term (a term of one or two normalized characters must match a whole
+// alphanumeric run, so precision survives at length 1 without the term becoming
+// exempt) and a parsed-value scan for every registered secret dimension. A bug in
 // redact() therefore cannot silently leak a registered secret; the client refuses
 // to write the socket when residue is found.
 //
