@@ -1,0 +1,41 @@
+{
+  "query": "ISO 2768 medium class general tolerance bore",
+  "number_of_results": 5,
+  "results": [
+    {
+      "url": "https://www.iso.org/standard/6392.html",
+      "title": "ISO 2768-1:1989 General tolerances",
+      "content": "General tolerances for linear and angular dimensions without individual tolerance indications. Tolerance class m (medium) applies a permissible deviation of 0.2 mm for nominal lengths over 30 up to 120 mm.",
+      "engine": "duckduckgo",
+      "publishedDate": "1989-11-01T00:00:00Z"
+    },
+    {
+      "url": "https://doi.org/10.1016/j.precisioneng.2019.04.011",
+      "title": "On the interpretation of general tolerance classes",
+      "content": "We compare the deviation envelopes implied by ISO 2768 classes f, m, c and v across 412 machined features and report a systematic bias of 0.03 mm in class m.",
+      "engine": "crossref",
+      "publishedDate": "2019-04-15T00:00:00Z"
+    },
+    {
+      "url": "https://docs.example-machining.com/handbook/tolerances",
+      "title": "Machining handbook: general tolerance selection",
+      "content": "Class m is the default for general machining. Specify a tighter class only where function requires it, since class f roughly doubles inspection time.",
+      "engine": "google",
+      "publishedDate": "2023-06-02T00:00:00Z"
+    },
+    {
+      "url": "https://en.wikipedia.org/wiki/Engineering_tolerance",
+      "title": "Engineering tolerance",
+      "content": "Engineering tolerance is the permissible limit of variation in a physical dimension.",
+      "engine": "wikipedia",
+      "publishedDate": "2026-01-11T00:00:00Z"
+    },
+    {
+      "url": "https://engineering.stackexchange.com/questions/44120/iso-2768-m",
+      "title": "How strictly is ISO 2768 m enforced in practice?",
+      "content": "In my shop we treat class m as advisory for non-mating features, which is not what the standard says.",
+      "engine": "duckduckgo",
+      "publishedDate": "2026-07-30T00:00:00Z"
+    }
+  ]
+}
