@@ -772,6 +772,93 @@ int main(int argc, char** argv) {
           "the designation actually allowed still passes");
   }
 
+
+  // A lexicon term is AUTHORITATIVE: registering it is a deliberate act, and its
+  // LENGTH is not a licence to ignore it. Both layers used to skip any term whose
+  // normalized form was shorter than three characters, so a one- or two-character
+  // customer code went to the wire AND the independent post-check called the
+  // buffer clean — the two layers failed together, which is the one thing a
+  // default-deny design must never do. Short terms are matched as whole
+  // alphanumeric runs rather than substrings, so precision holds at length 1.
+  section("12.1 a short lexicon term is still a lexicon term");
+  {
+    PrivateLexicon one;
+    one.project_names = {"Q"};
+    const Redactor rq(one);
+    const RedactionResult r1 = rq.redact("tolerance for Q housing bracket");
+    std::cout << "  wire  : " << r1.wire_query << "\n";
+    check(!containsCI(r1.wire_query, "Q"), "a 1-char registered project is gone from the wire query");
+    check(r1.removedAnyOf(RedactionKind::RegisteredProject),
+          "and the removal is classified as RegisteredProject, not silently dropped");
+    std::vector<std::string> residue;
+    check(!rq.verifyNoResidue("tolerance for Q housing bracket", residue),
+          "the independent verifier reports residue for the 1-char term");
+    residue.clear();
+    check(rq.verifyNoResidue(r1.wire_query, residue),
+          "and finds the redacted wire query clean");
+
+    PrivateLexicon two;
+    two.customer_names = {"Zx"};
+    const Redactor rz(two);
+    const RedactionResult r2 = rz.redact("surface finish for Zx flange");
+    std::cout << "  wire  : " << r2.wire_query << "\n";
+    check(!containsCI(r2.wire_query, "Zx"), "a 2-char registered customer is gone from the wire query");
+    check(r2.removedAnyOf(RedactionKind::RegisteredCustomer),
+          "and the removal is classified as RegisteredCustomer");
+    residue.clear();
+    check(!rz.verifyNoResidue("surface finish for Zx flange", residue),
+          "the independent verifier reports residue for the 2-char term");
+
+    PrivateLexicon three;
+    three.project_names = {"Qzr"};
+    const Redactor r3r(three);
+    const RedactionResult r3 = r3r.redact("tolerance for Qzr housing bracket");
+    check(!containsCI(r3.wire_query, "Qzr"), "the 3-char case still redacts (no regression)");
+    residue.clear();
+    check(!r3r.verifyNoResidue("tolerance for Qzr housing bracket", residue),
+          "and the 3-char verifier path still reports residue");
+
+    // The term still has to be spelled however it is spelled: punctuation and
+    // case are normalized away, so "K-9" registered catches "k9" on the wire.
+    PrivateLexicon punct;
+    punct.part_numbers = {"K-9"};
+    const Redactor rk(punct);
+    const RedactionResult r4 = rk.redact("material choice for k9 bracket");
+    std::cout << "  wire  : " << r4.wire_query << "\n";
+    check(!containsCI(r4.wire_query, "k9"),
+          "a punctuated 2-char part number matches its unpunctuated spelling");
+  }
+
+  // PRECISION. Dropping the length floor to a naive substring scan would redact
+  // every word containing the letter and destroy the question, which is its own
+  // kind of useless. A short term matches a WHOLE alphanumeric run or nothing.
+  section("12.1 a short lexicon term matches whole tokens, not substrings");
+  {
+    PrivateLexicon one;
+    one.project_names = {"Q"};
+    const Redactor rq(one);
+    const RedactionResult r = rq.redact("quality of the bracket sequence and torque");
+    std::cout << "  wire  : " << r.wire_query << "\n";
+    check(containsCI(r.wire_query, "quality"), "'quality' is not eaten by the 1-char term 'Q'");
+    check(containsCI(r.wire_query, "sequence"), "nor is 'sequence'");
+    check(containsCI(r.wire_query, "torque"), "nor is 'torque'");
+    check(r.countOf(RedactionKind::RegisteredProject) == 0, "and no registered removal was invented");
+    std::vector<std::string> residue;
+    check(rq.verifyNoResidue("quality of the bracket sequence and torque", residue),
+          "the independent verifier does not flag those words as residue either");
+
+    PrivateLexicon two;
+    two.customer_names = {"Zx"};
+    const Redactor rz(two);
+    const RedactionResult r2 = rz.redact("the zxy alloy and the azx coating");
+    std::cout << "  wire  : " << r2.wire_query << "\n";
+    check(containsCI(r2.wire_query, "zxy"), "a longer token merely CONTAINING the 2-char term survives");
+    check(containsCI(r2.wire_query, "azx"), "including when the term is at the end of it");
+    residue.clear();
+    check(rz.verifyNoResidue("the zxy alloy and the azx coating", residue),
+          "and the verifier agrees that neither is residue");
+  }
+
   std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
   return g_fail == 0 ? 0 : 1;
 }
