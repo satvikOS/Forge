@@ -103,3 +103,24 @@ volume 504 = 7·8·9, i.e. FOOBAR became a box. That is fixed at HEAD.
 
 Committing the in-flight work to its own branch is no longer just hygiene — the working tree is now
 the version that scores an unknown operator as a valid solid.
+
+---
+
+## Cross-track conflicts, 2026-08-28 — three branches deferred
+
+These are conflicts BETWEEN TRACKS, not with the in-flight work. All commits are safe on their
+branches; none is lost. They need real resolution rather than an auto-merge.
+
+| Branch | Conflicting paths | Nature |
+| --- | --- | --- |
+| `worktree-wf_46ab8b53-ead-1` | `Features.cpp`, `native_vs_occt_features_gap1.mjs` | content — two tracks edited the same kernel function |
+| `worktree-wf_5dcbcd5f-963-8` | `StorageGovernor.{hpp,cpp}`, `storage_govern_main.cpp`, `storage_plan.sh`, `storage_governor_test.cpp`, plan artifacts | **add/add — two waves independently BUILT THE SAME SUBSYSTEM** |
+| `worktree-wf_e04fbd3d-e24-2` | `IoExchange.cpp`, `StepRead.cpp` | content — STEP import path |
+
+The storage one is a process finding, not just a merge chore: two separate waves were each briefed
+to "find it; if it is not on your branch, re-create it", and both re-created it. That instruction is
+correct in isolation and duplicative in aggregate. A future brief must name the branch to build ON
+when prior work exists, rather than leaving re-creation to the agent's judgement.
+
+Resolution rule: keep the version with the stronger test evidence, and re-run BOTH tracks' gates
+against the merged result. Neither may be discarded on recency.
