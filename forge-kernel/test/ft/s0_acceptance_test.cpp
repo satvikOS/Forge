@@ -25,7 +25,9 @@
 // A failing assertion here names a real, exact gap. Do not weaken it.
 // ============================================================================
 
+#include "forge/ft/ChunkChain.hpp"
 #include "forge/ft/FeatureTree.hpp"
+#include "forge/ft/GraphAudit.hpp"
 
 #include <cstdio>
 #include <exception>
@@ -34,7 +36,11 @@
 #include <string>
 #include <vector>
 
+using forge::ft::ChainFault;
+using forge::ft::ChainVerdict;
+using forge::ft::ChunkStream;
 using forge::ft::FeatureTree;
+using forge::ft::GraphAudit;
 using forge::ft::Op;
 using forge::ft::OpCode;
 using forge::ft::TokKind;
@@ -450,6 +456,288 @@ void testPatternExplicit() {
     }
 }
 
+
+// ============================================================================
+// TEST 4 — CHUNK-CORRUPTION  (SACROSANCT s0.11 + Appendix B)
+//
+// "remove, duplicate, reorder, or alter one chunk" -> "hash/count chain detects
+// corruption before acceptance".
+//
+// The chain did not exist when this file was first written; forge::ft had no
+// chunked transport at all, so there was nothing to corrupt and nothing to
+// detect. It is implemented in include/forge/ft/ChunkChain.hpp +
+// src/ft/ChunkChain.cpp to the record layout s0.11 specifies (GraphHeader ->
+// FeatureChunk[] -> GraphFooter), and every assertion below is a VALUE against a
+// reference: a named ChainFault, an exact op count, or a FIPS 180-4 digest.
+//
+// "BEFORE acceptance" is asserted, not assumed: each corrupted stream is pushed
+// through forge::ft::accept(), the only path from a stream to a FeatureTree, and
+// must throw rather than return a graph.
+// ============================================================================
+void testChunkCorruption() {
+    group("CHUNK-CORRUPTION (s0.11 / Appendix B) — hash+count chain before acceptance");
+
+    // ---- 4a: the digest itself, against the FIPS 180-4 vectors --------------
+    // A chain is only as good as its hash. Asserting the two standard vectors is
+    // what separates "we call it SHA-256" from "it is SHA-256".
+    {
+        const std::string empty = forge::ft::sha256Hex("");
+        const std::string abc   = forge::ft::sha256Hex("abc");
+        check(empty == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "SHA-256(\"\") matches the FIPS 180-4 vector", "got " + empty);
+        check(abc == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+              "SHA-256(\"abc\") matches the FIPS 180-4 vector", "got " + abc);
+    }
+
+    // 12 source lines -> 11 ops + 1 RESULT terminator, chunked 3 lines at a time
+    // into 4 chunks, so a corruption can be placed in the middle of the chain.
+    const std::string ir =
+        "%1 = BOX(120, 80, 12)\n"
+        "%2 = HOLE(%1, 8, 40, 25, 0)\n"
+        "%3 = HOLE(%2, 8, -40, 25, 0)\n"
+        "%4 = HOLE(%3, 8, 40, -25, 0)\n"
+        "%5 = HOLE(%4, 8, -40, -25, 0)\n"
+        "%6 = FILLET(%5, 3)\n"
+        "%7 = CYL(20, 30)\n"
+        "%8 = FUSE(%6, %7)\n"
+        "%9 = SHELL(%8, 2)\n"
+        "%10 = HEAL(%9)\n"
+        "%11 = TAG(%10, \"@boss\", \"cyl:r=20\")\n"
+        "RESULT(%11)\n";
+
+    const ChunkStream clean = forge::ft::emitChunked(ir, 3);
+
+    // ---- 4b: control — an intact stream verifies AND accepts ----------------
+    {
+        const ChainVerdict v = forge::ft::verifyChain(clean);
+        check(v.accepted && v.fault == ChainFault::None && clean.chunks.size() == 4,
+              "control: intact stream verifies (4 chunks, fault=None)",
+              std::string("accepted=") + (v.accepted ? "yes" : "no") + " fault=" +
+                  forge::ft::toString(v.fault) + " chunks=" +
+                  std::to_string(clean.chunks.size()) + " detail=" + v.detail);
+
+        bool threw = false;
+        std::size_t ops = 0;
+        try { ops = forge::ft::accept(clean).ops.size(); }
+        catch (const std::exception& e) { threw = true; }
+        check(!threw && ops == 11,
+              "control: accept() of an intact stream yields the 11-op tree",
+              "threw=" + std::string(threw ? "yes" : "no") + " ops=" + std::to_string(ops));
+    }
+
+    // One corruption per case, each applied to the SAME clean stream.
+    struct Case {
+        const char* name;
+        ChainFault  expect;
+        ChunkStream (*corrupt)(ChunkStream);
+    };
+
+    const std::vector<Case> cases = {
+        // REMOVE chunk 2 of 4.
+        {"remove one chunk", ChainFault::SequenceGap,
+         [](ChunkStream s) { s.chunks.erase(s.chunks.begin() + 1); return s; }},
+
+        // DUPLICATE chunk 2.
+        {"duplicate one chunk", ChainFault::DuplicateSequence,
+         [](ChunkStream s) { s.chunks.insert(s.chunks.begin() + 2, s.chunks[1]); return s; }},
+
+        // REORDER chunks 2 and 3.
+        {"reorder two chunks", ChainFault::OutOfOrder,
+         [](ChunkStream s) { std::swap(s.chunks[1], s.chunks[2]); return s; }},
+
+        // ALTER one line inside chunk 2 — an 8 mm bolt hole silently becomes 12 mm.
+        // This is the corruption that would otherwise build a WRONG part with a
+        // clean bill of health.
+        {"alter one line in a chunk", ChainFault::ChunkAltered,
+         [](ChunkStream s) {
+             s.chunks[1].lines[0] = "%4 = HOLE(%3, 12, 40, -25, 0)";
+             return s;
+         }},
+
+        // ALTER a line AND re-hash that chunk, as a forger who knows the format
+        // would. The per-chunk digest now agrees with its own content, so only
+        // the CHAIN can catch it: chunk 3's back-link no longer matches.
+        {"alter a line and re-hash that chunk", ChainFault::LinkBroken,
+         [](ChunkStream s) {
+             s.chunks[1].lines[0] = "%4 = HOLE(%3, 12, 40, -25, 0)";
+             s.chunks[1].chunkHash = s.chunks[1].computeHash();
+             return s;
+         }},
+
+        // ALTER a line and re-chain the ENTIRE tail, so every back-link agrees.
+        // Only the footer's root hash and replay fingerprint are left to catch it.
+        {"alter a line and re-chain the whole tail", ChainFault::RootMismatch,
+         [](ChunkStream s) {
+             s.chunks[1].lines[0] = "%4 = HOLE(%3, 12, 40, -25, 0)";
+             std::string prev = s.chunks[0].chunkHash;
+             for (std::size_t i = 1; i < s.chunks.size(); ++i) {
+                 s.chunks[i].previousChunkHash = prev;
+                 s.chunks[i].chunkHash = s.chunks[i].computeHash();
+                 prev = s.chunks[i].chunkHash;
+             }
+             return s;
+         }},
+
+        // DROP a line from a chunk without touching the counts: the running
+        // count no longer matches the payload it claims to carry.
+        {"drop one line inside a chunk", ChainFault::ChunkAltered,
+         [](ChunkStream s) {
+             s.chunks[1].lines.pop_back();
+             return s;
+         }},
+
+        // A stream that stopped early must never be accepted (law 5).
+        {"stream marked PAUSED_INCOMPLETE", ChainFault::NotComplete,
+         [](ChunkStream s) { s.footer.completionStatus = "PAUSED_INCOMPLETE"; return s; }},
+    };
+
+    // ---- 4c: NEGATIVE CONTROL — nothing else would have caught the alteration
+    // The altered stream reassembles into perfectly well-formed IR: it parses
+    // clean, with the right op count, and builds a part whose 8 mm bolt hole is
+    // now 12 mm. Without the chain there is no signal at all. This is what makes
+    // the detections below attributable to the chain rather than to luck.
+    {
+        ChunkStream altered = clean;
+        altered.chunks[1].lines[0] = "%4 = HOLE(%3, 12, 40, -25, 0)";
+        ParseOutcome o = tryParse(forge::ft::reassemble(altered));
+        check(!o.threw && o.tree.ops.size() == 11,
+              "negative control: the altered payload is VALID IR (only the chain can see it)",
+              "threw=" + std::string(o.threw ? o.message : "no") +
+                  " ops=" + std::to_string(o.tree.ops.size()));
+    }
+
+    for (const Case& c : cases) {
+        const ChunkStream bad = c.corrupt(clean);
+        const ChainVerdict v = forge::ft::verifyChain(bad);
+        check(!v.accepted && v.fault == c.expect,
+              std::string("detects: ") + c.name + " -> " + forge::ft::toString(c.expect),
+              std::string("accepted=") + (v.accepted ? "yes" : "no") +
+                  " fault=" + forge::ft::toString(v.fault) +
+                  " atChunk=" + std::to_string(v.atChunk) + " detail=" + v.detail);
+
+        // ...and the detection happens BEFORE any IR is accepted.
+        bool threw = false;
+        std::size_t ops = 0;
+        try { ops = forge::ft::accept(bad).ops.size(); }
+        catch (const std::exception&) { threw = true; }
+        check(threw,
+              std::string("rejects BEFORE acceptance: ") + c.name,
+              threw ? "" : "accept() returned a " + std::to_string(ops) +
+                               "-op tree from a corrupted stream");
+    }
+}
+
+
+// ============================================================================
+// TEST 5 — GRAPH-QUALITY GATE  (SACROSANCT s0.4, Appendix B NOOP-PADDING)
+//
+// "The required values for unresolved references, unexplained orphans, opaque
+// placeholders, and unapproved failed nodes are zero."
+//
+// TEST 2 above asserts this law at the PARSER, and it still fails there by
+// construction: 2a requires parse() to RETURN the padded tree (so the orphans
+// can be computed from it) while 2b requires parse() to THROW on the same text.
+// Both cannot hold, so the law is enforced one stage later instead — at the
+// point of ACCEPTANCE, where the delivered root is known. forge::ft::auditGraph
+// is that gate, it is pure IR (no geometry, no kernel), and compile() refuses
+// any graph it does not call clean.
+//
+// Asserted here as VALUES: the exact orphan/unresolved/duplicate id lists.
+// ============================================================================
+void testGraphQualityGate() {
+    group("GRAPH-QUALITY GATE (s0.4) — zero orphans / unresolved refs at acceptance");
+
+    // ---- 5a: control — the clean 2-feature tree is accepted ----------------
+    {
+        ParseOutcome o = tryParse(
+            "%1 = BOX(80, 50, 12)\n"
+            "%2 = HOLE(%1, 6, 25, 0, 0)\n"
+            "RESULT(%2)\n");
+        const GraphAudit a = o.threw ? GraphAudit() : forge::ft::auditGraph(o.tree);
+        check(!o.threw && a.clean(),
+              "control: the un-padded tree passes the gate (report empty)",
+              "threw=" + std::string(o.threw ? o.message : "no") + " report=" + a.report());
+    }
+
+    // ---- 5b: the padded tree from TEST 2 is REJECTED, orphans named --------
+    {
+        ParseOutcome o = tryParse(
+            "%1 = BOX(80, 50, 12)\n"
+            "%2 = HOLE(%1, 6, 25, 0, 0)\n"
+            "%3 = TRANSLATE(%2, 0, 0, 0)\n"
+            "%4 = ROTATE(%3, 0, 0, 0, 1)\n"
+            "%5 = FUSE(%4, %4)\n"
+            "%6 = PATTERN(%5, LINEAR, 1, 0)\n"
+            "%7 = HEAL(%6)\n"
+            "%8 = COMMON(%7, %7)\n"
+            "%20 = CYL(3, 5)\n"
+            "%21 = TRANSLATE(%20, 900, 900, 900)\n"
+            "RESULT(%8)\n");
+        const GraphAudit a = o.threw ? GraphAudit() : forge::ft::auditGraph(o.tree);
+        check(!o.threw && !a.clean() &&
+                  a.unexplainedOrphans == std::vector<int>{20, 21},
+              "the dead branch is REJECTED at acceptance with %20,%21 named",
+              "threw=" + std::string(o.threw ? o.message : "no") +
+                  " report=" + a.report());
+    }
+
+    // ---- 5c: an unresolved reference is zero-tolerance ---------------------
+    {
+        ParseOutcome o = tryParse(
+            "%1 = BOX(80, 50, 12)\n"
+            "%2 = FUSE(%1, %9)\n"          // %9 is never defined
+            "RESULT(%2)\n");
+        const GraphAudit a = o.threw ? GraphAudit() : forge::ft::auditGraph(o.tree);
+        check(!o.threw && a.unresolvedRefs == std::vector<int>{9},
+              "an unresolved reference %9 is detected before any geometry is built",
+              "threw=" + std::string(o.threw ? o.message : "no") +
+                  " report=" + a.report());
+    }
+
+    // ---- 5d: a shadowed id is a duplicate definition, not a silent overwrite
+    {
+        ParseOutcome o = tryParse(
+            "%1 = BOX(80, 50, 12)\n"
+            "%2 = HOLE(%1, 6, 25, 0, 0)\n"
+            "%2 = HOLE(%1, 9, -25, 0, 0)\n"
+            "RESULT(%2)\n");
+        const GraphAudit a = o.threw ? GraphAudit() : forge::ft::auditGraph(o.tree);
+        check(!o.threw && a.duplicateIds == std::vector<int>{2},
+              "a duplicate %id definition is detected (one of the two would be lost)",
+              "threw=" + std::string(o.threw ? o.message : "no") +
+                  " report=" + a.report());
+    }
+
+    // ---- 5e: intent is not hidden — VERIFY/TAG are never orphans -----------
+    // A gate that called predicates padding would push emitters to stop writing
+    // assertions, which is the opposite of what s0.4 is for.
+    {
+        ParseOutcome o = tryParse(
+            "%1 = BOX(80, 50, 12)\n"
+            "%2 = HOLE(%1, 6, 25, 0, 0)\n"
+            "%3 = TAG(%2, \"@bore\", \"bore:r=3\")\n"
+            "%4 = VERIFY(%3, \"holes=1\")\n"
+            "RESULT(%3)\n");
+        const GraphAudit a = o.threw ? GraphAudit() : forge::ft::auditGraph(o.tree);
+        check(!o.threw && a.clean(),
+              "predicates (TAG/VERIFY) are not counted as padding",
+              "threw=" + std::string(o.threw ? o.message : "no") + " report=" + a.report());
+    }
+
+    // ---- 5f: the implicit-RESULT fallback is audited the same way ----------
+    {
+        ParseOutcome o = tryParse(
+            "%1 = BOX(80, 50, 12)\n"
+            "%9 = CYL(3, 5)\n"                  // orphan: nothing consumes it
+            "%2 = HOLE(%1, 6, 25, 0, 0)\n");    // no RESULT line at all
+        const GraphAudit a = o.threw ? GraphAudit() : forge::ft::auditGraph(o.tree);
+        check(!o.threw && a.unexplainedOrphans == std::vector<int>{9},
+              "a tree with no RESULT line is audited from the documented fallback root",
+              "threw=" + std::string(o.threw ? o.message : "no") +
+                  " report=" + a.report());
+    }
+}
+
 // ============================================================================
 int main() {
     std::printf("SACROSANCT 3.1 Appendix B — feature-DAG acceptance tests (s0)\n");
@@ -458,6 +746,8 @@ int main() {
     testOpaqueMacro();
     testNoopPadding();
     testPatternExplicit();
+    testChunkCorruption();
+    testGraphQualityGate();
 
     std::printf("\n---------------------------------------------------------------\n");
     std::printf("TOTAL  pass=%d  fail=%d\n", g_pass, g_fail);

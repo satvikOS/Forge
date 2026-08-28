@@ -34,17 +34,25 @@ FLAGS=(-std=c++20 -O0 -g -Wall
        -I"$KERNEL/include" -I"$OCCT_INC"
        -I"$KERNEL/3rdParty/planegcs" -I"$KERNEL/3rdParty/planegcs_eigen_shim")
 
-echo "[1/3] compile forge::ft TU (parser + compiler)"
+echo "[1/5] compile forge::ft TU (parser + compiler)"
 "$CXX" "${FLAGS[@]}" -c "$KERNEL/src/ft/FeatureTreeCompiler.cpp" -o "$OUT/FeatureTreeCompiler.o" || exit 2
 
-echo "[2/3] compile s0 acceptance test"
+# The chunk/hash chain (SACROSANCT s0.11, Appendix B CHUNK-CORRUPTION) is pure
+# std C++ and pulls no kernel symbol at all — it compiles with -Wextra clean.
+echo "[2/5] compile forge::ft chunk chain (s0.11)"
+"$CXX" "${FLAGS[@]}" -Wextra -c "$KERNEL/src/ft/ChunkChain.cpp" -o "$OUT/ChunkChain.o" || exit 2
+
+echo "[3/5] compile forge::ft graph-quality gate (s0.4)"
+"$CXX" "${FLAGS[@]}" -Wextra -c "$KERNEL/src/ft/GraphAudit.cpp" -o "$OUT/GraphAudit.o" || exit 2
+
+echo "[4/5] compile s0 acceptance test"
 "$CXX" "${FLAGS[@]}" -c "$HERE/s0_acceptance_test.cpp" -o "$OUT/s0_acceptance_test.o" || exit 2
 
-echo "[3/3] link (kernel symbols left unresolved; compile() is never called)"
-"$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" \
+echo "[5/5] link (kernel symbols left unresolved; compile() is never called)"
+"$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" \
     -o "$OUT/s0_acceptance" \
     -Wl,-undefined,dynamic_lookup -Wl,-no_fixup_chains 2>/dev/null || \
-"$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" \
+"$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" \
     -o "$OUT/s0_acceptance" \
     -Wl,-undefined,dynamic_lookup || exit 2
 

@@ -27,6 +27,7 @@
 // ============================================================================
 
 #include "forge/ft/FeatureTree.hpp"
+#include "forge/ft/GraphAudit.hpp"
 
 #include "forge/Primitives.hpp"
 #include "forge/Booleans.hpp"
@@ -51,6 +52,7 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -218,13 +220,17 @@ FeatureTree parse(const std::string& text) {
     std::string raw;
     int lineNo = 0;
 
-    // A generation cut off at the token ceiling ends mid-statement. Failing the
-    // WHOLE text for that discards every complete op before it — measured, five of
-    // five long emissions (99, 126, 79, 227 and 299 ops) died on their own final
-    // line and yielded ZERO information, which made every long-tree experiment
-    // unreadable. The parser already tolerates prose for the same reason; a
-    // truncated tail is the same problem. Count the lines so the LAST one can be
-    // dropped rather than fatal.
+    // A generation cut off at the token ceiling ends mid-statement. That is
+    // RESOURCE-EXHAUSTION, and SACROSANCT law 5 fixes both halves of what must
+    // happen: never claim success, and never discard the generated work. The old
+    // behaviour DROPPED the final malformed line and returned a tree — a success
+    // claim over a truncated graph, which is the silent truncation the
+    // constitution forbids outright. Now the same situation throws
+    // ParseError{Incomplete} carrying every op parsed so far as
+    // ParseError::checkpoint, so a caller that wants the salvage still gets it
+    // (measured: five long emissions of 99/126/79/227/299 ops each died on their
+    // own final line — that work is still recoverable, just no longer mistakable
+    // for a complete parse). Count the lines so the LAST one is identifiable.
     int totalLines = 0;
     {
         std::istringstream count(text);
@@ -232,23 +238,34 @@ FeatureTree parse(const std::string& text) {
         while (std::getline(count, tmp)) ++totalLines;
     }
 
-    bool truncatedTail = false;
-
     // The most recent `%id` defined, so a VERIFY written without an explicit body
     // can be bound to the thing it plainly means. Synthetic ids run NEGATIVE, a
     // space no emitted tree uses, so they can never collide with a model's own.
     int lastDefinedId = -1;
     int syntheticId = -1;
+    std::string line;                    // current statement, comment stripped
+    auto checkpoint = [&]() {
+        FeatureTree cp = ft;
+        cp.counts.parsed = cp.ops.size();
+        return cp;
+    };
     auto fail = [&](const std::string& why) {
-        // The final line of a truncated generation is not a syntax error in the
-        // author's intent — it is where the decoder stopped. Drop it and keep
-        // everything already parsed; anything earlier is a real error.
-        if (lineNo >= totalLines) { truncatedTail = true; return; }
-        throw std::runtime_error("ft parse line " + std::to_string(lineNo) + ": " + why);
+        if (lineNo >= totalLines)
+            throw ParseError(
+                ParseFailure::Incomplete, lineNo, line,
+                "ft parse line " + std::to_string(lineNo) +
+                    ": PAUSED_INCOMPLETE — the emission stopped mid-statement (" + why +
+                    "). " + std::to_string(ft.ops.size()) +
+                    " ops are attached as the last valid checkpoint; a truncated graph "
+                    "is never reported as a successful parse.",
+                checkpoint());
+        throw ParseError(ParseFailure::Syntax, lineNo, line,
+                         "ft parse line " + std::to_string(lineNo) + ": " + why);
     };
 
     while (std::getline(in, raw)) {
         ++lineNo;
+        ++ft.counts.sourceLines;
         // Strip an inline comment — '#' OR '//' — but never one inside a quoted
         // selector. splitTop() is quote-aware; this was not, so any selector
         // containing '#' was silently truncated into a parse error.
@@ -271,14 +288,15 @@ FeatureTree parse(const std::string& text) {
                 if (c == '/' && i + 1 < raw.size() && raw[i + 1] == '/') { cut = i; break; }
             }
         }
-        std::string line = trim(cut == std::string::npos ? raw : raw.substr(0, cut));
-        if (line.empty()) continue;
-        // tolerate prose: skip any line that is not IR (not `%id = ...` and not RESULT).
-        // The VLM sometimes wraps correct IR in explanatory prose; ignore it (eval: 25%->65% yield).
-        // VERIFY is exempt: see below — dropping it as prose made assertions silent.
-        if (line[0] != '%' && upper(line).rfind("RESULT", 0) != 0 &&
-            upper(line).rfind("VERIFY", 0) != 0) continue;
-        truncatedTail = false;
+        line = trim(cut == std::string::npos ? raw : raw.substr(0, cut));
+        if (line.empty()) {
+            // A line that is EMPTY once its comment is stripped is commentary or
+            // whitespace: non-executable by construction, and the only legal form
+            // of prose in this IR. Counted, never silently discarded.
+            if (cut == std::string::npos) ++ft.counts.blank;
+            else                          ++ft.counts.comments;
+            continue;
+        }
 
         // The FORMAT SPEC echoed back as though it were a statement. Every system
         // prompt says `One statement per line as %id = OP(args)`, and the model
@@ -294,7 +312,48 @@ FeatureTree parse(const std::string& text) {
             std::string flat;
             for (char c : line)
                 if (!std::isspace(static_cast<unsigned char>(c))) flat += c;
-            if (flat == "%id=OP(args)" || flat == "%id=OP(...)") continue;
+            if (flat == "%id=OP(args)" || flat == "%id=OP(...)") {
+                ++ft.counts.templates;   // counted, not silently dropped: the
+                                         // literal template names no op, no
+                                         // parameter and no count, so it cannot
+                                         // carry design intent.
+                continue;
+            }
+        }
+
+        // ------------------------------------------------- s0.5 FAIL CLOSED
+        // Every remaining line is an EXECUTABLE STATEMENT. Previously anything
+        // that was not `%id = ...`, RESULT or VERIFY was silently skipped by a
+        // "tolerate prose" branch, which accepted all six statements SACROSANCT
+        // 3.1 s0.5 forbids verbatim ("place six mounting tabs", "finish the
+        // remaining holes", ...) and dropped them from the graph. The part then
+        // built without the tabs and was reported as fully parsed — a wrong part
+        // reported green, which is strictly worse than a rejected one.
+        //
+        // Prose is still expressible, and that is the whole distinction: mark it
+        // as a COMMENT ('#' or '//') and it is counted as commentary above. An
+        // UNMARKED line is a statement, and a statement that is not a recognised
+        // typed op is rejected here, quoting the offending text and its line.
+        {
+            const std::string U = upper(line);
+            const bool isAssign = (line[0] == '%');
+            const bool isResult = (U.rfind("RESULT", 0) == 0);
+            const bool isVerify = (U.rfind("VERIFY", 0) == 0);
+            if (!isAssign && !isResult && !isVerify) {
+                throw ParseError(
+                    ParseFailure::OpaquePlaceholder, lineNo, line,
+                    "ft parse line " + std::to_string(lineNo) +
+                        ": rejected executable statement `" + line +
+                        "` — it is not a recognised typed op. SACROSANCT 3.1 s0.5: an "
+                        "executable placeholder omits identity, parameters, reference "
+                        "selection, failure behavior or exact count and is forbidden; "
+                        "s0.4 requires zero opaque placeholders and zero dropped "
+                        "statements. Write it as `%id = OP(args)`, or, if it is "
+                        "commentary rather than a step, mark it with '#' or '//'.",
+                    checkpoint());
+            }
+            if (isResult) ++ft.counts.terminators;
+            else          ++ft.counts.declared;
         }
 
         // A BARE `VERIFY "holes=4"` — the form ground-truth trees actually use, with
@@ -308,8 +367,6 @@ FeatureTree parse(const std::string& text) {
         if (line[0] != '%' && upper(line).rfind("VERIFY", 0) == 0) {
             if (lastDefinedId < 0) {
                 fail("VERIFY before any solid is defined");
-                if (truncatedTail) break;
-                continue;
             }
             std::string rest = trim(line.substr(6));
             if (rest.size() >= 2 && rest.front() == '(' && rest.back() == ')')
@@ -323,7 +380,6 @@ FeatureTree parse(const std::string& text) {
             std::size_t lp = line.find('('), rp = line.rfind(')');
             if (lp == std::string::npos || rp == std::string::npos || rp < lp) {
                 fail("malformed RESULT(...)");
-                if (truncatedTail) break;
             }
             std::string inner = trim(line.substr(lp + 1, rp - lp - 1));
             if (inner.empty() || inner[0] != '%') fail("RESULT expects %id");
@@ -349,6 +405,8 @@ FeatureTree parse(const std::string& text) {
                     double rv;
                     if (!in2.empty() && in2[0] == '%' && parseDouble(in2.substr(1), rv)) {
                         ft.resultId = static_cast<int>(rv);
+                        --ft.counts.declared;      // it binds a result, it is not
+                        ++ft.counts.terminators;   // a semantic feature
                         continue;
                     }
                 }
@@ -359,7 +417,6 @@ FeatureTree parse(const std::string& text) {
         std::size_t eq = line.find('=');
         if (eq == std::string::npos) {
             fail("expected `%id = OP(...)` or `RESULT(%id)`");
-            if (truncatedTail) break;
         }
         std::string lhs = trim(line.substr(0, eq));
         std::string rhs = trim(line.substr(eq + 1));
@@ -370,7 +427,6 @@ FeatureTree parse(const std::string& text) {
         std::size_t lp = rhs.find('('), rp = rhs.rfind(')');
         if (lp == std::string::npos || rp == std::string::npos || rp < lp) {
             fail("expected OP( ... )");
-            if (truncatedTail) break;
         }
         std::string name = trim(rhs.substr(0, lp));
         std::string inner = trim(rhs.substr(lp + 1, rp - lp - 1));
@@ -479,6 +535,28 @@ FeatureTree parse(const std::string& text) {
         if (op.id >= 0) lastDefinedId = op.id;
         ft.ops.push_back(std::move(op));
     }
+
+    // ------------------------------------------- s0.4 CARDINALITY RECONCILE
+    // "N_declared_semantic_features == N_parsed_semantic_features". Every
+    // executable statement was counted as declared above and every op that
+    // survived is counted here. They can only differ if a statement was dropped
+    // between the two — which is precisely the failure this whole pass exists to
+    // make impossible, so it is a hard failure rather than a warning.
+    ft.counts.parsed = ft.ops.size();
+    if (!ft.counts.reconciles())
+        throw ParseError(
+            ParseFailure::Cardinality, lineNo, std::string(),
+            "ft parse: s0.4 cardinality mismatch — declared=" +
+                std::to_string(ft.counts.declared) + " parsed=" +
+                std::to_string(ft.counts.parsed) + " (comments=" +
+                std::to_string(ft.counts.comments) + " blank=" +
+                std::to_string(ft.counts.blank) + " templates=" +
+                std::to_string(ft.counts.templates) + " terminators=" +
+                std::to_string(ft.counts.terminators) + " lines=" +
+                std::to_string(ft.counts.sourceLines) +
+                "). N_declared_semantic_features must equal "
+                "N_parsed_semantic_features; a difference is a dropped statement.",
+            checkpoint());
     return ft;
 }
 
@@ -2007,6 +2085,12 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
 
     if (ft.ops.empty()) { out.error = "empty feature tree"; return out; }
 
+    // s0.4 count table, carried through the compile half. declared/parsed come
+    // from the parser's census; compiled is counted below, op by op.
+    out.nDeclared = ft.counts.declared;
+    out.nParsed   = ft.ops.size();
+    out.nCompiled = 0;
+
     // Each tree is an independent body and gets its own boolean hang-guard
     // budget. Without this, a batch run shares one process-global window and
     // healthy trees start failing once earlier trees have spent it.
@@ -2017,6 +2101,9 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
     builder.inputStep = inputStepPath;   // backs INPUT() for edit trees
     builder.res = &out;                  // VERIFY records each assertion here
     Handle lastSolid = 0;
+    int    lastSolidId = -1;   // the op id behind lastSolid: the root the s0.4
+                               // gate must measure reachability from when the
+                               // tree has no explicit RESULT(%id).
 
     for (const auto& op : ft.ops) {
         if (env.count(op.id)) {
@@ -2043,7 +2130,24 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
         v.kind = Builder::kindOf(op.code);
         v.h = h;
         env[op.id] = v;
-        if (v.kind == Val::Solid) lastSolid = h;
+        if (v.kind == Val::Solid) { lastSolid = h; lastSolidId = op.id; }
+        ++out.nCompiled;
+    }
+
+    // ------------------------------------------- s0.4 CARDINALITY RECONCILE
+    // "N_parsed_semantic_features == N_compiled_semantic_features". Every op is
+    // walked above and an op that fails returns early, so a mismatch here means
+    // the walk itself lost one. It is checked rather than assumed because the
+    // failure mode it guards — a declared feature that never reached the solid —
+    // is invisible in the geometry: the part just comes out missing a feature.
+    // nDeclared is 0 for a tree built in memory rather than parsed from text;
+    // only compare it when the parser actually filled the census.
+    if (out.nCompiled != out.nParsed ||
+        (ft.counts.parsed != 0 && out.nDeclared != out.nParsed)) {
+        out.error = "s0.4 cardinality mismatch: declared=" + std::to_string(out.nDeclared) +
+                    " parsed=" + std::to_string(out.nParsed) +
+                    " compiled=" + std::to_string(out.nCompiled);
+        return out;
     }
 
     // choose result
@@ -2059,6 +2163,29 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
         result = lastSolid;
     }
     if (result == 0) { out.error = "no SOLID produced (tree yields only profiles?)"; return out; }
+
+    // -------------------------------------------- s0.4 GRAPH-QUALITY GATE
+    // "The required values for unresolved references, unexplained orphans,
+    // opaque placeholders, and unapproved failed nodes are zero." Opaque
+    // placeholders are refused by the parser; the reachability half is refused
+    // here, at the last point where the delivered root is known and before any
+    // measurement is reported. An op that contributes nothing to the result is
+    // either padding (Appendix B NOOP-PADDING) or a feature the author believed
+    // was in the part and is not — and the second is why this cannot be a
+    // warning: the geometry looks fine, it is just missing something.
+    //
+    // Nothing is stripped or rewritten: the graph is REJECTED with the exact
+    // offending ids named, which is "without hiding required intent".
+    {
+        const int rootId = (ft.resultId >= 0) ? ft.resultId : lastSolidId;
+        const GraphAudit ga = auditGraph(ft, rootId);
+        if (!ga.clean()) {
+            out.error = ga.report();
+            if (!ga.unexplainedOrphans.empty())      out.failedOpId = ga.unexplainedOrphans.front();
+            else if (!ga.duplicateIds.empty())       out.failedOpId = ga.duplicateIds.front();
+            return out;
+        }
+    }
 
     out.handle = result;
 
@@ -2136,6 +2263,21 @@ CompileResult compileText(const std::string& text, const std::string& exportStep
     FeatureTree ft;
     try {
         ft = parse(text);
+    } catch (const ParseError& e) {
+        // The taxonomy is preserved in the reported error so a caller can tell a
+        // rejected placeholder (s0.5) from a truncated emission (law 5) without
+        // string-matching. Neither is ever reported as ok.
+        const char* tag = "PARSE";
+        switch (e.kind) {
+            case ParseFailure::OpaquePlaceholder: tag = "REJECTED_PLACEHOLDER"; break;
+            case ParseFailure::Cardinality:       tag = "CARDINALITY_MISMATCH"; break;
+            case ParseFailure::Incomplete:        tag = "PAUSED_INCOMPLETE";    break;
+            case ParseFailure::Syntax:            tag = "PARSE";                break;
+        }
+        out.error = std::string(tag) + ": " + e.what();
+        out.nParsed = e.checkpoint.ops.size();
+        out.nDeclared = e.checkpoint.counts.declared;
+        return out;
     } catch (const std::exception& e) {
         out.error = e.what();
         return out;
