@@ -68,3 +68,35 @@ win or a loss.** Both directions are noise.
 v5cap compiled **11 of 36**; v4a RE-EMIT compiled **23 of 36**. v5cap nevertheless scores
 **higher** paired (0.3576 vs 0.2904). Compiling more is not the same as building the right
 part, and a compile-rate improvement should never be quoted as a quality improvement.
+
+
+## What a properly-powered run would cost, and why the tail decides it
+
+Measured wall clock for the 36-task v5cap emission (flag-off): **40.1 minutes**, median task
+**19 s**, slowest task **559 s**.
+
+| id | seconds | ops |
+| --- | --- | --- |
+| ho254 | 559 | 379 |
+| ho225 | 286 | 586 |
+| ho135 | 285 | 201 |
+| ho126 | 284 | 11 |
+| ho151 | 282 | 251 |
+
+**The five slowest tasks are 71% of the total wall clock** (28.3 of 40.1 min). The median task
+is 19 seconds; the distribution is the same bimodal shape as the op counts.
+
+Extrapolated at this profile, the ~600 scored rows the power calculation demands cost roughly
+**11 hours per arm** -- and an arm comparison needs at least two. That is what makes the
+honest experiment unaffordable today, and it is the same tail described in
+`NON_TERMINATION_IS_BIMODAL.md`.
+
+So the two findings are one problem: **the runaway tail is not merely wasteful, it is the
+thing standing between this programme and a measurement that can answer its own question.**
+`NoveltyStop` exists, is off by default, and its neutrality has never been measured. If it is
+neutral, the tail collapses and a 600-row eval becomes a few hours instead of eleven. That is
+why the flag experiment is now the gating item for the whole MODEL track, above any further
+adapter.
+
+(ho126 is worth noting as a counter-example: 284 s for only 11 ops. Not every slow task is a
+repetition loop, so the tail will not vanish entirely -- part of it is slow kernel work.)
