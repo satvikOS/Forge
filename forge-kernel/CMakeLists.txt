@@ -413,27 +413,49 @@ endif()
 #   measured OCCT baseline"); for H it is the same measurement over the corpus parts that
 #   actually call offsetSolid.
 #
-# ★★★ FAMILY G HAS A HARD BLOCKER THAT IS NOT A COVERAGE GAP — MEASURED 2026-08-28.
-#   `part.shell` and `forge::occtoffset::makeThickSolid` DO NOT COMPUTE THE SAME
-#   OPERATION for a positive thickness. OCCT's MakeThickSolidByJoin with offset > 0
-#   grows the wall OUTWARD with the default rounded (GeomAbs_Arc) join; the native
-#   engine INSETS the cavity and keeps the outer boundary, with sharp corners
-#   (NativeThickSolid.hpp: "t>0 offsets the retained faces INWARD"). On the smoke's own
-#   10x10x10 box, shell(remove face 0, t = 1) measures
-#       OCCT   V = 564.926   (an OUTWARD wall with rounded edges)
-#       native V = 424.000   (= 1000 - 8*8*9, the EXACT inward wall)
-#   — a 25% divergence, and the two numbers are answers to different questions.
-#   This is PRE-EXISTING, not introduced by these options: it reproduces on a build with
-#   both of them OFF simply by setting the existing FORGE_THICKSOLID_NATIVE=1
-#   environment switch. It also reaches shellMultiThickness, which moves 1023.049 ->
-#   632.500 when family G is routed native at both of its sites.
-#   test/part_features_smoke.js stays GREEN through all of it, because its only
-#   assertion on these two entry points is `volume > 0`.
-#   THEREFORE: FORGE_THICKSOLID_DROP_NATIVE must not be flipped ON — and the
-#   FORGE_THICKSOLID_NATIVE env switch should not be used in anger — until either the
-#   sign/side convention is reconciled at the call site or part.shell's contract is
-#   restated as an inward hollow. Fixing that is a behaviour decision, not a build flag,
-#   so it is deliberately NOT made here. Family H has no such problem: its A/B matches
+# ★★★ FAMILY G's SIGN BLOCKER IS CLOSED — FIXED AND RE-MEASURED 2026-08-28.
+#   The blocker recorded here was REAL: `part.shell` and
+#   `forge::occtoffset::makeThickSolid` did not compute the same operation for a
+#   positive thickness. OCCT's MakeThickSolidByJoin with offset > 0 grows the wall
+#   OUTWARD with the default rounded (GeomAbs_Arc) join; the native engine INSETS the
+#   cavity and keeps the outer boundary (NativeThickSolid.hpp: "t>0 offsets the
+#   retained faces INWARD"). shell() passed the caller's RAW sign to OCCT and |sign|
+#   to both native routes, so one call ran two different ops. On the smoke's own
+#   10x10x10 box, shell(remove face 0, |t| = 1) measured
+#       OCCT  +1  V = 564.92625 = 500 + 20*pi + 2*pi/3   (OUTWARD, rounded joins;
+#                 = box(+)ball(1) 1000+600+30*pi+4*pi/3, minus the cap above the open
+#                   face 100+10*pi+2*pi/3, minus the 1000 that became the void),
+#                 and the bbox GREW from 10x10x10 to 12x12x11
+#       native +1 V = 424.00000 = 1000 - 8*8*9           (the EXACT inward wall)
+#   — 33% apart, and answers to different questions.
+#
+#   THE FIX (src/Features.cpp): shell() and shellMultiThickness() now derive ONE
+#   magnitude (`wall` / `baseWall` = |thickness|) and hand each route its own spelling
+#   of INWARD — native +wall, OCCT -wall. Inward is the contract every consumer already
+#   assumed: ft/FeatureTreeCompiler.cpp opShell passes -|wall| explicitly, the UI/AI
+#   bridges document "hollow out a solid", and an outward wall would move the part's
+#   outer dimensions, which a shell must never do. The sign of the argument is now
+#   IGNORED, so both spellings mean the same hollow (Features.hpp SIGN CONTRACT).
+#
+#   RE-MEASURED after the fix, all 6 faces of the box, BOTH routes:
+#       V = 424.00000 (=1000-8*8*9), A = 888.00000 (=500+352+36), bbox = the ORIGINAL
+#       10x10x10, chi = 2, genus = 0; max cross-route disagreement 1.3e-16 relative on
+#       volume, 4.4e-15 on the centroid, EXACTLY 0 on the bbox.
+#       shellMultiThickness now returns 632.50000 (=1000-7.5*7*7) instead of 1023.049.
+#   test/part_features_smoke.js no longer asserts `volume > 0` on either entry point:
+#   it asserts both routes against those closed forms AND against each other on volume,
+#   topology (chi/genus of the welded tessellation) and position (centroid + bbox), and
+#   carries negative controls — equal-volume shapes differing only in extent, only in
+#   position, and only in genus — that the comparator must reject. Proven able to fail:
+#   restoring the +wall sign makes it red with "shell f0 occt volume vs 1000-8*8*9: got
+#   564.926248"; a 1.05x native-side mutation makes it red with 441.430500.
+#
+#   WHAT THIS DOES *NOT* CLEAR: FORGE_THICKSOLID_DROP_NATIVE stays OFF. The two routes
+#   now agree wherever both answer, but the flip gate is still the corpus A/B of
+#   reports/TKOFFSET_DECOMPOSITION.md §5 step 6 ("native success rate >= the measured
+#   OCCT baseline"), which is a COVERAGE measurement and is still outstanding — the
+#   native engine honestly DECLINES cases OCCT answers (e.g. the closed-hollow box:
+#   shellNativeThick throws where the OCCT route returns, wrongly, the 512 cavity). Family H has no such problem: its A/B matches
 #   OCCT exactly on volume, position and topology across all nine cases.
 #
 #   EQUIVALENCE EVIDENCE FOR H (test/run_ab_native_offsetshape.sh, 206/206 assertions,

@@ -76,6 +76,17 @@ struct FaceThickness {
     double        thickness;
 };
 
+// HOLLOW `shape` to a uniform wall, opening the faces in `faceIdsToRemove`.
+//
+// SIGN CONTRACT: `thickness` is a WALL THICKNESS and the hollow is INWARD —
+// the OUTER ENVELOPE IS PRESERVED and the cavity is inset by |thickness|. The
+// sign of the argument is IGNORED (both +t and -t hollow inward), because the
+// two historical callers spell it differently: ft/FeatureTreeCompiler.cpp
+// opShell passes -|wall| while the UI/AI bridges pass +wall. Every internal
+// route -- native shellSolid, native makeThickSolid, and OCCT
+// MakeThickSolidByJoin -- is now driven from that one magnitude with its own
+// spelling of "inward" (OCCT's is NEGATIVE; a positive offset there grows the
+// wall OUTWARD with a rounded join, which is a DIFFERENT operation).
 ShapeHandle shell(ShapeHandle shape,
                   const std::vector<std::uint32_t>& faceIdsToRemove,
                   double thickness,
