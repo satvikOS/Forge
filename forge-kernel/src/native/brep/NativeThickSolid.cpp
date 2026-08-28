@@ -1159,6 +1159,356 @@ TopoDS_Shape planarThickSolid(const TopoDS_Shape& shape, double t,
     return solid;
 }
 
+// ===========================================================================
+//   PART 5b — WHOLE-SOLID OFFSET (TKOffset family H, BRepOffsetAPI_MakeOffsetShape)
+// ===========================================================================
+//
+// Slide EVERY boundary face along its OWN outward normal by the signed `dist`
+// and re-trim adjacent faces to their new mutual intersections — the SHARP
+// (GeomAbs_Intersection) join. This is NOT the hollow: the hollow KEEPS the
+// original boundary and adds an inset cavity; the offset REPLACES the boundary
+// and keeps nothing of it.
+//
+// Both paths are the thick-solid's own machinery with two substitutions, and
+// nothing else:
+//   * the retained/removed split disappears — every face is "retained", so
+//     contributing() is the OFFSET surface on BOTH sides of every edge and no
+//     rim is ever pinned;
+//   * the displacement is +dist along the outward normal instead of -t into
+//     the material, so a positive `dist` GROWS and a negative one SHRINKS.
+// Consequently the corner solve (intersectPlanes) and the closed-form circle
+// re-trim (offsetCircle over the meridian meet) are reused verbatim, and the
+// exactness they already carry — a box grown by d is exactly (L+2d)(W+2d)(H+2d),
+// a cylinder grown by d is exactly a cylinder of R+d and height H+2d — carries
+// with them.
+//
+// HONEST DEFER (null TopoDS_Shape) adds, on top of the thick-solid's list:
+//   * any planar face carrying more than one wire — the hole ring offsets too,
+//     and rebuilding it with the right winding is not covered here, so the face
+//     is declined rather than silently emitted without its hole;
+//   * a vertex whose incident faces do not pin an exact corner: fewer than three
+//     independent offset planes (rank-deficient), or an over-determined corner
+//     whose residual against any incident offset plane exceeds 1e-7*max(1,|dist|)
+//     — a 4-plane apex generally has NO exact sharp-join offset, and an
+//     approximate one is a wrong shape, not an offset;
+//   * an inward offset at least as deep as the solid's smallest half-extent;
+//   * a result that loses a face, fails to sew closed, or moves the volume the
+//     wrong way for the sign of `dist`.
+
+// ---- planar / prismatic: offset the Hesse planes, re-meet at every vertex ----
+TopoDS_Shape planarOffsetShape(const TopoDS_Shape& shape, double dist, double tol) {
+    const TopoDS_Shape kNull;
+
+    std::vector<TopoDS_Face> faces;
+    std::vector<Plane>       outward;
+    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        Plane pl;
+        if (!outwardPlaneOf(f, pl)) return kNull;      // non-planar => caller's quadric path
+        int nWires = 0;
+        for (TopoDS_Iterator it(f); it.More(); it.Next())
+            if (it.Value().ShapeType() == TopAbs_WIRE) ++nWires;
+        if (nWires != 1) return kNull;                 // face with a hole => defer
+        faces.push_back(f);
+        outward.push_back(pl);
+    }
+    if (faces.size() < 4) return kNull;                // not a closed polyhedron
+
+    // SHRINK GUARD: an inward offset at least as deep as the smallest half-extent
+    // collapses the body. A grow has no such bound.
+    if (dist < 0.0) {
+        TopTools_IndexedMapOfShape vmapAll;
+        TopExp::MapShapes(shape, TopAbs_VERTEX, vmapAll);
+        if (vmapAll.Extent() == 0) return kNull;
+        double lo[3] = {0, 0, 0}, hi[3] = {0, 0, 0};
+        for (int i = 1; i <= vmapAll.Extent(); ++i) {
+            const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vmapAll.FindKey(i)));
+            const double c[3] = {p.X(), p.Y(), p.Z()};
+            for (int k = 0; k < 3; ++k) {
+                if (i == 1) { lo[k] = hi[k] = c[k]; }
+                else { lo[k] = std::min(lo[k], c[k]); hi[k] = std::max(hi[k], c[k]); }
+            }
+        }
+        const double halfMin =
+            0.5 * std::min(std::min(hi[0] - lo[0], hi[1] - lo[1]), hi[2] - lo[2]);
+        if (-dist >= halfMin) return kNull;
+    }
+
+    TopTools_IndexedDataMapOfShapeListOfShape vfMap;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_VERTEX, TopAbs_FACE, vfMap);
+    TopTools_IndexedMapOfShape faceIndex;
+    for (const TopoDS_Face& f : faces) faceIndex.Add(f);
+
+    const int nV = vfMap.Extent();
+    if (nV == 0) return kNull;
+    std::vector<gp_Pnt> moved(static_cast<std::size_t>(nV));
+    const double resTol = 1.0e-7 * std::max(1.0, std::fabs(dist));
+    for (int i = 1; i <= nV; ++i) {
+        std::vector<Plane> meet;
+        for (TopTools_ListIteratorOfListOfShape it(vfMap.FindFromIndex(i)); it.More(); it.Next()) {
+            const int fi = faceIndex.FindIndex(it.Value());
+            if (fi == 0) return kNull;
+            Plane p = outward[static_cast<std::size_t>(fi) - 1];
+            p.d += dist;                               // slide OUTWARD by signed dist
+            meet.push_back(p);
+        }
+        if (meet.size() < 3) return kNull;             // no exact corner to meet
+        gp_Pnt corner;
+        if (!intersectPlanes(meet, corner)) return kNull;   // rank-deficient
+        // EXACTNESS: the least-squares meet is only the offset corner if EVERY
+        // incident offset plane actually contains it. An over-determined apex
+        // where it does not is declined, never approximated.
+        for (const Plane& p : meet) {
+            const double r = p.nx * corner.X() + p.ny * corner.Y() + p.nz * corner.Z() - p.d;
+            if (std::fabs(r) > resTol) return kNull;
+        }
+        moved[static_cast<std::size_t>(i) - 1] = corner;
+    }
+
+    // Rebuild every face over its own ring of moved corners. Orientation is left
+    // to the sew + solidFromShell pair (as planarThickSolid does): the wires fix
+    // the region, the signed-volume flip fixes the side.
+    BRepBuilderAPI_Sewing sew(std::max(tol, 1.0e-6));
+    for (const TopoDS_Face& f : faces) {
+        const std::vector<TopoDS_Vertex> ring = orderedRing(f);
+        if (ring.size() < 3) return kNull;
+        BRepBuilderAPI_MakePolygon poly;
+        for (const TopoDS_Vertex& v : ring) {
+            const int idx = vfMap.FindIndex(v);
+            if (idx == 0) return kNull;
+            poly.Add(moved[static_cast<std::size_t>(idx) - 1]);
+        }
+        poly.Close();
+        if (!poly.IsDone()) return kNull;
+        BRepBuilderAPI_MakeFace mkf(poly.Wire(), Standard_True);
+        if (!mkf.IsDone()) return kNull;               // face collapsed under the offset
+        sew.Add(mkf.Face());
+    }
+
+    sew.Perform();
+    if (sew.NbFreeEdges() != 0) return kNull;          // not watertight => defer
+    const TopoDS_Shape sewed = sew.SewedShape();
+    if (sewed.IsNull()) return kNull;
+    TopoDS_Shell shell;
+    int nShells = 0;
+    for (TopExp_Explorer ex(sewed, TopAbs_SHELL); ex.More(); ex.Next()) {
+        shell = TopoDS::Shell(ex.Current());
+        ++nShells;
+    }
+    if (nShells != 1 || shell.IsNull()) return kNull;
+
+    TopoDS_Solid solid = forge::occtheal::solidFromShell(shell);
+    if (solid.IsNull()) return kNull;
+    BRepLib::SameParameter(solid, std::max(tol, 1.0e-6), Standard_True);
+
+    // SELF-CHECK: the sharp join preserves the face count, and the volume must
+    // move in the direction of the sign of `dist`.
+    int nFaceOut = 0;
+    for (TopExp_Explorer ex(solid, TopAbs_FACE); ex.More(); ex.Next()) ++nFaceOut;
+    if (nFaceOut != static_cast<int>(faces.size())) return kNull;
+
+    GProp_GProps pn, po;
+    BRepGProp::VolumeProperties(solid, pn);
+    BRepGProp::VolumeProperties(shape, po);
+    const double vn = std::fabs(pn.Mass()), vo = std::fabs(po.Mass());
+    if (!(vn > 1.0e-12)) return kNull;
+    if (dist > 0.0 && !(vn > vo)) return kNull;
+    if (dist < 0.0 && !(vn < vo)) return kNull;
+    return solid;
+}
+
+// ---- quadric: exact offset surface per face + closed-form meridian re-trim ----
+TopoDS_Shape quadricOffsetShape(const TopoDS_Shape& shape, double dist, double tol) {
+    const TopoDS_Shape kNull;
+    const double t = std::fabs(dist);
+
+    // ---- 1. every face moves; build its EXACT offset surface ----------------
+    std::vector<QF> qf;
+    TopTools_IndexedMapOfShape faceIdx;
+    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+        const TopoDS_Face f = TopoDS::Face(ex.Current());
+        if (faceIdx.Contains(f)) continue;
+        faceIdx.Add(f);
+
+        QF q;
+        q.face    = f;
+        q.surf    = basisSurface(BRep_Tool::Surface(f));
+        q.kind    = surfKind(q.surf);
+        q.removed = false;                             // nothing is pinned
+        if (q.kind == SK::Other) return kNull;
+        BRepTools::UVBounds(f, q.u1, q.u2, q.v1, q.v2);
+        q.nv1 = q.v1; q.nv2 = q.v2;
+
+        gp_Pnt P; gp_Dir outward;
+        if (!faceSample(f, q.surf, q.u1, q.u2, q.v1, q.v2, P, outward)) return kNull;
+        const gp_Vec disp = gp_Vec(outward) * dist;    // ALONG the outward normal
+        q.off = offsetSurfaceOf(q.surf, q.kind, P, disp, t);
+        if (q.off.IsNull()) return kNull;
+        qf.push_back(q);
+    }
+    if (qf.empty()) return kNull;
+
+    auto qOf = [&](const TopoDS_Shape& f) -> QF* {
+        const int i = faceIdx.FindIndex(f);
+        if (i == 0) return nullptr;
+        return &qf[static_cast<std::size_t>(i) - 1];
+    };
+
+    // ---- 2. structural admissibility (identical to the hollow) --------------
+    for (const QF& q : qf) {
+        int nWires = 0;
+        for (TopoDS_Iterator it(q.face); it.More(); it.Next())
+            if (it.Value().ShapeType() == TopAbs_WIRE) ++nWires;
+
+        if (q.kind != SK::Plane) {
+            if (nWires != 1) return kNull;
+            if (std::fabs((q.u2 - q.u1) - 2.0 * kPi) > 1.0e-7) return kNull;
+        } else {
+            if (nWires < 1) return kNull;
+            for (TopoDS_Iterator it(q.face); it.More(); it.Next()) {
+                if (it.Value().ShapeType() != TopAbs_WIRE) continue;
+                int nE = 0;
+                gp_Circ c;
+                for (TopExp_Explorer ee(it.Value(), TopAbs_EDGE); ee.More(); ee.Next()) {
+                    ++nE;
+                    if (!edgeFullCircle(TopoDS::Edge(ee.Current()), c)) return kNull;
+                }
+                if (nE != 1) return kNull;
+            }
+        }
+    }
+
+    // ---- 3. closed-form re-trim, one circle edge at a time ------------------
+    TopTools_IndexedDataMapOfShapeListOfShape efMap;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, efMap);
+
+    TopTools_IndexedMapOfShape edgeIdx;
+    for (int i = 1; i <= efMap.Extent(); ++i) edgeIdx.Add(efMap.FindKey(i));
+    std::vector<gp_Circ> offCirc(static_cast<std::size_t>(edgeIdx.Extent()));
+    std::vector<bool>    offOk(static_cast<std::size_t>(edgeIdx.Extent()), false);
+
+    for (int i = 1; i <= efMap.Extent(); ++i) {
+        const TopoDS_Edge e = TopoDS::Edge(efMap.FindKey(i));
+        if (BRep_Tool::Degenerated(e)) continue;
+
+        std::vector<QF*> nb;
+        for (TopTools_ListIteratorOfListOfShape it(efMap.FindFromIndex(i)); it.More(); it.Next()) {
+            QF* q = qOf(it.Value());
+            if (!q) return kNull;
+            if (std::find(nb.begin(), nb.end(), q) == nb.end()) nb.push_back(q);
+        }
+        if (nb.size() == 1) continue;                  // seam
+        if (nb.size() != 2) return kNull;              // non-manifold
+        QF& A = *nb[0];
+        QF& B = *nb[1];
+
+        gp_Circ orig;
+        if (!edgeFullCircle(e, orig)) return kNull;
+
+        gp_Circ oc;
+        if (!offsetCircle(orig, A.surf, A.kind, B.surf, B.kind,
+                          A.off, surfKind(A.off), B.off, surfKind(B.off), oc))
+            return kNull;
+        offCirc[static_cast<std::size_t>(i) - 1] = oc;
+        offOk[static_cast<std::size_t>(i) - 1]   = true;
+
+        for (QF* q : nb) {
+            if (q->kind == SK::Plane) continue;
+            double vOrig = 0.0, vNew = 0.0;
+            if (!vParamOf(q->surf, q->kind, orig, vOrig)) return kNull;
+            if (!vParamOf(q->off,  q->kind, oc,   vNew))  return kNull;
+            const bool atLo = std::fabs(vOrig - q->v1) <= std::fabs(vOrig - q->v2);
+            if (atLo) { q->nv1 = vNew; q->gotV1 = true; }
+            else      { q->nv2 = vNew; q->gotV2 = true; }
+        }
+    }
+
+    // ---- 4. build the offset faces on the EXACT offset surfaces -------------
+    BRepBuilderAPI_Sewing sew(std::max(tol, 1.0e-6));
+    std::vector<TopoDS_Face> built;
+    int nAdded = 0;
+    for (const QF& q : qf) {
+        TopoDS_Face nf;
+        if (q.kind == SK::Plane) {
+            Handle(Geom_Plane) opl = Handle(Geom_Plane)::DownCast(q.off);
+            if (opl.IsNull()) return kNull;
+            const TopoDS_Wire outerW = BRepTools::OuterWire(q.face);
+            if (outerW.IsNull()) return kNull;
+            gp_Circ outerC;
+            std::vector<gp_Circ> holes;
+            bool haveOuter = false;
+            for (TopoDS_Iterator it(q.face); it.More(); it.Next()) {
+                if (it.Value().ShapeType() != TopAbs_WIRE) continue;
+                const TopoDS_Wire w = TopoDS::Wire(it.Value());
+                TopExp_Explorer ee(w, TopAbs_EDGE);
+                if (!ee.More()) return kNull;
+                const int ei = edgeIdx.FindIndex(ee.Current());
+                if (ei == 0 || !offOk[static_cast<std::size_t>(ei) - 1]) return kNull;
+                const gp_Circ& c = offCirc[static_cast<std::size_t>(ei) - 1];
+                if (w.IsSame(outerW)) { outerC = c; haveOuter = true; }
+                else                  { holes.push_back(c); }
+            }
+            if (!haveOuter) return kNull;
+            nf = planarCircularFace(opl, outerC, holes);
+        } else {
+            double a = q.nv1, b = q.nv2;
+            if (a > b) std::swap(a, b);
+            if (!(b - a > 1.0e-9)) return kNull;       // v-range inverted / collapsed
+            BRepBuilderAPI_MakeFace mk(q.off, q.u1, q.u2, a, b, Precision::Confusion());
+            if (!mk.IsDone()) return kNull;
+            nf = mk.Face();
+        }
+        if (nf.IsNull()) return kNull;
+        // Same gp_Ax3 => same parametric normal field, so the ORIGINAL topological
+        // orientation still points outward on the offset surface. (The hollow flips
+        // here because its cavity normal points the other way; this does not.)
+        nf.Orientation(q.face.Orientation());
+        built.push_back(nf);
+        sew.Add(nf);
+        ++nAdded;
+    }
+    if (nAdded == 0) return kNull;
+
+    // ---- 5. one closed shell, oriented, self-checked ------------------------
+    // A self-closed single face (full sphere / full torus: the seam is shared
+    // with itself) has no edge for the sewer to join, so it is shelled directly
+    // — the same special case the closed-hollow branch of quadricThickSolid makes.
+    TopoDS_Shell shell;
+    if (nAdded == 1) {
+        BRep_Builder bb;
+        bb.MakeShell(shell);
+        bb.Add(shell, built[0]);
+    } else {
+        sew.Perform();
+        if (sew.NbFreeEdges() != 0) return kNull;
+        const TopoDS_Shape sewed = sew.SewedShape();
+        if (sewed.IsNull()) return kNull;
+        int nShells = 0;
+        for (TopExp_Explorer ex(sewed, TopAbs_SHELL); ex.More(); ex.Next()) {
+            shell = TopoDS::Shell(ex.Current());
+            ++nShells;
+        }
+        if (nShells != 1 || shell.IsNull()) return kNull;
+    }
+
+    TopoDS_Solid solid = forge::occtheal::solidFromShell(shell);
+    if (solid.IsNull()) return kNull;
+    BRepLib::SameParameter(solid, std::max(tol, 1.0e-6), Standard_True);
+
+    int nFaceOut = 0;
+    for (TopExp_Explorer ex(solid, TopAbs_FACE); ex.More(); ex.Next()) ++nFaceOut;
+    if (nFaceOut != nAdded) return kNull;
+
+    GProp_GProps pn, po;
+    BRepGProp::VolumeProperties(solid, pn);
+    BRepGProp::VolumeProperties(shape, po);
+    const double vn = std::fabs(pn.Mass()), vo = std::fabs(po.Mass());
+    if (!(vn > 1.0e-12)) return kNull;
+    if (dist > 0.0 && !(vn > vo)) return kNull;
+    if (dist < 0.0 && !(vn < vo)) return kNull;
+    return solid;
+}
+
 }  // namespace
 
 // ===========================================================================
@@ -1190,6 +1540,29 @@ TopoDS_Shape makeThickSolid(const TopoDS_Shape& shape, double t,
 
     if (allPlanar) return planarThickSolid(shape, t, removedSet, tol);
     return quadricThickSolid(shape, t, removedSet, tol);
+}
+
+// ===========================================================================
+//   PART 7 — the public entry point for family H: dispatch planar vs quadric
+// ===========================================================================
+
+TopoDS_Shape offsetSolidShape(const TopoDS_Shape& shape, double dist, double tol) {
+    const TopoDS_Shape kNull;   // IsNull() == honest defer
+    if (shape.IsNull() || std::fabs(dist) < 1.0e-12) return kNull;
+
+    bool allPlanar = true;
+    int nFaces = 0;
+    for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
+        ++nFaces;
+        if (surfKind(basisSurface(BRep_Tool::Surface(TopoDS::Face(ex.Current())))) != SK::Plane) {
+            allPlanar = false;
+            break;
+        }
+    }
+    if (nFaces == 0) return kNull;
+
+    if (allPlanar) return planarOffsetShape(shape, dist, tol);
+    return quadricOffsetShape(shape, dist, tol);
 }
 
 }  // namespace occtoffset

@@ -141,6 +141,28 @@ TopoDS_Shape makeThickSolid(const TopoDS_Shape& shape, double t,
                             const TopTools_ListOfShape& facesToRemove,
                             double tol = 1.0e-3);
 
+// ---------------------------------------------------------------- family H
+// Whole-solid GROW / SHRINK: slide EVERY boundary face along its OWN outward
+// normal by the signed `dist` and re-trim adjacent faces to their new mutual
+// intersections (the SHARP / GeomAbs_Intersection join). 1:1 drop-in for
+//   BRepOffsetAPI_MakeOffsetShape mk;
+//   mk.PerformByJoin(shape, dist, tol, BRepOffset_Skin,
+//                    /*Intersection*/false, /*SelfInter*/false, GeomAbs_Intersection);
+//   TopoDS_Shape off = mk.Shape();      // a SHELL the caller wraps into a solid
+// — except that this returns the SOLID directly, already oriented to positive
+// volume, so the caller's BRepBuilderAPI_MakeSolid wrap is a no-op on it.
+//
+// dist > 0 grows, dist < 0 shrinks. Returns a null TopoDS_Shape on HONEST DEFER;
+// the complete defer list is in the PART 5b banner of NativeThickSolid.cpp. The
+// engine shares the thick-solid's corner solve and closed-form circle re-trim,
+// so it inherits the same exactness and the same analytic-surface scope: planar
+// polyhedra, and solids whose faces are Geom_{Plane, Cylindrical, Conical,
+// Spherical, Toroidal} with full-revolution curved faces and circular planar
+// wires. NURBS faces, faces with holes, and rank-deficient or over-determined
+// corners are declined, never approximated.
+TopoDS_Shape offsetSolidShape(const TopoDS_Shape& shape, double dist,
+                              double tol = 1.0e-7);
+
 }  // namespace occtoffset
 }  // namespace forge
 
