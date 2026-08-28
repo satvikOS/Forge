@@ -290,13 +290,16 @@ std::string ManagedRootRegistry::owningRootId(const fs::path& p) const {
 Disposition classify(const Artifact& a, const ManagedRootRegistry& reg, std::string& reason) {
     // (0) AUTHORITY. Outside a registered managed root there is no authority to
     //     propose anything, at any pressure, ever.
+    //     The empty-path check comes FIRST so it can report the actual defect:
+    //     owningRootId("") also returns "", so the other order silently
+    //     mislabels a missing path as "outside every managed root".
+    if (a.canonicalPath.empty()) {
+        reason = "artifact has no path — nothing can be proven about it";
+        return Disposition::MUST_PIN;
+    }
     const std::string rootId = reg.owningRootId(a.canonicalPath);
     if (rootId.empty()) {
         reason = "outside every registered managed root — no deletion authority";
-        return Disposition::MUST_PIN;
-    }
-    if (a.canonicalPath.empty()) {
-        reason = "empty path";
         return Disposition::MUST_PIN;
     }
 
@@ -783,6 +786,18 @@ bool Scanner::isNonReferencingSite(const std::string& hitLine) {
         return true;
     if (path.rfind(".git/", 0) == 0) return true;
     if (path.find("/.git/") != std::string::npos) return true;
+
+    // The governor's OWN output and source are a record ABOUT artifacts, not a
+    // user OF them. Without this the tool poisons itself the moment its plan is
+    // committed: reports/storage_plan.txt names every build tree it examined,
+    // so the NEXT scan would find each tree "referenced" — by the very document
+    // that proposed reclaiming it — and pin the whole repo for ever, with a
+    // reason that reads plausible and is circular.
+    const auto slash = path.find_last_of('/');
+    const std::string base = (slash == std::string::npos) ? path : path.substr(slash + 1);
+    if (base.rfind("storage_plan.", 0) == 0) return true;
+    if (base == "storage_govern_main.cpp") return true;
+    if (path.find("native/storage/") != std::string::npos) return true;
     return false;
 }
 

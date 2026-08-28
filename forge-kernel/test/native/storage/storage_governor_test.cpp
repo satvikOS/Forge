@@ -303,6 +303,10 @@ int main() {
             {"inside retention window",      [](Artifact& a){ a.ageDays = 3; }},
             {"path leaves the managed root", [&W](Artifact& a){ a.canonicalPath = W.outside / "precious"; }},
             {"path becomes empty",           [](Artifact& a){ a.canonicalPath.clear(); }},
+            {"a stale plan cites it",        [](Artifact& a){
+                 // a reference from the governor's own plan is filtered out by
+                 // the scanner; if one ever reaches classify() it must still keep
+                 a.references.push_back("forge-kernel/reports/storage_plan.txt:7:x"); }},
         };
         int survived = 0;
         for (const auto& m : muts) {
@@ -318,6 +322,14 @@ int main() {
         check(survived == 0, "F1 EVERY evidence mutation flips the verdict away from disposable");
 
         // A worktree row with NO git evidence at all defaults to KEEP.
+        Artifact empty = base;
+        empty.canonicalPath.clear();
+        std::string rEmpty;
+        check(classify(empty, reg, rEmpty) == Disposition::MUST_PIN &&
+              contains(rEmpty, "no path"),
+              "F1b an artifact with no path is refused BY THAT NAME, not mislabelled "
+              "as out-of-root");
+
         Artifact bare;
         bare.klass = ArtifactClass::WORKTREE_RECORD;
         bare.canonicalPath = p;
@@ -488,6 +500,26 @@ int main() {
           "L6 a tracked test file IS a reference");
     check(!Scanner::isNonReferencingSite("docs/PLAN.md:2:build-desktop-ui"),
           "L7 a tracked document IS a reference");
+
+    // L8-L11 — the self-poisoning guard. The plan this tool commits names every
+    // build tree it examined, so once that plan is tracked the next scan would
+    // find each tree "referenced" by the document that proposed reclaiming it,
+    // and pin the entire repo for ever on circular evidence.
+    check(Scanner::isNonReferencingSite(
+              "forge-kernel/reports/storage_plan.txt:7:forge-kernel/build-thicken"),
+          "L8 the governor's own PLAN is not a reference");
+    check(Scanner::isNonReferencingSite(
+              "forge-kernel/reports/storage_plan.json:12:build-unified"),
+          "L9 the governor's own JSON plan is not a reference");
+    check(Scanner::isNonReferencingSite(
+              "forge-kernel/src/native/storage/StorageGovernor.cpp:5:build-native"),
+          "L10 the governor's own source is not a reference");
+    check(Scanner::isNonReferencingSite(
+              "forge-kernel/tools/storage_govern_main.cpp:60:build-native"),
+          "L11 the governor's own CLI is not a reference");
+    check(!Scanner::isNonReferencingSite(
+              "forge-kernel/reports/OCCT_DROP_ORDER.md:12:build-shheal"),
+          "L12 an unrelated report in the SAME directory IS still a reference");
 
     // ─────────────────────────────────────────────────────────────────────
     // (K) lexicallyInside must not fall for the string-prefix bug
