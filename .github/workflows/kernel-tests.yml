@@ -90,6 +90,53 @@ jobs:
       - name: ForgeCADScore mechanism-axis self-test
         run: node forge-kernel/test/mechanism_axis_selftest.mjs
 
+  ui:
+    name: forge::ui workstation gates (headless, no ImGui, no GPU)
+    # Pure C++20 services — command registry, typed selection, keymap, dock model, feature-tree
+    # model. Nothing here includes an ImGui header, which is why it runs headless in CI: the ImGui
+    # frame builder is a CONSUMER of this state, not its owner.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: forge::ui gates
+        run: bash ui/test/run_ui.sh
+
+  retrieval:
+    name: SearXNG client + redaction (incl. network-denied phase)
+    # Phase 1 runs the gate normally; phase 2 re-runs the ENTIRE gate under an LD_PRELOAD/
+    # DYLD_INSERT_LIBRARIES interposer that aborts a real socket(). Law 13 says every non-browser
+    # function must behave identically with the network denied — phase 2 is that proof.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: retrieval gates
+        run: bash retrieval/run_retrieval_tests.sh
+
+  s0_conformance:
+    name: s0 Appendix B conformance ratchet
+    # The acceptance suite deliberately asserts laws the implementation does not yet satisfy, so its
+    # RAW exit is 1 by design and its failures are the deliverable. A permanently-red gate teaches
+    # people to ignore it, so CI applies a ratchet: red if the failure count RISES (a regression)
+    # and red if it FALLS (lower the committed baseline in the same commit, so a stale baseline can
+    # never silently re-admit a regression). Green only at the exact known-gap count.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: s0 ratchet
+        run: bash forge-kernel/test/ft/s0_ratchet.sh
+
+  simulation:
+    name: real-time simulation frame contract (SR-4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: simulation gates
+        run: bash simulation/run_simulation_tests.sh
+
   kernel:
     name: OCCT kernel smoke (TRANSITIONAL — pending native C++ harness)
     runs-on: macos-latest
