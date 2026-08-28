@@ -62,7 +62,13 @@ struct ParamSpec {
   ParamType type = ParamType::Number;
   bool required = false;
   double defaultNumber = 0.0;
-  std::string defaultText;
+  // Braced default member initializer, not a bare declaration. Every other member here already
+  // has one; defaultText did not, so a designated initializer that legitimately omits it —
+  // ParamSpec{.name=..., .type=..., .required=true} — tripped -Wmissing-field-initializers, which
+  // is an ERROR under -Werror. Apple clang did not warn and the CI's clang did, so this compiled
+  // locally and failed on Linux. Declaring the default at the TYPE fixes all four call sites and
+  // any future one, rather than repeating a redundant .defaultText = "" at each.
+  std::string defaultText{};
   // Does the default above MEAN anything? A fillet radius has an honest default
   // (1 mm); a file path does not, and "" is not a path. Only a spec that says so
   // may be filled in on the caller's behalf — the difference between a shortcut
