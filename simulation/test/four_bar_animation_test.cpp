@@ -39,7 +39,7 @@ RealtimeLoopConfig animationConfig(const MechanismModel& m) {
     cfg.envelope.maxConstraintResidual  = 1e-6;
     cfg.envelope.maxEnergyDrift         = 1e-5;
     cfg.envelope.maxWallOverrunRatio    = 1.0;
-    cfg.geometryRevision = geometryRevisionOf(m.bodies, m.constraints);
+    cfg.geometryRevision = geometryRevisionOf(m.bodies, m.constraints, m.loads, m.gravity);
     return cfg;
 }
 
@@ -167,23 +167,44 @@ int main() {
     // ---- 5. deterministic CONFIRMATION counterpart ------------------------
     {
         const double kConfirmationEnvelope = 1e-6;
+        // Probe bound, in the units of the four-bar's OWN OUTPUT: the rocker
+        // angle (rad), the rocker centre (m) and the crank angle/rate. The
+        // rocker angle is the thing this mechanism exists to produce, so it is
+        // the one that must not move when the timestep halves. 1e-5 rad is
+        // 0.00057 deg -- roughly a hundredth of what is visible on a rocker
+        // 0.3 m long at any screen resolution.
+        // MEASURED worst probe: 3.27e-7 (crank_omega_rad_s), 31x inside it.
+        const double kProbeEnvelope = 1e-5;
         const ConfirmationReport rep =
-            runConfirmation(model, cfg, fourBarProbes, 2, kConfirmationEnvelope);
+            runConfirmation(model, cfg, fourBarProbes, 2, kConfirmationEnvelope,
+                            kProbeEnvelope);
         t.predicate("both live and confirmation runs completed", rep.bothRunsComplete,
                     "compared " + std::to_string(rep.comparedFrames) + " frames");
         t.equalU64("confirmation compared every frame",
                    static_cast<std::uint64_t>(rep.comparedFrames), cfg.frameCount);
         t.atMost("live-vs-confirmation max position delta (declared bound 1e-6 m)",
                  rep.maxPositionDelta, kConfirmationEnvelope);
-        t.predicate("confirmation verdict is inside the declared envelope",
+        t.atMost("live-vs-confirmation max probe delta (declared bound 1e-5)",
+                 rep.maxProbeDelta, kProbeEnvelope);
+        t.predicate("confirmation verdict is inside BOTH declared envelopes",
                     rep.withinEnvelope,
-                    "maxPositionDelta=" + std::to_string(rep.maxPositionDelta));
-        t.differU64("the refined run is a genuinely different computation",
-                    rep.confirmationSequenceHash, rep.liveSequenceHash);
+                    "maxPositionDelta=" + std::to_string(rep.maxPositionDelta) +
+                    " maxProbeDelta=" + std::to_string(rep.maxProbeDelta) +
+                    " (worst probe \"" + rep.maxProbeName + "\")");
+        // NOT a hash comparison: see the ConfirmationReport note. solverStep is
+        // hashed and the refined ladder is twice as fine, so the hashes differ
+        // whether or not the refined timestep reached the integrator. The
+        // falsifiable statement is that the deviation is strictly inside
+        // (0, envelope] -- zero would mean one computation, and an ignored dt
+        // would put frame i at twice the simulated time and miss by ~0.1 m.
+        t.predicate("the refinement genuinely moved the trajectory (delta > 0)",
+                    rep.maxPositionDelta > 0.0,
+                    "maxPositionDelta=" + std::to_string(rep.maxPositionDelta) +
+                    " must be > 0 and <= " + std::to_string(rep.declaredEnvelope));
         t.note("confirmation: dt " + std::to_string(rep.liveDt) + " -> " +
                std::to_string(rep.confirmationDt) + ", maxPosDelta=" +
-               std::to_string(rep.maxPositionDelta) + " m, maxProbeDelta=" +
-               std::to_string(rep.maxProbeDelta));
+               std::to_string(rep.maxPositionDelta) + " m, worst probe \"" +
+               rep.maxProbeName + "\" delta=" + std::to_string(rep.maxProbeDelta));
     }
 
     // ---- 6. the closed form itself is the open branch we build from -------

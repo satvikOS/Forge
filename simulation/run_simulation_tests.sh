@@ -32,7 +32,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 CXX="${CXX:-clang++}"
-FLAGS="-std=c++20 -O2 -Wall -Wextra"
+# SR-3: -Werror is part of the gate, not a suggestion. Without it a warning is
+# written to a log that is only printed when something ELSE fails, and the
+# script's own "-Wall -Wextra clean" line below is a claim nothing checks.
+FLAGS="-std=c++20 -O2 -Wall -Wextra -Werror"
 TEST_TIMEOUT="${TEST_TIMEOUT:-600}"
 ONLY="${ONLY:-}"
 
@@ -101,7 +104,7 @@ done
 compile forge-kernel/src/AssemblySolver.cpp -ffunction-sections -fdata-sections || true
 
 if [ "$FAILED" -ne 0 ]; then echo "[sim] SOURCE COMPILE FAILURES — aborting"; exit 1; fi
-echo "[sim] compiled ${#OBJS[@]} translation units (-Wall -Wextra clean)"
+echo "[sim] compiled ${#OBJS[@]} translation units with $FLAGS (a warning is a build failure)"
 
 # ── 2. portable per-test timeout (coreutils `timeout` is absent on macOS) ───
 run_with_timeout() {

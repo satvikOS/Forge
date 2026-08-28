@@ -15,12 +15,32 @@
 // It then shows the other half of the rule on real physics: a genuinely
 // out-of-envelope run (the harness's velocity-inconsistent initial condition)
 // surfaces as Invalid frames rather than being absorbed.
+//
+// Two of the checks below are worth naming, because each replaced an assertion
+// that could not fail:
+//
+//   * §4 compares the timestep and step count the INTEGRATOR reported against
+//     the ones the run DECLARED. Those used to be the same number read twice
+//     out of the config, so no mangling of the timestep could move them.
+//     no_adaptation_mutation_test drives the same readback through an actual
+//     inserted mutation.
+//
+//   * §8 requires gravity and applied loads to move the geometry revision. A
+//     revision folded from bodies and constraints alone gave three models --
+//     no gravity, gravity on, a torque applied -- ONE revision id and three
+//     different trajectories.
+//
+//   * §9 requires a constraint spike that recovers between two frame instants
+//     to be visible. Classified on the closing instant alone, a frame whose
+//     joints opened to 1.04 mm mid-interval -- 1040x the declared hard bound --
+//     reported Valid.
 
 #include "forge/simulation/MechanismCase.hpp"
 #include "forge/simulation/RealtimeLoop.hpp"
 #include "TestHarness.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -66,7 +86,7 @@ RealtimeLoopConfig baseConfig(const MechanismModel& m, double targetHz,
     cfg.baumgarteOmega   = 150.0;
     cfg.baumgarteZeta    = 1.0;
     cfg.envelope         = declaredEnvelope(targetHz);
-    cfg.geometryRevision = geometryRevisionOf(m.bodies, m.constraints);
+    cfg.geometryRevision = geometryRevisionOf(m.bodies, m.constraints, m.loads, m.gravity);
     return cfg;
 }
 
@@ -181,30 +201,71 @@ int main() {
         const FrameSink& s     = which ? pressuredSink : relaxedSink;
         const char* tag = which ? "pressured" : "relaxed";
 
-        t.near((std::string(tag) + ": solverDt at the first frame == declared").c_str(),
+        // Every value on the left is MEASURED out of the integrator's own
+        // result (elapsed simulated time / steps taken); every value on the
+        // right is what the run DECLARED. Before the readback existed these
+        // were the same number copied twice, so the comparison could not fail
+        // however the timestep was mangled on the way to the integrator.
+        t.near((std::string(tag) + ": measured solverDt at the first call == declared").c_str(),
                r.solverDtFirst, c.solverDt, 0.0);
-        t.near((std::string(tag) + ": solverDt at the last frame == declared").c_str(),
+        t.near((std::string(tag) + ": measured solverDt at the last call == declared").c_str(),
                r.solverDtLast, c.solverDt, 0.0);
+        t.near((std::string(tag) + ": measured solverDt never shrank, anywhere").c_str(),
+               r.solverDtMin, c.solverDt, 0.0);
+        t.near((std::string(tag) + ": measured solverDt never grew, anywhere").c_str(),
+               r.solverDtMax, c.solverDt, 0.0);
         t.equalU64((std::string(tag) + ": stepsPerFrame never shrank").c_str(),
                    r.stepsPerFrameMin, c.stepsPerFrame);
         t.equalU64((std::string(tag) + ": stepsPerFrame never grew").c_str(),
                    r.stepsPerFrameMax, c.stepsPerFrame);
         t.equalU64((std::string(tag) + ": total integrator steps == (frames-1)*stride").c_str(),
                    r.totalSolverSteps, kExpectedSteps);
+        t.near((std::string(tag) + ": simulated seconds == steps * declared dt").c_str(),
+               r.simulatedSeconds,
+               static_cast<double>(kExpectedSteps) * c.solverDt, 1e-12);
 
         // The step ladder itself: frame i must sit exactly i*stride steps in.
-        bool ladderExact = true;
-        std::size_t badFrame = 0;
+        // Step counts are integers read back from the integrator, so this half
+        // is EXACT.
+        bool stepLadderExact = true;
+        std::size_t badStepFrame = 0;
         for (std::size_t i = 0; i < s.frames().size(); ++i) {
             const std::uint64_t want = static_cast<std::uint64_t>(i) * c.stepsPerFrame;
-            if (s.frames()[i].solverStep != want) { ladderExact = false; badFrame = i; break; }
-            const double wantT = static_cast<double>(want) * c.solverDt;
-            if (s.frames()[i].simTime != wantT)   { ladderExact = false; badFrame = i; break; }
+            if (s.frames()[i].solverStep != want) {
+                stepLadderExact = false;
+                badStepFrame = i;
+                break;
+            }
         }
         t.predicate((std::string(tag) + ": no step skipped or repeated in the ladder").c_str(),
-                    ladderExact,
+                    stepLadderExact,
                     "frames=" + std::to_string(s.frames().size()) +
-                    (ladderExact ? " ladder exact" : " first bad frame=" + std::to_string(badFrame)));
+                    (stepLadderExact ? " ladder exact"
+                                     : " first bad frame=" + std::to_string(badStepFrame)));
+
+        // The TIME ladder. simTime is now the integrator's own elapsed time
+        // summed chunk by chunk, so it is not bit-identical to the closed-form
+        // i*stride*dt -- summing eleven copies of 200*1e-4 and multiplying
+        // 2000 by 1e-4 differ in the last few bits, and the compiler may
+        // contract either expression. The stated tolerance is 1e-12 s, one
+        // ten-millionth of a single timestep: far below any real drift and
+        // twelve orders below the 25% enlargement this ladder exists to catch.
+        double worstTimeError = 0.0;
+        std::size_t worstTimeFrame = 0;
+        bool monotonic = true;
+        for (std::size_t i = 0; i < s.frames().size(); ++i) {
+            const double wantT =
+                static_cast<double>(i) * static_cast<double>(c.stepsPerFrame) * c.solverDt;
+            const double err = std::abs(s.frames()[i].simTime - wantT);
+            if (err > worstTimeError) { worstTimeError = err; worstTimeFrame = i; }
+            if (i > 0 && !(s.frames()[i].simTime > s.frames()[i - 1].simTime)) monotonic = false;
+        }
+        t.atMost((std::string(tag) + ": measured simTime ladder == i*stride*declared dt (s)").c_str(),
+                 worstTimeError, 1e-12);
+        t.predicate((std::string(tag) + ": simTime strictly advances every frame").c_str(),
+                    monotonic,
+                    "worst |simTime - reference| = " + std::to_string(worstTimeError) +
+                    " s at frame " + std::to_string(worstTimeFrame));
     }
 
     // ---- 5. pacing slows the producer down, never the physics -------------
@@ -253,7 +314,7 @@ int main() {
         harnessSpec.consistentInitialVelocities = false;
         const MechanismModel hm = buildSliderCrank(harnessSpec);
         RealtimeLoopConfig hcfg = baseConfig(hm, 1.0, kFrames);
-        hcfg.geometryRevision = geometryRevisionOf(hm.bodies, hm.constraints);
+        hcfg.geometryRevision = geometryRevisionOf(hm.bodies, hm.constraints, hm.loads, hm.gravity);
 
         FrameSink hsink;
         const RealtimeRun h =
@@ -321,12 +382,133 @@ int main() {
         longer.conrodLength = 0.31;    // a 10 mm longer conrod: different geometry
         const MechanismModel lm = buildSliderCrank(longer);
         t.differU64("a changed link length changes the geometry revision",
-                    geometryRevisionOf(lm.bodies, lm.constraints),
-                    geometryRevisionOf(model.bodies, model.constraints));
+                    geometryRevisionOf(lm.bodies, lm.constraints, lm.loads, lm.gravity),
+                    geometryRevisionOf(model.bodies, model.constraints, model.loads, model.gravity));
         const MechanismModel same = buildSliderCrank(spec);
         t.equalU64("the same model yields the same geometry revision",
-                   geometryRevisionOf(same.bodies, same.constraints),
-                   geometryRevisionOf(model.bodies, model.constraints));
+                   geometryRevisionOf(same.bodies, same.constraints, same.loads, same.gravity),
+                   geometryRevisionOf(model.bodies, model.constraints, model.loads, model.gravity));
+
+        // Bodies and constraints are not the whole model. Gravity and applied
+        // loads are handed to the same integrator and change the same
+        // trajectory, so a revision that ignored them would let two runs that
+        // move differently claim to be the same geometry -- and SR-4's "every
+        // frame names the revision it belongs to" would name nothing.
+        const std::uint64_t rev0 =
+            geometryRevisionOf(model.bodies, model.constraints, model.loads, model.gravity);
+
+        MechanismModel gm = buildSliderCrank(spec);
+        gm.gravity.g = {0.0, -9.81, 0.0};
+        const std::uint64_t revG =
+            geometryRevisionOf(gm.bodies, gm.constraints, gm.loads, gm.gravity);
+        t.differU64("switching gravity on changes the geometry revision", revG, rev0);
+
+        MechanismModel lmod = buildSliderCrank(spec);
+        forge::MbdLoad torque;                       // 1 N.m about +Z on the crank
+        torque.body   = 0;
+        torque.torque = {0.0, 0.0, 1.0};
+        lmod.loads.push_back(torque);
+        const std::uint64_t revL =
+            geometryRevisionOf(lmod.bodies, lmod.constraints, lmod.loads, lmod.gravity);
+        t.differU64("adding an applied load changes the geometry revision", revL, rev0);
+        t.differU64("...and a load is not the same change as gravity", revL, revG);
+
+        // The revisions above are only worth having if those inputs really do
+        // move the mechanism. Both are driven through the loop and compared.
+        RealtimeLoopConfig gcfg = baseConfig(gm, 1.0, 6);
+        gcfg.geometryRevision = revG;
+        FrameSink gsink;
+        const RealtimeRun grun = driveRealtime(gm.bodies, gm.constraints, gm.loads,
+                                               gm.gravity, gcfg, sliderCrankProbes, gsink);
+        RealtimeLoopConfig lcfg = baseConfig(lmod, 1.0, 6);
+        lcfg.geometryRevision = revL;
+        FrameSink lsink;
+        const RealtimeRun lrun = driveRealtime(lmod.bodies, lmod.constraints, lmod.loads,
+                                               lmod.gravity, lcfg, sliderCrankProbes, lsink);
+        RealtimeLoopConfig bcfg = baseConfig(model, 1.0, 6);
+        FrameSink bsink;
+        const RealtimeRun brun = driveRealtime(model.bodies, model.constraints, model.loads,
+                                               model.gravity, bcfg, sliderCrankProbes, bsink);
+
+        t.predicate("gravity / load / baseline runs all completed",
+                    grun.completed && lrun.completed && brun.completed,
+                    "gravity=\"" + grun.abortReason + "\" load=\"" + lrun.abortReason +
+                    "\" baseline=\"" + brun.abortReason + "\"");
+        t.differU64("gravity really does change the trajectory",
+                    grun.sequenceHash, brun.sequenceHash);
+        t.differU64("an applied load really does change the trajectory",
+                    lrun.sequenceHash, brun.sequenceHash);
+    }
+
+    // ---- 9. a residual spike that recovers INSIDE a frame is not invisible -
+    {
+        // The harness's velocity-inconsistent initial condition drives a
+        // constraint-residual spike (MechanismCase.hpp records the measured
+        // peak: 4.22e-4 m, against ~2e-9 m thereafter) which the Baumgarte
+        // term damps out inside the first few milliseconds. Give the producer
+        // a frame LONGER than that transient -- 2000 steps = 0.2 s of the
+        // mechanism -- and by the time the frame closes the state is back on
+        // the manifold. Classify on that closing instant alone and the frame
+        // reports clean, for an interval the joints spent hundreds of times
+        // outside the declared hard bound.
+        //
+        // The energy bound is deliberately relaxed to 1.0 here. The same
+        // initial condition also breaks the energy term, and leaving it armed
+        // would flag the frame Invalid for the other reason and make this
+        // check unfalsifiable -- the residual has to be the only thing that
+        // can move the verdict.
+        SliderCrankSpec spikeSpec;
+        spikeSpec.consistentInitialVelocities = false;
+        const MechanismModel sm = buildSliderCrank(spikeSpec);
+        RealtimeLoopConfig scfg = baseConfig(sm, 1.0, 4);
+        scfg.stepsPerFrame           = 2000;   // 0.2 s per frame
+        scfg.envelope.maxEnergyDrift = 1.0;    // isolate the residual term
+        scfg.geometryRevision =
+            geometryRevisionOf(sm.bodies, sm.constraints, sm.loads, sm.gravity);
+
+        FrameSink ssink;
+        const RealtimeRun srun = driveRealtime(sm.bodies, sm.constraints, sm.loads,
+                                               sm.gravity, scfg, sliderCrankProbes, ssink);
+        t.predicate("spike run ran to completion", srun.completed,
+                    "abortReason=\"" + srun.abortReason + "\" accepted=" +
+                    std::to_string(srun.framesAccepted));
+
+        std::size_t hidden = ssink.frames().size();
+        for (std::size_t i = 0; i < ssink.frames().size(); ++i) {
+            const AnimationFrame& f = ssink.frames()[i];
+            if (f.constraintResidual <= scfg.envelope.maxConstraintResidual &&
+                f.maxConstraintResidual > scfg.envelope.maxConstraintResidual) {
+                hidden = i;
+                break;
+            }
+        }
+        t.predicate("a frame exists whose closing instant is clean and whose interval is not",
+                    hidden < ssink.frames().size(),
+                    "frames=" + std::to_string(ssink.frames().size()) +
+                    " index=" + (hidden < ssink.frames().size() ? std::to_string(hidden)
+                                                                : std::string("none")));
+        if (hidden < ssink.frames().size()) {
+            const AnimationFrame& f = ssink.frames()[hidden];
+            t.atMost("...its END-of-frame residual is inside the declared hard bound (m)",
+                     f.constraintResidual, scfg.envelope.maxConstraintResidual);
+            t.atLeast("...while the residual MAXIMUM inside the frame breaches it (m)",
+                      f.maxConstraintResidual, scfg.envelope.maxConstraintResidual);
+            t.equalU64("...and the frame is classified Invalid, not Valid",
+                       static_cast<std::uint64_t>(f.validity),
+                       static_cast<std::uint64_t>(ValidityState::Invalid));
+            t.atLeast("...the excursion is orders of magnitude, not rounding",
+                      f.maxConstraintResidual / f.constraintResidual, 100.0);
+            t.note("frame " + std::to_string(hidden) + ": end residual=" +
+                   std::to_string(f.constraintResidual) + " m, intra-frame max=" +
+                   std::to_string(f.maxConstraintResidual) + " m, hard bound=" +
+                   std::to_string(scfg.envelope.maxConstraintResidual) + " m");
+        }
+
+        // The run-level total must carry the same excursion: reporting a peak
+        // that no frame is allowed to name would put the number out of reach
+        // of the classifier that is supposed to act on it.
+        t.atLeast("the run's reported peak residual includes the intra-frame excursion",
+                  srun.maxConstraintResidual, scfg.envelope.maxConstraintResidual);
     }
 
     return t.exitCode();
