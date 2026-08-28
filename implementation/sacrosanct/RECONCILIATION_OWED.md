@@ -172,3 +172,36 @@ file. Future waves must partition by FILE OWNERSHIP, not by topic, and a track t
 file must request the hunk rather than edit it. That was in the original persona design ("shared
 files have one temporary owner; others propose patches through the task record") and I stopped
 enforcing it once the waves got large.
+
+---
+
+## 2026-08-28 — the in-flight `CMakeLists.txt` would REVERT the TKOffset drop
+
+Measured while verifying the drop. This is the highest-severity reconciliation item on this page,
+because the loss would be silent and would look like a routine commit of in-flight work.
+
+The working tree's uncommitted `forge-kernel/CMakeLists.txt` is **not newer work on top of HEAD** —
+it is a **superseded parallel line** of the same TKOffset programme:
+
+| | HEAD (`65b52836`) | working tree (uncommitted) |
+| --- | --- | --- |
+| family option names | `FORGE_DRAFT_DROP_NATIVE`, `FORGE_THICKEN_DROP_NATIVE`, … | `FORGE_OFFSET_DROP_DRAFT`, `FORGE_OFFSET_DROP_THICKEN`, … |
+| family letters | C = MakeFilling, I/J = thicken/draft | C = DraftAngle, I = thicken |
+| banner dates | 2026-08-28 | 2026-08-03 / 08-07 |
+| `_FORGE_TKOFFSET_FAMILIES` guard | present | **absent** |
+| `REMOVE_ITEM OCCT_LIBS TKOffset` | present | **absent** |
+
+Committing it as-is deletes **eight** `option()` blocks that HEAD has and removes the link-record
+guard — i.e. it undoes CLOSURE 14 → 13 without any diff line that says so.
+
+**The only content in it that HEAD lacks** is two feature-tree options, `FORGE_FT_ARCHELIX` and
+`FORGE_FT_DIR_SELECTORS`. They are referenced by **0** tracked sources at HEAD and by 4 and 1
+working-tree sources respectively — they belong to the in-flight IR work, and HEAD builds without
+them (clean-room configure+build exit 0).
+
+**Reconciliation:** HEAD's `CMakeLists.txt` + those two `option()` blocks. Not a merge of the file.
+Full copies and patches of both overlapping in-flight files are parked under the session scratchpad
+(`park-065403/`) — nothing was modified in the working tree, and the 37-modified count still holds.
+
+The same question is open for the in-flight `forge-kernel/src/Features.cpp` and
+`forge-kernel/src/binding.cpp`; they were NOT analysed, only parked.
