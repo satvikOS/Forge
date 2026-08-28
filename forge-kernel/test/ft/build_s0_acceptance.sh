@@ -42,6 +42,12 @@ echo "[1/5] compile forge::ft TU (parser + compiler)"
 echo "[2/5] compile forge::ft chunk chain (s0.11)"
 "$CXX" "${FLAGS[@]}" -Wextra -c "$KERNEL/src/ft/ChunkChain.cpp" -o "$OUT/ChunkChain.o" || exit 2
 
+# SHA-256 (FIPS 180-4) now lives in forge::native::util so the storage governor
+# can hash its plan receipts without a second copy of the algorithm.
+# forge::ft::sha256Hex delegates to it, so the NIST vectors below still test it.
+echo "[2b/5] compile forge::native::util SHA-256"
+"$CXX" "${FLAGS[@]}" -Wextra -c "$KERNEL/src/native/util/Sha256.cpp" -o "$OUT/Sha256.o" || exit 2
+
 echo "[3/5] compile forge::ft graph-quality gate (s0.4)"
 "$CXX" "${FLAGS[@]}" -Wextra -c "$KERNEL/src/ft/GraphAudit.cpp" -o "$OUT/GraphAudit.o" || exit 2
 
@@ -49,10 +55,10 @@ echo "[4/5] compile s0 acceptance test"
 "$CXX" "${FLAGS[@]}" -c "$HERE/s0_acceptance_test.cpp" -o "$OUT/s0_acceptance_test.o" || exit 2
 
 echo "[5/5] link (kernel symbols left unresolved; compile() is never called)"
-"$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" \
+"$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" "$OUT/Sha256.o" \
     -o "$OUT/s0_acceptance" \
     -Wl,-undefined,dynamic_lookup -Wl,-no_fixup_chains 2>/dev/null || \
-"$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" \
+"$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" "$OUT/Sha256.o" \
     -o "$OUT/s0_acceptance" \
     -Wl,-undefined,dynamic_lookup || exit 2
 
