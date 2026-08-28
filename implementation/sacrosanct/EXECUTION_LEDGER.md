@@ -269,3 +269,40 @@ segment"*. The app is launchable and draws real kernel geometry; it is not yet f
 `::forge::occtoffset::thickenShell(src, offset, tol, &why)` in two places — wrong namespace
 (`occtthicken`) and a fourth argument the 3-parameter declaration does not take. HEAD is correct.
 Recorded, not fixed: that file is in-flight and not mine to edit.
+
+
+---
+
+## 2026-08-28 — RELEASES: already done, and the draft had gone false by standing still
+
+**The task as I had been carrying it was wrong.** My own loop prompt said "retire the 200 Electron
+releases". Measured: `satvikOS/Forge` has **one** release (a draft, no assets) and **zero** tags.
+The retirement was already performed in an earlier cycle -- **871** releases and tags, not 200 --
+with `RELEASES_RETIRED.md` (1,077 lines) and `RELEASES_RETIRED_assets.tsv` (12,173 asset rows,
+871 distinct releases) committed BEFORE the deletion, exactly as the manifest-first rule requires.
+
+The 200-ish figure belongs to **other repositories**: `satvikOS/Studio` (838 releases) and
+`satvikOS/humanovo` (186). Those are separate products. They are **out of scope** for this branch
+and nothing here touches them -- acting on 838 releases in an unrelated repo on the strength of a
+premise already proved wrong would be reckless.
+
+**What was actually actionable.** The draft's notes had become materially FALSE by standing still,
+the same failure as a claims register drifting behind its code. They stated:
+
+> **No runnable application.** There is no application entry point ... first-party code contains no
+> window-creation call (`glfwCreateWindow`, `SDL_CreateWindow`, `vkCreateSwapchain`,
+> `CreateWindowEx`) anywhere ... **You cannot launch it, open a window, or interact with it.**
+
+Measured at HEAD, all of that is now wrong: `SDL_CreateWindow` is called from first-party code at
+`forge-desktop/src/main.cpp:359`, there is an application `main()` there, and the app was built and
+run (1680x1000 swapchain, 240 triangles of real kernel geometry, 31 commands). The swapchain
+itself is created by the vendored ImGui Vulkan helper driven from that first-party code -- stated
+precisely rather than claimed as first-party.
+
+**Corrected, still a draft.** The notes now describe what launches and what does not, keep the
+retirement record and the version rationale, and carry the correction openly ("Both statements were
+true when written and are now false"). The publish bar is restated: the old one -- *until an
+application that actually launches exists* -- has been met, so the remaining bar is **a packaged,
+signed binary a user can download and run without a toolchain**. No packaging, signing,
+notarization or auto-update channel exists, and several panels still render a placeholder, so it
+stays a draft and no binary is attached.
