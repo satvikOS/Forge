@@ -1,0 +1,20 @@
+# .forge-local/ is the WORKSTATION EXECUTION PLANE (Sacrosanct 3.1 s10.6 / s21.2).
+#
+# Expanded third-party sources, build trees, compiled objects, prefixes, model
+# weights and caches live here and are excluded from ordinary commits. Only
+# manifests, recipes, patches and reproducibility metadata belong in Git — those
+# live under third_party/ and tools/deps/.
+#
+# This file is the ONLY tracked thing in here: it documents the layout and keeps
+# the directory itself present, so tooling has somewhere to write without an
+# extra mkdir dance.
+*
+!.gitignore
+
+# Layout (created on demand by tools/deps/*):
+#   sources/<name>/<revision>/          verified local source mirror
+#   builds/<preset-or-triplet>/<hash>/  content-addressed local build trees
+#   prefixes/<triplet>/<build-hash>/    activated immutable prefixes
+#   binary-cache/<artifact-hash>/       prebuilt kernel/solver operator cache
+#   model-cache/<package-hash>/         model shards — never fetched on demand
+#   test-tmp/                           scratch for tools/deps/tests

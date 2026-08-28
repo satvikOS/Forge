@@ -1,0 +1,37 @@
+{
+  "name": "planegcs",
+  "lock_version": "freecad-0a45a0a",
+  "status": "proven",
+  "status_note": "This one IS proven, and it is the only one: planegcs is vendored in-tree at forge-kernel/3rdParty/planegcs and compiled directly into forge_kernel by forge-kernel/CMakeLists.txt. There is no acquire step to execute, and `tools/deps/forge_deps.py verify` checks both its content fingerprint and the include-layer patch contract on every run.",
+  "triplets": ["macos-arm64", "any"],
+  "acquire": {
+    "kind": "vendored",
+    "path": "forge-kernel/3rdParty/planegcs",
+    "upstream_repository": "https://github.com/FreeCAD/FreeCAD",
+    "upstream_revision": "0a45a0a008d4af7a85601016c5ab31bd26c25b22",
+    "upstream_subtree": "src/Mod/Sketcher/App/planegcs/",
+    "note": "Vendored verbatim except for the include-layer edits recorded in third_party/patches/planegcs/0001-standalone-includes.md."
+  },
+  "patches": ["third_party/patches/planegcs/0001-standalone-includes.md"],
+  "features": {
+    "eigen": "NONE. planegcs upstream expects Eigen; Forge compiles it against the in-house drop-in shim forge-kernel/3rdParty/planegcs_eigen_shim, backed by forge::native::linalg. There is no Eigen package in the dependency plane and no find_package(Eigen3) anywhere in the build.",
+    "boost": "Boost.Graph + Boost.Math headers only, from the boost port."
+  },
+  "configure": { "kind": "none", "reason": "compiled as part of forge_kernel, not as a separate library" },
+  "build": {
+    "kind": "in-tree-sources",
+    "sources": ["Constraints.cpp", "GCS.cpp", "Geo.cpp", "SubSystem.cpp", "qp_eq.cpp"]
+  },
+  "provides": {
+    "presence_marker": "GCS.cpp",
+    "must_contain": ["GCS.h", "Constraints.h", "Geo.h", "SubSystem.h", "Util.h", "qp_eq.h", "UPSTREAM.md"]
+  },
+  "smoke_test": {
+    "description": "The patch contract is machine-checked, not just documented.",
+    "command": "python3 tools/deps/forge_deps.py verify",
+    "expect": "no PATCH DRIFT finding for planegcs"
+  },
+  "known_gaps": [
+    "No byte-exact diff against upstream FreeCAD exists, because the upstream tree is not in the local mirror. The patch is recorded as an enforced content contract instead — see the patch file for exactly what that does and does not prove."
+  ]
+}
