@@ -124,3 +124,25 @@ when prior work exists, rather than leaving re-creation to the agent's judgement
 
 Resolution rule: keep the version with the stronger test evidence, and re-run BOTH tracks' gates
 against the merged result. Neither may be discarded on recency.
+
+---
+
+## The debt is now visible as a CAPABILITY GAP, 2026-08-28
+
+`ui/test/feature_ir_test.cpp` compares the UI's op table against the kernel's, parsed as data. In a
+clean checkout of HEAD it passes. In the working tree it fails:
+
+```
+FAIL  kernel.size() == 40                    got 43, want 40
+FAIL  irOpTable().size() == kernel.size()    got 40, want 43
+```
+
+**The in-flight `FeatureTreeCompiler.cpp` defines three operations the UI has never been told
+about.** A user cannot invoke them, and — more importantly — a model trained on the kernel's
+vocabulary could emit them while the application has no command that produces them.
+
+That is precisely the failure that produced the v4a collapse: a model emitting ops the executing
+side does not accept. The gate that would have caught that now exists and is red, for a real reason.
+
+Third measured cost of the divergence, alongside s0 conformance (54/5 at HEAD vs 33/14 here) and
+the unknown-operator-scores-as-a-box behaviour.
