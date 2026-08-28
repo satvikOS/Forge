@@ -72,3 +72,42 @@ emission suggests it is mostly working. Whether it also contributes to the 19% t
 **not established here**, and should not be treated as a cause without an ablation. It is
 recorded because it is the one instruction in the prompt that argues against halting, and any
 work on the tail should test it rather than assume it is innocent or guilty.
+
+
+---
+
+## MEASURED 2026-08-28: the flag saves 43% of wall clock, and the score half is pending
+
+Same adapter (`archie-30b-expert3d-v5cap`), same 36 tasks, same verifier. Only
+`FORGE_STOP_ON_LOOP` differs.
+
+| | flag OFF | flag ON | saving |
+| --- | --- | --- | --- |
+| total wall clock | 2404 s (**40.1 min**) | 1368 s (**22.8 min**) | **43.1%** |
+| total ops emitted | 2240 | 1174 | **47.6%** |
+| **median task** | **19 s** | **19 s** | **unchanged** |
+| slowest task | 559 s | 284 s | |
+
+**The median is identical.** That is the important number: the criterion does not touch tasks
+that terminate normally. It collapses the loops and leaves everything else alone.
+
+Per task, where the saving comes from:
+
+```
+ho254   559s / 379 ops  ->   30s /  44 ops        18x faster
+ho225   286s / 586 ops  ->   27s /  59 ops        10x faster
+ho135   285s / 201 ops  ->   72s /  55 ops
+ho222    73s / 145 ops  ->   43s /  87 ops
+ho151   282s / 251 ops  ->  281s / 251 ops        UNCHANGED
+ho147    96s /  97 ops  ->   96s /  97 ops        UNCHANGED
+```
+
+ho151 and ho147 are untouched, which is the correct behaviour: they are slow for reasons
+other than repetition, and a criterion that shortened them would be changing the answer
+rather than skipping a loop. Compare ho126 -- 284 s for 11 ops -- from the cost table above.
+
+**What this does NOT yet establish.** The docstring's claim is *score* neutrality, and that is
+still being measured: the flag-on arm is scoring now, and until the paired comparison lands
+the honest statement is "43% cheaper, effect on score unknown". The flag-on run compiled
+**10 of 36** against flag-off's 11, which is a difference of one row and could be either
+noise or a real cost -- the paired composite decides it, not the compile count.
