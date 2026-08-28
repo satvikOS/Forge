@@ -69,10 +69,24 @@ restore() {
 
 # The single owner of the backup's lifetime: last-chance restore, then remove it exactly once.
 cleanup() {
-  restore
-  local rf=$?
+  # If a restore FAILED, the backup is the only remaining copy of the original bytes and the tracked
+  # source may be left perturbed. Deleting it here would destroy the sole recovery path at exactly
+  # the moment it is needed — the same "clean up on the way out of a failure" reflex that makes a
+  # bad situation unrecoverable. Keep it, and say where it is.
+  if [ "${RESTORE_FAILED:-0}" = "1" ]; then
+    echo "[drift-gate] KEEPING the backup because a restore failed: $BACKUP" >&2
+    echo "[drift-gate] $PLANEGCS may be perturbed. Recover with:" >&2
+    echo "[drift-gate]   cp '$BACKUP' '$PLANEGCS'     # or: git checkout -- '$PLANEGCS'" >&2
+    return 0
+  fi
+  # Verify the post-condition before discarding the only copy: the tracked file must match the
+  # backup byte for byte. If it does not, something perturbed it after the last restore.
+  if [ "${BACKUP_VALID:-0}" = "1" ] && [ -s "$BACKUP" ] && ! cmp -s "$BACKUP" "$PLANEGCS"; then
+    echo "[drift-gate] KEEPING the backup: $PLANEGCS does NOT match it, so the tree is not restored." >&2
+    echo "[drift-gate] backup: $BACKUP" >&2
+    return 0
+  fi
   rm -f "$BACKUP"
-  [ "$rf" -eq 0 ] || exit 1
 }
 trap cleanup EXIT
 

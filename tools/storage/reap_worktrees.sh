@@ -84,16 +84,22 @@ _flush
 # plan was printed and a lock may have been taken in between. A bare `locked` record (no
 # reason) counts: the record's presence is the lock.
 is_locked_now() {
-  local want="$1" cur="" locked=0 entry
-  while IFS= read -r -d '' entry; do
-    case "$entry" in
-      "worktree "*)
-        if [ "$cur" = "$want" ] && [ "$locked" = "1" ]; then return 0; fi
-        cur="${entry#worktree }"; locked=0 ;;
-      "locked"|"locked "*) locked=1 ;;
-    esac
-  done < <(git worktree list --porcelain -z)
-  [ "$cur" = "$want" ] && [ "$locked" = "1" ]
+  # FAIL CLOSED. This previously treated a failed `git worktree list` as "not locked", which is the
+  # fifth fail-open found in this script and, like the others, it pointed toward DELETION. If we
+  # cannot read the lock state we do not know it is unlocked — and a lock is the owner's explicit
+  # statement that this tree must not be removed.
+  local _wt="$1" _out _rc
+  _out="$(git worktree list --porcelain 2>&1)"; _rc=$?
+  if [ $_rc -ne 0 ]; then
+    echo "UNKNOWN"      # caller treats anything but "no" as locked
+    return 0
+  fi
+  if printf '%s\n' "$_out" | awk -v w="$_wt" '
+        $1=="worktree" { cur=$2 } $1=="locked" && cur==w { found=1 } END { exit(found?0:1) }'; then
+    echo "yes"
+  else
+    echo "no"
+  fi
 }
 
 i=0
@@ -191,8 +197,11 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
   # "Not yet dirty" is not "finished". A worktree belonging to a live workflow run is UNCERTAIN,
   # and uncertainty means KEEP — the same rule already applied to unparseable locks.
   wt_base="$(basename "$wt")"
+  # Both naming schemes are agent worktrees. The wf_* form is a workflow run; the agent-* form is a
+  # standalone spawned agent — every one of the 26 phantom records reaped earlier was agent-*, so a
+  # guard that only matched wf_* left the more common kind unprotected.
   case "$wt_base" in
-    wf_*)
+    wf_*|agent-*)
       run_id="${wt_base%-*}"
       recent="$(find "$HOME/.claude/projects" -type d -name "${run_id}*" -mmin -30 2>/dev/null | head -1)"
       live_claude="$(ps -Ao comm= 2>/dev/null | grep -c '[c]laude' || true)"
