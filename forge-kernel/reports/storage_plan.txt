@@ -1,0 +1,231 @@
+FORGE NATIVE STORAGE GOVERNOR — DRY RUN PLAN (s21.3)
+NOTHING IS DELETED BY THIS TOOL. This is a proposal with proofs.
+All paths are relative to the workspace root.
+======================================================================
+
+--- PROVABLY_DISPOSABLE ---
+  path      : forge-kernel/build-thicken
+  bytes     : 226441197  (0.211 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-thicken && cmake --build build-thicken -j`; idle 24d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-thicken && cmake --build build-thicken -j
+
+  path      : forge-kernel/build-offset
+  bytes     : 223592705  (0.208 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-offset && cmake --build build-offset -j`; idle 26d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-offset && cmake --build build-offset -j
+
+  path      : forge-kernel/build-g2d
+  bytes     : 222648280  (0.207 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-g2d && cmake --build build-g2d -j`; idle 27d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-g2d && cmake --build build-g2d -j
+
+  path      : forge-kernel/build-makepipe
+  bytes     : 116649758  (0.109 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-makepipe && cmake --build build-makepipe -j`; idle 26d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-makepipe && cmake --build build-makepipe -j
+
+  path      : forge-kernel/build-unified
+  bytes     : 110882173  (0.103 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-unified && cmake --build build-unified -j`; idle 21d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-unified && cmake --build build-unified -j
+
+  path      : forge-kernel/build-occtzero-candidate
+  bytes     : 110793571  (0.103 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-occtzero-candidate && cmake --build build-occtzero-candidate -j`; idle 21d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-occtzero-candidate && cmake --build build-occtzero-candidate -j
+
+  path      : forge-kernel/build-archelix
+  bytes     : 109944734  (0.102 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-archelix && cmake --build build-archelix -j`; idle 25d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-archelix && cmake --build build-archelix -j
+
+  path      : forge-kernel/build-thicken-on
+  bytes     : 105450401  (0.098 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-thicken-on && cmake --build build-thicken-on -j`; idle 24d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-thicken-on && cmake --build build-thicken-on -j
+
+  path      : forge-kernel/build-offset-ab
+  bytes     : 102522555  (0.095 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-offset-ab && cmake --build build-offset-ab -j`; idle 27d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-offset-ab && cmake --build build-offset-ab -j
+
+  path      : forge-kernel/build-draftdrop
+  bytes     : 56649419  (0.053 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-draftdrop && cmake --build build-draftdrop -j`; idle 26d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-draftdrop && cmake --build build-draftdrop -j
+
+  path      : forge-kernel/build-ax-sel
+  bytes     : 50136248  (0.047 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-ax-sel && cmake --build build-ax-sel -j`; idle 24d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-ax-sel && cmake --build build-ax-sel -j
+
+  path      : forge-kernel/build-archelix-on
+  bytes     : 50101178  (0.047 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-archelix-on && cmake --build build-archelix-on -j`; idle 25d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-archelix-on && cmake --build build-archelix-on -j
+
+  path      : forge-kernel/build-selectors
+  bytes     : 49941057  (0.047 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-selectors && cmake --build build-selectors -j`; idle 25d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-selectors && cmake --build build-selectors -j
+
+  path      : forge-kernel/build-selectors-off
+  bytes     : 49910403  (0.046 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-selectors-off && cmake --build build-selectors-off -j`; idle 25d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-selectors-off && cmake --build build-selectors-off -j
+
+  path      : forge-kernel/build-allB2I
+  bytes     : 43745961  (0.041 GiB)
+  class     : BUILD_TREE   state: GC_CANDIDATE   root: kernel-build-trees
+  reason    : unreferenced, lease-free, clean, reproducible via `cd forge-kernel && cmake -S . -B build-allB2I && cmake --build build-allB2I -j`; idle 21d in root 'kernel-build-trees'
+  refproof  : no referencer found in workspace text scan
+  recovery  : cd forge-kernel && cmake -S . -B build-allB2I && cmake --build build-allB2I -j
+
+--- NEEDS_PROOF ---
+  (none)
+
+--- MUST_PIN ---
+  path      : node_modules
+  bytes     : 683903893  (0.637 GiB)
+  class     : DEPENDENCY_TREE   state: HOT   root: root-node-modules
+  reason    : HOT — in active use
+  refproof  : forge-kernel/build holds a binary linked 0d ago; the kernel build needs these deps
+  recovery  : cd . && npm ci
+
+  path      : frontend/node_modules
+  bytes     : 593485999  (0.553 GiB)
+  class     : DEPENDENCY_TREE   state: HOT   root: frontend
+  reason    : HOT — in active use
+  refproof  : forge-kernel/build holds a binary linked 0d ago; the kernel build needs these deps
+  recovery  : cd frontend && npm ci
+
+  path      : forge-kernel/build-desktop-ui
+  bytes     : 149415959  (0.139 GiB)
+  class     : BUILD_TREE   state: WARM   root: kernel-build-trees
+  reason    : referenced by 7 site(s), first: docs/FORGE_CPP_PHASE1_UI.md:102:cmake -S . -B build-desktop-ui \
+  refproof  : docs/FORGE_CPP_PHASE1_UI.md:102:cmake -S . -B build-desktop-ui \; docs/FORGE_CPP_PHASE1_UI.md:105:cmake --build build-desktop-ui -j3 --target forge_ui_probe; docs/FORGE_CPP_PHASE1_UI.md:107:  ./build-desktop-ui/forge_ui_probe; docs/FORGE_CPP_PHASE1_UI.md:117:those artifacts were actually produced. The flag is passed here so the isolated `build-desktop-ui`; docs/FORGE_CPP_PHASE1_UI.md:163:$ otool -L build-desktop-ui/forge_ui_probe; docs/FORGE_CPP_PHASE1_UI.md:169:$ nm -u build-desktop-ui/forge_ui_probe | grep -iE 'napi|node_api'   → (none); docs/FORGE_CPP_PHASE1_UI.md:185:  rules. The UI probe was built in a **separate** `build-desktop-ui` tree, so the default
+  recovery  : cd forge-kernel && cmake -S . -B build-desktop-ui && cmake --build build-desktop-ui -j
+
+  path      : forge-kernel/build-filletdrop
+  bytes     : 102284905  (0.095 GiB)
+  class     : BUILD_TREE   state: WARM   root: kernel-build-trees
+  reason    : referenced by 1 site(s), first: forge-kernel/reports/CUT_FEATURE_DESIGN.md:70:`build-filletdrop/` records TKBO directly (9 toolkits). Either way **Splitter adds no toolkit
+  refproof  : forge-kernel/reports/CUT_FEATURE_DESIGN.md:70:`build-filletdrop/` records TKBO directly (9 toolkits). Either way **Splitter adds no toolkit
+  recovery  : cd forge-kernel && cmake -S . -B build-filletdrop && cmake --build build-filletdrop -j
+
+  path      : forge-kernel/build-native
+  bytes     : 97176998  (0.091 GiB)
+  class     : BUILD_TREE   state: WARM   root: kernel-build-trees
+  reason    : referenced by 8 site(s), first: forge-kernel/KERNEL_UNIFIED_STATUS.md:8:NOTE: tests default to build-native/Release (stale Jun-27) — point FORGE_KERNEL at build/Release, or resync
+  refproof  : forge-kernel/KERNEL_UNIFIED_STATUS.md:8:NOTE: tests default to build-native/Release (stale Jun-27) — point FORGE_KERNEL at build/Release, or resync; forge-kernel/KERNEL_UNIFIED_STATUS.md:9:build-native. native_compile.mjs (Models) loads build/Release; its shell/fillet calls need call-pattern; forge-kernel/docs/K6_K7_EXECUTION_BRIEF.md:78:  `forge:coherence`, `core.mjs` against `build/` (NOT stale `build-native/`).**; forge-kernel/test/native_multifillet_verify.mjs:5:// honestly FALLS BACK to the mesh-bridge (NativeMesh). Requires build-native/.; forge-kernel/test/native_vs_occt_aabb.mjs:11:// Requires the addon built with -DFORGE_NATIVE_BREP=ON (build-native/). Exit 0; forge-kernel/test/native_vs_occt_aabb.mjs:14:// Run: FORGE_KERNEL=/abs/path/build-native/Release/forge-kernel.node \; forge-kernel/test/native_vs_occt_core.mjs:14:// Requires the addon built with -DFORGE_NATIVE_BREP=ON (build-native/). Pure; package.json:21:    "forge:kernel:build:native": "cd forge-kernel && ../node_modules/.bin/cmake-js configure --out build-native --CDCMAKE_BUILD_TYPE=Release --CDFORGE_NATIVE_BREP=ON && ../node_modules...
+  recovery  : cd forge-kernel && cmake -S . -B build-native && cmake --build build-native -j
+
+  path      : forge-kernel/build-relational
+  bytes     : 56833415  (0.053 GiB)
+  class     : BUILD_TREE   state: WARM   root: kernel-build-trees
+  reason    : referenced by 3 site(s), first: implementation/sacrosanct/00_BASELINE.md:101:(7 base + TKFillet); `build-relational` carries `FORGE_FT_ARCHELIX=ON` and
+  refproof  : implementation/sacrosanct/00_BASELINE.md:101:(7 base + TKFillet); `build-relational` carries `FORGE_FT_ARCHELIX=ON` and; implementation/sacrosanct/00_BASELINE.md:132:`build-relational`, which carries `FORGE_FT_ARCHELIX=ON` + `FORGE_FT_DIR_SELECTORS=ON` and appends; implementation/sacrosanct/EXECUTION_LEDGER.md:52:| "otool 8 vs auditor's 10 — contradiction" | measured the freshly linked default build | **BOTH CORRECT.** default = 8 direct; `build-relational` = ...
+  recovery  : cd forge-kernel && cmake -S . -B build-relational && cmake --build build-relational -j
+
+  path      : forge-kernel/build
+  bytes     : 56455939  (0.053 GiB)
+  class     : BUILD_TREE   state: HOT   root: kernel-build-trees
+  reason    : HOT — in active use
+  refproof  : FORGE_PHYSICS_VERIFICATION.md:4:kernel (`forge-kernel/build/Release/forge-kernel.node`) against closed-form; FORGE_PHYSICS_VERIFICATION.md:11:- **Kernel binary verified:** `forge-kernel/build/Release/forge-kernel.node`; FORGE_PHYSICS_VERIFICATION.md:242:- Kernel binary: `forge-kernel/build/Release/forge-kernel.node` (built 2026-06-17, not rebuilt for this report); FORGE_PLATFORM_INVENTORY.md:266:- Binary: `forge-kernel/build/Release/forge-kernel.node` — **5,019,840 bytes**, built; HARDWARE_BUDGET.md:98:| Native kernel binary | **4.8 MiB** | `…/forge-kernel/build/Release/forge-kernel.node` |; KERNEL_PARITY.md:54:> `forge-kernel/build/Release/forge-kernel.node` (built 2026-06-18,; KERNEL_PARITY.md:338:`forge-kernel/build/Release/forge-kernel.node` (Node v26.0.0, OCCT 7.9.3).; KERNEL_UNIFICATION.md:15:- The single native kernel is `forge-kernel/` → `forge-kernel.node` (5.0 MB built artifact at `forge-kernel/build/Release/forge-kernel.node`, ls-confirmed). It is **B-rep/NU...; live linked binary in tree, age 0d <= hot window 7d
+  recovery  : cd forge-kernel && cmake -S . -B build && cmake --build build -j
+
+  path      : forge-kernel/build-shheal
+  bytes     : 54663920  (0.051 GiB)
+  class     : BUILD_TREE   state: WARM   root: kernel-build-trees
+  reason    : referenced by 2 site(s), first: forge-kernel/reports/OCCT_DROP_ORDER.md:12:> (the TKShHealing P1 work — `build-shheal/`, `build-shheal-off/`, `test/healing_smoke.js`).
+  refproof  : forge-kernel/reports/OCCT_DROP_ORDER.md:12:> (the TKShHealing P1 work — `build-shheal/`, `build-shheal-off/`, `test/healing_smoke.js`).; forge-kernel/test/healing_smoke.js:14:// experimental build tree (e.g. build-shheal) without touching build/.
+  recovery  : cd forge-kernel && cmake -S . -B build-shheal && cmake --build build-shheal -j
+
+  path      : forge-kernel/build-shheal-off
+  bytes     : 1799982  (0.002 GiB)
+  class     : BUILD_TREE   state: WARM   root: kernel-build-trees
+  reason    : referenced by 1 site(s), first: forge-kernel/reports/OCCT_DROP_ORDER.md:12:> (the TKShHealing P1 work — `build-shheal/`, `build-shheal-off/`, `test/healing_smoke.js`).
+  refproof  : forge-kernel/reports/OCCT_DROP_ORDER.md:12:> (the TKShHealing P1 work — `build-shheal/`, `build-shheal-off/`, `test/healing_smoke.js`).
+  recovery  : cd forge-kernel && cmake -S . -B build-shheal-off && cmake --build build-shheal-off -j
+
+  path      : .git/worktrees/wf_5dcbcd5f-963-6
+  bytes     : 410708  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-6
+  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-6   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_5dcbcd5f-963-7
+  bytes     : 409859  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-7
+  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-7   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_5dcbcd5f-963-5
+  bytes     : 408070  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-5
+  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-5   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/align-op
+  bytes     : 407858  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/align-op
+  recovery  : git worktree add <path> refs/heads/worktree-align-op   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_5dcbcd5f-963-4
+  bytes     : 406493  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-4
+  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-4   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_5dcbcd5f-963-8
+  bytes     : 406493  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-8
+  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-8   (record is re-created from the branch; `git worktree prune` removes it)
+
+--- EXCLUSIONS (refused authority) ---
+  (none)
+
+--- TOTALS ---
+  provably disposable : 1.518 GiB  (1629409640 B)
+  needs proof         : 0.000 GiB  (0 B)
+  must pin            : 1.675 GiB  (1798470491 B)
+  headroom before     : 66.237 GiB
+  headroom projected  : 67.754 GiB   (disposable bytes ONLY; unproven bytes are never projected)
+
+generated: 20260828T055308Z  (dry run — nothing was deleted)
