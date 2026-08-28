@@ -142,6 +142,47 @@ else
   assert_has "case3b" "$PLAN" "lock pid 999999 confirmed dead"
 fi
 
+echo "=== case 3c: phantom whose lock file is EMPTY (no --reason) is still LOCKED ==="
+# `git worktree lock` without --reason writes a ZERO-BYTE file. Nothing in it can be parsed,
+# so the holder is unknown — which is an UNCERTAIN lock, never an absent one.
+R="$(new_repo c3c)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/bare" -b barebr
+git -C "$R" worktree lock "$R/.claude/worktrees/bare"
+rm -rf "$R/.claude/worktrees/bare"
+run_plan "$R" "$R"
+assert_has   "case3c" "$PLAN" "KEEP    $R/.claude/worktrees/bare"
+assert_lacks "case3c" "$PLAN" "PRUNE   $R/.claude/worktrees/bare"
+
+echo "=== case 6: a LIVE worktree that is git-LOCKED is never REMOVE, however clean ==="
+# The lock was consulted only for phantoms: a worktree still on disk was judged purely on
+# cleanliness and removed, and the apply loop double-forced past the lock. The native governor
+# pins every locked record; the two tools must not disagree about what "locked" means.
+R="$(new_repo c6)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/heldA" -b heldabr
+git -C "$R" worktree lock --reason "claude agent alive (pid $$)" "$R/.claude/worktrees/heldA"
+run_plan "$R" "$R"
+assert_has   "case6" "$PLAN" "KEEP    $R/.claude/worktrees/heldA"
+assert_has   "case6" "$PLAN" "reason: git-LOCKED"
+assert_lacks "case6" "$PLAN" "REMOVE  $R/.claude/worktrees/heldA"
+
+echo "=== case 6b: a LIVE worktree with an EMPTY lock file is equally protected ==="
+R="$(new_repo c6b)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/heldB" -b heldbbr
+git -C "$R" worktree lock "$R/.claude/worktrees/heldB"
+run_plan "$R" "$R"
+assert_has   "case6b" "$PLAN" "KEEP    $R/.claude/worktrees/heldB"
+assert_has   "case6b" "$PLAN" "no reason recorded"
+assert_lacks "case6b" "$PLAN" "REMOVE  $R/.claude/worktrees/heldB"
+
+echo "=== case 6c: --apply does not delete a locked worktree, and says so ==="
+R="$(new_repo c6c)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/heldC" -b heldcbr
+git -C "$R" worktree lock "$R/.claude/worktrees/heldC"
+run_plan "$R" "$R" --apply
+if [ -d "$R/.claude/worktrees/heldC" ]; then ondisk=YES; else ondisk=NO; fi
+assert_eq    "case6c" "locked worktree still on disk after --apply" "$ondisk" "YES"
+assert_lacks "case6c" "$PLAN" "removed $R/.claude/worktrees/heldC"
+
 echo "=== case 4: invoked from INSIDE a linked worktree ==="
 R="$(new_repo c4)"
 git -C "$R" worktree add -q "$R/.claude/worktrees/here" -b herebr
@@ -170,6 +211,29 @@ assert_eq  "case5" "branch applybr still holds the commit" \
            "$(git -C "$R" rev-parse applybr 2>/dev/null)" "$SHA_BEFORE"
 left="$(git -C "$R" worktree list --porcelain -z | tr '\0' '\n' | grep -c '^worktree ' | tr -d ' ')"
 assert_eq  "case5" "worktree records remaining" "$left" "1"
+
+echo "=== case 7: is_locked_now answers in BOTH directions ==="
+# The apply loop re-reads the lock, because a lock may be taken between the plan and the
+# removal. That re-read is only reachable in a race, so exercise the predicate directly —
+# extracted verbatim from the script under test, not restated here.
+R="$(new_repo c7)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/held me" -b heldmebr   # path with a space
+git -C "$R" worktree add -q "$R/.claude/worktrees/freewt" -b freewtbr
+git -C "$R" worktree lock "$R/.claude/worktrees/held me"                 # EMPTY lock
+FN="$SANDBOX/is_locked_now.sh"
+sed -n '/^is_locked_now() {/,/^}/p' "$SCRIPT" > "$FN"
+if [ ! -s "$FN" ]; then
+  echo "  FAIL  case7: is_locked_now is not defined in $SCRIPT"; FAIL=$((FAIL+1))
+else
+  # shellcheck disable=SC1090
+  . "$FN"
+  ( cd "$R" && is_locked_now "$R/.claude/worktrees/held me" ) \
+    && { echo "  PASS  case7: an EMPTY lock on a spaced path reads LOCKED"; PASS=$((PASS+1)); } \
+    || { echo "  FAIL  case7: an EMPTY lock on a spaced path read as unlocked"; FAIL=$((FAIL+1)); }
+  ( cd "$R" && is_locked_now "$R/.claude/worktrees/freewt" ) \
+    && { echo "  FAIL  case7: an unlocked worktree read as LOCKED"; FAIL=$((FAIL+1)); } \
+    || { echo "  PASS  case7: an unlocked worktree reads unlocked"; PASS=$((PASS+1)); }
+fi
 
 echo ""
 echo "reap_worktrees gate: $PASS passed, $FAIL failed"
