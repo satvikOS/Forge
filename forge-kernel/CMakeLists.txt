@@ -1024,6 +1024,12 @@ set(FORGE_KERNEL_SOURCES
     # produce (a compact typed op-list), + the C++ compiler that walks it into
     # native forge-kernel calls -> real 3D CAD -> STEP. Replaces scope-plan-JSON.
     src/ft/FeatureTreeCompiler.cpp   # parser (text->FeatureTree) + compiler (->native kernel)
+    src/ft/GraphAudit.cpp            # s0.4 graph-quality gate: zero unresolved refs,
+                                     # zero duplicate ids, zero unexplained orphans.
+                                     # compile() refuses a graph it does not call clean,
+                                     # so this MUST be in the link: it is not optional.
+    src/ft/ChunkChain.cpp            # s0.11 chunked emission + SHA-256 hash/count chain
+                                     # (Appendix B CHUNK-CORRUPTION detection)
     src/ft/binding_ft.cpp            # N-API surface forge.ft.compile(irText[, outStep])
     # KEYSTONE K7 — Parasolid-style opaque-handle C-API black box wrapping the
     # native brep/mesh/csg kernel (include/forge/capi/forge_capi.h). Strict

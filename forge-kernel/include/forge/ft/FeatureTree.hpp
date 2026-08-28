@@ -49,7 +49,9 @@
 // docs/feature_tree_ir.md and enumerated in the OpCode table below.
 // ============================================================================
 
+#include <cstddef>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -162,14 +164,72 @@ struct Op {
     int                 srcLine = 0;   // 1-based source line, for diagnostics
 };
 
+// ------------------------------------------------- s0.4 cardinality ledger
+// SACROSANCT 3.1 s0.4: "Archie must publish count tables in the graph
+// header/footer ... N_declared_semantic_features == N_parsed_semantic_features".
+// Every executable source line is accounted for in exactly one bucket, and the
+// parser refuses to return a tree whose buckets do not reconcile. Without this
+// ledger a dropped statement is INVISIBLE: the tree simply comes back shorter.
+struct Census {
+    std::size_t sourceLines  = 0;   // physical lines read
+    std::size_t blank        = 0;   // empty / whitespace-only
+    std::size_t comments     = 0;   // '#' or '//' commentary — NON-executable by
+                                    // construction, the only legal prose
+    std::size_t templates    = 0;   // the literal format spec `%id = OP(args)`
+                                    // echoed back; carries no identity, no
+                                    // parameters, no count — cannot hide intent
+    std::size_t declared     = 0;   // executable statements that must yield an op
+    std::size_t parsed       = 0;   // ops actually in `ops`
+    std::size_t terminators  = 0;   // RESULT(%id) lines (bind, produce no op)
+
+    // The reconciliation itself. declared counts every executable statement;
+    // parsed counts what survived. They must be equal — a difference is exactly
+    // the "silent truncation" the constitution forbids outright.
+    bool reconciles() const { return declared == parsed; }
+};
+
 struct FeatureTree {
     std::vector<Op> ops;
     int             resultId = -1;     // explicit RESULT(%id), or -1 => last solid
+    Census          counts;            // s0.4 count table for THIS parse
+};
+
+// -------------------------------------------------- parse failure taxonomy
+enum class ParseFailure {
+    Syntax,              // malformed IR (bad token, unknown op, bad %id, ...)
+    OpaquePlaceholder,   // s0.5: an executable statement that is not a typed op
+                         //       ("place six mounting tabs")
+    Cardinality,         // s0.4: declared != parsed
+    Incomplete,          // s0.5/law 5: the emission stopped mid-statement.
+                         //       PAUSED_INCOMPLETE — never success.
+};
+
+// A parse failure that carries WHAT was rejected, WHERE, and — for a truncated
+// emission — the last valid checkpoint, because law 5 forbids discarding
+// generated work as well as forbidding a success claim over it.
+class ParseError : public std::runtime_error {
+public:
+    ParseError(ParseFailure k, int lineNo, std::string offendingText,
+               const std::string& message, FeatureTree cp = FeatureTree())
+        : std::runtime_error(message),
+          kind(k), line(lineNo), offending(std::move(offendingText)),
+          checkpoint(std::move(cp)) {}
+
+    ParseFailure kind;
+    int          line = 0;        // 1-based source line
+    std::string  offending;       // the rejected text, verbatim
+    FeatureTree  checkpoint;      // Incomplete only: everything already parsed
 };
 
 // ------------------------------------------------------------------ parse API
-// text -> FeatureTree. Throws std::runtime_error("ft parse line N: ...") on any
-// syntax error (unknown op, bad token, malformed point list, ...).
+// text -> FeatureTree. Throws forge::ft::ParseError (a std::runtime_error) on any
+// syntax error (unknown op, bad token, malformed point list, ...), on any
+// executable line that is not a recognised typed op (s0.5), on a cardinality
+// mismatch (s0.4), and on a truncated final statement (Incomplete: the partial
+// graph is attached as ParseError::checkpoint, never returned as a success).
+//
+// It NEVER drops an executable line. '#' and '//' commentary is the one legal
+// form of prose and is counted, not silently discarded.
 FeatureTree parse(const std::string& text);
 
 // --------------------------------------------------------------- compile API
@@ -188,6 +248,14 @@ struct CompileResult {
     double      bboxMin[3] = {0, 0, 0};
     double      bboxMax[3] = {0, 0, 0};
     bool        exported   = false;  // STEP written (only if a path was given)
+
+    // s0.4 count table: declared (executable statements) / parsed (ops in the
+    // tree) / compiled (ops actually evaluated). A mismatch is a hard failure —
+    // ok=false — because a feature that was declared, parsed, and then not
+    // compiled is a missing feature reported as a built part.
+    std::size_t nDeclared = 0;
+    std::size_t nParsed   = 0;
+    std::size_t nCompiled = 0;
 
     // VERIFY(...) results — one entry per assertion, "PASS <expr>" / "FAIL <expr> (got ...)".
     // A failed assertion is a LOUD failure: ok=false, error names the assertion.
