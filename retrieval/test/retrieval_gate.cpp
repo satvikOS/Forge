@@ -367,6 +367,50 @@ int main(int argc, char** argv) {
     check(parseHttpResponse(ch, 1 << 20, r2), "chunked response parses");
     check(r2.body == "{\"results\":[],\"number_of_results\":0}", "chunks are reassembled exactly");
 
+    // NOT COVERED, AND SAID SO. The decoder's size guards are written against what
+    // REMAINS (`size > body_raw.size() - i`) rather than as sums (`i + size > ...`),
+    // because `size` is a std::size_t parsed from hex and every summed form wraps. That
+    // hardening is real, but there is NO test here that distinguishes the two forms, and
+    // two attempts to write one both PASSED WITH THE SUMMED GUARDS RESTORED:
+    //
+    //   attempt 1: a lone huge chunk -- with decoded.size()==0 the CAP guard catches it
+    //              anyway, so it tested the cap, not the overflow.
+    //   attempt 2: a 5-byte chunk then size 2**64-5, chosen so both summed guards wrap --
+    //              the advance `i += size + 2` then jumps BACKWARD and the stream fails a
+    //              DIFFERENT check ("unparseable chunk size"), so it is rejected either way.
+    //
+    // Both were removed rather than kept: a check that passes whether or not the fix is
+    // present implies coverage that does not exist, which is worse than an honest gap.
+    // The mutation run is what exposed both -- 0 failures where 2 were expected, twice.
+
+    // A body that simply RAN OUT is not a complete body. Exiting the loop on
+    // `i >= body_raw.size()` and reporting Ok is the quietest way to lose data.
+    {
+      HttpResponse trunc;
+      const std::string no_terminator =
+          "HTTP/1.1 200 OK\r\n"
+          "Transfer-Encoding: chunked\r\n\r\n"
+          "5\r\n"
+          "hello\r\n";           // a complete chunk, then nothing -- no final 0 chunk
+      check(!parseHttpResponse(no_terminator, 1 << 20, trunc),
+            "a chunked body with no final 0 chunk is REJECTED, not reported complete");
+      check(trunc.status == TransportStatus::MalformedResponse,
+            "and a missing final chunk reports MalformedResponse");
+    }
+    // The trailing CRLF must actually be present; skipping two bytes on faith turns a
+    // truncated frame into a silently short body.
+    {
+      HttpResponse nocrlf;
+      const std::string bad_sep =
+          "HTTP/1.1 200 OK\r\n"
+          "Transfer-Encoding: chunked\r\n\r\n"
+          "5\r\n"
+          "helloXX"
+          "0\r\n\r\n";
+      check(!parseHttpResponse(bad_sep, 1 << 20, nocrlf),
+            "a chunk not followed by CRLF is REJECTED");
+    }
+
     HttpResponse r3;
     check(!parseHttpResponse("garbage without a terminator", 1 << 20, r3),
           "a malformed response is rejected, not guessed at");

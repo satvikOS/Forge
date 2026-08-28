@@ -155,6 +155,7 @@ bool parseHttpResponse(const std::string& raw, std::size_t max_body_bytes, HttpR
   if (te != out.headers.end() && toLower(te->second).find("chunked") != std::string::npos) {
     std::string decoded;
     std::size_t i = 0;
+    bool saw_terminator = false;
     while (i < body_raw.size()) {
       const std::size_t eol = body_raw.find("\r\n", i);
       if (eol == std::string::npos) {
@@ -178,19 +179,40 @@ bool parseHttpResponse(const std::string& raw, std::size_t max_body_bytes, HttpR
         return false;
       }
       i = eol + 2;
-      if (size == 0) break;
-      if (i + size > body_raw.size()) {
+      if (size == 0) { saw_terminator = true; break; }
+      // COMPARE AGAINST WHAT REMAINS; never compute a sum. `size` is a std::size_t parsed
+      // from hex, so a chunk header of "fffffffffffffff0" parses fine and then makes
+      // `i + size`, `decoded.size() + size` and `i += size + 2` all WRAP -- every guard
+      // passes and the decoder walks off into the buffer. Subtraction cannot wrap here:
+      // the loop condition gives i <= body_raw.size(), and decoded never exceeds the cap.
+      if (size > body_raw.size() - i) {
         out.status = TransportStatus::MalformedResponse;
         out.detail = "truncated chunk body";
         return false;
       }
-      if (decoded.size() + size > max_body_bytes) {
+      if (size > max_body_bytes - decoded.size()) {
         out.status = TransportStatus::ResponseTooLarge;
         out.detail = "chunked body exceeds cap";
         return false;
       }
       decoded.append(body_raw, i, size);
-      i += size + 2;  // skip the chunk's trailing CRLF
+      i += size;
+      // The chunk's trailing CRLF must actually be there. Skipping two bytes on faith is
+      // how a truncated frame becomes a silently short body.
+      if (body_raw.compare(i, 2, "\r\n") != 0) {
+        out.status = TransportStatus::MalformedResponse;
+        out.detail = "chunk not terminated by CRLF";
+        return false;
+      }
+      i += 2;
+    }
+    // A body that simply RAN OUT is not a complete body. Without this the loop exits on
+    // `i >= body_raw.size()` and the caller sets Ok, so a response truncated exactly at a
+    // chunk boundary is reported as a whole one -- the quietest way to lose data.
+    if (!saw_terminator) {
+      out.status = TransportStatus::MalformedResponse;
+      out.detail = "chunked body ended without a final 0 chunk";
+      return false;
     }
     out.body = std::move(decoded);
   } else {
