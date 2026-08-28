@@ -115,3 +115,39 @@ On macOS, Vulkan is only available through MoltenVK translation, so "Vulkan on M
 with a layer in front. §19.2's Metal-first selection is therefore the better-supported path and the
 ImGui co-composite argument holds equally well on Metal. Leaning Diligent/Metal, but it needs a
 measured comparison rather than a document quote, and no UI work depends on it yet.
+
+---
+
+## D-007 — `bench_tasks_benchcad_hf.jsonl` is EVAL, not training — **DECIDED 2026-08-28**
+
+**Question.** The hardened contamination guard blocks 947 training rows that share a part with
+`bench_tasks_benchcad_hf.jsonl`. That pool has served as **both** a training source **and** a
+980-task evaluation set with measured ground truth on disk — and a baseline has already been scored
+against it (`reports/voxel_iou_benchcad_hf_envelope_baseline.json`, grid 64, 11 scored, mean IoU
+0.317). Strip the training rows, or retire the eval set?
+
+**Decision. It is an EVALUATION set. The 947 training rows are stripped.**
+
+Sacrosanct §17.3 is not ambiguous: public evaluation inputs, known answers, and submission artifacts
+are excluded from training **and** retrieval, and "benchmark optimization means learning transferable
+construction and editing competence, not answer-key contamination." A pool with measured ground
+truth on disk, that a baseline has been scored against, is an answer key. Training on it does not
+merely risk a inflated score — it destroys the ability of that set to measure anything ever again.
+
+Retiring the eval set instead would be the cheaper move and is the wrong one: it would discard a
+980-task measurement instrument to preserve 947 training rows out of a 68,307-row corpus. The
+instrument is scarcer than the data.
+
+**Consequence that must not be buried.** `voxel_iou_benchcad_hf_envelope_baseline.json` (mean IoU
+0.317) was measured by a model whose training corpus overlapped this set. That number is now
+**SUSPECT, not void** — 11 of 980 tasks were scored, and the overlap is by shared *part*, not
+necessarily by identical task. It is reclassified UNPROVED and must be re-measured with a model
+trained on the stripped corpus before it is cited again. Any downstream claim resting on it inherits
+that status.
+
+**Reversible?** Stripping is reversible (the rows are not deleted upstream, only excluded from the
+train split). Contaminating an eval set is not.
+
+**Follow-up owed:** re-measure the baseline post-strip, and check whether any *other* published
+number in `reports/` was produced against a corpus overlapping its own eval set. This one was found
+only because the guard was hardened; there is no reason to assume it is unique.
