@@ -204,8 +204,8 @@ bool hasNumber(const CommandContext& ctx, const char* name) {
 std::string bodyNodeFor(int irId) { return "body_" + std::to_string(irId); }
 
 // One emission == one undoable transaction.
-void emit(PartDocument& doc, UndoStack& stack, const char* commandId, const char* label,
-          const char* op, std::vector<IrArg> args, IrValueKind produces,
+void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* commandId,
+          const char* label, const char* op, std::vector<IrArg> args, IrValueKind produces,
           const std::vector<std::string>& consumed, const std::string& producedNode) {
   FeatureRecord rec;
   rec.irId = doc.nextIrId();
@@ -214,7 +214,12 @@ void emit(PartDocument& doc, UndoStack& stack, const char* commandId, const char
   rec.line = IrLine{rec.irId, op, std::move(args)};
   rec.produces = produces;
   const std::string node = producedNode.empty() ? bodyNodeFor(rec.irId) : producedNode;
-  stack.perform(doc, std::make_unique<AppendFeatureEdit>(rec, consumed, node));
+  // perform() returns whether the edit applied. Discarding it is how a refused feature became
+  // a command that reported success and did nothing; appendFeature() is documented to refuse
+  // and mutate NOTHING, and it was doing exactly that, unheard.
+  if (!stack.perform(doc, std::make_unique<AppendFeatureEdit>(rec, consumed, node))) {
+    ctx.fail(std::string("the document refused the statement: ") + toString(doc.lastCheck()));
+  }
 }
 
 // Shared shape of every solid-editing command: exactly one solid in, the same
@@ -283,7 +288,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(num(ctx, "diry", 0.0)));
         args.push_back(IrArg::num(num(ctx, "dirz", 1.0)));
       }
-      emit(*d, *s, "part.extrude", "Extrude", "EXTRUDE", std::move(args), IrValueKind::Solid,
+      emit(ctx, *d, *s, "part.extrude", "Extrude", "EXTRUDE", std::move(args), IrValueKind::Solid,
            {}, {});
     };
     add(std::move(c));
@@ -315,7 +320,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(num(ctx, "axy", 1.0)));
         args.push_back(IrArg::num(num(ctx, "axz", 0.0)));
       }
-      emit(*d, *s, "part.revolve", "Revolve", "REVOLVE", std::move(args), IrValueKind::Solid,
+      emit(ctx, *d, *s, "part.revolve", "Revolve", "REVOLVE", std::move(args), IrValueKind::Solid,
            {}, {});
     };
     add(std::move(c));
@@ -338,7 +343,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       }
       if (flagOn(ctx, "ruled")) args.push_back(IrArg::keyword("RULED"));
       if (flagOn(ctx, "open")) args.push_back(IrArg::keyword("OPEN"));
-      emit(*d, *s, "part.loft", "Loft", "LOFT", std::move(args), IrValueKind::Solid, {}, {});
+      emit(ctx, *d, *s, "part.loft", "Loft", "LOFT", std::move(args), IrValueKind::Solid, {}, {});
     };
     add(std::move(c));
   }
@@ -367,7 +372,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(1.0));
         args.push_back(IrArg::num(num(ctx, "depth", 0.0)));  // <= 0 => through
       }
-      emit(*d, *s, "part.hole", "Hole", "HOLE", std::move(args), IrValueKind::Solid, {}, t.node);
+      emit(ctx, *d, *s, "part.hole", "Hole", "HOLE", std::move(args), IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
   }
@@ -398,7 +403,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                               IrArg::num(num(ctx, "x", 0.0)),
                               IrArg::num(num(ctx, "y", 0.0)),
                               IrArg::num(num(ctx, "z", 0.0))};
-      emit(*d, *s, "part.counterbore", "Counterbore Hole", "CBORE", std::move(args),
+      emit(ctx, *d, *s, "part.counterbore", "Counterbore Hole", "CBORE", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -423,7 +428,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       args.push_back(sel == "ALL" || sel == "VERTICAL" || sel == "RIM" || sel == "CONVEX"
                          ? IrArg::keyword(sel)
                          : IrArg::text(sel));
-      emit(*d, *s, "part.fillet", "Edge Fillet", "FILLET", std::move(args), IrValueKind::Solid,
+      emit(ctx, *d, *s, "part.fillet", "Edge Fillet", "FILLET", std::move(args), IrValueKind::Solid,
            {}, t.node);
     };
     add(std::move(c));
@@ -446,7 +451,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       args.push_back(sel == "ALL" || sel == "VERTICAL" || sel == "RIM" || sel == "CONVEX"
                          ? IrArg::keyword(sel)
                          : IrArg::text(sel));
-      emit(*d, *s, "part.chamfer", "Edge Chamfer", "CHAMFER", std::move(args),
+      emit(ctx, *d, *s, "part.chamfer", "Edge Chamfer", "CHAMFER", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -475,7 +480,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::keyword("ALL"));
         args.push_back(IrArg::keyword("SMOOTH"));
       }
-      emit(*d, *s, "part.variable_fillet", "Variable Fillet", "BLEND", std::move(args),
+      emit(ctx, *d, *s, "part.variable_fillet", "Variable Fillet", "BLEND", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -502,7 +507,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(num(ctx, "open_axy", 0.0)));
         args.push_back(IrArg::num(num(ctx, "open_axz", -1.0)));
       }
-      emit(*d, *s, "part.shell", "Shell Body", "SHELL", std::move(args), IrValueKind::Solid, {},
+      emit(ctx, *d, *s, "part.shell", "Shell Body", "SHELL", std::move(args), IrValueKind::Solid, {},
            t.node);
     };
     add(std::move(c));
@@ -533,7 +538,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(num(ctx, "dy", 0.0)));
         args.push_back(IrArg::num(num(ctx, "dz", 0.0)));
       }
-      emit(*d, *s, "part.pattern_linear", "Linear Pattern", "PATTERN", std::move(args),
+      emit(ctx, *d, *s, "part.pattern_linear", "Linear Pattern", "PATTERN", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -557,7 +562,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::keyword("POLAR"),
                               IrArg::num(num(ctx, "count", 4.0)),
                               IrArg::num(num(ctx, "total_angle", 360.0))};
-      emit(*d, *s, "part.pattern_circular", "Circular Pattern", "PATTERN", std::move(args),
+      emit(ctx, *d, *s, "part.pattern_circular", "Circular Pattern", "PATTERN", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -582,7 +587,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       std::vector<IrArg> args{IrArg::valueRef(t.value),   IrArg::keyword("GRID"),
                               IrArg::num(num(ctx, "nx", 2.0)), IrArg::num(num(ctx, "ny", 2.0)),
                               IrArg::num(num(ctx, "dx", 10.0)), IrArg::num(num(ctx, "dy", 10.0))};
-      emit(*d, *s, "part.pattern_grid", "Grid Pattern", "PATTERN", std::move(args),
+      emit(ctx, *d, *s, "part.pattern_grid", "Grid Pattern", "PATTERN", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -602,7 +607,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::keyword(txt(ctx, "plane", "XY"))};
-      emit(*d, *s, "part.mirror", "Mirror Body", "MIRROR", std::move(args), IrValueKind::Solid,
+      emit(ctx, *d, *s, "part.mirror", "Mirror Body", "MIRROR", std::move(args), IrValueKind::Solid,
            {}, t.node);
     };
     add(std::move(c));
@@ -649,8 +654,10 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       rec.label = label;
       rec.line = IrLine{rec.irId, op, {IrArg::valueRef(ids[0]), IrArg::valueRef(ids[1])}};
       rec.produces = IrValueKind::Solid;
-      s->perform(*d, std::make_unique<AppendFeatureEdit>(rec, std::vector<std::string>{toolNode},
-                                                         targetNode));
+      if (!s->perform(*d, std::make_unique<AppendFeatureEdit>(
+                              rec, std::vector<std::string>{toolNode}, targetNode))) {
+        ctx.fail(std::string("the document refused the statement: ") + toString(d->lastCheck()));
+      }
     };
     add(std::move(c));
   }

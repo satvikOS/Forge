@@ -59,11 +59,30 @@ found because the compiled solid's volume equalled the raw prism exactly (96000 
 93888.19 a real 4mm fillet produces). No status check would have caught it, which is the
 argument for asserting on geometry rather than on return codes.
 
-## The fix, not attempted here
+## FIXED, same day
 
-Give `CommandContext` a failure channel, have `dispatch` honour it, and check
-`UndoStack::perform`'s result at both call sites, naming `doc.lastCheck()`. That is an API
-change rippling through every handler and `part_commands_test.cpp` (304 checks), so it
-belongs in its own change rather than bundled into the gate that found it.
+`CommandContext` gained a failure channel -- `fail(std::string)`, `failed()`,
+`failureDetail()` -- and `CommandRegistry::dispatch` now returns
+`DispatchStatus::EditRefused` with that detail instead of an unconditional `Ok`.
+`EditRefused` was **appended** to the enum, never inserted: the existing values are compared
+as ints in tests and stored in macros, so renumbering them would silently change what a
+recorded status means.
 
-`ui/` is not in-flight, so this is unblocked whenever it is picked up.
+`emit()` in `PartCommands.cpp` now takes the context and reports through it when
+`UndoStack::perform` returns false, naming `toString(doc.lastCheck())`. All 13 `emit()` call
+sites and the one direct `perform()` were updated; **zero discarded `perform()` results
+remain** in the file.
+
+**Measured, same mutation as above:**
+
+| | dispatch status |
+| --- | --- |
+| before | `0` (`Ok`) -- the FILLET statement silently absent |
+| after | `6` (`EditRefused`) |
+
+**Gated.** `ui/test/command_registry_test.cpp` gained CONTRACT 6 (51 -> 60 checks): a handler
+that calls `fail()` must yield `EditRefused` with the detail carried through, a handler that
+does not must still yield `Ok` with an empty detail (so the channel cannot be stuck on), and
+both must count as dispatches. Proved able to fail -- reverting the dispatch change turns it
+red on exactly those three assertions; restored, **ALL 9 UI GATES PASS**, with
+`part_commands` unchanged at 304 checks, so the API change broke nothing.

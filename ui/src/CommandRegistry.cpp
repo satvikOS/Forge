@@ -119,6 +119,7 @@ const char* toString(DispatchStatus status) noexcept {
     case DispatchStatus::Disabled:                   return "disabled";
     case DispatchStatus::MissingRequiredParameter:   return "missing_required_parameter";
     case DispatchStatus::NoHandler:                  return "no_handler";
+    case DispatchStatus::EditRefused:                return "edit_refused";
   }
   return "unknown_command";
 }
@@ -229,6 +230,10 @@ DispatchResult CommandRegistry::dispatch(const std::string& id, const SelectionS
   CommandContext ctx(selection, params);
   ++dispatches_;
   cmd->execute(ctx);
+  // A handler that ran and refused must not report Ok. Before this, every failure status was
+  // decided above, so once execute() started the answer was always Ok -- and a refused edit
+  // was a silent no-op reported as success.
+  if (ctx.failed()) return DispatchResult{DispatchStatus::EditRefused, ctx.failureDetail()};
   return DispatchResult{DispatchStatus::Ok, {}};
 }
 
