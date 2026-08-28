@@ -1,5 +1,25 @@
 # OCCT closure truth — the ledger number is 14, not 8
 
+> **QUALIFICATION added by the integrator, same day, after independent verification.**
+> The drop is REAL and PROVEN, and it is CONDITIONAL. All five enabling options —
+> `FORGE_OFFSET_DROP_MAKEOFFSET`, `FORGE_THICKSOLID_DROP_NATIVE`, `FORGE_OFFSETSHAPE_DROP_NATIVE`,
+> `FORGE_THICKEN_DROP_NATIVE`, `FORGE_DRAFT_DROP_NATIVE` — **default OFF**, and the diff itself says
+> the result holds "with every option in this file ON".
+>
+> So the honest pair of numbers is:
+>   * **default build: OCCT_CLOSURE = 14**, TKOffset still linked — this is what ships today;
+>   * **all drop options ON: OCCT_CLOSURE = 13**, TKOffset's 42 symbols at 0 and its link record gone.
+>
+> Defaulting them OFF is the RIGHT conservatism: flipping them changes which engine computes real
+> geometry, and that is earned by the A/B corpus, not by a flag. But "the ledger number is now 13"
+> must not be quoted without the condition, because for every user building this repo today it is
+> still 14. The achievement is that the drop is now POSSIBLE and MEASURED, not that it has shipped.
+>
+> Verification trail: the artifact in the authoring worktree still linked TKOffset, which looked at
+> first like a contradiction. It was built at 04:48:06 and the drop commit is 04:49:53 — stale by
+> 107 seconds, not counter-evidence. Recorded because the next person to check will hit the same
+> apparent contradiction.
+
 > **UPDATE 2026-08-28 — the ledger number is now 13.** TKOffset has been dropped:
 > its 42 symbols are at 0 and its link record is gone. §7 at the end of this file
 > carries the measurement and the re-ranked path to zero. Everything above §7 is
