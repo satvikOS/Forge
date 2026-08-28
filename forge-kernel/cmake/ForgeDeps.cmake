@@ -44,6 +44,22 @@
 # HONEST LIMIT: none of this sandboxes a child process. A custom command that
 # shells out to curl at BUILD time is caught by (c) only if it is spelled in
 # CMake. Full network denial belongs in the CI sandbox, not in CMake.
+#
+# THAT SANDBOX NOW EXISTS, and it is what s21.2 actually asks CI to demonstrate:
+# tools/deps/tests/offline_build_test.sh. It denies the network for real and then
+# configures AND builds through the denial, in two layers because one is provably
+# not enough:
+#   - CONFIGURE is denied with the dyld interposer retrieval/test/net_denied_interpose.c
+#     (DYLD_INSERT_LIBRARIES). cmake is an unrestricted binary, so the interposer loads
+#     into it and kills the one primitive layer (c) can only lint for rather than
+#     intercept: file(DOWNLOAD). MEASURED: with (c) neutered and a real file(DOWNLOAD)
+#     added to CMakeLists.txt, the configure died rc=134 (SIGABRT) instead of fetching.
+#   - BUILD is denied with sandbox-exec '(deny network*)'. This is NOT belt-and-braces.
+#     MEASURED on this workstation: macOS SIP strips DYLD_* when exec'ing a protected
+#     binary and the removal is inherited, so under DYLD alone a probe run via /bin/sh
+#     reaches the network (rc=0, not 134). Since the Unix Makefiles generator runs every
+#     recipe through /bin/sh and make is /usr/bin/make, DYLD covers NONE of the compile
+#     or link steps. The sandbox is kernel-enforced on the whole process tree and does.
 # ============================================================================
 
 include_guard(GLOBAL)
