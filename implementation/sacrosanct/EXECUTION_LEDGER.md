@@ -224,3 +224,48 @@ count. It immediately quantified the reconciliation debt:
 ### Still UNPROVED
 OCCT closure unchanged at 14 · NAFEMS PARTIAL (gate cannot fail) · zero JS files removed (all eight
 candidates failed the §3.2 bar) · 7 of 8 deps hashes null · 7 files of reconciliation debt.
+
+---
+
+## 2026-08-28 — the C++ desktop app LAUNCHES and draws a kernel body
+
+Not a scaffold check: built from a clean detached worktree at `ec476221` and run.
+
+```
+cmake -S forge-kernel -B <KB> -DCMAKE_BUILD_TYPE=Release \
+      -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+cmake --build <KB> -j10 --target forge_kernel_core          # -> libforge_kernel_core.dylib
+cmake -S forge-desktop -B <AB> -DCMAKE_BUILD_TYPE=Release -DFORGE_KERNEL_BUILD_DIR=<KB>
+cmake --build <AB> -j10 --target forge_desktop              # -> 1,453,824-byte binary
+<AB>/run_forge.sh --frames 3 --screenshot shot.png
+```
+
+Measured output of the live run:
+
+```
+[forge] kernel body: 240 triangles, 10 faces  [forge-kernel (BOX -> CUT -> FILLET)]
+[forge] GPU: Apple M4 Max (Vulkan 1.2 via MoltenVK)
+[forge] swapchain 1680x1000, 2 images, format 44
+[forge] registry: 31 commands (18 of them Part), 6 categories
+[forge] first frame presented: 6850 vertices / 13719 indices of UI draw data, 240 viewport triangles
+[forge] screenshot of the LIVE window -> shot.png (1680x1000)
+```
+
+Headless gate `forge_desktop_frame_gate`: **105 checks, 0 failures** — 240 triangles / 10 faces /
+3 features from forge-kernel, 5310 vtx across 16 draw lists, 4 panels, a 14-row feature tree with
+virtualization (14 materialized, peak 14, 14 fetches). No window, no swapchain, no MoltenVK.
+
+The screenshot shows a real workstation shell: workspace ribbon (Part / Sketch / Assembly /
+Surface / Manufacturing / Drawing / Simulation / Archie), the feature tree
+`Bracket.fpart -> Plate 80x50x20 -> Through Bore d12 -> Corner Fillet r3 -> Face 1..10`, a shaded
+viewport with the filleted, bored plate, a view cube, docked Mates/Interference/Properties and
+BOM/Console panels, and a status bar carrying the input profile.
+
+**Stated honestly:** the shell, docking, keymap persistence, command registry and viewport are
+real; several panels render an explicit placeholder — *"content is not implemented in this
+segment"*. The app is launchable and draws real kernel geometry; it is not yet feature-complete.
+
+**Also found:** the in-flight working tree does NOT compile. `forge-kernel/src/Features.cpp` calls
+`::forge::occtoffset::thickenShell(src, offset, tol, &why)` in two places — wrong namespace
+(`occtthicken`) and a fourth argument the 3-parameter declaration does not take. HEAD is correct.
+Recorded, not fixed: that file is in-flight and not mine to edit.
