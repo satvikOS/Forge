@@ -219,6 +219,47 @@ int main(int argc, char** argv) {
     check(!leaked, "the residue report names the class, never the secret itself");
   }
 
+  section("12.2 the value scan must not be evadable by writing the number differently");
+  {
+    // The residue scan is the INDEPENDENT post-condition: its value is catching what
+    // redact() missed. A scan that only understands `digits[.digits]` is evadable three
+    // ways, all of which parse to a registered secret.
+    //
+    // ONE SECRET PER LEXICON, deliberately. The first version of this test registered
+    // {0.5, 47625.0, 47.0} together, and the comma case then PASSED EVEN WITH THE COMMA
+    // HANDLING DISABLED: the broken scanner split "47,625" into 47 and 625, and the stray
+    // 47 matched the registered 47.0. A check that cannot fail is not a check -- proved by
+    // mutation, which is the only reason it was noticed.
+    std::vector<std::string> residue;
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {0.5};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=clearance+of+.5+mm", residue),
+            "leading-dot .5 is caught for a registered 0.5");
+    }
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {47625.0};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=span+47,625+mm", residue),
+            "thousands-separated 47,625 is caught for a registered 47625");
+      // PRECISION, not just recall: a comma followed by a SPACE is a list, not a grouped
+      // number. Without this the scan would fuse "47, 625" into 47625 and refuse a clean
+      // query -- a redactor that destroys the question is useless in its own way. Same
+      // lexicon as the line above, so this pins the boundary rather than a different one.
+      check(r.verifyNoResidue("q=sizes+47,+625+mm", residue),
+            "a comma followed by a space stays TWO numbers, not one grouped value");
+    }
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {47.0};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=length+4.7e1+mm", residue),
+            "exponent form 4.7e1 is caught for a registered 47");
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // 2. REQUEST SERIALIZER (12.1) + PREVIEW GATE (20.2)
   // ═══════════════════════════════════════════════════════════════════════════
