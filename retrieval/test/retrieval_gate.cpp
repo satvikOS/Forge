@@ -619,6 +619,159 @@ int main(int argc, char** argv) {
     check(containsCI(r.detail, "distinct publishers"), "and the detail explains the shortfall");
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 4. THE GATES THEMSELVES (20.2) — a gate that inspects one field cannot
+  //    certify a request, and an approval that compares a mutable field does
+  //    not bind the bytes it approved.
+  // ═══════════════════════════════════════════════════════════════════════════
+  section("20.2 EVERY wire field is redacted and gated, not just q=");
+  {
+    auto fixture = std::make_shared<FixtureTransport>([] {
+      HttpResponse r;
+      r.status = TransportStatus::Ok;
+      r.status_code = 200;
+      r.body = "{\"results\":[]}";
+      return r;
+    }());
+    SearxngClient client(fixture, Redactor(demoLexicon()));
+
+    // An operator scopes the search to an internal wiki host. The host is NOT a
+    // registered lexicon term, so the envelope scan (gate 3) is blind to it: the
+    // only thing that can stop it is the same default-deny treatment q= gets.
+    SearchRequest req = demoRequest("What is ISO 2768 medium class for a bore?");
+    req.include_domains = {"halcyon-9931.internal.example.com"};
+    const QueryPreview p = client.preview(req);
+    std::cout << "  body  : " << p.encoded_body << "\n";
+
+    check(!containsCI(p.encoded_body, "halcyon"),
+          "an internal code name in include_domains never reaches the encoded body");
+    check(!containsCI(p.encoded_body, "9931"),
+          "an unallowlisted number in include_domains never reaches the encoded body");
+    bool any_field_leaks = false;
+    for (const auto& [k, v] : p.fields) {
+      (void)k;
+      if (containsCI(v, "halcyon")) any_field_leaks = true;
+    }
+    check(!any_field_leaks, "no previewed field carries the internal host");
+
+    // A public standards host is legitimate scoping and must still survive, or
+    // the fix would have bought privacy by removing the feature.
+    SearchRequest ok = demoRequest("What is ISO 2768 medium class for a bore?");
+    ok.include_domains = {"iso.org", "astm.org"};
+    const QueryPreview p2 = client.preview(ok);
+    check(p2.sendable(), "a domain filter naming public standards hosts still builds");
+    check(containsCI(p2.encoded_body, "iso.org"), "and the public host is transmitted");
+
+    // Gate 1 must certify the WHOLE body. A registered customer name arriving
+    // through site= is exactly the field q='s gate cannot see.
+    SearchRequest leak = demoRequest("What is ISO 2768 medium class for a bore?");
+    leak.include_domains = {"Northwind-Aerospace.example.com"};
+    const QueryPreview p3 = client.preview(leak);
+    check(!containsCI(p3.encoded_body, "Northwind"),
+          "a registered customer name in a domain filter does not reach the body either");
+    const RetrievalResult r3 = client.search(p3, SendApproval::grant(p3));
+    (void)r3;
+    check(fixture->last_wire.find("Northwind") == std::string::npos,
+          "and no such request is ever handed to the transport");
+  }
+
+  section("20.2 the approval binds the BYTES, not a mutable digest field");
+  {
+    auto fixture = std::make_shared<FixtureTransport>([] {
+      HttpResponse r;
+      r.status = TransportStatus::Ok;
+      r.status_code = 200;
+      r.body = "{\"results\":[]}";
+      return r;
+    }());
+    SearxngClient client(fixture, Redactor(demoLexicon()));
+    const QueryPreview p = client.preview(demoRequest("What is ISO 2768 medium class for a bore?"));
+    const SendApproval approval = SendApproval::grant(p);
+    check(p.sendable() && approval.granted(), "the operator approved a well-formed preview");
+
+    // The bytes are changed AFTER approval; body_digest is left at its approved
+    // value, which is exactly what a stale or hostile reference looks like. The
+    // added field carries no lexicon term, so gate 3 cannot see it.
+    QueryPreview tampered = p;
+    tampered.encoded_body += "&site=halcyon-9931.internal.example.com";
+
+    const RetrievalResult r = client.search(tampered, approval);
+    check(r.status == RetrievalStatus::REQUEST_REJECTED,
+          "bytes mutated after approval are REJECTED, not sent");
+    check(fixture->calls == 0, "and nothing reached the transport");
+    check(fixture->last_wire.find("halcyon") == std::string::npos,
+          "the injected field never reached the socket path");
+
+    // The honest path still works.
+    const RetrievalResult good = client.search(p, SendApproval::grant(p));
+    check(good.status == RetrievalStatus::Ok, "the unmutated approved request still sends");
+    check(fixture->calls == 1, "exactly one transmit");
+  }
+
+  section("12.1 a shape is not a licence: designations come from a closed list");
+  {
+    Redactor bare{};  // no lexicon: only the allowlist decides
+
+    const RedactionResult r1 = bare.redact("Does the A7213 housing meet ISO 2768 medium?");
+    std::cout << "  wire  : " << r1.wire_query << "\n";
+    check(!containsCI(r1.wire_query, "A7213"),
+          "an invented 'A'+digits token is not blessed as an ASTM designation");
+    bool blessed_a = false;
+    for (const std::string& d : r1.kept_designations) {
+      if (containsCI(d, "A7213")) blessed_a = true;
+    }
+    check(!blessed_a, "and gate 1's allow-set never receives it");
+
+    const RedactionResult r2 = bare.redact("Check the M8675309 feature against the drawing");
+    std::cout << "  wire  : " << r2.wire_query << "\n";
+    check(!containsCI(r2.wire_query, "M8675309"),
+          "an invented 'M'+digits token is not blessed as a thread callout");
+    bool blessed_m = false;
+    for (const std::string& d : r2.kept_designations) {
+      if (containsCI(d, "M8675309")) blessed_m = true;
+    }
+    check(!blessed_m, "and gate 1's allow-set never receives that either");
+
+    // The real designations must still survive, or the fix bought privacy by
+    // making the query useless.
+    const RedactionResult r3 =
+        bare.redact("Yield of A36 plate and seating torque for an M12 bolt and an M8x1.25 stud");
+    std::cout << "  wire  : " << r3.wire_query << "\n";
+    check(containsCI(r3.wire_query, "A36"), "the real ASTM designation A36 survives");
+    check(containsCI(r3.wire_query, "M12"), "the real metric thread callout M12 survives");
+    check(containsCI(r3.wire_query, "M8x1.25"), "a real pitch-qualified callout survives");
+
+    // Rule 3 is the same defect class: "four digits, dash, T, digits" is also
+    // the shape of a vendor part number. Both halves must be real.
+    const RedactionResult r4 = bare.redact("Housing 8842-T9 came back from the vendor");
+    std::cout << "  wire  : " << r4.wire_query << "\n";
+    check(!containsCI(r4.wire_query, "8842-T9"),
+          "an invented alloy-temper shape is not blessed as an AA designation");
+    const RedactionResult r5 = bare.redact("Bracket machined from 7075-T651 and 2024-T3 stock");
+    std::cout << "  wire  : " << r5.wire_query << "\n";
+    check(containsCI(r5.wire_query, "7075-T651"), "the real AA alloy-temper 7075-T651 survives");
+    check(containsCI(r5.wire_query, "2024-T3"), "and 2024-T3 survives");
+  }
+
+  section("12.1 designation coverage is exact, not substring");
+  {
+    Redactor bare{};
+    const std::vector<std::string> allowed = {"A36"};
+    std::vector<std::string> residue;
+
+    check(!bare.verifyQueryFullyRedacted("A36 plate 36 mm thick", allowed, residue),
+          "keeping 'A36' does not bless the bare number '36'");
+    residue.clear();
+    check(!bare.verifyQueryFullyRedacted("A36 plate 3 holes", allowed, residue),
+          "nor a single digit that is a substring of it");
+    residue.clear();
+    check(!bare.verifyQueryFullyRedacted("A36 plate A360 casting", allowed, residue),
+          "nor a longer token that merely contains it");
+    residue.clear();
+    check(bare.verifyQueryFullyRedacted("A36 plate thickness", allowed, residue),
+          "the designation actually allowed still passes");
+  }
+
   std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";
   return g_fail == 0 ? 0 : 1;
 }
