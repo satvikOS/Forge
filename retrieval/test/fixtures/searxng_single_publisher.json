@@ -1,0 +1,24 @@
+{
+  "query": "ISO 2768 medium class bore",
+  "number_of_results": 3,
+  "results": [
+    {
+      "url": "https://onesource.example.com/a",
+      "title": "General tolerances, part 1",
+      "content": "Class m permits 0.2 mm on nominal lengths over 30 up to 120 mm.",
+      "engine": "google"
+    },
+    {
+      "url": "https://onesource.example.com/b",
+      "title": "General tolerances, part 2",
+      "content": "Class m permits 0.3 mm on nominal lengths over 120 up to 400 mm.",
+      "engine": "google"
+    },
+    {
+      "url": "https://onesource.example.com/c",
+      "title": "General tolerances, part 3",
+      "content": "Class c is the coarse class and is rarely appropriate for machined bores.",
+      "engine": "google"
+    }
+  ]
+}

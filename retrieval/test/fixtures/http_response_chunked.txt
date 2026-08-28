@@ -1,0 +1,12 @@
+HTTP/1.1 200 OK
+Server: searxng
+Content-Type: application/json
+Transfer-Encoding: chunked
+Connection: close
+
+e
+{"results":[],
+16
+"number_of_results":0}
+0
+
