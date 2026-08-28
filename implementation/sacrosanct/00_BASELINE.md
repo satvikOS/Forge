@@ -104,9 +104,9 @@ unchanged.** Both figures are correct about different builds; only the closure i
 
 ---
 
-## 5. Simulation — real solvers, unreproducible claims
+## 5. Simulation — real solvers, and now partly REPRODUCED
 
-**The code is overwhelmingly REAL, not stubs.** ~12,000 LOC of C++ implementing:
+**The code is REAL, not stubs.** ~12,000 LOC of C++ implementing:
 
 - hex8/tet4 linear-elastic FEA with genuine sparse assembly, sparse LDLT, shift-invert Lanczos,
   Jacobi-PCG, and Newmark-beta (`Fea.cpp`, `FeaTet.cpp`);
@@ -115,13 +115,81 @@ unchanged.** Both figures are correct about different builds; only the closure i
 - penalty active-set contact, J2 radial-return plasticity, linearized geometric-stiffness buckling;
 - an index-3 DAE multibody integrator with HHT-α and Baumgarte stabilisation.
 
-**But every accuracy claim is currently unreproducible.** `forge-kernel/build/Release/forge-kernel.node`
-**does not exist**, and every physics gate (`physics_validation_harness`, `fea_nafems`, `cfd_ghia`,
-`cfd_natconv`, `cfd_sod`, `cfd_oblique_shock`, `cfd_species`, `calculix_io`, all three `em_*`)
-hardcodes that path. The numbers in `FORGE_PHYSICS_VERIFICATION.md` and `SIM_VALIDATION.md` are
-**UNPROVED until a rebuild**, not disproved. Restoring reproducibility is a Phase-0 exit condition.
+### 5.1 Reproducibility restored — `forge-kernel.node` rebuilt
 
----
+The baseline's blocking finding was that `forge-kernel/build/Release/forge-kernel.node` did not
+exist, so no gate could run. **It has been rebuilt** (`npm run forge:kernel`, exit 0):
+
+| | |
+| --- | --- |
+| artifact | 8,926,736 bytes, `forge-kernel/build/Release/forge-kernel.node` |
+| exported symbols | **341** (`makeBox`, `makeCylinder`, `fuse`, `cut`, …) |
+| OCCT direct link records | **8** — `TKBRep TKernel TKFillet TKG3d TKMath TKOffset TKShHealing TKTopAlgo` |
+| `smoke.js` | **ALL PASS** — prism/wedge/pyramid/ellipsoid/tube volumes, closed + manifold, refcounting |
+
+**This settles the "otool 8 vs 14" ambiguity by measurement.** The default build links **8**
+toolkits directly, exactly as `reports/` stated. The auditor's `DIRECT=10` was measured against
+`build-relational`, which carries `FORGE_FT_ARCHELIX=ON` + `FORGE_FT_DIR_SELECTORS=ON` and appends
+TKBO + TKG2d. `CLOSURE=14` counts transitive dependencies. All three numbers are correct about
+different things; **only the closure is comparable across builds.**
+
+### 5.2 PROVED — the rigor harness (16/16)
+
+`physics_validation_harness.mjs` exits 0 with sixteen gates, each a numeric comparison against a
+closed-form or analytic reference — not a "did not throw" assertion:
+
+| Gate | Measured |
+| --- | --- |
+| Newmark undamped energy conservation, 10 periods | drift **0.00000%** |
+| SDOF damped ζ recovered by log-decrement | **0.05000** vs 0.05 → **0.004%** err |
+| SDOF undamped vs `x₀cos(ωt)`, 6 periods | max rel err **0.074%** |
+| Cantilever release period vs modal `1/f₁` | **0.062%** |
+| Four-bar coupler pin vs **Freudenstein**, full rotation | **<2%** |
+| Slider-crank `x(θ)`, full rotation | **<2%** of stroke |
+| Pendulum period vs `2π√(L/g)` | **<5%** |
+| Rotor `ω=αt` and `θ=½αt²` | **<5%** |
+| Static tip deflection (incompatible-modes hex) | **<3%** |
+| Modal `f₁` (consistent hex mass) | **<8%** |
+| Unconditional stability at `Δt = 5×T_min` | no blow-up |
+
+Status for these: **UNPROVED → PROVED.** Archived artifact: the harness is re-runnable against the
+pinned binary above.
+
+### 5.3 PARTIAL — NAFEMS, and a gate that cannot fail
+
+`fea_nafems_gate.mjs` exits 0, but **that exit code does not mean its benchmark targets were met.**
+Reading the source rather than trusting the exit status:
+
+```js
+let hardFail = false;
+const note = (m) => { hardFail = true; ... };   // only note() sets it
+...
+process.exitCode = hardFail ? 1 : 0;            // line 445
+```
+
+The NAFEMS reference-correlation sub-cases print
+`FAIL (faceted linear Tet4 under-resolves; converging — deferred conforming Tet10 mesher)`
+**without calling `note()`**, so a missed benchmark target cannot turn the gate red. The final line
+is literally `deferred-mesher gap, not a kernel break. hardFail=false.`
+
+This is honestly *documented* — the scope note names the missing conforming curved Tet10 mesher and
+reports a converging trend — but under §13 Gate 5 ("reference correlation appropriate to the
+physics") it is **PARTIAL, not PROVED**:
+
+- **PROVED:** the patch test reproduces a constant stress state to *machine precision*
+  (completeness satisfied), and Inc1c thermoelastic is exact to machine precision.
+- **NOT PROVED:** the NAFEMS σ targets on curved boundaries, because linear Tet4 on a faceted
+  boundary under-resolves the stress concentration.
+
+**This gate is not weakened or altered** — doing so is forbidden. It is *reclassified*, and the
+missing conforming curved Tet10 mesher is recorded as the specific work that would close it.
+
+### 5.4 Still running
+
+The CFD and EM gates (`cfd_ghia`, `cfd_sod`, `cfd_natconv`, `cfd_oblique_shock`, `cfd_species`,
+`em_*`, `calculix_io`) are long-running — the Ghia lid-driven-cavity case alone exceeds 10 minutes.
+They are executing in the background; results are UNPROVED until they report, and will not be
+claimed before then.
 
 ## 6. Build and dependency plane — the reproducibility blocker
 
