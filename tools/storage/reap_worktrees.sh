@@ -223,7 +223,20 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
         note "                liveness cannot be established. Uncertainty means keep."
         kept=$((kept+1)); continue
       fi
-      if [ -n "$(find "$run_dir" -mmin -30 2>/dev/null | head -1)" ]; then
+      # FAIL CLOSED on the probe itself. `find` printing nothing is ambiguous: it means either
+      # "no recent activity" or "the probe could not run" (permissions, I/O error, a vanished
+      # directory). The first is a reason to proceed; the second is not. Capture the STATUS as well
+      # as the output — this is the SEVENTH fail-open in this file and the THIRD I introduced while
+      # fixing the same pattern, which is itself the finding: the natural shell phrasing quietly
+      # favours proceeding, so in deletion code the guard has to be written against the grain.
+      probe_out="$(find "$run_dir" -mmin -30 2>/dev/null | head -1)"; probe_rc=$?
+      if [ $probe_rc -ne 0 ]; then
+        note "KEEP    $wt"
+        note "        reason: the activity probe FAILED (rc=$probe_rc) on $run_dir — liveness could"
+        note "                not be established. A check that could not run is not a check that passed."
+        kept=$((kept+1)); continue
+      fi
+      if [ -n "$probe_out" ]; then
         note "KEEP    $wt"
         note "        reason: ACTIVE-AGENT worktree — run ${run_id} has transcript activity within"
         note "                30 min. Not-yet-dirty is not finished."
