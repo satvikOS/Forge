@@ -31,8 +31,14 @@ name: Kernel + Guards
 # red check instead of blocking the pure-C++ gate.
 
 on:
+  # push is deliberately limited to the integration target. A feature branch that matches a push
+  # filter AND has an open PR fires BOTH triggers, and no concurrency key collapses them: a push
+  # event carries a null github.event.pull_request and falls back to refs/heads/<branch>, while the
+  # PR event uses refs/pull/<n>/merge. Two different keys, two full runs — observed as 33151110282
+  # and 33151114401 on the same sha. pull_request already covers feature branches, so this removes
+  # the duplicate at the source rather than trying to key around it.
   push:
-    branches: [archdisc, 'claude/sacrosanct-**']
+    branches: [archdisc]
   pull_request:
   workflow_dispatch:
 
@@ -40,10 +46,6 @@ permissions:
   contents: read
 
 concurrency:
-  # A branch that matches the push filter AND has an open PR fires BOTH triggers, and the two
-  # events carry different github.ref values (refs/heads/<branch> vs refs/pull/<n>/merge), so a
-  # ref-keyed group does not collide and the whole suite runs twice. Keying on the PR number when
-  # one exists — and falling back to the ref otherwise — collapses the pair into one run.
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
@@ -125,21 +127,25 @@ jobs:
     # people to ignore it, so CI applies a ratchet: red if the failure count RISES (a regression)
     # and red if it FALLS (lower the committed baseline in the same commit, so a stale baseline can
     # never silently re-admit a regression). Green only at the exact known-gap count.
-    runs-on: ubuntu-latest
+    # Runs on macOS, deliberately. The suite exercises parse() only and leaves ~20 forge::* kernel
+    # symbols unresolved; Apple's ld resolves those LAZILY under -undefined dynamic_lookup, so an
+    # unreferenced symbol never has to exist. GNU ld has no equivalent: --unresolved-symbols=
+    # ignore-all links successfully and then the loader refuses the binary at startup with
+    # "unexpected PLT reloc type 0x00" (exit 127). The two flags are not equivalent, and pretending
+    # they were is what kept this gate red.
+    #
+    # The real fix is to split parse() into its own translation unit so the link is complete rather
+    # than permissive. That is deferred because FeatureTreeCompiler.cpp carries large uncommitted
+    # work in the main checkout and the edit would conflict — see RECONCILIATION_OWED.md. Until
+    # then the gate runs where its linker semantics genuinely exist.
+    runs-on: macos-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Install OCCT headers (Debian packages)
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq \
-            libocct-foundation-dev libocct-modeling-data-dev \
-            libocct-modeling-algorithms-dev libocct-data-exchange-dev
-          ls -d /usr/include/opencascade >/dev/null
+      - name: Install OCCT (headers only are needed)
+        run: brew install opencascade
       - name: s0 ratchet
         run: bash forge-kernel/test/ft/s0_ratchet.sh
-        env:
-          OCCT_INC: /usr/include/opencascade
 
   simulation:
     name: real-time simulation frame contract (SR-4)
