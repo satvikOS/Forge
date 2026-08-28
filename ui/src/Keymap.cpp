@@ -62,13 +62,31 @@ namespace {
 bool isStrictPrefix(const std::string& a, const std::string& b) {
   return b.size() > a.size() + 1 && b.compare(0, a.size(), a) == 0 && b[a.size()] == ' ';
 }
+
+// A serialized record is `profile \t sequence \t command-id \n`, split into
+// strokes on spaces. Any whitespace or control byte in a field therefore writes
+// a line the parser reads as a DIFFERENT record, or as no record at all.
+bool hasControlOrSpace(const std::string& s) {
+  for (unsigned char c : s) {
+    if (c <= ' ' || c == 0x7F) return true;
+  }
+  return false;
+}
 }  // namespace
 
 bool Keymap::bind(InputProfile profile, const KeySequence& sequence,
                   const std::string& commandId) {
   if (sequence.empty() || commandId.empty()) return false;
+  if (hasControlOrSpace(commandId)) return false;
   for (const KeyStroke& s : sequence) {
-    if (s.key.empty() || s.key.find(' ') != std::string::npos) return false;
+    if (s.key.empty() || hasControlOrSpace(s.key)) return false;
+    // '+' separates the modifiers from the key in the canonical stroke text, so
+    // a key NAME containing one serializes to something parse() cannot read
+    // back: "Ctrl++" is read as Ctrl, then an empty modifier token, and fails.
+    // serialize() must never emit text parse() rejects, so refuse it HERE —
+    // ForgeShell::loadState discards the entire keymap on one unparseable line.
+    // The canonical names for those keys are "Plus" and "NumpadAdd".
+    if (s.key.find('+') != std::string::npos) return false;
   }
   const std::string text = sequenceText(sequence);
   Table& t = table(profile);

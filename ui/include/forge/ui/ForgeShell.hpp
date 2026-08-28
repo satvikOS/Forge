@@ -33,15 +33,28 @@ struct DocumentStats {
   std::size_t redoDepth = 0;
   std::size_t fitCount = 0;
   std::size_t deletedCount = 0;
+  double lastFeatureSize = 0.0;  // the size parameter the last feature actually used
   bool wireframe = false;
   bool dirty = false;
+};
+
+// What an INTERACTIVE invocation did. `promptFor` is the explicit "this command
+// needs parameters I have no default for" outcome: a UI opens its dialog on it
+// instead of the command failing mute, which is what a shortcut used to do.
+struct InvokeOutcome {
+  DispatchResult dispatch{};
+  std::vector<std::string> promptFor;
+  bool ran() const noexcept { return dispatch.ok(); }
+  bool needsParameters() const noexcept { return !promptFor.empty(); }
 };
 
 struct KeyOutcome {
   ResolveStatus resolve = ResolveStatus::Unbound;
   std::string commandId;
   DispatchResult dispatch{};
+  std::vector<std::string> promptFor;  // required parameters the UI must collect
   bool ran() const noexcept { return resolve == ResolveStatus::Bound && dispatch.ok(); }
+  bool needsParameters() const noexcept { return !promptFor.empty(); }
 };
 
 class ForgeShell {
@@ -56,7 +69,10 @@ class ForgeShell {
 
   // ── workspaces ──────────────────────────────────────────────────────────
   WorkspaceProfile workspace() const noexcept { return workspace_; }
-  void setWorkspace(WorkspaceProfile profile);   // saves the current layout first
+  // Switches workspace, saving the outgoing layout first. Returns false when
+  // that layout does not survive its own serialize/parse round trip — the saved
+  // copy is then dropped rather than kept in a form that comes back corrupt.
+  bool setWorkspace(WorkspaceProfile profile);
   void resetWorkspaceLayout();                   // back to the deterministic default
   const DockLayout& layout() const noexcept { return layout_; }
   DockLayout& layout() noexcept { return layout_; }
@@ -70,8 +86,15 @@ class ForgeShell {
 
   // ── dispatch ────────────────────────────────────────────────────────────
   // The single path. A menu click, a palette pick, a macro step and an Archie
-  // tool call all land here.
+  // tool call all land here. run() is the RAW path: a macro and an Archie tool
+  // call state every argument, so nothing is filled in for them.
   DispatchResult run(const std::string& id, const CommandParams& params = {});
+
+  // The INTERACTIVE path — a shortcut, a menu item, a toolbar button. The user
+  // supplied a gesture, not a parameter list, so declared schema defaults are
+  // filled in and anything still required is reported for the UI to prompt for.
+  // Both paths dispatch through run(), so both land in the same journal.
+  InvokeOutcome invoke(const std::string& id, const CommandParams& overrides = {});
   const std::vector<std::string>& journal() const noexcept { return journal_; }
 
   // ── monitors ────────────────────────────────────────────────────────────

@@ -50,8 +50,11 @@ bool DockNode::valid() const {
   if (!children.empty()) return false;
   if (panels.empty()) return false;
   if (activeTab >= panels.size()) return false;
+  // A panel ID is a user-facing name ("Scratch Notes"), and serialization
+  // percent-encodes it, so whitespace is legal here. Empty is not: it names
+  // nothing and cannot be round-tripped back to itself.
   for (const PanelId& p : panels) {
-    if (p.empty() || p.find(' ') != std::string::npos) return false;
+    if (p.empty()) return false;
   }
   return true;
 }
@@ -193,10 +196,64 @@ std::string num(double v) {
   return std::string(buf);
 }
 
+// Panel IDs are user-facing names and the stream is whitespace-tokenized, so
+// every ID goes on the wire percent-encoded: '%' and any space/control byte
+// become %XX. Without this a panel called "Scratch Notes" was written as two
+// tokens under a count of one, so it parsed back as "Scratch" AND left "Notes"
+// in the stream to be misread as the next node's tag. Nothing else needs
+// escaping — the tokenizer splits on nothing else — so UTF-8 names stay legible.
+// A lone '%' is the (otherwise unreachable) encoding of the empty string, which
+// keeps serialize/parse token-aligned even for a layout valid() would reject.
+std::string encodePanel(const PanelId& p) {
+  if (p.empty()) return "%";
+  static const char kHex[] = "0123456789ABCDEF";
+  std::string out;
+  out.reserve(p.size());
+  for (unsigned char c : p) {
+    if (c == '%' || c <= ' ' || c == 0x7F) {
+      out += '%';
+      out += kHex[c >> 4];
+      out += kHex[c & 0x0F];
+    } else {
+      out += static_cast<char>(c);
+    }
+  }
+  return out;
+}
+
+bool hexDigit(char c, int& out) {
+  if (c >= '0' && c <= '9') { out = c - '0'; return true; }
+  if (c >= 'A' && c <= 'F') { out = c - 'A' + 10; return true; }
+  if (c >= 'a' && c <= 'f') { out = c - 'a' + 10; return true; }
+  return false;
+}
+
+bool decodePanel(const std::string& token, PanelId& out) {
+  if (token.empty()) return false;
+  if (token == "%") { out.clear(); return true; }
+  std::string decoded;
+  decoded.reserve(token.size());
+  for (std::size_t i = 0; i < token.size(); ++i) {
+    if (token[i] != '%') {
+      decoded += token[i];
+      continue;
+    }
+    int hi = 0;
+    int lo = 0;
+    if (i + 2 >= token.size() || !hexDigit(token[i + 1], hi) || !hexDigit(token[i + 2], lo)) {
+      return false;  // a truncated escape is corruption, not a panel name
+    }
+    decoded += static_cast<char>((hi << 4) | lo);
+    i += 2;
+  }
+  out = std::move(decoded);
+  return true;
+}
+
 void writeNode(std::ostringstream& os, const DockNode& n) {
   if (n.kind == DockNodeKind::Tabs) {
     os << " T " << n.activeTab << ' ' << n.panels.size();
-    for (const PanelId& p : n.panels) os << ' ' << p;
+    for (const PanelId& p : n.panels) os << ' ' << encodePanel(p);
     return;
   }
   os << " S " << (n.axis == SplitAxis::Horizontal ? 'h' : 'v') << ' ' << num(n.ratio);
@@ -217,9 +274,11 @@ bool readNode(std::istringstream& is, DockNode& out) {
     n.activeTab = active;
     n.panels.reserve(count);
     for (std::size_t i = 0; i < count; ++i) {
-      std::string p;
-      if (!(is >> p)) return false;
-      n.panels.push_back(p);
+      std::string token;
+      if (!(is >> token)) return false;
+      PanelId p;
+      if (!decodePanel(token, p)) return false;
+      n.panels.push_back(std::move(p));
     }
     out = std::move(n);
     return true;
@@ -257,13 +316,13 @@ std::string DockLayout::serialize() const {
 bool DockLayout::parse(const std::string& text, DockLayout& out) {
   std::istringstream lines(text);
   std::string header;
+  std::size_t declared = 0;
   if (!std::getline(lines, header)) return false;
   {
     std::istringstream hs(header);
     std::string magic;
     int version = 0;
-    std::size_t count = 0;
-    if (!(hs >> magic >> version >> count)) return false;
+    if (!(hs >> magic >> version >> declared)) return false;
     if (magic != "forge-dock" || version != 1) return false;
   }
 
@@ -282,9 +341,17 @@ bool DockLayout::parse(const std::string& text, DockLayout& out) {
     if (tag != "w") return false;
     w.main = mainFlag != 0;
     if (!readNode(is, w.root)) return false;
+    std::string trailing;
+    if (is >> trailing) return false;  // leftover tokens: the stream desynchronised
     built.addWindow(std::move(w));
   }
-  if (built.windows_.empty()) return false;
+  // The header states how many windows follow. Not comparing it is how a file
+  // cut short loaded as a clean, smaller layout with its missing panels gone.
+  if (built.windows_.size() != declared) return false;
+  // And a well-formed record can still be nonsense — an activeTab past the end
+  // of its tab vector, two mains, no main, the same panel docked twice. Refuse
+  // it here rather than hand the frame builder an index it will read with.
+  if (!built.valid()) return false;
   out = std::move(built);
   return true;
 }

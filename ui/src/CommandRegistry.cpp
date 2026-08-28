@@ -88,6 +88,29 @@ bool CommandParams::has(const std::string& name) const {
   return numbers_.count(name) != 0 || texts_.count(name) != 0 || flags_.count(name) != 0;
 }
 
+// ── parameter defaults ──────────────────────────────────────────────────────
+CommandParams applyDefaults(const CommandDescriptor& command, CommandParams params) {
+  for (const ParamSpec& spec : command.schema) {
+    if (!spec.hasDefault) continue;      // no honest default: do NOT invent one
+    if (params.has(spec.name)) continue; // an explicit argument always wins
+    switch (spec.type) {
+      case ParamType::Number: params.setNumber(spec.name, spec.defaultNumber); break;
+      case ParamType::Text:   params.setText(spec.name, spec.defaultText); break;
+      case ParamType::Flag:   params.setFlag(spec.name, spec.defaultNumber != 0.0); break;
+    }
+  }
+  return params;
+}
+
+std::vector<std::string> missingRequired(const CommandDescriptor& command,
+                                         const CommandParams& params) {
+  std::vector<std::string> out;
+  for (const ParamSpec& spec : command.schema) {
+    if (spec.required && !params.has(spec.name)) out.push_back(spec.name);
+  }
+  return out;
+}
+
 const char* toString(DispatchStatus status) noexcept {
   switch (status) {
     case DispatchStatus::Ok:                         return "ok";

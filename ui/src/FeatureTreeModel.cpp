@@ -28,7 +28,20 @@ void FeatureTreeModel::setExpanded(NodeId id, bool expanded) {
   if (expanded) {
     expanded_.insert(id);
   } else {
-    expandAllMode_ = false;  // an explicit collapse leaves "everything open" mode
+    // An explicit collapse leaves "everything open" mode — but the flag has to
+    // be MATERIALIZED on the way out, not merely dropped. `expanded_` still
+    // holds nothing but the root while the flag is set, so dropping it made one
+    // click on one disclosure triangle collapse the entire tree.
+    //
+    // Under the flag every node with children is expanded, so `rows_` is the
+    // whole tree and carries the hasChildren bit already: the set costs one pass
+    // over the current index, with no source call and no record fetch.
+    if (expandAllMode_) {
+      for (const Row& r : rows_) {
+        if (r.hasChildren) expanded_.insert(r.id);
+      }
+      expandAllMode_ = false;
+    }
     expanded_.erase(id);
   }
   rebuild();

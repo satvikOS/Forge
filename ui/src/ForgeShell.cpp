@@ -43,7 +43,8 @@ void ForgeShell::registerCommands() {
     c.id = "file.open";
     c.label = "Open Document";
     c.category = "File";
-    c.schema.push_back(ParamSpec{"path", ParamType::Text, true, 0.0, ""});
+    // A path has NO honest default: "" is not a document. Ctrl+O must prompt.
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = true});
     c.sideEffect = SideEffectClass::Application;
     c.undo = UndoContract::NotUndoable;
     c.enabled = always;
@@ -140,12 +141,15 @@ void ForgeShell::registerCommands() {
     c.category = "Model";
     c.featureIrOp = "EXTRUDE";
     c.signature = SelectionSignature::atLeast(EntityKind::Sketch, 1);
-    c.schema.push_back(ParamSpec{"distance", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{
+        .name = "distance", .type = ParamType::Number, .required = true,
+        .defaultNumber = 10.0, .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.sideEffect = SideEffectClass::Document;
     c.undo = UndoContract::Transaction;
     c.enabled = always;
-    c.execute = [this](CommandContext&) {
+    c.execute = [this](CommandContext& ctx) {
+      doc_.lastFeatureSize = ctx.params().number("distance").value_or(0.0);
       ++doc_.features;
       ++doc_.undoDepth;
       doc_.redoDepth = 0;
@@ -160,12 +164,15 @@ void ForgeShell::registerCommands() {
     c.category = "Model";
     c.featureIrOp = "FILLET";
     c.signature = SelectionSignature::atLeast(EntityKind::Edge, 1);
-    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 1.0, ""});
+    c.schema.push_back(ParamSpec{
+        .name = "radius", .type = ParamType::Number, .required = true,
+        .defaultNumber = 1.0, .hasDefault = true});
     c.preview = PreviewPolicy::Live;
     c.sideEffect = SideEffectClass::Document;
     c.undo = UndoContract::Transaction;
     c.enabled = always;
-    c.execute = [this](CommandContext&) {
+    c.execute = [this](CommandContext& ctx) {
+      doc_.lastFeatureSize = ctx.params().number("radius").value_or(0.0);
       ++doc_.features;
       ++doc_.undoDepth;
       doc_.redoDepth = 0;
@@ -180,12 +187,15 @@ void ForgeShell::registerCommands() {
     c.category = "Model";
     c.featureIrOp = "SHELL";
     c.signature = SelectionSignature::atLeast(EntityKind::Face, 1);
-    c.schema.push_back(ParamSpec{"thickness", ParamType::Number, true, 2.0, ""});
+    c.schema.push_back(ParamSpec{
+        .name = "thickness", .type = ParamType::Number, .required = true,
+        .defaultNumber = 2.0, .hasDefault = true});
     c.preview = PreviewPolicy::OnDemand;
     c.sideEffect = SideEffectClass::Document;
     c.undo = UndoContract::Transaction;
     c.enabled = always;
-    c.execute = [this](CommandContext&) {
+    c.execute = [this](CommandContext& ctx) {
+      doc_.lastFeatureSize = ctx.params().number("thickness").value_or(0.0);
       ++doc_.features;
       ++doc_.undoDepth;
       doc_.redoDepth = 0;
@@ -232,6 +242,28 @@ DispatchResult ForgeShell::run(const std::string& id, const CommandParams& param
   return result;
 }
 
+InvokeOutcome ForgeShell::invoke(const std::string& id, const CommandParams& overrides) {
+  InvokeOutcome outcome;
+  const CommandDescriptor* cmd = registry_.find(id);
+  if (cmd == nullptr) {
+    outcome.dispatch = DispatchResult{DispatchStatus::UnknownCommand, id};
+    return outcome;
+  }
+  // A gesture carries no arguments, so fill in every default the schema declares
+  // and then say plainly what is still missing. Dispatching a default-constructed
+  // CommandParams here is what made four of the thirteen shipped commands
+  // unreachable from the keyboard in all four input profiles.
+  const CommandParams params = applyDefaults(*cmd, overrides);
+  outcome.promptFor = missingRequired(*cmd, params);
+  if (!outcome.promptFor.empty()) {
+    outcome.dispatch =
+        DispatchResult{DispatchStatus::MissingRequiredParameter, outcome.promptFor.front()};
+    return outcome;
+  }
+  outcome.dispatch = run(id, params);
+  return outcome;
+}
+
 void ForgeShell::setInputProfile(InputProfile profile) noexcept {
   input_ = profile;
   pending_.clear();  // a half-typed sequence means nothing in the new profile
@@ -253,13 +285,28 @@ KeyOutcome ForgeShell::key(const KeyStroke& stroke) {
   }
   pending_.clear();
   outcome.commandId = resolution.commandId;
-  outcome.dispatch = run(resolution.commandId);
+  const InvokeOutcome invoked = invoke(resolution.commandId);
+  outcome.dispatch = invoked.dispatch;
+  outcome.promptFor = invoked.promptFor;
   return outcome;
 }
 
 // ── workspaces ──────────────────────────────────────────────────────────────
-void ForgeShell::setWorkspace(WorkspaceProfile profile) {
-  savedLayouts_[toString(workspace_)] = layout_.serialize();
+bool ForgeShell::setWorkspace(WorkspaceProfile profile) {
+  // Serialization IS the storage format for a saved workspace, so a layout that
+  // does not survive its own round trip would come back changed — a torn-off
+  // panel renamed or lost. Store it only if it really returns; otherwise drop
+  // the entry so the workspace reopens at its deterministic default instead of
+  // at a corrupted or stale one.
+  const std::string outgoing = layout_.serialize();
+  DockLayout probe;
+  const bool faithful = DockLayout::parse(outgoing, probe) && probe == layout_;
+  if (faithful) {
+    savedLayouts_[toString(workspace_)] = outgoing;
+  } else {
+    savedLayouts_.erase(toString(workspace_));
+  }
+
   workspace_ = profile;
   auto it = savedLayouts_.find(toString(profile));
   DockLayout restored;
@@ -268,6 +315,7 @@ void ForgeShell::setWorkspace(WorkspaceProfile profile) {
   } else {
     layout_ = defaultLayout(profile);
   }
+  return faithful;
 }
 
 void ForgeShell::resetWorkspaceLayout() { layout_ = defaultLayout(workspace_); }
@@ -284,7 +332,17 @@ std::string ForgeShell::saveState() const {
   os << "input " << toString(input_) << '\n';
 
   std::map<std::string, std::string> layouts = savedLayouts_;
-  layouts[toString(workspace_)] = layout_.serialize();
+  {
+    // Same rule as setWorkspace: never persist a layout that cannot be read
+    // back, because loadState refuses the WHOLE session file on one bad record.
+    const std::string current = layout_.serialize();
+    DockLayout probe;
+    if (DockLayout::parse(current, probe) && probe == layout_) {
+      layouts[toString(workspace_)] = current;
+    } else {
+      layouts.erase(toString(workspace_));
+    }
+  }
   for (const auto& [name, text] : layouts) {
     os << "layout " << name << '\n' << text << ".\n";
   }
