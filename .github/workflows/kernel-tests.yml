@@ -238,3 +238,22 @@ jobs:
         # platforms. Proven by cases 11a/11b of fea_nafems_ratchet_selftest.sh, which drive the
         # two shapes against the same baseline file.
         run: bash forge-kernel/test/fea_nafems_ratchet.sh
+      - name: Build forge_kernel_core (node-free, for the C++ gates)
+        # Same build dir and flags PR #62's forge_verify step uses, so when that merges the
+        # second configure is a no-op rather than a second full build.
+        run: |
+          cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+          cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: IR pipeline gate (a forge::ui program -> forge::ft -> an asserted SOLID)
+        # THE GATE THAT AUTHORISES DELETING THE JAVASCRIPT. forge::ui emits an SSA feature-IR
+        # program and forge::ft can compile one, but nothing ever fed one into the other --
+        # ft::compile appeared in ui/ ZERO times, and part_commands_test only compared the
+        # emitted TEXT against an expected string, which is an assertion about characters and
+        # not about geometry. This drives the real Part commands through the same registry the
+        # app uses, parses and compiles what they emit, and asserts the solid on a VECTOR of
+        # observables -- validity, face and edge counts, volume AND bbox, plus the s0.4
+        # declared/parsed/compiled reconciliation. Volume alone is not accepted as proof:
+        # a wrong solid matching a right volume to ten significant figures is a measured
+        # failure mode in this programme, not a hypothetical one.
+        run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
