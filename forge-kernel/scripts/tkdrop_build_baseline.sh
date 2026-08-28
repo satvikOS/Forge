@@ -11,10 +11,19 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 KDIR="$ROOT/forge-kernel"
-CMAKE_JS="$ROOT/node_modules/.bin/cmake-js"
 PAR="${FORGE_BUILD_PAR:-6}"
 
-[ -x "$CMAKE_JS" ] || { echo "FATAL: cmake-js not at $CMAKE_JS" >&2; exit 2; }
+# A git worktree has no node_modules of its own. Link the primary checkout's,
+# read-only, so the tree stays clean (an untracked node_modules would make the
+# worktree look dirty to the reaper). Safe to delete afterwards — this recreates it.
+PRIMARY="${FORGE_PRIMARY_CHECKOUT:-$HOME/archdisc-Mech}"
+if [ ! -e "$ROOT/node_modules" ] && [ -d "$PRIMARY/node_modules" ]; then
+  echo "[tkdrop-build] linking $PRIMARY/node_modules -> $ROOT/node_modules"
+  ln -sfn "$PRIMARY/node_modules" "$ROOT/node_modules"
+fi
+
+CMAKE_JS="$ROOT/node_modules/.bin/cmake-js"
+[ -x "$CMAKE_JS" ] || { echo "FATAL: cmake-js not at $CMAKE_JS (set FORGE_PRIMARY_CHECKOUT=)" >&2; exit 2; }
 
 echo "[tkdrop-build] root=$ROOT parallel=$PAR extra=$*"
 cd "$KDIR" || exit 2
