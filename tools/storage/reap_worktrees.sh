@@ -167,10 +167,26 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
   esac
 
   # ---------------- FINISHED?  every check must pass ----------------
-  dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  # FAIL CLOSED. This was previously `git status --porcelain 2>/dev/null | wc -l`, which had two
+  # fail-open defects feeding the DELETION path: the pipeline's exit status is wc's, so git's
+  # failure was invisible, and a failed git produces no output, so wc printed 0 and the worktree
+  # was classified CLEAN. A corrupt or unreadable worktree therefore looked like a finished one.
+  # Capture the status separately from the count, and treat any git failure as UNCERTAIN -> KEEP.
+  status_out="$(git -C "$wt" status --porcelain --ignored=matching 2>&1)"; status_rc=$?
+  if [ $status_rc -ne 0 ]; then
+    note "KEEP    $wt"
+    note "        reason: \`git status\` FAILED (rc=$status_rc) — cannot prove this tree is clean."
+    note "                A check that could not run is not a check that passed."
+    note "                git said: $(printf '%s' "$status_out" | head -1)"
+    kept=$((kept+1)); continue
+  fi
+  # --ignored=matching also lists ignored files, which the FINISHED class claims to require: the
+  # header promises "no unique untracked/ignored data" and the plain --porcelain form never saw
+  # them, so a worktree holding a gitignored artifact was reported "tracked+untracked clean".
+  dirty=$(printf '%s' "$status_out" | grep -c . || true)
   if [ "${dirty:-1}" != "0" ]; then
     note "KEEP    $wt"
-    note "        reason: $dirty uncommitted/untracked path(s) — dirty trees are never reclaimed"
+    note "        reason: $dirty uncommitted/untracked/ignored path(s) — never reclaimed"
     kept=$((kept+1)); continue
   fi
 
