@@ -68,6 +68,9 @@ void check(bool cond, const std::string& what, const std::string& detail) {
 
 struct ParseOutcome {
     bool        threw = false;
+    bool        classified = false;          // threw a typed forge::ft::ParseError
+    forge::ft::ParseFailure kind = forge::ft::ParseFailure::Syntax;
+    int         line = 0;
     std::string message;
     FeatureTree tree;
 };
@@ -76,11 +79,27 @@ ParseOutcome tryParse(const std::string& text) {
     ParseOutcome o;
     try {
         o.tree = forge::ft::parse(text);
+    } catch (const forge::ft::ParseError& e) {
+        o.threw = true;
+        o.message = e.what();
+        o.classified = true;
+        o.kind = e.kind;
+        o.line = e.line;
     } catch (const std::exception& e) {
         o.threw = true;
         o.message = e.what();
     }
     return o;
+}
+
+const char* kindName(forge::ft::ParseFailure k) {
+    switch (k) {
+        case forge::ft::ParseFailure::Syntax:            return "Syntax";
+        case forge::ft::ParseFailure::OpaquePlaceholder: return "OpaquePlaceholder";
+        case forge::ft::ParseFailure::Cardinality:       return "Cardinality";
+        case forge::ft::ParseFailure::Incomplete:        return "Incomplete";
+    }
+    return "?";
 }
 
 // Number of ops of a given code in a parsed tree.
@@ -739,6 +758,164 @@ void testGraphQualityGate() {
 }
 
 // ============================================================================
+
+// ============================================================================
+// TEST 6 — CLOSED VOCABULARY  (SACROSANCT s0.5 "rejected by the parser", s9.1)
+//
+// THE DEFECT THIS PINS DOWN, as measured, not as suspected.
+//
+// `opFromName()` used to answer OpCode::Box for any name it did not know, and
+// `fail()` treats anything on the FINAL line of the text as a truncated emission.
+// Together those two make an op name that means nothing at all into a BOX built
+// from that statement's own arguments — with no error anywhere. Measured through
+// the pinned scoring verifier (archdisc-Models tools/pinned/forge_verify, the
+// binary every published composite was taken with):
+//
+//   %1 = BOX(20,20,20,0,0,0)                          ok  volume 8000   6 faces
+//   %1 = CUBE(20,20,20,0,0,0)                         ok  volume 8000   6 faces
+//   %1 = ZZZNOTANOP(20,20,20,0,0,0)                   ok  volume 8000   6 faces
+//   %1 = BOX(20,20,20,0,0,0)
+//   %2 = CUBE(5,5,5,0,0,0)                            ok  volume  125   6 faces
+//
+// The last one is the sharpest: it is NOT a single-statement program, and the
+// whole 20 mm box is gone — the tree's result is a nonsense 5 mm box. Any
+// composite taken on those rows is a number the emission did not earn.
+//
+// The three cases below are the ones named in the defect report, plus the
+// tail-position variants, plus a control proving TRUNCATION tolerance is intact.
+// Every assertion is against a reference value, not against "it didn't crash".
+// ============================================================================
+void testClosedVocabulary() {
+    group("CLOSED-VOCABULARY (s0.5 / s9.1) — an unknown op is REJECTED, never a box");
+
+    // Reference values for the one legal program. `X` in the defect report is a
+    // score; a score is a property of the built solid, and this suite never calls
+    // compile(). What the PARSER owes is stated instead, exactly: one op, code
+    // Box, six numeric arguments with these values. If any of that moves, the
+    // thing being scored moved.
+    const std::string kBoxIR = "%1 = BOX(20,20,20,0,0,0)";
+    const double kBoxArgs[6] = {20, 20, 20, 0, 0, 0};
+
+    // ---- 6a: the legal program parses, to a KNOWN value --------------------
+    {
+        ParseOutcome o = tryParse(kBoxIR);
+        bool ok = !o.threw && o.tree.ops.size() == 1 &&
+                  o.tree.ops[0].code == OpCode::Box &&
+                  o.tree.ops[0].args.size() == 6;
+        if (ok)
+            for (std::size_t i = 0; i < 6; ++i)
+                ok = ok && o.tree.ops[0].args[i].kind == TokKind::Number &&
+                     o.tree.ops[0].args[i].num == kBoxArgs[i];
+        check(ok,
+              "BOX(20,20,20,0,0,0) parses to exactly 1 Box op with args 20,20,20,0,0,0",
+              o.threw ? "threw: " + o.message
+                      : "ops=" + std::to_string(o.tree.ops.size()) +
+                            " args=" + std::to_string(o.tree.ops.empty()
+                                                          ? 0
+                                                          : o.tree.ops[0].args.size()));
+    }
+
+    // ---- 6b/6c: CUBE and ZZZNOTANOP are REJECTED, single statement ---------
+    // CUBE is the dangerous one: it is a plausible thing for a model to write and
+    // it is NOT in the op table. ZZZNOTANOP is the control that nothing about the
+    // name matters.
+    for (const char* bad : {"CUBE", "ZZZNOTANOP"}) {
+        const std::string ir = std::string("%1 = ") + bad + "(20,20,20,0,0,0)";
+        ParseOutcome o = tryParse(ir);
+        check(o.threw,
+              std::string("single statement `") + bad + "(...)` is a parse ERROR",
+              o.threw ? "" :
+                  "parse() ACCEPTED it and returned " + std::to_string(o.tree.ops.size()) +
+                      " op(s), code=" +
+                      (o.tree.ops.empty()
+                           ? std::string("-")
+                           : std::to_string(static_cast<int>(o.tree.ops[0].code))) +
+                      ". An unknown op became a BOX built from this statement's own "
+                      "arguments — the silent default in opFromName().");
+        check(o.threw && o.message.find(bad) != std::string::npos &&
+                  o.message.find("unknown op") != std::string::npos,
+              std::string("the error NAMES the unknown op `") + bad + "`",
+              "message: " + o.message);
+        check(o.classified && o.kind == forge::ft::ParseFailure::Syntax,
+              std::string("`") + bad +
+                  "` is classified Syntax, NOT Incomplete (it is not truncated)",
+              o.classified
+                  ? std::string("kind=") + kindName(o.kind) +
+                        " — a structurally complete OP(...) misfiled as a truncated "
+                        "emission hands a caller a salvage checkpoint it must not have"
+                  : "did not throw a typed forge::ft::ParseError");
+    }
+
+    // ---- 6d: the unknown op in TAIL position, inside a valid tree ----------
+    // This is the case the defect report believed was already caught. It is not:
+    // `fail()`'s truncated-tail branch is keyed on the LINE NUMBER, not on the
+    // statement count, so the last line of ANY tree took the silent path.
+    {
+        const std::string ir =
+            "%1 = BOX(20,20,20,0,0,0)\n"
+            "%2 = CUBE(5,5,5,0,0,0)";
+        ParseOutcome o = tryParse(ir);
+        check(o.threw && o.message.find("CUBE") != std::string::npos,
+              "an unknown op on the LAST line of a multi-statement tree is rejected",
+              o.threw ? "message: " + o.message :
+                  "parse() returned " + std::to_string(o.tree.ops.size()) +
+                      " ops. Under the pinned verifier this same text builds and "
+                      "reports volume 125 — the 20 mm box silently replaced by a "
+                      "5 mm box, scored as if it were the emission.");
+        check(o.classified && o.kind == forge::ft::ParseFailure::Syntax && o.line == 2,
+              "and it is reported at line 2, as Syntax",
+              o.classified ? std::string("kind=") + kindName(o.kind) +
+                                 " line=" + std::to_string(o.line)
+                           : "no typed ParseError");
+    }
+
+    // ---- 6e: position independence -----------------------------------------
+    // The same unknown op FIRST was always caught. Both positions must agree, or
+    // the vocabulary is a function of where you stand in the file.
+    {
+        ParseOutcome first = tryParse("%1 = ZZZNOTANOP(20,20,20,0,0,0)\n"
+                                      "%2 = TRANSLATE(%1,1,1,1)");
+        ParseOutcome last  = tryParse("%1 = BOX(20,20,20,0,0,0)\n"
+                                      "%2 = ZZZNOTANOP(5,5,5,0,0,0)");
+        check(first.threw && last.threw &&
+                  first.classified && last.classified &&
+                  first.kind == last.kind,
+              "rejection does not depend on the op's POSITION in the tree",
+              "first: " + std::string(first.threw ? kindName(first.kind) : "ACCEPTED") +
+                  "  last: " + std::string(last.threw ? kindName(last.kind) : "ACCEPTED"));
+    }
+
+    // ---- 6f: no parsed tree may ever carry the sentinel ---------------------
+    {
+        ParseOutcome o = tryParse("%1 = BOX(20,20,20,0,0,0)\n"
+                                  "%2 = HOLE(%1, 6, 20, 0, 0)\n"
+                                  "RESULT(%2)\n");
+        check(!o.threw && countCode(o.tree, OpCode::Unknown) == 0 &&
+                  o.tree.ops.size() == 2,
+              "a valid tree parses with ZERO OpCode::Unknown ops",
+              o.threw ? "threw: " + o.message
+                      : "unknown=" +
+                            std::to_string(countCode(o.tree, OpCode::Unknown)));
+    }
+
+    // ---- 6g: CONTROL — truncation tolerance is NOT what was removed --------
+    // A genuine token-ceiling cutoff still reports Incomplete and still carries
+    // its checkpoint. If this ever flips to Syntax the fix has gone too far and
+    // long emissions lose their salvage.
+    {
+        const std::string truncated =
+            "%1 = BOX(60, 40, 10)\n"
+            "%2 = HOLE(%1, 6, 20, 0, 0)\n"
+            "%3 = FILLET(%2, 2\n";          // stops mid-statement: no ')'
+        ParseOutcome o = tryParse(truncated);
+        check(o.threw && o.classified &&
+                  o.kind == forge::ft::ParseFailure::Incomplete,
+              "control: a genuinely TRUNCATED final statement is still Incomplete",
+              o.classified ? std::string("kind=") + kindName(o.kind)
+                           : "no typed ParseError: " + o.message);
+    }
+}
+
 int main() {
     std::printf("SACROSANCT 3.1 Appendix B — feature-DAG acceptance tests (s0)\n");
     std::printf("target: forge::ft IR (parse-level; compile() is not invoked)\n");
@@ -748,6 +925,7 @@ int main() {
     testPatternExplicit();
     testChunkCorruption();
     testGraphQualityGate();
+    testClosedVocabulary();
 
     std::printf("\n---------------------------------------------------------------\n");
     std::printf("TOTAL  pass=%d  fail=%d\n", g_pass, g_fail);

@@ -138,6 +138,26 @@ enum class OpCode {
     ResizeBore,  // RESIZEBORE(%body, "sel", newRadius)    set a cylindrical bore's radius exactly
     Defeature,   // DEFEATURE(%body, "sel")                delete the selected faces + heal the wound
     Verify,      // VERIFY(%body, "expr", ...)             assert do-no-harm invariants (loud failure)
+
+    // --- the CLOSED-VOCABULARY sentinel (SACROSANCT s0.5 / s9.1) ---
+    // NOT an operation. It is the value an op name that is NOT in the table
+    // resolves to, and it exists so that "not in the vocabulary" can never be
+    // spelled as a REAL op.
+    //
+    // It replaces a default of OpCode::Box, which was not a neutral choice: an op
+    // name the table did not contain became a BOX built from that statement's own
+    // arguments. Measured against the pinned verifier (tools/pinned/forge_verify,
+    // sha 2026-08-07), with the tail-tolerant parser that shipped in the working
+    // tree:
+    //   `%1 = ZZZNOTANOP(20,20,20,0,0,0)`                 -> a 20x20x20 solid, vol 8000
+    //   `%1 = BOX(20,20,20,0,0,0)` / `%2 = CUBE(5,5,5,..)` -> vol 125: the WHOLE
+    //                                                        preceding tree replaced
+    //                                                        by a nonsense 5 mm box
+    // Both were reported as a successful build and scored as geometry. A vocabulary
+    // whose miss is a constructive default is not closed, so the miss is now a value
+    // that no builder accepts: every switch over OpCode must handle it, and the
+    // builder's case for it throws.
+    Unknown,
 };
 
 // --------------------------------------------------------------------- tokens
@@ -157,7 +177,10 @@ struct Token {
 // --------------------------------------------------------------------- one op
 struct Op {
     int                 id   = 0;      // 1-based creation id
-    OpCode              code = OpCode::Box;
+    // Defaults to the closed-vocabulary sentinel, NOT to a buildable op. A
+    // default-constructed Op that is never assigned a code is a bug; making the
+    // default Box meant such an Op silently BUILT one.
+    OpCode              code = OpCode::Unknown;
     std::string         name;          // raw op token, for diagnostics
     std::vector<Token>  args;
     std::vector<Point2> poly;          // POLY only
