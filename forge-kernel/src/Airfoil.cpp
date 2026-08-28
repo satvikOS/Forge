@@ -70,6 +70,7 @@
 #include "forge/native/brep/NativeRoute.hpp"   // forgeNativeFeaturesEnabled()
 #include "forge/native/brep/LoftSweep.hpp"     // loftSolid (native unguided loft)
 #include "forge/native/brep/Topology.hpp"      // Point3, Solid, TopologyBuilder
+#include "forge/native/brep/NativeLoftPipe.hpp" // TKOffset family D: ruled loft on OCCT wires
 #endif
 
 namespace forge { namespace airfoil {
@@ -621,17 +622,37 @@ ShapeHandle loftWing(const std::vector<WingStation>& stations, bool capTips) {
         }
     }
 
+    std::vector<TopoDS_Wire> stationWires;
+    stationWires.reserve(normalised.size());
+    for (const auto& st : normalised) stationWires.push_back(stationToWorldWire(st));
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family D — native ruled loft. loftWing asks for the SMOOTHED skin
+    // (ruled=false), which the native engine only covers for exactly two sections
+    // (NativeLoftPipe.cpp PART 2); a multi-station wing therefore DEFERS honestly.
+    if (::forge::occtloft::loftNativeEnabled()) {
+        const std::vector<TopoDS_Shape> secs(stationWires.begin(), stationWires.end());
+        const TopoDS_Shape nat =
+            ::forge::occtloft::thruSections(secs, capTips, /*ruled*/ false);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_THRUSECTIONS_DROP_NATIVE
     BRepOffsetAPI_ThruSections mk(/*solid*/ capTips ? Standard_True : Standard_False,
                                   /*ruled*/ Standard_False,
                                   /*pres*/ 1.0e-6);
-    for (const auto& st : normalised) {
-        mk.AddWire(stationToWorldWire(st));
-    }
+    for (const auto& w : stationWires) mk.AddWire(w);
     mk.Build();
     if (!mk.IsDone()) {
         throw std::runtime_error("forge.airfoil.loftWing: ThruSections failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.airfoil.loftWing: the native ruled loft DECLINED these stations (a "
+        "smoothed multi-station skin is outside its scope) and the OCCT "
+        "BRepOffsetAPI_ThruSections fallback is compiled out "
+        "(FORGE_THRUSECTIONS_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ trapezoidalWing

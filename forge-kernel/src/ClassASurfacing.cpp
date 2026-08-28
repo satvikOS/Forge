@@ -61,6 +61,7 @@
 #include "forge/native/brep/Sew.hpp"           // sewFaces, SewOptions, SewResult (native)
 #include "forge/native/brep/Topology.hpp"      // TopologyBuilder, Face/Loop/Coedge/Vertex/Shell/Solid/Surface
 #include "forge/ShapeRegistry.hpp"             // ShapeKind, getNativeSolid
+#include "forge/native/brep/NativeLoftPipe.hpp" // TKOffset family F: pipe-shell on OCCT wires
 
 #include <unordered_set>
 #endif
@@ -712,14 +713,29 @@ ShapeHandle sweepWithGuides(ShapeHandle profileWire,
     TopoDS_Wire spine = firstWireOf(fetch(spineCurve), "sweepWithGuides(spine)");
     TopoDS_Wire profile = firstWireOf(fetch(profileWire), "sweepWithGuides(profile)");
 
+    std::vector<TopoDS_Wire> guideWires;
+    guideWires.reserve(guideCurves.size());
+    for (auto gh : guideCurves) {
+        guideWires.push_back(firstWireOf(fetch(gh), "sweepWithGuides(guide)"));
+    }
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family F — native pipe-shell on the OCCT wires themselves. Any
+    // guide is an unconditional HONEST DEFER (there is no native guided sweep),
+    // and so is a Frenet framing request, so this only ADDS the unguided case.
+    if (::forge::occtloft::pipeShellNativeEnabled() && !isFrenet) {
+        const TopoDS_Shape nat =
+            ::forge::occtloft::pipeShell(spine, profile, guideWires, isSolid);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPESHELL_DROP_NATIVE
     BRepOffsetAPI_MakePipeShell mk(spine);
     if (isFrenet) {
         mk.SetMode(/*IsFrenet*/ Standard_True);
     }
     // Each guide is added in curvilinear-equivalence mode so the pipe
     // follows the guide curvature, not just the spine.
-    for (auto gh : guideCurves) {
-        TopoDS_Wire g = firstWireOf(fetch(gh), "sweepWithGuides(guide)");
+    for (const auto& g : guideWires) {
         // SetMode(auxiliarySpine, curvilinearEquivalence) is the guide
         // entry point. (KeepContact = ContactOnBorder lets the profile
         // ride the guide rather than being merely guided by tangent.)
@@ -735,6 +751,12 @@ ShapeHandle sweepWithGuides(ShapeHandle profileWire,
         mk.MakeSolid();
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.classa.sweepWithGuides: the native pipe-shell DECLINED this sweep and "
+        "the OCCT BRepOffsetAPI_MakePipeShell fallback is compiled out "
+        "(FORGE_PIPESHELL_DROP_NATIVE=ON)");
+#endif
 }
 
 }}  // namespace forge::classa

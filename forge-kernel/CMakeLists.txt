@@ -488,6 +488,82 @@ if(FORGE_NATIVE_BREP AND FORGE_OFFSETSHAPE_DROP_NATIVE)
                     "TKOffset STILL LINKED and OCCT_CLOSURE UNCHANGED at 14. A shape the native offset "
                     "declines now THROWS instead of falling back to OCCT.")
 endif()
+
+# ── TKOffset FAMILIES D + F — ThruSections / MakePipeShell (authored 2026-08-28) ──
+# The two options below compile out the last two BRepOffsetAPI_ classes that have a
+# native OCCT-typed replacement, src/native/brep/NativeLoftPipe.cpp:
+#
+#   FORGE_THRUSECTIONS_DROP_NATIVE -> forge::part::loft, forge::part::loftWithGuides
+#       (no-guides branch), forge::airfoil::loftWing, forge::makePyramid and
+#       forge::loftguide::loft route UNCONDITIONALLY through
+#       forge::occtloft::thruSections and the OCCT BRepOffsetAPI_ThruSections
+#       fallback is COMPILED OUT.  Family D = 6 symbols
+#       (ctor(bool,bool,double), AddWire, AddVertex, CheckCompatibility, Build,
+#        vtable) — all 5 call sites must be guarded or none of them leave.
+#
+#   FORGE_PIPESHELL_DROP_NATIVE    -> forge::part::sweep (guided branch),
+#       forge::part::sweepWithGuides and forge::classa::sweepWithGuides route
+#       through forge::occtloft::pipeShell and the OCCT
+#       BRepOffsetAPI_MakePipeShell fallback is COMPILED OUT.  Family F = 7
+#       symbols (ctor(Wire), Add(Shape,bool,bool), SetMode(bool),
+#       SetMode(Wire,bool,BRepFill_TypeOfContact), MakeSolid, Build, vtable).
+#
+# Unlike families G/H these two share NO symbol with each other or with any other
+# family (reports/TKOFFSET_DECOMPOSITION.md §1 measured that with minimal TUs), so
+# D alone removes exactly 6 and F alone exactly 7.
+#
+# ★ WHAT THIS IS WORTH — do not mis-score it. TKOffset is NOT removed from
+#   OCCT_LIBS here and OCCT_CLOSURE does NOT move. MEASURED 2026-08-28 on the
+#   committed tree, with the per-TU symbol census (tools/occt_symbol_census.sh
+#   validated against the built .node):
+#       baseline                     38 TKOffset symbols
+#       + D + F dropped              25   (-13)
+#       + G + H dropped as well      19   (-6 more)
+#   The remaining 19 belong to families B (MakeFilling, 5), C (DraftAngle, 6),
+#   E (MakePipe, 3) and I (BRepOffset_MakeOffset, 5). ALL 38 must be gone before
+#   the link record moves at all, so these options are worth ZERO closure on
+#   their own — they shorten the remaining distance, they do not travel it.
+#
+# ★ BOTH DEFAULT OFF, and the reason is coverage, not compilation. The native
+#   engine is EXACT on what it accepts (242/242 A/B assertions against live OCCT
+#   on volume + centre of mass + bounding box + face/edge/vertex/shell counts +
+#   validity, plus independent closed forms, plus a negative control and five
+#   defer controls — forge-kernel/test/run_ab_native_loftpipe.sh) but its scope is
+#   POLYGONAL sections and POLYLINE spines with PLANAR lateral quads. A smoothed
+#   multi-station wing skin, a spline section and every GUIDED sweep are honest
+#   defers, and with the fallback compiled out a defer becomes a THROWN ERROR
+#   rather than an OCCT answer. The flip gate is a corpus A/B — "native success
+#   rate >= the measured OCCT baseline" — exactly as for families G/H.
+#
+# ★ ONE MEASURED CAPABILITY ADD, recorded here because it repeats the §4.2
+#   pattern: on a BENT spine OCCT's own MakePipeShell answer is INVALID.
+#   Measured, profile = the 10x10 square centred in z=0, spine
+#   (0,0,0)->(0,0,30)->(20,0,30): OCCT returns volume 2400 with
+#   BRepCheck_Analyzer == false, where a rigid mitred sweep of a 100 mm^2 section
+#   along a 50 mm spine encloses exactly 5000. The native engine returns 5000 and
+#   a VALID closed solid. OCCT is therefore not used as an oracle for that case;
+#   the A/B proves it against the closed form and asserts OCCT's invalidity so
+#   the claim is on the record.
+option(FORGE_THRUSECTIONS_DROP_NATIVE
+       "route the five loft call sites through the native ruled loft & compile out the OCCT BRepOffsetAPI_ThruSections fallback (TKOffset family D, 6 symbols)"
+       OFF)
+option(FORGE_PIPESHELL_DROP_NATIVE
+       "route the three pipe-shell call sites through the native pipe-shell & compile out the OCCT BRepOffsetAPI_MakePipeShell fallback (TKOffset family F, 7 symbols)"
+       OFF)
+if(FORGE_NATIVE_BREP AND FORGE_THRUSECTIONS_DROP_NATIVE)
+    add_compile_definitions(FORGE_THRUSECTIONS_DROP_NATIVE=1)
+    message(WARNING "FORGE_THRUSECTIONS_DROP_NATIVE=ON — BRepOffsetAPI_ThruSections fallback compiled out "
+                    "(TKOffset family D, 6 symbols: 38 -> 32). TKOffset STILL LINKED and OCCT_CLOSURE "
+                    "UNCHANGED at 14. A loft the native engine declines now THROWS instead of falling "
+                    "back to OCCT.")
+endif()
+if(FORGE_NATIVE_BREP AND FORGE_PIPESHELL_DROP_NATIVE)
+    add_compile_definitions(FORGE_PIPESHELL_DROP_NATIVE=1)
+    message(WARNING "FORGE_PIPESHELL_DROP_NATIVE=ON — BRepOffsetAPI_MakePipeShell fallback compiled out "
+                    "(TKOffset family F, 7 symbols: 38 -> 31). TKOffset STILL LINKED and OCCT_CLOSURE "
+                    "UNCHANGED at 14. EVERY GUIDED sweep now THROWS — the native engine has no guided "
+                    "pipe-shell and never pretends to.")
+endif()
 # OCCT-zero progress (2026-07-25, R1+R2 → TKGeomBase): DROPPED TKGeomBase. 10 -> 9 OCCT dylibs.
 #   (TKGeomBase still loads transitively — TKBRep/TKG3d/TKGeomAlgo DT_NEED it — but the .node
 #   no longer LINKS it directly.)
@@ -1066,6 +1142,15 @@ set(FORGE_KERNEL_SOURCES
     # an unlisted TU does NOT raise a link error: the call resolves to a null
     # pointer and the addon SIGSEGVs at run time. Keep it listed.
     src/native/brep/NativeThickSolid.cpp
+    # TKOffset family D/F — TKOffset-free RULED LOFT and PIPE-SHELL on OCCT
+    # TopoDS wires (the BRepOffsetAPI_ThruSections / BRepOffsetAPI_MakePipeShell
+    # replacement for OCCT-backed handles, where LoftSweep.cpp's native-B-rep
+    # loft cannot reach because there is no OCCT-wire -> native-LoftSection
+    # importer). Polygonal sections, polyline spines, exact planar lateral
+    # faces; honest defer (null shape) outside that class, so the OCCT fallbacks
+    # in Features.cpp / Airfoil.cpp / Primitives.cpp / LoftGuide.cpp /
+    # ClassASurfacing.cpp stay live by default.
+    src/native/brep/NativeLoftPipe.cpp
     src/native/brep/OffsetShape.cpp     # offset-shape: grow/shrink a solid by offsetting all faces +/-t (MakeOffsetShape, intersection join)
     src/native/brep/Chamfer.cpp
     src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)

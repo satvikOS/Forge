@@ -32,6 +32,7 @@
 #include "forge/native/brep/DraftAnalytic.hpp"    // analytic face-draft -> square frustum (B-rep)
 #include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
 #include "forge/native/brep/NativeThickSolid.hpp"  // TKOffset family G: TKOffset-free thick-solid on a TopoDS_Shape
+#include "forge/native/brep/NativeLoftPipe.hpp"     // TKOffset families D/F: ruled loft + pipe-shell on OCCT wires
 #include "forge/native/brep/OffsetShape.hpp"  // native whole-solid grow/shrink offset (offsetSolidShape)
 #include "forge/native/brep/Surface.hpp"    // SurfaceKind (planar-eligibility gate for offsetSolid)
 #include "forge/native/brep/Pattern.hpp"    // GAP1: RigidTransform / transformSolidInPlace
@@ -681,6 +682,19 @@ ShapeHandle sweep(SketchHandle profileSketch, SketchHandle pathSketch,
     // Guided sweep: every other wire in pathSketch beyond [0] acts as a
     // guide. MakePipeShell requires a wire profile (not face) and then
     // MakeSolid closes the result.
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family F — TKOffset-free pipe-shell on the OCCT wires themselves.
+    // A guided sweep is an unconditional HONEST DEFER in the native engine (there
+    // is no native guided pipe-shell anywhere in the tree), so this only ADDS
+    // coverage on the degenerate no-guide case. See NativeLoftPipe.hpp.
+    if (::forge::occtloft::pipeShellNativeEnabled()) {
+        const std::vector<TopoDS_Wire> nguides(pathWires.begin() + 1, pathWires.end());
+        const TopoDS_Shape nat =
+            ::forge::occtloft::pipeShell(spine, profile, nguides, /*makeSolid*/ true);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPESHELL_DROP_NATIVE
     BRepOffsetAPI_MakePipeShell mk(spine);
     mk.Add(profile);
     for (std::size_t i = 1; i < pathWires.size(); ++i) {
@@ -692,6 +706,12 @@ ShapeHandle sweep(SketchHandle profileSketch, SketchHandle pathSketch,
     }
     mk.MakeSolid();
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.sweep: the native pipe-shell DECLINED this guided sweep and the "
+        "OCCT BRepOffsetAPI_MakePipeShell fallback is compiled out "
+        "(FORGE_PIPESHELL_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ pipeFromPolyline
@@ -904,22 +924,42 @@ ShapeHandle loft(const std::vector<SketchHandle>& sections,
 #endif
     // BRepOffsetAPI_ThruSections doesn't take guide wires directly; we
     // accept them in the API for future compatibility but ignore for now.
-    BRepOffsetAPI_ThruSections mk(/*solid*/ Standard_True,
-                                   /*ruled*/ ruled ? Standard_True : Standard_False,
-                                   /*pres*/ 1.0e-6);
+    std::vector<TopoDS_Wire> sectionWires0;
+    sectionWires0.reserve(sections.size());
     for (auto sh : sections) {
         auto wires = extractWires(sh);
         if (wires.empty()) {
             throw std::invalid_argument("forge.part.loft: a section sketch has no wires");
         }
-        mk.AddWire(wires[0]);
+        sectionWires0.push_back(wires[0]);
     }
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family D — TKOffset-free ruled loft on the OCCT wires themselves.
+    // A null return is an HONEST DEFER; see forge/native/brep/NativeLoftPipe.hpp.
+    if (::forge::occtloft::loftNativeEnabled()) {
+        const std::vector<TopoDS_Shape> secs(sectionWires0.begin(), sectionWires0.end());
+        const TopoDS_Shape nat = ::forge::occtloft::thruSections(secs, /*solid*/ true, ruled);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_THRUSECTIONS_DROP_NATIVE
+    BRepOffsetAPI_ThruSections mk(/*solid*/ Standard_True,
+                                   /*ruled*/ ruled ? Standard_True : Standard_False,
+                                   /*pres*/ 1.0e-6);
+    for (const auto& w : sectionWires0) mk.AddWire(w);
     if (closed) mk.CheckCompatibility(Standard_True);
     mk.Build();
     if (!mk.IsDone()) {
         throw std::runtime_error("forge.part.loft: ThruSections build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    (void)closed;
+    throw std::runtime_error(
+        "forge.part.loft: the native ruled loft DECLINED these sections and the OCCT "
+        "BRepOffsetAPI_ThruSections fallback is compiled out "
+        "(FORGE_THRUSECTIONS_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ shell
@@ -2555,16 +2595,29 @@ ShapeHandle sweepWithGuides(SketchHandle profileSketch, SketchHandle pathSketch,
     const TopoDS_Wire& spine = pathWires[0];
     const TopoDS_Wire& profile = profWires[0];
 
+    std::vector<TopoDS_Wire> guideWires;
+    for (auto sk : guides) {
+        auto gw = extractWires(sk);
+        if (gw.empty()) continue;
+        guideWires.push_back(gw[0]);
+    }
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family F — native pipe-shell; any guide is an HONEST DEFER.
+    if (::forge::occtloft::pipeShellNativeEnabled()) {
+        const TopoDS_Shape nat =
+            ::forge::occtloft::pipeShell(spine, profile, guideWires, /*makeSolid*/ true);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_PIPESHELL_DROP_NATIVE
     BRepOffsetAPI_MakePipeShell mk(spine);
     mk.Add(profile);
 
     // Register every guide as a curvilinear-equivalence constraint. Some
     // OCCT versions reject this when the guide and profile aren't
     // coplanar; the binding's safe() wrapper relays the OCCT failure.
-    for (auto sk : guides) {
-        auto gw = extractWires(sk);
-        if (gw.empty()) continue;
-        mk.SetMode(gw[0], /*CurvilinearEquivalence*/ Standard_True);
+    for (const auto& g : guideWires) {
+        mk.SetMode(g, /*CurvilinearEquivalence*/ Standard_True);
     }
     mk.Build();
     if (!mk.IsDone()) {
@@ -2573,6 +2626,12 @@ ShapeHandle sweepWithGuides(SketchHandle profileSketch, SketchHandle pathSketch,
     }
     mk.MakeSolid();
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.sweepWithGuides: the native pipe-shell DECLINED this sweep and the "
+        "OCCT BRepOffsetAPI_MakePipeShell fallback is compiled out "
+        "(FORGE_PIPESHELL_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ loftWithGuides
@@ -2606,6 +2665,16 @@ ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
 
     // No guides → reuse the plain ThruSections path.
     if (guides.empty()) {
+#ifdef FORGE_NATIVE_BREP
+        // TKOffset family D — native ruled loft; null == HONEST DEFER.
+        if (::forge::occtloft::loftNativeEnabled()) {
+            const std::vector<TopoDS_Shape> secs(sectionWires.begin(), sectionWires.end());
+            const TopoDS_Shape nat =
+                ::forge::occtloft::thruSections(secs, /*solid*/ true, ruled);
+            if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+        }
+#endif
+#ifndef FORGE_THRUSECTIONS_DROP_NATIVE
         BRepOffsetAPI_ThruSections mk(/*solid*/ Standard_True,
                                        /*ruled*/ ruled ? Standard_True : Standard_False,
                                        /*pres*/ 1.0e-6);
@@ -2617,6 +2686,13 @@ ShapeHandle loftWithGuides(const std::vector<SketchHandle>& sections,
                 "forge.part.loftWithGuides: ThruSections build failed");
         }
         return ShapeRegistry::instance().add(mk.Shape());
+#else
+        (void)closed;   // only the compiled-out CheckCompatibility call reads it
+        throw std::runtime_error(
+            "forge.part.loftWithGuides: the native ruled loft DECLINED these sections "
+            "and the OCCT BRepOffsetAPI_ThruSections fallback is compiled out "
+            "(FORGE_THRUSECTIONS_DROP_NATIVE=ON)");
+#endif
     }
 
     // Guides supplied — interpret each section as a B-spline curve, then
