@@ -306,3 +306,41 @@ application that actually launches exists* -- has been met, so the remaining bar
 signed binary a user can download and run without a toolchain**. No packaging, signing,
 notarization or auto-update channel exists, and several panels still render a placeholder, so it
 stays a draft and no binary is attached.
+
+
+---
+
+## 2026-08-28 session close-out: what is PROVEN, what is MEASURED, what is BLOCKED
+
+### Proven and gated (each red-by-mutation with the failure count predicted)
+
+| area | result | gate |
+| --- | --- | --- |
+| NAFEMS ratchet | a BLOCKED case is judged on its own axis before accuracy; one baseline is green in both the CI and workstation shapes | selftest 11 -> 18 cases |
+| forge_verify | a malformed record no longer kills the batch (exit 134, 2/6 -> exit 0, 6/6) | new batch gate, red 3 ways (PR #62) |
+| IR pipeline | a forge::ui program parses and compiles to an asserted SOLID, entirely in C++ | 18 checks, wired into CI |
+| UI command layer | a handler that ran and refused no longer reports Ok (`EditRefused`) | CONTRACT 6, 51 -> 60 checks |
+| retrieval redaction | the value scan is no longer evadable by `.5`, `47,625`, `4.7e1` | 174 -> 178, red 3/3 |
+| retrieval transport | chunked decoder cannot be walked off the end; a truncated body is no longer reported complete; header CRLF injection refused; allow-list matches the connect path | 178 -> 189, red 6 and 2 as predicted |
+| simulation | evidence a reader can confirm (5.05e-09, not "0.000000") | 187 checks unchanged |
+| app surface | the 31 user-reachable commands are pinned; 20 carry a feature-IR op | drift gate, red 3 ways |
+| desktop app | Measure and Archie Tools panels implemented; Measure computes real geometry (area 13405.325 mm2, volume 77278.139 mm3, watertight) | frame gate 105 -> 132 |
+| contamination | R9 blocks an eval row the model was TRAINED on -- the mirror of R8, which nothing asked before | guard 70 -> 73 |
+| eval set | 600 clean rows built, R9-verified 0/600, registered ACTIVE | three independent checks agreed |
+
+### Measured, and the measurement is the finding
+
+* **The holdout could not answer its own question.** At n=25 the paired 95% CI is about +-0.12 while every effect is under 0.07; 80% power at the observed v5cap-vs-floor effect needs **n=625**. Underpowered by ~24x. No adapter result at that n was a win or a loss.
+* **v5cap undoes the v4a collapse** (paired 0.3576 vs v4a 0.2904, floor 0.3270, v1 0.3555) but does not beat v1 (+0.0020). With the LoRA confirmed loaded, that recovery is real and the non-difference is real.
+* **Non-termination is bimodal**: median 19 ops against v1's 21, but 19% run away to 63-379 ops producing as few as 3 distinct shapes.
+* **NoveltyStop is score-neutral BY MEASUREMENT** -- 31 of 32 rows identical, the one that moved went UP -- and 43.1% cheaper with the median untouched. It now defaults ON, and its docstring cites the numbers instead of asserting neutrality.
+* **The NAFEMS gaps are a frozen mesh boundary.** `FeaTet.cpp:855` captures `ntri = triangles.size()` before the densification loop and `tryAdd` never appends to `triangles`, so boundary refinement is a single non-recursive pass. That is why error does not shrink under h-refinement (p=-0.057, -0.181). Confirmed in the source, not inferred.
+* **Two pins by design, not one that drifted.** 24 of 24 provenance-bearing baselines assert 45e9ad9a; `tools/pinned` measures current capability. The default was the non-comparable instrument and said nothing -- it now warns, only in the silent case.
+* **Storage: 47 -> 157 GiB free** (90% -> 65%), 105 worktrees and build dirs removed, ~40 kept for dirty or unpushed state, 3 branches pushed before removal so nothing was stranded.
+
+### Blocked, and by what
+
+* **NAFEMS fix** -- `FeaTet.cpp` is one of the 37 user-owned in-flight files (D-008).
+* **TKOffset family H / CLOSURE 14 -> 13 by default** -- the native quadric offset's vertex re-meet is wrong (cylinder |dCOM|=4.00 with an exact bbox; sphere exact COM with a wrong bbox), and the fix is in kernel sources.
+* **29 of 50 desktop panels** -- each waits on an absent subsystem (sketch solver, mates, BOM), not on effort.
+* **PR #62** -- green, unmergeable until the in-flight `forge_verify.cpp` is resolved. Their diff does not overlap.
