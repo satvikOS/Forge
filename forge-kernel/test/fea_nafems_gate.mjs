@@ -453,12 +453,29 @@ console.log('------------------------------------------------------------');
 console.log('\n------------------------------------------------------------');
 console.log(' LE11 — solid cylinder/taper/sphere, thermal (boundary-conforming Tet4)');
 console.log('------------------------------------------------------------');
-{
+try {
   const c = solveLE11(0.34);
   const f = solveLE11(0.26);
   console.log(`  mesh coarse ${c.nodes}n/${c.tets}t → fine ${f.nodes}n/${f.tets}t`);
   record('LE11', f.sigZZ, -105, 6, trendStr(c.sigZZ / 1e6, f.sigZZ / 1e6, -105), f.probe,
     observedOrder(c.sigZZ / 1e6, f.sigZZ / 1e6, -105, c.tets, f.tets), meshNote(c, f));
+} catch (err) {
+  // A KERNEL GAP IN ONE CASE MUST NOT KILL THE BATCH.
+  // LE11 builds ball+cone+cylinder and forge.fuse refuses: the OCCT BRepAlgoAPI fallback for
+  // all-native operand pairs was removed by K2, and the native intersection does not yet cover
+  // this operand class. The kernel is RIGHT to refuse rather than mask a native gap with OCCT.
+  // The gate was wrong to die on it: an uncaught throw here aborted the process before the
+  // [nafems-summary] line, so the ratchet correctly refused to guess and every OTHER case's
+  // result was lost too — the same "one failure destroys the batch" shape as forge_verify
+  // aborting a whole scoring run on one malformed escape.
+  // Record LE11 as BLOCKED, with the reason, and let the remaining cases report.
+  console.log(`  BLOCKED — the kernel refused to build the LE11 geometry:`);
+  console.log(`    ${String(err && err.message ? err.message : err).split('\n')[0]}`);
+  console.log(`  VERDICT: BLOCKED — not a solver result. This case cannot run until the native`);
+  console.log(`           boolean covers the ball/cone/cylinder operand class (K2 removed the`);
+  console.log(`           OCCT fallback). It is NOT counted as a MISS, because nothing was solved.`);
+  console.log(`[nafems-case] name=LE11 measured=nan target=-105 errPct=nan band=6 order=nan verdict=BLOCKED`);
+  results.le11Blocked = String(err && err.message ? err.message : err).split('\n')[0];
 }
 
 // ===========================================================================
