@@ -82,3 +82,80 @@ entry point.
 
 - CFD/EM gates still executing — **not claimed** until they report.
 - D-001 (Qt vs Dear ImGui) escalated to the user; blocks UI work.
+
+---
+
+## Iteration 2 — 2026-08-28 01:30–02:05 · Wave 1 integration
+
+**Mode.** 9-track parallel fanout in isolated worktrees. 5 DELIVERED, 1 agent died, 3 carried over.
+
+### Integrated
+
+| Track | Commit | What |
+| --- | --- | --- |
+| F1 | `3deae91c` | Appendix B s0 tests — pass=6 fail=14, the failures ARE the deliverable |
+| Z1 | `32e480da` | `FORGE_BUILD_NODE_ADDON` — the C++ kernel compiles with Node absent |
+| S1 | `79412f40` | SearXNG C++ client, default-deny redaction, 129 tests × 2 phases |
+| G1 | `d10a6148` | `deps.lock.json`, `CMakePresets.json`, `ForgeDeps.cmake` |
+| — | `bc30a25b` | **fix:** `forge_all` depended on the target `NODE_ADDON=OFF` removes |
+
+### Verified by running, not by reading
+
+```
+bash retrieval/run_retrieval_tests.sh
+  -> 129 passed, 0 failed            (phase 1, fixtures)
+  -> interposer aborts a real socket()
+  -> 129 passed, 0 failed            (phase 2, NETWORK DENIED)   GATE PASSED exit 0
+
+cmake -S forge-kernel -B /tmp/forge_fixed -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+cmake --build /tmp/forge_fixed --target forge_all -j4
+  -> [100%] Built target forge_all
+  -> forge_all aggregates: forge_kernel_core;forge_foundation_probe;forge_verify;
+                           forge_mesh_probe;forge_step_probe;forge_feature_probe
+  -> grep -ril 'node-addon-api|napi' over generated build system = 0
+```
+
+### Defect I found in the delivered work
+
+`forge_all` seeded `_forge_all_targets` with `forge_kernel` **unconditionally**, then appended
+everything else conditionally. With the addon OFF that target is never created, so the §21.2
+documented command failed:
+
+```
+make[3]: *** No rule to make target `forge_kernel', needed by `CMakeFiles/forge_all'.  Stop.
+```
+
+Configure had reported success and even printed `forge_all aggregates: forge_kernel;…` naming a
+target it had not created — `add_custom_target(DEPENDS …)` treats an unknown name as a file
+dependency, so nothing failed until the build. **Found by building the target rather than trusting
+configure.** Fixed at `bc30a25b`; `forge_all` now builds clean with Node absent.
+
+### Defect I found in my own merge
+
+Restoring the parked in-flight `CMakeLists.txt` after merging G1 silently reverted G1's changes in
+the working tree — committed but absent where a build would read them. Caught because the in-flight
+delta moved from `578/11` to `591/**76**`; those 65 extra deletions were G1's lines. Reapplied from
+the merge commit. Delta back to `578/11`, 37 modified, 0 conflict markers.
+
+### Storage
+
+`reap_worktrees.sh --apply` ×3: 26 phantom records pruned (`.git/worktrees` 19,876→2,564 KB), then
+4 finished worktrees removed (~1.46 GiB). `align-op` refused every time — its HEAD is not an
+ancestor of any other ref, so removing it would strand commits.
+
+### Status changes
+
+| Requirement | Was | Now |
+| --- | --- | --- |
+| §3.2 kernel compiles without Node | CONTRADICTED | **PROVED** |
+| §21.2 `forge_all` in no-Node config | — | **PROVED** (after fixing) |
+| §12 SearXNG client | UNPROVED (absent) | **PROVED** — 129 tests, network-denied phase |
+| §12.4 fail-closed offline | UNPROVED | **PROVED** — full gate re-runs under denial |
+| §10.6 dependency plane | UNPROVED (absent) | **PARTIAL** — 8 deps pinned by version, hashes null |
+| §0.4/§0.5 parser conformance | assumed OK | **CONTRADICTED** — 14 real failures |
+| §17.3 contamination firewall | assumed enforced | **CONTRADICTED** — 878 heldout_B rows pass |
+
+### Carried into Wave 2
+MFIX (scorer defect → re-score → resume training), SIM (SR-4 real-time motion animation), GUI
+(make ImGui shell compile+run), KRN (OCCT drop with real measurement), APPB (fix the s0 parser
+gaps), CONTAM (close the §17.3 hole).
