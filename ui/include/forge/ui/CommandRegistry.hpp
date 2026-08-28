@@ -63,6 +63,11 @@ struct ParamSpec {
   bool required = false;
   double defaultNumber = 0.0;
   std::string defaultText;
+  // Does the default above MEAN anything? A fillet radius has an honest default
+  // (1 mm); a file path does not, and "" is not a path. Only a spec that says so
+  // may be filled in on the caller's behalf — the difference between a shortcut
+  // that runs and a shortcut that must open a dialog first.
+  bool hasDefault = false;
 };
 
 class CommandParams {
@@ -121,6 +126,16 @@ struct CommandDescriptor {
   std::function<bool(const CommandContext&)> enabled;
   std::function<void(CommandContext&)> execute;
 };
+
+// Fill every declared default that `params` does not already carry. Returns the
+// merged set: explicit arguments always win over the schema's defaults.
+CommandParams applyDefaults(const CommandDescriptor& command, CommandParams params);
+
+// Required parameters `params` still does not supply, in schema order. Empty
+// means the command can run. This is what an interactive caller — a shortcut, a
+// menu item, a toolbar button — prompts the user for, instead of failing mute.
+std::vector<std::string> missingRequired(const CommandDescriptor& command,
+                                         const CommandParams& params);
 
 enum class DispatchStatus : std::uint8_t {
   Ok = 0,

@@ -31,6 +31,9 @@ EntityRef sketchRef(const std::string& name) {
 EntityRef edgeRef(const std::string& name) {
   return EntityRef{"body_1", EntityKind::Edge, name, 1};
 }
+EntityRef faceRef(const std::string& name) {
+  return EntityRef{"body_1", EntityKind::Face, name, 1};
+}
 
 }  // namespace
 
@@ -235,6 +238,139 @@ int main() {
   CHECK(!guard.loadState("forge-shell 1\nworkspace part\ninput nx-like\nlayout part\ngarbage\n.\n"));
   CHECK(!guard.loadState("forge-shell 1\nworkspace part\ninput nx-like\n"));  // no keymap section
   CHECK_EQ_STR(guard.saveState(), before);  // nothing moved
+
+  // ── REGRESSION: a keyboard-bound command with a REQUIRED parameter RUNS ──
+  // ForgeShell::key() used to dispatch with a default-constructed CommandParams,
+  // so every shortcut whose command declares a required parameter died on
+  // missing_required_parameter before the handler was ever called. Four of the
+  // thirteen shipped commands are in that class, in all four input profiles.
+  // These checks assert the DOCUMENT MUTATED, not that the command is registered.
+  {
+    ForgeShell nx;
+    nx.setInputProfile(InputProfile::NXLike);
+    nx.selection().add(sketchRef("Sketch1"));
+    const KeyOutcome pressX = nx.key(KeyStroke{"X"});  // NX-like Extrude
+    CHECK_EQ_INT(static_cast<int>(pressX.resolve), static_cast<int>(ResolveStatus::Bound));
+    CHECK_EQ_STR(pressX.commandId, "model.extrude");
+    CHECK_EQ_INT(static_cast<int>(pressX.dispatch.status), static_cast<int>(DispatchStatus::Ok));
+    CHECK(pressX.ran());
+    CHECK_EQ_INT(nx.document().features, 1);
+    CHECK_EQ_INT(nx.document().undoDepth, 1);
+    CHECK(nx.document().dirty);
+    CHECK_EQ_INT(nx.journal().size(), 1);
+    CHECK_EQ_STR(at(nx.journal(), 0), "model.extrude");
+    // the schema default really reached the handler, it was not merely skipped
+    CHECK_NEAR(nx.document().lastFeatureSize, 10.0, 1e-9);
+    CHECK(!pressX.needsParameters());
+
+    nx.selection().replaceWith({edgeRef("E1")});
+    const KeyOutcome pressB = nx.key(KeyStroke{"B", maskOf(Mod::Ctrl)});  // NX-like Fillet
+    CHECK(pressB.ran());
+    CHECK_EQ_INT(nx.document().features, 2);
+    CHECK_NEAR(nx.document().lastFeatureSize, 1.0, 1e-9);
+
+    nx.selection().replaceWith({faceRef("F1")});
+    const KeyOutcome pressH = nx.key(KeyStroke{"H", maskOf(Mod::Ctrl)});  // NX-like Shell
+    CHECK(pressH.ran());
+    CHECK_EQ_INT(nx.document().features, 3);
+    CHECK_NEAR(nx.document().lastFeatureSize, 2.0, 1e-9);
+    // an EXPLICIT argument still wins over the default
+    nx.selection().replaceWith({edgeRef("E2")});
+    CHECK(nx.invoke("model.fillet", [] {
+                CommandParams p;
+                p.setNumber("radius", 7.5);
+                return p;
+              }())
+              .ran());
+    CHECK_NEAR(nx.document().lastFeatureSize, 7.5, 1e-9);
+
+    // three shortcuts and one explicit invocation, all in the SAME journal
+    CHECK_EQ_INT(nx.journal().size(), 4);
+    CHECK_EQ_STR(at(nx.journal(), 1), "model.fillet");
+    CHECK_EQ_STR(at(nx.journal(), 2), "model.shell");
+    CHECK_EQ_STR(at(nx.journal(), 3), "model.fillet");
+  }
+  // the same four commands, reached from every profile's own chord
+  {
+    struct Case {
+      InputProfile profile;
+      KeyStroke stroke;
+      const char* id;
+    };
+    const std::vector<Case> cases = {
+        {InputProfile::ForgeNative, KeyStroke{"E", 0}, "model.extrude"},
+        {InputProfile::ForgeNative, KeyStroke{"R", 0}, "model.fillet"},
+        {InputProfile::ForgeNative, KeyStroke{"H", Mod::Ctrl | Mod::Shift}, "model.shell"},
+        {InputProfile::NXLike, KeyStroke{"X", 0}, "model.extrude"},
+        {InputProfile::NXLike, KeyStroke{"B", maskOf(Mod::Ctrl)}, "model.fillet"},
+        {InputProfile::NXLike, KeyStroke{"H", maskOf(Mod::Ctrl)}, "model.shell"},
+        {InputProfile::CATIALike, KeyStroke{"P", maskOf(Mod::Ctrl)}, "model.extrude"},
+        {InputProfile::CATIALike, KeyStroke{"F", Mod::Ctrl | Mod::Shift}, "model.fillet"},
+        {InputProfile::CATIALike, KeyStroke{"F8", 0}, "model.shell"},
+        {InputProfile::BlenderLike, KeyStroke{"E", 0}, "model.extrude"},
+        {InputProfile::BlenderLike, KeyStroke{"B", maskOf(Mod::Ctrl)}, "model.fillet"},
+        {InputProfile::BlenderLike, KeyStroke{"I", maskOf(Mod::Alt)}, "model.shell"},
+    };
+    for (const Case& c : cases) {
+      ForgeShell s;
+      s.setInputProfile(c.profile);
+      if (std::string(c.id) == "model.extrude") {
+        s.selection().replaceWith({sketchRef("S1")});
+      } else if (std::string(c.id) == "model.fillet") {
+        s.selection().replaceWith({edgeRef("E1")});
+      } else {
+        s.selection().replaceWith({faceRef("F1")});
+      }
+      const KeyOutcome o = s.key(c.stroke);
+      CHECK_EQ_STR(o.commandId, c.id);
+      CHECK_EQ_INT(static_cast<int>(o.dispatch.status), static_cast<int>(DispatchStatus::Ok));
+      CHECK_EQ_INT(s.document().features, 1);
+    }
+  }
+  // A required parameter with NO honest default is not invented: Ctrl+O reports
+  // what the UI must prompt for instead of opening the empty path.
+  {
+    ForgeShell open;
+    open.setInputProfile(InputProfile::ForgeNative);
+    const KeyOutcome o = open.key(KeyStroke{"O", maskOf(Mod::Ctrl)});
+    CHECK_EQ_STR(o.commandId, "file.open");
+    CHECK(!o.ran());
+    CHECK_EQ_INT(static_cast<int>(o.dispatch.status),
+                 static_cast<int>(DispatchStatus::MissingRequiredParameter));
+    CHECK_EQ_INT(open.journal().size(), 0);
+    // ...and it says WHAT to ask for, which is what a UI can act on
+    CHECK(o.needsParameters());
+    CHECK_EQ_INT(o.promptFor.size(), 1);
+    CHECK_EQ_STR(at(o.promptFor, 0), "path");
+    // supplying it makes the same command run through the same path
+    CommandParams path;
+    path.setText("path", "/tmp/part.forge");
+    const InvokeOutcome ok = open.invoke("file.open", path);
+    CHECK(ok.ran());
+    CHECK(!ok.needsParameters());
+    CHECK_EQ_INT(open.journal().size(), 1);
+  }
+
+  // ── REGRESSION: a workspace switch must not corrupt a panel ID ──────────
+  // setWorkspace() round-trips the outgoing layout through serialize/parse.
+  // Panel IDs were written space-separated with no quoting, so "Scratch Notes"
+  // came back as "Scratch" and the rest of the stream desynchronised.
+  {
+    ForgeShell named;
+    DockWindow note;
+    note.id = 4;
+    note.monitor = 1;
+    note.rect = Rect{10.0, 10.0, 400.0, 300.0};
+    note.root = DockNode::tabs({"Scratch Notes"}, 0);
+    named.layout().addWindow(note);
+    CHECK(named.layout().valid());
+    const DockLayout saved = named.layout();
+    CHECK(named.setWorkspace(WorkspaceProfile::Sketch));  // the round trip is CHECKED
+    CHECK(named.setWorkspace(WorkspaceProfile::Part));
+    CHECK_EQ_INT(named.layout().windowCount(), 2);
+    CHECK(named.layout().hasPanel("Scratch Notes"));
+    CHECK(named.layout() == saved);
+  }
 
   return H.finish();
 }

@@ -260,5 +260,41 @@ int main() {
   CHECK_EQ_INT(model.window(0, 0).size(), 0);
   CHECK_EQ_INT(model.window(model.rowCount() - 3, 100).size(), 3);  // clipped at the end
 
+  // ── REGRESSION: collapsing ONE node must not collapse the whole tree ────
+  // expandAll() is a FLAG, not a materialized set. Collapsing a single node
+  // cleared the flag and fell back to `expanded_`, which still held only the
+  // root — so one click on one disclosure triangle threw away the user's entire
+  // expansion state. Leaving flag mode must materialize what the flag stood for.
+  {
+    FeatureTreeModel m(source, cacheCapacity);
+    m.expandAll();
+    CHECK_EQ_INT(m.rowCount(), kTotalNodes);
+
+    // collapse ONE part: exactly its 9 features leave the index, nothing else
+    m.setExpanded(kPartBase, false);
+    CHECK_EQ_INT(m.rowCount(), kTotalNodes - kFeaturesPerPart);
+    CHECK(!m.isExpanded(kPartBase));
+    CHECK(m.isExpanded(kRoot));
+    CHECK(m.isExpanded(kAssemblyBase));
+    CHECK(m.isExpanded(kPartBase + 1));  // its sibling is untouched
+
+    // collapse one whole assembly: its 100 parts and their 900 features go
+    m.setExpanded(kAssemblyBase, false);
+    CHECK_EQ_INT(m.rowCount(),
+                 kTotalNodes - kFeaturesPerPart -
+                     (kPartsPerAssembly + kPartsPerAssembly * kFeaturesPerPart - kFeaturesPerPart));
+    CHECK(!m.isExpanded(kAssemblyBase));
+    CHECK(m.isExpanded(kAssemblyBase + 1));
+
+    // re-expanding restores exactly what was collapsed, no more and no less
+    m.setExpanded(kAssemblyBase, true);
+    CHECK_EQ_INT(m.rowCount(), kTotalNodes - kFeaturesPerPart);
+    m.setExpanded(kPartBase, true);
+    CHECK_EQ_INT(m.rowCount(), kTotalNodes);
+
+    // materializing the expansion set costs structure calls, never records
+    CHECK_EQ_INT(m.materialized(), 0);
+  }
+
   return H.finish();
 }

@@ -174,5 +174,39 @@ int main() {
   CHECK_EQ_STR(k("K", Mod::Ctrl | Mod::Shift).toText(), "Ctrl+Shift+K");
   CHECK_EQ_STR(sequenceText({k("K", Mod::Ctrl), k("P")}), "Ctrl+K P");
 
+  // ── REGRESSION: serialize() must never emit text parse() rejects ────────
+  // bind() accepted a key NAME containing '+', but parseStroke() reads every
+  // '+' as a modifier separator: "Ctrl++" serialized fine and then failed to
+  // parse, and ForgeShell::loadState() throws away the WHOLE keymap on a single
+  // bad line. The same holds for a tab, which is the field separator itself.
+  Keymap hostile;
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("+")}, "a.plus"));
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("Num+", Mod::Ctrl)}, "a.numplus"));
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("A\tB")}, "a.tabkey"));
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("A\nB")}, "a.newlinekey"));
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("A")}, "a\tb"));   // id breaks the record format
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("A")}, "a\nb"));
+  CHECK_EQ_INT(hostile.bindingCount(), 0);
+
+  // whatever DOES bind round-trips, including the canonical names for those keys
+  Keymap corpus;
+  CHECK(corpus.bind(InputProfile::NXLike, {k("Plus")}, "a.plus"));
+  CHECK(corpus.bind(InputProfile::NXLike, {k("Equal", Mod::Ctrl)}, "a.equal"));
+  CHECK(corpus.bind(InputProfile::BlenderLike, {k("NumpadAdd", Mod::Ctrl | Mod::Shift)}, "a.add"));
+  CHECK(corpus.bind(InputProfile::CATIALike, {k("F12"), k("Slash")}, "a.seq"));
+  const std::string corpusText = corpus.serialize();
+  Keymap corpusBack;
+  CHECK(Keymap::parse(corpusText, corpusBack));
+  CHECK_EQ_STR(corpusBack.serialize(), corpusText);
+  CHECK_EQ_INT(corpusBack.bindingCount(), corpus.bindingCount());
+  CHECK_EQ_STR(corpusBack.resolve(InputProfile::NXLike, {k("Plus")}).commandId, "a.plus");
+
+  // and a shell whose keymap contains such a binding still loads its state
+  ForgeShell keyed;
+  const std::string keyedState = keyed.saveState();
+  ForgeShell keyedBack;
+  CHECK(keyedBack.loadState(keyedState));
+  CHECK_EQ_STR(keyedBack.saveState(), keyedState);
+
   return H.finish();
 }
