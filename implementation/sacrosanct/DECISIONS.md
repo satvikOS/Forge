@@ -280,3 +280,30 @@ is a real cost, and it grows with every kernel-file fix that queues up behind th
 
 **What would end it.** The in-flight work being committed to its own branch. Until then, expect
 more branches like #62 rather than commits on the execution branch.
+
+## D-011 (2026-08-28) — spend a second emission run to get expert3d-v1 at n=600
+
+**Decision: yes.** Queued to start automatically when the v5cap emission finishes.
+
+The enlargement to 600 rows exists to make effects answerable: at n=25 the paired
+95% CI was about +-0.12 while every effect was under 0.07. But v1's emissions cover
+only the 36-row holdout, of which **15** rows fall in the 600 — so the v5cap-vs-v1
+comparison, the one the underpowered run could not settle, is not available on this
+set at any useful n. Scoring the 15-row overlap would be weaker than the n=25 result
+already in hand.
+
+The alternative was to report only v5cap against the bounding-box floor. That is the
+more fundamental bar — v1 is already known to be beaten by a box — but it leaves the
+adapter-versus-adapter question exactly where the n=25 run left it, which is the
+question the enlargement was built to answer.
+
+The cost is GPU time that would otherwise be idle: the two arms cannot share the
+model, so v1 is chained behind v5cap rather than run beside it, and the scoring is
+sharded five ways (measured 54 s/row single-threaded, so about 1.8 h rather than 9 h).
+
+**Comparability, checked rather than assumed:** NoveltyStop became the default at
+13:26 and the v5cap e600 run started about 16:32, so both arms run with it ON. The
+ORIGINAL v1 36-row emission predates that change and ran with it OFF — a real
+confound in the n=25 comparison, bounded by the measurement that NoveltyStop is
+score-neutral (31 of 32 rows identical, the one that moved went up). The n=600
+comparison does not inherit it.
