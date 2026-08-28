@@ -246,18 +246,44 @@ roughly *linear* here, with an enormous constant: ~1.25 ms per tetrahedron, abou
 orders of magnitude slower per element than a production Delaunay refiner. 60k tets costs
 74 s, which is why the 20000-point budget exists.
 
-A constant-factor problem is the cheaper kind. Profile before optimising, and profile the
-right thing — the candidates in order of suspicion:
- - `BRepClass3d_SolidClassifier::Perform`, called once per interior seed candidate **and**
-   once per Bowyer-Watson tet centroid. Each call walks the B-rep. A cheap discriminating
-   test: mesh a box and an ellipsoid-derived solid to the same tet count and compare ms/tet.
- - the uncompacted linear scan in `bowyerWatson()` — real, but not dominant in this range;
-   it will start to bite at larger N.
-If the scan does become dominant, the standard remedies are spatial point location — a
-Delaunay hierarchy (Devillers, *The Delaunay hierarchy*, IJFCS 13(2), 2002) over Bowyer
-(1981) / Watson (1981) — or adopting a proven Delaunay refiner rather than maintaining one:
-Si, **TetGen**, ACM TOMS 41(2):11, 2015, which also brings constrained boundary recovery and
-Shewchuk-style quality guarantees the current seeder has none of.
+A constant-factor problem is the cheaper kind, and the constant has been **located**.
+`node test/fea_nafems_convergence.mjs profile` runs the same mesher on three shapes at
+comparable tet counts:
+
+```
+ shape                    edge     tets   meshMs   ms/tet
+ box 3.25x2.75x0.1       0.12      2922      26   0.0089
+ box 3.25x2.75x0.1       0.09     11780     164   0.0139
+ box 3.25x2.75x0.1       0.065    22388     490   0.0219
+ sphere r=1              0.2       5788      66   0.0114
+ sphere r=1              0.15     10750     141   0.0131
+ sphere r=1              0.115    21199     414   0.0195
+ LE1 slab (boolean)      0.12      2260    2846   1.2593
+ LE1 slab (boolean)      0.09      7927   10053   1.2682
+```
+
+The primitives cost **0.009–0.022 ms/tet**; the boolean-derived LE1 solid —
+`common(cut(ellipsoid, ellipsoid), box)` — costs **1.26**, a **60–100× penalty on the same
+mesher at the same tet counts**. `meshShape` calls
+`BRepClass3d_SolidClassifier::Perform` once per interior seed candidate *and* once per
+Bowyer-Watson tet centroid, and each call walks the B-rep. So the constant is **B-rep point
+classification on a boolean result**, not the meshing algorithm.
+
+The same table separates out the second, smaller cost: on the cheap-to-classify shapes
+ms/tet *rises* with tet count (box 0.0089 → 0.0219 over 2922 → 22388 tets). The uncompacted
+O(N·T) scan in `bowyerWatson()` is real — it is simply swamped on LE1.
+
+Two fixes, in this order:
+ - **(a) the classification constant** — classify points against a BVH over the boundary
+   triangulation `meshShape` has *already built*, instead of walking the B-rep per point.
+   The native path already owns a `pointInSolid`. ~60–100× headroom on exactly the shapes
+   the NAFEMS cases use, and it makes raising `seedGridBudget` affordable.
+ - **(b) the scan** — spatial point location: Bowyer (1981) / Watson (1981) with a Delaunay
+   hierarchy (Devillers, *The Delaunay hierarchy*, IJFCS 13(2), 2002); or adopt a proven
+   Delaunay refiner rather than maintaining one — Si, **TetGen**, ACM TOMS 41(2):11, 2015,
+   which also brings constrained boundary recovery and Shewchuk-style quality guarantees
+   the current seeder has none of.
+
 This is a prerequisite for *any* convergence claim, including Tet10's.
 
 **3. Boundary-layer / graded refinement at the probe. — 2 days, after 2.**

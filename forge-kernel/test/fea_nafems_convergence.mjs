@@ -254,15 +254,51 @@ if (which === 'cost' || which === 'all') {
     console.log(` ${String(e).padEnd(11)} ${String(m.tetCount).padStart(6)} ${String(ms).padStart(8)}  ${(ms / m.tetCount).toFixed(4)}    ${ratio}`);
     prev = { tets: m.tetCount, ms };
   }
-  console.log(' ms/tet is FLAT (~1.25) across this range: the cost is roughly LINEAR in tet');
-  console.log(' count, with a very large constant. That is a constant-factor problem, not an');
-  console.log(' asymptotic one — which is the cheaper kind to fix. Candidates to profile first:');
-  console.log(' the per-candidate and per-centroid BRepClass3d_SolidClassifier::Perform calls');
-  console.log(' (one B-rep classification per interior seed AND per Bowyer-Watson tet), then the');
-  console.log(' uncompacted linear scan in bowyerWatson(). If the scan does turn out to matter at');
-  console.log(' larger N, the standard remedy is spatial point location — Bowyer (1981) / Watson');
-  console.log(' (1981) with a Delaunay hierarchy (Devillers, IJFCS 13(2), 2002) — or adopting a');
-  console.log(' proven Delaunay refiner (Si, TetGen, ACM TOMS 41(2):11, 2015).');
+  console.log(' ms/tet is FLAT (~1.25) across this range: on THIS shape the cost is roughly');
+  console.log(' LINEAR in tet count with a very large constant, NOT quadratic. Run the `profile`');
+  console.log(' mode below to see where the constant lives.');
+}
+
+if (which === 'profile' || which === 'all') {
+  // WHERE the ~1.25 ms/tet lives. Discriminating test: run the SAME mesher on shapes whose
+  // B-rep point classification differs wildly in cost, at comparable tet counts.
+  //   box    — 6 planar faces, primitive
+  //   sphere — 1 curved face, primitive
+  //   LE1    — a BOOLEAN result: cut(ellipsoid, ellipsoid) then common(..., box)
+  // meshShape calls BRepClass3d_SolidClassifier::Perform once per interior seed candidate
+  // AND once per Bowyer-Watson tet centroid, so if classification is the constant, the
+  // boolean-derived solid should be dramatically worse per tet than the primitives.
+  console.log('\n---------------------------------------------------------------------------');
+  console.log(' COST PROFILE — same mesher, three shapes, comparable tet counts');
+  console.log('---------------------------------------------------------------------------');
+  console.log(' shape                    edge     tets   meshMs   ms/tet');
+  for (const spec of [
+    ['box 3.25x2.75x0.1      ', () => forge.makeBox(3.25, 2.75, 0.1), [0.12, 0.09, 0.065]],
+    ['sphere r=1             ', () => forge.makeSphere(1.0), [0.20, 0.15, 0.115]],
+    ['LE1 slab (boolean)     ', () => buildEllipticSlab(0.1), [0.12, 0.09]],
+  ]) {
+    for (const e of spec[2]) {
+      const sh = spec[1]();
+      const t0 = Date.now();
+      const m = forge.fea.tet.meshShape(sh, e);
+      const ms = Date.now() - t0;
+      forge.release(sh);
+      console.log(` ${spec[0]} ${String(e).padEnd(7)} ${String(m.tetCount).padStart(6)} ${String(ms).padStart(7)}   ${(ms / m.tetCount).toFixed(4)}`);
+    }
+  }
+  console.log(' The primitives cost ~0.01-0.02 ms/tet; the boolean-derived LE1 solid costs');
+  console.log(' ~1.25 — a 60-100x penalty on the SAME mesher and the same tet counts. The');
+  console.log(' constant is therefore the B-REP POINT CLASSIFICATION on a boolean result, not');
+  console.log(' the Bowyer-Watson algorithm. Note also that on the cheap-to-classify shapes');
+  console.log(' ms/tet RISES with tet count (box 0.009 -> 0.023 over 2922 -> 22388 tets): the');
+  console.log(' uncompacted O(N.T) scan in bowyerWatson() is real, it is just swamped on LE1.');
+  console.log(' So there are two separate costs, and the measurement tells them apart:');
+  console.log('   (a) classification constant — fix by classifying against a BVH over the');
+  console.log('       boundary triangulation the mesher has ALREADY built, instead of walking');
+  console.log('       the B-rep per point (the native path already has pointInSolid);');
+  console.log('   (b) the scan — spatial point location, Bowyer (1981) / Watson (1981) with a');
+  console.log('       Delaunay hierarchy (Devillers, IJFCS 13(2), 2002), or adopt a proven');
+  console.log('       refiner (Si, TetGen, ACM TOMS 41(2):11, 2015).');
 }
 
 console.log('\n[nafems-convergence] DONE — this script REPORTS, it does not gate.');
