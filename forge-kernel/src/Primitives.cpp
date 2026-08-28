@@ -5,7 +5,9 @@
 // behind FORGE_NATIVE_BREP (compile gate) + forgeNativeBrepEnabled() (runtime).
 #ifdef FORGE_NATIVE_BREP
 #include "forge/native/brep/NativeRoute.hpp"
+#include "forge/native/brep/NativeLoftPipe.hpp"  // TKOffset family D: TKOffset-free ruled loft on OCCT wires
 #include <memory>
+#include <vector>
 #endif
 
 #include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic OCCT primitive solids + sweeps
@@ -183,6 +185,20 @@ ShapeHandle makePyramid(double dx, double dy, double h) {
     }
     // isSolid=true caps the base + apex so the loft mass-props as a solid;
     // ruled=true gives flat triangular sides (not a smooth B-spline skin).
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family D — the TKOffset-free ruled loft on the OCCT wires
+    // themselves (src/native/brep/NativeLoftPipe.cpp). A null return is an
+    // HONEST DEFER and falls through to OCCT below, so this can only ADD
+    // coverage. See forge/native/brep/NativeLoftPipe.hpp for the routing.
+    if (::forge::occtloft::loftNativeEnabled()) {
+        const std::vector<TopoDS_Shape> secs{
+            base.Wire(), BRepBuilderAPI_MakeVertex(gp_Pnt(0, 0, h)).Vertex()};
+        const TopoDS_Shape nat =
+            ::forge::occtloft::thruSections(secs, /*solid*/ true, /*ruled*/ true);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_THRUSECTIONS_DROP_NATIVE
     BRepOffsetAPI_ThruSections mk(Standard_True, Standard_True, 1e-6);
     mk.AddWire(base.Wire());
     mk.AddVertex(BRepBuilderAPI_MakeVertex(gp_Pnt(0, 0, h)).Vertex());
@@ -191,6 +207,12 @@ ShapeHandle makePyramid(double dx, double dy, double h) {
         throw std::runtime_error("forge: pyramid ThruSections build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge: pyramid — the native ruled loft DECLINED this input and the OCCT "
+        "BRepOffsetAPI_ThruSections fallback is compiled out "
+        "(FORGE_THRUSECTIONS_DROP_NATIVE=ON)");
+#endif
 }
 
 // Ellipsoid: a unit sphere scaled non-uniformly by the diagonal GTrsf
