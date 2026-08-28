@@ -82,7 +82,11 @@ Video-611.mp4
 video611-frames/
 _extract611.mjs
 test-results/
-.claude/
+# Claude Code local state. `worktrees/` is the single largest disk sink in this
+# repo (agent worktrees), so the directory stays ignored by default and only the
+# shared, reviewable agent definitions are tracked.
+.claude/*
+!.claude/agents/
 
 # Forge — autonomous-build cruft
 dist-electron/
