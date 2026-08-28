@@ -1422,6 +1422,16 @@ set(FORGE_KERNEL_SOURCES
                                      # so this MUST be in the link: it is not optional.
     src/ft/ChunkChain.cpp            # s0.11 chunked emission + SHA-256 hash/count chain
                                      # (Appendix B CHUNK-CORRUPTION detection)
+    src/native/util/Sha256.cpp       # FIPS 180-4 SHA-256. ChunkChain.cpp calls
+                                     # forge::native::util::sha256Hex and this TU is its ONLY
+                                     # definition, but it was never in the source list. The
+                                     # .node hides that: Darwin links it with
+                                     # `-undefined dynamic_lookup`, which silently tolerates
+                                     # the unresolved symbol. forge_kernel_core does not, so
+                                     # `ld` failed with exactly one undefined symbol
+                                     # (sha256Hex, referenced from ChunkChain.cpp.o) -- the
+                                     # same defect class already recorded on MeshToSDF.cpp
+                                     # above. Adding it here fixes BOTH targets.
     src/ft/binding_ft.cpp            # N-API surface forge.ft.compile(irText[, outStep])
     # KEYSTONE K7 — Parasolid-style opaque-handle C-API black box wrapping the
     # native brep/mesh/csg kernel (include/forge/capi/forge_capi.h). Strict
@@ -1669,6 +1679,53 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
             BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
         )
     endif()
+
+    # -------- forge_ui_ir_probe : THE UI -> KERNEL SEAM, CLOSED (s3.2) --------
+    # The UICMD track's own honest blocker was that nothing in a shipped binary
+    # fed forge::ui::PartDocument::irProgram() into forge::ft::compile(), so the
+    # forge::ui gates asserted the STATEMENT the kernel would be given and never
+    # the SOLID it returns. This target is that missing runtime path: it compiles
+    # the forge::ui sources (pure C++20, no ImGui, no GPU) INTO the executable and
+    # links the node-free forge_kernel_core, so one process dispatches a Part
+    # command, emits feature-IR, compiles it natively and measures the resulting
+    # B-rep against a closed form.
+    #
+    # It is deliberately NOT a separate library: forge::ui has no CMake library
+    # target yet (its gates are driven by ui/test/run_ui.sh), and inventing one
+    # here would change how every existing UI gate is built. The sources are
+    # listed explicitly rather than GLOBbed so a new UI source cannot enter the
+    # build without someone deciding it should.
+    set(FORGE_UI_SOURCES
+        "${CMAKE_SOURCE_DIR}/../ui/src/CommandRegistry.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/DockLayout.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/FeatureIr.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/FeatureTreeModel.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/ForgeShell.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/Keymap.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/PartCommands.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/SelectionService.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/Types.cpp"
+        "${CMAKE_SOURCE_DIR}/../ui/src/WorkspaceProfile.cpp"
+    )
+    add_executable(forge_ui_ir_probe
+        "${CMAKE_SOURCE_DIR}/../forge-desktop/ui_ir_probe.cpp"
+        ${FORGE_UI_SOURCES}
+    )
+    target_include_directories(forge_ui_ir_probe PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"     # forge/ft/FeatureTree.hpp — pure std C++
+        "${CMAKE_SOURCE_DIR}/../ui/include"
+        "${CMAKE_SOURCE_DIR}/../ui/test"  # ui_test_util.hpp — the SR-3 check harness
+    )
+    # SR-3: -Wall -Wextra -Werror on first-party code. This target is 100%
+    # first-party (forge::ui + the probe) and pulls no OCCT header, so the flag
+    # can be absolute here in a way it cannot be for the kernel TUs.
+    target_compile_options(forge_ui_ir_probe PRIVATE -Wall -Wextra -Werror)
+    target_link_libraries(forge_ui_ir_probe PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_ui_ir_probe PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}"
+        )
+    endif()
 endif()
 
 # ============================================================================
@@ -1873,7 +1930,8 @@ endif()
 # ============================================================================
 set(_forge_all_targets "")
 foreach(_t forge_kernel forge_kernel_core forge_foundation_probe forge_verify forge_mesh_probe
-           forge_step_probe forge_feature_probe forge_renderer_probe forge_ui_probe)
+           forge_step_probe forge_feature_probe forge_ui_ir_probe forge_renderer_probe
+           forge_ui_probe)
     if(TARGET ${_t})
         list(APPEND _forge_all_targets ${_t})
     endif()

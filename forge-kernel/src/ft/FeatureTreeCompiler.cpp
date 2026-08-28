@@ -1235,7 +1235,22 @@ private:
             if (dot > 0.9 && fi.area > bestScore) { bestScore = fi.area; best = fid; }
         }
         if (best == 0) throw OpError(op.id, "SHELL: no face faces the open axis");
-        return forge::part::shell(body, {best}, -std::fabs(wall), {});
+        // OFF-BY-ONE, MEASURED. Two face-id conventions meet on this line and
+        // they are NOT the same one:
+        //   forge::direct::inferFeature  takes a 1-BASED FaceId (DirectModeling.cpp
+        //     lookupFace indexes a TopTools_IndexedMapOfShape from 1; Tessellate.hpp
+        //     documents the same 1-based ordering for every direct.* id), and
+        //   forge::part::shell           takes 0-BASED indices (Features.cpp
+        //     faceById: "Resolve a 0-based face index ...", and forge-desktop/
+        //     feature_probe.cpp removes the first face by passing {0}).
+        // Passing the 1-based `best` straight through therefore opened the face
+        // BEFORE the intended one. It was silent: the result is still a valid,
+        // watertight, plausible-looking shell — just hollowed on the wrong side.
+        // MEASURED on SHELL(BOX(60,40,30), 3): 24048 mm^3 (a 60x30 side face
+        // removed => 72000 - 54*37*24) where the closed form for the -Z face is
+        // 22428 (72000 - 54*34*27). 7.2% of the part's mass, and the opening on
+        // the wrong axis. forge-desktop/ui_ir_probe.cpp asserts the closed form.
+        return forge::part::shell(body, {best - 1}, -std::fabs(wall), {});
     }
 
     // FOLD — sheet-metal flange macro (EXTRUDE + ROTATE-about-hinge + FUSE),
