@@ -210,26 +210,61 @@ double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& t
         if (prefix.find("$") != std::string::npos || prefix.empty()) return 1000.0; // bare metre
         return 1000.0; // unknown prefix -> treat as metre
     };
+    // A resolved candidate: the scale to mm, the display name, and the ENTITY ID it
+    // was read from.
+    //
+    // `tab` is an unordered_map, so ITERATION ORDER IS A PROPERTY OF THE STDLIB
+    // BUILD, NOT OF THE FILE (libc++ on macOS vs libstdc++ on Linux CI, and it can
+    // shift between runs). Every pass below therefore collects ALL candidates and
+    // then picks by LOWEST ENTITY ID — the file's own declaration order — instead
+    // of returning whichever one iteration happened to yield first.
+    //
+    // This is the same nondeterminism the imperial pass already documented fixing
+    // by ordering the passes, one level up: a file may declare SEVERAL geometric
+    // representation contexts (an assembly with several SHAPE_REPRESENTATIONs has
+    // one each), and the old code returned on the FIRST context that resolved. When
+    // two contexts name different units that was a coin flip that mis-scales the
+    // WHOLE model — the worst class of import bug, because the geometry still looks
+    // plausible and every dimension is wrong. In the overwhelmingly common case the
+    // contexts agree and this changes nothing; when they disagree the answer is now
+    // at least the same on every platform and every run, and is the unit the file
+    // declares FIRST.
+    struct UnitCand {
+        std::uint64_t id = 0;
+        double        scale = 1.0;
+        std::string   name;
+    };
+    auto pickLowestId = [](const std::vector<UnitCand>& c) -> const UnitCand* {
+        const UnitCand* best = nullptr;
+        for (const auto& u : c)
+            if (best == nullptr || u.id < best->id) best = &u;
+        return best;
+    };
+
     // PASS 1 — imperial CONVERSION_BASED_UNIT (inch/foot) takes PRIORITY. An inch
     // file ALSO contains the SI base unit (millimetre/metre) the inch is defined in
-    // terms of, so scanning both kinds in ONE pass let std::unordered_map iteration
-    // ORDER decide which matched first — and that order differs across stdlib
-    // implementations (libc++ on macOS vs libstdc++ on Linux CI) and runs, so inch
-    // files intermittently resolved to millimetre (scale 1.0). Scanning imperial
-    // FIRST makes the result deterministic on every platform.
+    // terms of, so scanning both kinds in ONE pass let iteration ORDER decide which
+    // matched first. Scanning imperial FIRST, and resolving ALL of them by lowest
+    // id, makes the result deterministic on every platform.
+    std::vector<UnitCand> imperial;
     for (const auto& kv : tab) {
         const Instance& ins = kv.second;
-        if (ins.type == "CONVERSION_BASED_UNIT") {
-            auto p = splitTopLevel(ins.params);
-            if (!p.empty()) {
-                std::string nm = p[0];
-                std::transform(nm.begin(), nm.end(), nm.begin(),
-                               [](unsigned char c){ return (char)std::tolower(c); });
-                if (nm.find("inch") != std::string::npos) { unitNameOut = "INCH"; return 25.4; }
-                if (nm.find("foot") != std::string::npos) { unitNameOut = "FOOT"; return 304.8; }
-            }
-        }
+        if (ins.type != "CONVERSION_BASED_UNIT") continue;
+        auto p = splitTopLevel(ins.params);
+        if (p.empty()) continue;
+        std::string nm = p[0];
+        std::transform(nm.begin(), nm.end(), nm.begin(),
+                       [](unsigned char c){ return (char)std::tolower(c); });
+        if (nm.find("inch") != std::string::npos)
+            imperial.push_back(UnitCand{kv.first, 25.4, "INCH"});
+        else if (nm.find("foot") != std::string::npos)
+            imperial.push_back(UnitCand{kv.first, 304.8, "FOOT"});
     }
+    if (const UnitCand* u = pickLowestId(imperial)) {
+        unitNameOut = u->name;
+        return u->scale;
+    }
+
     // PASS 1.5 — THE UNIT THE GEOMETRY IS ACTUALLY IN. A file may declare several
     // LENGTH_UNITs and use only one; the geometric context names which:
     //
@@ -238,13 +273,12 @@ double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& t
     //   #250=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT(.CENTI.,.METRE.))   <- referenced
     //   #251=(LENGTH_UNIT() NAMED_UNIT(*) SI_UNIT($,.METRE.))         <- NOT referenced
     //
-    // The scan below considers every LENGTH_UNIT in the file and returns whichever
-    // an unordered_map happens to yield first. On the file above that is a coin
-    // flip between scale 10 and scale 1000 — a 100x error, and a nondeterministic
-    // one. Measured on the neuralCAD-Edit corpus: a 76.3 mm part read as 7630 mm.
-    // (This is the same nondeterminism PASS 1 documents fixing for imperial units;
-    // the SI case was left exposed.) The file banner has always claimed the unit is
-    // resolved from the GEOMETRIC_REPRESENTATION_CONTEXT — now it actually is.
+    // A bare scan of every LENGTH_UNIT in the file is a coin flip between scale 10
+    // and scale 1000 on the file above — a 100x error. Measured on the
+    // neuralCAD-Edit corpus: a 76.3 mm part read as 7630 mm. The file banner has
+    // always claimed the unit is resolved from the GEOMETRIC_REPRESENTATION_CONTEXT
+    // — now it actually is, across ALL such contexts.
+    std::vector<UnitCand> ctxCands;
     for (const auto& kv : tab) {
         const Instance& ins = kv.second;
         if (!ins.type.empty()) continue;                 // contexts are complex records
@@ -269,6 +303,9 @@ double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& t
             }
         }
         if (!isGeoCtx || unitIds.empty()) continue;
+        // The referenced unit list is in FILE order, so the first LENGTH_UNIT this
+        // context names is this context's length unit; the context is then a single
+        // candidate keyed by its OWN id.
         for (std::uint64_t uid : unitIds) {
             auto it = tab.find(uid);
             if (it == tab.end() || !it->second.type.empty()) continue;
@@ -283,37 +320,47 @@ double resolveLengthScaleMm(const std::unordered_map<std::uint64_t, Instance>& t
                 }
             }
             if (isLength && !prefix.empty()) {
-                unitNameOut = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE"
-                            : (prefix.find("CENTI") != std::string::npos) ? "CENTIMETRE"
-                                                                         : "METRE";
-                return siMetreScale(prefix);
+                std::string nm = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE"
+                               : (prefix.find("CENTI") != std::string::npos) ? "CENTIMETRE"
+                                                                            : "METRE";
+                ctxCands.push_back(UnitCand{kv.first, siMetreScale(prefix), nm});
+                break;
             }
         }
+    }
+    if (const UnitCand* u = pickLowestId(ctxCands)) {
+        unitNameOut = u->name;
+        return u->scale;
     }
 
     // PASS 2 — SI length unit (only when no imperial conversion is present, and no
     // geometric context named one). The SIMPLE SI length unit appears as a COMPLEX
     // record: (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))
+    std::vector<UnitCand> siCands;
     for (const auto& kv : tab) {
         const Instance& ins = kv.second;
-        if (ins.type.empty()) {
-            auto subs = splitComplex(ins.params);
-            bool isLength = false; std::string prefix;
-            for (const auto& s : subs) {
-                if (s.type == "LENGTH_UNIT") isLength = true;
-                if (s.type == "SI_UNIT") {
-                    auto f = splitTopLevel(s.params);
-                    if (f.size() >= 2 && f[1].find("METRE") != std::string::npos) {
-                        prefix = f[0];
-                    }
+        if (!ins.type.empty()) continue;
+        auto subs = splitComplex(ins.params);
+        bool isLength = false; std::string prefix;
+        for (const auto& s : subs) {
+            if (s.type == "LENGTH_UNIT") isLength = true;
+            if (s.type == "SI_UNIT") {
+                auto f = splitTopLevel(s.params);
+                if (f.size() >= 2 && f[1].find("METRE") != std::string::npos) {
+                    prefix = f[0];
                 }
             }
-            if (isLength && !prefix.empty()) {
-                unitNameOut = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE" : "METRE";
-                return siMetreScale(prefix);
-            }
+        }
+        if (isLength && !prefix.empty()) {
+            std::string nm = (prefix.find("MILLI") != std::string::npos) ? "MILLIMETRE" : "METRE";
+            siCands.push_back(UnitCand{kv.first, siMetreScale(prefix), nm});
         }
     }
+    if (const UnitCand* u = pickLowestId(siCands)) {
+        unitNameOut = u->name;
+        return u->scale;
+    }
+
     unitNameOut = "MILLIMETRE";
     return 1.0;
 }
@@ -432,10 +479,18 @@ bool parameteriseQuadric(Face* f, Surface* surf,
     const Vec3 rdir = vnorm(surf->refDir);
     const Vec3 bdir = surf->binormal();
 
+    // EllipseExtrusion belongs here: its u IS a periodic ellipse angle, so it needs
+    // the same seam unwrap as the circular quadrics (Surface.hpp says so in as many
+    // words). It was omitted, and because the switch below then had no case for it
+    // the surface fell through with pu=pv=0 — EVERY point of an elliptical-cylinder
+    // face collapsed onto the parametric origin, degenerating its region polygon.
+    // -Wswitch is what surfaced it; the analytic convention is the one
+    // buildRegionPolygon already uses (cos u = x/a, sin u = y/b, v = z along axis).
     const bool angular = (surf->kind == SurfaceKind::Cylinder ||
                           surf->kind == SurfaceKind::Cone ||
                           surf->kind == SurfaceKind::Sphere ||
-                          surf->kind == SurfaceKind::Torus);
+                          surf->kind == SurfaceKind::Torus ||
+                          surf->kind == SurfaceKind::EllipseExtrusion);
 
     std::vector<double> us(ring.size()), vs(ring.size());
     double anchorTheta = 0.0; bool haveAnchor = false;
@@ -459,6 +514,13 @@ bool parameteriseQuadric(Face* f, Surface* surf,
             pv = std::atan2(z, ringR);
             break;
         }
+        case SurfaceKind::EllipseExtrusion:
+            // u = ellipse angle (cos u = x/a, sin u = y/b); v = distance along axis
+            // — identical to buildRegionPolygon's convention.
+            pu = std::atan2(y / (surf->r2 > 1e-12 ? surf->r2 : 1.0),
+                            x / (surf->r1 > 1e-12 ? surf->r1 : 1.0));
+            pv = z;
+            break;
         case SurfaceKind::Nurbs: pu = 0; pv = 0; break;
         }
         if (angular) {
@@ -1683,7 +1745,15 @@ ForeignReadResult readForeignStep(const std::string& text, double sewTol) {
     // mass integral then runs over each face independently of shell closure).
     for (std::uint64_t fid : faceIds) {
         Instance fi;
-        if (!R.get(fid, fi) || fi.type != "ADVANCED_FACE") { result.unsupported["NON_ADVANCED_FACE"]++; continue; }
+        // ADVANCED_FACE is the AP203/214/242 subtype of FACE_SURFACE restricted to
+        // elementary/swept/b-spline geometry; both carry the IDENTICAL field layout
+        // (name, (#bound..), #face_geometry, same_sense) so a bare FACE_SURFACE (some
+        // exporters emit it directly) parses through the identical path — accept it.
+        // Anything else is RECORDED and skipped (not a hard failure): the strict
+        // acceptance test lives in importStep, which demands `unsupported.empty()`.
+        if (!R.get(fid, fi) || (fi.type != "ADVANCED_FACE" && fi.type != "FACE_SURFACE")) {
+            result.unsupported["NON_ADVANCED_FACE"]++; continue;
+        }
         auto fp = splitTopLevel(fi.params);
         if (fp.size() < 4) { result.unsupported["FACE_ARITY"]++; continue; }
         std::vector<std::string> boundRefs;
