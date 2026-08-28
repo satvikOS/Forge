@@ -256,6 +256,46 @@ else
     || { echo "  PASS  case7: an unlocked worktree reads unlocked"; PASS=$((PASS+1)); }
 fi
 
+echo "=== case 8: a FINISHED worktree that is IN USE must be refused ==="
+# The near-miss this check exists for: on 2026-08-28 a worktree was tracked-clean,
+# unlocked, and its HEAD sat on a remote branch -- FINISHED by every git test -- while
+# another repository's 2.5-hour run was executing the forge_verify binary built inside
+# it. Git cannot observe that; an open file under the tree can.
+R="$(new_repo c8)"
+W="$R/.claude/worktrees/inuse"
+git -C "$R" worktree add -q "$W" -b inusebr
+
+# (a) BEFORE: with nothing holding it, it must be planned REMOVE. Without this the KEEP
+#     in (b) proves nothing -- a worktree refused for some OTHER reason would satisfy an
+#     "is it kept?" assertion just as well.
+run_plan "$R" "$R"
+assert_has  "case8a" "$PLAN" "REMOVE  $W"
+
+# (b) hold a descriptor open UNDER the worktree and re-run: the same tree must flip.
+# The holder must be ONE process. `( exec 9< f; sleep 25 ) &` looks equivalent but the
+# subshell forks sleep, which INHERITS fd 9 -- killing the subshell leaves the orphan
+# holding the file, so the refusal in (c) never lifted and the case failed. Redirecting
+# on sleep itself makes the descriptor die with the pid.
+sleep 25 9< "$W/a.txt" &
+HOLD=$!
+sleep 1
+run_plan "$R" "$R"
+assert_has   "case8b" "$PLAN" "KEEP    $W"
+assert_has   "case8b" "$PLAN" "IN USE"
+assert_lacks "case8b" "$PLAN" "REMOVE  $W"
+kill "$HOLD" 2>/dev/null; wait "$HOLD" 2>/dev/null
+# and do not race the kernel: assert the descriptor is actually gone before re-running.
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ -z "$(lsof -nP +D "$W" 2>/dev/null | tail -n +2)" ] && break
+  sleep 0.5
+done
+
+# (c) AFTER the holder exits the refusal must lift, or the check is just a permanent KEEP
+#     wearing a reason.
+run_plan "$R" "$R"
+assert_has   "case8c" "$PLAN" "REMOVE  $W"
+assert_lacks "case8c" "$PLAN" "IN USE"
+
 echo ""
 echo "reap_worktrees gate: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
