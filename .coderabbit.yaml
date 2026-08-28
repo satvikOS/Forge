@@ -1,0 +1,77 @@
+# CodeRabbit configuration for satvikOS/Forge.
+#
+# NOTE: as of 2026-08-28 the CodeRabbit GitHub App is NOT installed on this repository — PR #61
+# received 0 reviews and 0 comments, and no CodeRabbit check appears among the CI checks. This file
+# exists so that reviews are correctly scoped the moment the App is installed at
+# https://github.com/apps/coderabbitai . Installing it requires repo-admin action in the GitHub UI.
+
+language: en-GB
+early_access: false
+
+reviews:
+  profile: assertive          # this repo's failure mode is a green signal that was not earned
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  path_filters:
+    # Product source we DO want reviewed.
+    - "forge-kernel/src/**"
+    - "forge-kernel/include/**"
+    - "ui/**"
+    - "retrieval/**"
+    - "simulation/**"
+    - "orchestration/**"
+    - "storage/**"
+    - "tools/**"
+    - ".github/workflows/**"
+    # Excluded: vendored, generated, and legacy-JS paths scheduled for removal under Sacrosanct
+    # s3.2. Reviewing them wastes review budget on code with a deletion plan.
+    - "!**/node_modules/**"
+    - "!frontend/**"
+    - "!e2e/**"
+    - "!electron/**"
+    - "!**/3rdParty/**"
+    - "!**/build-*/**"
+    - "!**/*.step"
+    - "!docs/sacrosanct/SACROSANCT_3.1.txt"
+
+  path_instructions:
+    - path: "forge-kernel/**"
+      instructions: |
+        Geometry kernel. Apply these repo-specific rules, which encode defects actually found here:
+        - A wrong solid can match the right volume to ten significant figures. Any A/B or equivalence
+          assertion must also check topology (face/edge/vertex/shell counts) AND position (centroid
+          or bounding box). Flag volume-only comparisons.
+        - Flag any test whose failure path cannot produce a non-zero exit — a gate that cannot fail
+          is not a gate. Specifically flag a `hardFail`-style flag that failing assertions never set.
+        - Flag sign/direction conventions that are read differently by different code paths. A
+          shell() with three routes each interpreting the caller's sign differently shipped here.
+        - Flag 1-based vs 0-based index mismatches across an API boundary (TopTools_IndexedMapOfShape
+          is 1-based; TopExp_Explorer is 0-based). One such mismatch is currently open.
+        - Flag platform-conditional linker or include behaviour that would pass on macOS and fail on
+          Linux, and vice versa.
+    - path: "**/*.sh"
+      instructions: |
+        - `$?` after a pipeline is the LAST command's status, not the script's. Flag exit-code checks
+          that read a pipeline's status.
+        - zsh does not word-split unquoted variables; `for x in $list` iterates once over the whole
+          string. Flag it.
+        - Flag any deletion logic that cannot state WHY it kept something, and any cleanup that does
+          not verify its own post-condition.
+        - `pgrep -f` matches the checking script itself. Prefer `ps -p <pid>`.
+    - path: ".github/workflows/**"
+      instructions: |
+        - Flag a job whose script depends on a toolchain or library the runner does not install.
+        - Flag push+pull_request trigger pairs that cause duplicate runs on the same sha.
+        - Flag a gate that is permanently red; prefer a ratchet against a committed baseline.
+    - path: "retrieval/**"
+      instructions: |
+        Sacrosanct Law 2: a same-Mac SearXNG sidecar is the ONLY permitted production egress.
+        Flag any new network client, any host that is not loopback, and any redaction that is
+        allow-list-by-exception rather than default-deny.
+
+chat:
+  auto_reply: true
