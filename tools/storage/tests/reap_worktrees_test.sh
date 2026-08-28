@@ -1,0 +1,177 @@
+#!/usr/bin/env bash
+# ============================================================================
+# reap_worktrees_test.sh — proves reap_worktrees.sh CLASSIFIES correctly.
+#
+# A cleanup gate that only ever prints "KEEP" is as worthless as one that only
+# ever prints "REMOVE": the first reclaims nothing, the second is a data-loss
+# engine. So this suite asserts BOTH directions. Case 0 is the positive
+# control — a genuinely finished worktree MUST be planned for removal — which
+# is what stops the suite from passing by refusing everything.
+#
+# Every case builds a real throwaway repo, runs the real script, and asserts a
+# specific string is present or absent in the plan it printed.
+#
+# Cases 1-4 each reproduce a defect that shipped:
+#   1  path with a space parsed as a PHANTOM ("no data on disk to lose")
+#   2  gitignored payload removed under "tracked+untracked clean"
+#   3  lock with no parseable pid pruned as "dead pid unknown"
+#   4  run from a linked worktree: registered root pointed into that worktree
+#   5  --apply actually removes, and the commits survive on the branch
+# ============================================================================
+set -u
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# REAP_SCRIPT lets the gate be pointed at an older copy of the script, so that "this suite is
+# RED before the fix and GREEN after" is something anyone can re-run rather than take on trust.
+SCRIPT="${REAP_SCRIPT:-$REPO/tools/storage/reap_worktrees.sh}"
+[ -f "$SCRIPT" ] || { echo "missing $SCRIPT"; exit 1; }
+
+# Resolve the sandbox to its PHYSICAL path. On macOS $TMPDIR both ends in a slash and is a
+# symlink into /private/var, and the script under test reports `pwd -P` paths — so an
+# unresolved expectation here would fail every case for a reason that has nothing to do with
+# the script's behaviour.
+SANDBOX="$(mktemp -d "${TMPDIR:-/tmp}/reapgate.XXXXXX")"
+SANDBOX="$(cd "$SANDBOX" && pwd -P)"
+cleanup() { [ -n "${SANDBOX:-}" ] && [ -d "$SANDBOX" ] && rm -rf "$SANDBOX"; }
+trap cleanup EXIT
+
+PASS=0
+FAIL=0
+
+# new_repo <name> -> echoes the path of a fresh main checkout with a witness ref
+new_repo() {
+  local d="$SANDBOX/$1"
+  mkdir -p "$d"
+  git init -q "$d"
+  git -C "$d" config user.email gate@test
+  git -C "$d" config user.name gate
+  printf 'build/\n*.log\n' > "$d/.gitignore"
+  echo base > "$d/a.txt"
+  git -C "$d" add a.txt .gitignore
+  git -C "$d" commit -qm base
+  # a SECOND ref, so a finished worktree has the witness the script demands
+  git -C "$d" branch keep-ref
+  mkdir -p "$d/.claude/worktrees"
+  printf '%s' "$d"
+}
+
+# assert_has <case> <plan-file> <needle>
+assert_has() {
+  if grep -qF -- "$3" "$2"; then
+    echo "  PASS  $1: plan contains '$3'"; PASS=$((PASS+1))
+  else
+    echo "  FAIL  $1: plan does NOT contain '$3'"; sed 's/^/        | /' "$2"; FAIL=$((FAIL+1))
+  fi
+}
+
+# assert_lacks <case> <plan-file> <needle>
+assert_lacks() {
+  if grep -qF -- "$3" "$2"; then
+    echo "  FAIL  $1: plan wrongly contains '$3'"; sed 's/^/        | /' "$2"; FAIL=$((FAIL+1))
+  else
+    echo "  PASS  $1: plan does not contain '$3'"; PASS=$((PASS+1))
+  fi
+}
+
+# assert_eq <case> <label> <actual> <expected>
+assert_eq() {
+  if [ "$3" = "$4" ]; then
+    echo "  PASS  $1: $2 = '$4'"; PASS=$((PASS+1))
+  else
+    echo "  FAIL  $1: $2 = '$3', expected '$4'"; FAIL=$((FAIL+1))
+  fi
+}
+
+run_plan() {  # run_plan <repo-dir> <cwd> [args...] -> writes plan to $PLAN
+  local repo="$1" where="$2"; shift 2
+  PLAN="$SANDBOX/plan.$$.txt"
+  ( cd "$where" && bash "$SCRIPT" "$@" ) > "$PLAN" 2>&1
+}
+
+echo "=== case 0: POSITIVE CONTROL — a finished worktree must be planned REMOVE ==="
+R="$(new_repo c0)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/done" -b donebr
+run_plan "$R" "$R"
+assert_has  "case0" "$PLAN" "REMOVE  $R/.claude/worktrees/done"
+assert_has  "case0" "$PLAN" "class: FINISHED"
+
+echo "=== case 1: a LIVE worktree whose path contains a space ==="
+R="$(new_repo c1)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/my agent" -b spacebr
+run_plan "$R" "$R"
+# The whole path must survive parsing...
+assert_has   "case1" "$PLAN" "$R/.claude/worktrees/my agent"
+# ...and a directory that is on disk must never be called a phantom.
+assert_lacks "case1" "$PLAN" "PHANTOM"
+assert_lacks "case1" "$PLAN" "no data on disk to lose"
+
+echo "=== case 2: clean tracked tree holding GITIGNORED data ==="
+R="$(new_repo c2)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/ign" -b ignbr
+mkdir -p "$R/.claude/worktrees/ign/build"
+head -c 65536 /dev/zero > "$R/.claude/worktrees/ign/build/artifact.bin"
+echo payload > "$R/.claude/worktrees/ign/run.log"
+run_plan "$R" "$R"
+assert_has   "case2" "$PLAN" "KEEP    $R/.claude/worktrees/ign"
+assert_has   "case2" "$PLAN" "ignored path(s) hold data git will not"
+assert_lacks "case2" "$PLAN" "REMOVE  $R/.claude/worktrees/ign"
+# and the receipt must not claim a cleanliness the check never established
+assert_lacks "case2" "$PLAN" "proof: tracked+untracked clean"
+
+echo "=== case 3: phantom record whose lock reason has NO parseable pid ==="
+R="$(new_repo c3)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/weird" -b weirdbr
+git -C "$R" worktree lock --reason "claude agent nameless" "$R/.claude/worktrees/weird"
+rm -rf "$R/.claude/worktrees/weird"
+run_plan "$R" "$R"
+assert_has   "case3" "$PLAN" "KEEP    $R/.claude/worktrees/weird"
+assert_has   "case3" "$PLAN" "NO parseable '(pid N)'"
+assert_lacks "case3" "$PLAN" "PRUNE   $R/.claude/worktrees/weird"
+assert_lacks "case3" "$PLAN" "dead pid unknown"
+
+echo "=== case 3b: phantom whose lock pid IS dead must still be pruned ==="
+R="$(new_repo c3b)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/dead" -b deadbr
+git -C "$R" worktree lock --reason "claude agent gone (pid 999999)" "$R/.claude/worktrees/dead"
+rm -rf "$R/.claude/worktrees/dead"
+if ps -p 999999 >/dev/null 2>&1; then
+  echo "  SKIP  case3b: pid 999999 unexpectedly exists on this host"
+else
+  run_plan "$R" "$R"
+  assert_has "case3b" "$PLAN" "PRUNE   $R/.claude/worktrees/dead"
+  assert_has "case3b" "$PLAN" "lock pid 999999 confirmed dead"
+fi
+
+echo "=== case 4: invoked from INSIDE a linked worktree ==="
+R="$(new_repo c4)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/here" -b herebr
+git -C "$R" worktree add -q "$R/.claude/worktrees/other" -b otherbr
+run_plan "$R" "$R/.claude/worktrees/here"
+# The registered root must be the MAIN checkout's, so nothing is misfiled as outside it,
+assert_lacks "case4" "$PLAN" "outside registered root"
+# the worktree we stand in must be refused BY NAME (not silently mistaken for MAIN),
+assert_has   "case4" "$PLAN" "KEEP    $R/.claude/worktrees/here"
+assert_has   "case4" "$PLAN" "reason: current worktree"
+# and the sibling must be judged on its merits rather than skipped.
+assert_has   "case4" "$PLAN" "$R/.claude/worktrees/other"
+# the receipt belongs in the MAIN checkout, never in the ephemeral worktree
+assert_has   "case4" "$PLAN" "receipt: $R/implementation/sacrosanct/storage-receipts/"
+assert_lacks "case4" "$PLAN" "receipt: $R/.claude/worktrees/here/"
+
+echo "=== case 5: --apply removes a space-path worktree and preserves its commits ==="
+R="$(new_repo c5)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/done agent" -b applybr
+SHA_BEFORE="$(git -C "$R" rev-parse applybr)"
+run_plan "$R" "$R" --apply
+assert_has "case5" "$PLAN" "removed $R/.claude/worktrees/done agent"
+if [ -d "$R/.claude/worktrees/done agent" ]; then ondisk=YES; else ondisk=NO; fi
+assert_eq  "case5" "directory still on disk" "$ondisk" "NO"
+assert_eq  "case5" "branch applybr still holds the commit" \
+           "$(git -C "$R" rev-parse applybr 2>/dev/null)" "$SHA_BEFORE"
+left="$(git -C "$R" worktree list --porcelain -z | tr '\0' '\n' | grep -c '^worktree ' | tr -d ' ')"
+assert_eq  "case5" "worktree records remaining" "$left" "1"
+
+echo ""
+echo "reap_worktrees gate: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ] || exit 1
+exit 0
