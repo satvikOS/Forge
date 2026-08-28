@@ -40,7 +40,12 @@ activated prefix silently swallowed every override, so two drift cases reported 
 
 - `upstream.archive_sha256` — provenance. The hash of the upstream source archive.
   Recorded only when read from a real source; otherwise `null` with a stated reason.
-  **Five of eight dependencies are `null` today** and the reasons are in the lock.
+  **Seven of eight dependencies are `null` today** (only `opencascade` has one; of the
+  seven, `planegcs` is vendored and has no upstream archive by design, so six
+  archive-bearing deps are null) and the reasons are in the lock. `node-addon-api`
+  additionally carries npm's recorded `sha512` integrity for the installed version in
+  `upstream.archive_integrity_sha512_npm` — a separate field precisely because a sha512
+  of a tarball is not a sha256 of a tarball.
 - `fingerprint.installed_*_sha256` — artifact identity. A content hash over the
   installed prefix on this workstation. Changes when the bottle or compiler changes.
   Definition is in the `forge_deps.py` module docstring; symlinks are resolved and
@@ -52,10 +57,20 @@ activated prefix silently swallowed every override, so two drift cases reported 
 ```
 bash tools/deps/tests/offline_guard_test.sh   # FORGE_NETWORK=OFF guards actually fire
 bash tools/deps/tests/drift_gate_test.sh      # verify actually detects drift
+bash tools/deps/tests/offline_build_test.sh   # s21.2: BUILD with the network really denied
 ```
 
-Both suites include a **baseline case that must pass**, so neither can score a green
-by failing everything. Both perturb real state and assert on the specific finding.
+All three include a **baseline case that must pass**, so none can score a green by
+failing everything. All three perturb real state and assert on the specific finding.
+
+`offline_build_test.sh` is the s21.2 demonstration rather than an assertion: it denies
+the network with two mechanisms and configures *and* builds `forge_kernel_core` through
+the denial. Two are needed, and phase 2 asserts why — macOS SIP strips `DYLD_*` below
+`/bin/sh`, so the dyld interposer secures the configure step only and covers none of the
+compile/link steps; `sandbox-exec (deny network*)` is kernel-enforced whole-tree and
+covers the build. Phase 1 first proves the network is actually reachable, so a
+disconnected laptop cannot score a vacuous green. Knobs: `FORGE_OFFLINE_PRESET`,
+`FORGE_OFFLINE_TARGET`, `FORGE_OFFLINE_JOBS`.
 
 ## What is real today, and what is not
 
