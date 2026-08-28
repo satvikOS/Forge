@@ -40,6 +40,23 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # compiled as the fallback + A/B oracle until the migration completes (Phase D).
 option(FORGE_NATIVE_BREP "build/expose the in-house OCCT-free B-rep primitive path" ON)
 
+# ---------------------------------------------------------------- node addon (Track Z1)
+# ZERO-JS SPLIT (2026-08-28): the N-API addon `forge-kernel.node` is now an OPTIONAL
+# ADD-ON TARGET, not the core. With FORGE_BUILD_NODE_ADDON=OFF the whole node layer
+# -- the node-addon-api header probe, src/binding*.cpp, NAPI_* definitions and the
+# CMAKE_JS_* glue -- is skipped, so the pure-C++ geometry kernel CONFIGURES AND
+# BUILDS WITH node-addon-api ABSENT (previously an unconditional FATAL_ERROR made
+# `npm install` a hard prerequisite of compiling any C++ at all). ON by DEFAULT so
+# the cmake-js / CI build is UNCHANGED. Turning it OFF implies the node-free core
+# library, so it forces FORGE_BUILD_DESKTOP_FOUNDATION=ON below.
+option(FORGE_BUILD_NODE_ADDON
+       "Build the N-API addon forge-kernel.node (OFF = pure-C++ core only, no Node needed)" ON)
+if(NOT FORGE_BUILD_NODE_ADDON)
+    # Nothing would be built at all otherwise: the node-free core IS the product here.
+    set(FORGE_BUILD_DESKTOP_FOUNDATION ON CACHE BOOL
+        "forced ON: FORGE_BUILD_NODE_ADDON=OFF builds the node-free core" FORCE)
+endif()
+
 # ---------------------------------------------------------------- desktop foundation (Pillar #10, Phase 1)
 # When ON, also build a NODE-FREE core library `forge_kernel_core` (== forge_kernel
 # MINUS the 4 N-API binding translation units, src/binding*.cpp) plus a standalone
@@ -74,6 +91,9 @@ option(FORGE_BUILD_DESKTOP_UI
        "Also build the standalone headless Dear ImGui Forge-UI offscreen probe" OFF)
 
 # ---------------------------------------------------------------- N-API
+# Entirely skipped when FORGE_BUILD_NODE_ADDON=OFF (Track Z1) -- that is what makes
+# the core kernel compile on a machine with no node_modules and no Node at all.
+if(FORGE_BUILD_NODE_ADDON)
 # cmake-js injects CMAKE_JS_INC + CMAKE_JS_SRC + CMAKE_JS_LIB. When
 # building directly with cmake (no cmake-js) we fall back to node_modules
 # for headers and skip the .lib step (Darwin uses flat namespace + bundle
@@ -100,6 +120,7 @@ endif()
 if(NOT EXISTS "${NODE_ADDON_API_DIR}/napi.h")
     message(FATAL_ERROR "node-addon-api not found at ${NODE_ADDON_API_DIR}. Run `npm install` at repo root.")
 endif()
+endif()  # FORGE_BUILD_NODE_ADDON (N-API discovery)
 
 # ---------------------------------------------------------------- OCCT
 # brew-installed OCCT 7.9.3 on Apple Silicon by default. Override with
@@ -485,7 +506,9 @@ set(PLANEGCS_SRC
 )
 
 # -------------------------------------------------------------- target
-add_library(forge_kernel SHARED
+# Track Z1: the source list is a VARIABLE so the node-free core target can reuse it
+# WITHOUT the forge_kernel addon target having to exist. Contents byte-unchanged.
+set(FORGE_KERNEL_SOURCES
     ${CMAKE_JS_SRC}
     src/binding.cpp
     src/ShapeRegistry.cpp
@@ -976,6 +999,11 @@ add_library(forge_kernel SHARED
     ${PLANEGCS_SRC}
 )
 
+# ---- the N-API addon target: OPTIONAL add-on, everything below is gated ----
+if(FORGE_BUILD_NODE_ADDON)
+
+add_library(forge_kernel SHARED ${FORGE_KERNEL_SOURCES})
+
 set_target_properties(forge_kernel PROPERTIES
     PREFIX ""
     SUFFIX ".node"
@@ -1017,6 +1045,8 @@ if(APPLE AND NOT DEFINED CMAKE_JS_LIB)
     )
 endif()
 
+endif()  # FORGE_BUILD_NODE_ADDON (addon target forge-kernel.node)
+
 # ============================================================================
 # DESKTOP FOUNDATION (Pillar #10, Phase 1) — additive, option-gated, OFF by default.
 #
@@ -1037,7 +1067,9 @@ endif()
 # only FILTERS that list; it never re-declares it.
 # ============================================================================
 if(FORGE_BUILD_DESKTOP_FOUNDATION)
-    get_target_property(_fk_all_sources forge_kernel SOURCES)
+    # Track Z1: read the shared source VARIABLE, not the addon target -- with
+    # FORGE_BUILD_NODE_ADDON=OFF the forge_kernel target does not exist at all.
+    set(_fk_all_sources ${FORGE_KERNEL_SOURCES})
 
     # Exclude the N-API binding TUs (src/binding.cpp / binding_field.cpp /
     # binding_geom.cpp / binding_sketchdiag.cpp) and any cmake-js node glue that
@@ -1074,7 +1106,20 @@ if(FORGE_BUILD_DESKTOP_FOUNDATION)
     endif()
 
     target_link_directories(forge_kernel_core PRIVATE "${OCCT_LIB}")
-    target_link_libraries(forge_kernel_core PRIVATE ${OCCT_LIBS})
+    # Track Z1 (2026-08-28) — MEASURED link fix. forge_kernel (the .node) links with
+    # `-undefined dynamic_lookup` on Darwin, which SILENTLY TOLERATES OCCT symbols
+    # that are never named on its link line and only arrive transitively (see the
+    # OCCT_LIBS note above, §"the direct-link count UNDERSTATES the closure": TKBO
+    # supplies BRepAlgoAPI_{Fuse,Cut,Common,Section,Splitter,Defeaturing} and TKG2d
+    # supplies Geom2d_*, both reaching the .node only through TKFillet). This target
+    # deliberately has NO dynamic_lookup, so it fails loud — and it did: 414/414 TUs
+    # compiled, then ld reported 40 undefined OCCT symbols (Geom2d_* from
+    # NativeNurbsConvert.cpp, BRepAlgoAPI_*/BOPAlgo_* from DirectEdit/Mold/Drawings/
+    # Nurbs/DirectModeling/InterferenceDetection). NONE were Node symbols.
+    # These two toolkits are appended to THIS TARGET ONLY. The .node's OCCT_LIBS is
+    # byte-untouched, so the otool-L direct-link series and every OCCT drop gate keep
+    # counting exactly what they counted before.
+    target_link_libraries(forge_kernel_core PRIVATE ${OCCT_LIBS} TKBO TKG2d)
 
     if(APPLE)
         # Normal shared lib: rpath to the OCCT dylibs, but NO `-undefined
