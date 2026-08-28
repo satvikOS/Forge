@@ -619,6 +619,71 @@ endif()
 option(FORGE_PIPE_DROP_NATIVE
        "route the three MakePipe call sites through the native pipe & compile out the OCCT BRepOffsetAPI_MakePipe fallback (TKOffset family E, 3 symbols)"
        OFF)
+
+# ── TKOffset FAMILY C — BRepOffsetAPI_MakeFilling (authored 2026-08-28) ───────────
+# Routes the free-wire cap in forge::heal::autoFillMissingFaces (src/Healing.cpp)
+# through forge::occtfill::fillC0Boundary (src/native/brep/NativeFilling.cpp) and
+# compiles out the OCCT baseline, removing the complete family:
+#   BRepOffsetAPI_MakeFilling::BRepOffsetAPI_MakeFilling(int,int,int,bool,double,
+#                                                        double,double,double,int,int)
+#   BRepOffsetAPI_MakeFilling::Add(TopoDS_Edge const&, GeomAbs_Shape, bool)
+#   BRepOffsetAPI_MakeFilling::Build(Message_ProgressRange const&)
+#   BRepOffsetAPI_MakeFilling::IsDone() const
+#   vtable for BRepOffsetAPI_MakeFilling                                (5 symbols)
+#
+# WHY THIS IS EXACTLY SOLVABLE. The call site adds every boundary edge with
+# GeomAbs_C0 and adds NOTHING else — no tangency, no interior constraint. For a
+# PLANAR boundary the patch meeting that specification is the plane region the wire
+# encloses, representable exactly as a Geom_Plane face trimmed by the wire itself.
+#
+# ★ THE NATIVE ANSWER IS STRICTLY MORE ACCURATE THAN OCCT'S, measured 2026-08-28:
+#   OCCT returns a B-SPLINE approximation. On a circle of radius 5 its area is
+#   78.5398651991 against the exact pi r^2 = 78.5398163397 — wrong in the 7th
+#   significant figure (6.2e-7 relative) — and its face bounding box OVERSHOOTS the
+#   trimmed region because the supporting surface extends past the trim. The native
+#   cap's area is exact to 1e-12 and its bbox equals its boundary's exactly.
+#   The A/B therefore uses OCCT as the oracle only on POLYGONAL boundaries, where
+#   the two agree to 1e-9, and the CLOSED FORM on curved ones, asserting OCCT's
+#   error rather than inheriting it.
+#
+# ★ A DEFER HERE IS SAFE, unlike families D/E/F. autoFillMissingFaces already wraps
+#   its filling attempt in try/catch and SKIPS any wire it cannot fill, leaving it a
+#   residual open edge in AutoFillReport. So under this drop a non-planar wire takes
+#   exactly the path a failed OCCT filling already takes today — the drop cannot turn
+#   a fillable hole into a thrown error. No call site loses a capability it had.
+#
+# ★ WHAT THIS IS WORTH — do not mis-score it. TKOffset is NOT removed from OCCT_LIBS
+#   and OCCT_CLOSURE does NOT move. MEASURED on real linked binaries:
+#       + A, G, H, D, F                 19 TKOffset symbols, CLOSURE 14
+#       + E                             16 symbols,          CLOSURE 14
+#       + C (this option)               11 symbols,          CLOSURE 14
+#   What still holds TKOffset in after C is 11 symbols in two classes with no native
+#   engine: BRepOffset_MakeOffset (5, thickenSurface) and BRepOffsetAPI_DraftAngle
+#   (6, draftFaces).
+#
+# PROOF: forge-kernel/test/run_ab_native_filling.sh, 80/80 assertions — area AND
+#   centre of mass AND bbox AND face/edge/vertex counts AND validity AND the SURFACE
+#   TYPE, plus a whole-solid end-to-end (cap a box missing its top face, sew, promote
+#   to a solid: volume 1000 exactly, com (5,5,5), 6/12/8, Euler 2, valid), plus a
+#   NEGATIVE CONTROL rejecting two faces of equal area, plus four defer controls.
+#   The gate is proved able to FAIL by mutation: endpoint-only curve sampling, a
+#   widened planarity tolerance, and a disabled positive-area guard each turn it red.
+#   The tolerance mutation initially did NOT — BRepBuilderAPI_MakeFace's own
+#   planarity check (threshold measured between 1e-6 and 1e-5) was masking it — so a
+#   TOLERANCE CONTROL was added that asserts MakeFace accepts a boundary 1e-7 off
+#   plane while the engine at tol=1e-9 declines it. That control is what makes the
+#   engine's own residual test provably load-bearing.
+option(FORGE_FILLING_DROP_NATIVE
+       "route the free-wire cap in autoFillMissingFaces through the native planar fill & compile out the OCCT BRepOffsetAPI_MakeFilling fallback (TKOffset family C, 5 symbols)"
+       OFF)
+if(FORGE_NATIVE_BREP AND FORGE_FILLING_DROP_NATIVE)
+    add_compile_definitions(FORGE_FILLING_DROP_NATIVE=1)
+    message(WARNING "FORGE_FILLING_DROP_NATIVE=ON — BRepOffsetAPI_MakeFilling fallback compiled out "
+                    "(TKOffset family C, 5 symbols: 16 -> 11). TKOffset STILL LINKED and "
+                    "OCCT_CLOSURE UNCHANGED at 14. A NON-PLANAR free wire is now SKIPPED rather "
+                    "than capped — the same path a failed OCCT filling already takes, reported "
+                    "honestly in AutoFillReport.openEdgesAfter.")
+endif()
 if(FORGE_NATIVE_BREP AND FORGE_PIPE_DROP_NATIVE)
     add_compile_definitions(FORGE_PIPE_DROP_NATIVE=1)
     message(WARNING "FORGE_PIPE_DROP_NATIVE=ON — BRepOffsetAPI_MakePipe fallback compiled out "
@@ -1214,6 +1279,7 @@ set(FORGE_KERNEL_SOURCES
     # in Features.cpp / Airfoil.cpp / Primitives.cpp / LoftGuide.cpp /
     # ClassASurfacing.cpp stay live by default.
     src/native/brep/NativeLoftPipe.cpp
+    src/native/brep/NativeFilling.cpp
     src/native/brep/OffsetShape.cpp     # offset-shape: grow/shrink a solid by offsetting all faces +/-t (MakeOffsetShape, intersection join)
     src/native/brep/Chamfer.cpp
     src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)

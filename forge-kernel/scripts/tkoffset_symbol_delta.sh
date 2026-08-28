@@ -152,10 +152,15 @@ echo "  + FORGE_PIPE_DROP_NATIVE         (fam E)   : $N_E symbols  (-$((N_BASE -
 comm -23 "$OUT/base.syms" "$OUT/dropE.syms" | c++filt | sed 's/^/      gone: /'
 echo
 
+N_C=$(census dropC -DFORGE_FILLING_DROP_NATIVE=1) || exit 1
+echo "  + FORGE_FILLING_DROP_NATIVE      (fam C)   : $N_C symbols  (-$((N_BASE - N_C)))"
+comm -23 "$OUT/base.syms" "$OUT/dropC.syms" | c++filt | sed 's/^/      gone: /'
+echo
+
 N_ALL=$(census dropAll -DFORGE_THRUSECTIONS_DROP_NATIVE=1 -DFORGE_PIPESHELL_DROP_NATIVE=1 \
-                        -DFORGE_PIPE_DROP_NATIVE=1 \
+                        -DFORGE_PIPE_DROP_NATIVE=1 -DFORGE_FILLING_DROP_NATIVE=1 \
                         -DFORGE_THICKSOLID_DROP_NATIVE=1 -DFORGE_OFFSETSHAPE_DROP_NATIVE=1) || exit 1
-echo "  + D, E, F and G, H (every family with a drop) : $N_ALL symbols  (-$((N_BASE - N_ALL)))"
+echo "  + C, D, E, F and G, H (every family with a drop) : $N_ALL symbols  (-$((N_BASE - N_ALL)))"
 echo
 echo "  WHAT STILL HOLDS TKOffset — the $N_ALL symbols with NO native engine and no drop:"
 c++filt < "$OUT/dropAll.syms" | sed 's/^/      /'
