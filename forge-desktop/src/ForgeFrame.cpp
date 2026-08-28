@@ -350,7 +350,7 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
        std::to_string(shell_.selection().count()) + " picked)");
 }
 
-void ForgeFrame::syncSelectionToScene() {
+std::vector<std::uint32_t> ForgeFrame::selectedFaceIds() const {
   std::vector<std::uint32_t> ids;
   for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
     if (r.kind != forge::ui::EntityKind::Face) continue;
@@ -358,7 +358,11 @@ void ForgeFrame::syncSelectionToScene() {
     if (at == std::string::npos) continue;
     ids.push_back(static_cast<std::uint32_t>(std::stoul(r.persistentName.substr(at + 1))));
   }
-  if (scene_.applySelection(ids) > 0) viewportRequest_.selectionDirty = true;
+  return ids;
+}
+
+void ForgeFrame::syncSelectionToScene() {
+  if (scene_.applySelection(selectedFaceIds()) > 0) viewportRequest_.selectionDirty = true;
 }
 
 // ── dock ratio writeback ────────────────────────────────────────────────────
@@ -805,6 +809,10 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawConsolePanel();
   } else if (panelId == "timeline") {
     drawTimelinePanel();
+  } else if (panelId == "measure") {
+    drawMeasurePanel();
+  } else if (panelId == "archie_tools") {
+    drawToolsPanel();
   } else {
     drawGenericPanel(panelId);
   }
@@ -1117,6 +1125,154 @@ void ForgeFrame::drawTimelinePanel() {
     ImGui::Text("%-24s %-8s %s", f.label.c_str(), f.irOp.c_str(), f.detail.c_str());
     ImGui::PopID();
   }
+}
+
+// ── measure ─────────────────────────────────────────────────────────────────
+// Everything here is arithmetic done by forge::ui::MeasureModel over the SAME
+// triangles the viewport draws and the SAME face ids picking resolves to. The
+// panel prints; it does not compute, which is why the numbers are gated headless.
+const forge::ui::MeasureMesh& ForgeFrame::measureMesh() {
+  const std::size_t tris = scene_.triangleCount();
+  if (measureBuilt_ && measureTriangles_ == tris) return measureMesh_;
+
+  measureMesh_.clear();
+  const std::vector<SceneVertex>& v = scene_.vertices();
+  for (std::size_t i = 0; i + 2 < v.size(); i += 3) {
+    const double a[3] = {v[i].px, v[i].py, v[i].pz};
+    const double b[3] = {v[i + 1].px, v[i + 1].py, v[i + 1].pz};
+    const double c[3] = {v[i + 2].px, v[i + 2].py, v[i + 2].pz};
+    measureMesh_.addTriangle(a, b, c, v[i].faceId);
+  }
+  meshMeasure_ = forge::ui::measureMesh(measureMesh_);
+  measureTriangles_ = tris;
+  measureBuilt_ = true;
+  return measureMesh_;
+}
+
+const forge::ui::MeshMeasure& ForgeFrame::modelMeasure() {
+  measureMesh();  // builds the cache on first use
+  return meshMeasure_;
+}
+
+forge::ui::SelectionMeasure ForgeFrame::selectionMeasure() {
+  return forge::ui::measureFaces(measureMesh(), selectedFaceIds());
+}
+
+void ForgeFrame::drawMeasurePanel() {
+  measureFaceRowsDrawn_ = 0;
+  const forge::ui::MeasureMesh& mesh = measureMesh();
+  const forge::ui::MeshMeasure& m = meshMeasure_;
+
+  ImGui::TextColored(rgb(242, 158, 38), "Model");
+  ImGui::Separator();
+  if (mesh.empty()) {
+    ImGui::TextColored(rgb(235, 105, 95), "no tessellation to measure");
+    ImGui::TextWrapped("%s", scene_.error().empty() ? "(the scene is empty)"
+                                                    : scene_.error().c_str());
+    return;
+  }
+  ImGui::Text("size      %.3f x %.3f x %.3f mm", m.box.size(0), m.box.size(1), m.box.size(2));
+  ImGui::Text("min       %.3f  %.3f  %.3f", m.box.min[0], m.box.min[1], m.box.min[2]);
+  ImGui::Text("max       %.3f  %.3f  %.3f", m.box.max[0], m.box.max[1], m.box.max[2]);
+  ImGui::Text("diagonal  %.3f mm", m.box.diagonal());
+  ImGui::Text("area      %.3f mm2", m.area);
+  ImGui::Text("mesh      %zu triangles over %zu faces", m.triangles, m.faces);
+  if (m.watertight) {
+    ImGui::Text("volume    %.3f mm3", m.volume);
+    ImGui::Text("centroid  %.3f  %.3f  %.3f", m.centroid[0], m.centroid[1], m.centroid[2]);
+    ImGui::TextColored(rgb(120, 200, 130), "closed surface, %s winding",
+                       m.outward ? "outward" : "inward");
+  } else {
+    // A volume computed on a surface that does not close is a number with no
+    // meaning. It is refused here rather than printed with a caveat nobody reads.
+    ImGui::TextColored(rgb(230, 190, 90), "volume    not defined: the mesh does not close");
+    ImGui::Text("          %zu boundary, %zu non-manifold, %zu reversed edges",
+                m.boundaryEdges, m.nonManifoldEdges, m.reversedEdges);
+    ImGui::Text("centroid  %.3f  %.3f  %.3f  (of area)", m.centroid[0], m.centroid[1],
+                m.centroid[2]);
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Selection");
+  ImGui::Separator();
+  const forge::ui::SelectionMeasure s = selectionMeasure();
+  if (s.faces == 0) {
+    ImGui::TextDisabled("(pick a face in the viewport)");
+    return;
+  }
+  for (std::uint32_t id : selectedFaceIds()) {
+    forge::ui::FaceMeasure f;
+    if (!forge::ui::measureFace(measureMesh_, id, f)) continue;
+    ImGui::BulletText("face %u   %.3f mm2   %zu tri%s", f.faceId, f.area, f.triangles,
+                      f.planar ? "   planar" : "");
+    ImGui::Text("     centre %.3f  %.3f  %.3f", f.centroid[0], f.centroid[1], f.centroid[2]);
+    ImGui::Text("     normal %.3f  %.3f  %.3f", f.normal[0], f.normal[1], f.normal[2]);
+    ++measureFaceRowsDrawn_;
+  }
+  ImGui::Text("total     %.3f mm2 over %zu face%s", s.area, s.faces, s.faces == 1 ? "" : "s");
+  ImGui::Text("centroid  %.3f  %.3f  %.3f", s.centroid[0], s.centroid[1], s.centroid[2]);
+  ImGui::Text("extent    %.3f x %.3f x %.3f mm", s.box.size(0), s.box.size(1), s.box.size(2));
+  if (s.hasPair) {
+    ImGui::Spacing();
+    ImGui::TextColored(rgb(120, 170, 230), "centre distance  %.3f mm", s.centreDistance);
+    ImGui::TextColored(rgb(120, 170, 230), "angle            %.2f deg%s", s.angleDegrees,
+                       s.parallel ? "   (parallel)"
+                                  : (s.perpendicular ? "   (perpendicular)" : ""));
+  } else if (s.faces > 2) {
+    ImGui::TextDisabled("(distance and angle need exactly two faces)");
+  }
+}
+
+// ── archie tools ────────────────────────────────────────────────────────────
+// The agent-callable surface of the running app, and an operable palette: the
+// button dispatches through ForgeShell::run, so what the panel offers and what
+// Archie can call are the same command reached the same way.
+forge::ui::ToolCatalog ForgeFrame::toolCatalog() const {
+  return forge::ui::buildToolCatalog(shell_.registry(), shell_.selection(), toolQuery_);
+}
+
+void ForgeFrame::drawToolsPanel() {
+  toolRowsDrawn_ = 0;
+  const forge::ui::ToolCatalog cat = toolCatalog();
+
+  ImGui::TextColored(rgb(130, 137, 148), "%zu tools | %zu callable now", cat.size(),
+                     cat.available);
+  ImGui::TextColored(rgb(130, 137, 148), "%zu need a selection | %zu need parameters | %zu off",
+                     cat.needsSelection, cat.needsParameters, cat.disabled);
+  ImGui::SetNextItemWidth(-1);
+  ImGui::InputTextWithHint("##toolq", "filter tools...", toolQuery_, sizeof(toolQuery_));
+  ImGui::Separator();
+
+  if (ImGui::BeginChild("##tool_rows", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    if (cat.entries.empty()) {
+      ImGui::TextDisabled("no tool matches \"%s\"", toolQuery_);
+    }
+    std::string category;
+    for (std::size_t i = 0; i < cat.entries.size(); ++i) {
+      const forge::ui::ToolEntry& e = cat.entries[i];
+      if (e.category != category) {
+        category = e.category;
+        ImGui::TextColored(rgb(242, 158, 38), "%s", category.c_str());
+      }
+      ImGui::PushID(static_cast<int>(i));
+      ImGui::BeginDisabled(!e.callable());
+      if (ImGui::Button(e.label.c_str())) invoke(e.id);
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::TextColored(e.callable() ? rgb(120, 200, 130) : rgb(150, 157, 168), "%s",
+                         forge::ui::toString(e.availability));
+      ImGui::TextDisabled("  %s   ir=%s   undo=%s", e.id.c_str(), e.featureIrOp.c_str(),
+                          e.undo.c_str());
+      ImGui::TextDisabled("  needs %s", e.selection.c_str());
+      if (e.parameters != "-") ImGui::TextDisabled("  args  %s", e.parameters.c_str());
+      if (!e.reason.empty()) {
+        ImGui::TextColored(rgb(230, 190, 90), "  %s", e.reason.c_str());
+      }
+      ImGui::PopID();
+      ++toolRowsDrawn_;
+    }
+  }
+  ImGui::EndChild();
 }
 
 void ForgeFrame::drawGenericPanel(const std::string& panelId) {

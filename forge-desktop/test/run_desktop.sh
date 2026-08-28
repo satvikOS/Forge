@@ -12,7 +12,7 @@
 #   2. gate           — the headless frame gate: real ImGui frames over the real
 #                       forge::ui services and a real tessellated kernel body,
 #                       with no window, no swapchain and no MoltenVK.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. Five defects
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. Seven defects
 #                       are injected in turn and each MUST make the gate exit
 #                       non-zero; a mutation that stays green fails this script,
 #                       because an unfalsifiable check is not a check.
@@ -80,7 +80,8 @@ cat "$LOG/gate.log"
 # ── 3. mutation proof: every one of these MUST turn the gate red ─────────────
 echo "[desktop] mutation proof (each injected defect must FAIL the gate):"
 BAD=0
-for m in 1 2 3 4 5; do
+MUTATIONS=(1 2 3 4 5 6 7)
+for m in "${MUTATIONS[@]}"; do
   "$GATE" --mutate "$m" > "$LOG/mut$m.log" 2>&1
   rc=$?
   fails="$(grep -c '  FAIL' "$LOG/mut$m.log" || true)"
@@ -96,4 +97,4 @@ if [ "$BAD" -ne 0 ]; then
   echo "[desktop] $BAD mutation(s) did not turn the gate red"; exit 1
 fi
 
-echo "[desktop] ALL FORGE DESKTOP GATES PASS, and all 5 mutations proved red-then-green"
+echo "[desktop] ALL FORGE DESKTOP GATES PASS, and all ${#MUTATIONS[@]} mutations proved red-then-green"

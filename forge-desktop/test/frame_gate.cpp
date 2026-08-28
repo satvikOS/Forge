@@ -19,6 +19,8 @@
 //   3  the selection is not routed to the mesh          -> no vertex is flagged
 //   4  the feature tree is materialized eagerly         -> cache cap exceeded
 //   5  the projection loses its Vulkan Y-flip           -> ray/pick disagree
+//   6  the Measure panel is not fed the live selection  -> it measures nothing
+//   7  the Tools panel answers from a STALE selection   -> it offers what refuses
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -34,7 +36,10 @@
 #include "KernelScene.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/PartCommands.hpp"
+#include "forge/ui/SelectionService.hpp"
+#include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
 
@@ -435,6 +440,117 @@ int main(int argc, char** argv) {
   {
     ImDrawData* d = buildOneFrame(frame, 0xABCDEF01u);
     check(d != nullptr && d->TotalVtxCount > 500, "frame with a bound viewport texture", "");
+  }
+
+  // ── 12. the Measure panel measures the REAL body ─────────────────────────
+  // The references are read from the scene itself (its triangle count, its face
+  // count, its bounds), so this cannot drift into agreeing with a stale number.
+  {
+    const forge::ui::MeasureMesh& mm = frame.measureMesh();
+    checkEq(mm.triangleCount(), scene.triangleCount(),
+            "the measure mesh IS the scene's tessellation");
+    const forge::ui::MeshMeasure model = frame.modelMeasure();
+    checkEq(model.faces, static_cast<std::size_t>(scene.faceCount()),
+            "one measured face per B-rep face");
+    for (int a = 0; a < 3; ++a) {
+      const double want = static_cast<double>(scene.bounds().max[a] - scene.bounds().min[a]);
+      check(std::fabs(model.box.size(static_cast<std::size_t>(a)) - want) < 1e-3,
+            "measured extent agrees with the scene bounds",
+            std::to_string(model.box.size(static_cast<std::size_t>(a))) + " vs " +
+                std::to_string(want));
+    }
+    std::printf("[gate] measure: area %.3f mm2, watertight %d, volume %.3f mm3, "
+                "%zu boundary / %zu non-manifold / %zu reversed edges\n",
+                model.area, model.watertight ? 1 : 0, model.volume, model.boundaryEdges,
+                model.nonManifoldEdges, model.reversedEdges);
+
+    // The plate is 80 x 50 x 20 with a through bore and a fillet, so its area is
+    // bounded BELOW by the two 80x50 faces it still has and ABOVE by the whole
+    // bounding box's surface. A measure that returned a bounding-box number, or
+    // zero, or a per-triangle sum in the wrong units, falls outside that band.
+    checkGe(model.area, 2.0 * 80.0 * 50.0 - 4000.0, "surface area is at least the plate's faces");
+    checkLe(model.area, 2.0 * (80.0 * 50.0 + 80.0 * 20.0 + 50.0 * 20.0) * 1.5,
+            "surface area is not a runaway sum");
+    // A tessellated solid must CLOSE, and its volume must be under the box it
+    // fits in and over half of it for a plate with one bore.
+    check(model.watertight, "the tessellated body closes",
+          std::to_string(model.boundaryEdges) + " boundary edges");
+    checkLe(model.volume, 80.0 * 50.0 * 20.0, "volume is under the bounding box");
+    checkGe(model.volume, 0.5 * 80.0 * 50.0 * 20.0, "volume is a plate's, not a sliver's");
+
+    // MUTATION 6 skips the routing of the pick into the panel. The checks below
+    // are UNCONDITIONAL: the panel must report what is picked, not a constant.
+    shell.selection().clearSelection();
+    const std::uint32_t f0 = scene.vertices().front().faceId;
+    std::uint32_t f1 = f0;
+    for (const forge::desktop::SceneVertex& v : scene.vertices()) {
+      if (v.faceId != f0) { f1 = v.faceId; break; }
+    }
+    if (g_mutation != 6) {
+      frame.clickFace(f0, false);
+      frame.clickFace(f1, true);
+    }
+    const forge::ui::SelectionMeasure sel = frame.selectionMeasure();
+    checkEq(sel.faces, 2u, "two picked faces are two measured faces");
+    check(sel.area > 0.0, "the picked faces have area", std::to_string(sel.area));
+    checkLe(sel.area, model.area, "part of a body cannot out-area the body");
+    check(sel.hasPair, "exactly two faces yield the pair measure", "");
+    check(sel.centreDistance > 0.0, "two distinct faces are apart",
+          std::to_string(sel.centreDistance));
+    check(sel.angleDegrees >= 0.0 && sel.angleDegrees <= 180.0, "the angle is an angle",
+          std::to_string(sel.angleDegrees));
+
+    // ...and the PANEL draws a row per picked face. The Part workspace's right
+    // column is the tab group at path {1,1}; Measure is its second tab.
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
+    frame.setActiveTabAt({1, 1}, 1);
+    ImDrawData* d = buildOneFrame(frame, 0);
+    check(d != nullptr && d->TotalVtxCount > 500, "the Measure panel draws a real frame", "");
+    checkEq(frame.measureFaceRowsDrawn(), 2u, "the Measure panel drew a row per picked face");
+    frame.setActiveTabAt({1, 1}, 0);
+  }
+
+  // ── 13. the Archie Tools panel offers the LIVE registry ──────────────────
+  {
+    const forge::ui::ToolCatalog cat = frame.toolCatalog();
+    checkEq(cat.size(), shell.registry().size(), "every registered command is a listed tool");
+    checkEq(cat.available + cat.needsSelection + cat.needsParameters + cat.disabled +
+                cat.unavailable,
+            cat.size(), "every tool is accounted for in exactly one bucket");
+
+    // Two faces are still picked from section 12. A face-consuming command with
+    // a defaulted parameter must therefore be CALLABLE, and the panel must say
+    // so through the same evaluate() the dispatcher uses.
+    forge::ui::SelectionService stale;  // what a panel caching its selection would hold
+    const forge::ui::ToolCatalog live =
+        g_mutation == 7 ? forge::ui::buildToolCatalog(shell.registry(), stale) : cat;
+    const forge::ui::ToolEntry* shellTool = live.find("model.shell");
+    check(shellTool != nullptr, "model.shell is listed", "");
+    if (shellTool != nullptr) {
+      check(shellTool->callable(), "a face-consuming tool is callable with faces picked",
+            shellTool->reason);
+      checkEq(static_cast<int>(shellTool->availability),
+              static_cast<int>(forge::ui::ToolAvailability::Available), "and says so by name");
+    }
+    // A tool that needs edges must NOT be offered on a face selection, or the
+    // panel is inviting a refusal.
+    const forge::ui::ToolEntry* filletTool = live.find("part.fillet");
+    check(filletTool != nullptr, "part.fillet is listed", "");
+    if (filletTool != nullptr) {
+      checkEq(static_cast<int>(filletTool->availability),
+              static_cast<int>(forge::ui::ToolAvailability::NeedsSelection),
+              "an edge tool is not offered on a face pick");
+    }
+
+    // The panel must actually DRAW a row per tool. Archie's right column is the
+    // tab group at path {1,1}; Tools is its third tab.
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Archie);
+    frame.setActiveTabAt({1, 1}, 2);
+    ImDrawData* d = buildOneFrame(frame, 0);
+    check(d != nullptr && d->TotalVtxCount > 500, "the Tools panel draws a real frame", "");
+    checkEq(frame.toolRowsDrawn(), shell.registry().size(),
+            "the Tools panel drew a row per registered command");
+    shell.setWorkspace(forge::ui::WorkspaceProfile::Part);
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);

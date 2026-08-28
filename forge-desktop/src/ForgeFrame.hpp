@@ -37,7 +37,9 @@
 #include "forge/ui/DockLayout.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
+#include "forge/ui/MeasureModel.hpp"
 #include "forge/ui/PartCommands.hpp"
+#include "forge/ui/ToolCatalog.hpp"
 #include "forge/ui/Types.hpp"
 
 struct ImDrawList;
@@ -95,6 +97,22 @@ class ForgeFrame {
   const SceneFeatureTreeSource& treeSource() const noexcept { return treeSource_; }
   const std::string& lastStatus() const noexcept { return status_; }
 
+  // ── the Measure panel's data ────────────────────────────────────────────
+  // The triangle soup is copied out of the scene ONCE and re-used, because the
+  // tessellation does not change between frames and re-walking it per frame is
+  // the same mistake virtualizing the feature tree exists to avoid. Non-const
+  // because the first call is what builds it.
+  const forge::ui::MeasureMesh& measureMesh();
+  const forge::ui::MeshMeasure& modelMeasure();
+  // What the Measure panel reports for the LIVE selection.
+  forge::ui::SelectionMeasure selectionMeasure();
+  // Per-face rows the Measure panel drew on its last draw.
+  std::size_t measureFaceRowsDrawn() const noexcept { return measureFaceRowsDrawn_; }
+
+  // ── the Archie Tools panel's data ───────────────────────────────────────
+  forge::ui::ToolCatalog toolCatalog() const;
+  std::size_t toolRowsDrawn() const noexcept { return toolRowsDrawn_; }
+
   // Selection round-trip: the viewport writes a pick here, the frame turns it
   // into a typed EntityRef through SelectionService and re-flags the mesh.
   void setPreselectedFace(std::uint32_t faceId);
@@ -134,6 +152,8 @@ class ForgeFrame {
   void drawPropertiesPanel();
   void drawConsolePanel();
   void drawTimelinePanel();
+  void drawMeasurePanel();
+  void drawToolsPanel();
   void drawGenericPanel(const std::string& panelId);
   void drawCommandPalette();
   void drawViewportOverlays(float x, float y, float w, float h);
@@ -145,6 +165,10 @@ class ForgeFrame {
   std::string shortcutText(const std::string& id) const;
 
   void syncSelectionToScene();
+  // The face ids the typed selection currently names. One decoder, used by the
+  // viewport highlight AND by the Measure panel, so the two cannot disagree
+  // about which faces are picked.
+  std::vector<std::uint32_t> selectedFaceIds() const;
 
   forge::ui::ForgeShell& shell_;
   KernelScene& scene_;
@@ -156,6 +180,14 @@ class ForgeFrame {
   forge::ui::PartDocument partDoc_;
   forge::ui::UndoStack partUndo_;
   bool partWired_ = false;
+
+  // Measure panel cache. `measureTriangles_` is the triangle count the cache was
+  // built from: it is the cheap witness that the scene has not been re-built
+  // under us, so a stale measurement cannot be printed as a live one.
+  forge::ui::MeasureMesh measureMesh_;
+  forge::ui::MeshMeasure meshMeasure_{};
+  std::size_t measureTriangles_ = 0;
+  bool measureBuilt_ = false;
 
   Camera camera_;
   ViewportRequest viewportRequest_;
@@ -170,6 +202,9 @@ class ForgeFrame {
   std::vector<std::string> log_;
   std::size_t panelsDrawn_ = 0;
   std::size_t treeRowsDrawn_ = 0;
+  std::size_t measureFaceRowsDrawn_ = 0;
+  std::size_t toolRowsDrawn_ = 0;
+  char toolQuery_[96] = {0};
   std::uint32_t hoverFace_ = 0;
   float dpiScale_ = 1.0f;
   // Live parameter for the next parametric command, edited in Properties.

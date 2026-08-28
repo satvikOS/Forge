@@ -78,7 +78,7 @@ src/ViewportRenderer.{hpp,cpp}  the geometry pass into an offscreen colour+depth
 src/PlatformSDL2.{hpp,cpp}      first-party SDL2 -> ImGuiIO platform backend
 src/PngWriter.hpp               dependency-free RGBA8 PNG, for --screenshot
 src/main.cpp                    window, device, swapchain, frame loop, persistence
-test/frame_gate.cpp             105 headless checks + 5 injectable mutations
+test/frame_gate.cpp             132 headless checks + 7 injectable mutations
 test/run_desktop.sh             build + gate + mutation proof
 ```
 
@@ -91,7 +91,7 @@ CATIA's middle-drag pans while NX's rotates, the eight workspaces each draw four
 drag lands in the dock tree, save→load→save is byte-identical, and unplugging a monitor loses no
 panel.
 
-`run_desktop.sh` then injects five defects in turn and **requires each to turn the gate red**:
+`run_desktop.sh` then injects seven defects in turn and **requires each to turn the gate red**:
 
 | mutation | the regression it stands for |
 | --- | --- |
@@ -100,6 +100,8 @@ panel.
 | 3 | a pick is not routed to the selection → no vertex is flagged for the shader |
 | 4 | the tree panel calls the source's expensive fetch per row instead of `window()` |
 | 5 | the projection loses its Vulkan Y-flip → the picking ray and the image disagree |
+| 6 | the Measure panel is not fed the live selection → it measures nothing (7 checks red) |
+| 7 | the Tools panel answers from a stale selection → it offers a tool that refuses (2 checks red) |
 
 A mutation that stays green fails the script, because a check that cannot fail is not a check.
 
@@ -109,10 +111,15 @@ A mutation that stays green fails the script, because a check that cannot fail i
   equivalent fill mode). `ViewportRenderer` queries `fillModeNonSolid` and creates the wireframe
   pipeline only if it is advertised; otherwise `view.wireframe` toggles the flag and the viewport
   stays solid.
-* **Most workspace panels are surfaces, not features.** `feature_tree`, `viewport_*`, `properties`,
-  `timeline` and `console` have real content. The other ~40 panel ids are docked, laid out,
-  serialized and restored — and each one says on its face that its content is not implemented in
-  this segment, rather than looking finished.
+* **Most workspace panels are surfaces, not features.** Of the 50 distinct panel ids the eight
+  default layouts use, 21 have real content: `viewport_*`/`sheet_canvas`, the seven tree panels,
+  `properties`/`operation_params`, the four console panels, `timeline`, and — added here —
+  `measure` (whole-body and per-face measurement over the live tessellation and the live
+  selection) and `archie_tools` (the agent-callable command surface with live availability).
+  The remaining 29 are docked, laid out, serialized and restored — and each one says on its face
+  that its content is not implemented in this segment, rather than looking finished. They are
+  listed in the commit that added the two above; every one of them needs data the app does not
+  yet have (a sketch solver, an assembly tree, a CAM setup, an FEA study, a drawing sheet).
 * **Selection is faces only.** Edge and vertex picking need the tessellator to hand back edge
   polylines, which it does not yet.
 * **Accessibility, printing and i18n remain owed** — carried from D-001, not addressed here.
