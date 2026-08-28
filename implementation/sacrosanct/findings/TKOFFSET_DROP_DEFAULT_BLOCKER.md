@@ -54,10 +54,35 @@ assertion is asserting a fallback that no longer exists. Volume, area, bbox, Eul
 
 ## 3. What would unblock it
 
-1. Teach the native whole-solid offset the **cylinder** (and the remaining analytic quadrics) so
-   family H stops deferring. That alone removes the measured capability loss. `OffsetShape.cpp` is
-   470 lines and already claims "planar + quadric only", so the cylinder path is a gap in a
-   formulation that is otherwise present, not a new formulation.
+1. **FIX** the native whole-solid offset for quadrics — not merely enable it. I first assumed the
+   cylinder was simply unimplemented and that widening the planar-only eligibility gate at
+   `Features.cpp:1274` would unblock family H. **Measured, that is wrong, and the existing
+   deferral is correct.** With eligibility widened to Plane/Cylinder/Cone/Sphere and rebuilt:
+
+   | case | volume vs OCCT | position |
+   | --- | --- | --- |
+   | cylinder r=3 h=8 d=+0.5 | rel err **8.2e-15** | **`|dCOM| = 4.00`** — native COM at the origin, OCCT at z=4 |
+   | cylinder r=3 h=8 d=-0.5 | rel err **5.0e-15** | **`|dCOM| = 4.00`** |
+   | sphere r=5 d=+1.0 | rel err **1.6e-14** | bbox **`[-6,-6,-5]..[6,6,5]`** vs OCCT `[-6,-6,-6]..[6,6,6]` — grew in x/y, **not in z** |
+
+   Every one of those volumes is right to ~1e-14 and matches the closed form. The *shapes* are
+   wrong. This is the third recorded instance in this programme of a wrong solid matching the
+   right volume to 10+ significant figures, and it is why the comment at
+   `native_analytic_offset_ab.mjs:155` — "curved solids to OCCT rather than shipping a wrong
+   (mispositioned) native shape" — is **current, not stale**. The cylinder bbox even matches
+   exactly, so only COM catches it; the sphere's COM matches, so only bbox catches it. **No single
+   observable catches both.**
+
+   The defect is in the vertex re-meet, not in `offsetSurfaceOutward` (whose cylinder/cone/sphere
+   closed forms are present and look right): quadric-only vertices fall to the case-(c) averaged
+   normal fallback, which does not reproduce the true offset position along the axis.
+
+   **Anyone widening that gate on volume evidence alone would ship broken geometry.** The existing
+   test already guards this by asserting `nat.kind === 'occt'` — that assertion is load-bearing and
+   must not be relaxed.
+
+   Consequence for the drop: family H is further from default-on than the ledger entry above
+   implies. The other eight families are unaffected by this finding.
 2. Give the binary a way to report which fallbacks were compiled out, so
    `part_features_smoke` can assert engine representation only when that engine is present —
    without weakening the default build's 11/24 assertion. There is no such export today
