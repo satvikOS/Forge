@@ -120,11 +120,12 @@ if [ "$blocked" -gt "$NAFEMS_EXPECTED_BLOCKED_MAX" ]; then
   exit 1
 fi
 if [ "$blocked" -lt "$NAFEMS_EXPECTED_BLOCKED_MAX" ]; then
-  # A CEILING, deliberately not an equality — unlike the miss count. The blocked set is
-  # PLATFORM-DEPENDENT by its nature: LE11's ball+cone+cylinder fuse succeeds on macOS locally and
-  # is refused on the CI runner, where the native-only operand class has no OCCT fallback. Making
-  # "fewer blocked" red would leave this gate permanently red on whichever platform is doing better,
-  # which teaches people to ignore it — the exact failure the ratchet exists to prevent.
+  # A CEILING, deliberately not an equality — unlike the miss count. LE11's fuse is refused on the
+  # GitHub runner and succeeds on this workstation from the SAME commit; measured, both are macOS
+  # arm64 with the same OCCT 7.9.3, so the cause is environment-sensitivity in the NATIVE boolean,
+  # not the platform, and it is not yet established. Making "fewer blocked" red would leave this
+  # gate permanently red wherever the kernel is doing BETTER, which teaches people to ignore it —
+  # the exact failure the ratchet exists to prevent.
   echo "[nafems-ratchet] NOTE — fewer cases blocked than the ceiling ($blocked < $NAFEMS_EXPECTED_BLOCKED_MAX)."
   echo "                 A case that was blocked elsewhere RUNS here. Not an error; the ceiling"
   echo "                 tracks the worst platform. Lower it once no platform blocks that case."
@@ -132,8 +133,8 @@ fi
 # Accuracy is compared ONLY among the cases that actually ran. The baseline names every case
 # expected to miss; a BLOCKED case cannot miss, because it never produced a number. Subtracting
 # the blocked set from the expected set — from the COUNT and from the SET, both are compared
-# below — is what makes one committed baseline correct on a platform where LE11 runs (expect
-# LE1,LE10,LE11) and on one where its boolean is refused (expect LE1,LE10). Without it the
+# below — is what makes one committed baseline correct in an environment where LE11 runs (expect
+# LE1,LE10,LE11) and in one where its boolean is refused (expect LE1,LE10). Without it the
 # ratchet reads a capability loss as an accuracy improvement and demands the baseline be
 # LOWERED, which would lock the regression in.
 wantSet="$(

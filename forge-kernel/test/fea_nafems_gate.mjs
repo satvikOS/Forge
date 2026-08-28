@@ -537,9 +537,10 @@ console.log(` script bare. hardFail=${hardFail}.`);
 // MACHINE-READABLE: consumed by test/fea_nafems_ratchet.sh. Do not reformat without
 // updating the ratchet's parser (which refuses to guess rather than mis-parse).
 // A BLOCKED case is neither a pass nor a miss — it DID NOT RUN. Folding it into either number
-// makes a platform-dependent kernel gap look like an accuracy change: when LE11's boolean is
-// refused in CI but succeeds locally, misses silently drops 3 -> 2 and the ratchet reads a
-// capability LOSS as an accuracy IMPROVEMENT. Report it as its own quantity.
+// makes an environment-dependent kernel gap look like an accuracy change: when LE11's native
+// boolean is refused on the CI runner but succeeds on the workstation from the same commit,
+// misses silently drops 3 -> 2 and the ratchet reads a capability LOSS as an accuracy
+// IMPROVEMENT. Report it as its own quantity.
 const blockedList = (results.le11Blocked ? ['LE11'] : []);
 console.log(`[nafems-summary] cases=${nafems.length} misses=${missList.length} missSet=${missList.slice().sort().join(',') || '-'} blocked=${blockedList.length} blockedSet=${blockedList.slice().sort().join(',') || '-'} hardFail=${hardFail}`);
 process.exitCode = hardFail ? 1 : 0;

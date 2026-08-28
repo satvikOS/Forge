@@ -215,7 +215,10 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
       #   dir exists and touched recently  -> ACTIVE, keep
       #   dir exists and stale             -> not active by this signal, fall through to the other checks
       #   dir does not exist               -> UNKNOWN run, keep (uncertainty means keep)
-      tdir_root="$HOME/.claude/projects"
+      # Overridable ONLY so this guard's red paths can be exercised by
+      # tools/storage/tests/reap_worktrees_test.sh — a hardcoded $HOME made the ACTIVE-AGENT
+      # branch untestable, which is why the SIGPIPE misread below survived 37 green cases.
+      tdir_root="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
       run_dir="$(find "$tdir_root" -type d -name "${run_id}*" 2>/dev/null | head -1)"
       if [ -z "$run_dir" ]; then
         note "KEEP    $wt"
@@ -229,7 +232,13 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
       # as the output — this is the SEVENTH fail-open in this file and the THIRD I introduced while
       # fixing the same pattern, which is itself the finding: the natural shell phrasing quietly
       # favours proceeding, so in deletion code the guard has to be written against the grain.
-      probe_out="$(find "$run_dir" -mmin -30 2>/dev/null | head -1)"; probe_rc=$?
+      # `-print -quit` instead of `| head -1`: $? after a pipeline is the LAST command's status.
+      # head exits after one line, and once the listing exceeds the 64KB pipe buffer find dies of
+      # SIGPIPE and the substitution yields 141 — MEASURED: 900 long-named entries give rc=141
+      # through head and rc=0 with -print -quit. That made a LIVE agent report as a FAILED PROBE:
+      # still a KEEP, so nothing was deleted, but with the wrong reason and for ever. -quit also
+      # stops at the first hit, so this is strictly cheaper on the large run dirs that trigger it.
+      probe_out="$(find "$run_dir" -mmin -30 -print -quit 2>/dev/null)"; probe_rc=$?
       if [ $probe_rc -ne 0 ]; then
         note "KEEP    $wt"
         note "        reason: the activity probe FAILED (rc=$probe_rc) on $run_dir — liveness could"

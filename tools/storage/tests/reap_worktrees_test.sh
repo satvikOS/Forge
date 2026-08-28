@@ -118,6 +118,27 @@ assert_lacks "case2" "$PLAN" "REMOVE  $R/.claude/worktrees/ign"
 # and the receipt must not claim a cleanliness the check never established
 assert_lacks "case2" "$PLAN" "proof: tracked+untracked clean"
 
+echo "=== case 2b: an ACTIVE agent with a LARGE run dir is kept AS ACTIVE, not as a failed probe ==="
+# REGRESSION GUARD for a real defect these 37 cases could not see. The liveness probe read
+# `find ... | head -1` and then $?, which is the PIPELINE's status: head exits after one line, and
+# once the listing exceeds the 64KB pipe buffer find dies of SIGPIPE and the substitution yields
+# 141. MEASURED: 900 long-named entries give rc=141 through head and rc=0 with -print -quit. The
+# worktree was still KEPT (the guard fails closed), so nothing was lost -- but for the WRONG
+# REASON and permanently, and a reason nobody could act on. Every prior fixture had a small run
+# dir, so the bug was invisible. This case makes the dir big enough to trigger it.
+R="$(new_repo c2b)"
+git -C "$R" worktree add -q "$R/.claude/worktrees/wf_deadbeef-111-1" -b wfbigbr
+PROJ="$SANDBOX/projects_big"
+mkdir -p "$PROJ/wf_deadbeef-111"
+_pad="$(printf '%0.sx' $(seq 1 180))"
+i=1; while [ "$i" -le 900 ]; do : > "$PROJ/wf_deadbeef-111/${_pad}_$i"; i=$((i + 1)); done
+PLAN="$SANDBOX/plan.c2b.txt"
+( cd "$R" && CLAUDE_PROJECTS_DIR="$PROJ" bash "$SCRIPT" ) > "$PLAN" 2>&1
+assert_has   "case2b" "$PLAN" "KEEP    $R/.claude/worktrees/wf_deadbeef-111-1"
+assert_has   "case2b" "$PLAN" "ACTIVE-AGENT"
+# THE POINT: the reason must be liveness, never a probe that could not run.
+assert_lacks "case2b" "$PLAN" "activity probe FAILED"
+
 echo "=== case 3: phantom record whose lock reason has NO parseable pid ==="
 R="$(new_repo c3)"
 git -C "$R" worktree add -q "$R/.claude/worktrees/weird" -b weirdbr

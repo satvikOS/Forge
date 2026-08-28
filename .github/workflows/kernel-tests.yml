@@ -226,8 +226,11 @@ jobs:
         # code does not cover a missed benchmark. See reports/FEA_NAFEMS_GAP.md.
         #
         # THREE axes, and BLOCKED is judged before accuracy. A case that did not run is
-        # neither a pass nor a miss: LE11's ball+cone+cylinder fuse is refused on this runner
-        # and succeeds on macOS, so folding it into the miss count made a platform-dependent
+        # neither a pass nor a miss: LE11's ball+cone+cylinder fuse is refused on the GitHub
+        # runner and succeeds on the workstation FROM THE SAME COMMIT -- measured, both are
+        # macOS arm64 with the same OCCT 7.9.3, so the cause is environment-sensitivity in the
+        # NATIVE boolean, not the platform, and it is not yet established (open finding).
+        # Folding that into the miss count made an environment-dependent
         # kernel gap look like an accuracy change -- misses dropped 3 -> 2 here and the ratchet
         # read a CAPABILITY LOSS as an ACCURACY IMPROVEMENT, then asked for the baseline to be
         # lowered, which would have locked it in. The baseline is now a CEILING on blocked plus
