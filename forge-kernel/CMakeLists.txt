@@ -687,60 +687,156 @@ option(FORGE_FILLING_DROP_NATIVE
        OFF)
 
 # ─────────────────────────────────────────────────────────────────────────────────
-# ── WHAT IS LEFT: the last 11 TKOffset symbols, and what is already known ────────
+# ── TKOffset FAMILIES I + J — the last two, and the toolkit's link record ────────
 # ─────────────────────────────────────────────────────────────────────────────────
-# MEASURED 2026-08-28 on real linked binaries. With every option above ON:
-#   TKOffset 42 -> 11, OCCT_DIRECT 9, OCCT_CLOSURE 14, OCCT_PHANTOM 2.
-# TKOffset's link record — and with it OCCT_CLOSURE 14 -> 13, the FIRST library the
-# programme would actually drop — moves only when these 11 are gone. Both classes
-# need a TopoDS-typed engine; native peers exist for the adjacent NATIVE-B-rep
-# problems but are typed on forge::native::brep::Solid and cannot be reached from an
-# OCCT-backed handle, which is exactly the gap NativeThickSolid closed for family
-# G/H and NativeLoftPipe for D/E/F.
+# These are the two families the "WHAT IS LEFT" banner used to describe as open.
+# With every option in this file ON they take TKOffset 11 -> 0 symbols, which is
+# what finally lets the toolkit leave OCCT_LIBS.
 #
 # ── family I: BRepOffset_MakeOffset, 5 symbols, src/Features.cpp thickenSurface ──
-#   Skin an OPEN shell to a solid of wall thickness t.
+#   Skin an OPEN shell to a solid of wall thickness t. Engine:
+#   src/native/brep/NativeThickenShell.cpp (forge::occtthicken::thickenShell).
 #
-#   ★ OCCT *IS* A VALID ORACLE HERE — unlike MakePipe/MakePipeShell/MakeThickSolid,
-#     every probe below returned a BRepCheck-VALID solid. So this family can be
-#     proved A/B directly. Measured, 2026-08-28, offset magnitude 2:
-#       shell                         OCCT volume   valid   fuse-of-prisms
-#       single planar face 20x10         400          1          400   MATCH
-#       L shell, t=+2 (concave corner)   560          1          560   MATCH
-#       L shell, t=-2 (convex corner)    631.4159265  1          600   MISMATCH
-#       U shell, t=+2 (two convex)       862.8318531  1          800   MISMATCH
+#   METHOD, NAMED: offsetting with the ARC join is the Minkowski sum of the shell
+#   with a ball of radius |t| restricted to one side — Rossignac & Requicha,
+#   "Offsetting operations in solid modelling", CAGD 3(2):129-148, 1986. For a
+#   polyhedral input that decomposes EXACTLY into the union of per-face prisms,
+#   plus a cylindrical wedge of radius |t| along every CONVEX edge, plus a
+#   spherical wedge at every CONVEX vertex. At a CONCAVE edge the prisms already
+#   overlap and the union alone is exact.
 #
-#   ★ THE MISMATCH IS FULLY EXPLAINED, and this is the key result for whoever
-#     builds this engine. 631.4159265 - 600 = 31.41592653 = 10*pi, and
-#     862.8318531 - 800 = 62.83185307 = 20*pi. Those are QUARTER-CYLINDERS of
-#     radius |t|=2 and length 10: (pi*2^2/4)*10 = 10*pi each, one per convex corner
-#     (one for the L, two for the U). GeomAbs_Arc — the join type the call site
-#     passes — ROUNDS convex corners. So the construction is NOT simply the union of
-#     per-face prisms; it is
-#         union of per-face prisms
-#       + a quarter-cylinder of radius |t| along every CONVEX shell edge
-#       + a spherical wedge at every CONVEX shell vertex,
-#     where "convex" is with respect to the offset direction (at a CONCAVE corner
-#     the prisms already overlap and the union alone is exact — proved by the two
-#     MATCH rows above). The per-face prism part is exact on planar faces and needs
-#     no corner solve at all, which is a much cheaper starting point than the
-#     plane-meet machinery NativeThickSolid uses for family G/H.
+#   ★ THE DECOMPOSITION WAS MEASURED, NOT ASSUMED. Live OCCT at |t| = 2:
+#       shell                          OCCT volume    fuse-of-prisms
+#       single planar face 20x10          400            400   MATCH
+#       L shell, t=+2 (concave corner)    560            560   MATCH
+#       L shell, t=-2 (convex corner)     631.4159265    600   MISMATCH
+#       U shell, t=+2 (two convex)        862.8318531    800   MISMATCH
+#     631.4159265 - 600 = 10*pi and 862.8318531 - 800 = 20*pi — quarter-cylinders
+#     of radius 2 and length 10, one per convex edge. The MATCH rows are exactly
+#     the cases with no convex edge.
+#
+#   ★ OCCT IS A VALID ORACLE HERE, unlike MakePipe / MakePipeShell / MakeThickSolid
+#     (see the family D/E/F/G banners): every probe returned a BRepCheck-VALID
+#     solid. So this family is proved by direct A/B, not against a closed form
+#     alone — though the closed form is asserted too.
+#
+#   PROOF: forge-kernel/test/run_ab_native_thicken.sh, 202/202 assertions — volume
+#     AND centre of mass AND all six bbox bounds AND face/edge/vertex/shell counts
+#     AND the surface-type inventory AND BRepCheck validity AND the Euler
+#     characteristic, on the flat / L / U shells at BOTH offset signs and at two
+#     thicknesses, against live OCCT and against the closed forms above; plus an
+#     equal-volume NEGATIVE CONTROL (rejected on 12 observables) and four defer
+#     controls whose exact defer REASON string is asserted.
+#     ★ TOPOLOGY IS COMPARED AFTER CANONICALISING BOTH SIDES. Face count is a
+#       property of the representation, not the geometry: OCCT keeps its
+#       per-original-face rim quads (10 faces concave / 13 convex on the L) while
+#       the native fuse is already merged (8 / 9). The same
+#       ShapeUpgrade_UnifySameDomain over both gives 8/18/12 and 9/21/14 —
+#       identical, same plane/cylinder inventory. The raw counts are printed too,
+#       so the difference is reported rather than hidden.
 #
 # ── family J: BRepOffsetAPI_DraftAngle, 6 symbols, src/Features.cpp draftFaces ───
 #   Tilt selected faces about their intersection line with a neutral plane.
-#   forge/native/brep/DraftAnalytic.hpp already solves this on the NATIVE analytic
-#   B-rep (planar side faces of a prismatic solid, single neutral plane, uniform
-#   angle) with an exact square-frustum closed form; what is missing is the
-#   TopoDS-typed mirror. Structurally a draft is family H's whole-solid offset with
-#   the selected faces' planes ROTATED about their neutral-plane intersection line
-#   instead of TRANSLATED along their normal — so the corner re-trim in
-#   NativeThickSolid.cpp is the machinery to reuse, fed rotated planes.
+#   Engine: src/native/brep/NativeDraft.cpp (forge::occtdraft::draftFaces).
 #
-# Neither engine is attempted here rather than shipped half-proved: every family in
-# this file carries an A/B against live OCCT on volume AND position AND topology AND
-# validity, with a negative control and a mutation that proves the gate can go red,
-# and that bar is the point of the exercise.
+#   METHOD, NAMED: the half-space arrangement edit of a polyhedron — a planar-faced
+#   solid is determined by its face planes plus its incidence, and each vertex is
+#   the meet of its incident planes (Preparata & Shamos, Computational Geometry,
+#   ch. 7, plane/vertex duality). Draft replaces the plane of each selected face by
+#   that plane ROTATED about its neutral-plane intersection line and re-derives
+#   every vertex. No face is added, deleted or re-typed. The corner solve is
+#   NativeThickSolid.cpp's intersectPlanes, reused verbatim — exactly the reuse the
+#   old banner pointed at.
+#
+#   ★ THE SIGN WAS MEASURED. The first A/B run used theta = -angle and every case
+#     came back MIRRORED (cube 5 deg: 1185.18 grown against OCCT's 835.23 shrunk).
+#     BRepOffsetAPI_DraftAngle's convention is theta = +angle.
+#
+#   PROOF: forge-kernel/test/run_ab_native_draft.sh, 114/114 assertions — the same
+#     observable set as family I, over five cases: the canonical cube's four side
+#     walls (also checked against the frustum closed form
+#     V = (L^3 - (L-2 t L)^3)/(6 t), derived not borrowed), a single asymmetric
+#     wall, two opposite walls about a MID-HEIGHT neutral plane (volume-preserving
+#     — the case that makes centre of mass and bbox load-bearing), a NEGATIVE
+#     angle, and a non-axis-aligned pull direction; plus an equal-volume negative
+#     control and six defer controls.
+#
+# ── the gates are PROVED ABLE TO FAIL ────────────────────────────────────────────
+#   forge-kernel/test/run_ab_tkoffset_mutations.sh, 12/12: eight mutations of the
+#   ENGINES (never the tests), each required to turn its A/B red, then restored and
+#   required green again. Two are deliberately VOLUME-PRESERVING — the draft sign
+#   flip on the mid-height pivot case, and the flat prism's direction flip — and
+#   are caught only by centre of mass and bounding box. One mutation (widening the
+#   draft's exactness guard) is required to stay GREEN, proving the guard rejects
+#   nothing the supported cases need. A mutant that fails to COMPILE is reported as
+#   NOBUILD and never counted as a kill; two mutants in the first draft did exactly
+#   that (an unused variable under -Werror) and were rewritten.
+option(FORGE_THICKEN_DROP_NATIVE
+       "route part::thickenSurface through the native shell thicken & compile out the OCCT BRepOffset_MakeOffset fallback (TKOffset family I, 5 symbols)"
+       OFF)
+option(FORGE_DRAFT_DROP_NATIVE
+       "route part::draftFaces through the native TopoDS draft & compile out the OCCT BRepOffsetAPI_DraftAngle fallback (TKOffset family J, 6 symbols)"
+       OFF)
+if(FORGE_NATIVE_BREP AND FORGE_THICKEN_DROP_NATIVE)
+    add_compile_definitions(FORGE_THICKEN_DROP_NATIVE=1)
+    message(WARNING "FORGE_THICKEN_DROP_NATIVE=ON — BRepOffset_MakeOffset fallback compiled out "
+                    "(TKOffset family I, 5 symbols). A shell the native thicken declines — a "
+                    "curved face, a curved fold, a non-manifold edge, or a convex fold ending at "
+                    "a 3-or-more-plate corner — now THROWS, quoting the engine's own defer "
+                    "reason, instead of falling back to OCCT.")
+endif()
+if(FORGE_NATIVE_BREP AND FORGE_DRAFT_DROP_NATIVE)
+    add_compile_definitions(FORGE_DRAFT_DROP_NATIVE=1)
+    message(WARNING "FORGE_DRAFT_DROP_NATIVE=ON — BRepOffsetAPI_DraftAngle fallback compiled out "
+                    "(TKOffset family J, 6 symbols). A solid the native draft declines — a "
+                    "non-planar face, a face with a hole, or a selected face parallel to the "
+                    "neutral plane — now THROWS instead of falling back to OCCT. NOTE the native "
+                    "MESH-BRIDGE draft for NativeSolid handles earlier in draftFaces is "
+                    "untouched; this is the OCCT-backed-handle path only.")
+endif()
+
 # ─────────────────────────────────────────────────────────────────────────────────
+# ── ★ THE TKOffset LINK RECORD ──────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────────
+# TKOffset leaves OCCT_LIBS only when EVERY family that calls it is compiled out.
+# Dropping it earlier would not remove the dependency — on macOS the .node links
+# `-undefined dynamic_lookup`, so a still-referenced toolkit simply becomes a
+# PHANTOM: it keeps loading, OCCT_CLOSURE is unchanged, and only the cosmetic
+# OCCT_DIRECT count falls. That is the precise failure mode
+# forge-kernel/scripts/occt_closure_count.sh exists to expose, and this block
+# refuses to cause it.
+#
+# The condition is therefore ALL of the families, enumerated so a future family
+# cannot be forgotten: adding one to this list is what keeps the drop honest.
+set(_FORGE_TKOFFSET_FAMILIES
+    FORGE_OFFSET_DROP_MAKEOFFSET    # A  BRepOffsetAPI_MakeOffset      Cam.cpp
+    FORGE_FILLING_DROP_NATIVE       # C  BRepOffsetAPI_MakeFilling     Healing.cpp
+    FORGE_THRUSECTIONS_DROP_NATIVE  # D  BRepOffsetAPI_ThruSections    5 call sites
+    FORGE_PIPE_DROP_NATIVE          # E  BRepOffsetAPI_MakePipe        Features.cpp
+    FORGE_PIPESHELL_DROP_NATIVE     # F  BRepOffsetAPI_MakePipeShell   3 call sites
+    FORGE_THICKSOLID_DROP_NATIVE    # G  BRepOffsetAPI_MakeThickSolid  Features.cpp
+    FORGE_OFFSETSHAPE_DROP_NATIVE   # H  BRepOffsetAPI_MakeOffsetShape Features.cpp
+    FORGE_THICKEN_DROP_NATIVE       # I  BRepOffset_MakeOffset         Features.cpp
+    FORGE_DRAFT_DROP_NATIVE         # J  BRepOffsetAPI_DraftAngle      Features.cpp
+)
+set(_forge_tkoffset_open "")
+foreach(_fam IN LISTS _FORGE_TKOFFSET_FAMILIES)
+    if(NOT ${_fam})
+        list(APPEND _forge_tkoffset_open ${_fam})
+    endif()
+endforeach()
+if(FORGE_NATIVE_BREP AND NOT _forge_tkoffset_open)
+    list(REMOVE_ITEM OCCT_LIBS TKOffset)
+    message(WARNING
+        "★ TKOffset REMOVED FROM OCCT_LIBS — every family A,C,D,E,F,G,H,I,J is compiled out. "
+        "This is the first OCCT toolkit whose LINK RECORD the programme has been able to "
+        "remove on the strength of native replacements rather than by hiding it behind "
+        "another library. Verify with: bash forge-kernel/scripts/occt_closure_count.sh "
+        "<binary> — OCCT_CLOSURE must FALL, and OCCT_PHANTOM must NOT rise (a phantom would "
+        "mean a TU still calls TKOffset and dynamic_lookup is masking it).")
+else()
+    message(STATUS "TKOffset KEPT on the link line — still called by: ${_forge_tkoffset_open}")
+endif()
 if(FORGE_NATIVE_BREP AND FORGE_FILLING_DROP_NATIVE)
     add_compile_definitions(FORGE_FILLING_DROP_NATIVE=1)
     message(WARNING "FORGE_FILLING_DROP_NATIVE=ON — BRepOffsetAPI_MakeFilling fallback compiled out "
@@ -1345,6 +1441,17 @@ set(FORGE_KERNEL_SOURCES
     # ClassASurfacing.cpp stay live by default.
     src/native/brep/NativeLoftPipe.cpp
     src/native/brep/NativeFilling.cpp
+    # TKOffset family I — TKOffset-free THICKEN of an OPEN shell into a solid
+    # (the BRepOffset_MakeOffset Skin + makeThickSolid + GeomAbs_Arc replacement
+    # for forge::part::thickenSurface). Rossignac-Requicha offset decomposition:
+    # per-face prism + a cylindrical wedge on every CONVEX fold. Honest defer
+    # (null shape) outside that class, so the OCCT fallback stays live by default.
+    src/native/brep/NativeThickenShell.cpp
+    # TKOffset family J — TKOffset-free DRAFT of selected faces of an OCCT solid
+    # (the BRepOffsetAPI_DraftAngle replacement). Rotates each selected face plane
+    # about its neutral-plane intersection line and re-meets every vertex, reusing
+    # NativeThickSolid's corner solve. Honest defer outside planar-faced solids.
+    src/native/brep/NativeDraft.cpp
     src/native/brep/OffsetShape.cpp     # offset-shape: grow/shrink a solid by offsetting all faces +/-t (MakeOffsetShape, intersection join)
     src/native/brep/Chamfer.cpp
     src/native/brep/Draft.cpp          # mesh-bridge taper (part.draftFaces native route)
