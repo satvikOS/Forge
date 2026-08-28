@@ -928,6 +928,27 @@ ShapeHandle shell(ShapeHandle shape,
                   double thickness,
                   const std::vector<FaceThickness>& multiThickness) {
     requirePositive(thickness, "shell thickness");
+    // ---------------------------------------------------------------- SIGN
+    // `thickness` is a WALL THICKNESS and this op is an INWARD HOLLOW: the
+    // outer envelope of `shape` is PRESERVED and the cavity is inset by |t|.
+    // That is the contract every consumer already relies on —
+    //   * ft/FeatureTreeCompiler.cpp opShell passes -|wall| explicitly,
+    //   * frontend/src/kernel/forge/PartOps.js documents "hollow out a solid",
+    //   * forge::native::brep::shellSolid and forge::occtoffset::makeThickSolid
+    //     both implement inward-only (Shell.hpp, NativeThickSolid.hpp),
+    // and it is the meaning of Shell in every downstream reader (drawings /
+    // DFM wall-thickness / mass) because an outward wall would move the part's
+    // outer dimensions, which a shell must never do.
+    //
+    // The three routes below spell that sign DIFFERENTLY, and until now each
+    // read the caller's sign its own way, so the SAME call produced different
+    // OPERATIONS depending on which route it took (measured on box(10) t=1,
+    // one face removed: OCCT 564.926 outward vs native 424.000 inward —
+    // CMakeLists.txt "FAMILY G HAS A HARD BLOCKER", reports/TKOFFSET_DECOMPOSITION.md
+    // §4.2). `wall` is now the single source of that sign:
+    //   native shellSolid / makeThickSolid : +wall  == inward
+    //   OCCT MakeThickSolidByJoin          : -wall  == inward (+ grows outward)
+    const double wall = std::abs(thickness);
 #ifdef FORGE_NATIVE_BREP
     // GAP1 — native analytic SHELL (forge::native::brep::shellSolid): hollow the
     // solid INWARD to a uniform wall of `thickness`, opening the faces named in
@@ -947,7 +968,7 @@ ShapeHandle shell(ShapeHandle shape,
         auto owner = std::make_shared<nb::TopologyBuilder>();
         nb::Solid* clone = nb::transformSolid(srcSolid, I, t0, owner);
         nb::ShellOptions opt;
-        opt.thickness = thickness;
+        opt.thickness = wall;   // native convention: +t hollows INWARD
         opt.removedFaces.assign(faceIdsToRemove.begin(), faceIdsToRemove.end());
         nb::ShellResult r = nb::shellSolid(*owner, clone, opt);
         if (r.ok && r.solid) {
@@ -992,7 +1013,7 @@ ShapeHandle shell(ShapeHandle shape,
     (void)kThickSolidNative;
     if (multiThickness.empty()) {
         TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
-            src, std::abs(thickness), facesToRemove, 1.0e-3);
+            src, wall, facesToRemove, 1.0e-3);
         if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
     }
     throw std::runtime_error(
@@ -1002,7 +1023,7 @@ ShapeHandle shell(ShapeHandle shape,
 #else
     if (multiThickness.empty() && kThickSolidNative) {
         TopoDS_Shape nat = ::forge::occtoffset::makeThickSolid(
-            src, std::abs(thickness), facesToRemove, 1.0e-3);
+            src, wall, facesToRemove, 1.0e-3);
         if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
     }
 #endif
@@ -1010,7 +1031,16 @@ ShapeHandle shell(ShapeHandle shape,
 
 #ifndef FORGE_THICKSOLID_DROP_NATIVE
     BRepOffsetAPI_MakeThickSolid mk;
-    mk.MakeThickSolidByJoin(src, facesToRemove, thickness, 1.0e-3);
+    // -wall, NOT +wall: MakeThickSolidByJoin with a POSITIVE offset grows the
+    // retained faces OUTWARD with a rounded (GeomAbs_Arc) join — a different
+    // operation from the hollow this entry point promises. Negative insets the
+    // cavity and preserves the outer envelope, which is what every other route
+    // here does. MEASURED on box(10^3), top face removed, |t| = 1:
+    //   -1 -> 424.00000 == 1000 - 8*8*9   (exact inward wall)
+    //   +1 -> 564.92625 == 500 + 20*pi + 2*pi/3
+    //         (= the Minkowski sum box(+)ball(1), 1000+600+30pi+4pi/3, minus the
+    //          cap above z=10, 100+10pi+2pi/3, minus the 1000 that became void)
+    mk.MakeThickSolidByJoin(src, facesToRemove, -wall, 1.0e-3);
     // Per-face thickness overrides aren't natively supported by the join
     // API — we approximate by applying the dominant `thickness` here and
     // re-shelling any overridden face with its own thickness on the
@@ -2661,6 +2691,9 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
                                 double baseThickness,
                                 const std::vector<FaceThickness>& perFaceOverrides) {
     requirePositive(baseThickness, "shell base thickness");
+    // SAME SIGN CONTRACT as shell() above — a wall thickness, hollowed INWARD.
+    // Both routes are spelled from this one magnitude (native +, OCCT -).
+    const double baseWall = std::abs(baseThickness);
     const auto& src = fetch(shape);
 
     // ---- 1) base shell at baseThickness ---------------------------------
@@ -2674,7 +2707,7 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
     // shell() site left TKOffset at 36, not 32).
 #ifdef FORGE_THICKSOLID_DROP_NATIVE
     TopoDS_Shape acc = ::forge::occtoffset::makeThickSolid(
-        src, baseThickness, facesToRemove, 1.0e-3);
+        src, baseWall, facesToRemove, 1.0e-3);
     if (acc.IsNull()) {
         throw std::runtime_error(
             "forge.part.shellMultiThickness: native thick-solid DECLINED the base "
@@ -2683,7 +2716,7 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
     }
 #else
     BRepOffsetAPI_MakeThickSolid baseMk;
-    baseMk.MakeThickSolidByJoin(src, facesToRemove, baseThickness, 1.0e-3);
+    baseMk.MakeThickSolidByJoin(src, facesToRemove, -baseWall, 1.0e-3);
     baseMk.Build();
     if (!baseMk.IsDone()) {
         throw std::runtime_error(
@@ -2700,7 +2733,7 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
     // single call.
     for (const auto& ovr : perFaceOverrides) {
         if (ovr.thickness <= Precision::Confusion()) continue;
-        if (std::abs(ovr.thickness - baseThickness) < Precision::Confusion()) {
+        if (std::abs(std::abs(ovr.thickness) - baseWall) < Precision::Confusion()) {
             continue;  // no-op override
         }
         TopTools_ListOfShape ovrRemove;
@@ -2716,11 +2749,11 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
         }
 #ifdef FORGE_THICKSOLID_DROP_NATIVE
         const TopoDS_Shape ovrShape = ::forge::occtoffset::makeThickSolid(
-            src, ovr.thickness, ovrRemove, 1.0e-3);
+            src, std::abs(ovr.thickness), ovrRemove, 1.0e-3);
         if (ovrShape.IsNull()) continue;   // same skip-this-override contract as !IsDone()
 #else
         BRepOffsetAPI_MakeThickSolid ovrMk;
-        ovrMk.MakeThickSolidByJoin(src, ovrRemove, ovr.thickness, 1.0e-3);
+        ovrMk.MakeThickSolidByJoin(src, ovrRemove, -std::abs(ovr.thickness), 1.0e-3);
         ovrMk.Build();
         if (!ovrMk.IsDone()) continue;
         const TopoDS_Shape ovrShape = ovrMk.Shape();
