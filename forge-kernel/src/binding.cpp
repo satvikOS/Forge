@@ -4544,6 +4544,25 @@ Napi::Value DirectEdgeCount(const Napi::CallbackInfo& info) {
     });
 }
 
+// The COMPLETE sub-shape census { solids, shells, faces, wires, edges, vertices }.
+// faceCount/edgeCount answer two of the six; a gate that uses topology as an
+// oracle needs the other four (see forge::direct::TopoCounts for the measurement
+// that says why).
+Napi::Value DirectTopoCounts(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        const forge::direct::TopoCounts c = forge::direct::topoCounts(requireHandle(info, 0));
+        auto out = Napi::Object::New(env);
+        out.Set("solids",   Napi::Number::New(env, static_cast<double>(c.solids)));
+        out.Set("shells",   Napi::Number::New(env, static_cast<double>(c.shells)));
+        out.Set("faces",    Napi::Number::New(env, static_cast<double>(c.faces)));
+        out.Set("wires",    Napi::Number::New(env, static_cast<double>(c.wires)));
+        out.Set("edges",    Napi::Number::New(env, static_cast<double>(c.edges)));
+        out.Set("vertices", Napi::Number::New(env, static_cast<double>(c.vertices)));
+        return out;
+    });
+}
+
 // Slice-3 — edge polylines for viewport edge picking. Returns
 // [{ id, points:Float32Array }] where id is the 0-based fillet/chamfer
 // edge id and points are world-space x,y,z samples along the edge.
@@ -6578,6 +6597,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     direct.Set("inferFeature",      Napi::Function::New(env, DirectInferFeature));
     direct.Set("faceCount",         Napi::Function::New(env, DirectFaceCount));
     direct.Set("edgeCount",         Napi::Function::New(env, DirectEdgeCount));
+    direct.Set("topoCounts",        Napi::Function::New(env, DirectTopoCounts));
     direct.Set("edgeSegments",      Napi::Function::New(env, DirectEdgeSegments));
     exports.Set("direct", direct);
 
