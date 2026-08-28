@@ -17,6 +17,7 @@
 // anything.
 
 #include "forge/ShapeRegistry.hpp"
+#include "forge/Tessellate.hpp"
 
 namespace forge {
 
@@ -33,5 +34,14 @@ struct TopoSignature {
 // Returns false when the body cannot be meshed (degenerate / empty).
 bool topologySignature(ShapeHandle body, TopoSignature& out,
                        double linearDeflection = 0.3, double angularDeflection = 0.6);
+
+// The same signature computed on a mesh the caller ALREADY has. This overload is
+// the actual definition; the ShapeHandle form above tessellates and delegates to
+// it. It exists so a tool that must tessellate once and share the mesh (the bore
+// measurement in src/tools/forge_verify.cpp reads the same triangles) can reuse
+// this measurement instead of keeping a hand-copy of it — which is exactly what
+// forge_verify did, defeating the single definition this header promises.
+// Returns false when the mesh is empty / has no triangle.
+bool topologySignature(const Mesh& m, TopoSignature& out);
 
 } // namespace forge

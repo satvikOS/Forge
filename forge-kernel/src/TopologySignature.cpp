@@ -5,6 +5,11 @@
 // never disagree. They previously lived in two hand-copied implementations (a
 // script and a tool); a gate whose value depends on which copy you ask is not a
 // gate.
+//
+// The mesh overload is the definition and the ShapeHandle form delegates to it,
+// so a caller that has already tessellated (forge_verify shares one mesh between
+// this measurement and its bore detection) reuses THIS code instead of keeping
+// the private copy of it that survived the first unification.
 
 #include "forge/Topology.hpp"
 
@@ -27,6 +32,10 @@ bool topologySignature(ShapeHandle body, TopoSignature& out,
     } catch (...) {
         return false;
     }
+    return topologySignature(m, out);
+}
+
+bool topologySignature(const Mesh& m, TopoSignature& out) {
     const auto& P = m.positions;
     const auto& I = m.indices;
     if (P.empty() || I.size() < 3) return false;

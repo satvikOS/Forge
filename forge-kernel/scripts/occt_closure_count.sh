@@ -20,12 +20,24 @@
 # OCCT_CLOSURE is the number the roadmap quotes. It is monotone: it cannot fall unless a
 # library genuinely stops loading. The sacrosanct north star is OCCT_CLOSURE == 0.
 #
+# WHY A MISSING LIBRARY IS FATAL
+# ------------------------------
+# That monotonicity is only true while every libTK* in the load graph can actually be
+# FOUND on disk. The closure is a BFS that expands a dependency only if it resolves to a
+# real file, so a single unresolvable OCCT dependency truncates the search at the binary
+# itself and OCCT_CLOSURE silently collapses onto OCCT_DIRECT — MEASURED here, 14 -> 8,
+# with exit 0 and no warning. A Homebrew upgrade that changes the install-name, a
+# relocated OCCT, or a host with no OCCT at all would each have "improved" the one number
+# this programme measures progress by. resolve() therefore treats an unlocatable libTK*
+# as a HARD ERROR (exit 2) and prints what it searched. Never a fallback.
+#
 # usage:
 #   bash scripts/occt_closure_count.sh [BINARY] [--json] [--quiet]
 #                                      [--assert-closure N] [--assert-direct N] [--assert-no-phantom]
 #   BINARY defaults to build/Release/forge-kernel.node (or $FORGE_KERNEL).
 #
-# exit: 0 ok / 1 an --assert threshold was exceeded / 2 binary or toolchain missing.
+# exit: 0 ok / 1 an --assert threshold was exceeded / 2 binary, toolchain, or an OCCT
+#       library named in the load graph is missing (the closure would be fabricated).
 #
 # NB: no `set -e` — nm/grep return 1 on empty matches, which is a legitimate result here.
 set -uo pipefail
@@ -94,28 +106,64 @@ $KROOT/build/Release
 [ -n "${OCCT_LIB_DIR:-}" ] && SEARCH="$OCCT_LIB_DIR
 $SEARCH"
 
-resolve() { # resolve RAW OWNER -> absolute path (or RAW unchanged if not found)
-  raw="$1"; owner="$2"; base=""
+tkname() { # /path/libTKBRep.7.9.dylib -> TKBRep ; libTKBRep.so.7.9 -> TKBRep
+  basename "$1" 2>/dev/null | sed -n 's/^lib\(TK[A-Za-z0-9]*\)[.-].*/\1/p'
+}
+
+# A libTK* that cannot be located is FATAL, never a fallback. See the "WHY A
+# MISSING LIBRARY IS FATAL" note in the header: an unresolved OCCT dependency
+# truncates the BFS below and makes OCCT_CLOSURE silently collapse onto
+# OCCT_DIRECT (14 -> 8 on this machine), i.e. a fabricated drop in THE LEDGER
+# NUMBER. resolve() runs inside command substitutions, so it cannot exit the
+# script itself; it records the failure and die_if_unresolved() ends the run.
+: > "$TMP/unresolved"
+
+resolve() { # resolve RAW OWNER -> absolute path (RAW unchanged for non-OCCT misses)
+  raw="$1"; owner="$2"; base=""; out=""
   case "$raw" in
     @rpath/*)           base="${raw#@rpath/}" ;;
-    @loader_path/*)     echo "$(dirname "$owner")/${raw#@loader_path/}"; return ;;
-    @executable_path/*) echo "$(dirname "$BIN")/${raw#@executable_path/}"; return ;;
-    /*)                 echo "$raw"; return ;;
+    @loader_path/*)     out="$(dirname "$owner")/${raw#@loader_path/}" ;;
+    @executable_path/*) out="$(dirname "$BIN")/${raw#@executable_path/}" ;;
+    /*)                 out="$raw" ;;
     *)                  base="$raw" ;;      # bare soname (Linux)
   esac
-  echo "$SEARCH" | while IFS= read -r d; do
-    [ -n "$d" ] && [ -f "$d/$base" ] && { echo "$d/$base"; return; }
-  done | head -1 | grep -q . && {
-    echo "$SEARCH" | while IFS= read -r d; do
-      [ -n "$d" ] && [ -f "$d/$base" ] && { echo "$d/$base"; return; }
-    done | head -1
-    return
-  }
+  if [ -z "$out" ]; then
+    while IFS= read -r d; do
+      [ -n "$d" ] || continue
+      if [ -f "$d/$base" ]; then out="$d/$base"; break; fi
+    done <<EOF
+$SEARCH
+EOF
+  fi
+  if [ -n "$out" ] && [ -f "$out" ]; then echo "$out"; return 0; fi
+  # Not found. An OCCT toolkit MUST resolve; anything else (libSystem, libc++,
+  # a Homebrew leaf) is passed through unchanged as before — it cannot make a
+  # libTK* disappear from the closure.
+  if [ -n "$(tkname "$raw")" ]; then
+    printf '%s\t%s\n' "$raw" "$owner" >> "$TMP/unresolved"
+  fi
   echo "$raw"
 }
 
-tkname() { # /path/libTKBRep.7.9.dylib -> TKBRep ; libTKBRep.so.7.9 -> TKBRep
-  basename "$1" 2>/dev/null | sed -n 's/^lib\(TK[A-Za-z0-9]*\)[.-].*/\1/p'
+die_if_unresolved() { # $1 = phase name
+  [ -s "$TMP/unresolved" ] || return 0
+  {
+    echo "FATAL: OCCT toolkit librar(ies) named in the load graph could not be located ($1)."
+    echo
+    echo "  unresolved (dependency <- referenced by):"
+    sort -u "$TMP/unresolved" | while IFS="$(printf '\t')" read -r r o; do
+      printf '    %-44s <- %s\n' "$r" "$o"
+    done
+    echo
+    echo "  searched:"
+    echo "$SEARCH" | while IFS= read -r d; do [ -n "$d" ] && printf '    %s\n' "$d"; done
+    echo
+    echo "  OCCT_CLOSURE is only meaningful when every libTK* in the load graph resolves."
+    echo "  With one missing, the BFS stops at the binary and the closure COLLAPSES onto the"
+    echo "  direct count — reporting a drop in THE LEDGER NUMBER that no code change earned."
+    echo "  Point the script at the real libraries with OCCT_LIB_DIR=/path/to/occt/lib."
+  } >&2
+  exit 2
 }
 
 # ── 1. DIRECT records ─────────────────────────────────────────────────────────
@@ -126,6 +174,7 @@ deps_of "$BIN" | while IFS= read -r raw; do
   [ -n "$t" ] && echo "$t"
 done | sort -u > "$TMP/direct"
 N_DIRECT=$(grep -c . < "$TMP/direct")
+die_if_unresolved "direct records"
 
 # ── 2. TRANSITIVE CLOSURE (BFS over the load graph) ───────────────────────────
 # seen  = absolute paths already expanded ; edges = "CHILD<TAB>PARENT"
@@ -145,6 +194,7 @@ while [ -s "$TMP/queue" ]; do
     grep -qxF "$dep" "$TMP/seen" || echo "$dep" >> "$TMP/queue"
   done
 done
+die_if_unresolved "transitive closure"
 cut -f1 "$TMP/edges" | sort -u > "$TMP/closure"
 N_CLOSURE=$(grep -c . < "$TMP/closure")
 comm -13 "$TMP/direct" "$TMP/closure" > "$TMP/hidden"

@@ -2808,7 +2808,14 @@ ShapeHandle shellMultiThickness(ShapeHandle shape,
     // thickness"; OCCT does not natively expose face-local offsets in a
     // single call.
     for (const auto& ovr : perFaceOverrides) {
-        if (ovr.thickness <= Precision::Confusion()) continue;
+        // |thickness|, per the SIGN CONTRACT above and the std::abs() this loop
+        // already applies four lines down: the sign of a wall thickness is
+        // IGNORED, both spellings mean the same inward hollow. Testing the RAW
+        // value here silently DROPPED every negative override — and -|wall| is
+        // exactly how the IR spells a wall (ft/FeatureTreeCompiler.cpp opShell),
+        // so an IR-driven multi-thickness shell quietly returned the uniform
+        // shell (MEASURED: 424.0 = 1000-8*8*9) where the override says 632.5.
+        if (std::abs(ovr.thickness) <= Precision::Confusion()) continue;
         if (std::abs(std::abs(ovr.thickness) - baseWall) < Precision::Confusion()) {
             continue;  // no-op override
         }

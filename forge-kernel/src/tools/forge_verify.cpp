@@ -41,6 +41,7 @@
 #include "forge/DirectEdit.hpp"
 #include "forge/MassProps.hpp"
 #include "forge/Tessellate.hpp"
+#include "forge/Topology.hpp"
 #include "forge/VoxelIoU.hpp"
 #include "forge/IoExchange.hpp"
 #include "forge/ShapeRegistry.hpp"
@@ -145,67 +146,13 @@ std::string num(double v) {
 }
 
 // --------------------------------------------------------------- topology
-// Weld-betti signature from the tessellation: quantise + weld vertices,
-// union-find the shells, chi = V - E + F, genus by the single-shell formula.
-// Mirrors scripts/inv_of_step.mjs::topology — deflection-invariant, which is
-// what makes genus usable as a GATE and not merely a diagnostic.
-struct Topo { long vertexCount = 0; long eulerChar = 0; long genus = 0; long shellCount = 0; };
-
-bool weldBetti(const forge::Mesh& m, Topo& out) {
-    const auto& P = m.positions;
-    const auto& I = m.indices;
-    if (P.empty() || I.size() < 3) return false;
-
-    const double q = 1e-4;
-    const std::size_t nVraw = P.size() / 3;
-    std::map<std::array<long long, 3>, int> weld;
-    std::vector<int> rep(nVraw, 0);
-    int nV = 0;
-    for (std::size_t i = 0; i < nVraw; ++i) {
-        const std::array<long long, 3> key{
-            {static_cast<long long>(std::llround(P[i * 3] / q)),
-             static_cast<long long>(std::llround(P[i * 3 + 1] / q)),
-             static_cast<long long>(std::llround(P[i * 3 + 2] / q))}};
-        auto it = weld.find(key);
-        if (it == weld.end()) { it = weld.emplace(key, nV++).first; }
-        rep[i] = it->second;
-    }
-
-    std::vector<int> parent(static_cast<std::size_t>(nV));
-    for (int i = 0; i < nV; ++i) parent[static_cast<std::size_t>(i)] = i;
-    std::function<int(int)> find = [&](int x) {
-        while (parent[static_cast<std::size_t>(x)] != x) {
-            parent[static_cast<std::size_t>(x)] =
-                parent[static_cast<std::size_t>(parent[static_cast<std::size_t>(x)])];
-            x = parent[static_cast<std::size_t>(x)];
-        }
-        return x;
-    };
-    auto uni = [&](int a, int b) {
-        a = find(a); b = find(b);
-        if (a != b) parent[static_cast<std::size_t>(a)] = b;
-    };
-
-    const std::size_t nF = I.size() / 3;
-    std::set<std::pair<int, int>> edges;
-    for (std::size_t f = 0; f < nF; ++f) {
-        const int a = rep[I[f * 3]], b = rep[I[f * 3 + 1]], c = rep[I[f * 3 + 2]];
-        uni(a, b); uni(b, c); uni(c, a);
-        edges.insert({std::min(a, b), std::max(a, b)});
-        edges.insert({std::min(b, c), std::max(b, c)});
-        edges.insert({std::min(c, a), std::max(c, a)});
-    }
-    std::set<int> roots;
-    for (int i = 0; i < nV; ++i) roots.insert(find(i));
-
-    const long chi = static_cast<long>(nV) - static_cast<long>(edges.size()) +
-                     static_cast<long>(nF);
-    out.vertexCount = nV;
-    out.eulerChar = chi;
-    out.genus = std::max(0L, static_cast<long>(std::lround((2.0 - chi) / 2.0)));
-    out.shellCount = static_cast<long>(roots.size());
-    return true;
-}
+// The weld-betti signature is forge::topologySignature (include/forge/Topology.hpp,
+// src/TopologySignature.cpp) -- ONE definition, shared with the IR's
+// VERIFY("genus=..") op. This tool used to carry a second, hand-copied
+// implementation of it, which is exactly what that unification was introduced to
+// end: a gate whose value depends on which copy you ask is not a gate. The mesh
+// overload is used, so the tessellation is still done ONCE and shared with the
+// bore measurement below.
 
 // ============================================================== BORE DETECTION
 //
@@ -468,8 +415,8 @@ int main(int argc, char** argv) {
 
             // topology — additive: never fail a real build because genus is unavailable
             try {
-                Topo t;
-                if (weldBetti(mesh, t)) {
+                forge::TopoSignature t;
+                if (forge::topologySignature(mesh, t)) {
                     o << ",\"genus\":" << t.genus << ",\"shellCount\":" << t.shellCount
                       << ",\"vertexCount\":" << t.vertexCount;
                 }
