@@ -12,26 +12,69 @@ set -u
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 DEPS="python3 $REPO/tools/deps/forge_deps.py"
 PLANEGCS="$REPO/forge-kernel/3rdParty/planegcs/GCS.cpp"
+sha_of() { shasum -a 256 < "$1" | awk '{print $1}'; }
 BACKUP="$(mktemp "${TMPDIR:-/tmp}/GCS.cpp.orig.XXXXXX")"
 # Populate the backup IMMEDIATELY. mktemp creates a ZERO-BYTE file, and restore()'s `[ -f ]` guard
 # cannot tell that placeholder from a real backup — so before this line existed, any exit between
 # mktemp and the `cp` further down (a failed `brew --prefix`, a missing prefix, ^C) fired the EXIT
 # trap and copied an EMPTY file over the vendored GCS.cpp, truncating real source to zero bytes.
 cp "$PLANEGCS" "$BACKUP"
-BACKUP_VALID=1
+# The backup is only trustworthy if the copy that made it actually landed. A cp that reports
+# success but writes short (ENOSPC mid-write) would otherwise arm restore() with a truncated
+# "original" that BACKUP_VALID=1 then vouches for.
+BACKUP_VALID=0
+if [ "$(sha_of "$PLANEGCS")" = "$(sha_of "$BACKUP")" ]; then
+  BACKUP_VALID=1
+else
+  echo "[drift-gate] FATAL: could not take a verified backup of $PLANEGCS" >&2
+  rm -f "$BACKUP"
+  exit 1
+fi
 PASS=0
 FAIL=0
+RESTORE_FAILED=0
 
+# restore() puts the original bytes back and PROVES it. It deliberately does NOT delete the
+# backup: the backup must stay alive for every later case, and for the EXIT trap, which is the
+# only safety net once the last case has run. Removal happens exactly once, in cleanup().
 restore() {
   # Restore only from a backup we KNOW holds the original bytes. Existence is not validity.
-  if [ "${BACKUP_VALID:-0}" = "1" ] && [ -s "$BACKUP" ]; then
-    cp "$BACKUP" "$PLANEGCS"
-  elif [ -f "$BACKUP" ]; then
-    echo "[drift-gate] REFUSING to restore: backup is empty or unverified — leaving $PLANEGCS untouched" >&2
+  if [ "${BACKUP_VALID:-0}" != "1" ] || [ ! -s "$BACKUP" ]; then
+    echo "[drift-gate] REFUSING to restore: backup is empty, missing or unverified — leaving $PLANEGCS untouched" >&2
+    RESTORE_FAILED=1
+    return 1
   fi
-  rm -f "$BACKUP"
+  if ! cp "$BACKUP" "$PLANEGCS"; then
+    echo "[drift-gate] RESTORE FAILED: cp $BACKUP -> $PLANEGCS returned non-zero." >&2
+    echo "[drift-gate] $PLANEGCS is TRACKED source and may be left perturbed; restore it from git." >&2
+    RESTORE_FAILED=1
+    return 1
+  fi
+  # Post-condition. A cp can exit 0 and still not have reproduced the file (short write, a
+  # shadowed cp, a filesystem that swallowed the tail). Silence here is how a 234KB vendored
+  # source becomes a 100-byte stub with the suite still printing "6 passed, 0 failed".
+  local want have
+  want="$(sha_of "$BACKUP")"
+  have="$(sha_of "$PLANEGCS")"
+  if [ "$want" != "$have" ]; then
+    echo "[drift-gate] RESTORE FAILED post-condition: $PLANEGCS does not match the backup." >&2
+    echo "[drift-gate]   backup   $want" >&2
+    echo "[drift-gate]   restored $have" >&2
+    echo "[drift-gate] $PLANEGCS is TRACKED source and is now CORRUPT; restore it from git." >&2
+    RESTORE_FAILED=1
+    return 1
+  fi
+  return 0
 }
-trap restore EXIT
+
+# The single owner of the backup's lifetime: last-chance restore, then remove it exactly once.
+cleanup() {
+  restore
+  local rf=$?
+  rm -f "$BACKUP"
+  [ "$rf" -eq 0 ] || exit 1
+}
+trap cleanup EXIT
 
 # $1 name, $2 expect(pass|fail), $3 needle, rest: env assignments
 run_case() {
@@ -86,9 +129,9 @@ run_case missing_prefix fail "installed_anchor_sha256 could not be computed" \
   "$NM" "FORGE_DEPS_PREFIX_BOOST=/nonexistent/forge/prefix"
 
 # 4. Patch drift: revert one of the recorded Forge edits in the vendored planegcs
-#    source and confirm the patch contract catches it.
-# (backup already taken at startup; this re-take is a no-op kept for clarity)
-cp "$PLANEGCS" "$BACKUP"
+#    source and confirm the patch contract catches it. No re-take of the backup here: the
+#    startup copy is the only VERIFIED one, and re-copying from a file that a later case might
+#    already have perturbed would overwrite the sole good original with a bad one.
 python3 - "$PLANEGCS" <<'PY'
 import sys, pathlib
 p = pathlib.Path(sys.argv[1])
@@ -98,7 +141,9 @@ p.write_text(t.replace('#include "forge_planegcs_stub.h"',
                        '#include <Base/Console.h>', 1))
 PY
 run_case patch_drift fail "PATCH DRIFT" "$NM"
-restore
+# Abort rather than run case 5 against a tree we failed to put back: "restored" would then fail
+# for a reason that has nothing to do with the tool under test.
+restore || exit 1
 
 # 5. After restoring, the baseline must pass again — proves case 4 perturbed the
 #    tree rather than breaking the tool.
