@@ -1,19 +1,38 @@
 name: Kernel + Guards
 
-# A6 + C0 ratchets (PLATFORM_UPGRADE.md). Dedicated, SEPARATE from the release
-# pipeline (build-app.yml) so a heavy native-kernel build can never delay a
-# desktop release — and so the native kernel's own smoke suite can never
-# silently regress. Two independent jobs:
-#   guards  (ubuntu, fast)  — brand-guard + dep-allowlist + bridge↔prompt contract
-#   kernel  (macOS, heavy)  — builds forge-kernel.node on OCCT 7.9 and runs the smokes
+# Native-C++-first CI for Forge.
 #
-# Hardware-calm: the kernel build is its own job, never stacked onto the
-# Electron/Vite build. Neither job `needs` the other, so an OCCT-env hiccup in
-# CI surfaces as a red kernel check without blocking the guards check.
+# 2026-08-28 (Sacrosanct 3.1 alignment): the Electron desktop release pipeline
+# (build-app.yml) and the AWS deployment guide were REMOVED. Forge's desktop
+# client is being rebuilt ground-up in native C++ (Qt 6 Widgets + KDDockWidgets
+# + a single Diligent/Metal viewport, Sacrosanct s19.2), so an Electron
+# installer/auto-update pipeline no longer describes a product we ship. The
+# `guards` job went with it: it existed only to npm-install `frontend/` and run
+# the React/Electron brand-guard, deps-allowlist, and bridge-prompt contract
+# tests. None of those describe the C++ target.
+#
+# What remains is ordered by Sacrosanct authority:
+#
+#   native   (ubuntu, PRIMARY)  pure C++20 in-house kernel gate. No OCCT, no
+#                               npm, no WASM, no vendor deps. This is the gate
+#                               that speaks for the product.
+#   scoring  (ubuntu, fast)     kernel-side ForgeCADScore self-tests. Kernel
+#                               logic, no frontend install.
+#   kernel   (macOS, heavy)     TRANSITIONAL. Builds forge-kernel.node against
+#                               homebrew OCCT 7.9 and runs the smoke suites.
+#                               This is the ONLY coverage the OCCT-linked kernel
+#                               has today, so it is retained deliberately until
+#                               its native C++ test harness exists and parity is
+#                               proved. It is tracked as a deletion target in
+#                               implementation/sacrosanct/ZERO_JS_MIGRATION_MANIFEST.md
+#                               and MUST NOT be removed by extension alone.
+#
+# Hardware-calm: no job `needs` another, so an OCCT-env hiccup surfaces as one
+# red check instead of blocking the pure-C++ gate.
 
 on:
   push:
-    branches: [archdisc]
+    branches: [archdisc, 'claude/sacrosanct-**']
   pull_request:
   workflow_dispatch:
 
@@ -25,37 +44,14 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  guards:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm install --no-audit --no-fund --ignore-scripts
-      - name: Brand-guard + dep-allowlist + bridge↔prompt contract
-        working-directory: frontend
-        run: npm test
-      - name: ForgeCADScore v2 canonical-formula self-test (kernel-free)
-        run: node forge-kernel/test/cadscore_v2_selftest.mjs
-      - name: ForgeCADScore mechanism-axis self-test (kernel-free)
-        run: node forge-kernel/test/mechanism_axis_selftest.mjs
-
   native:
+    name: native C++ kernel gate (pure C++20, no deps)
     # In-house pure-C++ kernel gates (forge::native) — NO OCCT, NO deps, NO WASM,
     # so this runs on ubuntu with just a C++20 compiler. The gate compiles ~125
-    # native sources + ~121 tests sequentially; on CI's 2-core ubuntu this grew
-    # past the old 10-min cap as the kernel expanded (8 OCCT-zero bursts) — raised
-    # to 30 (gate ~12 min on CI today, headroom for further growth).
+    # native sources once, then compiles AND LINKS each of ~121 tests against the
+    # whole object set. On a 4-core runner that is ~45 min cold; ccache makes warm
+    # runs minutes. 120 covers cold.
     runs-on: ubuntu-latest
-    # The gate compiles ~125 native sources once, then compiles AND LINKS each of ~121 tests
-    # against the whole object set. On a 4-core runner that is ~45 min cold, which is exactly the
-    # cap it used to sit under. It only started TIMING OUT once the missing-include preflight was
-    # fixed (2026-07-10) and the job got past 18s for the first time since 2026-07-07 -- the
-    # timeout was latent behind a hard failure. ccache makes warm runs minutes; 120 covers cold.
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
@@ -76,7 +72,26 @@ jobs:
           bash forge-kernel/test/native/run_native.sh
           ccache --show-stats
 
+  scoring:
+    name: ForgeCADScore self-tests (kernel-free)
+    # Kernel-side scoring logic. Deliberately does NOT install frontend/ — these
+    # two self-tests are kernel scoring formulae, not app guards. They remain on
+    # the Node runner only until the scorer's C++ entry point lands; tracked in
+    # the zero-JS migration manifest.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: ForgeCADScore v2 canonical-formula self-test
+        run: node forge-kernel/test/cadscore_v2_selftest.mjs
+      - name: ForgeCADScore mechanism-axis self-test
+        run: node forge-kernel/test/mechanism_axis_selftest.mjs
+
   kernel:
+    name: OCCT kernel smoke (TRANSITIONAL — pending native C++ harness)
     runs-on: macos-latest
     timeout-minutes: 40
     steps:
@@ -96,8 +111,6 @@ jobs:
         run: npm run forge:kernel
       - name: Kernel smoke suite
         run: npm run forge:kernel:test
-      - name: Bridge smoke
-        run: npm run forge:bridge:test
       - name: Coherence + logic scorer (random scenes each run)
         run: npm run forge:coherence
       - name: Native binding smoke (forge.native.* callable in-platform)
