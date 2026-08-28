@@ -32,3 +32,11 @@
 # See reports/FEA_NAFEMS_GAP.md and test/fea_nafems_convergence.mjs.
 NAFEMS_EXPECTED_MISSES=3
 NAFEMS_EXPECTED_MISS_SET="LE1,LE10,LE11"
+
+# A BLOCKED case did not run at all — the kernel refused to build its geometry. That is a
+# capability gap, not an accuracy result, and it is PLATFORM-DEPENDENT: LE11's ball+cone+cylinder
+# fuse succeeds on this machine and is refused in CI, where the native-only operand class has no
+# OCCT fallback (K2). Tracking it separately stops a capability LOSS reading as an accuracy GAIN.
+# Expected-blocked is a ceiling, not a target: a case leaving this set is good and must lower it.
+NAFEMS_EXPECTED_BLOCKED_MAX=1
+NAFEMS_EXPECTED_BLOCKED_SET="LE11"

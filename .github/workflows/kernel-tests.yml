@@ -224,4 +224,14 @@ jobs:
         # changes in either direction; red if the gate trips a kernel-correctness guard;
         # red if the result cannot be parsed. Never run the gate bare in CI -- its own exit
         # code does not cover a missed benchmark. See reports/FEA_NAFEMS_GAP.md.
+        #
+        # THREE axes, and BLOCKED is judged before accuracy. A case that did not run is
+        # neither a pass nor a miss: LE11's ball+cone+cylinder fuse is refused on this runner
+        # and succeeds on macOS, so folding it into the miss count made a platform-dependent
+        # kernel gap look like an accuracy change -- misses dropped 3 -> 2 here and the ratchet
+        # read a CAPABILITY LOSS as an ACCURACY IMPROVEMENT, then asked for the baseline to be
+        # lowered, which would have locked it in. The baseline is now a CEILING on blocked plus
+        # a miss set among the cases that ran, so one committed baseline is correct on both
+        # platforms. Proven by cases 11a/11b of fea_nafems_ratchet_selftest.sh, which drive the
+        # two shapes against the same baseline file.
         run: bash forge-kernel/test/fea_nafems_ratchet.sh
