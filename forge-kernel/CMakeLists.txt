@@ -375,6 +375,97 @@ if(FORGE_NATIVE_BREP AND FORGE_OFFSET_DROP_MAKEOFFSET)
                     "UNOFFSET wire. Do not ship this ON until PolygonOffset2D handles filleted/fused "
                     "outlines; see the block above.")
 endif()
+# ── TKOffset FAMILIES G + H — MakeThickSolid / MakeOffsetShape (authored 2026-08-28) ──
+# These two options compile out the two TKOffset classes that share a vtable, and are
+# documented together because that vtable is why they must be scored together.
+#
+#   FORGE_THICKSOLID_DROP_NATIVE  -> forge::part::shell routes UNCONDITIONALLY through
+#     forge::occtoffset::makeThickSolid and the BRepOffsetAPI_MakeThickSolid fallback is
+#     compiled out.  Removes 3 symbols:
+#       BRepOffsetAPI_MakeThickSolid::{MakeThickSolidByJoin, Build, ctor}
+#
+#   FORGE_OFFSETSHAPE_DROP_NATIVE -> forge::part::offsetSolid routes through
+#     forge::occtoffset::offsetSolidShape and the BRepOffsetAPI_MakeOffsetShape fallback
+#     is compiled out.  Removes 2 symbols:
+#       BRepOffsetAPI_MakeOffsetShape::{PerformByJoin, ctor}
+#
+#   The 6th symbol, `vtable for BRepOffsetAPI_MakeOffsetShape`, is SHARED: MakeThickSolid
+#   derives from MakeOffsetShape and has no vtable of its own, so it leaves the binary
+#   ONLY when BOTH options are ON. Either option alone removes 3 or 2; together they
+#   remove 6. (reports/TKOFFSET_DECOMPOSITION.md §1 measured this with two minimal TUs.)
+#
+# ★ WHAT THIS IS WORTH — do not mis-score it. TKOffset is NOT removed from OCCT_LIBS:
+#   families B/C/D/E/F/I (MakeFilling, DraftAngle, ThruSections, MakePipe, MakePipeShell,
+#   BRepOffset_MakeOffset) still reference 32 of the 38 remaining symbols. OCCT_DIRECT
+#   stays 8 and OCCT_CLOSURE stays 14 — MEASURED both ways, scripts/occt_closure_count.sh.
+#   This is BLOCKING-SET REDUCTION (38 -> 32) on the one toolkit whose eventual drop is
+#   the only unilateral closure win in the build (14 -> 13, reports/OCCT_CLOSURE_TRUTH.md
+#   §4.1). It is NOT a drop and must not be scored as one.
+#
+# ★★ BOTH DEFAULT **OFF**, and off means byte-for-byte the previous behaviour.
+#   The native engines are ALWAYS BUILT and, for family H, always TRIED first — a null
+#   return is an honest defer that falls through to the untouched OCCT path, so the
+#   default build can only gain coverage, never lose it. What the options change is the
+#   FALLBACK: with them ON a defer becomes a thrown error. Both engines decline NURBS
+#   faces, planar faces carrying a hole, and corners with no exact sharp-join meet, and
+#   Law 9 forbids deleting the capability OCCT provides there. The flip gate for G is the
+#   corpus A/B in reports/TKOFFSET_DECOMPOSITION.md §5 step 6 ("native success rate >= the
+#   measured OCCT baseline"); for H it is the same measurement over the corpus parts that
+#   actually call offsetSolid.
+#
+# ★★★ FAMILY G HAS A HARD BLOCKER THAT IS NOT A COVERAGE GAP — MEASURED 2026-08-28.
+#   `part.shell` and `forge::occtoffset::makeThickSolid` DO NOT COMPUTE THE SAME
+#   OPERATION for a positive thickness. OCCT's MakeThickSolidByJoin with offset > 0
+#   grows the wall OUTWARD with the default rounded (GeomAbs_Arc) join; the native
+#   engine INSETS the cavity and keeps the outer boundary, with sharp corners
+#   (NativeThickSolid.hpp: "t>0 offsets the retained faces INWARD"). On the smoke's own
+#   10x10x10 box, shell(remove face 0, t = 1) measures
+#       OCCT   V = 564.926   (an OUTWARD wall with rounded edges)
+#       native V = 424.000   (= 1000 - 8*8*9, the EXACT inward wall)
+#   — a 25% divergence, and the two numbers are answers to different questions.
+#   This is PRE-EXISTING, not introduced by these options: it reproduces on a build with
+#   both of them OFF simply by setting the existing FORGE_THICKSOLID_NATIVE=1
+#   environment switch. It also reaches shellMultiThickness, which moves 1023.049 ->
+#   632.500 when family G is routed native at both of its sites.
+#   test/part_features_smoke.js stays GREEN through all of it, because its only
+#   assertion on these two entry points is `volume > 0`.
+#   THEREFORE: FORGE_THICKSOLID_DROP_NATIVE must not be flipped ON — and the
+#   FORGE_THICKSOLID_NATIVE env switch should not be used in anger — until either the
+#   sign/side convention is reconciled at the call site or part.shell's contract is
+#   restated as an inward hollow. Fixing that is a behaviour decision, not a build flag,
+#   so it is deliberately NOT made here. Family H has no such problem: its A/B matches
+#   OCCT exactly on volume, position and topology across all nine cases.
+#
+#   EQUIVALENCE EVIDENCE FOR H (test/run_ab_native_offsetshape.sh, 206/206 assertions,
+#   2026-08-28): box grow+shrink, right-triangular prism, NON-CONVEX L-prism grow+shrink,
+#   capped cylinder grow+shrink, sphere, torus, cone frustum — each asserting native ==
+#   OCCT on VOLUME and on CENTRE OF MASS and on all six BOUNDING-BOX bounds and on
+#   face/edge/vertex/shell counts and shell closure and BRepCheck_Analyzer validity, plus
+#   native == an INDEPENDENT CLOSED FORM wherever one exists (OCCT is not a trustworthy
+#   oracle for this family — §4.2 measured MakeThickSolid returning the cavity with
+#   IsDone()==true). The same script asserts the ENGINE OBJECT FILE imports ZERO TKOffset
+#   symbols, and carries a NEGATIVE CONTROL: two solids whose volumes agree to 1e-16 and
+#   whose geometry does not, which the same comparator must REJECT — a volume match
+#   proves nothing on its own.
+option(FORGE_THICKSOLID_DROP_NATIVE
+       "route part::shell through the native thick-solid & compile out the OCCT BRepOffsetAPI_MakeThickSolid fallback (TKOffset family G)"
+       OFF)
+option(FORGE_OFFSETSHAPE_DROP_NATIVE
+       "route part::offsetSolid through the native whole-solid offset & compile out the OCCT BRepOffsetAPI_MakeOffsetShape fallback (TKOffset family H)"
+       OFF)
+if(FORGE_NATIVE_BREP AND FORGE_THICKSOLID_DROP_NATIVE)
+    add_compile_definitions(FORGE_THICKSOLID_DROP_NATIVE=1)
+    message(WARNING "FORGE_THICKSOLID_DROP_NATIVE=ON — BRepOffsetAPI_MakeThickSolid fallback compiled out "
+                    "(TKOffset family G, 3 symbols). TKOffset STILL LINKED and OCCT_CLOSURE UNCHANGED at 14. "
+                    "A shape the native thick-solid declines now THROWS instead of falling back to OCCT.")
+endif()
+if(FORGE_NATIVE_BREP AND FORGE_OFFSETSHAPE_DROP_NATIVE)
+    add_compile_definitions(FORGE_OFFSETSHAPE_DROP_NATIVE=1)
+    message(WARNING "FORGE_OFFSETSHAPE_DROP_NATIVE=ON — BRepOffsetAPI_MakeOffsetShape fallback compiled out "
+                    "(TKOffset family H, 2 symbols; +1 shared vtable when family G is dropped too). "
+                    "TKOffset STILL LINKED and OCCT_CLOSURE UNCHANGED at 14. A shape the native offset "
+                    "declines now THROWS instead of falling back to OCCT.")
+endif()
 # OCCT-zero progress (2026-07-25, R1+R2 → TKGeomBase): DROPPED TKGeomBase. 10 -> 9 OCCT dylibs.
 #   (TKGeomBase still loads transitively — TKBRep/TKG3d/TKGeomAlgo DT_NEED it — but the .node
 #   no longer LINKS it directly.)
