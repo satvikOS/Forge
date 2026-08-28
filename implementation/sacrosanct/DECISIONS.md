@@ -251,3 +251,32 @@ Two consequences worth stating plainly:
 absent from the source list. It is not linked by anything today, so it is not fixed here — but a
 source file in the tree that no target compiles is either dead code or a second instance of this
 bug, and nothing currently distinguishes the two.
+
+
+---
+
+## D-008 — kernel-file work goes on its own branch while the in-flight tree is dirty (2026-08-28)
+
+**Context.** 36 of the 37 uncommitted files in the working tree are `forge-kernel/` sources and
+are user-owned. Two of them are actively harmful if committed as they stand: `CMakeLists.txt` is a
+superseded parallel line that would revert the TKOffset drop, and `Features.cpp` does not compile
+(`occtoffset::thickenShell` -- wrong namespace, and a fourth argument the 3-parameter declaration
+does not accept). Editing any of them in the main tree would mix my changes into someone else's
+uncommitted diff and make both harder to recover.
+
+**Decision.** Kernel-file work is done in a dedicated worktree branch and offered as a PR, never
+edited in the main tree, for as long as that file is in-flight. Non-kernel work (`simulation/`,
+`ui/`, `retrieval/`, `tools/`, `.github/`, `implementation/`) continues directly on the execution
+branch.
+
+**First application.** `fix/forge-verify-stoi` -> PR #62. The fix and its gate are complete and
+verified; only the merge waits on the in-flight file. Checked rather than assumed: the user's
+uncommitted diff to `forge_verify.cpp` is +33/-1 and does not touch `jsonUnescape`, so the two
+changes do not overlap textually and will merge cleanly once that work is committed.
+
+**Cost, stated plainly.** A verified fix sits unmerged. That is the correct trade -- the
+alternative is either destroying uncommitted user work or leaving a crash in the verifier -- but it
+is a real cost, and it grows with every kernel-file fix that queues up behind the same blocker.
+
+**What would end it.** The in-flight work being committed to its own branch. Until then, expect
+more branches like #62 rather than commits on the execution branch.
