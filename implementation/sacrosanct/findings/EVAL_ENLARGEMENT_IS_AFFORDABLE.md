@@ -35,8 +35,19 @@ expert3d training corpus. Those 6,488 overlapping rows (56 + 6432) are clean by 
 definition and would still be **contaminated as eval for this model**, because the model was
 trained on those exact prompts.
 
-**Both checks are required before a row becomes an eval row**, and only one of them is
-automated today. The 94.9% overlap in `ft_ir_gen_gt` is the reason this matters: taking that
+**Both checks are required before a row becomes an eval row.** As of `bc48190d7` in
+archdisc-Models, both are automated: **R9** was added to `contamination_guard.py` as the
+mirror of R8 -- it flags any eval row whose whitespace-normalised prompt appears in a
+training corpus named by the new `--against-training` flag, fires only in eval mode, and
+reuses R8's key scheme and boilerplate defence. Verified on the real corpora: the 36-row
+holdout is clean, five training prompts reshaped as eval rows are caught 5/5, and five
+holdout prompts reshaped identically pass. Gated at 70 -> 73 controls and proved red by
+mutation (exactly 1 failure, matching the prediction).
+
+One practical note for anyone repeating the scan: **R0 fires first on the gold corpora**
+because their rows carry an assistant turn, so a direct `--scan-eval` of `ft_ir_gen_gt`
+reports `R0 6781` and never reaches R9. Drop the assistant turn -- which is what an eval task
+file looks like anyway -- to see R9 work. The 94.9% overlap in `ft_ir_gen_gt` is the reason this matters: taking that
 corpus at face value would produce an eval that is almost entirely training data.
 
 Verified in the other direction too: **0 of the 36 current holdout prompts appear in
