@@ -159,3 +159,68 @@ ancestor of any other ref, so removing it would strand commits.
 MFIX (scorer defect → re-score → resume training), SIM (SR-4 real-time motion animation), GUI
 (make ImGui shell compile+run), KRN (OCCT drop with real measurement), APPB (fix the s0 parser
 gaps), CONTAM (close the §17.3 hole).
+
+---
+
+## Iteration 3 — 2026-08-28 02:30–07:30 · waves 2+3 integrated, PR opened
+
+**Integrated:** 12 tracks across two waves. Branch at **46 commits**, pushed, **PR #61** open
+against `archdisc` for CodeRabbit review.
+
+### Verified at HEAD in a clean detached worktree (not the working tree, which diverges)
+
+```
+bash ui/test/run_ui.sh                      -> ALL 6 UI GATES PASS, 2,421 checks
+bash retrieval/run_retrieval_tests.sh       -> 129 passed x2 (phase 2 network-denied), GATE PASSED
+bash forge-kernel/test/ft/s0_ratchet.sh     -> pass=42 fail=5, baseline=5, GREEN, exit 0
+bash tools/deps/tests/offline_build_test.sh -> 14 passed / 0 failed, network kernel-denied
+```
+
+### Four tracks reported DELIVERED while leaving everything UNCOMMITTED
+
+SHELL, TKOFF, OFFLINE and ARCHIE all returned success with their work sitting dirty in their
+worktrees. The reaper refuses dirty trees so nothing was at risk of automated deletion, but
+uncommitted work on one machine is not preserved work. Committed on their behalf by explicit path,
+never `git add -A`. **Added to the wave-4 brief: COMMIT YOUR WORK BEFORE RETURNING.**
+
+### The s0 ratchet, and what it measured
+
+A permanently-red gate teaches people to ignore it, so CI now ratchets against a committed baseline:
+red if failures rise, red if they fall (lower the baseline in the same commit), green at the known
+count. It immediately quantified the reconciliation debt:
+
+| | pass | fail | verdict |
+| --- | ---: | ---: | --- |
+| HEAD | 42 | 5 | GREEN |
+| working tree | 33 | 14 | RED |
+
+**Nine s0 conformance laws hold at HEAD and do not hold in the working tree.**
+
+### My own errors this iteration
+
+1. **Wired two OCCT-dependent gates onto bare `ubuntu-latest`.** Both went red on a PR that is green
+   locally. Chasing it found a real portability bug: `build_s0_acceptance.sh` hardcoded
+   `/opt/homebrew/include/opencascade` and printed that macOS path in a Linux failure. Now searches
+   standard prefixes, as the simulation script already did correctly.
+2. **Read `$?` after a pipeline** and reported the ratchet exiting 0 when it exited 1 — `$?` was
+   `tail`'s status. Same class as counting your own grep.
+3. **Overclaimed forge::ui.** I reported "2,421 checks" as a headline; the ZEROJS track showed
+   2,053 of them (84.8%) are one synthetic virtualization gate and the registry ships **zero**
+   product commands, so those checks map to zero shipped JS behavior.
+
+### Corrections to earlier findings
+
+- The "scorer failed to measure the reference" defect **does not exist**. M2 read ABSENT keys as
+  NULL values; across all six arms `absent == build_failed + refused` exactly and present-but-null
+  is zero. `score()` short-circuits on a candidate that produced no solid.
+- The real cause, reached independently by M1 and MFIX: the expert LoRA was **never loaded** (config
+  listed 0 of 72 switch keys), so the model emitted out-of-vocabulary ops and 35/36 tasks failed to
+  build. A five-op rename recovers **85%** of the gap.
+- The cmake `file(DOWNLOAD)` crash was a **deliberate negative control**, not a §10.6 violation.
+- `DYLD_INSERT_LIBRARIES` alone would have produced a **false offline pass** — SIP strips it when
+  exec'ing a protected binary and Make shells out through `/bin/sh`. Measured: rc=0 under the
+  interposer via `/bin/sh`, rc=134 direct. The gate now also uses kernel-enforced `sandbox-exec`.
+
+### Still UNPROVED
+OCCT closure unchanged at 14 · NAFEMS PARTIAL (gate cannot fail) · zero JS files removed (all eight
+candidates failed the §3.2 bar) · 7 of 8 deps hashes null · 7 files of reconciliation debt.
