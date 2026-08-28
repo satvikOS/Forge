@@ -390,6 +390,26 @@ std::size_t edgeCount(ShapeHandle shape) {
     return static_cast<std::size_t>(map.Extent());
 }
 
+// The complete census. One MapShapes pass per level; the same deterministic
+// order faceCount/edgeCount return, so an index taken from either still means
+// the same sub-shape here.
+TopoCounts topoCounts(ShapeHandle shape) {
+    const auto& s = ShapeRegistry::instance().get(shape);
+    const auto count = [&s](TopAbs_ShapeEnum type) -> std::size_t {
+        TopTools_IndexedMapOfShape map;
+        TopExp::MapShapes(s, type, map);
+        return static_cast<std::size_t>(map.Extent());
+    };
+    TopoCounts c;
+    c.solids   = count(TopAbs_SOLID);
+    c.shells   = count(TopAbs_SHELL);
+    c.faces    = count(TopAbs_FACE);
+    c.wires    = count(TopAbs_WIRE);
+    c.edges    = count(TopAbs_EDGE);
+    c.vertices = count(TopAbs_VERTEX);
+    return c;
+}
+
 // Slice-3 edge picking — sample every edge into a world-space polyline,
 // tagged with a 0-based edge id that matches the TopExp_Explorer order
 // used by edgeById (and therefore part.filletEdges / chamferEdges /

@@ -104,9 +104,39 @@
 //
 // GATE. test/native_thicksolid_closedform.mjs drives this engine through
 // forge::part::shellNativeThick (which has NO OCCT fallback, so a pass has
-// necessarily measured native geometry) against CLOSED-FORM volumes for
+// necessarily measured native geometry) against CLOSED FORMS for the
 // cylinder / cone / sphere / torus / tube shells — derived, not borrowed from
 // OCCT, because §4.2 shows OCCT is not a valid oracle for shell.
+//
+// The oracle is TOPOLOGY *and* POSITION *and* VALIDITY, not volume. Volume
+// alone ratifies a wrong solid, and so does volume plus a surface-type census:
+// MEASURED on case 1, the correct shell and the shell built at the WRONG END of
+// the same cylinder agree to the last printed digit on volume (3795.043925536),
+// on surface area (3920.707631680), on every count in the sub-shape census
+// (1 solid, 1 shell, 5 faces, 6 wires, 6 edges, 4 vertices), on the surface
+// signature (cylinder:10 plane plane *cylinder:8 *plane) and on validity. So
+// per case the gate asserts:
+//
+//   * the closed-form VOLUME and total surface AREA (rel tol 1e-12);
+//   * the closed-form CENTRE OF MASS, all three components;
+//   * the complete sub-shape CENSUS via forge.direct.topoCounts — the shell
+//     term is the one a sew gets wrong (a mouthless shell is 1 solid / 2
+//     shells, outer plus reversed inner; an open one is 1 solid / 1 shell
+//     because the lip joins them);
+//   * per face: its surface type and radius AND its exact area, its axial
+//     centroid and its outward-normal / axis z-component — every face pinned
+//     to a PLACE, which is what rejects the mirror image;
+//   * VALIDITY: forge.heal.checkValidity (closed, manifold, oriented, no
+//     self-intersection, no non-manifold edge, no bad face or edge) plus
+//     forge.shapecheck.analyse.
+//
+// It also carries NEGATIVE CONTROLS: valid equal-volume solids built WITHOUT
+// this engine that the oracle must reject, and which it must reject on the
+// POSITION terms specifically. PROVEN falsifiable — a one-line off-by-one in
+// makeThickSolid's removedSet (pin the mouth to the other planar face) leaves
+// case 1's volume matching the reference to 3.6e-16 and its whole census
+// unmoved; the pre-2026-08-28 gate PASSED that mutant, this one fails it on
+// centroid (16.483444 against 13.516556) and on the per-face heights.
 //
 // WIRING. src/Features.cpp keeps BRepOffsetAPI_MakeThickSolid as the live path;
 // the native attempt there is opt-in via FORGE_THICKSOLID_NATIVE=1 and falls

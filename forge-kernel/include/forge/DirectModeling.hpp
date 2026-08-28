@@ -99,6 +99,29 @@ std::size_t faceCount(ShapeHandle shape);
 // user invokes the toolbar tool without picking any.
 std::size_t edgeCount(ShapeHandle shape);
 
+// The COMPLETE sub-shape census, in the same deterministic TopExp::MapShapes
+// order faceCount/edgeCount already use.
+//
+// WHY THE WHOLE CENSUS AND NOT JUST FACES+EDGES. A gate that uses topology as
+// an oracle needs the SHELL and VERTEX terms, because faces and edges alone do
+// not move for the failures that matter most here. MEASURED on the thick-solid
+// gate's own case 1 (cylinder R10 H30, t=2, top removed): the correct shell and
+// an UPSIDE-DOWN shell of the same cylinder agree on volume, area, face count
+// (5), edge count (6) and every face's surface type and radius — see
+// test/native_thicksolid_closedform.mjs. Shells are the term a sew gets wrong
+// (a cavity left as its OWN shell instead of merged into one closed solid);
+// vertices are the term a lost wall corner moves. Neither is reachable from
+// faceCount/edgeCount.
+struct TopoCounts {
+    std::size_t solids = 0;
+    std::size_t shells = 0;
+    std::size_t faces = 0;
+    std::size_t wires = 0;
+    std::size_t edges = 0;
+    std::size_t vertices = 0;
+};
+TopoCounts topoCounts(ShapeHandle shape);
+
 // Slice-3 edge picking — a sampled world-space polyline for one edge,
 // tagged with the 0-based TopExp_Explorer edge id (same order as edgeById
 // / part.filletEdges).
