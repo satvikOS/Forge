@@ -223,3 +223,55 @@ Scripts under the session scratchpad `nafems-exp/` (`audit_sets.mjs`, `audit_bou
 Release `forge-kernel.node` built in a clean detached worktree at `9d5e507a`. Owner gates
 before and after: `test/fea_nafems_gate.mjs` exit 0 and bit-identical on every
 `[nafems-case]` line; `test/fea_nafems_ratchet.sh` exit 0, GREEN, 2 misses / 1 blocked.
+
+
+---
+
+## Correction to the framing (not to the measurement), 2026-08-28
+
+The measurement above is right and it is the important part: **the boundary node set does not
+refine with `targetEdge`**, and that is why the NAFEMS error does not shrink under
+h-refinement. Nothing below weakens that.
+
+But calling it a *defect in* `meshShape` overstates it, and the overstatement is the kind that
+gets a true finding thrown away. The behaviour is **documented and deliberate**. From the
+source, immediately above the loop:
+
+```
+//   (a) surface points: subdivide every triangle edge whose length
+//       exceeds 1.25 * targetEdge into ONE EXTRA MIDPOINT, plus the
+//       triangle barycenter if its area is large.
+```
+
+and inside it:
+
+```
+// (a) Triangle midpoints + barycenters (operate on the original
+// triangle list to avoid iterating new points).
+```
+
+So `ntri` being captured before the loop, and `tryAdd` appending only to `bndPts`, are not an
+oversight -- they are how "one extra midpoint" is implemented. A reader sent to find a coding
+slip will find an intentional comment instead, conclude the finding is wrong, and discard a
+result that is actually correct.
+
+**The accurate statement is stronger, not weaker:** the seeding strategy is single-pass BY
+DESIGN, and a single pass cannot support h-refinement. Conclusive by construction, without
+needing a rebuild: `triangles` never grows, and each edge contributes at most ONE midpoint, so
+the boundary point set saturates at *original vertices + one midpoint per edge + one barycentre
+per triangle*. Below the targetEdge at which every edge already exceeds `1.25 * targetEdge`,
+shrinking targetEdge further adds nothing. The interior grid keeps refining; the boundary does
+not. That asymmetry is the mechanism.
+
+**What that changes about the fix.** It is not a one-line repair of a slip. It is a change of
+strategy -- recursive subdivision that appends to `triangles`, or re-meshing at the target size
+-- in numerical code, with a de-duplication rule (`tryAdd` rejects points within `mergeTol`)
+that will silently drop sub-triangle vertices unless the subdivision accounts for it. Any
+attempt must measure the boundary node count as a function of `targetEdge` FIRST, because that
+is the symptom the fix has to move, and NAFEMS band results alone would not distinguish a real
+improvement from a lucky one.
+
+**Still blocked either way:** `forge-kernel/src/FeaTet.cpp` is one of the 37 user-owned
+in-flight files (D-008). Recorded here so the next person starts from the right problem
+statement. Their in-flight diff is 2 lines at 16 and 788 and does not touch this loop, so a
+fix on a branch would not conflict.
