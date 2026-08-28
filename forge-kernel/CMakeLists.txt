@@ -255,14 +255,23 @@ if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
     list(APPEND OCCT_LIBS TKBO TKG2d)
 endif()
 # TKOffset family E: the native CIRCLE-profile pipe builds its mitre-trimmed
-# cylinder chain with BRepPrimAPI_MakeCylinder / BRepPrimAPI_MakeHalfSpace, so the
-# drop build CALLS TKPrim. MEASURED 2026-08-28: without this line OCCT_PHANTOM goes
-# 2 -> 3 (TKPrim, 7 symbols, masked by macOS `-undefined dynamic_lookup`) — a lib
-# the binary calls with no link record. OCCT_CLOSURE is unaffected either way
-# because TKPrim already loads via TKBO/TKBool/TKFillet/TKOffset, so naming it costs
-# nothing real and buys back the --assert-no-phantom gate; on the Linux strict-link
-# CI it is not optional but required to link at all.
-if(FORGE_NATIVE_BREP AND FORGE_PIPE_DROP_NATIVE)
+# cylinder chain with BRepPrimAPI_MakeCylinder / BRepPrimAPI_MakeHalfSpace, so any
+# build that COMPILES src/native/brep/NativeLoftPipe.cpp calls TKPrim.
+#
+# ★ THE CONDITION IS FORGE_NATIVE_BREP, NOT FORGE_PIPE_DROP_NATIVE. Getting this
+#   wrong was caught by measurement, not by review: gating it on the drop option
+#   left the DEFAULT build (every drop OFF) at OCCT_PHANTOM 3 instead of 2, because
+#   the engine is compiled in whenever the native B-rep layer is on — the drop
+#   option only decides whether the OCCT FALLBACK is also compiled, not whether the
+#   native engine exists. A phantom is a library the binary CALLS with no link
+#   record, masked on macOS by `-undefined dynamic_lookup`; on the Linux strict-link
+#   CI it does not link at all.
+#
+#   MEASURED 2026-08-28: naming TKPrim moves OCCT_DIRECT 8 -> 9 and leaves
+#   OCCT_CLOSURE at 14, because TKPrim already loads via TKBO/TKBool/TKFillet/
+#   TKOffset. DIRECT is the explicitly gameable number; refusing to hide a real call
+#   behind dynamic_lookup is worth more than the cosmetic 8.
+if(FORGE_NATIVE_BREP)
     list(APPEND OCCT_LIBS TKPrim)
 endif()
 # ── TKShHealing PARTIAL DROP — P1 (landed 2026-07-31; DEFAULT ON) ─────────────────
