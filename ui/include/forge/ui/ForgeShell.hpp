@@ -49,6 +49,14 @@ class ForgeShell {
   ForgeShell();
 
   const CommandRegistry& registry() const noexcept { return registry_; }
+  // Mutable, so a HOST APPLICATION can add its workspace's product commands --
+  // registerPartCommands() and friends -- into THE SAME registry the shell
+  // dispatches, journals and resolves shortcuts through. Without this the app
+  // would need a second registry, which is precisely the "same command, two code
+  // paths" failure the single-registry rule exists to prevent (s19.2). It is an
+  // accessor, not a second registration path: everything still goes through
+  // CommandRegistry::add and its duplicate-ID refusal.
+  CommandRegistry& registry() noexcept { return registry_; }
   SelectionService& selection() noexcept { return selection_; }
   const SelectionService& selection() const noexcept { return selection_; }
   const Keymap& keymap() const noexcept { return keymap_; }

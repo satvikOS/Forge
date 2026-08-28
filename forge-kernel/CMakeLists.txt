@@ -1422,6 +1422,14 @@ set(FORGE_KERNEL_SOURCES
                                      # so this MUST be in the link: it is not optional.
     src/ft/ChunkChain.cpp            # s0.11 chunked emission + SHA-256 hash/count chain
                                      # (Appendix B CHUNK-CORRUPTION detection)
+    src/native/util/Sha256.cpp       # FIPS 180-4 SHA-256, the ONE copy ChunkChain.cpp
+                                     # delegates to. It was absent from this list, so
+                                     # forge::native::util::sha256Hex was an undefined
+                                     # symbol masked in the .node by Darwin's
+                                     # `-undefined dynamic_lookup` -- exactly the failure
+                                     # the MeshToSDF.cpp comment above records. The
+                                     # node-free forge_kernel_core links WITHOUT that
+                                     # flag, so it surfaced there as a hard link error.
     src/ft/binding_ft.cpp            # N-API surface forge.ft.compile(irText[, outStep])
     # KEYSTONE K7 — Parasolid-style opaque-handle C-API black box wrapping the
     # native brep/mesh/csg kernel (include/forge/capi/forge_capi.h). Strict

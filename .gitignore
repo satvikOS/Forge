@@ -96,6 +96,9 @@ dist-electron/
 *.exe
 forge-kernel/build-native/
 forge-kernel/build-desktop-ui/
+# The node-free kernel core the C++ desktop app links, and the app's own build
+# tree. `build/` above only matches a directory literally named build.
+forge-kernel/build-app/
 forge-kernel/test/native/gdt/fcf_evaluator_test.cpp
 
 # --- Forge local dependency plane (Sacrosanct 3.1 s10.6 / s21.2) -------------

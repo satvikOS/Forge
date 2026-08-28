@@ -104,17 +104,56 @@ checked out when it executes.
 
 ---
 
-## D-006 — Render backend: Diligent/Metal vs the existing Vulkan probes — **OPEN**
+## D-006 — Render backend: **Vulkan via MoltenVK** — **RESOLVED 2026-08-28, and RUNNING**
 
-D-001 settled the UI framework (ImGui). It did not settle the renderer. Sacrosanct §19.2 selects
+D-001 settled the UI framework (ImGui). This settles the renderer. Sacrosanct §19.2 selects
 **Diligent Engine with a Metal backend** on Apple Silicon and requires ONE authoritative
-interactive renderer. `forge-desktop/` currently vendors **4 Vulkan GLSL shaders**, and the
-migration doc's latency argument assumed a Vulkan command buffer.
+interactive renderer. The entry above leaned Diligent/Metal on the grounds that "Vulkan on M4 Max is
+Metal with a layer in front", and asked for a measured comparison rather than a document quote.
 
-On macOS, Vulkan is only available through MoltenVK translation, so "Vulkan on M4 Max" is Metal
-with a layer in front. §19.2's Metal-first selection is therefore the better-supported path and the
-ImGui co-composite argument holds equally well on Metal. Leaning Diligent/Metal, but it needs a
-measured comparison rather than a document quote, and no UI work depends on it yet.
+**Decision: Vulkan through MoltenVK.** The application is built, launches, and presents frames on
+this machine. Four grounds, in the order of their weight:
+
+1. **The Vulkan path is measured working here and the Metal path does not exist.**
+   `forge-desktop/renderer_probe.cpp` already created a MoltenVK device, rendered a tessellated
+   kernel mesh offscreen and read the pixels back; `ui_probe.cpp` already stood Dear ImGui's Vulkan
+   backend up against that device. There is no Metal counterpart to either. Choosing the path with
+   two working probes over the path with none is the measured comparison, not a substitute for it.
+2. **Dear ImGui's Vulkan renderer backend is vendored and version-matched.**
+   `forge-desktop/third_party/imgui/imgui_impl_vulkan.{cpp,h}`, 1.92.9-WIP, sits beside the core
+   translation units. `imgui_impl_metal.mm` is not vendored, is Objective-C++, and taking it would
+   make the UI layer's translation units `.mm` — for a framework that already speaks Vulkan.
+3. **Diligent would be a THIRD abstraction.** §19.2 asks for ONE authoritative interactive
+   renderer. The chain would be Forge → Diligent → Metal, on top of a UI framework that carries its
+   own renderer backends. Vulkan → MoltenVK → Metal has one fewer layer that Forge owns, and the
+   layer it does have is a Khronos-hosted, Apache-2.0, source-buildable translation layer — which is
+   what Law 16 asks of the dependency stack. Diligent is Apache-2.0 too, so licensing does not
+   separate them; provenance and already-working code do.
+4. **It is portable in the direction the product needs.** The same backend reaches Linux and Windows
+   natively. A Metal-only renderer would need a second backend the first time Forge leaves macOS,
+   which is the "more than one authoritative renderer" outcome §19.2 forbids.
+
+**The cost, recorded rather than waved away.** One translation layer of latency; and Metal features
+MoltenVK does not expose. One is already live: **`VK_POLYGON_MODE_LINE` is unavailable** (Metal has
+no equivalent fill mode), so `ViewportRenderer::createPipeline()` queries
+`VkPhysicalDeviceFeatures::fillModeNonSolid`, creates the wireframe pipeline only if it is
+advertised, and falls back to the solid pipeline otherwise. Wireframe display therefore degrades
+rather than pretending. If MoltenVK's gaps ever cost more than that, the decision is reversible at
+the `ViewportRenderer` seam alone: it is the only class that names a Vulkan type outside `main.cpp`.
+
+**What the swapchain is.** Not a fifth hand-rolled one. `ImGui_ImplVulkanH_Window` /
+`ImGui_ImplVulkanH_CreateOrResizeWindow` — Dear ImGui's own reference helpers, driven the way
+upstream's `examples/example_sdl2_vulkan/main.cpp` drives them (SR-3: follow and name the reference
+implementation). The platform backend (SDL2 → ImGuiIO) IS first-party, because
+`imgui_impl_sdl2.cpp` is not vendored and this repository builds offline against a pinned
+dependency plane (§10.6); `forge-desktop/src/PlatformSDL2.cpp` implements that same contract and
+says so in its header.
+
+**Measured, on an Apple M4 Max, 2026-08-28.** `GPU: Apple M4 Max (Vulkan 1.2 via MoltenVK)`,
+swapchain 1680x1000 / 2 images / `VK_FORMAT_B8G8R8A8_UNORM`, first frame 5,310 UI vertices and
+11,151 indices over 240 viewport triangles of a real `BOX -> CUT -> FILLET` kernel body, 120 frames
+presented, and a PNG written from the LIVE swapchain image (`--screenshot`), not from an offscreen
+surrogate.
 
 ---
 
@@ -175,3 +214,40 @@ standard algorithm is the worse trade while the reconciliation is outstanding.
 **Follow-up owed:** once the kernel reconciliation lands, extract one `forge::hash::sha256` used by
 both `forge::ft` and `forge::orch`. Until then the duplication is deliberate and both copies are
 independently checked against FIPS 180-4 in their own gates.
+
+---
+
+## `src/native/util/Sha256.cpp` was missing from `FORGE_KERNEL_SOURCES` — **FIXED 2026-08-28**
+
+*Found by TRACK SEGMENT 2 while building the desktop app's kernel dependency.*
+
+`forge_kernel_core` did not link from the committed tree:
+
+```
+Undefined symbols for architecture arm64:
+  "forge::native::util::sha256Hex(std::string const&)", referenced from:
+      forge::ft::sha256Hex(...) in ChunkChain.cpp.o
+      forge::ft::GraphHeader::hash() const in ChunkChain.cpp.o
+      forge::ft::FeatureChunk::computeHash() const in ChunkChain.cpp.o ...
+```
+
+`src/ft/ChunkChain.cpp` delegates to `forge::native::util::sha256Hex`, whose definition lives in
+`src/native/util/Sha256.cpp` — a file that was in the tree but **not in the source list**. The
+`.node` build never noticed because Darwin links it with `-undefined dynamic_lookup`, which defers
+an unresolved symbol to load time. That is the SAME failure the list's own comment on
+`MeshToSDF.cpp` records ("was omitted from the source list => an undefined symbol masked by
+`-undefined dynamic_lookup`"), recurring.
+
+**Fixed by adding the file to `FORGE_KERNEL_SOURCES`,** with the reason written at the call site.
+Two consequences worth stating plainly:
+
+* The node-free `forge_kernel_core` — the library the entire C++ desktop migration links — **could
+  not be built at all** from the committed state. Every desktop track was blocked on this.
+* In the `.node` build the symbol was not resolved, it was *deferred*. Anything reaching
+  `forge.ft`'s chunked emission or `verifyChain` would have failed at load or call time. The gate
+  that would have caught it is a strict-link build, which is exactly what the desktop target is.
+
+**Follow-up owed:** `src/native/storage/StorageGovernor.cpp` also references `sha256Hex` and is also
+absent from the source list. It is not linked by anything today, so it is not fixed here — but a
+source file in the tree that no target compiles is either dead code or a second instance of this
+bug, and nothing currently distinguishes the two.
