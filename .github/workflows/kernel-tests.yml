@@ -40,7 +40,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: kernel-tests-${{ github.ref }}
+  # A branch that matches the push filter AND has an open PR fires BOTH triggers, and the two
+  # events carry different github.ref values (refs/heads/<branch> vs refs/pull/<n>/merge), so a
+  # ref-keyed group does not collide and the whole suite runs twice. Keying on the PR number when
+  # one exists — and falling back to the ref otherwise — collapses the pair into one run.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
