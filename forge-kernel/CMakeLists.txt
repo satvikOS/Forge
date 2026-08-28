@@ -29,6 +29,16 @@ set(CMAKE_CXX_STANDARD 20)  # planegcs uses <std::numbers> + <std::ranges>
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# ---------------------------------------------------------------- dependency plane
+# Sacrosanct 3.1 s10.6 / s21.2. Loads third_party/manifest/deps.lock.json, installs the
+# FORGE_NETWORK=OFF offline guards, and gives forge_deps_require() — which resolves a
+# prefix through the activated local plane FIRST and only falls back to the machine-global
+# Homebrew prefix with a loud warning (or a hard error under -DFORGE_DEPS_STRICT=ON).
+# See forge-kernel/cmake/ForgeDeps.cmake for what this replaced.
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}/cmake")
+include(ForgeDeps)
+forge_deps_init()
+
 # ---------------------------------------------------------------- in-house B-rep
 # IN-HOUSE KERNEL: native forge::native::brep analytic-core (primitives−ellipsoid,
 # booleans, transforms, massProps, tessellate) + the native↔OCCT bridge.
@@ -98,26 +108,44 @@ if(NOT EXISTS "${NODE_ADDON_API_DIR}/napi.h")
     endif()
 endif()
 if(NOT EXISTS "${NODE_ADDON_API_DIR}/napi.h")
-    message(FATAL_ERROR "node-addon-api not found at ${NODE_ADDON_API_DIR}. Run `npm install` at repo root.")
+    # Last chance: the dependency plane. node-addon-api is pinned in the lock too, so a
+    # seeded local prefix can supply it without an npm install in this worktree.
+    forge_deps_require(node-addon-api PREFIX_VAR _napi_prefix OPTIONAL)
+    if(_napi_prefix AND EXISTS "${_napi_prefix}/napi.h")
+        set(NODE_ADDON_API_DIR "${_napi_prefix}")
+    endif()
+endif()
+if(NOT EXISTS "${NODE_ADDON_API_DIR}/napi.h")
+    message(FATAL_ERROR "node-addon-api not found at ${NODE_ADDON_API_DIR}. Run `npm install` at repo root, set FORGE_NODE_MODULES, or seed the local plane (tools/deps/seed).")
 endif()
 
 # ---------------------------------------------------------------- OCCT
-# brew-installed OCCT 7.9.3 on Apple Silicon by default. Override with
-# -DOCCT_ROOT=... or the OCCT_ROOT env var (e.g. CI on an Intel mac runner
-# where brew lives at /usr/local, or a custom OCCT prefix).
+# Resolved through the dependency plane (Sacrosanct 3.1 s10.6), NOT from a hardcoded
+# machine-global prefix. Order: .forge-local/prefixes/<triplet>/<build>/opencascade ->
+# -DFORGE_DEPS_PREFIX_OPENCASCADE= / env -> $FORGE_DEPS_ROOT -> the lock's
+# system_prefix_template ({brew_prefix}/opt/opencascade), which WARNS (or fails under
+# -DFORGE_DEPS_STRICT=ON) because it is not reproducible on a clean machine.
+#
+# Was, until the dependency-plane track:
+#     set(OCCT_ROOT "/opt/homebrew/opt/opencascade")   # + a /usr/local fallback
+#
+# -DOCCT_ROOT= and $OCCT_ROOT are still honoured, ahead of the plane, so existing CI
+# invocations and the in-flight kernel work keep building unchanged.
 if(DEFINED ENV{OCCT_ROOT} AND NOT DEFINED OCCT_ROOT)
     set(OCCT_ROOT "$ENV{OCCT_ROOT}")
 endif()
 if(NOT DEFINED OCCT_ROOT)
-    set(OCCT_ROOT "/opt/homebrew/opt/opencascade")
-endif()
-# Fall back to the Intel-mac brew prefix if the ARM path is absent.
-if(NOT EXISTS "${OCCT_ROOT}/include/opencascade/Standard_Version.hxx"
-   AND EXISTS "/usr/local/opt/opencascade/include/opencascade/Standard_Version.hxx")
-    set(OCCT_ROOT "/usr/local/opt/opencascade")
+    forge_deps_require(opencascade
+        PREFIX_VAR  OCCT_ROOT
+        VERSION_VAR OCCT_LOCKED_VERSION
+        SOURCE_VAR  OCCT_PREFIX_SOURCE)
+else()
+    message(STATUS "Forge kernel: OCCT_ROOT overridden explicitly -> ${OCCT_ROOT} "
+                   "(dependency plane bypassed)")
 endif()
 if(NOT EXISTS "${OCCT_ROOT}/include/opencascade/Standard_Version.hxx")
-    message(FATAL_ERROR "OCCT not found at ${OCCT_ROOT}. Install with `brew install opencascade` or set -DOCCT_ROOT=...")
+    message(FATAL_ERROR "OCCT not found at ${OCCT_ROOT}. Seed the local plane with "
+                        "tools/deps/seed, or set -DFORGE_DEPS_PREFIX_OPENCASCADE=...")
 endif()
 
 set(OCCT_INC "${OCCT_ROOT}/include/opencascade")
@@ -468,9 +496,17 @@ endif()
 # ---------------------------------------------------------------- Boost
 # planegcs uses boost::graph (connected_components) + boost::math::constants.
 # Header-only on brew. We need *_INC only — no link libs.
-set(BOOST_INC "/opt/homebrew/opt/boost/include")
+#
+# Was, until the dependency-plane track:
+#     set(BOOST_INC "/opt/homebrew/opt/boost/include")
+# Now resolved through the lock, same order and same loud last resort as OCCT above.
+forge_deps_require(boost
+    PREFIX_VAR  BOOST_ROOT_RESOLVED
+    VERSION_VAR BOOST_LOCKED_VERSION)
+set(BOOST_INC "${BOOST_ROOT_RESOLVED}/include")
 if(NOT EXISTS "${BOOST_INC}/boost/graph/adjacency_list.hpp")
-    message(FATAL_ERROR "Boost not found at ${BOOST_INC}. Install with `brew install boost`.")
+    message(FATAL_ERROR "Boost not found at ${BOOST_INC}. Seed the local plane with "
+                        "tools/deps/seed, or set -DFORGE_DEPS_PREFIX_BOOST=...")
 endif()
 
 # ---------------------------------------------------------- planegcs (vendored)
@@ -1385,3 +1421,19 @@ if(FORGE_BUILD_DESKTOP_UI)
     set_target_properties(forge_ui_probe PROPERTIES
         BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
 endif()
+
+# ============================================================================
+# forge_all — the aggregate target named by the Sacrosanct 3.1 s21.2 command
+# contract (`cmake --build --preset macos-arm64-release --target forge_all`).
+# It gathers whatever this configuration actually enabled, so the same command
+# line is valid whether or not the desktop probes are ON.
+# ============================================================================
+set(_forge_all_targets forge_kernel)
+foreach(_t forge_kernel_core forge_foundation_probe forge_verify forge_mesh_probe
+           forge_step_probe forge_feature_probe forge_renderer_probe forge_ui_probe)
+    if(TARGET ${_t})
+        list(APPEND _forge_all_targets ${_t})
+    endif()
+endforeach()
+add_custom_target(forge_all DEPENDS ${_forge_all_targets})
+message(STATUS "forge_all aggregates: ${_forge_all_targets}")

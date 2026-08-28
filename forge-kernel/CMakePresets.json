@@ -1,0 +1,149 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "_base",
+      "hidden": true,
+      "binaryDir": "${sourceParentDir}/.forge-local/builds/${presetName}",
+      "installDir": "${sourceParentDir}/.forge-local/prefixes/macos-arm64/${presetName}",
+      "cacheVariables": {
+        "FORGE_TARGET_TRIPLET": "macos-arm64",
+        "FORGE_DEPS_LOCK": "${sourceParentDir}/third_party/manifest/deps.lock.json",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_CXX_STANDARD": "20",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      },
+      "environment": {
+        "FORGE_NETWORK": "OFF"
+      }
+    },
+    {
+      "name": "_ninja",
+      "hidden": true,
+      "inherits": "_base",
+      "generator": "Ninja",
+      "description": "Sacrosanct 3.1 s21.2: 'Ninja performs builds.' This is the conforming generator."
+    },
+    {
+      "name": "_make",
+      "hidden": true,
+      "inherits": "_base",
+      "generator": "Unix Makefiles",
+      "description": "NON-CONFORMING workstation fallback. Sacrosanct s21.2 mandates Ninja; this variant exists only because ninja is not installed on every workstation yet. Use it to prove a configure, never to publish a build number."
+    },
+    {
+      "name": "macos-arm64-release",
+      "displayName": "macOS arm64 — Release (Ninja, offline)",
+      "description": "The conforming release configure: Ninja, FORGE_NETWORK=OFF, dependencies resolved through the lock.",
+      "inherits": "_ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FORGE_NETWORK": "OFF"
+      }
+    },
+    {
+      "name": "macos-arm64-release-offline",
+      "displayName": "macOS arm64 — Release, offline + strict",
+      "description": "As macos-arm64-release, but FORGE_DEPS_STRICT=ON: a dependency that falls back to the machine-global Homebrew prefix FAILS the configure instead of warning. This is the preset CI must prove.",
+      "inherits": "macos-arm64-release",
+      "cacheVariables": {
+        "FORGE_DEPS_STRICT": "ON"
+      }
+    },
+    {
+      "name": "macos-arm64-debug",
+      "displayName": "macOS arm64 — Debug (Ninja, offline)",
+      "inherits": "_ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "FORGE_NETWORK": "OFF"
+      }
+    },
+    {
+      "name": "macos-arm64-release-make",
+      "displayName": "macOS arm64 — Release (Unix Makefiles fallback, offline)",
+      "description": "FALLBACK. Identical cache to macos-arm64-release except the generator. Exists because ninja is absent on this workstation; see toolchain.generator_fallback in deps.lock.json.",
+      "inherits": "_make",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FORGE_NETWORK": "OFF"
+      }
+    },
+    {
+      "name": "macos-arm64-release-make-strict",
+      "displayName": "macOS arm64 — Release, Makefiles fallback, offline + strict",
+      "inherits": "macos-arm64-release-make",
+      "cacheVariables": {
+        "FORGE_DEPS_STRICT": "ON"
+      }
+    },
+    {
+      "name": "macos-arm64-online-seed",
+      "displayName": "macOS arm64 — ONLINE_SEED (network permitted)",
+      "description": "The only preset in which a configure-time fetch is legal. It exists to populate .forge-local/sources; a release is never built from it.",
+      "inherits": "_ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FORGE_NETWORK": "ON"
+      },
+      "environment": { "FORGE_NETWORK": "ON" }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "macos-arm64-release",
+      "configurePreset": "macos-arm64-release",
+      "configuration": "Release",
+      "targets": ["forge_all"]
+    },
+    {
+      "name": "macos-arm64-debug",
+      "configurePreset": "macos-arm64-debug",
+      "configuration": "Debug",
+      "targets": ["forge_all"]
+    },
+    {
+      "name": "macos-arm64-release-make",
+      "configurePreset": "macos-arm64-release-make",
+      "configuration": "Release",
+      "targets": ["forge_all"]
+    },
+    {
+      "name": "macos-arm64-release-clean",
+      "configurePreset": "macos-arm64-release",
+      "configuration": "Release",
+      "cleanFirst": true,
+      "targets": ["forge_all"],
+      "description": "The clean workflow (s21.2). The warm workflow is the plain build preset."
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "macos-arm64-release",
+      "configurePreset": "macos-arm64-release",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "macos-arm64-release-make",
+      "configurePreset": "macos-arm64-release-make",
+      "configuration": "Release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "macos-arm64-release",
+      "description": "Configure -> clean build -> test, all offline.",
+      "steps": [
+        { "type": "configure", "name": "macos-arm64-release" },
+        { "type": "build", "name": "macos-arm64-release-clean" },
+        { "type": "test", "name": "macos-arm64-release" }
+      ]
+    }
+  ]
+}

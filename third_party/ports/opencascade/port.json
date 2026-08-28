@@ -1,0 +1,65 @@
+{
+  "name": "opencascade",
+  "lock_version": "7.9.3",
+  "status": "recipe-authored",
+  "status_note": "NOT yet executed. The prefix in use today is a Homebrew bottle; see binary_provenance in deps.lock.json. Promoting to 'proven' means running this recipe and having `tools/deps/forge_deps.py verify --full` accept the resulting prefix.",
+  "triplets": ["macos-arm64"],
+  "acquire": {
+    "kind": "archive",
+    "url": "https://github.com/Open-Cascade-SAS/OCCT/archive/refs/tags/V7_9_3.tar.gz",
+    "sha256_from": "deps.lock.json dependencies[opencascade].upstream.archive_sha256",
+    "into": ".forge-local/sources/opencascade/7.9.3/"
+  },
+  "patches": [],
+  "features": {
+    "note": "Forge links a deliberately small toolkit subset (the OCCT-zero programme). The modules below are the ones whose toolkits appear on the link line in forge-kernel/CMakeLists.txt; everything else is off so the built prefix is smaller and the closure is auditable.",
+    "BUILD_MODULE_FoundationClasses": "ON",
+    "BUILD_MODULE_ModelingData": "ON",
+    "BUILD_MODULE_ModelingAlgorithms": "ON",
+    "BUILD_MODULE_DataExchange": "ON",
+    "BUILD_MODULE_Visualization": "OFF",
+    "BUILD_MODULE_ApplicationFramework": "OFF",
+    "BUILD_MODULE_Draw": "OFF",
+    "USE_TK": "OFF",
+    "USE_FREETYPE": "OFF",
+    "USE_TBB": "OFF",
+    "BUILD_LIBRARY_TYPE": "Shared"
+  },
+  "configure": {
+    "generator": "Ninja",
+    "args": [
+      "-DCMAKE_BUILD_TYPE=Release",
+      "-DCMAKE_OSX_ARCHITECTURES=arm64",
+      "-DBUILD_MODULE_Visualization=OFF",
+      "-DBUILD_MODULE_ApplicationFramework=OFF",
+      "-DBUILD_MODULE_Draw=OFF",
+      "-DUSE_TK=OFF",
+      "-DUSE_FREETYPE=OFF",
+      "-DUSE_TBB=OFF",
+      "-DINSTALL_DIR_LAYOUT=Unix"
+    ]
+  },
+  "build": { "target": "install" },
+  "provides": {
+    "presence_marker": "include/opencascade/Standard_Version.hxx",
+    "must_contain": [
+      "lib/libTKernel.7.9.3.dylib",
+      "lib/libTKMath.7.9.3.dylib",
+      "lib/libTKG3d.7.9.3.dylib",
+      "lib/libTKBRep.7.9.3.dylib",
+      "lib/libTKTopAlgo.7.9.3.dylib",
+      "lib/libTKShHealing.7.9.3.dylib",
+      "lib/libTKOffset.7.9.3.dylib",
+      "share/doc/opencascade/LICENSE_LGPL_21.txt"
+    ]
+  },
+  "smoke_test": {
+    "description": "Dependency smoke test required by s10.6's OFFLINE_BUILD step. Configure forge-kernel against the activated prefix and assert the version pin is read from THIS prefix.",
+    "command": "cmake -S forge-kernel --preset macos-arm64-release-offline",
+    "expect_stdout_contains": "Forge kernel: OCCT 7.9.3 at"
+  },
+  "known_gaps": [
+    "The Apple SDK and compiler are not pinned, so this recipe does not yet yield a bit-reproducible prefix — only a source-reproducible one.",
+    "INSTALL_DIR_LAYOUT=Unix puts headers at include/opencascade, matching what forge-kernel/CMakeLists.txt expects. If upstream changes that layout the presence_marker check fails loudly rather than silently mis-including."
+  ]
+}
