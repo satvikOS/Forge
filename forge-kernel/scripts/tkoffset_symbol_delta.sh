@@ -59,7 +59,7 @@ trap 'rm -rf "$OUT"' EXIT
 # The TUs that reference TKOffset. Kept explicit rather than globbed so a new
 # reference in a new file is a visible edit here, not a silent drift.
 TUS=(
-  src/Features.cpp          # families C, D, E, F, G, H, I
+  src/Features.cpp          # families C, D, E, F, G, H, I (E = MakePipe, 3 sites)
   src/Airfoil.cpp           # family D
   src/Primitives.cpp        # family D
   src/LoftGuide.cpp         # family D
@@ -147,9 +147,15 @@ N_DF=$(census dropDF -DFORGE_THRUSECTIONS_DROP_NATIVE=1 -DFORGE_PIPESHELL_DROP_N
 echo "  + BOTH D and F                             : $N_DF symbols  (-$((N_BASE - N_DF)))"
 echo
 
+N_E=$(census dropE -DFORGE_PIPE_DROP_NATIVE=1) || exit 1
+echo "  + FORGE_PIPE_DROP_NATIVE         (fam E)   : $N_E symbols  (-$((N_BASE - N_E)))"
+comm -23 "$OUT/base.syms" "$OUT/dropE.syms" | c++filt | sed 's/^/      gone: /'
+echo
+
 N_ALL=$(census dropAll -DFORGE_THRUSECTIONS_DROP_NATIVE=1 -DFORGE_PIPESHELL_DROP_NATIVE=1 \
+                        -DFORGE_PIPE_DROP_NATIVE=1 \
                         -DFORGE_THICKSOLID_DROP_NATIVE=1 -DFORGE_OFFSETSHAPE_DROP_NATIVE=1) || exit 1
-echo "  + D, F and G, H (every family with a drop) : $N_ALL symbols  (-$((N_BASE - N_ALL)))"
+echo "  + D, E, F and G, H (every family with a drop) : $N_ALL symbols  (-$((N_BASE - N_ALL)))"
 echo
 echo "  WHAT STILL HOLDS TKOffset — the $N_ALL symbols with NO native engine and no drop:"
 c++filt < "$OUT/dropAll.syms" | sed 's/^/      /'

@@ -254,6 +254,17 @@ endif()
 if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
     list(APPEND OCCT_LIBS TKBO TKG2d)
 endif()
+# TKOffset family E: the native CIRCLE-profile pipe builds its mitre-trimmed
+# cylinder chain with BRepPrimAPI_MakeCylinder / BRepPrimAPI_MakeHalfSpace, so the
+# drop build CALLS TKPrim. MEASURED 2026-08-28: without this line OCCT_PHANTOM goes
+# 2 -> 3 (TKPrim, 7 symbols, masked by macOS `-undefined dynamic_lookup`) — a lib
+# the binary calls with no link record. OCCT_CLOSURE is unaffected either way
+# because TKPrim already loads via TKBO/TKBool/TKFillet/TKOffset, so naming it costs
+# nothing real and buys back the --assert-no-phantom gate; on the Linux strict-link
+# CI it is not optional but required to link at all.
+if(FORGE_NATIVE_BREP AND FORGE_PIPE_DROP_NATIVE)
+    list(APPEND OCCT_LIBS TKPrim)
+endif()
 # ── TKShHealing PARTIAL DROP — P1 (landed 2026-07-31; DEFAULT ON) ─────────────────
 # FORGE_SHHEAL_DROP_NATIVE routes the NON-STEP-PATH TKShHealing call sites in
 # src/Healing.cpp onto the in-house forge::occtheal peers
@@ -563,6 +574,58 @@ if(FORGE_NATIVE_BREP AND FORGE_PIPESHELL_DROP_NATIVE)
                     "(TKOffset family F, 7 symbols: 38 -> 31). TKOffset STILL LINKED and OCCT_CLOSURE "
                     "UNCHANGED at 14. EVERY GUIDED sweep now THROWS — the native engine has no guided "
                     "pipe-shell and never pretends to.")
+endif()
+
+# ── TKOffset FAMILY E — BRepOffsetAPI_MakePipe (authored 2026-08-28) ──────────────
+# Routes the THREE MakePipe call sites in src/Features.cpp —
+#   forge::part::sweep (unguided branch, :674), pipeFromPolyline (:761),
+#   sweepPolyline (:856)
+# — through forge::occtloft::pipe (src/native/brep/NativeLoftPipe.cpp) and compiles
+# out the OCCT baseline, removing the complete family:
+#   BRepOffsetAPI_MakePipe::BRepOffsetAPI_MakePipe(TopoDS_Wire const&, TopoDS_Shape const&)
+#   BRepOffsetAPI_MakePipe::Build(Message_ProgressRange const&)
+#   vtable for BRepOffsetAPI_MakePipe                                   (3 symbols)
+#
+# METHOD, NAMED: the polygon path is the double-reflection rotation-minimizing frame
+# of Wang, Juttler, Zheng & Liu, "Computation of Rotation Minimizing Frames",
+# ACM TOG 27(1), 2008, specialised to a polyline spine — where the two reflections
+# compose to a single reflection in the leg-bisecting (MITRE) plane. A Frenet frame
+# is deliberately NOT used: its normal is undefined on a straight leg and flips
+# through an inflection. The circle path is a chain of mitre-trimmed right circular
+# cylinders, every surface analytic — no tessellation, no polygonal approximation.
+#
+# ★ WHAT THIS IS WORTH — do not mis-score it. TKOffset is NOT removed from OCCT_LIBS
+#   by this option and OCCT_CLOSURE does NOT move. MEASURED 2026-08-28 on real
+#   linked binaries built in this worktree:
+#       baseline (every drop OFF)                          42 TKOffset symbols
+#       + families A, G, H, D, F (the options that existed) 19 symbols, CLOSURE 14
+#       + family E (this option)                           16 symbols, CLOSURE 14
+#   TKOffset's link record moves only when ALL 42 are gone. What still holds it in
+#   after family E is three classes with no native engine:
+#       BRepOffset_MakeOffset      5   src/Features.cpp    thickenSurface
+#       BRepOffsetAPI_DraftAngle   6   src/Features.cpp    draftFaces
+#       BRepOffsetAPI_MakeFilling  5   src/Healing.cpp     autoFillMissingFaces
+#
+# PROOF: forge-kernel/test/run_ab_native_loftpipe.sh, 314/314 assertions — volume AND
+#   centre of mass AND all six bbox bounds AND face/edge/vertex/shell counts AND
+#   BRepCheck_Analyzer validity AND the Euler-Poincare characteristic, against LIVE
+#   OCCT on straight spines and against the closed form V = area * spine-length on
+#   bent ones. OCCT MakePipe is a VALID ORACLE ONLY ON A SINGLE-SEGMENT SPINE: on
+#   every bent polyline spine it was measured to return only the FIRST leg's volume
+#   (2500 vs 5500; 1256.637 vs 2764.602) and is often BRepCheck-INVALID, so the A/B
+#   asserts that error rather than treating it as truth. The gate is proved able to
+#   FAIL by two mutations of the engine, one of which is volume-preserving and is
+#   caught only by centre of mass and bbox.
+option(FORGE_PIPE_DROP_NATIVE
+       "route the three MakePipe call sites through the native pipe & compile out the OCCT BRepOffsetAPI_MakePipe fallback (TKOffset family E, 3 symbols)"
+       OFF)
+if(FORGE_NATIVE_BREP AND FORGE_PIPE_DROP_NATIVE)
+    add_compile_definitions(FORGE_PIPE_DROP_NATIVE=1)
+    message(WARNING "FORGE_PIPE_DROP_NATIVE=ON — BRepOffsetAPI_MakePipe fallback compiled out "
+                    "(TKOffset family E, 3 symbols: 19 -> 16). TKOffset STILL LINKED and "
+                    "OCCT_CLOSURE UNCHANGED at 14. A sweep the native pipe declines — a curved "
+                    "spine, a non-perpendicular profile plane, a profile that is neither a polygon "
+                    "nor a circle — now THROWS instead of falling back to OCCT.")
 endif()
 # OCCT-zero progress (2026-07-25, R1+R2 → TKGeomBase): DROPPED TKGeomBase. 10 -> 9 OCCT dylibs.
 #   (TKGeomBase still loads transitively — TKBRep/TKG3d/TKGeomAlgo DT_NEED it — but the .node
