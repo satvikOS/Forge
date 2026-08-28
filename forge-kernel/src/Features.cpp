@@ -33,6 +33,8 @@
 #include "forge/native/brep/Shell.hpp"      // GAP1: native analytic shell (shellSolid)
 #include "forge/native/brep/NativeThickSolid.hpp"  // TKOffset family G: TKOffset-free thick-solid on a TopoDS_Shape
 #include "forge/native/brep/NativeLoftPipe.hpp"     // TKOffset families D/F: ruled loft + pipe-shell on OCCT wires
+#include "forge/native/brep/NativeThickenShell.hpp" // TKOffset family I: TKOffset-free THICKEN of an open shell
+#include "forge/native/brep/NativeDraft.hpp"        // TKOffset family J: TKOffset-free DRAFT of selected faces
 #include "forge/native/brep/OffsetShape.hpp"  // native whole-solid grow/shrink offset (offsetSolidShape)
 #include "forge/native/brep/Surface.hpp"    // SurfaceKind (planar-eligibility gate for offsetSolid)
 #include "forge/native/brep/Pattern.hpp"    // GAP1: RigidTransform / transformSolidInPlace
@@ -71,7 +73,12 @@
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
 #endif
+#ifndef FORGE_DRAFT_DROP_NATIVE
+// TKOffset family J header — referenced ONLY by the OCCT baseline path, which is
+// compiled out under -DFORGE_DRAFT_DROP_NATIVE. Guarding the include is what keeps
+// the drop build from emitting a reference to "vtable for BRepOffsetAPI_DraftAngle".
 #include <BRepOffsetAPI_DraftAngle.hxx>
+#endif
 #ifndef FORGE_PIPE_DROP_NATIVE
 // TKOffset family E header — referenced ONLY by the OCCT baseline path, which is
 // compiled out under -DFORGE_PIPE_DROP_NATIVE. Guarding the include keeps the drop
@@ -82,7 +89,11 @@
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>   // OCCT whole-solid offset (fallback for offsetSolid)
+#ifndef FORGE_THICKEN_DROP_NATIVE
+// TKOffset family I header — referenced ONLY by the OCCT baseline path in
+// thickenSurface, compiled out under -DFORGE_THICKEN_DROP_NATIVE.
 #include <BRepOffset_MakeOffset.hxx>
+#endif
 #include <BRepOffset.hxx>
 #include <BRepOffset_Mode.hxx>                  // BRepOffset_Skin
 #include <BRepBuilderAPI_MakeSolid.hxx>         // wrap the OCCT offset shell into a solid
@@ -1196,6 +1207,15 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
     if (side < 0) offset = -std::abs(thickness);
     else if (side > 0) offset = std::abs(thickness);
 
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family I — TKOffset-free thicken on the OCCT shell itself.
+    // See NativeThickenShell.hpp; a defer returns a null shape and falls through.
+    if (::forge::occtthicken::thickenNativeEnabled()) {
+        const TopoDS_Shape nat = ::forge::occtthicken::thickenShell(src, offset, tol);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_THICKEN_DROP_NATIVE
     BRepOffset_MakeOffset mk;
     mk.Initialize(src, offset, tol, BRepOffset_Skin,
                   /*Intersection*/ Standard_False,
@@ -1208,6 +1228,15 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
                                  "(surface may be non-manifold or self-intersecting)");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    // The engine NAMES why it declined; passing that through is the difference
+    // between "thicken failed" and a message a caller can act on.
+    throw std::runtime_error(
+        std::string("forge.part.thickenSurface: the native thicken declined this "
+                    "input (") + ::forge::occtthicken::thickenLastDeferReason() +
+        ") and the OCCT BRepOffset_MakeOffset fallback is compiled out "
+        "(FORGE_THICKEN_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ offsetSolid
@@ -2129,10 +2158,23 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
     }
 #endif
     const auto& src = fetch(shape);
-    BRepOffsetAPI_DraftAngle mk(src);
     gp_Pln plane(gp_Pnt(neutral.ox, neutral.oy, neutral.oz),
                  gp_Dir(neutral.nx, neutral.ny, neutral.nz));
     gp_Dir pull(neutral.nx, neutral.ny, neutral.nz);
+#ifdef FORGE_NATIVE_BREP
+    // TKOffset family J — TKOffset-free draft on the OCCT solid itself. This is
+    // the OCCT-typed mirror of DraftAnalytic's native-B-rep draft, reached from an
+    // OCCT-backed handle. See NativeDraft.hpp; a defer returns a null shape.
+    if (::forge::occtdraft::draftNativeEnabled()) {
+        TopTools_ListOfShape natFaces;
+        for (auto id : faceIds) natFaces.Append(faceById(src, id));
+        const TopoDS_Shape nat =
+            ::forge::occtdraft::draftFaces(src, natFaces, pull, angleRad, plane);
+        if (!nat.IsNull()) return ShapeRegistry::instance().add(nat);
+    }
+#endif
+#ifndef FORGE_DRAFT_DROP_NATIVE
+    BRepOffsetAPI_DraftAngle mk(src);
     for (auto id : faceIds) {
         TopoDS_Face f = faceById(src, id);
         mk.Add(f, pull, angleRad, plane);
@@ -2145,6 +2187,13 @@ ShapeHandle draftFaces(ShapeHandle shape, const DraftPlane& neutral,
         throw std::runtime_error("forge.part.draftFaces: draft build failed");
     }
     return ShapeRegistry::instance().add(mk.Shape());
+#else
+    throw std::runtime_error(
+        "forge.part.draftFaces: the native draft declined this input (it covers "
+        "planar-faced solids whose selected faces are not parallel to the neutral "
+        "plane) and the OCCT BRepOffsetAPI_DraftAngle fallback is compiled out "
+        "(FORGE_DRAFT_DROP_NATIVE=ON)");
+#endif
 }
 
 // ============================================================ holeWizard
