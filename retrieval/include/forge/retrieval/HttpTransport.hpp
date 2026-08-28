@@ -44,7 +44,9 @@ enum class TransportStatus {
   ReadFailed,
   MalformedResponse,
   ResponseTooLarge,
-  RefusedNonLoopback,  // policy refusal: the destination was not 127.0.0.1/::1
+  RefusedNonLoopback,  // policy refusal: the destination was not in 127.0.0.0/8
+  // APPENDED, never inserted: these values are compared as ints and logged.
+  RefusedMalformedRequest,  // a caller header would have corrupted the request line block
 };
 
 const char* transportStatusName(TransportStatus s);
@@ -81,6 +83,12 @@ public:
 // True for "127.0.0.1", "::1", "localhost" is DELIBERATELY NOT accepted: a name
 // requires a resolver, and a resolver is a way out of the machine.
 bool isLoopbackLiteral(const std::string& host);
+
+// True when every caller-supplied header can be serialised without corrupting the request
+// block; otherwise `why` names the offending header. Exposed for the same reason
+// isLoopbackLiteral is: a policy predicate that cannot be called from a test is a policy
+// nobody can check.
+bool headersAreWellFormed(const std::map<std::string, std::string>& headers, std::string& why);
 
 // Parses a raw HTTP/1.1 response. Handles Content-Length and chunked bodies,
 // enforces `max_body_bytes`, and never throws. Exposed for fixture tests.

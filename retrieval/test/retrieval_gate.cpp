@@ -658,12 +658,47 @@ int main(int argc, char** argv) {
   {
     check(isLoopbackLiteral("127.0.0.1"), "127.0.0.1 is loopback");
     check(isLoopbackLiteral("127.1.2.3"), "the whole 127.0.0.0/8 block is loopback");
-    check(isLoopbackLiteral("::1"), "::1 is loopback");
+    // IPv6 loopback is REFUSED, and that is a correction rather than a weakening. This file
+    // has NO AF_INET6 path: send() creates an AF_INET socket and parses the host with
+    // inet_pton(AF_INET, ...), so a "::1" request always failed at connect. Admitting it here
+    // only meant it passed the POLICY gate and then failed later with the misleading reason
+    // "host is not an IPv4 literal". The capability never existed; the allow-list now says so.
+    check(!isLoopbackLiteral("::1"),
+          "::1 is refused: this transport is IPv4-only and the allow-list must match it");
+    check(!isLoopbackLiteral("[::1]"), "and so is the bracketed form");
     check(!isLoopbackLiteral("localhost"),
           "'localhost' is REFUSED: a name needs a resolver, and a resolver is a way off the machine");
     check(!isLoopbackLiteral("10.0.0.5"), "a LAN address is not loopback");
     check(!isLoopbackLiteral("93.184.216.34"), "a public address is not loopback");
     check(!isLoopbackLiteral("127.0.0.1.evil.com"), "a lookalike hostname is not loopback");
+
+    // A caller header must not be able to rewrite the request block. serialize() joins
+    // `name: value` verbatim, so a CR or LF in a value ends the header block early and the
+    // rest is read by the sidecar as a SECOND request. Loopback-only bounds WHO receives
+    // it; it does not stop the injection.
+    {
+      std::string why;
+      std::map<std::string, std::string> ok{{"Accept", "application/json"}};
+      check(headersAreWellFormed(ok, why), "an ordinary header is accepted");
+
+      std::map<std::string, std::string> split{{"X-Trace", "a\r\nGET /admin HTTP/1.1"}};
+      check(!headersAreWellFormed(split, why), "a CRLF in a header VALUE is refused");
+      std::map<std::string, std::string> lf_only{{"X-Trace", "a\nb"}};
+      check(!headersAreWellFormed(lf_only, why), "a bare LF is refused too");
+      std::map<std::string, std::string> bad_name{{"X\rY", "v"}};
+      check(!headersAreWellFormed(bad_name, why), "a CR in a header NAME is refused");
+      std::map<std::string, std::string> colon{{"X:Y", "v"}};
+      check(!headersAreWellFormed(colon, why), "a ':' in a header NAME is refused");
+
+      // serialize() ALWAYS emits these three, so a caller supplying one produces a
+      // DUPLICATE header rather than an override -- ambiguous framing a server may resolve
+      // either way.
+      std::map<std::string, std::string> dup_host{{"Host", "evil.example"}};
+      check(!headersAreWellFormed(dup_host, why), "a caller Host is refused (serialize emits it)");
+      std::map<std::string, std::string> dup_cl{{"content-length", "0"}};
+      check(!headersAreWellFormed(dup_cl, why),
+            "a caller Content-Length is refused, case-insensitively");
+    }
 
     // Drive the REAL transport at a public address. The refusal is decided
     // before any socket is created, so this test opens no connection.

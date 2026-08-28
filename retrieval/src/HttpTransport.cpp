@@ -68,6 +68,7 @@ bool setNonBlocking(int fd) {
 
 const char* transportStatusName(TransportStatus s) {
   switch (s) {
+    case TransportStatus::RefusedMalformedRequest: return "RefusedMalformedRequest";
     case TransportStatus::Ok: return "Ok";
     case TransportStatus::ConnectFailed: return "ConnectFailed";
     case TransportStatus::Timeout: return "Timeout";
@@ -84,11 +85,45 @@ bool isLoopbackLiteral(const std::string& host) {
   // Numeric literals only. "localhost" is REFUSED on purpose: resolving a name
   // means consulting /etc/hosts, DNS, or mDNS, and any of those is a way off the
   // machine that this client must not have (SACROSANCT 20.2).
-  if (host == "::1" || host == "[::1]") return true;
+  // IPv4 ONLY, deliberately, and the allow-list says so rather than the connect path
+  // discovering it later. send() creates an AF_INET socket and parses the host with
+  // inet_pton(AF_INET, ...) -- there is no AF_INET6 path anywhere in this file -- so
+  // admitting "::1" here let an IPv6 loopback pass the POLICY gate and then fail at connect
+  // with the misleading reason "host is not an IPv4 literal". Nothing is lost by narrowing:
+  // the capability never existed. If an IPv6 sidecar is ever needed, add the AF_INET6
+  // connect path and this check in the SAME change, so the two cannot disagree again.
   in_addr addr{};
   if (::inet_pton(AF_INET, host.c_str(), &addr) != 1) return false;
   const std::uint32_t v = ntohl(addr.s_addr);
   return (v >> 24) == 127u;  // the whole 127.0.0.0/8 loopback block
+}
+
+// A header the CALLER supplied must not be able to rewrite the request block. serialize()
+// concatenates `name: value` verbatim, so a value containing CR or LF ends the header block
+// early and everything after it is read by the sidecar as a SECOND request. The destination
+// is loopback-only, which bounds who receives it, but it is still an injected request.
+//
+// serialize() also ALWAYS emits Host, Content-Length and Connection, so a caller supplying
+// any of those produces a duplicate header rather than an override -- ambiguous framing that
+// a server may resolve either way.
+//
+// Returns true when every header is safe; otherwise fills `why` with the offending name.
+bool headersAreWellFormed(const std::map<std::string, std::string>& headers, std::string& why) {
+  for (const auto& [k, v] : headers) {
+    if (k.empty()) { why = "a header name is empty"; return false; }
+    if (k.find(':') != std::string::npos) { why = "header name contains ':': " + k; return false; }
+    if (k.find('\r') != std::string::npos || k.find('\n') != std::string::npos) {
+      why = "header name contains CR or LF: " + k; return false;
+    }
+    if (v.find('\r') != std::string::npos || v.find('\n') != std::string::npos) {
+      why = "header value contains CR or LF (request splitting): " + k; return false;
+    }
+    const std::string lower = toLower(k);
+    if (lower == "host" || lower == "content-length" || lower == "connection") {
+      why = "header is emitted by serialize() and would be duplicated: " + k; return false;
+    }
+  }
+  return true;
 }
 
 std::string HttpRequest::serialize() const {
@@ -314,6 +349,16 @@ HttpResponse LoopbackHttpTransport::send(const HttpRequest& request, std::uint32
     }
   }
 
+  // Refuse BEFORE serialising: the previewed digest and the wire bytes must describe the
+  // same request, so a header that cannot be sent safely must not reach either.
+  {
+    std::string why;
+    if (!headersAreWellFormed(request.headers, why)) {
+      resp.status = TransportStatus::RefusedMalformedRequest;
+      resp.detail = why;
+      return resp;
+    }
+  }
   const std::string wire = request.serialize();
   std::size_t sent = 0;
   while (sent < wire.size()) {
