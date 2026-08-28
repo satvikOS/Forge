@@ -140,7 +140,15 @@ bool UndoStack::redo(PartDocument& doc) {
   if (undone_.empty()) return false;
   std::unique_ptr<UndoableEdit> edit = std::move(undone_.back());
   undone_.pop_back();
-  if (!edit->apply(doc)) return false;
+  if (!edit->apply(doc)) {
+    // The pop above happened BEFORE the outcome was known. Returning here without
+    // putting the edit back destructs it: the redo step vanishes from the stack
+    // with no message, and the user cannot get that feature back. apply() really
+    // does refuse -- AppendFeatureEdit replays its ORIGINAL ir id, and any append
+    // that bypassed this stack (PartDocument::seed is public) has taken it.
+    undone_.push_back(std::move(edit));
+    return false;
+  }
   done_.push_back(std::move(edit));
   return true;
 }
@@ -186,6 +194,19 @@ std::string singleNode(const SelectionService& sel) {
     if (ref.bodyId != node) return {};
   }
   return node;
+}
+
+// A count is a count only if it is a WHOLE number. Written once because it was
+// already written twice -- LINEAR and CIRCULAR each carried their own copy -- and
+// then forgotten a third time, which is how GRID came to accept `nx = 1.5`.
+// The magnitude test is what makes the cast DEFINED: static_cast<long long> of a
+// double outside long long's range is undefined behaviour, and these values come
+// straight from user-supplied parameters. It also rejects NaN, since every
+// comparison against NaN is false.
+bool wholeCount(double v) {
+  constexpr double kTwoPow63 = 9223372036854775808.0;  // exactly representable
+  if (!(v > -kTwoPow63 && v < kTwoPow63)) return false;
+  return v == static_cast<double>(static_cast<long long>(v));
 }
 
 double num(const CommandContext& ctx, const char* name, double fallback) {
@@ -242,6 +263,22 @@ SolidTarget solidTarget(const PartDocument& doc, const SelectionService& sel) {
   return t;
 }
 
+// The FAIL-CLOSED read of a selection-derived value list. solidTarget() already
+// gives every solid command this discipline -- it returns ok=false rather than
+// indexing -- but three handlers indexed the raw vector instead and relied
+// entirely on their enabled predicate having run first. dispatch() does run it,
+// but CommandRegistry::find() hands out the descriptor with its public execute,
+// so the predicate is a convention, not an enforcement. MEASURED on the code
+// before this guard: calling execute() directly with an empty selection exits
+// 139 (SIGSEGV) -- resolveValues returns a default-constructed vector whose data
+// pointer is null, and front() dereferences it. Not a wrong answer: a crash.
+bool requireValues(CommandContext& ctx, const std::vector<int>& ids, std::size_t want) {
+  if (ids.size() == want) return true;
+  ctx.fail("selection does not resolve to " + std::to_string(want) +
+           " feature-IR value(s) of the required kind");
+  return false;
+}
+
 CommandDescriptor base(const char* id, const char* label, const char* irOp,
                        SelectionSignature signature) {
   CommandDescriptor c;
@@ -281,7 +318,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
              num(ctx, "distance", 0.0) != 0.0;  // a zero-height extrude is not a solid
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const int profile = resolveValues(*d, ctx.selection(), IrValueKind::Profile).front();
+      const std::vector<int> profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
+      if (!requireValues(ctx, profiles, 1)) return;
+      const int profile = profiles.front();
       std::vector<IrArg> args{IrArg::valueRef(profile), IrArg::num(num(ctx, "distance", 10.0))};
       if (hasNumber(ctx, "dirx") || hasNumber(ctx, "diry") || hasNumber(ctx, "dirz")) {
         args.push_back(IrArg::num(num(ctx, "dirx", 0.0)));
@@ -310,7 +349,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
              a <= 360.0;
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const int profile = resolveValues(*d, ctx.selection(), IrValueKind::Profile).front();
+      const std::vector<int> profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
+      if (!requireValues(ctx, profiles, 1)) return;
+      const int profile = profiles.front();
       std::vector<IrArg> args{IrArg::valueRef(profile), IrArg::num(num(ctx, "angle", 360.0))};
       if (hasNumber(ctx, "axx") || hasNumber(ctx, "axy") || hasNumber(ctx, "axz")) {
         args.push_back(IrArg::num(0.0));  // ox, oy, oz — origin of the axis line
@@ -526,8 +567,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       const double n = num(ctx, "count", 0.0);
       // A one-instance pattern is a no-op feature, and a fractional count is not
       // a count: both are refused rather than emitted and left to the kernel.
-      return solidTarget(*d, ctx.selection()).ok && n >= 2.0 &&
-             n == static_cast<double>(static_cast<long long>(n));
+      return solidTarget(*d, ctx.selection()).ok && n >= 2.0 && wholeCount(n);
     };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
@@ -554,8 +594,8 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     c.enabled = [d](const CommandContext& ctx) {
       const double n = num(ctx, "count", 0.0);
       const double a = num(ctx, "total_angle", 360.0);
-      return solidTarget(*d, ctx.selection()).ok && n >= 2.0 &&
-             n == static_cast<double>(static_cast<long long>(n)) && a > 0.0 && a <= 360.0;
+      return solidTarget(*d, ctx.selection()).ok && n >= 2.0 && wholeCount(n) && a > 0.0 &&
+             a <= 360.0;
     };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
@@ -580,7 +620,8 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     c.enabled = [d](const CommandContext& ctx) {
       const double nx = num(ctx, "nx", 0.0);
       const double ny = num(ctx, "ny", 0.0);
-      return solidTarget(*d, ctx.selection()).ok && nx >= 1.0 && ny >= 1.0 && nx * ny >= 2.0;
+      return solidTarget(*d, ctx.selection()).ok && nx >= 1.0 && ny >= 1.0 &&
+             wholeCount(nx) && wholeCount(ny) && nx * ny >= 2.0;
     };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
@@ -640,6 +681,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     const std::string op = b.op;
     c.execute = [d, s, id, label, op](CommandContext& ctx) {
       const std::vector<int> ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      if (!requireValues(ctx, ids, 2)) return;
+      // front() below is safe ONLY because of the line above: resolveValues walks
+      // the selection, so two distinct ids cannot come from an empty selection.
       const std::string targetNode = ctx.selection().selection().front().bodyId;
       std::string toolNode;
       for (const EntityRef& ref : ctx.selection().selection()) {

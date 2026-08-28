@@ -447,5 +447,128 @@ int main() {
     CHECK_EQ_INT(doc3.valueFor("b"), 0);  // a refused append binds nothing
   }
 
+
+  // ── a REFUSED REDO must not destroy the edit ──────────────────────────────
+  // redo() pops from undone_ BEFORE it knows whether apply() will succeed. When
+  // apply() is refused the popped unique_ptr must go back, or the redo entry is
+  // destructed and that step of the user's history is gone with no message.
+  // apply() really can be refused: AppendFeatureEdit keeps its ORIGINAL ir id by
+  // design, and PartDocument::seed is public and appends WITHOUT going through
+  // the stack — so perform -> undo -> seed -> redo makes the id stale.
+  {
+    CommandRegistry regR;
+    PartDocument docR;
+    UndoStack stackR;
+    SelectionService selR;
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 18);
+    CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
+                 1);
+    selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
+    CHECK(regR.dispatch("part.extrude", selR, params1("distance", 5)).ok());
+    CHECK_EQ_STR(lastLine(docR), "%2 = EXTRUDE(%1, 5)");
+    CHECK(stackR.undo(docR));
+    CHECK_EQ_INT(docR.records().size(), 1);
+    CHECK_EQ_INT(stackR.redoDepth(), 1);
+
+    // A mutation outside the stack takes the id the pending redo owns.
+    CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r2", "CIRCLE", {IrArg::num(3)}), 2);
+    CHECK(!stackR.redo(docR));  // %2 is taken, so the statement cannot be replayed
+    CHECK_EQ_INT(static_cast<int>(docR.lastCheck()), static_cast<int>(IrCheck::BadStatementId));
+    CHECK_EQ_INT(docR.records().size(), 2);  // the refusal mutated nothing
+    // THE CONTRACT: a refused redo leaves the stack exactly as it found it.
+    CHECK_EQ_INT(stackR.redoDepth(), 1);
+    CHECK_EQ_STR(stackR.redoLabel(), "Extrude");
+    // and it is still refused for the same reason, not silently gone
+    CHECK(!stackR.redo(docR));
+    CHECK_EQ_INT(stackR.redoDepth(), 1);
+  }
+
+  // ── a fractional count is not a count — for EVERY pattern ─────────────────
+  // LINEAR and CIRCULAR both refuse a non-integral count. GRID must too, or the
+  // one pattern that takes two counts is the one that ships `PATTERN(GRID, 1.5,
+  // 2, ...)` to a kernel whose instance count is an integer.
+  {
+    CommandRegistry regP;
+    PartDocument docP;
+    UndoStack stackP;
+    SelectionService selP;
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 18);
+    docP.seed(IrValueKind::Solid, "solid_p", "BOX",
+              {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
+    selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
+
+    CommandParams g;
+    g.setNumber("dx", 10);
+    g.setNumber("dy", 10);
+    const int disabled = static_cast<int>(DispatchStatus::Disabled);
+    g.setNumber("nx", 1.5);
+    g.setNumber("ny", 2);
+    CHECK_EQ_INT(statusOf(regP.evaluate("part.pattern_grid", selP, g)), disabled);
+    g.setNumber("nx", 2);
+    g.setNumber("ny", 2.5);
+    CHECK_EQ_INT(statusOf(regP.evaluate("part.pattern_grid", selP, g)), disabled);
+    // the same input shape LINEAR and CIRCULAR already refuse
+    CHECK_EQ_INT(statusOf(regP.evaluate("part.pattern_linear", selP,
+                                        [] { CommandParams p; p.setNumber("count", 2.5);
+                                             p.setNumber("dx", 10); return p; }())),
+                 disabled);
+    CHECK_EQ_INT(statusOf(regP.evaluate("part.pattern_circular", selP, params1("count", 2.5))),
+                 disabled);
+    // NOT ASSERTED, deliberately: wholeCount() also refuses |v| >= 2^63 so its
+    // static_cast<long long> is DEFINED. That guard was mutation-tested and the
+    // 1e300 checks stayed GREEN with it removed -- on clang 17 / arm64 -O2 the
+    // out-of-range cast happens to round-trip to something != 1e300, so the
+    // verdict is identical and the check could not fail. A check that cannot fail
+    // is not coverage, so it was deleted. GAP: the guard is unproven here and
+    // only a UBSan build (-fsanitize=undefined) can prove it.
+
+    // integral counts still pass, so the check is not simply "always off"
+    g.setNumber("nx", 2);
+    g.setNumber("ny", 3);
+    CHECK(regP.dispatch("part.pattern_grid", selP, g).ok());
+    CHECK_EQ_STR(lastLine(docP), "%2 = PATTERN(%1, GRID, 2, 3, 10, 10)");
+    CHECK_EQ_INT(docP.records().size(), 2);
+  }
+
+
+  // ── execute() must fail closed when it is called OUTSIDE dispatch() ───────
+  // dispatch() runs the enabled predicate first, so through THAT door the
+  // handlers can never see a selection their predicate rejected. But
+  // CommandRegistry::find() returns the descriptor with its public `execute`,
+  // so the predicate is a convention and not an enforcement, and the three
+  // handlers that indexed a selection-derived vector CRASHED rather than
+  // refusing: measured exit 139 (SIGSEGV) on an empty selection, because
+  // resolveValues returns a default-constructed vector whose data pointer is
+  // null and front() dereferences it.
+  {
+    CommandRegistry regX;
+    PartDocument docX;
+    UndoStack stackX;
+    SelectionService selX;  // EMPTY, and never populated
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 18);
+    docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
+
+    const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
+                                               "part.boolean_union", "part.boolean_subtract",
+                                               "part.boolean_intersect"};
+    for (const std::string& id : indexing) {
+      const CommandDescriptor* c = regX.find(id);
+      CHECK(c != nullptr);
+      if (c == nullptr) continue;
+      CommandParams p;
+      p.setNumber("distance", 5);
+      p.setNumber("angle", 90);
+      CommandContext ctx(selX, p);
+      c->execute(ctx);                        // deliberately bypassing dispatch()
+      CHECK(ctx.failed());                    // refused, in words
+      CHECK(!ctx.failureDetail().empty());
+    }
+    CHECK_EQ_INT(docX.records().size(), 1);   // the seed, and nothing else
+    // and the same commands still WORK through the front door
+    selectOnly(selX, {ref("sk_x", EntityKind::Sketch, "")});
+    CHECK(regX.dispatch("part.extrude", selX, params1("distance", 5)).ok());
+    CHECK_EQ_STR(lastLine(docX), "%2 = EXTRUDE(%1, 5)");
+  }
+
   return H.finish();
 }
