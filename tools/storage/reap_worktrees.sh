@@ -141,6 +141,31 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
     phantom=$((phantom+1)); continue
   fi
 
+  # ---------------- ACTIVE AGENT?  refuse before anything else ----------------
+  # Sacrosanct s21.3 requires proving a worktree has no active Claude session or task before
+  # removal. That was specified and NOT implemented, and on 2026-08-28 this script deleted a LIVE
+  # agent's isolation worktree mid-run: the agent had verified five findings and authored a fix but
+  # had not yet written a file, so the dirty-tree test passed, and its branch had no commits, so the
+  # witness test passed. Its remaining tool calls all failed with "the isolation worktree appears to
+  # have been removed" and the authored fix was lost.
+  #
+  # "Not yet dirty" is not "finished". A worktree belonging to a live workflow run is UNCERTAIN,
+  # and uncertainty means KEEP — the same rule already applied to unparseable locks.
+  wt_base="$(basename "$wt")"
+  case "$wt_base" in
+    wf_*)
+      run_id="${wt_base%-*}"
+      recent="$(find "$HOME/.claude/projects" -type d -name "${run_id}*" -mmin -30 2>/dev/null | head -1)"
+      live_claude="$(ps -Ao comm= 2>/dev/null | grep -c '[c]laude' || true)"
+      if [ -n "$recent" ] || [ "${live_claude:-0}" -gt 0 ]; then
+        note "KEEP    $wt"
+        note "        reason: ACTIVE-AGENT worktree — run ${run_id} has transcript activity in the"
+        note "                last 30 min or a claude process is live. Not-yet-dirty is not finished."
+        kept=$((kept+1)); continue
+      fi
+      ;;
+  esac
+
   # ---------------- FINISHED?  every check must pass ----------------
   dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
   if [ "${dirty:-1}" != "0" ]; then
