@@ -176,22 +176,57 @@ All paths are relative to the workspace root.
   refproof  : forge-kernel/reports/OCCT_DROP_ORDER.md:12:> (the TKShHealing P1 work — `build-shheal/`, `build-shheal-off/`, `test/healing_smoke.js`).
   recovery  : cd forge-kernel && cmake -S . -B build-shheal-off && cmake --build build-shheal-off -j
 
-  path      : .git/worktrees/wf_5dcbcd5f-963-5
-  bytes     : 413216  (0.000 GiB)
+  path      : .git/worktrees/wf_244f69fe-a83-6
+  bytes     : 419057  (0.000 GiB)
   class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
   reason    : protected class SESSION_ARTIFACT is never auto-disposable
-  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-5
-  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-5   (record is re-created from the branch; `git worktree prune` removes it)
+  refproof  : checkout exists on disk: .claude/worktrees/wf_244f69fe-a83-6
+  recovery  : git worktree add <path> refs/heads/worktree-wf_244f69fe-a83-6   (record is re-created from the branch; `git worktree prune` removes it)
 
-  path      : .git/worktrees/wf_5dcbcd5f-963-4
-  bytes     : 412620  (0.000 GiB)
+  path      : .git/worktrees/wf_3d73768d-f43-2
+  bytes     : 417778  (0.000 GiB)
   class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
   reason    : protected class SESSION_ARTIFACT is never auto-disposable
-  refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-4
-  recovery  : git worktree add <path> refs/heads/worktree-wf_5dcbcd5f-963-4   (record is re-created from the branch; `git worktree prune` removes it)
+  refproof  : checkout exists on disk: .claude/worktrees/wf_3d73768d-f43-2
+  recovery  : git worktree add <path> refs/heads/worktree-wf_3d73768d-f43-2   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_244f69fe-a83-5
+  bytes     : 417709  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_244f69fe-a83-5
+  recovery  : git worktree add <path> refs/heads/worktree-wf_244f69fe-a83-5   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_244f69fe-a83-1
+  bytes     : 416210  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_244f69fe-a83-1
+  recovery  : git worktree add <path> refs/heads/worktree-wf_244f69fe-a83-1   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_244f69fe-a83-2
+  bytes     : 416210  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_244f69fe-a83-2
+  recovery  : git worktree add <path> refs/heads/worktree-wf_244f69fe-a83-2   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_244f69fe-a83-4
+  bytes     : 416210  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_244f69fe-a83-4
+  recovery  : git worktree add <path> refs/heads/worktree-wf_244f69fe-a83-4   (record is re-created from the branch; `git worktree prune` removes it)
+
+  path      : .git/worktrees/wf_244f69fe-a83-3
+  bytes     : 416137  (0.000 GiB)
+  class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
+  reason    : protected class SESSION_ARTIFACT is never auto-disposable
+  refproof  : checkout exists on disk: .claude/worktrees/wf_244f69fe-a83-3
+  recovery  : git worktree add <path> refs/heads/worktree-wf_244f69fe-a83-3   (record is re-created from the branch; `git worktree prune` removes it)
 
   path      : .git/worktrees/wf_5dcbcd5f-963-8
-  bytes     : 412412  (0.000 GiB)
+  bytes     : 409547  (0.000 GiB)
   class     : SESSION_ARTIFACT   state: HOT   root: git-worktree-records
   reason    : protected class SESSION_ARTIFACT is never auto-disposable
   refproof  : checkout exists on disk: .claude/worktrees/wf_5dcbcd5f-963-8
@@ -210,8 +245,8 @@ All paths are relative to the workspace root.
 --- TOTALS ---
   provably disposable : 1.518 GiB  (1629409640 B)
   needs proof         : 0.000 GiB  (0 B)
-  must pin            : 1.674 GiB  (1797667116 B)
-  headroom before     : 66.556 GiB
-  headroom projected  : 68.073 GiB   (disposable bytes ONLY; unproven bytes are never projected)
+  must pin            : 1.676 GiB  (1799757726 B)
+  headroom before     : 61.415 GiB
+  headroom projected  : 62.932 GiB   (disposable bytes ONLY; unproven bytes are never projected)
 
-generated: 20260828T055744Z  (dry run — nothing was deleted)
+generated: 20260828T064610Z  (dry run — nothing was deleted)

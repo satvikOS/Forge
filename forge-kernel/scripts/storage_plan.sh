@@ -36,6 +36,7 @@ BIN="$BINDIR/storage_govern"
 echo "[storage] building forge::native::storage governor (pure C++20, no deps)"
 if ! $CXX -std=c++20 -O2 -I "$ROOT/forge-kernel/include" \
       "$ROOT/forge-kernel/src/native/storage/StorageGovernor.cpp" \
+      "$ROOT/forge-kernel/src/native/util/Sha256.cpp" \
       "$ROOT/forge-kernel/tools/storage_govern_main.cpp" -o "$BIN"; then
   echo "[storage] BUILD FAILED"; exit 1
 fi
@@ -44,16 +45,18 @@ mkdir -p "$OUTDIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 TXT="$OUTDIR/storage_plan.txt"
 JSON="$OUTDIR/storage_plan.json"
+RECEIPT="$OUTDIR/storage_plan.receipt.txt"
 
 echo "[storage] dry-run planning over $WORKSPACE"
 "$BIN" --workspace "$WORKSPACE" \
        --pushed-ref "${PUSHED_REF:-refs/remotes/origin/archdisc}" \
        --hot-days "${HOT_DAYS:-7}" --stale-days "${STALE_DAYS:-14}" \
-       --out "$TXT" --json "$JSON"
+       --out "$TXT" --json "$JSON" --receipt "$RECEIPT"
 rc=$?
 
 { echo; echo "generated: $STAMP  (dry run — nothing was deleted)"; } >> "$TXT"
 echo "[storage] plan written: $TXT"
 echo "[storage] plan written: $JSON"
+echo "[storage] receipt written: $RECEIPT"
 echo "[storage] NOTHING WAS DELETED. Acting on this plan is a separate, human decision."
 exit "$rc"

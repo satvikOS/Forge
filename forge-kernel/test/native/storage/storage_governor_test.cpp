@@ -30,6 +30,12 @@
 //   (I) The planner projects headroom from PROVABLY_DISPOSABLE bytes ONLY.
 //   (J) Every entry carries a non-empty reason. A KEEP that cannot say why is
 //       the exact bug s21.3 calls out.
+//   (M) THE LOCK MODEL, driven through the REAL Scanner over a real
+//       .git/worktrees fixture: a phantom record whose lock names a DEAD pid is
+//       identified as stale (and the note names the pid); one whose lock names a
+//       LIVE pid is REFUSED; a lock naming no pid at all is QUARANTINED, never
+//       assumed dead; and a record whose CHECKOUT still exists is refused even
+//       when its lock pid is dead — the two proofs are required, not one.
 //
 // Build & run standalone:
 //   clang++ -std=c++20 -O2 -I forge-kernel/include \
@@ -37,6 +43,7 @@
 //     forge-kernel/test/native/storage/storage_governor_test.cpp -o /tmp/sg && /tmp/sg
 
 #include "forge/native/storage/StorageGovernor.hpp"
+#include "forge/native/util/Sha256.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -51,6 +58,7 @@
 #include <vector>
 
 #include <cstdlib>
+#include <sys/wait.h>
 #include <unistd.h>
 
 using namespace forge::native::storage;
@@ -529,6 +537,310 @@ int main() {
     check(!lexicallyInside("/a/b", "/a/b"), "K3 a path is not strictly inside itself");
     check(!lexicallyInside("/a/b/c", "/a/b"), "K4 a parent is not inside its child");
 
+    // ─────────────────────────────────────────────────────────────────────
+    // (M) THE LOCK MODEL — a stale-locked phantom is identified, a LIVE-locked
+    //     one is REFUSED.
+    //
+    // `git worktree prune` refuses locked records by design, and Claude Code
+    // locks every agent worktree to its pid. A directory deleted without
+    // unlocking therefore leaves an IMMORTAL record — 26 accumulated since May.
+    // Unlocking is safe only with TWO independent proofs: the checkout
+    // directory is ABSENT and the locking pid is DEAD. This section drives the
+    // REAL Scanner::scanWorktreeRecords over a real .git/worktrees fixture, so
+    // it tests the shipped code path rather than a restatement of it.
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        // A git probe that reports containment PROVEN, so the lock — and only
+        // the lock — decides the outcome. Any pin below is the lock's doing.
+        struct ContainedProbe : GitProbe {
+            bool statusPorcelain(const fs::path&, std::string& out) const override {
+                out.clear(); return true;               // clean
+            }
+            bool refExists(const fs::path&, const std::string&) const override { return true; }
+            bool countUnreachable(const fs::path&, const std::string&, const std::string&,
+                                  std::uint64_t& count) const override {
+                count = 0; return true;                 // nothing unpushed
+            }
+            bool isAncestor(const fs::path&, const std::string&,
+                            const std::string&) const override { return true; }
+            bool resolve(const fs::path&, const std::string&, std::string& sha) const override {
+                sha = "abc123def4567890"; return true;
+            }
+        } probe;
+
+        std::error_code ec;
+        const fs::path wtDir = W.workspace / ".git" / "worktrees";
+
+        // Lay down one record. `dirExists` is decided by the gitdir target's
+        // PARENT, exactly as the scanner reads it.
+        auto makeRecord = [&](const std::string& name, bool checkoutPresent,
+                              const std::string& lockText) {
+            const fs::path rec = wtDir / name;
+            fs::create_directories(rec, ec);
+            const fs::path checkout = W.workspace / ".claude" / "worktrees" / name;
+            if (checkoutPresent) fs::create_directories(checkout, ec);
+            std::ofstream(rec / "gitdir") << (checkout / ".git").string() << "\n";
+            std::ofstream(rec / "HEAD")   << "abc123def4567890\n";   // detached
+            if (!lockText.empty()) std::ofstream(rec / "locked") << lockText << "\n";
+        };
+
+        // A pid that is PROVABLY gone: fork a child, let it exit, reap it. After
+        // waitpid the pid is released, so kill(pid,0) gives ESRCH. This is the
+        // only way to name a dead pid without guessing at one that might exist.
+        pid_t deadPid = -1;
+        {
+            const pid_t c = ::fork();
+            if (c == 0) { ::_exit(0); }
+            int st = 0;
+            if (c > 0 && ::waitpid(c, &st, 0) == c) deadPid = c;
+        }
+        check(deadPid > 0, "M0 the test obtained a genuinely reaped (dead) pid");
+
+        const std::string liveLock = "claude agent live (pid " +
+                                     std::to_string(static_cast<long>(::getpid())) + ")";
+        const std::string staleLock = "claude agent stale (pid " +
+                                      std::to_string(static_cast<long>(deadPid)) + ")";
+
+        makeRecord("wt-stale",  false, staleLock);              // phantom + dead holder
+        makeRecord("wt-live",   false, liveLock);               // phantom + LIVE holder
+        makeRecord("wt-nopid",  false, "locked by the operator");  // unidentifiable holder
+        makeRecord("wt-ondisk", true,  staleLock);              // checkout PRESENT
+        makeRecord("wt-plain",  false, "");                     // phantom, no lock
+
+        ScanConfig cfg;
+        cfg.workspace = W.workspace;
+        cfg.home      = W.home;
+        Scanner sc(cfg, probe);
+        std::vector<Artifact> recs;
+        sc.scanWorktreeRecords(recs);
+
+        // These records live under .git/worktrees, which the main registry does
+        // NOT own — so classify() would pin every one of them on the AUTHORITY
+        // rule and this whole section would pass without ever exercising a lock.
+        // Register the record directory as a managed root so the LOCK is what
+        // decides, and assert the registration really took.
+        ManagedRootRegistry mreg(W.workspace, W.home);
+        check(mreg.registerRoot("wtrecords", wtDir) == RootVerdict::OK,
+              "M1a the record directory registers as a managed root");
+        check(!mreg.owningRootId(wtDir / "wt-live").empty(),
+              "M1b ...so a record is inside authority and the LOCK, not authority, decides");
+
+        auto find = [&](const std::string& name) -> const Artifact* {
+            for (const auto& a : recs)
+                if (a.id == "wtrecord:" + name) return &a;
+            return nullptr;
+        };
+        auto noteContains = [&](const Artifact& a, const std::string& needle) {
+            for (const auto& n : a.notes) if (contains(n, needle)) return true;
+            return false;
+        };
+
+        check(recs.size() == 5, "M1 the scanner found every worktree record");
+
+        // ---- the LIVE-locked phantom must be REFUSED ----
+        const Artifact* live = find("wt-live");
+        check(live != nullptr, "M2 the live-locked record was scanned");
+        if (live) {
+            std::string why;
+            check(live->state == State::HOT,
+                  "M3 a phantom locked by a LIVE pid is HOT, not a candidate");
+            check(live->lease.held && contains(live->lease.holder, "ALIVE"),
+                  "M4 ...and it is held as a lease naming the live holder");
+            check(classify(*live, mreg, why) == Disposition::MUST_PIN,
+                  "M5 ...so the governor REFUSES it (MUST_PIN)");
+            check(contains(why, "HOT") || contains(why, "lease"),
+                  "M6 ...and the reason says why it was refused");
+            check(!contains(why, "no deletion authority"),
+                  "M6a ...for the LOCK reason, not merely because it sits outside authority");
+        }
+
+        // ---- the STALE-locked phantom must be correctly IDENTIFIED ----
+        const Artifact* stale = find("wt-stale");
+        check(stale != nullptr, "M7 the stale-locked record was scanned");
+        if (stale) {
+            check(stale->state == State::GC_CANDIDATE,
+                  "M8 a phantom whose lock pid is DEAD is not pinned by that lock");
+            check(!stale->lease.held,
+                  "M9 ...a dead holder is not a lease");
+            check(noteContains(*stale, "STALE"),
+                  "M10 ...and the finding is RECORDED as a stale lock");
+            check(noteContains(*stale, std::to_string(static_cast<long>(deadPid))),
+                  "M11 ...naming the dead pid, so a human can re-check it");
+        }
+
+        // ---- an UNIDENTIFIABLE holder is a conflict, never an assumption ----
+        const Artifact* nopid = find("wt-nopid");
+        check(nopid != nullptr, "M12 the no-pid record was scanned");
+        if (nopid) {
+            std::string why;
+            check(nopid->state == State::QUARANTINED,
+                  "M13 a lock naming no pid is QUARANTINED, not assumed dead");
+            check(!nopid->evidenceConflict.empty(),
+                  "M14 ...with the conflict stated");
+            check(classify(*nopid, mreg, why) == Disposition::MUST_PIN,
+                  "M15 ...and quarantine refuses reclamation");
+            check(contains(why, "QUARANTINED"),
+                  "M15a ...naming quarantine as the reason, not authority");
+        }
+
+        // ---- proof 1 of 2: a PRESENT checkout is refused even with a dead lock ----
+        const Artifact* onDisk = find("wt-ondisk");
+        check(onDisk != nullptr, "M16 the on-disk record was scanned");
+        if (onDisk) {
+            std::string why;
+            check(onDisk->state == State::HOT && onDisk->lease.held,
+                  "M17 a record whose CHECKOUT EXISTS is HOT even though its lock pid is dead");
+            check(classify(*onDisk, mreg, why) == Disposition::MUST_PIN,
+                  "M18 ...so a dead pid ALONE never authorises anything (two proofs required)");
+            check(!contains(why, "no deletion authority"),
+                  "M18a ...refused because the checkout is LIVE, not for want of authority");
+        }
+
+        // ---- the liveness predicate itself, in the safe direction ----
+        check(lockHolderLiveness(liveLock) == 1,  "M19 a live pid reads ALIVE");
+        check(lockHolderLiveness(staleLock) == 0, "M20 a reaped pid reads PROVABLY GONE");
+        check(lockHolderLiveness("locked by the operator") == -1,
+              "M21 text naming no pid is UNIDENTIFIABLE, never 'gone'");
+        check(lockHolderLiveness("claude agent x (pid 1)") == 1,
+              "M22 pid 1 exists but is another user's — EPERM counts as ALIVE, the safe direction");
+        check(lockHolderLiveness("claude agent x (pid 0)") == -1,
+              "M23 pid 0 is not a real holder");
+        check(lockHolderLiveness("claude agent x (pid abc)") == -1,
+              "M24 a malformed pid is UNIDENTIFIABLE, never 'gone'");
+
+        fs::remove_all(W.workspace / ".git", ec);
+        fs::remove_all(W.workspace / ".claude", ec);
+    }
+
+
+    // ─────────────────────────────────────────────────────────────────────
+    // (N) THE TAMPER-EVIDENT RECEIPT.
+    //
+    // A plan is evidence for a destructive decision taken later, by hand. The
+    // dangerous edit is the small one: move a path out of MUST_PIN, or nudge a
+    // byte total. Each check below performs exactly one such edit and requires
+    // that verifyReceipt REFUSES it and SAYS WHY.
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        // The digest must be a real SHA-256, not a stub that returns a constant.
+        // NIST FIPS 180-4 vectors, asserted here so this gate does not inherit
+        // its trust from another suite.
+        check(forge::native::util::sha256Hex("") ==
+                  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+              "N0 SHA-256 matches the NIST vector for the empty string");
+        check(forge::native::util::sha256Hex("abc") ==
+                  "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+              "N0b SHA-256 matches the NIST vector for \"abc\"");
+
+        std::vector<Artifact> as;
+        Artifact d = goodBuildTree(W.workspace / "forge-kernel" / "build-old");
+        d.bytes = 1000; as.push_back(d);
+        Artifact pin = goodBuildTree(W.workspace / "forge-kernel" / "build");
+        pin.state = State::HOT; pin.bytes = 2000; as.push_back(pin);
+
+        Planner pl(reg);
+        const Plan p = pl.dryRun(as, 500, 100000, W.workspace);
+        const std::string planJson = Planner::renderJson(p);
+        const Receipt r = makeReceipt(planJson, p);
+        const std::string receipt = renderReceipt(r);
+
+        std::string why;
+        check(verifyReceipt(planJson, receipt, why),
+              "N1 an untouched plan verifies against its own receipt");
+        check(why.empty(), "N2 ...with no complaint");
+
+        // The receipt must actually commit to THIS plan, not to a constant.
+        check(contains(receipt, r.planSha256) && r.planSha256.size() == 64,
+              "N3 the receipt carries a 64-hex digest of the plan");
+        check(r.deletesPerformed == 0 && contains(receipt, "deletes_performed: 0"),
+              "N4 the receipt records zero deletions");
+
+        // ---- tamper 1: edit the PLAN ----
+        {
+            std::string tampered = planJson;
+            const auto at = tampered.find("MUST_PIN");
+            check(at != std::string::npos, "N5 the plan really contains a MUST_PIN row to move");
+            tampered.replace(at, 8, "DISPOSAB");   // same length: no size tell
+            std::string w;
+            check(!verifyReceipt(tampered, receipt, w),
+                  "N6 moving a row out of MUST_PIN in the plan is DETECTED");
+            check(contains(w, "DOES NOT MATCH"),
+                  "N7 ...and the failure says the plan no longer matches its receipt");
+        }
+
+        // ---- tamper 2: a single byte anywhere in the plan ----
+        {
+            std::string tampered = planJson;
+            const auto at = tampered.find("\"bytes\": 1000");
+            check(at != std::string::npos, "N8 the plan states the disposable row's bytes");
+            tampered.replace(at, 13, "\"bytes\": 9000");
+            std::string w;
+            check(!verifyReceipt(tampered, receipt, w),
+                  "N9 changing one byte total in the plan is DETECTED");
+        }
+
+        // ---- tamper 3: edit the RECEIPT body to agree with a doctored plan ----
+        // This is the edit the plan digest alone cannot see, which is why the
+        // receipt also digests itself.
+        {
+            std::string tamperedReceipt = receipt;
+            const auto at = tamperedReceipt.find("must_pin_bytes: 2000");
+            check(at != std::string::npos, "N10 the receipt states the must-pin total");
+            tamperedReceipt.replace(at, 20, "must_pin_bytes: 0000");
+            std::string w;
+            check(!verifyReceipt(planJson, tamperedReceipt, w),
+                  "N11 editing a total ON THE RECEIPT is DETECTED by its self-digest");
+            check(contains(w, "EDITED"), "N12 ...and the failure says the body was edited");
+        }
+
+        // ---- tamper 4: a receipt claiming a deletion is not from this tool ----
+        {
+            std::string fake = receipt;
+            const auto at = fake.find("deletes_performed: 0");
+            fake.replace(at, 20, "deletes_performed: 7");
+            // Re-sign the body so ONLY the deletion claim is wrong — otherwise
+            // the self-digest would catch it first and this check would prove
+            // nothing about the deletes rule.
+            const auto dk = fake.find("receipt_sha256: ");
+            const std::string body = fake.substr(0, dk);
+            fake = body + "receipt_sha256: " + forge::native::util::sha256Hex(body) + "\n";
+            std::string w;
+            check(!verifyReceipt(planJson, fake, w),
+                  "N13 a correctly-signed receipt that claims a deletion is still REFUSED");
+            check(contains(w, "no delete path"),
+                  "N14 ...because this tool cannot delete, so the receipt is not authentic");
+        }
+
+        // ---- fail CLOSED: no digest line at all ----
+        {
+            std::string stripped = receipt.substr(0, receipt.find("receipt_sha256: "));
+            std::string w;
+            check(!verifyReceipt(planJson, stripped, w),
+                  "N15 a receipt with its digest line REMOVED is refused, not trusted");
+            check(contains(w, "REFUSED"), "N16 ...and says it cannot be verified");
+        }
+
+        // ---- truncation ----
+        {
+            std::string w;
+            check(!verifyReceipt(planJson.substr(0, planJson.size() / 2), receipt, w),
+                  "N17 a truncated plan is DETECTED");
+        }
+
+        // ---- the digest is plan-specific, not a constant ----
+        {
+            std::vector<Artifact> other = as;
+            other[0].bytes = 424242;
+            const Plan p2 = pl.dryRun(other, 500, 100000, W.workspace);
+            const Receipt r2 = makeReceipt(Planner::renderJson(p2), p2);
+            check(r2.planSha256 != r.planSha256,
+                  "N18 a different plan produces a different digest (not a constant)");
+            std::string w;
+            check(!verifyReceipt(Planner::renderJson(p2), receipt, w),
+                  "N19 one plan's receipt does not validate another plan");
+        }
+    }
+
     std::printf("\n== storage governor SAFETY gate: %d/%d checks passed ==\n", g_pass, g_total);
     if (!g_failures.empty()) {
         std::printf("FAILURES (%zu):\n", g_failures.size());
@@ -536,7 +848,7 @@ int main() {
         std::printf("RESULT: FAIL\n");
         return 1;
     }
-    if (g_total < 80) {   // the gate must not pass by running almost nothing
+    if (g_total < 185) {  // the gate must not pass by running almost nothing
         std::printf("RESULT: FAIL — only %d checks ran; the gate is too thin to trust\n", g_total);
         return 1;
     }

@@ -5,6 +5,8 @@
 
 #include "forge/native/storage/StorageGovernor.hpp"
 
+#include "forge/native/util/Sha256.hpp"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -687,13 +689,15 @@ static long newestSuffixAgeDays(const fs::path& root, const std::string& suffix)
     return best;
 }
 
-// Lease-holder liveness. A lock file that names a pid is only a lease while
-// that pid is alive. `kill(pid, 0)` answers definitively in the safe direction:
-// ESRCH means gone; anything else (including EPERM — exists, other user) is
-// treated as ALIVE, so pid reuse can only ever make us keep more.
+// Lease-holder liveness. Declared in the header (and therefore directly
+// testable) because the two-proof unlock rule rests entirely on it: a lock is
+// only a lease while its named pid is alive. `kill(pid, 0)` answers in the SAFE
+// direction — ESRCH means gone; anything else (including EPERM: the pid exists
+// but is another user's) is treated as ALIVE, so pid reuse can only ever make
+// us keep more. Never a pgrep -f match, which would match the caller itself.
 //
 // Returns: 1 alive, 0 provably gone, -1 no pid in the text.
-static int leaseHolderAlive(const std::string& lockText) {
+int lockHolderLiveness(const std::string& lockText) {
     const std::string tag = "(pid ";
     const auto at = lockText.find(tag);
     if (at == std::string::npos) return -1;
@@ -1091,7 +1095,7 @@ void Scanner::scanWorktreeRecords(std::vector<Artifact>& out) const {
         if (!lockReason.empty()) {
             // git says LOCKED but the checkout is gone. Resolve the conflict by
             // PROVING the named lease holder is dead — never by assuming it.
-            const int alive = leaseHolderAlive(lockReason);
+            const int alive = lockHolderLiveness(lockReason);
             if (alive == 1) {
                 a.lease.held = true;
                 a.lease.holder = lockReason + " [process ALIVE]";
@@ -1119,6 +1123,118 @@ std::vector<Artifact> Scanner::scanAll() const {
     scanDependencyTrees(v);
     scanWorktreeRecords(v);
     return v;
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Tamper-evident receipt
+// ═══════════════════════════════════════════════════════════════════════════
+
+namespace {
+
+constexpr const char* kReceiptDigestKey = "receipt_sha256: ";
+
+// Everything up to and including the newline that precedes the self-digest
+// line. Returns false when the key is absent — the caller must then FAIL, not
+// fall back to "no digest, assume fine".
+bool receiptBody(const std::string& text, std::string& body) {
+    const auto at = text.find(kReceiptDigestKey);
+    if (at == std::string::npos) return false;
+    body = text.substr(0, at);
+    return true;
+}
+
+// Value of a "key: value" line, trimmed of trailing CR/LF.
+bool receiptField(const std::string& text, const std::string& key, std::string& out) {
+    const auto at = text.find(key);
+    if (at == std::string::npos) return false;
+    const auto from = at + key.size();
+    auto to = text.find('\n', from);
+    if (to == std::string::npos) to = text.size();
+    out = text.substr(from, to - from);
+    while (!out.empty() && (out.back() == '\r' || out.back() == ' ')) out.pop_back();
+    return true;
+}
+
+}  // namespace
+
+Receipt makeReceipt(const std::string& planJson, const Plan& p) {
+    Receipt r;
+    r.planSha256      = ::forge::native::util::sha256Hex(planJson);
+    r.entryCount      = p.entries.size();
+    r.disposableBytes = p.disposableBytes;
+    r.needsProofBytes = p.needsProofBytes;
+    r.mustPinBytes    = p.mustPinBytes;
+    r.deletesPerformed = 0;   // there is no code path that could make this else
+    return r;
+}
+
+std::string renderReceipt(const Receipt& r) {
+    std::ostringstream o;
+    o << "FORGE NATIVE STORAGE GOVERNOR — DRY-RUN RECEIPT (s21.3)\n"
+      << "This receipt attests to a PLAN. Nothing was deleted to produce it.\n"
+      << "----------------------------------------------------------------------\n"
+      << "mode: dry-run\n"
+      << "deletes_performed: " << r.deletesPerformed << "\n"
+      << "entries: " << r.entryCount << "\n"
+      << "provably_disposable_bytes: " << r.disposableBytes << "\n"
+      << "needs_proof_bytes: " << r.needsProofBytes << "\n"
+      << "must_pin_bytes: " << r.mustPinBytes << "\n"
+      << "plan_sha256: " << r.planSha256 << "\n";
+    const std::string body = o.str();
+    return body + kReceiptDigestKey + ::forge::native::util::sha256Hex(body) + "\n";
+}
+
+bool verifyReceipt(const std::string& planJson, const std::string& receiptText,
+                   std::string& why) {
+    why.clear();
+
+    // (1) the receipt must carry its own digest at all. A receipt without one
+    //     is not a weaker receipt, it is not a receipt.
+    std::string body;
+    if (!receiptBody(receiptText, body)) {
+        why = "receipt has no receipt_sha256 line — cannot be verified, so it is REFUSED";
+        return false;
+    }
+    std::string declaredSelf;
+    if (!receiptField(receiptText, kReceiptDigestKey, declaredSelf) || declaredSelf.empty()) {
+        why = "receipt_sha256 line is present but empty";
+        return false;
+    }
+    const std::string actualSelf = ::forge::native::util::sha256Hex(body);
+    if (declaredSelf != actualSelf) {
+        why = "receipt body was EDITED: receipt_sha256 says " + declaredSelf.substr(0, 12) +
+              "… but the body hashes to " + actualSelf.substr(0, 12) + "…";
+        return false;
+    }
+
+    // (2) the plan must still be the plan this receipt was written for.
+    std::string declaredPlan;
+    if (!receiptField(receiptText, "plan_sha256: ", declaredPlan) || declaredPlan.empty()) {
+        why = "receipt names no plan_sha256";
+        return false;
+    }
+    const std::string actualPlan = ::forge::native::util::sha256Hex(planJson);
+    if (declaredPlan != actualPlan) {
+        why = "PLAN DOES NOT MATCH ITS RECEIPT: receipt expects " + declaredPlan.substr(0, 12) +
+              "… but the plan hashes to " + actualPlan.substr(0, 12) +
+              "… — the plan was modified after it was signed off";
+        return false;
+    }
+
+    // (3) a receipt from this tool can only ever report zero deletions. One
+    //     that claims otherwise did not come from here.
+    std::string deletes;
+    if (!receiptField(receiptText, "deletes_performed: ", deletes)) {
+        why = "receipt does not state deletes_performed";
+        return false;
+    }
+    if (deletes != "0") {
+        why = "receipt claims deletes_performed=" + deletes +
+              " — this tool has no delete path, so the receipt is not authentic";
+        return false;
+    }
+    return true;
 }
 
 }  // namespace forge::native::storage

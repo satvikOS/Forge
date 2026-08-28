@@ -184,6 +184,23 @@ struct Lease {
     std::string holder;   // pid / session / agent id
 };
 
+// Liveness of the process named in a git `locked` file, e.g.
+// "claude agent worktree-x (pid 8412)".
+//
+// A lock is only a LEASE while its holder is alive. Deciding that requires two
+// independent proofs (s21.3): the checkout directory is absent AND the pid is
+// dead. This answers the second half, and it answers in the SAFE direction:
+// only ESRCH ("no such process") counts as gone. EPERM — the pid exists but
+// belongs to another user — counts as ALIVE, so pid reuse can only ever make
+// the governor keep MORE, never delete more.
+//
+// Uses kill(pid, 0), never a pgrep-style command-line match: pgrep -f would
+// match the checking process itself and report every dead holder as alive.
+//
+// Returns: 1 = alive (or existence unprovable), 0 = provably gone (ESRCH),
+//         -1 = the text names no pid at all (an unidentifiable holder).
+int lockHolderLiveness(const std::string& lockText);
+
 // Tri-state evidence. UNKNOWN is not "false" — that conflation is the entire
 // bug class this module exists to prevent.
 enum class Tri { UNKNOWN = 0, NO, YES };
@@ -293,6 +310,54 @@ public:
 private:
     const ManagedRootRegistry& reg_;
 };
+
+// ───────────────────────────────────────────────────────────────────────────
+// 3b. Tamper-evident receipt
+// ───────────────────────────────────────────────────────────────────────────
+//
+// A plan is evidence for a destructive decision taken later, by hand, possibly
+// on another machine. Between the planning and the acting it is just a text
+// file that anyone can edit — and the dangerous edit is not a wholesale forgery
+// but a one-line one: moving a path from MUST_PIN into the disposable list, or
+// nudging a byte total so the headroom case looks better than it is.
+//
+// The receipt makes that class of edit DETECTABLE, with two digests that cover
+// each other's blind spot:
+//   plan_sha256    — over the exact bytes of the rendered plan JSON. Change any
+//                    row, reason, or total in the plan and this stops matching.
+//   receipt_sha256 — over the receipt's own body. Change a number printed on
+//                    the receipt to agree with a doctored plan and THIS stops
+//                    matching instead.
+//
+// HONEST LIMIT: this is a checksum, not a signature. It detects accident,
+// drift, and casual edits — not an adversary who can recompute both digests.
+// Saying so here is part of the deliverable: a receipt that overstates what it
+// proves is worse than none, because it buys trust it has not earned.
+struct Receipt {
+    std::string   planSha256;
+    std::size_t   entryCount = 0;
+    std::uint64_t disposableBytes = 0;
+    std::uint64_t needsProofBytes = 0;
+    std::uint64_t mustPinBytes    = 0;
+    // Structurally always 0: this module has no delete path. It is printed so a
+    // reader never has to take that on faith, and verified so a receipt that
+    // claims otherwise is refused rather than believed.
+    std::uint64_t deletesPerformed = 0;
+};
+
+// Build a receipt over the EXACT bytes of a rendered plan (pass the same string
+// that was written to disk — re-rendering could differ).
+Receipt makeReceipt(const std::string& planJson, const Plan& p);
+
+// Render the receipt, terminating with its own self-digest line.
+std::string renderReceipt(const Receipt& r);
+
+// Recompute both digests and compare. Returns false, with `why` naming the
+// failed check, when the plan no longer matches its receipt, the receipt body
+// has been edited, the self-digest line is missing, or the receipt claims a
+// deletion. Fails CLOSED: anything unparseable is a failure, never a pass.
+bool verifyReceipt(const std::string& planJson, const std::string& receiptText,
+                   std::string& why);
 
 // ───────────────────────────────────────────────────────────────────────────
 // 4. Scanner (filesystem side; still read-only)

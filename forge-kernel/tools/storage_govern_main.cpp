@@ -14,6 +14,7 @@
 //                  [--pushed-ref refs/remotes/origin/archdisc]
 //                  [--hot-days 7] [--stale-days 14]
 //                  [--out <file.txt>] [--json <file.json>]
+//                  [--receipt <file.txt>]
 
 #include "forge/native/storage/StorageGovernor.hpp"
 
@@ -99,8 +100,26 @@ int main(int argc, char** argv) {
 
     const std::string outPath = arg(argc, argv, "--out", "");
     if (!outPath.empty()) { std::ofstream f(outPath); f << txt; }
+    // The receipt attests to the EXACT bytes written to disk, so render the
+    // JSON once and hash that same string — re-rendering could differ.
+    const std::string planJson = Planner::renderJson(plan);
     const std::string jsonPath = arg(argc, argv, "--json", "");
-    if (!jsonPath.empty()) { std::ofstream f(jsonPath); f << Planner::renderJson(plan); }
+    if (!jsonPath.empty()) { std::ofstream f(jsonPath); f << planJson; }
+
+    const Receipt receipt = makeReceipt(planJson, plan);
+    const std::string receiptText = renderReceipt(receipt);
+    std::fputs("\n", stdout);
+    std::fputs(receiptText.c_str(), stdout);
+
+    // Verify what we just produced. A receipt the tool cannot itself verify is
+    // a bug, and it must surface here rather than at audit time.
+    std::string why;
+    if (!verifyReceipt(planJson, receiptText, why)) {
+        std::fprintf(stderr, "storage_govern: self-check FAILED — %s\n", why.c_str());
+        return 3;
+    }
+    const std::string receiptPath = arg(argc, argv, "--receipt", "");
+    if (!receiptPath.empty()) { std::ofstream f(receiptPath); f << receiptText; }
 
     // Exit 0 means "a plan was produced", NOT "something was reclaimed".
     // Nothing was reclaimed. Nothing can be, by this binary.

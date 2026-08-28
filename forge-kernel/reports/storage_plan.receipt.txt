@@ -1,0 +1,11 @@
+FORGE NATIVE STORAGE GOVERNOR — DRY-RUN RECEIPT (s21.3)
+This receipt attests to a PLAN. Nothing was deleted to produce it.
+----------------------------------------------------------------------
+mode: dry-run
+deletes_performed: 0
+entries: 33
+provably_disposable_bytes: 1629409640
+needs_proof_bytes: 0
+must_pin_bytes: 1799757726
+plan_sha256: 36da0b89cef2f3540f5fa05e5664929754aa2eb3364056f91edfc158e44416d0
+receipt_sha256: 57bed8d7cb4cb059ce8b07291340d8749c9eff7b8949197a989f501035e01cb6
