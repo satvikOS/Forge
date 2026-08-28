@@ -69,6 +69,17 @@ restore() {
 
 # The single owner of the backup's lifetime: last-chance restore, then remove it exactly once.
 cleanup() {
+  # LAST-CHANCE RESTORE. Every exit between a case's perturbation and that case's own restore
+  # lands here with the tracked source still perturbed: a ^C during `verify`, a SIGTERM from a
+  # CI timeout, `set -u` firing on an unset variable. Without this the trap only REPORTED the
+  # damage it was the last opportunity to undo, while the comment above claimed it was the
+  # safety net. Restoring is idempotent -- if the tree already matches the backup, cmp says so
+  # and nothing is copied.
+  if [ "${RESTORE_FAILED:-0}" != "1" ] && [ "${BACKUP_VALID:-0}" = "1" ] && [ -s "$BACKUP" ] &&
+     ! cmp -s "$BACKUP" "$PLANEGCS"; then
+    echo "[drift-gate] exiting with $PLANEGCS perturbed — restoring it now" >&2
+    restore || true   # restore() sets RESTORE_FAILED and the branch below keeps the backup
+  fi
   # If a restore FAILED, the backup is the only remaining copy of the original bytes and the tracked
   # source may be left perturbed. Deleting it here would destroy the sole recovery path at exactly
   # the moment it is needed — the same "clean up on the way out of a failure" reflex that makes a
@@ -122,16 +133,35 @@ run_case baseline pass "deps verify: OK" "$NM"
 #    difference, so the failure is a genuine hash mismatch and not just a
 #    missing file. This is the case that proves the fingerprint is a real check.
 FAKE="$(mktemp -d "${TMPDIR:-/tmp}/forge-fake-boost.XXXXXX")"
-REAL_BOOST="$(brew --prefix boost 2>/dev/null || echo /opt/homebrew/opt/boost)"
+# FORGE_DRIFT_REAL_BOOST exists so drift_gate_selfcheck.sh can POISON this fixture and prove
+# the precondition below actually fires. Nothing else sets it.
+REAL_BOOST="${FORGE_DRIFT_REAL_BOOST:-$(brew --prefix boost 2>/dev/null || echo /opt/homebrew/opt/boost)}"
 mkdir -p "$FAKE/include/boost/graph" "$FAKE/include/boost/math/constants"
-cp "$REAL_BOOST/include/boost/version.hpp"                       "$FAKE/include/boost/"
-cp "$REAL_BOOST/include/boost/graph/adjacency_list.hpp"          "$FAKE/include/boost/graph/"
-cp "$REAL_BOOST/include/boost/graph/connected_components.hpp"    "$FAKE/include/boost/graph/"
-cp "$REAL_BOOST/include/boost/math/constants/constants.hpp"      "$FAKE/include/boost/math/constants/"
-printf '\n// one byte of drift\n' >> "$FAKE/include/boost/graph/adjacency_list.hpp"
-run_case content_drift fail "installed_anchor_sha256 DRIFT" \
-  "$NM" "FORGE_DEPS_PREFIX_BOOST=$FAKE"
+# Every cp is CHECKED, and the case does not run unless all four landed. MEASURED with all four
+# sources missing: the four cp's failed, the `printf >>` below CREATED adjacency_list.hpp holding
+# nothing but the drift line, that one file became the whole anchor set, its digest differed from
+# the lock, and content_drift reported PASS. The suite printed "6 passed, 0 failed" and exited 0
+# while proving nothing about a one-byte change to a real header. A gate that passes for a reason
+# it does not name is worse than one that fails.
+FIXTURE_OK=1
+for rel in include/boost/version.hpp \
+           include/boost/graph/adjacency_list.hpp \
+           include/boost/graph/connected_components.hpp \
+           include/boost/math/constants/constants.hpp; do
+  if ! cp "$REAL_BOOST/$rel" "$FAKE/$rel" 2>/dev/null; then
+    echo "  FAIL  content_drift FIXTURE: $REAL_BOOST/$rel is missing — this case cannot prove a"
+    echo "        hash MISMATCH without a real header to mismatch against"
+    FAIL=$((FAIL + 1))
+    FIXTURE_OK=0
+  fi
+done
+if [ "$FIXTURE_OK" = "1" ]; then
+  printf '\n// one byte of drift\n' >> "$FAKE/include/boost/graph/adjacency_list.hpp"
+  run_case content_drift fail "installed_anchor_sha256 DRIFT" \
+    "$NM" "FORGE_DEPS_PREFIX_BOOST=$FAKE"
+fi
 rm -rf "$FAKE"
+if [ -d "$FAKE" ]; then echo "[drift-gate] WARNING: kept $FAKE — rm -rf did not remove it" >&2; fi
 
 # 2. Wrong prefix entirely: the anchor globs match nothing. Without the
 #    empty-set guard this would hash to sha256("") and could never fail.
