@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <cstdint>
 #include <map>
 #include <stdexcept>
@@ -1308,16 +1309,119 @@ void attachFilePcurves(Xfer& X, const std::vector<std::uint64_t>& faceEcIds,
                     }
                     return uv;
                 };
+                // ---- GLOBAL-NEAREST point -> pcurve projection ----------------
+                // OCCT's Geom2dAPI_ProjectPointOnCurve computes ALL extrema of the
+                // distance function, so LowerDistanceParameter() is the GLOBAL
+                // nearest parameter. The native replacement
+                // (occtproj::projectPointOnCurve2d) is a SEEDED LOCAL refinement:
+                // it takes the single best sample of a coarse grid plus its two
+                // neighbours and Newton-refines only those. On a pcurve with
+                // several comparable minima — a wiggly trimmed B-spline, or a
+                // curve that passes close to itself — the coarse grid can seed the
+                // WRONG basin and the refinement then settles in a LOCAL minimum.
+                // Swapping the projector in therefore silently changed the
+                // CONTRACT this call site depends on, and a wrong footpoint here
+                // yields a wrong span [r0,r1], which trims the edge to the wrong
+                // piece of the pcurve: geometry that still looks plausible and is
+                // wrong — the class of import bug we refuse to ship.
+                //
+                // So the parameter is the BEST OF TWO independent estimates:
+                //   (i)  whatever the projector returns — fast, and accurate to
+                //        machine precision inside its own basin; and
+                //   (ii) a DENSE uniform scan of the whole span, golden-section
+                //        refined inside the bracket around its best sample —
+                //        global by construction at the scan's resolution, and far
+                //        denser than the projector's own seed grid, so a narrow
+                //        basin the projector missed is still bracketed.
+                // Keeping the closer of the two can only improve the footpoint,
+                // and restores the global-nearest semantics of the OCCT branch
+                // under either build.
+                bool per2 = false; double period2 = 0.0;
+                try {
+                    per2 = (c2->IsPeriodic() == Standard_True);
+                    if (per2) period2 = c2->Period();
+                } catch (const Standard_Failure&) { per2 = false; period2 = 0.0; }
+
+                // Report both endpoints in ONE convention. OCCT normalises a
+                // periodic curve's footpoint into its canonical period window, so
+                // the native estimate is wrapped the same way — otherwise r0/r1
+                // could mix a wrapped and an unwrapped parameter and describe a
+                // span neither endpoint lies on.
+                auto canon = [&](double t) {
+                    if (per2 && period2 > 0.0) {
+                        double x = t - w0;
+                        x -= period2 * std::floor(x / period2);
+                        return w0 + x;
+                    }
+                    return t;
+                };
+
+                auto nearestParam = [&](const gp_Pnt2d& P, double& tOut) -> bool {
+                    if (!(w1 > w0)) return false;
+                    auto dist2At = [&](double t) -> double {
+                        gp_Pnt2d C;
+                        try { c2->D0(t, C); }
+                        catch (const Standard_Failure&) {
+                            return std::numeric_limits<double>::max();
+                        }
+                        return P.SquareDistance(C);
+                    };
+
+                    bool have = false;
+                    double bestT = w0;
+                    double bestD2 = std::numeric_limits<double>::max();
+
+                    // (i) the projector's own answer.
 #ifdef FORGE_NATIVE_PROJECTION
-                auto pF = forge::occtproj::projectPointOnCurve2d(shiftToAnchor(uvF), c2);
-                auto pL = forge::occtproj::projectPointOnCurve2d(shiftToAnchor(uvL), c2);
+                    auto pr = forge::occtproj::projectPointOnCurve2d(P, c2);
 #else
-                Geom2dAPI_ProjectPointOnCurve pF(shiftToAnchor(uvF), c2);
-                Geom2dAPI_ProjectPointOnCurve pL(shiftToAnchor(uvL), c2);
+                    Geom2dAPI_ProjectPointOnCurve pr(P, c2);
 #endif
-                if (pF.NbPoints() < 1 || pL.NbPoints() < 1) return false;
-                const double a = pF.LowerDistanceParameter();
-                const double q = pL.LowerDistanceParameter();
+                    if (pr.NbPoints() >= 1) {
+                        const double t  = canon(pr.LowerDistanceParameter());
+                        const double d2 = dist2At(t);
+                        if (d2 < bestD2) { bestD2 = d2; bestT = t; }
+                        have = true;
+                    }
+
+                    // (ii) dense global scan + golden-section refinement.
+                    constexpr int kScan = 256;
+                    int    bestI  = -1;
+                    double scanD2 = std::numeric_limits<double>::max();
+                    for (int i = 0; i <= kScan; ++i) {
+                        const double t = w0 + (w1 - w0) *
+                            (static_cast<double>(i) / static_cast<double>(kScan));
+                        const double d2 = dist2At(t);
+                        if (d2 < scanD2) { scanD2 = d2; bestI = i; }
+                    }
+                    if (bestI >= 0) {
+                        const double step = (w1 - w0) / static_cast<double>(kScan);
+                        double lo = std::max(w0, w0 + step * (bestI - 1));
+                        double hi = std::min(w1, w0 + step * (bestI + 1));
+                        // Golden-section minimisation on the (unimodal) bracket.
+                        // Width shrinks by 0.618 per iteration, so 64 iterations
+                        // take it below double precision on any real span.
+                        constexpr double kInvPhi = 0.6180339887498949;
+                        for (int it = 0; it < 64; ++it) {
+                            if (hi - lo <= 1e-15 * std::max(1.0, std::fabs(hi))) break;
+                            const double c = hi - kInvPhi * (hi - lo);
+                            const double d = lo + kInvPhi * (hi - lo);
+                            if (dist2At(c) < dist2At(d)) hi = d; else lo = c;
+                        }
+                        const double t  = 0.5 * (lo + hi);
+                        const double d2 = dist2At(t);
+                        if (d2 < bestD2) { bestD2 = d2; bestT = t; }
+                        have = true;
+                    }
+
+                    if (!have) return false;
+                    tOut = bestT;
+                    return true;
+                };
+
+                double a = 0.0, q = 0.0;
+                if (!nearestParam(shiftToAnchor(uvF), a)) return false;
+                if (!nearestParam(shiftToAnchor(uvL), q)) return false;
                 r0 = std::min(a, q); r1 = std::max(a, q);
                 if (r1 - r0 <= Precision::PConfusion()) return false;
                 return locusOk(c2, r0, r1);

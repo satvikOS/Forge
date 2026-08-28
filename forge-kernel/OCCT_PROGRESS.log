@@ -1,0 +1,72 @@
+# OCCT-replacement progress log
+# Append-only. Each entry: date, task (K#), what changed, how verified, honest gap.
+
+================================================================================
+2026-07-06  K1 — native trimmed-NURBS STEP reader: WIRE + FACE_SURFACE alias
+================================================================================
+CONTEXT
+  The native foreign-STEP reader forge::native::brep::readForeignStep
+  (src/native/brep/StepRead.cpp, ~1300 LOC) already EXISTED and was A/B-certified
+  vs OCCT 7.9.3 (test/native_vs_occt_step_read.cpp). It parses the full core
+  AP203/214/242 zoo — 5 quadrics + B_SPLINE_SURFACE_WITH_KNOTS (simple + rational
+  complex form) + LINE/CIRCLE/ELLIPSE/B_SPLINE curves + the topology zoo + units,
+  then native-sews into a solid. The K1 gap was NOT a missing reader: it was that
+  importStep NEVER called it — under forgeNativeStepEnabled() importStep only tried
+  StepAnalytic::read() (Forge's OWN quadric-only dialect) and, on any B_SPLINE_
+  SURFACE face or foreign file, fell straight to OCCT STEPControl_Reader.
+
+CHANGE (Part A of OCCT_ZERO plan + one coverage alias)
+  * src/IoExchange.cpp  importStep(): after StepAnalytic::read() fails, now calls
+    native::brep::readForeignStep(text) as the PREFERRED trimmed-NURBS route.
+    Accepted ONLY when COMPLETE + watertight: fr.ok && fr.solid && fr.owner &&
+    fr.unsupported.empty() && fr.closed  -> addNativeSolid (mirrors importIges's
+    strict acceptance). On ANY gap it falls through to OCCT so nothing regresses.
+  * src/native/brep/StepRead.cpp: accept FACE_SURFACE as an ADVANCED_FACE alias
+    (identical field layout; some exporters emit the bare supertype).
+
+VERIFICATION (bounded macOS clang++ build, OCCT 7.9.3 linked)
+  Compiled + ran test/native_vs_occt_step_read.cpp (1:1 A/B vs OCCT). Result:
+    24/27 gates PASS  +3 PARTIAL (documented canonicalization).
+    [1] planar box (mm)     native vol 420      == OCCT 420        rel<=1e-6  PASS
+    [2] inch box (2x3x4in)  native 393289.536mm3 == OCCT*25.4^3    rel<=1e-6  PASS
+                            (native honours the INCH context; raw OCCT does not)
+    [3] analytic cylinder   native 62.83185307  == OCCT            rel<=1e-6  PASS
+                            faces native==OCCT==130
+    [4] B_SPLINE face+hole  native area 15.36    == OCCT 15.36      rel<=1e-6  PASS
+                            faces native==OCCT==1  (trimmed-NURBS read WORKS)
+    The 3 PARTIALs are F/E/V signature: native sews to canonical topology
+    (box 6/12/8) while OCCT's raw STEP read leaves per-face unsewn verts
+    (6/24/48) — the native result is MORE canonical, not wrong.
+  src/IoExchange.cpp syntax-checked clean under -DFORGE_NATIVE_BREP.
+
+ANSWERS
+  * Native STEP read for B-spline faces?  YES — readForeignStep reconstructs a
+    B_SPLINE_SURFACE_WITH_KNOTS trimmed face to OCCT-matching area (rel<=1e-6),
+    and importStep now routes to it BEFORE OCCT. It is gated behind
+    forgeNativeStepEnabled() (FORGE_NATIVE_STEP env / override), OFF by default —
+    so production behaviour is unchanged until the flag is flipped, per Bible §0.
+
+  * STEP subset that STILL falls to OCCT (readForeignStep records these in
+    `unsupported` -> importStep falls through):
+      - SURFACE_OF_REVOLUTION, SURFACE_OF_LINEAR_EXTRUSION, OFFSET_SURFACE
+      - BEZIER_SURFACE / (QUASI_)UNIFORM_SURFACE (knot-form dispatch)
+      - PARABOLA / HYPERBOLA / POLYLINE / TRIMMED_CURVE / COMPOSITE_CURVE
+      - PCURVE / SURFACE_CURVE / SEAM_CURVE are IGNORED — the reader re-derives
+        (u,v) by Gauss-Newton point-inversion; fragile on periodic/seam/degenerate
+        surfaces in real exports.
+      - any body whose native sew does not close watertight.
+    Real NX/SW/CATIA B_SPLINE exports typically ALSO carry SURFACE_OF_REVOLUTION/
+    _LINEAR_EXTRUSION/OFFSET_SURFACE, so those whole files still hit OCCT. Closing
+    them is Part B/C of the plan (NOT done here).
+
+  * Is TKDESTEP/TKXSBase/TKDE droppable yet?  NO — honestly not.
+      1. importStep still falls through to OCCT STEPControl_Reader for the
+         unsupported-surface tail above (which real files use).
+      2. src/NativeOcctBridge.cpp occtFromNativeSolid() STILL round-trips native
+         solids THROUGH OCCT STEPControl_Reader (Part D untouched); any consumer
+         wanting an OCCT-backed handle re-pulls TKDESTEP.
+      3. exportStep still uses STEPControl_Writer for OCCT-backed handles.
+    This change makes native the PREFERRED STEP-read path and shrinks the OCCT
+    read surface to the unsupported-entity tail, but does NOT remove the OCCT STEP
+    dependency. Remaining: Part B (surface coverage), Part C (consume file pcurves
+    + SEAM_CURVE), Part D (replace the NativeOcctBridge round-trip).
