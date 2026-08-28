@@ -9,8 +9,9 @@
 # Two classes are handled:
 #   PHANTOM — registered in .git/worktrees but the directory is gone. Only an admin record remains.
 #             Safe to prune; nothing on disk is lost.
-#   FINISHED — directory exists, tracked tree clean, no unique untracked/ignored data, and every
-#             commit is reachable from a surviving ref. Removed through git, never rm -rf.
+#   FINISHED — directory exists, NOT git-locked, tracked tree clean, no unique untracked/ignored
+#             data, and every commit is reachable from a surviving ref. Removed through git,
+#             never rm -rf. A `locked` file is the lock whether or not it carries reason text.
 #
 # Usage:  reap_worktrees.sh            # DRY RUN (default — prints the plan, changes nothing)
 #         reap_worktrees.sh --apply    # execute the plan
@@ -78,6 +79,23 @@ while IFS= read -r -d '' entry; do
 done < <(git worktree list --porcelain -z)
 _flush
 
+# is_locked_now <path> -> 0 if git currently reports that worktree as locked.
+# Re-reads the table rather than trusting the arrays above, because APPLY happens after the
+# plan was printed and a lock may have been taken in between. A bare `locked` record (no
+# reason) counts: the record's presence is the lock.
+is_locked_now() {
+  local want="$1" cur="" locked=0 entry
+  while IFS= read -r -d '' entry; do
+    case "$entry" in
+      "worktree "*)
+        if [ "$cur" = "$want" ] && [ "$locked" = "1" ]; then return 0; fi
+        cur="${entry#worktree }"; locked=0 ;;
+      "locked"|"locked "*) locked=1 ;;
+    esac
+  done < <(git worktree list --porcelain -z)
+  [ "$cur" = "$want" ] && [ "$locked" = "1" ]
+}
+
 i=0
 while [ $i -lt ${#WT_PATHS[@]} ]; do
   wt="${WT_PATHS[$i]}"; wt_locked="${WT_LOCKED[$i]}"; wt_reason="${WT_REASON[$i]}"
@@ -141,6 +159,27 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
     phantom=$((phantom+1)); continue
   fi
 
+  # ---------------- LOCKED: git was TOLD to protect this one ----------------
+  # The lock FILE's presence is the lock. `git worktree lock` without --reason writes an
+  # EMPTY file, so "no reason text" means the OWNER is unknown, never that the lock is
+  # absent — the same error, pointing the same way (toward deletion), that the phantom
+  # branch above already refuses to make.
+  # Below this point the lock was consulted only for PHANTOMs: a worktree still on disk was
+  # judged purely on cleanliness, and the apply loop then double-forced past the lock
+  # ("locked needs --force twice"), so a clean worktree an agent had explicitly locked was
+  # removed out from under it. The native governor
+  # (forge-kernel/src/native/storage/StorageGovernor.cpp) pins EVERY locked record; two
+  # tools that disagree about what "locked" means is how a worktree gets deleted by the one
+  # that is wrong. A lock is a decision someone already made — clearing it is a human's job.
+  if [ "$wt_locked" = "1" ]; then
+    note "KEEP    $wt"
+    note "        reason: git-LOCKED — the lock FILE is the lock, with or without reason text."
+    note "                Removing it would defeat a protection git was explicitly told to apply."
+    note "        lock:  ${wt_reason:-(no reason recorded — 'git worktree lock' run without --reason)}"
+    note "        clear: git worktree unlock '$wt'   # deliberate, by a human, then re-run"
+    kept=$((kept+1)); continue
+  fi
+
   # ---------------- ACTIVE AGENT?  refuse before anything else ----------------
   # Sacrosanct s21.3 requires proving a worktree has no active Claude session or task before
   # removal. That was specified and NOT implemented, and on 2026-08-28 this script deleted a LIVE
@@ -183,19 +222,40 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
   # --ignored=matching also lists ignored files, which the FINISHED class claims to require: the
   # header promises "no unique untracked/ignored data" and the plain --porcelain form never saw
   # them, so a worktree holding a gitignored artifact was reported "tracked+untracked clean".
-  dirty=$(printf '%s' "$status_out" | grep -c . || true)
+  #
+  # That ONE fail-closed read answers BOTH halves of the contract, so the halves are separated
+  # again HERE rather than by asking git a second time. The second ask used to live below as
+  # `git status --porcelain --ignored 2>/dev/null | grep '^!! '`, which is the very fail-OPEN
+  # shape just fixed above — 2>/dev/null plus a pipeline discards git's exit status — and once
+  # ignored paths were folded into $dirty it also became unreachable, so a gitignored build tree
+  # was refused under the generic "uncommitted/untracked" reason with its path list and size
+  # silently dropped. A KEEP that misnames its reason is the failure this tool exists to prevent:
+  # "delete the artifacts first" and "commit or stash your work" are different remedies.
+  #
+  # grep -c PRINTS 0 and EXITS 1, hence `|| true` (never `|| echo 0`, which captures "0\n0"), and
+  # printf '%s' — not '%s\n' — because a trailing newline would make an EMPTY status count as one
+  # line and pin every clean worktree.
+  ign_list=$(printf '%s' "$status_out" | grep '^!! ' | sed 's/^!! //' || true)
+  ign=$(printf '%s' "$ign_list" | grep -c . || true)
+  dirty=$(printf '%s' "$status_out" | grep -v '^!! ' | grep -c . || true)
+  total=$(printf '%s' "$status_out" | grep -c . || true)
+  # ASSERT THE COUNT: every status line must land in exactly one bucket. If it does not, the
+  # classification is wrong and the safe answer is KEEP, not "0 dirty, therefore finished".
+  if [ "$(( ${dirty:-0} + ${ign:-0} ))" != "${total:-1}" ]; then
+    note "KEEP    $wt"
+    note "        reason: \`git status\` produced $total line(s) but only $dirty dirty + $ign ignored"
+    note "                classified — an unaccounted line is not a clean tree."
+    kept=$((kept+1)); continue
+  fi
   if [ "${dirty:-1}" != "0" ]; then
     note "KEEP    $wt"
-    note "        reason: $dirty uncommitted/untracked/ignored path(s) — never reclaimed"
+    note "        reason: $dirty uncommitted/untracked path(s) — dirty trees are never reclaimed"
     kept=$((kept+1)); continue
   fi
 
-  # `git status --porcelain` does NOT list ignored files, so a worktree holding gigabytes of
-  # gitignored build output reported ZERO lines and was removed under a receipt claiming
-  # "tracked+untracked clean". The FINISHED contract in the header says "no unique
-  # untracked/ignored data"; --ignored is what actually tests the second half of that.
-  ign_list=$(git -C "$wt" status --porcelain --ignored 2>/dev/null | grep '^!! ' | sed 's/^!! //')
-  ign=$(printf '%s' "$ign_list" | grep -c . | tr -d ' ')
+  # A worktree holding gigabytes of gitignored build output once reported ZERO lines and was
+  # removed under a receipt claiming "tracked+untracked clean". The FINISHED contract in the
+  # header says "no unique untracked/ignored data"; this is the second half of that.
   if [ "${ign:-1}" != "0" ]; then
     isz=$(du -sk "$wt" 2>/dev/null | awk '{print $1}')
     note "KEEP    $wt"
@@ -248,13 +308,21 @@ if [ $APPLY -eq 1 ]; then
   # path the plan printed as KEEP be deleted anyway. One decision, one list, no divergence.
   for wt in "${REMOVE_LIST[@]:-}"; do
     [ -z "$wt" ] && continue
-    # A worktree locked by a live agent needs --force TWICE; one --force is refused.
+    # Re-read the lock HERE, not just when the plan was printed: a lock taken since is a
+    # decision someone made about this worktree while we were deciding too.
+    if is_locked_now "$wt"; then
+      echo "    ⚠ SKIPPED (git-LOCKED since the plan was printed): $wt"
+      note "APPLY-SKIPPED $wt — locked after the plan was printed; a lock is a decision, not an obstacle"
+      removed_fail=$((removed_fail+1))
+      continue
+    fi
+    # ONE --force. `git worktree remove --force --force` exists to defeat a LOCK, and it was
+    # here: a locked worktree that reached this loop was deleted by the retry. Nothing locked
+    # reaches REMOVE_LIST any more, so the second --force could only ever have overridden a
+    # lock taken after the plan — a refusal to report is better than a deletion to explain.
     # Capture the STATUS, not a pipeline's — piping into sed discarded git's exit code and the
     # unconditional echo below then reported a removal that may never have happened.
     rm_out="$(git worktree remove --force "$wt" 2>&1)"; rm_rc=$?
-    if [ $rm_rc -ne 0 ]; then
-      rm_out="$(git worktree remove --force --force "$wt" 2>&1)"; rm_rc=$?
-    fi
     printf '%s\n' "$rm_out" | sed 's/^/    /'
     if [ $rm_rc -eq 0 ] && [ ! -d "$wt" ]; then
       echo "    removed $wt"

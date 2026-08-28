@@ -985,11 +985,34 @@ void Scanner::scanWorktreeRecords(std::vector<Artifact>& out) const {
         }
         const bool dirExists = !checkout.empty() && fs::exists(checkout, ec) && !ec;
 
-        // A `locked` file means git itself was told to protect it.
+        // A `locked` file means git itself was told to protect it. THE FILE'S
+        // PRESENCE IS THE LOCK. `git worktree lock` WITHOUT --reason creates an
+        // EMPTY one (verified: 0 bytes, and `worktree list --porcelain` still
+        // prints a bare `locked` record), so reading "no reason text" as "not
+        // locked" deletes precisely the records git was told to protect. That is
+        // the same error the shell reaper once made in the other direction — an
+        // unparseable lock read as STALE — and both point at deletion.
+        // Absence of reason text makes the HOLDER unknown, never the lock absent.
+        //
+        // The WHOLE file is read, not its first line: a --reason may span lines,
+        // and a pid on line 2 would otherwise be invisible. Interior whitespace
+        // is folded to single spaces so one lock stays one line of plan text.
+        std::error_code lec;
+        const fs::path lockFile = rec / "locked";
+        const bool lockPresent = fs::exists(lockFile, lec) && !lec;
         std::string lockReason;
-        {
-            std::ifstream f(rec / "locked");
-            std::getline(f, lockReason);
+        if (lockPresent) {
+            std::ifstream f(lockFile);
+            std::ostringstream ss;
+            ss << f.rdbuf();
+            const std::string raw = ss.str();
+            bool pendingSpace = false;
+            for (const char c : raw) {
+                const bool ws = (c == '\n' || c == '\r' || c == '\t' || c == ' ');
+                if (ws) { pendingSpace = !lockReason.empty(); continue; }
+                if (pendingSpace) { lockReason += ' '; pendingSpace = false; }
+                lockReason += c;
+            }
         }
 
         if (dirExists) {
@@ -999,7 +1022,11 @@ void Scanner::scanWorktreeRecords(std::vector<Artifact>& out) const {
             // Relative spelling: a plan is committed as evidence and must not
             // carry the operator's absolute home path.
             const std::string co = rel(resolveThroughLinks(checkout), cfg_.workspace);
-            a.lease.holder = lockReason.empty() ? ("checkout present at " + co) : lockReason;
+            a.lease.holder = !lockReason.empty()
+                                 ? lockReason
+                                 : (lockPresent
+                                        ? ("git-LOCKED with no reason recorded; checkout present at " + co)
+                                        : ("checkout present at " + co));
             a.state = State::HOT;
             a.references.push_back("checkout exists on disk: " + co);
             std::string porc;
@@ -1092,7 +1119,9 @@ void Scanner::scanWorktreeRecords(std::vector<Artifact>& out) const {
                                                        : (" (" + a.containmentDetail + ")")));
         a.state = (a.containment == UnpushedEvidence::CONTAINED) ? State::GC_CANDIDATE
                                                                  : State::WARM;
-        if (!lockReason.empty()) {
+        // THE LOCK IS THE FILE, NOT THE TEXT IN IT — an empty `locked` file is a
+        // lock whose OWNER is unknown, not a record that is unlocked.
+        if (lockPresent) {
             // git says LOCKED but the checkout is gone. Resolve the conflict by
             // PROVING the named lease holder is dead — never by assuming it.
             const int alive = lockHolderLiveness(lockReason);
@@ -1107,9 +1136,22 @@ void Scanner::scanWorktreeRecords(std::vector<Artifact>& out) const {
                                   "\" is STALE: named pid does not exist (kill(pid,0)=ESRCH)");
             } else {
                 // Locked by something we cannot identify -> conflict, hands off.
-                a.evidenceConflict = "record is git-LOCKED (\"" + lockReason +
+                // This is where the EMPTY lock lands: `git worktree lock` with no
+                // --reason names nobody, so the holder cannot be proved dead, and
+                // an unprovable holder is UNCERTAIN. Uncertainty is a KEEP.
+                const std::string shown =
+                    lockReason.empty()
+                        ? std::string("no reason recorded — `git worktree lock` was run "
+                                      "without --reason, so the file is EMPTY")
+                        : lockReason;
+                a.evidenceConflict = "record is git-LOCKED (\"" + shown +
                                      "\") with no identifiable holder, yet its checkout "
                                      "directory is absent";
+                a.notes.push_back("git lock present at " + rel(lockFile, cfg_.workspace) +
+                                  " (" + shown +
+                                  "): the lock FILE is the lock; its holder could not be "
+                                  "established, so this record is KEPT, not reclaimed. "
+                                  "Clear it deliberately with `git worktree unlock`.");
                 a.state = State::QUARANTINED;
             }
         }

@@ -21,6 +21,9 @@
 #   orphan   checkout GONE, branch DELETED, commits NOT on the pushed ref
 #                                     -> NEEDS_PROOF, naming the lost ref
 #   live     checkout PRESENT and dirty -> MUST_PIN (HOT session artifact)
+#   emptylock
+#            checkout GONE, merged+pushed, record locked with NO --reason (a
+#            ZERO-BYTE `locked` file) -> MUST_PIN: the lock FILE is the lock
 #
 # This script contains NO deletion logic for anything the governor manages. The
 # only rm it performs is of its own mkdtemp fixture, and of that fixture's own
@@ -35,8 +38,11 @@ CXX="${CXX:-clang++}"
 BINDIR="$(mktemp -d /tmp/forge_sg_bin.XXXXXX)"
 BIN="$BINDIR/storage_govern"
 echo "[git-gate] building storage_govern"
-if ! $CXX -std=c++20 -O2 -I "$ROOT/forge-kernel/include" \
+# Sha256.cpp is NOT optional: the governor's receipt calls sha256Hex, so without it this
+# link has always failed and the gate exited 1 before asserting anything at all.
+if ! $CXX -std=c++20 -O2 -Wall -Wextra -Werror -I "$ROOT/forge-kernel/include" \
       "$ROOT/forge-kernel/src/native/storage/StorageGovernor.cpp" \
+      "$ROOT/forge-kernel/src/native/util/Sha256.cpp" \
       "$ROOT/forge-kernel/tools/storage_govern_main.cpp" -o "$BIN"; then
   echo "[git-gate] BUILD FAILED"; exit 1
 fi
@@ -101,6 +107,26 @@ git -C "$FIX/orphan" commit --quiet -m orphan-work
 rm -rf "$FIX/orphan"
 delref orphan; assert_gone orphan
 
+# ── emptylock: merged and pushed like `merged`, but the record carries a lock
+#    file created by `git worktree lock` WITHOUT --reason, i.e. ZERO BYTES. git
+#    still reports it locked; a governor that reads the lock's TEXT instead of
+#    its PRESENCE sees "" — indistinguishable from no lock — and planned this
+#    row PROVABLY_DISPOSABLE. Real git, not a hand-written fixture file.
+mkwt emptylock
+echo el > "$FIX/emptylock/el.txt"
+git -C "$FIX/emptylock" add el.txt
+git -C "$FIX/emptylock" commit --quiet -m emptylock-work
+G merge --quiet --no-edit worktree-emptylock
+G push --quiet origin main
+G worktree lock "$FIX/emptylock"           # NO --reason -> empty `locked` file
+LOCK_BYTES="$(wc -c < "$WS/.git/worktrees/emptylock/locked" | tr -d " ")"
+if [ "$LOCK_BYTES" != "0" ]; then
+  echo "[git-gate] FIXTURE BROKEN: expected a 0-byte lock file, got $LOCK_BYTES bytes"
+  exit 1
+fi
+rm -rf "$FIX/emptylock"
+delref emptylock; assert_gone emptylock
+
 # ── live: a real, dirty checkout ────────────────────────────────────────────
 mkwt live
 echo dirty > "$FIX/live/scratch.txt"
@@ -144,6 +170,9 @@ expect merged PROVABLY_DISPOSABLE "reproducible"
 expect unique MUST_PIN            "no pushed ref"
 expect orphan NEEDS_PROOF         "no longer exists"
 expect live   MUST_PIN            "SESSION_ARTIFACT"
+# The whole point: containment is PROVEN for this row, so nothing but the lock can
+# keep it — and an EMPTY lock file must keep it.
+expect emptylock MUST_PIN         "without --reason"
 
 # The trap's fallback must be VISIBLE in the plan, not merely implied.
 if grep -qF "is GONE, but the record's recorded HEAD" "$FIX/plan.txt"; then
@@ -160,4 +189,4 @@ else
 fi
 
 if [ "$fail" -ne 0 ]; then echo "[git-gate] RESULT: FAIL"; exit 1; fi
-echo "[git-gate] RESULT: PASS — 6/6 real-git expectations hold"
+echo "[git-gate] RESULT: PASS — 7/7 real-git expectations hold"
