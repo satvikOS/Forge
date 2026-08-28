@@ -313,3 +313,201 @@ one A/B oracle end-to-end for a single op and prove it can go red before schedul
 the pattern.
 
 **Net Z1 state: the node-free build (§2) landed; the first deletion did not, and should not have.**
+
+---
+
+## 6. TRACK UICMD — the registry now owns product commands. 2026-08-28.
+
+§5.2 row 1 refused to retire any of G3 for a reason that was correct and specific:
+
+```
+$ grep -nE 'registerCommand|builtin|Builtin' ui/src/CommandRegistry.cpp
+(no output)
+```
+
+The registry was an empty mechanism, 2,053 of its 2,421 checks were one synthetic
+100,101-row virtualization gate, and no JS behavior could be retired against a registry that
+owned nothing. This section records the first slice of real content, the census that says how
+big the remaining surface is, and the mapping from each new C++ command to the JS symbol it is
+positioned to retire. **No JS was deleted in this track, and none is yet deletable — §6.4 says
+exactly what is still missing.**
+
+### 6.1 Census of `electron/preload.js` — the 445-function surface, grouped
+
+Measured: `445` bindings of the form `name: (` (unchanged from §1's G7 figure). Every one is
+attributed to exactly one family below; the buckets sum to 445 with nothing unlisted.
+
+| # | Family | Fns | Namespaces (count) |
+|---|---|---:|---|
+| A | modelling core — primitives, booleans, transforms | 10 | root: `makeBox makeCylinder makeSphere makeCone makeTorus fuse cut common translate rotate` |
+| B | **part features** | **84** | `part`(23) `direct`(9) `surfacing`(8) `sheetMetal`(13) `sheetmetal`(3) `weldments`(7) `stdparts`(7) `heal`(6) `meshrepair`(6) `nurbsfit`(1) `loftguide`(1) |
+| C | sketch | 12 | `sketcher`(11) `sketchdof`(1) |
+| D | assembly | 8 | `assembly`(7) `matelib`(1) |
+| E | drawing | 6 | `drawings`(4) `dxf`(2) |
+| F | view / tessellation / picking | 30 | root(15: tessellate·LOD·BVH·massProps·ray/frustum/AABB) `gltf`(2) `pathtrace`(1) `lighting`(3) `animation`(3) `video`(1) `terrain`(2) `sun`(3) |
+| G | document / file / PDM / app | 41 | `io`(7) `pdm`(12) `variants`(2) `trace`(1) `webhook`(4) `updater`(3) `win`(3) `dialog`(3) unattributed(6)\* |
+| H | shape + instance lifecycle | 13 | root: `isReady loadError version retain release liveCount addInstance removeInstance updateTransform instanceCount instanceExists reserveInstances instanceBytesUsed` |
+| I | CAM / manufacturing / mould | 26 | `cam`(5) `camx`(6) `machining`(3) `mold`(6) `casting`(1) `welding`(1) `tolerance`(1) `cost`(2) `carbon`(1) |
+| J | simulation + named solvers | 32 | `fea`(11) `native`(17) `cfd`(1) `acoustics`(1) `thermal`(1) `simulate`(1) |
+| K | one-function engineering-formula namespaces (the long tail) | **183** | 110 namespaces, ≈1.7 fns each: `boltjoint buckling vbelt fatigue hxc mohr windload pumphead refrig seismic weir threephase symcomp cable battery solarpv hydrology …` |
+| | **TOTAL** | **445** | |
+
+\* The 6 unattributed entries are `isReady loadError openFile saveFile writeBlob
+transcodeWebmToMp4`. `preload.js` declares its bridge surface twice — the object literal at
+line 62 and a second structurally identical block at ~1610 that repeats `dialog`/`video` — so a
+line-oriented namespace walk cannot assign these six. They are counted exactly once; only their
+family label is approximate (`transcodeWebmToMp4` arguably belongs to F, not G).
+
+Two facts this census establishes that the flat "445 functions" number hid:
+
+- **The command-shaped surface is small.** Families A+B+C+D+E — everything a Part/Sketch/Assembly
+  workspace command would ever invoke — is **120 functions, 27 %**. Family K alone is **183
+  functions, 41 %**, and it is not UI at all: it is a library of closed-form engineering formulas
+  reachable from panels, with no selection, no undo and no feature history.
+- **A command layer and a kernel ABI are different jobs.** G7 in §1 schedules the 445 for
+  `forge_capi.h`. That is the right target for K and J. It is the *wrong* target for A–E, which
+  need a command with a selection signature, an undo contract and a feature-IR op — not a
+  function pointer.
+
+### 6.2 What was built
+
+| File | LOC | What it is |
+|---|---:|---|
+| `ui/include/forge/ui/FeatureIr.hpp` | 102 | the emitted-statement value type + the kernel op table + its validator |
+| `ui/src/FeatureIr.cpp` | 186 | 40-op table transcribed from `forge/ft/FeatureTree.hpp`, arg formatting, validation |
+| `ui/include/forge/ui/PartCommands.hpp` | 165 | `PartDocument` (receiver), `UndoableEdit`/`AppendFeatureEdit` (command), `UndoStack` (caretaker), `registerPartCommands` |
+| `ui/src/PartCommands.cpp` | 696 | the 18 Part workspace commands |
+| `ui/test/feature_ir_test.cpp` | 349 | 243 checks — the kernel-header cross-check |
+| `ui/test/part_commands_test.cpp` | 451 | 304 checks — behaviour, not registration |
+
+**The pattern is named, not improvised.** GoF *Design Patterns* (Gamma, Helm, Johnson &
+Vlissides, 1994) COMMAND (p.233) with the MEMENTO variant (p.283) for undo, which that chapter
+prescribes exactly when the receiver's inverse is not derivable from the request's arguments —
+which is this case, because a boolean **absorbs** its tool body's name binding. Roles:
+`CommandDescriptor` = Command, `PartDocument` = Receiver, `AppendFeatureEdit` = ConcreteCommand,
+`UndoStack` = Caretaker with the linear-undo rule (a new edit clears the redo stack).
+
+**A command emits one line of feature-IR; it does not call the kernel.** That is the s19.2.1
+seam. `part.fillet` produces `%5 = FILLET(%4, 4, ALL)`, and the gate asserts that text. The
+value of doing it this way is that the same command object is reachable from a menu, a keystroke,
+a macro and an Archie tool call, and is assertable with no display, no GPU and no OCCT.
+
+**The op table is checked against the kernel, not against itself.** `feature_ir_test.cpp` reads
+`forge-kernel/include/forge/ft/FeatureTree.hpp` *as data*, re-derives all four columns (op name,
+required-arg count, required+optional count, whether the first argument is a `%ref`) by parsing
+the documented argument lists in the `enum class OpCode` table, and diffs them against
+`ui/src/FeatureIr.cpp`. All 40 ops reconcile. Change `HOLE`'s optional list in the kernel and the
+UI gate goes red until the UI follows (proved in §6.5).
+
+### 6.3 THE MAPPING — C++ command → JS symbol it would retire → C++ test
+
+Every row's C++ test is `ui/test/part_commands_test.cpp`, which asserts the emitted statement
+text, the enabled predicate, and the selection signature for that command. `preload.js` line
+numbers are from this worktree's commit.
+
+| C++ command ID (stable) | C++ symbol | Feature-IR op emitted | JS symbol retired | preload.js | Status |
+|---|---|---|---|---:|---|
+| `part.extrude` | `forge::ui::registerPartCommands` → `EXTRUDE` handler | `EXTRUDE(%profile, d [, dir])` | `window.forge.part.extrudeProfile` | 1342 | MAPPED |
+| `part.revolve` | ” | `REVOLVE(%profile, a [, axis])` | `window.forge.part.revolveProfile` | 1349 | MAPPED |
+| `part.loft` | ” | `LOFT(%p0, %p1, … [, RULED][, OPEN])` | `window.forge.part.loft` | 1353 | MAPPED |
+| `part.hole` | ” | `HOLE(%b, dia, x, y, z [, axis, depth])` | `window.forge.part.holeWizard` | 1379 | MAPPED |
+| `part.counterbore` | ” | `CBORE(%b, dia, cd, cdep, x, y, z)` | `window.forge.part.holeWizard` (`type`/`spec` args) | 1379 | MAPPED |
+| `part.fillet` | ” | `FILLET(%b, r [, sel])` | `window.forge.part.filletEdges` | 1371 | MAPPED |
+| `part.chamfer` | ” | `CHAMFER(%b, d [, sel])` | `window.forge.part.chamferEdges` | 1375 | MAPPED |
+| `part.variable_fillet` | ” | `BLEND(%b, r0, r1 [, sel][, SMOOTH])` | `window.forge.part.variableFilletEdge` | 1373 | MAPPED |
+| `part.shell` | ” | `SHELL(%b, t [, openAxis])` | `window.forge.part.shell` | 1355 | MAPPED |
+| `part.pattern_linear` | ” | `PATTERN(%b, LINEAR, n, dx [, dy, dz])` | `window.forge.part.linearPattern` | 1383 | MAPPED |
+| `part.pattern_circular` | ” | `PATTERN(%b, POLAR, n, a)` | `window.forge.part.circularPattern` | 1385 | MAPPED |
+| `part.pattern_grid` | ” | `PATTERN(%b, GRID, nx, ny, dx, dy)` | **none** — no preload binding exists for a 2-D grid pattern | — | NEW CAPABILITY |
+| `part.mirror` | ” | `MIRROR(%b, PLANE)` | `window.forge.part.mirrorPattern` | 1387 | MAPPED |
+| `part.boolean_union` | ” | `FUSE(%a, %b)` | `window.forge.fuse` | 74 | MAPPED |
+| `part.boolean_subtract` | ” | `CUT(%a, %b)` | `window.forge.cut` | 75 | MAPPED |
+| `part.boolean_intersect` | ” | `COMMON(%a, %b)` | `window.forge.common` | 76 | MAPPED |
+| `part.undo` | `forge::ui::UndoStack::undo` | — (moves the program, does not extend it) | no preload symbol — undo lives in `frontend/src/forge-v4` React state | — | MAPPED |
+| `part.redo` | `forge::ui::UndoStack::redo` | — | as above | — | MAPPED |
+
+Coverage against the census: **11 of family B's 84** distinct part-feature bindings and **3 of
+family A's 10** modelling-core bindings now have a C++ command with a behavioural test (18
+commands map onto 14 distinct JS symbols — `part.hole` and `part.counterbore` are two commands
+over one overloaded `holeWizard`, and `part.pattern_grid`, `part.undo` and `part.redo` have no
+preload symbol at all). The remaining **73** of family B are `direct`(9), `surfacing`(8),
+`sheetMetal`(13), `sheetmetal`(3), `weldments`(7), `stdparts`(7), `heal`(6), `meshrepair`(6),
+`nurbsfit`(1), `loftguide`(1), plus `part`'s 12 uncovered entries: `extrudeProfileOnPlane`,
+`sweep`, `thickenSurface`, `pipeFromPolyline`, `profileWire`, `sweepPolyline`, `draftFaces`,
+`rib`, `onCurvePattern`, `sweepWithGuides`, `loftWithGuides`, `shellMultiThickness`. Three of
+those need feature-IR vocabulary the kernel's `OpCode` table does not have in the form a UI
+command needs: `SWEEP` takes an explicit point ring rather than a selected path sketch, and there
+is **no `RIB` and no `DRAFT` op at all**. That is a kernel gap, and surfacing it is exactly why
+the mapping is built before the deletion rather than after.
+
+### 6.4 Why this still authorizes ZERO deletion
+
+The s3.2 bar is JS symbol → C++ symbol → **C++ test that asserts the same value**. Rows above
+clear the first two and half of the third: the C++ test asserts the *statement the kernel would
+be given*, not the *solid the kernel returns*. Three things are missing, in order of cost:
+
+1. **No runtime path from a dispatched command to `forge::ft::compile()`.** `PartDocument` holds
+   the IR text; nothing in a shipped binary feeds it to the compiler. Until it does, `part.fillet`
+   cannot replace `filletEdges` — it can only describe it. The fix is small and it is the next
+   deliverable: a `forge_ui_ir_probe` that pipes `PartDocument::irProgram()` into `forge_verify`
+   (which already parses and compiles IR, node-free — §2.4) and asserts volume/genus, giving each
+   row a value-for-value oracle.
+2. **`ForgeShell` does not own these commands.** `registerPartCommands` is standalone. Wiring it
+   into the shell costs a `PartDocument` member and updates to `forge_shell_test`'s hard-coded
+   `registry().size() == 13` plus the `model.extrude|fillet|shell` stubs the keymap binds in four
+   input profiles (`ui/src/Keymap.cpp:252-297`). Deliberately not done in this track: it is a
+   behaviour change to a green gate and belongs in its own commit.
+3. **The JS side has no command registry to diff against.** Re-measured, unchanged from §5.2:
+   `grep -oE "id: '[a-zA-Z0-9_.:-]+'" frontend/src/forge-v4/ForgeShellV4.jsx` returns **0** IDs.
+   The JS shell dispatches through inline React handlers, so the retirement of G3 is a rewrite
+   with a mapping, never a symbol-for-symbol swap. This table is that mapping for the Part core.
+
+### 6.5 Measured gate output
+
+Before this track (§5.4), and after, both from `JOBS=4 bash ui/test/run_ui.sh`, exit 0:
+
+```
+BEFORE                                    AFTER
+[dock_layout]                   97        [dock_layout]                   97
+[feature_tree_virtualization] 2053        [feature_tree_virtualization] 2053
+[command_registry]              51        [command_registry]              51
+[selection_service]             70        [selection_service]             70
+[input_profile_parity]          61        [input_profile_parity]          61
+[forge_shell]                   89        [forge_shell]                   89
+                                          [feature_ir]                   243   <- new
+                                          [part_commands]                304   <- new
+ALL 6 UI GATES PASS — 2,421               ALL 8 UI GATES PASS — 2,968
+```
+
+The number that matters is not 2,968. It is the **non-virtualization** total: **368 → 915**, and
+the synthetic virtualization gate's share of the suite falls from **84.8 % to 69.2 %**. 547 new
+checks, every one of them on a command's behaviour or on agreement with the kernel's grammar.
+
+**SR-3 — every gate proved able to fail.** Five mutations of the code under test, each run and
+each red, then reverted (full suite green again afterwards, exit 0):
+
+| # | Mutation | Result |
+|---|---|---|
+| 1 | `FeatureIr.cpp`: `{"HOLE", 5, 9}` → `{"HOLE", 5, 8}` | `feature_ir` FAIL 1/243 — *"got 8, want 9"*, i.e. the kernel header disagreed. `part_commands` also FAIL (22) — the 9-arg HOLE stopped being emittable |
+| 2 | `PartCommands.cpp`: `part.fillet` enabled predicate drops `radius > 0` | `part_commands` FAIL 24/304 — *"statusOf(dispatch(part.fillet, radius=0)) got 0, want 3"*; a zero-radius fillet then mutated the document |
+| 3 | boolean signature `exactly(Body,2)` → `atLeast(Body,1)` | `part_commands` FAIL 2/304 — one body and three bodies both stopped being refused |
+| 4 | `UndoStack::perform` no longer clears the redo stack | `part_commands` FAIL 5/304 — the redo branch survived a new edit |
+| 5 | `part.hole` emits 4 args instead of 5 (below the kernel minimum) | `part_commands` FAIL — the document **refused the statement**, `lastLine` stayed on the previous feature |
+
+Mutation 1 is the load-bearing one: it proves the UI's op table is checked against the kernel's
+header and not against a copy of itself. Mutation 5 proves an emission the kernel would reject
+never reaches the document.
+
+### 6.6 Ordered next steps for UICMD
+
+1. `forge_ui_ir_probe` — pipe `PartDocument::irProgram()` into the existing node-free
+   `forge_verify` and assert volume/genus per command. That converts every row in §6.3 from
+   "asserts the statement" to "asserts the solid", which is the s3.2 bar.
+2. Wire `registerPartCommands` into `ForgeShell`, retire the three `model.*` stubs, and re-bind
+   the four input profiles' shortcuts to the `part.*` IDs.
+3. Next command slices, in descending census weight: `direct`(9) → `PUSHFACE`/`DEFEATURE`/
+   `RESIZEBORE` (the kernel ops already exist and are tested); `sheetMetal`(16) → `FOLD`;
+   `sketcher`(12) → the sketch workspace. `surfacing`, `weldments` and `stdparts` need kernel op
+   vocabulary that does not exist yet — file those as kernel work, not UI work.
+4. Do **not** schedule families J and K (215 functions, 48 % of the surface) through the command
+   registry. They are stateless solvers and belong behind `forge_capi.h` per §1's G7.

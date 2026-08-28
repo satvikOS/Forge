@@ -26,6 +26,10 @@ INC="-I ui/include -I ui/test"
 # -Werror is deliberate: SR-3 requires -Wall -Wextra, and a warning nobody is
 # forced to read is not a standard, it is a suggestion.
 FLAGS="-std=c++20 -O2 -Wall -Wextra -Werror"
+# feature_ir_test.cpp reads forge-kernel/include/forge/ft/FeatureTree.hpp AS DATA
+# to re-derive the IR op table it checks forge::ui against. Passed as its own
+# quoted argument so a repo path containing a space cannot word-split $FLAGS.
+ROOTDEF="-DFORGE_UI_REPO_ROOT=\"$ROOT\""
 JOBS="${JOBS:-$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/dev/null || echo 4 )}"
 TEST_TIMEOUT="${TEST_TIMEOUT:-120}"
 ONLY="${ONLY:-}"
@@ -70,7 +74,7 @@ fi
 check_header() {
   local h="$1"; local safe; safe="$(echo "$h" | tr '/.' '__')"
   # shellcheck disable=SC2086
-  if ! $CXX $FLAGS $INC -fsyntax-only -x c++ "$h" 2>"$OBJDIR/$safe.hdr.err"; then
+  if ! $CXX $FLAGS "$ROOTDEF" $INC -fsyntax-only -x c++ "$h" 2>"$OBJDIR/$safe.hdr.err"; then
     echo "[ui:HEADER] NOT SELF-CONTAINED — $h"; tail -20 "$OBJDIR/$safe.hdr.err"
     echo "hdr:$h" >> "$FAILMARK"
   fi
@@ -83,7 +87,7 @@ echo "[ui] ${#HDRS[@]} headers + 1 test header are self-contained"
 # ── 1. compile every source once ─────────────────────────────────────────────
 compile_src() {
   # shellcheck disable=SC2086
-  if ! $CXX $FLAGS $INC -c "$1" -o "$2" 2>"$2.err"; then
+  if ! $CXX $FLAGS "$ROOTDEF" $INC -c "$1" -o "$2" 2>"$2.err"; then
     echo "[ui:SRC] BUILD FAIL — $1"; tail -25 "$2.err"; echo "src:$1" >> "$FAILMARK"
   fi
 }
@@ -115,7 +119,7 @@ run_test() {
   local test="$1"; local name; name="$(basename "$test" .cpp)"
   local bin="$OBJDIR/$name"
   # shellcheck disable=SC2086
-  if $CXX $FLAGS $INC "$test" "${OBJS[@]}" -o "$bin" 2>"$bin.err"; then
+  if $CXX $FLAGS "$ROOTDEF" $INC "$test" "${OBJS[@]}" -o "$bin" 2>"$bin.err"; then
     local rc=0
     run_with_timeout "$TEST_TIMEOUT" "$bin" >"$bin.out" 2>&1 || rc=$?
     if [ "$rc" -eq 0 ]; then
