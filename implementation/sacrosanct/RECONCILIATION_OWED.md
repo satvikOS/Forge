@@ -146,3 +146,29 @@ side does not accept. The gate that would have caught that now exists and is red
 
 Third measured cost of the divergence, alongside s0 conformance (54/5 at HEAD vs 33/14 here) and
 the unknown-operator-scores-as-a-box behaviour.
+
+---
+
+## Cross-track conflicts after the segment wave, 2026-08-28 — 7 deferred
+
+Parallelism is now the dominant integration cost. Seven branches hold real conflicts against HEAD.
+All commits are safe on their branches; none is lost.
+
+| Branch | Conflicting paths |
+| --- | --- |
+| `worktree-wf_08b913c1-8b7-2` | `tools/storage/reap_worktrees.sh` — a CodeRabbit fix track edited the same file I fixed directly |
+| `worktree-wf_41f62d36-39b-1` | (deferred before diff shown) |
+| `worktree-wf_41f62d36-39b-2` | `forge-kernel/CMakeLists.txt`, `ui/include/forge/ui/ForgeShell.hpp` |
+| `worktree-wf_41f62d36-39b-3` | `forge-kernel/CMakeLists.txt`, `forge-kernel/src/ft/FeatureTreeCompiler.cpp` |
+| `worktree-wf_46ab8b53-ead-1` | `forge-kernel/src/Features.cpp`, `native_vs_occt_features_gap1.mjs` |
+| `worktree-wf_5dcbcd5f-963-8` | storage governor, **add/add** — the duplicated subsystem |
+| `worktree-wf_e04fbd3d-e24-2` | `forge-kernel/src/IoExchange.cpp`, `native/brep/StepRead.cpp` |
+
+**`forge-kernel/CMakeLists.txt` is the contention point** — three branches conflict on it, and it is
+also one of the in-flight files. Every segment that adds a target touches it.
+
+**Process correction owed:** the answer is not more merge skill, it is fewer concurrent writers per
+file. Future waves must partition by FILE OWNERSHIP, not by topic, and a track that needs a shared
+file must request the hunk rather than edit it. That was in the original persona design ("shared
+files have one temporary owner; others propose patches through the task record") and I stopped
+enforcing it once the waves got large.
