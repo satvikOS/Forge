@@ -33,7 +33,8 @@ either 1451 lines of someone's kernel work or a parser fix that closes release-b
 | `forge-kernel/CMakeLists.txt` | +578 lines | KRN target additions | adjacent target blocks |
 | `forge-kernel/src/native/brep/NativeThickSolid.cpp` | in-flight | KRN native whole-solid offset | same functions |
 | `forge-kernel/include/forge/native/brep/NativeThickSolid.hpp` | in-flight | KRN declarations | same header region |
-| `forge-kernel/src/Features.cpp` | in-flight | KRN call-site changes | same call sites |
+| `forge-kernel/src/Features.cpp` | in-flight | **SHELL sign contract** + KRN call sites | same functions |
+| `forge-kernel/src/LoftGuide.cpp` | in-flight | TKOFF ThruSections/MakePipeShell | same functions |
 
 Reconciled cleanly and needing nothing: `forge-kernel/include/forge/ft/FeatureTree.hpp`.
 
@@ -55,3 +56,26 @@ Sacrosanct forbids destroying work to make a merge succeed, and the operating ru
 `git checkout --` on unstaged work precisely because it reverts the whole edit rather than the part
 you meant. A backup of all 37 files is held at
 `scratchpad/inflight-backup/`, and the six colliding originals at `scratchpad/park_w2/`.
+
+---
+
+## Update 2026-08-28, after waves 2 and 3
+
+Now **seven** files carry debt, not five. The additions are `Features.cpp` (which gained the SHELL
+sign-contract fix on top of the KRN changes) and `LoftGuide.cpp`.
+
+**The highest-value item is now `Features.cpp`.** HEAD carries the fix that makes `part.shell`
+hollow *inward* on both routes; the working tree does not. Until reconciled, a build from the
+working tree still produces the outward body — 564.926 instead of 424 on the smoke's own box, a 33%
+error that moves the part's outer dimensions, which every drawing, DFM and mass consumer reads.
+
+**A separate defect was found and deliberately NOT fixed**, because fixing it would have landed as a
+conflict in exactly these files: `ft/FeatureTreeCompiler.cpp:1238` `opShell` selects a face through
+a **1-based** `TopTools_IndexedMapOfShape` and passes it to `part::shell`, which resolves through a
+**0-based** `TopExp_Explorer`. Measured on a cube: `inferFeature(k)` equals `part.shell([k-1])` for
+every k, and `part.shell([6])` throws *"face id 6 out of range"*. With the default open axis it
+selects the z=0 face and shell then opens the y=0 face. **Invisible on a cube because every face
+gives V=424** — which is precisely why the feature-tree smokes pass. Fix it during reconciliation.
+
+The recommendation is unchanged and now more urgent: **commit the in-flight kernel work to its own
+branch.** Seven files of hand-applied patches is the point at which hand-applying stops being safe.
