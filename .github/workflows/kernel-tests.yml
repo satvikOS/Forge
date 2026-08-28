@@ -107,6 +107,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: forge::ui gates
         run: bash ui/test/run_ui.sh
+      - name: run_ui.sh self-protection contracts
+        # run_ui.sh gates forge::ui; this gates run_ui.sh. All three cases are
+        # silent-green failures -- an unresolvable repo root that keeps going, a
+        # cleanup that cannot report a delete it failed to make, and ONLY=<typo>
+        # exiting 0 after running nothing.
+        run: bash ui/test/run_ui_contract_test.sh
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
