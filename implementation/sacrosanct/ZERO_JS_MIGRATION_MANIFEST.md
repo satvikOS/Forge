@@ -223,3 +223,93 @@ target sets                              IDENTICAL
 - No benchmark numbers are reported here; the machine was loaded and any figure would be invalid.
 - LOC totals differ slightly from the task brief (515,638 vs 515,774; 346,287 vs 350,643) because the
   brief's C++ extension set differs. The JS figure and all file counts reproduce exactly.
+
+---
+
+## 5. Z1 first-removal attempt — 2026-08-28. RESULT: ZERO FILES REMOVED.
+
+The kernel now configures and builds with Node absent (§2), so the first `git rm` under s3.2 became
+*possible*. Every candidate was carried to the s3.2 bar — **JS symbol → C++ symbol → C++ test that
+asserts the same value** — and **every one of them failed it**. Nothing was deleted. What follows is
+the per-candidate evidence, so the next pass starts from a measurement rather than a re-scan.
+
+### 5.1 The bar actually applied
+
+A row is removable only when **all three** hold. The third is the one every candidate died on:
+
+1. A native C++ owner exists for the behavior.
+2. A C++ test asserts the **same value** the JS asserted (not merely "a test exists nearby").
+3. Deleting the JS breaks no live caller — the C++ is the shipped path, or the JS has no caller.
+
+### 5.2 Candidate ledger
+
+| Candidate JS | C++ owner considered | C++ test considered | Verdict and the measured reason |
+|---|---|---|---|
+| `frontend/src/forge-v4/ForgeShellV4.jsx` (3,657 lines) and the rest of G3 | `forge::ui` — `CommandRegistry` / `SelectionService` / `Keymap` / `DockLayout` / `WorkspaceProfile` / `ForgeShell` | `ui/test/*_test.cpp`, **6 gates / 2,421 checks, all PASS (run below)** | **NOT READY — no behavior overlap at all.** `grep -nE "registerCommand\|builtin\|Builtin" ui/src/CommandRegistry.cpp` returns **nothing**: the registry ships **zero product commands**. It is an empty mechanism whose gates register their own fixtures. And the JS shell has no command registry to compare against — `grep -oE "id: '[a-zA-Z0-9_.:-]+'" ForgeShellV4.jsx` returns **0** IDs; it is React with 40+ live imports and inline handlers. There is no JS symbol whose value a `forge::ui` check asserts. |
+| `frontend/src/forge-v4/surfaceFairingMath.js` (1,127 lines) | `forge::native::mesh::taubinSmooth` (`src/native/mesh/Smooth.cpp`) | `test/native/mesh/smooth_test.cpp` (377 lines, randomized, strong) | **NOT READY — different algorithm, and a live caller.** `grep -c cotan src/native/mesh/Smooth.cpp` = **0**; the C++ is a *uniform umbrella* Laplacian (`Smooth.cpp:190`, "full uniform 1-ring umbrella Laplacian"). The JS assembles a **cotangent** Laplacian and adds a **bi-Laplace conjugate-gradient** solver: `assembleCotangentLaplacian`, `assembleSymmetricCotangentLaplacian`, `conjugateGradient`, `runBiLaplace`, `bendingEnergy` — none of which have a C++ owner. Different weights give different vertex positions, so `smooth_test.cpp` cannot assert what the JS asserts. Independently blocking: `SurfaceFairingPanel.jsx` imports it, so it is live product code. |
+| `frontend/src/foundation/CompositeLaminate.js` (258 lines) — **verified zero callers repo-wide** | `forge::native::composites` — `reducedStiffness`, `rotatedQ`, `buildClt` (`src/native/composites/Composites.cpp`) | `test/native/composites/composites_test.cpp` (411 lines, closed-form oracles for Q̄(0/45/90), B==0 for `[0/90]s`, Ex==Ey balanced) | **NOT READY — 3 of 6 exports covered.** Covered: `plyStiffnessMaterialAxes`→`reducedStiffness`, `rotateStiffness`→`rotatedQ`, `laminateABD`→`buildClt`. **Uncovered:** `solveLaminate(stack,N,M)` — `CltResult` carries A/B/D and effective constants but **no ABD-inverse load→strain solve**; `tsaiWu` and `laminateFirstPlyFailure` — **no Tsai-Wu exists anywhere in the kernel**. The kernel says so itself, `include/forge/native/materials/Materials.hpp:53-56`: *"(b) FULL TSAI-WU / TSAI-HILL directional FAILURE INDEX … A 2D Tsai-Wu already exists in JS (frontend/src/forge-v4/compositesMath.js); the 3D native version is queued."* That sibling file has **3 live importers** (`compositeFea.js`, `CompositeFeaPanel.jsx`, `CompositesLayupPanel.jsx`). Deleting `CompositeLaminate.js` would delete the repo's only first-ply-failure criterion. |
+| `frontend/src/forge-v4/topologyMap.js` (215 lines) — **verified zero callers repo-wide** | `forge::ft` `OpCode::Tag` (L4 TAG/@name, `include/forge/ft/FeatureTree.hpp:131`) | `test/ft/s0_acceptance_test.cpp` (761 lines) | **NOT READY — the C++ solves a different problem, by design.** TAG binds a persistent name to a **whole feature** at declaration time; `s0_acceptance_test.cpp` only asserts TAG **parses and is never counted as an orphan** (lines 106/115/123/718-723). It never re-resolves an entity across a rebuild. `topologyMap.js::resolveEntity` does **per-entity geometric re-identification** — exact content hash, then centroid-within-1 mm + adjacency-count match, then nearest-centroid-with-matching-adjacency. The C++ test at line 454 explicitly contrasts TAG *against* face-index selection, i.e. the kernel deliberately does **not** implement this. No owner, no test. |
+| `frontend/src/foundation/NURBSStepExport.js` — zero callers | `exportStep` / `importStep` (exercised by `forge-desktop/step_probe.cpp`) | `step_probe.cpp` — AP242 write → import → re-export idempotence | **NOT READY — disjoint entity sets.** `step_probe` round-trips a **solid body**. The JS emits free-standing `B_SPLINE_CURVE_WITH_KNOTS` / surface collections (`exportNURBSCurve`, `exportNURBSSurface`, `exportNURBSCollection`). No C++ check asserts a bare NURBS-entity STEP export. |
+| `electron/pdmVault.js` (G8) | — | — | **NOT READY — no owner exists.** `grep -rilE 'pdmvault\|pdm_vault\|PdmVault'` over `forge-kernel/ ui/ forge-desktop/` returns **nothing**. |
+| `forge-kernel/test/**` (G6) | 193 `.cpp` tests | — | **NOT READY — blocker unchanged and re-verified.** `grep -nE "add_test\|enable_testing\|include\(CTest\)" forge-kernel/CMakeLists.txt` still **exits 1 with no output**. The directory holds 162 `.js` + 65 `.mjs` at top level. Also explicitly retained as transitional per the track brief. |
+| `tools/push-210-smoke.mjs` (G9, 82 lines) | — | — | **NOT READY — it is a test, not a behavior.** It asserts against `surfaceFairingMath.js`, which stays (row 2). Deleting a gate whose subject remains is weakening a test. |
+
+### 5.3 Supporting measurement — an unreferenced-JS scan, and why it authorizes nothing
+
+To be sure no easy row was being missed, every tracked JS file was checked for **any** textual
+reference anywhere in the repo. Method: concatenate all 3,468 tracked text files (54,598,273 bytes),
+tokenize once (`tr -cs`, both dot-preserving and dot-splitting, 359,619 + 259,256 tokens), and keep
+a file only when **both** its basename-with-extension and its stem are absent from the token set.
+
+Result: **352 of 1,766 JS files carry no textual reference.** That number is *not* a deletion list:
+
+- **184 are live gates reached by a runner glob, not by name** — 158 `e2e/**` Playwright specs
+  (`playwright.config.js` `testDir`) and 26 `__tests__/*.test.mjs` suites. Unreferenced by name,
+  fully alive. Deleting any of them is weakening a test.
+- **124 are under `forge-kernel/test/`** — retained transitional OCCT coverage, off-limits.
+- 1 is `frontend/eslint.config.js`, found by the linter by convention, not by import.
+- The genuine remainder is **43 dead files** in `frontend/src/{foundation,tools,systems,utils,ai}`
+  (`BladeRow`, `BoltedJoint`, `BucklingAnalysis`, `FrameFEM`, `PlateFEM`, `SpringCoil`,
+  `StressConcentration`, `WeldFatigue`, `MaterialSystem`, `ModifierSystem`, `*Tools.js`,
+  `layoutManager`, `CertificationMatrix`, `coherenceGate`, `panelMethodMath`, `topologyMap`, …).
+  Spot-checked with a full-tree `grep`: `topologyMap`, `coherenceGate`, `panelMethodMath` and
+  `CertificationMatrix` have **literally zero** occurrences outside their own file.
+
+**None of these were deleted, and that is the correct outcome.** s3.2 authorizes removal only through
+a mapping to a C++ symbol and a C++ test. These files have **no** C++ owner — deleting them would be
+an *unmapped* deletion dressed up as migration progress, which is precisely the failure mode the
+"removal by extension is forbidden" clause exists to prevent. Dead-code removal may well be correct;
+it is simply **not this manifest's authority**, and it must not be smuggled through this track.
+Recorded here so the list is not re-derived.
+
+### 5.4 Evidence commands and their output
+
+```
+$ git ls-files '*.js' '*.jsx' '*.mjs' '*.cjs' | wc -l          → 1766
+$ git ls-files '*.ts' '*.tsx' | wc -l                          → 0      (unchanged; no *.ts rule is valid)
+
+$ JOBS=3 bash ui/test/run_ui.sh
+[check_includes] OK (22 files) / [check_includes_ui] OK (23 files)
+[dock_layout]                   97 checks, 0 failures — PASS
+[feature_tree_virtualization] 2053 checks, 0 failures — PASS
+[command_registry]              51 checks, 0 failures — PASS
+[selection_service]             70 checks, 0 failures — PASS
+[input_profile_parity]          61 checks, 0 failures — PASS
+[forge_shell]                   89 checks, 0 failures — PASS
+[ui] ALL 6 UI GATES PASS (forge::ui — headless, no ImGui, no GPU, no display)
+```
+
+`forge::ui` is green and its 2,421 checks are real — but **2,053 of them (84.8%) are the synthetic
+100,101-row feature-tree virtualization gate**. The gates that touch product-shaped behavior total
+**368 checks**, and none of them asserts a value produced by any shipped JS. A large check count is
+not migration coverage; this is the distinction that decided row 1.
+
+### 5.5 Correction to §3's ordering
+
+§3 step 2 proposed deleting G2 (`frontend/src/kernel`, 69,265 LOC) second. On this evidence that is
+still right in *value* but wrong in *sequence*: the per-op A/B oracle it depends on has the same
+shape as the four failures above — a C++ test that asserts a **different value** than the JS. Build
+one A/B oracle end-to-end for a single op and prove it can go red before scheduling 239 files behind
+the pattern.
+
+**Net Z1 state: the node-free build (§2) landed; the first deletion did not, and should not have.**
