@@ -1004,3 +1004,74 @@ is committed alongside this file as `RELEASES_RETIRED_assets.tsv`
 | `v1.0.1143` | 2026-07-24 | 14 | 753167222 | 0 |
 | `v1.0.1144` | 2026-07-24 | 14 | 753166958 | 8 |
 | `v1.0.1145` | 2026-08-28 | 14 | 763325674 | 0 |
+
+---
+
+## Execution record
+
+Appended after the cutover. The inventory above was committed first, in
+`bbce70d6`, before any release was touched.
+
+| Step | Before | After |
+|---|---|---|
+| Published releases | 871 | **0** |
+| Remote tags | 871 | **0** |
+| Release assets | 12,172 | **0** |
+| Asset bytes hosted | 684,719,369,065 (637.69 GiB) | **0** |
+| Draft releases | 0 | **1** |
+| `frontend/dist` | 21 MB, 403 files | **removed** |
+
+### Order of operations
+
+1. Inventory captured from the API and committed (`bbce70d6`) — before deletion.
+2. **`Build ArchDisc Desktop App` (workflow 273219511) disabled** via
+   `gh workflow disable`. This was done *before* deleting anything: the workflow
+   ran `on: push: branches: [archdisc]`, so any push during the deletion would
+   have published a new release and the cutover would not have held. The
+   workflow is now `disabled_manually`; `gh workflow enable 273219511` reverses
+   it. Deleting the workflow file itself is a separate change on its own branch.
+3. Deletion driver re-asserted `^v1\.0\.[0-9]+$` on every tag immediately before
+   the destructive call, so a malformed entry could not reach a non-Electron
+   release. The guard was proven to fail closed against `v2.0.0`, `cpp-v0.1.0`
+   and `v1.0.999-rc1` (all REFUSED, exit 2) before the first real deletion.
+4. One canary deletion (`v1.0.269`) verified the green path: 871 -> 870, and the
+   tag returned 404, confirming `--cleanup-tag` removes the tag as well.
+5. Remaining 870 deleted in 9 batches, with the release count re-counted from
+   the API after each. Every batch matched its predicted count exactly
+   (770, 670, 570, 470, 370, 270, 170, 70, 0). 871 deleted, **0 failures**.
+6. `/Users/account_clawteam1/archdisc-Mech/frontend/dist` removed — a single
+   resolved absolute path, not a glob. Verified first as gitignored
+   (`.gitignore:27 dist/`) with 0 tracked files under it, and confirmed to hold
+   only Vite build output (hashed bundles, Cesium workers, `sw.js`). No
+   `dist-electron` directory existed anywhere in the checkout. `frontend/src`
+   and the rest of the tree are untouched; the directory is regenerable.
+
+### Replacement release
+
+Draft `v0.1.0-alpha.0`, "Forge (native C++) — cutover placeholder, no binary":
+draft, prerelease, **0 assets**, and the tag is deliberately not yet created
+(a draft does not cut its tag until published).
+
+It carries no binary because **no runnable application exists**. This was
+verified, not assumed:
+
+- No application target. `add_executable` in `forge-kernel/CMakeLists.txt`
+  yields only probes and tests — `forge_ui_probe`, `forge_renderer_probe`,
+  `forge_verify`, and the `*_probe` set. There is no app target.
+- The only `main()` functions under `ui/` are the 8 test gates in `ui/test/`.
+- First-party code contains **no window-creation call anywhere** —
+  `glfwCreateWindow`, `SDL_CreateWindow`, `vkCreateSwapchain` and
+  `CreateWindowEx` all return zero hits outside `third_party`.
+- `forge-desktop/ui_probe.cpp` states its own scope: render the UI to an
+  offscreen framebuffer, "fully HEADLESS: no window, no swapchain, no GLFW,
+  no input".
+
+The draft says all of this plainly, and says not to publish it with a binary
+attached until an application that actually launches exists.
+
+### What remains for a later track
+
+- `.github/workflows/build-app.yml` still exists on `archdisc`; only its
+  *execution* is disabled here. Removing the file, and the Electron sources
+  (`electron/`, `electron-builder.yml`, `frontend/`), is a code change that
+  belongs on a reviewed branch, not in a releases cutover.
