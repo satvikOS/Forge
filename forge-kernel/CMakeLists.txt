@@ -676,6 +676,62 @@ option(FORGE_PIPE_DROP_NATIVE
 option(FORGE_FILLING_DROP_NATIVE
        "route the free-wire cap in autoFillMissingFaces through the native planar fill & compile out the OCCT BRepOffsetAPI_MakeFilling fallback (TKOffset family C, 5 symbols)"
        OFF)
+
+# ─────────────────────────────────────────────────────────────────────────────────
+# ── WHAT IS LEFT: the last 11 TKOffset symbols, and what is already known ────────
+# ─────────────────────────────────────────────────────────────────────────────────
+# MEASURED 2026-08-28 on real linked binaries. With every option above ON:
+#   TKOffset 42 -> 11, OCCT_DIRECT 9, OCCT_CLOSURE 14, OCCT_PHANTOM 2.
+# TKOffset's link record — and with it OCCT_CLOSURE 14 -> 13, the FIRST library the
+# programme would actually drop — moves only when these 11 are gone. Both classes
+# need a TopoDS-typed engine; native peers exist for the adjacent NATIVE-B-rep
+# problems but are typed on forge::native::brep::Solid and cannot be reached from an
+# OCCT-backed handle, which is exactly the gap NativeThickSolid closed for family
+# G/H and NativeLoftPipe for D/E/F.
+#
+# ── family I: BRepOffset_MakeOffset, 5 symbols, src/Features.cpp thickenSurface ──
+#   Skin an OPEN shell to a solid of wall thickness t.
+#
+#   ★ OCCT *IS* A VALID ORACLE HERE — unlike MakePipe/MakePipeShell/MakeThickSolid,
+#     every probe below returned a BRepCheck-VALID solid. So this family can be
+#     proved A/B directly. Measured, 2026-08-28, offset magnitude 2:
+#       shell                         OCCT volume   valid   fuse-of-prisms
+#       single planar face 20x10         400          1          400   MATCH
+#       L shell, t=+2 (concave corner)   560          1          560   MATCH
+#       L shell, t=-2 (convex corner)    631.4159265  1          600   MISMATCH
+#       U shell, t=+2 (two convex)       862.8318531  1          800   MISMATCH
+#
+#   ★ THE MISMATCH IS FULLY EXPLAINED, and this is the key result for whoever
+#     builds this engine. 631.4159265 - 600 = 31.41592653 = 10*pi, and
+#     862.8318531 - 800 = 62.83185307 = 20*pi. Those are QUARTER-CYLINDERS of
+#     radius |t|=2 and length 10: (pi*2^2/4)*10 = 10*pi each, one per convex corner
+#     (one for the L, two for the U). GeomAbs_Arc — the join type the call site
+#     passes — ROUNDS convex corners. So the construction is NOT simply the union of
+#     per-face prisms; it is
+#         union of per-face prisms
+#       + a quarter-cylinder of radius |t| along every CONVEX shell edge
+#       + a spherical wedge at every CONVEX shell vertex,
+#     where "convex" is with respect to the offset direction (at a CONCAVE corner
+#     the prisms already overlap and the union alone is exact — proved by the two
+#     MATCH rows above). The per-face prism part is exact on planar faces and needs
+#     no corner solve at all, which is a much cheaper starting point than the
+#     plane-meet machinery NativeThickSolid uses for family G/H.
+#
+# ── family J: BRepOffsetAPI_DraftAngle, 6 symbols, src/Features.cpp draftFaces ───
+#   Tilt selected faces about their intersection line with a neutral plane.
+#   forge/native/brep/DraftAnalytic.hpp already solves this on the NATIVE analytic
+#   B-rep (planar side faces of a prismatic solid, single neutral plane, uniform
+#   angle) with an exact square-frustum closed form; what is missing is the
+#   TopoDS-typed mirror. Structurally a draft is family H's whole-solid offset with
+#   the selected faces' planes ROTATED about their neutral-plane intersection line
+#   instead of TRANSLATED along their normal — so the corner re-trim in
+#   NativeThickSolid.cpp is the machinery to reuse, fed rotated planes.
+#
+# Neither engine is attempted here rather than shipped half-proved: every family in
+# this file carries an A/B against live OCCT on volume AND position AND topology AND
+# validity, with a negative control and a mutation that proves the gate can go red,
+# and that bar is the point of the exercise.
+# ─────────────────────────────────────────────────────────────────────────────────
 if(FORGE_NATIVE_BREP AND FORGE_FILLING_DROP_NATIVE)
     add_compile_definitions(FORGE_FILLING_DROP_NATIVE=1)
     message(WARNING "FORGE_FILLING_DROP_NATIVE=ON — BRepOffsetAPI_MakeFilling fallback compiled out "
