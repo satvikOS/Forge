@@ -1473,8 +1473,8 @@ endif()
 # It gathers whatever this configuration actually enabled, so the same command
 # line is valid whether or not the desktop probes are ON.
 # ============================================================================
-set(_forge_all_targets forge_kernel)
-foreach(_t forge_kernel_core forge_foundation_probe forge_verify forge_mesh_probe
+set(_forge_all_targets "")
+foreach(_t forge_kernel forge_kernel_core forge_foundation_probe forge_verify forge_mesh_probe
            forge_step_probe forge_feature_probe forge_renderer_probe forge_ui_probe)
     if(TARGET ${_t})
         list(APPEND _forge_all_targets ${_t})
