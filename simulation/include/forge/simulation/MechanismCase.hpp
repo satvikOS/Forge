@@ -54,6 +54,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace forge {
@@ -145,12 +146,26 @@ struct ConfirmationReport {
     double        confirmationDt   = 0.0;
     std::size_t   comparedFrames   = 0;
     double        maxPositionDelta = 0.0;  // m, max over bodies and frames
-    double        maxProbeDelta    = 0.0;  // max over named probes
-    double        declaredEnvelope = 0.0;  // the bound this was judged against
-    bool          withinEnvelope   = false;
+    // Max |live - confirmation| over every named probe of every frame. This is
+    // the mechanism's ACTUAL OUTPUT -- the slider travel, the rocker angle --
+    // and it is gated, not merely measured: a case whose output-link probe
+    // moved when the timestep halved is showing discretisation, and reporting
+    // that number without a bound on it would let it move by anything at all.
+    double        maxProbeDelta    = 0.0;
+    std::string   maxProbeName;            // which probe attained maxProbeDelta
+    double        declaredEnvelope      = 0.0;  // position bound (m)
+    double        declaredProbeEnvelope = 0.0;  // probe bound (probe units)
+    bool          withinEnvelope   = false;     // BOTH bounds met
     bool          bothRunsComplete = false;
-    // The two sequence hashes MUST differ: identical hashes at different
-    // timesteps would mean the timestep is not reaching the integrator.
+    // NOT evidence of anything, and deliberately NOT asserted on: solverStep
+    // is part of computeResultHash and the confirmation run's step ladder is
+    // refinement times finer by construction, so these two hashes differ even
+    // if the refined timestep never reached the integrator at all. What
+    // actually proves the timestep reached it is maxPositionDelta being
+    // STRICTLY BETWEEN zero and the declared envelope: zero would mean the two
+    // runs are the same computation, and a timestep that was ignored would put
+    // the confirmation's frame i at twice the simulated time and blow the
+    // bound by five orders of magnitude.
     std::uint64_t liveSequenceHash         = 0;
     std::uint64_t confirmationSequenceHash = 0;
 };
@@ -159,7 +174,8 @@ ConfirmationReport runConfirmation(const MechanismModel& model,
                                    const RealtimeLoopConfig& liveCfg,
                                    const ProbeFn& probeFn,
                                    std::uint32_t refinement,
-                                   double declaredEnvelopeMetres);
+                                   double declaredEnvelopeMetres,
+                                   double declaredProbeEnvelope);
 
 }  // namespace simulation
 }  // namespace forge

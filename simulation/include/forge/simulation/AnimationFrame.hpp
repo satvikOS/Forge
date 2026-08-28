@@ -27,8 +27,9 @@
 //     frameIndex, simTime, geometryRevision, solverStep,
 //     bodies[] (index, position, rotation, linear/angular velocity),
 //     nodalDisplacement[], probes[] (name, value)
-// Deliberately EXCLUDED: validity, constraintResidual, energyDrift,
-// solverWallSeconds, frameBudgetSeconds. Those describe the RUN (how hard the
+// Deliberately EXCLUDED: validity, constraintResidual, maxConstraintResidual,
+// energyDrift, solverWallSeconds, frameBudgetSeconds. Those describe the RUN
+// (how hard the
 // machine was pushed, how close to the envelope the answer landed), not the
 // trajectory. Excluding them is what makes the determinism gate meaningful: two
 // runs of the same initial state and input must produce the same trajectory
@@ -114,7 +115,16 @@ struct AnimationFrame {
 
     // --- envelope diagnostics (NOT hashed; see header note) ---
     ValidityState validity = ValidityState::Valid;
+    // ‖Φ(q)‖ at the frame INSTANT — the state this frame actually carries.
     double constraintResidual  = 0.0;
+    // The MAXIMUM ‖Φ(q)‖ the integrator passed through anywhere inside the
+    // interval this frame closes, which is >= constraintResidual by
+    // construction. Validity is classified on THIS, not on the instant value: a
+    // joint that opens up mid-chunk and closes again before the chunk ends is a
+    // real constraint violation, and reading only the end state would report a
+    // clean frame for a trajectory that was never on the manifold. For frame 0
+    // (no interval) the two are equal.
+    double maxConstraintResidual = 0.0;
     double energyDrift         = 0.0;
     double solverWallSeconds   = 0.0;  // measured cost of producing this frame
     double frameBudgetSeconds  = 0.0;  // declared budget it was measured against
