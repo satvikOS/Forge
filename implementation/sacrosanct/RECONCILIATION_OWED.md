@@ -79,3 +79,27 @@ gives V=424** — which is precisely why the feature-tree smokes pass. Fix it du
 
 The recommendation is unchanged and now more urgent: **commit the in-flight kernel work to its own
 branch.** Seven files of hand-applied patches is the point at which hand-applying stops being safe.
+
+---
+
+## Update after wave 4 — now 8 files
+
+`forge-kernel/src/Healing.cpp` joins the register. The highest-value entries are unchanged:
+`Features.cpp` (HEAD hollows inward on both routes; the working tree still produces the outward
+body) and `FeatureTreeCompiler.cpp`.
+
+**A second measurable consequence has appeared.** The METRIC track fixed the silent-box fallback in
+the *committed* parser: an unknown op in TAIL POSITION used to build green and silently drop the
+preceding ops — `%1 = BOX(20,20,20,0,0,0)` followed by `%2 = FOOBAR(7,8,9)` returned ok with
+volume 504 = 7·8·9, i.e. FOOBAR became a box. That is fixed at HEAD.
+
+**The working-tree `FeatureTreeCompiler.cpp` still contains the tail-dropping `fail()` and the
+`OpCode::Box` default.** So the divergence now costs, measurably:
+
+| | HEAD | working tree |
+| --- | --- | --- |
+| s0 conformance | 54 pass / 5 fail | 33 pass / 14 fail |
+| unknown op in tail position | rejected | **silently becomes a BOX** |
+
+Committing the in-flight work to its own branch is no longer just hygiene — the working tree is now
+the version that scores an unknown operator as a valid solid.
