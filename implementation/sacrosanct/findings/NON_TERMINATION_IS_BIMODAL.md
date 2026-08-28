@@ -106,8 +106,32 @@ ho151 and ho147 are untouched, which is the correct behaviour: they are slow for
 other than repetition, and a criterion that shortened them would be changing the answer
 rather than skipping a loop. Compare ho126 -- 284 s for 11 ops -- from the cost table above.
 
-**What this does NOT yet establish.** The docstring's claim is *score* neutrality, and that is
-still being measured: the flag-on arm is scoring now, and until the paired comparison lands
-the honest statement is "43% cheaper, effect on score unknown". The flag-on run compiled
-**10 of 36** against flag-off's 11, which is a difference of one row and could be either
-noise or a real cost -- the paired composite decides it, not the compile count.
+## RESOLVED: the score half, measured
+
+Both arms scored through `composite_score.py` with the pinned verifier and both sha
+assertions.
+
+| | flag OFF | flag ON |
+| --- | --- | --- |
+| rows scored ok | 32 | 32 (identical row sets) |
+| composite | 0.3831 | 0.3862 |
+| paired delta | | **+0.0031**, 95% CI **[+0.0000, +0.0094]** |
+| rows whose score changed at all | | **1 of 32** |
+
+The single row that moved is `ho225`, **0.0000 -> 0.1000** -- it went **UP**, because the
+truncated emission is less degenerate than the runaway it replaced. Thirty-one of thirty-two
+rows are identical. The effect is not distinguishable from zero and is never negative.
+
+The compile counts (11 flag-off vs 10 flag-on) differ by one row and decided nothing, exactly
+as expected -- the paired composite is the metric, not the compile count.
+
+**So the criterion is score-neutral by MEASUREMENT, and 43% cheaper.** `FORGE_STOP_ON_LOOP`
+now defaults **ON** in `scripts/archie_loop.py` (commit `25a74a1bb` in archdisc-Models), and
+the docstring's "SCORE-NEUTRAL BY CONSTRUCTION" has been replaced by the numbers above.
+`FORGE_STOP_ON_LOOP=0` still disables it: the flag changes the emission TEXT in the
+degenerate cases even though it does not change the score, so an older arm must be reproduced
+with the hatch rather than by assuming the text matches.
+
+**Why this mattered enough to chase.** A properly-powered holdout needs ~600 scored rows,
+which is ~11 h/arm at the flag-off profile and roughly 6 h with the flag on. An eval nobody
+can afford to run at an informative size is not an eval.
