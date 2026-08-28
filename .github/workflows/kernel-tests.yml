@@ -128,6 +128,23 @@ jobs:
       - name: s0 ratchet
         run: bash forge-kernel/test/ft/s0_ratchet.sh
 
+  nafems_ratchet_selftest:
+    name: NAFEMS ratchet — prove the gate can fail
+    # SR-3: a gate whose failure path cannot produce a non-zero exit is not a gate. Until
+    # 2026-08-28 fea_nafems_gate.mjs printed FAIL for a missed NAFEMS benchmark and still
+    # exited 0. The ratchet that replaces it is therefore not trusted on its say-so: this
+    # job drives every one of its documented red paths with stub gates and asserts each
+    # exit code. No kernel build needed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: NAFEMS ratchet self-test
+        run: bash forge-kernel/test/fea_nafems_ratchet_selftest.sh
+
   simulation:
     name: real-time simulation frame contract (SR-4)
     runs-on: ubuntu-latest
@@ -162,3 +179,16 @@ jobs:
         run: npm run forge:coherence
       - name: Native binding smoke (forge.native.* callable in-platform)
         run: node forge-kernel/test/native_binding_smoke.js
+      - name: Tet4 element convergence vs Lame exact solution (observed order)
+        # Hard pass/fail: the linear tetrahedron must reach its theoretical order
+        # (O(h^2) displacement, O(h^1) stress) on a curved-boundary problem with a
+        # closed-form answer. This is what exonerates the ELEMENT, so that the NAFEMS
+        # misses below cannot be blamed on it without evidence.
+        run: node forge-kernel/test/fea_tet4_convergence.mjs
+      - name: NAFEMS known-answer accuracy ratchet
+        # Runs fea_nafems_gate.mjs and ratchets its band misses against
+        # forge-kernel/test/fea_nafems_baseline.txt. Red if the miss count OR the miss set
+        # changes in either direction; red if the gate trips a kernel-correctness guard;
+        # red if the result cannot be parsed. Never run the gate bare in CI -- its own exit
+        # code does not cover a missed benchmark. See reports/FEA_NAFEMS_GAP.md.
+        run: bash forge-kernel/test/fea_nafems_ratchet.sh

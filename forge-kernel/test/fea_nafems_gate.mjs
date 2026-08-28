@@ -227,17 +227,37 @@ function assertSolidTetMesh(name, m) {
 const finite = (x) => Number.isFinite(x);
 // record a NAFEMS band verdict (printed honestly; does NOT abort on a band miss —
 // a converging under-resolution is the documented deferred-mesher gap, not a break).
-function record(name, measuredPa, targetMPa, bandPct, trend, probe) {
+// Observed order of accuracy with an assumed-exact reference (ASME V&V 20-2009 §2.3 /
+// Roache, "Verification and Validation in Computational Science and Engineering", 1998):
+//   p = ln(|e_coarse| / |e_fine|) / ln(r),   r = (N_fine / N_coarse)^(1/3)
+// r is the representative grid-refinement ratio for a 3-D mesh of N elements. p is only
+// meaningful for a MONOTONE sequence; a sign change or a growing error means the sequence
+// is not in the asymptotic range and Richardson extrapolation does NOT apply. We report
+// that case as "n/a" rather than printing a number that would be read as convergence.
+function observedOrder(coarseMPa, fineMPa, targetMPa, nCoarse, nFine) {
+  const ec = Math.abs(coarseMPa - targetMPa), ef = Math.abs(fineMPa - targetMPa);
+  const r = Math.pow(nFine / nCoarse, 1 / 3);
+  if (!(r > 1.0001) || !(ec > 0) || !(ef > 0)) return { p: NaN, r, converging: false };
+  return { p: Math.log(ec / ef) / Math.log(r), r, converging: ef < ec };
+}
+
+function record(name, measuredPa, targetMPa, bandPct, trend, probe, order, meshNote) {
   const measMPa = measuredPa / 1e6;
   const errPct = (measMPa - targetMPa) / Math.abs(targetMPa) * 100;
   const pass = Math.abs(errPct) <= bandPct;
   const wrongSign = Math.sign(measMPa) !== Math.sign(targetMPa);
   if (!finite(measMPa)) note(`${name}: non-finite σ (${measMPa})`);
   if (wrongSign) note(`${name}: σ has the WRONG SIGN (${measMPa.toFixed(3)} vs target ${targetMPa}) — physics broken, not mere under-resolution.`);
-  nafems.push({ name, measMPa, targetMPa, errPct, bandPct, pass, trend });
+  nafems.push({ name, measMPa, targetMPa, errPct, bandPct, pass, trend, order, meshNote });
   console.log(`  measured σ = ${measMPa.toFixed(3)} MPa @ ${probe}  |  target = ${targetMPa} MPa (±${bandPct}%)  |  err = ${errPct.toFixed(1)}%`);
   console.log(`  trend (coarse→fine): ${trend}`);
-  console.log(`  VERDICT: ${pass ? 'PASS' : 'FAIL'} — ${pass ? 'within band on the faceted linear mesh' : 'OUTSIDE band; linear Tet4 on the faceted boundary UNDER-RESOLVES the curved-edge stress concentration (converging toward target — see trend). Closing this needs the DEFERRED conforming curved Tet10 mesher.'}`);
+  console.log(`  observed order of accuracy p = ${Number.isFinite(order.p) ? order.p.toFixed(2) : 'n/a'}` +
+    `  (refinement ratio r = ${order.r.toFixed(3)}; ${order.converging ? 'error DECREASED' : 'error did NOT decrease — sequence is NOT in the asymptotic range, Richardson/GCI does not apply'})`);
+  if (meshNote) console.log(`  mesher: ${meshNote}`);
+  console.log(`  VERDICT: ${pass ? 'PASS' : 'MISS'} — ${pass ? 'within band' : 'OUTSIDE the published band. See the ratchet note below — the cause is NOT established as "linear Tet4 on a faceted boundary"; it is measured NOT to shrink under h-refinement.'}`);
+  // MACHINE-READABLE: consumed by test/fea_nafems_ratchet.sh. Do not reformat without
+  // updating the ratchet's parser (which refuses to guess rather than mis-parse).
+  console.log(`[nafems-case] name=${name} measured=${measMPa.toFixed(4)} target=${targetMPa} errPct=${errPct.toFixed(2)} band=${bandPct} order=${Number.isFinite(order.p) ? order.p.toFixed(3) : 'nan'} verdict=${pass ? 'PASS' : 'MISS'}`);
 }
 
 // elliptic annular quarter slab (LE1/LE10): a thin z-slice of a large-rz ellipsoid
@@ -301,6 +321,8 @@ function solveEllipticPlate(kind, t, edge, probeTarget) {
   let best = 1e9, bi = -1;
   for (let k = 0; k < m.nodeCount; k++) { const d = (nd[3 * k] - probeTarget[0]) ** 2 + (nd[3 * k + 1] - probeTarget[1]) ** 2 + (nd[3 * k + 2] - probeTarget[2]) ** 2; if (d < best) { best = d; bi = k; } }
   return { sigYY: r.nodeSyy[bi], nodes: m.nodeCount, tets: m.tetCount,
+           capped: m.seedGridCapped, budget: m.seedGridBudget,
+           reqEdge: m.requestedEdge, spacing: m.interiorSpacing,
            probe: `(${nd[3 * bi].toFixed(2)},${nd[3 * bi + 1].toFixed(2)},${nd[3 * bi + 2].toFixed(2)})` };
 }
 
@@ -334,8 +356,24 @@ function solveLE11(edge) {
   let best = 1e9, bi = -1;
   for (let k = 0; k < m.nodeCount; k++) { const d = (nd[3 * k] - 1) ** 2 + nd[3 * k + 1] ** 2 + nd[3 * k + 2] ** 2; if (d < best) { best = d; bi = k; } }
   return { sigZZ: r.nodeSzz[bi], nodes: m.nodeCount, tets: m.tetCount,
+           capped: m.seedGridCapped, budget: m.seedGridBudget,
+           reqEdge: m.requestedEdge, spacing: m.interiorSpacing,
            probe: `(${nd[3 * bi].toFixed(2)},${nd[3 * bi + 1].toFixed(2)},${nd[3 * bi + 2].toFixed(2)})` };
 }
+
+// Did the mesher actually DELIVER the finer mesh that was asked for? forge::fea::tet
+// caps the interior Steiner-seed lattice at `seedGridBudget` candidate points and
+// silently INFLATES the spacing above targetEdge when the cap binds. If that happened on
+// the fine run, "refine the mesh" did not happen and no convergence claim is admissible.
+const meshNote = (c, f) => {
+  const parts = [];
+  for (const [tag, m] of [['coarse', c], ['fine', f]]) {
+    if (m.capped === undefined) continue;
+    parts.push(`${tag}: requested edge ${m.reqEdge}, interior seed spacing ${m.spacing.toFixed(5)}` +
+      (m.capped ? `  << SEED-GRID BUDGET (${m.budget}) BOUND THE SPACING — the requested refinement was NOT delivered` : ''));
+  }
+  return parts.join('  |  ');
+};
 
 const trendStr = (a, b, target) => {
   const ea = Math.abs(a - target), eb = Math.abs(b - target);
@@ -390,7 +428,8 @@ console.log('------------------------------------------------------------');
   const c = solveEllipticPlate('LE1', 0.1, 0.17, probe);
   const f = solveEllipticPlate('LE1', 0.1, 0.12, probe);
   console.log(`  mesh coarse ${c.nodes}n/${c.tets}t → fine ${f.nodes}n/${f.tets}t`);
-  record('LE1', f.sigYY, 92.7, 5, trendStr(c.sigYY / 1e6, f.sigYY / 1e6, 92.7), f.probe);
+  record('LE1', f.sigYY, 92.7, 5, trendStr(c.sigYY / 1e6, f.sigYY / 1e6, 92.7), f.probe,
+    observedOrder(c.sigYY / 1e6, f.sigYY / 1e6, 92.7, c.tets, f.tets), meshNote(c, f));
 }
 
 // ===========================================================================
@@ -404,7 +443,8 @@ console.log('------------------------------------------------------------');
   const c = solveEllipticPlate('LE10', 0.6, 0.20, probe);
   const f = solveEllipticPlate('LE10', 0.6, 0.15, probe);
   console.log(`  mesh coarse ${c.nodes}n/${c.tets}t → fine ${f.nodes}n/${f.tets}t`);
-  record('LE10', f.sigYY, -5.38, 6, trendStr(c.sigYY / 1e6, f.sigYY / 1e6, -5.38), f.probe);
+  record('LE10', f.sigYY, -5.38, 6, trendStr(c.sigYY / 1e6, f.sigYY / 1e6, -5.38), f.probe,
+    observedOrder(c.sigYY / 1e6, f.sigYY / 1e6, -5.38, c.tets, f.tets), meshNote(c, f));
 }
 
 // ===========================================================================
@@ -417,7 +457,8 @@ console.log('------------------------------------------------------------');
   const c = solveLE11(0.34);
   const f = solveLE11(0.26);
   console.log(`  mesh coarse ${c.nodes}n/${c.tets}t → fine ${f.nodes}n/${f.tets}t`);
-  record('LE11', f.sigZZ, -105, 6, trendStr(c.sigZZ / 1e6, f.sigZZ / 1e6, -105), f.probe);
+  record('LE11', f.sigZZ, -105, 6, trendStr(c.sigZZ / 1e6, f.sigZZ / 1e6, -105), f.probe,
+    observedOrder(c.sigZZ / 1e6, f.sigZZ / 1e6, -105, c.tets, f.tets), meshNote(c, f));
 }
 
 // ===========================================================================
@@ -428,18 +469,55 @@ console.log(` (a) cantilever δ      : err vs Euler-Bernoulli = ${(results.canti
 console.log(` (c) patch test        : von Mises non-uniformity = ${results.patch.nonUnif.toExponential(2)}  -> PASS (machine precision)`);
 console.log(` (d) modal f₁          : err vs Euler-Bernoulli = ${(results.modal.errF1 * 100).toFixed(2)}%  -> PASS`);
 console.log(` (T) thermoelastic     : analytic err = ${results.thermo.errT.toFixed(4)}%  -> ${Math.abs(results.thermo.errT) <= 0.5 ? 'PASS (Inc1c thermoelastic EXACT)' : 'FAIL'}`);
+const missList = [];
 for (const v of nafems) {
-  console.log(` ${v.name.padEnd(20)}: σ = ${v.measMPa.toFixed(3)} MPa vs ${v.targetMPa} MPa (${v.errPct.toFixed(1)}%, ±${v.bandPct}%) -> ${v.pass ? 'PASS' : 'FAIL (faceted linear Tet4 under-resolves; converging — deferred conforming Tet10 mesher)'}`);
+  if (!v.pass) missList.push(v.name);
+  console.log(` ${v.name.padEnd(20)}: σ = ${v.measMPa.toFixed(3)} MPa vs ${v.targetMPa} MPa (${v.errPct.toFixed(1)}%, ±${v.bandPct}%)` +
+    `  p=${Number.isFinite(v.order.p) ? v.order.p.toFixed(2) : 'n/a'} -> ${v.pass ? 'PASS' : 'MISS'}`);
 }
-console.log('\n SCOPE — the deferred conforming curved Tet10 mesher: the elliptic/spherical');
-console.log(' NAFEMS boundaries are now MET geometrically (shellTetsOnly=false solid fill,');
-console.log(' nodes land exactly on D/A) and the new symmetry/prescribed/thermoelastic BCs');
-console.log(' are exercised end-to-end. The residual error is LINEAR Tet4 on a FACETED');
-console.log(' boundary under-resolving the curved-edge stress riser — the coarse→fine trends');
-console.log(' above march monotonically toward each NAFEMS literal. Quadratic curved Tet10 +');
-console.log(' adaptive boundary refinement (deferred, NOT built here) closes the gap.');
+
+// ---------------------------------------------------------------------------
+// SCOPE — what these misses are, and what they are NOT.
+//
+// The prose that used to stand here asserted that "the coarse→fine trends above march
+// monotonically toward each NAFEMS literal" and that a deferred curved Tet10 mesher
+// closes the gap. Both were WRONG, and the gate itself printed the refutation on the
+// line above: on 2026-08-28 all three cases' errors GREW under refinement
+// (LE1 61%→62%, LE10 58%→60%, LE11 17%→43%). See test/fea_nafems_convergence.mjs for
+// the full h-refinement sweeps that established the following instead:
+//
+//  1. forge::fea::tet::meshShape caps its interior Steiner-seed lattice at
+//     seedGridBudget (default 20000) candidate points and INFLATES the spacing to fit.
+//     Measured on the LE1 slab: local element size at probe D tracks targetEdge down to
+//     0.040 and then FREEZES at ~0.042 while targetEdge is asked to go to 0.020. You
+//     cannot conduct an h-refinement study through that floor, so no "converging"
+//     claim about these cases was ever admissible. The `mesher:` lines above now say
+//     when the cap bound the run.
+//  2. Within the range where refinement DOES bite, the LE1 σ sequence is non-monotone
+//     (36.2 → 35.7 → 36.1 → 49.5 → 50.8 → 54.6 MPa), so the sequence is not in the
+//     asymptotic range and Richardson extrapolation / GCI (ASME V&V 20-2009) does not
+//     apply — which is why `p` reads n/a or nonsense rather than ~1.
+//  3. The Tet4 element and the linear solver themselves are NOT the suspect: they are
+//     verified separately at their theoretical order against the Lamé thick-walled
+//     cylinder (Timoshenko & Goodier §28) on a structured mesh in
+//     test/fea_tet4_convergence.mjs, which bypasses this mesher entirely.
+//
+// Quadratic Tet10 is therefore NOT the next step; it would inherit the same seed floor
+// and the same O(N²) Bowyer-Watson insertion. See reports/FEA_NAFEMS_GAP.md.
+// ---------------------------------------------------------------------------
+console.log('\n SCOPE — these misses are NOT established as "linear Tet4 on a faceted boundary".');
+console.log(' The measured h-refinement sweeps (test/fea_nafems_convergence.mjs) show the mesher');
+console.log(' saturates: the interior seed lattice is budget-capped, so element size at the probe');
+console.log(' stops shrinking, and the σ sequence is non-monotone. Richardson/GCI does not apply.');
+console.log(' The Tet4 element itself is verified at its theoretical order separately, against the');
+console.log(' Lamé thick-cylinder exact solution on a structured mesh (test/fea_tet4_convergence.mjs).');
 console.log(`\n[fea-nafems-gate] DONE — REAL measured accuracy. Process exit reflects KERNEL-CORRECTNESS`);
-console.log(` guards only (shell mesh / NaN / wrong-sign / non-convergence / thermoelastic-analytic);`);
-console.log(` NAFEMS absolute-accuracy band misses are reported honestly but are the documented`);
-console.log(` deferred-mesher gap, not a kernel break. hardFail=${hardFail}.`);
+console.log(` guards only (shell mesh / NaN / wrong-sign / non-convergence / thermoelastic-analytic).`);
+console.log(` NAFEMS band misses do NOT set this exit code — they are ratcheted by`);
+console.log(` test/fea_nafems_ratchet.sh against test/fea_nafems_baseline.txt, which goes RED if the`);
+console.log(` miss COUNT or the miss SET changes in either direction. Run the ratchet in CI, not this`);
+console.log(` script bare. hardFail=${hardFail}.`);
+// MACHINE-READABLE: consumed by test/fea_nafems_ratchet.sh. Do not reformat without
+// updating the ratchet's parser (which refuses to guess rather than mis-parse).
+console.log(`[nafems-summary] cases=${nafems.length} misses=${missList.length} missSet=${missList.slice().sort().join(',') || '-'} hardFail=${hardFail}`);
 process.exitCode = hardFail ? 1 : 0;
