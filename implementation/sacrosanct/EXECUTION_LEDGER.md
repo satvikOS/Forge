@@ -344,3 +344,33 @@ stays a draft and no binary is attached.
 * **TKOffset family H / CLOSURE 14 -> 13 by default** -- the native quadric offset's vertex re-meet is wrong (cylinder |dCOM|=4.00 with an exact bbox; sphere exact COM with a wrong bbox), and the fix is in kernel sources.
 * **29 of 50 desktop panels** -- each waits on an absent subsystem (sketch solver, mates, BOM), not on effort.
 * **PR #62** -- green, unmergeable until the in-flight `forge_verify.cpp` is resolved. Their diff does not overlap.
+
+### Later on 2026-08-28: the 600-row eval was not one command away
+
+Pre-flight on the scoring path, run while the emission was still generating, because
+every one of these would have surfaced only after the 7-hour run finished.
+
+* **The trace is sound.** All rows carry a non-empty `history[0].ir`, ids unique, no
+  missing history -- checked, not assumed (the v4a trace caveat does not apply).
+* **The scorer is honest about failures.** A candidate that produces no solid scores
+  `composite 0.0` and STAYS in the mean; only instrument failures (timeout, verifier
+  died) are refused and dropped. At a 20% compile rate that distinction is the whole
+  number, so it was read in the source rather than trusted.
+* **`prep_composite_anchor.py` could not see the new holdout at all** -- the task list
+  was a module constant pinned to the 36-row file. All 600 prompts match a gold tree in
+  the SAME gold sources (600/600 by exact prompt hash), so only the constant needed to
+  become an argument. Default verified unchanged.
+* **The prep step must carry `FORGE_PINNED_DIR` too.** It spawns CensusVerifier, which
+  resolves the pin; run without it the references are built by `tools/pinned` (947b8644)
+  while `composite_score` stamps and gates 45e9ad9a. On a 12-row slice the two binaries
+  agreed exactly (0/12 differ), so no past number is implicated -- but references and
+  scores must not come from different instruments, and now cannot.
+* **A paired v1 comparison at n=600 is NOT available.** v1's emissions exist for 36 rows,
+  of which **15** overlap the 600. Comparing v5cap against v1 on this set requires a
+  second full emission run; comparing on the overlap would be weaker than the n=25 result
+  already in hand. The box floor, by contrast, needs no model and is being built here.
+* **The floor generator could not run on a text corpus.** `basename(None)` raised before
+  the first row was written whenever `image` was null, so the bounding-box floor had never
+  been measurable on the text holdouts; and this corpus's VERIFY line carries only
+  `bbox.z=`, not the 6-tuple the regex needs, so the dimensions now come explicitly from
+  the holdout's own kernel-measured `gt.bbox`.
