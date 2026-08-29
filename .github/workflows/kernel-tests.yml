@@ -62,7 +62,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install ccache
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+        run: |
+          # The runner image ships Microsoft's apt repos. Neither gate needs them, and
+          # on 2026-08-29 they returned 403/'no longer signed', which made
+          # `apt-get update` exit 100 and failed this job in 17 s while an identical
+          # apt step in the OCCT job passed on the same run. Dropping repositories we
+          # do not use means a third-party outage cannot break our build. This weakens
+          # nothing: ccache and the OCCT headers both come from Ubuntu's own archive.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/microsoft.list || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ccache
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
@@ -183,6 +194,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install OCCT headers (Debian packages)
         run: |
+          # The runner image ships Microsoft's apt repos. Neither gate needs them, and
+          # on 2026-08-29 they returned 403/'no longer signed', which made
+          # `apt-get update` exit 100 and failed this job in 17 s while an identical
+          # apt step in the OCCT job passed on the same run. Dropping repositories we
+          # do not use means a third-party outage cannot break our build. This weakens
+          # nothing: ccache and the OCCT headers both come from Ubuntu's own archive.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/microsoft.list || true
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             libocct-foundation-dev libocct-modeling-data-dev \
