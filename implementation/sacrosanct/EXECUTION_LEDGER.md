@@ -548,3 +548,39 @@ and each such moment costs a 40 GB swap excursion. Two concurrent finishes the
 remaining 480 rows in about 4.1 h against v1's remaining ~3.5 h, so the cap costs
 essentially nothing on the critical path. Three would save roughly 1.3 h and buy
 recurring excursions; that is a bad trade when the scoring is not the bottleneck.
+
+## THE BOX FLOOR IS COMPLETE (2026-08-29 05:06)
+
+The first arm of the 600-row evaluation is fully scored, all five round-robin shards,
+every shard exiting RC=0.
+
+    rows presented   600
+    scored           598
+    refused            2  (0.33%)  ho625, ho617 -- both "verifier timeout after 300s"
+    vacuous            0
+    reference_null     0
+
+    composite   0.2344      sd 0.0691   SE 0.0028   95% CI +-0.0055
+    shape       0.4180
+    interface   0.0000
+    topology    0.3360
+
+**The interval is the point.** At n=25 this programme's paired 95% CI was about
++-0.12 and every effect it wanted to judge was under 0.07, so nothing was decidable.
+The floor is now known to **+-0.0055** -- a 22x tightening, which is what the
+enlargement was for.
+
+Convergence across the shards, each a stratified sample rather than a prefix:
+
+    n=240 -> 0.2369    n=359 -> 0.2350    n=479 -> 0.2358    n=598 -> 0.2344
+
+Both refusals are REFERENCE-side (ho625's gold solid is invalid; ho617 behaves the
+same way) and were reproduced under light load, so they are inherent, arm-symmetric,
+and cost n without biasing anything. The projected paired n of "about 598" stated
+hours ago from a 0.28% refusal rate landed exactly.
+
+Note for reporting: this 0.2344 is the floor over the WHOLE set. It is not comparable
+to the 0.3086 and 0.3270 figures quoted earlier in this programme, which came from
+hard strata of a file sorted hardest-first, and it is not the number to compare a
+model arm against unless that arm is paired row-by-row -- the floor itself varies with
+target complexity (0.23 at gold_ops 20-35, 0.3076 above 35).
