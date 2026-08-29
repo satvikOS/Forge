@@ -1,7 +1,38 @@
 # v5cap beats the bounding-box floor, and it wins on interface while losing on shape
 
-**Measured 2026-08-29. Interim: box arm complete (5/5 shards), v5cap 3 of 5 shards.
-Round-robin shards, so this is a stratified sample of the 600, not a prefix.**
+**FINAL, 2026-08-29. Both arms complete: 5/5 shards each, 600 rows presented per
+arm.** (The interim figures below, taken at 347 and 464 rows, are kept because their
+stability is itself evidence.)
+
+## FINAL NUMBERS
+
+    PAIRED on the 579 rows both arms scored:
+
+      box     composite 0.2364    shape 0.4225
+      v5cap   composite 0.2769    shape 0.2543
+
+      v5cap - box  +0.0406   95% CI [+0.0238, +0.0580]   EXCLUDES 0
+
+    Component split:
+      shape       box 0.4225   v5cap 0.2543   -0.1683
+      interface   box 0.0000   v5cap 0.2349   +0.2349
+      topology    box 0.3367   v5cap 0.4063   +0.0696
+
+    SENSITIVITY, v5cap's 19 candidate-side refusals charged as 0.0 (n=598):
+      box 0.2344   v5cap 0.2681   diff +0.0337
+      95% CI [+0.0170, +0.0508]   STILL EXCLUDES 0
+
+    Refusals: box 2/600 (0.33%), v5cap 20/600 (3.33%).
+
+**The estimate was stable the whole way up**, which is what a real effect looks like:
+
+    n=347  +0.0367  [+0.0151, +0.0592]   width 0.0441
+    n=464  +0.0359  [+0.0169, +0.0556]   width 0.0387
+    n=579  +0.0406  [+0.0238, +0.0580]   width 0.0342
+
+---
+
+*(Original interim write-up follows; its conclusions are unchanged.)*
 
 ## The headline
 
