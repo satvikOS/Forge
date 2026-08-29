@@ -111,8 +111,9 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepGProp.hxx>
-#include <BRepPrimAPI_MakeCylinder.hxx>
-#include <BRepPrimAPI_MakeHalfSpace.hxx>
+#include "forge/OcctPrimBuilder.hpp"  // TKPrim-free analytic cylinder
+#include <Bnd_Box.hxx>
+#include <BRepBndLib.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
@@ -645,15 +646,58 @@ bool circleProfile(const TopoDS_Shape& s, gp_Pnt& c, gp_Dir& ax, double& r) {
     return r > 0.0;
 }
 
-// The closed half-space bounded by the plane (q, n) that CONTAINS `inside`.
+// A BOUNDED stand-in for the closed half-space bounded by the plane (q, n) that
+// contains `inside`, sized to swallow `bounds` completely on the material side.
+//
+// TKPrim IS NOT ON THE LINK LINE (removed 2026-08-07), so BRepPrimAPI_MakeHalfSpace
+// left this translation unit with two undefined symbols and the dylib did not link.
+// The ONLY consumer intersects the result with a BOUNDED shape --
+// BRepAlgoAPI_Common(piece, h) -- and for a bounded operand a box that strictly
+// contains that operand on the inside of the plane gives an IDENTICAL result to a
+// true half-space. So this is exact for the use, not an approximation of it, and the
+// `bounds` argument is what makes that guarantee checkable rather than assumed.
 TopoDS_Shape halfSpaceThrough(const gp_Pnt& q, const gp_Dir& n,
-                              const gp_Pnt& inside) {
-    const gp_Pln pl(q, n);
-    BRepBuilderAPI_MakeFace mkf(pl);
+                              const gp_Pnt& inside, const TopoDS_Shape& bounds) {
+    Bnd_Box bb;
+    BRepBndLib::Add(bounds, bb);
+    if (bb.IsVoid()) return kNull;
+    Standard_Real xa, ya, za, xb, yb, zb;
+    bb.Get(xa, ya, za, xb, yb, zb);
+    const gp_Pnt lo(xa, ya, za), hi(xb, yb, zb);
+    const double diag = lo.Distance(hi);
+    if (!(diag > 0.0)) return kNull;
+    // Four diagonals of slack in every direction: the slab is far larger than the
+    // operand in-plane, and reaches far past it along the normal.
+    const double half = 4.0 * diag;
+
+    // Orient the normal so the slab grows TOWARDS `inside`.
+    gp_Dir nn = n;
+    if (gp_Vec(q, inside).Dot(gp_Vec(nn)) < 0.0) nn.Reverse();
+
+    // Centre the square face on the operand's centre projected onto the plane, so
+    // the slack is spent around the operand rather than around `q`.
+    const gp_Pnt c((xa + xb) * 0.5, (ya + yb) * 0.5, (za + zb) * 0.5);
+    const gp_Vec qc(q, c);
+    const gp_Pnt cp = q.Translated(qc - gp_Vec(nn) * qc.Dot(gp_Vec(nn)));
+
+    const gp_Ax2 ax(cp, nn);
+    const gp_Dir u = ax.XDirection(), v = ax.YDirection();
+    BRepBuilderAPI_MakePolygon poly;
+    poly.Add(cp.Translated(-half * gp_Vec(u) - half * gp_Vec(v)));
+    poly.Add(cp.Translated(half * gp_Vec(u) - half * gp_Vec(v)));
+    poly.Add(cp.Translated(half * gp_Vec(u) + half * gp_Vec(v)));
+    poly.Add(cp.Translated(-half * gp_Vec(u) + half * gp_Vec(v)));
+    poly.Close();
+    if (!poly.IsDone()) return kNull;
+    BRepBuilderAPI_MakeFace mkf(poly.Wire(), Standard_True);
     if (!mkf.IsDone()) return kNull;
-    BRepPrimAPI_MakeHalfSpace hs(mkf.Face(), inside);
-    if (!hs.IsDone()) return kNull;
-    return hs.Solid();
+
+    // occtPrism is the in-house TKPrim-free linear sweep.
+    try {
+        return ::forge::occtPrism(mkf.Face(), gp_Vec(nn) * (2.0 * half));
+    } catch (const std::exception&) {
+        return kNull;
+    }
 }
 
 // The mitre-trimmed cylinder chain (family E, CIRCLE profile).
@@ -699,10 +743,15 @@ TopoDS_Shape pipeCircleMitre(const std::vector<gp_Pnt>& node,
         const double len = node[j].Distance(node[j + 1]) + m0 + m1 + 2.0 * pad;
         const gp_Pnt base = node[j].Translated(-(m0 + pad) * gp_Vec(leg[j]));
 
-        BRepPrimAPI_MakeCylinder mkc(gp_Ax2(base, leg[j]), r, len);
-        mkc.Build();
-        if (!mkc.IsDone()) return kNull;
-        TopoDS_Shape piece = mkc.Shape();
+        // TKPrim-free: occtCylinderSolid is the in-house analytic cylinder and
+        // references no BRepPrimAPI symbol. TKPrim is not on the link line.
+        TopoDS_Shape piece;
+        try {
+            piece = ::forge::occtCylinderSolid(gp_Ax2(base, leg[j]), r, len);
+        } catch (const std::exception&) {
+            return kNull;
+        }
+        if (piece.IsNull()) return kNull;
 
         // Trim to the two station planes. The material side is the one holding
         // the leg midpoint, which is interior to this leg by construction.
@@ -710,7 +759,7 @@ TopoDS_Shape pipeCircleMitre(const std::vector<gp_Pnt>& node,
                          (node[j].Y() + node[j + 1].Y()) * 0.5,
                          (node[j].Z() + node[j + 1].Z()) * 0.5);
         for (std::size_t st : {j, j + 1}) {
-            const TopoDS_Shape h = halfSpaceThrough(node[st], sn[st], mid);
+            const TopoDS_Shape h = halfSpaceThrough(node[st], sn[st], mid, piece);
             if (h.IsNull()) return kNull;
             BRepAlgoAPI_Common cut(piece, h);
             cut.Build();
