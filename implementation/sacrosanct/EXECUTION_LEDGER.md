@@ -584,3 +584,38 @@ to the 0.3086 and 0.3270 figures quoted earlier in this programme, which came fr
 hard strata of a file sorted hardest-first, and it is not the number to compare a
 model arm against unless that arm is paired row-by-row -- the floor itself varies with
 target complexity (0.23 at gold_ops 20-35, 0.3076 above 35).
+
+### First significant v5cap-vs-v1 result: compile rate (2026-08-29 05:40, interim)
+
+v1 is still emitting (504 of 600), so this is paired on the rows BOTH arms have
+produced. The naive form was computed first and discarded, because v1's 504 rows are
+a PREFIX -- the hardest 84% of a file sorted hardest-first -- while v5cap's 24.5% is
+over the whole set. Comparing those two is comparing different exams.
+
+Paired on the 504 common rows:
+
+    v1     compiled  55/504  = 10.9%
+    v5cap  compiled 122/504  = 24.2%
+
+    discordant pairs: v5cap-only 104, v1-only 37
+    McNemar chi2 = 30.9 on 1 df   (p < 0.001)
+    paired difference +13.3 pp, 95% CI [+8.7, +17.9]
+
+**v5cap produces a compiling tree more than twice as often as v1**, and the interval
+is nowhere near zero. This is the first v5cap-vs-v1 comparison in this programme that
+is not swamped by its own error bars -- the n=25 run could not separate them at all.
+
+Two honest qualifications:
+
+* **Compile rate is not the composite.** A tree that compiles can still score 0 on
+  shape, and the composite is 0.4 shape + 0.4 interface + 0.2 topology. This says
+  v5cap more often emits something the kernel can build; it does not yet say the
+  built thing is closer to the target. The scored comparison settles that.
+* **The rate itself is stratum-specific.** These 504 rows are the hard end of the
+  set, so 10.9% and 24.2% are rates ON THAT STRATUM. The paired DIFFERENCE is valid
+  because both arms faced identical rows; the absolute rates will move when the
+  remaining, easier 96 rows land.
+
+Worth noting the method mattered less than usual here -- v5cap scores 24.2% on the
+504 and 24.5% on all 600, so the prefix bias happened to be small. That could not
+have been known in advance, which is the whole argument for doing it paired.
