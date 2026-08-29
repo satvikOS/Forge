@@ -522,3 +522,29 @@ This is the second time tonight a rule derived from a stable period had to be na
 once the workload changed underneath it. The first was the memory baseline itself --
 "swap alone is not the signal" held until a scorer child, rather than the emission,
 became the consumer.
+
+### The memory episodes were one heavy row at a time, and self-limiting (2026-08-29 04:40)
+
+The verification sampler caught a full cycle:
+
+    free=15%  swap=37.5G  disk=116Gi  biggest verifier child 1.52 GB
+    free=15%  swap=42.7G  disk=111Gi  biggest verifier child 1.96 GB
+    free=36%  swap= 1.6G  disk=150Gi  biggest verifier child 0.04 GB
+    free=36%  swap= 1.6G  disk=150Gi  biggest verifier child 0.05 GB
+    free=35%  swap= 1.6G  disk=150Gi  biggest verifier child 0.05 GB
+
+**A single heavy row's verifier child was the whole episode.** It completed,
+CensusVerifier recycled the child, and swap fell 42.7 -> 1.6 G with disk returning
+111 -> 150 GiB, stable across five consecutive samples.
+
+So the pressure is self-limiting in the same way the emission's leak turned out to
+be: the thing that consumes memory also ends, and the wrapper that recycles reclaims
+it. Nothing was ever at risk of running the disk out -- which is why extrapolating
+that trend was wrong twice.
+
+**MAX=2 is kept anyway, as a frequency argument rather than a necessity.** With three
+v5cap scorers the chance that at least one is on a heavy row at any moment is higher,
+and each such moment costs a 40 GB swap excursion. Two concurrent finishes the
+remaining 480 rows in about 4.1 h against v1's remaining ~3.5 h, so the cap costs
+essentially nothing on the critical path. Three would save roughly 1.3 h and buy
+recurring excursions; that is a bad trade when the scoring is not the bottleneck.
