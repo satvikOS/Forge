@@ -97,3 +97,34 @@ A shell's `comm` is `zsh`; a scorer's is the Python binary. No pattern typed at 
 prompt can make a shell satisfy that test. (The queue scripts were never affected --
 their own command line is `zsh .../score_queue3.sh`, which contains no such pattern --
 so their concurrency caps held correctly throughout.)
+
+## Confirmed at both stages, and one of them is the unifyFaces crash
+
+`v5cap_shard0` finished with **8 refusals in 119 scored rows (6.7%)**:
+
+    ho680  ho805  ho863  ho1187  ho810  ho424  ho826  ho1139
+
+**Four of the eight -- ho1187, ho810, ho826, ho1139 -- are the same rows that defeated
+the kernel during the v5cap EMISSION**, hours earlier, through a different verifier
+wrapper. Re-tested standalone against the pinned binary:
+
+    ho826  : candidate alone TIMES OUT (wedges the kernel past 90 s)
+    ho1139 : candidate alone rc=-11    SIGSEGV
+
+`ho1139` is the row that produced the `unifyFaces` reproducer in the first place. So
+the kernel defect documented in UNIFYFACES_SEGV_ON_SIX_CONCENTRIC_HOLES.md is not a
+synthetic curiosity -- **real model output hits it, in the scoring path, and costs a
+row of the comparison every time it does.**
+
+That completes the argument:
+
+  * the refusals are reproducible properties of specific emitted trees, not noise;
+  * they occur at BOTH emission and scoring, so they are not stage-specific;
+  * they arrive by two distinct mechanisms, timeout and segfault;
+  * and only the model arm can produce them -- the box arm's candidate for every one
+    of these tasks is `%1 = BOX(...)`, which measures instantly and cannot fail.
+
+Final counts for this shard: v5cap 8/119 (6.7%) against box 1/480 (0.21%), a ratio of
+about 32x. The sensitivity figure with candidate-side timeouts charged as 0.0 is
+therefore not a formality -- at ~6-7% of rows it is a materially different number, and
+it must be reported beside the headline.
