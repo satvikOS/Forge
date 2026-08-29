@@ -8,7 +8,7 @@ edit.redo	Edit	-	document	none	none	1	-
 edit.undo	Edit	-	document	none	none	1	-
 file.new	File	-	application	none	none	1	-
 file.open	File	-	application	none	none	1	path:text:required
-file.save	File	-	application	none	none	1	-
+file.save	File	-	application	none	none	1	path:text:optional
 model.extrude	Model	EXTRUDE	document	transaction	live	1	distance:number:required:hasdefault
 model.fillet	Model	FILLET	document	transaction	live	1	radius:number:required:hasdefault
 model.shell	Model	SHELL	document	transaction	ondemand	1	thickness:number:required:hasdefault

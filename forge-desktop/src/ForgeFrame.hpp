@@ -53,17 +53,65 @@ struct ViewportRequest {
   int x = 0, y = 0, width = 0, height = 0;  // framebuffer pixels
   std::uint32_t hoverFace = 0;
   bool selectionDirty = false;  // vertex flags changed -> re-upload
+  // The DOCUMENT rebuilt: a different triangle count, a different vertex buffer
+  // size. The host must wait for the device to go idle before re-uploading,
+  // because a growing buffer is destroyed and recreated, unlike a selection
+  // re-upload which only rewrites bytes already mapped.
+  bool geometryDirty = false;
   bool wireframe = false;
 };
 
-class ForgeFrame {
+// The frame builder is also THE DOCUMENT OWNER. It holds the PartDocument the
+// Part commands append to, and implements forge::ui::DocumentHost so the shell's
+// ONE file.new / file.open / file.save / edit.undo / edit.redo act on it. Before
+// this, three disconnected document models coexisted and none of them was the
+// one on screen.
+class ForgeFrame final : public forge::ui::DocumentHost {
  public:
   ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene);
 
-  // Registers the 18 Part workspace commands into the shell's ONE registry, and
-  // seeds the PartDocument with the sketch/solid the selection resolves to.
-  // Returns how many commands were added.
+  // Registers the 18 Part workspace commands into the shell's ONE registry,
+  // seeds the PartDocument with the SAME statements KernelScene::build()
+  // compiled, and installs this object as the shell's document host. Returns how
+  // many commands were added.
   std::size_t wirePartCommands();
+
+  // ── the document ────────────────────────────────────────────────────────
+  const forge::ui::PartDocument& document() const noexcept { return partDoc_; }
+  const std::string& documentProgram() const noexcept { return builtProgram_; }
+  const std::string& documentName() const noexcept { return documentName_; }
+  // How many times the document has actually driven a kernel rebuild.
+  std::size_t rebuilds() const noexcept { return rebuilds_; }
+
+  // The selection node the document's CURRENT body answers to -- what a viewport
+  // pick must put in EntityRef::bodyId for a Part command to resolve it back to
+  // an IR value. It is READ from the document rather than spelled as a literal:
+  // a command rebinds the node to the statement it produced, and a document
+  // opened from a file may name its body anything at all, so a hard-coded
+  // "body.bracket" makes every solid command silently unavailable the moment
+  // either happens.
+  std::string activeBodyNode() const;
+  // Why the last rebuild failed; empty when the viewport matches the document.
+  const std::string& rebuildError() const noexcept { return rebuildError_; }
+
+  // Rebuilds the scene IFF the document's IR program differs from the one the
+  // scene was last built from. Idempotent and cheap, so it can be called from
+  // every dispatch site AND once per frame: a mutation path that forgets to call
+  // it is the defect this method exists to make impossible.
+  // Returns true when it actually rebuilt.
+  bool syncSceneToDocument();
+
+  // ── forge::ui::DocumentHost ─────────────────────────────────────────────
+  bool documentNew(std::string& error) override;
+  bool documentOpen(const std::string& path, std::string& error) override;
+  bool documentSave(const std::string& path, std::string& error) override;
+  bool documentUndo() override;
+  bool documentRedo() override;
+  std::size_t documentFeatureCount() const override;
+  std::size_t documentUndoDepth() const override;
+  std::size_t documentRedoDepth() const override;
+  bool documentDirty() const override;
+  std::string documentPath() const override;
 
   // Feed one key press. Returns true when it resolved to a command that ran.
   bool onKey(const std::string& key, forge::ui::ModMask mods);
@@ -165,6 +213,20 @@ class ForgeFrame {
   std::string shortcutText(const std::string& id) const;
 
   void syncSelectionToScene();
+  // Re-derives the tree/timeline rows from the document's records and marks the
+  // statement the last rebuild failed on. One writer, so the tree cannot show a
+  // history the viewport does not have.
+  void refreshFeatureRows();
+  // Re-expands and re-flattens the tree after the row set changed.
+  void rebuildTree();
+  // Seeds an empty document with defaultPartStatements(). Returns false (and
+  // says which statement) if the document refuses one, rather than starting on a
+  // half-seeded part.
+  bool seedDefaultPart(std::string& error);
+  // Guarantees the document's last statement is nameable by the selection. A
+  // .fpart written by another tool (or by hand) need carry no NODE line at all,
+  // and a body nothing names cannot be picked or modified.
+  void ensureBodyBinding();
   // The face ids the typed selection currently names. One decoder, used by the
   // viewport highlight AND by the Measure panel, so the two cannot disagree
   // about which faces are picked.
@@ -180,6 +242,18 @@ class ForgeFrame {
   forge::ui::PartDocument partDoc_;
   forge::ui::UndoStack partUndo_;
   bool partWired_ = false;
+
+  // ── document state ──────────────────────────────────────────────────────
+  // `builtProgram_` is the IR the SCENE currently holds. Comparing it to
+  // partDoc_.irProgram() is the whole dirty check: a witness taken from the
+  // thing itself, not a flag somebody has to remember to set.
+  std::string builtProgram_;
+  std::string documentPath_;              // "" until saved or opened
+  std::string documentName_ = "untitled";
+  bool documentDirty_ = false;
+  bool geometryDirty_ = false;            // latched for the host's re-upload
+  std::size_t rebuilds_ = 0;
+  std::string rebuildError_;
 
   // Measure panel cache. `measureTriangles_` is the triangle count the cache was
   // built from: it is the cheap witness that the scene has not been re-built
