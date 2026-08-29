@@ -68,7 +68,37 @@ guaranteed to be the solid its gold tree defines**, so any per-row topology argu
 must be made against the read-back shape, and the "genus 13 vs 10" discrepancy on
 `ho625` is explained -- two shapes, not two measurements.
 
-A larger sample (every 5th row, 120 references) is running to tighten the interval.
+## Final characterisation, n=120 (every 5th row)
+
+    valid True -> False : 0 of 120   (0.0%, Wilson upper bound ~3.1%)
+    genus CHANGED       : 4 of 120   (3.3%, Wilson 95% CI [1.3%, 8.3%])
+
+    ho114   genus 23 -> 21      ho924   genus 18 -> 17
+    ho214   genus 23 -> 22      ho1195  genus 21 -> 20
+
+Two things sharpen it:
+
+**The direction is systematic.** All four LOSE handles. Not one gained. The
+round-trip does not perturb topology randomly; it drops features.
+
+**And it is confined to topologically complex solids:**
+
+    genus  0-10 : 0 drifted of 68   (0.0%)
+    genus 15-20 : 1 drifted of  8   (12.5%)
+    genus 20+   : 3 drifted of 44   (6.8%)
+
+Nothing below genus 10 drifted at all. Above genus 15 the rate is about 7.7%. The
+STEP round-trip loses handles on exactly the parts that have many of them -- which
+is also, per THE_HOLDOUTS_ARE_SORTED_HARDEST_FIRST.md, the region where the box
+floor is highest and where the eval file's first rows live. Several of this
+programme's measurement quirks sit on the same complexity axis.
+
+**Bounded impact, stated plainly.** Topology is 0.2 of the composite; a one-handle
+error on ~3% of rows moves the aggregate by a fraction of a point, and it moves every
+arm identically because all arms score against the same reference file. The
+comparison is not threatened. What is threatened is any per-row claim about topology
+on a high-genus part, and any future attempt to use these STEP files as ground truth
+for a genus-sensitive metric.
 
 ## Incidental, and worth remembering
 
