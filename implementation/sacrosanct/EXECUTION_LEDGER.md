@@ -669,3 +669,51 @@ This is the more useful validation of a threshold: not that it fired when it sho
 but that it stayed silent when the raw alarm was screaming. Earlier tonight the same
 rule DID fire (free% 15-16% sustained, pageouts ~245/min) and shedding load was
 right. Both directions now have evidence.
+
+---
+
+## 2026-08-29 -- D-011 CLOSED: the three-arm run finished at 600 rows per arm
+
+All three arms completed against identical references (`tasks.jsonl` sha1
+`8443c1062fa16be1`). Paired on the 570 rows every arm scored, 20k paired bootstrap:
+
+    box 0.2367   v5cap 0.2798   v1 0.2065
+
+    v5cap - box   +0.0431   [+0.0260, +0.0602]   EXCLUDES 0
+    v1    - box   -0.0302   [-0.0454, -0.0149]   EXCLUDES 0
+    v5cap - v1    +0.0734   [+0.0519, +0.0946]   EXCLUDES 0
+
+Charging every candidate-side refusal 0.0 and re-pairing on all 600 keeps all three
+conclusions (+0.0336 / -0.0349 / +0.0685, all excluding 0). Compile rate v1 10.7% vs
+v5cap 24.5%, +13.8 pp [+9.6, +18.0], McNemar chi2 = 40.8.
+
+Refusals FINAL: box 2 (0.33%), v5cap 20 (3.33%), v1 10 (1.67%). Every earlier quote
+of the v1 rate was wrong in the same direction -- 0.7%, then ~1.7%, finishing 1.67%.
+A refusal rate read off a partial run is not a refusal rate.
+
+**v5cap is the first arm in this programme to beat the bounding-box floor.** It wins
+on interface (0.2376 vs 0.0000) and topology, and loses on shape (0.2568 vs 0.4239).
+The next work points at SHAPE. Finding: `findings/THREE_ARM_FINAL_600.md`.
+
+## 2026-08-29 -- the unifyFaces SEGV was mischaracterised; the real trigger is narrower
+
+The committed finding said "six or more distinct enlarged concentric bores, order
+irrelevant". Instrumenting `unifyFaces` with a pcurve/surface census showed all three
+claims were wrong:
+
+* The first five holes in the reproducer cut NOTHING -- their centres lie outside the
+  plate's x footprint. n=1..5 all return volume 404478.219345, which is the plate box
+  to ten significant figures. Only the sixth hole is inside the part.
+* `HOLE`'s second argument is a DIAMETER (`%body, dia, cx, cy, cz`), so Ø8.99 is
+  radius 4.495 -- EXACTLY the radius of the cut it was believed to "enlarge".
+* Order is NOT irrelevant: `HOLE` then `CUT` at the same radius does not crash.
+
+**The real trigger is exact radius coincidence between two DIFFERENTLY-STORED coaxial
+seam-carrying walls** -- one analytic `Geom_CylindricalSurface` (what HOLE builds),
+one `Geom_SurfaceOfLinearExtrusion` of a circle (what CIRCLE+EXTRUDE+CUT leaves).
+Measured on a plate with ONE bore: radius 4.4950 == the cut's -> SIGSEGV; 4.4900 ->
+ok; 4.5000 -> ok; crashes again at 5.0 and at 3.0 whenever the two coincide exactly.
+Two coaxial equal-radius ANALYTIC walls merge fine. Hole COUNT is irrelevant.
+
+The planned fix -- a null-pcurve pre-check on the input -- would NOT have worked:
+the crashing input has `nullPcurves=0`. The null is produced inside the merge.

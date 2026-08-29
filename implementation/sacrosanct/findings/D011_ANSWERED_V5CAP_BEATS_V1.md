@@ -1,5 +1,12 @@
 # D-011 answered: v5cap beats v1 by +0.0742, and v1 really is beaten by a box
 
+> **SUPERSEDED 2026-08-29 -- see `THREE_ARM_FINAL_600.md`.** The numbers below are
+> the INTERIM read at n=341 (v1 was 3 of 5 shards). All three arms have since run to
+> 600/600. The conclusion is unchanged and every interval still excludes zero; the
+> point estimates moved slightly: v5cap-v1 +0.0742 -> **+0.0734** [+0.0519,+0.0946],
+> v5cap-box +0.0393 -> **+0.0431**, v1-box -0.0349 -> **-0.0302**, paired on the 570
+> rows every arm scored. Final refusals: box 2, v5cap 20, v1 10.
+
 **Measured 2026-08-29, paired on the 341 rows all three arms scored. v1 interim
 (3 of 5 shards, round-robin so stratified); box and v5cap complete.**
 

@@ -1,5 +1,13 @@
 # v5cap beats the bounding-box floor, and it wins on interface while losing on shape
 
+> **SUPERSEDED 2026-08-29 -- see `THREE_ARM_FINAL_600.md`.** Below is the INTERIM
+> read (paired n=579, sensitivity n=598). Final, paired on the 570 rows all THREE
+> arms scored: v5cap-box **+0.0431** [+0.0260,+0.0602]; sensitivity **+0.0336**
+> [+0.0172,+0.0505] at n=600. The component story is unchanged and sharper: v5cap
+> wins interface 0.2376 vs 0.0000 and topology 0.4103 vs 0.3357, and loses shape
+> 0.2568 vs 0.4239. Final refusals: box 2 (0.33%), v5cap 20 (3.33%).
+
+
 **FINAL, 2026-08-29. Both arms complete: 5/5 shards each, 600 rows presented per
 arm.** (The interim figures below, taken at 347 and 464 rows, are kept because their
 stability is itself evidence.)
