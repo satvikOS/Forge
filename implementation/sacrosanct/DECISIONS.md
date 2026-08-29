@@ -345,3 +345,50 @@ for this base branch", which is a green bucket over a review that never ran.
 **Decision: merge #63 into the execution branch** so the code reaches CodeRabbit
 through PR #61, which does get reviewed, rather than retargeting #63 at the default
 branch and dragging #61's commits into its diff.
+
+---
+
+## D-015 (2026-08-29): Archie's op constraint is real, but today's forge::ui cannot be the whole of it
+
+The instruction is that Archie must be trained on where the features, functions and ops
+live in the Forge app "so it only uses what Users can use". That is right, and the
+constraint is now MEASURED rather than assumed -- the command registry was compiled and
+EXECUTED, not read from docs:
+
+    forge::ui registry                     31 commands in 6 categories
+    commands that actually emit IR         14  (verified by dispatching each with a legal
+                                               selection and reading PartDocument::lastFeature)
+    distinct IR ops reachable from the UI  14  EXTRUDE REVOLVE LOFT HOLE CBORE FILLET
+                                               CHAMFER BLEND SHELL PATTERN MIRROR FUSE CUT COMMON
+    kernel ops in a default build          43
+    IR ops with NO forge::ui command       26  incl. RECT RRECT CIRCLE SLOT POLY REGPOLY
+                                               BOX CYL CONE, TRANSLATE, ROTATE
+
+**Taken literally, the constraint makes generation impossible rather than merely
+limited.** No command in the registry CREATES a value: every one of the 14 IR-emitting
+commands consumes a selection that must already exist. So RECT/CIRCLE/POLY and all 15
+profile and primitive ops are unreachable, and an Archie confined to today's registry
+could not emit a program that produces any solid at all -- there is nothing for EXTRUDE
+to extrude.
+
+**Decision: the constraint is a TARGET on forge::ui, not a cage for Archie.** The
+op vocabulary asset is still built and still authoritative, but the correct response to a
+gap is to EXTEND the UI to expose the op, not to forbid Archie from an operation users
+demonstrably need. Concretely:
+
+* Ops a user CAN reach today -> Archie may emit freely.
+* Ops with no command that a part cannot be built without (profile and primitive
+  creation) -> a forge::ui command is OWED, and the vocabulary records them as
+  `owed`, not as forbidden.
+* Ops that are genuine drift rather than policy -> fix the drift. ALIGN, COMPONENT and
+  ASSEMBLY exist in `forge::ft::opFromName` and are ABSENT from
+  `forge::ui::irOpTable()`. ALIGN matters: it is the recorded fix for the largest
+  measured failure mode in this programme (derived placement, where 40.4% of train and
+  48.2% of held-out TRANSLATE arguments are exact arithmetic on other constants).
+  Forbidding ALIGN would forbid the fix.
+
+**Also measured and NOT yet fixed:** `ui/test/run_ui.sh` is RED right now -- 8 of 246
+checks in `feature_ir`, because the UI's op table is 3 ops behind the kernel. The
+committed `APP_SURFACE_MANIFEST.tsv` and its own gate are green, so the command list
+above is trustworthy, but the drift is real and is the first thing the vocabulary
+generator will trip over.
