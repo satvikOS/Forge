@@ -14,7 +14,6 @@
 #include <gp_Ax1.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Lin.hxx>
-#include <Geom_Plane.hxx>
 #include <Geom_Curve.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_ConicalSurface.hxx>
@@ -41,7 +40,6 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepAdaptor_Surface.hxx>
-#include <GeomAbs_SurfaceType.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <BRepLib.hxx>

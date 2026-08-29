@@ -16,8 +16,6 @@
 #define FORGE_HEAL_NATIVE_BCD 1
 #endif
 
-#include <BRepAdaptor_Curve.hxx>
-#include <BRepBuilderAPI_MakeShell.hxx>
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -29,12 +27,8 @@
 // vtable reference) into the TU.
 #include <BRepOffsetAPI_MakeFilling.hxx>
 #endif
-#include <BRepTools.hxx>
-#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
-#include <GeomAbs_Shape.hxx>
-#include <Precision.hxx>
 // DEAD INCLUDES REMOVED 2026-07-31 (verified 0 uses in this TU by grep):
 //   ShapeAnalysis_ShapeContents.hxx, ShapeAnalysis_ShapeTolerance.hxx,
 //   ShapeFix_ShapeTolerance.hxx.  No symbol effect — they contributed no import.
@@ -50,16 +44,12 @@
 // that does not exist yet (Law 9 forbids dropping the capability instead).
 #include <ShapeFix_Shape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
-#include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
-#include <TopoDS_Edge.hxx>
-#include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>

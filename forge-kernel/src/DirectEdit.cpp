@@ -19,7 +19,6 @@
 #include <Geom_TrimmedCurve.hxx>
 #include <Precision.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopoDS_Edge.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Lin.hxx>
 #include <vector>
