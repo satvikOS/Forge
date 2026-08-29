@@ -619,3 +619,33 @@ Two honest qualifications:
 Worth noting the method mattered less than usual here -- v5cap scores 24.2% on the
 504 and 24.5% on all 600, so the prefix bias happened to be small. That could not
 have been known in advance, which is the whole argument for doing it paired.
+
+### CI red -> green, and it was never our code (2026-08-29 06:20)
+
+All nine checks on PR #61 pass, including the previously-failing native C++ kernel
+gate. The confirming detail is the DURATION: the failing run took 17 s, the passing
+one 10m43s, so the gate actually compiled and ran rather than short-circuiting into a
+green tick.
+
+Cause: `apt-get update` aborts when ANY configured repository fails, and the runner
+image ships Microsoft's apt repos, which returned 403 / "no longer signed". Neither
+gate uses them -- one needs ccache, the other OCCT headers, both from Ubuntu's own
+archive. Commit 78b00e1f removes those repositories before updating, at both apt
+sites (jobs `native` and `simulation`).
+
+Three things were checked rather than assumed, and two of my guesses were wrong:
+
+* The `.ir` fixture committed earlier was NOT implicated -- `run_native.sh` only
+  globs `test/native/<class>/*.cpp`.
+* My first local reproduction "found" missing includes in `NativeDraftAngle.cpp` and
+  `NativeWireFill.cpp`. Both are UNTRACKED in-flight files that CI cannot see. A
+  local gate run that scans untracked files is not a reproduction of CI.
+  `git archive origin/<branch> | tar -x -C <tmp>` reproduces exactly what CI builds
+  without touching the working tree; there the include check passes (292 files, OK).
+* The second apt site is in the `simulation` job, not `kernel` as I first guessed.
+
+Planned adjustment, not yet applied: the scorer concurrency cap of 2 exists because
+three v5cap scorers alongside the 30B EMISSION drove free% to 15-18%. Once the v1
+emission completes there is no model resident, so the cap can go back to 3 for the
+remaining scoring. That is a change to make WHEN V1E600_RC lands, on the evidence of
+free% after the model unloads -- not before.
