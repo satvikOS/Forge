@@ -124,6 +124,14 @@ jobs:
         # cleanup that cannot report a delete it failed to make, and ONLY=<typo>
         # exiting 0 after running nothing.
         run: bash ui/test/run_ui_contract_test.sh
+      - name: Archie op vocabulary is still what the sources imply
+        # implementation/sacrosanct/archie_op_vocabulary.json is the closed list of
+        # feature-IR ops Archie may emit -- the ops a USER can reach through this
+        # registry. archie_op_vocabulary_test.cpp (run by run_ui.sh above) proves the
+        # file matches the RUNNING code; this proves it matches the SOURCE TEXT, which
+        # is the half that catches a kernel-header signature change nothing in ui/
+        # would notice. Stdlib-only Python, no install step.
+        run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
