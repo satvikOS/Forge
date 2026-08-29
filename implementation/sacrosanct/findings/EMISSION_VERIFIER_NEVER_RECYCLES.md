@@ -189,3 +189,36 @@ longer the same class of risk.
 The recycle remains deferred until both arms are emitted, for the reason given
 above: it resets kernel registry state between rows, and the arms must share an
 instrument.
+
+## Resolved by itself, 18 minutes later -- and the restraint was the right call
+
+    [verifier] timeout after 180s; respawn #1
+    [ho448] round 1: 21 ops  compiled=False
+            gate: the tree does not compile: verifier timeout after 180s
+
+`ho448` wedged the kernel, the timeout fired, the child was killed and respawned.
+Measured immediately after:
+
+    verifier   4.07 GB (4h26m old)  ->  0.03 GB (3m31s old)
+    swap       19.6 G -> 1.5 G
+    free%      36% -> 40% (touching 79% during the reclaim)
+    disk       139 GiB -> 155 GiB   (the swap file handed back)
+    v1         continues, 334/600, with exactly ONE row affected
+
+**The timeout+respawn turns out to bound the leak as a side effect.** The periodic
+recycle was deliberately withheld because it resets kernel registry state between
+rows and the two arms must share an instrument. But a wedged row happens often
+enough -- roughly 1 in 100 here -- that the timeout acts as an OPPORTUNISTIC recycle,
+and it fires on a row that genuinely defeated the kernel rather than on an arbitrary
+schedule. Memory stayed bounded without the comparability cost.
+
+**And the decision not to intervene was vindicated on its own terms.** Killing the
+child by hand would have reclaimed the same 4 GB, but the row it was working on
+would have been recorded as a failure caused by the operator -- an unearned zero
+inside one arm of a paired comparison. Waiting cost 18 minutes of an alarming swap
+figure and produced an identical reclaim, with the failure correctly attributable to
+`ho448`, which really did take more than 180 s.
+
+The leak is still real and still unfixed. What this shows is that it is now
+self-limiting in practice, which is why it did not need to be traded against the
+integrity of the measurement.
