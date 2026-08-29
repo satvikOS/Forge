@@ -57,3 +57,43 @@ construction it would flatter the model over the floor.
 
 Also record which rows they were: a candidate that defeats the kernel for 300 s is
 itself a finding about the model's output, not just a scoring inconvenience.
+
+## The timeouts are a property of specific model outputs, not noise
+
+`v5cap_shard0`'s refusals, as the shard progressed:
+
+    ho680   ho805   ho863   ho1187   ho810
+
+**`ho1187` and `ho810` are the same two rows that wedged the kernel during the v5cap
+EMISSION**, where each hit the 180-second verifier timeout and forced a respawn. They
+now defeat the scorer as well, at a different stage, with a different verifier
+wrapper, hours apart.
+
+That settles what these refusals are. They are not scheduler noise and not contention
+-- they are reproducible properties of particular emitted trees. A tree that takes
+more than 180 s to verify at emission takes more than 300 s to score.
+
+It also strengthens the asymmetry argument. These rows are model OUTPUT, so only the
+model arm can produce them; the box arm's candidate for the same task is
+`%1 = BOX(...)` and measures instantly. The refusal path is reachable only from one
+side, and reachable REPRODUCIBLY.
+
+Running count at the time of writing: v5cap 5 refusals in 89 scored rows (5.6%),
+against box 1 in 480 (0.21%).
+
+## A process-counting trap worth writing down separately
+
+Three times tonight a `pgrep -f <pattern>` count came back one too high. The cause is
+not the pattern being too loose -- it is that **the shell running the pgrep has the
+pattern in its own command line**, so any pattern is self-matching by construction.
+Tightening the pattern cannot fix it; `MacOS/Python -u scripts/composite_score.py`
+self-matched exactly as `composite_score.py --tasks` had.
+
+The fix is to discriminate on the EXECUTABLE rather than the arguments:
+
+    ps -A -o pid=,comm=,args= | awk '/composite_score\.py/ && $2 !~ /zsh|bash|sh$/'
+
+A shell's `comm` is `zsh`; a scorer's is the Python binary. No pattern typed at a
+prompt can make a shell satisfy that test. (The queue scripts were never affected --
+their own command line is `zsh .../score_queue3.sh`, which contains no such pattern --
+so their concurrency caps held correctly throughout.)
