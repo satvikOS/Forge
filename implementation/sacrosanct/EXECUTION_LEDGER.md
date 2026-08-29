@@ -494,3 +494,31 @@ was. The rule is therefore not "never run three" but "three is fine; watch free%
 The queue was relaunched as `score_queue2.sh` with the REMAINING work only. The
 original list still named box shards 3 and 4, which are done or running; relaunching
 it unedited would have redone about four hours of scoring.
+
+### Concurrency is a property of the ARM, not a global constant (2026-08-29 04:31)
+
+An earlier entry concluded "three scorers is fine; watch free%", on the evidence that
+three had run for hours without trouble. That conclusion was drawn from the wrong
+sample and is corrected here.
+
+Those three were **box** shards. A box candidate is `%1 = BOX(...)`: it measures in
+under a second and its verifier child stays under 60 MB. **v5cap** candidates are full
+feature trees, and their children reach **2.2-2.5 GB** on heavy rows. Three of those
+beside the 30B emission drove free% to 15-18% TWICE within an hour, with the swap file
+taking disk from 155 GiB down to 127 GiB.
+
+    box shards, 3 concurrent   : stable for ~4 hours, free% 35-44
+    v5cap shards, 3 concurrent : free% 15-18 within 30 minutes, twice
+
+So the cap is now MAX=2 for the v5cap arm (`score_queue3.sh`), and the rule is that
+concurrency must be chosen from what the arm actually costs to score, not from a
+number that happened to work on a cheaper arm.
+
+Cost of the correction: v5cap shard1 killed twice at 2-3 rows each. Cheap, because
+"kill the least-progressed shard" keeps the loss bounded no matter how often the
+judgement has to be revised.
+
+This is the second time tonight a rule derived from a stable period had to be narrowed
+once the workload changed underneath it. The first was the memory baseline itself --
+"swap alone is not the signal" held until a scorer child, rather than the emission,
+became the consumer.
