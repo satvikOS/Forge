@@ -70,6 +70,23 @@ number): the emission builds `POLY(a x b)` then `EXTRUDE(c)`, and the three numb
 drawn from the right set but placed in the wrong slots. **This is stated as a hypothesis
 about the mechanism; what is MEASURED is the rank shift in the resulting solids.**
 
+## The prompt hands the model an ORDERED TRIPLE, which is the thing being mis-bound
+
+Found while auditing the training corpus for a different reason. The task prompt reads:
+
+    Rebuild this exact solid from construction ops. Overall envelope 107.1 x 65.2 x 47.5 mm.
+    TARGET GEOMETRY INVENTORY (full face census, kernel-measured): { "faces": ...
+
+**The overall envelope is supplied as three bare numbers in a fixed order.** Nothing in
+that string says which number is length, which is width and which is thickness; the
+binding is positional and must be inferred. The measured failure is precisely a
+mis-binding of an ordered triple, so the representation and the defect match.
+
+This is corroboration of the mechanism, not proof of it -- the prompt format is a
+plausible source of a positional error, and the rank shift is the observed consequence.
+The obvious intervention is to name the axes rather than to supply a bare triple, and
+that is a corpus change testable against the prediction below.
+
 ## Why this matters for the training programme
 
 This is a BINDING defect, not a capacity or perception defect. The information is present
