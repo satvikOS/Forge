@@ -67,7 +67,12 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepGProp.hxx>
-#include <BRepPrimAPI_MakePrism.hxx>
+// TKPrim was REMOVED from the link line on 2026-08-07 (see CMakeLists: "TKPrim
+// EXCLUSIVE = 0"), but this file still referenced BRepPrimAPI_MakePrism, so the
+// dylib failed to link on "vtable for BRepPrimAPI_MakePrism". occtPrism is the
+// in-house 1:1 replacement and references no BRepPrimAPI symbol.
+#include "forge/OcctPrimBuilder.hpp"
+#include <stdexcept>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
 #include <BRep_Tool.hxx>
@@ -293,9 +298,14 @@ TopoDS_Shape sectorWedge(const gp_Pnt& p0, const gp_Dir& dir, double len,
     BRepBuilderAPI_MakeFace mkf(mkw.Wire(), Standard_True);
     if (!mkf.IsDone()) return defer("wedge: the sector face could not be built");
 
-    BRepPrimAPI_MakePrism mkp(mkf.Face(), gp_Vec(dir) * len);
-    if (!mkp.IsDone()) return defer("wedge: the sector prism could not be built");
-    return mkp.Shape();
+    TopoDS_Shape wedge;
+    try {
+        wedge = ::forge::occtPrism(mkf.Face(), gp_Vec(dir) * len);
+    } catch (const std::exception&) {
+        return defer("wedge: the sector prism could not be built");
+    }
+    if (wedge.IsNull()) return defer("wedge: the sector prism could not be built");
+    return wedge;
 }
 
 }  // namespace
@@ -353,9 +363,13 @@ TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
         }
     }
     if (coplanar) {
-        BRepPrimAPI_MakePrism mkp(shell, gp_Vec(N[0]) * (sgn * r));
-        if (!mkp.IsDone()) return defer("coplanar path: the shell prism failed");
-        const TopoDS_Shape sol = mkp.Shape();
+        TopoDS_Shape swept;
+        try {
+            swept = ::forge::occtPrism(shell, gp_Vec(N[0]) * (sgn * r));
+        } catch (const std::exception&) {
+            return defer("coplanar path: the shell prism failed");
+        }
+        const TopoDS_Shape sol = swept;
         if (sol.IsNull()) return defer("coplanar path: the shell prism is null");
         GProp_GProps p;
         BRepGProp::VolumeProperties(sol, p);
@@ -373,9 +387,14 @@ TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
     parts.reserve(faces.size() + 8);
     double maxPrism = 0.0, sumParts = 0.0;
     for (std::size_t i = 0; i < faces.size(); ++i) {
-        BRepPrimAPI_MakePrism mkp(faces[i], gp_Vec(N[i]) * (sgn * r));
-        if (!mkp.IsDone()) return defer("folded path: a face prism failed");
-        parts.push_back(mkp.Shape());
+        TopoDS_Shape part;
+        try {
+            part = ::forge::occtPrism(faces[i], gp_Vec(N[i]) * (sgn * r));
+        } catch (const std::exception&) {
+            return defer("folded path: a face prism failed");
+        }
+        if (part.IsNull()) return defer("folded path: a face prism failed");
+        parts.push_back(part);
         const double v = area[i] * r;
         maxPrism = std::max(maxPrism, v);
         sumParts += v;
