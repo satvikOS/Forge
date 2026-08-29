@@ -60,3 +60,26 @@ deletion authority.
 **Recommended, and NOT done here because it pushes branches into a shared repo:**
 push the 10 branches, or delete them deliberately, one by one, with a human
 deciding which. Until then they are the only copy.
+
+## The same shape in ~/tenure-parent-wt7 (6 worktrees, 5.4 GiB)
+
+Audited on the same rules. Every one is a KEEP, and the reasons differ in ways a
+size-driven cleanup would have flattened:
+
+    tenure-audit-connectors   43M   dirty=1   ?? docs/architecture/TENURE_CONNECTOR_ARCHITECTURE.md
+    wt-node24-parent         1.1G   dirty=1    D node_modules            1 commit not in origin/main
+    wt-authzsvc              1.1G   dirty=3    M packages/authorization/src/{index,service,service.test}.ts
+    wt-assign-bounds         1.1G   dirty=32
+    wt-tenant-approval-flow  1.1G   dirty=27
+    wt-ge053005              1.1G   dirty=9    remote_refs=0
+
+`tenure-audit-connectors` is the one worth naming. It is 43 MB, its branch is called
+`docs/connector-architecture-audit`, it is 0 commits ahead of main, and its ONLY
+dirty path is a single untracked file. Everything about it reads as finished
+scaffolding. That file is an architecture document that exists nowhere else.
+
+A cleanup that treats "dirty=1" as noise, or that ranks candidates by size and skips
+the 43 MB ones as not worth the risk, loses it either way. The rule that saves it is
+the boring one: **read what the dirty path actually is.** A `?? build/` and a
+`?? docs/SOMETHING.md` are the same single line of `git status` output and are not
+remotely the same fact.
