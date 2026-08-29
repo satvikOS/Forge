@@ -1,5 +1,10 @@
 # Where v5cap loses shape: it emits 1.8x the material and still misses an eighth of the part
 
+> **Read the bimodality section before quoting the aggregate.** The mean row emits
+> 1.8x the reference and misses an eighth of it; NO row behaves that way. The corpus
+> splits into a blob mode (2.66x, recall >=0.95) and a right-size-wrong-object mode
+> (0.82x, recall <0.5), and they want opposite fixes.
+
 **Measured 2026-08-29 from the scored artefacts of the final 600-row run** (pinned
 verifier `45e9ad9a`, `--align centred-longest --grid 64`). D-011 established that
 v5cap beats the bounding-box floor overall but LOSES on shape, 0.2568 vs 0.4239, and
@@ -49,6 +54,40 @@ below it. v5cap is the only arm paying both penalties.
 
 At the composite's 0.4 shape weight that is about +0.068 composite -- it would roughly
 double v5cap's +0.0431 margin over the floor.
+
+## The aggregate is a BLEND OF TWO POPULATIONS, and no row behaves like the median
+
+The headline above -- "1.8x the material, misses an eighth" -- describes the mean of
+the distribution and NOTHING in it. Recall is bimodal:
+
+    recall < 0.50    115 rows (26.1%)
+    0.50 - 0.80       72 rows (16.4%)
+    0.80 - 0.95      136 rows (30.9%)
+    recall >= 0.95   117 rows (26.6%)
+
+and the two ends are different failures, not two severities of one failure:
+
+                        n     median candidate/reference   median genus (cand vs ref)
+    recall >= 0.95     117            2.66x                      7 vs 7
+    recall <  0.50     115            0.82x                      2 vs 5
+
+* **The high-recall mode is a BLOB.** 2.66x the reference volume, swallowing the part
+  whole. It is behaving like a bounding box, and it scores like one.
+* **The low-recall mode is the RIGHT SIZE and the wrong thing.** Median 0.82x, with
+  56% of those rows inside 0.7-1.4x, and a candidate genus of 2 against a reference
+  genus of 5 -- roughly the right amount of material, far too few holes, and it does
+  not land on the part. Three rows (`ho1134`, `ho884`, `ho1278`) have recall of
+  EXACTLY ZERO: after centring and longest-axis normalisation the candidate and the
+  reference share no voxel at all.
+
+The missing coverage is spread, not concentrated: the worst 10 rows hold only 8.4%
+of it, the worst 100 hold 59.5%. So this is not a tail of pathological rows to be
+excluded -- a quarter of the corpus is being built as the wrong object.
+
+**This splits the "coverage" direction in two.** The blob rows do not need coverage,
+they need to stop over-filling. The low-recall rows do not need shrinking -- they are
+already the right size -- they need to be the right SHAPE. Treating "improve shape"
+as one problem would optimise the mean of two populations that want opposite changes.
 
 ## What this does and does not license
 
