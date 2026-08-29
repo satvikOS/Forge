@@ -1,0 +1,220 @@
+name: Desktop Release (macOS arm64)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Builds the NATIVE C++ desktop app (forge_desktop) and produces a relocatable,
+# self-contained Forge.app + zip. On a tag it attaches that zip to the matching
+# GitHub Release.
+#
+# This is deliberately a SEPARATE workflow from kernel-tests.yml. That file is
+# the correctness gate and every job in it is hardware-calm and independent; a
+# release build is a different thing with a different trigger, different
+# permissions (contents: write, which the gate must NOT have) and a much heavier
+# runtime. Folding it in would give the test workflow write access to releases.
+#
+# It replaces nothing: build-app.yml (the Electron installer pipeline) was
+# removed in the Sacrosanct 3.1 alignment, and since then there has been NO
+# mechanism to produce a shippable desktop artifact at all. The only release on
+# the repo is a draft placeholder with no binary attached.
+#
+# ── WHAT A HUMAN RUNS ────────────────────────────────────────────────────────
+# Nothing here fires on its own. To cut a release:
+#
+#   1. Dry run first (builds + packages + uploads a CI artifact, touches NO
+#      release):
+#        gh workflow run desktop-release.yml --ref <branch>
+#
+#   2. When that is green, tag and push — THIS is the step that publishes:
+#        git tag -a v0.1.0 -m "Forge desktop v0.1.0"
+#        git push origin v0.1.0
+#
+#   3. The tag run uploads Forge-macos-arm64-<version>.zip to the release for
+#      that tag, creating it as a DRAFT if it does not exist. A draft is not
+#      public until a human presses Publish, which is where the two blockers
+#      below get a decision.
+#
+# ── TWO BLOCKERS A HUMAN MUST DECIDE ON BEFORE PUBLISHING ────────────────────
+#   * macOS 26+ ONLY. Every bundled Homebrew bottle carries LC_BUILD_VERSION
+#     minos=26.0 (bottles inherit their build host's OS). Our own compile flags
+#     cannot lower a floor set inside someone else's binary; that needs OCCT,
+#     SDL2 and tbb built from source with an explicit deployment target. The
+#     packaging script MEASURES the floor and writes it into
+#     LSMinimumSystemVersion, so the artifact states its real requirement.
+#
+#   * GATEKEEPER REJECTS IT. The signature is ad-hoc: no Developer ID, no
+#     notarization, `spctl -a -t exec` exits 3. A user who downloads the zip
+#     gets a refusal dialog until they run
+#         xattr -dr com.apple.quarantine Forge.app
+#     Fixing this needs a paid Developer ID cert + notarytool, i.e. secrets,
+#     not code. Publish release notes that say so, or add the cert first.
+#
+# ── WHY macos-14 AND NOT macos-latest ────────────────────────────────────────
+# Pinned so the artifact's OS floor is a decision rather than a surprise. GitHub
+# rolls `macos-latest` forward, and because Homebrew bottles carry their build
+# host's minos, a silent runner bump silently RAISES the minimum macOS of every
+# artifact we ship. Pinning makes that change show up as a diff.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos-arm64:
+    name: build + package Forge.app (macOS arm64)
+    runs-on: macos-14
+    timeout-minutes: 90
+    permissions:
+      # Needed ONLY to attach the zip to a release on a tag. The build itself
+      # reads nothing privileged.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        # opencascade pulls tbb; sdl2 is an ALIAS for sdl2-compat on current
+        # Homebrew, which is why the CMake dependency probe verifies that
+        # `brew --prefix <formula>` actually EXISTS and falls back to the opt
+        # keg link. Do not "simplify" that probe.
+        run: |
+          brew update-reset >/dev/null 2>&1 || true
+          brew install opencascade sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake
+
+      - name: Record the toolchain that produced this artifact
+        # An artifact whose provenance is not written down cannot be debugged
+        # later. These four versions decide the OS floor and the geometry.
+        run: |
+          sw_vers
+          uname -m
+          cmake --version | head -1
+          for f in opencascade sdl2 molten-vk vulkan-loader; do
+            printf '%-16s %s\n' "$f" "$(brew list --versions "$f" || echo MISSING)"
+          done
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-desktop-${{ runner.os }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-desktop/src/**', 'ui/src/**') }}
+          restore-keys: |
+            ccache-desktop-${{ runner.os }}-
+
+      - name: Install ccache
+        run: brew install ccache
+
+      - name: Build forge_kernel_core (node-free)
+        run: |
+          export CCACHE_DIR="$HOME/.ccache"
+          ccache --max-size=3G --zero-stats
+          cmake -S forge-kernel -B forge-kernel/build-app \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_BUILD_NODE_ADDON=OFF \
+                -DFORGE_BUILD_DESKTOP_FOUNDATION=ON \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build forge-kernel/build-app -j3 --target forge_kernel_core
+          ccache --show-stats
+
+      - name: Build forge_desktop
+        run: |
+          export CCACHE_DIR="$HOME/.ccache"
+          cmake -S forge-desktop -B forge-desktop/build \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_KERNEL_BUILD_DIR="$PWD/forge-kernel/build-app" \
+                -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+                -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build forge-desktop/build -j3
+
+      - name: Headless frame gate
+        # A release must not ship a binary that has never produced a frame. This
+        # builds real ImGui frames over the real forge::ui services and a real
+        # tessellated kernel body, with no window and no GPU — so it runs on a
+        # CI runner that has neither. If this is red the artifact is not cut.
+        run: ./forge-desktop/build/forge_desktop_frame_gate
+
+      - name: Derive the version from the tag
+        id: ver
+        # A tag is v0.1.0; CFBundleShortVersionString must be 0.1.0. A manual
+        # dispatch has no tag, so it is stamped with the short sha to make an
+        # unreleasable build obviously unreleasable.
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V="0.0.0-dev+${GITHUB_SHA:0:7}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Packaging version $V"
+
+      - name: Package Forge.app + zip
+        # --no-build: the two build steps above already produced the binaries,
+        # and letting the packager rebuild would hide a build failure behind a
+        # packaging failure. No --launch: a CI runner has no display. The script
+        # still proves the bundle RELOCATES, by copying it elsewhere and
+        # launching that copy, which exercises the whole dyld closure.
+        run: |
+          bash forge-desktop/package_macos.sh --no-build --version "${{ steps.ver.outputs.version }}"
+
+      - name: Prove the artifact exists and is self-contained
+        # Belt and braces over the script's own checks: a packaging step that
+        # exits 0 having produced nothing is exactly the failure mode this
+        # programme keeps hitting.
+        run: |
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${{ steps.ver.outputs.version }}.zip"
+          test -f "$ZIP" || { echo "no zip at $ZIP"; exit 1; }
+          test -x forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop || exit 1
+          ls -la forge-desktop/dist/
+          echo "--- executable link closure ---"
+          otool -L forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop
+          echo "--- bundled Mach-O count ---"
+          ls forge-desktop/dist/Forge.app/Contents/Frameworks/*.dylib | wc -l
+
+      - name: Upload as a CI artifact (always)
+        # Every run keeps its build, tag or not, so a dry run is downloadable
+        # and testable WITHOUT touching a release.
+        uses: actions/upload-artifact@v4
+        with:
+          name: Forge-macos-arm64-${{ steps.ver.outputs.version }}
+          path: |
+            forge-desktop/dist/Forge-macos-arm64-*.zip
+            forge-desktop/dist/Forge-macos-arm64-*.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to the GitHub Release (tags only)
+        # ONLY on a tag. `gh` is preinstalled on GitHub runners, so this needs no
+        # third-party action. --draft on create: a release is never made public
+        # by automation, because publishing means asserting the artifact is fit
+        # to download and the OS-floor and Gatekeeper blockers above make that a
+        # human's call.
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          V="${{ steps.ver.outputs.version }}"
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "no release for $TAG yet - creating it as a DRAFT"
+            gh release create "$TAG" --draft --title "Forge $TAG" --notes \
+              "Native C++ Forge desktop app for macOS (Apple Silicon).
+
+          REQUIREMENTS AND CAVEATS - please read before publishing:
+          * Apple Silicon only, and macOS 26 or newer. The bundled Homebrew
+            libraries (OCCT, SDL2, tbb) carry LC_BUILD_VERSION minos=26.0.
+          * The app is AD-HOC SIGNED, not notarized. macOS Gatekeeper will
+            refuse to open it after download. To run it:
+                xattr -dr com.apple.quarantine Forge.app
+            or System Settings > Privacy & Security > Open Anyway."
+          fi
+          gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
+          echo "attached $ZIP to release $TAG"
