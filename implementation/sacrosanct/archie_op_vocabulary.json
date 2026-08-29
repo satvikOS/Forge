@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "7b79144e80b1390267fbf272867a746a947ccf77efd4292025fd6626ec74a34d",
-        "bytes": 59690,
-        "lines": 1356
+        "sha256": "1d22fdd017ad3fd950425df8d1c0a2e8484d66e7d713e2ea6d78d41674e3dfc4",
+        "bytes": 72242,
+        "lines": 1641
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -24,9 +24,9 @@
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "abee57a7e0c06d974bcfdd22c8b8faddce160663e945733062a85893f588ed0a",
-        "bytes": 121608,
-        "lines": 1997
+        "sha256": "106509f8538fb19336380fa8f85264f933674b12e5491fd5cd176eba51daf0b5",
+        "bytes": 124722,
+        "lines": 2038
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
@@ -54,9 +54,9 @@
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "59c9dc6825328b17f89715353da6793bf26fef12e6c02ba7375d2b6c7448f462",
-        "bytes": 14622,
-        "lines": 427
+        "sha256": "dde86e9c4d0cb9d38b70a416ab85c982304a578113827ef0f5f57360670e2d9d",
+        "bytes": 17314,
+        "lines": 496
       }
     ],
     "build_configuration": {
@@ -83,7 +83,7 @@
     "user_invocable_ops": 14,
     "forbidden_ops": 26,
     "uncertain_entries": 1,
-    "derived_defects": 8
+    "derived_defects": 7
   },
   "emission_policy": {
     "allowed_ops": [
@@ -2487,7 +2487,16 @@
         "min": 0,
         "max": null
       },
-      "parameters": [],
+      "parameters": [
+        {
+          "name": "path",
+          "type": "Text",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
       "preview": "None",
       "undo": "NotUndoable",
       "source": "ui/src/ForgeShell.cpp"
@@ -3631,13 +3640,6 @@
       "feature_ir_op": "SHELL",
       "evidence": "the handler in ui/src/ForgeShell.cpp contains no IrArg/emit call",
       "consequence": "the command reports success and the document gains no statement"
-    },
-    {
-      "kind": "app_seed_names_a_non_op",
-      "node": "sketch.base",
-      "op": "SKETCH",
-      "evidence": "forge-desktop/src/ForgeFrame.cpp seeds sketch.base with op 'SKETCH', which forge::ft::opFromName does not accept",
-      "consequence": "validateIr answers unknown_op, the seed binds no value, and every command consuming a PROFILE is unreachable in the shipped app"
     },
     {
       "kind": "required_parameters_without_hasDefault",
