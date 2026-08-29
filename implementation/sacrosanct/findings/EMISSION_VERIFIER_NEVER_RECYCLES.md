@@ -53,3 +53,43 @@ Memory hygiene does not outrank comparability.
 Apply after both arms are emitted: give `archie_loop.Verifier` the same recycle
 and respawn `CensusVerifier` already has, and make a dead verifier ABORT rather
 than degrade every subsequent row.
+
+## Third defect, found while the tripwire was being handled: the timeout is ignored
+
+`archie_loop.Verifier.measure()` has this signature:
+
+```python
+def measure(self, ir, input_step=None, out_step=None, timeout=180):
+    ...
+    self.proc.stdin.write(json.dumps(job) + "\n")
+    self.proc.stdin.flush()
+    line = self.proc.stdout.readline()          # <- blocking, unbounded
+```
+
+**`timeout` is never read.** There is no queue, no reader thread, no alarm --
+nothing that could enforce it. `CensusVerifier` does the same job with
+`self.q.get(timeout=self.timeout)` and a reader thread, which is exactly the
+machinery missing here.
+
+So the parameter documents a guarantee the function does not provide, and every
+caller passing `timeout=` is relying on something that cannot happen.
+
+**Observed live, on the 600-row emission:** the run stopped emitting at row 415.
+The verifier child sat at 100% CPU with 8+ minutes of CPU time accumulated on a
+single request and no output. The parent was blocked in `readline()`. A row whose
+kernel computation does not return does not fail after 180 s -- it stops the run
+for ever.
+
+This compounds the missing respawn in the nastiest way. The three available
+responses to a hung verifier are all bad:
+
+  * wait, and the run may never finish;
+  * kill the child, and every remaining row is silently recorded as failed;
+  * kill the run, and four hours are gone.
+
+**The minimal fix that preserves comparability** is the timeout ALONE -- a reader
+thread and a bounded `q.get`, no recycle. A timeout changes nothing for a row that
+completes, so rows already emitted stay comparable with rows emitted after it; it
+only bounds the rows that would otherwise hang, which currently produce nothing at
+all. The recycle is the part that resets kernel registry state between rows and so
+is the part that must wait until both arms are emitted.
