@@ -63,3 +63,40 @@ the right pin, the right alignment, the right grid, and an honest n.
 4. The ordering itself is inherited from the source corpus and is not a defect to
    fix in the file -- fixing it would invalidate comparability with every number
    already taken. It is a property to KNOW.
+
+## The corollary that makes it worse: the FLOOR moves too
+
+Measured 2026-08-29 on 240 rows (box shards 0 and 1 -- round-robin, so a stratified
+sample of the 600 rather than a prefix; both finished clean, 120/120, 0 refused,
+0 vacuous, every reference measured):
+
+    gold_ops  0-20 : box floor mean 0.2332   n=  9
+    gold_ops 20-25 : box floor mean 0.2284   n= 85
+    gold_ops 25-30 : box floor mean 0.2385   n= 49
+    gold_ops 30-35 : box floor mean 0.2273   n= 77
+    gold_ops 35+   : box floor mean 0.3076   n= 20
+
+    Spearman(gold_ops, box floor composite) = +0.239
+
+**A bounding box scores BETTER on the most complex targets.** Flat at about 0.23 up
+to 35 ops, then 0.308 beyond it. Plausibly because the heavily-featured parts in this
+corpus are dense plates -- many holes in a blocky envelope, which a box approximates
+well -- while simpler parts are more often slender or organic, where the box is a
+poor fit.
+
+The consequence compounds the ordering. It is not only that a prefix of the eval is
+a hard sample; it is that **the baseline you would compare it against is different
+there too**. A model mean from one stratum against a floor from another is wrong
+twice over, and the sortedness of the file makes that mismatch the DEFAULT outcome of
+any partial run.
+
+This also corrects something stated earlier in this programme. The 12-row
+origin-invariance probe measured a box floor of 0.3086 and was described as
+"consistent with the 0.3270 floor measured on the 36-row set". Both of those numbers
+come from HARD strata -- the probe rows were the first twelve of a file sorted
+hardest-first. The stratified estimate over 240 rows is **0.2369**. The agreement was
+real but it was agreement between two samples of the same biased region, not
+confirmation of a floor for the set as a whole.
+
+The defence is unchanged and now doubly justified: compare PAIRED, row by row, which
+is what `compare_arms_paired.py` does.
