@@ -86,3 +86,46 @@ silently change results for shapes that work today.
 **Deferred** because a kernel rebuild is heavy and a 600-row emission plus a chained
 v1 arm are on the critical path; the memory incident earlier today was caused by
 exactly this kind of concurrent load.
+
+## Parametric characterisation (2026-08-29, no rebuild needed)
+
+Swept against the pinned binary to find what actually triggers it, so a fix can be
+targeted rather than guessed.
+
+**The count threshold is sharp and monotonic:**
+
+    n=5 pairs   rc=0
+    n=6 pairs   rc=-11  SEGV
+    n=7 pairs   rc=-11  SEGV
+    n=8 pairs   rc=-11  SEGV
+
+**But the count alone is not sufficient -- the holes must be ENLARGED AND STILL
+SEPARATE.** At n=6, varying only the HOLE radius against a 4.495 cut radius:
+
+    HOLE r = 4.495  (same as the cut, no enlargement)   rc=0
+    HOLE r = 3.0    (smaller than the cut)              rc=0
+    HOLE r = 8.99   (about 2x the cut)                  rc=-11  SEGV
+    HOLE r = 20.0   (larger than the 20.61 pitch)       rc=0
+
+The last row is the informative one. At r=20 the hole diameter exceeds the pitch, so
+adjacent holes MERGE and the shape no longer has six separate enlarged bores. It
+escapes. So the trigger is not "a big hole" and not "an enlargement" -- it is **six or
+more distinct enlarged concentric bores coexisting in one solid**.
+
+**Operation order is irrelevant.** Interleaving cut+hole per position, instead of all
+cuts followed by all holes, crashes identically at n=6 and passes at n=5. So this is
+a property of the FINAL face set handed to `ShapeUpgrade_UnifySameDomain`, not of the
+construction sequence.
+
+## What that implies for the fix
+
+The failure is in how `IntUnifyFaces` handles a collection of same-domain cylindrical
+faces once there are six or more groups. The null `Geom2d_Curve` is reached with an
+input that is geometrically unremarkable -- six identical bores in a plate -- which
+argues for an indexing or capacity error over a degenerate-geometry error.
+
+That sharpens the guard: a pcurve pre-check is still the right shape of fix (skip
+unification rather than crash), but the validation must include the n=1..5 cases
+AND the r=4.495 / r=3.0 / r=20.0 variants, all of which currently unify successfully.
+A fix that stops the crash by refusing to unify any multi-bore solid would silently
+change results for every one of those.
