@@ -41,6 +41,9 @@
 //   1  the document is never synced to the scene   -> the viewport ignores commands
 //   2  the .fpart writer drops the node bindings   -> a reopened document loses them
 //   3  save/load skips the file entirely           -> the round trip is not a round trip
+//   4  the body node is a hard-coded literal       -> a reopened or edited body is
+//                                                     unpickable and every solid
+//                                                     command on it refuses
 
 #include <algorithm>
 #include <cmath>
@@ -288,7 +291,9 @@ int main(int argc, char** argv) {
   // ForgeShell::run a menu item, a shortcut, the palette and an Archie tool call
   // dispatch through — not a private path the test invented.
   forge::ui::EntityRef body;
-  body.bodyId = forge::desktop::defaultPartBodyNode();
+  body.bodyId = frame.activeBodyNode();
+  checkStrEq(body.bodyId, forge::desktop::defaultPartBodyNode(),
+             "the starting document names its body");
   body.kind = forge::ui::EntityKind::Edge;
   body.persistentName = "edge@all";
   body.generation = 1;
@@ -456,10 +461,11 @@ int main(int argc, char** argv) {
 
   // The selection bindings survive the round trip — without them the reopened
   // document looks right and every solid command on it is silently unavailable.
+  std::string why0;
   {
     const int liveBinding = frame.document().valueFor(forge::desktop::defaultPartBodyNode());
     forge::desktop::PartFileDoc onDisk;
-    std::string why;
+    std::string& why = why0;
     if (forge::desktop::readPartFile(diskText, onDisk, why)) {
       if (g_mutation == 2) {
         for (forge::desktop::PartFileFeature& f : onDisk.features) f.node.clear();
@@ -478,7 +484,12 @@ int main(int argc, char** argv) {
   // captured is the SAME object the open wrote into, not a replacement it lost
   // track of.
   {
-    shell.selection().replaceWith({body});
+    forge::ui::EntityRef reopened;
+    reopened.bodyId = frame.activeBodyNode();
+    reopened.kind = forge::ui::EntityKind::Edge;
+    reopened.persistentName = "edge@all";
+    reopened.generation = 1;
+    shell.selection().replaceWith({reopened});
     forge::ui::CommandParams p2;
     p2.setNumber("distance", 2.0);
     const std::size_t before = frame.document().records().size();
@@ -487,6 +498,83 @@ int main(int argc, char** argv) {
           forge::ui::toString(r2.status) + std::string(" ") + r2.detail);
     checkEq(frame.document().records().size(), before + 1,
             "it appended to the document the file restored");
+    // After a command the body answers to the node THAT command produced. A
+    // viewport pick reads activeBodyNode(); a hard-coded literal here would make
+    // every later solid command silently unavailable.
+    check(!frame.activeBodyNode().empty(), "the new body is still nameable",
+          frame.activeBodyNode());
+    checkEq(frame.document().valueFor(frame.activeBodyNode()),
+            static_cast<int>(frame.document().records().size()),
+            "the active node names the document's LAST statement");
+  }
+
+  // ── 6b. a .fpart the app did not write is still usable ──────────────────
+  //
+  // Two cases the format allows and a hard-coded body name breaks:
+  //   * the document names its body something else -- nothing in .fpart says the
+  //     node must be "body.bracket", and after any command the node is whatever
+  //     the selection carried;
+  //   * the document names it nothing at all -- NODE is optional, and a body no
+  //     name resolves to cannot be picked and refuses every solid command.
+  {
+    const std::string foreign = tempPath("foreign.fpart");
+    forge::desktop::PartFileDoc renamed;
+    if (forge::desktop::readPartFile(diskText, renamed, why0)) {
+      for (forge::desktop::PartFileFeature& f : renamed.features) {
+        if (!f.node.empty()) f.node = "imported.body";
+      }
+      std::string saveWhy;
+      check(forge::desktop::savePartFile(foreign, renamed, saveWhy),
+            "wrote a .fpart naming its body something else", saveWhy);
+
+      forge::ui::CommandParams foreignOpen;
+      foreignOpen.setText("path", foreign);
+      const forge::ui::DispatchResult openedForeign = shell.run("file.open", foreignOpen);
+      check(openedForeign.ok() && shell.lastDocumentError().empty(),
+            "the foreign-named document opens", shell.lastDocumentError());
+      frame.syncSceneToDocument();
+      checkStrEq(frame.activeBodyNode(), "imported.body",
+                 "the app reads the body's name from the DOCUMENT");
+
+      forge::ui::EntityRef pick;
+      // MUTATION 4 is the bug this replaced: clickFace used to write the literal
+      // "body.bracket" into every EntityRef it made.
+      pick.bodyId = g_mutation == 4 ? std::string("body.bracket") : frame.activeBodyNode();
+      pick.kind = forge::ui::EntityKind::Edge;
+      pick.persistentName = "edge@all";
+      pick.generation = 1;
+      shell.selection().replaceWith({pick});
+      forge::ui::CommandParams p3;
+      p3.setNumber("radius", 1.0);
+      const std::size_t before = frame.document().records().size();
+      const forge::ui::DispatchResult r3 = shell.run("part.fillet", p3);
+      check(r3.ok(), "a viewport pick on it resolves to an IR value",
+            forge::ui::toString(r3.status) + std::string(" ") + r3.detail);
+      checkEq(frame.document().records().size(), before + 1, "and the command appended to it");
+    }
+    std::remove(foreign.c_str());
+
+    const std::string bare = tempPath("nonode.fpart");
+    forge::desktop::PartFileDoc noNode;
+    if (forge::desktop::readPartFile(diskText, noNode, why0)) {
+      for (forge::desktop::PartFileFeature& f : noNode.features) f.node.clear();
+      std::string saveWhy;
+      check(forge::desktop::savePartFile(bare, noNode, saveWhy), "wrote a NODE-less .fpart",
+            saveWhy);
+
+      forge::ui::CommandParams bareOpen;
+      bareOpen.setText("path", bare);
+      const forge::ui::DispatchResult openedBare = shell.run("file.open", bareOpen);
+      check(openedBare.ok() && shell.lastDocumentError().empty(),
+            "a NODE-less document opens", shell.lastDocumentError());
+      frame.syncSceneToDocument();
+      check(!frame.activeBodyNode().empty(), "the open path gave its body a name",
+            frame.activeBodyNode());
+      checkEq(frame.document().valueFor(frame.activeBodyNode()),
+              static_cast<int>(frame.document().records().size()),
+              "and that name resolves to the LAST statement");
+    }
+    std::remove(bare.c_str());
   }
 
   // ── 7. A REFUSED REBUILD DOES NOT TAKE THE APP DOWN ──────────────────────

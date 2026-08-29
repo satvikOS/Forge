@@ -177,6 +177,7 @@ Its three mutations:
 | 1 | the document is never synced to the scene → the viewport ignores commands (6 checks red) |
 | 2 | the `.fpart` writer drops the node bindings → a reopened document loses them |
 | 3 | save/load skips the file → the round trip is not a round trip (9 checks red) |
+| 4 | the body node is a hard-coded literal → a document that names its body anything else is unpickable and every solid command on it refuses |
 
 `forge_desktop_frame_gate` builds **real frames of the real shell** — no window, no swapchain, no
 MoltenVK — and asserts values against references: the bounding box is 80x50x20 to within the

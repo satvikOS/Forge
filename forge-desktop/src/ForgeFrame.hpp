@@ -82,6 +82,15 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   const std::string& documentName() const noexcept { return documentName_; }
   // How many times the document has actually driven a kernel rebuild.
   std::size_t rebuilds() const noexcept { return rebuilds_; }
+
+  // The selection node the document's CURRENT body answers to -- what a viewport
+  // pick must put in EntityRef::bodyId for a Part command to resolve it back to
+  // an IR value. It is READ from the document rather than spelled as a literal:
+  // a command rebinds the node to the statement it produced, and a document
+  // opened from a file may name its body anything at all, so a hard-coded
+  // "body.bracket" makes every solid command silently unavailable the moment
+  // either happens.
+  std::string activeBodyNode() const;
   // Why the last rebuild failed; empty when the viewport matches the document.
   const std::string& rebuildError() const noexcept { return rebuildError_; }
 
@@ -214,6 +223,10 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // says which statement) if the document refuses one, rather than starting on a
   // half-seeded part.
   bool seedDefaultPart(std::string& error);
+  // Guarantees the document's last statement is nameable by the selection. A
+  // .fpart written by another tool (or by hand) need carry no NODE line at all,
+  // and a body nothing names cannot be picked or modified.
+  void ensureBodyBinding();
   // The face ids the typed selection currently names. One decoder, used by the
   // viewport highlight AND by the Measure panel, so the two cannot disagree
   // about which faces are picked.

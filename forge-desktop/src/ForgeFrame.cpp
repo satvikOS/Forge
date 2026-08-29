@@ -354,6 +354,7 @@ bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
 
   partDoc_ = candidate;  // the command handlers captured this OBJECT by reference
   partUndo_.clear();
+  ensureBodyBinding();
   documentPath_ = path;
   // The stored NAME is authoritative when it says something; the path names the
   // document otherwise, so a file written by another tool still opens as itself.
@@ -396,6 +397,31 @@ bool ForgeFrame::documentRedo() {
   if (!partUndo_.redo(partDoc_)) return false;
   syncSceneToDocument();
   return true;
+}
+
+std::string ForgeFrame::activeBodyNode() const {
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  if (records.empty()) return defaultPartBodyNode();
+  const int lastId = records.back().irId;
+  for (const auto& kv : partDoc_.snapshot().bindings) {
+    if (kv.second == lastId) return kv.first;
+  }
+  return defaultPartBodyNode();
+}
+
+void ForgeFrame::ensureBodyBinding() {
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  if (records.empty()) return;
+  const int lastId = records.back().irId;
+  forge::ui::PartDocument::Snapshot snap = partDoc_.snapshot();
+  for (const auto& kv : snap.bindings) {
+    if (kv.second == lastId) return;  // something already names it
+  }
+  // restore() with an unchanged record count rewrites the binding table and
+  // nothing else -- it is the document's own published way to set one, and it
+  // is why this does not need a new mutation entry point on PartDocument.
+  snap.bindings[defaultPartBodyNode()] = lastId;
+  partDoc_.restore(snap);
 }
 
 std::size_t ForgeFrame::documentFeatureCount() const { return partDoc_.records().size(); }
@@ -512,7 +538,7 @@ void ForgeFrame::setPreselectedFace(std::uint32_t faceId) {
     return;
   }
   forge::ui::EntityRef ref;
-  ref.bodyId = "body.bracket";
+  ref.bodyId = activeBodyNode();
   ref.kind = forge::ui::EntityKind::Face;
   ref.persistentName = "face@" + std::to_string(faceId);
   shell_.selection().setPreselection(ref);
