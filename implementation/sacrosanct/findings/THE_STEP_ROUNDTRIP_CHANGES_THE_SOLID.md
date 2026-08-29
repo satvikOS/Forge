@@ -46,12 +46,29 @@ a rebuild mid-run would be exactly the "second arm compared against different
 references" hazard that `--reuse-tasks` was added to prevent. It goes in after the
 arms complete.
 
-## How widespread
+## How widespread -- MEASURED, and it cuts this finding down
 
-A stratified audit (every 20th row of the sorted holdout, so all complexity bands)
-is running to establish whether `ho625` is unusual or whether round-trip topology
-drift is systemic. That number decides whether this is one bad row or a correction
-that applies to the topology term generally.
+A stratified audit over 30 references (every 20th row of the sorted holdout, so all
+complexity bands):
+
+    valid True -> False : 0 of 30   (0.0%)
+    genus CHANGED       : 1 of 30   (3.3%)   ho114: genus 23 -> 21
+
+**So the heading above overstates it, and this section is the correction.** Validity
+loss did not reproduce at all in 30 draws -- `ho625` is unusual, not typical. Genus
+drift is real but rare: one row in thirty, Wilson 95% CI roughly [0.6%, 16.7%].
+
+That bounds the damage. Topology is 0.2 of the composite, so a drift affecting a few
+percent of rows moves the aggregate by well under a point, and it moves BOTH arms
+identically because every arm is scored against the same reference file. It is a
+correctness wart in the reference pipeline, not a threat to the comparison.
+
+The claim that survives is narrower and still worth having: **a reference STEP is not
+guaranteed to be the solid its gold tree defines**, so any per-row topology argument
+must be made against the read-back shape, and the "genus 13 vs 10" discrepancy on
+`ho625` is explained -- two shapes, not two measurements.
+
+A larger sample (every 5th row, 120 references) is running to tighten the interval.
 
 ## Incidental, and worth remembering
 
