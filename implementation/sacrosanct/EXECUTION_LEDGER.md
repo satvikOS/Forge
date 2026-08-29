@@ -374,3 +374,30 @@ every one of these would have surfaced only after the 7-hour run finished.
   been measurable on the text holdouts; and this corpus's VERIFY line carries only
   `bbox.z=`, not the 6-tuple the regex needs, so the dimensions now come explicitly from
   the holdout's own kernel-measured `gt.bbox`.
+
+### Compile rate does not fall with target complexity (2026-08-28)
+
+Checked because the resumed emission's compile rate looked low (15.3% against 26%
+over the first 415), and the resume is the first run under the patched verifier --
+so the question was whether the patch had perturbed anything.
+
+It had not. The two runs overlap in exactly one difficulty band, and there the
+difference is inside the noise:
+
+    gold_ops 20-25 : original 23.5% (n= 34)   resume 15.0% (n=120)
+                     gap 8.5 points against a 95% interval of +-15.7
+
+The apparent drop is a COMPOSITION effect: the resume is entirely inside the band
+that was already the original's weakest, because the file is sorted hardest-first
+and the resume is its tail.
+
+The incidental result is the more useful one. Across the original 415, compile rate
+by band is:
+
+    ops 20-25  23.5%      ops 30-35  24.1%
+    ops 25-30  28.5%      ops 35+    30.2%
+
+**Flat, if anything rising.** Target complexity does not predict whether the model's
+tree compiles. That is a sixth structural predictor measured flat or backwards, and
+it points the same way as the kernel wedges: the two rows that defeated the verifier
+were 53 and 11 ops, both small.
