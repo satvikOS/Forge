@@ -133,3 +133,25 @@ both "the model was wrong" and "there was no instrument", and only the process
 table could tell them apart -- for a run that had already finished, nothing
 could. Rows now carry `_timeout` and `_verifier_restarted` for exactly this
 reason.
+
+## The fix proved itself on the exact row that caused the incident
+
+The resumed run reached the same task, `ho1187`, and this time:
+
+    [verifier] timeout after 180s; respawn #1
+    [ho1187] round 1: 53 ops compiled=False
+             gate: the tree does not compile: verifier timeout after 180s
+
+So `ho1187` is **reproducibly pathological**, not a random flake -- it wedges the
+kernel, and it was doing so when the child died the first time. Under the old
+code that row ended the useful part of a four-hour run. Under the fix it costs
+180 seconds and the run continues; 15 rows were emitted past it.
+
+The complaint text names the timeout, which is the part that matters for audit:
+the row is still recorded `compiled=False`, but a reader can now tell WHY. The
+scorer keeps the distinction independently -- it re-builds each candidate itself
+and classifies its own timeouts as refusals rather than zeros -- so a row that
+defeats the kernel is never silently counted as a model failure at either stage.
+
+Rate after the fix: about 44 s/row excluding the one 180 s stall, against 35 s/row
+before, and the compile rate is unchanged (4 of 15, versus 26% over the first 415).
