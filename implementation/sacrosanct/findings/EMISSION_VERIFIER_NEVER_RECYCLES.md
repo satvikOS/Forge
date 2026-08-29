@@ -155,3 +155,37 @@ defeats the kernel is never silently counted as a model failure at either stage.
 
 Rate after the fix: about 44 s/row excluding the one 180 s stall, against 35 s/row
 before, and the compile rate is unchanged (4 of 15, versus 26% over the first 415).
+
+## The leak, observed again on the v1 arm (2026-08-29 03:22)
+
+An OOM tripwire fired at swap 7.4 G. The cause is the same unfixed leak, now on the
+second arm:
+
+    pid 92840  forge_verify (v1 emission)   4.07 GB resident, 4h26m, never recycled
+    the three CensusVerifier scorer children  0.04-0.06 GB each
+
+The contrast is the whole finding in one line: the wrapper WITH the recycle stays
+under 60 MB across the same workload; the wrapper WITHOUT it is at 4 GB and climbing.
+
+**What was NOT done, and why.** The obvious intervention -- kill the child and let
+the new respawn path give it a fresh one -- would free 4 GB instantly and cost at
+most one row. It was rejected: that row would be recorded as a failure caused by ME,
+not by the model, and it would sit in v1's data as an unearned zero. Injecting a
+failure into one arm of a paired comparison to reclaim memory is not a trade worth
+making while the machine is functioning.
+
+**Why it is functioning.** Swap read 9.8 -> 15.1 -> 19.6 GB across two minutes, which
+looks alarming, but free% held at 36% (the stable band all night is 35-44%), the
+verifier was flat at 4.05 -> 4.00 GB, and Pageouts moved +35 in 30 s. Almost no actual
+paging. The swap figure is macOS growing its swap file, not the machine thrashing --
+the same distinction that made the earlier 36.5 G reading survivable. Disk fell
+156 -> 139 GiB, which is that swap file, a second-order effect worth tracking.
+
+**The material difference from five hours ago:** the timeout+respawn fix is in. When
+the v5cap verifier died at ~4h it silently poisoned every later row. If this one
+dies, the run loses one row and continues. The leak is still unfixed, but it is no
+longer the same class of risk.
+
+The recycle remains deferred until both arms are emitted, for the reason given
+above: it resets kernel registry state between rows, and the arms must share an
+instrument.
