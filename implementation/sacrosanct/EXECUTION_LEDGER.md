@@ -455,3 +455,42 @@ being trusted:
 
 Stating it up front, as the plan required: the paired comparison will be over
 roughly 598 rows, and the ~2 lost rows are lost identically for box, v5cap and v1.
+
+### Load shed on measured criteria, and the two counting traps it exposed (2026-08-29 04:25)
+
+An OOM tripwire at 03:22 was NOT acted on: free% held flat at 36% and pageouts moved
++35 in 30 s, so the swap figure alone was macOS growing its file. A second tripwire at
+04:20 WAS acted on, because both pre-set criteria were met and sustained:
+
+    free%     15-16% across three samples   (below the ~30 threshold)
+    pageouts  ~245/min                      (up from 55-70/min: accelerating)
+
+Cheapest-first shedding: stop `score_queue.sh` (a scheduler only -- its running
+children reparent to init and CONTINUE, so no work in flight is lost), then kill the
+single scorer at 3/120 rows rather than either of the two near completion. Total cost
+two rows. `v5cap_SHARD1_RC=143` recorded the SIGTERM honestly in the progress log.
+
+Recovery: swap 37.5 G -> 4.6 G, free% -> 35%, disk 143 -> 146 GiB.
+
+**What actually caused it, which changes the operating rule.** The emission's verifier
+was tiny at the time (0.02 GB, freshly respawned). The pressure came from a SCORER
+child reaching 2.2 GB on one heavy row. Three scorers had run for hours without
+trouble, so the level of concurrency was not the problem -- a single expensive row
+was. The rule is therefore not "never run three" but "three is fine; watch free%".
+
+**Two counting traps, both already in the notes, both hit again:**
+
+1. `pgrep -f 'composite_score.py --tasks'` reported THREE scorers when two were
+   running. The third was the diagnostic shell executing that very pgrep -- its own
+   command line contains the pattern. The replacement queue now counts
+   `MacOS/Python -u scripts/composite_score.py`, which no shell wrapper matches.
+
+2. The reason `(N)` -- zsh's null-glob qualifier -- did not work earlier is now
+   known: this session's shell snapshot sets `NO_BARE_GLOB_QUAL`, which disables bare
+   glob qualifiers outright. So neither the glob nor its documented escape hatch is
+   available here; iterating explicit names with `[ -f "$f" ] || continue` is the
+   only reliable form.
+
+The queue was relaunched as `score_queue2.sh` with the REMAINING work only. The
+original list still named box shards 3 and 4, which are done or running; relaunching
+it unedited would have redone about four hours of scoring.
