@@ -25,8 +25,16 @@
 # pair either: it comes out at 9 faces whether unification runs or not. On none of these
 # small shapes does ShapeUpgrade_UnifySameDomain measurably reduce anything, so skipping
 # it costs nothing HERE and no assertion over them can detect an over-wide guard.
-# The narrowness is justified in the PR by a 150-row run over real emissions, not by this
-# file. If you widen the guard, that corpus run is what has to be repeated.
+#
+# THE MIXED-REPRESENTATION TEST IS NOT COSMETIC, and this file cannot show it. Measured
+# over real emissions with DYLD_LIBRARY_PATH selecting three separately built dylibs
+# (no-guard / this guard / over-wide guard), with ho1139 as the positive control that
+# proves the arms really differ:
+#     this guard vs no-guard :   0 of 150 rows differ   (and it rescues ho1139 from SIGSEGV)
+#     this guard vs over-wide:  39 of 150 rows differ   (26% of parts stop unifying)
+# So widening the guard silently disables same-domain unification on a quarter of real
+# parts. If you change the guard's conditions, that corpus run is what has to be repeated
+# -- this gate will not notice.
 #
 # Exit codes
 #   0  GREEN -- every crasher recovered with the expected solid, every untouched case unchanged.
