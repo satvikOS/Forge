@@ -157,10 +157,19 @@ def parse_kernel_opcodes(hpp):
     gated = 0
     section = None
     section_kind = None
+    trailing = []          # comment lines seen since the last enumerator
+
+    def flush():
+        # Comment lines that FOLLOW an enumerator are its continuation notes.
+        if ops:
+            ops[-1]["notes"].extend(trailing)
+        del trailing[:]
+
     for line in body.split("\n"):
         s = line.strip()
         sec = SECTION_RE.match(s[2:].strip()) if s.startswith("//") else None
         if sec:
+            flush()
             section = sec.group(1)
             k = re.search(r"produce an? ([A-Z]+)", section)
             section_kind = k.group(1) if k else None
@@ -175,20 +184,35 @@ def parse_kernel_opcodes(hpp):
             raise DeriveError("unhandled preprocessor line in OpCode: %s" % s)
         m = re.match(r"^([A-Za-z]\w*)\s*,\s*//\s*(.*)$", s)
         if m:
+            flush()
             ops.append({"enum": m.group(1), "forms": [m.group(2).rstrip()],
                         "notes": [], "archelix_gated": gated > 0,
                         "section": section, "produces_kind": section_kind})
             continue
-        if re.match(r"^[A-Za-z]\w*\s*,\s*$", s):
-            raise DeriveError("OpCode enumerator without a signature comment: %s" % s)
+        m = re.match(r"^([A-Za-z]\w*)\s*,\s*$", s)
+        if m:
+            # Second documented style: the signature sits in the comment BLOCK
+            # ABOVE the enumerator rather than on its line (the ARC/HELIX family
+            # writes it that way). Take the last call form in that block; if the
+            # pick is wrong, the enum-vs-opFromName cross-check in build() says so
+            # by name rather than letting a wrong signature through.
+            forms = [n for n in trailing if re.match(r"^[A-Z][A-Z0-9]*\s*\(", n)]
+            if not forms:
+                raise DeriveError("OpCode enumerator without a signature comment: %s" % s)
+            ops.append({"enum": m.group(1), "forms": [forms[-1]],
+                        "notes": [n for n in trailing if n not in forms],
+                        "archelix_gated": gated > 0,
+                        "section": section, "produces_kind": section_kind})
+            trailing = []
+            continue
         m = re.match(r"^//\s*(.*)$", s)
         if m:
-            if ops:
-                ops[-1]["notes"].append(m.group(1).rstrip())
+            trailing.append(m.group(1).rstrip())
             continue
         if s == "":
             continue
         raise DeriveError("unparsed line in OpCode block: %r" % s)
+    flush()
     # A continuation comment opening with `NAME(`, NAME == this op's own IR name,
     # is an ALTERNATE CALL FORM rather than prose (MIRROR, PATTERN, SWEEP).
     for op in ops:
@@ -1131,10 +1155,17 @@ def build():
         if by_name[name]["enum"] != info["enum"]:
             raise DeriveError("%s maps to OpCode::%s but its signature is on OpCode::%s"
                               % (name, info["enum"], by_name[name]["enum"]))
+    # An op behind a build option that defaults to OFF is not in a default build's
+    # op set, so forge::ui is not expected to know it. Everything else must line up.
+    archelix_on = archelix.get("default") == "ON"
+
+    def compiled_in(op):
+        return archelix_on or not op["archelix_gated"]
+
     for op in kops:
         if op["name"] not in spellings:
             raise DeriveError("OpCode::%s has a signature no spelling reaches" % op["enum"])
-        if op["name"] not in ui_table:
+        if compiled_in(op) and op["name"] not in ui_table:
             raise DeriveError("kernel op %s is absent from forge::ui::irOpTable()" % op["name"])
     for name in ui_table:
         if name not in by_name:
@@ -1167,6 +1198,9 @@ def build():
             unbounded = unbounded or any(p["variadic"] for p in params)
         op["parsed_forms"] = forms
         derived_arity = {"min_args": min(mins), "max_args": None if unbounded else max(maxs)}
+        op["derived_arity"] = derived_arity
+        if not compiled_in(op):
+            continue
         ui = ui_table[op["name"]]
         if derived_arity["min_args"] != ui["min_args"] or derived_arity["max_args"] != ui["max_args"]:
             raise DeriveError("arity drift for %s: the kernel header implies %s..%s, "
@@ -1181,7 +1215,12 @@ def build():
     uncertain = []
     ops_out = []
     for name in allowed:
-        op = by_name[name]
+        op = by_name.get(name)
+        if op is None:
+            raise DeriveError("a command emits %r, which the kernel has no signature for" % name)
+        if not compiled_in(op):
+            raise DeriveError("a command emits %s, which is gated behind FORGE_FT_ARCHELIX "
+                              "(default %s) and is not in a default build" % (name, archelix))
         cmds = [c for c in emitting if c["feature_ir_op"] == name]
         produces = sorted({c["produces_value_kind"].upper() for c in cmds
                            if c["produces_value_kind"]})
@@ -1214,11 +1253,16 @@ def build():
     for op in kops:
         if op["name"] in allowed:
             continue
+        reason = "no command in the forge::ui registry emits it, so no user can produce it"
+        if not compiled_in(op):
+            reason += ("; it is also gated behind FORGE_FT_ARCHELIX, which the kernel "
+                       "CMakeLists defaults to OFF, so it is not in a default build")
         forbidden.append({
             "op": op["name"],
             "kernel_enum": op["enum"],
+            "compiled_into_a_default_build": compiled_in(op),
             "signature": [f["form"] for f in op["parsed_forms"]],
-            "reason": "no command in the forge::ui registry emits it, so no user can produce it",
+            "reason": reason,
         })
     forbidden.sort(key=lambda f: f["op"])
 

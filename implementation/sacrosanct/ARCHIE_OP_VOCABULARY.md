@@ -172,6 +172,14 @@ can be driven.
   goes red and the fix is one command: `--write`, then re-read the diff. If the
   parser meets a construct it does not understand it **refuses to emit a file**
   rather than emitting an incomplete one.
+* The parser also carries the incoming source shape: an `OpCode` enumerator whose
+  signature sits in the comment block **above** it (the `ARC`/`HELIX` family) is
+  read as well as the same-line style, and an op gated behind a build option that
+  defaults to OFF is not expected to appear in `forge::ui`'s table. Run against
+  the shared checkout's in-flight sources it reaches the real obstacle and names
+  it: `kernel op ALIGN is absent from forge::ui::irOpTable()` -- the same drift
+  that makes `feature_ir` red there. It refuses to emit a vocabulary while the
+  two tables disagree, because there is no consistent one to publish.
 * The generator's only judgement is two tables — `UNIT_RULES` (argument name →
   unit/semantic) and `OP_ARG_OVERRIDES` (the name collisions the rules cannot
   settle, e.g. `MIRROR`'s `nx,ny,nz` are a plane normal while `PATTERN GRID`'s

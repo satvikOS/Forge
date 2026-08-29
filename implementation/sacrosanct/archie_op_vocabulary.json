@@ -2129,6 +2129,7 @@
     {
       "op": "BOX",
       "kernel_enum": "Box",
+      "compiled_into_a_default_build": true,
       "signature": [
         "BOX(dx, dy, dz [, cx=0, cy=0, cz=0])"
       ],
@@ -2137,6 +2138,7 @@
     {
       "op": "CIRCLE",
       "kernel_enum": "Circle",
+      "compiled_into_a_default_build": true,
       "signature": [
         "CIRCLE(r [, cx=0, cy=0])"
       ],
@@ -2145,6 +2147,7 @@
     {
       "op": "CONE",
       "kernel_enum": "Cone",
+      "compiled_into_a_default_build": true,
       "signature": [
         "CONE(r1, r2, h [, cx, cy, cz, axx, axy, axz])"
       ],
@@ -2153,6 +2156,7 @@
     {
       "op": "CYL",
       "kernel_enum": "Cyl",
+      "compiled_into_a_default_build": true,
       "signature": [
         "CYL(r, h [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1])"
       ],
@@ -2161,6 +2165,7 @@
     {
       "op": "DEFEATURE",
       "kernel_enum": "Defeature",
+      "compiled_into_a_default_build": true,
       "signature": [
         "DEFEATURE(%body, \"sel\")"
       ],
@@ -2169,6 +2174,7 @@
     {
       "op": "FOLD",
       "kernel_enum": "Fold",
+      "compiled_into_a_default_build": true,
       "signature": [
         "FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0])"
       ],
@@ -2177,6 +2183,7 @@
     {
       "op": "HEAL",
       "kernel_enum": "Heal",
+      "compiled_into_a_default_build": true,
       "signature": [
         "HEAL(%body)"
       ],
@@ -2185,6 +2192,7 @@
     {
       "op": "INPUT",
       "kernel_enum": "Input",
+      "compiled_into_a_default_build": true,
       "signature": [
         "INPUT()"
       ],
@@ -2193,6 +2201,7 @@
     {
       "op": "POLY",
       "kernel_enum": "Poly",
+      "compiled_into_a_default_build": true,
       "signature": [
         "POLY([x y; x y; ...])"
       ],
@@ -2201,6 +2210,7 @@
     {
       "op": "PRISM",
       "kernel_enum": "Prism",
+      "compiled_into_a_default_build": true,
       "signature": [
         "PRISM(nSides, circumR, h [, cx, cy, cz])"
       ],
@@ -2209,6 +2219,7 @@
     {
       "op": "PUSHFACE",
       "kernel_enum": "PushFace",
+      "compiled_into_a_default_build": true,
       "signature": [
         "PUSHFACE(%body, \"sel\", dist)"
       ],
@@ -2217,6 +2228,7 @@
     {
       "op": "RECT",
       "kernel_enum": "Rect",
+      "compiled_into_a_default_build": true,
       "signature": [
         "RECT(w, h [, cx=0, cy=0])"
       ],
@@ -2225,6 +2237,7 @@
     {
       "op": "REGPOLY",
       "kernel_enum": "RegPoly",
+      "compiled_into_a_default_build": true,
       "signature": [
         "REGPOLY(r, n [, cx=0, cy=0, rotDeg=0])"
       ],
@@ -2233,6 +2246,7 @@
     {
       "op": "RESIZEBORE",
       "kernel_enum": "ResizeBore",
+      "compiled_into_a_default_build": true,
       "signature": [
         "RESIZEBORE(%body, \"sel\", newRadius)"
       ],
@@ -2241,6 +2255,7 @@
     {
       "op": "RING",
       "kernel_enum": "Ring",
+      "compiled_into_a_default_build": true,
       "signature": [
         "RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48])"
       ],
@@ -2249,6 +2264,7 @@
     {
       "op": "ROTATE",
       "kernel_enum": "Rotate",
+      "compiled_into_a_default_build": true,
       "signature": [
         "ROTATE(%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0])"
       ],
@@ -2257,6 +2273,7 @@
     {
       "op": "RRECT",
       "kernel_enum": "RRect",
+      "compiled_into_a_default_build": true,
       "signature": [
         "RRECT(w, h, r [, cx=0, cy=0])"
       ],
@@ -2265,6 +2282,7 @@
     {
       "op": "SLOT",
       "kernel_enum": "Slot",
+      "compiled_into_a_default_build": true,
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
       ],
@@ -2273,6 +2291,7 @@
     {
       "op": "SPHERE",
       "kernel_enum": "Sphere",
+      "compiled_into_a_default_build": true,
       "signature": [
         "SPHERE(r [, cx=0, cy=0, cz=0])"
       ],
@@ -2281,6 +2300,7 @@
     {
       "op": "SWEEP",
       "kernel_enum": "Sweep",
+      "compiled_into_a_default_build": true,
       "signature": [
         "SWEEP(r, [x y z; ...])",
         "SWEEP([x y; ...], [x y z; ...])"
@@ -2290,6 +2310,7 @@
     {
       "op": "TAG",
       "kernel_enum": "Tag",
+      "compiled_into_a_default_build": true,
       "signature": [
         "TAG(%body, \"@name\", \"declaring-sel\")"
       ],
@@ -2298,6 +2319,7 @@
     {
       "op": "TORUS",
       "kernel_enum": "Torus",
+      "compiled_into_a_default_build": true,
       "signature": [
         "TORUS(major, minor [, cx, cy, cz, axx, axy, axz])"
       ],
@@ -2306,6 +2328,7 @@
     {
       "op": "TRANSLATE",
       "kernel_enum": "Translate",
+      "compiled_into_a_default_build": true,
       "signature": [
         "TRANSLATE(%a, dx, dy, dz)"
       ],
@@ -2314,6 +2337,7 @@
     {
       "op": "TUBE",
       "kernel_enum": "Tube",
+      "compiled_into_a_default_build": true,
       "signature": [
         "TUBE(rOuter, rInner, h [, cx, cy, cz])"
       ],
@@ -2322,6 +2346,7 @@
     {
       "op": "VERIFY",
       "kernel_enum": "Verify",
+      "compiled_into_a_default_build": true,
       "signature": [
         "VERIFY(%body, \"expr\", ...)"
       ],
@@ -2330,6 +2355,7 @@
     {
       "op": "WIRE",
       "kernel_enum": "Wire",
+      "compiled_into_a_default_build": true,
       "signature": [
         "WIRE([x y z; x y z; ...])"
       ],
