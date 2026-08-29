@@ -649,3 +649,23 @@ three v5cap scorers alongside the 30B EMISSION drove free% to 15-18%. Once the v
 emission completes there is no model resident, so the cap can go back to 3 for the
 remaining scoring. That is a change to make WHEN V1E600_RC lands, on the evidence of
 free% after the model unloads -- not before.
+
+### The decision rule was vindicated by not firing (2026-08-29 07:55)
+
+Third instance of the memory oscillation, and the largest child yet -- 5.3 GB:
+
+    free=36%  swap=10.2G  disk=142Gi  biggest child 5.11 GB   <- heavy row running
+    free=36%  swap=21.4G  disk=131Gi  biggest child 5.14 GB
+    free=91%  swap= 1.2G  disk=151Gi  biggest child 0.06 GB   <- row finished
+    free=92%  swap= 0.8G  disk=151Gi  biggest child 0.06 GB
+
+An OOM-TRIPWIRE and an OOM-DANGER both fired during this. **No action was taken,
+because free% held at 36% throughout and pageouts moved +175 across the whole
+episode.** The rule -- act only when free% falls below ~30 AND pageouts accelerate --
+correctly said no, and the episode resolved itself in under three minutes with swap
+and disk fully returned.
+
+This is the more useful validation of a threshold: not that it fired when it should,
+but that it stayed silent when the raw alarm was screaming. Earlier tonight the same
+rule DID fire (free% 15-16% sustained, pageouts ~245/min) and shedding load was
+right. Both directions now have evidence.
