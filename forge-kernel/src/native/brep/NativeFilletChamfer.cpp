@@ -63,8 +63,6 @@
 #include <BRepTools_WireExplorer.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAdaptor_Curve.hxx>
-#include <GeomAbs_SurfaceType.hxx>
-#include <GeomAbs_CurveType.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>

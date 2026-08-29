@@ -10,7 +10,6 @@
 #include "forge/Sewing.hpp"
 
 #include <BRepBuilderAPI_Sewing.hxx>
-#include <Precision.hxx>
 #include <TopoDS_Shape.hxx>
 
 #include <stdexcept>

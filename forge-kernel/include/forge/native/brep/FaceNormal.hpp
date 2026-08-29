@@ -30,7 +30,6 @@
 #define FORGE_NATIVE_BREP_FACENORMAL_HPP
 
 #include <TopoDS_Face.hxx>
-#include <TopAbs_Orientation.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_Surface.hxx>
 #include <BRepAdaptor_Surface.hxx>

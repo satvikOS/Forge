@@ -74,13 +74,11 @@
 #include <BRepLProp_SLProps.hxx>
 #include <BRepOffsetAPI_MakePipeShell.hxx>
 #include <BRep_Tool.hxx>
-#include <Geom_Curve.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomLProp_SLProps.hxx>
 #include "forge/native/geom/NativeProjection.hpp"  // R1 native point→surface (drops TKGeomBase Extrema)
 #include <Precision.hxx>
-#include <TopAbs_ShapeEnum.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>

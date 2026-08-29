@@ -28,13 +28,11 @@
 
 #include "forge/Nurbs.hpp"
 
-#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Section.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
-#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom2d_Curve.hxx>
 #include <Geom2d_Line.hxx>
@@ -42,7 +40,6 @@
 #include <gp_Vec2d.hxx>
 #include <BRepLib.hxx>
 #include <Geom_BSplineSurface.hxx>
-#include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include "forge/native/geom/NativeProjection.hpp"  // R1 native point→surface (drops TKGeomBase Extrema)
@@ -51,13 +48,10 @@
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array2OfPnt.hxx>
-#include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
-#include <TopoDS_Shell.hxx>
 #include <TopoDS_Wire.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Pnt2d.hxx>
