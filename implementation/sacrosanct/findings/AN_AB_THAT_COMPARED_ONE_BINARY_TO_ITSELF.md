@@ -55,6 +55,26 @@ to work before it is trusted:
 
 ## What the corrected measurement says
 
+Three variants built as three separate dylibs, selected with `DYLD_LIBRARY_PATH`:
+
+    comparison                    20 refused rows      150 corpus rows
+    this guard vs no guard        1 (ho1139 rescued)   0
+    this guard vs over-wide       4                    39   (26%)
+
+**The corrected run agrees with the broken one on the headline number** -- 0 of 150
+for the no-guard comparison. That is exactly why the broken harness was believable,
+and it is the whole point: the number was right by accident. What makes the
+corrected result mean anything is not the zero, it is the over-wide arm finding 39
+differences and the positive control finding a rescue in the same harness.
+
+The corrected run also OVERTURNED the conclusion drawn from the broken one. On the
+invalid evidence the narrow and wide guards looked indistinguishable, so the
+narrowness was described as justified "on principle, not by corpus evidence".
+Measured properly, dropping the mixed-representation test changes 39 of 150 real
+parts -- a quarter of them silently stop unifying. The narrowness is earned.
+
+## The single-row evidence
+
 `ho1139` -- the real 55-op row that hit this in production -- with the guard as the
 ONLY difference between two builds of the same source:
 

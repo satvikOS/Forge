@@ -84,6 +84,21 @@ cases, asserted on a vector of observables (validity, volume, face AND edge coun
 shells) because volume alone has already been shown insufficient in this programme.
 Mutation-proved: removing the guard gives exactly 3 reds.
 
+## Blast radius, measured
+
+Three dylibs (no guard / this guard / an over-wide guard that fires on radius
+coincidence alone), selected at run time with `DYLD_LIBRARY_PATH` -- copying the
+`forge_verify` executable does NOT select a variant, see
+`AN_AB_THAT_COMPARED_ONE_BINARY_TO_ITSELF.md`:
+
+    comparison                    20 refused rows      150 corpus rows
+    this guard vs no guard        1 (ho1139 rescued)   0
+    this guard vs over-wide       4                    39   (26%)
+
+The guard is inert on real parts except where the crash is. Widening it would stop
+same-domain unification on a quarter of them, so the analytic-vs-extrusion test is
+load-bearing rather than cosmetic.
+
 ## Effect on the run
 
 The real row that hit this, `ho1139` (55 ops), goes from `rc=139` with no output on
