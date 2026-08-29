@@ -77,13 +77,42 @@ run_config() {
     echo "[callsite] TEST BUILD/LINK FAILED"; sed -n '1,40p' "$BIN_DIR/$label.link.log"; return 1
   fi
 
-  # PROOF for the drop config: the built library must not name TKFillet at all.
+  # PROOF for the drop config, on two levels.
+  #   (a) the built library must not NAME TKFillet (otool link record);
+  #   (b) the STRICT-LINK proxy that matters on Linux: it must not IMPORT a single
+  #       symbol TKFillet exports. macOS can load a dylib with undefined symbols, so
+  #       (a) alone would not catch a phantom — scripts/occt_drop_gate.sh exists for
+  #       exactly this reason and runs the same intersection against the .node.
+  #   The control is (b) on the DEFAULT build: it must be NON-zero, or the test is
+  #   vacuous. Measured 2026-08-29: default 11 (== the TKFillet symbol count in
+  #   reports/OCCT_DROP_ORDER.md), drop 0.
+  local tkf_exports="$BIN_DIR/tkfillet.exports"
+  if [ ! -s "$tkf_exports" ]; then
+    nm -gU "$OCCT_LIB"/libTKFillet.*.dylib 2>/dev/null \
+      | awk 'NF>=3{print $3} NF==2{print $2}' | sort -u > "$tkf_exports"
+  fi
+  nm -u "$bdir/libforge_kernel_core.dylib" | sed 's/^ *//' | sort -u > "$BIN_DIR/$label.undef"
+  local imports
+  imports=$(comm -12 "$BIN_DIR/$label.undef" "$tkf_exports" | grep -c . )
+  echo "[callsite] libforge_kernel_core.dylib TKFillet symbol imports ($label): $imports"
   case "$*" in
     *FORGE_FILLET_DROP_NATIVE=ON*)
       local n
       n=$(otool -L "$bdir/libforge_kernel_core.dylib" | grep -c "TKFillet" || true)
       echo "[callsite] libforge_kernel_core.dylib TKFillet link records: $n"
       if [ "$n" -ne 0 ]; then echo "[callsite] FAIL — TKFillet still linked in the drop build"; return 1; fi
+      if [ "$imports" -ne 0 ]; then
+        echo "[callsite] FAIL — the drop build still IMPORTS TKFillet symbols (Linux strict-link would fail):"
+        comm -12 "$BIN_DIR/$label.undef" "$tkf_exports" | c++filt | sed -n '1,20p'
+        return 1
+      fi
+      ;;
+    *)
+      if [ "$imports" -eq 0 ]; then
+        echo "[callsite] FAIL — control broken: the DEFAULT build imports no TKFillet symbol,"
+        echo "                  so the drop build's zero proves nothing."
+        return 1
+      fi
       ;;
   esac
 

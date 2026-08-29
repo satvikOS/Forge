@@ -239,7 +239,16 @@ set(OCCT_LIBS
 #   plus L- and T-prisms with reflex corners and a non-90-degree reflex chevron:
 #       forge-kernel/test/run_ab_native_fillet_concave.sh  (66/66 assertions)
 #   And the drop configuration BUILDS AND LINKS: `cmake -DFORGE_FILLET_DROP_NATIVE=ON`
-#   produced libforge_kernel_core.dylib with ZERO TKFillet link records, and
+#   produced libforge_kernel_core.dylib with ZERO TKFillet link records AND — the check
+#   that matters for the Linux strict-link CI, since macOS can load a dylib with
+#   undefined symbols — ZERO imported TKFillet SYMBOLS, against 11 in the default build
+#   (nm -u INTERSECT nm -gU libTKFillet; 11 is exactly the TKFillet symbol count in
+#   reports/OCCT_DROP_ORDER.md 1.2, and the non-zero default is the control that keeps
+#   the zero meaningful). Both numbers are re-measured on every run of
+#   forge-kernel/test/run_callsite_concave_fillet.sh, which FAILS if the control
+#   collapses to zero. NOTE the scope: this is libforge_kernel_core, NOT the shipped
+#   .node — scripts/occt_drop_gate.sh runs the same intersection against the addon and
+#   still must, and Linux CI remains the ultimate gate. And
 #   forge-kernel/test/callsite_concave_fillet_test.cpp passes 6/6 through the real
 #   forge::part::filletEdges / chamferEdges in that binary (4/6 with the pre-2026-08-29
 #   engine, which is the before/after).
