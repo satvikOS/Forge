@@ -220,16 +220,57 @@ set(OCCT_LIBS
 # COMPILES OUT the OCCT BRepFilletAPI fallback (each call site: native-or-throw under the
 # macro, OCCT baseline under #else). ON removes TKFillet from the link list; OFF keeps it so
 # the OCCT A/B baseline still links.
-#   DEFAULT OFF — the native routines cover ONLY a convex STRAIGHT edge between two
-#   AS-YET-UNFILLETED PLANAR faces (single / non-adjacent). Severing the fallback therefore
-#   (a) throws on curved / concave / S-law fillets on OCCT-backed shapes, AND (b) reds the
-#   core.mjs drop gate itself: its 'fillet ALL box edges' / 'fillet 4 VERTICAL box edges' /
-#   'chamfer ALL box edges' cases fillet MULTIPLE ADJACENT box edges, and occtfillet DEFERS
-#   the moment a shared face carries a prior fillet/chamfer arc (non-straight boundary) →
-#   the OCCT-reference side (setNativeBrep(false)) would throw → FAIL. Flip ON only after a
-#   general MULTI-EDGE / curved native fillet (corner ball-blend + arced-face retrim) lands.
+#   ★ THIS NOTE WAS STALE AND IS NOW MEASURED (2026-08-29). It used to read: "the native
+#   routines cover ONLY a convex STRAIGHT edge between two AS-YET-UNFILLETED PLANAR faces
+#   (single / non-adjacent) … occtfillet DEFERS the moment a shared face carries a prior
+#   fillet/chamfer arc … Flip ON only after a general MULTI-EDGE / curved native fillet
+#   (corner ball-blend + arced-face retrim) lands." TWO of those three blockers have since
+#   landed and the note was never corrected, which mis-scoped the work queued against it:
+#     * arced-face retrim  — landed (RingSeg carries arcs through planarFaceFromSegs);
+#     * corner ball-blend  — landed (blendBatch + sphericalCorner, exact octant);
+#     * CONCAVE (reflex) edges — landed 2026-08-29 (this is the L-bracket / pocket / rib
+#       inside corner; the cylinder axis moves to +nA and the blend ADDS material).
+#   MEASURED against live OCCT on this machine, native == OCCT to 1e-9 on volume, centre of
+#   mass, all six bbox bounds, face/edge/vertex/shell counts, Euler characteristic and
+#   BRepCheck validity, for all three cases this note named as blockers:
+#       fillet ALL 12 box edges  R=3  -> 5572.619358586   F=26 E=56  valid
+#       fillet 4 VERTICAL edges  R=3  -> 5922.743338823   F=10 E=24  valid
+#       chamfer ALL 12 box edges d=2  -> 5562.666666667   F=26 E=48  valid
+#   plus L- and T-prisms with reflex corners and a non-90-degree reflex chevron:
+#       forge-kernel/test/run_ab_native_fillet_concave.sh  (66/66 assertions)
+#   And the drop configuration BUILDS AND LINKS: `cmake -DFORGE_FILLET_DROP_NATIVE=ON`
+#   produced libforge_kernel_core.dylib with ZERO TKFillet link records AND — the check
+#   that matters for the Linux strict-link CI, since macOS can load a dylib with
+#   undefined symbols — ZERO imported TKFillet SYMBOLS, against 11 in the default build
+#   (nm -u INTERSECT nm -gU libTKFillet; 11 is exactly the TKFillet symbol count in
+#   reports/OCCT_DROP_ORDER.md 1.2, and the non-zero default is the control that keeps
+#   the zero meaningful). Both numbers are re-measured on every run of
+#   forge-kernel/test/run_callsite_concave_fillet.sh, which FAILS if the control
+#   collapses to zero. NOTE the scope: this is libforge_kernel_core, NOT the shipped
+#   .node — scripts/occt_drop_gate.sh runs the same intersection against the addon and
+#   still must, and Linux CI remains the ultimate gate. And
+#   forge-kernel/test/callsite_concave_fillet_test.cpp passes 6/6 through the real
+#   forge::part::filletEdges / chamferEdges in that binary (4/6 with the pre-2026-08-29
+#   engine, which is the before/after).
+#
+#   ★ STILL DEFAULT OFF, and here is exactly what is left — do NOT flip on the above.
+#     (a) CURVED adjacent faces. The cylinder-top-rim blend is a TORUS and is not authored;
+#         OCCT rounds it, the engine declines it. Any part with a rounded boss or a hole rim
+#         would start THROWING.
+#     (b) A vertex where a concave blend meets another blend, and any vertex with exactly
+#         TWO blended edges (the two-edge corner surface). OCCT serves both.
+#     (c) The variable-radius law fillet's remaining gaps (NativeVariableFillet).
+#     (d) No corpus A/B has been run. Three shapes are not a corpus; the flip gate is
+#         "native success rate >= the measured OCCT baseline over the corpus", the same
+#         gate families D/F/G/H are held to.
+#
+#   ★ AND IT IS WORTH ZERO CLOSURE ON ITS OWN. Measured: the drop takes the DIRECT link
+#     records 11 -> 10, but libTKOffset itself DT_NEEDs TKFillet, so TKFillet still LOADS
+#     and OCCT_CLOSURE does not move. Per reports/OCCT_DROP_ORDER.md the pair
+#     {TKFillet, TKOffset} is the unit that pays (-3 closure for 53 symbols); TKFillet alone
+#     is -0. Score it as distance travelled toward that pair, never as a drop.
 option(FORGE_FILLET_DROP_NATIVE
-       "route fillet/chamfer native & DROP TKFillet (needs general multi-edge/curved native fillet first)"
+       "route fillet/chamfer native & DROP TKFillet (still needs curved-face blends + a corpus A/B)"
        OFF)
 if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
     add_compile_definitions(FORGE_FILLET_DROP_NATIVE=1)

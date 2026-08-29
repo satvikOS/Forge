@@ -1523,14 +1523,24 @@ ShapeHandle filletEdges(ShapeHandle shape,
     const auto& src = fetch(shape);
 #ifdef FORGE_NATIVE_BREP
     // NATIVE (TKFillet-free) constant-radius fillet on an ARBITRARY OCCT shape:
-    // CONVEX STRAIGHT edges shared by two PLANAR faces are rounded by an exact
-    // rolling-ball cylinder blend (local-neighbourhood retrim + watertight sew) via
-    // forge::occtfillet::makeFillet — NO BRepFilletAPI symbol referenced. Edges are
-    // addressed by the SAME TopExp order the OCCT fallback below uses (edgeById), so
-    // the selection is identical on both backends and the A/B harness drives the same
-    // geometric set. ANY out-of-scope edge (curved / concave / >3-face vertex /
-    // non-perpendicular end face / dense faceted body) makes makeFillet return
-    // ok==false and we FALL THROUGH to the OCCT BRepFilletAPI path below unchanged.
+    // STRAIGHT edges shared by two PLANAR faces — CONVEX **or CONCAVE (reflex)** —
+    // are rounded by an exact rolling-ball cylinder blend (local-neighbourhood retrim
+    // + watertight sew) via forge::occtfillet::makeFillet — NO BRepFilletAPI symbol
+    // referenced. Edges are addressed by the SAME TopExp order the OCCT fallback below
+    // uses (edgeById), so the selection is identical on both backends and the A/B
+    // harness drives the same geometric set. ANY out-of-scope edge (curved adjacent
+    // face / >3-face vertex / non-perpendicular end face / a setback deeper than the
+    // adjacent face / a concave blend meeting another at a vertex / dense faceted
+    // body) makes makeFillet return ok==false and we FALL THROUGH to the OCCT
+    // BRepFilletAPI path below unchanged.
+    //
+    // ★ CONCAVE landed 2026-08-29. Before it, EVERY reflex edge — the inside corner
+    //   of an L-bracket, a pocket, a rib-to-floor joint — fell through to TKFillet
+    //   from here. Proven at THIS call site by test/callsite_concave_fillet_test.cpp,
+    //   which is built BOTH ways: under FORGE_FILLET_DROP_NATIVE=ON there is no
+    //   BRepFilletAPI in the binary at all, so a reflex fillet that returns a solid
+    //   can only have come from occtfillet. Engine-level A/B: test/
+    //   run_ab_native_fillet_concave.sh (66 assertions vs live OCCT).
     // GATE DEFAULT OFF (forgeNativeFeaturesEnabled()): the production build is byte-
     // for-byte the OCCT path until the FEAT gate is flipped on.
     // Under the TKFillet DROP (FORGE_FILLET_DROP_NATIVE) the native occtfillet path is the
@@ -1566,12 +1576,13 @@ ShapeHandle filletEdges(ShapeHandle shape,
                 // native deferred (ok==false) -> OCCT BRepFilletAPI baseline (if compiled).
             }
 #ifdef FORGE_FILLET_DROP_NATIVE
-            // TKFillet DROPPED — no OCCT fallback. Out-of-native-scope (curved / concave /
-            // a face already carrying a prior fillet arc / dense-faceted / unresolved id) is
-            // an HONEST feature refusal, not a silent OCCT round.
+            // TKFillet DROPPED — no OCCT fallback. Out-of-native-scope (a curved adjacent
+            // face / an over-size setback / a concave blend sharing a vertex with another /
+            // dense-faceted / unresolved id) is an HONEST feature refusal, not a silent
+            // OCCT round.
             throw std::runtime_error(
-                "forge.part.filletEdges: native (TKFillet-free) fillet covers only a convex "
-                "straight edge between two as-yet-unfilleted planar faces; this request is out "
+                "forge.part.filletEdges: native (TKFillet-free) fillet covers a straight "
+                "convex OR concave edge between two planar faces; this request is out "
                 "of native scope and TKFillet is dropped (no OCCT fallback) — refused. reason: "
                 + declineReason);
 #endif
@@ -1927,8 +1938,10 @@ ShapeHandle chamferEdges(ShapeHandle shape,
     const bool asymmetric = distance2 > Precision::Confusion();
     const auto& src = fetch(shape);
 #ifdef FORGE_NATIVE_BREP
-    // NATIVE (TKFillet-free) flat-bevel chamfer on an ARBITRARY OCCT shape: CONVEX
-    // STRAIGHT edges shared by two PLANAR faces are beveled by an exact plane bevel
+    // NATIVE (TKFillet-free) flat-bevel chamfer on an ARBITRARY OCCT shape: STRAIGHT
+    // edges shared by two PLANAR faces — CONVEX **or CONCAVE (reflex)**, the latter
+    // since 2026-08-29, where the bevel FILLS the notch instead of cutting the corner
+    // — are beveled by an exact plane bevel
     // face (local-neighbourhood retrim + watertight sew) via forge::occtfillet::
     // makeChamfer — NO BRepFilletAPI_MakeChamfer symbol referenced. Edges are
     // addressed by the SAME TopExp order the OCCT fallback below uses; for an
