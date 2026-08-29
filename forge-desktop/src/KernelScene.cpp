@@ -8,13 +8,13 @@
 #include <string>
 #include <vector>
 
-// The kernel. These four headers are the ONLY forge-kernel/OCCT includes in the
-// whole desktop application; see KernelScene.hpp for why that is deliberate.
+#include "PartFile.hpp"
+
+// The kernel. These are the ONLY forge-kernel/OCCT includes in the whole desktop
+// application; see KernelScene.hpp for why that is deliberate.
 #include "forge/Booleans.hpp"
-#include "forge/Features.hpp"
-#include "forge/Primitives.hpp"
 #include "forge/Tessellate.hpp"
-#include "forge/Transform.hpp"
+#include "forge/ft/FeatureTree.hpp"
 
 namespace forge::desktop {
 namespace {
@@ -55,70 +55,151 @@ float Bounds::radius() const {
 KernelScene::KernelScene() = default;
 
 bool KernelScene::build() {
-  vertices_.clear();
-  features_.clear();
-  faceCount_ = 0;
-  built_ = false;
-  error_.clear();
+  // The starting part IS a document: the same statements ForgeFrame seeds the
+  // PartDocument with, compiled through the same edge every later edit takes.
+  const bool ok = buildFromIr(defaultPartIr());
+  std::vector<SceneFeature> rows;
+  for (const SeedStatement& st : defaultPartStatements()) {
+    SceneFeature f;
+    f.name = st.node.empty() ? ("value_" + std::to_string(st.line.id)) : st.node;
+    f.label = st.label;
+    f.irOp = st.line.op;
+    f.detail = st.detail;
+    f.ok = ok || (report_.failedOpId != st.line.id && report_.failedLine != st.line.id);
+    rows.push_back(std::move(f));
+  }
+  setFeatureRows(std::move(rows));
+  return ok;
+}
 
-  forge::Mesh mesh;
+void KernelScene::setFeatureRows(std::vector<SceneFeature> rows) { features_ = std::move(rows); }
+
+void KernelScene::setDocumentLabel(std::string label) {
+  documentLabel_ = label.empty() ? std::string("untitled.fpart") : std::move(label);
+}
+
+// -- THE EDGE ---------------------------------------------------------------
+// forge::ui's IR program -> forge::ft -> a solid -> triangles -> the viewport.
+bool KernelScene::buildFromIr(const std::string& program) {
+  report_ = IrBuildReport{};
+
+  // ---- parse, with the KERNEL's parser ------------------------------------
+  forge::ft::FeatureTree tree;
+  try {
+    tree = forge::ft::parse(program);
+    report_.parsed = true;
+  } catch (const forge::ft::ParseError& e) {
+    report_.error = "parse failed at line " + std::to_string(e.line) + ": " + e.what();
+    report_.failedLine = e.line;
+    error_ = report_.error;
+    return false;
+  } catch (const std::exception& e) {
+    report_.error = std::string("parse failed: ") + e.what();
+    error_ = report_.error;
+    return false;
+  } catch (...) {
+    report_.error = "parse failed: a non-std exception escaped forge::ft::parse";
+    error_ = report_.error;
+    return false;
+  }
+
+  // ---- compile it into a solid --------------------------------------------
+  //
+  // forge::ft::compile is documented "Never throws for a modelling failure".
+  // MEASURED FALSE on this build: SHELL(%5, 3) on the default bracket lets an
+  // OCCT Standard_ConstructionError escape. That is NOT a std::exception, so a
+  // catch (const std::exception&) would miss it and std::terminate would take
+  // the whole application down on a menu click. Hence catch (...).
+  forge::ft::CompileResult res;
   try {
     // Each independent body gets its own boolean budget window; see
     // Booleans.hpp for why sharing one across a batch is a measured bug.
     forge::resetBooleanBudget();
-
-    // ── the feature history, built through the real kernel ────────────────
-    // A bracket: an 80x50x20 plate, a 12 mm through bore, and a 3 mm fillet on
-    // the vertical corner edges. Three real features, each a real kernel call.
-    const forge::ShapeHandle plate = forge::makeBox(80.0, 50.0, 20.0);
-    features_.push_back(SceneFeature{"plate", "Plate  80 x 50 x 20", "BOX",
-                                     "dx=80  dy=50  dz=20", false, true});
-
-    const forge::ShapeHandle tool = forge::translate(
-        forge::makeCylinder(6.0, 40.0), 40.0, 25.0, -10.0);
-    const forge::ShapeHandle bored = forge::cut(plate, tool);
-    features_.push_back(SceneFeature{"bore", "Through Bore  d12", "CUT",
-                                     "diameter=12  through  at (40, 25)", false, true});
-
-    // Fillet the four vertical corner edges. Which edge ids those are depends on
-    // the boolean's output ordering, so this asks the kernel and DEGRADES
-    // HONESTLY: a fillet the kernel refuses becomes an Error row in the tree,
-    // not a crash and not a silent omission.
-    forge::ShapeHandle body = bored;
-    bool filleted = false;
-    std::string filletDetail = "r=3 on 4 vertical corner edges";
-    try {
-      const std::vector<std::uint32_t> edges{1u, 3u, 5u, 7u};
-      body = forge::part::filletEdges(bored, edges, 3.0);
-      filleted = true;
-    } catch (const std::exception& e) {
-      filletDetail = std::string("kernel refused: ") + e.what();
-    }
-    features_.push_back(SceneFeature{"corner_fillet", "Corner Fillet  r3", "FILLET",
-                                     filletDetail, false, filleted});
-
-    mesh = forge::tessellate(body, kLinearTol, kAngularTol);
-    backend_ = filleted ? "forge-kernel (BOX -> CUT -> FILLET)"
-                        : "forge-kernel (BOX -> CUT)";
+    res = forge::ft::compile(tree);
   } catch (const std::exception& e) {
-    error_ = std::string("kernel build failed: ") + e.what();
+    report_.error = std::string("compile threw: ") + e.what();
+    error_ = report_.error;
+    return false;
+  } catch (...) {
+    report_.error = "compile threw a non-std exception (an OCCT Standard_Failure)";
+    error_ = report_.error;
     return false;
   }
 
+  report_.nDeclared = res.nDeclared;
+  report_.nParsed = res.nParsed;
+  report_.nCompiled = res.nCompiled;
+  report_.failedOpId = res.failedOpId;
+  if (!res.ok || res.handle == 0) {
+    report_.error = res.error.empty() ? std::string("the kernel produced no solid") : res.error;
+    error_ = report_.error;
+    return false;
+  }
+  report_.compiled = true;
+  report_.valid = res.valid;
+  report_.faceCount = res.faceCount;
+  report_.edgeCount = res.edgeCount;
+  report_.volume = res.volume;
+  for (int i = 0; i < 3; ++i) {
+    report_.bboxMin[i] = res.bboxMin[i];
+    report_.bboxMax[i] = res.bboxMax[i];
+  }
+
+  // ---- tessellate ---------------------------------------------------------
+  forge::Mesh mesh;
+  try {
+    mesh = forge::tessellate(res.handle, kLinearTol, kAngularTol);
+  } catch (const std::exception& e) {
+    report_.error = std::string("tessellate failed: ") + e.what();
+    error_ = report_.error;
+    return false;
+  } catch (...) {
+    report_.error = "tessellate failed: a non-std exception escaped forge::tessellate";
+    error_ = report_.error;
+    return false;
+  }
   if (mesh.indices.empty() || mesh.indices.size() % 3 != 0) {
-    error_ = "tessellate returned no triangles";
+    report_.error = "tessellate returned no triangles";
+    error_ = report_.error;
     return false;
   }
 
-  // ── de-index into the viewport's vertex stream ────────────────────────────
+  // ---- de-index into the viewport's vertex stream -------------------------
+  // Into a LOCAL buffer: a rebuild that fails must leave the last good body on
+  // screen, not half of a new one.
+  std::vector<SceneVertex> next;
+  std::uint32_t faces = 0;
+  std::string why;
+  if (!deindex(mesh, next, faces, why)) {
+    report_.error = why;
+    error_ = why;
+    return false;
+  }
+
+  vertices_ = std::move(next);
+  faceCount_ = faces;
+  computeBounds();
+  report_.tessellated = true;
+  report_.triangles = triangleCount();
+  built_ = true;
+  error_.clear();
+  ++builds_;
+  backend_ = "forge::ui -> forge::ft -> forge-kernel (" + std::to_string(res.nCompiled) +
+             " ops, " + std::to_string(res.faceCount) + " faces)";
+  return true;
+}
+
+bool KernelScene::deindex(const forge::Mesh& mesh, std::vector<SceneVertex>& out,
+                          std::uint32_t& faceCount, std::string& error) const {
   const std::size_t triCount = mesh.indices.size() / 3;
   const bool haveFaceIds = mesh.faceIds.size() == triCount;
   const bool haveNormals = mesh.normals.size() == mesh.positions.size();
-  vertices_.resize(triCount * 3);
+  out.assign(triCount * 3, SceneVertex{});
+  faceCount = 0;
 
   for (std::size_t t = 0; t < triCount; ++t) {
     const std::uint32_t faceId = haveFaceIds ? mesh.faceIds[t] : 0u;
-    faceCount_ = std::max(faceCount_, faceId);
+    faceCount = std::max(faceCount, faceId);
 
     // Geometric normal, used when the kernel supplied none, and as the fallback
     // for a degenerate vertex normal.
@@ -127,7 +208,7 @@ bool KernelScene::build() {
       const std::uint32_t vi = mesh.indices[t * 3 + static_cast<std::size_t>(c)];
       const std::size_t base = static_cast<std::size_t>(vi) * 3;
       if (base + 2 >= mesh.positions.size()) {
-        error_ = "tessellate produced an out-of-range index";
+        error = "tessellate produced an out-of-range index";
         return false;
       }
       p[c][0] = mesh.positions[base + 0];
@@ -143,36 +224,33 @@ bool KernelScene::build() {
     for (int c = 0; c < 3; ++c) {
       const std::uint32_t vi = mesh.indices[t * 3 + static_cast<std::size_t>(c)];
       const std::size_t base = static_cast<std::size_t>(vi) * 3;
-      SceneVertex& out = vertices_[t * 3 + static_cast<std::size_t>(c)];
-      out.px = p[c][0];
-      out.py = p[c][1];
-      out.pz = p[c][2];
+      SceneVertex& v = out[t * 3 + static_cast<std::size_t>(c)];
+      v.px = p[c][0];
+      v.py = p[c][1];
+      v.pz = p[c][2];
       if (haveNormals) {
-        float n[3] = {mesh.normals[base + 0], mesh.normals[base + 1],
-                      mesh.normals[base + 2]};
+        float n[3] = {mesh.normals[base + 0], mesh.normals[base + 1], mesh.normals[base + 2]};
         const float len2 = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
         if (len2 > 1e-12f) {
           normalize3(n);
-          out.nx = n[0];
-          out.ny = n[1];
-          out.nz = n[2];
+          v.nx = n[0];
+          v.ny = n[1];
+          v.nz = n[2];
         } else {
-          out.nx = gn[0];
-          out.ny = gn[1];
-          out.nz = gn[2];
+          v.nx = gn[0];
+          v.ny = gn[1];
+          v.nz = gn[2];
         }
       } else {
-        out.nx = gn[0];
-        out.ny = gn[1];
-        out.nz = gn[2];
+        v.nx = gn[0];
+        v.ny = gn[1];
+        v.nz = gn[2];
       }
-      out.faceId = faceId;
-      out.flags = 0;
+      v.faceId = faceId;
+      v.flags = 0;
     }
   }
-
-  computeBounds();
-  built_ = true;
+  error.clear();
   return true;
 }
 
@@ -281,7 +359,7 @@ forge::ui::FeatureNodeData SceneFeatureTreeSource::data(forge::ui::NodeId id) co
   forge::ui::FeatureNodeData d;
   d.id = id;
   if (id == kRootNode) {
-    d.label = "Bracket.fpart";
+    d.label = scene_.documentLabel();
     d.iconKey = "document";
     d.featureIrOp = "DOCUMENT";
     return d;

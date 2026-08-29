@@ -1,10 +1,13 @@
 #include "ForgeFrame.hpp"
 
+#include "PartFile.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -188,11 +191,7 @@ std::string canonicalKeyName(int imguiKey) {
 // ── construction ────────────────────────────────────────────────────────────
 ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
     : shell_(shell), scene_(scene), treeSource_(scene), tree_(treeSource_, 256) {
-  tree_.setExpanded(treeSource_.rootId(), true);
-  for (std::size_t i = 0; i < scene_.features().size(); ++i) {
-    tree_.setExpanded(treeSource_.childAt(treeSource_.rootId(), i), i + 1 == scene_.features().size());
-  }
-  tree_.rebuild();
+  rebuildTree();
 
   float c[3] = {0.0f, 0.0f, 0.0f};
   scene_.bounds().centre(c);
@@ -207,23 +206,203 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
   }
 }
 
+void ForgeFrame::rebuildTree() {
+  tree_.setExpanded(treeSource_.rootId(), true);
+  const std::size_t n = scene_.features().size();
+  for (std::size_t i = 0; i < n; ++i) {
+    // Only the LAST feature owns the body's faces, so it is the only one worth
+    // opening; the rest start collapsed exactly as a CAD history tree does.
+    tree_.setExpanded(treeSource_.childAt(treeSource_.rootId(), i), i + 1 == n);
+  }
+  tree_.rebuild();
+}
+
+bool ForgeFrame::seedDefaultPart(std::string& error) {
+  for (const SeedStatement& st : defaultPartStatements()) {
+    forge::ui::FeatureRecord rec;
+    rec.irId = partDoc_.nextIrId();
+    rec.commandId.clear();  // authored by the seed, not by a command
+    rec.label = st.label;
+    rec.line = st.line;
+    rec.line.id = rec.irId;
+    rec.produces = st.produces;
+    if (!partDoc_.appendFeature(rec, {}, st.node)) {
+      error = "the default part's statement %" + std::to_string(rec.irId) + " (" + st.line.op +
+              ") was refused: " + forge::ui::toString(partDoc_.lastCheck());
+      return false;
+    }
+  }
+  error.clear();
+  return true;
+}
+
 std::size_t ForgeFrame::wirePartCommands() {
   if (partWired_) return 0;
-  // Seed the two values a Part command can consume: the sketch a profile-driven
-  // command extrudes, and the solid a fillet/shell/pattern modifies. Their node
-  // ids are the EntityRef::bodyId the selection carries, which is what binds a
-  // typed UI selection to an IR value.
-  partDoc_.seed(forge::ui::IrValueKind::Profile, "sketch.base", "SKETCH",
-                {forge::ui::IrArg::keyword("XY")});
-  partDoc_.seed(forge::ui::IrValueKind::Solid, "body.bracket", "BOX",
-                {forge::ui::IrArg::num(80.0), forge::ui::IrArg::num(50.0),
-                 forge::ui::IrArg::num(20.0)});
+  // ── the document ────────────────────────────────────────────────────────
+  // Seeded with the SAME statements KernelScene::build() compiled, from the SAME
+  // table (defaultPartStatements). The old seed here was a SECOND, different
+  // part -- `%1 = SKETCH(XY)` + `%2 = BOX(80, 50, 20)` -- and `SKETCH` is not in
+  // the kernel's op table at all, so validateIr rejected it, seed() returned 0,
+  // and "sketch.base" was never bound: every profile-consuming command in the
+  // Part workspace was permanently unreachable, silently.
+  std::string why;
+  if (!seedDefaultPart(why)) note("document seed FAILED: " + why);
+  builtProgram_ = partDoc_.irProgram();
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+
   const std::size_t added =
       forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_);
   partWired_ = true;
+  // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
+  // act on this document, and the status strip's counters are read from it.
+  shell_.setDocumentHost(this);
   note("registered " + std::to_string(added) + " Part commands into the shell registry");
+  note("document seeded: " + std::to_string(partDoc_.records().size()) + " statements");
+  refreshFeatureRows();
   return added;
 }
+
+// ── the document -> geometry edge ───────────────────────────────────────────
+bool ForgeFrame::syncSceneToDocument() {
+  const std::string program = partDoc_.irProgram();
+  if (program == builtProgram_) return false;
+
+  const std::size_t before = scene_.triangleCount();
+  const bool ok = scene_.buildFromIr(program);
+  builtProgram_ = program;
+  ++rebuilds_;
+  documentDirty_ = true;
+  geometryDirty_ = true;
+  refreshFeatureRows();
+  rebuildTree();
+
+  const IrBuildReport& r = scene_.lastBuild();
+  if (ok) {
+    rebuildError_.clear();
+    note("rebuilt: " + std::to_string(before) + " -> " + std::to_string(scene_.triangleCount()) +
+         " triangles, " + std::to_string(r.faceCount) + " faces, V=" + std::to_string(r.volume) +
+         (r.valid ? "  [valid]" : "  [INVALID SOLID]"));
+  } else {
+    rebuildError_ = r.error;
+    // The previous body stays on screen -- what every history-based CAD system
+    // does with a failed rebuild -- and the failure is stated, not swallowed.
+    note("REBUILD FAILED: " + r.error + "  (showing the last good body)");
+  }
+  return true;
+}
+
+void ForgeFrame::refreshFeatureRows() {
+  const IrBuildReport& r = scene_.lastBuild();
+  std::vector<SceneFeature> rows;
+  rows.reserve(partDoc_.records().size());
+  for (const forge::ui::FeatureRecord& rec : partDoc_.records()) {
+    SceneFeature f;
+    f.name = "value_" + std::to_string(rec.irId);
+    f.label = rec.label.empty() ? rec.line.op : rec.label;
+    f.irOp = rec.line.op;
+    f.detail = rec.line.text();
+    // A row is in error when the last rebuild named it, or when a rebuild that
+    // failed before naming an op leaves every statement unaccounted for.
+    const bool named = (r.failedOpId == rec.irId) || (r.failedLine == rec.irId);
+    f.ok = r.ok() || !named;
+    rows.push_back(std::move(f));
+  }
+  scene_.setFeatureRows(std::move(rows));
+}
+
+// ── forge::ui::DocumentHost ─────────────────────────────────────────────────
+bool ForgeFrame::documentNew(std::string& error) {
+  partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
+  partUndo_.clear();
+  if (!seedDefaultPart(error)) return false;
+  documentPath_.clear();
+  documentName_ = "untitled";
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  syncSceneToDocument();
+  documentDirty_ = false;
+  note("new document");
+  return true;
+}
+
+namespace {
+
+// The document's NAME is the basename of the file it lives in, minus the
+// extension. One rule, applied on both save and open, so "Save As bracket.fpart"
+// and reopening it agree about what the document is called -- and the tree root
+// stops being a string literal.
+std::string documentNameFromPath(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  std::string leaf = slash == std::string::npos ? path : path.substr(slash + 1);
+  const std::size_t dot = leaf.find_last_of('.');
+  if (dot != std::string::npos && dot > 0) leaf = leaf.substr(0, dot);
+  return leaf.empty() ? std::string("untitled") : leaf;
+}
+
+}  // namespace
+
+bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
+  if (path.empty()) {
+    error = "Open needs a path";
+    return false;
+  }
+  PartFileDoc file;
+  if (!loadPartFile(path, file, error)) return false;
+  // Restored into a FRESH document first: a file that is well-formed but not a
+  // legal document must not half-replace the one that is open.
+  forge::ui::PartDocument candidate;
+  if (!restorePartDocument(file, candidate, error)) return false;
+
+  partDoc_ = candidate;  // the command handlers captured this OBJECT by reference
+  partUndo_.clear();
+  documentPath_ = path;
+  // The stored NAME is authoritative when it says something; the path names the
+  // document otherwise, so a file written by another tool still opens as itself.
+  documentName_ = (file.name.empty() || file.name == "untitled") ? documentNameFromPath(path)
+                                                                 : file.name;
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  builtProgram_.clear();  // force the rebuild below
+  syncSceneToDocument();
+  documentDirty_ = false;
+  note("opened " + path + "  (" + std::to_string(partDoc_.records().size()) + " statements)");
+  return true;
+}
+
+bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
+  std::string target = path.empty() ? documentPath_ : path;
+  if (target.empty()) {
+    // Ctrl+S on a never-saved document must SAVE, and must say where. ~/.forge
+    // is the directory the app already owns for its own state.
+    const char* home = std::getenv("HOME");
+    const std::string dir = (home != nullptr && home[0] != 0) ? std::string(home) + "/.forge" : ".";
+    target = dir + "/" + documentName_ + kPartFileExtension;
+  }
+  documentName_ = documentNameFromPath(target);
+  const PartFileDoc file = capturePartDocument(partDoc_, documentName_);
+  if (!savePartFile(target, file, error)) return false;
+  documentPath_ = target;
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  documentDirty_ = false;
+  note("saved " + target + "  (" + std::to_string(file.features.size()) + " statements)");
+  return true;
+}
+
+bool ForgeFrame::documentUndo() {
+  if (!partUndo_.undo(partDoc_)) return false;
+  syncSceneToDocument();
+  return true;
+}
+
+bool ForgeFrame::documentRedo() {
+  if (!partUndo_.redo(partDoc_)) return false;
+  syncSceneToDocument();
+  return true;
+}
+
+std::size_t ForgeFrame::documentFeatureCount() const { return partDoc_.records().size(); }
+std::size_t ForgeFrame::documentUndoDepth() const { return partUndo_.undoDepth(); }
+std::size_t ForgeFrame::documentRedoDepth() const { return partUndo_.redoDepth(); }
+bool ForgeFrame::documentDirty() const { return documentDirty_; }
+std::string ForgeFrame::documentPath() const { return documentPath_; }
 
 void ForgeFrame::note(const std::string& line) {
   log_.push_back(line);
@@ -260,11 +439,22 @@ void ForgeFrame::invoke(const std::string& id) {
   }
   const forge::ui::DispatchResult r = shell_.run(id, params);
   if (r.ok()) {
-    note(id + "  ->  ok");
+    // A file.* command reports refusal through the shell, not through the
+    // dispatch status: `execute` returns void, so "ok" only means it ran.
+    if (shell_.lastDocumentError().empty()) {
+      note(id + "  ->  ok");
+    } else {
+      note(id + "  ->  REFUSED: " + shell_.lastDocumentError());
+    }
   } else {
     note(id + "  ->  " + forge::ui::toString(r.status) +
          (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
   }
+  // The command may have appended to the document. Rebuilding here rather than
+  // only once per frame keeps the status line and the viewport in the same
+  // frame; syncSceneToDocument() is idempotent, so the per-frame call that
+  // follows costs one string compare.
+  syncSceneToDocument();
   if (id == "app.command_palette") togglePalette();
 }
 
@@ -293,6 +483,12 @@ std::string ForgeFrame::shortcutText(const std::string& id) const {
 
 bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
   if (key.empty()) return false;
+  // Whatever the keystroke resolves to may mutate the document; the sync runs
+  // after it, on the same idempotent method every other invoker uses.
+  struct SyncOnExit {
+    ForgeFrame* self;
+    ~SyncOnExit() { self->syncSceneToDocument(); }
+  } syncOnExit{this};
   forge::ui::KeyStroke stroke;
   stroke.key = key;
   stroke.mods = mods;
@@ -424,11 +620,18 @@ void ForgeFrame::setActiveTabAt(const std::vector<std::size_t>& path, std::size_
 
 // ── the frame ───────────────────────────────────────────────────────────────
 void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
+  // THE EDGE, on the one path nothing can bypass. Every mutation of the document
+  // -- a menu item, a shortcut, the palette, a macro, an Archie tool call, a
+  // file.open -- is visible here before the frame that shows it is drawn.
+  syncSceneToDocument();
+
   dpiScale_ = dpiScale > 0.1f ? dpiScale : 1.0f;
   panelsDrawn_ = 0;
   treeRowsDrawn_ = 0;
   viewportRequest_ = ViewportRequest{};
   viewportRequest_.wireframe = shell_.document().wireframe;
+  viewportRequest_.geometryDirty = geometryDirty_;
+  geometryDirty_ = false;
 
   const ImGuiIO& io = ImGui::GetIO();
   const float W = io.DisplaySize.x;
@@ -654,9 +857,43 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
 
     // Right side: the last thing that happened. A status bar that never says
     // what failed is decoration.
-    const float tw = ImGui::CalcTextSize(status_.c_str()).x;
-    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), width - tw - 14.0f * dpiScale_));
-    ImGui::TextColored(rgb(170, 176, 186), "%s", status_.c_str());
+    //
+    // ELIDED to the space that is actually left. Right-aligning an unbounded
+    // string does not fit it: MEASURED on a screenshot of the live window, an
+    // "opened <absolute path>" status was wider than the strip and was drawn
+    // straight through the navigation hints, so two messages occupied the same
+    // pixels and neither was readable. The TAIL is kept, because that is where
+    // both a path and a failure reason say what happened.
+    // SameLine() FIRST. After a Text() the cursor has already wrapped to the next
+    // line, so GetCursorPosX() returns the line indent (~8 px), not the end of
+    // what was just drawn -- MEASURED: the first version of this elide computed
+    // ~1660 px of "available" width on a strip with ~800 px left, decided the
+    // status fitted, and right-aligned it straight back over the navigation
+    // hints. SameLine() restores the cursor to the previous item's right edge,
+    // which is the number this needs.
+    ImGui::SameLine();
+    const float pad = 14.0f * dpiScale_;
+    const float used = ImGui::GetCursorPosX();
+    const float avail = width - used - pad;
+    std::string shown = status_;
+    if (avail > 0.0f && ImGui::CalcTextSize(shown.c_str()).x > avail) {
+      // Binary search on the kept suffix: ~9 width queries for any status this
+      // strip will ever hold, instead of one per dropped character.
+      std::size_t lo = 0, hi = shown.size();
+      while (lo < hi) {
+        const std::size_t mid = lo + (hi - lo) / 2;  // keep the last size()-mid chars
+        const std::string cand = "..." + shown.substr(mid);
+        if (ImGui::CalcTextSize(cand.c_str()).x > avail) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      shown = "..." + shown.substr(lo);
+    }
+    const float tw = ImGui::CalcTextSize(shown.c_str()).x;
+    ImGui::SameLine(std::max(used, width - tw - pad));
+    ImGui::TextColored(rgb(170, 176, 186), "%s", shown.c_str());
   }
   ImGui::End();
   ImGui::PopStyleColor();
@@ -1093,8 +1330,30 @@ void ForgeFrame::drawPropertiesPanel() {
   }
 
   ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Rebuild");
+  ImGui::Separator();
+  const IrBuildReport& r = scene_.lastBuild();
+  ImGui::Text("rebuilds   %zu", rebuilds_);
+  ImGui::Text("ops        %zu declared / %zu parsed / %zu compiled", r.nDeclared, r.nParsed,
+              r.nCompiled);
+  if (r.ok()) {
+    ImGui::TextColored(r.valid ? rgb(120, 200, 130) : rgb(235, 175, 95), "%s",
+                       r.valid ? "solid is valid" : "solid compiled but is NOT valid");
+    ImGui::Text("faces %ld   edges %ld", r.faceCount, r.edgeCount);
+    ImGui::Text("volume %.3f mm3", r.volume);
+    ImGui::Text("bbox   %.2f x %.2f x %.2f", r.bboxMax[0] - r.bboxMin[0],
+                r.bboxMax[1] - r.bboxMin[1], r.bboxMax[2] - r.bboxMin[2]);
+  } else {
+    ImGui::TextColored(rgb(235, 105, 95), "REBUILD FAILED");
+    ImGui::TextWrapped("%s", r.error.c_str());
+    ImGui::TextDisabled("the viewport is showing the last body that built");
+  }
+
+  ImGui::Spacing();
   ImGui::TextColored(rgb(242, 158, 38), "Feature IR");
   ImGui::Separator();
+  ImGui::TextDisabled("%s%s", documentPath_.empty() ? "(unsaved)" : documentPath_.c_str(),
+                      documentDirty_ ? "  *" : "");
   const std::string ir = partDoc_.irProgram();
   ImGui::TextWrapped("%s", ir.empty() ? "(no statements yet)" : ir.c_str());
 }

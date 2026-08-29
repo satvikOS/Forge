@@ -1,13 +1,21 @@
 # ============================================================================
 # forge-desktop — THE FORGE DESKTOP APPLICATION (Sacrosanct s19.2, D-001/D-006)
 #
-# Two targets:
+# Four targets:
 #   forge_desktop             the real app: SDL2 window + Vulkan-on-MoltenVK
 #                             swapchain + Dear ImGui + the forge::ui service
-#                             layer + a 3D viewport over a real kernel body.
-#   forge_desktop_frame_gate  the HEADLESS gate: builds one real ImGui frame with
-#                             no window, no swapchain and no GPU, and asserts on
-#                             the draw data and on the service wiring.
+#                             layer + a 3D viewport over a real kernel body
+#                             compiled from the live document's feature-IR.
+#   forge_desktop_frame_gate  HEADLESS: builds one real ImGui frame with no
+#                             window, no swapchain and no GPU, and asserts on the
+#                             draw data and on the service wiring.
+#   forge_desktop_document_gate
+#                             HEADLESS: the user-launchable slice. The ONE
+#                             registry -> PartDocument -> forge::ft -> the
+#                             viewport vertices -> a .fpart on disk -> back.
+#   forge_desktop_ir_pipeline_gate
+#                             HEADLESS: a UI-authored IR program parses, compiles
+#                             and measures as a real solid.
 #
 # This is a SEPARATE CMake project from forge-kernel/CMakeLists.txt on purpose.
 # The kernel's build has its own option matrix, its own OCCT-drop gates and a CI
@@ -153,6 +161,7 @@ target_link_libraries(forge_imgui PUBLIC "${VK_LOADER_LIB}")
 # KernelScene.cpp is the ONLY translation unit that sees OCCT headers.
 add_library(forge_desktop_core STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/KernelScene.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/PartFile.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Camera.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ForgeFrame.cpp")
 target_include_directories(forge_desktop_core PUBLIC
@@ -185,8 +194,31 @@ target_link_libraries(forge_desktop_frame_gate PRIVATE forge_desktop_core)
 set_target_properties(forge_desktop_frame_gate PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 
+# ---------------------------------------------------------------- the gates
+# ir_pipeline_gate.cpp EXISTED for a while and was built only by a standalone
+# script (test/run_ir_pipeline.sh) -- so the one edge that authorises deleting
+# the JavaScript was a gate nobody's build ran. It is a target now.
+add_executable(forge_desktop_ir_pipeline_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/ir_pipeline_gate.cpp")
+target_compile_options(forge_desktop_ir_pipeline_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_ir_pipeline_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_ir_pipeline_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
+# The DOCUMENT gate: the user-launchable slice, headless. It drives the real
+# registry, rebuilds the real kernel geometry from the document, and round-trips
+# the document through a real .fpart file on disk.
+add_executable(forge_desktop_document_gate
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/document_gate.cpp")
+target_compile_options(forge_desktop_document_gate PRIVATE -Wall -Wextra -Werror)
+target_link_libraries(forge_desktop_document_gate PRIVATE forge_desktop_core)
+set_target_properties(forge_desktop_document_gate PROPERTIES
+    BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
+
 enable_testing()
 add_test(NAME forge_desktop_frame_gate COMMAND forge_desktop_frame_gate)
+add_test(NAME forge_desktop_ir_pipeline_gate COMMAND forge_desktop_ir_pipeline_gate)
+add_test(NAME forge_desktop_document_gate COMMAND forge_desktop_document_gate)
 
 # A run helper that sets VK_ICD_FILENAMES, so "how do I run it" has one answer.
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/run_forge.sh.in"
