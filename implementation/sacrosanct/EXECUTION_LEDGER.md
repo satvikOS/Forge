@@ -420,3 +420,38 @@ against zero is CONSISTENT: `adapters/archie-30b-expert3d-v1/adapter_config.json
 has no `expert_lora` key at all, so v1 is a plain LoRA and 240 modules did load.
 The v4a collapse was the different shape -- 36 DECLARED against 0 loaded. The guard
 separates the two correctly, and "0 switch keys" on v1 is not an alarm.
+
+### The box floor, and the true paired n (2026-08-29)
+
+Three of five round-robin box shards complete -- a stratified sample of the 600, not
+a prefix, so this is a legitimate interim:
+
+    BOX FLOOR, n=359 : composite 0.2350
+                       shape 0.4185   interface 0.0000   topology 0.3381
+
+    (n=240, two shards, was 0.2369 -- stable as the third landed)
+
+**Refusals: exactly one in 360, or 0.28%**, projecting a paired **n of about 598**
+out of 600. `vacuous=0` and `reference_null=0` across all three shards.
+
+The one refusal is `ho625`, and it reports
+
+    instrument failure, not a score: verifier timeout after 300s
+
+which refines the earlier diagnosis. Its gold reference is an invalid solid ("not
+consistently oriented"), and that reference measures fine in 11 s under a plain
+census -- what it defeats is the grid-64 voxel IoU, which never returns. So the
+invalid reference does not fail loudly at build time; it fails five minutes later,
+inside the metric.
+
+Two things are working exactly as designed, and both were read in the source before
+being trusted:
+
+* the scorer classifies this as an INSTRUMENT failure and REFUSES the row rather
+  than scoring it 0, so a reference the kernel cannot measure is never charged to
+  the model;
+* the failure is a property of the REFERENCE, so it drops from every arm alike and
+  `compare_arms_paired.py` pairs on the intersection. It costs n; it does not bias.
+
+Stating it up front, as the plan required: the paired comparison will be over
+roughly 598 rows, and the ~2 lost rows are lost identically for box, v5cap and v1.
