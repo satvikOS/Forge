@@ -401,3 +401,22 @@ by band is:
 tree compiles. That is a sixth structural predictor measured flat or backwards, and
 it points the same way as the kernel wedges: the two rows that defeated the verifier
 were 53 and 11 ops, both small.
+
+### The v5cap 600-row arm is complete (2026-08-28 22:55)
+
+    valid (first run)   415 rows
+    resume (patched)    185 rows      RESUME_RC=0 after 7500 s
+    combined            600 rows, 600 unique ids, covers the holdout exactly,
+                        0 duplicates, 0 empty IRs, compiled 147 (24.5%)
+
+The resume survived 3 kernel wedges and 1 real SIGSEGV through the timeout+respawn
+fix; without it the run would have ended at row 415 -- which, because the file is
+sorted hardest-first, would have been a biased HARD subset rather than a short one.
+
+**The v1 arm started and its adapter was checked, not assumed.** Its load line reads
+`config declares 0 switch key(s); the loaded model holds 0 LoRASwitchLinear
+module(s) (240 LoRA modules total)`, against v5cap's `36 / 36 (276 total)`. Zero
+against zero is CONSISTENT: `adapters/archie-30b-expert3d-v1/adapter_config.json`
+has no `expert_lora` key at all, so v1 is a plain LoRA and 240 modules did load.
+The v4a collapse was the different shape -- 36 DECLARED against 0 loaded. The guard
+separates the two correctly, and "0 switch keys" on v1 is not an alarm.
