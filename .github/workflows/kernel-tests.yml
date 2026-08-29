@@ -283,3 +283,16 @@ jobs:
         # a wrong solid matching a right volume to ten significant figures is a measured
         # failure mode in this programme, not a hypothetical one.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
+      - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
+        # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
+        # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
+        # whole verifier process down, so before the guard a single such row silently
+        # invalidated every row that followed it in the same emission run. The gate asserts
+        # BOTH halves: three crashers must come back as the RIGHT solid (checked against the
+        # closed-form volume, plus face/edge/shell counts -- volume alone is not accepted as
+        # proof of geometry in this programme), and six shapes that already unified must not
+        # move by a single count.
+        run: |
+          cmake --build forge-kernel/build-verify -j3 --target forge_verify
+          FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify \
+            bash forge-kernel/test/unify_coaxial_guard_test.sh
