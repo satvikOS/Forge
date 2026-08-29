@@ -307,3 +307,41 @@ ORIGINAL v1 36-row emission predates that change and ran with it OFF — a real
 confound in the n=25 comparison, bounded by the measurement that NoveltyStop is
 score-neutral (31 of 32 rows identical, the one that moved went up). The n=600
 comparison does not inherit it.
+
+---
+
+## D-013 (2026-08-29): how to guard the unifyFaces SIGSEGV
+
+**Decision: detect the configuration and skip unification for that body.** Two other
+designs were implemented and MEASURED FIRST, and both were rejected on evidence
+rather than judgement:
+
+* **A null-pcurve pre-check on the input** -- the design this task started with.
+  Rejected: the crashing input is clean (`nullPcurves=0` over 9 faces and 42
+  face-edge pairs). The null is produced INSIDE the merge, so the check never fires.
+* **`ShapeUpgrade_UnifySameDomain::KeepShapes`**, withholding just the offending pair
+  so every other merge in the body survives -- strictly the nicer fix. Rejected:
+  all six crashing cases still SIGSEGV. `KeepShapes` stops a face being merged AWAY;
+  it does not keep the traversal off it.
+
+The shipped guard changes behaviour ONLY where the current behaviour is a crash.
+Measured over real emissions: 0 of 150 rows differ from the unguarded build, and it
+rescues `ho1139` from a SIGSEGV. An over-wide variant that drops the
+analytic-vs-extrusion test differs on 39 of 150 (26%), so the narrow condition is
+load-bearing and not a stylistic preference.
+
+**A prior conclusion was withdrawn in the course of this.** The first blast-radius
+measurement compared one binary against itself three times (`forge_verify` is a stub
+that loads a dylib; copying the executable copies a loader). On that invalid
+evidence the narrow and wide guards looked indistinguishable and the narrowness was
+written up as justified "on principle, not by corpus evidence". It is justified by
+corpus evidence. See `findings/AN_AB_THAT_COMPARED_ONE_BINARY_TO_ITSELF.md`.
+
+## D-014 (2026-08-29): PR #63 lands via the execution branch, not on its own
+
+CodeRabbit does not review PRs based on `claude/sacrosanct-execution-20260828` --
+its check reports `pass` with the description "Review skipped: reviews are disabled
+for this base branch", which is a green bucket over a review that never ran.
+**Decision: merge #63 into the execution branch** so the code reaches CodeRabbit
+through PR #61, which does get reviewed, rather than retargeting #63 at the default
+branch and dragging #61's commits into its diff.
