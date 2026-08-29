@@ -89,6 +89,45 @@ they need to stop over-filling. The low-recall rows do not need shrinking -- the
 already the right size -- they need to be the right SHAPE. Treating "improve shape"
 as one problem would optimise the mean of two populations that want opposite changes.
 
+## The three zero-recall rows: a real defect that does NOT generalise
+
+`ho1134`, `ho884` and `ho1278` share no voxel with their references. Measuring both
+sides through the pinned verifier (`INPUT()` binds the reference STEP):
+
+    row      reference extents      candidate extents     genus ref -> cand
+    ho1134   180 x 144 x 98         88.6 x 9.8 x 9.8          16 -> 0
+    ho884    251 x 200 x 78        229.6 x 25.7 x 25.7        24 -> 2
+    ho1278   272 x 216 x 86        244.4 x 27.8 x 15.2        25 -> 2
+
+**Not a pose error.** The SORTED extents do not match under any axis permutation, so
+no rotation maps one onto the other. The candidate is a thin rod where the reference
+is a broad holed plate.
+
+The IR shows the mechanism. In `ho884` the base profile is
+`POLY([140.14 12.845; 140.14 -12.845; -111.058 -12.845; -111.058 12.845])` -- 251.2
+long by **25.69** wide -- followed by `EXTRUDE(%1, 25.69)`. The profile's width and
+the extrusion depth are THE SAME NUMBER. `ho1134` repeats it: 9.84 wide, extruded
+9.842. Meanwhile the holes sit at y = +-77 to +-108, far outside a +-12.8 plate:
+**the model knows the part is ~200 wide -- the feature layout says so -- and the base
+profile does not.** Most of those holes therefore cut nothing, which is the same
+pathology that made the unifyFaces reproducer's first five holes no-ops.
+
+**And that story does not survive contact with the population.** Testing "profile
+short side == extrusion depth" across every row with recall data:
+
+    recall < 0.50     n=104    width==depth:  7  (6.7%)
+    0.50 - 0.95       n=158    width==depth:  6  (3.8%)
+    recall >= 0.95    n= 83    width==depth:  3  (3.6%)
+
+6.7% against a 3.6% base rate is a real but MINOR effect. It explains the three
+extreme rows and not the 115. The profile aspect ratio is likewise only weakly
+elevated (median 2.7 in low-recall vs 1.8 in high-recall).
+
+So: a specific, diagnosable defect at the extreme tail, and an extrapolation from
+n=3 that the measurement refused. The general mechanism behind the low-recall
+population is still unidentified; separating pose from form across it needs the
+sorted-extent comparison for every row, which is running.
+
 ## What this does and does not license
 
 This is a DECOMPOSITION, not a promise. "Cover the reference at your current volume"
