@@ -93,3 +93,43 @@ completes, so rows already emitted stay comparable with rows emitted after it; i
 only bounds the rows that would otherwise hang, which currently produce nothing at
 all. The recycle is the part that resets kernel registry state between rows and so
 is the part that must wait until both arms are emitted.
+
+## It happened, 40 minutes after this was written
+
+The verifier child became a zombie at row 416. The run did not stop:
+
+    [ho1187] round 1: 53 ops compiled=False
+             gate: the tree does not compile: verifier produced no output
+
+That is the silent degradation described above, in the log, on the real run. The
+only reason the damage was **one row** rather than 185 is that a LOAD-SPIKE alert
+prompted a look at the process tree, where `pid 34576 ... Z <defunct>` was
+visible. Nothing in the emission's own output distinguished "the model wrote a
+tree that does not compile" from "there is no longer a verifier".
+
+Reading it correctly took one more step. Two things had to be told apart:
+
+  * `pid 34576` reported 0.00 GB and 0:00.00 CPU -- which looks like a process
+    that never ran, and is actually what `ps` shows for a **zombie**;
+  * `pid 21184` was a `forge_verify` at 99% CPU with `ppid=1` -- an ORPHAN from
+    the two-row diagnostic retry killed during the tripwire. Its parent was gone
+    but the child survived and kept a core busy, which is most of what the
+    load-spike alert was reporting.
+
+Killing the orphan and stopping the run took the machine from swap 36.5 GB /
+free 37% to **swap 576 MB / free 93%** within seconds, which also settles what
+the memory event was: the MLX model, not the five scorers that were shed first.
+Shedding them was still right -- it was the only load that could be shed without
+destroying data -- but it was not the cause.
+
+**Resolution.** 415 valid rows were kept, ho1187 dropped, and a 185-row remainder
+built and verified to cover exactly 600. The run resumed under the patched
+verifier (timeout + respawn), with the v1 arm chained behind it in the same
+script so the two cannot race for the GPU.
+
+**What generalises:** an artifact that records instrument failure in the same
+field as model failure cannot be audited after the fact. `compiled=False` meant
+both "the model was wrong" and "there was no instrument", and only the process
+table could tell them apart -- for a run that had already finished, nothing
+could. Rows now carry `_timeout` and `_verifier_restarted` for exactly this
+reason.
