@@ -499,3 +499,76 @@ measured position is that ZERO of 1,768 JS files currently clear that bar.
 
 Until all four hold the old versions stay, and `e2e/forge` (101M, 248 js/ts) stays as the
 behavioural reference the mapping in (3) is measured against.
+
+## D-019 (2026-08-29): the release is NOT blocked on OCCT; the floor and Gatekeeper are separate causes and neither waits on the kernel
+
+I raised the hypothesis that the OCCT drop and the release blocker were the same problem —
+the minos=26.0 floor comes from bundled Homebrew dylibs, so removing OCCT would remove the
+floor. **That hypothesis is refuted by measurement.**
+
+Simulating the closure walk with every `libTK*` deleted leaves the floor at **26.0**, with
+two survivors, both linked DIRECTLY into `forge_desktop` and structural rather than
+incidental (`forge-desktop/CMakeLists.txt:94,97,174`):
+
+| survivor | minos | source |
+|---|---|---|
+| `libSDL2-2.0.0.dylib` | 26.0 | homebrew sdl2 |
+| `libvulkan.1.dylib` | 26.0 | homebrew vulkan-loader |
+
+OCCT accounts for 16 of 18 floor-setters — `libtbb`/`libtbbmalloc` do leave with it, being
+referenced only by `libTKBO/TKernel/TKGeomBase/TKMath/TKTopAlgo` — but not the last two.
+`otool -L` on the shipped executable confirms exactly three non-system deps: SDL2, vulkan,
+and `libforge_kernel_core.dylib`. The window layer and renderer are OCCT-independent by
+construction.
+
+**Root cause 1 — the floor is a RUNNER-IMAGE problem, not a dependency problem.** `minos`
+is inherited from whichever Homebrew bottle tag the build host pulls, and
+`-DCMAKE_OSX_DEPLOYMENT_TARGET` cannot lower a floor inside someone else's binary. This
+host is macOS 26.6.2, so every bottle here is `arm64_tahoe` at 26.0 — OCCT and non-OCCT
+alike. opencascade, sdl2-compat, vulkan-loader and tbb all publish arm64_sonoma and
+arm64_sequoia bottles too, so SDL2 and vulkan have the SAME escape hatch as OCCT.
+`desktop-release.yml:129` already pins `runs-on: macos-15` with `FORGE_FLOOR_MAX: "15.0"`,
+which fixes the floor for the whole bundle WITH OCCT STILL PRESENT.
+
+**Root cause 2 — Gatekeeper is independent, and a positive control proves it.** A trivial
+`.app` — one Mach-O compiled at `minos=14.0`, zero Homebrew dylibs, zero OCCT — is still
+`rejected, exit 3` ad-hoc signed, and STILL rejected with hardened runtime
+(`flags=0x10002(adhoc,runtime)`). `security find-identity -v -p codesigning` returns **0
+valid identities**. So spctl rejects on the absence of a Developer ID signature plus
+notarization. That needs a paid credential, not code, and would reject a 14.0-floor
+OCCT-free artifact just the same.
+
+**A third blocker, separate from both:** `desktop-release.yml` is not on the default
+branch (`git ls-tree origin/archdisc -- .github` lists only `build-app.yml` and
+`kernel-tests.yml`). `workflow_dispatch` only registers from the default branch, so the
+dry-run path does not exist and the only working trigger is the tag push that publishes.
+
+**DECISION: stop treating the OCCT drop as a release prerequisite.** They are orthogonal in
+both directions. The drop is justified on dependency-closure grounds alone (D-017), and the
+release is unblocked by a runner pin plus a Developer ID — neither of which the kernel work
+gates. Per the standing constraint, no tag is pushed and no draft release is published.
+
+## D-018 UPDATE (2026-08-29, same night): gates 1 and 2 now SATISFIED and mutation-proved
+
+`forge_desktop` had no build directory because it has a PREREQUISITE, not a defect: it
+needs `libforge_kernel_core` built first, and its CMake says so by name with the exact
+command (`forge-desktop/CMakeLists.txt:45-56`). Built that (`-DFORGE_BUILD_NODE_ADDON=OFF
+-DFORGE_BUILD_DESKTOP_FOUNDATION=ON`, rc=0), after which:
+
+* **Gate 1 SATISFIED** — configure rc=0, `forge_desktop_frame_gate` rc=0, `forge_desktop`
+  rc=0. Both binaries link exactly three non-system deps.
+* **Gate 2 SATISFIED** — the headless frame gate runs **132 checks, 0 failures**, and does
+  real work: builds a kernel body (BOX -> CUT -> FILLET, 240 triangles / 10 faces / 3
+  features), renders a real frame (5310 vtx / 11151 idx, 16 draw lists, 4 panels),
+  materialises a 14-row feature tree, and measures area 13405.325 mm2 / volume 77278.139
+  mm3 / watertight with 0 boundary, 0 non-manifold, 0 reversed edges.
+
+It exited 0 with no visible output at first, which is the shape of a gate that cannot fail,
+so it was **mutation-proved**: changing one expected bbox value from 80.0f to 81.0f made it
+exit 1 with `FAIL bounding box X == 80mm  80.000000`. Restoring took a forced rebuild — the
+first restore raced CMake's timestamp granularity and left a STALE MUTANT BINARY reporting
+1 failure against clean source, which is precisely the false reading this programme keeps
+hitting. Confirmed back to 132/0 with the file byte-identical and the worktree clean.
+
+Gates 3 (op coverage) and 4 (Gatekeeper-acceptable bundle) remain. Per D-019, gate 4 does
+NOT depend on the OCCT drop; it needs a Developer ID plus notarization.
