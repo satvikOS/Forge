@@ -5,7 +5,14 @@
 
 Harness `forge-kernel/test/tkoffset_gh_defer_census.cpp`, driver
 `test/run_tkoffset_gh_defer_census.sh`, 600 rows in
-`reports/corpus_ab/tkoffset_gh_defer_census_600.tsv`.
+`reports/corpus_ab/tkoffset_gh_defer_census_600.tsv`, and the
+what-would-bind-next run (§3.1) in
+`reports/corpus_ab/tkoffset_gh_defer_census_600_skipS2planar.tsv`.
+
+Both artefacts are **byte-reproducible** — rows are sorted before they land, so
+two runs of the driver produce identical files despite `xargs -P 8`. The
+diagnostic run changes **0** of the 1,200 engine verdicts; it only changes what
+the ladder reports.
 
 ---
 
@@ -127,11 +134,33 @@ against an offset plane is a line, against an offset cylinder a circle. What is
 missing is the planar face rebuild for a wire that mixes them — a real engine
 increment, not a bounded fix.
 
-**The prize is measurable.** Of the 600 parts, **232** are all-analytic, have
-every curved face in scope, and are blocked *only* by this planar-wire rule.
-Lifting it puts up to **239/600 (39.8%)** in reach — above OCCT's 133 (22.2%),
-i.e. the flip gate would pass. That is an upper bound: passing steps 1–3 does
-not guarantee the sew and self-check tail succeeds.
+### The prize — and the trap in reading a first-binding rung as one
+
+The obvious reading of "370 parts blocked by the planar-wire rule" is "lifting
+that rule frees 370 parts". **It frees zero, and this was measured rather than
+argued.** `FORGE_GH_CENSUS_SKIP_S2_PLANAR=1` suppresses the rule *in the ladder
+only* and reports what binds next:
+
+| what binds after the planar-wire rule, for the 370 | parts |
+|---|---:|
+| `S3_edge_not_full_circle` — step 3 re-trims **circle edges only**, and a prismatic body's edges are lines | **200** |
+| `S2_curved_face_partial_revolution` — a curved face that is not a full 2π (fillets, half-rounds) | **138** |
+| `S3_offset_circle_failed` | 32 |
+| newly passing | **0** |
+
+So a mixed planar **face** is only half the increment: the same parts need the
+mixed planar **edge** — the line/line and line/circle offset meets that step 3
+does not do. The two are one piece of work (a wire mixing lines and circles
+needs both), and the census now says so instead of leaving it to be discovered
+during implementation.
+
+**The honest ceiling for that increment is 200 + 7 = 207/600 (34.5%)** — still
+comfortably above OCCT's 133 (22.2%), so the flip gate would pass, but it is
+34.5% and not the 39.8% a naive reading gives. It is *also* still an upper
+bound twice over: the 200 could meet a further rung once line edges are handled,
+and passing steps 1–3 does not guarantee the sew and self-check tail succeeds.
+The remaining 170 (138 partial-revolution + 32 offset-circle) are separate
+capabilities, and the 223 NURBS parts are a third.
 
 ### 3.2 OFFSETSHAPE — the same predicate, and a much weaker case for OCCT
 
@@ -293,9 +322,12 @@ and it is worth stating:
 
 - **It does not move any drop option.** Both remain far below their OCCT
   baselines and both stay OFF.
-- **It does name the single increment that would move them**: the planar face
-  whose wire mixes lines and circles. One rule, 126/126 of the THICKSOLID
-  deletion bucket and 33/38 of OFFSETSHAPE's, up to 232 parts of headroom.
+- **It does name the increment that would move them**, and sizes it honestly:
+  the planar face whose wire mixes lines and circles, *together with* the
+  line-edge re-trim in step 3 that the same parts immediately need. One
+  first-binding rule accounts for 126/126 of THICKSOLID's deletion bucket and
+  33/38 of OFFSETSHAPE's; the measured ceiling for the increment is 207/600
+  (34.5%), against OCCT's 22.2%.
 - **It removes seven silent wrong answers** and gates against their return.
 - **It says the OCCT dependency is not load-bearing for family G**, because
   OCCT's answers there are 0/133 valid. That is a claim about *this* corpus and

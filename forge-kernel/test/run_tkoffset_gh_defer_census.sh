@@ -31,6 +31,17 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 KERNEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Resolve a caller-supplied OUTFILE against the CALLER's cwd, BEFORE the cd
+# below. Without this a relative path silently lands under forge-kernel/ instead
+# of where the caller meant, and every later awk reads a file that is not there.
+CALLER_PWD="$PWD"
+OUT_ARG="${1:-}"
+if [ -n "$OUT_ARG" ]; then
+  case "$OUT_ARG" in
+    /*) : ;;
+    *)  OUT_ARG="$CALLER_PWD/$OUT_ARG" ;;
+  esac
+fi
 cd "$KERNEL" || exit 2
 
 OCCT_ROOT="${OCCT_ROOT:-/opt/homebrew/opt/opencascade}"
@@ -49,7 +60,7 @@ CORPUS="${CORPUS:-/Users/account_clawteam1/archdisc-Models/runs/composite_anchor
 JOBS="${JOBS:-8}"
 OUTDIR="$KERNEL/.build-gh-census"
 mkdir -p "$OUTDIR" || exit 2
-OUTFILE="${1:-$OUTDIR/tkoffset_gh_defer_census.tsv}"
+OUTFILE="${OUT_ARG:-$OUTDIR/tkoffset_gh_defer_census.tsv}"
 BIN="$OUTDIR/tkoffset_gh_defer_census"
 
 CXX="${CXX:-clang++}"
@@ -80,11 +91,40 @@ LC_ALL=C find "$CORPUS" -maxdepth 1 -name '*.step' | LC_ALL=C sort > "$LIST"
 N="$(wc -l < "$LIST" | tr -d ' ')"
 echo "[gh-census] corpus $CORPUS — $N parts, $JOBS jobs"
 
-"$BIN" --header > "$OUTFILE"
-xargs -P "$JOBS" -n 1 "$BIN" < "$LIST" >> "$OUTFILE" 2> "$OUTDIR/run.err"
+# A diagnostic run must never be mistaken for the baseline, so say so loudly and
+# in the output file's own name rather than only here.
+if [ "${FORGE_GH_CENSUS_SKIP_S2_PLANAR:-0}" = "1" ]; then
+  echo "[gh-census] ★ DIAGNOSTIC MODE: the S2 planar-wire rule is SUPPRESSED IN THE"
+  echo "[gh-census]   LADDER (not in the engine). The rungs below are WHAT WOULD BIND"
+  echo "[gh-census]   NEXT if that rule were lifted — they are NOT this family's"
+  echo "[gh-census]   first-binding-rung table and must not be quoted as one."
+fi
 
+# Rows are SORTED before they land. With xargs -P the completion order is a race,
+# so an unsorted file differs run to run in row order while being identical in
+# content — which makes a committed artefact impossible to diff and invites
+# someone to conclude the census is non-deterministic when it is not.
+if ! "$BIN" --header > "$OUTFILE"; then
+  echo "[gh-census] FATAL: cannot write $OUTFILE"
+  exit 2
+fi
+xargs -P "$JOBS" -n 1 "$BIN" < "$LIST" 2> "$OUTDIR/run.err" | LC_ALL=C sort >> "$OUTFILE"
+
+if [ ! -s "$OUTFILE" ]; then
+  echo "[gh-census] FATAL: $OUTFILE is empty or missing after the run"
+  exit 2
+fi
 ROWS="$(( $(wc -l < "$OUTFILE" | tr -d ' ') - 1 ))"
 echo "[gh-census] parts $N   rows $ROWS   -> $OUTFILE"
+# A run that produced NO rows must never reach the PASS line. This is not
+# hypothetical: with a relative OUTFILE resolving under forge-kernel/ instead of
+# the caller's cwd, every awk below read a missing file, the row count came out
+# as -1, and the script still printed PASS. A gate that cannot see its own
+# output cannot fail.
+if [ "$ROWS" -lt 1 ]; then
+  echo "[gh-census] FATAL: 0 rows — the run produced nothing to summarise"
+  exit 2
+fi
 
 # A row lost to a crashed engine is a hole in the denominator, so say so rather
 # than quietly reporting a rate over a smaller set than the corpus.

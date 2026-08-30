@@ -21,6 +21,19 @@
 // is checked on every row and any violation is printed in the `control` column.
 // A census that disagreed with the engine it claims to explain would be a
 // harness result, not an engine result.
+//
+// ★ WHAT-WOULD-BIND-NEXT MODE — FORGE_GH_CENSUS_SKIP_S2_PLANAR=1
+//
+// A first-binding-rung census tells you what to fix FIRST. It does NOT tell you
+// how far fixing it gets you, and reading it that way is a live trap: the
+// obvious reading of the result below is "370 parts are blocked by the
+// planar-wire rule, so lifting that rule frees 370 parts", which is FALSE and
+// this mode is what proves it. With the rule suppressed IN THE LADDER ONLY (the
+// engine is untouched and its verdict is still reported in eng_TS/eng_OS), the
+// census keeps walking and reports the rung that binds after it.
+//
+// Use it before quoting a ceiling. A rung that hides another rung is the same
+// mistake as a rate that hides a defect.
 
 #include "../src/native/brep/NativeThickSolid.cpp"
 
@@ -40,6 +53,7 @@
 #include <gp_Pln.hxx>
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -139,6 +153,16 @@ void faceCensus(const TopoDS_Shape& shape, Row& row) {
     }
 }
 
+// FORGE_GH_CENSUS_SKIP_S2_PLANAR=1 — see the banner. Diagnostic only: it changes
+// what the LADDER reports, never what the engine does.
+bool skipS2Planar() {
+    static const bool v = [] {
+        const char* e = std::getenv("FORGE_GH_CENSUS_SKIP_S2_PLANAR");
+        return e && (*e == '1' || *e == 'y' || *e == 'Y');
+    }();
+    return v;
+}
+
 // ── the engine's ladder, walked in the engine's own order, first-return ─────
 std::string walk(const TopoDS_Shape& shape, double t,
                  const TopTools_MapOfShape& removedSet, bool hollow) {
@@ -187,6 +211,7 @@ std::string walk(const TopoDS_Shape& shape, double t,
                 return "S2_curved_face_partial_revolution";
         } else {
             if (nWires < 1) return "S2_planar_face_no_wire";
+            if (skipS2Planar()) continue;   // diagnostic: what binds AFTER this rule
             for (TopoDS_Iterator it(q.face); it.More(); it.Next()) {
                 if (it.Value().ShapeType() != TopAbs_WIRE) continue;
                 int nE = 0; gp_Circ c;

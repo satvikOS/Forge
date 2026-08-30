@@ -289,9 +289,13 @@ a working operation into a thrown error.
   >    deletion-bucket parts, and **33 of 38** OFFSETSHAPE ones, are declined at
   >    `S2_planar_wire_edge_not_full_circle` — the mixed polygon+quadric planar
   >    face. All **133/133** of OCCT's THICKSOLID successes are on parts entirely
-  >    inside the native engine's surface-type scope. **232 parts** are blocked by
-  >    that rule alone, so the reachable ceiling is 239/600 (39.8%), above OCCT's
-  >    22.2%.
+  >    inside the native engine's surface-type scope. **But lifting that one rule
+  >    frees ZERO parts** — measured, with the rule suppressed in the ladder: 200
+  >    of the 370 then bind at `S3_edge_not_full_circle`, because step 3 re-trims
+  >    circle edges only and a prismatic body's edges are lines. The mixed planar
+  >    FACE and the mixed planar EDGE are one increment, and its ceiling is
+  >    **207/600 (34.5%)**, not the 39.8% the first-binding rung alone suggests.
+  >    Still above OCCT's 22.2%.
   > 3. **The 7 native successes were seven INVALID solids** (one
   >    `IntersectingWires` face each: on ho1041 a hole reaching 4.47 mm past its
   >    own rim, because the wall exceeded the local feature size). The engine's
