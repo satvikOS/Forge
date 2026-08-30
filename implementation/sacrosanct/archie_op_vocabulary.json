@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "07c01eb9a0b5dbd7af0e7b885a478a6c3eafd3d400e60091986e46156b0e1dc9",
-        "bytes": 39663,
-        "lines": 802
+        "sha256": "2625e5018a3332f4cc1523c7876a84563f6d2e2d0359babec5531f44f281a5eb",
+        "bytes": 43377,
+        "lines": 860
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,10 +78,10 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 32,
-    "commands_emitting_ir": 17,
-    "user_invocable_ops": 15,
-    "forbidden_ops": 25,
+    "registry_commands": 34,
+    "commands_emitting_ir": 19,
+    "user_invocable_ops": 17,
+    "forbidden_ops": 23,
     "uncertain_entries": 1,
     "derived_defects": 7
   },
@@ -90,6 +90,7 @@
       "BLEND",
       "CBORE",
       "CHAMFER",
+      "CIRCLE",
       "COMMON",
       "CUT",
       "EXTRUDE",
@@ -101,7 +102,8 @@
       "PATTERN",
       "RECT",
       "REVOLVE",
-      "SHELL"
+      "SHELL",
+      "TRANSLATE"
     ],
     "rules": [
       "Emit ONLY an op listed in `ops`. Any other op name is out of vocabulary, including every op in `forbidden_ops` and the RESULT terminal, which no forge::ui command can produce.",
@@ -498,6 +500,115 @@
             }
           ],
           "command": "part.chamfer"
+        }
+      ]
+    },
+    {
+      "op": "CIRCLE",
+      "kernel_enum": "Circle",
+      "produces": "PROFILE",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 1,
+        "max_args": 3,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "CIRCLE(r [, cx=0, cy=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_circle"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "radius"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0
+              },
+              "ir_arguments": [
+                "10"
+              ],
+              "ir_text": "%<id> = CIRCLE(10)"
+            }
+          ],
+          "command": "part.sketch_circle"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\")",
+          "when_human": "any of cx, cy is supplied",
+          "arguments": [
+            "radius",
+            "cx",
+            "cy"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0,
+                "cx": 2.0,
+                "cy": 3.0
+              },
+              "ir_arguments": [
+                "10",
+                "2",
+                "3"
+              ],
+              "ir_text": "%<id> = CIRCLE(10, 2, 3)"
+            }
+          ],
+          "command": "part.sketch_circle"
         }
       ]
     },
@@ -2249,6 +2360,101 @@
           "command": "part.shell"
         }
       ]
+    },
+    {
+      "op": "TRANSLATE",
+      "kernel_enum": "Translate",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 4,
+        "max_args": 4,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "TRANSLATE(%a, dx, dy, dz)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "a",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dx",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "step_offset",
+              "classified_by": "rule: /^(dx|dy|dz)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dy",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "step_offset",
+              "classified_by": "rule: /^(dx|dy|dz)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dz",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "step_offset",
+              "classified_by": "rule: /^(dx|dy|dz)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.move"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "dx",
+            "dy",
+            "dz"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "dx": 2.0,
+                "dy": 3.0,
+                "dz": 4.0
+              },
+              "ir_arguments": [
+                "%body",
+                "2",
+                "3",
+                "4"
+              ],
+              "ir_text": "%<id> = TRANSLATE(%body, 2, 3, 4)"
+            }
+          ],
+          "command": "part.move"
+        }
+      ]
     }
   ],
   "forbidden_ops": [
@@ -2258,15 +2464,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "BOX(dx, dy, dz [, cx=0, cy=0, cz=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "CIRCLE",
-      "kernel_enum": "Circle",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "CIRCLE(r [, cx=0, cy=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -2439,15 +2636,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "TORUS(major, minor [, cx, cy, cz, axx, axy, axz])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "TRANSLATE",
-      "kernel_enum": "Translate",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "TRANSLATE(%a, dx, dy, dz)"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -3191,6 +3379,59 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.move",
+      "label": "Move Body",
+      "category": "Part",
+      "feature_ir_op": "TRANSLATE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "dx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "dy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "dz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && (num(ctx, \"dx\", 0.0) != 0.0 || num(ctx, \"dy\", 0.0) != 0.0 || num(ctx, \"dz\", 0.0) != 0.0)",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          }
+        ],
+        "unparsed_terms": [
+          "num(ctx, \"dx\", 0.0) != 0.0 || num(ctx, \"dy\", 0.0) != 0.0 || num(ctx, \"dz\", 0.0) != 0.0"
+        ]
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.pattern_circular",
       "label": "Circular Pattern",
       "category": "Part",
@@ -3554,6 +3795,59 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.sketch_circle",
+      "label": "Circle",
+      "category": "Part",
+      "feature_ir_op": "CIRCLE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"radius\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Profile"
+    },
+    {
       "id": "part.sketch_rect",
       "label": "Rectangle",
       "category": "Part",
@@ -3810,10 +4104,11 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 21,
+      "count": 22,
       "parameters": [
         "width (part.sketch_rect)",
         "height (part.sketch_rect)",
+        "radius (part.sketch_circle)",
         "distance (part.extrude)",
         "angle (part.revolve)",
         "diameter (part.hole)",

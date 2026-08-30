@@ -358,6 +358,64 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── CIRCLE ────────────────────────────────────────────────────────────────
+  // The second PROFILE producer. RECT alone makes the language non-empty; it does not
+  // make it expressive -- every revolve, every round boss and every cylindrical part
+  // starts from a circle, and with only RECT reachable none of them could be authored.
+  {
+    CommandDescriptor c = base("part.sketch_circle", "Circle", "CIRCLE",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) { return num(ctx, "radius", 0.0) > 0.0; };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::num(num(ctx, "radius", 10.0))};
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_circle", "Circle", "CIRCLE", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── MOVE ──────────────────────────────────────────────────────────────────
+  // TRANSLATE was ORPHAN, and that is more serious than one missing command: with no
+  // way to POSITION a body, every boolean in this registry operated on solids coincident
+  // at the origin. FUSE, CUT and COMMON were reachable but not USEFUL -- two boxes both
+  // at the origin have nothing interesting to subtract. This is also the op class behind
+  // the derived-placement sub-task this programme measured as the hardest thing Archie
+  // has to learn, so leaving it unreachable made that failure permanent by construction.
+  //
+  // Like every other solid-editing command it keeps the body's IDENTITY: the node is
+  // consumed and reproduced, so the body gains history rather than becoming a new body.
+  {
+    CommandDescriptor c = base("part.move", "Move Body", "TRANSLATE",
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{"dx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"dy", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"dz", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      // A zero move is a no-op statement in the history; refuse it rather than record it.
+      return solidTarget(*d, ctx.selection()).ok &&
+             (num(ctx, "dx", 0.0) != 0.0 || num(ctx, "dy", 0.0) != 0.0 ||
+              num(ctx, "dz", 0.0) != 0.0);
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::num(num(ctx, "dx", 0.0)),
+                              IrArg::num(num(ctx, "dy", 0.0)), IrArg::num(num(ctx, "dz", 0.0))};
+      emit(ctx, *d, *s, "part.move", "Move Body", "TRANSLATE", std::move(args),
+           IrValueKind::Solid, {t.node}, t.node);
+    };
+    add(std::move(c));
+  }
+
   // ── EXTRUDE ───────────────────────────────────────────────────────────────
   {
     CommandDescriptor c = base("part.extrude", "Extrude", "EXTRUDE",
@@ -790,8 +848,8 @@ const std::vector<std::string>& partCommandIds() {
         "part.fillet",            "part.hole",             "part.loft",
         "part.mirror",            "part.pattern_circular", "part.pattern_grid",
         "part.pattern_linear",    "part.redo",             "part.revolve",
-        "part.shell",             "part.sketch_rect",      "part.undo",
-        "part.variable_fillet",
+        "part.shell",             "part.sketch_circle",    "part.sketch_rect",
+        "part.move",              "part.undo",             "part.variable_fillet",
     };
     std::sort(v.begin(), v.end());
     return v;
