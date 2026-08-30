@@ -747,7 +747,13 @@ UNIT_RULES = [
                                            "mm",            "radius"),
     (r"^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$",  "mm",            "position"),
     (r"^(dx|dy|dz)$",                      "mm",            "step_offset"),
-    (r"^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$",
+    # `w` belongs here for exactly the reason `h` already did. RECT(w, h [, cx, cy]) and
+    # RRECT(w, h, r, ...) name their sides w/h in the kernel header, and the rule matched
+    # `h` but not `w` -- so the first command to emit RECT produced an `uncertain` entry
+    # reading "no unit rule matched the argument name 'w'", leaving one side of a rectangle
+    # carrying a unit and semantic and the other side carrying neither. Archie is trained
+    # from this file, so an unclassified argument is a hole in the training signal.
+    (r"^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$",
                                            "mm",            "linear_size"),
 ]
 

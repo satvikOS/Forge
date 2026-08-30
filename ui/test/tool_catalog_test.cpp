@@ -49,7 +49,13 @@ ToolAvailability availabilityOf(const ToolCatalog& c, const std::string& id) {
 int main() {
   Harness H("tool_catalog");
 
-  // Exactly what ForgeFrame::wirePartCommands() builds.
+  // The two values a Part command consumes: a profile to extrude, a solid to modify.
+  // The seeds are CHECKED. They used to be `SKETCH(XY)` + `BOX(...)`, and `SKETCH` is in
+  // no op table, so validateIr rejected it and seed() returned 0 -- "sketch.base" was
+  // never bound and every profile-consuming command in this gate evaluated `disabled`
+  // for a reason the gate never reported. ForgeFrame hit the same bug and was fixed;
+  // these seeds were left behind. Checking the return is what makes that class of
+  // defect impossible to reintroduce silently.
   ForgeShell shell;
   PartDocument doc;
   UndoStack undo;
@@ -59,9 +65,10 @@ int main() {
   // had until defaultPartStatements() replaced it. A fixture that claims to be
   // "exactly what ForgeFrame::wirePartCommands() builds" has to seed what it
   // seeds.
-  doc.seed(IrValueKind::Profile, "sketch.base", "RECT", {IrArg::num(80.0), IrArg::num(50.0)});
-  doc.seed(IrValueKind::Solid, "body.bracket", "BOX",
-           {IrArg::num(80.0), IrArg::num(50.0), IrArg::num(20.0)});
+  CHECK_EQ_INT(doc.seed(IrValueKind::Profile, "sketch.base", "RECT",
+                        {IrArg::num(80.0), IrArg::num(50.0)}), 1);
+  CHECK_EQ_INT(doc.seed(IrValueKind::Solid, "body.bracket", "BOX",
+                        {IrArg::num(80.0), IrArg::num(50.0), IrArg::num(20.0)}), 2);
   registerPartCommands(shell.registry(), doc, undo);
   const CommandRegistry& reg = shell.registry();
 
