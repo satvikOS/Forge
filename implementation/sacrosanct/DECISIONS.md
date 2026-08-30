@@ -426,3 +426,76 @@ exactly what was done then.
 been emitted at different times. That is the same seam v5cap's own arm carries, so the
 comparison is not made worse by it -- but it is a seam, and it is recorded here rather
 than discovered later.
+
+## D-017 (2026-08-29): the OCCT drop is measured and is NOT shippable; FILLING is the one family that earns its flip
+
+The twelve `FORGE_*_DROP_*` options all name the same flip condition — "native success
+rate >= the measured OCCT baseline" — and until tonight nothing measured it. The corpus
+A/B harness did not exist; `golden_corpus_measure.cpp` measures per-model freeze/verify on
+72 steps and is a different gate. It exists now and it returns a negative answer.
+
+**20-part stride sample** (the corpus is sorted hardest-first, so a prefix is biased —
+this programme has already measured a prefix at 0.2423 where the full set read 0.3617):
+
+| family | native | OCCT | valid nat/occt | deletion bucket |
+|---|---|---|---|---|
+| PIPE | DEFER 20 | OK 20 | 0 / 20 | 20 of 20 |
+| DRAFT | DEFER 19 | OK 17, THREW 2 | 0 / 16 | 19 of 19 |
+| PIPESHELL | OK 15, DEFER 5 | OK 20 | 15 / 20 | 5, and 15 DISAGREE |
+| THICKEN | OK 17, DEFER 3 | OK 20 | 17 / 20 | 3, 17 agree only up to orientation |
+| FILLING | OK 17, DEFER 3 | OK 17, THREW 3 | 17 / 17 | 0 — 17/17 agree fully |
+
+**DECISION: closure 14 -> 11 is accepted as a BUILD result and REFUSED as a ship result.**
+PIPE and DRAFT defer on every applicable part, so with the fallback compiled out those two
+options delete the capability outright. PIPESHELL is worse than a defer on 15 parts: it
+DISAGREES, which returns a different solid and tells nobody. Only FILLING passes its own
+flip gate, and there OCCT actually THREW on 3 parts where native deferred honestly.
+
+The seven correctness A/Bs passing was never sufficient evidence: they measure whether the
+native engines are RIGHT on hand-built cases, and the question was how often they DECLINE
+on real ones. Those are different questions and only the second gates shipping.
+
+**The stated caveat was closed by measurement, not argument.** The first build forked
+before #80's canonize fix, so THICKEN's disagreement might have been a
+`SurfaceOfLinearExtrusion` artifact. Rebuilt at HEAD `67507174` with canonize verified
+present: identical numbers. It also separated two problems being treated as one — THICKEN's
+17 agree on `|volume|` and differ only in signed orientation (a bounded fix); PIPESHELL's
+15 agree on neither, so it builds different geometry.
+
+**OCCT is not the reliable arm it is being treated as.** Two of three crash reports this
+session were OCCT's own `BRepOffset_Inter2d::ConnexIntByInt` faulting at 0x60 inside
+`libTKOffset` — the very toolkit these engines would replace — each contained in its forked
+child. `ARM_CRASH` is a distinct status from `ARM_DEFER`, set on `WIFSIGNALED`, and
+`--selftest` asserts a deliberate segfault returns CRASH and never a defer, so PIPE's
+`DEFER 20` is twenty honest declines rather than twenty crashes under a softer name.
+
+Recorded as PR #81. The full 600 x all-families run is in flight and becomes the baseline.
+
+## D-018 (2026-08-29): old Forge versions are NOT deleted yet; deletion is gated on the C++ app, and the gate is named
+
+The standing order says to delete all old Forge versions from the repo and locally. I am
+deferring that deletion and stating why rather than either doing it or dropping it.
+
+Measured state: `forge-desktop` is a real C++ application — 51,468 LOC across 33 C++ files
+on ImGui + Vulkan/MoltenVK + SDL2, with a headless frame gate that builds REAL frames and
+asserts values against references. It is not a stub. But it had NO build directory at all
+before tonight, so nothing in the repo demonstrated it runs, and the release is
+independently blocked (bundled dylibs at minos=26.0, Gatekeeper rejecting the ad-hoc
+signature with spctl exit 3).
+
+Deleting the working JS application before its replacement is demonstrably usable would
+leave users with neither. The safety constraint is also explicit that JS must not be
+deleted by extension before its behaviour is mapped and the C++ replacement proven, and the
+measured position is that ZERO of 1,768 JS files currently clear that bar.
+
+**DECISION: deletion waits on a NAMED gate, not on a judgement call.** All four must hold:
+1. `forge_desktop` configures and builds clean from a cold tree (in flight tonight).
+2. The headless frame gate passes on that build.
+3. The user-invocable op inventory shows the C++ UI covers the operations the JS app
+   exposes — the honest blocker today, since D-015 found no forge::ui command creates a
+   value, which makes generation from an empty document impossible.
+4. A Gatekeeper-acceptable bundle exists, which may itself depend on the OCCT drop if the
+   minos=26.0 floor comes from OCCT dylibs.
+
+Until all four hold the old versions stay, and `e2e/forge` (101M, 248 js/ts) stays as the
+behavioural reference the mapping in (3) is measured against.
