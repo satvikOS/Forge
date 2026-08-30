@@ -208,6 +208,54 @@ bool quadPlanar(const gp_Pnt& a, const gp_Pnt& b, const gp_Pnt& c,
     return ringPlanar(q, tol, area);
 }
 
+// Every lateral quad between two equal-count rings planar within `tol`?
+bool allQuadsPlanar(const std::vector<gp_Pnt>& a, const std::vector<gp_Pnt>& b,
+                    double tol) {
+    const std::size_t n = a.size();
+    if (n < 3 || b.size() != n) return false;
+    for (std::size_t i = 0; i < n; ++i) {
+        const std::size_t j = (i + 1) % n;
+        if (!quadPlanar(a[i], a[j], b[j], b[i], tol)) return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------- ring correspondence
+// ★ WHY THIS EXISTS. BRepOffsetAPI_ThruSections does NOT hand its wires to
+// BRepFill_Generator in the order they were added: with myWCheck (the ctor
+// default, and what CheckCompatibility toggles) it first runs
+// BRepFill_CompatibleWires, which REORIENTS each wire to a common sense and
+// RE-ORIGINS it before the index pairing happens. This engine implemented the
+// pairing and omitted the step before it, so it paired A.ring[i] with B.ring[i]
+// by raw BRepTools_WireExplorer index.
+//
+// That is not a neutral choice. The two outer wires of two OPPOSITE faces of a
+// solid wind in OPPOSITE senses in world space, because a face's outer wire is
+// CCW about its OUTWARD normal and those two normals oppose. Pairing them by
+// raw index therefore twists every lateral quad out of plane, and the engine
+// declined its own most common input — MEASURED at 309 of 600 reference solids,
+// every one of which has a correspondence under which all four quads are planar.
+//
+// `canonicalRing` applies the two BRepFill_CompatibleWires steps in their
+// principled form and NOTHING ELSE:
+//   1. ORIENT — reverse `b` when its Newell normal opposes `a`'s.
+//   2. ORIGIN — rotate `b` so its first vertex is the one nearest a[0].
+// It is a single deterministic re-indexing, NOT a search over the n rotations
+// for one that happens to be planar: the planarity check that follows is still
+// the gate, and a ring pair that fails it is still an HONEST DEFER.
+void canonicalRing(const std::vector<gp_Pnt>& a, std::vector<gp_Pnt>& b) {
+    const std::size_t n = b.size();
+    if (a.size() < 3 || n != a.size()) return;
+    if (newell(a).Dot(newell(b)) < 0.0) std::reverse(b.begin(), b.end());
+    std::size_t best = 0;
+    double bestD = -1.0;
+    for (std::size_t s = 0; s < n; ++s) {
+        const double d = a[0].Distance(b[s]);
+        if (bestD < 0.0 || d < bestD) { bestD = d; best = s; }
+    }
+    if (best != 0) std::rotate(b.begin(), b.begin() + static_cast<long>(best), b.end());
+}
+
 // ---------------------------------------------------------------- extraction
 // Unwrap Geom_TrimmedCurve and report whether the edge's support is a LINE.
 bool isLineEdge(const TopoDS_Edge& e) {
@@ -458,8 +506,10 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
     }
 
     // Every polygon section must carry the SAME vertex count: correspondence is
-    // by wire-explorer index, exactly as BRepFill_Generator pairs them. OCCT
-    // auto-reparametrises mismatched sections; this engine does NOT and says so.
+    // an INDEX pairing, exactly as BRepFill_Generator pairs them (which index,
+    // i.e. each ring's orientation and origin, is settled just below by
+    // canonicalRing). OCCT auto-reparametrises sections of DIFFERING count;
+    // this engine does NOT and says so.
     std::size_t n = 0;
     for (const Section& s : sec) {
         if (s.isPoint) continue;
@@ -467,6 +517,22 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
         else if (s.ring.size() != n) return kNull;
     }
     if (n < 3) return kNull;
+
+    // ---------------------------------------------------- correspondence
+    // Fix each consecutive polygon pair's index correspondence before any face
+    // is built (see canonicalRing). The raw wire-explorer order is TRIED FIRST
+    // and kept whenever it already yields planar quads, so this is STRICTLY
+    // ADDITIVE: no input this engine covered before changes answer, and the
+    // canonical retry can only turn a defer into a build. If the canonical
+    // correspondence is not planar either, the pair is still declined.
+    // Rewriting sec[k+1] in place is deliberate: section k+1 is then the
+    // reference for pair k+1, so a chain of sections is canonicalised
+    // progressively rather than each pair independently.
+    for (std::size_t k = 0; k + 1 < sec.size(); ++k) {
+        if (sec[k].isPoint || sec[k + 1].isPoint) continue;
+        if (allQuadsPlanar(sec[k].ring, sec[k + 1].ring, t)) continue;
+        canonicalRing(sec[k].ring, sec[k + 1].ring);
+    }
 
     BRepBuilderAPI_Sewing sew(std::max(t, 1.0e-6));
 

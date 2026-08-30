@@ -246,6 +246,21 @@ set(OCCT_LIBS
 # ERROR. Nine of ten options fail with p < 1e-5 — these are not underpowered ties, the
 # intervals are in reports/corpus_ab/summary.md and none of the nine straddles zero.
 #
+# ★ THE TABLE ABOVE IS THE f71ed98b BASELINE AND ONE ROW OF IT HAS SINCE MOVED. The
+#   THRUSECTIONS 0.0% was not a coverage fact about the corpus, it was a DEFECT in the
+#   native engine: it paired the two section rings by raw wire-explorer index and so
+#   omitted the reorient/re-origin step BRepOffsetAPI_ThruSections performs (via
+#   BRepFill_CompatibleWires) before ITS index pairing. Fixed in
+#   src/native/brep/NativeLoftPipe.cpp::canonicalRing. RE-MEASURED over the same 600
+#   parts, stride 1, 0 part-level errors, at the commit that carries the fix:
+#     FORGE_THRUSECTIONS_DROP_NATIVE     51.5      94.5      258/600       4.3e-78
+#   and inside the 309 parts where BOTH arms build, ALL 309 agree with OCCT on the FULL
+#   observable vector (volume + centre of mass + bounding box + face/edge/vertex/shell
+#   counts + validity) with ZERO disagreements — so the added coverage is exact, not
+#   merely present. The option STILL FAILS its flip gate: the surviving 258-part gap is
+#   sections carrying CIRCLE (232 parts) or B-SPLINE (106 parts) edges, which a ruled
+#   loft of polygon rings does not cover and which is a different engine, not a fix.
+#
 # ★ FORGE_FILLING_DROP_NATIVE IS THE ONE OPTION THIS MEASUREMENT CLEARS, and it clears
 #   it perfectly: 407 parts where both built, 193 where neither did, ZERO discordant
 #   pairs in 600 trials, and all 407 shared successes agree on the FULL observable
@@ -667,8 +682,22 @@ endif()
 #   reference solids at f71ed98b (reports/CORPUS_AB_COVERAGE.md):
 #       D THRUSECTIONS  native 0.0% vs OCCT 94.5%   567/600 parts deleted, p=4.1e-171
 #       F PIPESHELL     native 51.5% vs OCCT 100%   291/600 parts deleted, p=5.0e-88
-#   D returned a defer on all 600 -- the corpus has essentially no polygonal sections,
-#   which is the scope this engine states. F is the best-covered of the sweep family and
+#   ★★ THE READING OF THE D ROW RECORDED HERE WAS WRONG AND IS RETRACTED. It said
+#   "D returned a defer on all 600 -- the corpus has essentially no polygonal sections,
+#   which is the scope this engine states." MEASURED per-part defer census over the same
+#   600: 309 of them present TWO 4-VERTEX ALL-LINE-EDGE polygon sections, i.e. the corpus
+#   is 51.5% polygonal, not "essentially no polygonal sections". Those 309 were declined
+#   for a reason inside this engine (raw wire-explorer index pairing, no reorient/
+#   re-origin), and on every one of the 309 a correspondence exists under which all four
+#   lateral quads are planar. With NativeLoftPipe.cpp::canonicalRing supplying the missing
+#   step, D RE-MEASURES 51.5% vs OCCT 94.5%, 258/600 deleted, p=4.3e-78, with all 309
+#   both-build parts agreeing with OCCT on the full observable vector. The gate is still
+#   FAILED, but by 258 CURVED-section parts (circle 232, B-spline 106) rather than by 567.
+#   THE LESSON, and it is the reason this paragraph is kept rather than replaced: a 0/600
+#   was read as a statement about the CORPUS when it was a statement about the ENGINE. A
+#   family that scores exactly zero deserves a per-part cause census before its number is
+#   quoted as a capability bound.
+#   F is the best-covered of the sweep family and
 #   the only one within sight of the gate. Family E (PIPE, below) measures native 0.3%
 #   against OCCT 100%, 598/600 deleted.
 #   ALSO MEASURED, and not a coverage fact: on ALL 309 parts where F and OCCT both
