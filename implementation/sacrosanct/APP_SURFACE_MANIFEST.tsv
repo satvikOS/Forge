@@ -29,6 +29,7 @@ part.pattern_grid	Part	PATTERN	document	transaction	ondemand	1	nx:number:require
 part.pattern_linear	Part	PATTERN	document	transaction	ondemand	1	count:number:required,dx:number:required,dy:number:optional,dz:number:optional
 part.redo	Part	-	document	none	none	1	-
 part.revolve	Part	REVOLVE	document	transaction	live	1	angle:number:required,axx:number:optional,axy:number:optional,axz:number:optional
+part.section_ring	Part	RING	document	transaction	live	1	rx:number:required,ry:number:required,z:number:required,cx:number:optional,cy:number:optional,p:number:optional,seg:number:optional
 part.shell	Part	SHELL	document	transaction	ondemand	1	thickness:number:required,open_axx:number:optional,open_axy:number:optional,open_axz:number:optional
 part.sketch_circle	Part	CIRCLE	document	transaction	live	1	radius:number:required,cx:number:optional,cy:number:optional
 part.sketch_rect	Part	RECT	document	transaction	live	1	width:number:required,height:number:required,cx:number:optional,cy:number:optional

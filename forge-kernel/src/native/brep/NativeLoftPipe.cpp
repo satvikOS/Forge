@@ -103,9 +103,12 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <cstdio>
+#include <cstring>
 #include <vector>
 
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -142,6 +145,29 @@ namespace occtloft {
 namespace {
 
 const TopoDS_Shape kNull;
+
+// ---------------- DIAGNOSTIC-ONLY DEFER-REASON CHANNEL (behaviour-neutral) ---
+// Every FK_DEFER below expands to "record a label, then do EXACTLY what the
+// bare `return kNull` / `return false` did". No predicate, no tolerance and no
+// branch changes. It exists because the corpus A/B (reports/corpus_ab) measured
+// this engine covering 2 of 600 PIPE inputs, and a bare null shape says nothing
+// about WHICH precondition declined -- which made the largest deletion bucket
+// in the whole drop plan unattributable.
+thread_local char g_reason[192] = {0};
+void reasonClear() { g_reason[0] = '\0'; }
+void reasonAdd(const char* label) {
+    const std::size_t n = std::strlen(g_reason);
+    // Collapse an immediately repeated label: a face with eleven wires that all
+    // fail the same test says the same thing eleven times and then overflows the
+    // buffer, hiding the label that actually differs.
+    const std::size_t k = std::strlen(label);
+    if (n >= k && std::strcmp(g_reason + n - k, label) == 0 &&
+        (n == k || g_reason[n - k - 1] == '|')) return;
+    if (n + 2 >= sizeof g_reason) return;
+    std::snprintf(g_reason + n, sizeof g_reason - n, "%s%s", n ? "|" : "", label);
+}
+#define FK_DEFER(label)   do { reasonAdd(label); return kNull; } while (0)
+#define FK_DEFER_F(label) do { reasonAdd(label); return false; } while (0)
 
 // ---------------------------------------------------------------- geometry
 gp_Vec vec(const gp_Pnt& a, const gp_Pnt& b) { return gp_Vec(a, b); }
@@ -198,40 +224,81 @@ bool isLineEdge(const TopoDS_Edge& e) {
 // edge, an open wire, or fewer than three distinct points — all honest defers.
 bool polygonRing(const TopoDS_Wire& w, std::vector<gp_Pnt>& out, double tol) {
     out.clear();
-    if (w.IsNull()) return false;
+    if (w.IsNull()) FK_DEFER_F("prof_wire_null");
     int nEdge = 0;
     for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) {
         const TopoDS_Edge& e = ex.Current();
-        if (!isLineEdge(e)) return false;
+        if (!isLineEdge(e)) FK_DEFER_F("prof_edge_not_line");
         ++nEdge;
         const gp_Pnt p = BRep_Tool::Pnt(ex.CurrentVertex());
         if (out.empty() || p.Distance(out.back()) > tol) out.push_back(p);
     }
-    if (nEdge < 3 || out.size() < 3) return false;
+    if (nEdge < 3 || out.size() < 3) FK_DEFER_F("prof_lt3_edges");
     // Closed? BRepTools_WireExplorer emits each edge's FIRST vertex, so a closed
     // wire's ring is already complete; an OPEN wire's last edge contributes its
     // start only and the ring would silently lose the free end. Reject openness
     // explicitly rather than infer it.
-    if (!BRep_Tool::IsClosed(w)) return false;
+    if (!BRep_Tool::IsClosed(w)) FK_DEFER_F("prof_wire_open");
     if (out.front().Distance(out.back()) <= tol) out.pop_back();
-    return out.size() >= 3;
+    if (out.size() < 3) FK_DEFER_F("prof_lt3_pts");
+    return true;
 }
 
-// The outer polygon ring of a profile given as a WIRE or a FACE.
-bool profileRing(const TopoDS_Shape& s, std::vector<gp_Pnt>& out, double tol) {
-    if (s.IsNull()) return false;
-    if (s.ShapeType() == TopAbs_WIRE) return polygonRing(TopoDS::Wire(s), out, tol);
-    if (s.ShapeType() == TopAbs_FACE) {
-        int nw = 0;
-        TopoDS_Wire outer;
-        for (TopExp_Explorer ex(s, TopAbs_WIRE); ex.More(); ex.Next()) {
-            outer = TopoDS::Wire(ex.Current());
-            ++nw;
-        }
-        if (nw != 1) return false;   // a face with a hole needs a real 2-D trim
-        return polygonRing(outer, out, tol);
+// EVERY polygon ring of a profile given as a WIRE or a FACE: rings[0] is the
+// OUTER boundary and rings[1..] are its HOLES, largest Newell area first.
+//
+// ★ WHY THE HOLES ARE CARRIED RATHER THAN DECLINED. This function used to
+// reject any face with more than one wire ("a face with a hole needs a real 2-D
+// trim"). Measured on the 600-part corpus A/B, that single line was 581 of the
+// 598 PIPE defers — 97.2% — and for 307 of those parts the SAME outer wire,
+// handed to the SAME transport as a bare TopoDS_Wire by the PIPESHELL family,
+// swept without complaint. So the rejection was never about the sweep: it was
+// about the cap.
+//
+// No 2-D trim is needed, because the per-leg mitre map p -> p + s(p)d is AFFINE
+// and INVERTIBLE whenever its denominator is positive (the same condition the
+// engine already enforces). An affine bijection carries nested disjoint rings to
+// nested disjoint rings, so the hole stays a hole and no new self-intersection
+// can appear. The cap is then a planar face with the transported holes added as
+// inner wires — exactly the region OCCT's MakePipe sweeps for the same face.
+//
+// The rings are area-sorted and the outer must be STRICTLY the largest: a tie
+// means the outer boundary is not identifiable from the rings alone, and a
+// guess there would silently swap material for void.
+bool profileRings(const TopoDS_Shape& s,
+                  std::vector<std::vector<gp_Pnt> >& rings, double tol) {
+    rings.clear();
+    if (s.IsNull()) FK_DEFER_F("prof_null");
+
+    if (s.ShapeType() == TopAbs_WIRE) {
+        std::vector<gp_Pnt> r;
+        if (!polygonRing(TopoDS::Wire(s), r, tol)) return false;   // reason set
+        rings.push_back(r);
+        return true;
     }
-    return false;
+    if (s.ShapeType() != TopAbs_FACE) FK_DEFER_F("prof_bad_shape_type");
+
+    std::vector<std::vector<gp_Pnt> > got;
+    for (TopExp_Explorer ex(s, TopAbs_WIRE); ex.More(); ex.Next()) {
+        std::vector<gp_Pnt> r;
+        if (!polygonRing(TopoDS::Wire(ex.Current()), r, tol)) return false;  // reason set
+        got.push_back(r);
+    }
+    if (got.empty()) FK_DEFER_F("prof_face_no_wire");
+
+    // Largest Newell area first. Every ring is already known planar (polygonRing
+    // does not check that, ringPlanar below does), so the magnitude is the area.
+    std::vector<std::size_t> order(got.size());
+    for (std::size_t i = 0; i < got.size(); ++i) order[i] = i;
+    std::vector<double> a(got.size(), 0.0);
+    for (std::size_t i = 0; i < got.size(); ++i) a[i] = newell(got[i]).Magnitude();
+    std::sort(order.begin(), order.end(),
+              [&](std::size_t x, std::size_t y) { return a[x] > a[y]; });
+    for (std::size_t i = 1; i < order.size(); ++i) {
+        if (!(a[order[0]] > a[order[i]])) FK_DEFER_F("prof_rings_area_tie");
+    }
+    for (std::size_t i = 0; i < order.size(); ++i) rings.push_back(got[order[i]]);
+    return true;
 }
 
 // ---------------------------------------------------------------- assembly
@@ -239,16 +306,16 @@ bool addPolyFace(BRepBuilderAPI_Sewing& sew, const std::vector<gp_Pnt>& r) {
     BRepBuilderAPI_MakePolygon poly;
     for (const gp_Pnt& p : r) poly.Add(p);
     poly.Close();
-    if (!poly.IsDone()) return false;
+    if (!poly.IsDone()) FK_DEFER_F("face_polygon_fail");
     BRepBuilderAPI_MakeFace mkf(poly.Wire(), Standard_True);
-    if (!mkf.IsDone()) return false;
+    if (!mkf.IsDone()) FK_DEFER_F("face_makeface_fail");
     sew.Add(mkf.Face());
     return true;
 }
 
 bool addQuad(BRepBuilderAPI_Sewing& sew, const gp_Pnt& a, const gp_Pnt& b,
              const gp_Pnt& c, const gp_Pnt& d, double tol) {
-    if (!quadPlanar(a, b, c, d, tol)) return false;
+    if (!quadPlanar(a, b, c, d, tol)) FK_DEFER_F("quad_nonplanar");
     return addPolyFace(sew, std::vector<gp_Pnt>{a, b, c, d});
 }
 
@@ -256,8 +323,40 @@ bool addTri(BRepBuilderAPI_Sewing& sew, const gp_Pnt& a, const gp_Pnt& b,
             const gp_Pnt& c, double tol) {
     const std::vector<gp_Pnt> t{a, b, c};
     double area = 0.0;
-    if (!ringPlanar(t, tol, area)) return false;   // rejects a degenerate sliver
+    if (!ringPlanar(t, tol, area)) FK_DEFER_F("tri_degenerate");
     return addPolyFace(sew, t);
+}
+
+// One planar CAP face: `rings[0]` is the outer boundary, `rings[1..]` its holes.
+// A hole wire is added with the winding OPPOSITE to the outer — that is what
+// makes it a hole rather than a second outer boundary — and the winding is read
+// from the ring's own Newell normal rather than assumed from the input order.
+// With a single ring this is byte-for-byte the old addPolyFace path.
+bool addCapFace(BRepBuilderAPI_Sewing& sew,
+                const std::vector<std::vector<gp_Pnt> >& rings) {
+    if (rings.empty()) FK_DEFER_F("cap_no_ring");
+    if (rings.size() == 1) return addPolyFace(sew, rings[0]);
+
+    BRepBuilderAPI_MakePolygon op;
+    for (const gp_Pnt& p : rings[0]) op.Add(p);
+    op.Close();
+    if (!op.IsDone()) FK_DEFER_F("cap_outer_polygon_fail");
+    BRepBuilderAPI_MakeFace mkf(op.Wire(), Standard_True);
+    if (!mkf.IsDone()) FK_DEFER_F("cap_outer_face_fail");
+
+    const gp_Vec no = newell(rings[0]);
+    for (std::size_t i = 1; i < rings.size(); ++i) {
+        BRepBuilderAPI_MakePolygon ip;
+        for (const gp_Pnt& p : rings[i]) ip.Add(p);
+        ip.Close();
+        if (!ip.IsDone()) FK_DEFER_F("cap_hole_polygon_fail");
+        TopoDS_Wire hw = ip.Wire();
+        if (newell(rings[i]).Dot(no) > 0.0) hw.Reverse();
+        mkf.Add(hw);
+        if (!mkf.IsDone()) FK_DEFER_F("cap_hole_add_fail");
+    }
+    sew.Add(mkf.Face());
+    return true;
 }
 
 // Sew, then either return the open SHELL (solid == false, matching OCCT's
@@ -265,7 +364,7 @@ bool addTri(BRepBuilderAPI_Sewing& sew, const gp_Pnt& a, const gp_Pnt& b,
 TopoDS_Shape sewAndClose(BRepBuilderAPI_Sewing& sew, bool solid) {
     sew.Perform();
     const TopoDS_Shape sewed = sew.SewedShape();
-    if (sewed.IsNull()) return kNull;
+    if (sewed.IsNull()) FK_DEFER("sew_null");
 
     TopoDS_Shell shell;
     int nShells = 0;
@@ -273,20 +372,20 @@ TopoDS_Shape sewAndClose(BRepBuilderAPI_Sewing& sew, bool solid) {
         shell = TopoDS::Shell(ex.Current());
         ++nShells;
     }
-    if (nShells != 1 || shell.IsNull()) return kNull;
+    if (nShells != 1 || shell.IsNull()) FK_DEFER(nShells == 0 ? "sew_no_shell" : "sew_multi_shell");
 
     if (!solid) {
         // An open skin is the deliverable here; free edges are its rim, not a
         // fault. Only the "one connected shell" invariant is asserted.
         return shell;
     }
-    if (sew.NbFreeEdges() != 0) return kNull;      // not watertight -> defer
+    if (sew.NbFreeEdges() != 0) FK_DEFER("sew_free_edges");   // not watertight
 
     const TopoDS_Solid sol = forge::occtheal::solidFromShell(shell);
-    if (sol.IsNull()) return kNull;
+    if (sol.IsNull()) FK_DEFER("sew_solid_from_shell_fail");
     GProp_GProps props;
     BRepGProp::VolumeProperties(sol, props);
-    if (std::fabs(props.Mass()) < 1.0e-12) return kNull;
+    if (std::fabs(props.Mass()) < 1.0e-12) FK_DEFER("sew_zero_volume");
     return sol;   // solidFromShell already oriented it to positive volume
 }
 
@@ -302,6 +401,9 @@ bool envOn(const char* name) {
 }
 
 }  // namespace
+
+// Diagnostic-only. See the FK_DEFER banner above.
+const char* lastDeferReason() { return g_reason; }
 
 // =========================================================== routing
 bool loftNativeEnabled() {
@@ -414,18 +516,18 @@ bool spinePolyline(const TopoDS_Wire& spine, double t,
                    std::vector<gp_Pnt>& node, std::vector<gp_Dir>& leg) {
     node.clear();
     leg.clear();
-    if (spine.IsNull()) return false;
-    if (BRep_Tool::IsClosed(spine)) return false;     // a closed spine has no ends
+    if (spine.IsNull()) FK_DEFER_F("spine_null");
+    if (BRep_Tool::IsClosed(spine)) FK_DEFER_F("spine_closed");
     for (BRepTools_WireExplorer ex(spine); ex.More(); ex.Next()) {
         const TopoDS_Edge& e = ex.Current();
-        if (!isLineEdge(e)) return false;
+        if (!isLineEdge(e)) FK_DEFER_F("spine_edge_not_line");
         const gp_Pnt p = BRep_Tool::Pnt(ex.CurrentVertex());
         if (node.empty() || p.Distance(node.back()) > t) node.push_back(p);
     }
     // BRepTools_WireExplorer yields each edge's FIRST vertex, so the spine's own
     // end point is ALWAYS still missing — including for a single-segment spine,
     // where `node` holds exactly one point here. Append it before any size test.
-    if (node.empty()) return false;
+    if (node.empty()) FK_DEFER_F("spine_no_nodes");
     {
         int nEdge = 0;
         TopoDS_Edge last;
@@ -433,7 +535,7 @@ bool spinePolyline(const TopoDS_Wire& spine, double t,
             last = TopoDS::Edge(ex.Current());
             ++nEdge;
         }
-        if (nEdge == 0) return false;
+        if (nEdge == 0) FK_DEFER_F("spine_no_edges");
         gp_Pnt best;
         double bestD = -1.0;
         for (TopExp_Explorer vx(last, TopAbs_VERTEX); vx.More(); vx.Next()) {
@@ -441,15 +543,16 @@ bool spinePolyline(const TopoDS_Wire& spine, double t,
             const double d = p.Distance(node.back());
             if (d > bestD) { bestD = d; best = p; }
         }
-        if (bestD <= t) return false;
+        if (bestD <= t) FK_DEFER_F("spine_end_degenerate");
         node.push_back(best);
     }
     for (std::size_t j = 0; j + 1 < node.size(); ++j) {
         const gp_Vec d = vec(node[j], node[j + 1]);
-        if (d.Magnitude() <= t) return false;
+        if (d.Magnitude() <= t) FK_DEFER_F("spine_zero_leg");
         leg.push_back(gp_Dir(d));
     }
-    return !leg.empty();
+    if (leg.empty()) FK_DEFER_F("spine_no_legs");
+    return true;
 }
 
 // ---------------------------------------------------------------- transport
@@ -473,52 +576,76 @@ bool spinePolyline(const TopoDS_Wire& spine, double t,
 // p -> p + s(p) d_j is AFFINE in p, so each lateral quad
 // (p_i, p_i+1, m_i+1, m_i) lies in span{p_i+1 - p_i, d_j} — PLANAR by
 // construction, which is what keeps this engine exact.
+//
+// ★ MULTIPLE RINGS. `rings[0]` is the outer boundary and `rings[1..]` its holes.
+// EVERY ring is carried by the SAME per-leg affine map, which is what makes the
+// holed sweep exact rather than an approximation: an affine bijection preserves
+// nesting and disjointness, so hole stays hole and the lateral surfaces of two
+// different rings can never cross. The lateral faces are emitted for every ring;
+// the caps carry the holes as inner wires.
 TopoDS_Shape sweepPolygonMitre(const std::vector<gp_Pnt>& node,
                                const std::vector<gp_Dir>& leg,
-                               const std::vector<gp_Pnt>& ring,
+                               const std::vector<std::vector<gp_Pnt> >& rings,
                                bool makeSolid, double t) {
-    const std::size_t n = ring.size();
+    if (rings.empty()) FK_DEFER("no_ring");
+    // An OPEN skin (ThruSections(isSolid=false) semantics) of a holed profile is
+    // two disconnected tubes, not one shell. Say so here rather than let it fall
+    // out of the shell count as a mystery.
+    if (rings.size() > 1 && !makeSolid) FK_DEFER("open_skin_with_holes");
+
     BRepBuilderAPI_Sewing sew(std::max(t, 1.0e-6));
 
-    // Carry the ring leg by leg. `cur` is the section at the start of leg j.
-    std::vector<gp_Pnt> cur = ring;
-    const std::vector<gp_Pnt> startRing = ring;
+    // Carry the rings leg by leg. `cur` is the section at the start of leg j.
+    std::vector<std::vector<gp_Pnt> > cur = rings;
+    const std::vector<std::vector<gp_Pnt> > startRings = rings;
 
     for (std::size_t j = 0; j < leg.size(); ++j) {
-        std::vector<gp_Pnt> nxt(n);
+        std::vector<std::vector<gp_Pnt> > nxt(cur.size());
         if (j + 1 < leg.size()) {
             // Interior node: carry to the MITRE plane at node[j+1].
             const gp_Vec nvv = gp_Vec(leg[j]) + gp_Vec(leg[j + 1]);
-            if (nvv.Magnitude() <= 1.0e-12) return kNull;   // 180-degree reversal
+            if (nvv.Magnitude() <= 1.0e-12) FK_DEFER("mitre_reversal");
             const gp_Dir mn(nvv);
             const double denom = gp_Vec(leg[j]).Dot(gp_Vec(mn));
-            if (denom <= 1.0e-12) return kNull;
-            for (std::size_t i = 0; i < n; ++i) {
-                const double s = vec(cur[i], node[j + 1]).Dot(gp_Vec(mn)) / denom;
-                nxt[i] = cur[i].Translated(s * gp_Vec(leg[j]));
+            if (denom <= 1.0e-12) FK_DEFER("mitre_denom");
+            for (std::size_t g = 0; g < cur.size(); ++g) {
+                nxt[g].resize(cur[g].size());
+                for (std::size_t i = 0; i < cur[g].size(); ++i) {
+                    const double sN = vec(cur[g][i], node[j + 1]).Dot(gp_Vec(mn)) / denom;
+                    nxt[g][i] = cur[g][i].Translated(sN * gp_Vec(leg[j]));
+                }
             }
         } else {
             // Final leg: carry to the plane through the spine end, normal d_j.
             // For a SINGLE-segment spine this is exactly the translation by the
             // spine displacement that OCCT was measured to apply (PART 3a).
-            for (std::size_t i = 0; i < n; ++i) {
-                const double s = vec(cur[i], node[j + 1]).Dot(gp_Vec(leg[j]));
-                nxt[i] = cur[i].Translated(s * gp_Vec(leg[j]));
+            for (std::size_t g = 0; g < cur.size(); ++g) {
+                nxt[g].resize(cur[g].size());
+                for (std::size_t i = 0; i < cur[g].size(); ++i) {
+                    const double sN = vec(cur[g][i], node[j + 1]).Dot(gp_Vec(leg[j]));
+                    nxt[g][i] = cur[g][i].Translated(sN * gp_Vec(leg[j]));
+                }
             }
         }
-        for (std::size_t i = 0; i < n; ++i) {
-            const std::size_t k = (i + 1) % n;
-            if (!addQuad(sew, cur[i], cur[k], nxt[k], nxt[i], t)) return kNull;
+        for (std::size_t g = 0; g < cur.size(); ++g) {
+            const std::size_t n = cur[g].size();
+            for (std::size_t i = 0; i < n; ++i) {
+                const std::size_t k = (i + 1) % n;
+                if (!addQuad(sew, cur[g][i], cur[g][k], nxt[g][k], nxt[g][i], t))
+                    return kNull;  // reason set
+            }
         }
         cur = nxt;
     }
 
     if (makeSolid) {
-        double a0 = 0.0, a1 = 0.0;
-        if (!ringPlanar(startRing, t, a0)) return kNull;
-        if (!ringPlanar(cur, t, a1)) return kNull;
-        if (!addPolyFace(sew, startRing)) return kNull;
-        if (!addPolyFace(sew, cur)) return kNull;
+        for (std::size_t g = 0; g < startRings.size(); ++g) {
+            double a0 = 0.0, a1 = 0.0;
+            if (!ringPlanar(startRings[g], t, a0)) FK_DEFER("cap_start_nonplanar");
+            if (!ringPlanar(cur[g], t, a1)) FK_DEFER("cap_end_nonplanar");
+        }
+        if (!addCapFace(sew, startRings)) return kNull;   // reason set
+        if (!addCapFace(sew, cur)) return kNull;          // reason set
     }
 
     return sewAndClose(sew, makeSolid);
@@ -532,21 +659,37 @@ TopoDS_Shape sweepPolygonProfile(const TopoDS_Wire& spine,
                                  bool makeSolid, double t) {
     std::vector<gp_Pnt> node;
     std::vector<gp_Dir> leg;
-    if (!spinePolyline(spine, t, node, leg)) return kNull;
+    if (!spinePolyline(spine, t, node, leg)) return kNull;   // reason already set
 
-    std::vector<gp_Pnt> ring;
-    if (!profileRing(profile, ring, t)) return kNull;
+    std::vector<std::vector<gp_Pnt> > rings;
+    if (!profileRings(profile, rings, t)) return kNull;       // reason already set
     double area = 0.0;
-    if (!ringPlanar(ring, t, area)) return kNull;
+    if (!ringPlanar(rings[0], t, area)) FK_DEFER("prof_ring_nonplanar");
+
+    // Every hole must be planar AND lie in the OUTER ring's plane. A face read
+    // from STEP can carry a wire that is planar on its own but tilted out of the
+    // face plane by a healing artefact; sweeping that would cap a solid whose
+    // start face is not flat, so it is a defer rather than a repair.
+    const gp_Dir pn(newell(rings[0]));
+    for (std::size_t g = 1; g < rings.size(); ++g) {
+        double ah = 0.0;
+        if (!ringPlanar(rings[g], t, ah)) FK_DEFER("prof_hole_nonplanar");
+        if (std::fabs(gp_Dir(newell(rings[g])).Dot(pn)) < 1.0 - 1.0e-9)
+            FK_DEFER("prof_hole_not_parallel");
+        for (const gp_Pnt& q : rings[g]) {
+            if (std::fabs(vec(rings[0][0], q).Dot(gp_Vec(pn))) > t)
+                FK_DEFER("prof_hole_off_plane");
+        }
+    }
 
     // A multi-segment spine needs the profile plane PERPENDICULAR to the first
     // leg, otherwise the mitre map is not the rigid transport this engine
     // derives and the answer would be a guess.
     if (leg.size() > 1) {
-        const gp_Dir pn(newell(ring));
-        if (std::fabs(std::fabs(pn.Dot(leg[0])) - 1.0) > 1.0e-9) return kNull;
+        if (std::fabs(std::fabs(pn.Dot(leg[0])) - 1.0) > 1.0e-9)
+            FK_DEFER("prof_not_perp_to_leg0");
     }
-    return sweepPolygonMitre(node, leg, ring, makeSolid, t);
+    return sweepPolygonMitre(node, leg, rings, makeSolid, t);
 }
 
 }  // namespace
@@ -556,7 +699,8 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
                        const std::vector<TopoDS_Wire>& guides,
                        bool makeSolid, double tol) {
     // There is no native guided pipe-shell anywhere in the tree. Say so.
-    if (!guides.empty()) return kNull;
+    reasonClear();
+    if (!guides.empty()) FK_DEFER("guides_present");
     return sweepPolygonProfile(spine, profile, makeSolid, std::max(tol, 1.0e-9));
 }
 
@@ -706,8 +850,9 @@ TopoDS_Shape pipeCircleMitre(const std::vector<gp_Pnt>& node,
     // Preconditions, mirroring the polygon path: the section plane is
     // perpendicular to the first leg and its centre sits ON the spine start.
     // Without both, the mitre map is not the rigid transport derived above.
-    if (std::fabs(std::fabs(gp_Vec(ax0).Dot(gp_Vec(leg[0]))) - 1.0) > 1.0e-9) return kNull;
-    if (c0.Distance(node[0]) > std::max(t, 1.0e-9)) return kNull;
+    if (std::fabs(std::fabs(gp_Vec(ax0).Dot(gp_Vec(leg[0]))) - 1.0) > 1.0e-9)
+        FK_DEFER("circ_not_perp_to_leg0");
+    if (c0.Distance(node[0]) > std::max(t, 1.0e-9)) FK_DEFER("circ_centre_off_spine");
 
     const std::size_t k = leg.size();
 
@@ -717,9 +862,9 @@ TopoDS_Shape pipeCircleMitre(const std::vector<gp_Pnt>& node,
     sn.push_back(leg[0]);
     for (std::size_t j = 1; j < k; ++j) {
         const gp_Vec b = gp_Vec(leg[j - 1]) + gp_Vec(leg[j]);
-        if (b.Magnitude() <= 1.0e-12) return kNull;          // 180-degree reversal
+        if (b.Magnitude() <= 1.0e-12) FK_DEFER("circ_mitre_reversal");
         const gp_Dir mn(b);
-        if (gp_Vec(leg[j - 1]).Dot(gp_Vec(mn)) <= 1.0e-12) return kNull;
+        if (gp_Vec(leg[j - 1]).Dot(gp_Vec(mn)) <= 1.0e-12) FK_DEFER("circ_mitre_denom");
         sn.push_back(mn);
     }
     sn.push_back(leg[k - 1]);
@@ -736,7 +881,7 @@ TopoDS_Shape pipeCircleMitre(const std::vector<gp_Pnt>& node,
             return r * std::sqrt(std::max(0.0, 1.0 - m * m)) / m;
         };
         const double m0 = margin(j), m1 = margin(j + 1);
-        if (m0 < 0.0 || m1 < 0.0) return kNull;
+        if (m0 < 0.0 || m1 < 0.0) FK_DEFER("circ_grazing_station");
         const double pad = 1.0e-6 + 1.0e-6 * r;
         const double len = node[j].Distance(node[j + 1]) + m0 + m1 + 2.0 * pad;
         const gp_Pnt base = node[j].Translated(-(m0 + pad) * gp_Vec(leg[j]));
@@ -791,6 +936,260 @@ TopoDS_Shape pipeCircleMitre(const std::vector<gp_Pnt>& node,
     return out;
 }
 
+// ── FAMILY E, THIRD PROFILE KIND: a POLYGON outer boundary with CIRCULAR holes.
+//
+// WHY THIS KIND EXISTS, measured not guessed. On the 600-part corpus A/B the
+// native PIPE engine covered 2 parts. Instrumenting every defer predicate (see
+// the FK_DEFER channel) attributed them exactly:
+//     581  the profile face had more than one wire        <- removed above
+//      17  the profile's outer wire was not a polygon
+// and after the multi-wire rejection was removed the whole 598 moved to ONE
+// label, "an edge that is not a line". A per-wire curve census of the same 600
+// profile faces then showed why: of 3426 hole wires in the corpus, 3426 are
+// FULL CIRCLES and none is a polygon. Removing the multi-wire gate alone
+// therefore bought ZERO coverage -- the bucket behind it was 100% co-occurrent.
+// The parts split cleanly:
+//     307  outer POLYGON, every hole a CIRCLE   <- this function
+//     274  outer NOT a polygon, holes circles   <- needs a curved outer boundary
+//      17  outer NOT a polygon, no holes        <- same
+//       2  outer POLYGON, no holes              <- the two that already built
+//
+// CONSTRUCTION, exact and analytic throughout. The outer boundary is the same
+// mitre / double-reflection transport as everywhere else in this file. Each hole
+// is a chain of mitre-trimmed right circular cylinders: the hole's CENTRE is
+// carried by the SAME affine per-leg map as the polygon vertices, so over leg j
+// the hole's lateral surface is a Geom_CylindricalSurface of the hole's own
+// radius about the axis (c_j, d_j), trimmed by the two station planes. This is
+// pipeCircleMitre's construction with the on-spine restriction lifted: nothing
+// in it needs the circle centre to sit on the spine except the station planes,
+// and those are properties of the SPINE, not of the section.
+//
+// THE CORRECTNESS GATE, universal and cheap. The tubes are cut from the outer
+// solid, and the answer is accepted only if
+//     vol(outer) - vol(result) == sum of vol(tube_i)
+// to 1e-7 relative. That identity holds IFF every tube lies entirely inside the
+// outer solid and no two tubes overlap -- exactly the two ways a hole could
+// silently carve material it should not. A hole poking through the outer wall
+// is a percent-level effect and cannot hide under that bound.
+// A CLOSED wire that is EXACTLY ONE FULL CIRCLE -- whether the STEP writer
+// stored it as a single edge or split it into several arcs of the SAME circle.
+// circleProfile() above requires a single edge, which is the right rule for a
+// PROFILE (an arc there is a genuinely different shape); for a HOLE the split is
+// pure representation, and rejecting it cost 60 of the corpus's 600 parts.
+//
+// The three things checked are the three that make it a circle and not an arc
+// fan: every edge lies on the SAME circle (centre, axis, radius), the wire is
+// CLOSED, and the arc parameter spans SUM to exactly one turn -- so a wire that
+// doubles back over the same arc twice, or leaves a gap, is not accepted.
+bool fullCircleWire(const TopoDS_Wire& w, gp_Pnt& c, gp_Dir& ax, double& r,
+                    double tol) {
+    if (w.IsNull()) return false;
+    if (!BRep_Tool::IsClosed(w)) return false;
+    const double kTwoPi = 6.283185307179586476925286766559;
+    bool first = true;
+    double span = 0.0;
+    int ne = 0;
+    for (TopExp_Explorer ex(w, TopAbs_EDGE); ex.More(); ex.Next()) {
+        const TopoDS_Edge e = TopoDS::Edge(ex.Current());
+        Standard_Real f = 0.0, l = 0.0;
+        Handle(Geom_Curve) cv = BRep_Tool::Curve(e, f, l);
+        while (!cv.IsNull() && cv->IsKind(STANDARD_TYPE(Geom_TrimmedCurve)))
+            cv = Handle(Geom_TrimmedCurve)::DownCast(cv)->BasisCurve();
+        if (cv.IsNull() || !cv->IsKind(STANDARD_TYPE(Geom_Circle))) return false;
+        const gp_Circ ci = Handle(Geom_Circle)::DownCast(cv)->Circ();
+        if (first) {
+            c = ci.Location(); ax = ci.Axis().Direction(); r = ci.Radius();
+            first = false;
+        } else {
+            const double ct = std::max(tol, 1.0e-7 * std::max(1.0, r));
+            if (ci.Location().Distance(c) > ct) return false;
+            if (!ci.Axis().Direction().IsParallel(ax, 1.0e-9)) return false;
+            if (std::fabs(ci.Radius() - r) > ct) return false;
+        }
+        span += std::fabs(l - f);
+        ++ne;
+    }
+    if (ne == 0 || !(r > 0.0)) return false;
+    return std::fabs(span - kTwoPi) <= 1.0e-7;
+}
+
+TopoDS_Shape pipePolygonWithCircularHoles(const TopoDS_Wire& spine,
+                                          const TopoDS_Shape& profile, double t) {
+    if (profile.IsNull() || profile.ShapeType() != TopAbs_FACE)
+        FK_DEFER("holes_profile_not_face");
+
+    std::vector<gp_Pnt> node;
+    std::vector<gp_Dir> leg;
+    if (!spinePolyline(spine, t, node, leg)) return kNull;   // reason already set
+    const std::size_t k = leg.size();
+
+    // ---- split the face's wires into ONE polygon outer and N circle holes ---
+    struct Hole { gp_Pnt c; double r; };
+    std::vector<std::vector<gp_Pnt> > polys;
+    std::vector<Hole> holes;
+    for (TopExp_Explorer wx(profile, TopAbs_WIRE); wx.More(); wx.Next()) {
+        const TopoDS_Wire w = TopoDS::Wire(wx.Current());
+        std::vector<gp_Pnt> ring;
+        if (polygonRing(w, ring, t)) { polys.push_back(ring); continue; }
+        gp_Pnt c; gp_Dir ax; double r = 0.0;
+        if (!fullCircleWire(w, c, ax, r, t))
+            FK_DEFER("holes_wire_neither_poly_nor_circle");
+        // The circle must lie IN the profile plane, i.e. its axis is the sweep
+        // direction. Otherwise its swept surface is an elliptic cylinder and
+        // this construction would be a guess.
+        if (std::fabs(std::fabs(gp_Vec(ax).Dot(gp_Vec(leg[0]))) - 1.0) > 1.0e-9)
+            FK_DEFER("holes_circle_not_perp_to_leg0");
+        holes.push_back(Hole{c, r});
+    }
+    if (polys.size() != 1) FK_DEFER(polys.empty() ? "holes_no_polygon_outer"
+                                                  : "holes_multiple_polygon_wires");
+    if (holes.empty()) FK_DEFER("holes_none");   // the plain polygon path owns this
+
+    const std::vector<gp_Pnt>& outerRing = polys[0];
+    double outerArea = 0.0;
+    if (!ringPlanar(outerRing, t, outerArea)) FK_DEFER("holes_outer_nonplanar");
+    const gp_Dir pn(newell(outerRing));
+
+    // The outer boundary and every hole centre must share ONE plane, and that
+    // plane must be perpendicular to the first leg (the cylinders' axis).
+    if (std::fabs(std::fabs(pn.Dot(leg[0])) - 1.0) > 1.0e-9)
+        FK_DEFER("holes_outer_not_perp_to_leg0");
+    for (const Hole& h : holes) {
+        if (std::fabs(vec(outerRing[0], h.c).Dot(gp_Vec(pn))) > std::max(t, 1.0e-7))
+            FK_DEFER("holes_circle_off_profile_plane");
+        if (!(h.r > 0.0)) FK_DEFER("holes_zero_radius");
+    }
+
+    // ---- station planes, identical to pipeCircleMitre's ---------------------
+    std::vector<gp_Dir> sn;
+    sn.reserve(k + 1);
+    sn.push_back(leg[0]);
+    for (std::size_t j = 1; j < k; ++j) {
+        const gp_Vec b = gp_Vec(leg[j - 1]) + gp_Vec(leg[j]);
+        if (b.Magnitude() <= 1.0e-12) FK_DEFER("holes_mitre_reversal");
+        const gp_Dir mn(b);
+        if (gp_Vec(leg[j - 1]).Dot(gp_Vec(mn)) <= 1.0e-12) FK_DEFER("holes_mitre_denom");
+        sn.push_back(mn);
+    }
+    sn.push_back(leg[k - 1]);
+
+    // ---- the OUTER solid ----------------------------------------------------
+    std::vector<std::vector<gp_Pnt> > justOuter;
+    justOuter.push_back(outerRing);
+    TopoDS_Shape solid = sweepPolygonMitre(node, leg, justOuter, /*makeSolid*/ true, t);
+    if (solid.IsNull()) return kNull;   // reason already set
+    GProp_GProps gp0;
+    BRepGProp::VolumeProperties(solid, gp0);
+    const double volOuter = std::fabs(gp0.Mass());
+    if (!(volOuter > 0.0)) FK_DEFER("holes_outer_zero_volume");
+
+    // ---- one mitre-trimmed cylinder chain per hole, then CUT ----------------
+    double volTubes = 0.0;
+    for (const Hole& h : holes) {
+        gp_Pnt cj = h.c;
+        TopoDS_Shape tube;
+        for (std::size_t j = 0; j < k; ++j) {
+            // Carry the centre to the next station plane by the SAME affine map
+            // the polygon vertices use.
+            gp_Pnt cn;
+            if (j + 1 < k) {
+                const double denom = gp_Vec(leg[j]).Dot(gp_Vec(sn[j + 1]));
+                if (denom <= 1.0e-12) FK_DEFER("holes_mitre_denom");
+                const double sMove = vec(cj, node[j + 1]).Dot(gp_Vec(sn[j + 1])) / denom;
+                cn = cj.Translated(sMove * gp_Vec(leg[j]));
+            } else {
+                const double sMove = vec(cj, node[j + 1]).Dot(gp_Vec(leg[j]));
+                cn = cj.Translated(sMove * gp_Vec(leg[j]));
+            }
+            const double travel = cj.Distance(cn);
+            if (!(travel > std::max(t, 1.0e-9))) FK_DEFER("holes_zero_travel_leg");
+
+            auto margin = [&](std::size_t st) -> double {
+                const double m = std::fabs(gp_Vec(leg[j]).Dot(gp_Vec(sn[st])));
+                if (m <= 1.0e-9) return -1.0;
+                return h.r * std::sqrt(std::max(0.0, 1.0 - m * m)) / m;
+            };
+            const double m0 = margin(j), m1 = margin(j + 1);
+            if (m0 < 0.0 || m1 < 0.0) FK_DEFER("holes_grazing_station");
+            const double pad = 1.0e-6 + 1.0e-6 * h.r;
+            const double len = travel + m0 + m1 + 2.0 * pad;
+            const gp_Pnt base = cj.Translated(-(m0 + pad) * gp_Vec(leg[j]));
+
+            TopoDS_Shape piece;
+            try {
+                piece = ::forge::occtCylinderSolid(gp_Ax2(base, leg[j]), h.r, len);
+            } catch (const std::exception&) {
+                FK_DEFER("holes_cylinder_throw");
+            }
+            if (piece.IsNull()) FK_DEFER("holes_cylinder_null");
+
+            // The material side of each station plane is the one holding the
+            // midpoint of THIS hole's own leg segment: its two ends lie exactly
+            // ON the two station planes, so the midpoint is strictly between.
+            const gp_Pnt mid((cj.X() + cn.X()) * 0.5, (cj.Y() + cn.Y()) * 0.5,
+                             (cj.Z() + cn.Z()) * 0.5);
+            for (std::size_t st : {j, j + 1}) {
+                const TopoDS_Shape hs = halfSpaceThrough(node[st], sn[st], mid, piece);
+                if (hs.IsNull()) FK_DEFER("holes_halfspace_null");
+                BRepAlgoAPI_Common cut(piece, hs);
+                cut.Build();
+                if (!cut.IsDone()) FK_DEFER("holes_station_trim_fail");
+                piece = cut.Shape();
+                if (piece.IsNull()) FK_DEFER("holes_station_trim_null");
+            }
+
+            if (tube.IsNull()) {
+                tube = piece;
+            } else {
+                BRepAlgoAPI_Fuse fu(tube, piece);
+                fu.Build();
+                if (!fu.IsDone()) FK_DEFER("holes_tube_fuse_fail");
+                tube = fu.Shape();
+                if (tube.IsNull()) FK_DEFER("holes_tube_fuse_null");
+            }
+            cj = cn;
+        }
+        if (tube.IsNull()) FK_DEFER("holes_tube_null");
+
+        GProp_GProps gt;
+        BRepGProp::VolumeProperties(tube, gt);
+        const double vt = std::fabs(gt.Mass());
+        if (!(vt > 0.0)) FK_DEFER("holes_tube_zero_volume");
+        volTubes += vt;
+
+        BRepAlgoAPI_Cut cutter(solid, tube);
+        cutter.Build();
+        if (!cutter.IsDone()) FK_DEFER("holes_cut_fail");
+        solid = cutter.Shape();
+        if (solid.IsNull()) FK_DEFER("holes_cut_null");
+    }
+
+    // The fuse/cut seams leave co-planar and co-cylindrical face pairs; unify
+    // them so the answer carries the face count a one-piece sweep would.
+    ShapeUpgrade_UnifySameDomain uni(solid, Standard_True, Standard_True, Standard_True);
+    uni.Build();
+    TopoDS_Shape out = uni.Shape();
+    if (out.IsNull()) FK_DEFER("holes_unify_null");
+
+    int nSolid = 0, nShell = 0;
+    for (TopExp_Explorer ex(out, TopAbs_SOLID); ex.More(); ex.Next()) ++nSolid;
+    for (TopExp_Explorer ex(out, TopAbs_SHELL); ex.More(); ex.Next()) ++nShell;
+    if (nSolid != 1) FK_DEFER("holes_not_one_solid");
+    if (nShell != 1) FK_DEFER("holes_not_one_shell");
+
+    GProp_GProps gr;
+    BRepGProp::VolumeProperties(out, gr);
+    const double volOut = std::fabs(gr.Mass());
+    if (!(volOut > 0.0)) FK_DEFER("holes_result_zero_volume");
+
+    // ★ THE GATE. Every tube must have removed exactly its own volume: that is
+    // true iff all tubes are inside the outer solid and pairwise disjoint.
+    if (std::fabs((volOuter - volOut) - volTubes) > 1.0e-7 * volOuter)
+        FK_DEFER("holes_removed_volume_mismatch");
+
+    return out;
+}
+
 }  // namespace
 
 bool pipeNativeEnabled() {
@@ -805,20 +1204,26 @@ bool pipeNativeEnabled() {
 TopoDS_Shape pipe(const TopoDS_Wire& spine, const TopoDS_Shape& profile,
                   double tol) {
     const double t = std::max(tol, 1.0e-9);
+    reasonClear();
 
     // POLYGON profile — the proven mitre transport, always a SOLID (MakePipe
     // fed a FACE returns a solid).
     const TopoDS_Shape poly = sweepPolygonProfile(spine, profile, /*makeSolid*/ true, t);
     if (!poly.IsNull()) return poly;
 
+    // POLYGON outer boundary with CIRCULAR holes — the dominant real-part shape
+    // (measured: 307 of the corpus's 600 profile faces).
+    const TopoDS_Shape holed = pipePolygonWithCircularHoles(spine, profile, t);
+    if (!holed.IsNull()) return holed;
+
     // CIRCLE profile — the mitre-trimmed cylinder chain.
     gp_Pnt c0;
     gp_Dir ax0;
     double r = 0.0;
-    if (!circleProfile(profile, c0, ax0, r)) return kNull;
+    if (!circleProfile(profile, c0, ax0, r)) FK_DEFER("circ_not_circle");
     std::vector<gp_Pnt> node;
     std::vector<gp_Dir> leg;
-    if (!spinePolyline(spine, t, node, leg)) return kNull;
+    if (!spinePolyline(spine, t, node, leg)) return kNull;   // reason already set
     return pipeCircleMitre(node, leg, c0, ax0, r, t);
 }
 

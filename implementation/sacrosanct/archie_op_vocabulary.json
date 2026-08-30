@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "8b598f16878dcb8b2c1fc94a38ccf0fd3de6f6681b14724bbe214f9d114e6f3c",
-        "bytes": 79128,
-        "lines": 1790
+        "sha256": "b9a1be8f2fcf46a66d5749073e8a0dc314cb6d125a3d75e5573934c1d3f4b21a",
+        "bytes": 80277,
+        "lines": 1806
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -24,9 +24,9 @@
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "f83f0bad2dc27d0fa463e7c305291cfb68f454bb04ac2c6d8d0b06a112fbad24",
-        "bytes": 130697,
-        "lines": 2118
+        "sha256": "5eac05cf63af0f3b8385e7c9acc0b4bfab108a9cfa8a224d2bfffb3dcd82b15f",
+        "bytes": 145701,
+        "lines": 2399
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "c99eaa6c077b834018bfa63b06b048ac307e5919224b0336f7c03d0b29566ca4",
-        "bytes": 52217,
-        "lines": 1045
+        "sha256": "b2eab560491b62aa2b1b4db777bd47f1276ed7c5958037177fa7278ccf081dbe",
+        "bytes": 57578,
+        "lines": 1123
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,12 +78,12 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 35,
-    "commands_emitting_ir": 19,
-    "user_invocable_ops": 17,
-    "forbidden_ops": 23,
+    "registry_commands": 36,
+    "commands_emitting_ir": 20,
+    "user_invocable_ops": 18,
+    "forbidden_ops": 22,
     "uncertain_entries": 1,
-    "derived_defects": 7
+    "derived_defects": 6
   },
   "emission_policy": {
     "allowed_ops": [
@@ -102,6 +102,7 @@
       "PATTERN",
       "RECT",
       "REVOLVE",
+      "RING",
       "SHELL",
       "TRANSLATE"
     ],
@@ -1295,7 +1296,7 @@
           "when": "always",
           "when_human": "always -- this is the form the command emits with only its required parameters",
           "arguments": [
-            "%profile..."
+            "%wire..."
           ],
           "argument_count": {
             "min": 2,
@@ -1305,10 +1306,10 @@
             {
               "parameters": {},
               "ir_arguments": [
-                "%profile1",
-                "%profile2"
+                "%wire1",
+                "%wire2"
               ],
-              "ir_text": "%<id> = LOFT(%profile1, %profile2)"
+              "ir_text": "%<id> = LOFT(%wire1, %wire2)"
             }
           ],
           "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
@@ -1318,7 +1319,7 @@
           "when": "flagOn(ctx, \"open\")",
           "when_human": "the open flag is set",
           "arguments": [
-            "%profile...",
+            "%wire...",
             "OPEN"
           ],
           "argument_count": {
@@ -1331,11 +1332,11 @@
                 "open": true
               },
               "ir_arguments": [
-                "%profile1",
-                "%profile2",
+                "%wire1",
+                "%wire2",
                 "OPEN"
               ],
-              "ir_text": "%<id> = LOFT(%profile1, %profile2, OPEN)"
+              "ir_text": "%<id> = LOFT(%wire1, %wire2, OPEN)"
             }
           ],
           "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
@@ -1345,7 +1346,7 @@
           "when": "flagOn(ctx, \"ruled\")",
           "when_human": "the ruled flag is set",
           "arguments": [
-            "%profile...",
+            "%wire...",
             "RULED"
           ],
           "argument_count": {
@@ -1358,11 +1359,11 @@
                 "ruled": true
               },
               "ir_arguments": [
-                "%profile1",
-                "%profile2",
+                "%wire1",
+                "%wire2",
                 "RULED"
               ],
-              "ir_text": "%<id> = LOFT(%profile1, %profile2, RULED)"
+              "ir_text": "%<id> = LOFT(%wire1, %wire2, RULED)"
             }
           ],
           "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
@@ -1372,7 +1373,7 @@
           "when": "flagOn(ctx, \"open\") and flagOn(ctx, \"ruled\")",
           "when_human": "the open flag is set and the ruled flag is set",
           "arguments": [
-            "%profile...",
+            "%wire...",
             "RULED",
             "OPEN"
           ],
@@ -1387,12 +1388,12 @@
                 "ruled": true
               },
               "ir_arguments": [
-                "%profile1",
-                "%profile2",
+                "%wire1",
+                "%wire2",
                 "RULED",
                 "OPEN"
               ],
-              "ir_text": "%<id> = LOFT(%profile1, %profile2, RULED, OPEN)"
+              "ir_text": "%<id> = LOFT(%wire1, %wire2, RULED, OPEN)"
             }
           ],
           "variadic": "one %ref per selected value, in selection order; the selection signature requires at least 2",
@@ -2226,6 +2227,177 @@
       ]
     },
     {
+      "op": "RING",
+      "kernel_enum": "Ring",
+      "produces": "WIRE",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 3,
+        "max_args": 7,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "rx",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "ry",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "z",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "p",
+              "default": "2",
+              "index": 5,
+              "unit": "dimensionless",
+              "semantic": "superellipse_exponent",
+              "classified_by": "rule: /^p$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "seg",
+              "default": "48",
+              "index": 6,
+              "unit": "count",
+              "semantic": "instance_count",
+              "classified_by": "rule: /^(n|nx|ny|nSides|seg)$/"
+            }
+          ],
+          "prose": "superellipse ring @ height z"
+        }
+      ],
+      "kernel_notes": [
+        "p=2 circle/ellipse, p=4..6 rounded-rect (impeller/nozzle/duct sections)"
+      ],
+      "user_commands": [
+        "part.section_ring"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "rx",
+            "ry",
+            "z"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "rx": 20.0,
+                "ry": 20.0,
+                "z": 0.0
+              },
+              "ir_arguments": [
+                "20",
+                "20",
+                "0"
+              ],
+              "ir_text": "%<id> = RING(20, 20, 0)"
+            }
+          ],
+          "command": "part.section_ring"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"p\") || hasNumber(ctx, \"seg\")",
+          "when_human": "any of cx, cy, p, seg is supplied",
+          "arguments": [
+            "rx",
+            "ry",
+            "z",
+            "cx",
+            "cy",
+            "p",
+            "seg"
+          ],
+          "argument_count": {
+            "min": 7,
+            "max": 7
+          },
+          "examples": [
+            {
+              "parameters": {
+                "rx": 20.0,
+                "ry": 20.0,
+                "z": 0.0,
+                "cx": 4.0,
+                "cy": 5.0,
+                "p": 8.0,
+                "seg": 55.0
+              },
+              "ir_arguments": [
+                "20",
+                "20",
+                "0",
+                "4",
+                "5",
+                "8",
+                "55"
+              ],
+              "ir_text": "%<id> = RING(20, 20, 0, 4, 5, 8, 55)"
+            }
+          ],
+          "command": "part.section_ring"
+        }
+      ]
+    },
+    {
       "op": "SHELL",
       "kernel_enum": "Shell",
       "produces": "SOLID",
@@ -2563,15 +2735,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "RESIZEBORE(%body, \"sel\", newRadius)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "RING",
-      "kernel_enum": "Ring",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -3337,7 +3500,7 @@
       "feature_ir_op": "LOFT",
       "emits_feature_ir": true,
       "selection": {
-        "kind": "Sketch",
+        "kind": "Wire",
         "min": 2,
         "max": null
       },
@@ -3363,10 +3526,10 @@
       "undo": "SingleStep",
       "source": "ui/src/PartCommands.cpp",
       "constraints": {
-        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Profile).size() >= 2",
+        "source": "resolveValues(*d, ctx.selection(), IrValueKind::Wire).size() >= 2",
         "derived": [
           {
-            "selection_values_of_kind": "Profile",
+            "selection_values_of_kind": "Wire",
             "comparison": ">=",
             "value": 2
           }
@@ -3772,6 +3935,106 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.section_ring",
+      "label": "Section Ring",
+      "category": "Part",
+      "feature_ir_op": "RING",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "rx",
+          "type": "Number",
+          "required": true,
+          "default_number": 20.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "ry",
+          "type": "Number",
+          "required": true,
+          "default_number": 20.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "z",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "p",
+          "type": "Number",
+          "required": false,
+          "default_number": 2.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "seg",
+          "type": "Number",
+          "required": false,
+          "default_number": 48.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"rx\", 0.0) > 0.0 && num(ctx, \"ry\", 0.0) > 0.0 && num(ctx, \"p\", 2.0) >= 2.0 && num(ctx, \"seg\", 48.0) >= 8.0",
+        "derived": [
+          {
+            "parameter": "rx",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "ry",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "p",
+            "comparison": ">=",
+            "value": 2.0
+          },
+          {
+            "parameter": "seg",
+            "comparison": ">=",
+            "value": 8.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Wire"
+    },
+    {
       "id": "part.shell",
       "label": "Shell Body",
       "category": "Part",
@@ -4083,22 +4346,10 @@
   "value_kind_closure": {
     "produced_by_allowed_ops": [
       "PROFILE",
-      "SOLID"
+      "SOLID",
+      "WIRE"
     ],
-    "gaps": [
-      {
-        "value_kind": "WIRE",
-        "needed_by": [
-          "LOFT"
-        ],
-        "producers_in_the_allowed_set": [],
-        "producers_in_the_kernel": [
-          "RING",
-          "WIRE"
-        ],
-        "consequence": "a user-invocable op consumes WIRE, and no user-invocable op produces one: the value must already exist in the document (a seeded sketch or imported solid) or the statement cannot be built"
-      }
-    ]
+    "gaps": []
   },
   "uncertain": [
     {
@@ -4145,11 +4396,14 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 23,
+      "count": 26,
       "parameters": [
         "width (part.sketch_rect)",
         "height (part.sketch_rect)",
         "radius (part.sketch_circle)",
+        "rx (part.section_ring)",
+        "ry (part.section_ring)",
+        "z (part.section_ring)",
         "distance (part.extrude)",
         "angle (part.revolve)",
         "diameter (part.hole)",
@@ -4173,13 +4427,6 @@
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",
       "consequence": "applyDefaults cannot fill them, so an interactive caller must prompt before these commands can run"
-    },
-    {
-      "kind": "command_feeds_the_wrong_value_kind",
-      "command": "part.loft",
-      "feature_ir_op": "LOFT",
-      "evidence": "the command resolves PROFILE values, and the kernel's opLoft handler requires WIRE",
-      "consequence": "the emitted statement is well-formed for forge::ui and throws in forge::ft::compile"
     }
   ]
 }
