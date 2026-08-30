@@ -183,6 +183,28 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 | THICKEN | `FORGE_THICKEN_DROP_NATIVE` | 600 | 407 | 0 | **193** | 0 | 67.8% | 100.0% | -32.2% [-35.9, -28.4] | 1.6e-58 | FAIL |
 | DRAFT | `FORGE_DRAFT_DROP_NATIVE` | 565 | 0 | 0 | **497** | 68 | 0.0% | 88.0% | -88.0% [-90.6, -85.3] | 4.9e-150 | FAIL |
 
+> ### ⚠ THE `THRUSECTIONS` ROW ABOVE IS SUPERSEDED
+>
+> The table is the `f71ed98b` baseline and is kept verbatim as the audit record.
+> One row has since moved. The `THRUSECTIONS` 0.0% was **not** a fact about the
+> corpus — it was a defect in the native engine, which paired the two section
+> rings by raw `BRepTools_WireExplorer` index and so skipped the reorient /
+> re-origin step `BRepOffsetAPI_ThruSections` performs (via
+> `BRepFill_CompatibleWires`) before *its* index pairing. Fixed in
+> `src/native/brep/NativeLoftPipe.cpp::canonicalRing`. Re-measured over the same
+> 600 parts, stride 1, 0 part-level errors:
+>
+> | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |
+> |---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
+> | THRUSECTIONS (re-measured) | 600 | 309 | 0 | **258** | 33 | 51.5% | 94.5% | -43.0% [-47.0, -39.0] | 4.3e-78 | FAIL |
+>
+> All 309 both-build parts agree with OCCT on the **full observable vector**
+> (volume + centre of mass + bounding box + face/edge/vertex/shell counts +
+> validity); **0 disagree**. The option still fails its flip gate, now by 258
+> curved-section parts rather than 567. Artefacts:
+> `reports/corpus_ab/thrusections_canonicalring_600_summary.md`, raw rows in
+> the matching `_results.jsonl.gz`, provenance in `_manifest.json`.
+
 ### 3.1 The headline
 
 **One family of ten passes the flip gate. `FORGE_FILLING_DROP_NATIVE` is the only
@@ -204,6 +226,34 @@ a working operation into a thrown error.
   documented as polygon-section / polyline-spine only, and this corpus's faces are
   overwhelmingly not polygons. The measurement agrees with the headers — it just
   puts a number on it. These are the two furthest from shippable.
+
+  > **⚠ HALF OF THIS PARAGRAPH IS RETRACTED, AND IT IS THE MOST INSTRUCTIVE ERROR
+  > IN THIS DOCUMENT.** "This corpus's faces are overwhelmingly not polygons" was
+  > inferred from the zero, never measured. A per-part defer census
+  > (`test/run_thrusections_defer_census.sh`, 600 rows in
+  > `reports/corpus_ab/thrusections_defer_census_600.tsv`) measures the opposite:
+  >
+  > | first binding precondition | parts |
+  > |---|---:|
+  > | lateral quad non-planar under the raw index pairing | **309** |
+  > | a section wire carries a non-line edge (circle 232 parts, B-spline 106) | 291 |
+  >
+  > The corpus is **51.5% polygonal** for this derivation — 309 parts present two
+  > 4-vertex, all-line-edge sections — and on **every one of the 309** a
+  > correspondence exists under which all four lateral quads are planar (measured
+  > as the minimum over every rotation × reflection of the second ring, before
+  > any code was changed). Those 309 were declined for a reason *inside the
+  > engine*. Only the 291 curved-section parts were ever a scope statement.
+  >
+  > **The transferable lesson.** A success rate cannot distinguish "the corpus has
+  > nothing this engine covers" from "the engine has a defect on the corpus's most
+  > common input" — the two produce the same number. The zero was read as the
+  > first because the header made it plausible. A family scoring *exactly* zero is
+  > the case where that inference is least safe and a per-part cause census is
+  > cheapest: it cost one afternoon and moved the row 51.5 points. Do the census
+  > before quoting a zero as a capability bound. `PIPE` (0.3%) and `DRAFT` (0.0%)
+  > have **not** had one and their explanations above are, as of now, the same
+  > kind of unmeasured inference.
 - **`DRAFT` 497/565 deleted, native 0/565.** `NativeDraft` declines any solid with
   a non-planar face, and essentially every part in this corpus has one. The engine
   is correct on what it accepts (its A/B proves that) and accepts almost nothing
