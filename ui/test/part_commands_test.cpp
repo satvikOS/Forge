@@ -74,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 21);
-  CHECK_EQ_INT(registry.size(), 21);
+  CHECK_EQ_INT(added, 22);
+  CHECK_EQ_INT(registry.size(), 22);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 21);
+  CHECK_EQ_INT(registry.size(), 22);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -102,7 +102,7 @@ int main() {
       CHECK(findIrOp(c->featureIrOp) != nullptr);
     }
   }
-  CHECK_EQ_INT(withIrOp, 19);  // all but part.undo / part.redo
+  CHECK_EQ_INT(withIrOp, 20);  // all but part.undo / part.redo
 
   // ── the document seed ─────────────────────────────────────────────────────
   // Three values that exist before any Part command ran: two sketches from the
@@ -363,22 +363,35 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 21);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 22);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
+    // LOFT's sections are WIRE values, not PROFILE ones: the kernel's opLoft() puts every
+    // %ref through refWire(). Seeded at three DIFFERENT heights, because that is the thing
+    // a Z=0 sketch cannot express and the reason forge::ft has a separate WIRE kind at all.
+    doc2.seed(IrValueKind::Wire, "wr_a", "RING", {IrArg::num(20), IrArg::num(20), IrArg::num(0)});
+    doc2.seed(IrValueKind::Wire, "wr_b", "RING", {IrArg::num(12), IrArg::num(12), IrArg::num(30)});
+    doc2.seed(IrValueKind::Wire, "wr_c", "RING", {IrArg::num(6), IrArg::num(6), IrArg::num(60)});
 
     // one section is not a loft
-    selectOnly(sel2, {ref("sk_a", EntityKind::Sketch, "a")});
+    selectOnly(sel2, {ref("wr_a", EntityKind::Wire, "a")});
     CHECK_EQ_INT(statusOf(reg2.evaluate("part.loft", sel2)),
                  static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
 
-    selectOnly(sel2, {ref("sk_a", EntityKind::Sketch, "a"), ref("sk_b", EntityKind::Sketch, "b"),
-                      ref("sk_c", EntityKind::Sketch, "c")});
+    // TWO PROFILES is the statement this command used to write, and forge::ft refuses it:
+    // "LOFT: %1 is not a WIRE section (use RING(...) or WIRE([...]))". The app must not be
+    // the thing that authors it, so the selection is not even signature-legal now.
+    selectOnly(sel2, {ref("sk_a", EntityKind::Sketch, "a"), ref("sk_b", EntityKind::Sketch, "b")});
+    CHECK_EQ_INT(statusOf(reg2.evaluate("part.loft", sel2)),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+
+    selectOnly(sel2, {ref("wr_a", EntityKind::Wire, "a"), ref("wr_b", EntityKind::Wire, "b"),
+                      ref("wr_c", EntityKind::Wire, "c")});
     CommandParams p;
     p.setFlag("ruled", true);
     CHECK(reg2.dispatch("part.loft", sel2, p).ok());
-    CHECK_EQ_STR(lastLine(doc2), "%4 = LOFT(%1, %2, %3, RULED)");
+    CHECK_EQ_STR(lastLine(doc2), "%7 = LOFT(%4, %5, %6, RULED)");
     CHECK_EQ_INT(static_cast<int>(doc2.lastCheck()), static_cast<int>(IrCheck::Ok));
 
     // revolve's documented domain is 0 < angle <= 360
@@ -388,20 +401,20 @@ int main() {
     CHECK_EQ_INT(statusOf(reg2.evaluate("part.revolve", sel2, params1("angle", 361))),
                  static_cast<int>(DispatchStatus::Disabled));
     CHECK(reg2.dispatch("part.revolve", sel2, params1("angle", 270)).ok());
-    CHECK_EQ_STR(lastLine(doc2), "%5 = REVOLVE(%1, 270)");
+    CHECK_EQ_STR(lastLine(doc2), "%8 = REVOLVE(%1, 270)");
 
     // variable fillet: SMOOTH is positional, so the selector slot before it has
     // to be written or the kernel reads SMOOTH as the selector
-    selectOnly(sel2, {ref("body_4", EntityKind::Edge, "e1")});
+    selectOnly(sel2, {ref("body_7", EntityKind::Edge, "e1")});
     CommandParams vf;
     vf.setNumber("radius_start", 1);
     vf.setNumber("radius_end", 4);
     vf.setFlag("smooth", true);
     CHECK(reg2.dispatch("part.variable_fillet", sel2, vf).ok());
-    CHECK_EQ_STR(lastLine(doc2), "%6 = BLEND(%4, 1, 4, ALL, SMOOTH)");
+    CHECK_EQ_STR(lastLine(doc2), "%9 = BLEND(%7, 1, 4, ALL, SMOOTH)");
 
     // grid pattern, and a 1x1 grid refused
-    selectOnly(sel2, {ref("body_4", EntityKind::Body, "")});
+    selectOnly(sel2, {ref("body_7", EntityKind::Body, "")});
     CommandParams g;
     g.setNumber("nx", 1);
     g.setNumber("ny", 1);
@@ -411,26 +424,26 @@ int main() {
                  static_cast<int>(DispatchStatus::Disabled));
     g.setNumber("nx", 3);
     CHECK(reg2.dispatch("part.pattern_grid", sel2, g).ok());
-    CHECK_EQ_STR(lastLine(doc2), "%7 = PATTERN(%6, GRID, 3, 1, 10, 10)");
+    CHECK_EQ_STR(lastLine(doc2), "%10 = PATTERN(%9, GRID, 3, 1, 10, 10)");
 
     // union and intersect, on two live bodies
     selectOnly(sel2, {ref("sk_b", EntityKind::Sketch, "b")});
     CHECK(reg2.dispatch("part.extrude", sel2, params1("distance", 5)).ok());
-    CHECK_EQ_STR(lastLine(doc2), "%8 = EXTRUDE(%2, 5)");
-    selectOnly(sel2, {ref("body_4", EntityKind::Body, ""), ref("body_8", EntityKind::Body, "")});
+    CHECK_EQ_STR(lastLine(doc2), "%11 = EXTRUDE(%2, 5)");
+    selectOnly(sel2, {ref("body_7", EntityKind::Body, ""), ref("body_11", EntityKind::Body, "")});
     CHECK(reg2.dispatch("part.boolean_union", sel2).ok());
-    CHECK_EQ_STR(lastLine(doc2), "%9 = FUSE(%7, %8)");
+    CHECK_EQ_STR(lastLine(doc2), "%12 = FUSE(%10, %11)");
 
     selectOnly(sel2, {ref("sk_c", EntityKind::Sketch, "c")});
     CHECK(reg2.dispatch("part.extrude", sel2, params1("distance", 5)).ok());
-    selectOnly(sel2, {ref("body_4", EntityKind::Body, ""), ref("body_10", EntityKind::Body, "")});
+    selectOnly(sel2, {ref("body_7", EntityKind::Body, ""), ref("body_13", EntityKind::Body, "")});
     CHECK(reg2.dispatch("part.boolean_intersect", sel2).ok());
-    CHECK_EQ_STR(lastLine(doc2), "%11 = COMMON(%9, %10)");
+    CHECK_EQ_STR(lastLine(doc2), "%14 = COMMON(%12, %13)");
 
     for (const FeatureRecord& r : doc2.records()) {
       CHECK_EQ_INT(static_cast<int>(validateIr(r.line)), static_cast<int>(IrCheck::Ok));
     }
-    CHECK_EQ_INT(doc2.records().size(), 11);
+    CHECK_EQ_INT(doc2.records().size(), 14);
   }
 
   // ── the document refuses a statement it cannot number or validate ─────────
@@ -467,7 +480,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 21);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 22);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -499,7 +512,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 21);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 22);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -552,7 +565,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 21);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 22);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
@@ -660,6 +673,72 @@ int main() {
     CHECK_EQ_STR(lastLine(docE), "%7 = CUT(%3, %6)");
     CHECK_EQ_INT(docE.records().size(), 7);
     CHECK_EQ_INT(static_cast<int>(docE.lastCheck()), static_cast<int>(IrCheck::Ok));
+
+    // ── the WIRE producer, and the loft it makes reachable ──────────────────
+    // WIRE was the last open value-kind gap: LOFT consumed it and no user-invocable op
+    // produced one. Closing it needed BOTH halves -- a producer, and part.loft resolving
+    // the kind the kernel's refWire() actually demands. Two sections at DIFFERENT heights
+    // and a loft between them is the sequence that could not be authored before.
+    selE.clearSelection();
+    CommandParams r0;
+    r0.setNumber("rx", 20);
+    r0.setNumber("ry", 20);
+    r0.setNumber("z", 0);
+    CHECK(regE.dispatch("part.section_ring", selE, r0).ok());
+    CHECK_EQ_STR(lastLine(docE), "%8 = RING(20, 20, 0)");
+    CHECK_EQ_INT(static_cast<int>(docE.kindOf(8)), static_cast<int>(IrValueKind::Wire));
+    CHECK_EQ_INT(docE.valueFor("wire_8"), 8);
+
+    // the four optional arguments are POSITIONAL, so supplying ONE emits the whole group
+    // with the kernel's own defaults in the slots before it. Emitting p alone would put
+    // the superellipse exponent in cx and build a different ring.
+    CommandParams r1;
+    r1.setNumber("rx", 12);
+    r1.setNumber("ry", 12);
+    r1.setNumber("z", 40);
+    r1.setNumber("p", 4);
+    CHECK(regE.dispatch("part.section_ring", selE, r1).ok());
+    CHECK_EQ_STR(lastLine(docE), "%9 = RING(12, 12, 40, 0, 0, 4, 48)");
+    CHECK_EQ_INT(static_cast<int>(docE.kindOf(9)), static_cast<int>(IrValueKind::Wire));
+
+    // wireRing() throws on rx <= 0, and SILENTLY CLAMPS p < 2 and seg < 8. Both are
+    // refused here: a recorded statement that the kernel reads as different numbers is
+    // worse than no statement, because nothing downstream can see the substitution.
+    CommandParams rBad = r0;
+    rBad.setNumber("rx", 0);
+    CHECK_EQ_INT(statusOf(regE.dispatch("part.section_ring", selE, rBad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    rBad = r0;
+    rBad.setNumber("p", 1);
+    CHECK_EQ_INT(statusOf(regE.dispatch("part.section_ring", selE, rBad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    rBad = r0;
+    rBad.setNumber("seg", 4);
+    CHECK_EQ_INT(statusOf(regE.dispatch("part.section_ring", selE, rBad)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_INT(docE.records().size(), 9);
+
+    // a PROFILE pair does not enable LOFT -- that is the emission the kernel refuses
+    selectOnly(selE, {ref("sketch_1", EntityKind::Sketch, "s"),
+                      ref("sketch_4", EntityKind::Sketch, "s2")});
+    CHECK_EQ_INT(statusOf(regE.evaluate("part.loft", selE)),
+                 static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
+
+    // the two created sections are SELECTABLE, and the loft closes the loop
+    selectOnly(selE, {ref("wire_8", EntityKind::Wire, "w1"),
+                      ref("wire_9", EntityKind::Wire, "w2")});
+    CHECK(regE.dispatch("part.loft", selE).ok());
+    CHECK_EQ_STR(lastLine(docE), "%10 = LOFT(%8, %9)");
+    CHECK_EQ_INT(static_cast<int>(docE.kindOf(10)), static_cast<int>(IrValueKind::Solid));
+    CHECK_EQ_INT(docE.records().size(), 10);
+    CHECK_EQ_INT(docE.featureCount(), 10);
+    CHECK_EQ_INT(static_cast<int>(docE.lastCheck()), static_cast<int>(IrCheck::Ok));
+
+    // ten statements, none seeded, every one authored by a command a user can invoke
+    for (const FeatureRecord& r : docE.records()) {
+      CHECK_EQ_INT(static_cast<int>(validateIr(r.line)), static_cast<int>(IrCheck::Ok));
+      CHECK(!r.commandId.empty());
+    }
   }
 
   return H.finish();

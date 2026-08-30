@@ -558,7 +558,11 @@ def split_statements(text):
 REF_ROLES = {
     "t.value": "target_solid",
     "profile": "profile",
-    "id": "profile",
+    # part.loft's loop variable. It was `id` mapped to "profile", which named the exact
+    # defect this file records: LOFT consumes WIRE, and the emitted forms said %profile
+    # because this table said so. The C++ loop is now `for (int section : ...)`, and an
+    # expression this table does not know raises rather than being guessed.
+    "section": "wire_section",
     "ids[0]": "target_solid",
     "ids[1]": "tool_solid",
 }
@@ -983,7 +987,8 @@ def ternary_domain(selects_on):
 # ---------------------------------------------------------------------------
 # 8. emitted forms: expand one command's argument slots into concrete IR forms
 # ---------------------------------------------------------------------------
-REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%profile"}
+REF_PLACEHOLDER = {"target_solid": "%body", "tool_solid": "%tool", "profile": "%profile",
+                   "wire_section": "%wire"}
 EXAMPLE_TEXT_SELECTOR = "face:top"
 
 
