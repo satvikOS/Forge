@@ -171,7 +171,13 @@ for (const f of famList) {
     native_rate: N ? natOk / N : 0, occt_rate: N ? occtOk / N : 0,
     delta: d, ci95: [lo, hi], mcnemar_p: p,
     verdict: N === 0 ? 'NO DATA' : (pass ? 'PASS' : 'FAIL'),
-    underpowered: N > 0 && lo <= 0 && hi >= 0,
+    // UNDERPOWERED means "the data cannot distinguish the two engines", which
+    // requires there to BE discordant pairs whose split is uncertain. With zero
+    // discordant pairs the CI is the degenerate [0,0] and the two engines agreed
+    // on every single part -- that is the strongest possible tie, not a weak
+    // one, and labelling it "underpowered" would misreport it.
+    underpowered: N > 0 && (f.OCCT_ONLY + f.NATIVE_ONLY) > 0 && lo <= 0 && hi >= 0,
+    discordant: f.OCCT_ONLY + f.NATIVE_ONLY,
     deficit_parts: f.OCCT_ONLY,
     both_ok_agree: f.agree, both_ok_agree_upto_orientation: f.agreeOrient,
     both_ok_disagree: f.disagree,
@@ -197,7 +203,8 @@ for (const s of summary) {
     `**${s.occt_only}** | ${s.neither} | ${pct(s.native_rate).trim()} | ${pct(s.occt_rate).trim()} | ` +
     `${(100 * s.delta).toFixed(1)}% [${(100 * s.ci95[0]).toFixed(1)}, ${(100 * s.ci95[1]).toFixed(1)}] | ` +
     `${s.mcnemar_p < 1e-4 ? s.mcnemar_p.toExponential(1) : s.mcnemar_p.toFixed(4)} | ` +
-    `${s.verdict}${s.underpowered && s.verdict === 'PASS' ? ' (CI straddles 0)' : ''} |`);
+    `${s.verdict}${s.underpowered && s.verdict === 'PASS' ? ' (CI straddles 0)' : ''}` +
+    `${s.verdict === 'PASS' && s.discordant === 0 ? ' (0 discordant pairs)' : ''} |`);
 }
 lines.push('');
 lines.push('**OCCT only** is the capability the drop deletes: OCCT built a result the call site');

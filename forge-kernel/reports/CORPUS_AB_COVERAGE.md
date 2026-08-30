@@ -162,11 +162,109 @@ uncertainty. When the CI straddles zero the table says so next to the verdict:
 
 ---
 
-## 3. Results
+## 3. Results — full corpus, 600/600 parts, 0 part-level failures
 
-See `reports/corpus_ab/summary.md` for the committed table and
-`reports/corpus_ab/summary.json` for the machine-readable form. The headline is
-reproduced in §4 below.
+Measured 2026-08-30 against branch HEAD `f71ed98b` (build stamp and run SHA agree,
+0 dirty files under `src`/`include`/`test`), all 600 gold reference solids, 6000
+paired trials, 573 s wall. Raw rows in `reports/corpus_ab/results.jsonl.gz`,
+self-test in `reports/corpus_ab/selftest.log`, provenance in
+`reports/corpus_ab/manifest.json`.
+
+| family | option | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
+| FILLET | `FORGE_FILLET_DROP_NATIVE` | 600 | 146 | 51 | **315** | 88 | 32.8% | 76.8% | -44.0% [-49.2, -38.8] | 1.4e-47 | FAIL |
+| MAKEOFFSET | `FORGE_OFFSET_DROP_MAKEOFFSET` | 600 | 567 | 0 | **27** | 6 | 94.5% | 99.0% | -4.5% [-6.2, -2.8] | 1.5e-8 | FAIL |
+| THICKSOLID | `FORGE_THICKSOLID_DROP_NATIVE` | 600 | 7 | 0 | **126** | 467 | 1.2% | 22.2% | -21.0% [-24.3, -17.7] | 2.4e-38 | FAIL |
+| OFFSETSHAPE | `FORGE_OFFSETSHAPE_DROP_NATIVE` | 600 | 0 | 7 | **38** | 555 | 1.2% | 6.3% | -5.2% [-7.3, -3.0] | 3.1e-6 | FAIL |
+| THRUSECTIONS | `FORGE_THRUSECTIONS_DROP_NATIVE` | 600 | 0 | 0 | **567** | 33 | 0.0% | 94.5% | -94.5% [-96.3, -92.7] | 4.1e-171 | FAIL |
+| PIPE | `FORGE_PIPE_DROP_NATIVE` | 600 | 2 | 0 | **598** | 0 | 0.3% | 100.0% | -99.7% [-100.1, -99.2] | 1.9e-180 | FAIL |
+| PIPESHELL | `FORGE_PIPESHELL_DROP_NATIVE` | 600 | 309 | 0 | **291** | 0 | 51.5% | 100.0% | -48.5% [-52.5, -44.5] | 5.0e-88 | FAIL |
+| FILLING | `FORGE_FILLING_DROP_NATIVE` | 600 | 407 | 0 | **0** | 193 | 67.8% | 67.8% | 0.0% [0.0, 0.0] | 1.0000 | **PASS** (0 discordant pairs) |
+| THICKEN | `FORGE_THICKEN_DROP_NATIVE` | 600 | 407 | 0 | **193** | 0 | 67.8% | 100.0% | -32.2% [-35.9, -28.4] | 1.6e-58 | FAIL |
+| DRAFT | `FORGE_DRAFT_DROP_NATIVE` | 565 | 0 | 0 | **497** | 68 | 0.0% | 88.0% | -88.0% [-90.6, -85.3] | 4.9e-150 | FAIL |
+
+### 3.1 The headline
+
+**One family of ten passes the flip gate. `FORGE_FILLING_DROP_NATIVE` is the only
+option this measurement clears, and it clears it perfectly:** 407 parts where both
+engines built, 193 where neither did, **zero discordant pairs in 600 trials**, and
+all 407 shared successes agree on the entire observable vector — volume, area,
+centroid, all six bbox bounds, and every face/edge/vertex/shell/solid count. That
+is not "not significantly worse"; the two engines made the same call on every
+single part.
+
+**The other nine fail, all with p < 1e-5.** These are not underpowered ties. The
+deletion counts are large and the intervals are tight, which is the useful part:
+each `OCCT only` cell is a count of real parts on which flipping that option turns
+a working operation into a thrown error.
+
+### 3.2 What each failure actually says
+
+- **`PIPE` 598/600 and `THRUSECTIONS` 567/600 deleted.** Both native engines are
+  documented as polygon-section / polyline-spine only, and this corpus's faces are
+  overwhelmingly not polygons. The measurement agrees with the headers — it just
+  puts a number on it. These are the two furthest from shippable.
+- **`DRAFT` 497/565 deleted, native 0/565.** `NativeDraft` declines any solid with
+  a non-planar face, and essentially every part in this corpus has one. The engine
+  is correct on what it accepts (its A/B proves that) and accepts almost nothing
+  here.
+- **`PIPESHELL` 291/600 deleted, but 309 built.** The best-covered of the sweep
+  family, and the only one within sight of the gate.
+- **`THICKSOLID` 126 deleted on a 22.2% OCCT baseline.** Note the baseline: OCCT
+  itself only manages 133/600 here. The native engine's 7 is still far behind, but
+  this family is hard for both.
+- **`OFFSETSHAPE` has the weakest OCCT baseline of all, 6.3%** — and the OCCT arm
+  **CRASHED on 66 parts**. Without the per-arm fork those 66 SIGSEGVs would have
+  killed the harness process, and a harness that dies produces silence, which reads
+  exactly like a clean zero. This family also has the only `NATIVE_ONLY` majority:
+  7 native successes against 0 shared, i.e. the native engine answers a set OCCT
+  does not.
+- **`MAKEOFFSET` is the closest miss: 94.5% against 99.0%, 27 parts deleted.** The
+  `CMakeLists.txt:432` note records a 2026-07-31 measurement of 17/382 (4.5%) lost;
+  this measures 27/600 (4.5%) on a different corpus. The two agree to the decimal.
+- **`FILLET` 315 deleted, native 32.8%.** See §3.4 — this number moved sharply
+  between two commits and should be read with that in mind.
+
+### 3.3 Two findings that are not about coverage
+
+These fall out of running both arms and are recorded because they are cheap to
+observe and expensive to discover later. Neither is adjudicated here; both need
+their own controlled follow-up.
+
+1. **OCCT's thicken returns a negatively-oriented solid on all 407 shared
+   successes.** `THICKEN` is the one family where every `BOTH_OK` pair disagrees on
+   signed volume (407/407) and every pair agrees on |volume| (407/407), with
+   centroid, bbox, area and all five topology counts identical. On the first part
+   examined by hand the native engine returned +114690.606 and OCCT −114690.606.
+   `src/Features.cpp:1219` registers `mk.Shape()` unmodified, so `part::thickenSurface`
+   is handing the registry a reversed solid on every one of these parts today. The
+   native engine is the one returning the conventional sign.
+2. **`PIPESHELL` and OCCT disagree geometrically on all 309 shared successes** —
+   not on orientation, on volume and extent. `NativeLoftPipe.hpp` already records
+   the mechanism (OCCT's `MakePipeShell` mitre transport differs from the native
+   rigid mitre, and OCCT's own answer is invalid on a bent spine in the recorded
+   case). This measurement says it is not an edge case: it is every part.
+
+The `agree` column elsewhere mixes genuine geometric differences with merely
+**representational** ones — `MAKEOFFSET`'s 258 disagreements are largely the native
+engine's segmented round joins against OCCT's true `GeomAbs_Arc` arcs, which change
+edge counts and length without either being wrong. Do not read that column as a
+defect count.
+
+### 3.4 A warning the harness itself produced
+
+`FILLET`'s native rate is **32.8%** at `a70dd1da`. An earlier full-corpus run of
+the same harness over the same corpus, built from `876b179a`, measured **65.8%**.
+The difference is `NativeFilletChamfer.cpp`, which is 184 lines longer at
+`a70dd1da`; over the same 600 parts its `BOTH_OK` disagreements with OCCT fell from
+258 to 60 while its agreements stayed at 86. The newer engine appears to have
+**traded coverage for correctness** — declining ~200 cases it previously answered
+differently from OCCT.
+
+That earlier run's artifacts are **not** committed: it was built from one commit
+and measured after the worktree had moved to another, which is exactly the mistake
+the build stamp in §4 now makes impossible. The comparison above is stated as an
+observation worth a controlled A/B between those two commits, not as a result.
 
 ---
 
@@ -198,6 +296,41 @@ Environment: `CORPUS=<dir>` (default is the 600 expert3d v5cap e600 gold referen
 solids), `ARM_TIMEOUT` (default 20 s per arm), `PART_TIMEOUT` (default 300 s per
 part, enforced by the binary's own `alarm()`), `OFFSET`, `FAMILIES`, `JOBS`,
 `FORCE=1` to wipe the object cache.
+
+**The run is pinned to the tree the binary was compiled from — by two checks, and
+both have been seen to fire.** The build writes `.build-corpus-ab/build_stamp.json`
+with the git HEAD it compiled at and how many files under `src`/`include`/`test`
+were dirty; the driver copies that into every manifest.
+
+- **Check 1, before the run:** the stamp's SHA against HEAD; **exit 3**.
+- **Check 2, after the run:** HEAD at the end against HEAD at the start; **exit 4**,
+  and an `INVALID.json` is written into the output directory.
+
+This is not decoration. The first full-corpus run of this harness was compiled from
+`876b179a` and measured after the worktree had moved to `a70dd1da`, where three of
+the ten engines under test differ (`NativeFilletChamfer` +184 lines,
+`NativeLoftPipe` +81, `NativeThickenShell` +39). That run was discarded. A coverage
+number measured against the wrong tree is worse than no number, because it looks
+exactly like a right one.
+
+**Check 2 is the one that catches what actually happened**, and it exists because
+check 1 alone did not. As first written, check 1 sat after an *unconditional*
+rebuild that re-stamps with the current HEAD — so it could never disagree with it.
+Poisoning the stamp and running produced **exit 0**: a guard that could not fire,
+which is the same thing as no guard. Check 1 is now reachable (via `SKIP_BUILD=1`,
+the only path where the stamp is not refreshed first) and check 2 was added for the
+real failure mode, which no pre-run check can see: the tree moving *while* an
+already-loaded binary is still producing numbers.
+
+```sh
+test/run_corpus_ab_coverage.sh --selftest-guard
+#   build-SHA-vs-HEAD guard    exit 3  ok
+#   head-moved-during-run gate exit 4  ok (INVALID.json written)
+#   PASS: both tree guards fire
+```
+
+A guard that has never been seen to fire is indistinguishable from one that cannot,
+so this is part of the harness rather than a claim in a comment.
 
 Each run writes `results.jsonl`, `manifest.json`, `summary.md`, `summary.json`,
 `corpus.list`, `sample.list` and `run.log` into its output directory.
