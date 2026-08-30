@@ -390,8 +390,13 @@ forge::ui::FeatureNodeData SceneFeatureTreeSource::data(forge::ui::NodeId id) co
 }
 
 int SceneFeatureTreeSource::featureIrIdOf(forge::ui::NodeId id) const {
-  const std::size_t featureCount = scene_.features().size();
-  if (id < kFeatureBase || id >= kFeatureBase + featureCount) return 0;
+  // The count comes from the DOCUMENT, which is where the statements live --
+  // KernelScene has no features() and never did, so the original spelling of
+  // this line did not compile. It could not: nothing in CI builds this file.
+  // featureCount() is document_.records().size(), the same source recordAt()
+  // bounds against, so a row and its statement cannot disagree.
+  const std::size_t nFeatures = featureCount();
+  if (id < kFeatureBase || id >= kFeatureBase + nFeatures) return 0;
   return static_cast<int>(id - kFeatureBase) + 1;
 }
 
