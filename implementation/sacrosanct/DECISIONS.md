@@ -904,7 +904,7 @@ reason to delete them sooner; it is the reason they must be re-authored before t
 nothing else in the tree would go red on the day their assertions stop being true.
 ---
 
-## D-024 (2026-08-30): THICKEN's whole 193-part deletion bucket was ONE surface type, and closing it moves native coverage 67.8% -> 96.2%
+## D-026 (2026-08-30): THICKEN's whole 193-part deletion bucket was ONE surface type, and closing it moves native coverage 67.8% -> 96.2%
 
 **The state this starts from.** D-022 measured the drop blocked on ENGINE COVERAGE, with THICKEN at
 native 67.8% vs OCCT 100.0% over 600 real parts — 193 parts where OCCT builds and native declines.
