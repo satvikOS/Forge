@@ -118,8 +118,12 @@ restore
 # one must stay GREEN: it is a SAFETY guard, not geometry, and the supported cases
 # have exact corners. A guard that changed a passing answer would mean the answer
 # was only passing because the guard rejected something.
-mutate "$DRAFT_SRC" "            if (std::fabs(r) > resTol) return kNull;" \
-                    "            if (std::fabs(r) > 1.0e30 * resTol) return kNull;  /* MUTANT M4 */" || exit 2
+# The anchor is the guard's CONDITION line only. It was re-pinned when the engine
+# gained named defer reasons (draftLastDeferReason) and every `return kNull` became
+# a two-line `return defer("...")`: `mutate` aborts with exit 2 on a pattern it
+# cannot find, so a stale anchor here is loud rather than a silently skipped mutant.
+mutate "$DRAFT_SRC" "            if (std::fabs(r) > resTol)" \
+                    "            if (std::fabs(r) > 1.0e30 * resTol)  /* MUTANT M4 */" || exit 2
 check "M4 draft: exactness guard widened (must stay GREEN)"         "$DRAFT_AB" GREEN
 restore
 
@@ -151,8 +155,13 @@ restore
 # T4 — COPLANAR PATH: offset along the WRONG SIGN. The flat prism's VOLUME is
 # unchanged (area * |t| either way); only its position moves. Caught by the
 # bounding box and the centre of mass, never by volume.
-mutate "$THICK_SRC" "        BRepPrimAPI_MakePrism mkp(shell, gp_Vec(N[0]) * (sgn * r));" \
-                    "        BRepPrimAPI_MakePrism mkp(shell, gp_Vec(N[0]) * (-sgn * r));  /* MUTANT T4 */" || exit 2
+# ★ THIS ANCHOR WAS STALE AND THE MUTANT WAS INERT. The TKPrim-free swap (PR #64)
+# replaced BRepPrimAPI_MakePrism with ::forge::occtPrism here, so `mutate` found 0
+# matches and the script aborted with exit 2 AT THIS LINE — taking T4 and both
+# "restore" checks and the final tally down with it. It was loud (exit 2), but it
+# had been running as a truncated suite. Re-pinned to the current call.
+mutate "$THICK_SRC" "            swept = ::forge::occtPrism(shell, gp_Vec(N[0]) * (sgn * r), /*canonize=*/true);" \
+                    "            swept = ::forge::occtPrism(shell, gp_Vec(N[0]) * (-sgn * r), /*canonize=*/true);  /* MUTANT T4 */" || exit 2
 check "T4 thicken: flat prism direction flipped (volume-preserving)" "$THICK_AB" RED
 restore
 

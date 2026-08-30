@@ -274,6 +274,42 @@ set(OCCT_LIBS
 #   replace low-level routines called from inside other ops, so there is no "native
 #   declined where OCCT would have built it" event to count. Stated, not skipped.
 #
+# ★ FAMILY J's 0.0% IS DIAGNOSED, and the diagnosis changes what would have to be built.
+#   test/draft_defer_probe.cpp re-runs the A/B's OWN DRAFT derivation over the same 600
+#   parts and reads occtdraft::draftLastDeferReason(), so the guard is the engine's, not a
+#   replica of it. It reproduces the row exactly: 35 not applicable, 565 DEFER, 0 native OK,
+#   0 disagreements with the committed A/B on either applicability or the native verdict.
+#   Results: reports/corpus_ab/draft_defer_probe.jsonl.gz.
+#
+#   NOT a wiring defect. The probe's POSITIVE CONTROL drafts a 10mm cube's side wall
+#   through the same binary and gets 973.796 mm^3 — exactly 1000 - (1/2)(10)(10)(10 tan3
+#   deg) — with an empty defer reason. The engine is reached and it is correct.
+#
+#   The two guards that fire are WHOLE-SHAPE preconditions of the plane-arrangement
+#   formulation, not properties of the face being drafted:
+#       375  a face of the solid carries more than one wire (a hole)
+#       190  a face of the solid is not a plane
+#   That 375/190 split is only the order faces happen to be visited in. Counted
+#   order-independently, ALL 565 parts violate BOTH: 565 have a non-planar face, 565 have a
+#   multi-wire face, and the parts violating exactly one are 0 and 0. So NO relaxation of
+#   either guard moves this number by a single part. 37.0% of the corpus's 72,201 faces are
+#   non-planar (per-part median 58.6%); zero parts are polyhedra.
+#
+#   AND THE BOUNDED ALTERNATIVE IS MEASURED AND STILL FAILS. The only construction that
+#   could move the number is a different engine: rebuild only the faces incident to the
+#   drafted wall's own vertices and carry every other face over verbatim. Its ceiling is
+#   the parts whose local neighbourhood is all-planar — 424/565 = 75.0%, against the OCCT
+#   baseline of 497/565 = 88.0% this gate must MEET. Those 424 are a strict SUBSET of
+#   OCCT's 497: 73 parts stay in the deletion bucket and there are 0 native-only wins. The
+#   same 424 are also exactly the parts whose every MOVED edge is a line, and a subset of
+#   the 490 whose drafted wall is single-wire — one predicate, three ways. 75.0% is an
+#   upper bound (it assumes every local rebuild then sews and validates), so the real
+#   engine would land below it, and it fails the gate before any of that.
+#
+#   ROADMAP CONSEQUENCE: family J is not one predicate away from shipping. Reaching 88%
+#   needs draft on CURVED faces (a drafted cylinder becomes a cone and its neighbours'
+#   trims change type), which is a different engine from the one in NativeDraft.cpp.
+#
 # ★ RE-MEASURE AFTER TOUCHING ANY ENGINE. The build stamps the SHA it compiled from and
 #   the driver REFUSES to run against a different HEAD (exit 3) — the first run of this
 #   harness was compiled from one commit and measured against another, three engines
