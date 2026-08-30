@@ -588,9 +588,6 @@ TopoDS_Wire circleWire(const gp_Circ& c) {
     return mw.Wire();
 }
 
-// Build a planar face on `pl` bounded by `outer` with `holes` punched out, and
-// SELF-CHECK its area against the closed form pi*(Ro^2 - sum Rh^2). A wrong hole
-// winding shows up as a wrong area, so this both fixes and verifies orientation.
 // Do the bounding circles of a disk-with-holes actually NEST — every hole
 // strictly inside the outer boundary, and no two holes overlapping?
 //
@@ -633,6 +630,9 @@ bool circlesNest(const gp_Circ& outer, const std::vector<gp_Circ>& holes) {
     return true;
 }
 
+// Build a planar face on `pl` bounded by `outer` with `holes` punched out, and
+// SELF-CHECK its area against the closed form pi*(Ro^2 - sum Rh^2). A wrong hole
+// winding shows up as a wrong area, so this both fixes and verifies orientation.
 TopoDS_Face planarCircularFace(const Handle(Geom_Plane)& pl,
                                const gp_Circ& outer,
                                const std::vector<gp_Circ>& holes) {
