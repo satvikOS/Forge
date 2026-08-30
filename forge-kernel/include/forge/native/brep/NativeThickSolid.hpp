@@ -72,6 +72,37 @@
 //     circle/circle meet — closed form, yielding a true gp_Circ. The full
 //     derivation, including the cone offset, is in NativeThickSolid.cpp.
 //
+// (C) MIXED — POLYGON WIRES ALONGSIDE CIRCULAR ONES (2026-08-30). Path (B) as
+//     first written admitted a PLANAR face only when every one of its wires was
+//     exactly ONE FULL CIRCLE, i.e. a disk or an annulus. A per-part defer census
+//     over the 600-part corpus A/B (reports/corpus_ab/THICKSOLID_ATTRIBUTION.md)
+//     attributes 370 of the engine's 593 deferrals to that ONE rule, including
+//     ALL 126 PARTS OF THE DELETION BUCKET, and shows 228 of them to be otherwise
+//     entirely in scope. The corpus is not "curved and beyond us": it is
+//     POLYGONAL PLATES WITH CYLINDRICAL HOLES.
+//
+//     So a planar wire is now admissible in two shapes — one full circle, or a
+//     closed loop of LINE edges — and nothing else (an arc, a spline, or a wire
+//     mixing lines and arcs is still declined, never approximated). A polygon
+//     wire needs no new curve type: each LINE edge is shared by two PLANES, so
+//     its cavity image is the meet of two offset planes, and each VERTEX is the
+//     meet of the offset planes around it — the same corner solve the planar
+//     path (A) has always used, applied to a mixed solid. The one new
+//     construction is a planar face bounded by a mix of polygons and circles,
+//     and it self-checks its own area against the closed form exactly as the
+//     all-circular builder does.
+//
+// (D) COPLANAR FACE SPLIT + RISER (2026-08-30). A full circle shared by two
+//     planar faces that BOTH CONTAIN it is not a geometric edge at all — it is a
+//     topological split of one flat region, which real STEP carries constantly.
+//     There is no dihedral for the meridian meet to solve. The offset circle is
+//     the SAME circle translated onto the cavity plane; when one side is the
+//     MOUTH the two sides land on different planes and the wall is closed across
+//     the step by an EXACT CYLINDRICAL RISER of the circle's own radius. When
+//     both sides are retained they land on the same plane and NO riser is built —
+//     a split of one flat region must be invisible in the answer, and the gate
+//     asserts that in both directions.
+//
 //     Both a MOUTH (>=1 removed face: outer skin + cavity + lip, sewn into one
 //     shell) and a CLOSED HOLLOW (no removed face: a two-shell solid) are built.
 //     The closed-hollow mode is a capability ADD, not a port: OCCT's
@@ -94,15 +125,35 @@
 //     than one wire (a hole through a curved wall needs a real 2-D trim, not a
 //     parametric rectangle);
 //   * a non-planar face with a boundary edge that is not a circle coaxial with it;
-//   * a planar face with a wire that is not exactly one full circle — so MIXED
-//     polygonal+quadric solids are declined (the all-planar case has its own path);
+//   * a planar face with a wire that is neither exactly one full circle nor a
+//     closed loop of LINE edges — an arc, a spline, or a wire mixing lines and
+//     arcs. MEASURED: this is what still separates the corpus's 228 in-scope
+//     parts from its 105 arc-bearing deletion-bucket ones;
+//   * a POLYGON-wire vertex whose incident faces are not all planar, or that
+//     fewer than three independent offset planes pin. There is deliberately no
+//     averaged-normal fallback in the mixed path (path A has one): on a mixed
+//     solid it would fabricate a corner the neighbouring cavity faces do not
+//     share, and the sew would then close over the gap inside its own tolerance;
 //   * two adjacent removed faces (a zero-width lip);
 //   * an offset that collapses a radius or inverts a v-range;
 //   * t >= the solid's minimum half-extent (planar path);
 //   * a sew that does not close, or an assembled solid that fails its own volume
 //     identity self-check.
 //
-// GATE. test/native_thicksolid_closedform.mjs drives this engine through
+// GATE for (C) and (D). test/thicksolid_mixed_closedform.cpp calls
+// makeThickSolid directly (no node addon, so it runs from the same object
+// archive the 600-part A/B is built from) on four CLOSED FORMS derived here, not
+// borrowed from OCCT — a plate with a through hole (volume, area, all three
+// centre-of-mass components, the 12+2 face census and both cylinder radii AND
+// areas, plus BRepCheck validity), the all-circular cylinder as a REGRESSION
+// control, and the coplanar split in both directions: with a riser, where the
+// answer must contain exactly one cylinder of radius 8 and area 32*pi, and
+// without one, where the split must leave the volume identical and fabricate no
+// cylinder at all. Three negative controls: a wall deeper than the half extent,
+// a planar wire mixing a line and an arc, and a NURBS face — each must DEFER and
+// name its own guard.
+//
+// GATE for (A) and (B). test/native_thicksolid_closedform.mjs drives this engine through
 // forge::part::shellNativeThick (which has NO OCCT fallback, so a pass has
 // necessarily measured native geometry) against CLOSED FORMS for the
 // cylinder / cone / sphere / torus / tube shells — derived, not borrowed from
@@ -156,6 +207,17 @@
 
 namespace forge {
 namespace occtoffset {
+
+// ---------------------------------------------------------- diagnostics
+// WHY did the most recent makeThickSolid call ON THIS THREAD return a null
+// shape? A '|'-joined trail of the precondition labels it hit, e.g.
+// "q_planar_wire_edge_not_circle" or "q_surface_unsupported".
+// DIAGNOSTIC ONLY: setting it changes no predicate, tolerance or branch, and the
+// string is meaningless (stale) after a call that SUCCEEDED. It exists so a
+// coverage measurement can attribute a defer instead of reporting a bare null —
+// see reports/corpus_ab and test/corpus_ab_coverage.cpp. Cleared at the entry to
+// makeThickSolid; offsetSolidShape does not maintain it.
+const char* lastThickSolidDeferReason();
 
 // Hollow `shape` to a uniform wall of thickness `t` (>0), removing every face in
 // `facesToRemove` (leaving those as open mouths; an EMPTY list builds a fully

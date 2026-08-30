@@ -174,7 +174,7 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
 | FILLET | `FORGE_FILLET_DROP_NATIVE` | 600 | 146 | 51 | **315** | 88 | 32.8% | 76.8% | -44.0% [-49.2, -38.8] | 1.4e-47 | FAIL |
 | MAKEOFFSET | `FORGE_OFFSET_DROP_MAKEOFFSET` | 600 | 567 | 0 | **27** | 6 | 94.5% | 99.0% | -4.5% [-6.2, -2.8] | 1.5e-8 | FAIL |
-| THICKSOLID | `FORGE_THICKSOLID_DROP_NATIVE` | 600 | 7 | 0 | **126** | 467 | 1.2% | 22.2% | -21.0% [-24.3, -17.7] | 2.4e-38 | FAIL |
+| THICKSOLID | `FORGE_THICKSOLID_DROP_NATIVE` | 600 | 7 | 0 | **126** | 467 | 1.2% | 22.2% | -21.0% [-24.3, -17.7] | 2.4e-38 | FAIL |  <!-- superseded 2026-08-30: 8 / 0 / 125 / 467, see the THICKSOLID block in 3.2 -->
 | OFFSETSHAPE | `FORGE_OFFSETSHAPE_DROP_NATIVE` | 600 | 0 | 7 | **38** | 555 | 1.2% | 6.3% | -5.2% [-7.3, -3.0] | 3.1e-6 | FAIL |
 | THRUSECTIONS | `FORGE_THRUSECTIONS_DROP_NATIVE` | 600 | 0 | 0 | **567** | 33 | 0.0% | 94.5% | -94.5% [-96.3, -92.7] | 4.1e-171 | FAIL |
 | PIPE | `FORGE_PIPE_DROP_NATIVE` | 600 | 2 | 0 | **598** | 0 | 0.3% | 100.0% | -99.7% [-100.1, -99.2] | 1.9e-180 | FAIL |
@@ -302,6 +302,53 @@ a working operation into a thrown error.
 - **`THICKSOLID` 126 deleted on a 22.2% OCCT baseline.** Note the baseline: OCCT
   itself only manages 133/600 here. The native engine's 7 is still far behind, but
   this family is hard for both.
+
+  > **⚠ ATTRIBUTED 2026-08-30, and "hard for both" understates it in one direction
+  > and overstates it in another.** Full per-part census in
+  > `reports/corpus_ab/THICKSOLID_ATTRIBUTION.md`; the two findings that change how
+  > this row should be read:
+  >
+  > **All 126 of the deletion bucket have ONE cause, and it is not NURBS.** The
+  > 593 native deferrals split two ways and only two: 370 on a single line of the
+  > quadric path — a PLANAR face is admissible only if every one of its wires is
+  > exactly one full circle — and 223 on an unsupported surface type. The
+  > deletion bucket is **126/126 in the first group and 0/126 in the second**. The
+  > NURBS parts cost the ledger nothing, because OCCT declines every one of them
+  > too. The corpus is polygonal plates with cylindrical holes, not curved parts:
+  > 377/600 are wholly analytic and **0/600 are all-planar**, so `planarThickSolid`
+  > is dead code here and every deferral is the quadric path's.
+  >
+  > **Every one of OCCT's 133 successes is an INVALID solid** — `BRepCheck_Analyzer`
+  > 0/133 — on a corpus whose 600 source solids are valid 600/600, and six of them
+  > have MORE volume than the body they hollowed. This is the only family of the
+  > eleven measured where every success on both arms fails validity; the same
+  > harness on the same run reports OCCT valid 600/600 on `PIPE` and 455/461 on
+  > `FILLET`. **The flip gate counts `IsDone()`, so it cannot see this.** Nothing
+  > here argues for flipping the option — it argues against reading this row's
+  > 22.2% as capability.
+  >
+  > Three exact fixes followed the census (polygon planar wires; the coplanar face
+  > split and its cylindrical riser; rank-deficient polygon corners), each gated by
+  > closed forms in `test/thicksolid_mixed_closedform.cpp` and one of them
+  > mutation-proved. **They moved the row by one part**, 7 → 8 and 126 → 125, and
+  > the census says why: 195 of the parts they unblocked are two-lump bodies that
+  > sew into two shells — and all 271 multi-lump parts in the corpus are `NEITHER`,
+  > so finishing them would move the deletion bucket by zero — while the 20
+  > remaining reachable deletion-bucket parts hit a genuine topology change, their
+  > offset hole loops merging (measured: seven holes grow to `sum(Rh^2) = 469.2`
+  > against an offset outer `Ro^2 = 459.7`, so they can no longer fit). Re-measured
+  > over the same 600 parts, stride 1, 0 part-level errors:
+  >
+  > | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | McNemar p | verdict |
+  > |---|---:|---:|---:|---:|---:|---:|---:|---:|---|
+  > | THICKSOLID (re-measured) | 600 | 8 | 0 | **125** | 467 | 1.3% | 22.2% | 4.7e-38 | FAIL |
+  > | `OFFSETSHAPE` (CONTROL, same file, unchanged) | 600 | 0 | 7 | **38** | 555 | 1.2% | 6.3% | 3.1e-6 | FAIL |
+  >
+  > Every part moved in exactly one way: one `OCCT_ONLY -> BOTH_OK`, 599 unmoved.
+  > The `OFFSETSHAPE` control shares this file and four of its helpers and
+  > reproduces the baseline cell for cell. Artefacts:
+  > `reports/corpus_ab/thicksolid_mixed_600_{summary.md,results.jsonl.gz,manifest.json}`,
+  > input census in `reports/corpus_ab/thicksolid_input_census_600.jsonl.gz`.
 - **`OFFSETSHAPE` has the weakest OCCT baseline of all, 6.3%** — and the OCCT arm
   **CRASHED on 66 parts**. Without the per-arm fork those 66 SIGSEGVs would have
   killed the harness process, and a harness that dies produces silence, which reads
