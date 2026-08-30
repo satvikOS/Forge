@@ -153,6 +153,12 @@ class UndoStack {
 // ── registration ────────────────────────────────────────────────────────────
 // Adds the Part workspace core to `registry` and returns how many were added.
 // Both references must outlive the registry: the handlers capture them.
+//
+// UNDO IS NOT IN THIS SET. The stack above is driven by ForgeShell's ONE
+// `edit.undo` / `edit.redo` through forge::ui::DocumentHost -- the commands that
+// carry Ctrl+Z, feed the status strip and make the viewport rebuild. A second
+// pair of Part-workspace undo commands over the same stack was two menu entries
+// for one operation, and only one of them did the whole job.
 std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& document,
                                  UndoStack& undoStack);
 

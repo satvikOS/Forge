@@ -16,7 +16,7 @@ document models and no edge between them:
 
 * `KernelScene` owned real geometry that was **hardcoded in C++** (`makeBox -> cut -> filletEdges`)
   and was built exactly once, from `main.cpp`;
-* `forge::ui::PartDocument` was what the 18 Part commands actually appended feature-IR to — and it
+* `forge::ui::PartDocument` was what the Part commands actually appended feature-IR to — and it
   was rendered as **one line of text** in the Properties panel and nowhere else;
 * `ForgeShell::DocumentStats` was a set of counters that `file.*`/`edit.*` incremented, feeding the
   status strip. `edit.undo`'s entire body was `--doc_.undoDepth; ++doc_.redoDepth; ...`.
@@ -116,13 +116,13 @@ a *consumer* of `forge::ui`.
 | service (`ui/`) | what it drives in the app |
 | --- | --- |
 | `CommandRegistry` | the menu bar, the workspace ribbon, the command palette and the viewport context menu are all **generated from the registry**. There is no hand-written menu table. A greyed item is greyed by `evaluate()` — the same call `dispatch()` makes — so a menu can never disagree with the dispatcher. |
-| `PartCommands` | `registerPartCommands()` puts the 18 Part commands into the **same** registry the shell dispatches through, via `ForgeShell::registry()`. 13 shell commands + 18 Part = 31. |
+| `PartCommands` | `registerPartCommands()` puts the 16 Part commands into the **same** registry the shell dispatches through, via `ForgeShell::registry()`. 10 shell commands + 16 Part = 26. The shell registers NO modelling command: `model.extrude`/`model.fillet`/`model.shell` were counter stubs and are retired, and the keymap's Extrude/Fillet/Shell chords name `part.*`. |
 | `SelectionService` | viewport hover sets preselection, a click sets selection and focus, the status strip's filter combo is `setFilter()`. Everything resolves to an `EntityRef` with a persistent name (`face@7`), never a raw index. |
 | `Keymap` | key presses that ImGui does not want as text go to `ForgeShell::key()`. Multi-stroke sequences report `Pending` and are held. Switching input profile switches the shortcut table **and** the viewport's mouse-drag verbs at once. |
 | `DockLayout` | the dock tree is walked into rectangles and one borderless ImGui window is placed per tab group. Splitter drags and tab clicks write **back into the tree**, so what you arranged is what gets serialized. |
 | `WorkspaceProfile` | the eight workspace tabs. Switching saves the current layout and restores that workspace's. |
 | `FeatureTreeModel` | the feature-tree panel reads through `window()` under an `ImGuiListClipper`, so the expensive per-row record is materialized only for rows on screen, and a second identical frame costs the source zero new fetches. |
-| `PartDocument` / `UndoStack` | **the document.** `ForgeFrame` owns it, the 18 Part commands append to it, and its IR program is what the viewport is built from. Its memento undo stack is what `edit.undo` unwinds. |
+| `PartDocument` / `UndoStack` | **the document.** `ForgeFrame` owns it, the 16 Part commands append to it, and its IR program is what the viewport is built from. Its memento undo stack is what `edit.undo` unwinds. |
 | `forge::ft` | `parse` + `compile` turn the document's IR program into a solid. `KernelScene::buildFromIr()` is the only door; there is no hand-written geometry left in the app. |
 | `forge::tessellate` | the viewport's triangles, from the solid `forge::ft` just compiled. The mesh is de-indexed so every vertex carries the per-triangle OCCT face id that face picking needs. |
 

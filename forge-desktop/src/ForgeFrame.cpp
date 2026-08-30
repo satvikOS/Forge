@@ -195,7 +195,10 @@ std::string canonicalKeyName(int imguiKey) {
 
 // ── construction ────────────────────────────────────────────────────────────
 ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
-    : shell_(shell), scene_(scene), treeSource_(scene), tree_(treeSource_, 256) {
+    : shell_(shell), scene_(scene), treeSource_(scene, partDoc_), tree_(treeSource_, 256) {
+  // partDoc_ is EMPTY here and the tree is therefore the bare document root:
+  // wirePartCommands() seeds it and calls rebuildTree() again. That is the whole
+  // sequence -- there is no row vector to push anywhere.
   rebuildTree();
 
   float c[3] = {0.0f, 0.0f, 0.0f};
@@ -213,11 +216,11 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
 
 void ForgeFrame::rebuildTree() {
   tree_.setExpanded(treeSource_.rootId(), true);
-  const std::size_t n = scene_.features().size();
+  const std::size_t n = treeSource_.featureCount();  // == partDoc_.records().size()
   for (std::size_t i = 0; i < n; ++i) {
     // Only the LAST feature owns the body's faces, so it is the only one worth
     // opening; the rest start collapsed exactly as a CAD history tree does.
-    tree_.setExpanded(treeSource_.childAt(treeSource_.rootId(), i), i + 1 == n);
+    tree_.setExpanded(treeSource_.nodeForFeature(i), i + 1 == n);
   }
   tree_.rebuild();
 }
@@ -263,7 +266,7 @@ std::size_t ForgeFrame::wirePartCommands() {
   shell_.setDocumentHost(this);
   note("registered " + std::to_string(added) + " Part commands into the shell registry");
   note("document seeded: " + std::to_string(partDoc_.records().size()) + " statements");
-  refreshFeatureRows();
+  rebuildTree();
   return added;
 }
 
@@ -278,7 +281,6 @@ bool ForgeFrame::syncSceneToDocument() {
   ++rebuilds_;
   documentDirty_ = true;
   geometryDirty_ = true;
-  refreshFeatureRows();
   rebuildTree();
 
   const IrBuildReport& r = scene_.lastBuild();
@@ -294,25 +296,6 @@ bool ForgeFrame::syncSceneToDocument() {
     note("REBUILD FAILED: " + r.error + "  (showing the last good body)");
   }
   return true;
-}
-
-void ForgeFrame::refreshFeatureRows() {
-  const IrBuildReport& r = scene_.lastBuild();
-  std::vector<SceneFeature> rows;
-  rows.reserve(partDoc_.records().size());
-  for (const forge::ui::FeatureRecord& rec : partDoc_.records()) {
-    SceneFeature f;
-    f.name = "value_" + std::to_string(rec.irId);
-    f.label = rec.label.empty() ? rec.line.op : rec.label;
-    f.irOp = rec.line.op;
-    f.detail = rec.line.text();
-    // A row is in error when the last rebuild named it, or when a rebuild that
-    // failed before naming an op leaves every statement unaccounted for.
-    const bool named = (r.failedOpId == rec.irId) || (r.failedLine == rec.irId);
-    f.ok = r.ok() || !named;
-    rows.push_back(std::move(f));
-  }
-  scene_.setFeatureRows(std::move(rows));
 }
 
 // ── forge::ui::DocumentHost ─────────────────────────────────────────────────
@@ -391,6 +374,8 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
   note("saved " + target + "  (" + std::to_string(file.features.size()) + " statements)");
   return true;
 }
+
+void ForgeFrame::documentChanged() { syncSceneToDocument(); }
 
 bool ForgeFrame::documentUndo() {
   if (!partUndo_.undo(partDoc_)) return false;
@@ -481,11 +466,10 @@ void ForgeFrame::invoke(const std::string& id) {
     note(id + "  ->  " + forge::ui::toString(r.status) +
          (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
   }
-  // The command may have appended to the document. Rebuilding here rather than
-  // only once per frame keeps the status line and the viewport in the same
-  // frame; syncSceneToDocument() is idempotent, so the per-frame call that
-  // follows costs one string compare.
-  syncSceneToDocument();
+  // NO sync here. ForgeShell::run() has already called documentChanged() on this
+  // object if the command declared sideEffect == Document, so the viewport is
+  // already rebuilt by the time this line runs -- and it is rebuilt the same way
+  // for a macro, an Archie tool call or a gate, none of which come through here.
   if (id == "app.command_palette") togglePalette();
 }
 
@@ -514,12 +498,10 @@ std::string ForgeFrame::shortcutText(const std::string& id) const {
 
 bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
   if (key.empty()) return false;
-  // Whatever the keystroke resolves to may mutate the document; the sync runs
-  // after it, on the same idempotent method every other invoker uses.
-  struct SyncOnExit {
-    ForgeFrame* self;
-    ~SyncOnExit() { self->syncSceneToDocument(); }
-  } syncOnExit{this};
+  // No sync scope guard either: the keystroke dispatches through ForgeShell::key
+  // -> invoke -> run, and run() calls documentChanged() on this object. The guard
+  // that used to be here was the third copy of the same "remember to rebuild"
+  // rule, and a fourth invoker would have needed a fourth copy.
   forge::ui::KeyStroke stroke;
   stroke.key = key;
   stroke.mods = mods;
@@ -1323,6 +1305,14 @@ void ForgeFrame::drawFeatureTreePanel() {
           if (faceId != 0) clickFace(faceId, ImGui::GetIO().KeyShift);
         }
         if (ImGui::IsItemHovered() && faceId != 0) setPreselectedFace(faceId);
+        // A feature row IS an IR statement, so hovering it shows the statement --
+        // reachable only because the source hands back the document's own record.
+        if (ImGui::IsItemHovered()) {
+          if (const forge::ui::FeatureRecord* rec = treeSource_.recordAt(d.id)) {
+            ImGui::SetTooltip("%s\n%s", rec->line.text().c_str(),
+                              rec->commandId.empty() ? "(starting part)" : rec->commandId.c_str());
+          }
+        }
 
         // Per-node STATUS badge — the thing that makes a feature tree a
         // diagnostic instead of a list.
@@ -1414,15 +1404,24 @@ void ForgeFrame::drawConsolePanel() {
 }
 
 void ForgeFrame::drawTimelinePanel() {
-  ImGui::TextColored(rgb(130, 137, 148), "feature history: %zu features",
-                     scene_.features().size());
+  // THE HISTORY IS THE DOCUMENT'S. Every column below is a field of the
+  // FeatureRecord itself -- including the two a copied row could not carry: the
+  // statement id the row IS, and the command that authored it ("seed" for a
+  // statement the starting part contributed).
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  const IrBuildReport& r = scene_.lastBuild();
+  ImGui::TextColored(rgb(130, 137, 148), "feature history: %zu statements", records.size());
   ImGui::Separator();
-  for (std::size_t i = 0; i < scene_.features().size(); ++i) {
-    const SceneFeature& f = scene_.features()[i];
+  for (std::size_t i = 0; i < records.size(); ++i) {
+    const forge::ui::FeatureRecord& rec = records[i];
+    const bool named = (r.failedOpId == rec.irId) || (r.failedLine == rec.irId);
+    const bool ok = r.ok() || !named;
     ImGui::PushID(static_cast<int>(i));
-    ImGui::TextColored(f.ok ? rgb(120, 200, 130) : rgb(235, 105, 95), "%s", f.ok ? "OK " : "ERR");
+    ImGui::TextColored(ok ? rgb(120, 200, 130) : rgb(235, 105, 95), "%s", ok ? "OK " : "ERR");
     ImGui::SameLine();
-    ImGui::Text("%-24s %-8s %s", f.label.c_str(), f.irOp.c_str(), f.detail.c_str());
+    ImGui::Text("%%%-3d %-22s %-18s %s", rec.irId,
+                (rec.label.empty() ? rec.line.op : rec.label).c_str(),
+                rec.commandId.empty() ? "seed" : rec.commandId.c_str(), rec.line.text().c_str());
     ImGui::PopID();
   }
 }

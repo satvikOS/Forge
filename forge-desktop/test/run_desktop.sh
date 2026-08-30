@@ -18,7 +18,7 @@
 #                       * frame       — real ImGui frames over the real forge::ui
 #                         services and a real tessellated kernel body, with no
 #                         window, no swapchain and no MoltenVK.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. Eleven defects are
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. Fourteen defects are
 #                       injected in turn and each MUST make its gate exit
 #                       non-zero; a mutation that stays green fails this script,
 #                       because an unfalsifiable check is not a check.
@@ -111,7 +111,7 @@ run_gate() {
 # what the UI emits at all, and there is nothing to inject that the compiler
 # would not reject on its own.
 run_gate forge_desktop_ir_pipeline_gate
-run_gate forge_desktop_document_gate 1 2 3 4
+run_gate forge_desktop_document_gate 1 2 3 4 5 6 7
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7
 
 # ── 3. mutation verdict ──────────────────────────────────────────────────────

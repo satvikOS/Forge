@@ -362,10 +362,9 @@ int main(int argc, char** argv) {
     const forge::desktop::IrBuildReport& r = scene.lastBuild();
     std::printf("[forge] kernel body: %zu triangles, %u faces  [%s]\n", scene.triangleCount(),
                 scene.faceCount(), scene.backend().c_str());
-    std::printf("[forge] document: %zu ops declared/parsed/compiled %zu/%zu/%zu, "
+    std::printf("[forge] document: ops declared/parsed/compiled %zu/%zu/%zu, "
                 "V=%.3f mm3, valid=%s\n",
-                scene.features().size(), r.nDeclared, r.nParsed, r.nCompiled, r.volume,
-                r.valid ? "yes" : "no");
+                r.nDeclared, r.nParsed, r.nCompiled, r.volume, r.valid ? "yes" : "no");
   }
 
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_TIMER) != 0) {

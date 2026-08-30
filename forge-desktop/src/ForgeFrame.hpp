@@ -70,7 +70,7 @@ class ForgeFrame final : public forge::ui::DocumentHost {
  public:
   ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene);
 
-  // Registers the 18 Part workspace commands into the shell's ONE registry,
+  // Registers the 16 Part workspace commands into the shell's ONE registry,
   // seeds the PartDocument with the SAME statements KernelScene::build()
   // compiled, and installs this object as the shell's document host. Returns how
   // many commands were added.
@@ -107,6 +107,10 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   bool documentSave(const std::string& path, std::string& error) override;
   bool documentUndo() override;
   bool documentRedo() override;
+  // The shell calls this after any Document-side-effect command that ran. It is
+  // the ONE place the app re-derives geometry from the document, so no invoker
+  // has to remember to.
+  void documentChanged() override;
   std::size_t documentFeatureCount() const override;
   std::size_t documentUndoDepth() const override;
   std::size_t documentRedoDepth() const override;
@@ -213,11 +217,10 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::string shortcutText(const std::string& id) const;
 
   void syncSelectionToScene();
-  // Re-derives the tree/timeline rows from the document's records and marks the
-  // statement the last rebuild failed on. One writer, so the tree cannot show a
-  // history the viewport does not have.
-  void refreshFeatureRows();
-  // Re-expands and re-flattens the tree after the row set changed.
+  // Re-expands and re-flattens the tree after the DOCUMENT's record set changed.
+  // There is no row-copying step any more: SceneFeatureTreeSource reads
+  // PartDocument::records() itself, so this only has to re-derive the expansion
+  // and the flattened index.
   void rebuildTree();
   // Seeds an empty document with defaultPartStatements(). Returns false (and
   // says which statement) if the document refuses one, rather than starting on a
@@ -234,14 +237,22 @@ class ForgeFrame final : public forge::ui::DocumentHost {
 
   forge::ui::ForgeShell& shell_;
   KernelScene& scene_;
-  SceneFeatureTreeSource treeSource_;
-  forge::ui::FeatureTreeModel tree_;
 
   // The Part workspace's receiver + caretaker. They must outlive the registry
   // because the command handlers capture them (PartCommands.hpp says so).
+  //
+  // DECLARED BEFORE THE TREE, and that ordering is load-bearing: members are
+  // constructed in declaration order, SceneFeatureTreeSource now binds a
+  // reference to partDoc_, and forge::ui::FeatureTreeModel's CONSTRUCTOR calls
+  // rebuild() -- which walks the source, which reads partDoc_.records(). With
+  // the old order (tree first) that read would touch a member whose lifetime had
+  // not begun.
   forge::ui::PartDocument partDoc_;
   forge::ui::UndoStack partUndo_;
   bool partWired_ = false;
+
+  SceneFeatureTreeSource treeSource_;
+  forge::ui::FeatureTreeModel tree_;
 
   // ── document state ──────────────────────────────────────────────────────
   // `builtProgram_` is the IR the SCENE currently holds. Comparing it to

@@ -57,22 +57,11 @@ KernelScene::KernelScene() = default;
 bool KernelScene::build() {
   // The starting part IS a document: the same statements ForgeFrame seeds the
   // PartDocument with, compiled through the same edge every later edit takes.
-  const bool ok = buildFromIr(defaultPartIr());
-  std::vector<SceneFeature> rows;
-  for (const SeedStatement& st : defaultPartStatements()) {
-    SceneFeature f;
-    f.name = st.node.empty() ? ("value_" + std::to_string(st.line.id)) : st.node;
-    f.label = st.label;
-    f.irOp = st.line.op;
-    f.detail = st.detail;
-    f.ok = ok || (report_.failedOpId != st.line.id && report_.failedLine != st.line.id);
-    rows.push_back(std::move(f));
-  }
-  setFeatureRows(std::move(rows));
-  return ok;
+  // GEOMETRY ONLY -- the history rows are the document's records, which the tree
+  // source reads directly; this used to also fill a private SceneFeature vector
+  // that ForgeFrame then overwrote with a re-derived copy of the same table.
+  return buildFromIr(defaultPartIr());
 }
-
-void KernelScene::setFeatureRows(std::vector<SceneFeature> rows) { features_ = std::move(rows); }
 
 void KernelScene::setDocumentLabel(std::string label) {
   documentLabel_ = label.empty() ? std::string("untitled.fpart") : std::move(label);
@@ -321,11 +310,11 @@ std::size_t KernelScene::applySelection(const std::vector<std::uint32_t>& select
   return changed;
 }
 
-// ── SceneFeatureTreeSource ──────────────────────────────────────────────────
+// ── SceneFeatureTreeSource ────────────────────────────────────────
 //
 // Node id encoding, chosen so childAt/rootId stay O(1) and allocation-free:
 //   1                       = the document root
-//   2 + i                   = feature i
+//   2 + i                   = the document's i-th FeatureRecord
 //   1000 + faceId           = the B-rep face with that 1-based id
 namespace {
 constexpr forge::ui::NodeId kRootNode = 1;
@@ -333,16 +322,22 @@ constexpr forge::ui::NodeId kFeatureBase = 2;
 constexpr forge::ui::NodeId kFaceBase = 1000;
 }  // namespace
 
-SceneFeatureTreeSource::SceneFeatureTreeSource(const KernelScene& scene) : scene_(scene) {}
+SceneFeatureTreeSource::SceneFeatureTreeSource(const KernelScene& scene,
+                                               const forge::ui::PartDocument& document)
+    : scene_(scene), document_(document) {}
+
+std::size_t SceneFeatureTreeSource::featureCount() const noexcept {
+  return document_.records().size();
+}
 
 forge::ui::NodeId SceneFeatureTreeSource::rootId() const { return kRootNode; }
 
 std::size_t SceneFeatureTreeSource::childCount(forge::ui::NodeId parent) const {
-  if (parent == kRootNode) return scene_.features().size();
-  const std::size_t featureCount = scene_.features().size();
-  if (parent >= kFeatureBase && parent < kFeatureBase + featureCount) {
+  const std::size_t features = featureCount();
+  if (parent == kRootNode) return features;
+  if (features > 0 && parent >= kFeatureBase && parent < kFeatureBase + features) {
     // Only the LAST feature owns the resulting body's faces.
-    if (parent == kFeatureBase + featureCount - 1) return scene_.faceCount();
+    if (parent == kFeatureBase + features - 1) return scene_.faceCount();
     return 0;
   }
   return 0;
@@ -352,6 +347,16 @@ forge::ui::NodeId SceneFeatureTreeSource::childAt(forge::ui::NodeId parent,
                                                   std::size_t index) const {
   if (parent == kRootNode) return kFeatureBase + static_cast<forge::ui::NodeId>(index);
   return kFaceBase + static_cast<forge::ui::NodeId>(index) + 1;
+}
+
+forge::ui::NodeId SceneFeatureTreeSource::nodeForFeature(std::size_t index) const {
+  return kFeatureBase + static_cast<forge::ui::NodeId>(index);
+}
+
+const forge::ui::FeatureRecord* SceneFeatureTreeSource::recordAt(forge::ui::NodeId id) const {
+  const std::vector<forge::ui::FeatureRecord>& records = document_.records();
+  if (id < kFeatureBase || id >= kFeatureBase + records.size()) return nullptr;
+  return &records[static_cast<std::size_t>(id - kFeatureBase)];
 }
 
 forge::ui::FeatureNodeData SceneFeatureTreeSource::data(forge::ui::NodeId id) const {
@@ -364,15 +369,17 @@ forge::ui::FeatureNodeData SceneFeatureTreeSource::data(forge::ui::NodeId id) co
     d.featureIrOp = "DOCUMENT";
     return d;
   }
-  const std::size_t featureCount = scene_.features().size();
-  if (id >= kFeatureBase && id < kFeatureBase + featureCount) {
-    const SceneFeature& f = scene_.features()[id - kFeatureBase];
-    d.label = f.label;
-    d.iconKey = f.irOp;
-    d.featureIrOp = f.irOp;
-    d.state = f.suppressed ? forge::ui::FeatureState::Suppressed
-                           : (f.ok ? forge::ui::FeatureState::Ok
-                                   : forge::ui::FeatureState::Error);
+  if (const forge::ui::FeatureRecord* rec = recordAt(id)) {
+    // THE ROW IS THE STATEMENT. Everything below is read off the record the
+    // document holds -- no copy, no setter, nothing to forget to refresh.
+    d.label = rec->label.empty() ? rec->line.op : rec->label;
+    d.iconKey = rec->line.op;
+    d.featureIrOp = rec->line.op;
+    // A row is in error when the last rebuild named it, or when a rebuild that
+    // failed before naming an op leaves every statement unaccounted for.
+    const IrBuildReport& r = scene_.lastBuild();
+    const bool named = (r.failedOpId == rec->irId) || (r.failedLine == rec->irId);
+    d.state = (r.ok() || !named) ? forge::ui::FeatureState::Ok : forge::ui::FeatureState::Error;
     return d;
   }
   const std::uint32_t faceId = static_cast<std::uint32_t>(id - kFaceBase);

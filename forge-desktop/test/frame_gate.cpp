@@ -135,17 +135,20 @@ int main(int argc, char** argv) {
     std::printf("[gate] cannot continue without geometry\n");
     return 1;
   }
-  std::printf("[gate] %zu triangles, %u faces, %zu features  [%s]\n", scene.triangleCount(),
-              scene.faceCount(), scene.features().size(), scene.backend().c_str());
+  std::printf("[gate] %zu triangles, %u faces, %zu ops  [%s]\n", scene.triangleCount(),
+              scene.faceCount(), scene.lastBuild().nCompiled, scene.backend().c_str());
 
   checkGe(scene.triangleCount(), 12u, "tessellation yields at least a box's triangles");
   checkGe(scene.faceCount(), 6u, "the body has at least a box's faces");
   checkEq(scene.vertices().size(), scene.triangleCount() * 3,
           "vertex stream is de-indexed 3-per-triangle");
   // The reference is READ from the seed table rather than hard-coded, so the
-  // gate cannot drift into agreeing with a stale number.
-  checkEq(scene.features().size(), forge::desktop::defaultPartStatements().size(),
-          "one history row per statement in the default part program");
+  // gate cannot drift into agreeing with a stale number. The SCENE no longer
+  // keeps a history of its own -- it keeps geometry -- so the claim is on the
+  // compiler's own op reconciliation; the history itself is asserted against the
+  // document below, and against the tree source in the document gate.
+  checkEq(scene.lastBuild().nCompiled, forge::desktop::defaultPartStatements().size(),
+          "one compiled op per statement in the default part program");
   check(scene.lastBuild().ok(), "the default part compiled through forge::ft",
         scene.lastBuild().error);
   checkEq(scene.lastBuild().nDeclared, scene.lastBuild().nParsed,
@@ -254,7 +257,8 @@ int main(int argc, char** argv) {
   forge::desktop::ForgeFrame frame(shell, scene);
   if (g_mutation != 2) frame.wirePartCommands();
 
-  // The 18 Part commands went into THE SAME registry the shell dispatches.
+  // The Part commands went into THE SAME registry the shell dispatches. The
+  // count is READ from partCommandIds(), never spelled here.
   checkEq(shell.registry().size(), shellCommands + forge::ui::partCommandIds().size(),
           "Part commands joined the shell's one registry");
   for (const std::string& id : forge::ui::partCommandIds()) {
@@ -287,7 +291,8 @@ int main(int argc, char** argv) {
   std::printf("[gate] tree: %zu rows, %zu materialized, peak %zu, %zu fetches\n",
               frame.treeRowCount(), frame.treeMaterialized(), frame.treePeakMaterialized(),
               frame.treeFetches());
-  checkGe(frame.treeRowCount(), scene.features().size(), "the tree has a row per feature");
+  checkGe(frame.treeRowCount(), frame.document().records().size(),
+          "the tree has a row per DOCUMENT statement");
   checkLe(frame.treePeakMaterialized(), 256u,
           "never more rows materialized than the cache holds");
   checkGe(frame.treeRowsDrawn(), 1u, "tree rows were actually drawn");
@@ -534,8 +539,11 @@ int main(int argc, char** argv) {
     forge::ui::SelectionService stale;  // what a panel caching its selection would hold
     const forge::ui::ToolCatalog live =
         g_mutation == 7 ? forge::ui::buildToolCatalog(shell.registry(), stale) : cat;
-    const forge::ui::ToolEntry* shellTool = live.find("model.shell");
-    check(shellTool != nullptr, "model.shell is listed", "");
+    // part.shell, not model.shell: the ForgeShell counter stub that used to
+    // carry this claim is retired, and the command asserted here is the one that
+    // actually appends `SHELL(%body, 2)` to the document.
+    const forge::ui::ToolEntry* shellTool = live.find("part.shell");
+    check(shellTool != nullptr, "part.shell is listed", "");
     if (shellTool != nullptr) {
       check(shellTool->callable(), "a face-consuming tool is callable with faces picked",
             shellTool->reason);

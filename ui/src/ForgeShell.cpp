@@ -99,20 +99,26 @@ void ForgeShell::registerCommands() {
     c.category = "Edit";
     c.sideEffect = SideEffectClass::Document;
     c.undo = UndoContract::NotUndoable;
-    c.enabled = [this](const CommandContext&) { return doc_.undoDepth > 0; };
+    // ONE UNDO STACK. This used to fall back to `--doc_.undoDepth;
+    // ++doc_.redoDepth; if (doc_.features > 0) --doc_.features;` when no host was
+    // installed -- a second, private undo model that could only ever move
+    // counters, and that hid the "nothing here can undo anything" case behind an
+    // Ok. Undo now REQUIRES the document's own memento stack: with no host there
+    // is nothing to unwind, and the command says so by being disabled.
+    c.enabled = [this](const CommandContext&) {
+      return documentHost_ != nullptr && doc_.undoDepth > 0;
+    };
     c.execute = [this](CommandContext&) {
-      if (documentHost_ != nullptr) {
-        documentError_.clear();
-        if (!documentHost_->documentUndo()) {
-          documentError_ = "nothing to undo";
-          return;
-        }
-        syncDocumentStats();
+      documentError_.clear();
+      if (documentHost_ == nullptr) {
+        documentError_ = "no document is open";
         return;
       }
-      --doc_.undoDepth;
-      ++doc_.redoDepth;
-      if (doc_.features > 0) --doc_.features;
+      if (!documentHost_->documentUndo()) {
+        documentError_ = "nothing to undo";
+        return;
+      }
+      syncDocumentStats();
     };
     registry_.add(std::move(c));
   }
@@ -123,20 +129,20 @@ void ForgeShell::registerCommands() {
     c.category = "Edit";
     c.sideEffect = SideEffectClass::Document;
     c.undo = UndoContract::NotUndoable;
-    c.enabled = [this](const CommandContext&) { return doc_.redoDepth > 0; };
+    c.enabled = [this](const CommandContext&) {
+      return documentHost_ != nullptr && doc_.redoDepth > 0;
+    };
     c.execute = [this](CommandContext&) {
-      if (documentHost_ != nullptr) {
-        documentError_.clear();
-        if (!documentHost_->documentRedo()) {
-          documentError_ = "nothing to redo";
-          return;
-        }
-        syncDocumentStats();
+      documentError_.clear();
+      if (documentHost_ == nullptr) {
+        documentError_ = "no document is open";
         return;
       }
-      --doc_.redoDepth;
-      ++doc_.undoDepth;
-      ++doc_.features;
+      if (!documentHost_->documentRedo()) {
+        documentError_ = "nothing to redo";
+        return;
+      }
+      syncDocumentStats();
     };
     registry_.add(std::move(c));
   }
@@ -181,75 +187,35 @@ void ForgeShell::registerCommands() {
     c.execute = [this](CommandContext&) { doc_.wireframe = !doc_.wireframe; };
     registry_.add(std::move(c));
   }
-  {
-    CommandDescriptor c;
-    c.id = "model.extrude";
-    c.label = "Extrude";
-    c.category = "Model";
-    c.featureIrOp = "EXTRUDE";
-    c.signature = SelectionSignature::atLeast(EntityKind::Sketch, 1);
-    c.schema.push_back(ParamSpec{
-        .name = "distance", .type = ParamType::Number, .required = true,
-        .defaultNumber = 10.0, .hasDefault = true});
-    c.preview = PreviewPolicy::Live;
-    c.sideEffect = SideEffectClass::Document;
-    c.undo = UndoContract::Transaction;
-    c.enabled = always;
-    c.execute = [this](CommandContext& ctx) {
-      doc_.lastFeatureSize = ctx.params().number("distance").value_or(0.0);
-      ++doc_.features;
-      ++doc_.undoDepth;
-      doc_.redoDepth = 0;
-      doc_.dirty = true;
-    };
-    registry_.add(std::move(c));
-  }
-  {
-    CommandDescriptor c;
-    c.id = "model.fillet";
-    c.label = "Edge Fillet";
-    c.category = "Model";
-    c.featureIrOp = "FILLET";
-    c.signature = SelectionSignature::atLeast(EntityKind::Edge, 1);
-    c.schema.push_back(ParamSpec{
-        .name = "radius", .type = ParamType::Number, .required = true,
-        .defaultNumber = 1.0, .hasDefault = true});
-    c.preview = PreviewPolicy::Live;
-    c.sideEffect = SideEffectClass::Document;
-    c.undo = UndoContract::Transaction;
-    c.enabled = always;
-    c.execute = [this](CommandContext& ctx) {
-      doc_.lastFeatureSize = ctx.params().number("radius").value_or(0.0);
-      ++doc_.features;
-      ++doc_.undoDepth;
-      doc_.redoDepth = 0;
-      doc_.dirty = true;
-    };
-    registry_.add(std::move(c));
-  }
-  {
-    CommandDescriptor c;
-    c.id = "model.shell";
-    c.label = "Shell Body";
-    c.category = "Model";
-    c.featureIrOp = "SHELL";
-    c.signature = SelectionSignature::atLeast(EntityKind::Face, 1);
-    c.schema.push_back(ParamSpec{
-        .name = "thickness", .type = ParamType::Number, .required = true,
-        .defaultNumber = 2.0, .hasDefault = true});
-    c.preview = PreviewPolicy::OnDemand;
-    c.sideEffect = SideEffectClass::Document;
-    c.undo = UndoContract::Transaction;
-    c.enabled = always;
-    c.execute = [this](CommandContext& ctx) {
-      doc_.lastFeatureSize = ctx.params().number("thickness").value_or(0.0);
-      ++doc_.features;
-      ++doc_.undoDepth;
-      doc_.redoDepth = 0;
-      doc_.dirty = true;
-    };
-    registry_.add(std::move(c));
-  }
+  // ── THERE ARE NO MODELLING COMMANDS HERE ──────────────────────────────────
+  //
+  // `model.extrude`, `model.fillet` and `model.shell` used to sit at this point
+  // in the list, and the shipped keymap bound E / R / Ctrl+Shift+H (and the NX,
+  // CATIA and Blender equivalents) to them in all four input profiles. Their
+  // whole execute body was:
+  //
+  //     doc_.lastFeatureSize = ctx.params().number("distance").value_or(0.0);
+  //     ++doc_.features; ++doc_.undoDepth; doc_.redoDepth = 0; doc_.dirty = true;
+  //
+  // -- four counters. They emitted no feature-IR, so the document gained no
+  // statement and the viewport could not change; and once a DocumentHost is
+  // installed, syncDocumentStats() overwrites all four counters from the real
+  // document on the way out of run(), so in the running application pressing R
+  // changed NOTHING AT ALL while the console printed "model.fillet -> ok".
+  // ARCHIE_OP_VOCABULARY.md recorded them as "commands that declare an op they
+  // never emit"; the op vocabulary gate dispatched all three and asserted the
+  // document gained nothing.
+  //
+  // Modelling belongs to whoever owns the document. It is
+  // forge::ui::registerPartCommands (PartCommands.cpp) that adds part.extrude,
+  // part.fillet, part.shell and thirteen more, each of which appends ONE line of
+  // feature-IR to a PartDocument, into THIS SAME registry -- and the keymap now
+  // names those. A modelling command that cannot reach a document has nothing to
+  // do, and a shell with no document must not pretend otherwise.
+  //
+  // What the shell keeps is what it can honestly do without one: files (through
+  // the DocumentHost seam), view state, selection-delete, the palette and the
+  // workspaces.
   {
     CommandDescriptor c;
     c.id = "app.command_palette";
@@ -303,7 +269,19 @@ void ForgeShell::syncDocumentStats() {
 
 DispatchResult ForgeShell::run(const std::string& id, const CommandParams& params) {
   DispatchResult result = registry_.dispatch(id, selection_, params);
-  if (result.ok()) journal_.push_back(id);
+  if (result.ok()) {
+    journal_.push_back(id);
+    // ── A COMMAND CHANGES THE PICTURE ───────────────────────────────────────
+    // The descriptor already declares whether it touches the document, so the
+    // one dispatch path can tell the document's owner to re-derive. A command
+    // that only moved the camera or opened a palette must NOT trigger a rebuild,
+    // which is why this reads sideEffect rather than firing on every dispatch.
+    const CommandDescriptor* d = registry_.find(id);
+    if (d != nullptr && d->sideEffect == SideEffectClass::Document &&
+        documentHost_ != nullptr) {
+      documentHost_->documentChanged();
+    }
+  }
   // EVERY command, not just the file ones: a Part command mutates the document
   // through its own receiver, and the shell's view of it must follow the same
   // dispatch rather than a separate notification nobody remembers to send.
