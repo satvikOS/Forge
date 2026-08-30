@@ -286,6 +286,92 @@ jobs:
           echo "--- report ---"
           cat "$REPORT"
 
+      - name: Render the release notes (EVERY run, tag or not)
+        # The rendering used to happen only inside the publish step, which is
+        # tag-gated. That put the notes on the half of the path a human cannot
+        # rehearse: a broken body would first be discovered by the run that
+        # PUBLISHES. Same shape of mistake as this workflow's own history, where
+        # the only trigger that worked was the one that published.
+        #
+        # So the body is rendered HERE, on a dispatch too, from the same source
+        # and with the same measured values. The publish step below does not
+        # re-render; it uploads THESE bytes, so what a dry run shows is exactly
+        # what a tag would publish.
+        id: notes
+        shell: bash
+        env:
+          # A tag run has the real tag. A dispatch has none, so the version
+          # string is used, which already carries the short sha and makes an
+          # unreleasable build obviously unreleasable.
+          TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          BODY_SRC="docs/RELEASE_BODY_macos.md"
+          test -f "$BODY_SRC" || { echo "::error::$BODY_SRC missing"; exit 1; }
+
+          FLOOR="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["measured_floor"])' "$REPORT")"
+          SHA="$(awk '{print $1}' "$ZIP.sha256")"
+          OUT="forge-desktop/dist/Forge-macos-arm64-${V}.notes.md"
+
+          # Drop the leading HTML comment block (authoring instructions for
+          # whoever edits the body), then substitute the MEASURED values. A
+          # hard-coded minimum macOS or sha256 is wrong the moment the runner
+          # image or the build moves.
+          sed '/^<!--$/,/^-->$/d' "$BODY_SRC" \
+            | sed -e "s|@@REPO_URL@@|${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}|g" \
+                  -e "s|@@TAG@@|${TAG_NAME}|g" \
+                  -e "s|@@VERSION@@|${V}|g" \
+                  -e "s|@@FLOOR@@|${FLOOR}|g" \
+                  -e "s|@@SHA@@|${SHA}|g" > "$OUT"
+
+          # An unsubstituted placeholder would publish a literal "@@SHA@@" to
+          # users. Deliberately `grep -q` inside an `if` and NOT
+          # `LEFT=$(grep -c ...)`: this step runs under `set -e`, grep exits 1
+          # when it finds nothing, and an assignment carries its substitution's
+          # status, so counting would abort the step on the SUCCESS path.
+          if grep -q '@@[A-Z_]*@@' "$OUT"; then
+            grep -n '@@[A-Z_]*@@' "$OUT" >&2
+            echo "::error::unsubstituted placeholder(s) in the release body"
+            exit 1
+          fi
+          test -s "$OUT" || { echo "::error::release body rendered empty"; exit 1; }
+
+          # The one instruction that must never come back. Apple REMOVED the
+          # Control-click override in macOS 15 (Sequoia), so shipping it sends
+          # users to a menu item that does not exist. The second grep lets the
+          # body keep its explicit "ignore anything that says right-click"
+          # warning while still failing on a line that TELLS them to do it.
+          #
+          # The result is captured into a variable rather than read from the
+          # pipeline's status: `grep -q` exits on its FIRST match and closes the
+          # pipe, which can SIGPIPE the upstream grep, and under `pipefail` that
+          # non-zero status would read as "clean" and silently disable the
+          # guard. Neither grep here is -q, both read to EOF, and the decision
+          # is made on the TEXT.
+          BAD="$(grep -iE 'right[ -]click|control[ -]click' "$OUT" \
+                 | grep -ivE 'ignore|removed|do not|does nothing|no longer' \
+                 || true)"
+          if [ -n "$BAD" ]; then
+            printf '%s\n' "$BAD" >&2
+            echo "::error::the release body tells users to right-click to Open;" \
+                 "that shortcut was REMOVED in macOS 15 (Sequoia)"
+            exit 1
+          fi
+
+          echo "notes=$OUT" >> "$GITHUB_OUTPUT"
+          echo "--- release notes that a tag would publish VERBATIM ---"
+          cat "$OUT"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "### Release notes this build would publish"
+              echo
+              cat "$OUT"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload as a CI artifact (always)
         # Every run keeps its build, tag or not, so a dry run is downloadable
         # and testable WITHOUT touching a release.
@@ -296,6 +382,7 @@ jobs:
             forge-desktop/dist/Forge-macos-arm64-*.zip
             forge-desktop/dist/Forge-macos-arm64-*.zip.sha256
             forge-desktop/dist/Forge-macos-arm64-*.dryrun.json
+            forge-desktop/dist/Forge-macos-arm64-*.notes.md
           if-no-files-found: error
           retention-days: 30
 
@@ -321,47 +408,14 @@ jobs:
           ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
           REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
 
-          # Substitute the MEASURED floor into the notes. A hard-coded minimum
-          # macOS is wrong the moment the runner changes — exactly the kind of
-          # note that outlives its truth.
-          FLOOR="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["measured_floor"])' "$REPORT")"
-          SHA="$(awk '{print $1}' "$ZIP.sha256")"
-
-          # The body is NOT written here. docs/RELEASE_BODY_macos.md is the
-          # single source for it, so the release page, the README and the docs
-          # cannot drift, and a change to what users are told is a reviewed
-          # diff rather than an edit buried in a workflow heredoc.
-          #
-          # Every substituted value is MEASURED from this build's own report. A
-          # hard-coded minimum macOS or sha256 is wrong the moment anything
-          # moves, which is exactly the kind of note that outlives its truth.
-          BODY_SRC="docs/RELEASE_BODY_macos.md"
-          test -f "$BODY_SRC" || { echo "::error::$BODY_SRC missing"; exit 1; }
-
-          NOTES="$(mktemp)"
-          # Drop the leading HTML comment block (authoring instructions for
-          # whoever edits the body), then substitute the measured values.
-          sed '/^<!--$/,/^-->$/d' "$BODY_SRC" \
-            | sed -e "s|@@REPO_URL@@|${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}|g" \
-                  -e "s|@@TAG@@|${TAG}|g" \
-                  -e "s|@@VERSION@@|${V}|g" \
-                  -e "s|@@FLOOR@@|${FLOOR}|g" \
-                  -e "s|@@SHA@@|${SHA}|g" > "$NOTES"
-
-          # An unsubstituted placeholder would publish a literal "@@SHA@@" to
-          # users. Deliberately `grep -q` inside an `if` and NOT `LEFT=$(grep
-          # -c ...)`: this step runs under `set -e`, grep exits 1 when it finds
-          # nothing, and an assignment carries its substitution's status - so
-          # counting would abort the step on the SUCCESS path.
-          if grep -q '@@[A-Z_]*@@' "$NOTES"; then
-            grep -n '@@[A-Z_]*@@' "$NOTES" >&2
-            echo "::error::unsubstituted placeholder(s) in the release body"
-            exit 1
-          fi
-          # A body that lost its content would publish an empty release page.
-          test -s "$NOTES" || { echo "::error::release body rendered empty"; exit 1; }
-          echo "--- release body that will be published ---"
-          cat "$NOTES"
+          # No substitution happens here any more; the notes were rendered
+          # and printed by the step above, on a dispatch as well as on a tag.
+          # NOT re-rendered here. The "Render the release notes" step above
+          # already produced these exact bytes and printed them, on a dispatch
+          # too, so a dry run rehearses the publish instead of the publish being
+          # the first place the notes are ever built.
+          NOTES="${{ steps.notes.outputs.notes }}"
+          test -s "$NOTES" || { echo "::error::no rendered notes at $NOTES"; exit 1; }
 
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             echo "no release for $TAG yet - creating it as a DRAFT"
@@ -370,5 +424,6 @@ jobs:
           else
             echo "release $TAG exists - leaving its notes and draft state alone"
           fi
+
           gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
           echo "attached $ZIP to release $TAG"
