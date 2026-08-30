@@ -1203,7 +1203,7 @@ int main(int argc, char** argv) {
                     secs.push_back(w1);
                     secs.push_back(w2);
                     return forge::occtloft::thruSections(secs, true, true, 1.0e-6);
-                }, true, T, NF);
+                }, true, T, NF, &forge::occtloft::lastDeferReason);
                 const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                     BRepOffsetAPI_ThruSections mk(Standard_True, Standard_True, 1.0e-6);
                     mk.AddWire(w1);

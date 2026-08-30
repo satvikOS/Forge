@@ -475,12 +475,13 @@ bool pipeShellNativeEnabled() {
 // =========================================================== family D
 TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
                           bool solid, bool ruled, double tol) {
-    if (sections.size() < 2) return kNull;
+    reasonClear();
+    if (sections.size() < 2) FK_DEFER("loft_lt2_sections");
     const double t = std::max(tol, 1.0e-9);
 
     // ruled == false is only the same surface as ruled == true for TWO sections
     // (PART 2). Three or more smoothed sections is a different skin: defer.
-    if (!ruled && sections.size() != 2) return kNull;
+    if (!ruled && sections.size() != 2) FK_DEFER("loft_smooth_gt2_sections");
 
     std::vector<Section> sec;
     sec.reserve(sections.size());
@@ -489,20 +490,20 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
         Section cur;
         if (!s.IsNull() && s.ShapeType() == TopAbs_VERTEX) {
             // A point section is only meaningful as an apex at an end.
-            if (k != 0 && k + 1 != sections.size()) return kNull;
+            if (k != 0 && k + 1 != sections.size()) FK_DEFER("loft_interior_point_section");
             cur.isPoint = true;
             cur.ring.push_back(BRep_Tool::Pnt(TopoDS::Vertex(s)));
         } else if (!s.IsNull() && s.ShapeType() == TopAbs_WIRE) {
             if (!polygonRing(TopoDS::Wire(s), cur.ring, t)) return kNull;
         } else {
-            return kNull;
+            FK_DEFER("loft_section_not_wire_or_vertex");
         }
         sec.push_back(std::move(cur));
     }
 
     // Two adjacent point sections have no lateral surface at all.
     for (std::size_t k = 0; k + 1 < sec.size(); ++k) {
-        if (sec[k].isPoint && sec[k + 1].isPoint) return kNull;
+        if (sec[k].isPoint && sec[k + 1].isPoint) FK_DEFER("loft_adjacent_point_sections");
     }
 
     // Every polygon section must carry the SAME vertex count: correspondence is
@@ -514,9 +515,9 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
     for (const Section& s : sec) {
         if (s.isPoint) continue;
         if (n == 0) n = s.ring.size();
-        else if (s.ring.size() != n) return kNull;
+        else if (s.ring.size() != n) FK_DEFER("loft_vertex_count_mismatch");
     }
-    if (n < 3) return kNull;
+    if (n < 3) FK_DEFER("loft_lt3_vertices");
 
     // ---------------------------------------------------- correspondence
     // Fix each consecutive polygon pair's index correspondence before any face
@@ -562,7 +563,7 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
         for (std::size_t k : {std::size_t(0), sec.size() - 1}) {
             if (sec[k].isPoint) continue;             // an apex needs no cap
             double area = 0.0;
-            if (!ringPlanar(sec[k].ring, t, area)) return kNull;
+            if (!ringPlanar(sec[k].ring, t, area)) FK_DEFER("loft_cap_ring_nonplanar");
             if (!addPolyFace(sew, sec[k].ring)) return kNull;
         }
     }
