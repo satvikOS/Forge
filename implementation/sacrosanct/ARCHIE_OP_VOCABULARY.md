@@ -147,20 +147,39 @@ can be driven.
    section (use RING(...) or WIRE([...]))". `LOFT` is therefore *invocable* and
    *not compilable* through the user surface. Do not train on UI-shaped `LOFT`
    until the command feeds it wire sections.
-3. **Four commands declare an op they never emit** — `model.extrude`,
-   `model.fillet`, `model.shell` (ForgeShell stubs that touch only
-   `DocumentStats`) and `edit.delete` (whose `DELETE` is not a kernel op at all).
-   The gate dispatches the three `model.*` ones and asserts the Part document
-   gains nothing while dispatch answers `Ok`. Their `featureIrOp` must not be read
-   as evidence that an op is reachable; only `commands[].emits_feature_ir` is.
-4. **The shipped app's `PROFILE` seed is invalid.** `ForgeFrame::wirePartCommands`
-   seeds `sketch.base` with op `"SKETCH"`, which `opFromName` does not accept, so
-   `validateIr` answers `unknown_op`, the seed binds no value and — today —
-   `EXTRUDE`, `REVOLVE` and `LOFT` are unreachable *in the running app* even
-   though their commands are registered.
+3. **One command declares an op it never emits** — `edit.delete`, whose `DELETE`
+   is not a kernel op at all. It used to be four: `model.extrude`, `model.fillet`
+   and `model.shell` were ForgeShell stubs that touched only `DocumentStats`, and
+   the shipped keymap bound every profile's Extrude/Fillet/Shell chord to them,
+   so those keys reported `Ok` and emitted nothing. They are **retired**; the
+   chords name `part.extrude` / `part.fillet` / `part.shell`, and the Part
+   workspace's ribbon category is `Part` (it said `Model`, which is why the
+   toolbar offered the three stubs and none of the sixteen commands that emit).
+   The gate drives what is left and asserts the Part document gains nothing while
+   dispatch answers `Ok`. A `featureIrOp` must not be read as evidence that an op
+   is reachable; only `commands[].emits_feature_ir` is.
+4. **The shipped app binds no `PROFILE` to a selection node.** This entry used to
+   read "the seed is invalid": `ForgeFrame::wirePartCommands` seeded `sketch.base`
+   with op `"SKETCH"`, which `opFromName` does not accept. That is fixed — the
+   seed is now `defaultPartStatements()`, whose `%1 = RECT(80, 50)` validates —
+   but the conclusion still holds for a different reason. The rectangle is
+   *consumed* by `%2 = EXTRUDE(%1, 20)` and only the final solid is bound to a
+   node (`body.bracket`), so nothing a selection can name resolves to a `PROFILE`
+   and `EXTRUDE`, `REVOLVE` and `LOFT` remain unreachable in the running app.
+   What IS reachable is measured, not asserted: `forge-desktop`'s document gate
+   dispatches `part.fillet` and `part.chamfer` from a viewport-shaped pick and
+   compares the re-tessellated solid, and its frame gate finds `part.shell`
+   `Available` on a two-face pick.
 
 ## Keeping it true
 
+* Sixteen required Part parameters still carry no `hasDefault`, so an
+  interactive caller must prompt before those commands can run; the JSON lists
+  them under `required_parameters_without_hasDefault`. Three were removed from
+  that list — `part.extrude.distance` (10), `part.fillet.radius` (1) and
+  `part.shell.thickness` (2), the three the keymap binds — using the exact
+  defaults the retired `model.*` stubs already declared, which is what makes a
+  bare chord run rather than open a dialog that does not exist yet.
 * `--check` compares the committed JSON byte-for-byte against what the sources
   imply and prints a unified diff on drift. It records **content hashes of the
   eight source files**, not a git sha, so unrelated commits stay quiet and a real

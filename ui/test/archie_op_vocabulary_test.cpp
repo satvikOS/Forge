@@ -361,6 +361,10 @@ std::vector<EntityRef> selectionFor(const CommandDescriptor& c) {
       refs.push_back(ref("body_x", EntityKind::Body, "b1"));
       if (want >= 2) refs.push_back(ref("body_y", EntityKind::Body, "b2"));
       break;
+    case EntityKind::Any:
+      // edit.delete takes a mixed bag; one ref of any kind satisfies it.
+      refs.push_back(ref("body_x", EntityKind::Body, "b1"));
+      break;
     default:
       break;
   }
@@ -621,7 +625,11 @@ int main() {
     CHECK(c != nullptr);
     if (c == nullptr) continue;
     CHECK(!c->featureIrOp.empty());
-    if (cmdId.rfind("model.", 0) != 0) continue;  // edit.delete needs no parameters to prove
+    // No ForgeShell modelling stub may appear in this list any more: model.extrude,
+    // model.fillet and model.shell are retired and the keymap reaches part.* --
+    // which do emit. Only edit.delete is left declaring an op it never emits.
+    CHECK(cmdId.rfind("model.", 0) != 0);
+    CHECK_EQ_STR(cmdId, "edit.delete");
     // dispatch it against the SAME PartDocument the Part commands write to
     const std::size_t before = partDoc.featureCount();
     SelectionService sel;
@@ -635,7 +643,10 @@ int main() {
     CHECK_EQ_INT(partDoc.featureCount(), before);  // reported success, recorded nothing
     ++drivenDefects;
   }
-  CHECK_EQ_INT(drivenDefects, 3);
+  CHECK_EQ_INT(drivenDefects, 1);  // edit.delete, and nothing else
+  for (const std::string& id : shell.registry().ids()) {
+    CHECK(id.rfind("model.", 0) != 0);
+  }
 
   return H.finish();
 }

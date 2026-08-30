@@ -116,7 +116,7 @@ a *consumer* of `forge::ui`.
 | service (`ui/`) | what it drives in the app |
 | --- | --- |
 | `CommandRegistry` | the menu bar, the workspace ribbon, the command palette and the viewport context menu are all **generated from the registry**. There is no hand-written menu table. A greyed item is greyed by `evaluate()` — the same call `dispatch()` makes — so a menu can never disagree with the dispatcher. |
-| `PartCommands` | `registerPartCommands()` puts the 16 Part commands into the **same** registry the shell dispatches through, via `ForgeShell::registry()`. 13 shell commands + 16 Part = 29. |
+| `PartCommands` | `registerPartCommands()` puts the 16 Part commands into the **same** registry the shell dispatches through, via `ForgeShell::registry()`. 10 shell commands + 16 Part = 26. The shell registers NO modelling command: `model.extrude`/`model.fillet`/`model.shell` were counter stubs and are retired, and the keymap's Extrude/Fillet/Shell chords name `part.*`. |
 | `SelectionService` | viewport hover sets preselection, a click sets selection and focus, the status strip's filter combo is `setFilter()`. Everything resolves to an `EntityRef` with a persistent name (`face@7`), never a raw index. |
 | `Keymap` | key presses that ImGui does not want as text go to `ForgeShell::key()`. Multi-stroke sequences report `Pending` and are held. Switching input profile switches the shortcut table **and** the viewport's mouse-drag verbs at once. |
 | `DockLayout` | the dock tree is walked into rectangles and one borderless ImGui window is placed per tab group. Splitter drags and tab clicks write **back into the tree**, so what you arranged is what gets serialized. |

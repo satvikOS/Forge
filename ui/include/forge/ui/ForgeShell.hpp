@@ -33,7 +33,6 @@ struct DocumentStats {
   std::size_t redoDepth = 0;
   std::size_t fitCount = 0;
   std::size_t deletedCount = 0;
-  double lastFeatureSize = 0.0;  // the size parameter the last feature actually used
   bool wireframe = false;
   bool dirty = false;
 };
@@ -62,8 +61,14 @@ struct InvokeOutcome {
 // The fix is NOT a second registry of file commands in the app — that is exactly
 // the "one command, two invokers, two outcomes" defect the single-registry rule
 // forbids. It is this: the shell keeps ONE `file.open`, and delegates what that
-// command MEANS to whoever owns the document. With no host installed every
-// counter behaves exactly as before, so the existing shell gates are unchanged.
+// command MEANS to whoever owns the document.
+//
+// `edit.undo` and `edit.redo` now REQUIRE a host. Their counter fallback was a
+// second, private undo model that could only move numbers, and it made "there is
+// no document to undo" indistinguishable from a successful undo. With no host
+// they are disabled and say "no document is open"; the file commands still fall
+// back to setting `dirty`, because a shell with no document genuinely has
+// nothing to save and that is what the flag then means.
 class DocumentHost {
  public:
   virtual ~DocumentHost() = default;

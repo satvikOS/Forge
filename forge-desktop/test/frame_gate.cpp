@@ -539,8 +539,11 @@ int main(int argc, char** argv) {
     forge::ui::SelectionService stale;  // what a panel caching its selection would hold
     const forge::ui::ToolCatalog live =
         g_mutation == 7 ? forge::ui::buildToolCatalog(shell.registry(), stale) : cat;
-    const forge::ui::ToolEntry* shellTool = live.find("model.shell");
-    check(shellTool != nullptr, "model.shell is listed", "");
+    // part.shell, not model.shell: the ForgeShell counter stub that used to
+    // carry this claim is retired, and the command asserted here is the one that
+    // actually appends `SHELL(%body, 2)` to the document.
+    const forge::ui::ToolEntry* shellTool = live.find("part.shell");
+    check(shellTool != nullptr, "part.shell is listed", "");
     if (shellTool != nullptr) {
       check(shellTool->callable(), "a face-consuming tool is callable with faces picked",
             shellTool->reason);

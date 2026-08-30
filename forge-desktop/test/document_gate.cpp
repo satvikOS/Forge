@@ -52,6 +52,9 @@
 //   6  the tree is bound to a history that is a        -> the rows DESCRIBE THE WRONG
 //      different document altogether                      STATEMENTS -- the failure a
 //                                                        row-count check cannot see
+//   7  the keystroke dispatches with a bare              -> the shortcut dies on
+//      CommandParams, as ForgeShell::key() used to          missing_required_parameter and
+//                                                          models nothing
 
 #include <algorithm>
 #include <cmath>
@@ -718,6 +721,99 @@ int main(int argc, char** argv) {
           last == nullptr ? "no draw data" : std::to_string(last->TotalVtxCount));
     checkGt(frame.panelsDrawn(), 3u, "the docked layout still drew its panels");
     checkGt(frame.rebuilds(), 0u, "the document drove at least one rebuild");
+  }
+
+  // ── 9. A KEYSTROKE MODELS ────────────────────────────────────────────────
+  //
+  // THE P0.6 CLAIM, on the one path a user actually has: a key press, through
+  // ForgeFrame::onKey -> ForgeShell::key -> the ONE registry -> the document ->
+  // forge::ft -> the viewport's vertices.
+  //
+  // Until this slice the Extrude/Fillet/Shell chords in all four input profiles
+  // named `model.extrude` / `model.fillet` / `model.shell` -- ForgeShell
+  // descriptors whose whole execute body was four counter increments. They
+  // emitted no feature-IR, so no key could change the picture; and with a
+  // DocumentHost installed even the counters were overwritten from the real
+  // document on the way out of run(), so pressing R changed NOTHING while the
+  // console printed "ok".
+  //
+  // A fresh shell/scene/frame, so this is not reading the state fifty checks of
+  // file round-tripping left behind.
+  {
+    forge::desktop::KernelScene keyScene;
+    check(keyScene.build(), "the keystroke scene builds", keyScene.error());
+    forge::ui::ForgeShell keyShell;
+    forge::desktop::ForgeFrame keyFrame(keyShell, keyScene);
+    keyFrame.wirePartCommands();
+
+    // The chord resolves to the command that EMITS, and the counter stub it used
+    // to resolve to is not in the registry at all.
+    const forge::ui::Resolution r =
+        keyShell.keymap().resolve(keyShell.inputProfile(), {forge::ui::KeyStroke{"R", 0}});
+    checkStrEq(r.commandId, "part.fillet", "the Forge-native R chord names part.fillet");
+    check(!keyShell.registry().contains("model.fillet"), "model.fillet is not registered",
+          "the counter stub is still there");
+    check(!keyShell.registry().contains("model.extrude"), "model.extrude is not registered", "");
+    check(!keyShell.registry().contains("model.shell"), "model.shell is not registered", "");
+
+    const Fingerprint before = fingerprint(keyScene);
+    const std::size_t recordsBefore = keyFrame.document().records().size();
+    const std::size_t buildsBefore = keyScene.builds();
+
+    forge::ui::EntityRef pick;
+    pick.bodyId = keyFrame.activeBodyNode();
+    pick.kind = forge::ui::EntityKind::Edge;
+    pick.persistentName = "edge@all";
+    pick.generation = 1;
+    keyShell.selection().replaceWith({pick});
+
+    // MUTATION 7 is the regression ForgeShell::key() used to have: dispatch with
+    // a default-constructed CommandParams, so a command with a required
+    // parameter dies before its handler runs. Everything below then goes red.
+    const bool ran = g_mutation == 7 ? keyShell.run("part.fillet").ok()
+                                     : keyFrame.onKey("R", 0);
+    check(ran, "the R chord ran a command", keyFrame.lastStatus());
+    checkEq(keyFrame.document().records().size(), recordsBefore + 1,
+            "the keystroke appended ONE feature-IR statement");
+
+    const forge::ui::FeatureRecord* last = keyFrame.document().lastFeature();
+    check(last != nullptr, "the document has a last statement", "");
+    if (last != nullptr) {
+      checkStrEq(last->commandId, "part.fillet", "authored by the command the chord names");
+      checkStrEq(last->line.op, "FILLET", "and it emitted a FILLET");
+      // The schema default really reached the handler: radius 1, not a prompt.
+      checkStrEq(last->line.text(),
+                 "%" + std::to_string(last->irId) + " = FILLET(%" +
+                     std::to_string(last->irId - 1) + ", 1, ALL)",
+                 "the shortcut's schema default is IN the emitted statement");
+    }
+
+    check(keyScene.builds() > buildsBefore, "the keystroke drove a REAL kernel rebuild",
+          std::to_string(keyScene.builds()) + " builds");
+    check(keyScene.lastBuild().ok(), "the rebuilt solid compiled", keyScene.lastBuild().error);
+    const Fingerprint after = fingerprint(keyScene);
+    check(!(after == before), "A KEY PRESS CHANGED THE PICTURE",
+          "fingerprint identical: " + after.str());
+    check(after.volume < before.volume, "the keyed fillet removed material",
+          std::to_string(after.volume) + " vs " + std::to_string(before.volume));
+    checkGt(after.faceCount, before.faceCount, "and added faces");
+
+    // The ribbon the Part workspace claims is the category those commands are
+    // filed under. While it named "Model" the toolbar offered the three counter
+    // stubs and none of the sixteen commands that emit.
+    const std::vector<std::string> cats =
+        forge::ui::workspaceCategories(forge::ui::WorkspaceProfile::Part);
+    std::size_t ribbonCommands = 0;
+    for (const std::string& cat : cats) {
+      ribbonCommands += keyShell.registry().idsInCategory(cat).size();
+    }
+    checkEq(keyShell.registry().idsInCategory("Part").size(),
+            forge::ui::partCommandIds().size(),
+            "the Part ribbon category holds every Part command");
+    checkEq(keyShell.registry().idsInCategory("Model").size(), 0u,
+            "and no command is filed under the retired Model category");
+    checkEq(ribbonCommands, keyShell.registry().size(),
+            "every registered command is reachable from the Part workspace ribbon");
   }
 
   std::remove(path.c_str());

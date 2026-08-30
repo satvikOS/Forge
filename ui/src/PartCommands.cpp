@@ -308,7 +308,19 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.extrude", "Extrude", "EXTRUDE",
                                SelectionSignature::exactly(EntityKind::Sketch, 1));
-    c.schema.push_back(ParamSpec{"distance", ParamType::Number, true, 10.0, ""});
+    // hasDefault, so a GESTURE can run this command. ForgeShell::invoke() fills
+    // only the parameters whose spec says the default MEANS something, and the
+    // braced-positional ParamSpec form below stops before that flag, so every
+    // required Part parameter defaulted to hasDefault=false and every keyboard
+    // shortcut for a Part command died on missing_required_parameter before the
+    // handler ran. The three values here are not invented: they are the honest
+    // defaults the retired ForgeShell model.* stubs already declared and shipped
+    // (distance 10, radius 1, thickness 2), moved onto the commands that emit IR.
+    c.schema.push_back(ParamSpec{.name = "distance",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"dirx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"diry", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"dirz", ParamType::Number, false, 1.0, ""});
@@ -454,7 +466,13 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.fillet", "Edge Fillet", "FILLET",
                                SelectionSignature::atLeast(EntityKind::Edge, 1));
-    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 1.0, ""});
+    // hasDefault: see part.extrude above -- 1 mm is the fillet radius the retired
+    // model.fillet stub declared, and it is what makes R / Ctrl+B run.
+    c.schema.push_back(ParamSpec{.name = "radius",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 1.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"selector", ParamType::Text, false, 0.0, "ALL"});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
@@ -531,7 +549,13 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.shell", "Shell Body", "SHELL",
                                SelectionSignature::atLeast(EntityKind::Face, 1));
-    c.schema.push_back(ParamSpec{"thickness", ParamType::Number, true, 2.0, ""});
+    // hasDefault: see part.extrude above -- 2 mm is the wall the retired
+    // model.shell stub declared, and it is what makes Ctrl+Shift+H run.
+    c.schema.push_back(ParamSpec{.name = "thickness",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 2.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"open_axx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"open_axy", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"open_axz", ParamType::Number, false, -1.0, ""});

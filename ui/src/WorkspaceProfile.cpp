@@ -116,7 +116,12 @@ DockLayout defaultLayout(WorkspaceProfile profile) {
 std::vector<std::string> workspaceCategories(WorkspaceProfile profile) {
   std::vector<std::string> cats{"Application", "Edit", "File", "View"};  // always present
   switch (profile) {
-    case WorkspaceProfile::Part:          cats.push_back("Model"); break;
+    // "Part", not "Model": the Part workspace's ribbon is the category
+    // registerPartCommands() actually files its sixteen commands under. While
+    // this said "Model" the ribbon and the workspace menu showed the three
+    // ForgeShell counter stubs and NONE of the real modelling commands, which is
+    // how a toolbar full of Extrude/Fillet/Shell buttons could change nothing.
+    case WorkspaceProfile::Part:          cats.push_back("Part"); break;
     case WorkspaceProfile::Sketch:        cats.push_back("Sketch"); break;
     case WorkspaceProfile::Assembly:      cats.push_back("Assembly"); break;
     case WorkspaceProfile::Surface:       cats.push_back("Surface"); break;

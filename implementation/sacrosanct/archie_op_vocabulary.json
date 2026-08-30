@@ -48,15 +48,15 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "77c5541199500d32f6e9817aced7730fc60940ac64d37adbd107f69ddfd79e29",
-        "bytes": 36200,
-        "lines": 746
+        "sha256": "5f8d101379c241d9dbc72e672761e181fbe852939ec9eb3223ceb5fc60390c36",
+        "bytes": 37727,
+        "lines": 770
       },
       {
         "path": "ui/src/ForgeShell.cpp",
-        "sha256": "dde86e9c4d0cb9d38b70a416ab85c982304a578113827ef0f5f57360670e2d9d",
-        "bytes": 17314,
-        "lines": 496
+        "sha256": "a85797e6020f54d4bf8aa93388617e5d9db8ddafea9d83650779cdfae0cae2d0",
+        "bytes": 17235,
+        "lines": 462
       }
     ],
     "build_configuration": {
@@ -78,12 +78,12 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 29,
+    "registry_commands": 26,
     "commands_emitting_ir": 16,
     "user_invocable_ops": 14,
     "forbidden_ops": 26,
     "uncertain_entries": 1,
-    "derived_defects": 7
+    "derived_defects": 4
   },
   "emission_policy": {
     "allowed_ops": [
@@ -2502,81 +2502,6 @@
       "source": "ui/src/ForgeShell.cpp"
     },
     {
-      "id": "model.extrude",
-      "label": "Extrude",
-      "category": "Model",
-      "feature_ir_op": "EXTRUDE",
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "Sketch",
-        "min": 1,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "distance",
-          "type": "Number",
-          "required": true,
-          "default_number": 10.0,
-          "default_text": "",
-          "has_default": true
-        }
-      ],
-      "preview": "Live",
-      "undo": "Transaction",
-      "source": "ui/src/ForgeShell.cpp"
-    },
-    {
-      "id": "model.fillet",
-      "label": "Edge Fillet",
-      "category": "Model",
-      "feature_ir_op": "FILLET",
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "Edge",
-        "min": 1,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "radius",
-          "type": "Number",
-          "required": true,
-          "default_number": 1.0,
-          "default_text": "",
-          "has_default": true
-        }
-      ],
-      "preview": "Live",
-      "undo": "Transaction",
-      "source": "ui/src/ForgeShell.cpp"
-    },
-    {
-      "id": "model.shell",
-      "label": "Shell Body",
-      "category": "Model",
-      "feature_ir_op": "SHELL",
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "Face",
-        "min": 1,
-        "max": null
-      },
-      "parameters": [
-        {
-          "name": "thickness",
-          "type": "Number",
-          "required": true,
-          "default_number": 2.0,
-          "default_text": "",
-          "has_default": true
-        }
-      ],
-      "preview": "OnDemand",
-      "undo": "Transaction",
-      "source": "ui/src/ForgeShell.cpp"
-    },
-    {
       "id": "part.boolean_intersect",
       "label": "Intersect",
       "category": "Part",
@@ -2816,7 +2741,7 @@
           "required": true,
           "default_number": 10.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "dirx",
@@ -2882,7 +2807,7 @@
           "required": true,
           "default_number": 1.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "selector",
@@ -3374,7 +3299,7 @@
           "required": true,
           "default_number": 2.0,
           "default_text": "",
-          "has_default": false
+          "has_default": true
         },
         {
           "name": "open_axx",
@@ -3589,41 +3514,17 @@
       "consequence": "nothing can compile this statement; the op name is a dead label"
     },
     {
-      "kind": "declares_an_op_it_never_emits",
-      "command": "model.extrude",
-      "feature_ir_op": "EXTRUDE",
-      "evidence": "the handler in ui/src/ForgeShell.cpp contains no IrArg/emit call",
-      "consequence": "the command reports success and the document gains no statement"
-    },
-    {
-      "kind": "declares_an_op_it_never_emits",
-      "command": "model.fillet",
-      "feature_ir_op": "FILLET",
-      "evidence": "the handler in ui/src/ForgeShell.cpp contains no IrArg/emit call",
-      "consequence": "the command reports success and the document gains no statement"
-    },
-    {
-      "kind": "declares_an_op_it_never_emits",
-      "command": "model.shell",
-      "feature_ir_op": "SHELL",
-      "evidence": "the handler in ui/src/ForgeShell.cpp contains no IrArg/emit call",
-      "consequence": "the command reports success and the document gains no statement"
-    },
-    {
       "kind": "required_parameters_without_hasDefault",
-      "count": 19,
+      "count": 16,
       "parameters": [
-        "distance (part.extrude)",
         "angle (part.revolve)",
         "diameter (part.hole)",
         "diameter (part.counterbore)",
         "cbore_diameter (part.counterbore)",
         "cbore_depth (part.counterbore)",
-        "radius (part.fillet)",
         "distance (part.chamfer)",
         "radius_start (part.variable_fillet)",
         "radius_end (part.variable_fillet)",
-        "thickness (part.shell)",
         "count (part.pattern_linear)",
         "dx (part.pattern_linear)",
         "count (part.pattern_circular)",
