@@ -1,15 +1,35 @@
 # PIPESHELL (TKOffset family F) defer audit — 2026-08-30
 
-Measured against `origin/claude/sacrosanct-execution-20260828` @ `7e6b405c`, on the
-same 600-part corpus and with the same `test/run_corpus_ab_coverage.sh` as
-`reports/corpus_ab/full600_*`. `FAMILIES=PIPESHELL,PIPE,THRUSECTIONS,FILLING`,
-600/600 parts, 0 part-level errors on both runs. THRUSECTIONS and FILLING are
-carried purely as CONTROLS: they must not move.
+## The number
 
-`before_summary.md` reproduces the committed `full600_after_filletfix` baseline
-row for row (PIPESHELL native 309 OK / 291 DEFER, PIPE 249/351, THRUSECTIONS
-309/291, FILLING 407/193), which is what makes it a baseline and not a second
-opinion.
+| run | PIPESHELL native | **parts the drop deletes** | THRUSECTIONS (control) | FILLING (control) |
+|---|---:|---:|---:|---:|
+| `before_*` @ `7e6b405c` | 309 / 600 = **51.5%** | **291** | 309 / 600 = 51.5%, 258 deleted | 407 / 600 = 67.8%, 0 deleted |
+| `after_*` @ `fa72e634` | 599 / 600 = **99.8%** | **1** | 309 / 600 = 51.5%, 258 deleted | 407 / 600 = 67.8%, 0 deleted |
+
+Both CONTROLS are byte-for-byte unmoved. The one surviving deletion is `ho1190`
+(see the oracle section below).
+
+**The flip gate is still not met, and it is missed by exactly one part.** The
+aggregator's rule is the gate's own words — "PASS iff native % >= occt %" — and
+99.8% < 100.0%, so `FORGE_PIPESHELL_DROP_NATIVE` reads FAIL. The delta is
+-0.2% [-0.5, 0.2] with McNemar p = 1.0000: a confidence interval that straddles
+zero, which is a different statement from "passes", and it is not made here.
+
+Measured against `origin/claude/sacrosanct-execution-20260828`, on the same
+600-part corpus and with the same `test/run_corpus_ab_coverage.sh` as
+`reports/corpus_ab/full600_*`. 600/600 parts, stride 1, 0 part-level errors on
+both runs. THRUSECTIONS and FILLING are carried purely as CONTROLS: they must not
+move. `before_*` additionally carried PIPE and reproduces the committed
+`full600_after_filletfix` baseline row for row (PIPESHELL 309/291, PIPE 249/351,
+THRUSECTIONS 309/291, FILLING 407/193), which is what makes it a baseline and not
+a second opinion.
+
+**Family E (PIPE) inherits this transport and is NOT measured to completion here.**
+The `after_*` run drops it to halve the wall time. A 162-part prefix of the
+abandoned four-family run read PIPE at 161/162, but a prefix of an undocumented
+corpus ordering is a biased sample and that number is recorded as an observation,
+never as a result.
 
 ## What the 291 declines actually were
 
@@ -145,9 +165,9 @@ implementation, so agreement is evidence rather than a tautology.
 | class | n | median ratio | \|median − closed form\| |
 |---|---:|---:|---:|
 | `LINE_ONLY` (the already-proven control) | 309 | 1.0717967697 | 1.2e-11 |
-| `LINE_ARC` (new) | 141 | 1.0717967697 | 7.4e-11 |
-| `HAS_BSPLINE` (new) | 105 | 1.0717967695 | 2.2e-10 |
-| `ARC_ONLY` (new) | 44 | 1.0717967579 | 1.2e-8 |
+| `LINE_ARC` (new) | 141 | 1.0717967697 | 5.9e-12 |
+| `HAS_BSPLINE` (new) | 105 | 1.0717967696 | 1.1e-10 |
+| `ARC_ONLY` (new) | 44 | 1.0717967601 | 9.6e-9 |
 
 The newly covered classes match the closed form to the SAME precision as the
 `LINE_ONLY` class the A/B has independently proved exact against
@@ -161,17 +181,40 @@ Running the same script on `before_results.jsonl.gz` is the negative control: on
 `LINE_ONLY` appears at all, because the curved classes had no native build to
 take a ratio of.
 
-### Where OCCT's own `RightCorner` arm cannot be the oracle
+### What the 273 `PIPESHELL_RC` disagreements actually are
 
-Five parts (`ho1040`, `ho109`, `ho1154`, `ho116`, `ho126`) disagree with the
-`PIPESHELL_RC` arm on volume by 20–24%. On all five, native is
-`BRepCheck_Analyzer` **VALID** with 18/40/24 faces/edges/vertices and the OCCT
-`RightCorner` arm is **INVALID** with 18/48/32 — it built a self-intersecting
-shape whose measured volume and area are both inflated. On the very same parts the
-DEFAULT-transition OCCT arm is valid, and native/default is `1.0718` to ten
-decimals. This is the same class of OCCT failure the file banner already records
-for `MakePipe` and `MakeThickSolid` on bent spines, and it is why the closed form
-is the oracle here and OCCT is not.
+The A/B's `agree` column demands the FULL observable vector — volume, area, centre
+of mass, all six vertex-derived bbox bounds, and every sub-shape count — so it
+reads 324 of 597 `BOTH_OK` rows as agreeing (up from 309) and 273 as not. Split by
+what actually differs:
+
+| n | what differs | OCCT(`RightCorner`) `BRepCheck` |
+|---:|---|---:|
+| 324 | nothing — the full vector matches | valid |
+| 243 | topology counts and/or the vertex-derived bbox ONLY; volume, area and centre of mass all match | valid on **all 243** |
+| 30 | volume, area and centre of mass | **INVALID on all 30** |
+
+**The 243 are not geometric disagreements.** For `LINE_ARC` (141) and
+`HAS_BSPLINE` (73) the bbox gap is literally `0` and only the face/edge/vertex
+counts differ — OCCT partitions the same wall into a different number of faces.
+The other 44 are all `ARC_ONLY`, where the bbox gap is large (up to 0.61 of the
+part diagonal) for a reason that is about the COMPARATOR, not the solids: the
+harness derives its bbox from VERTICES on purpose (`Bnd_Box` would inflate by the
+shape tolerance and blur the very disagreement it exists to see), and a full-circle
+tube carries 3 seam vertices in the native build against OCCT's 6. The bbox of a
+handful of seam points is not the bbox of the tube. Volume, area and centre of mass
+agree on all 44.
+
+**All 30 geometric disagreements are rows where OCCT failed its own validity
+check** — 30 of the 31 parts on which OCCT(`RightCorner`) returns a shape that is
+`BRepCheck`-INVALID. On `ho1040`, `ho109`, `ho1154`, `ho116` and `ho126` native is
+VALID at 18/40/24 faces/edges/vertices and the `RightCorner` arm is INVALID at
+18/48/32, with both its volume and its area inflated by 20–40%; on the very same
+parts the DEFAULT-transition OCCT arm IS valid and native/default is `1.0718` to
+ten decimals. Native is `BRepCheck`-valid on 599/599 of its builds against
+OCCT(`RightCorner`)'s 567/598. This is the same class of OCCT failure the file
+banner already records for `MakePipe` and `MakeThickSolid` on bent spines, and it
+is why the closed form is the oracle here and OCCT is not.
 
 ## Result: the engine's own verdict, part by part
 
@@ -194,16 +237,27 @@ declines, on a byte-identical code path.
 ## Cost
 
 The curved path is booleans where the polygon path was sewn quads. On this machine
-the whole four-family A/B went from ~0.85 s/part to ~4.5 s/part with PIPE and
-PIPESHELL both on the new path. No part exceeded the harness's 20 s per-arm
-deadline. That is a real cost and it is stated rather than buried.
+the four-family A/B went from ~0.85 s/part to ~4.5 s/part with PIPE and PIPESHELL
+both on the new path (and to ~1.3 s/part for the three-family `after_*` run, which
+drops PIPE). **No part exceeded the harness's 20 s per-arm deadline** — the native
+arm's status histogram is `OK:599 DEFER:1` with zero `TIMEOUT`. That is a real cost
+and it is stated rather than buried.
+
+## Where the remaining gap is
+
+One part. `ho1190` is an 8-edge all-B-spline outline whose measured volume misses
+its closed form by `1.46e-6` relative — `1.46x` the gate. It is the maximum of the
+whole 291-part deviation distribution, and nothing else is within a factor of 10 of
+it. Closing it means making the mitre cut on a B-spline extrusion more accurate
+than OCCT's boolean makes it, which is a different piece of work from this one; it
+does not mean moving the gate.
 
 ## Files
 
 | file | what |
 |---|---|
-| `before_manifest.json`, `before_summary.md`, `before_results.jsonl.gz` | the A/B before, at `7e6b405c` |
-| `after_manifest.json`, `after_summary.md`, `after_results.jsonl.gz` | the A/B after |
+| `before_manifest.json`, `before_summary.md`, `before_results.jsonl.gz` | the A/B before, at `7e6b405c` (also carries PIPE) |
+| `after_manifest.json`, `after_summary.md`, `after_summary.json`, `after_results.jsonl.gz` | the A/B after, at `fa72e634` |
 | `census_before_600.tsv`, `census_after_600.tsv` | `pipeshell_defer_census` over all 600 parts, both sides |
 | `oracle_ratios_600.txt.gz` | `FORGE_GEN_ORACLE_REPORT` for every accepted and rejected build |
 | `mitre_ratio_check.py` | the independent (non-self-referential) volume oracle above; run it on either `results.jsonl` |
