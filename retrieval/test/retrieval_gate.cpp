@@ -136,6 +136,33 @@ int main(int argc, char** argv) {
   //    dimension. All three must be gone, and the standard designation must
   //    survive so the query is still worth asking.
   // ═══════════════════════════════════════════════════════════════════════════
+  section("12.0 redaction: the FIRST token is not exempt from the proper-noun rule");
+  {
+    // REGRESSION TEST for a real leak. The proper-noun rule used to carry a
+    // `token_index > 0` guard, which exempted the FIRST token of the whole query.
+    // A user question very often OPENS with the customer or project name, so an
+    // UNLISTED name in that position was transmitted verbatim to the public search
+    // engine. Nothing covered it: every existing case happens to start with "For",
+    // "Is" or "What", all of which sit in publicCapitalizedVocabulary().
+    //
+    // The lexicon here is EMPTY on purpose. A registered name would be removed by the
+    // authoritative lexicon layer and would prove nothing about the positional rule.
+    Redactor bare{};  // no lexicon at all — the positional rule must stand on its own
+    const RedactionResult r = bare.redact("Vanterra bearing preload tolerance for a press fit");
+    std::cout << "  wire  : " << r.wire_query << "\n";
+
+    check(!containsCI(r.wire_query, "Vanterra"),
+          "an UNLISTED proper noun in FIRST position is removed from the wire query");
+    check(r.removedAnyOf(RedactionKind::ProperNoun),
+          "the first-position removal is classified as a ProperNoun, not silently dropped");
+
+    // The rule must not have become indiscriminate: an ordinary opening word is kept.
+    const RedactionResult keep = bare.redact("What bearing preload tolerance suits a press fit");
+    check(containsCI(keep.wire_query, "bearing"), "the engineering question still survives");
+    check(containsCI(keep.wire_query, "What") || containsCI(keep.wire_query, "what"),
+          "a sentence-opening word in publicCapitalizedVocabulary is still kept");
+  }
+
   section("12.1 redaction: customer name + part number + secret dimension");
   {
     Redactor redactor(demoLexicon());
