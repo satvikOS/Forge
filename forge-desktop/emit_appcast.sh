@@ -27,6 +27,16 @@
 #     creates releases as drafts, so the human "press Publish" step is already
 #     the gate on auto-update. Nothing may be added that bypasses it.
 #
+#     MEASURED 2026-08-30, not taken from documentation. This repository has
+#     exactly one release, v0.1.0-alpha.0, and it is a DRAFT:
+#         $ gh release list
+#         Forge (native C++) - cutover placeholder, no binary  Draft  v0.1.0-alpha.0
+#         $ gh api repos/satvikOS/Forge/releases/latest
+#         404 Not Found
+#     A draft therefore does not resolve as "latest", and an installed Forge
+#     asking for releases/latest/download/appcast.json gets a 404 -- which the
+#     updater reports and does nothing about. That is the desired behaviour.
+#
 # ── WHY `url` NAMES ONE RELEASE ──────────────────────────────────────────────
 # The manifest and the payload are two separate HTTP requests, and `sha256`
 # describes the bytes of ONE build. A `releases/latest/download/...` payload URL
@@ -51,7 +61,7 @@ while [ $# -gt 0 ]; do
     --out)        shift; [ $# -gt 0 ] || die "--out needs a value";        OUT="$1" ;;
     --min-macos)  shift; [ $# -gt 0 ] || die "--min-macos needs a value";  MIN_MACOS="$1" ;;
     --repo)       shift; [ $# -gt 0 ] || die "--repo needs a value";       REPO="$1" ;;
-    -h|--help)    sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '2,46p' "$0"; exit 0 ;;
     *)            die "unknown argument: $1" ;;
   esac
   shift

@@ -281,6 +281,11 @@ fixture archive on purpose and asserts the staged bundle comes out clean.
 
 ```
 appcast.json  (https://github.com/<repo>/releases/latest/download/appcast.json)
+              A DRAFT release does not resolve as "latest" -- measured, not
+              assumed: this repo's only release is the draft v0.1.0-alpha.0 and
+              `gh api repos/satvikOS/Forge/releases/latest` returns 404. So the
+              "a human presses Publish" gate is automatically the gate on
+              auto-update, and nothing extra had to be built for it.
     |  parseManifest   strict flat JSON, no nesting, no duplicate keys, 64 KB cap
     v
 decide()      schema, arch, channel, prerelease policy, https + host allow-list,
