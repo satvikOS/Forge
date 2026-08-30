@@ -300,7 +300,7 @@ TopoDS_Shape sectorWedge(const gp_Pnt& p0, const gp_Dir& dir, double len,
 
     TopoDS_Shape wedge;
     try {
-        wedge = ::forge::occtPrism(mkf.Face(), gp_Vec(dir) * len);
+        wedge = ::forge::occtPrism(mkf.Face(), gp_Vec(dir) * len, /*canonize=*/true);
     } catch (const std::exception&) {
         return defer("wedge: the sector prism could not be built");
     }
@@ -365,7 +365,7 @@ TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
     if (coplanar) {
         TopoDS_Shape swept;
         try {
-            swept = ::forge::occtPrism(shell, gp_Vec(N[0]) * (sgn * r));
+            swept = ::forge::occtPrism(shell, gp_Vec(N[0]) * (sgn * r), /*canonize=*/true);
         } catch (const std::exception&) {
             return defer("coplanar path: the shell prism failed");
         }
@@ -389,7 +389,7 @@ TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
     for (std::size_t i = 0; i < faces.size(); ++i) {
         TopoDS_Shape part;
         try {
-            part = ::forge::occtPrism(faces[i], gp_Vec(N[i]) * (sgn * r));
+            part = ::forge::occtPrism(faces[i], gp_Vec(N[i]) * (sgn * r), /*canonize=*/true);
         } catch (const std::exception&) {
             return defer("folded path: a face prism failed");
         }
