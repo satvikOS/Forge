@@ -20,12 +20,19 @@
 // CONTROLS (--selftest, fatal in the runner). Two constants agreeing prove
 // nothing, so the self-test requires the engine to be seen taking BOTH answers
 // AND the reason channel to be seen taking several distinct values:
-//   * a frustum                  -> SHAPE, and an EMPTY reason
-//   * a 45-degree twisted pair   -> NULL,  reason "quad_nonplanar"
-//   * a circular-edge pair       -> NULL,  reason "prof_edge_not_line"
-//   * a 4-vs-5 vertex pair       -> NULL,  reason "loft_vertex_count_mismatch"
-// The last two are labels this census exists to count; a run in which they
-// cannot be produced on demand is inert and says so.
+//   * a frustum                  -> SHAPE, an EMPTY reason (polygonal path)
+//   * EQUAL circles, offset in z -> SHAPE, reason "prof_edge_not_line" and a
+//                                  volume equal to pi r^2 h — the polygonal path
+//                                  declined and the TRANSLATED-SECTION path built
+//                                  it, exactly. This is the control for the path
+//                                  the deletion-bucket fix added; without it a
+//                                  census could report the fix live while it was
+//                                  compiled out.
+//   * a 45-degree twisted pair   -> NULL,  "quad_nonplanar|xlate_not_a_translate"
+//   * UNEQUAL circles            -> NULL,  "prof_edge_not_line|xlate_not_a_translate"
+//   * a 4-vs-5 vertex pair       -> NULL,  "loft_vertex_count_mismatch|xlate_edge_count_mismatch"
+// The reasons are CHAINS because both engines are asked in turn and each records
+// why it declined; the expected strings are exact, never prefixes.
 //
 // COLUMNS (tab separated)
 //   part  engine  reason  nEdge1  nEdge2  nLine1  nLine2  nWire1  nWire2
@@ -293,21 +300,44 @@ int selftest() {
         r2.push_back(gp_Pnt(0, -s, 20)); r2.push_back(gp_Pnt(s, 0, 20));
         r2.push_back(gp_Pnt(0, s, 20));  r2.push_back(gp_Pnt(-s, 0, 20));
         const Probe p = callEngine(polyWire(r1), polyWire(r2));
-        const bool ok = p.shape.IsNull() && p.reason == "quad_nonplanar";
+        const bool ok = p.shape.IsNull() && p.reason == "quad_nonplanar|xlate_not_a_translate";
         std::printf("SELFTEST %-22s engine=%-5s reason=%-30s  %s\n", "twisted45(negative)",
                     p.shape.IsNull() ? "NULL" : "SHAPE",
                     p.reason.empty() ? "(none)" : p.reason.c_str(),
-                    ok ? "PASS" : "FAIL (want quad_nonplanar)");
+                    ok ? "PASS" : "FAIL (want quad_nonplanar|xlate_not_a_translate)");
         if (!ok) ++bad;
     }
-    // NEGATIVE 2: circular sections -> prof_edge_not_line.
+    // POSITIVE for the TRANSLATED-SECTION path: two EQUAL circles offset in z.
+    // The polygonal engine declines (prof_edge_not_line) and the translate path
+    // builds the exact cylinder, so this control asserts BOTH that the new path
+    // is live and that what it builds is right to the closed form. A census run
+    // where this cannot be produced is measuring an engine without the fix in it.
+    {
+        const double r = 5.0, h = 10.0;
+        const Probe p = callEngine(circleWire(0.0, r), circleWire(h, r));
+        double vol = 0.0;
+        if (!p.shape.IsNull()) {
+            GProp_GProps g;
+            try { BRepGProp::VolumeProperties(p.shape, g); vol = std::fabs(g.Mass()); } catch (...) {}
+        }
+        const double want = M_PI * r * r * h;
+        const bool ok = !p.shape.IsNull() && p.reason == "prof_edge_not_line" &&
+                        std::fabs(vol - want) <= 1e-6 * want;
+        std::printf("SELFTEST %-22s engine=%-5s reason=%-30s vol=%.6f want=%.6f  %s\n",
+                    "cylinder(xlate+)", p.shape.IsNull() ? "NULL" : "SHAPE",
+                    p.reason.empty() ? "(none)" : p.reason.c_str(), vol, want,
+                    ok ? "PASS" : "FAIL (want SHAPE, prof_edge_not_line, pi r^2 h)");
+        if (!ok) ++bad;
+    }
+    // NEGATIVE 2: UNEQUAL circles are not a translate either -> the chained label.
     {
         const Probe p = callEngine(circleWire(0.0, 5.0), circleWire(10.0, 3.0));
-        const bool ok = p.shape.IsNull() && p.reason == "prof_edge_not_line";
+        const bool ok = p.shape.IsNull() &&
+                        p.reason == "prof_edge_not_line|xlate_not_a_translate";
         std::printf("SELFTEST %-22s engine=%-5s reason=%-30s  %s\n", "circles(negative)",
                     p.shape.IsNull() ? "NULL" : "SHAPE",
                     p.reason.empty() ? "(none)" : p.reason.c_str(),
-                    ok ? "PASS" : "FAIL (want prof_edge_not_line)");
+                    ok ? "PASS" : "FAIL (want prof_edge_not_line|xlate_not_a_translate)");
         if (!ok) ++bad;
     }
     // NEGATIVE 3: 4 vertices against 5 -> loft_vertex_count_mismatch.
@@ -320,11 +350,12 @@ int selftest() {
         r2.push_back(gp_Pnt(4, 0, 9));   r2.push_back(gp_Pnt(4, 4, 9));
         r2.push_back(gp_Pnt(-4, 4, 9));
         const Probe p = callEngine(polyWire(r1), polyWire(r2));
-        const bool ok = p.shape.IsNull() && p.reason == "loft_vertex_count_mismatch";
+        const bool ok = p.shape.IsNull() &&
+                        p.reason == "loft_vertex_count_mismatch|xlate_edge_count_mismatch";
         std::printf("SELFTEST %-22s engine=%-5s reason=%-30s  %s\n", "count4v5(negative)",
                     p.shape.IsNull() ? "NULL" : "SHAPE",
                     p.reason.empty() ? "(none)" : p.reason.c_str(),
-                    ok ? "PASS" : "FAIL (want loft_vertex_count_mismatch)");
+                    ok ? "PASS" : "FAIL (want loft_vertex_count_mismatch|xlate_edge_count_mismatch)");
         if (!ok) ++bad;
     }
     std::printf("SELFTEST %s\n", bad == 0 ? "ALL PASS" : "FAILED");
