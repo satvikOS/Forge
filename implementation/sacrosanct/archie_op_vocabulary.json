@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "30e10b593d0ff1cbec8bd2196a5be0e2d08830fe6ba2d1b93136cef2cec0a879",
-        "bytes": 36101,
-        "lines": 747
+        "sha256": "07c01eb9a0b5dbd7af0e7b885a478a6c3eafd3d400e60091986e46156b0e1dc9",
+        "bytes": 39663,
+        "lines": 802
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,10 +78,10 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 31,
-    "commands_emitting_ir": 16,
-    "user_invocable_ops": 14,
-    "forbidden_ops": 26,
+    "registry_commands": 32,
+    "commands_emitting_ir": 17,
+    "user_invocable_ops": 15,
+    "forbidden_ops": 25,
     "uncertain_entries": 1,
     "derived_defects": 7
   },
@@ -99,6 +99,7 @@
       "LOFT",
       "MIRROR",
       "PATTERN",
+      "RECT",
       "REVOLVE",
       "SHELL"
     ],
@@ -295,7 +296,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             },
             {
               "optional": false,
@@ -439,7 +440,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             },
             {
               "optional": true,
@@ -659,7 +660,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             },
             {
               "optional": true,
@@ -1025,7 +1026,7 @@
               "index": 8,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             }
           ],
           "prose": null
@@ -1812,6 +1813,131 @@
       ]
     },
     {
+      "op": "RECT",
+      "kernel_enum": "Rect",
+      "produces": "PROFILE",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 2,
+        "max_args": 4,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "RECT(w, h [, cx=0, cy=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "w",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "h",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_rect"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "width",
+            "height"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "width": 40.0,
+                "height": 30.0
+              },
+              "ir_arguments": [
+                "40",
+                "30"
+              ],
+              "ir_text": "%<id> = RECT(40, 30)"
+            }
+          ],
+          "command": "part.sketch_rect"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\")",
+          "when_human": "any of cx, cy is supplied",
+          "arguments": [
+            "width",
+            "height",
+            "cx",
+            "cy"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "width": 40.0,
+                "height": 30.0,
+                "cx": 3.0,
+                "cy": 4.0
+              },
+              "ir_arguments": [
+                "40",
+                "30",
+                "3",
+                "4"
+              ],
+              "ir_text": "%<id> = RECT(40, 30, 3, 4)"
+            }
+          ],
+          "command": "part.sketch_rect"
+        }
+      ]
+    },
+    {
       "op": "REVOLVE",
       "kernel_enum": "Revolve",
       "produces": "SOLID",
@@ -2019,7 +2145,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             },
             {
               "optional": true,
@@ -2222,15 +2348,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "PUSHFACE(%body, \"sel\", dist)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "RECT",
-      "kernel_enum": "Rect",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "RECT(w, h [, cx=0, cy=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -3437,6 +3554,72 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.sketch_rect",
+      "label": "Rectangle",
+      "category": "Part",
+      "feature_ir_op": "RECT",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "width",
+          "type": "Number",
+          "required": true,
+          "default_number": 40.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "height",
+          "type": "Number",
+          "required": true,
+          "default_number": 30.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"width\", 0.0) > 0.0 && num(ctx, \"height\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "width",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "height",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Profile"
+    },
+    {
       "id": "part.undo",
       "label": "Undo",
       "category": "Part",
@@ -3564,26 +3747,10 @@
   ],
   "value_kind_closure": {
     "produced_by_allowed_ops": [
+      "PROFILE",
       "SOLID"
     ],
     "gaps": [
-      {
-        "value_kind": "PROFILE",
-        "needed_by": [
-          "EXTRUDE",
-          "REVOLVE"
-        ],
-        "producers_in_the_allowed_set": [],
-        "producers_in_the_kernel": [
-          "CIRCLE",
-          "POLY",
-          "RECT",
-          "REGPOLY",
-          "RRECT",
-          "SLOT"
-        ],
-        "consequence": "a user-invocable op consumes PROFILE, and no user-invocable op produces one: the value must already exist in the document (a seeded sketch or imported solid) or the statement cannot be built"
-      },
       {
         "value_kind": "WIRE",
         "needed_by": [
@@ -3643,8 +3810,10 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 19,
+      "count": 21,
       "parameters": [
+        "width (part.sketch_rect)",
+        "height (part.sketch_rect)",
         "distance (part.extrude)",
         "angle (part.revolve)",
         "diameter (part.hole)",
