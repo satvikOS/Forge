@@ -63,6 +63,22 @@ struct FeatureRecord {
   IrValueKind produces = IrValueKind::Solid;
 };
 
+// Why an EDIT needs its own result type and may not reuse IrCheck: IrCheck is
+// the FeatureTree.hpp grammar, rule for rule ("Ops reference prior ids by %N",
+// the per-op arg list). "you moved an operand" is not a grammar rule -- the
+// rewritten statement is perfectly legal IR -- it is a DOCUMENT rule about what
+// a parameter edit is allowed to be. Folding it into IrCheck would make the
+// header's claim that every value there is a kernel rule false.
+enum class EditCheck : std::uint8_t {
+  Ok = 0,
+  NoSuchFeature,     // irId names no statement in this document
+  OperandChanged,    // a %ref moved: that is a reparent, not a parameter edit
+  NoChange,          // identical args -- refused, so undo never holds a no-op step
+  InvalidStatement,  // the rewritten line fails validateIr(); lastCheck() says which rule
+};
+
+const char* toString(EditCheck check) noexcept;
+
 // ── the receiver ────────────────────────────────────────────────────────────
 // A headless feature-IR program plus the binding from a UI document-node id
 // (EntityRef::bodyId) to the IR value that node currently IS. The binding is the
@@ -92,6 +108,39 @@ class PartDocument {
                      const std::vector<std::string>& consumedNodes,
                      const std::string& producedNode);
 
+  // ── in-place PARAMETER EDIT ───────────────────────────────────────────────
+  // Until this existed the document was APPEND-ONLY: appendFeature() refuses any
+  // statement not numbered nextIrId(), so the ONLY way to change a fillet from
+  // r3 to r6 was to undo every feature back to it and redo them all by hand. A
+  // history-based modeller whose history cannot be edited is not parametric, and
+  // the starting part is worse off than an authored one -- its five statements
+  // are seeds, so not even undo reaches them.
+  //
+  // Deliberately NARROW, and the narrowness is the safety property:
+  //
+  //   * the statement's ID is pinned. Renumbering would change what every later
+  //     `%N` means.
+  //   * the statement's OP is pinned. A different op is a different feature with
+  //     a different produces-kind, and swapping it under a live node binding is
+  //     how a UI silently turns a CUT into a FUSE.
+  //   * every `%ref` is pinned, BY POSITION. Moving a ref rewires the dependency
+  //     graph; that is a reparent, not a parameter edit, and it has different
+  //     undo and binding consequences. A "change the radius" control that can
+  //     reparent a feature is the bug this rule exists to make impossible.
+  //
+  // What MAY change is every non-ref argument: numbers, and the bare keyword /
+  // quoted selector an op takes. The arg COUNT may change within the op's
+  // documented arity, which is what lets `FILLET(%4, 3, VERTICAL)` become
+  // `FILLET(%4, 3)`; validateIr() enforces the arity, so the op table stays the
+  // single authority on it.
+  //
+  // Bindings are untouched by construction: an arg edit changes no statement id
+  // and no produces-kind, so every nodeId -> value binding still names the same
+  // value it did before.
+  bool editFeatureArgs(int irId, const std::vector<IrArg>& args);
+  const FeatureRecord* featureAt(int irId) const noexcept;
+  EditCheck lastEdit() const noexcept { return lastEdit_; }
+
   // GoF Memento. Small by construction: a record count plus the binding table.
   struct Snapshot {
     std::size_t records = 0;
@@ -104,6 +153,7 @@ class PartDocument {
   std::vector<FeatureRecord> records_;
   std::map<std::string, int> bindings_;
   IrCheck lastCheck_ = IrCheck::Ok;
+  EditCheck lastEdit_ = EditCheck::Ok;
 };
 
 // ── the concrete command ────────────────────────────────────────────────────
@@ -129,6 +179,30 @@ class AppendFeatureEdit final : public UndoableEdit {
   std::vector<std::string> consumed_;
   std::string produced_;
   PartDocument::Snapshot before_{};
+};
+
+// The second ConcreteCommand, and the one place GoF's CHEAPER undo alternative
+// is the right one. AppendFeatureEdit must carry a Memento because a boolean
+// ABSORBS both operands' node bindings, so its inverse is not derivable from its
+// arguments. An arg edit absorbs nothing: it touches one statement's argument
+// list and no binding at all, so "store enough state to reverse the effect"
+// (Design Patterns, p.235) is exactly the old argument list. PartDocument's
+// Snapshot could not have served here anyway -- it is a record COUNT plus the
+// binding table, so restore() truncates and would not put a changed argument
+// back.
+class EditFeatureArgsEdit final : public UndoableEdit {
+ public:
+  EditFeatureArgsEdit(int irId, std::vector<IrArg> args, std::string label);
+
+  const std::string& label() const noexcept override { return label_; }
+  bool apply(PartDocument& doc) override;
+  void revert(PartDocument& doc) override;
+
+ private:
+  int irId_;
+  std::vector<IrArg> after_;
+  std::vector<IrArg> before_;
+  std::string label_;
 };
 
 // ── the caretaker ───────────────────────────────────────────────────────────

@@ -45,6 +45,35 @@ starting part **is** a document rather than a second hand-written body beside on
 whoever owns the document. With no host installed every counter behaves exactly as before, which is
 why the eleven existing `forge::ui` gates are unchanged.
 
+### The document is PARAMETRIC now
+
+`PartDocument::appendFeature()` refuses any statement not numbered `nextIrId()`, so until
+`part.edit_feature` existed the document was **append-only**: nothing a user could do anywhere in
+the app changed a number already in the program. The starting part was worse than that — its five
+statements are *seeded*, so they carry no undo step and undoing all the way to the bottom could not
+reach them. The plate you open on was 80 x 50 x 20 with a d12 bore and r3 corners, permanently.
+
+`part.edit_feature(feature, index, value)` rewrites one argument of one statement in place.
+`feature` is a 1-based statement id and **0 means the last statement**; `index` counts only the
+NUMBER arguments, so index 0 of `CYL(6, 40, 0, 0, -10)` is the radius and index 0 of
+`FILLET(%4, 3, VERTICAL)` is the radius too — the caller never has to know that one leads with a
+`%ref`. The Properties panel drives it, and clicking a **feature row** in the tree aims it (that
+click used to do nothing at all).
+
+It is deliberately narrow, and the narrowness is the safety property. The statement's id and op are
+pinned, and **every `%ref` is pinned by position** — moving a ref rewires the dependency graph, and
+a "change the radius" control that can silently reparent a feature is the bug the rule exists to
+make impossible. `PartDocument::EditCheck` names each refusal (`operand_changed`, `no_change`,
+`no_such_feature`, `invalid_statement`) rather than failing silently, and a refused edit mutates
+nothing. What may change is every non-ref argument, and the arg *count* within the op's documented
+arity, so `FILLET(%4, 3, VERTICAL)` may become `FILLET(%4, 3)` — `validateIr()` stays the single
+authority on arity.
+
+`EditFeatureArgsEdit` is the one place GoF's cheaper undo alternative is the right one: an arg edit
+absorbs no name bindings, so "store enough state to reverse the effect" is exactly the old argument
+list. `PartDocument::Snapshot` could not have served — it is a record *count* plus the binding
+table, so `restore()` truncates and would not put a changed argument back.
+
 ### `.fpart`
 
 A line-oriented, versioned text format (`src/PartFile.{hpp,cpp}`). It stores each feature
@@ -116,13 +145,13 @@ a *consumer* of `forge::ui`.
 | service (`ui/`) | what it drives in the app |
 | --- | --- |
 | `CommandRegistry` | the menu bar, the workspace ribbon, the command palette and the viewport context menu are all **generated from the registry**. There is no hand-written menu table. A greyed item is greyed by `evaluate()` — the same call `dispatch()` makes — so a menu can never disagree with the dispatcher. |
-| `PartCommands` | `registerPartCommands()` puts the 16 Part commands into the **same** registry the shell dispatches through, via `ForgeShell::registry()`. 10 shell commands + 16 Part = 26. The shell registers NO modelling command: `model.extrude`/`model.fillet`/`model.shell` were counter stubs and are retired, and the keymap's Extrude/Fillet/Shell chords name `part.*`. |
+| `PartCommands` | `registerPartCommands()` puts the Part commands into the **same** registry the shell dispatches through, via `ForgeShell::registry()`. 13 shell commands + 22 Part = 35. The count is not spelled anywhere a gate reads: `partCommandIds()` is the source, and `capability_manifest_test` re-renders the live registry into `implementation/sacrosanct/APP_SURFACE_MANIFEST.tsv` so a command added without recording it is red. |
 | `SelectionService` | viewport hover sets preselection, a click sets selection and focus, the status strip's filter combo is `setFilter()`. Everything resolves to an `EntityRef` with a persistent name (`face@7`), never a raw index. |
 | `Keymap` | key presses that ImGui does not want as text go to `ForgeShell::key()`. Multi-stroke sequences report `Pending` and are held. Switching input profile switches the shortcut table **and** the viewport's mouse-drag verbs at once. |
 | `DockLayout` | the dock tree is walked into rectangles and one borderless ImGui window is placed per tab group. Splitter drags and tab clicks write **back into the tree**, so what you arranged is what gets serialized. |
 | `WorkspaceProfile` | the eight workspace tabs. Switching saves the current layout and restores that workspace's. |
 | `FeatureTreeModel` | the feature-tree panel reads through `window()` under an `ImGuiListClipper`, so the expensive per-row record is materialized only for rows on screen, and a second identical frame costs the source zero new fetches. |
-| `PartDocument` / `UndoStack` | **the document.** `ForgeFrame` owns it, the 16 Part commands append to it, and its IR program is what the viewport is built from. Its memento undo stack is what `edit.undo` unwinds. |
+| `PartDocument` / `UndoStack` | **the document.** `ForgeFrame` owns it, the Part commands append to it — and `part.edit_feature` **rewrites** a statement already in it — and its IR program is what the viewport is built from. Its undo stack is what `edit.undo` unwinds. |
 | `forge::ft` | `parse` + `compile` turn the document's IR program into a solid. `KernelScene::buildFromIr()` is the only door; there is no hand-written geometry left in the app. |
 | `forge::tessellate` | the viewport's triangles, from the solid `forge::ft` just compiled. The mesh is de-indexed so every vertex carries the per-triangle OCCT face id that face picking needs. |
 
@@ -141,8 +170,8 @@ src/ViewportRenderer.{hpp,cpp}  the geometry pass into an offscreen colour+depth
 src/PlatformSDL2.{hpp,cpp}      first-party SDL2 -> ImGuiIO platform backend
 src/PngWriter.hpp               dependency-free RGBA8 PNG, for --screenshot
 src/main.cpp                    window, device, swapchain, frame loop, persistence
-test/frame_gate.cpp             135 headless checks + 7 injectable mutations
-test/document_gate.cpp          85 headless checks + 3 injectable mutations: the document edge,
+test/frame_gate.cpp             139 headless checks + 7 injectable mutations
+test/document_gate.cpp          139 headless checks + 5 injectable mutations: the document edge,
                                 end to end, including a real .fpart on a real disk
 test/ir_pipeline_gate.cpp       18 checks: a UI-authored IR program compiles to a measured solid
 test/run_desktop.sh             build + all three gates + the 10-mutation proof
@@ -170,7 +199,7 @@ dispatches onto the reopened document; and an op that throws inside OCCT is caug
 good body on screen. Geometry is never accepted on volume alone — every geometric claim is a vector
 of triangles, face ids, face count, edge count, volume and bounding box.
 
-Its three mutations:
+Its five mutations:
 
 | mutation | the regression it stands for |
 | --- | --- |
@@ -178,6 +207,7 @@ Its three mutations:
 | 2 | the `.fpart` writer drops the node bindings → a reopened document loses them |
 | 3 | save/load skips the file → the round trip is not a round trip (9 checks red) |
 | 4 | the body node is a hard-coded literal → a document that names its body anything else is unpickable and every solid command on it refuses |
+| 5 | the parameter editor is aimed by TREE ROW POSITION instead of by STATEMENT ID → it edits the statement before the one the user picked, and the part silently never changes (13 checks red) |
 
 `forge_desktop_frame_gate` builds **real frames of the real shell** — no window, no swapchain, no
 MoltenVK — and asserts values against references: the bounding box is 80x50x20 to within the
@@ -191,7 +221,7 @@ panel.
 | mutation | the regression it stands for |
 | --- | --- |
 | 1 | the frame builder is never called → the shell draws nothing |
-| 2 | Part commands are not registered → the one registry is short by 18 |
+| 2 | Part commands are not registered → the one registry is short by every Part command |
 | 3 | a pick is not routed to the selection → no vertex is flagged for the shader |
 | 4 | the tree panel calls the source's expensive fetch per row instead of `window()` |
 | 5 | the projection loses its Vulkan Y-flip → the picking ray and the image disagree |
