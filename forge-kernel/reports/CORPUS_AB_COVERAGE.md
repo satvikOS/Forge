@@ -297,16 +297,40 @@ solids), `ARM_TIMEOUT` (default 20 s per arm), `PART_TIMEOUT` (default 300 s per
 part, enforced by the binary's own `alarm()`), `OFFSET`, `FAMILIES`, `JOBS`,
 `FORCE=1` to wipe the object cache.
 
-**The run is pinned to the tree the binary was compiled from.** The build writes
-`.build-corpus-ab/build_stamp.json` with the git HEAD it compiled at and how many
-files under `src`/`include`/`test` were dirty; the driver copies that into every
-manifest and **refuses to run (exit 3) if the stamp's SHA differs from HEAD**. This
-is not decoration: the first full-corpus run of this harness was compiled from
+**The run is pinned to the tree the binary was compiled from — by two checks, and
+both have been seen to fire.** The build writes `.build-corpus-ab/build_stamp.json`
+with the git HEAD it compiled at and how many files under `src`/`include`/`test`
+were dirty; the driver copies that into every manifest.
+
+- **Check 1, before the run:** the stamp's SHA against HEAD; **exit 3**.
+- **Check 2, after the run:** HEAD at the end against HEAD at the start; **exit 4**,
+  and an `INVALID.json` is written into the output directory.
+
+This is not decoration. The first full-corpus run of this harness was compiled from
 `876b179a` and measured after the worktree had moved to `a70dd1da`, where three of
 the ten engines under test differ (`NativeFilletChamfer` +184 lines,
 `NativeLoftPipe` +81, `NativeThickenShell` +39). That run was discarded. A coverage
 number measured against the wrong tree is worse than no number, because it looks
 exactly like a right one.
+
+**Check 2 is the one that catches what actually happened**, and it exists because
+check 1 alone did not. As first written, check 1 sat after an *unconditional*
+rebuild that re-stamps with the current HEAD — so it could never disagree with it.
+Poisoning the stamp and running produced **exit 0**: a guard that could not fire,
+which is the same thing as no guard. Check 1 is now reachable (via `SKIP_BUILD=1`,
+the only path where the stamp is not refreshed first) and check 2 was added for the
+real failure mode, which no pre-run check can see: the tree moving *while* an
+already-loaded binary is still producing numbers.
+
+```sh
+test/run_corpus_ab_coverage.sh --selftest-guard
+#   build-SHA-vs-HEAD guard    exit 3  ok
+#   head-moved-during-run gate exit 4  ok (INVALID.json written)
+#   PASS: both tree guards fire
+```
+
+A guard that has never been seen to fire is indistinguishable from one that cannot,
+so this is part of the harness rather than a claim in a comment.
 
 Each run writes `results.jsonl`, `manifest.json`, `summary.md`, `summary.json`,
 `corpus.list`, `sample.list` and `run.log` into its output directory.

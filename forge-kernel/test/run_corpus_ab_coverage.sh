@@ -41,6 +41,38 @@ set -uo pipefail
 KERNEL="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$KERNEL" || exit 2
 
+# --selftest-guard: prove BOTH tree checks above can actually fail. A guard that
+# has never been seen to fire is indistinguishable from one that cannot.
+if [ "${1:-}" = "--selftest-guard" ]; then
+  KBIN="$KERNEL/.build-corpus-ab/corpus_ab_coverage"
+  STAMPF="$KERNEL/.build-corpus-ab/build_stamp.json"
+  if [ ! -x "$KBIN" ] || [ ! -f "$STAMPF" ]; then
+    echo "FATAL: build first (test/build_corpus_ab_coverage.sh)" >&2; exit 2
+  fi
+  bad=0
+  cp "$STAMPF" "$STAMPF.bak"
+  sed -i '' 's/"git_head": "[0-9a-f]*"/"git_head": "0000000000000000000000000000000000000000"/' "$STAMPF"
+  SKIP_BUILD=1 bash "$0" 1 "${TMPDIR:-/tmp}/corpus_ab_guard1.$$" >/dev/null 2>&1
+  rc=$?
+  mv "$STAMPF.bak" "$STAMPF"
+  rm -rf "${TMPDIR:-/tmp}/corpus_ab_guard1.$$"
+  if [ "$rc" = "3" ]; then echo "  build-SHA-vs-HEAD guard    exit 3  ok"
+  else echo "  build-SHA-vs-HEAD guard    exit $rc  EXPECTED 3 — THE GUARD DID NOT FIRE"; bad=1; fi
+
+  G2="${TMPDIR:-/tmp}/corpus_ab_guard2.$$"
+  FORGE_AB_FAKE_END_HEAD=1111111111111111111111111111111111111111 \
+    SKIP_BUILD=1 bash "$0" 1 "$G2" >/dev/null 2>&1
+  rc=$?
+  if [ "$rc" = "4" ] && [ -f "$G2/INVALID.json" ]; then
+    echo "  head-moved-during-run gate exit 4  ok (INVALID.json written)"
+  else
+    echo "  head-moved-during-run gate exit $rc  EXPECTED 4 with INVALID.json — DID NOT FIRE"; bad=1
+  fi
+  rm -rf "$G2"
+  [ "$bad" = "0" ] && echo "PASS: both tree guards fire" || echo "FAIL: a tree guard is inert"
+  exit "$bad"
+fi
+
 N="${1:-60}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 OUTDIR="${2:-$KERNEL/.build-corpus-ab/run-$TS}"
@@ -56,10 +88,20 @@ if [ ! -d "$CORPUS" ]; then
 fi
 
 # ── build (and, inside the build, run the containment self-test) ────────────
-BINLINE="$(bash "$KERNEL/test/build_corpus_ab_coverage.sh" 2>&1 | tee /dev/stderr | grep '^BIN=' | tail -1)"
-BIN="${BINLINE#BIN=}"
+# SKIP_BUILD=1 reuses an already-built binary. It exists for two reasons: to
+# re-run a corpus without a rebuild, and because it is the ONLY path on which the
+# stamp check below can fire — the build script re-stamps with the current HEAD,
+# so a check placed after an unconditional build can never disagree with it. A
+# guard that cannot fire is not a guard, and test/run_corpus_ab_coverage.sh
+# --selftest-guard exercises this path to prove it does.
+if [ "${SKIP_BUILD:-0}" = "1" ]; then
+  BIN="${BIN:-$KERNEL/.build-corpus-ab/corpus_ab_coverage}"
+else
+  BINLINE="$(bash "$KERNEL/test/build_corpus_ab_coverage.sh" 2>&1 | tee /dev/stderr | grep '^BIN=' | tail -1)"
+  BIN="${BINLINE#BIN=}"
+fi
 if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
-  echo "FATAL: build_corpus_ab_coverage.sh produced no binary — a gate that cannot build cannot fail" >&2
+  echo "FATAL: no corpus_ab_coverage binary — a gate that cannot build cannot fail" >&2
   exit 1
 fi
 
@@ -106,13 +148,16 @@ cat > "$OUTDIR/manifest.json" <<JSON
 }
 JSON
 
-# ★ THE BINARY'S TREE, NOT THE SHELL'S. `kernel_head_at_run` is what HEAD says
-#   NOW; `build_stamp.git_head` is what it said when the binary was COMPILED, and
-#   the second is the one the numbers belong to. The first full-corpus run of this
-#   harness was compiled from one commit and measured after the worktree had moved
-#   to another — three of the ten engines under test differ between them — and it
-#   was thrown away. If these two disagree, rebuild (FORCE=1) before believing
-#   anything.
+# ── TWO TREE CHECKS, and each one can actually fire ─────────────────────────
+# `kernel_head_at_run` is what HEAD says NOW; `build_stamp.git_head` is what it
+# said when the binary was COMPILED, and the second is the one the numbers belong
+# to. The first full-corpus run of this harness was compiled from one commit and
+# measured after the worktree had moved to another — three of the ten engines
+# under test differ between them — and it was thrown away.
+#
+# CHECK 1 (before the run): the binary's tree vs HEAD. Reachable only under
+# SKIP_BUILD=1, because an unconditional build re-stamps first; that is stated
+# rather than left as a guard that quietly never runs.
 BUILD_HEAD="$(sed -n 's/.*"git_head": "\([0-9a-f]*\)".*/\1/p' "$(dirname "$BIN")/build_stamp.json" 2>/dev/null)"
 RUN_HEAD="$(git -C "$KERNEL" rev-parse HEAD 2>/dev/null || echo unknown)"
 if [ -n "$BUILD_HEAD" ] && [ "$BUILD_HEAD" != "$RUN_HEAD" ]; then
@@ -155,6 +200,21 @@ done < "$SAMPLE"
 
 ELAPSED=$(( $(date +%s) - START ))
 echo "[corpus-ab] done: $i parts in ${ELAPSED}s, $failed part-level failures" | tee -a "$LOG"
+
+# CHECK 2 (after the run): did the tree move WHILE the corpus was being measured?
+# This is the check that catches what actually went wrong the first time — the run
+# was launched, the worktree was then switched to another commit under it, and the
+# already-loaded binary carried on producing numbers for a tree no longer on disk.
+# No check placed before the loop can see that. FORGE_AB_FAKE_END_HEAD exists so
+# this branch is exercisable (--selftest-guard); it changes nothing else.
+END_HEAD="${FORGE_AB_FAKE_END_HEAD:-$(git -C "$KERNEL" rev-parse HEAD 2>/dev/null || echo unknown)}"
+if [ "$END_HEAD" != "$RUN_HEAD" ]; then
+  echo "FATAL: HEAD moved DURING the run ($RUN_HEAD -> $END_HEAD)." >&2
+  echo "       These results span two trees and are not usable. Re-run on a settled tree." >&2
+  echo '{"invalid":true,"reason":"head_moved_during_run","head_at_start":"'"$RUN_HEAD"'","head_at_end":"'"$END_HEAD"'"}' \
+    > "$OUTDIR/INVALID.json"
+  exit 4
+fi
 
 NODE="$(command -v node || true)"
 if [ -z "$NODE" ]; then
