@@ -93,6 +93,14 @@ bool runProcess(const std::vector<std::string>& argv, std::string& err) {
   return false;
 }
 
+// "/Applications/Forge.app/" -> "/Applications/Forge.app". Never reduces a path
+// to nothing: "/" stays "/".
+std::string stripTrailingSlashes(const std::string& p) {
+  std::size_t end = p.size();
+  while (end > 1 && p[end - 1] == '/') --end;
+  return p.substr(0, end);
+}
+
 std::string readWholeFile(const std::string& path, std::size_t cap) {
   std::ifstream in(path, std::ios::binary);
   if (!in) return std::string();
@@ -301,9 +309,16 @@ std::string bundleShortVersion(const std::string& app_path) {
   return plist.substr(start, close - start);
 }
 
-bool validateStagedBundle(const std::string& app_path, const std::string& expected_version,
+bool validateStagedBundle(const std::string& raw_app_path, const std::string& expected_version,
                           bool require_valid_signature, std::string& err) {
   err.clear();
+  // Shell tab-completion on a directory appends a '/', so `--app
+  // /Applications/Forge.app/` is what a person actually types most of the time.
+  // With the slash, path::extension() is empty and this function would refuse a
+  // perfectly good bundle with "not an .app bundle" -- a confusing message about
+  // a path that is plainly correct. Strip it once, here, rather than making
+  // every caller remember.
+  const std::string app_path = stripTrailingSlashes(raw_app_path);
   std::error_code ec;
   if (!fs::is_directory(app_path, ec)) {
     err = "not a directory: " + app_path;
@@ -349,7 +364,7 @@ bool validateStagedBundle(const std::string& app_path, const std::string& expect
 }
 
 std::string enclosingAppBundle(const std::string& executable_path) {
-  fs::path p(executable_path);
+  fs::path p(stripTrailingSlashes(executable_path));
   // .../Foo.app/Contents/MacOS/exe
   if (p.filename().empty()) return std::string();
   const fs::path macos = p.parent_path();
@@ -412,13 +427,14 @@ bool atomicSwap(const std::string& staged_app_path, const std::string& live_app_
 }
 
 // ──────────────────────────────────────────────────────────────── applyUpdate
-ApplyResult applyUpdate(const Plan& plan, const Manifest& m, const std::string& live_app_path,
+ApplyResult applyUpdate(const Plan& plan, const Manifest& m, const std::string& raw_live_app_path,
                         Fetcher& fetcher, const Policy& p) {
   ApplyResult r;
   if (plan.decision != Decision::UpdateAvailable) {
     r.reason = "applyUpdate called with a plan that is not UpdateAvailable: " + plan.reason;
     return r;
   }
+  const std::string live_app_path = stripTrailingSlashes(raw_live_app_path);
   std::error_code ec;
   if (!fs::is_directory(live_app_path, ec)) {
     r.reason = "not an installed bundle: '" + live_app_path +

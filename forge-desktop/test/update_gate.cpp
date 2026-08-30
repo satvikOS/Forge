@@ -631,6 +631,15 @@ void checkStagingAndSwap(const std::string& dir, const std::string& self_exe) {
         bundleShortVersion(staged_app));
 
   check(validateUnderTest(staged_app, "0.1.1", false, err), "the staged bundle validates", err);
+  // Shell tab-completion on a directory appends '/', so this is the form a
+  // person actually types. Without normalisation, path::extension() is empty and
+  // a perfectly good bundle is refused as "not an .app bundle".
+  check(validateUnderTest(staged_app + "/", "0.1.1", false, err),
+        "a bundle path with a TRAILING SLASH validates (what tab-completion types)", err);
+  check(enclosingAppBundle("/Applications/Forge.app/Contents/MacOS/forge_desktop/") ==
+            "/Applications/Forge.app",
+        "a trailing slash on the executable path is tolerated too",
+        enclosingAppBundle("/Applications/Forge.app/Contents/MacOS/forge_desktop/"));
   check(!validateUnderTest(staged_app, "9.9.9", false, err),
         "a bundle whose version disagrees with the manifest is REFUSED", err);
   if (signed_ok) {
