@@ -183,7 +183,13 @@ jobs:
         # keg link. Do not "simplify" that probe.
         run: |
           brew update-reset >/dev/null 2>&1 || true
-          brew install opencascade sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
+          # boost is required by forge-kernel's ForgeDeps resolver (CMakeLists.txt:1205).
+          # The first dispatched dry run FAILED on exactly this:
+          #   ForgeDeps: could not resolve 'boost' 1.90.0
+          #   [dryrun] FATAL: kernel configure failed
+          # It builds locally only because boost happens to be installed there, which is
+          # precisely the class of difference a CI dry run exists to expose.
+          brew install opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
 
       - name: Record the toolchain that produced this artifact
         # An artifact whose provenance is not written down cannot be debugged
