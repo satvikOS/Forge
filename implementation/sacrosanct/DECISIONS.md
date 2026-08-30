@@ -628,3 +628,71 @@ it, do not fix it blind.** The correct remedy — reverse the solid, or leave th
 to consumers — depends on what downstream consumers assume about orientation, and that has
 not been measured. Fixing it without that measurement would be exactly the guesswork this
 programme keeps paying for.
+
+## D-021 (2026-08-29): Archie's allowed op set is the forge::ui vocabulary, and that vocabulary is NOT CLOSED — the gap is named and owed, not trained around
+
+The standing order is that Archie be "trained on where the features, functions, ops are in
+the Forge app so it only uses what Users can use". Executing that requires a decision the
+op inventory explicitly could not make for itself, because it is a decision and not a
+measurement: **which surface defines "what users can use"?**
+
+There are two candidate surfaces and they are far apart:
+
+* **`forge::ui` (C++)** — 31 commands, 16 emitting IR, **14 user-invocable kernel ops**.
+* **The shipped Electron/React app** — `package.json:6` -> `electron/main.js:404` ->
+  `frontend/dist/index.html`, whose `frontend/src/ai/ForgeToolBridge.js:962` defines
+  **154 tool ids**, including the very creators the C++ surface lacks (`part.make-box`,
+  `part.make-cylinder`, `sketch.add-circle`, ...).
+
+**DECISION: the C++ `forge::ui` vocabulary is the allowed set.** The C++ app is the
+shipping target, the JS app is under an explicit deletion order, and `ZERO_JS_MIGRATION_MANIFEST.md`
+already records forge-v4 as the app being replaced. Training Archie against a surface the
+programme intends to delete would buy a working demo today and a retraining bill later. The
+machine-readable form of that set already exists and is CI-gated:
+`implementation/sacrosanct/archie_op_vocabulary.json`, with `emission_policy.allowed_ops`
+listing the 14 and `forbidden_ops` giving a REASON for each of the 26.
+
+**But the honest consequence must be stated rather than papered over: that vocabulary is
+not closed, so the constraint as written is UNSATISFIABLE.** This is not an opinion; the
+artifact computes it about itself in `value_kind_closure.gaps`:
+
+| gap | needed by | producers in the allowed set | producers in the kernel |
+|---|---|---|---|
+| PROFILE | EXTRUDE, REVOLVE | **none** | CIRCLE, POLY, RECT, REGPOLY, RRECT, SLOT |
+| WIRE | LOFT | **none** | RING, WIRE |
+
+All 14 allowed ops take a value reference as their first argument, and the only value kind
+any of them PRODUCES is SOLID. So from an empty document no legal program exists: every
+generation must begin from a value the user cannot create. Independently confirmed by
+execution — seeding only `RECT` and driving the real commands yields a full nine-statement
+program (RECT -> EXTRUDE -> FUSE -> FILLET -> HOLE -> SHELL -> PATTERN), so **one profile
+producer unlocks the entire existing registry.**
+
+**DECISION: close the gap in the UI rather than relax the constraint in training.** The
+alternative — letting Archie emit ops no user can invoke — would reintroduce exactly the
+gap this constraint exists to remove, and would be invisible in any eval that scores
+geometry rather than reachability. The owed set, smallest first:
+
+1. **PROFILE producer — `RECT` (strict minimum, measured).** Unlocks EXTRUDE/REVOLVE and
+   through them every remaining op.
+2. **`CIRCLE`** — second profile producer; without it a large class of real parts is
+   unreachable.
+3. **WIRE producer — `WIRE` or `RING`** — closes the second gap and makes LOFT reachable.
+4. **`TRANSLATE`** — load-bearing and easy to miss: it is ORPHAN today, so nothing can be
+   POSITIONED, and every boolean would operate on bodies coincident at the origin.
+5. **`INPUT`** — the only creator for an imported body, so the whole edit family
+   (PUSHFACE, RESIZEBORE, DEFEATURE, TAG, VERIFY, HEAL) is unreachable without it.
+
+`ALIGN` is separately notable: orphan AND absent from the UI op table, which matters
+because ALIGN is this programme's recorded fix for derived placement — the sub-task
+measured as unlearnable.
+
+**Until (1) lands, any claim that Archie is "constrained to user-invocable ops" is a claim
+about an empty language.** That is recorded here so no future eval reports a score against
+this constraint without the reader knowing it.
+
+Seven `derived_defects` are already recorded in the artifact and are NOT re-litigated here,
+but two are worth naming because they are live: `edit.delete` declares `feature_ir_op
+"DELETE"`, an op the kernel does not have, so nothing can ever compile it; and
+`model.extrude`, `model.fillet`, `model.shell` all declare an op and emit nothing, because
+`ForgeShell` holds only a `DocumentStats` counter and no `PartDocument`.
