@@ -251,6 +251,17 @@ KeyStroke k(const std::string& key, ModMask mods = 0) { return KeyStroke{key, mo
 
 }  // namespace
 
+// The modelling entries below name `part.*` -- the commands
+// forge::ui::registerPartCommands adds, which each emit one line of feature-IR
+// into a PartDocument. They used to name `model.*`: ForgeShell stubs that moved
+// four counters and emitted nothing, so every Extrude/Fillet/Shell shortcut in
+// every profile was a key that reported success and changed no geometry.
+//
+// A default keymap therefore names commands the SHELL ALONE does not register.
+// That is deliberate and it is what the application registry is: ForgeShell's
+// commands plus the workspace's. ui/test/input_profile_parity_test.cpp asserts
+// the no-orphan property against that registry -- shell + Part commands -- which
+// is the one ForgeFrame::wirePartCommands() actually builds.
 Keymap defaultKeymaps() {
   Keymap m;
   const ModMask ctrl = maskOf(Mod::Ctrl);
@@ -267,9 +278,9 @@ Keymap defaultKeymaps() {
   m.bind(InputProfile::ForgeNative, {k("Delete")}, "edit.delete");
   m.bind(InputProfile::ForgeNative, {k("F")}, "view.fit");
   m.bind(InputProfile::ForgeNative, {k("W")}, "view.wireframe");
-  m.bind(InputProfile::ForgeNative, {k("E")}, "model.extrude");
-  m.bind(InputProfile::ForgeNative, {k("R")}, "model.fillet");
-  m.bind(InputProfile::ForgeNative, {k("H", ctrlShift)}, "model.shell");
+  m.bind(InputProfile::ForgeNative, {k("E")}, "part.extrude");
+  m.bind(InputProfile::ForgeNative, {k("R")}, "part.fillet");
+  m.bind(InputProfile::ForgeNative, {k("H", ctrlShift)}, "part.shell");
   m.bind(InputProfile::ForgeNative, {k("K", ctrl), k("P", ctrl)}, "app.command_palette");
   m.bind(InputProfile::ForgeNative, {k("Tab", ctrl)}, "workspace.next");
 
@@ -282,9 +293,9 @@ Keymap defaultKeymaps() {
   m.bind(InputProfile::NXLike, {k("Delete")}, "edit.delete");
   m.bind(InputProfile::NXLike, {k("F", ctrl)}, "view.fit");
   m.bind(InputProfile::NXLike, {k("W", ctrl)}, "view.wireframe");
-  m.bind(InputProfile::NXLike, {k("X")}, "model.extrude");
-  m.bind(InputProfile::NXLike, {k("B", ctrl)}, "model.fillet");
-  m.bind(InputProfile::NXLike, {k("H", ctrl)}, "model.shell");
+  m.bind(InputProfile::NXLike, {k("X")}, "part.extrude");
+  m.bind(InputProfile::NXLike, {k("B", ctrl)}, "part.fillet");
+  m.bind(InputProfile::NXLike, {k("H", ctrl)}, "part.shell");
   m.bind(InputProfile::NXLike, {k("F3")}, "app.command_palette");
   m.bind(InputProfile::NXLike, {k("Tab", ctrl)}, "workspace.next");
 
@@ -297,9 +308,9 @@ Keymap defaultKeymaps() {
   m.bind(InputProfile::CATIALike, {k("Delete")}, "edit.delete");
   m.bind(InputProfile::CATIALike, {k("F", alt)}, "view.fit");
   m.bind(InputProfile::CATIALike, {k("F9")}, "view.wireframe");
-  m.bind(InputProfile::CATIALike, {k("P", ctrl)}, "model.extrude");
-  m.bind(InputProfile::CATIALike, {k("F", ctrlShift)}, "model.fillet");
-  m.bind(InputProfile::CATIALike, {k("F8")}, "model.shell");
+  m.bind(InputProfile::CATIALike, {k("P", ctrl)}, "part.extrude");
+  m.bind(InputProfile::CATIALike, {k("F", ctrlShift)}, "part.fillet");
+  m.bind(InputProfile::CATIALike, {k("F8")}, "part.shell");
   m.bind(InputProfile::CATIALike, {k("F1")}, "app.command_palette");
   m.bind(InputProfile::CATIALike, {k("F2")}, "workspace.next");
 
@@ -312,9 +323,9 @@ Keymap defaultKeymaps() {
   m.bind(InputProfile::BlenderLike, {k("X")}, "edit.delete");
   m.bind(InputProfile::BlenderLike, {k("Home")}, "view.fit");
   m.bind(InputProfile::BlenderLike, {k("Z")}, "view.wireframe");
-  m.bind(InputProfile::BlenderLike, {k("E")}, "model.extrude");
-  m.bind(InputProfile::BlenderLike, {k("B", ctrl)}, "model.fillet");
-  m.bind(InputProfile::BlenderLike, {k("I", alt)}, "model.shell");
+  m.bind(InputProfile::BlenderLike, {k("E")}, "part.extrude");
+  m.bind(InputProfile::BlenderLike, {k("B", ctrl)}, "part.fillet");
+  m.bind(InputProfile::BlenderLike, {k("I", alt)}, "part.shell");
   m.bind(InputProfile::BlenderLike, {k("F3", shift)}, "app.command_palette");
   m.bind(InputProfile::BlenderLike, {k("Tab", ctrl)}, "workspace.next");
   return m;

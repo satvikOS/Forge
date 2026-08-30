@@ -20,7 +20,6 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <TopExp.hxx>
-#include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopAbs.hxx>
@@ -31,12 +30,7 @@
 #include "forge/OcctNativeMesh.hpp"
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
-#include <BRep_Tool.hxx>
-#include <Poly_Triangulation.hxx>
-#include <TopLoc_Location.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Face.hxx>
-#include <gp_Pnt.hxx>
 #endif
 #include <algorithm>                        // OCCT-boolean watchdog: per-call deadline cap
 #include <chrono>                           // OCCT-boolean watchdog deadline

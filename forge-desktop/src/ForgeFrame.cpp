@@ -1,10 +1,13 @@
 #include "ForgeFrame.hpp"
 
+#include "PartFile.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -27,7 +30,12 @@ namespace {
 
 // Chrome band heights, in unscaled points; multiplied by the DPI scale.
 constexpr float kWorkspaceTabH = 30.0f;
-constexpr float kToolbarH = 40.0f;
+constexpr float kScrollbarSize = 12.0f;  // style.ScrollbarSize; see applyStyle() below
+// One row of buttons (40) plus the ribbon's horizontal scrollbar. The Part
+// ribbon carries 34 commands, more than fits any window width, so the band is
+// scrollable and must be tall enough to hold the scrollbar without squeezing
+// the buttons. Deriving it from kScrollbarSize keeps the two from drifting.
+constexpr float kToolbarH = 40.0f + kScrollbarSize;
 constexpr float kStatusH = 26.0f;
 constexpr float kSplitter = 5.0f;
 constexpr float kTabBarH = 26.0f;
@@ -116,7 +124,7 @@ void applyForgeStyle(float dpiScale) {
   s.FramePadding = ImVec2(7, 4);
   s.ItemSpacing = ImVec2(7, 5);
   s.IndentSpacing = 16.0f;
-  s.ScrollbarSize = 12.0f;
+  s.ScrollbarSize = kScrollbarSize;
 
   ImVec4* c = s.Colors;
   c[ImGuiCol_Text] = rgb(226, 229, 234);
@@ -187,12 +195,11 @@ std::string canonicalKeyName(int imguiKey) {
 
 // ── construction ────────────────────────────────────────────────────────────
 ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
-    : shell_(shell), scene_(scene), treeSource_(scene), tree_(treeSource_, 256) {
-  tree_.setExpanded(treeSource_.rootId(), true);
-  for (std::size_t i = 0; i < scene_.features().size(); ++i) {
-    tree_.setExpanded(treeSource_.childAt(treeSource_.rootId(), i), i + 1 == scene_.features().size());
-  }
-  tree_.rebuild();
+    : shell_(shell), scene_(scene), treeSource_(scene, partDoc_), tree_(treeSource_, 256) {
+  // partDoc_ is EMPTY here and the tree is therefore the bare document root:
+  // wirePartCommands() seeds it and calls rebuildTree() again. That is the whole
+  // sequence -- there is no row vector to push anywhere.
+  rebuildTree();
 
   float c[3] = {0.0f, 0.0f, 0.0f};
   scene_.bounds().centre(c);
@@ -207,23 +214,211 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
   }
 }
 
+void ForgeFrame::rebuildTree() {
+  tree_.setExpanded(treeSource_.rootId(), true);
+  const std::size_t n = treeSource_.featureCount();  // == partDoc_.records().size()
+  for (std::size_t i = 0; i < n; ++i) {
+    // Only the LAST feature owns the body's faces, so it is the only one worth
+    // opening; the rest start collapsed exactly as a CAD history tree does.
+    tree_.setExpanded(treeSource_.nodeForFeature(i), i + 1 == n);
+  }
+  tree_.rebuild();
+}
+
+bool ForgeFrame::seedDefaultPart(std::string& error) {
+  for (const SeedStatement& st : defaultPartStatements()) {
+    forge::ui::FeatureRecord rec;
+    rec.irId = partDoc_.nextIrId();
+    rec.commandId.clear();  // authored by the seed, not by a command
+    rec.label = st.label;
+    rec.line = st.line;
+    rec.line.id = rec.irId;
+    rec.produces = st.produces;
+    if (!partDoc_.appendFeature(rec, {}, st.node)) {
+      error = "the default part's statement %" + std::to_string(rec.irId) + " (" + st.line.op +
+              ") was refused: " + forge::ui::toString(partDoc_.lastCheck());
+      return false;
+    }
+  }
+  error.clear();
+  return true;
+}
+
 std::size_t ForgeFrame::wirePartCommands() {
   if (partWired_) return 0;
-  // Seed the two values a Part command can consume: the sketch a profile-driven
-  // command extrudes, and the solid a fillet/shell/pattern modifies. Their node
-  // ids are the EntityRef::bodyId the selection carries, which is what binds a
-  // typed UI selection to an IR value.
-  partDoc_.seed(forge::ui::IrValueKind::Profile, "sketch.base", "SKETCH",
-                {forge::ui::IrArg::keyword("XY")});
-  partDoc_.seed(forge::ui::IrValueKind::Solid, "body.bracket", "BOX",
-                {forge::ui::IrArg::num(80.0), forge::ui::IrArg::num(50.0),
-                 forge::ui::IrArg::num(20.0)});
+  // ── the document ────────────────────────────────────────────────────────
+  // Seeded with the SAME statements KernelScene::build() compiled, from the SAME
+  // table (defaultPartStatements). The old seed here was a SECOND, different
+  // part -- `%1 = SKETCH(XY)` + `%2 = BOX(80, 50, 20)` -- and `SKETCH` is not in
+  // the kernel's op table at all, so validateIr rejected it, seed() returned 0,
+  // and "sketch.base" was never bound: every profile-consuming command in the
+  // Part workspace was permanently unreachable, silently.
+  std::string why;
+  if (!seedDefaultPart(why)) note("document seed FAILED: " + why);
+  builtProgram_ = partDoc_.irProgram();
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+
   const std::size_t added =
       forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_);
   partWired_ = true;
+  // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
+  // act on this document, and the status strip's counters are read from it.
+  shell_.setDocumentHost(this);
   note("registered " + std::to_string(added) + " Part commands into the shell registry");
+  note("document seeded: " + std::to_string(partDoc_.records().size()) + " statements");
+  rebuildTree();
   return added;
 }
+
+// ── the document -> geometry edge ───────────────────────────────────────────
+bool ForgeFrame::syncSceneToDocument() {
+  const std::string program = partDoc_.irProgram();
+  if (program == builtProgram_) return false;
+
+  const std::size_t before = scene_.triangleCount();
+  const bool ok = scene_.buildFromIr(program);
+  builtProgram_ = program;
+  ++rebuilds_;
+  documentDirty_ = true;
+  geometryDirty_ = true;
+  rebuildTree();
+
+  const IrBuildReport& r = scene_.lastBuild();
+  if (ok) {
+    rebuildError_.clear();
+    note("rebuilt: " + std::to_string(before) + " -> " + std::to_string(scene_.triangleCount()) +
+         " triangles, " + std::to_string(r.faceCount) + " faces, V=" + std::to_string(r.volume) +
+         (r.valid ? "  [valid]" : "  [INVALID SOLID]"));
+  } else {
+    rebuildError_ = r.error;
+    // The previous body stays on screen -- what every history-based CAD system
+    // does with a failed rebuild -- and the failure is stated, not swallowed.
+    note("REBUILD FAILED: " + r.error + "  (showing the last good body)");
+  }
+  return true;
+}
+
+// ── forge::ui::DocumentHost ─────────────────────────────────────────────────
+bool ForgeFrame::documentNew(std::string& error) {
+  partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
+  partUndo_.clear();
+  if (!seedDefaultPart(error)) return false;
+  documentPath_.clear();
+  documentName_ = "untitled";
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  syncSceneToDocument();
+  documentDirty_ = false;
+  note("new document");
+  return true;
+}
+
+namespace {
+
+// The document's NAME is the basename of the file it lives in, minus the
+// extension. One rule, applied on both save and open, so "Save As bracket.fpart"
+// and reopening it agree about what the document is called -- and the tree root
+// stops being a string literal.
+std::string documentNameFromPath(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  std::string leaf = slash == std::string::npos ? path : path.substr(slash + 1);
+  const std::size_t dot = leaf.find_last_of('.');
+  if (dot != std::string::npos && dot > 0) leaf = leaf.substr(0, dot);
+  return leaf.empty() ? std::string("untitled") : leaf;
+}
+
+}  // namespace
+
+bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
+  if (path.empty()) {
+    error = "Open needs a path";
+    return false;
+  }
+  PartFileDoc file;
+  if (!loadPartFile(path, file, error)) return false;
+  // Restored into a FRESH document first: a file that is well-formed but not a
+  // legal document must not half-replace the one that is open.
+  forge::ui::PartDocument candidate;
+  if (!restorePartDocument(file, candidate, error)) return false;
+
+  partDoc_ = candidate;  // the command handlers captured this OBJECT by reference
+  partUndo_.clear();
+  ensureBodyBinding();
+  documentPath_ = path;
+  // The stored NAME is authoritative when it says something; the path names the
+  // document otherwise, so a file written by another tool still opens as itself.
+  documentName_ = (file.name.empty() || file.name == "untitled") ? documentNameFromPath(path)
+                                                                 : file.name;
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  builtProgram_.clear();  // force the rebuild below
+  syncSceneToDocument();
+  documentDirty_ = false;
+  note("opened " + path + "  (" + std::to_string(partDoc_.records().size()) + " statements)");
+  return true;
+}
+
+bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
+  std::string target = path.empty() ? documentPath_ : path;
+  if (target.empty()) {
+    // Ctrl+S on a never-saved document must SAVE, and must say where. ~/.forge
+    // is the directory the app already owns for its own state.
+    const char* home = std::getenv("HOME");
+    const std::string dir = (home != nullptr && home[0] != 0) ? std::string(home) + "/.forge" : ".";
+    target = dir + "/" + documentName_ + kPartFileExtension;
+  }
+  documentName_ = documentNameFromPath(target);
+  const PartFileDoc file = capturePartDocument(partDoc_, documentName_);
+  if (!savePartFile(target, file, error)) return false;
+  documentPath_ = target;
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  documentDirty_ = false;
+  note("saved " + target + "  (" + std::to_string(file.features.size()) + " statements)");
+  return true;
+}
+
+void ForgeFrame::documentChanged() { syncSceneToDocument(); }
+
+bool ForgeFrame::documentUndo() {
+  if (!partUndo_.undo(partDoc_)) return false;
+  syncSceneToDocument();
+  return true;
+}
+
+bool ForgeFrame::documentRedo() {
+  if (!partUndo_.redo(partDoc_)) return false;
+  syncSceneToDocument();
+  return true;
+}
+
+std::string ForgeFrame::activeBodyNode() const {
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  if (records.empty()) return defaultPartBodyNode();
+  const int lastId = records.back().irId;
+  for (const auto& kv : partDoc_.snapshot().bindings) {
+    if (kv.second == lastId) return kv.first;
+  }
+  return defaultPartBodyNode();
+}
+
+void ForgeFrame::ensureBodyBinding() {
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  if (records.empty()) return;
+  const int lastId = records.back().irId;
+  forge::ui::PartDocument::Snapshot snap = partDoc_.snapshot();
+  for (const auto& kv : snap.bindings) {
+    if (kv.second == lastId) return;  // something already names it
+  }
+  // restore() with an unchanged record count rewrites the binding table and
+  // nothing else -- it is the document's own published way to set one, and it
+  // is why this does not need a new mutation entry point on PartDocument.
+  snap.bindings[defaultPartBodyNode()] = lastId;
+  partDoc_.restore(snap);
+}
+
+std::size_t ForgeFrame::documentFeatureCount() const { return partDoc_.records().size(); }
+std::size_t ForgeFrame::documentUndoDepth() const { return partUndo_.undoDepth(); }
+std::size_t ForgeFrame::documentRedoDepth() const { return partUndo_.redoDepth(); }
+bool ForgeFrame::documentDirty() const { return documentDirty_; }
+std::string ForgeFrame::documentPath() const { return documentPath_; }
 
 void ForgeFrame::note(const std::string& line) {
   log_.push_back(line);
@@ -260,12 +455,106 @@ void ForgeFrame::invoke(const std::string& id) {
   }
   const forge::ui::DispatchResult r = shell_.run(id, params);
   if (r.ok()) {
-    note(id + "  ->  ok");
+    // A file.* command reports refusal through the shell, not through the
+    // dispatch status: `execute` returns void, so "ok" only means it ran.
+    if (shell_.lastDocumentError().empty()) {
+      note(id + "  ->  ok");
+    } else {
+      note(id + "  ->  REFUSED: " + shell_.lastDocumentError());
+    }
   } else {
     note(id + "  ->  " + forge::ui::toString(r.status) +
          (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
   }
+  // NO sync here. ForgeShell::run() has already called documentChanged() on this
+  // object if the command declared sideEffect == Document, so the viewport is
+  // already rebuilt by the time this line runs -- and it is rebuilt the same way
+  // for a macro, an Archie tool call or a gate, none of which come through here.
   if (id == "app.command_palette") togglePalette();
+}
+
+// ── the feature PARAMETER editor ────────────────────────────────────────────
+// The document was APPEND-ONLY until part.edit_feature existed, and the Properties
+// panel said so: its one slider "feeds radius / distance / thickness on the NEXT
+// command" and no control anywhere could change a number already in the program.
+// These four methods are what the panel drives; every one of them resolves the
+// target through the document itself rather than caching it, because undo, redo,
+// New and Open all move records out from under a cached index.
+namespace {
+
+// The `index`-th NUMBER argument of a statement, or args.size() when there is no
+// such argument. Written once and used by all four methods below AND matching
+// paramTarget() in PartCommands.cpp -- if these two disagreed the panel would
+// edit a different slot than the command it dispatches.
+std::size_t numberArgAt(const std::vector<forge::ui::IrArg>& args, std::size_t index) {
+  std::size_t seen = 0;
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    if (args[i].kind != forge::ui::IrArgKind::Number) continue;
+    if (seen == index) return i;
+    ++seen;
+  }
+  return args.size();
+}
+
+std::size_t numberArgCount(const std::vector<forge::ui::IrArg>& args) {
+  std::size_t n = 0;
+  for (const forge::ui::IrArg& a : args) {
+    if (a.kind == forge::ui::IrArgKind::Number) ++n;
+  }
+  return n;
+}
+
+}  // namespace
+
+void ForgeFrame::setEditTarget(int irId, std::size_t paramIndex) {
+  const std::size_t records = partDoc_.records().size();
+  if (records == 0) {
+    editFeatureId_ = 0;
+    editParamIndex_ = 0;
+    editValue_ = 0.0f;
+    return;
+  }
+  if (irId <= 0 || static_cast<std::size_t>(irId) > records) {
+    irId = static_cast<int>(records);  // 0 and out-of-range both mean the last
+  }
+  editFeatureId_ = irId;
+  const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
+  const std::size_t numbers = rec == nullptr ? 0 : numberArgCount(rec->line.args);
+  editParamIndex_ = (numbers == 0 || paramIndex >= numbers) ? 0 : paramIndex;
+  editValue_ = static_cast<float>(editParamValue());
+}
+
+std::size_t ForgeFrame::editParamCount() const {
+  const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
+  return rec == nullptr ? 0 : numberArgCount(rec->line.args);
+}
+
+double ForgeFrame::editParamValue() const {
+  const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
+  if (rec == nullptr) return 0.0;
+  const std::size_t slot = numberArgAt(rec->line.args, editParamIndex_);
+  if (slot >= rec->line.args.size()) return 0.0;
+  return rec->line.args[slot].number;
+}
+
+bool ForgeFrame::applyFeatureEdit(double value) {
+  forge::ui::CommandParams p;
+  p.setNumber("feature", static_cast<double>(editFeatureId_));
+  p.setNumber("index", static_cast<double>(editParamIndex_));
+  p.setNumber("value", value);
+  // THE ONE REGISTRY. Not a private call into PartDocument: a panel that edited
+  // the document directly would bypass the undo stack, the journal and the
+  // enabled predicate, which is the whole reason the registry exists.
+  const forge::ui::DispatchResult r = shell_.run("part.edit_feature", p);
+  if (!r.ok()) {
+    note("part.edit_feature  ->  " + std::string(forge::ui::toString(r.status)) +
+         (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
+    return false;
+  }
+  note("part.edit_feature  ->  ok");
+  syncSceneToDocument();
+  editValue_ = static_cast<float>(editParamValue());
+  return true;
 }
 
 bool ForgeFrame::commandEnabled(const std::string& id) const {
@@ -293,6 +582,10 @@ std::string ForgeFrame::shortcutText(const std::string& id) const {
 
 bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
   if (key.empty()) return false;
+  // No sync scope guard either: the keystroke dispatches through ForgeShell::key
+  // -> invoke -> run, and run() calls documentChanged() on this object. The guard
+  // that used to be here was the third copy of the same "remember to rebuild"
+  // rule, and a fourth invoker would have needed a fourth copy.
   forge::ui::KeyStroke stroke;
   stroke.key = key;
   stroke.mods = mods;
@@ -316,7 +609,7 @@ void ForgeFrame::setPreselectedFace(std::uint32_t faceId) {
     return;
   }
   forge::ui::EntityRef ref;
-  ref.bodyId = "body.bracket";
+  ref.bodyId = activeBodyNode();
   ref.kind = forge::ui::EntityKind::Face;
   ref.persistentName = "face@" + std::to_string(faceId);
   shell_.selection().setPreselection(ref);
@@ -424,11 +717,18 @@ void ForgeFrame::setActiveTabAt(const std::vector<std::size_t>& path, std::size_
 
 // ── the frame ───────────────────────────────────────────────────────────────
 void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
+  // THE EDGE, on the one path nothing can bypass. Every mutation of the document
+  // -- a menu item, a shortcut, the palette, a macro, an Archie tool call, a
+  // file.open -- is visible here before the frame that shows it is drawn.
+  syncSceneToDocument();
+
   dpiScale_ = dpiScale > 0.1f ? dpiScale : 1.0f;
   panelsDrawn_ = 0;
   treeRowsDrawn_ = 0;
   viewportRequest_ = ViewportRequest{};
   viewportRequest_.wireframe = shell_.document().wireframe;
+  viewportRequest_.geometryDirty = geometryDirty_;
+  geometryDirty_ = false;
 
   const ImGuiIO& io = ImGui::GetIO();
   const float W = io.DisplaySize.x;
@@ -559,13 +859,23 @@ void ForgeFrame::drawToolbar(float y, float width, float height) {
   ImGui::SetNextWindowPos(ImVec2(0, y));
   ImGui::SetNextWindowSize(ImVec2(width, height));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 4));
+  // NoDecoration is spelled out MINUS its NoScrollbar bit, plus a horizontal
+  // scrollbar: the Part ribbon is 34 buttons wide and a single un-scrollable row
+  // clips the tail silently — enumerated, dispatchable, and off the right edge.
   if (ImGui::Begin("##toolbar", nullptr,
-                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                   ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                       ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
-                       ImGuiWindowFlags_NoScrollbar)) {
+                       ImGuiWindowFlags_HorizontalScrollbar)) {
     // The ribbon: the commands whose CATEGORY this workspace claims. Same
     // registry, same enabled predicate as the menu — one command, one truth.
-    const std::vector<std::string> cats = forge::ui::workspaceCategories(shell_.workspace());
+    //
+    // ribbonCategories(), not workspaceCategories(): the hand-written claim list
+    // made TOTAL over the categories the registry actually holds. It claimed no
+    // "Part", so 21 of 34 commands — every geometry-building one — rendered on
+    // no ribbon in any workspace while the menu bar showed all 34.
+    const std::vector<std::string> cats =
+        forge::ui::ribbonCategories(shell_.workspace(), shell_.registry().categories());
     bool first = true;
     for (const std::string& cat : cats) {
       for (const std::string& id : shell_.registry().idsInCategory(cat)) {
@@ -654,9 +964,43 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
 
     // Right side: the last thing that happened. A status bar that never says
     // what failed is decoration.
-    const float tw = ImGui::CalcTextSize(status_.c_str()).x;
-    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), width - tw - 14.0f * dpiScale_));
-    ImGui::TextColored(rgb(170, 176, 186), "%s", status_.c_str());
+    //
+    // ELIDED to the space that is actually left. Right-aligning an unbounded
+    // string does not fit it: MEASURED on a screenshot of the live window, an
+    // "opened <absolute path>" status was wider than the strip and was drawn
+    // straight through the navigation hints, so two messages occupied the same
+    // pixels and neither was readable. The TAIL is kept, because that is where
+    // both a path and a failure reason say what happened.
+    // SameLine() FIRST. After a Text() the cursor has already wrapped to the next
+    // line, so GetCursorPosX() returns the line indent (~8 px), not the end of
+    // what was just drawn -- MEASURED: the first version of this elide computed
+    // ~1660 px of "available" width on a strip with ~800 px left, decided the
+    // status fitted, and right-aligned it straight back over the navigation
+    // hints. SameLine() restores the cursor to the previous item's right edge,
+    // which is the number this needs.
+    ImGui::SameLine();
+    const float pad = 14.0f * dpiScale_;
+    const float used = ImGui::GetCursorPosX();
+    const float avail = width - used - pad;
+    std::string shown = status_;
+    if (avail > 0.0f && ImGui::CalcTextSize(shown.c_str()).x > avail) {
+      // Binary search on the kept suffix: ~9 width queries for any status this
+      // strip will ever hold, instead of one per dropped character.
+      std::size_t lo = 0, hi = shown.size();
+      while (lo < hi) {
+        const std::size_t mid = lo + (hi - lo) / 2;  // keep the last size()-mid chars
+        const std::string cand = "..." + shown.substr(mid);
+        if (ImGui::CalcTextSize(cand.c_str()).x > avail) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      shown = "..." + shown.substr(lo);
+    }
+    const float tw = ImGui::CalcTextSize(shown.c_str()).x;
+    ImGui::SameLine(std::max(used, width - tw - pad));
+    ImGui::TextColored(rgb(170, 176, 186), "%s", shown.c_str());
   }
   ImGui::End();
   ImGui::PopStyleColor();
@@ -1041,10 +1385,27 @@ void ForgeFrame::drawFeatureTreePanel() {
             if (r.persistentName == "face@" + std::to_string(faceId)) selected = true;
           }
         }
+        const int featureIrId = treeSource_.featureIrIdOf(d.id);
+        if (faceId == 0 && featureIrId != 0 && featureIrId == editFeatureId_) selected = true;
         if (ImGui::Selectable(d.label.c_str(), selected, ImGuiSelectableFlags_AllowOverlap)) {
-          if (faceId != 0) clickFace(faceId, ImGui::GetIO().KeyShift);
+          if (faceId != 0) {
+            clickFace(faceId, ImGui::GetIO().KeyShift);
+          } else if (featureIrId != 0) {
+            // Clicking a FEATURE row used to do nothing at all. It is the row a
+            // user reaches for to change that feature's numbers, so it is what
+            // aims the parameter editor.
+            setEditTarget(featureIrId, 0);
+          }
         }
         if (ImGui::IsItemHovered() && faceId != 0) setPreselectedFace(faceId);
+        // A feature row IS an IR statement, so hovering it shows the statement --
+        // reachable only because the source hands back the document's own record.
+        if (ImGui::IsItemHovered()) {
+          if (const forge::ui::FeatureRecord* rec = treeSource_.recordAt(d.id)) {
+            ImGui::SetTooltip("%s\n%s", rec->line.text().c_str(),
+                              rec->commandId.empty() ? "(starting part)" : rec->commandId.c_str());
+          }
+        }
 
         // Per-node STATUS badge — the thing that makes a feature tree a
         // diagnostic instead of a list.
@@ -1076,6 +1437,62 @@ void ForgeFrame::drawPropertiesPanel() {
   ImGui::PopStyleColor();
   ImGui::Spacing();
 
+  // ── EDIT AN EXISTING FEATURE ──────────────────────────────────────────────
+  // The control that makes the document parametric. Everything above appends;
+  // this rewrites one number of a statement already in the program, through
+  // part.edit_feature and the one registry.
+  ImGui::TextColored(rgb(242, 158, 38), "Feature Parameter");
+  ImGui::Separator();
+  if (partDoc_.records().empty()) {
+    ImGui::TextDisabled("(the document has no statements)");
+  } else {
+    // Re-resolve every frame: undo, redo, New and Open all move records, and a
+    // target cached across one of those would edit the wrong statement.
+    if (partDoc_.featureAt(editFeatureId_) == nullptr) setEditTarget(0, 0);
+    const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##editfeature",
+                          rec == nullptr ? "(none)" : rec->line.text().c_str())) {
+      for (const forge::ui::FeatureRecord& r2 : partDoc_.records()) {
+        const bool isSel = r2.irId == editFeatureId_;
+        if (ImGui::Selectable(r2.line.text().c_str(), isSel)) setEditTarget(r2.irId, 0);
+        if (isSel) ImGui::SetItemDefaultFocus();
+      }
+      ImGui::EndCombo();
+    }
+    const std::size_t numbers = editParamCount();
+    if (numbers == 0) {
+      // CUT(%2, %3) has no number in it. Saying so is the honest answer; a
+      // disabled field with a 0 in it would read as "this feature is 0 mm".
+      ImGui::TextDisabled("%s takes no numeric parameter",
+                          rec == nullptr ? "this statement" : rec->line.op.c_str());
+    } else {
+      for (std::size_t i = 0; i < numbers; ++i) {
+        if (i > 0) ImGui::SameLine();
+        char tag[16];
+        std::snprintf(tag, sizeof(tag), "#%zu", i + 1);
+        if (ImGui::RadioButton(tag, editParamIndex_ == i)) setEditTarget(editFeatureId_, i);
+      }
+      ImGui::SetNextItemWidth(-1);
+      ImGui::InputFloat("##editvalue", &editValue_, 0.5f, 5.0f, "%.3f");
+      const bool changed =
+          static_cast<double>(editValue_) != editParamValue();
+      ImGui::BeginDisabled(!changed);
+      // Refusing the no-op HERE as well as in the document is deliberate: the
+      // document refuses it so no undo step is pushed, and the button greys out
+      // so the user is never told "refused" for pressing Apply on an unchanged
+      // number.
+      if (ImGui::Button("Apply", ImVec2(-1, 0))) applyFeatureEdit(editValue_);
+      ImGui::EndDisabled();
+      if (!changed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextWrapped("pick a feature row in the tree, then change its number");
+        ImGui::PopStyleColor();
+      }
+    }
+  }
+  ImGui::Spacing();
+
   ImGui::TextColored(rgb(242, 158, 38), "Selection");
   ImGui::Separator();
   if (shell_.selection().count() == 0) {
@@ -1093,8 +1510,30 @@ void ForgeFrame::drawPropertiesPanel() {
   }
 
   ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Rebuild");
+  ImGui::Separator();
+  const IrBuildReport& r = scene_.lastBuild();
+  ImGui::Text("rebuilds   %zu", rebuilds_);
+  ImGui::Text("ops        %zu declared / %zu parsed / %zu compiled", r.nDeclared, r.nParsed,
+              r.nCompiled);
+  if (r.ok()) {
+    ImGui::TextColored(r.valid ? rgb(120, 200, 130) : rgb(235, 175, 95), "%s",
+                       r.valid ? "solid is valid" : "solid compiled but is NOT valid");
+    ImGui::Text("faces %ld   edges %ld", r.faceCount, r.edgeCount);
+    ImGui::Text("volume %.3f mm3", r.volume);
+    ImGui::Text("bbox   %.2f x %.2f x %.2f", r.bboxMax[0] - r.bboxMin[0],
+                r.bboxMax[1] - r.bboxMin[1], r.bboxMax[2] - r.bboxMin[2]);
+  } else {
+    ImGui::TextColored(rgb(235, 105, 95), "REBUILD FAILED");
+    ImGui::TextWrapped("%s", r.error.c_str());
+    ImGui::TextDisabled("the viewport is showing the last body that built");
+  }
+
+  ImGui::Spacing();
   ImGui::TextColored(rgb(242, 158, 38), "Feature IR");
   ImGui::Separator();
+  ImGui::TextDisabled("%s%s", documentPath_.empty() ? "(unsaved)" : documentPath_.c_str(),
+                      documentDirty_ ? "  *" : "");
   const std::string ir = partDoc_.irProgram();
   ImGui::TextWrapped("%s", ir.empty() ? "(no statements yet)" : ir.c_str());
 }
@@ -1114,15 +1553,24 @@ void ForgeFrame::drawConsolePanel() {
 }
 
 void ForgeFrame::drawTimelinePanel() {
-  ImGui::TextColored(rgb(130, 137, 148), "feature history: %zu features",
-                     scene_.features().size());
+  // THE HISTORY IS THE DOCUMENT'S. Every column below is a field of the
+  // FeatureRecord itself -- including the two a copied row could not carry: the
+  // statement id the row IS, and the command that authored it ("seed" for a
+  // statement the starting part contributed).
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  const IrBuildReport& r = scene_.lastBuild();
+  ImGui::TextColored(rgb(130, 137, 148), "feature history: %zu statements", records.size());
   ImGui::Separator();
-  for (std::size_t i = 0; i < scene_.features().size(); ++i) {
-    const SceneFeature& f = scene_.features()[i];
+  for (std::size_t i = 0; i < records.size(); ++i) {
+    const forge::ui::FeatureRecord& rec = records[i];
+    const bool named = (r.failedOpId == rec.irId) || (r.failedLine == rec.irId);
+    const bool ok = r.ok() || !named;
     ImGui::PushID(static_cast<int>(i));
-    ImGui::TextColored(f.ok ? rgb(120, 200, 130) : rgb(235, 105, 95), "%s", f.ok ? "OK " : "ERR");
+    ImGui::TextColored(ok ? rgb(120, 200, 130) : rgb(235, 105, 95), "%s", ok ? "OK " : "ERR");
     ImGui::SameLine();
-    ImGui::Text("%-24s %-8s %s", f.label.c_str(), f.irOp.c_str(), f.detail.c_str());
+    ImGui::Text("%%%-3d %-22s %-18s %s", rec.irId,
+                (rec.label.empty() ? rec.line.op : rec.label).c_str(),
+                rec.commandId.empty() ? "seed" : rec.commandId.c_str(), rec.line.text().c_str());
     ImGui::PopID();
   }
 }
@@ -1287,7 +1735,8 @@ void ForgeFrame::drawGenericPanel(const std::string& panelId) {
       panelId.c_str());
   ImGui::Spacing();
   ImGui::TextColored(rgb(130, 137, 148), "Commands this workspace owns:");
-  for (const std::string& cat : forge::ui::workspaceCategories(shell_.workspace())) {
+  for (const std::string& cat :
+       forge::ui::ribbonCategories(shell_.workspace(), shell_.registry().categories())) {
     for (const std::string& id : shell_.registry().idsInCategory(cat)) {
       const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
       if (d == nullptr) continue;

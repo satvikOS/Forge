@@ -49,13 +49,26 @@ ToolAvailability availabilityOf(const ToolCatalog& c, const std::string& id) {
 int main() {
   Harness H("tool_catalog");
 
-  // Exactly what ForgeFrame::wirePartCommands() builds.
+  // The two values a Part command consumes: a profile to extrude, a solid to modify.
+  // The seeds are CHECKED. They used to be `SKETCH(XY)` + `BOX(...)`, and `SKETCH` is in
+  // no op table, so validateIr rejected it and seed() returned 0 -- "sketch.base" was
+  // never bound and every profile-consuming command in this gate evaluated `disabled`
+  // for a reason the gate never reported. ForgeFrame hit the same bug and was fixed;
+  // these seeds were left behind. Checking the return is what makes that class of
+  // defect impossible to reintroduce silently.
   ForgeShell shell;
   PartDocument doc;
   UndoStack undo;
-  doc.seed(IrValueKind::Profile, "sketch.base", "SKETCH", {IrArg::keyword("XY")});
-  doc.seed(IrValueKind::Solid, "body.bracket", "BOX",
-           {IrArg::num(80.0), IrArg::num(50.0), IrArg::num(20.0)});
+  // RECT, not "SKETCH": forge::ft has no SKETCH op, so validateIr answered
+  // unknown_op, the seed bound NO value, and every profile-consuming command was
+  // permanently unresolvable in this fixture -- the same defect the shipped app
+  // had until defaultPartStatements() replaced it. A fixture that claims to be
+  // "exactly what ForgeFrame::wirePartCommands() builds" has to seed what it
+  // seeds.
+  CHECK_EQ_INT(doc.seed(IrValueKind::Profile, "sketch.base", "RECT",
+                        {IrArg::num(80.0), IrArg::num(50.0)}), 1);
+  CHECK_EQ_INT(doc.seed(IrValueKind::Solid, "body.bracket", "BOX",
+                        {IrArg::num(80.0), IrArg::num(50.0), IrArg::num(20.0)}), 2);
   registerPartCommands(shell.registry(), doc, undo);
   const CommandRegistry& reg = shell.registry();
 
@@ -169,7 +182,7 @@ int main() {
     const ToolCatalog c = buildToolCatalog(reg, shell.selection());
     CHECK(availabilityOf(c, "edit.delete") == ToolAvailability::Available);
     // thickness carries a declared default, so a face is all it was waiting for
-    CHECK(availabilityOf(c, "model.shell") == ToolAvailability::Available);
+    CHECK(availabilityOf(c, "part.shell") == ToolAvailability::Available);
     // diameter has NO honest default: selectable now, still not callable
     CHECK(availabilityOf(c, "part.hole") == ToolAvailability::NeedsParameters);
     const ToolEntry* hole = c.find("part.hole");
@@ -183,9 +196,12 @@ int main() {
 
     shell.selection().replaceWith({ref(EntityKind::Sketch, "sketch.base", "")});
     const ToolCatalog s = buildToolCatalog(reg, shell.selection());
-    CHECK(availabilityOf(s, "model.extrude") == ToolAvailability::Available);
-    CHECK(availabilityOf(s, "part.extrude") == ToolAvailability::NeedsParameters);
-    CHECK(availabilityOf(s, "model.shell") == ToolAvailability::NeedsSelection);
+    // distance carries a declared default too, so a picked sketch is enough
+    CHECK(availabilityOf(s, "part.extrude") == ToolAvailability::Available);
+    CHECK(availabilityOf(s, "part.shell") == ToolAvailability::NeedsSelection);
+    // part.hole still has no honest default for its diameter, so the two
+    // refusals stay distinguishable rather than collapsing into one
+    CHECK(availabilityOf(s, "part.hole") == ToolAvailability::NeedsSelection);
     shell.selection().clearSelection();
   }
 
@@ -193,12 +209,17 @@ int main() {
   {
     const ToolCatalog c = buildToolCatalog(reg, shell.selection());
     const ToolEntry* fil = c.find("part.fillet");
-    const ToolEntry* mfil = c.find("model.fillet");
+    const ToolEntry* hole = c.find("part.hole");
     const ToolEntry* loft = c.find("part.loft");
     const ToolEntry* fit = c.find("view.fit");
-    CHECK(fil != nullptr && mfil != nullptr && loft != nullptr && fit != nullptr);
-    if (fil != nullptr) CHECK_EQ_STR(fil->parameters, "radius:number*, selector:text");
-    if (mfil != nullptr) CHECK_EQ_STR(mfil->parameters, "radius:number*=1");  // * AND a default
+    CHECK(fil != nullptr && hole != nullptr && loft != nullptr && fit != nullptr);
+    // * AND a default: required, but a gesture can still run it
+    if (fil != nullptr) CHECK_EQ_STR(fil->parameters, "radius:number*=1, selector:text");
+    // * and NO default: required, and an interactive caller must prompt
+    if (hole != nullptr) {
+      CHECK_EQ_STR(hole->parameters,
+                   "diameter:number*, x:number, y:number, z:number, depth:number");
+    }
     if (loft != nullptr) CHECK_EQ_STR(loft->parameters, "ruled:flag, open:flag");
     if (fit != nullptr) CHECK_EQ_STR(fit->parameters, "-");
 
@@ -217,14 +238,15 @@ int main() {
     const std::vector<std::string> hits = reg.search("fillet", reg.size());
     const ToolCatalog c = buildToolCatalog(reg, shell.selection(), "fillet");
     CHECK_EQ_INT(c.size(), hits.size());
-    CHECK_EQ_INT(c.size(), 3);
+    CHECK_EQ_INT(c.size(), 2);  // part.fillet + part.variable_fillet
     for (const ToolEntry& e : c.entries) {
       bool found = false;
       for (const std::string& h : hits) found = found || h == e.id;
       CHECK(found);
     }
-    CHECK(c.find("model.fillet") != nullptr);
+    CHECK(c.find("part.fillet") != nullptr);
     CHECK(c.find("part.variable_fillet") != nullptr);
+    CHECK(c.find("model.fillet") == nullptr);  // the counter stub is retired
     CHECK(c.find("view.fit") == nullptr);
     // Uncapped: the palette shows the top 14, the catalog must show them all.
     const ToolCatalog wide = buildToolCatalog(reg, shell.selection(), "p");

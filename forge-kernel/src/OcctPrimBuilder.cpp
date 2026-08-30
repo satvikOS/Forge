@@ -14,8 +14,11 @@
 #include <gp_Ax1.hxx>
 #include <gp_Trsf.hxx>
 #include <gp_Lin.hxx>
-#include <Geom_Plane.hxx>
 #include <Geom_Curve.hxx>
+#include <Geom_Line.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <Geom_Plane.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_SphericalSurface.hxx>
@@ -41,7 +44,6 @@
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepAdaptor_Surface.hxx>
-#include <GeomAbs_SurfaceType.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <BRepLib.hxx>
@@ -319,18 +321,105 @@ double distToAxis(const gp_Pnt& p, const gp_Ax1& ax) {
     return gp_Lin(ax).Distance(p);
 }
 
+// Strip Geom_TrimmedCurve wrappers to reach the analytic basis curve.
+Handle(Geom_Curve) basisCurve(Handle(Geom_Curve) c) {
+    for (int guard = 0; guard < 8 && !c.IsNull(); ++guard) {
+        Handle(Geom_TrimmedCurve) tc = Handle(Geom_TrimmedCurve)::DownCast(c);
+        if (tc.IsNull()) break;
+        c = tc->BasisCurve();
+    }
+    return c;
+}
+
+// The canonical equivalent of Geom_SurfaceOfLinearExtrusion(c, dir) — or a NULL handle
+// when no exact canonical form exists. This is what BRepPrimAPI_MakePrism's Canonize
+// flag did, and it is exact ONLY when the canonical surface's (u,v) parametrisation is
+// IDENTICAL to the extrusion's, because the caller trims both with the same
+// [f,l] x [vLo,vHi] box.
+//
+//   Geom_SurfaceOfLinearExtrusion:  P(u,v) = C(u) + v * dir
+//
+//   LINE   C(u) = O + u*D  (Geom_Line is unit-speed). With D . dir == 0 the swept
+//          surface is the plane through O spanned by (D, dir). Geom_Plane parametrises
+//          as Loc + u*XDirection + v*YDirection, and gp_Ax3(O, N, Vx) yields
+//          XDirection = Vx, YDirection = N ^ Vx. Choosing N = D ^ dir gives
+//          YDirection = (D ^ dir) ^ D = dir  (using D . dir == 0, |D| = |dir| = 1),
+//          so P(u,v) = O + u*D + v*dir — identical, term for term.
+//          An OBLIQUE sweep is still planar but its natural parametrisation is not
+//          orthogonal, which gp_Pln cannot represent, so it is refused.
+//
+//   CIRCLE C(u) = Ctr + R(cos u * X + sin u * Y), Y = axis ^ X. Swept along +axis this
+//          is Geom_CylindricalSurface(gp_Ax3(Ctr, axis, X), R), which parametrises as
+//          Loc + R(cos u * XDirection + sin u * YDirection) + v * Direction with the
+//          same X and Y — identical. Swept along -axis the cylinder's YDirection would
+//          come out negated, i.e. u -> -u, so that case keeps the CIRCLE's own axis as
+//          the cylinder direction and trims on the negative side instead (below).
+//
+// `vLo`/`vHi` return the v-trim the caller must use. It is [0, len] for every case
+// except a circle swept along MINUS its own axis, which is exact only over [-len, 0].
+Handle(Geom_Surface) canonicalExtrusion(const Handle(Geom_Curve)& curve, const gp_Vec& vec,
+                                        double len, double& vLo, double& vHi) {
+    vLo = 0.0;
+    vHi = len;
+    const Handle(Geom_Curve) c = basisCurve(curve);
+    if (c.IsNull()) return Handle(Geom_Surface)();
+    const gp_Dir dir(vec);
+
+    Handle(Geom_Line) ln = Handle(Geom_Line)::DownCast(c);
+    if (!ln.IsNull()) {
+        const gp_Dir D = ln->Lin().Direction();
+        if (std::fabs(D.Dot(dir)) > Precision::Angular()) return Handle(Geom_Surface)();
+        const gp_Vec N = gp_Vec(D).Crossed(gp_Vec(dir));
+        if (N.Magnitude() < gp::Resolution()) return Handle(Geom_Surface)();
+        // YDirection = N ^ XDirection = (D ^ dir) ^ D = dir, so P(u,v) = O + u*D + v*dir.
+        // Holds for dir and -dir alike: N flips with it.
+        return new Geom_Plane(gp_Ax3(ln->Lin().Location(), gp_Dir(N), D));
+    }
+
+    Handle(Geom_Circle) ci = Handle(Geom_Circle)::DownCast(c);
+    if (!ci.IsNull()) {
+        const gp_Ax2 pos = ci->Circ().Position();
+        const double R = ci->Circ().Radius();
+        if (pos.Direction().IsEqual(dir, Precision::Angular())) {
+            // Swept along +axis: cylinder about `dir` with the circle's own X. Its
+            // YDirection = dir ^ X is the circle's Y, so P(u,v) = C(u) + v*dir over [0,len].
+            return new Geom_CylindricalSurface(gp_Ax3(pos.Location(), dir, pos.XDirection()), R);
+        }
+        if (pos.Direction().IsOpposite(dir, Precision::Angular())) {
+            // Swept along -axis. A cylinder about `dir` would have YDirection = dir ^ X =
+            // -Y_circle, i.e. u -> -u — NOT the same parametrisation. Keeping the circle's
+            // OWN axis as the cylinder direction preserves u exactly and puts the sweep on
+            // the negative side: P(u,v) = C(u) + v*axis = C(u) - v*dir, so the swept body
+            // is v in [-len, 0]. Same point set, same (u,v) map, no sense flip.
+            vLo = -len;
+            vHi = 0.0;
+            return new Geom_CylindricalSurface(
+                gp_Ax3(pos.Location(), pos.Direction(), pos.XDirection()), R);
+        }
+        return Handle(Geom_Surface)();
+    }
+    return Handle(Geom_Surface)();
+}
+
 // Lateral face: the profile EDGE's exact 3D curve swept LINEARLY along `vec`.
 // P(u,w) = C(u) + w * dir, u in [edge param], w in [0,|vec|]. Returns a null face
-// for a curveless/degenerate edge (caller skips it).
-TopoDS_Face lateralExtrudeFace(const TopoDS_Edge& e, const gp_Vec& vec) {
+// for a curveless/degenerate edge (caller skips it). With `canonize` an exactly
+// equivalent canonical surface is preferred where one exists (see canonicalExtrusion).
+TopoDS_Face lateralExtrudeFace(const TopoDS_Edge& e, const gp_Vec& vec, bool canonize) {
     if (BRep_Tool::Degenerated(e)) return TopoDS_Face();
     Standard_Real f = 0.0, l = 0.0;
     Handle(Geom_Curve) c = BRep_Tool::Curve(e, f, l);
     if (c.IsNull()) return TopoDS_Face();
     const double len = vec.Magnitude();
-    Handle(Geom_SurfaceOfLinearExtrusion) s =
-        new Geom_SurfaceOfLinearExtrusion(c, gp_Dir(vec));
-    BRepBuilderAPI_MakeFace mf(s, f, l, 0.0, len, Precision::Confusion());
+    double vLo = 0.0, vHi = len;
+    Handle(Geom_Surface) s;
+    if (canonize) s = canonicalExtrusion(c, vec, len, vLo, vHi);
+    if (s.IsNull()) {
+        s = new Geom_SurfaceOfLinearExtrusion(c, gp_Dir(vec));
+        vLo = 0.0;
+        vHi = len;
+    }
+    BRepBuilderAPI_MakeFace mf(s, f, l, vLo, vHi, Precision::Confusion());
     if (!mf.IsDone()) throw std::runtime_error("occtPrism: lateral extrude face failed");
     TopoDS_Face face = mf.Face();
     BRepLib::BuildCurves3d(face);
@@ -376,10 +465,10 @@ bool planarFaceProps(const TopoDS_Face& face, double& area, gp_Dir& n, gp_Pnt& c
 }
 
 // Linear-sweep a single FACE into a closed solid (lateral faces + 2 caps).
-TopoDS_Solid prismFaceToSolid(const TopoDS_Face& face, const gp_Vec& vec) {
+TopoDS_Solid prismFaceToSolid(const TopoDS_Face& face, const gp_Vec& vec, bool canonize) {
     std::vector<TopoDS_Face> faces;
     for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
-        TopoDS_Face lat = lateralExtrudeFace(TopoDS::Edge(ex.Current()), vec);
+        TopoDS_Face lat = lateralExtrudeFace(TopoDS::Edge(ex.Current()), vec, canonize);
         if (!lat.IsNull()) faces.push_back(lat);
     }
     if (faces.empty()) throw std::runtime_error("occtPrism: profile face has no sweepable edges");
@@ -406,13 +495,13 @@ TopoDS_Solid prismFaceToSolid(const TopoDS_Face& face, const gp_Vec& vec) {
 
 }  // namespace
 
-TopoDS_Shape occtPrism(const TopoDS_Shape& profile, const gp_Vec& vec) {
+TopoDS_Shape occtPrism(const TopoDS_Shape& profile, const gp_Vec& vec, bool canonize) {
     if (profile.IsNull()) throw std::runtime_error("occtPrism: null profile");
     if (vec.Magnitude() < Precision::Confusion())
         throw std::runtime_error("occtPrism: sweep vector is zero-length");
     switch (profile.ShapeType()) {
         case TopAbs_FACE:
-            return prismFaceToSolid(TopoDS::Face(profile), vec);
+            return prismFaceToSolid(TopoDS::Face(profile), vec, canonize);
         case TopAbs_WIRE: {
             // Open profile -> open shell of lateral faces (no caps).
             BRep_Builder bb;
@@ -420,14 +509,14 @@ TopoDS_Shape occtPrism(const TopoDS_Shape& profile, const gp_Vec& vec) {
             bb.MakeShell(sh);
             bool any = false;
             for (TopExp_Explorer ex(profile, TopAbs_EDGE); ex.More(); ex.Next()) {
-                TopoDS_Face lat = lateralExtrudeFace(TopoDS::Edge(ex.Current()), vec);
+                TopoDS_Face lat = lateralExtrudeFace(TopoDS::Edge(ex.Current()), vec, canonize);
                 if (!lat.IsNull()) { bb.Add(sh, lat); any = true; }
             }
             if (!any) throw std::runtime_error("occtPrism: wire has no sweepable edges");
             return sh;
         }
         case TopAbs_EDGE: {
-            TopoDS_Face lat = lateralExtrudeFace(TopoDS::Edge(profile), vec);
+            TopoDS_Face lat = lateralExtrudeFace(TopoDS::Edge(profile), vec, canonize);
             if (lat.IsNull()) throw std::runtime_error("occtPrism: edge not sweepable");
             return lat;
         }
@@ -439,7 +528,7 @@ TopoDS_Shape occtPrism(const TopoDS_Shape& profile, const gp_Vec& vec) {
             bb.MakeCompound(comp);
             bool any = false;
             for (TopExp_Explorer ex(profile, TopAbs_FACE); ex.More(); ex.Next()) {
-                bb.Add(comp, prismFaceToSolid(TopoDS::Face(ex.Current()), vec));
+                bb.Add(comp, prismFaceToSolid(TopoDS::Face(ex.Current()), vec, canonize));
                 any = true;
             }
             if (!any) throw std::runtime_error("occtPrism: shell has no faces to sweep");

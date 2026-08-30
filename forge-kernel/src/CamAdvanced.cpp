@@ -48,7 +48,6 @@
 #include <BRepBndLib.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
-#include <Geom_CylindricalSurface.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
 #include <TopExp_Explorer.hxx>

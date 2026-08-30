@@ -124,6 +124,14 @@ jobs:
         # cleanup that cannot report a delete it failed to make, and ONLY=<typo>
         # exiting 0 after running nothing.
         run: bash ui/test/run_ui_contract_test.sh
+      - name: Archie op vocabulary is still what the sources imply
+        # implementation/sacrosanct/archie_op_vocabulary.json is the closed list of
+        # feature-IR ops Archie may emit -- the ops a USER can reach through this
+        # registry. archie_op_vocabulary_test.cpp (run by run_ui.sh above) proves the
+        # file matches the RUNNING code; this proves it matches the SOURCE TEXT, which
+        # is the half that catches a kernel-header signature change nothing in ui/
+        # would notice. Stdlib-only Python, no install step.
+        run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
@@ -283,6 +291,18 @@ jobs:
         # a wrong solid matching a right volume to ten significant figures is a measured
         # failure mode in this programme, not a hypothetical one.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
+      - name: live-OCCT A/B harnesses (ratcheted; a link failure is RED, not silence)
+        # THE GATE THAT WOULD HAVE CAUGHT PR #64. Two harnesses -- thicken and loftpipe --
+        # stopped LINKING the moment that PR merged, because it made their engines call
+        # forge::occtPrism / occtCylinderSolid while they compile the engine STANDALONE
+        # without src/OcctPrimBuilder.cpp. 541 assertions stopped running and nothing said
+        # so, because CI ran neither. A gate that cannot build is a gate that cannot fail.
+        # run_ab_all.sh therefore treats a BUILD/LINK failure as RED (exit 2) and never as
+        # "0 failures", and ratchets each harness against test/ab_native_baseline.txt in
+        # the same idiom as the NAFEMS and s0 ratchets: red if a count RISES, red if it
+        # FALLS without the baseline being lowered in the same commit. All seven run in
+        # about 93 seconds on this runner, which already has OCCT installed.
+        run: bash forge-kernel/test/run_ab_all.sh
       - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
         # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
         # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
@@ -296,3 +316,20 @@ jobs:
           cmake --build forge-kernel/build-verify -j3 --target forge_verify
           FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify \
             bash forge-kernel/test/unify_coaxial_guard_test.sh
+      - name: Build forge_verify (the native verifier)
+        # forge_verify is guarded by FORGE_BUILD_DESKTOP_FOUNDATION and is NOT part of the
+        # .node addon build above, so it needs its own configure. Without this the batch gate
+        # below cannot find a binary and exits 3 -- deliberately red, never a silent skip.
+        run: |
+          cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+          cmake --build forge-kernel/build-verify -j3 --target forge_verify
+      - name: forge_verify batch survival (one bad record must not kill the batch)
+        # main() calls jsonString() six times BEFORE its first try block, and jsonUnescape()
+        # used std::stoi for \uXXXX. std::stoi throws on "\uZZZZ", the throw escaped main, and
+        # the process died with SIGABRT taking every LATER record with it. MEASURED on the
+        # gate's own 6-record fixture: before, exit=134 with 2 of 6 emitted (3 of the 4 lost
+        # records were WELL-FORMED); after, exit=0 with 6 of 6. The gate also pins the quieter
+        # defect the crash was hiding -- base-16 stoi stops at the first non-hex character, so
+        # "\u00ZZ" partially parsed to 0 and silently injected a NUL byte.
+        run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh

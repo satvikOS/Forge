@@ -25,7 +25,6 @@
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic primitive solids (cone/sphere/torus)
-#include <Geom_Surface.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Vertex.hxx>
@@ -35,7 +34,6 @@
 #include <TopoDS_Shell.hxx>
 #include <TopoDS_Solid.hxx>
 #include <TopAbs.hxx>
-#include <TopAbs_Orientation.hxx>
 #include <TopExp_Explorer.hxx>
 #include <BRep_Builder.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>

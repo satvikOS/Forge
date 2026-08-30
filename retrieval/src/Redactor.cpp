@@ -731,7 +731,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   std::vector<std::string> preview_terms;
   std::string previous_kept;   // context for designation lookback
   bool previous_was_dimension = false;
-  std::size_t global_token_index = 0;
 
   auto emitRedaction = [&](RedactionKind kind, const std::string& matched, std::size_t offset) {
     RedactionEvent ev;
@@ -751,7 +750,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   for (const Piece& piece : pieces) {
     if (piece.registered) {
       emitRedaction(piece.kind, piece.text, piece.offset);
-      ++global_token_index;
       continue;
     }
     std::size_t pos = 0;
@@ -765,7 +763,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
       const std::string token = trimPunctuation(rawToken, lead);
       const std::size_t offset = piece.offset + start + lead;
       if (token.empty()) continue;
-      const std::size_t token_index = global_token_index++;
       const std::string lower = toLower(token);
 
       if (looksLikeEmail(token)) { emitRedaction(RedactionKind::EmailAddress, token, offset); continue; }
@@ -804,7 +801,15 @@ RedactionResult Redactor::redact(const std::string& raw) const {
         emitRedaction(RedactionKind::OpaqueIdentifier, token, offset);
         continue;
       }
-      if (policy_.strip_proper_nouns && token_index > 0 && token.size() >= 3 &&
+      // NO FIRST-TOKEN EXEMPTION. This condition used to require the token index to be
+      // non-zero, which exempted the FIRST token of the whole query from the proper-noun
+      // rule -- and a user question very often OPENS with the customer or project name:
+      // "Acme bearing preload tolerance" sent "Acme" to the public search engine.
+      // The guard was also unnecessary: publicCapitalizedVocabulary() already lists the
+      // sentence openers (what/which/how/why/when/where/who/is/are/does/do/can/the/a),
+      // so a normal opening word is kept without it. POSITION MUST NOT LICENSE A TERM
+      // THE RULE WOULD REDACT ANYWHERE ELSE.
+      if (policy_.strip_proper_nouns && token.size() >= 3 &&
           std::isupper(static_cast<unsigned char>(token[0])) &&
           !publicCapitalizedVocabulary().count(lower) && !standardsBodies().count(toUpper(token))) {
         emitRedaction(RedactionKind::ProperNoun, token, offset);

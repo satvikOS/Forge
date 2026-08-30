@@ -26,6 +26,17 @@ const char* toString(IrValueKind kind) noexcept {
   return "none";
 }
 
+const char* toString(EditCheck check) noexcept {
+  switch (check) {
+    case EditCheck::Ok:               return "ok";
+    case EditCheck::NoSuchFeature:    return "no_such_feature";
+    case EditCheck::OperandChanged:   return "operand_changed";
+    case EditCheck::NoChange:         return "no_change";
+    case EditCheck::InvalidStatement: return "invalid_statement";
+  }
+  return "no_such_feature";
+}
+
 // ── PartDocument ────────────────────────────────────────────────────────────
 int PartDocument::seed(IrValueKind kind, const std::string& nodeId, const std::string& op,
                        std::vector<IrArg> args) {
@@ -91,6 +102,59 @@ bool PartDocument::appendFeature(const FeatureRecord& record,
   return true;
 }
 
+const FeatureRecord* PartDocument::featureAt(int irId) const noexcept {
+  if (irId <= 0 || static_cast<std::size_t>(irId) > records_.size()) return nullptr;
+  return &records_[static_cast<std::size_t>(irId) - 1];
+}
+
+bool PartDocument::editFeatureArgs(int irId, const std::vector<IrArg>& args) {
+  lastEdit_ = EditCheck::Ok;
+  if (irId <= 0 || static_cast<std::size_t>(irId) > records_.size()) {
+    lastEdit_ = EditCheck::NoSuchFeature;
+    return false;
+  }
+  FeatureRecord& rec = records_[static_cast<std::size_t>(irId) - 1];
+
+  // THE INVARIANT: the set of (position, ref) pairs is identical. Comparing the
+  // pairs rather than walking both lists in lockstep is what lets the arg COUNT
+  // change -- dropping a trailing keyword must stay legal -- while still making
+  // "%4 became %2" and "the ref moved from slot 0 to slot 1" both refusals.
+  const auto refPairs = [](const std::vector<IrArg>& v) {
+    std::vector<std::pair<std::size_t, int>> out;
+    for (std::size_t i = 0; i < v.size(); ++i) {
+      if (v[i].kind == IrArgKind::Ref) out.push_back({i, v[i].ref});
+    }
+    return out;
+  };
+  if (refPairs(args) != refPairs(rec.line.args)) {
+    lastEdit_ = EditCheck::OperandChanged;
+    return false;
+  }
+
+  // A no-op edit is refused rather than applied, so `perform()` never pushes an
+  // undo step that undoes nothing -- a stack whose top entry does nothing when
+  // you hit Ctrl+Z reads to a user as a broken undo.
+  const IrLine candidate{rec.line.id, rec.line.op, args};
+  if (candidate.text() == rec.line.text()) {
+    lastEdit_ = EditCheck::NoChange;
+    return false;
+  }
+
+  // The op table is the authority on arity, and it is DATA transcribed from
+  // FeatureTree.hpp -- so this is reachable, not decoration: an edit that hands
+  // FILLET six arguments is refused here and not by the compiler three layers
+  // down, with the offending document unmutated.
+  const IrCheck check = validateIr(candidate);
+  lastCheck_ = check;
+  if (check != IrCheck::Ok) {
+    lastEdit_ = EditCheck::InvalidStatement;
+    return false;
+  }
+
+  rec.line = candidate;  // no binding, no id and no produces-kind moved
+  return true;
+}
+
 PartDocument::Snapshot PartDocument::snapshot() const {
   return Snapshot{records_.size(), bindings_};
 }
@@ -117,6 +181,30 @@ bool AppendFeatureEdit::apply(PartDocument& doc) {
 }
 
 void AppendFeatureEdit::revert(PartDocument& doc) { doc.restore(before_); }
+
+// ── EditFeatureArgsEdit (GoF ConcreteCommand, self-inverse) ─────────────────
+EditFeatureArgsEdit::EditFeatureArgsEdit(int irId, std::vector<IrArg> args, std::string label)
+    : irId_(irId), after_(std::move(args)), label_(std::move(label)) {}
+
+bool EditFeatureArgsEdit::apply(PartDocument& doc) {
+  const FeatureRecord* rec = doc.featureAt(irId_);
+  if (rec == nullptr) return false;
+  // Captured on EVERY apply, not only the first, because redo runs apply()
+  // again: a `before_` frozen at construction would, after undo-redo-undo,
+  // restore an argument list the document no longer had.
+  before_ = rec->line.args;
+  return doc.editFeatureArgs(irId_, after_);
+}
+
+void EditFeatureArgsEdit::revert(PartDocument& doc) {
+  // revert() returns void by the UndoableEdit contract, so a refusal here would
+  // be unhearable -- which is exactly why apply() had to succeed first: the
+  // arguments being put back are the ones the document itself held, so they pass
+  // the same ref-pinning and validateIr checks the forward edit passed, and they
+  // differ (or editFeatureArgs would have answered NoChange and apply() would
+  // have returned false, so this edit would never have been pushed).
+  doc.editFeatureArgs(irId_, before_);
+}
 
 // ── UndoStack (GoF Caretaker) ───────────────────────────────────────────────
 bool UndoStack::perform(PartDocument& doc, std::unique_ptr<UndoableEdit> edit) {
@@ -224,6 +312,16 @@ bool hasNumber(const CommandContext& ctx, const char* name) {
 
 std::string bodyNodeFor(int irId) { return "body_" + std::to_string(irId); }
 
+// Profiles get their own node prefix so a selection can tell a sketch from a solid:
+// resolveValues() maps EntityRef::bodyId -> valueFor() -> kindOf(), and a created
+// PROFILE has to be addressable by the same route a seeded one is.
+std::string sketchNodeFor(int irId) { return "sketch_" + std::to_string(irId); }
+
+// And WIRE sections get a third prefix, for the same reason PROFILE got a second: a
+// selection has to be able to tell a 3D loft section from a Z=0 sketch, because LOFT
+// consumes the one and EXTRUDE the other and the kernel throws on the swap.
+std::string wireNodeFor(int irId) { return "wire_" + std::to_string(irId); }
+
 // One emission == one undoable transaction.
 void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* commandId,
           const char* label, const char* op, std::vector<IrArg> args, IrValueKind produces,
@@ -261,6 +359,51 @@ SolidTarget solidTarget(const PartDocument& doc, const SelectionService& sel) {
   t.value = ids.front();
   t.node = node;
   return t;
+}
+
+// ── which NUMBER of which statement an edit names ───────────────────────────
+// `feature` is a 1-based statement id, and 0 means THE LAST STATEMENT -- the
+// feature you just made, which is the one a bare "edit parameters" means in
+// every history modeller. `index` counts only the NUMBER arguments, so index 0
+// of `CYL(6, 40, 0, 0, -10)` is the radius and index 0 of
+// `FILLET(%4, 3, VERTICAL)` is the radius too: the caller never has to know that
+// one statement leads with a `%ref` and the other does not.
+//
+// ONE resolver, used by `enabled` AND by `execute`, so a greyed-out menu item
+// and the dispatcher can never disagree about whether a parameter exists.
+struct ParamTarget {
+  bool ok = false;
+  int irId = 0;
+  std::size_t argIndex = 0;
+};
+
+ParamTarget paramTarget(const PartDocument& doc, const CommandContext& ctx) {
+  ParamTarget t;
+  const std::vector<FeatureRecord>& recs = doc.records();
+  if (recs.empty()) return t;
+
+  const double feature = num(ctx, "feature", 0.0);
+  if (!wholeCount(feature)) return t;
+  int irId = static_cast<int>(feature);
+  if (irId == 0) irId = static_cast<int>(recs.size());
+  if (irId < 1 || static_cast<std::size_t>(irId) > recs.size()) return t;
+
+  const double index = num(ctx, "index", 0.0);
+  if (!wholeCount(index) || index < 0.0) return t;
+
+  const std::vector<IrArg>& args = recs[static_cast<std::size_t>(irId) - 1].line.args;
+  std::size_t numbersSeen = 0;
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    if (args[i].kind != IrArgKind::Number) continue;
+    if (numbersSeen == static_cast<std::size_t>(index)) {
+      t.ok = true;
+      t.irId = irId;
+      t.argIndex = i;
+      return t;
+    }
+    ++numbersSeen;
+  }
+  return t;  // that statement has no such numeric parameter: not editable
 }
 
 // The FAIL-CLOSED read of a selection-derived value list. solidTarget() already
@@ -304,11 +447,192 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     if (registry.add(std::move(c))) ++added;
   };
 
+  // ── RECTANGLE ─────────────────────────────────────────────────────────────
+  // The FIRST value-CREATING command in this registry, and the reason it exists is a
+  // measured closure gap rather than a feature request. archie_op_vocabulary.json
+  // computes `value_kind_closure.gaps` about itself and reports that PROFILE is consumed
+  // by EXTRUDE and REVOLVE while NO user-invocable op produces one -- every one of the 14
+  // allowed ops takes a value reference first, and the only kind any of them produces is
+  // SOLID. From an empty document no legal program existed: the constraint "emit only what
+  // a user can invoke" described an EMPTY LANGUAGE.
+  //
+  // One profile producer closes it. Seeding RECT alone and driving the existing commands
+  // yields RECT -> EXTRUDE -> FUSE -> FILLET -> HOLE -> SHELL -> PATTERN, so this single
+  // command makes the whole existing registry reachable from nothing.
+  //
+  // Takes NO selection (SelectionSignature::none()) because it consumes no value. That is
+  // what makes it a creator, and it is the property the registry did not have.
+  {
+    CommandDescriptor c = base("part.sketch_rect", "Rectangle", "RECT",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"width", ParamType::Number, true, 40.0, ""});
+    c.schema.push_back(ParamSpec{"height", ParamType::Number, true, 30.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      // A zero or negative side is not a rectangle; the kernel would refuse it and the
+      // command must not offer itself as callable when it cannot succeed.
+      return num(ctx, "width", 0.0) > 0.0 && num(ctx, "height", 0.0) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      // The IrArg::num(num(ctx, ...)) calls are INLINE on purpose. The vocabulary
+      // generator derives each emitted argument by parsing this lambda and matching
+      // `num(ctx, "name", default)`; hoisting them into locals makes it see a bare `w`
+      // and REFUSE with "unparsed numeric argument" rather than guess. Refusing is the
+      // right behaviour, so the command is written the way the tool can read.
+      std::vector<IrArg> args{IrArg::num(num(ctx, "width", 40.0)),
+                              IrArg::num(num(ctx, "height", 30.0))};
+      // RECT(w, h [, cx=0, cy=0]) -- emit the centre only when it is not the default, so
+      // the emitted form matches what the vocabulary records as this command's minimal
+      // argument count and Archie is not trained to pad every statement.
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_rect", "Rectangle", "RECT", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── CIRCLE ────────────────────────────────────────────────────────────────
+  // The second PROFILE producer. RECT alone makes the language non-empty; it does not
+  // make it expressive -- every revolve, every round boss and every cylindrical part
+  // starts from a circle, and with only RECT reachable none of them could be authored.
+  {
+    CommandDescriptor c = base("part.sketch_circle", "Circle", "CIRCLE",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) { return num(ctx, "radius", 0.0) > 0.0; };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::num(num(ctx, "radius", 10.0))};
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_circle", "Circle", "CIRCLE", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SECTION RING ──────────────────────────────────────────────────────────
+  // The WIRE producer, and the second half of a two-part fix. WIRE was the last open
+  // value-kind gap in `archie_op_vocabulary.json`: LOFT consumes it and nothing a user
+  // could invoke produced one. But a producer ALONE would not have made LOFT reachable,
+  // because `part.loft` was resolving PROFILE values -- the defect the vocabulary already
+  // recorded as `command_feeds_the_wrong_value_kind`. The kernel settles which of the two
+  // is wrong, and it is not ambiguous: FeatureTreeCompiler.cpp's opLoft() takes every
+  // %ref through refWire(), which throws unless the value's kind is Val::Wire, and
+  // Builder::kindOf() gives Val::Wire to exactly two ops -- Ring and Wire. MEASURED
+  // through the native verifier (forge_verify -> forge::ft::compileText):
+  //     RECT(40,40); CIRCLE(10); LOFT(%1,%2)   -> ok=false,
+  //         "LOFT: %1 is not a WIRE section (use RING(...) or WIRE([...]))"
+  //     RING(20,20,0); RING(10,10,30); LOFT(%1,%2) -> ok=true, volume 21928.4
+  // So this is NOT the command being deliberately widened; it is a statement forge::ui
+  // called well-formed and forge::ft refused. `part.loft` is corrected below.
+  //
+  // RING rather than WIRE because WIRE([x y z; ...]) needs a POINTS token, and FeatureIr.hpp
+  // deliberately does not model IrArgKind::Points ("a token kind nothing produces is a
+  // liability, not coverage"). RING is all numbers, so it emits through the existing
+  // IrArg::num path -- and its `z` is the whole point: the Z=0 sketcher cannot express a
+  // section at another height, which is what makes a loft a loft.
+  //
+  // Takes NO selection, like the other two creators: it consumes no value.
+  {
+    CommandDescriptor c = base("part.section_ring", "Section Ring", "RING",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"rx", ParamType::Number, true, 20.0, ""});
+    c.schema.push_back(ParamSpec{"ry", ParamType::Number, true, 20.0, ""});
+    c.schema.push_back(ParamSpec{"z", ParamType::Number, true, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"p", ParamType::Number, false, 2.0, ""});
+    c.schema.push_back(ParamSpec{"seg", ParamType::Number, false, 48.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      // wireRing() throws on rx <= 0 or ry <= 0, so the command must not offer itself
+      // as callable there. It also SILENTLY CLAMPS p to >= 2 and seg to >= 8, which is
+      // worse than a throw for a UI: the statement would be recorded saying one thing
+      // and the kernel would build another. Refuse those instead of emitting a lie.
+      return num(ctx, "rx", 0.0) > 0.0 && num(ctx, "ry", 0.0) > 0.0 &&
+             num(ctx, "p", 2.0) >= 2.0 && num(ctx, "seg", 48.0) >= 8.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::num(num(ctx, "rx", 20.0)), IrArg::num(num(ctx, "ry", 20.0)),
+                              IrArg::num(num(ctx, "z", 0.0))};
+      // RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48]) -- the four optional arguments are
+      // POSITIONAL, so they are emitted as ONE group or not at all. Emitting `p` without
+      // cx/cy would put the superellipse exponent in the cx slot: a statement the kernel
+      // accepts and reads as a different ring.
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy") || hasNumber(ctx, "p") ||
+          hasNumber(ctx, "seg")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "p", 2.0)));
+        args.push_back(IrArg::num(num(ctx, "seg", 48.0)));
+      }
+      emit(ctx, *d, *s, "part.section_ring", "Section Ring", "RING", std::move(args),
+           IrValueKind::Wire, {}, wireNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── MOVE ──────────────────────────────────────────────────────────────────
+  // TRANSLATE was ORPHAN, and that is more serious than one missing command: with no
+  // way to POSITION a body, every boolean in this registry operated on solids coincident
+  // at the origin. FUSE, CUT and COMMON were reachable but not USEFUL -- two boxes both
+  // at the origin have nothing interesting to subtract. This is also the op class behind
+  // the derived-placement sub-task this programme measured as the hardest thing Archie
+  // has to learn, so leaving it unreachable made that failure permanent by construction.
+  //
+  // Like every other solid-editing command it keeps the body's IDENTITY: the node is
+  // consumed and reproduced, so the body gains history rather than becoming a new body.
+  {
+    CommandDescriptor c = base("part.move", "Move Body", "TRANSLATE",
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{"dx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"dy", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"dz", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      // A zero move is a no-op statement in the history; refuse it rather than record it.
+      return solidTarget(*d, ctx.selection()).ok &&
+             (num(ctx, "dx", 0.0) != 0.0 || num(ctx, "dy", 0.0) != 0.0 ||
+              num(ctx, "dz", 0.0) != 0.0);
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::num(num(ctx, "dx", 0.0)),
+                              IrArg::num(num(ctx, "dy", 0.0)), IrArg::num(num(ctx, "dz", 0.0))};
+      emit(ctx, *d, *s, "part.move", "Move Body", "TRANSLATE", std::move(args),
+           IrValueKind::Solid, {t.node}, t.node);
+    };
+    add(std::move(c));
+  }
+
   // ── EXTRUDE ───────────────────────────────────────────────────────────────
   {
     CommandDescriptor c = base("part.extrude", "Extrude", "EXTRUDE",
                                SelectionSignature::exactly(EntityKind::Sketch, 1));
-    c.schema.push_back(ParamSpec{"distance", ParamType::Number, true, 10.0, ""});
+    // hasDefault, so a GESTURE can run this command. ForgeShell::invoke() fills
+    // only the parameters whose spec says the default MEANS something, and the
+    // braced-positional ParamSpec form below stops before that flag, so every
+    // required Part parameter defaulted to hasDefault=false and every keyboard
+    // shortcut for a Part command died on missing_required_parameter before the
+    // handler ran. The three values here are not invented: they are the honest
+    // defaults the retired ForgeShell model.* stubs already declared and shipped
+    // (distance 10, radius 1, thickness 2), moved onto the commands that emit IR.
+    c.schema.push_back(ParamSpec{.name = "distance",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"dirx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"diry", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"dirz", ParamType::Number, false, 1.0, ""});
@@ -368,19 +692,29 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   }
 
   // ── LOFT ──────────────────────────────────────────────────────────────────
+  // This command used to resolve PROFILE and emit LOFT(%sketch, %sketch). That statement
+  // passes validateIr() and is REFUSED BY THE KERNEL: opLoft() reads every %ref through
+  // refWire(), which throws "%N is not a WIRE section (use RING(...) or WIRE([...]))"
+  // unless Builder::kindOf() made the value Val::Wire -- and only Ring and Wire do.
+  // Reproduced through forge_verify on the real compiler (see part.section_ring above):
+  // the profile form fails at op %3, the ring form builds a solid. So the value kind is
+  // corrected here to the one the kernel documents and enforces, and part.section_ring
+  // supplies the sections. Fixing one without the other leaves LOFT unreachable either
+  // way -- a wrong-kind command with a producer, or a right-kind command with nothing
+  // to select.
   {
     CommandDescriptor c = base("part.loft", "Loft", "LOFT",
-                               SelectionSignature::atLeast(EntityKind::Sketch, 2));
+                               SelectionSignature::atLeast(EntityKind::Wire, 2));
     c.schema.push_back(ParamSpec{"ruled", ParamType::Flag, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"open", ParamType::Flag, false, 0.0, ""});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
-      return resolveValues(*d, ctx.selection(), IrValueKind::Profile).size() >= 2;
+      return resolveValues(*d, ctx.selection(), IrValueKind::Wire).size() >= 2;
     };
     c.execute = [d, s](CommandContext& ctx) {
       std::vector<IrArg> args;
-      for (int id : resolveValues(*d, ctx.selection(), IrValueKind::Profile)) {
-        args.push_back(IrArg::valueRef(id));
+      for (int section : resolveValues(*d, ctx.selection(), IrValueKind::Wire)) {
+        args.push_back(IrArg::valueRef(section));
       }
       if (flagOn(ctx, "ruled")) args.push_back(IrArg::keyword("RULED"));
       if (flagOn(ctx, "open")) args.push_back(IrArg::keyword("OPEN"));
@@ -454,7 +788,13 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.fillet", "Edge Fillet", "FILLET",
                                SelectionSignature::atLeast(EntityKind::Edge, 1));
-    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 1.0, ""});
+    // hasDefault: see part.extrude above -- 1 mm is the fillet radius the retired
+    // model.fillet stub declared, and it is what makes R / Ctrl+B run.
+    c.schema.push_back(ParamSpec{.name = "radius",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 1.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"selector", ParamType::Text, false, 0.0, "ALL"});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
@@ -531,7 +871,13 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.shell", "Shell Body", "SHELL",
                                SelectionSignature::atLeast(EntityKind::Face, 1));
-    c.schema.push_back(ParamSpec{"thickness", ParamType::Number, true, 2.0, ""});
+    // hasDefault: see part.extrude above -- 2 mm is the wall the retired
+    // model.shell stub declared, and it is what makes Ctrl+Shift+H run.
+    c.schema.push_back(ParamSpec{.name = "thickness",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 2.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"open_axx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"open_axy", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"open_axz", ParamType::Number, false, -1.0, ""});
@@ -706,24 +1052,82 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
-  // ── UNDO / REDO ───────────────────────────────────────────────────────────
-  // Registered here, not in ForgeShell, because these drive THIS document's
-  // stack. They are the only Part commands with no feature-IR op: they move the
-  // program back and forth rather than extending it.
+  // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
+  // There used to be `part.undo` and `part.redo` in this list, driving the very
+  // stack `s` points at. They were registered here when ForgeShell's own
+  // `edit.undo` was a counter stub (`--doc_.undoDepth; ++doc_.redoDepth; ...`)
+  // that touched no document at all.
+  //
+  // ForgeShell::DocumentHost closed that: `edit.undo` now calls
+  // documentUndo() on whoever owns the document, and in the application that is
+  // ForgeFrame, whose documentUndo() runs THIS UndoStack and then re-tessellates.
+  // So the registry held TWO Undo commands over ONE stack -- two menu entries
+  // both labelled "Undo", only one of them carrying Ctrl+Z, and only one of them
+  // driving the viewport rebuild. One undo stack means one Undo command, and the
+  // one that survives is the one the keyboard, the status strip and the geometry
+  // already go through.
+  //
+  // The caretaker itself is unchanged and still public: UndoStack::undo/redo are
+  // what documentUndo()/documentRedo() call.
+  // ── EDIT FEATURE PARAMETER ────────────────────────────────────────────────
+  // The command that makes the document PARAMETRIC. Every other Part command
+  // appends; appendFeature() refuses anything not numbered nextIrId(), so before
+  // this the only way to change the plate from 80 x 50 to 120 x 50 was to build
+  // a new document. Worse, the app's starting part is five SEEDED statements, so
+  // undo could not reach them at all -- the bore diameter of the part the user
+  // opens on was unreachable by any user action.
+  //
+  // Takes NO selection: a feature is named by its statement id, which is what
+  // the feature tree, a macro, a .fpart and Archie all already have. Requiring a
+  // viewport pick would make the tree row -- the thing a user actually clicks to
+  // edit a feature -- the one place that could not invoke it.
+  //
+  // `featureIrOp` is empty for the same reason part.undo's is: it emits no new
+  // statement, it rewrites one that is already there.
   {
-    CommandDescriptor c = base("part.undo", "Undo", "", SelectionSignature::none());
-    c.undo = UndoContract::NotUndoable;
-    c.enabled = [s](const CommandContext&) { return s->undoDepth() > 0; };
-    c.execute = [d, s](CommandContext&) { s->undo(*d); };
+    CommandDescriptor c = base("part.edit_feature", "Edit Feature Parameter", "",
+                               SelectionSignature::none());
+    // `feature` and `index` HAVE honest defaults (the last statement, its first
+    // number) so a bare invocation is meaningful. `value` has none: there is no
+    // default new value for a parameter, and inventing one would let a menu click
+    // silently resize the part.
+    c.schema.push_back(ParamSpec{.name = "feature", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "index", .type = ParamType::Number,
+                                 .required = false, .defaultNumber = 0.0, .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "value", .type = ParamType::Number,
+                                 .required = true, .defaultNumber = 0.0, .hasDefault = false});
+    c.preview = PreviewPolicy::Live;
+    // STRUCTURE only, never the value. "Is there a number here to edit?" is the
+    // question a greyed menu item answers; "does 0 make a solid?" is the
+    // modeller's, and answering it here would grey out a legal keystroke.
+    c.enabled = [d](const CommandContext& ctx) { return paramTarget(*d, ctx).ok; };
+    c.execute = [d, s](CommandContext& ctx) {
+      const ParamTarget t = paramTarget(*d, ctx);
+      const FeatureRecord* rec = t.ok ? d->featureAt(t.irId) : nullptr;
+      if (rec == nullptr) {
+        ctx.fail("no numeric parameter at that feature/index");
+        return;
+      }
+      std::vector<IrArg> args = rec->line.args;
+      args[t.argIndex] = IrArg::num(num(ctx, "value", 0.0));
+      std::string label = "Edit " + (rec->label.empty() ? rec->line.op : rec->label);
+      if (!s->perform(*d, std::make_unique<EditFeatureArgsEdit>(t.irId, std::move(args),
+                                                               std::move(label)))) {
+        ctx.fail(std::string("the document refused the edit: ") + toString(d->lastEdit()));
+      }
+    };
     add(std::move(c));
   }
-  {
-    CommandDescriptor c = base("part.redo", "Redo", "", SelectionSignature::none());
-    c.undo = UndoContract::NotUndoable;
-    c.enabled = [s](const CommandContext&) { return s->redoDepth() > 0; };
-    c.execute = [d, s](CommandContext&) { s->redo(*d); };
-    add(std::move(c));
-  }
+
+  // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
+  // There used to be `part.undo` and `part.redo` beside `edit.undo` / `edit.redo`,
+  // two pairs of buttons driving ONE stack. Whichever a user pressed, the other
+  // pair's enabled state was still computed from the same depth, so the UI showed
+  // two controls for one piece of state and a keystroke bound to the "wrong" pair
+  // silently worked. One undo stack means one Undo command. They were also the
+  // only Part commands with no feature-IR op, which is why removing them makes
+  // "every registered Part command emits an IR op" literally true.
 
   return added;
 }
@@ -732,11 +1136,13 @@ const std::vector<std::string>& partCommandIds() {
   static const std::vector<std::string> ids = [] {
     std::vector<std::string> v{
         "part.boolean_intersect", "part.boolean_subtract", "part.boolean_union",
-        "part.chamfer",           "part.counterbore",      "part.extrude",
-        "part.fillet",            "part.hole",             "part.loft",
-        "part.mirror",            "part.pattern_circular", "part.pattern_grid",
-        "part.pattern_linear",    "part.redo",             "part.revolve",
-        "part.shell",             "part.undo",             "part.variable_fillet",
+        "part.chamfer",           "part.counterbore",       "part.edit_feature",
+        "part.extrude",           "part.fillet",            "part.hole",
+        "part.loft",              "part.mirror",            "part.move",
+        "part.pattern_circular",  "part.pattern_grid",      "part.pattern_linear",
+        "part.revolve",           "part.section_ring",      "part.shell",
+        "part.sketch_circle",     "part.sketch_rect",
+        "part.variable_fillet",
     };
     std::sort(v.begin(), v.end());
     return v;

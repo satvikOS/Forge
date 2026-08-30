@@ -8,9 +8,13 @@
 // kernel, and the "which kernel backend produced this body" question stays where
 // ShapeRegistry already answers it.
 //
-// The scene owns a real feature history — a box, a through-bore cut, and a
-// fillet on the top edges — built by calling the kernel, tessellated by
-// forge::tessellate, and de-indexed into the vertex stream the viewport draws.
+// The scene owns NO geometry of its own. Every triangle it holds was produced by
+// compiling a feature-IR PROGRAM — the one the live PartDocument emits — through
+// forge::ft::parse -> forge::ft::compile -> forge::tessellate, and de-indexing
+// the result into the vertex stream the viewport draws. Before buildFromIr()
+// existed, this class hard-coded its part in C++ (makeBox -> cut -> filletEdges)
+// and `build()` was called exactly once, from main.cpp: no user action could
+// ever change what the viewport showed.
 //
 // DE-INDEXING, and why. forge::Mesh carries `faceIds` PER TRIANGLE (one 1-based
 // OCCT face id per triangle, in TopExp_Explorer order). A shared-vertex index
@@ -28,6 +32,17 @@
 #include <vector>
 
 #include "forge/ui/FeatureTreeModel.hpp"
+// The feature history is the DOCUMENT's, so the tree source reads it straight
+// out of forge::ui::PartDocument. Both headers are headless forge::ui: this
+// file still reaches no OCCT and no ImGui.
+#include "forge/ui/PartCommands.hpp"
+
+// forge::Mesh lives in forge/Tessellate.hpp, which reaches OCCT headers. This
+// header is included by the ImGui frame builder and by every headless gate, so
+// it forward-declares the type instead: only KernelScene.cpp may see OCCT.
+namespace forge {
+struct Mesh;
+}  // namespace forge
 
 namespace forge::desktop {
 
@@ -50,14 +65,30 @@ struct Bounds {
   float radius() const;  // half the diagonal; 0 when !valid
 };
 
-// One row of the real feature history the tree panel shows.
-struct SceneFeature {
-  std::string name;        // persistent name — what a selection stores
-  std::string label;       // human label
-  std::string irOp;        // feature-IR op this row corresponds to
-  std::string detail;      // parameters, for the properties panel
-  bool suppressed = false;
-  bool ok = true;
+// What the LAST document rebuild did — the reconciliation the app shows instead
+// of a silent empty viewport. It carries a VECTOR of observables, never volume
+// alone: a wrong solid reproducing a right volume to ten significant figures has
+// been measured repeatedly in this programme.
+struct IrBuildReport {
+  bool parsed = false;
+  bool compiled = false;
+  bool tessellated = false;
+  std::string error;        // empty iff the whole chain succeeded
+  int failedOpId = -1;      // the IR statement that failed, or -1
+  int failedLine = 0;       // 1-based source line for a PARSE failure, else 0
+  bool valid = false;       // watertight / manifold / oriented
+  long faceCount = -1;
+  long edgeCount = -1;
+  double volume = 0.0;
+  double bboxMin[3] = {0.0, 0.0, 0.0};
+  double bboxMax[3] = {0.0, 0.0, 0.0};
+  // s0.4: a feature declared and parsed but never compiled is a missing feature
+  // reported as a built part.
+  std::size_t nDeclared = 0;
+  std::size_t nParsed = 0;
+  std::size_t nCompiled = 0;
+  std::size_t triangles = 0;
+  bool ok() const noexcept { return parsed && compiled && tessellated && error.empty(); }
 };
 
 // The result of a viewport pick: which triangle the ray hit and which face it
@@ -73,11 +104,42 @@ class KernelScene {
  public:
   KernelScene();
 
-  // Builds the demonstration part through the real kernel and tessellates it.
+  // Builds the part a fresh document starts on: defaultPartIr() through the same
+  // buildFromIr() every later edit takes. There is no second, hand-written
+  // construction path — the starting part IS a document.
+  //
+  // It produces GEOMETRY ONLY. The history rows that go with it are the
+  // PartDocument's records, which ForgeFrame seeds from the same
+  // defaultPartStatements() table; this class no longer keeps a second copy of
+  // them (see SceneFeatureTreeSource below for what that copy cost).
+  //
   // Returns false and fills `error()` if the kernel refused — the app then runs
   // with an empty viewport rather than dying, because a kernel failure must be
   // reportable in the UI, not a crash before the window opens.
   bool build();
+
+  // ── THE EDGE: a feature-IR program -> a solid -> the viewport's vertices ──
+  //
+  // forge::ft::parse -> forge::ft::compile -> forge::tessellate -> de-index.
+  // This is the ONLY way geometry enters the scene, so what the viewport draws
+  // is by construction what the document says.
+  //
+  // On failure the PREVIOUS geometry is KEPT (a rebuild that fails leaves the
+  // last good body on screen, as every history-based CAD system does) and the
+  // reason lands in lastBuild() and error(). It never throws: forge::ft::compile
+  // is documented not to throw for a modelling failure, and that is MEASURED
+  // FALSE — `SHELL(%5, 3)` on the default bracket escapes an OCCT
+  // Standard_ConstructionError, which is not a std::exception and would abort
+  // the process. Both the std and non-std cases are caught here.
+  bool buildFromIr(const std::string& program);
+
+  const IrBuildReport& lastBuild() const noexcept { return report_; }
+
+  // The tree's ROOT row. It used to be the string literal "Bracket.fpart", which
+  // named a file that did not exist and could not change; it is now the open
+  // document's name, so opening a file is visible in the tree.
+  void setDocumentLabel(std::string label);
+  const std::string& documentLabel() const noexcept { return documentLabel_; }
 
   bool built() const noexcept { return built_; }
   const std::string& error() const noexcept { return error_; }
@@ -88,7 +150,9 @@ class KernelScene {
   const Bounds& bounds() const noexcept { return bounds_; }
   std::uint32_t faceCount() const noexcept { return faceCount_; }
 
-  const std::vector<SceneFeature>& features() const noexcept { return features_; }
+  // How many times buildFromIr() has actually re-tessellated. The claim "running
+  // a command changes the geometry" is only meaningful if something counts it.
+  std::size_t builds() const noexcept { return builds_; }
 
   // Ray/triangle intersection over the whole mesh (Möller–Trumbore, 1997,
   // "Fast, Minimum Storage Ray/Triangle Intersection", J. Graphics Tools 2(1)).
@@ -102,25 +166,45 @@ class KernelScene {
 
  private:
   void computeBounds();
+  // Turns a kernel Mesh into the viewport's de-indexed vertex stream. Writes
+  // into `out` so a failed build cannot half-replace the live geometry.
+  bool deindex(const forge::Mesh& mesh, std::vector<SceneVertex>& out,
+               std::uint32_t& faceCount, std::string& error) const;
 
   bool built_ = false;
+  IrBuildReport report_;
+  std::size_t builds_ = 0;
   std::string error_;
   std::string backend_ = "unknown";
   std::vector<SceneVertex> vertices_;
   Bounds bounds_;
   std::uint32_t faceCount_ = 0;
-  std::vector<SceneFeature> features_;
+  std::string documentLabel_ = "untitled.fpart";
 };
 
 // ── the feature tree seam ───────────────────────────────────────────────────
 // forge::ui::FeatureTreeModel virtualizes over a handle-based source. This is
-// the source backed by a KernelScene: the document root, the real features under
-// it, and one child row per B-rep face under the last feature — which is what
-// makes the row count large enough for the virtualization to be doing real work
-// on a real part rather than on a synthetic fixture.
+// the source: the document root, the DOCUMENT'S OWN feature records under it,
+// and one child row per B-rep face under the last feature — which is what makes
+// the row count large enough for the virtualization to be doing real work on a
+// real part rather than on a synthetic fixture.
+//
+// ── THE ROWS ARE THE IR STATEMENTS ──────────────────────────────────────────
+// This source used to read a `std::vector<SceneFeature>` that KernelScene held
+// and ForgeFrame::refreshFeatureRows() re-copied out of PartDocument::records()
+// after every rebuild: a SECOND history, four strings wide, that had to be
+// pushed into the scene by a setter any mutation path could forget to call.
+// What that copy could not carry is exactly what a feature tree is for —
+// `irId` (the statement the row IS), `commandId` (what authored it) and the
+// `IrLine` itself — so the rows were reduced to a label and an op name, and the
+// row identity was a synthesized string ("value_4") rather than the statement's
+// own id. Reading records() directly means a row cannot be stale, cannot be
+// missing, and carries the whole statement: recordAt() hands it back.
 class SceneFeatureTreeSource final : public forge::ui::FeatureTreeSource {
  public:
-  explicit SceneFeatureTreeSource(const KernelScene& scene);
+  // `scene` supplies the face rows and the build report the row STATE is read
+  // from; `document` supplies the history itself. Both must outlive this object.
+  SceneFeatureTreeSource(const KernelScene& scene, const forge::ui::PartDocument& document);
 
   forge::ui::NodeId rootId() const override;
   std::size_t childCount(forge::ui::NodeId parent) const override;
@@ -134,11 +218,29 @@ class SceneFeatureTreeSource final : public forge::ui::FeatureTreeSource {
 
   // Maps a node id back to the face id it names, 0 when the node is not a face.
   std::uint32_t faceIdOf(forge::ui::NodeId id) const;
+  // Maps a node id back to the feature-IR STATEMENT it names -- the 1-based id
+  // the document numbers its records by -- and 0 when the node is the root or a
+  // face. The feature rows are built one per document record, in order
+  // (ForgeFrame::refreshFeatureRows), which is what makes the position of a row
+  // and the id of a statement the same number.
+  int featureIrIdOf(forge::ui::NodeId id) const;
   // The node id for a given 1-based face id.
   forge::ui::NodeId nodeForFace(std::uint32_t faceId) const;
 
+  // ── the row IS the statement ─────────────────────────────────────────────
+  // The document record a feature row stands for, or nullptr when the node is
+  // the root or a face. This is what lets the timeline, the properties panel and
+  // a gate read a row's irId, its authoring commandId and its IrLine WITHOUT a
+  // parallel copy of the history existing anywhere.
+  const forge::ui::FeatureRecord* recordAt(forge::ui::NodeId id) const;
+  // The node id of the i-th document record.
+  forge::ui::NodeId nodeForFeature(std::size_t index) const;
+  // How many feature rows the tree has — the document's record count.
+  std::size_t featureCount() const noexcept;
+
  private:
   const KernelScene& scene_;
+  const forge::ui::PartDocument& document_;
   mutable std::size_t fetches_ = 0;
 };
 

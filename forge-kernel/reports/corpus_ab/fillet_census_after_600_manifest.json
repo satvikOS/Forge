@@ -1,0 +1,19 @@
+{
+  "generated_utc": "20260830T212713Z",
+  "corpus_dir": "/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps",
+  "corpus_total": 600,
+  "stride": 1,
+  "realised_n": 600,
+  "rows": 600,
+  "binary": "/private/tmp/claude-501/-Users-account-clawteam1/8e894a02-52d3-4e26-a3a3-5c26cd2b228c/scratchpad/wt_fillet_pin/forge-kernel/.build-fillet-census/fillet_defer_census",
+  "kernel_head_at_run_start": "031b68869108b236460d44f252e6ef06f83d05cb",
+  "kernel_head_at_run_end": "031b68869108b236460d44f252e6ef06f83d05cb",
+  "build_stamp": {
+  "built_utc": "2026-08-30T21:27:16Z",
+  "git_head": "031b68869108b236460d44f252e6ef06f83d05cb",
+  "dirty_files_in_src_include_test": 0,
+  "flags": "-std=c++20 -O2 -DFORGE_NATIVE_BREP",
+  "occt_root": "/opt/homebrew/opt/opencascade",
+  "binary": "/private/tmp/claude-501/-Users-account-clawteam1/8e894a02-52d3-4e26-a3a3-5c26cd2b228c/scratchpad/wt_fillet_pin/forge-kernel/.build-fillet-census/fillet_defer_census"
+}
+}
