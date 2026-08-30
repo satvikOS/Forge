@@ -370,6 +370,8 @@ bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
   return true;
 }
 
+void ForgeFrame::documentChanged() { syncSceneToDocument(); }
+
 bool ForgeFrame::documentUndo() {
   if (!partUndo_.undo(partDoc_)) return false;
   syncSceneToDocument();
@@ -459,11 +461,10 @@ void ForgeFrame::invoke(const std::string& id) {
     note(id + "  ->  " + forge::ui::toString(r.status) +
          (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
   }
-  // The command may have appended to the document. Rebuilding here rather than
-  // only once per frame keeps the status line and the viewport in the same
-  // frame; syncSceneToDocument() is idempotent, so the per-frame call that
-  // follows costs one string compare.
-  syncSceneToDocument();
+  // NO sync here. ForgeShell::run() has already called documentChanged() on this
+  // object if the command declared sideEffect == Document, so the viewport is
+  // already rebuilt by the time this line runs -- and it is rebuilt the same way
+  // for a macro, an Archie tool call or a gate, none of which come through here.
   if (id == "app.command_palette") togglePalette();
 }
 
@@ -492,12 +493,10 @@ std::string ForgeFrame::shortcutText(const std::string& id) const {
 
 bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
   if (key.empty()) return false;
-  // Whatever the keystroke resolves to may mutate the document; the sync runs
-  // after it, on the same idempotent method every other invoker uses.
-  struct SyncOnExit {
-    ForgeFrame* self;
-    ~SyncOnExit() { self->syncSceneToDocument(); }
-  } syncOnExit{this};
+  // No sync scope guard either: the keystroke dispatches through ForgeShell::key
+  // -> invoke -> run, and run() calls documentChanged() on this object. The guard
+  // that used to be here was the third copy of the same "remember to rebuild"
+  // rule, and a fourth invoker would have needed a fourth copy.
   forge::ui::KeyStroke stroke;
   stroke.key = key;
   stroke.mods = mods;

@@ -83,6 +83,12 @@ class TestDocumentHost final : public DocumentHost {
   }
   bool documentUndo() override { return stack_.undo(doc_); }
   bool documentRedo() override { return stack_.redo(doc_); }
+  // What ForgeFrame does here is "re-emit the IR, compile it, re-tessellate".
+  // Headless, the observable is that it was CALLED, and with what document.
+  void documentChanged() override {
+    ++changes_;
+    seenProgram_ = doc_.irProgram();
+  }
 
   std::size_t documentFeatureCount() const override { return doc_.records().size(); }
   std::size_t documentUndoDepth() const override { return stack_.undoDepth(); }
@@ -92,6 +98,8 @@ class TestDocumentHost final : public DocumentHost {
   bool documentDirty() const override { return doc_.records().size() != savedRecords_; }
   std::string documentPath() const override { return path_; }
 
+  std::size_t changes() const noexcept { return changes_; }
+  const std::string& seenProgram() const noexcept { return seenProgram_; }
   // "the document as opened" -- what a freshly seeded document is.
   void markClean() noexcept { savedRecords_ = doc_.records().size(); }
   std::size_t saves() const noexcept { return saves_; }
@@ -103,6 +111,8 @@ class TestDocumentHost final : public DocumentHost {
   std::size_t savedRecords_ = 0;
   std::size_t saves_ = 0;
   std::size_t opens_ = 0;
+  std::size_t changes_ = 0;
+  std::string seenProgram_;
   std::string path_;
 };
 
@@ -227,12 +237,32 @@ int main() {
   CHECK_EQ_STR(at(shell.journal(), 1), "view.wireframe");
   CHECK_EQ_STR(at(shell.journal(), 2), "part.extrude");
 
+  // ── A COMMAND CHANGES THE PICTURE, and only the right ones ──────────────
+  // run() calls DocumentHost::documentChanged() after any command that ran and
+  // declares sideEffect == Document. The host is the only place that re-derives
+  // geometry, so no invoker has a rebuild call to forget -- and view.fit and
+  // view.wireframe, which ran just above, must NOT have triggered one.
+  CHECK_EQ_INT(app.host.changes(), 1);            // part.extrude, not the two views
+  CHECK_EQ_STR(app.host.seenProgram(), app.doc.irProgram());  // and with the NEW program
+  CHECK(app.shell.run("view.fit").ok());
+  CHECK_EQ_INT(app.host.changes(), 1);            // a view command re-derives nothing
+  {
+    // A command that dispatches but is REFUSED must not notify either.
+    SelectionService saved;
+    saved.replaceWith(shell.selection().selection());
+    shell.selection().clearSelection();
+    const DispatchResult refused = shell.run("part.shell");
+    CHECK(!refused.ok());
+    CHECK_EQ_INT(app.host.changes(), 1);
+    shell.selection().replaceWith(saved.selection());
+  }
+
   // ── the gates hold end to end ───────────────────────────────────────────
   // wrong selection kind for a fillet
   DispatchResult r = shell.run("part.fillet", distance);
   CHECK_EQ_INT(static_cast<int>(r.status),
                static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
-  CHECK_EQ_INT(shell.journal().size(), 3);  // a refused command is NOT journalled
+  CHECK_EQ_INT(shell.journal().size(), 4);  // a refused command is NOT journalled
   CHECK_EQ_INT(app.features(), seeded + 1);  // and it recorded nothing
 
   // right kind, missing the required radius

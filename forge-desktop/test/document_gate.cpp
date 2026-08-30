@@ -38,7 +38,9 @@
 //
 // PROVING THE GATE CAN FAIL: `--mutate <n>` injects the real regression, not a
 // synthetic abort:
-//   1  the document is never synced to the scene   -> the viewport ignores commands
+//   1  a second invoker dispatches straight into    -> the document gains the statement
+//      CommandRegistry, bypassing ForgeShell::run        and the viewport never hears
+//      and therefore DocumentHost::documentChanged       about it
 //   2  the .fpart writer drops the node bindings   -> a reopened document loses them
 //   3  save/load skips the file entirely           -> the round trip is not a round trip
 //   4  the body node is a hard-coded literal       -> a reopened or edited body is
@@ -312,18 +314,28 @@ int main(int argc, char** argv) {
 
   forge::ui::CommandParams filletParams;
   filletParams.setNumber("radius", 3.0);
-  const forge::ui::DispatchResult fillet = shell.run("part.fillet", filletParams);
+  // MUTATION 1 is a SECOND INVOKER: it dispatches straight into the registry,
+  // which is what a macro runner or a panel with its own button used to do. The
+  // command runs and the document changes, but ForgeShell::run() -- and with it
+  // DocumentHost::documentChanged() -- is skipped, so nothing re-tessellates.
+  const forge::ui::DispatchResult fillet =
+      g_mutation == 1
+          ? shell.registry().dispatch("part.fillet", shell.selection(), filletParams)
+          : shell.run("part.fillet", filletParams);
   check(fillet.ok(), "part.fillet dispatched through the one registry",
         forge::ui::toString(fillet.status) + std::string(" ") + fillet.detail);
   checkEq(frame.document().records().size(),
           forge::desktop::defaultPartStatements().size() + 1,
           "the command appended one statement to the document");
 
-  if (g_mutation != 1) frame.syncSceneToDocument();
+  // NOBODY CALLS syncSceneToDocument() HERE. The dispatch itself did it, through
+  // the descriptor's sideEffect == Document and the document host, so a caller
+  // that has no idea a viewport exists still leaves the picture correct.
   const Fingerprint afterFillet = fingerprint(scene);
   std::printf("[doc-gate] after part.fillet: %s\n", afterFillet.str().c_str());
 
-  check(scene.builds() > buildsAtStart, "the command drove a REAL kernel rebuild",
+  check(scene.builds() > buildsAtStart,
+        "the DISPATCH itself rebuilt -- no caller had to remember",
         std::to_string(scene.builds()) + " builds");
   check(!(afterFillet == start), "the viewport geometry actually changed",
         "fingerprint identical: " + afterFillet.str());
@@ -542,7 +554,6 @@ int main(int argc, char** argv) {
   check(fresh.ok(), "file.new dispatched", forge::ui::toString(fresh.status));
   check(shell.lastDocumentError().empty(), "file.new was not refused",
         shell.lastDocumentError());
-  frame.syncSceneToDocument();
   checkStrEq(frame.document().irProgram(), forge::desktop::defaultPartIr(),
              "file.new returned the document to the starting part");
   check(!(fingerprint(scene) == beforeOpen), "file.new actually changed the geometry back",
@@ -554,7 +565,6 @@ int main(int argc, char** argv) {
   check(opened.ok(), "file.open dispatched", forge::ui::toString(opened.status));
   check(shell.lastDocumentError().empty(), "file.open READ THE PATH and succeeded",
         shell.lastDocumentError());
-  frame.syncSceneToDocument();
 
   checkStrEq(frame.document().irProgram(), programBeforeOpen,
              "the reopened document emits the identical IR program");
@@ -637,7 +647,6 @@ int main(int argc, char** argv) {
       const forge::ui::DispatchResult openedForeign = shell.run("file.open", foreignOpen);
       check(openedForeign.ok() && shell.lastDocumentError().empty(),
             "the foreign-named document opens", shell.lastDocumentError());
-      frame.syncSceneToDocument();
       checkStrEq(frame.activeBodyNode(), "imported.body",
                  "the app reads the body's name from the DOCUMENT");
 
@@ -672,7 +681,6 @@ int main(int argc, char** argv) {
       const forge::ui::DispatchResult openedBare = shell.run("file.open", bareOpen);
       check(openedBare.ok() && shell.lastDocumentError().empty(),
             "a NODE-less document opens", shell.lastDocumentError());
-      frame.syncSceneToDocument();
       check(!frame.activeBodyNode().empty(), "the open path gave its body a name",
             frame.activeBodyNode());
       checkEq(frame.document().valueFor(frame.activeBodyNode()),

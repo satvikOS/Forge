@@ -107,6 +107,10 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   bool documentSave(const std::string& path, std::string& error) override;
   bool documentUndo() override;
   bool documentRedo() override;
+  // The shell calls this after any Document-side-effect command that ran. It is
+  // the ONE place the app re-derives geometry from the document, so no invoker
+  // has to remember to.
+  void documentChanged() override;
   std::size_t documentFeatureCount() const override;
   std::size_t documentUndoDepth() const override;
   std::size_t documentRedoDepth() const override;

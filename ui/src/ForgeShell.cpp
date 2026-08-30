@@ -269,7 +269,19 @@ void ForgeShell::syncDocumentStats() {
 
 DispatchResult ForgeShell::run(const std::string& id, const CommandParams& params) {
   DispatchResult result = registry_.dispatch(id, selection_, params);
-  if (result.ok()) journal_.push_back(id);
+  if (result.ok()) {
+    journal_.push_back(id);
+    // ── A COMMAND CHANGES THE PICTURE ───────────────────────────────────────
+    // The descriptor already declares whether it touches the document, so the
+    // one dispatch path can tell the document's owner to re-derive. A command
+    // that only moved the camera or opened a palette must NOT trigger a rebuild,
+    // which is why this reads sideEffect rather than firing on every dispatch.
+    const CommandDescriptor* d = registry_.find(id);
+    if (d != nullptr && d->sideEffect == SideEffectClass::Document &&
+        documentHost_ != nullptr) {
+      documentHost_->documentChanged();
+    }
+  }
   // EVERY command, not just the file ones: a Part command mutates the document
   // through its own receiver, and the shell's view of it must follow the same
   // dispatch rather than a separate notification nobody remembers to send.

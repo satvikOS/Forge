@@ -82,6 +82,25 @@ class DocumentHost {
   virtual bool documentUndo() = 0;
   virtual bool documentRedo() = 0;
 
+  // ── A COMMAND CHANGES THE PICTURE ───────────────────────────────────────
+  // Called by ForgeShell::run() after ANY command that dispatched OK and whose
+  // descriptor declares sideEffect == Document. The host re-evaluates whatever
+  // it derives from the document -- for the desktop app that is: emit the IR
+  // program, compile it through forge::ft, tessellate, and hand the viewport a
+  // new vertex stream.
+  //
+  // WHY IT IS HERE AND NOT IN THE CALLER. Every mutation of the document goes
+  // through one dispatch, so exactly one place has to notice. Before this, the
+  // frame builder called its own syncSceneToDocument() from each invocation site
+  // it knew about (a menu click, a key press) and once more per frame as a
+  // backstop -- so a dispatch from anywhere else (a macro runner, an Archie tool
+  // call, a headless script, a gate) changed the document and left the geometry
+  // behind until something happened to draw a frame. "A mutation path that
+  // forgets to call it" was reachable by construction; now there is no call to
+  // forget. It is PURE, not a defaulted no-op: a host that derives nothing from
+  // the document still has to say so.
+  virtual void documentChanged() = 0;
+
   // What the status strip reports. Read from the real document every dispatch,
   // never accumulated here, so the two cannot drift apart.
   virtual std::size_t documentFeatureCount() const = 0;
