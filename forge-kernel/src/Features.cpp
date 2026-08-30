@@ -1227,7 +1227,25 @@ ShapeHandle thickenSurface(ShapeHandle shape, double thickness, int side) {
         throw std::runtime_error("forge.part.thickenSurface: offset build failed "
                                  "(surface may be non-manifold or self-intersecting)");
     }
-    return ShapeRegistry::instance().add(mk.Shape());
+    // BRepOffset_MakeOffset hands back a NEGATIVELY ORIENTED solid here. MEASURED, not
+    // suspected: the corpus A/B ran this exact call against the native engine over 600
+    // reference parts, and every one of the 407 shared successes disagreed on SIGNED
+    // volume while agreeing on |volume| with face, edge, vertex, area, centre of mass and
+    // bounding box all identical -- e.g. native +114690.606 against this -114690.606.
+    // Registering it unmodified put a reversed solid into the ShapeRegistry.
+    //
+    // Normalising is the convention the rest of the kernel already keeps, at six sites:
+    // OcctPrimBuilder.cpp:76,106,315 and NativeOcctBridge.cpp:120,296,695 all do exactly
+    // this. It matters to a real consumer: SheetMetalExtended.cpp:327 isDownstream()
+    // tests `Mass() <= kEps`, which a NEGATIVE volume PASSES, silently dropping a good
+    // solid into the bounding-box-centre fallback and answering from the wrong geometry.
+    TopoDS_Shape out = mk.Shape();
+    {
+        GProp_GProps vp;
+        BRepGProp::VolumeProperties(out, vp);
+        if (vp.Mass() < 0.0) out.Reverse();
+    }
+    return ShapeRegistry::instance().add(out);
 #else
     // The engine NAMES why it declined; passing that through is the difference
     // between "thicken failed" and a message a caller can act on.
