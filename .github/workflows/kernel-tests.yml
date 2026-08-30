@@ -62,7 +62,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install ccache
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq ccache
+        run: |
+          # The runner image ships Microsoft's apt repos. Neither gate needs them, and
+          # on 2026-08-29 they returned 403/'no longer signed', which made
+          # `apt-get update` exit 100 and failed this job in 17 s while an identical
+          # apt step in the OCCT job passed on the same run. Dropping repositories we
+          # do not use means a third-party outage cannot break our build. This weakens
+          # nothing: ccache and the OCCT headers both come from Ubuntu's own archive.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/microsoft.list || true
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ccache
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
@@ -107,6 +118,20 @@ jobs:
       - uses: actions/checkout@v4
       - name: forge::ui gates
         run: bash ui/test/run_ui.sh
+      - name: run_ui.sh self-protection contracts
+        # run_ui.sh gates forge::ui; this gates run_ui.sh. All three cases are
+        # silent-green failures -- an unresolvable repo root that keeps going, a
+        # cleanup that cannot report a delete it failed to make, and ONLY=<typo>
+        # exiting 0 after running nothing.
+        run: bash ui/test/run_ui_contract_test.sh
+      - name: Archie op vocabulary is still what the sources imply
+        # implementation/sacrosanct/archie_op_vocabulary.json is the closed list of
+        # feature-IR ops Archie may emit -- the ops a USER can reach through this
+        # registry. archie_op_vocabulary_test.cpp (run by run_ui.sh above) proves the
+        # file matches the RUNNING code; this proves it matches the SOURCE TEXT, which
+        # is the half that catches a kernel-header signature change nothing in ui/
+        # would notice. Stdlib-only Python, no install step.
+        run: python3 implementation/sacrosanct/tools/gen_archie_op_vocabulary.py --check
 
   retrieval:
     name: SearXNG client + redaction (incl. network-denied phase)
@@ -177,6 +202,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install OCCT headers (Debian packages)
         run: |
+          # The runner image ships Microsoft's apt repos. Neither gate needs them, and
+          # on 2026-08-29 they returned 403/'no longer signed', which made
+          # `apt-get update` exit 100 and failed this job in 17 s while an identical
+          # apt step in the OCCT job passed on the same run. Dropping repositories we
+          # do not use means a third-party outage cannot break our build. This weakens
+          # nothing: ccache and the OCCT headers both come from Ubuntu's own archive.
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/azure-cli.list \
+                     /etc/apt/sources.list.d/microsoft.list || true
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
             libocct-foundation-dev libocct-modeling-data-dev \
@@ -238,6 +272,50 @@ jobs:
         # platforms. Proven by cases 11a/11b of fea_nafems_ratchet_selftest.sh, which drive the
         # two shapes against the same baseline file.
         run: bash forge-kernel/test/fea_nafems_ratchet.sh
+      - name: Build forge_kernel_core (node-free, for the C++ gates)
+        # Same build dir and flags PR #62's forge_verify step uses, so when that merges the
+        # second configure is a no-op rather than a second full build.
+        run: |
+          cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+          cmake --build forge-kernel/build-verify -j3 --target forge_kernel_core
+      - name: IR pipeline gate (a forge::ui program -> forge::ft -> an asserted SOLID)
+        # THE GATE THAT AUTHORISES DELETING THE JAVASCRIPT. forge::ui emits an SSA feature-IR
+        # program and forge::ft can compile one, but nothing ever fed one into the other --
+        # ft::compile appeared in ui/ ZERO times, and part_commands_test only compared the
+        # emitted TEXT against an expected string, which is an assertion about characters and
+        # not about geometry. This drives the real Part commands through the same registry the
+        # app uses, parses and compiles what they emit, and asserts the solid on a VECTOR of
+        # observables -- validity, face and edge counts, volume AND bbox, plus the s0.4
+        # declared/parsed/compiled reconciliation. Volume alone is not accepted as proof:
+        # a wrong solid matching a right volume to ten significant figures is a measured
+        # failure mode in this programme, not a hypothetical one.
+        run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
+      - name: live-OCCT A/B harnesses (ratcheted; a link failure is RED, not silence)
+        # THE GATE THAT WOULD HAVE CAUGHT PR #64. Two harnesses -- thicken and loftpipe --
+        # stopped LINKING the moment that PR merged, because it made their engines call
+        # forge::occtPrism / occtCylinderSolid while they compile the engine STANDALONE
+        # without src/OcctPrimBuilder.cpp. 541 assertions stopped running and nothing said
+        # so, because CI ran neither. A gate that cannot build is a gate that cannot fail.
+        # run_ab_all.sh therefore treats a BUILD/LINK failure as RED (exit 2) and never as
+        # "0 failures", and ratchets each harness against test/ab_native_baseline.txt in
+        # the same idiom as the NAFEMS and s0 ratchets: red if a count RISES, red if it
+        # FALLS without the baseline being lowered in the same commit. All seven run in
+        # about 93 seconds on this runner, which already has OCCT installed.
+        run: bash forge-kernel/test/run_ab_all.sh
+      - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
+        # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
+        # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
+        # whole verifier process down, so before the guard a single such row silently
+        # invalidated every row that followed it in the same emission run. The gate asserts
+        # BOTH halves: three crashers must come back as the RIGHT solid (checked against the
+        # closed-form volume, plus face/edge/shell counts -- volume alone is not accepted as
+        # proof of geometry in this programme), and six shapes that already unified must not
+        # move by a single count.
+        run: |
+          cmake --build forge-kernel/build-verify -j3 --target forge_verify
+          FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify \
+            bash forge-kernel/test/unify_coaxial_guard_test.sh
       - name: Build forge_verify (the native verifier)
         # forge_verify is guarded by FORGE_BUILD_DESKTOP_FOUNDATION and is NOT part of the
         # .node addon build above, so it needs its own configure. Without this the batch gate

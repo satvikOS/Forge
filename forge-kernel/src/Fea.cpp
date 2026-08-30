@@ -3,9 +3,6 @@
 #include <BRepBndLib.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <Bnd_Box.hxx>
-#include <Precision.hxx>
-#include <TopAbs_State.hxx>
-#include <TopoDS_Shape.hxx>
 #include <gp_Pnt.hxx>
 
 #include "forge/native/linalg/LinAlg.hpp"

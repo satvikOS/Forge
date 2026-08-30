@@ -18,8 +18,15 @@
 # Override with CXX=g++ / JOBS=N / TEST_TIMEOUT=secs / ONLY=<substring>.
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
+# Every line below globs, compiles and reads files RELATIVE to the repo root, and
+# `cd ""` is a SUCCESSFUL no-op in bash. So an unresolvable root does not stop the
+# script: it silently keeps the caller's working directory, ships an empty
+# FORGE_UI_REPO_ROOT to feature_ir_test, and reappears minutes later as unrelated
+# glob and compile errors. Refuse instead of guessing.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)" || {
+  echo "[ui] cannot resolve the repo root from ${BASH_SOURCE[0]}"; exit 1; }
+[ -n "$ROOT" ] || { echo "[ui] repo root resolved to the empty string"; exit 1; }
+cd "$ROOT" || { echo "[ui] cannot enter repo root $ROOT"; exit 1; }
 
 CXX="${CXX:-clang++}"
 INC="-I ui/include -I ui/test"
@@ -34,7 +41,17 @@ JOBS="${JOBS:-$( (command -v nproc >/dev/null && nproc) || sysctl -n hw.ncpu 2>/
 TEST_TIMEOUT="${TEST_TIMEOUT:-120}"
 ONLY="${ONLY:-}"
 OBJDIR="$(mktemp -d /tmp/forge_ui_obj.XXXXXX)"
-trap 'rm -rf "$OBJDIR"' EXIT
+# A cleanup that does not check its own post-condition cannot tell you it failed.
+# rm -rf can leave the tree behind (a read-only parent, a busy mount) and the old
+# one-liner trap discarded that status, so the objects and every .err log stayed
+# in /tmp with the run reporting nothing at all.
+cleanup() {
+  rm -rf "$OBJDIR"
+  if [ -d "$OBJDIR" ]; then
+    echo "[ui] WARNING: kept $OBJDIR -- rm -rf did not remove it"
+  fi
+}
+trap cleanup EXIT
 FAILMARK="$OBJDIR/failmark"
 : > "$FAILMARK"
 
@@ -150,6 +167,12 @@ if [ -s "$FAILMARK" ]; then
   echo "[ui] FAILURES PRESENT ($ran of $count gates run):"; cat "$FAILMARK"; exit 1
 fi
 if [ -n "$ONLY" ]; then
+  # A typo in ONLY skips every gate, and "0 of 9 gates ran and passed" with exit 0
+  # is a green a caller cannot distinguish from a real one. Nothing ran, so there
+  # is nothing to report as passing.
+  if [ "$ran" -eq 0 ]; then
+    echo "[ui] ONLY=$ONLY matched no gate of $count — refusing to report success"; exit 1
+  fi
   echo "[ui] FILTERED RUN (ONLY=$ONLY): $ran of $count gates ran and passed — NOT a full gate"
   exit 0
 fi

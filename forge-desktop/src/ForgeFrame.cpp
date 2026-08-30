@@ -1,10 +1,13 @@
 #include "ForgeFrame.hpp"
 
+#include "PartFile.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -188,11 +191,7 @@ std::string canonicalKeyName(int imguiKey) {
 // ── construction ────────────────────────────────────────────────────────────
 ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
     : shell_(shell), scene_(scene), treeSource_(scene), tree_(treeSource_, 256) {
-  tree_.setExpanded(treeSource_.rootId(), true);
-  for (std::size_t i = 0; i < scene_.features().size(); ++i) {
-    tree_.setExpanded(treeSource_.childAt(treeSource_.rootId(), i), i + 1 == scene_.features().size());
-  }
-  tree_.rebuild();
+  rebuildTree();
 
   float c[3] = {0.0f, 0.0f, 0.0f};
   scene_.bounds().centre(c);
@@ -207,23 +206,229 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
   }
 }
 
+void ForgeFrame::rebuildTree() {
+  tree_.setExpanded(treeSource_.rootId(), true);
+  const std::size_t n = scene_.features().size();
+  for (std::size_t i = 0; i < n; ++i) {
+    // Only the LAST feature owns the body's faces, so it is the only one worth
+    // opening; the rest start collapsed exactly as a CAD history tree does.
+    tree_.setExpanded(treeSource_.childAt(treeSource_.rootId(), i), i + 1 == n);
+  }
+  tree_.rebuild();
+}
+
+bool ForgeFrame::seedDefaultPart(std::string& error) {
+  for (const SeedStatement& st : defaultPartStatements()) {
+    forge::ui::FeatureRecord rec;
+    rec.irId = partDoc_.nextIrId();
+    rec.commandId.clear();  // authored by the seed, not by a command
+    rec.label = st.label;
+    rec.line = st.line;
+    rec.line.id = rec.irId;
+    rec.produces = st.produces;
+    if (!partDoc_.appendFeature(rec, {}, st.node)) {
+      error = "the default part's statement %" + std::to_string(rec.irId) + " (" + st.line.op +
+              ") was refused: " + forge::ui::toString(partDoc_.lastCheck());
+      return false;
+    }
+  }
+  error.clear();
+  return true;
+}
+
 std::size_t ForgeFrame::wirePartCommands() {
   if (partWired_) return 0;
-  // Seed the two values a Part command can consume: the sketch a profile-driven
-  // command extrudes, and the solid a fillet/shell/pattern modifies. Their node
-  // ids are the EntityRef::bodyId the selection carries, which is what binds a
-  // typed UI selection to an IR value.
-  partDoc_.seed(forge::ui::IrValueKind::Profile, "sketch.base", "SKETCH",
-                {forge::ui::IrArg::keyword("XY")});
-  partDoc_.seed(forge::ui::IrValueKind::Solid, "body.bracket", "BOX",
-                {forge::ui::IrArg::num(80.0), forge::ui::IrArg::num(50.0),
-                 forge::ui::IrArg::num(20.0)});
+  // ── the document ────────────────────────────────────────────────────────
+  // Seeded with the SAME statements KernelScene::build() compiled, from the SAME
+  // table (defaultPartStatements). The old seed here was a SECOND, different
+  // part -- `%1 = SKETCH(XY)` + `%2 = BOX(80, 50, 20)` -- and `SKETCH` is not in
+  // the kernel's op table at all, so validateIr rejected it, seed() returned 0,
+  // and "sketch.base" was never bound: every profile-consuming command in the
+  // Part workspace was permanently unreachable, silently.
+  std::string why;
+  if (!seedDefaultPart(why)) note("document seed FAILED: " + why);
+  builtProgram_ = partDoc_.irProgram();
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+
   const std::size_t added =
       forge::ui::registerPartCommands(shell_.registry(), partDoc_, partUndo_);
   partWired_ = true;
+  // THE SEAM: from here the shell's one file.new/open/save and edit.undo/redo
+  // act on this document, and the status strip's counters are read from it.
+  shell_.setDocumentHost(this);
   note("registered " + std::to_string(added) + " Part commands into the shell registry");
+  note("document seeded: " + std::to_string(partDoc_.records().size()) + " statements");
+  refreshFeatureRows();
   return added;
 }
+
+// ── the document -> geometry edge ───────────────────────────────────────────
+bool ForgeFrame::syncSceneToDocument() {
+  const std::string program = partDoc_.irProgram();
+  if (program == builtProgram_) return false;
+
+  const std::size_t before = scene_.triangleCount();
+  const bool ok = scene_.buildFromIr(program);
+  builtProgram_ = program;
+  ++rebuilds_;
+  documentDirty_ = true;
+  geometryDirty_ = true;
+  refreshFeatureRows();
+  rebuildTree();
+
+  const IrBuildReport& r = scene_.lastBuild();
+  if (ok) {
+    rebuildError_.clear();
+    note("rebuilt: " + std::to_string(before) + " -> " + std::to_string(scene_.triangleCount()) +
+         " triangles, " + std::to_string(r.faceCount) + " faces, V=" + std::to_string(r.volume) +
+         (r.valid ? "  [valid]" : "  [INVALID SOLID]"));
+  } else {
+    rebuildError_ = r.error;
+    // The previous body stays on screen -- what every history-based CAD system
+    // does with a failed rebuild -- and the failure is stated, not swallowed.
+    note("REBUILD FAILED: " + r.error + "  (showing the last good body)");
+  }
+  return true;
+}
+
+void ForgeFrame::refreshFeatureRows() {
+  const IrBuildReport& r = scene_.lastBuild();
+  std::vector<SceneFeature> rows;
+  rows.reserve(partDoc_.records().size());
+  for (const forge::ui::FeatureRecord& rec : partDoc_.records()) {
+    SceneFeature f;
+    f.name = "value_" + std::to_string(rec.irId);
+    f.label = rec.label.empty() ? rec.line.op : rec.label;
+    f.irOp = rec.line.op;
+    f.detail = rec.line.text();
+    // A row is in error when the last rebuild named it, or when a rebuild that
+    // failed before naming an op leaves every statement unaccounted for.
+    const bool named = (r.failedOpId == rec.irId) || (r.failedLine == rec.irId);
+    f.ok = r.ok() || !named;
+    rows.push_back(std::move(f));
+  }
+  scene_.setFeatureRows(std::move(rows));
+}
+
+// ── forge::ui::DocumentHost ─────────────────────────────────────────────────
+bool ForgeFrame::documentNew(std::string& error) {
+  partDoc_.restore(forge::ui::PartDocument::Snapshot{});  // records -> 0, bindings cleared
+  partUndo_.clear();
+  if (!seedDefaultPart(error)) return false;
+  documentPath_.clear();
+  documentName_ = "untitled";
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  syncSceneToDocument();
+  documentDirty_ = false;
+  note("new document");
+  return true;
+}
+
+namespace {
+
+// The document's NAME is the basename of the file it lives in, minus the
+// extension. One rule, applied on both save and open, so "Save As bracket.fpart"
+// and reopening it agree about what the document is called -- and the tree root
+// stops being a string literal.
+std::string documentNameFromPath(const std::string& path) {
+  const std::size_t slash = path.find_last_of('/');
+  std::string leaf = slash == std::string::npos ? path : path.substr(slash + 1);
+  const std::size_t dot = leaf.find_last_of('.');
+  if (dot != std::string::npos && dot > 0) leaf = leaf.substr(0, dot);
+  return leaf.empty() ? std::string("untitled") : leaf;
+}
+
+}  // namespace
+
+bool ForgeFrame::documentOpen(const std::string& path, std::string& error) {
+  if (path.empty()) {
+    error = "Open needs a path";
+    return false;
+  }
+  PartFileDoc file;
+  if (!loadPartFile(path, file, error)) return false;
+  // Restored into a FRESH document first: a file that is well-formed but not a
+  // legal document must not half-replace the one that is open.
+  forge::ui::PartDocument candidate;
+  if (!restorePartDocument(file, candidate, error)) return false;
+
+  partDoc_ = candidate;  // the command handlers captured this OBJECT by reference
+  partUndo_.clear();
+  ensureBodyBinding();
+  documentPath_ = path;
+  // The stored NAME is authoritative when it says something; the path names the
+  // document otherwise, so a file written by another tool still opens as itself.
+  documentName_ = (file.name.empty() || file.name == "untitled") ? documentNameFromPath(path)
+                                                                 : file.name;
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  builtProgram_.clear();  // force the rebuild below
+  syncSceneToDocument();
+  documentDirty_ = false;
+  note("opened " + path + "  (" + std::to_string(partDoc_.records().size()) + " statements)");
+  return true;
+}
+
+bool ForgeFrame::documentSave(const std::string& path, std::string& error) {
+  std::string target = path.empty() ? documentPath_ : path;
+  if (target.empty()) {
+    // Ctrl+S on a never-saved document must SAVE, and must say where. ~/.forge
+    // is the directory the app already owns for its own state.
+    const char* home = std::getenv("HOME");
+    const std::string dir = (home != nullptr && home[0] != 0) ? std::string(home) + "/.forge" : ".";
+    target = dir + "/" + documentName_ + kPartFileExtension;
+  }
+  documentName_ = documentNameFromPath(target);
+  const PartFileDoc file = capturePartDocument(partDoc_, documentName_);
+  if (!savePartFile(target, file, error)) return false;
+  documentPath_ = target;
+  scene_.setDocumentLabel(documentName_ + kPartFileExtension);
+  documentDirty_ = false;
+  note("saved " + target + "  (" + std::to_string(file.features.size()) + " statements)");
+  return true;
+}
+
+bool ForgeFrame::documentUndo() {
+  if (!partUndo_.undo(partDoc_)) return false;
+  syncSceneToDocument();
+  return true;
+}
+
+bool ForgeFrame::documentRedo() {
+  if (!partUndo_.redo(partDoc_)) return false;
+  syncSceneToDocument();
+  return true;
+}
+
+std::string ForgeFrame::activeBodyNode() const {
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  if (records.empty()) return defaultPartBodyNode();
+  const int lastId = records.back().irId;
+  for (const auto& kv : partDoc_.snapshot().bindings) {
+    if (kv.second == lastId) return kv.first;
+  }
+  return defaultPartBodyNode();
+}
+
+void ForgeFrame::ensureBodyBinding() {
+  const std::vector<forge::ui::FeatureRecord>& records = partDoc_.records();
+  if (records.empty()) return;
+  const int lastId = records.back().irId;
+  forge::ui::PartDocument::Snapshot snap = partDoc_.snapshot();
+  for (const auto& kv : snap.bindings) {
+    if (kv.second == lastId) return;  // something already names it
+  }
+  // restore() with an unchanged record count rewrites the binding table and
+  // nothing else -- it is the document's own published way to set one, and it
+  // is why this does not need a new mutation entry point on PartDocument.
+  snap.bindings[defaultPartBodyNode()] = lastId;
+  partDoc_.restore(snap);
+}
+
+std::size_t ForgeFrame::documentFeatureCount() const { return partDoc_.records().size(); }
+std::size_t ForgeFrame::documentUndoDepth() const { return partUndo_.undoDepth(); }
+std::size_t ForgeFrame::documentRedoDepth() const { return partUndo_.redoDepth(); }
+bool ForgeFrame::documentDirty() const { return documentDirty_; }
+std::string ForgeFrame::documentPath() const { return documentPath_; }
 
 void ForgeFrame::note(const std::string& line) {
   log_.push_back(line);
@@ -260,11 +465,22 @@ void ForgeFrame::invoke(const std::string& id) {
   }
   const forge::ui::DispatchResult r = shell_.run(id, params);
   if (r.ok()) {
-    note(id + "  ->  ok");
+    // A file.* command reports refusal through the shell, not through the
+    // dispatch status: `execute` returns void, so "ok" only means it ran.
+    if (shell_.lastDocumentError().empty()) {
+      note(id + "  ->  ok");
+    } else {
+      note(id + "  ->  REFUSED: " + shell_.lastDocumentError());
+    }
   } else {
     note(id + "  ->  " + forge::ui::toString(r.status) +
          (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
   }
+  // The command may have appended to the document. Rebuilding here rather than
+  // only once per frame keeps the status line and the viewport in the same
+  // frame; syncSceneToDocument() is idempotent, so the per-frame call that
+  // follows costs one string compare.
+  syncSceneToDocument();
   if (id == "app.command_palette") togglePalette();
 }
 
@@ -293,6 +509,12 @@ std::string ForgeFrame::shortcutText(const std::string& id) const {
 
 bool ForgeFrame::onKey(const std::string& key, forge::ui::ModMask mods) {
   if (key.empty()) return false;
+  // Whatever the keystroke resolves to may mutate the document; the sync runs
+  // after it, on the same idempotent method every other invoker uses.
+  struct SyncOnExit {
+    ForgeFrame* self;
+    ~SyncOnExit() { self->syncSceneToDocument(); }
+  } syncOnExit{this};
   forge::ui::KeyStroke stroke;
   stroke.key = key;
   stroke.mods = mods;
@@ -316,7 +538,7 @@ void ForgeFrame::setPreselectedFace(std::uint32_t faceId) {
     return;
   }
   forge::ui::EntityRef ref;
-  ref.bodyId = "body.bracket";
+  ref.bodyId = activeBodyNode();
   ref.kind = forge::ui::EntityKind::Face;
   ref.persistentName = "face@" + std::to_string(faceId);
   shell_.selection().setPreselection(ref);
@@ -350,7 +572,7 @@ void ForgeFrame::clickFace(std::uint32_t faceId, bool additive) {
        std::to_string(shell_.selection().count()) + " picked)");
 }
 
-void ForgeFrame::syncSelectionToScene() {
+std::vector<std::uint32_t> ForgeFrame::selectedFaceIds() const {
   std::vector<std::uint32_t> ids;
   for (const forge::ui::EntityRef& r : shell_.selection().selection()) {
     if (r.kind != forge::ui::EntityKind::Face) continue;
@@ -358,7 +580,11 @@ void ForgeFrame::syncSelectionToScene() {
     if (at == std::string::npos) continue;
     ids.push_back(static_cast<std::uint32_t>(std::stoul(r.persistentName.substr(at + 1))));
   }
-  if (scene_.applySelection(ids) > 0) viewportRequest_.selectionDirty = true;
+  return ids;
+}
+
+void ForgeFrame::syncSelectionToScene() {
+  if (scene_.applySelection(selectedFaceIds()) > 0) viewportRequest_.selectionDirty = true;
 }
 
 // ── dock ratio writeback ────────────────────────────────────────────────────
@@ -420,11 +646,18 @@ void ForgeFrame::setActiveTabAt(const std::vector<std::size_t>& path, std::size_
 
 // ── the frame ───────────────────────────────────────────────────────────────
 void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
+  // THE EDGE, on the one path nothing can bypass. Every mutation of the document
+  // -- a menu item, a shortcut, the palette, a macro, an Archie tool call, a
+  // file.open -- is visible here before the frame that shows it is drawn.
+  syncSceneToDocument();
+
   dpiScale_ = dpiScale > 0.1f ? dpiScale : 1.0f;
   panelsDrawn_ = 0;
   treeRowsDrawn_ = 0;
   viewportRequest_ = ViewportRequest{};
   viewportRequest_.wireframe = shell_.document().wireframe;
+  viewportRequest_.geometryDirty = geometryDirty_;
+  geometryDirty_ = false;
 
   const ImGuiIO& io = ImGui::GetIO();
   const float W = io.DisplaySize.x;
@@ -650,9 +883,43 @@ void ForgeFrame::drawStatusStrip(float y, float width, float height) {
 
     // Right side: the last thing that happened. A status bar that never says
     // what failed is decoration.
-    const float tw = ImGui::CalcTextSize(status_.c_str()).x;
-    ImGui::SameLine(std::max(ImGui::GetCursorPosX(), width - tw - 14.0f * dpiScale_));
-    ImGui::TextColored(rgb(170, 176, 186), "%s", status_.c_str());
+    //
+    // ELIDED to the space that is actually left. Right-aligning an unbounded
+    // string does not fit it: MEASURED on a screenshot of the live window, an
+    // "opened <absolute path>" status was wider than the strip and was drawn
+    // straight through the navigation hints, so two messages occupied the same
+    // pixels and neither was readable. The TAIL is kept, because that is where
+    // both a path and a failure reason say what happened.
+    // SameLine() FIRST. After a Text() the cursor has already wrapped to the next
+    // line, so GetCursorPosX() returns the line indent (~8 px), not the end of
+    // what was just drawn -- MEASURED: the first version of this elide computed
+    // ~1660 px of "available" width on a strip with ~800 px left, decided the
+    // status fitted, and right-aligned it straight back over the navigation
+    // hints. SameLine() restores the cursor to the previous item's right edge,
+    // which is the number this needs.
+    ImGui::SameLine();
+    const float pad = 14.0f * dpiScale_;
+    const float used = ImGui::GetCursorPosX();
+    const float avail = width - used - pad;
+    std::string shown = status_;
+    if (avail > 0.0f && ImGui::CalcTextSize(shown.c_str()).x > avail) {
+      // Binary search on the kept suffix: ~9 width queries for any status this
+      // strip will ever hold, instead of one per dropped character.
+      std::size_t lo = 0, hi = shown.size();
+      while (lo < hi) {
+        const std::size_t mid = lo + (hi - lo) / 2;  // keep the last size()-mid chars
+        const std::string cand = "..." + shown.substr(mid);
+        if (ImGui::CalcTextSize(cand.c_str()).x > avail) {
+          lo = mid + 1;
+        } else {
+          hi = mid;
+        }
+      }
+      shown = "..." + shown.substr(lo);
+    }
+    const float tw = ImGui::CalcTextSize(shown.c_str()).x;
+    ImGui::SameLine(std::max(used, width - tw - pad));
+    ImGui::TextColored(rgb(170, 176, 186), "%s", shown.c_str());
   }
   ImGui::End();
   ImGui::PopStyleColor();
@@ -805,6 +1072,10 @@ void ForgeFrame::drawPanel(const std::string& panelId, std::uint64_t viewportTex
     drawConsolePanel();
   } else if (panelId == "timeline") {
     drawTimelinePanel();
+  } else if (panelId == "measure") {
+    drawMeasurePanel();
+  } else if (panelId == "archie_tools") {
+    drawToolsPanel();
   } else {
     drawGenericPanel(panelId);
   }
@@ -1085,8 +1356,30 @@ void ForgeFrame::drawPropertiesPanel() {
   }
 
   ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Rebuild");
+  ImGui::Separator();
+  const IrBuildReport& r = scene_.lastBuild();
+  ImGui::Text("rebuilds   %zu", rebuilds_);
+  ImGui::Text("ops        %zu declared / %zu parsed / %zu compiled", r.nDeclared, r.nParsed,
+              r.nCompiled);
+  if (r.ok()) {
+    ImGui::TextColored(r.valid ? rgb(120, 200, 130) : rgb(235, 175, 95), "%s",
+                       r.valid ? "solid is valid" : "solid compiled but is NOT valid");
+    ImGui::Text("faces %ld   edges %ld", r.faceCount, r.edgeCount);
+    ImGui::Text("volume %.3f mm3", r.volume);
+    ImGui::Text("bbox   %.2f x %.2f x %.2f", r.bboxMax[0] - r.bboxMin[0],
+                r.bboxMax[1] - r.bboxMin[1], r.bboxMax[2] - r.bboxMin[2]);
+  } else {
+    ImGui::TextColored(rgb(235, 105, 95), "REBUILD FAILED");
+    ImGui::TextWrapped("%s", r.error.c_str());
+    ImGui::TextDisabled("the viewport is showing the last body that built");
+  }
+
+  ImGui::Spacing();
   ImGui::TextColored(rgb(242, 158, 38), "Feature IR");
   ImGui::Separator();
+  ImGui::TextDisabled("%s%s", documentPath_.empty() ? "(unsaved)" : documentPath_.c_str(),
+                      documentDirty_ ? "  *" : "");
   const std::string ir = partDoc_.irProgram();
   ImGui::TextWrapped("%s", ir.empty() ? "(no statements yet)" : ir.c_str());
 }
@@ -1117,6 +1410,154 @@ void ForgeFrame::drawTimelinePanel() {
     ImGui::Text("%-24s %-8s %s", f.label.c_str(), f.irOp.c_str(), f.detail.c_str());
     ImGui::PopID();
   }
+}
+
+// ── measure ─────────────────────────────────────────────────────────────────
+// Everything here is arithmetic done by forge::ui::MeasureModel over the SAME
+// triangles the viewport draws and the SAME face ids picking resolves to. The
+// panel prints; it does not compute, which is why the numbers are gated headless.
+const forge::ui::MeasureMesh& ForgeFrame::measureMesh() {
+  const std::size_t tris = scene_.triangleCount();
+  if (measureBuilt_ && measureTriangles_ == tris) return measureMesh_;
+
+  measureMesh_.clear();
+  const std::vector<SceneVertex>& v = scene_.vertices();
+  for (std::size_t i = 0; i + 2 < v.size(); i += 3) {
+    const double a[3] = {v[i].px, v[i].py, v[i].pz};
+    const double b[3] = {v[i + 1].px, v[i + 1].py, v[i + 1].pz};
+    const double c[3] = {v[i + 2].px, v[i + 2].py, v[i + 2].pz};
+    measureMesh_.addTriangle(a, b, c, v[i].faceId);
+  }
+  meshMeasure_ = forge::ui::measureMesh(measureMesh_);
+  measureTriangles_ = tris;
+  measureBuilt_ = true;
+  return measureMesh_;
+}
+
+const forge::ui::MeshMeasure& ForgeFrame::modelMeasure() {
+  measureMesh();  // builds the cache on first use
+  return meshMeasure_;
+}
+
+forge::ui::SelectionMeasure ForgeFrame::selectionMeasure() {
+  return forge::ui::measureFaces(measureMesh(), selectedFaceIds());
+}
+
+void ForgeFrame::drawMeasurePanel() {
+  measureFaceRowsDrawn_ = 0;
+  const forge::ui::MeasureMesh& mesh = measureMesh();
+  const forge::ui::MeshMeasure& m = meshMeasure_;
+
+  ImGui::TextColored(rgb(242, 158, 38), "Model");
+  ImGui::Separator();
+  if (mesh.empty()) {
+    ImGui::TextColored(rgb(235, 105, 95), "no tessellation to measure");
+    ImGui::TextWrapped("%s", scene_.error().empty() ? "(the scene is empty)"
+                                                    : scene_.error().c_str());
+    return;
+  }
+  ImGui::Text("size      %.3f x %.3f x %.3f mm", m.box.size(0), m.box.size(1), m.box.size(2));
+  ImGui::Text("min       %.3f  %.3f  %.3f", m.box.min[0], m.box.min[1], m.box.min[2]);
+  ImGui::Text("max       %.3f  %.3f  %.3f", m.box.max[0], m.box.max[1], m.box.max[2]);
+  ImGui::Text("diagonal  %.3f mm", m.box.diagonal());
+  ImGui::Text("area      %.3f mm2", m.area);
+  ImGui::Text("mesh      %zu triangles over %zu faces", m.triangles, m.faces);
+  if (m.watertight) {
+    ImGui::Text("volume    %.3f mm3", m.volume);
+    ImGui::Text("centroid  %.3f  %.3f  %.3f", m.centroid[0], m.centroid[1], m.centroid[2]);
+    ImGui::TextColored(rgb(120, 200, 130), "closed surface, %s winding",
+                       m.outward ? "outward" : "inward");
+  } else {
+    // A volume computed on a surface that does not close is a number with no
+    // meaning. It is refused here rather than printed with a caveat nobody reads.
+    ImGui::TextColored(rgb(230, 190, 90), "volume    not defined: the mesh does not close");
+    ImGui::Text("          %zu boundary, %zu non-manifold, %zu reversed edges",
+                m.boundaryEdges, m.nonManifoldEdges, m.reversedEdges);
+    ImGui::Text("centroid  %.3f  %.3f  %.3f  (of area)", m.centroid[0], m.centroid[1],
+                m.centroid[2]);
+  }
+
+  ImGui::Spacing();
+  ImGui::TextColored(rgb(242, 158, 38), "Selection");
+  ImGui::Separator();
+  const forge::ui::SelectionMeasure s = selectionMeasure();
+  if (s.faces == 0) {
+    ImGui::TextDisabled("(pick a face in the viewport)");
+    return;
+  }
+  for (std::uint32_t id : selectedFaceIds()) {
+    forge::ui::FaceMeasure f;
+    if (!forge::ui::measureFace(measureMesh_, id, f)) continue;
+    ImGui::BulletText("face %u   %.3f mm2   %zu tri%s", f.faceId, f.area, f.triangles,
+                      f.planar ? "   planar" : "");
+    ImGui::Text("     centre %.3f  %.3f  %.3f", f.centroid[0], f.centroid[1], f.centroid[2]);
+    ImGui::Text("     normal %.3f  %.3f  %.3f", f.normal[0], f.normal[1], f.normal[2]);
+    ++measureFaceRowsDrawn_;
+  }
+  ImGui::Text("total     %.3f mm2 over %zu face%s", s.area, s.faces, s.faces == 1 ? "" : "s");
+  ImGui::Text("centroid  %.3f  %.3f  %.3f", s.centroid[0], s.centroid[1], s.centroid[2]);
+  ImGui::Text("extent    %.3f x %.3f x %.3f mm", s.box.size(0), s.box.size(1), s.box.size(2));
+  if (s.hasPair) {
+    ImGui::Spacing();
+    ImGui::TextColored(rgb(120, 170, 230), "centre distance  %.3f mm", s.centreDistance);
+    ImGui::TextColored(rgb(120, 170, 230), "angle            %.2f deg%s", s.angleDegrees,
+                       s.parallel ? "   (parallel)"
+                                  : (s.perpendicular ? "   (perpendicular)" : ""));
+  } else if (s.faces > 2) {
+    ImGui::TextDisabled("(distance and angle need exactly two faces)");
+  }
+}
+
+// ── archie tools ────────────────────────────────────────────────────────────
+// The agent-callable surface of the running app, and an operable palette: the
+// button dispatches through ForgeShell::run, so what the panel offers and what
+// Archie can call are the same command reached the same way.
+forge::ui::ToolCatalog ForgeFrame::toolCatalog() const {
+  return forge::ui::buildToolCatalog(shell_.registry(), shell_.selection(), toolQuery_);
+}
+
+void ForgeFrame::drawToolsPanel() {
+  toolRowsDrawn_ = 0;
+  const forge::ui::ToolCatalog cat = toolCatalog();
+
+  ImGui::TextColored(rgb(130, 137, 148), "%zu tools | %zu callable now", cat.size(),
+                     cat.available);
+  ImGui::TextColored(rgb(130, 137, 148), "%zu need a selection | %zu need parameters | %zu off",
+                     cat.needsSelection, cat.needsParameters, cat.disabled);
+  ImGui::SetNextItemWidth(-1);
+  ImGui::InputTextWithHint("##toolq", "filter tools...", toolQuery_, sizeof(toolQuery_));
+  ImGui::Separator();
+
+  if (ImGui::BeginChild("##tool_rows", ImGui::GetContentRegionAvail(), ImGuiChildFlags_None)) {
+    if (cat.entries.empty()) {
+      ImGui::TextDisabled("no tool matches \"%s\"", toolQuery_);
+    }
+    std::string category;
+    for (std::size_t i = 0; i < cat.entries.size(); ++i) {
+      const forge::ui::ToolEntry& e = cat.entries[i];
+      if (e.category != category) {
+        category = e.category;
+        ImGui::TextColored(rgb(242, 158, 38), "%s", category.c_str());
+      }
+      ImGui::PushID(static_cast<int>(i));
+      ImGui::BeginDisabled(!e.callable());
+      if (ImGui::Button(e.label.c_str())) invoke(e.id);
+      ImGui::EndDisabled();
+      ImGui::SameLine();
+      ImGui::TextColored(e.callable() ? rgb(120, 200, 130) : rgb(150, 157, 168), "%s",
+                         forge::ui::toString(e.availability));
+      ImGui::TextDisabled("  %s   ir=%s   undo=%s", e.id.c_str(), e.featureIrOp.c_str(),
+                          e.undo.c_str());
+      ImGui::TextDisabled("  needs %s", e.selection.c_str());
+      if (e.parameters != "-") ImGui::TextDisabled("  args  %s", e.parameters.c_str());
+      if (!e.reason.empty()) {
+        ImGui::TextColored(rgb(230, 190, 90), "  %s", e.reason.c_str());
+      }
+      ImGui::PopID();
+      ++toolRowsDrawn_;
+    }
+  }
+  ImGui::EndChild();
 }
 
 void ForgeFrame::drawGenericPanel(const std::string& panelId) {

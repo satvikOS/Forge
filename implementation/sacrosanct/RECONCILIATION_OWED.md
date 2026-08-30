@@ -205,3 +205,43 @@ Full copies and patches of both overlapping in-flight files are parked under the
 
 The same question is open for the in-flight `forge-kernel/src/Features.cpp` and
 `forge-kernel/src/binding.cpp`; they were NOT analysed, only parked.
+
+
+---
+
+## 2026-08-28 — the in-flight `FeatureTree.hpp` already breaks the `forge::ui` gate
+
+Found while adding the app-surface manifest, not looked for.
+
+`ui/test/feature_ir_test.cpp` reads `forge-kernel/include/forge/ft/FeatureTree.hpp` **as data** and
+re-derives the IR op table that `ui/src/FeatureIr.cpp` declares, so the two layers cannot drift
+apart silently. It is a cross-layer contract check, and it is currently doing its job.
+
+**Measured:**
+
+| tree | result |
+| --- | --- |
+| clean worktree at HEAD (`ec476221`) | `[feature_ir] 243 checks, 0 failures` -- **ALL 8 UI GATES PASS** |
+| main tree, with the in-flight files | `[feature_ir] 246 checks, 8 failures` -- **FAIL** |
+
+The failing assertions are `kernel.size() == 40`, `irOpTable().size() == kernel.size()`, three
+`got != nullptr` lookups, two `maxArgs` comparisons, and `kernel.at("SWEEP").maxArgs == 2`.
+
+**Cause.** The in-flight diff to `FeatureTree.hpp` is **+209/-1** and redefines SWEEP, among other
+additions:
+
+```
+HEAD          SWEEP(r, [x y z; ...])                  circular pipe of radius r along a 3D path
+in-flight     SWEEP(%profile, %pathWire [, PLACE, deg, ax,ay,az, tx,ty,tz] [, FRENET])
+```
+
+`ui/src/FeatureIr.cpp` still declares HEAD's contract, so the op count, the lookups and SWEEP's
+arity all disagree.
+
+**What is owed.** Committing the in-flight kernel work **without updating `ui/src/FeatureIr.cpp`
+in the same commit will turn the `forge::ui` CI gate RED.** The two must move together -- that is
+the whole point of the gate, and it should not be weakened to let them separate. This is not a
+defect in the in-flight work; it is the cost of a contract that spans two layers, surfaced early.
+
+Nothing was changed here: `FeatureIr.cpp` is not in-flight but `FeatureTree.hpp` is, and updating
+one side of a contract while the other is mid-edit would just move the breakage.

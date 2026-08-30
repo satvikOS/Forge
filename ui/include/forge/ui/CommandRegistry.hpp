@@ -110,9 +110,22 @@ class CommandContext {
   const SelectionService& selection() const noexcept { return selection_; }
   const CommandParams& params() const noexcept { return params_; }
 
+  // The handler's ONLY way to say "I ran and could not do it". execute() returns void, so
+  // without this a refusal inside a handler is unreportable and dispatch answers Ok. The
+  // detail is surfaced verbatim in DispatchResult::detail -- name the reason, because
+  // "something failed" is not actionable by a UI or by Archie.
+  void fail(std::string why) {
+    failed_ = true;
+    if (detail_.empty()) detail_ = std::move(why);  // first reason wins; it is the cause
+  }
+  bool failed() const noexcept { return failed_; }
+  const std::string& failureDetail() const noexcept { return detail_; }
+
  private:
   const SelectionService& selection_;
   CommandParams params_;
+  bool failed_ = false;
+  std::string detail_;
 };
 
 struct CommandDescriptor {
@@ -150,6 +163,16 @@ enum class DispatchStatus : std::uint8_t {
   Disabled,
   MissingRequiredParameter,
   NoHandler,
+  // APPENDED, never inserted: the values above are compared as ints in tests and stored in
+  // macros, so renumbering them would silently change what a recorded status means.
+  //
+  // The handler ran and REFUSED to record its edit. Every status above is decided BEFORE
+  // execute() is called; without this one, dispatch returned Ok unconditionally once
+  // execution began, so a command whose feature was rejected reported success and did
+  // nothing. Measured: an unknown op name gave part.fillet -> Ok with the FILLET statement
+  // absent from the document, caught only because the compiled solid's volume equalled the
+  // raw prism exactly.
+  EditRefused,
 };
 
 const char* toString(DispatchStatus status) noexcept;

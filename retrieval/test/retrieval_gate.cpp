@@ -136,6 +136,33 @@ int main(int argc, char** argv) {
   //    dimension. All three must be gone, and the standard designation must
   //    survive so the query is still worth asking.
   // ═══════════════════════════════════════════════════════════════════════════
+  section("12.0 redaction: the FIRST token is not exempt from the proper-noun rule");
+  {
+    // REGRESSION TEST for a real leak. The proper-noun rule used to carry a
+    // `token_index > 0` guard, which exempted the FIRST token of the whole query.
+    // A user question very often OPENS with the customer or project name, so an
+    // UNLISTED name in that position was transmitted verbatim to the public search
+    // engine. Nothing covered it: every existing case happens to start with "For",
+    // "Is" or "What", all of which sit in publicCapitalizedVocabulary().
+    //
+    // The lexicon here is EMPTY on purpose. A registered name would be removed by the
+    // authoritative lexicon layer and would prove nothing about the positional rule.
+    Redactor bare{};  // no lexicon at all — the positional rule must stand on its own
+    const RedactionResult r = bare.redact("Vanterra bearing preload tolerance for a press fit");
+    std::cout << "  wire  : " << r.wire_query << "\n";
+
+    check(!containsCI(r.wire_query, "Vanterra"),
+          "an UNLISTED proper noun in FIRST position is removed from the wire query");
+    check(r.removedAnyOf(RedactionKind::ProperNoun),
+          "the first-position removal is classified as a ProperNoun, not silently dropped");
+
+    // The rule must not have become indiscriminate: an ordinary opening word is kept.
+    const RedactionResult keep = bare.redact("What bearing preload tolerance suits a press fit");
+    check(containsCI(keep.wire_query, "bearing"), "the engineering question still survives");
+    check(containsCI(keep.wire_query, "What") || containsCI(keep.wire_query, "what"),
+          "a sentence-opening word in publicCapitalizedVocabulary is still kept");
+  }
+
   section("12.1 redaction: customer name + part number + secret dimension");
   {
     Redactor redactor(demoLexicon());
@@ -217,6 +244,47 @@ int main(int argc, char** argv) {
       if (containsCI(s, "Northwind")) leaked = true;
     }
     check(!leaked, "the residue report names the class, never the secret itself");
+  }
+
+  section("12.2 the value scan must not be evadable by writing the number differently");
+  {
+    // The residue scan is the INDEPENDENT post-condition: its value is catching what
+    // redact() missed. A scan that only understands `digits[.digits]` is evadable three
+    // ways, all of which parse to a registered secret.
+    //
+    // ONE SECRET PER LEXICON, deliberately. The first version of this test registered
+    // {0.5, 47625.0, 47.0} together, and the comma case then PASSED EVEN WITH THE COMMA
+    // HANDLING DISABLED: the broken scanner split "47,625" into 47 and 625, and the stray
+    // 47 matched the registered 47.0. A check that cannot fail is not a check -- proved by
+    // mutation, which is the only reason it was noticed.
+    std::vector<std::string> residue;
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {0.5};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=clearance+of+.5+mm", residue),
+            "leading-dot .5 is caught for a registered 0.5");
+    }
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {47625.0};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=span+47,625+mm", residue),
+            "thousands-separated 47,625 is caught for a registered 47625");
+      // PRECISION, not just recall: a comma followed by a SPACE is a list, not a grouped
+      // number. Without this the scan would fuse "47, 625" into 47625 and refuse a clean
+      // query -- a redactor that destroys the question is useless in its own way. Same
+      // lexicon as the line above, so this pins the boundary rather than a different one.
+      check(r.verifyNoResidue("q=sizes+47,+625+mm", residue),
+            "a comma followed by a space stays TWO numbers, not one grouped value");
+    }
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {47.0};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=length+4.7e1+mm", residue),
+            "exponent form 4.7e1 is caught for a registered 47");
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -325,6 +393,50 @@ int main(int argc, char** argv) {
     HttpResponse r2;
     check(parseHttpResponse(ch, 1 << 20, r2), "chunked response parses");
     check(r2.body == "{\"results\":[],\"number_of_results\":0}", "chunks are reassembled exactly");
+
+    // NOT COVERED, AND SAID SO. The decoder's size guards are written against what
+    // REMAINS (`size > body_raw.size() - i`) rather than as sums (`i + size > ...`),
+    // because `size` is a std::size_t parsed from hex and every summed form wraps. That
+    // hardening is real, but there is NO test here that distinguishes the two forms, and
+    // two attempts to write one both PASSED WITH THE SUMMED GUARDS RESTORED:
+    //
+    //   attempt 1: a lone huge chunk -- with decoded.size()==0 the CAP guard catches it
+    //              anyway, so it tested the cap, not the overflow.
+    //   attempt 2: a 5-byte chunk then size 2**64-5, chosen so both summed guards wrap --
+    //              the advance `i += size + 2` then jumps BACKWARD and the stream fails a
+    //              DIFFERENT check ("unparseable chunk size"), so it is rejected either way.
+    //
+    // Both were removed rather than kept: a check that passes whether or not the fix is
+    // present implies coverage that does not exist, which is worse than an honest gap.
+    // The mutation run is what exposed both -- 0 failures where 2 were expected, twice.
+
+    // A body that simply RAN OUT is not a complete body. Exiting the loop on
+    // `i >= body_raw.size()` and reporting Ok is the quietest way to lose data.
+    {
+      HttpResponse trunc;
+      const std::string no_terminator =
+          "HTTP/1.1 200 OK\r\n"
+          "Transfer-Encoding: chunked\r\n\r\n"
+          "5\r\n"
+          "hello\r\n";           // a complete chunk, then nothing -- no final 0 chunk
+      check(!parseHttpResponse(no_terminator, 1 << 20, trunc),
+            "a chunked body with no final 0 chunk is REJECTED, not reported complete");
+      check(trunc.status == TransportStatus::MalformedResponse,
+            "and a missing final chunk reports MalformedResponse");
+    }
+    // The trailing CRLF must actually be present; skipping two bytes on faith turns a
+    // truncated frame into a silently short body.
+    {
+      HttpResponse nocrlf;
+      const std::string bad_sep =
+          "HTTP/1.1 200 OK\r\n"
+          "Transfer-Encoding: chunked\r\n\r\n"
+          "5\r\n"
+          "helloXX"
+          "0\r\n\r\n";
+      check(!parseHttpResponse(bad_sep, 1 << 20, nocrlf),
+            "a chunk not followed by CRLF is REJECTED");
+    }
 
     HttpResponse r3;
     check(!parseHttpResponse("garbage without a terminator", 1 << 20, r3),
@@ -573,12 +685,47 @@ int main(int argc, char** argv) {
   {
     check(isLoopbackLiteral("127.0.0.1"), "127.0.0.1 is loopback");
     check(isLoopbackLiteral("127.1.2.3"), "the whole 127.0.0.0/8 block is loopback");
-    check(isLoopbackLiteral("::1"), "::1 is loopback");
+    // IPv6 loopback is REFUSED, and that is a correction rather than a weakening. This file
+    // has NO AF_INET6 path: send() creates an AF_INET socket and parses the host with
+    // inet_pton(AF_INET, ...), so a "::1" request always failed at connect. Admitting it here
+    // only meant it passed the POLICY gate and then failed later with the misleading reason
+    // "host is not an IPv4 literal". The capability never existed; the allow-list now says so.
+    check(!isLoopbackLiteral("::1"),
+          "::1 is refused: this transport is IPv4-only and the allow-list must match it");
+    check(!isLoopbackLiteral("[::1]"), "and so is the bracketed form");
     check(!isLoopbackLiteral("localhost"),
           "'localhost' is REFUSED: a name needs a resolver, and a resolver is a way off the machine");
     check(!isLoopbackLiteral("10.0.0.5"), "a LAN address is not loopback");
     check(!isLoopbackLiteral("93.184.216.34"), "a public address is not loopback");
     check(!isLoopbackLiteral("127.0.0.1.evil.com"), "a lookalike hostname is not loopback");
+
+    // A caller header must not be able to rewrite the request block. serialize() joins
+    // `name: value` verbatim, so a CR or LF in a value ends the header block early and the
+    // rest is read by the sidecar as a SECOND request. Loopback-only bounds WHO receives
+    // it; it does not stop the injection.
+    {
+      std::string why;
+      std::map<std::string, std::string> ok{{"Accept", "application/json"}};
+      check(headersAreWellFormed(ok, why), "an ordinary header is accepted");
+
+      std::map<std::string, std::string> split{{"X-Trace", "a\r\nGET /admin HTTP/1.1"}};
+      check(!headersAreWellFormed(split, why), "a CRLF in a header VALUE is refused");
+      std::map<std::string, std::string> lf_only{{"X-Trace", "a\nb"}};
+      check(!headersAreWellFormed(lf_only, why), "a bare LF is refused too");
+      std::map<std::string, std::string> bad_name{{"X\rY", "v"}};
+      check(!headersAreWellFormed(bad_name, why), "a CR in a header NAME is refused");
+      std::map<std::string, std::string> colon{{"X:Y", "v"}};
+      check(!headersAreWellFormed(colon, why), "a ':' in a header NAME is refused");
+
+      // serialize() ALWAYS emits these three, so a caller supplying one produces a
+      // DUPLICATE header rather than an override -- ambiguous framing a server may resolve
+      // either way.
+      std::map<std::string, std::string> dup_host{{"Host", "evil.example"}};
+      check(!headersAreWellFormed(dup_host, why), "a caller Host is refused (serialize emits it)");
+      std::map<std::string, std::string> dup_cl{{"content-length", "0"}};
+      check(!headersAreWellFormed(dup_cl, why),
+            "a caller Content-Length is refused, case-insensitively");
+    }
 
     // Drive the REAL transport at a public address. The refusal is decided
     // before any socket is created, so this test opens no connection.

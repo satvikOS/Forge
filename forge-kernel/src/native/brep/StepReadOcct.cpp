@@ -90,8 +90,6 @@
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <ShapeFix_Shape.hxx>
-#include <ShapeFix_Shell.hxx>
-#include <ShapeFix_Solid.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 #include <Precision.hxx>

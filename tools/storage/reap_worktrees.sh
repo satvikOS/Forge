@@ -333,6 +333,46 @@ while [ $i -lt ${#WT_PATHS[@]} ]; do
     kept=$((kept+1)); continue
   fi
 
+  # IN USE by a live process? Git cannot see this, and every check above can pass while
+  # it is true. MEASURED 2026-08-28: /private/tmp/fv_stoi was tracked-clean, unlocked, and
+  # its HEAD sat on origin/fix/forge-verify-stoi -- a textbook FINISHED worktree -- while a
+  # 2.5-hour model run in a DIFFERENT repository was executing the forge_verify binary
+  # BUILT INSIDE IT, selected by FORGE_VERIFY=<wt>/forge-kernel/build-verify/forge_verify.
+  # Reaping it would have killed that run and destroyed an emission costing ~7 hours. A
+  # worktree can be load-bearing through its BUILD OUTPUT, which no git-level test observes,
+  # so ask the OS instead.
+  #
+  # FAIL CLOSED. lsof exits 1 BOTH when nothing is open AND on error, so a zero hit count is
+  # not by itself proof of anything; if lsof is missing the answer is UNKNOWN, and unknown
+  # is a KEEP like every other uncertainty in this file.
+  if ! command -v lsof >/dev/null 2>&1; then
+    note "KEEP    $wt"
+    note "        reason: cannot prove this tree is not IN USE — lsof is unavailable, so open"
+    note "                files under it could not be checked. Unknown is not clean."
+    kept=$((kept+1)); continue
+  fi
+  open_out="$(lsof -nP +D "$wt" 2>/dev/null | tail -n +2)"
+  open_n=$(printf '%s' "$open_out" | grep -c . || true)
+  # A process can hold the tree with NO open descriptor under it (an env var naming a path
+  # it has not opened yet, a pending exec), so the argv scan is a second, independent probe.
+  # Self is excluded explicitly: pgrep -f matches the very shell running this check.
+  argv_n=0
+  for p in $(pgrep -f "$wt" 2>/dev/null || true); do
+    [ "$p" = "$$" ] && continue
+    [ "$p" = "$PPID" ] && continue
+    argv_n=$((argv_n+1))
+  done
+  if [ "${open_n:-1}" != "0" ] || [ "${argv_n:-1}" != "0" ]; then
+    note "KEEP    $wt"
+    note "        reason: IN USE — ${open_n} open file(s) beneath it, ${argv_n} live process(es)"
+    note "                naming it. A clean tree with a surviving witness can still be"
+    note "                load-bearing through its build output."
+    printf '%s' "$open_out" | head -2 | while IFS= read -r l; do
+      [ -n "$l" ] && note "        open:  $l"
+    done
+    kept=$((kept+1)); continue
+  fi
+
   sz=$(du -sk "$wt" 2>/dev/null | awk '{print $1}')
   bytes=$((bytes + ${sz:-0}))
   note "REMOVE  $wt"

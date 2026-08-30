@@ -100,6 +100,10 @@ forge-kernel/build-desktop-ui/
 # tree. `build/` above only matches a directory literally named build.
 forge-kernel/build-app/
 forge-kernel/test/native/gdt/fcf_evaluator_test.cpp
+# Object cache + run outputs of test/build_corpus_ab_coverage.sh (the corpus A/B
+# coverage gate). The .a and the per-run JSONL are regenerable from the scripts;
+# the committed baseline lives in forge-kernel/reports/corpus_ab/ instead.
+forge-kernel/.build-corpus-ab/
 
 # --- Forge local dependency plane (Sacrosanct 3.1 s10.6 / s21.2) -------------
 # .forge-local/ is the workstation execution plane: source mirror, build trees,

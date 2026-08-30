@@ -16,13 +16,21 @@ Hash vocabulary (kept explicit everywhere, because the two are NOT interchangeab
                             local mirror).  Otherwise null + `archive_sha256_reason`.
 
   installed_tree_sha256     sha256 over the CONTENT OF THE INSTALLED PREFIX on this
-                            workstation.  Definition (stable, reproducible):
-                              lines  = ["<sha256(file)>  <relpath>" for every regular file
-                                        matching verify_globs, relpath sorted bytewise]
+                            workstation.  Definition (stable, reproducible), and it is
+                            the ONE this file implements - see tree_digest():
+                              lines  = ["<digest>  <kind>  <relpath>" for every entry
+                                        matching verify_globs, relpath sorted bytewise;
+                                        kind is one of file | link | dangling]
                               digest = sha256("".join(line + "\\n" for line in lines))
-                            Symlinks are NOT followed and NOT hashed; their count is
-                            recorded separately.  This is an ARTIFACT fingerprint, not a
-                            provenance hash — it changes when the compiler/bottle changes.
+                            A symlink IS followed: one resolving to a regular file is
+                            hashed as its TARGET'S CONTENT with kind `link`, and a
+                            dangling one is hashed as its literal target string with kind
+                            `dangling`.  Skipping links made an anchor set of exactly the
+                            names a linker opens (libvulkan.dylib, glslangValidator) hash
+                            to sha256("") - a fingerprint that can never fail.  File and
+                            link counts are recorded separately.  This is an ARTIFACT
+                            fingerprint, not a provenance hash - it changes when the
+                            compiler/bottle changes.
 
   installed_anchor_sha256   the same construction over a small `anchor_globs` set (version
                             headers + the toolkits actually linked).  Cheap enough to run
@@ -636,6 +644,33 @@ def cmd_import_bundle(args) -> int:
         err(f"bundle hash mismatch — manifest {manifest['bundle_sha256']} got {got}")
         return 1
     print(f"import-bundle: {src.name} sha256 OK ({got})")
+    # bundle_sha256 only proves the tar is INTERNALLY consistent. It says nothing about
+    # whether this bundle is the plane THIS repository pins. Without the two checks below
+    # a bundle exported for a different lock, or for a different triplet, activated in
+    # silence and .forge-local/prefixes/<triplet> was then populated from a plane the lock
+    # never named -- the exact drift the lock exists to make impossible.
+    lock = load_lock()
+    repo_lock_sha = sha256_file(LOCK)
+    mismatch = []
+    if manifest.get("lock_sha256") != repo_lock_sha:
+        mismatch.append(f"lock sha256: bundle {manifest.get('lock_sha256')}, "
+                        f"repo {repo_lock_sha}")
+    if manifest.get("triplet") != lock["triplet"]:
+        mismatch.append(f"triplet: bundle {manifest.get('triplet')!r}, "
+                        f"lock {lock['triplet']!r}")
+    if mismatch:
+        for m in mismatch:
+            err(f"bundle does not match this repository - {m}")
+        if args.activate:
+            # --verify-only is an INSPECTION and still answers; --activate writes, and
+            # writing this plane would populate .forge-local/prefixes/<triplet> from a
+            # plane the lock never named.
+            err("refusing to ACTIVATE a plane this repository does not pin.")
+            return 1
+        warn("--verify-only: reporting the mismatch rather than refusing; --activate "
+             "would refuse.")
+    else:
+        print(f"               lock sha256 OK ({repo_lock_sha}), triplet {lock['triplet']}")
     with tarfile.open(src, "r:gz") as tf:
         names = tf.getnames()
         print(f"               {len(names)} member(s), triplet {manifest['triplet']}")
@@ -648,6 +683,17 @@ def cmd_import_bundle(args) -> int:
         if not args.activate:
             err("pass --verify-only or --activate.")
             return 2
+        # `filter=` on TarFile.extract is PEP 706, and the wrapper invokes a bare `python3`.
+        # On an interpreter without it the call raises TypeError AFTER the checks above have
+        # passed, so the operator sees a traceback rather than a refusal. Feature-detect
+        # instead of comparing versions: PEP 706 was backported, so the version matrix is
+        # 3.12+, 3.11.4+, 3.10.12+, 3.9.17+, 3.8.17+, 3.7.17+, and `data_filter` appears in
+        # exactly the releases that carry the parameter.
+        if not hasattr(tarfile, "data_filter"):
+            err("this interpreter's tarfile has no PEP 706 extraction filter "
+                f"(python {sys.version.split()[0]}; needs 3.12+, or 3.11.4 / 3.10.12 / "
+                "3.9.17 / 3.8.17 / 3.7.17). Refusing to extract an archive unfiltered.")
+            return 1
         LOCAL.mkdir(parents=True, exist_ok=True)
         for m in tf.getmembers():
             if m.name.startswith("forge-local/"):

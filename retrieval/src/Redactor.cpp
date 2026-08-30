@@ -348,34 +348,89 @@ const char* markerFor(RedactionKind kind) {
 
 // Every numeric literal in a buffer, as (text, value) pairs.
 std::vector<std::pair<std::string, double>> scanNumericLiterals(const std::string& text) {
+  // The grammar here must match isBoundedNumeric's -- [+-]?digits[.digits][e[+-]digits]
+  // with thousands separators -- PLUS a leading-dot form. This is the independent
+  // post-condition layer, so its whole value is catching what redact() missed, and a
+  // value scan that only understands `digits[.digits]` is evadable by writing the same
+  // number three other ways:
+  //
+  //     .5        yielded the literal "5"      -> a registered 0.5 never matched
+  //     47,625    yielded "47" and "625"       -> a registered 47625 never matched
+  //     4.7e1     yielded "4.7"                -> a registered 47 never matched
+  //
+  // Being generous here is the SAFE direction: an extra candidate can only cause a
+  // spurious residue report, which refuses to send. A missed candidate sends a secret.
   std::vector<std::pair<std::string, double>> out;
   std::size_t i = 0;
   while (i < text.size()) {
-    if (!isAsciiDigit(static_cast<unsigned char>(text[i]))) { ++i; continue; }
-    std::size_t begin = i;
-    if (begin > 0 && (text[begin - 1] == '.' || text[begin - 1] == '-')) {
-      // keep the sign/point so 47.625 is one literal, not "47" and "625"
-      std::size_t back = begin - 1;
-      if (text[back] == '.' && back > 0 && isAsciiDigit(static_cast<unsigned char>(text[back - 1]))) {
-        ++i;
-        continue;  // interior of a literal already emitted
-      }
-      if (text[back] == '-') begin = back;
+    const unsigned char c = static_cast<unsigned char>(text[i]);
+    // A literal starts at a digit, or at a '.' followed by a digit -- but only when that
+    // '.' is not itself preceded by an alphanumeric, which would make it a member access
+    // or the interior of a literal already consumed.
+    bool starts = isAsciiDigit(c);
+    if (!starts && c == '.' && i + 1 < text.size() &&
+        isAsciiDigit(static_cast<unsigned char>(text[i + 1])) &&
+        (i == 0 || !isAsciiAlnum(static_cast<unsigned char>(text[i - 1])))) {
+      starts = true;
     }
+    if (!starts) { ++i; continue; }
+
+    std::size_t begin = i;
+    // Keep a leading sign when it is not part of an identifier or a range like "a-5".
+    if (begin > 0 && text[begin - 1] == '-' &&
+        (begin == 1 || !isAsciiAlnum(static_cast<unsigned char>(text[begin - 2])))) {
+      --begin;
+    }
+
+    std::string cleaned;
+    if (text[begin] == '-') cleaned.push_back('-');
+
     std::size_t j = i;
-    while (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) ++j;
+    // Integer part. A comma counts as a thousands separator ONLY when a digit follows it
+    // immediately: "47,625" is one value, while "47, 625" stays two.
+    while (j < text.size()) {
+      if (isAsciiDigit(static_cast<unsigned char>(text[j]))) { cleaned.push_back(text[j]); ++j; }
+      else if (text[j] == ',' && j + 1 < text.size() &&
+               isAsciiDigit(static_cast<unsigned char>(text[j + 1]))) { ++j; }
+      else break;
+    }
+    // Fraction.
     if (j < text.size() && text[j] == '.' && j + 1 < text.size() &&
         isAsciiDigit(static_cast<unsigned char>(text[j + 1]))) {
+      if (cleaned.empty() || cleaned == "-") cleaned.push_back('0');  // ".5" -> "0.5"
+      cleaned.push_back('.');
       ++j;
-      while (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) ++j;
+      while (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) {
+        cleaned.push_back(text[j]);
+        ++j;
+      }
     }
-    const std::string lit = text.substr(begin, j - begin);
+    // Exponent, accepted only when it is complete; otherwise the 'e' is just a letter.
+    if (j < text.size() && (text[j] == 'e' || text[j] == 'E')) {
+      const std::size_t save = j;
+      std::string exp("e");
+      ++j;
+      if (j < text.size() && (text[j] == '+' || text[j] == '-')) { exp.push_back(text[j]); ++j; }
+      if (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) {
+        while (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) {
+          exp.push_back(text[j]);
+          ++j;
+        }
+        cleaned += exp;
+      } else {
+        j = save;
+      }
+    }
+
     double v = 0.0;
-    const char* first = lit.data();
-    const char* last = lit.data() + lit.size();
-    if (std::from_chars(first, last, v).ec == std::errc()) out.emplace_back(lit, v);
-    i = j;
+    const char* first = cleaned.data();
+    const char* last = cleaned.data() + cleaned.size();
+    if (std::from_chars(first, last, v).ec == std::errc()) {
+      out.emplace_back(text.substr(begin, j - begin), v);
+    }
+    i = j > i ? j : i + 1;  // never fail to advance
   }
+
   return out;
 }
 
@@ -676,7 +731,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   std::vector<std::string> preview_terms;
   std::string previous_kept;   // context for designation lookback
   bool previous_was_dimension = false;
-  std::size_t global_token_index = 0;
 
   auto emitRedaction = [&](RedactionKind kind, const std::string& matched, std::size_t offset) {
     RedactionEvent ev;
@@ -696,7 +750,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   for (const Piece& piece : pieces) {
     if (piece.registered) {
       emitRedaction(piece.kind, piece.text, piece.offset);
-      ++global_token_index;
       continue;
     }
     std::size_t pos = 0;
@@ -710,7 +763,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
       const std::string token = trimPunctuation(rawToken, lead);
       const std::size_t offset = piece.offset + start + lead;
       if (token.empty()) continue;
-      const std::size_t token_index = global_token_index++;
       const std::string lower = toLower(token);
 
       if (looksLikeEmail(token)) { emitRedaction(RedactionKind::EmailAddress, token, offset); continue; }
@@ -749,7 +801,15 @@ RedactionResult Redactor::redact(const std::string& raw) const {
         emitRedaction(RedactionKind::OpaqueIdentifier, token, offset);
         continue;
       }
-      if (policy_.strip_proper_nouns && token_index > 0 && token.size() >= 3 &&
+      // NO FIRST-TOKEN EXEMPTION. This condition used to require the token index to be
+      // non-zero, which exempted the FIRST token of the whole query from the proper-noun
+      // rule -- and a user question very often OPENS with the customer or project name:
+      // "Acme bearing preload tolerance" sent "Acme" to the public search engine.
+      // The guard was also unnecessary: publicCapitalizedVocabulary() already lists the
+      // sentence openers (what/which/how/why/when/where/who/is/are/does/do/can/the/a),
+      // so a normal opening word is kept without it. POSITION MUST NOT LICENSE A TERM
+      // THE RULE WOULD REDACT ANYWHERE ELSE.
+      if (policy_.strip_proper_nouns && token.size() >= 3 &&
           std::isupper(static_cast<unsigned char>(token[0])) &&
           !publicCapitalizedVocabulary().count(lower) && !standardsBodies().count(toUpper(token))) {
         emitRedaction(RedactionKind::ProperNoun, token, offset);

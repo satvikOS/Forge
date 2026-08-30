@@ -68,6 +68,7 @@ bool setNonBlocking(int fd) {
 
 const char* transportStatusName(TransportStatus s) {
   switch (s) {
+    case TransportStatus::RefusedMalformedRequest: return "RefusedMalformedRequest";
     case TransportStatus::Ok: return "Ok";
     case TransportStatus::ConnectFailed: return "ConnectFailed";
     case TransportStatus::Timeout: return "Timeout";
@@ -84,11 +85,45 @@ bool isLoopbackLiteral(const std::string& host) {
   // Numeric literals only. "localhost" is REFUSED on purpose: resolving a name
   // means consulting /etc/hosts, DNS, or mDNS, and any of those is a way off the
   // machine that this client must not have (SACROSANCT 20.2).
-  if (host == "::1" || host == "[::1]") return true;
+  // IPv4 ONLY, deliberately, and the allow-list says so rather than the connect path
+  // discovering it later. send() creates an AF_INET socket and parses the host with
+  // inet_pton(AF_INET, ...) -- there is no AF_INET6 path anywhere in this file -- so
+  // admitting "::1" here let an IPv6 loopback pass the POLICY gate and then fail at connect
+  // with the misleading reason "host is not an IPv4 literal". Nothing is lost by narrowing:
+  // the capability never existed. If an IPv6 sidecar is ever needed, add the AF_INET6
+  // connect path and this check in the SAME change, so the two cannot disagree again.
   in_addr addr{};
   if (::inet_pton(AF_INET, host.c_str(), &addr) != 1) return false;
   const std::uint32_t v = ntohl(addr.s_addr);
   return (v >> 24) == 127u;  // the whole 127.0.0.0/8 loopback block
+}
+
+// A header the CALLER supplied must not be able to rewrite the request block. serialize()
+// concatenates `name: value` verbatim, so a value containing CR or LF ends the header block
+// early and everything after it is read by the sidecar as a SECOND request. The destination
+// is loopback-only, which bounds who receives it, but it is still an injected request.
+//
+// serialize() also ALWAYS emits Host, Content-Length and Connection, so a caller supplying
+// any of those produces a duplicate header rather than an override -- ambiguous framing that
+// a server may resolve either way.
+//
+// Returns true when every header is safe; otherwise fills `why` with the offending name.
+bool headersAreWellFormed(const std::map<std::string, std::string>& headers, std::string& why) {
+  for (const auto& [k, v] : headers) {
+    if (k.empty()) { why = "a header name is empty"; return false; }
+    if (k.find(':') != std::string::npos) { why = "header name contains ':': " + k; return false; }
+    if (k.find('\r') != std::string::npos || k.find('\n') != std::string::npos) {
+      why = "header name contains CR or LF: " + k; return false;
+    }
+    if (v.find('\r') != std::string::npos || v.find('\n') != std::string::npos) {
+      why = "header value contains CR or LF (request splitting): " + k; return false;
+    }
+    const std::string lower = toLower(k);
+    if (lower == "host" || lower == "content-length" || lower == "connection") {
+      why = "header is emitted by serialize() and would be duplicated: " + k; return false;
+    }
+  }
+  return true;
 }
 
 std::string HttpRequest::serialize() const {
@@ -155,6 +190,7 @@ bool parseHttpResponse(const std::string& raw, std::size_t max_body_bytes, HttpR
   if (te != out.headers.end() && toLower(te->second).find("chunked") != std::string::npos) {
     std::string decoded;
     std::size_t i = 0;
+    bool saw_terminator = false;
     while (i < body_raw.size()) {
       const std::size_t eol = body_raw.find("\r\n", i);
       if (eol == std::string::npos) {
@@ -178,19 +214,40 @@ bool parseHttpResponse(const std::string& raw, std::size_t max_body_bytes, HttpR
         return false;
       }
       i = eol + 2;
-      if (size == 0) break;
-      if (i + size > body_raw.size()) {
+      if (size == 0) { saw_terminator = true; break; }
+      // COMPARE AGAINST WHAT REMAINS; never compute a sum. `size` is a std::size_t parsed
+      // from hex, so a chunk header of "fffffffffffffff0" parses fine and then makes
+      // `i + size`, `decoded.size() + size` and `i += size + 2` all WRAP -- every guard
+      // passes and the decoder walks off into the buffer. Subtraction cannot wrap here:
+      // the loop condition gives i <= body_raw.size(), and decoded never exceeds the cap.
+      if (size > body_raw.size() - i) {
         out.status = TransportStatus::MalformedResponse;
         out.detail = "truncated chunk body";
         return false;
       }
-      if (decoded.size() + size > max_body_bytes) {
+      if (size > max_body_bytes - decoded.size()) {
         out.status = TransportStatus::ResponseTooLarge;
         out.detail = "chunked body exceeds cap";
         return false;
       }
       decoded.append(body_raw, i, size);
-      i += size + 2;  // skip the chunk's trailing CRLF
+      i += size;
+      // The chunk's trailing CRLF must actually be there. Skipping two bytes on faith is
+      // how a truncated frame becomes a silently short body.
+      if (body_raw.compare(i, 2, "\r\n") != 0) {
+        out.status = TransportStatus::MalformedResponse;
+        out.detail = "chunk not terminated by CRLF";
+        return false;
+      }
+      i += 2;
+    }
+    // A body that simply RAN OUT is not a complete body. Without this the loop exits on
+    // `i >= body_raw.size()` and the caller sets Ok, so a response truncated exactly at a
+    // chunk boundary is reported as a whole one -- the quietest way to lose data.
+    if (!saw_terminator) {
+      out.status = TransportStatus::MalformedResponse;
+      out.detail = "chunked body ended without a final 0 chunk";
+      return false;
     }
     out.body = std::move(decoded);
   } else {
@@ -292,6 +349,16 @@ HttpResponse LoopbackHttpTransport::send(const HttpRequest& request, std::uint32
     }
   }
 
+  // Refuse BEFORE serialising: the previewed digest and the wire bytes must describe the
+  // same request, so a header that cannot be sent safely must not reach either.
+  {
+    std::string why;
+    if (!headersAreWellFormed(request.headers, why)) {
+      resp.status = TransportStatus::RefusedMalformedRequest;
+      resp.detail = why;
+      return resp;
+    }
+  }
   const std::string wire = request.serialize();
   std::size_t sent = 0;
   while (sent < wire.size()) {

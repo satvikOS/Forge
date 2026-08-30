@@ -18,7 +18,6 @@
 #ifndef FORGE_NATIVE_BREP
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
-#include <IFSelect_ReturnStatus.hxx>
 #include <Interface_Static.hxx>
 #endif
 // OCCT_ZERO Wave-0 (B2): <StlAPI_Reader.hxx> / <StlAPI_Writer.hxx> REMOVED — STL
@@ -29,9 +28,6 @@
 // in-house native reader (forge/native/brep/IgesRead.hpp), A/B-certified vs OCCT
 // in test/native_vs_occt_iges.cpp. OCCT's TKDEIGES reader is no longer linked here.
 #include <TopoDS_Shape.hxx>
-#include <TopoDS_Shell.hxx>
-#include <TopoDS_Compound.hxx>
-#include <TopExp_Explorer.hxx>
 
 #include <fstream>
 #include <sstream>

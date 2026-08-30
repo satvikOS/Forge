@@ -251,3 +251,448 @@ Two consequences worth stating plainly:
 absent from the source list. It is not linked by anything today, so it is not fixed here — but a
 source file in the tree that no target compiles is either dead code or a second instance of this
 bug, and nothing currently distinguishes the two.
+
+
+---
+
+## D-008 — kernel-file work goes on its own branch while the in-flight tree is dirty (2026-08-28)
+
+**Context.** 36 of the 37 uncommitted files in the working tree are `forge-kernel/` sources and
+are user-owned. Two of them are actively harmful if committed as they stand: `CMakeLists.txt` is a
+superseded parallel line that would revert the TKOffset drop, and `Features.cpp` does not compile
+(`occtoffset::thickenShell` -- wrong namespace, and a fourth argument the 3-parameter declaration
+does not accept). Editing any of them in the main tree would mix my changes into someone else's
+uncommitted diff and make both harder to recover.
+
+**Decision.** Kernel-file work is done in a dedicated worktree branch and offered as a PR, never
+edited in the main tree, for as long as that file is in-flight. Non-kernel work (`simulation/`,
+`ui/`, `retrieval/`, `tools/`, `.github/`, `implementation/`) continues directly on the execution
+branch.
+
+**First application.** `fix/forge-verify-stoi` -> PR #62. The fix and its gate are complete and
+verified; only the merge waits on the in-flight file. Checked rather than assumed: the user's
+uncommitted diff to `forge_verify.cpp` is +33/-1 and does not touch `jsonUnescape`, so the two
+changes do not overlap textually and will merge cleanly once that work is committed.
+
+**Cost, stated plainly.** A verified fix sits unmerged. That is the correct trade -- the
+alternative is either destroying uncommitted user work or leaving a crash in the verifier -- but it
+is a real cost, and it grows with every kernel-file fix that queues up behind the same blocker.
+
+**What would end it.** The in-flight work being committed to its own branch. Until then, expect
+more branches like #62 rather than commits on the execution branch.
+
+## D-011 (2026-08-28) — spend a second emission run to get expert3d-v1 at n=600
+
+**Decision: yes.** Queued to start automatically when the v5cap emission finishes.
+
+The enlargement to 600 rows exists to make effects answerable: at n=25 the paired
+95% CI was about +-0.12 while every effect was under 0.07. But v1's emissions cover
+only the 36-row holdout, of which **15** rows fall in the 600 — so the v5cap-vs-v1
+comparison, the one the underpowered run could not settle, is not available on this
+set at any useful n. Scoring the 15-row overlap would be weaker than the n=25 result
+already in hand.
+
+The alternative was to report only v5cap against the bounding-box floor. That is the
+more fundamental bar — v1 is already known to be beaten by a box — but it leaves the
+adapter-versus-adapter question exactly where the n=25 run left it, which is the
+question the enlargement was built to answer.
+
+The cost is GPU time that would otherwise be idle: the two arms cannot share the
+model, so v1 is chained behind v5cap rather than run beside it, and the scoring is
+sharded five ways (measured 54 s/row single-threaded, so about 1.8 h rather than 9 h).
+
+**Comparability, checked rather than assumed:** NoveltyStop became the default at
+13:26 and the v5cap e600 run started about 16:32, so both arms run with it ON. The
+ORIGINAL v1 36-row emission predates that change and ran with it OFF — a real
+confound in the n=25 comparison, bounded by the measurement that NoveltyStop is
+score-neutral (31 of 32 rows identical, the one that moved went up). The n=600
+comparison does not inherit it.
+
+---
+
+## D-013 (2026-08-29): how to guard the unifyFaces SIGSEGV
+
+**Decision: detect the configuration and skip unification for that body.** Two other
+designs were implemented and MEASURED FIRST, and both were rejected on evidence
+rather than judgement:
+
+* **A null-pcurve pre-check on the input** -- the design this task started with.
+  Rejected: the crashing input is clean (`nullPcurves=0` over 9 faces and 42
+  face-edge pairs). The null is produced INSIDE the merge, so the check never fires.
+* **`ShapeUpgrade_UnifySameDomain::KeepShapes`**, withholding just the offending pair
+  so every other merge in the body survives -- strictly the nicer fix. Rejected:
+  all six crashing cases still SIGSEGV. `KeepShapes` stops a face being merged AWAY;
+  it does not keep the traversal off it.
+
+The shipped guard changes behaviour ONLY where the current behaviour is a crash.
+Measured over real emissions: 0 of 150 rows differ from the unguarded build, and it
+rescues `ho1139` from a SIGSEGV. An over-wide variant that drops the
+analytic-vs-extrusion test differs on 39 of 150 (26%), so the narrow condition is
+load-bearing and not a stylistic preference.
+
+**A prior conclusion was withdrawn in the course of this.** The first blast-radius
+measurement compared one binary against itself three times (`forge_verify` is a stub
+that loads a dylib; copying the executable copies a loader). On that invalid
+evidence the narrow and wide guards looked indistinguishable and the narrowness was
+written up as justified "on principle, not by corpus evidence". It is justified by
+corpus evidence. See `findings/AN_AB_THAT_COMPARED_ONE_BINARY_TO_ITSELF.md`.
+
+## D-014 (2026-08-29): PR #63 lands via the execution branch, not on its own
+
+CodeRabbit does not review PRs based on `claude/sacrosanct-execution-20260828` --
+its check reports `pass` with the description "Review skipped: reviews are disabled
+for this base branch", which is a green bucket over a review that never ran.
+**Decision: merge #63 into the execution branch** so the code reaches CodeRabbit
+through PR #61, which does get reviewed, rather than retargeting #63 at the default
+branch and dragging #61's commits into its diff.
+
+---
+
+## D-015 (2026-08-29): Archie's op constraint is real, but today's forge::ui cannot be the whole of it
+
+The instruction is that Archie must be trained on where the features, functions and ops
+live in the Forge app "so it only uses what Users can use". That is right, and the
+constraint is now MEASURED rather than assumed -- the command registry was compiled and
+EXECUTED, not read from docs:
+
+    forge::ui registry                     31 commands in 6 categories
+    commands that actually emit IR         14  (verified by dispatching each with a legal
+                                               selection and reading PartDocument::lastFeature)
+    distinct IR ops reachable from the UI  14  EXTRUDE REVOLVE LOFT HOLE CBORE FILLET
+                                               CHAMFER BLEND SHELL PATTERN MIRROR FUSE CUT COMMON
+    kernel ops in a default build          43
+    IR ops with NO forge::ui command       26  incl. RECT RRECT CIRCLE SLOT POLY REGPOLY
+                                               BOX CYL CONE, TRANSLATE, ROTATE
+
+**Taken literally, the constraint makes generation impossible rather than merely
+limited.** No command in the registry CREATES a value: every one of the 14 IR-emitting
+commands consumes a selection that must already exist. So RECT/CIRCLE/POLY and all 15
+profile and primitive ops are unreachable, and an Archie confined to today's registry
+could not emit a program that produces any solid at all -- there is nothing for EXTRUDE
+to extrude.
+
+**Decision: the constraint is a TARGET on forge::ui, not a cage for Archie.** The
+op vocabulary asset is still built and still authoritative, but the correct response to a
+gap is to EXTEND the UI to expose the op, not to forbid Archie from an operation users
+demonstrably need. Concretely:
+
+* Ops a user CAN reach today -> Archie may emit freely.
+* Ops with no command that a part cannot be built without (profile and primitive
+  creation) -> a forge::ui command is OWED, and the vocabulary records them as
+  `owed`, not as forbidden.
+* Ops that are genuine drift rather than policy -> fix the drift. ALIGN, COMPONENT and
+  ASSEMBLY exist in `forge::ft::opFromName` and are ABSENT from
+  `forge::ui::irOpTable()`. ALIGN matters: it is the recorded fix for the largest
+  measured failure mode in this programme (derived placement, where 40.4% of train and
+  48.2% of held-out TRANSLATE arguments are exact arithmetic on other constants).
+  Forbidding ALIGN would forbid the fix.
+
+**Also measured and NOT yet fixed:** `ui/test/run_ui.sh` is RED right now -- 8 of 246
+checks in `feature_ir`, because the UI's op table is 3 ops behind the kernel. The
+committed `APP_SURFACE_MANIFEST.tsv` and its own gate are green, so the command list
+above is trustworthy, but the drift is real and is the first thing the vocabulary
+generator will trip over.
+
+---
+
+## D-016 (2026-08-29): stop the v6r8 emission mid-run and train the axis-named round first
+
+**Decision: yes, switch — because nothing is lost by switching and the evidence favours
+the other experiment.**
+
+The v6r8 emission had run 3.5 hours and reached 238 of 600 rows, holding the GPU for
+another ~5. It answers a CAPACITY question: does expert LoRA rank 4 -> 8 help? The
+axis-named round answers the question the evidence actually points at.
+
+`ARCHIE_SHIFTS_THE_DIMENSIONS_DOWN_A_RANK.md` measured that on the rows Archie fails it
+emits the part's REAL dimensions and binds them to the WRONG AXES -- 67 of 116 failing
+rows show a strict rank shift against a shuffled-null 99th percentile of 10, only 4.3% are
+pose-consistent, and 67% get the LARGEST extent exact while 14-16% get the middle or
+smallest. The prompt handed the model three bare numbers in a fixed order. Capacity is not
+the measured bottleneck; binding is.
+
+**What made this safe rather than a gamble: the trace carries the IR.** Each row of
+`reports/archie_loop_v6r8_e600.jsonl` holds `history[-1]['ir']`, so the 238 completed rows
+were reconstructed into `emissions.part1.jsonl` and a 362-row remainder task file was
+written before anything was killed. 238 + 362 = 600, checked. No GPU work was discarded;
+only the ORDER of two jobs changed.
+
+Resuming is precedented rather than novel: v5cap's own e600 emission was run as 416 rows
+plus a 185-row resume, combined afterwards (`..._COMBINED.jsonl`). `archie_loop.py` has no
+`--resume` flag, so the mechanism is the remainder task file plus a trace merge, which is
+exactly what was done then.
+
+**The cost, stated:** the v6r8 capacity answer is delayed, and its two halves will have
+been emitted at different times. That is the same seam v5cap's own arm carries, so the
+comparison is not made worse by it -- but it is a seam, and it is recorded here rather
+than discovered later.
+
+## D-017 (2026-08-29): the OCCT drop is measured and is NOT shippable; FILLING is the one family that earns its flip
+
+The twelve `FORGE_*_DROP_*` options all name the same flip condition — "native success
+rate >= the measured OCCT baseline" — and until tonight nothing measured it. The corpus
+A/B harness did not exist; `golden_corpus_measure.cpp` measures per-model freeze/verify on
+72 steps and is a different gate. It exists now and it returns a negative answer.
+
+**20-part stride sample** (the corpus is sorted hardest-first, so a prefix is biased —
+this programme has already measured a prefix at 0.2423 where the full set read 0.3617):
+
+| family | native | OCCT | valid nat/occt | deletion bucket |
+|---|---|---|---|---|
+| PIPE | DEFER 20 | OK 20 | 0 / 20 | 20 of 20 |
+| DRAFT | DEFER 19 | OK 17, THREW 2 | 0 / 16 | 19 of 19 |
+| PIPESHELL | OK 15, DEFER 5 | OK 20 | 15 / 20 | 5, and 15 DISAGREE |
+| THICKEN | OK 17, DEFER 3 | OK 20 | 17 / 20 | 3, 17 agree only up to orientation |
+| FILLING | OK 17, DEFER 3 | OK 17, THREW 3 | 17 / 17 | 0 — 17/17 agree fully |
+
+**DECISION: closure 14 -> 11 is accepted as a BUILD result and REFUSED as a ship result.**
+PIPE and DRAFT defer on every applicable part, so with the fallback compiled out those two
+options delete the capability outright. PIPESHELL is worse than a defer on 15 parts: it
+DISAGREES, which returns a different solid and tells nobody. Only FILLING passes its own
+flip gate, and there OCCT actually THREW on 3 parts where native deferred honestly.
+
+The seven correctness A/Bs passing was never sufficient evidence: they measure whether the
+native engines are RIGHT on hand-built cases, and the question was how often they DECLINE
+on real ones. Those are different questions and only the second gates shipping.
+
+**The stated caveat was closed by measurement, not argument.** The first build forked
+before #80's canonize fix, so THICKEN's disagreement might have been a
+`SurfaceOfLinearExtrusion` artifact. Rebuilt at HEAD `67507174` with canonize verified
+present: identical numbers. It also separated two problems being treated as one — THICKEN's
+17 agree on `|volume|` and differ only in signed orientation (a bounded fix); PIPESHELL's
+15 agree on neither, so it builds different geometry.
+
+**OCCT is not the reliable arm it is being treated as.** Two of three crash reports this
+session were OCCT's own `BRepOffset_Inter2d::ConnexIntByInt` faulting at 0x60 inside
+`libTKOffset` — the very toolkit these engines would replace — each contained in its forked
+child. `ARM_CRASH` is a distinct status from `ARM_DEFER`, set on `WIFSIGNALED`, and
+`--selftest` asserts a deliberate segfault returns CRASH and never a defer, so PIPE's
+`DEFER 20` is twenty honest declines rather than twenty crashes under a softer name.
+
+Recorded as PR #81. The full 600 x all-families run is in flight and becomes the baseline.
+
+## D-018 (2026-08-29): old Forge versions are NOT deleted yet; deletion is gated on the C++ app, and the gate is named
+
+The standing order says to delete all old Forge versions from the repo and locally. I am
+deferring that deletion and stating why rather than either doing it or dropping it.
+
+Measured state: `forge-desktop` is a real C++ application — 51,468 LOC across 33 C++ files
+on ImGui + Vulkan/MoltenVK + SDL2, with a headless frame gate that builds REAL frames and
+asserts values against references. It is not a stub. But it had NO build directory at all
+before tonight, so nothing in the repo demonstrated it runs, and the release is
+independently blocked (bundled dylibs at minos=26.0, Gatekeeper rejecting the ad-hoc
+signature with spctl exit 3).
+
+Deleting the working JS application before its replacement is demonstrably usable would
+leave users with neither. The safety constraint is also explicit that JS must not be
+deleted by extension before its behaviour is mapped and the C++ replacement proven, and the
+measured position is that ZERO of 1,768 JS files currently clear that bar.
+
+**DECISION: deletion waits on a NAMED gate, not on a judgement call.** All four must hold:
+1. `forge_desktop` configures and builds clean from a cold tree (in flight tonight).
+2. The headless frame gate passes on that build.
+3. The user-invocable op inventory shows the C++ UI covers the operations the JS app
+   exposes — the honest blocker today, since D-015 found no forge::ui command creates a
+   value, which makes generation from an empty document impossible.
+4. A Gatekeeper-acceptable bundle exists, which may itself depend on the OCCT drop if the
+   minos=26.0 floor comes from OCCT dylibs.
+
+Until all four hold the old versions stay, and `e2e/forge` (101M, 248 js/ts) stays as the
+behavioural reference the mapping in (3) is measured against.
+
+## D-019 (2026-08-29): the release is NOT blocked on OCCT; the floor and Gatekeeper are separate causes and neither waits on the kernel
+
+I raised the hypothesis that the OCCT drop and the release blocker were the same problem —
+the minos=26.0 floor comes from bundled Homebrew dylibs, so removing OCCT would remove the
+floor. **That hypothesis is refuted by measurement.**
+
+Simulating the closure walk with every `libTK*` deleted leaves the floor at **26.0**, with
+two survivors, both linked DIRECTLY into `forge_desktop` and structural rather than
+incidental (`forge-desktop/CMakeLists.txt:94,97,174`):
+
+| survivor | minos | source |
+|---|---|---|
+| `libSDL2-2.0.0.dylib` | 26.0 | homebrew sdl2 |
+| `libvulkan.1.dylib` | 26.0 | homebrew vulkan-loader |
+
+OCCT accounts for 16 of 18 floor-setters — `libtbb`/`libtbbmalloc` do leave with it, being
+referenced only by `libTKBO/TKernel/TKGeomBase/TKMath/TKTopAlgo` — but not the last two.
+`otool -L` on the shipped executable confirms exactly three non-system deps: SDL2, vulkan,
+and `libforge_kernel_core.dylib`. The window layer and renderer are OCCT-independent by
+construction.
+
+**Root cause 1 — the floor is a RUNNER-IMAGE problem, not a dependency problem.** `minos`
+is inherited from whichever Homebrew bottle tag the build host pulls, and
+`-DCMAKE_OSX_DEPLOYMENT_TARGET` cannot lower a floor inside someone else's binary. This
+host is macOS 26.6.2, so every bottle here is `arm64_tahoe` at 26.0 — OCCT and non-OCCT
+alike. opencascade, sdl2-compat, vulkan-loader and tbb all publish arm64_sonoma and
+arm64_sequoia bottles too, so SDL2 and vulkan have the SAME escape hatch as OCCT.
+`desktop-release.yml:129` already pins `runs-on: macos-15` with `FORGE_FLOOR_MAX: "15.0"`,
+which fixes the floor for the whole bundle WITH OCCT STILL PRESENT.
+
+**Root cause 2 — Gatekeeper is independent, and a positive control proves it.** A trivial
+`.app` — one Mach-O compiled at `minos=14.0`, zero Homebrew dylibs, zero OCCT — is still
+`rejected, exit 3` ad-hoc signed, and STILL rejected with hardened runtime
+(`flags=0x10002(adhoc,runtime)`). `security find-identity -v -p codesigning` returns **0
+valid identities**. So spctl rejects on the absence of a Developer ID signature plus
+notarization. That needs a paid credential, not code, and would reject a 14.0-floor
+OCCT-free artifact just the same.
+
+**A third blocker, separate from both:** `desktop-release.yml` is not on the default
+branch (`git ls-tree origin/archdisc -- .github` lists only `build-app.yml` and
+`kernel-tests.yml`). `workflow_dispatch` only registers from the default branch, so the
+dry-run path does not exist and the only working trigger is the tag push that publishes.
+
+**DECISION: stop treating the OCCT drop as a release prerequisite.** They are orthogonal in
+both directions. The drop is justified on dependency-closure grounds alone (D-017), and the
+release is unblocked by a runner pin plus a Developer ID — neither of which the kernel work
+gates. Per the standing constraint, no tag is pushed and no draft release is published.
+
+## D-018 UPDATE (2026-08-29, same night): gates 1 and 2 now SATISFIED and mutation-proved
+
+`forge_desktop` had no build directory because it has a PREREQUISITE, not a defect: it
+needs `libforge_kernel_core` built first, and its CMake says so by name with the exact
+command (`forge-desktop/CMakeLists.txt:45-56`). Built that (`-DFORGE_BUILD_NODE_ADDON=OFF
+-DFORGE_BUILD_DESKTOP_FOUNDATION=ON`, rc=0), after which:
+
+* **Gate 1 SATISFIED** — configure rc=0, `forge_desktop_frame_gate` rc=0, `forge_desktop`
+  rc=0. Both binaries link exactly three non-system deps.
+* **Gate 2 SATISFIED** — the headless frame gate runs **132 checks, 0 failures**, and does
+  real work: builds a kernel body (BOX -> CUT -> FILLET, 240 triangles / 10 faces / 3
+  features), renders a real frame (5310 vtx / 11151 idx, 16 draw lists, 4 panels),
+  materialises a 14-row feature tree, and measures area 13405.325 mm2 / volume 77278.139
+  mm3 / watertight with 0 boundary, 0 non-manifold, 0 reversed edges.
+
+It exited 0 with no visible output at first, which is the shape of a gate that cannot fail,
+so it was **mutation-proved**: changing one expected bbox value from 80.0f to 81.0f made it
+exit 1 with `FAIL bounding box X == 80mm  80.000000`. Restoring took a forced rebuild — the
+first restore raced CMake's timestamp granularity and left a STALE MUTANT BINARY reporting
+1 failure against clean source, which is precisely the false reading this programme keeps
+hitting. Confirmed back to 132/0 with the file byte-identical and the worktree clean.
+
+Gates 3 (op coverage) and 4 (Gatekeeper-acceptable bundle) remain. Per D-019, gate 4 does
+NOT depend on the OCCT drop; it needs a Developer ID plus notarization.
+
+## D-018 RE-VERIFIED ON ORIGIN (2026-08-29): the earlier pass was measured on a 36-commit-stale tree
+
+The gate-1/gate-2 result above was measured in a checkout that turned out to be **36
+commits behind origin** and 3 ahead. That is the in-flight-vs-HEAD trap this programme has
+now hit four times in one day, and it is the reason the claim was re-run rather than left
+standing.
+
+Rebuilt from `origin/claude/sacrosanct-execution-20260828` in a clean worktree:
+`KCORE_BUILD=0`, `CONFIGURE_RC=0`, `GATE_BUILD_RC=0`, `GATE_RUN_RC=0`, and the headless
+frame gate reports **135 checks, 0 failures** — three MORE checks than the stale tree's 132.
+So gates 1 and 2 hold on the real tree, and the conclusion is unchanged; only its
+provenance is now correct.
+
+The same staleness explains the "SKETCH seed" defect: it is real in the stale tree and was
+ALREADY FIXED on origin, where `wirePartCommands` replays `defaultPartStatements()` and
+reports a refusal by name. What was still live on origin was the RESIDUE — two UI gates
+still seeding the non-existent op and still discarding `seed()`'s return. That is fixed in
+PR #82 with a negative control both ways.
+
+**Rule reinforced, since restating it has not been enough:** every measured claim must name
+the tree it was measured against, and the tree must be checked against origin at the moment
+of measurement — not assumed from the branch name.
+
+## D-020 (2026-08-29): the corpus A/B baseline is INDEPENDENTLY REPLICATED, and it found a live production defect
+
+The 600-part baseline was produced TWICE, by two separately written harness drivers, in
+different worktrees, at different build SHAs, hours apart. **All ten per-family rows are
+identical** — same N, same native %, same OCCT % — across 6000 paired trials. Both runs
+also independently reached the same two non-coverage findings, on the same part, to three
+decimals.
+
+The second run supplies the check the first could not: **ten per-family native POSITIVE
+CONTROLS, 10/10 OK**, each engine fed an input its own header documents as in scope. That
+is what makes PIPE 0.3%, DRAFT 0.0% and THRUSECTIONS 0.0% believable as ENGINE results
+rather than a mis-wired arm — the question left open the moment the first zeros appeared.
+
+It also counts the OCCT arm's own failures, which are large: **OFFSETSHAPE CRASHED on 66 of
+600** parts and MAKEOFFSET TIMED OUT on 5. Those are the 23 contained crash reports this
+machine logged, all one stack (`BRepOffset_MakeOffset` -> `BRepOffset_Inter2d::ConnexIntByInt`
+-> `BRep_Tool::CurveOnSurface` at 0x60). The arm being treated as the trustworthy reference
+is itself unreliable on this corpus.
+
+And a guard that COULD NOT FIRE was found and fixed: the first build-SHA-vs-HEAD guard
+exited 0 on a poisoned stamp because the driver rebuilds and re-stamps on the line above
+it. Both guards are now proved to fire (exit 3, exit 4). Same class as the four harnesses
+that could not link.
+
+**A LIVE PRODUCTION DEFECT, found by a harness not looking for it.** `Features.cpp` does
+`return ShapeRegistry::instance().add(mk.Shape());` unmodified, and `mk.Shape()` is
+negatively oriented on all 407 shared successes — so `part::thickenSurface` hands the
+ShapeRegistry a **reversed solid** today on the default non-native path. **DECISION: record
+it, do not fix it blind.** The correct remedy — reverse the solid, or leave the convention
+to consumers — depends on what downstream consumers assume about orientation, and that has
+not been measured. Fixing it without that measurement would be exactly the guesswork this
+programme keeps paying for.
+
+## D-021 (2026-08-29): Archie's allowed op set is the forge::ui vocabulary, and that vocabulary is NOT CLOSED — the gap is named and owed, not trained around
+
+The standing order is that Archie be "trained on where the features, functions, ops are in
+the Forge app so it only uses what Users can use". Executing that requires a decision the
+op inventory explicitly could not make for itself, because it is a decision and not a
+measurement: **which surface defines "what users can use"?**
+
+There are two candidate surfaces and they are far apart:
+
+* **`forge::ui` (C++)** — 31 commands, 16 emitting IR, **14 user-invocable kernel ops**.
+* **The shipped Electron/React app** — `package.json:6` -> `electron/main.js:404` ->
+  `frontend/dist/index.html`, whose `frontend/src/ai/ForgeToolBridge.js:962` defines
+  **154 tool ids**, including the very creators the C++ surface lacks (`part.make-box`,
+  `part.make-cylinder`, `sketch.add-circle`, ...).
+
+**DECISION: the C++ `forge::ui` vocabulary is the allowed set.** The C++ app is the
+shipping target, the JS app is under an explicit deletion order, and `ZERO_JS_MIGRATION_MANIFEST.md`
+already records forge-v4 as the app being replaced. Training Archie against a surface the
+programme intends to delete would buy a working demo today and a retraining bill later. The
+machine-readable form of that set already exists and is CI-gated:
+`implementation/sacrosanct/archie_op_vocabulary.json`, with `emission_policy.allowed_ops`
+listing the 14 and `forbidden_ops` giving a REASON for each of the 26.
+
+**But the honest consequence must be stated rather than papered over: that vocabulary is
+not closed, so the constraint as written is UNSATISFIABLE.** This is not an opinion; the
+artifact computes it about itself in `value_kind_closure.gaps`:
+
+| gap | needed by | producers in the allowed set | producers in the kernel |
+|---|---|---|---|
+| PROFILE | EXTRUDE, REVOLVE | **none** | CIRCLE, POLY, RECT, REGPOLY, RRECT, SLOT |
+| WIRE | LOFT | **none** | RING, WIRE |
+
+All 14 allowed ops take a value reference as their first argument, and the only value kind
+any of them PRODUCES is SOLID. So from an empty document no legal program exists: every
+generation must begin from a value the user cannot create. Independently confirmed by
+execution — seeding only `RECT` and driving the real commands yields a full nine-statement
+program (RECT -> EXTRUDE -> FUSE -> FILLET -> HOLE -> SHELL -> PATTERN), so **one profile
+producer unlocks the entire existing registry.**
+
+**DECISION: close the gap in the UI rather than relax the constraint in training.** The
+alternative — letting Archie emit ops no user can invoke — would reintroduce exactly the
+gap this constraint exists to remove, and would be invisible in any eval that scores
+geometry rather than reachability. The owed set, smallest first:
+
+1. **PROFILE producer — `RECT` (strict minimum, measured).** Unlocks EXTRUDE/REVOLVE and
+   through them every remaining op.
+2. **`CIRCLE`** — second profile producer; without it a large class of real parts is
+   unreachable.
+3. **WIRE producer — `WIRE` or `RING`** — closes the second gap and makes LOFT reachable.
+4. **`TRANSLATE`** — load-bearing and easy to miss: it is ORPHAN today, so nothing can be
+   POSITIONED, and every boolean would operate on bodies coincident at the origin.
+5. **`INPUT`** — the only creator for an imported body, so the whole edit family
+   (PUSHFACE, RESIZEBORE, DEFEATURE, TAG, VERIFY, HEAL) is unreachable without it.
+
+`ALIGN` is separately notable: orphan AND absent from the UI op table, which matters
+because ALIGN is this programme's recorded fix for derived placement — the sub-task
+measured as unlearnable.
+
+**Until (1) lands, any claim that Archie is "constrained to user-invocable ops" is a claim
+about an empty language.** That is recorded here so no future eval reports a score against
+this constraint without the reader knowing it.
+
+Seven `derived_defects` are already recorded in the artifact and are NOT re-litigated here,
+but two are worth naming because they are live: `edit.delete` declares `feature_ir_op
+"DELETE"`, an op the kernel does not have, so nothing can ever compile it; and
+`model.extrude`, `model.fillet`, `model.shell` all declare an op and emit nothing, because
+`ForgeShell` holds only a `DocumentStats` counter and no `PartDocument`.

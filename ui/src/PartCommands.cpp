@@ -140,7 +140,15 @@ bool UndoStack::redo(PartDocument& doc) {
   if (undone_.empty()) return false;
   std::unique_ptr<UndoableEdit> edit = std::move(undone_.back());
   undone_.pop_back();
-  if (!edit->apply(doc)) return false;
+  if (!edit->apply(doc)) {
+    // The pop above happened BEFORE the outcome was known. Returning here without
+    // putting the edit back destructs it: the redo step vanishes from the stack
+    // with no message, and the user cannot get that feature back. apply() really
+    // does refuse -- AppendFeatureEdit replays its ORIGINAL ir id, and any append
+    // that bypassed this stack (PartDocument::seed is public) has taken it.
+    undone_.push_back(std::move(edit));
+    return false;
+  }
   done_.push_back(std::move(edit));
   return true;
 }
@@ -188,6 +196,19 @@ std::string singleNode(const SelectionService& sel) {
   return node;
 }
 
+// A count is a count only if it is a WHOLE number. Written once because it was
+// already written twice -- LINEAR and CIRCULAR each carried their own copy -- and
+// then forgotten a third time, which is how GRID came to accept `nx = 1.5`.
+// The magnitude test is what makes the cast DEFINED: static_cast<long long> of a
+// double outside long long's range is undefined behaviour, and these values come
+// straight from user-supplied parameters. It also rejects NaN, since every
+// comparison against NaN is false.
+bool wholeCount(double v) {
+  constexpr double kTwoPow63 = 9223372036854775808.0;  // exactly representable
+  if (!(v > -kTwoPow63 && v < kTwoPow63)) return false;
+  return v == static_cast<double>(static_cast<long long>(v));
+}
+
 double num(const CommandContext& ctx, const char* name, double fallback) {
   return ctx.params().number(name).value_or(fallback);
 }
@@ -203,9 +224,14 @@ bool hasNumber(const CommandContext& ctx, const char* name) {
 
 std::string bodyNodeFor(int irId) { return "body_" + std::to_string(irId); }
 
+// Profiles get their own node prefix so a selection can tell a sketch from a solid:
+// resolveValues() maps EntityRef::bodyId -> valueFor() -> kindOf(), and a created
+// PROFILE has to be addressable by the same route a seeded one is.
+std::string sketchNodeFor(int irId) { return "sketch_" + std::to_string(irId); }
+
 // One emission == one undoable transaction.
-void emit(PartDocument& doc, UndoStack& stack, const char* commandId, const char* label,
-          const char* op, std::vector<IrArg> args, IrValueKind produces,
+void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* commandId,
+          const char* label, const char* op, std::vector<IrArg> args, IrValueKind produces,
           const std::vector<std::string>& consumed, const std::string& producedNode) {
   FeatureRecord rec;
   rec.irId = doc.nextIrId();
@@ -214,7 +240,12 @@ void emit(PartDocument& doc, UndoStack& stack, const char* commandId, const char
   rec.line = IrLine{rec.irId, op, std::move(args)};
   rec.produces = produces;
   const std::string node = producedNode.empty() ? bodyNodeFor(rec.irId) : producedNode;
-  stack.perform(doc, std::make_unique<AppendFeatureEdit>(rec, consumed, node));
+  // perform() returns whether the edit applied. Discarding it is how a refused feature became
+  // a command that reported success and did nothing; appendFeature() is documented to refuse
+  // and mutate NOTHING, and it was doing exactly that, unheard.
+  if (!stack.perform(doc, std::make_unique<AppendFeatureEdit>(rec, consumed, node))) {
+    ctx.fail(std::string("the document refused the statement: ") + toString(doc.lastCheck()));
+  }
 }
 
 // Shared shape of every solid-editing command: exactly one solid in, the same
@@ -235,6 +266,22 @@ SolidTarget solidTarget(const PartDocument& doc, const SelectionService& sel) {
   t.value = ids.front();
   t.node = node;
   return t;
+}
+
+// The FAIL-CLOSED read of a selection-derived value list. solidTarget() already
+// gives every solid command this discipline -- it returns ok=false rather than
+// indexing -- but three handlers indexed the raw vector instead and relied
+// entirely on their enabled predicate having run first. dispatch() does run it,
+// but CommandRegistry::find() hands out the descriptor with its public execute,
+// so the predicate is a convention, not an enforcement. MEASURED on the code
+// before this guard: calling execute() directly with an empty selection exits
+// 139 (SIGSEGV) -- resolveValues returns a default-constructed vector whose data
+// pointer is null, and front() dereferences it. Not a wrong answer: a crash.
+bool requireValues(CommandContext& ctx, const std::vector<int>& ids, std::size_t want) {
+  if (ids.size() == want) return true;
+  ctx.fail("selection does not resolve to " + std::to_string(want) +
+           " feature-IR value(s) of the required kind");
+  return false;
 }
 
 CommandDescriptor base(const char* id, const char* label, const char* irOp,
@@ -262,6 +309,113 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     if (registry.add(std::move(c))) ++added;
   };
 
+  // ── RECTANGLE ─────────────────────────────────────────────────────────────
+  // The FIRST value-CREATING command in this registry, and the reason it exists is a
+  // measured closure gap rather than a feature request. archie_op_vocabulary.json
+  // computes `value_kind_closure.gaps` about itself and reports that PROFILE is consumed
+  // by EXTRUDE and REVOLVE while NO user-invocable op produces one -- every one of the 14
+  // allowed ops takes a value reference first, and the only kind any of them produces is
+  // SOLID. From an empty document no legal program existed: the constraint "emit only what
+  // a user can invoke" described an EMPTY LANGUAGE.
+  //
+  // One profile producer closes it. Seeding RECT alone and driving the existing commands
+  // yields RECT -> EXTRUDE -> FUSE -> FILLET -> HOLE -> SHELL -> PATTERN, so this single
+  // command makes the whole existing registry reachable from nothing.
+  //
+  // Takes NO selection (SelectionSignature::none()) because it consumes no value. That is
+  // what makes it a creator, and it is the property the registry did not have.
+  {
+    CommandDescriptor c = base("part.sketch_rect", "Rectangle", "RECT",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"width", ParamType::Number, true, 40.0, ""});
+    c.schema.push_back(ParamSpec{"height", ParamType::Number, true, 30.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      // A zero or negative side is not a rectangle; the kernel would refuse it and the
+      // command must not offer itself as callable when it cannot succeed.
+      return num(ctx, "width", 0.0) > 0.0 && num(ctx, "height", 0.0) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      // The IrArg::num(num(ctx, ...)) calls are INLINE on purpose. The vocabulary
+      // generator derives each emitted argument by parsing this lambda and matching
+      // `num(ctx, "name", default)`; hoisting them into locals makes it see a bare `w`
+      // and REFUSE with "unparsed numeric argument" rather than guess. Refusing is the
+      // right behaviour, so the command is written the way the tool can read.
+      std::vector<IrArg> args{IrArg::num(num(ctx, "width", 40.0)),
+                              IrArg::num(num(ctx, "height", 30.0))};
+      // RECT(w, h [, cx=0, cy=0]) -- emit the centre only when it is not the default, so
+      // the emitted form matches what the vocabulary records as this command's minimal
+      // argument count and Archie is not trained to pad every statement.
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_rect", "Rectangle", "RECT", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── CIRCLE ────────────────────────────────────────────────────────────────
+  // The second PROFILE producer. RECT alone makes the language non-empty; it does not
+  // make it expressive -- every revolve, every round boss and every cylindrical part
+  // starts from a circle, and with only RECT reachable none of them could be authored.
+  {
+    CommandDescriptor c = base("part.sketch_circle", "Circle", "CIRCLE",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) { return num(ctx, "radius", 0.0) > 0.0; };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::num(num(ctx, "radius", 10.0))};
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_circle", "Circle", "CIRCLE", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── MOVE ──────────────────────────────────────────────────────────────────
+  // TRANSLATE was ORPHAN, and that is more serious than one missing command: with no
+  // way to POSITION a body, every boolean in this registry operated on solids coincident
+  // at the origin. FUSE, CUT and COMMON were reachable but not USEFUL -- two boxes both
+  // at the origin have nothing interesting to subtract. This is also the op class behind
+  // the derived-placement sub-task this programme measured as the hardest thing Archie
+  // has to learn, so leaving it unreachable made that failure permanent by construction.
+  //
+  // Like every other solid-editing command it keeps the body's IDENTITY: the node is
+  // consumed and reproduced, so the body gains history rather than becoming a new body.
+  {
+    CommandDescriptor c = base("part.move", "Move Body", "TRANSLATE",
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{"dx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"dy", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"dz", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      // A zero move is a no-op statement in the history; refuse it rather than record it.
+      return solidTarget(*d, ctx.selection()).ok &&
+             (num(ctx, "dx", 0.0) != 0.0 || num(ctx, "dy", 0.0) != 0.0 ||
+              num(ctx, "dz", 0.0) != 0.0);
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::num(num(ctx, "dx", 0.0)),
+                              IrArg::num(num(ctx, "dy", 0.0)), IrArg::num(num(ctx, "dz", 0.0))};
+      emit(ctx, *d, *s, "part.move", "Move Body", "TRANSLATE", std::move(args),
+           IrValueKind::Solid, {t.node}, t.node);
+    };
+    add(std::move(c));
+  }
+
   // ── EXTRUDE ───────────────────────────────────────────────────────────────
   {
     CommandDescriptor c = base("part.extrude", "Extrude", "EXTRUDE",
@@ -276,14 +430,16 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
              num(ctx, "distance", 0.0) != 0.0;  // a zero-height extrude is not a solid
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const int profile = resolveValues(*d, ctx.selection(), IrValueKind::Profile).front();
+      const std::vector<int> profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
+      if (!requireValues(ctx, profiles, 1)) return;
+      const int profile = profiles.front();
       std::vector<IrArg> args{IrArg::valueRef(profile), IrArg::num(num(ctx, "distance", 10.0))};
       if (hasNumber(ctx, "dirx") || hasNumber(ctx, "diry") || hasNumber(ctx, "dirz")) {
         args.push_back(IrArg::num(num(ctx, "dirx", 0.0)));
         args.push_back(IrArg::num(num(ctx, "diry", 0.0)));
         args.push_back(IrArg::num(num(ctx, "dirz", 1.0)));
       }
-      emit(*d, *s, "part.extrude", "Extrude", "EXTRUDE", std::move(args), IrValueKind::Solid,
+      emit(ctx, *d, *s, "part.extrude", "Extrude", "EXTRUDE", std::move(args), IrValueKind::Solid,
            {}, {});
     };
     add(std::move(c));
@@ -305,7 +461,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
              a <= 360.0;
     };
     c.execute = [d, s](CommandContext& ctx) {
-      const int profile = resolveValues(*d, ctx.selection(), IrValueKind::Profile).front();
+      const std::vector<int> profiles = resolveValues(*d, ctx.selection(), IrValueKind::Profile);
+      if (!requireValues(ctx, profiles, 1)) return;
+      const int profile = profiles.front();
       std::vector<IrArg> args{IrArg::valueRef(profile), IrArg::num(num(ctx, "angle", 360.0))};
       if (hasNumber(ctx, "axx") || hasNumber(ctx, "axy") || hasNumber(ctx, "axz")) {
         args.push_back(IrArg::num(0.0));  // ox, oy, oz — origin of the axis line
@@ -315,7 +473,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(num(ctx, "axy", 1.0)));
         args.push_back(IrArg::num(num(ctx, "axz", 0.0)));
       }
-      emit(*d, *s, "part.revolve", "Revolve", "REVOLVE", std::move(args), IrValueKind::Solid,
+      emit(ctx, *d, *s, "part.revolve", "Revolve", "REVOLVE", std::move(args), IrValueKind::Solid,
            {}, {});
     };
     add(std::move(c));
@@ -338,7 +496,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       }
       if (flagOn(ctx, "ruled")) args.push_back(IrArg::keyword("RULED"));
       if (flagOn(ctx, "open")) args.push_back(IrArg::keyword("OPEN"));
-      emit(*d, *s, "part.loft", "Loft", "LOFT", std::move(args), IrValueKind::Solid, {}, {});
+      emit(ctx, *d, *s, "part.loft", "Loft", "LOFT", std::move(args), IrValueKind::Solid, {}, {});
     };
     add(std::move(c));
   }
@@ -367,7 +525,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(1.0));
         args.push_back(IrArg::num(num(ctx, "depth", 0.0)));  // <= 0 => through
       }
-      emit(*d, *s, "part.hole", "Hole", "HOLE", std::move(args), IrValueKind::Solid, {}, t.node);
+      emit(ctx, *d, *s, "part.hole", "Hole", "HOLE", std::move(args), IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
   }
@@ -398,7 +556,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
                               IrArg::num(num(ctx, "x", 0.0)),
                               IrArg::num(num(ctx, "y", 0.0)),
                               IrArg::num(num(ctx, "z", 0.0))};
-      emit(*d, *s, "part.counterbore", "Counterbore Hole", "CBORE", std::move(args),
+      emit(ctx, *d, *s, "part.counterbore", "Counterbore Hole", "CBORE", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -423,7 +581,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       args.push_back(sel == "ALL" || sel == "VERTICAL" || sel == "RIM" || sel == "CONVEX"
                          ? IrArg::keyword(sel)
                          : IrArg::text(sel));
-      emit(*d, *s, "part.fillet", "Edge Fillet", "FILLET", std::move(args), IrValueKind::Solid,
+      emit(ctx, *d, *s, "part.fillet", "Edge Fillet", "FILLET", std::move(args), IrValueKind::Solid,
            {}, t.node);
     };
     add(std::move(c));
@@ -446,7 +604,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       args.push_back(sel == "ALL" || sel == "VERTICAL" || sel == "RIM" || sel == "CONVEX"
                          ? IrArg::keyword(sel)
                          : IrArg::text(sel));
-      emit(*d, *s, "part.chamfer", "Edge Chamfer", "CHAMFER", std::move(args),
+      emit(ctx, *d, *s, "part.chamfer", "Edge Chamfer", "CHAMFER", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -475,7 +633,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::keyword("ALL"));
         args.push_back(IrArg::keyword("SMOOTH"));
       }
-      emit(*d, *s, "part.variable_fillet", "Variable Fillet", "BLEND", std::move(args),
+      emit(ctx, *d, *s, "part.variable_fillet", "Variable Fillet", "BLEND", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -502,7 +660,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(num(ctx, "open_axy", 0.0)));
         args.push_back(IrArg::num(num(ctx, "open_axz", -1.0)));
       }
-      emit(*d, *s, "part.shell", "Shell Body", "SHELL", std::move(args), IrValueKind::Solid, {},
+      emit(ctx, *d, *s, "part.shell", "Shell Body", "SHELL", std::move(args), IrValueKind::Solid, {},
            t.node);
     };
     add(std::move(c));
@@ -521,8 +679,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       const double n = num(ctx, "count", 0.0);
       // A one-instance pattern is a no-op feature, and a fractional count is not
       // a count: both are refused rather than emitted and left to the kernel.
-      return solidTarget(*d, ctx.selection()).ok && n >= 2.0 &&
-             n == static_cast<double>(static_cast<long long>(n));
+      return solidTarget(*d, ctx.selection()).ok && n >= 2.0 && wholeCount(n);
     };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
@@ -533,7 +690,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
         args.push_back(IrArg::num(num(ctx, "dy", 0.0)));
         args.push_back(IrArg::num(num(ctx, "dz", 0.0)));
       }
-      emit(*d, *s, "part.pattern_linear", "Linear Pattern", "PATTERN", std::move(args),
+      emit(ctx, *d, *s, "part.pattern_linear", "Linear Pattern", "PATTERN", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -549,15 +706,15 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     c.enabled = [d](const CommandContext& ctx) {
       const double n = num(ctx, "count", 0.0);
       const double a = num(ctx, "total_angle", 360.0);
-      return solidTarget(*d, ctx.selection()).ok && n >= 2.0 &&
-             n == static_cast<double>(static_cast<long long>(n)) && a > 0.0 && a <= 360.0;
+      return solidTarget(*d, ctx.selection()).ok && n >= 2.0 && wholeCount(n) && a > 0.0 &&
+             a <= 360.0;
     };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::keyword("POLAR"),
                               IrArg::num(num(ctx, "count", 4.0)),
                               IrArg::num(num(ctx, "total_angle", 360.0))};
-      emit(*d, *s, "part.pattern_circular", "Circular Pattern", "PATTERN", std::move(args),
+      emit(ctx, *d, *s, "part.pattern_circular", "Circular Pattern", "PATTERN", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -575,14 +732,15 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     c.enabled = [d](const CommandContext& ctx) {
       const double nx = num(ctx, "nx", 0.0);
       const double ny = num(ctx, "ny", 0.0);
-      return solidTarget(*d, ctx.selection()).ok && nx >= 1.0 && ny >= 1.0 && nx * ny >= 2.0;
+      return solidTarget(*d, ctx.selection()).ok && nx >= 1.0 && ny >= 1.0 &&
+             wholeCount(nx) && wholeCount(ny) && nx * ny >= 2.0;
     };
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       std::vector<IrArg> args{IrArg::valueRef(t.value),   IrArg::keyword("GRID"),
                               IrArg::num(num(ctx, "nx", 2.0)), IrArg::num(num(ctx, "ny", 2.0)),
                               IrArg::num(num(ctx, "dx", 10.0)), IrArg::num(num(ctx, "dy", 10.0))};
-      emit(*d, *s, "part.pattern_grid", "Grid Pattern", "PATTERN", std::move(args),
+      emit(ctx, *d, *s, "part.pattern_grid", "Grid Pattern", "PATTERN", std::move(args),
            IrValueKind::Solid, {}, t.node);
     };
     add(std::move(c));
@@ -602,7 +760,7 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     c.execute = [d, s](CommandContext& ctx) {
       const SolidTarget t = solidTarget(*d, ctx.selection());
       std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::keyword(txt(ctx, "plane", "XY"))};
-      emit(*d, *s, "part.mirror", "Mirror Body", "MIRROR", std::move(args), IrValueKind::Solid,
+      emit(ctx, *d, *s, "part.mirror", "Mirror Body", "MIRROR", std::move(args), IrValueKind::Solid,
            {}, t.node);
     };
     add(std::move(c));
@@ -635,6 +793,9 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     const std::string op = b.op;
     c.execute = [d, s, id, label, op](CommandContext& ctx) {
       const std::vector<int> ids = resolveValues(*d, ctx.selection(), IrValueKind::Solid);
+      if (!requireValues(ctx, ids, 2)) return;
+      // front() below is safe ONLY because of the line above: resolveValues walks
+      // the selection, so two distinct ids cannot come from an empty selection.
       const std::string targetNode = ctx.selection().selection().front().bodyId;
       std::string toolNode;
       for (const EntityRef& ref : ctx.selection().selection()) {
@@ -649,8 +810,10 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
       rec.label = label;
       rec.line = IrLine{rec.irId, op, {IrArg::valueRef(ids[0]), IrArg::valueRef(ids[1])}};
       rec.produces = IrValueKind::Solid;
-      s->perform(*d, std::make_unique<AppendFeatureEdit>(rec, std::vector<std::string>{toolNode},
-                                                         targetNode));
+      if (!s->perform(*d, std::make_unique<AppendFeatureEdit>(
+                              rec, std::vector<std::string>{toolNode}, targetNode))) {
+        ctx.fail(std::string("the document refused the statement: ") + toString(d->lastCheck()));
+      }
     };
     add(std::move(c));
   }
@@ -685,7 +848,8 @@ const std::vector<std::string>& partCommandIds() {
         "part.fillet",            "part.hole",             "part.loft",
         "part.mirror",            "part.pattern_circular", "part.pattern_grid",
         "part.pattern_linear",    "part.redo",             "part.revolve",
-        "part.shell",             "part.undo",             "part.variable_fillet",
+        "part.shell",             "part.sketch_circle",    "part.sketch_rect",
+        "part.move",              "part.undo",             "part.variable_fillet",
     };
     std::sort(v.begin(), v.end());
     return v;
