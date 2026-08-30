@@ -9,7 +9,7 @@
 #      other file included <vector> first fails HERE and not in someone's IDE.
 #   1. build          — the node-free kernel core, then the app and the gate.
 #                       First-party code compiles -Wall -Wextra -Werror (SR-3).
-#   2. gates          — three headless gates, none of which needs a GPU:
+#   2. gates          — four headless gates, none of which needs a GPU:
 #                       * ir_pipeline — a UI-authored feature-IR program parses,
 #                         compiles and measures as a real solid.
 #                       * document    — the user-launchable slice: the ONE
@@ -18,7 +18,11 @@
 #                       * frame       — real ImGui frames over the real forge::ui
 #                         services and a real tessellated kernel body, with no
 #                         window, no swapchain and no MoltenVK.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. Sixteen defects are
+#                       * update      — the auto-update path: appcast parsing,
+#                         SemVer ordering, sha256 verification, ditto staging,
+#                         the ad-hoc signature check and the atomic bundle swap,
+#                         against real files and WITHOUT opening a socket.
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. Twenty-three defects are
 #                       injected in turn and each MUST make its gate exit
 #                       non-zero; a mutation that stays green fails this script,
 #                       because an unfalsifiable check is not a check.
@@ -72,7 +76,7 @@ if ! cmake --build "$APP_BUILD" -j "$JOBS" > "$LOG/abuild.log" 2>&1; then
   grep -E "error:|Error" "$LOG/abuild.log" | head -30
   echo "[desktop] app build FAILED"; exit 1
 fi
-echo "[desktop] built forge_desktop + 3 headless gates (-Wall -Wextra -Werror clean)"
+echo "[desktop] built forge_desktop + 4 headless gates (-Wall -Wextra -Werror clean)"
 
 BAD=0
 TOTAL_MUTATIONS=0
@@ -113,6 +117,13 @@ run_gate() {
 run_gate forge_desktop_ir_pipeline_gate
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7
+# The AUTO-UPDATE gate. It needs none of the build above -- libforge_updater
+# links nothing but libc++ -- so it can also be run on its own in seconds with
+# test/run_update_gate.sh --mutations, which is the form CI uses. It runs here
+# too because "the desktop gates" should mean all of them, and because the path
+# it covers is the one that decides whether a shipped copy of Forge can ever
+# reach the next version.
+run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
 
 # ── 3. mutation verdict ──────────────────────────────────────────────────────
 if [ "$BAD" -ne 0 ]; then
