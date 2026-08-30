@@ -444,6 +444,26 @@ move to the C++ side first.
 gate 3 is measured against; deleting the reference before the thing it measures is how a
 regression becomes invisible.
 
+**Making entry condition (1) countable.** "Covers the operations `e2e/forge` exercises" needs a
+number or it is a judgement. Measured on this tree, `e2e/forge` exercises two surfaces and they
+are very different sizes:
+
+| what `e2e/forge` asserts | count | note |
+|---|---:|---|
+| distinct `forge.<fn>(` kernel calls | **9** | `isReady, loadError, makeBox, makeCylinder, makeSphere, massProps, tessellate, translate, version` — all 9 present in `preload.js` (negative control on an invented name returns 0) |
+| distinct `data-testid="…"` selectors | **1,170** | the UI surface it actually gates |
+
+So the *kernel* half of the reference is tiny and already almost within reach — 9 calls, of
+which the C++ registry covers `makeBox`/`makeCylinder`/`makeSphere` **not at all** (they are
+`part.make-*`, absent from the C++ surface) but `translate`/`massProps`/`tessellate` have C++
+peers. The *UI* half is 1,170 assertions against 30 commands, and that is the real T5 cost.
+Stating both stops the tier from being justified by whichever number is convenient.
+
+*(Precision on the 445: `electron/preload.js` has 445 `name: (` binding lines resolving to
+**351 distinct leaf names** — 14 names appear in more than one namespaced sub-object. Both
+figures are correct for different questions; §2.3's 30/445 is the ratio against exposed
+bindings.)*
+
 ### T6 — the tail
 
 `electron/` (F8), `projects/` (F11), `playwright.config.js` + `electron-builder.yml` + the JS
