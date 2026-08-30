@@ -186,6 +186,19 @@ contained only because the coverage harness forks per arm) and threw on 6. It
 does cover 4 NURBS parts the native engine cannot, which is a real if small
 capability.
 
+> **Caveat on "7 against 5", stated because validity is not correctness.**
+> OFFSETSHAPE's `BOTH_OK` bucket is **0** — the two engines never both succeed on
+> the same part — so on this corpus there is **no cross-arm oracle** for either
+> side. Validity says a solid is closed, manifold and non-self-intersecting; it
+> does not say it is the right solid. The independent check available here is the
+> first-order volume identity for an outward offset, `V ≈ V₀ + A₀·d`: measured on
+> ho1041 536314.7 against 538804.2, ho519 99269.1 against 99778.4, ho980 304695.7
+> against 306072.0 — **0.45–0.51% under** in every case, the sign and scale a
+> second-order term produces on a part whose concave features lose volume as the
+> skin grows outward. Consistent with a correct offset, and not a proof of one.
+> The dedicated oracle remains `test/run_ab_native_offsetshape.sh` (206/206
+> against closed forms and against OCCT on shapes where both engines work).
+
 Neither family is a case where OCCT works and native does not.
 
 ---
