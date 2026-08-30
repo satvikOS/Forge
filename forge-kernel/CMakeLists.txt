@@ -257,9 +257,31 @@ set(OCCT_LIBS
 #   and inside the 309 parts where BOTH arms build, ALL 309 agree with OCCT on the FULL
 #   observable vector (volume + centre of mass + bounding box + face/edge/vertex/shell
 #   counts + validity) with ZERO disagreements — so the added coverage is exact, not
-#   merely present. The option STILL FAILS its flip gate: the surviving 258-part gap is
-#   sections carrying CIRCLE (232 parts) or B-SPLINE (106 parts) edges, which a ruled
-#   loft of polygon rings does not cover and which is a different engine, not a fix.
+#   merely present. The option STILL FAILS its flip gate.
+#
+# ★★ AND THAT ROW HAS MOVED AGAIN, because the sentence that used to end the paragraph
+#   above was WRONG and is kept here struck through rather than deleted: it read "the
+#   surviving 258-part gap is sections carrying CIRCLE or B-SPLINE edges, which a ruled
+#   loft of polygon rings does not cover and which is a different engine, not a fix."
+#   It was a fix. The engine was INSTRUMENTED (FK_DEFER on every thruSections return,
+#   test/run_thrusections_engine_census.sh) and its own labels said the whole remainder
+#   was ONE cause — prof_edge_not_line, 291 of 291 deferrals — because a section was
+#   represented as a ring of VERTICES and so had to be all-line-edged. Faceting those
+#   arcs would have been the wrong solid; the fix is an IDENTITY instead: when section B
+#   is section A translated by T, the ruled loft between them IS the linear extrusion of
+#   A along T, exactly, for any edge geometry. 189 of the 258 deleted parts (73.3%) are
+#   exact translates. RE-MEASURED over the same 600 parts, stride 1, 0 part-level errors:
+#     FORGE_THRUSECTIONS_DROP_NATIVE     83.0      94.5       69/600       3.4e-21
+#   All 498 shared successes agree with OCCT on the FULL observable vector, 0 disagree,
+#   and all 498 native results are BRepCheck_Analyzer VALID. The 309 parts the engine
+#   already covered are byte-identical to the previous run (the new path is reached only
+#   on the polygonal path's defer), and the untouched control families measured in the
+#   same two runs did not move: PIPESHELL 51.5% and THICKEN 67.8%, 0 bucket changes and
+#   0 native-payload changes per part. The option STILL FAILS its flip gate: the
+#   surviving 69 parts are pairs that are NOT translates (81 of the 102 remaining
+#   deferrals are an edge-count mismatch between the two sections, 21 are a genuine
+#   non-translate), and a non-translated pair of curved sections needs ruled surfaces
+#   between the curves, which is a different engine.
 #
 # ★ FORGE_FILLING_DROP_NATIVE IS THE ONE OPTION THIS MEASUREMENT CLEARS, and it clears
 #   it perfectly: 407 parts where both built, 193 where neither did, ZERO discordant
