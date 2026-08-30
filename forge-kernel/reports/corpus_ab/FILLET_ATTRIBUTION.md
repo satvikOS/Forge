@@ -182,12 +182,44 @@ Every part moved in exactly one of two ways, and no part moved in any other:
   already had on 60 of its original 146 successes; it is **not** improved here and is
   named as an open item in §5.
 
+### The census re-run, at the committed SHA, 0 dirty files under `src`/`include`/`test`
+
+| after the fix | value |
+|---|---|
+| buckets | `BOTH_OK` 344, `OCCT_ONLY` 117, `NEITHER` 139, `NATIVE_ONLY` 0 |
+| parts returning OK with the input's volume unchanged | **0** (was 51) |
+| `\|ΔV\| / (1-π/4)R²L` over all 344 native successes | **min 1.000000, median 1.000000, max 1.000000** |
+| the 51 seam parts, now `NEITHER` | `same_face` 51/51, `IsTangentFaces` 51/51, 0 contours 51/51, `Cylinder`/`Cylinder` 51/51 |
+
+The 117 that remain in the deletion bucket are, by the engine's own guard text:
+
+| guard | parts |
+|---|---:|
+| `end face not planar` | 58 |
+| `adjacent face has a non-straight outer boundary` | 21 |
+| `adjacent face A is not planar` | 18 |
+| `adjacent face B is not planar` | 11 |
+| `adjacent face extent not measurable — deferring` | 7 |
+| `vertex is not a simple 3-face corner` | 2 |
+
+Every one is a scope statement already written in `NativeFilletChamfer.hpp`. The
+`fillet volume disagrees` bucket is **empty**.
+
 ### Regression check on the 146 that already passed
 
 * native volume **bit-identical before and after on 146/146**;
 * full-vector agreement count **86 before, 86 after**.
 
 The fix adds parts and changes nothing that already worked.
+
+### And nothing outside FILLET moved
+
+The re-measurement is the **full ten-family run** (600 parts, 6600 paired trials, 0
+part-level errors), not a FILLET-only slice, so a collateral change would show. None
+did — every other row is identical to the committed baseline as it stands after wave
+3: `MAKEOFFSET` 94.5/99.0, `THICKSOLID` 1.2/22.2, `OFFSETSHAPE` 1.2/6.3,
+`THRUSECTIONS` 51.5/94.5, `PIPE` 41.5/100.0, `PIPESHELL` 51.5/100.0, `FILLING`
+67.8/67.8 (still the only PASS), `THICKEN` 67.8/100.0, `DRAFT` 0.0/88.0.
 
 ### Gates
 
@@ -244,8 +276,8 @@ Three limits, stated because they bound what the numbers above mean:
 | census driver (per-part process, HEAD-moved gate) | `forge-kernel/test/run_fillet_defer_census.sh` |
 | census rows, BEFORE the fix | `reports/corpus_ab/fillet_census_before_600.jsonl.gz` (+ `_manifest.json`) |
 | census rows, AFTER the fix | `reports/corpus_ab/fillet_census_after_600.jsonl.gz` |
-| A/B rows, AFTER the fix | `reports/corpus_ab/fillet_after_600_results.jsonl.gz` |
-| A/B summary + provenance, AFTER | `reports/corpus_ab/fillet_after_600_summary.md`, `_manifest.json` |
+| A/B rows, AFTER the fix (all ten families, 6600 pairs) | `reports/corpus_ab/full600_after_filletfix_results.jsonl.gz` |
+| A/B summary + provenance, AFTER | `reports/corpus_ab/full600_after_filletfix_summary.md`, `_summary.json`, `_manifest.json` |
 
 Re-run:
 
