@@ -71,6 +71,8 @@ namespace {
 
 int g_pass = 0, g_total = 0;
 
+const double kPi = 3.14159265358979323846;
+
 void check(bool cond, const std::string& what) {
     ++g_total;
     std::printf("  %s %s\n", cond ? "[PASS]" : "[FAIL]", what.c_str());
@@ -852,9 +854,17 @@ int main() {
                 }
             }
 
-            // A hole this engine cannot represent must DEFER, never be dropped.
-            // An ELLIPTICAL hole is neither a polygon nor a circle: no exact
-            // swept surface exists in this engine's vocabulary for it.
+            // ★ AN ELLIPTICAL HOLE IS NOW CARRIED, NOT DECLINED — and the thing
+            // this case has always been protecting against is the hole being
+            // silently DROPPED. Until the curved-section transport landed there
+            // was no exact swept surface in this engine's vocabulary for an
+            // ellipse and the only honest answer was a defer; sweepFaceMitre
+            // extrudes the section FACE, so every boundary curve — the four
+            // outer lines and the elliptical inner wire alike — gets its own
+            // Geom_SurfaceOfLinearExtrusion lateral face. The assertion is
+            // therefore STRENGTHENED rather than relaxed: the closed form now
+            // has to come out right WITH the hole subtracted, and the extra wall
+            // has to be present, which a dropped hole could not fake.
             {
                 const TopoDS_Wire sp = spineOf(straightSpine);
                 gp_Elips he(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 6.0, 3.0);
@@ -863,8 +873,29 @@ int main() {
                 ew.Reverse();
                 BRepBuilderAPI_MakeFace mkEl(outer, Standard_True);
                 mkEl.Add(ew);
-                check(forge::occtloft::pipe(sp, mkEl.Face(), 1.0e-6).IsNull(),
-                      "defer: a face with an ELLIPTICAL hole is DECLINED, not swept without it");
+                const TopoDS_Shape natEl = forge::occtloft::pipe(sp, mkEl.Face(), 1.0e-6);
+                const TopoDS_Face solidFace =
+                    BRepBuilderAPI_MakeFace(outer, Standard_True).Face();
+                const TopoDS_Shape natFull = forge::occtloft::pipe(sp, solidFace, 1.0e-6);
+                check(!natEl.IsNull(),
+                      "elliptical hole: the sweep BUILDS (curved-section transport)");
+                check(!natFull.IsNull(), "elliptical hole control: the hole-free sweep builds");
+                if (!natEl.IsNull() && !natFull.IsNull()) {
+                    const Metrics ne = measure(natEl), nf = measure(natFull);
+                    const double cf = (1600.0 - kPi * 6.0 * 3.0) * 25.0;
+                    std::printf("      elliptical-hole vol=%.10g F=%d S=%d valid=%d   "
+                                "hole-free vol=%.10g F=%d\n",
+                                ne.vol, ne.nFace, ne.nShell, static_cast<int>(ne.valid),
+                                nf.vol, nf.nFace);
+                    check(relClose(ne.vol, cf, 1.0e-9),
+                          "elliptical hole: volume == CLOSED FORM (square minus pi*a*b) * 25");
+                    check(!relClose(ne.vol, nf.vol, 1.0e-6),
+                          "elliptical hole: the hole is THERE — volume differs from hole-free");
+                    check(ne.nFace == nf.nFace + 1,
+                          "elliptical hole: exactly ONE extra face, the elliptical wall");
+                    check(ne.nShell == 1, "elliptical hole: exactly ONE shell");
+                    check(ne.valid, "elliptical hole: the solid is BRepCheck VALID");
+                }
             }
         }
 
@@ -879,13 +910,27 @@ int main() {
                   "defer: a profile plane not perpendicular to the first leg is DECLINED");
         }
         {
-            // An ELLIPSE profile is neither a polygon nor a circle.
+            // ★ AN ELLIPSE PROFILE IS NEITHER A POLYGON NOR A CIRCLE, AND IS NOW
+            // COVERED. On a STRAIGHT spine the curved-section transport needs no
+            // boolean at all — both stations are perpendicular to the leg, so the
+            // answer IS occtPrism's prism — and the closed form is met exactly.
+            // The old row asserted the defer this replaces.
             gp_Elips el(gp_Ax2(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), 6.0, 3.0);
             const TopoDS_Wire ew =
                 BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(el).Edge()).Wire();
             const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25)});
-            check(forge::occtloft::pipe(sp, ew, 1.0e-6).IsNull(),
-                  "defer: an ELLIPSE profile is DECLINED (neither polygon nor circle)");
+            const TopoDS_Shape nat = forge::occtloft::pipe(sp, ew, 1.0e-6);
+            check(!nat.IsNull(), "ELLIPSE profile: the sweep BUILDS on a straight spine");
+            if (!nat.IsNull()) {
+                const Metrics m = measure(nat);
+                std::printf("      ellipse-profile vol=%.10g F=%d S=%d valid=%d\n",
+                            m.vol, m.nFace, m.nShell, static_cast<int>(m.valid));
+                check(relClose(m.vol, kPi * 6.0 * 3.0 * 25.0, 1.0e-9),
+                      "ELLIPSE profile: volume == CLOSED FORM pi*a*b*L");
+                check(m.nFace == 3, "ELLIPSE profile: 3 faces (one lateral wall, two caps)");
+                check(m.nShell == 1, "ELLIPSE profile: exactly ONE shell");
+                check(m.valid, "ELLIPSE profile: the solid is BRepCheck VALID");
+            }
         }
         {
             // A 180-degree spine reversal has no mitre plane.
@@ -894,13 +939,46 @@ int main() {
                   "defer: a 180-degree spine reversal is DECLINED");
         }
         {
-            // A circle whose centre is off the spine start is outside scope.
+            // ★ A CIRCLE CENTRED OFF THE SPINE START WAS OUT OF SCOPE FOR
+            // pipeCircleMitre (which requires the centre ON the spine) AND IS NOW
+            // COVERED by the curved-section transport, which needs no such
+            // restriction: the mitre is a rigid motion of the whole section
+            // wherever it sits. The old row asserted the defer this replaces.
+            //
+            // THE CLOSED FORM. The centroid starts at (3,0,0). The mitre plane at
+            // (0,0,25) has normal (1,0,1)/sqrt2, so the centroid travels
+            //   s0 = ((0,0,25)-(3,0,0)).n / ((0,0,1).n) = (25-3) = 22
+            // to (3,0,22); the end plane is x = 30, so s1 = 30-3 = 27. Hence
+            //   V = pi r^2 (22+27) = pi*16*49.
+            // OCCT is NOT an oracle on a bent spine (see the banner), so this is
+            // checked against that closed form — and, crucially, against the SAME
+            // circle centred ON the spine, which must give a DIFFERENT answer.
+            // Volume alone would ratify an engine that quietly ignored the offset.
             gp_Ax2 off(gp_Pnt(3.0, 0, 0), gp_Dir(0, 0, 1));
             const TopoDS_Wire ow =
                 BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(off, cr)).Edge()).Wire();
+            gp_Ax2 on(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1));
+            const TopoDS_Wire onw =
+                BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(gp_Circ(on, cr)).Edge()).Wire();
             const TopoDS_Wire sp = spineOf({gp_Pnt(0, 0, 0), gp_Pnt(0, 0, 25), gp_Pnt(30, 0, 25)});
-            check(forge::occtloft::pipe(sp, ow, 1.0e-6).IsNull(),
-                  "defer: a circle centre off the spine start is DECLINED");
+            const TopoDS_Shape natOff = forge::occtloft::pipe(sp, ow, 1.0e-6);
+            const TopoDS_Shape natOn = forge::occtloft::pipe(sp, onw, 1.0e-6);
+            check(!natOff.IsNull(), "circle off spine: the sweep BUILDS");
+            check(!natOn.IsNull(), "circle off spine control: the ON-spine sweep builds");
+            if (!natOff.IsNull() && !natOn.IsNull()) {
+                const Metrics mo = measure(natOff), mn = measure(natOn);
+                std::printf("      off-spine vol=%.10g F=%d S=%d valid=%d   "
+                            "on-spine vol=%.10g\n",
+                            mo.vol, mo.nFace, mo.nShell, static_cast<int>(mo.valid), mn.vol);
+                check(relClose(mo.vol, kPi * cr * cr * 49.0, 1.0e-6),
+                      "circle off spine: volume == CLOSED FORM pi*r^2*(22+27)");
+                check(relClose(mn.vol, kPi * cr * cr * 55.0, 1.0e-6),
+                      "circle off spine control: ON-spine volume == pi*r^2*(25+30)");
+                check(!relClose(mo.vol, mn.vol, 1.0e-3),
+                      "circle off spine: the OFFSET is honoured — the two differ");
+                check(mo.nShell == 1, "circle off spine: exactly ONE shell");
+                check(mo.valid, "circle off spine: the solid is BRepCheck VALID");
+            }
         }
     }
 
