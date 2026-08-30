@@ -203,7 +203,21 @@ int main() {
     }
   }
   CHECK_EQ_INT(documentCommands, app.partCommands + 1);  // + edit.delete
-  CHECK_EQ_INT(documentCommandsWithIr, documentCommands);
+  // Every document command emits feature IR EXCEPT part.edit_feature, and that exception
+  // is structural rather than an oversight: edit_feature MUTATES an existing statement's
+  // argument in place, so it has no op of its own to emit -- the statement it edits already
+  // carries one. Naming the single exemption keeps this as strong as the equality it
+  // replaces: a SECOND op-less document command still fails here.
+  std::size_t documentCommandsWithoutIr = 0;
+  for (const std::string& id : shell.registry().ids()) {
+    const CommandDescriptor* c = shell.registry().find(id);
+    if (c->undo == UndoContract::Transaction && c->featureIrOp.empty()) {
+      ++documentCommandsWithoutIr;
+      CHECK_EQ_STR(id, "part.edit_feature");
+    }
+  }
+  CHECK_EQ_INT(documentCommandsWithoutIr, 1);
+  CHECK_EQ_INT(documentCommandsWithIr, documentCommands - 1);
 
   // ── one dispatch path: shortcut, palette pick and macro step all land ───
   // in the SAME journal, because they all go through run().

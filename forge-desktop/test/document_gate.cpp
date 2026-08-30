@@ -57,6 +57,10 @@
 //   7  the keystroke dispatches with a bare              -> the shortcut dies on
 //      CommandParams, as ForgeShell::key() used to          missing_required_parameter and
 //                                                          models nothing
+//   8  the parameter editor is aimed by TREE ROW    -> it lands on the statement
+//      POSITION instead of by STATEMENT ID             before the one the user
+//                                                      picked, and the part never
+//                                                      changes
 
 #include <algorithm>
 #include <cmath>
@@ -688,6 +692,192 @@ int main(int argc, char** argv) {
               "and that name resolves to the LAST statement");
     }
     std::remove(bare.c_str());
+  }
+
+  // ── 6b. A FEATURE PARAMETER IS EDITED IN PLACE ───────────────────────────
+  //
+  // THE DEFECT THIS SECTION EXISTS FOR. PartDocument::appendFeature() refuses
+  // any statement not numbered nextIrId(), so before part.edit_feature the
+  // document was APPEND-ONLY: no user action anywhere in the app could change a
+  // number already in the program. The starting part is worse than that -- its
+  // five statements are SEEDED, so they carry no undo step and even undoing back
+  // to the beginning could not reach them. The plate a user opens on was 80 x 50
+  // x 20 with a d12 bore and r3 corners, permanently.
+  //
+  // A fresh trio, so the assertions here stand on the document the app OPENS ON
+  // and not on whatever the fillet/undo/redo sections above left behind.
+  {
+    forge::desktop::KernelScene editScene;
+    check(editScene.build(), "edit-scene builds the starting part", editScene.error());
+    forge::ui::ForgeShell editShell;
+    forge::desktop::ForgeFrame editFrame(editShell, editScene);
+    editFrame.wirePartCommands();
+
+    // The FILLET is the last seeded statement, and it is the one whose radius a
+    // user reaches for first. Its id is read from the seed table, never spelled.
+    const int filletId = static_cast<int>(forge::desktop::defaultPartStatements().size());
+    editFrame.setEditTarget(filletId, 0);
+    checkEq(editFrame.editFeatureId(), filletId, "the editor aims at the fillet statement");
+    // FILLET(%4, 3, VERTICAL) -- one number, and index 0 must step over the %ref
+    checkEq(editFrame.editParamCount(), 1u, "FILLET exposes exactly one numeric parameter");
+    check(std::fabs(editFrame.editParamValue() - 3.0) < 1e-9,
+          "and the editor reads the radius the document actually holds",
+          std::to_string(editFrame.editParamValue()));
+
+    // A tree node resolves to the SAME statement the editor is aimed at -- the
+    // 0-based row / 1-based statement off-by-one is the bug this pins down.
+    const forge::ui::NodeId filletNode =
+        editFrame.treeSource().childAt(editFrame.treeSource().rootId(),
+                                       static_cast<std::size_t>(filletId) - 1);
+    checkEq(editFrame.treeSource().featureIrIdOf(filletNode), filletId,
+            "the fillet's TREE ROW maps back to the fillet's statement id");
+    checkEq(editFrame.treeSource().featureIrIdOf(editFrame.treeSource().rootId()), 0,
+            "the document root names no statement");
+
+    const Fingerprint beforeEdit = fingerprint(editScene);
+    const std::size_t buildsBeforeEdit = editScene.builds();
+    const std::size_t statementsBefore = editFrame.document().records().size();
+    const std::size_t undoBeforeEdit = editShell.document().undoDepth;
+
+    // MUTATION 5 stands for the single likeliest real defect in this feature:
+    // the editor aimed by TREE ROW POSITION (0-based) instead of by STATEMENT ID
+    // (1-based). It lands on CUT(%2, %3), which has no numeric parameter at all,
+    // so the command is refused and the part never changes -- silently, if
+    // nothing below asserted the geometry.
+    const int aimedAt = g_mutation == 8 ? filletId - 1 : filletId;
+    editFrame.setEditTarget(aimedAt, 0);
+
+    // THE EDIT. Through ForgeFrame::applyFeatureEdit, which dispatches
+    // part.edit_feature on the ONE registry -- not a private call into the
+    // document, which would bypass the undo stack and the journal.
+    check(editFrame.applyFeatureEdit(6.0), "the parameter edit dispatched and rebuilt",
+          editShell.journal().empty() ? "no dispatch recorded" : editShell.journal().back());
+
+    const Fingerprint afterEdit = fingerprint(editScene);
+    std::printf("[doc-gate] after r3 -> r6: %s\n", afterEdit.str().c_str());
+
+    // An EDIT appends nothing. This is what separates it from every other Part
+    // command, and from the only workaround that existed before it.
+    checkEq(editFrame.document().records().size(), statementsBefore,
+            "the edit added NO statement to the program");
+    checkStrEq(editFrame.document().records().at(static_cast<std::size_t>(filletId) - 1)
+                   .line.text(),
+               "%" + std::to_string(filletId) + " = FILLET(%" + std::to_string(filletId - 1) +
+                   ", 6, VERTICAL)",
+               "the statement itself was rewritten, in place");
+    // ...and it kept the operand it had, and touched nothing else. The reference
+    // is DERIVED from the seed table rather than spelled out, so this check
+    // cannot drift into agreeing with a stale program. A parameter edit that
+    // reparented the feature would still compile and would still look plausible
+    // on screen; this is what refuses it.
+    std::string expectedProgram = forge::desktop::defaultPartIr();
+    const std::size_t radiusAt = expectedProgram.rfind(", 3, VERTICAL)");
+    check(radiusAt != std::string::npos, "the seed table still ends on FILLET(..., 3, VERTICAL)",
+          forge::desktop::defaultPartIr());
+    if (radiusAt != std::string::npos) {
+      expectedProgram.replace(radiusAt, std::string(", 3, VERTICAL)").size(), ", 6, VERTICAL)");
+    }
+    checkStrEq(editFrame.document().irProgram(), expectedProgram,
+               "ONLY the radius moved; every other statement is byte-identical");
+
+    check(editScene.builds() > buildsBeforeEdit, "the edit drove a REAL kernel rebuild",
+          std::to_string(editScene.builds()) + " builds");
+    check(editScene.lastBuild().ok(), "the re-compiled solid built", editScene.lastBuild().error);
+    check(editScene.lastBuild().valid, "and is valid", "not valid");
+    check(!(afterEdit == beforeEdit), "the viewport geometry actually changed",
+          "fingerprint identical: " + afterEdit.str());
+    // A LARGER fillet removes MORE material. Volume alone would not catch a
+    // rebuild that filleted the wrong edges, so the bbox and the face count come
+    // with it.
+    check(afterEdit.volume < beforeEdit.volume, "r6 removes more material than r3",
+          std::to_string(afterEdit.volume) + " vs " + std::to_string(beforeEdit.volume));
+    check(afterEdit.volume > 0.95 * beforeEdit.volume, "and still only a rim of it",
+          std::to_string(afterEdit.volume));
+    checkEq(afterEdit.faceCount, beforeEdit.faceCount,
+            "the same edges are filleted, so the face count is unchanged");
+    for (int i = 0; i < 3; ++i) {
+      check(std::fabs((afterEdit.bbox[3 + i] - afterEdit.bbox[i]) -
+                      (beforeEdit.bbox[3 + i] - beforeEdit.bbox[i])) < 0.25f,
+            "a fillet radius change does not resize the plate",
+            std::to_string(afterEdit.bbox[3 + i] - afterEdit.bbox[i]));
+    }
+    checkEq(editShell.document().undoDepth, undoBeforeEdit + 1,
+            "one edit == one step on the REAL undo stack");
+    check(editFrame.documentDirty(), "the document is dirty after an edit", "not dirty");
+    check(std::fabs(editFrame.editParamValue() - 6.0) < 1e-9,
+          "the editor now reads the NEW value back out of the document",
+          std::to_string(editFrame.editParamValue()));
+
+    // ── the edit is UNDOABLE, and its undo removes no statement ────────────
+    const forge::ui::DispatchResult undoEdit = editShell.run("edit.undo");
+    check(undoEdit.ok() && editShell.lastDocumentError().empty(), "edit.undo dispatched",
+          editShell.lastDocumentError());
+    editFrame.syncSceneToDocument();
+    checkEq(editFrame.document().records().size(), statementsBefore,
+            "undoing an EDIT removes no statement (an append's undo does)");
+    check(fingerprint(editScene) == beforeEdit,
+          "undo restored the ORIGINAL geometry, not just the text",
+          fingerprint(editScene).str() + " vs " + beforeEdit.str());
+    checkStrEq(editFrame.document().irProgram(), forge::desktop::defaultPartIr(),
+               "and the whole program is the seeded one again, byte for byte");
+
+    const forge::ui::DispatchResult redoEdit = editShell.run("edit.redo");
+    check(redoEdit.ok() && editShell.lastDocumentError().empty(), "edit.redo dispatched",
+          editShell.lastDocumentError());
+    editFrame.syncSceneToDocument();
+    check(fingerprint(editScene) == afterEdit, "redo replayed the SAME edited solid",
+          fingerprint(editScene).str());
+
+    // ── the edited value survives a real .fpart round trip ─────────────────
+    // The format stores each argument structurally, so this is the check that it
+    // stores the argument's VALUE and not a label it once had.
+    const std::string editPath = tempPath("edited.fpart");
+    forge::ui::CommandParams saveEdited;
+    saveEdited.setText("path", editPath);
+    check(editShell.run("file.save", saveEdited).ok() && editShell.lastDocumentError().empty(),
+          "the edited document saved", editShell.lastDocumentError());
+    check(editShell.run("file.new").ok(), "file.new reset it", editShell.lastDocumentError());
+    editFrame.syncSceneToDocument();
+    check(fingerprint(editScene) == beforeEdit, "a new document is the SEEDED part again",
+          fingerprint(editScene).str());
+    forge::ui::CommandParams openEdited;
+    openEdited.setText("path", editPath);
+    check(editShell.run("file.open", openEdited).ok() && editShell.lastDocumentError().empty(),
+          "the edited document reopened", editShell.lastDocumentError());
+    editFrame.syncSceneToDocument();
+    check(fingerprint(editScene) == afterEdit,
+          "and rebuilt the EDITED solid, not the seeded one",
+          fingerprint(editScene).str() + " vs " + afterEdit.str());
+    std::remove(editPath.c_str());
+
+    // ── what the editor REFUSES ────────────────────────────────────────────
+    // CUT(%2, %3) is all refs: there is no number to edit, so the command is
+    // Disabled rather than silently writing into a %ref slot.
+    editFrame.setEditTarget(filletId - 1, 0);
+    checkEq(editFrame.editParamCount(), 0u, "CUT exposes no numeric parameter");
+    const Fingerprint beforeRefusal = fingerprint(editScene);
+    const std::string programBeforeRefusal = editFrame.document().irProgram();
+    check(!editFrame.applyFeatureEdit(9.0), "editing a parameter that does not exist is REFUSED",
+          "it was accepted");
+    checkStrEq(editFrame.document().irProgram(), programBeforeRefusal,
+               "and the refusal moved no byte of the program");
+    check(fingerprint(editScene) == beforeRefusal, "nor a triangle of the viewport",
+          fingerprint(editScene).str());
+
+    // A no-op edit is refused too, so Apply on an unchanged number never pushes
+    // an undo step that undoes nothing.
+    editFrame.setEditTarget(filletId, 0);
+    const std::size_t depthBeforeNoop = editShell.document().undoDepth;
+    check(!editFrame.applyFeatureEdit(editFrame.editParamValue()),
+          "re-applying the SAME value is refused", "it was accepted");
+    checkEq(editShell.document().undoDepth, depthBeforeNoop,
+            "so the undo stack never gains a step that does nothing");
+
+    // The frame still builds a real ImGui frame with the editor on screen.
+    ImDrawData* editDraw = buildOneFrame(editFrame);
+    check(editDraw != nullptr && editDraw->TotalVtxCount > 0,
+          "the Properties panel with the parameter editor draws",
+          editDraw == nullptr ? "no draw data" : std::to_string(editDraw->TotalVtxCount));
   }
 
   // ── 7. A REFUSED REBUILD DOES NOT TAKE THE APP DOWN ──────────────────────

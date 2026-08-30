@@ -49,6 +49,7 @@
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Vertex.hxx>
+#include <TopoDS_Compound.hxx>
 #include <TopoDS_Iterator.hxx>
 #include <TopAbs.hxx>
 #include <TopExp.hxx>
@@ -364,9 +365,27 @@ TopoDS_Face planarFaceFromRing(std::vector<gp_Pnt> ring, const gp_Pln& pln,
     return mf.Face();
 }
 
-// Sew a mixed set of pristine + rebuilt faces into one closed outward solid.
+// Sew a mixed set of pristine + rebuilt faces into one closed outward body.
 // Returns a null shape if no closed shell forms (caller defers).
-TopoDS_Shape sewToSolid(const std::vector<TopoDS_Face>& faces) {
+//
+// ★ MEASURED 2026-08-30 over the 600-part corpus A/B, and it accounted for the
+//   ENTIRE largest defer bucket of the FILLET row. Of the 344 parts that reach
+//   this routine, the sew closes perfectly on all of them — 0 free edges and 0
+//   multiple edges on every one — but it closes into ONE shell on 146 and into
+//   TWO on 198, and those 198 are two-LUMP bodies (the corpus's STEP files carry
+//   two disjoint solids). This routine used to take TopExp_Explorer's FIRST shell
+//   and build a solid from it, silently deleting the other lump: on ho1274 that
+//   kept 15 of 89 faces and returned 326199.6 where the body is 337988.1. All 198
+//   were caught by the (1-pi/4)R^2 L volume self-check downstream and reported as
+//   "fillet volume disagrees", which named the symptom and hid the cause — the
+//   ratio of removed-to-expected material ran from 27x to 273x.
+//   So: keep EVERY shell the sew produced, and assemble them the way the INPUT
+//   assembles its own — see the note at the multi-shell branch for why the input,
+//   not a classifier, is the authority on lump-vs-void.
+//   The free-edge check is the other half: forcing Closed(true) on a shell that is
+//   not closed still yields a volume, and a wrong one.
+TopoDS_Shape sewToSolid(const std::vector<TopoDS_Face>& faces,
+                        const TopoDS_Shape& src) {
     BRepBuilderAPI_Sewing sew(1e-6);
     for (const TopoDS_Face& f : faces) {
         if (f.IsNull()) return TopoDS_Shape();
@@ -375,24 +394,77 @@ TopoDS_Shape sewToSolid(const std::vector<TopoDS_Face>& faces) {
     sew.Perform();
     const TopoDS_Shape sewn = sew.SewedShape();
     if (sewn.IsNull()) return TopoDS_Shape();
-    TopoDS_Shell shell;
+
+    std::vector<TopoDS_Shell> shells;
     if (sewn.ShapeType() == TopAbs_SHELL) {
-        shell = TopoDS::Shell(sewn);
+        shells.push_back(TopoDS::Shell(sewn));
     } else {
-        TopExp_Explorer ex(sewn, TopAbs_SHELL);
-        if (ex.More()) shell = TopoDS::Shell(ex.Current());
+        for (TopExp_Explorer ex(sewn, TopAbs_SHELL); ex.More(); ex.Next())
+            shells.push_back(TopoDS::Shell(ex.Current()));
     }
-    if (shell.IsNull()) return TopoDS_Shape();
-    shell.Closed(Standard_True);
+    int nShellFaces = 0;
+    for (const TopoDS_Shell& sh : shells)
+        for (TopExp_Explorer x(sh, TopAbs_FACE); x.More(); x.Next()) ++nShellFaces;
+
+    if (std::getenv("FORGE_FILLET_DEBUG")) {
+        int nfSewn = 0;
+        for (TopExp_Explorer x(sewn, TopAbs_FACE); x.More(); x.Next()) ++nfSewn;
+        std::fprintf(stderr,
+            "[occtfillet] sewToSolid in=%d sewn_faces=%d shells=%d shell_faces=%d "
+            "loose=%d free_edges=%d multi_edges=%d\n",
+            static_cast<int>(faces.size()), nfSewn, static_cast<int>(shells.size()),
+            nShellFaces, nfSewn - nShellFaces,
+            sew.NbFreeEdges(), sew.NbMultipleEdges());
+    }
+
+    if (shells.empty()) return TopoDS_Shape();
+    // An edge left on exactly one face: the sew did not close.
+    if (sew.NbFreeEdges() != 0) return TopoDS_Shape();
+    // Every face handed in must survive into some shell.
+    if (nShellFaces != static_cast<int>(faces.size())) return TopoDS_Shape();
+
     BRep_Builder bb;
-    TopoDS_Solid sol;
-    bb.MakeSolid(sol);
-    bb.Add(sol, shell);
-    BRepLib::OrientClosedSolid(sol);
-    GProp_GProps vp;
-    BRepGProp::VolumeProperties(sol, vp);
-    if (vp.Mass() < 0.0) sol.Reverse();
-    return sol;
+    std::vector<TopoDS_Solid> lumps;
+    lumps.reserve(shells.size());
+    for (TopoDS_Shell sh : shells) {
+        sh.Closed(Standard_True);
+        TopoDS_Solid s;
+        bb.MakeSolid(s);
+        bb.Add(s, sh);
+        BRepLib::OrientClosedSolid(s);
+        GProp_GProps vp;
+        BRepGProp::VolumeProperties(s, vp);
+        if (vp.Mass() < 0.0) s.Reverse();
+        lumps.push_back(s);
+    }
+    if (lumps.size() == 1) return lumps.front();
+
+    // Several closed shells: either disjoint LUMPS of a multi-body part, or one
+    // shell is an internal VOID of another. The two assemble with OPPOSITE signs,
+    // so the case has to be decided rather than guessed — and the decision is
+    // already in the INPUT, which the blend does not change: a blend on one lump's
+    // edge cannot create, destroy or nest a lump.
+    // So mirror the input's own partition, and require it to be the unambiguous
+    // one: as many SOLIDs as SHELLs (every solid bounded by exactly one shell,
+    // i.e. no input void) and as many shells as we just sewed. Anything else —
+    // an input carrying a void, or a shell count the blend changed — is declined.
+    // `src`'s volume is then the sum over its solids, which is what the caller's
+    // v0 measures, so v1 is comparable to it term by term.
+    int nSrcSolids = 0, nSrcShells = 0;
+    for (TopExp_Explorer x(src, TopAbs_SOLID); x.More(); x.Next()) ++nSrcSolids;
+    for (TopExp_Explorer x(src, TopAbs_SHELL); x.More(); x.Next()) ++nSrcShells;
+    if (nSrcSolids != nSrcShells) return TopoDS_Shape();
+    if (nSrcShells != static_cast<int>(lumps.size())) return TopoDS_Shape();
+    TopoDS_Compound comp;
+    bb.MakeCompound(comp);
+    for (const TopoDS_Solid& s : lumps) bb.Add(comp, s);
+    return comp;
+}
+
+double areaOf(const TopoDS_Face& f) {
+    GProp_GProps g;
+    try { BRepGProp::SurfaceProperties(f, g); } catch (...) { return 0.0; }
+    return g.Mass();
 }
 
 double solidVolume(const TopoDS_Shape& s) {
@@ -798,7 +870,7 @@ Result chamferOneEdge(const TopoDS_Shape& shape, const ChamferSpec& spec) {
         if (!isEnd) faces.push_back(f);
     }
 
-    const TopoDS_Shape sol = sewToSolid(faces);
+    const TopoDS_Shape sol = sewToSolid(faces, shape);
     if (sol.IsNull()) return defer("sew produced no closed solid");
     // Self-check: the bevel moves ½·dA·dB·sin(dihedral)·L of material — REMOVED on a
     // convex edge, ADDED on a concave one (the flat bevel fills the reflex notch).
@@ -879,11 +951,33 @@ Result filletOneEdge(const TopoDS_Shape& shape, const FilletSpec& spec) {
         if (!isEnd) faces.push_back(f);
     }
 
-    const TopoDS_Shape sol = sewToSolid(faces);
+    const TopoDS_Shape sol = sewToSolid(faces, shape);
     if (sol.IsNull()) return defer("sew produced no closed solid");
     // Self-check: a convex fillet REMOVES material, a concave one ADDS it; for
     // dihedral=90° the magnitude is exactly (1-π/4)R²L in both cases.
     const double v0 = solidVolume(shape), v1 = solidVolume(sol);
+    // Diagnostic channel only (same contract as debugDefer): a defer that says
+    // "volume disagrees" without saying BY HOW MUCH cannot be attributed, and the
+    // corpus census needs the ratio to tell a wrong retrim from a wrong closed form.
+    if (std::getenv("FORGE_FILLET_DEBUG")) {
+        const double ideal90 = (1.0 - kPi / 4.0) * R * R * c.L;
+        int nIn = 0, nOut = 0;
+        for (TopExp_Explorer x(shape, TopAbs_FACE); x.More(); x.Next()) ++nIn;
+        for (TopExp_Explorer x(sol, TopAbs_FACE); x.More(); x.Next()) ++nOut;
+        std::vector<RingSeg> sgA, sgB; bool stA = false, stB = false;
+        orderedOuterRing(c.A, sgA, stA);
+        orderedOuterRing(c.B, sgB, stB);
+        std::fprintf(stderr,
+            "[occtfillet] filletOneEdge R=%.10g L=%.10g dih_deg=%.6f convex=%d s=%.10g "
+            "v0=%.10g v1=%.10g dv=%.10g ideal90=%.10g ratio=%.6f "
+            "nfaces_in=%d nfaces_shell=%d nfaces_out=%d ringA=%d ringB=%d "
+            "areaA=%.10g areaB=%.10g\n",
+            R, c.L, c.dihedral * 180.0 / kPi, c.convex ? 1 : 0, s, v0, v1, v1 - v0,
+            ideal90, ideal90 > 0.0 ? std::fabs(v1 - v0) / ideal90 : -1.0,
+            nIn, static_cast<int>(faces.size()), nOut,
+            static_cast<int>(sgA.size()), static_cast<int>(sgB.size()),
+            areaOf(c.A), areaOf(c.B));
+    }
     if (v0 > 0.0) {
         if (c.convex && !(v1 < v0))
             return defer("convex fillet did not remove material (orientation/geometry check failed)");
@@ -1423,7 +1517,7 @@ Result blendBatch(const TopoDS_Shape& shape, const std::vector<BReq>& reqs) {
     }
 
     // ---- 7. sew + measure ------------------------------------------------------
-    const TopoDS_Shape sol = sewToSolid(faces);
+    const TopoDS_Shape sol = sewToSolid(faces, shape);
     if (sol.IsNull()) return defer("corner-aware blend produced no closed solid");
     const double v0 = solidVolume(shape), v1 = solidVolume(sol);
     if (!(v1 > 0.0))  return defer("corner-aware blend produced a non-positive volume");
@@ -1516,6 +1610,7 @@ Result makeChamfer(const TopoDS_Shape& shape, const std::vector<ChamferSpec>& sp
     if (uspecs.empty()) return defer("no chamfer edges supplied");
     TopoDS_Shape work = shape;
     Result seq; seq.ok = true;
+    int applied = 0;
     try {
         bool first = true;
         for (std::size_t i = 0; i < uspecs.size() && seq.ok; ++i) {
@@ -1528,11 +1623,20 @@ Result makeChamfer(const TopoDS_Shape& shape, const std::vector<ChamferSpec>& sp
             Result r = chamferOneEdge(work, s);
             if (!r.ok) { seq = r; break; }    // honest deferral -> try the corner-aware path
             work = r.shape;
+            ++applied;
             first = false;
         }
     } catch (...) {
         seq = defer("native chamfer raised an OCCT exception");
     }
+    // Skipping a tangent no-op is right in a MIXED request (one seam edge must not
+    // kill the real edges beside it). Skipping EVERY edge is not a chamfer: `work`
+    // is still the untouched input, and returning it with ok==true reports a
+    // chamfer that did nothing as a chamfer that worked. See makeFillet below for
+    // the measurement that found this.
+    if (seq.ok && applied == 0)
+        seq = defer("every requested chamfer edge is a tangent no-op (a periodic seam "
+                    "or a coplanar artefact edge) — nothing to bevel");
     if (seq.ok) {
         seq.shape = work;
         seq.reason = "native chamfer (prismatic straight edges)";
@@ -1566,6 +1670,7 @@ Result makeFillet(const TopoDS_Shape& shape, const std::vector<FilletSpec>& spec
     if (uspecs.empty()) return defer("no fillet edges supplied");
     TopoDS_Shape work = shape;
     Result seq; seq.ok = true;
+    int applied = 0;
     try {
         bool first = true;
         for (std::size_t i = 0; i < uspecs.size() && seq.ok; ++i) {
@@ -1578,11 +1683,35 @@ Result makeFillet(const TopoDS_Shape& shape, const std::vector<FilletSpec>& spec
             Result r = filletOneEdge(work, s);
             if (!r.ok) { seq = r; break; }
             work = r.shape;
+            ++applied;
             first = false;
         }
     } catch (...) {
         seq = defer("native fillet raised an OCCT exception");
     }
+    // ★ MEASURED 2026-08-30 over the 600-part corpus A/B — the whole NATIVE_ONLY
+    //   cell of the FILLET row. Skipping a tangent no-op is right in a MIXED
+    //   request: one periodic seam or coplanar boolean artefact must not kill the
+    //   real edges beside it. But when EVERY requested edge is skipped, `work` is
+    //   still the untouched input, `seq.ok` was never cleared, and this returned
+    //   the caller's own shape with ok==true and the reason "native fillet
+    //   (prismatic straight edges)" — a fillet that did nothing, reported as a
+    //   fillet that worked.
+    //   That is not an edge case in the measurement: it was 51 of the corpus's
+    //   600 parts, every one of them scored a NATIVE_ONLY win over OCCT (which
+    //   declines the same request outright), and every one of them returned a
+    //   volume BIT-IDENTICAL to the input. It is 8.5 of the 32.8 points the FILLET
+    //   row credited to this engine.
+    //   Reproduced in three lines with no corpus at all: a plain
+    //   BRepPrimAPI_MakeCylinder(5,20), whose longest LINE edge is the u-wrap seam
+    //   where one face meets itself — see test/fillet_defer_census.cpp's SEAM
+    //   control, and forge-kernel/test/run_ab_native_fillet_concave.sh.
+    //   The honest answers at such an edge are "declined" or "applied"; "the input,
+    //   unchanged, called a success" is neither, and under
+    //   FORGE_FILLET_DROP_NATIVE it would silently discard the user's fillet.
+    if (seq.ok && applied == 0)
+        seq = defer("every requested fillet edge is a tangent no-op (a periodic seam "
+                    "or a coplanar artefact edge) — nothing to blend");
     if (seq.ok) { seq.shape = work; seq.reason = "native fillet (prismatic straight edges)"; return seq; }
     // Vertex-connected sets need the simultaneous corner-aware build (F2).
     try {
