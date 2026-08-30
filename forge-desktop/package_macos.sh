@@ -44,9 +44,13 @@
 #     so the bundle states its real requirement instead of overpromising.
 #
 #   * GATEKEEPER. The signature is AD-HOC (no Developer ID, no notarization), so
-#     `spctl -a -t exec` REJECTS the bundle. A user who downloads the zip gets a
-#     refusal dialog. Fixing this needs a paid Developer ID certificate and a
-#     notarization round-trip, which are credentials, not code.
+#     `spctl -a -t exec` REJECTS the bundle — with or without the quarantine
+#     attribute, because spctl assesses signature POLICY. That is EXPECTED and
+#     is not a build defect; do not try to make spctl pass. A user who
+#     downloads the zip approves it ONCE via System Settings > Privacy &
+#     Security > "Open Anyway" (docs/FIRST_LAUNCH_MACOS.md). Removing the
+#     prompt needs a paid Developer ID certificate and a notarization
+#     round-trip, which are credentials, not code.
 #
 # Usage:
 #   forge-desktop/package_macos.sh                 build, package, verify
@@ -411,8 +415,10 @@ cat <<SUMMARY
      our compile flags. To lower it, build OCCT/SDL2/tbb from source with an
      explicit -DCMAKE_OSX_DEPLOYMENT_TARGET.
    * Gatekeeper: spctl exit $SPCTL_RC -> $SPCTL
-     Ad-hoc signing is not notarization. A downloaded copy shows a refusal
-     dialog until the user runs:  xattr -dr com.apple.quarantine Forge.app
+     Ad-hoc signing is not notarization, and spctl can never accept an ad-hoc
+     signature — expected, not a defect. A downloaded copy shows a refusal
+     dialog on FIRST LAUNCH; the user clears it once via System Settings >
+     Privacy & Security > "Open Anyway" (docs/FIRST_LAUNCH_MACOS.md).
      The real fix is a Developer ID certificate + notarytool submission.
 ────────────────────────────────────────────────────────────────────────────
 SUMMARY
