@@ -835,6 +835,13 @@ The plan is `implementation/sacrosanct/FORGE_DELETION_PLAN.md`; every figure in 
 reproduced by `implementation/sacrosanct/tools/forge_deletion_inventory.py`, run from a tree
 pinned to origin. **Nothing is deleted by this decision or by the PR that carries it.**
 
+**GATES 1 AND 2 RE-MEASURED, NOT RESTATED.** D-018's pass reported 135 checks, and three
+commits have touched `forge-desktop` since (#88, #91, #89). Re-run from scratch on this tree:
+`KCONF_RC=0 KCORE_RC=0 CONFIGURE_RC=0 GATE_BUILD_RC=0`, `ctest` reports `100% tests passed, 0
+tests failed out of 3`, and the frame gate prints **137 checks, 0 failures** — two more than
+before, so it grew rather than went quiet. The verdict is read from the printed line and not
+from `$?`, which after that pipeline belongs to `tee`.
+
 **GATE 3 IS NOT MET, AND THE CLOSURE RESULT DOES NOT MOVE IT.** The op vocabulary being closed
 (`value_kind_closure.gaps == []`) answers a different question from the one the gate asks.
 Closure asks whether the C++ vocabulary is self-consistent — whether any program can be written

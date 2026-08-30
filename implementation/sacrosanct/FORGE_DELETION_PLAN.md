@@ -28,10 +28,36 @@ D-018 named four conditions. Their state at `5adc26a0`:
 
 | # | Gate | State | Evidence |
 |---|---|---|---|
-| 1 | `forge_desktop` configures and builds clean from a cold tree | **MET** | D-018 RE-VERIFIED on origin: `CONFIGURE_RC=0`, `GATE_BUILD_RC=0` |
-| 2 | The headless frame gate passes on that build | **MET** | 135 checks / 0 failures, mutation-proved (80.0f→81.0f made it exit 1) |
+| 1 | `forge_desktop` configures and builds clean from a cold tree | **MET — re-measured here** | §1.1 |
+| 2 | The headless frame gate passes on that build | **MET — re-measured here, 137 checks / 0 failures** | §1.1 |
 | 3 | The C++ UI covers the operations the JS app exposes | **NOT MET — 11.0% measured** | §2 |
 | 4 | A Gatekeeper-acceptable bundle exists | **NOT MET — blocked on a credential** | `security find-identity -v -p codesigning` → `0 valid identities found`, re-run 2026-08-30 |
+
+### 1.1 Gates 1 and 2 re-measured, because the standing evidence was three commits stale
+
+D-018's gate-1/2 pass reported **135 checks**. Three commits have touched `forge-desktop` since
+it was taken — `cb96e6e8` (#88), `8651d390` (#91) and `80a26e0d` (#89, which rewrote the
+dispatch and the tree rows). A gate result on a tree that has since moved is exactly the trap
+this programme has now hit five times, so it was re-run from scratch here rather than restated:
+
+```
+TREE=194fef9b (this branch, one doc commit on top of 5adc26a0)
+KCONF_RC=0        cmake -S forge-kernel -B build-app -DFORGE_BUILD_NODE_ADDON=OFF
+KCORE_RC=0                                           -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+CONFIGURE_RC=0    cmake -S forge-desktop -B forge-desktop/build
+GATE_BUILD_RC=0   cmake --build forge-desktop/build -j4
+      1/3 Test #1: forge_desktop_frame_gate ........ Passed  0.41 sec
+      2/3 Test #2: forge_desktop_ir_pipeline_gate .. Passed  0.19 sec
+      3/3 Test #3: forge_desktop_document_gate ..... Passed  3.36 sec
+      100% tests passed, 0 tests failed out of 3
+[gate] 137 checks, 0 failures
+[gate] ALL FORGE DESKTOP FRAME GATES PASS (headless: no window, no swapchain, no MoltenVK)
+```
+
+**Gates 1 and 2 hold on this tree**, with 137 checks — two more than the 135 D-018 recorded, so
+the gate grew rather than went quiet. The verdict is read from the printed line, not from `$?`:
+the `ctest` invocation was piped through `tail | tee`, so its `$?` is `tee`'s and is worth
+nothing. D-018's mutation proof of this gate (`80.0f → 81.0f` → exit 1) is inherited, not re-run.
 
 Gate 4 is not a code problem. D-019 established it with a positive control: a trivial `.app`
 with **one** Mach-O at `minos=14.0` and **zero** Homebrew dylibs is still `rejected, exit 3`,
@@ -235,7 +261,18 @@ exactly one file is provably dead:
   with F6/F7, not before.
 
 (36 e2e files match `forge-app`, but the other 35 are the live DOM selector
-`[data-testid="forge-app"]`, not a filesystem path. Checked individually.)
+`[data-testid="forge-app"]` or the CSS class `.forge-app`, not a filesystem path. Every distinct
+match context was enumerated, not sampled.)
+
+**A second piece of v3 residue, inside a live CI gate.**
+`frontend/src/__tests__/brand-guard.test.mjs` — which the default branch runs as `npm test` —
+carries `const DEAD_FORGE_APP = join(SRC_ROOT, 'forge-app')` and skips it from the import scan,
+with a comment explaining that a self-import inside the orphan "disappears when `forge-app/` is
+deleted". `forge-app/` *is* deleted, so that skip is now vacuous: the gate spends a branch on a
+path that cannot match. It is **not** proposed for change here — editing a live gate is outside
+the scope of a plan — but it is recorded, because it is the second and last trace of an old
+Forge version in the tree, and because a vacuous skip in a gate is the shape of a check that
+quietly stops discriminating.
 
 ### 3.2 Local, non-tracked ("and locally")
 
