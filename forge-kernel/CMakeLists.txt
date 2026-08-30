@@ -213,6 +213,57 @@ set(OCCT_LIBS
     TKBRep TKTopAlgo TKShHealing
     TKOffset
 )
+# ═════════════════════════════════════════════════════════════════════════════════
+# ★★★ THE FLIP GATE FOR EVERY DEFAULT-OFF DROP OPTION BELOW IS NOW MEASURED.
+#
+# Each option below quotes the same condition — "native success rate >= the measured
+# OCCT baseline" (reports/TKOFFSET_DECOMPOSITION.md §5 step 6). That is a COVERAGE
+# measurement, and until 2026-08-29 no harness in this tree made it. It now exists:
+#
+#     forge-kernel/test/corpus_ab_coverage.cpp     the paired A/B, 10 families
+#     forge-kernel/test/run_corpus_ab_coverage.sh  the driver
+#     forge-kernel/reports/CORPUS_AB_COVERAGE.md   method, limits, and how to run it
+#     forge-kernel/reports/corpus_ab/              the committed baseline + raw rows
+#
+# MEASURED at f71ed98b over ALL 600 gold reference solids, 6000 paired trials, 0
+# part-level failures. Both arms get the SAME derived input; the OCCT arm is the exact
+# call Features.cpp / Cam.cpp / Healing.cpp makes today, quoted with its file:line.
+#
+#   option                            native%   OCCT%   parts DELETED   McNemar p
+#   FORGE_FILLET_DROP_NATIVE            32.8      76.8      315/600       1.4e-47
+#   FORGE_OFFSET_DROP_MAKEOFFSET        94.5      99.0       27/600       1.5e-8
+#   FORGE_THICKSOLID_DROP_NATIVE         1.2      22.2      126/600       2.4e-38
+#   FORGE_OFFSETSHAPE_DROP_NATIVE        1.2       6.3       38/600       3.1e-6
+#   FORGE_THRUSECTIONS_DROP_NATIVE       0.0      94.5      567/600      4.1e-171
+#   FORGE_PIPE_DROP_NATIVE               0.3     100.0      598/600      1.9e-180
+#   FORGE_PIPESHELL_DROP_NATIVE         51.5     100.0      291/600       5.0e-88
+#   FORGE_FILLING_DROP_NATIVE           67.8      67.8        0/600       1.0000  ← PASS
+#   FORGE_THICKEN_DROP_NATIVE           67.8     100.0      193/600       1.6e-58
+#   FORGE_DRAFT_DROP_NATIVE              0.0      88.0      497/565       4.9e-150
+#
+# "parts DELETED" = OCCT built a result the call site would have accepted and the native
+# engine DECLINED, on the same input. With the option ON, each of those becomes a THROWN
+# ERROR. Nine of ten options fail with p < 1e-5 — these are not underpowered ties, the
+# intervals are in reports/corpus_ab/summary.md and none of the nine straddles zero.
+#
+# ★ FORGE_FILLING_DROP_NATIVE IS THE ONE OPTION THIS MEASUREMENT CLEARS, and it clears
+#   it perfectly: 407 parts where both built, 193 where neither did, ZERO discordant
+#   pairs in 600 trials, and all 407 shared successes agree on the FULL observable
+#   vector (volume, area, centroid, all six bbox bounds, every sub-shape count). Not
+#   "not significantly worse" — the same call on every single part. That is a coverage
+#   result only; it does not by itself authorise the flip, which still needs the
+#   Law-10 gate chain green under the option.
+#
+# ★ THE TWO REMAINING OPTIONS ARE OUT OF THIS GATE'S SCOPE, deliberately.
+#   FORGE_SHHEAL_DROP_NATIVE and FORGE_GEOM_DROP_NATIVE both DEFAULT ON already and
+#   replace low-level routines called from inside other ops, so there is no "native
+#   declined where OCCT would have built it" event to count. Stated, not skipped.
+#
+# ★ RE-MEASURE AFTER TOUCHING ANY ENGINE. The build stamps the SHA it compiled from and
+#   the driver REFUSES to run against a different HEAD (exit 3) — the first run of this
+#   harness was compiled from one commit and measured against another, three engines
+#   differed, and it was thrown away. Do not quote a number without its manifest.
+# ═════════════════════════════════════════════════════════════════════════════════
 # ── TKFillet DROP (authored 2026-07-25; DEFAULT OFF — NOT gate-passing yet) ────────
 # FORGE_FILLET_DROP_NATIVE routes forge::part::{filletEdges,chamferEdges,variableFilletEdge}
 # + forge::varfillet::fillet through the TKFillet-free native occtfillet::make{Fillet,Chamfer,
@@ -220,16 +271,57 @@ set(OCCT_LIBS
 # COMPILES OUT the OCCT BRepFilletAPI fallback (each call site: native-or-throw under the
 # macro, OCCT baseline under #else). ON removes TKFillet from the link list; OFF keeps it so
 # the OCCT A/B baseline still links.
-#   DEFAULT OFF — the native routines cover ONLY a convex STRAIGHT edge between two
-#   AS-YET-UNFILLETED PLANAR faces (single / non-adjacent). Severing the fallback therefore
-#   (a) throws on curved / concave / S-law fillets on OCCT-backed shapes, AND (b) reds the
-#   core.mjs drop gate itself: its 'fillet ALL box edges' / 'fillet 4 VERTICAL box edges' /
-#   'chamfer ALL box edges' cases fillet MULTIPLE ADJACENT box edges, and occtfillet DEFERS
-#   the moment a shared face carries a prior fillet/chamfer arc (non-straight boundary) →
-#   the OCCT-reference side (setNativeBrep(false)) would throw → FAIL. Flip ON only after a
-#   general MULTI-EDGE / curved native fillet (corner ball-blend + arced-face retrim) lands.
+#   ★ THIS NOTE WAS STALE AND IS NOW MEASURED (2026-08-29). It used to read: "the native
+#   routines cover ONLY a convex STRAIGHT edge between two AS-YET-UNFILLETED PLANAR faces
+#   (single / non-adjacent) … occtfillet DEFERS the moment a shared face carries a prior
+#   fillet/chamfer arc … Flip ON only after a general MULTI-EDGE / curved native fillet
+#   (corner ball-blend + arced-face retrim) lands." TWO of those three blockers have since
+#   landed and the note was never corrected, which mis-scoped the work queued against it:
+#     * arced-face retrim  — landed (RingSeg carries arcs through planarFaceFromSegs);
+#     * corner ball-blend  — landed (blendBatch + sphericalCorner, exact octant);
+#     * CONCAVE (reflex) edges — landed 2026-08-29 (this is the L-bracket / pocket / rib
+#       inside corner; the cylinder axis moves to +nA and the blend ADDS material).
+#   MEASURED against live OCCT on this machine, native == OCCT to 1e-9 on volume, centre of
+#   mass, all six bbox bounds, face/edge/vertex/shell counts, Euler characteristic and
+#   BRepCheck validity, for all three cases this note named as blockers:
+#       fillet ALL 12 box edges  R=3  -> 5572.619358586   F=26 E=56  valid
+#       fillet 4 VERTICAL edges  R=3  -> 5922.743338823   F=10 E=24  valid
+#       chamfer ALL 12 box edges d=2  -> 5562.666666667   F=26 E=48  valid
+#   plus L- and T-prisms with reflex corners and a non-90-degree reflex chevron:
+#       forge-kernel/test/run_ab_native_fillet_concave.sh  (66/66 assertions)
+#   And the drop configuration BUILDS AND LINKS: `cmake -DFORGE_FILLET_DROP_NATIVE=ON`
+#   produced libforge_kernel_core.dylib with ZERO TKFillet link records AND — the check
+#   that matters for the Linux strict-link CI, since macOS can load a dylib with
+#   undefined symbols — ZERO imported TKFillet SYMBOLS, against 11 in the default build
+#   (nm -u INTERSECT nm -gU libTKFillet; 11 is exactly the TKFillet symbol count in
+#   reports/OCCT_DROP_ORDER.md 1.2, and the non-zero default is the control that keeps
+#   the zero meaningful). Both numbers are re-measured on every run of
+#   forge-kernel/test/run_callsite_concave_fillet.sh, which FAILS if the control
+#   collapses to zero. NOTE the scope: this is libforge_kernel_core, NOT the shipped
+#   .node — scripts/occt_drop_gate.sh runs the same intersection against the addon and
+#   still must, and Linux CI remains the ultimate gate. And
+#   forge-kernel/test/callsite_concave_fillet_test.cpp passes 6/6 through the real
+#   forge::part::filletEdges / chamferEdges in that binary (4/6 with the pre-2026-08-29
+#   engine, which is the before/after).
+#
+#   ★ STILL DEFAULT OFF, and here is exactly what is left — do NOT flip on the above.
+#     (a) CURVED adjacent faces. The cylinder-top-rim blend is a TORUS and is not authored;
+#         OCCT rounds it, the engine declines it. Any part with a rounded boss or a hole rim
+#         would start THROWING.
+#     (b) A vertex where a concave blend meets another blend, and any vertex with exactly
+#         TWO blended edges (the two-edge corner surface). OCCT serves both.
+#     (c) The variable-radius law fillet's remaining gaps (NativeVariableFillet).
+#     (d) No corpus A/B has been run. Three shapes are not a corpus; the flip gate is
+#         "native success rate >= the measured OCCT baseline over the corpus", the same
+#         gate families D/F/G/H are held to.
+#
+#   ★ AND IT IS WORTH ZERO CLOSURE ON ITS OWN. Measured: the drop takes the DIRECT link
+#     records 11 -> 10, but libTKOffset itself DT_NEEDs TKFillet, so TKFillet still LOADS
+#     and OCCT_CLOSURE does not move. Per reports/OCCT_DROP_ORDER.md the pair
+#     {TKFillet, TKOffset} is the unit that pays (-3 closure for 53 symbols); TKFillet alone
+#     is -0. Score it as distance travelled toward that pair, never as a drop.
 option(FORGE_FILLET_DROP_NATIVE
-       "route fillet/chamfer native & DROP TKFillet (needs general multi-edge/curved native fillet first)"
+       "route fillet/chamfer native & DROP TKFillet (still needs curved-face blends + a corpus A/B)"
        OFF)
 if(FORGE_NATIVE_BREP AND FORGE_FILLET_DROP_NATIVE)
     add_compile_definitions(FORGE_FILLET_DROP_NATIVE=1)
@@ -433,6 +525,17 @@ endif()
 #   measured OCCT baseline"); for H it is the same measurement over the corpus parts that
 #   actually call offsetSolid.
 #
+#   ★★ THAT GATE NOW EXISTS AND BOTH FAMILIES FAIL IT. test/corpus_ab_coverage.cpp,
+#   run over all 600 gold reference solids at f71ed98b (reports/CORPUS_AB_COVERAGE.md,
+#   raw rows in reports/corpus_ab/):
+#       G THICKSOLID   native  1.2% vs OCCT 22.2%   126/600 parts deleted, p=2.4e-38
+#       H OFFSETSHAPE  native  1.2% vs OCCT  6.3%    38/600 parts deleted, p=3.1e-6
+#   "parts deleted" = OCCT built a result the call site would have accepted and the
+#   native engine declined, ON THE SAME INPUT. Under the option that decline becomes a
+#   thrown error. Note H's OCCT baseline is only 6.3% and its OCCT arm CRASHED on 66 of
+#   600 parts, so the incumbent is weak there too -- H is also the one family where the
+#   native engine answers a set OCCT does not (7 native-only against 0 shared).
+#
 # ★★★ FAMILY G's SIGN BLOCKER IS CLOSED — FIXED AND RE-MEASURED 2026-08-28.
 #   The blocker recorded here was REAL: `part.shell` and
 #   `forge::occtoffset::makeThickSolid` did not compute the same operation for a
@@ -473,7 +576,11 @@ endif()
 #   WHAT THIS DOES *NOT* CLEAR: FORGE_THICKSOLID_DROP_NATIVE stays OFF. The two routes
 #   now agree wherever both answer, but the flip gate is still the corpus A/B of
 #   reports/TKOFFSET_DECOMPOSITION.md §5 step 6 ("native success rate >= the measured
-#   OCCT baseline"), which is a COVERAGE measurement and is still outstanding — the
+#   OCCT baseline"), which is a COVERAGE measurement. ★ IT IS NO LONGER OUTSTANDING:
+#   it is test/corpus_ab_coverage.cpp and family G MEASURES 1.2% native against a 22.2%
+#   OCCT baseline over all 600 gold reference solids, 126 parts deleted (p=2.4e-38).
+#   See reports/CORPUS_AB_COVERAGE.md. The reason recorded below is exactly what the
+#   corpus shows at scale — the
 #   native engine honestly DECLINES cases OCCT answers (e.g. the closed-hollow box:
 #   shellNativeThick throws where the OCCT route returns, wrongly, the 512 cavity). Family H has no such problem: its A/B matches
 #   OCCT exactly on volume, position and topology across all nine cases.
@@ -554,6 +661,20 @@ endif()
 #   defers, and with the fallback compiled out a defer becomes a THROWN ERROR
 #   rather than an OCCT answer. The flip gate is a corpus A/B — "native success
 #   rate >= the measured OCCT baseline" — exactly as for families G/H.
+#
+#   ★★ THAT CORPUS A/B NOW EXISTS AND BOTH FAMILIES FAIL IT, D by the widest
+#   margin of any family measured. test/corpus_ab_coverage.cpp over all 600 gold
+#   reference solids at f71ed98b (reports/CORPUS_AB_COVERAGE.md):
+#       D THRUSECTIONS  native 0.0% vs OCCT 94.5%   567/600 parts deleted, p=4.1e-171
+#       F PIPESHELL     native 51.5% vs OCCT 100%   291/600 parts deleted, p=5.0e-88
+#   D returned a defer on all 600 -- the corpus has essentially no polygonal sections,
+#   which is the scope this engine states. F is the best-covered of the sweep family and
+#   the only one within sight of the gate. Family E (PIPE, below) measures native 0.3%
+#   against OCCT 100%, 598/600 deleted.
+#   ALSO MEASURED, and not a coverage fact: on ALL 309 parts where F and OCCT both
+#   build, the two solids DISAGREE on volume and extent (not merely on orientation).
+#   The mitre-transport difference this header records is not an edge case; it is
+#   every part.
 #
 # ★ ONE MEASURED CAPABILITY ADD, recorded here because it repeats the §4.2
 #   pattern: on a BENT spine OCCT's own MakePipeShell answer is INVALID.

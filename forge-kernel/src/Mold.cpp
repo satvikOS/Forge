@@ -11,16 +11,13 @@
 #include <BRepGProp.hxx>
 #include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic cone + cylinder + linear sweep
 #include <Bnd_Box.hxx>
-#include <BRep_Builder.hxx>
 #include <GProp_GProps.hxx>
-#include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Solid.hxx>

@@ -79,23 +79,16 @@
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
-#include <BRepBuilderAPI_MakeWire.hxx>
-#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBndLib.hxx>
 #include "forge/OcctPrimBuilder.hpp"   // TKPrim-free analytic box + linear sweep
 #include <Bnd_Box.hxx>
 #include <BRep_Tool.hxx>
-#include <Precision.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
-#include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Wire.hxx>
-#include <gp_Ax1.hxx>
-#include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
-#include <gp_Trsf.hxx>
 #include <gp_Vec.hxx>
 
 #include <algorithm>

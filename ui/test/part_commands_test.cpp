@@ -44,6 +44,13 @@ CommandParams params1(const std::string& n, double v) {
   return p;
 }
 
+CommandParams params2(const std::string& n1, double v1, const std::string& n2, double v2) {
+  CommandParams p;
+  p.setNumber(n1, v1);
+  p.setNumber(n2, v2);
+  return p;
+}
+
 void selectOnly(SelectionService& sel, const std::vector<EntityRef>& refs) {
   sel.replaceWith(refs);
 }
@@ -67,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 18);
-  CHECK_EQ_INT(registry.size(), 18);
+  CHECK_EQ_INT(added, 21);
+  CHECK_EQ_INT(registry.size(), 21);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -76,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 18);
+  CHECK_EQ_INT(registry.size(), 21);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -95,7 +102,7 @@ int main() {
       CHECK(findIrOp(c->featureIrOp) != nullptr);
     }
   }
-  CHECK_EQ_INT(withIrOp, 16);  // all but part.undo / part.redo
+  CHECK_EQ_INT(withIrOp, 19);  // all but part.undo / part.redo
 
   // ── the document seed ─────────────────────────────────────────────────────
   // Three values that exist before any Part command ran: two sketches from the
@@ -356,7 +363,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 18);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 21);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -460,7 +467,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 18);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 21);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -492,7 +499,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 18);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 21);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -545,7 +552,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 18);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 21);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
@@ -568,6 +575,91 @@ int main() {
     selectOnly(selX, {ref("sk_x", EntityKind::Sketch, "")});
     CHECK(regX.dispatch("part.extrude", selX, params1("distance", 5)).ok());
     CHECK_EQ_STR(lastLine(docX), "%2 = EXTRUDE(%1, 5)");
+  }
+
+  // ── GENERATION FROM AN EMPTY DOCUMENT ─────────────────────────────────────
+  // The point of part.sketch_rect, and the only assertion that proves it.
+  //
+  // archie_op_vocabulary.json computes `value_kind_closure` about itself and used to
+  // report a PROFILE gap: EXTRUDE and REVOLVE consume PROFILE, every one of the allowed
+  // ops takes a value reference as its first argument, and the only kind any of them
+  // produced was SOLID. From an empty document NO legal program existed -- so the
+  // constraint "Archie may emit only what a user can invoke" described an EMPTY LANGUAGE,
+  // and every earlier test in this file had to SEED a profile the user could not create.
+  //
+  // Nothing is seeded here. Not one value. If this section can build a solid, the
+  // constraint is satisfiable; if it cannot, no amount of training makes it so.
+  {
+    CommandRegistry regE;
+    PartDocument docE;
+    UndoStack stackE;
+    SelectionService selE;
+    registerPartCommands(regE, docE, stackE);
+    CHECK_EQ_INT(docE.records().size(), 0);   // EMPTY. no seed.
+
+    // a creator takes no selection, and must be callable with none
+    selE.clearSelection();
+    CHECK(regE.dispatch("part.sketch_rect", selE,
+                        params2("width", 40, "height", 30)).ok());
+    CHECK_EQ_STR(lastLine(docE), "%1 = RECT(40, 30)");
+    CHECK_EQ_INT(static_cast<int>(docE.kindOf(1)), static_cast<int>(IrValueKind::Profile));
+    CHECK_EQ_INT(docE.valueFor("sketch_1"), 1);
+
+    // a degenerate rectangle is refused by the predicate, not built and thrown away
+    CHECK_EQ_INT(statusOf(regE.dispatch("part.sketch_rect", selE,
+                                        params2("width", 0, "height", 30))),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_INT(docE.records().size(), 1);
+
+    // the created profile is SELECTABLE, which is what makes it usable downstream
+    selectOnly(selE, {ref("sketch_1", EntityKind::Sketch, "s")});
+    CHECK(regE.dispatch("part.extrude", selE, params1("distance", 20)).ok());
+    CHECK_EQ_STR(lastLine(docE), "%2 = EXTRUDE(%1, 20)");
+    CHECK_EQ_INT(static_cast<int>(docE.kindOf(2)), static_cast<int>(IrValueKind::Solid));
+
+    // and the solid drives a solid-editing command, closing the loop
+    selectOnly(selE, {ref("body_2", EntityKind::Edge, "e")});
+    CHECK(regE.dispatch("part.fillet", selE, params1("radius", 2)).ok());
+    CHECK_EQ_STR(lastLine(docE), "%3 = FILLET(%2, 2, ALL)");
+
+    // three statements, none seeded, all user-invocable
+    CHECK_EQ_INT(docE.records().size(), 3);
+    CHECK_EQ_INT(docE.featureCount(), 3);
+    CHECK_EQ_INT(static_cast<int>(docE.lastCheck()), static_cast<int>(IrCheck::Ok));
+
+    // ── the SECOND profile producer ─────────────────────────────────────────
+    selE.clearSelection();
+    CHECK(regE.dispatch("part.sketch_circle", selE, params1("radius", 10)).ok());
+    CHECK_EQ_STR(lastLine(docE), "%4 = CIRCLE(10)");
+    CHECK_EQ_INT(static_cast<int>(docE.kindOf(4)), static_cast<int>(IrValueKind::Profile));
+
+    // ── POSITIONING, and why it is not a nicety ─────────────────────────────
+    // TRANSLATE was orphan, so every boolean in this registry could only ever operate on
+    // bodies coincident at the origin. Build a second body, MOVE it, and subtract: that
+    // sequence was unreachable before part.move existed, which made the booleans
+    // reachable but not useful.
+    selectOnly(selE, {ref("sketch_4", EntityKind::Sketch, "s2")});
+    CHECK(regE.dispatch("part.extrude", selE, params1("distance", 30)).ok());
+    CHECK_EQ_STR(lastLine(docE), "%5 = EXTRUDE(%4, 30)");
+
+    selectOnly(selE, {ref("body_5", EntityKind::Body, "")});
+    CHECK(regE.dispatch("part.move", selE, params2("dx", 15, "dy", 5)).ok());
+    CHECK_EQ_STR(lastLine(docE), "%6 = TRANSLATE(%5, 15, 5, 0)");
+    // the body keeps its IDENTITY -- history, not a new body
+    CHECK_EQ_INT(docE.valueFor("body_5"), 6);
+    CHECK_EQ_INT(static_cast<int>(docE.kindOf(6)), static_cast<int>(IrValueKind::Solid));
+
+    // a zero move is refused rather than recorded as a no-op statement
+    CHECK_EQ_INT(statusOf(regE.dispatch("part.move", selE, params2("dx", 0, "dy", 0))),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_INT(docE.records().size(), 6);
+
+    // and now a boolean between two bodies that are NOT coincident
+    selectOnly(selE, {ref("body_2", EntityKind::Body, ""), ref("body_5", EntityKind::Body, "")});
+    CHECK(regE.dispatch("part.boolean_subtract", selE).ok());
+    CHECK_EQ_STR(lastLine(docE), "%7 = CUT(%3, %6)");
+    CHECK_EQ_INT(docE.records().size(), 7);
+    CHECK_EQ_INT(static_cast<int>(docE.lastCheck()), static_cast<int>(IrCheck::Ok));
   }
 
   return H.finish();

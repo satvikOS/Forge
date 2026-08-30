@@ -34,7 +34,10 @@ void ForgeShell::registerCommands() {
     c.undo = UndoContract::NotUndoable;
     c.enabled = always;
     c.execute = [this](CommandContext&) {
+      documentError_.clear();
+      if (documentHost_ != nullptr && !documentHost_->documentNew(documentError_)) return;
       doc_ = DocumentStats{};
+      syncDocumentStats();
     };
     registry_.add(std::move(c));
   }
@@ -48,7 +51,19 @@ void ForgeShell::registerCommands() {
     c.sideEffect = SideEffectClass::Application;
     c.undo = UndoContract::NotUndoable;
     c.enabled = always;
-    c.execute = [this](CommandContext&) { doc_.dirty = false; };
+    // The path argument is READ now. Before the document seam existed this body
+    // was `doc_.dirty = false;` and Open was indistinguishable from a no-op.
+    c.execute = [this](CommandContext& ctx) {
+      documentError_.clear();
+      const std::string path = ctx.params().text("path").value_or(std::string());
+      if (documentHost_ != nullptr) {
+        if (!documentHost_->documentOpen(path, documentError_)) return;
+        syncDocumentStats();
+        doc_.dirty = false;
+        return;
+      }
+      doc_.dirty = false;
+    };
     registry_.add(std::move(c));
   }
   {
@@ -58,9 +73,23 @@ void ForgeShell::registerCommands() {
     c.category = "File";
     c.sideEffect = SideEffectClass::Application;
     c.undo = UndoContract::NotUndoable;
+    // OPTIONAL, so a bare Ctrl+S still dispatches: a Save With No Path is Save,
+    // and the host answers where. A required parameter here would turn every
+    // keyboard save into MissingRequiredParameter.
+    c.schema.push_back(ParamSpec{.name = "path", .type = ParamType::Text, .required = false});
     // A save is offered only when there is something to save.
     c.enabled = [this](const CommandContext&) { return doc_.dirty; };
-    c.execute = [this](CommandContext&) { doc_.dirty = false; };
+    c.execute = [this](CommandContext& ctx) {
+      documentError_.clear();
+      const std::string path = ctx.params().text("path").value_or(std::string());
+      if (documentHost_ != nullptr) {
+        if (!documentHost_->documentSave(path, documentError_)) return;
+        syncDocumentStats();
+        doc_.dirty = false;
+        return;
+      }
+      doc_.dirty = false;
+    };
     registry_.add(std::move(c));
   }
   {
@@ -72,6 +101,15 @@ void ForgeShell::registerCommands() {
     c.undo = UndoContract::NotUndoable;
     c.enabled = [this](const CommandContext&) { return doc_.undoDepth > 0; };
     c.execute = [this](CommandContext&) {
+      if (documentHost_ != nullptr) {
+        documentError_.clear();
+        if (!documentHost_->documentUndo()) {
+          documentError_ = "nothing to undo";
+          return;
+        }
+        syncDocumentStats();
+        return;
+      }
       --doc_.undoDepth;
       ++doc_.redoDepth;
       if (doc_.features > 0) --doc_.features;
@@ -87,6 +125,15 @@ void ForgeShell::registerCommands() {
     c.undo = UndoContract::NotUndoable;
     c.enabled = [this](const CommandContext&) { return doc_.redoDepth > 0; };
     c.execute = [this](CommandContext&) {
+      if (documentHost_ != nullptr) {
+        documentError_.clear();
+        if (!documentHost_->documentRedo()) {
+          documentError_ = "nothing to redo";
+          return;
+        }
+        syncDocumentStats();
+        return;
+      }
       --doc_.redoDepth;
       ++doc_.undoDepth;
       ++doc_.features;
@@ -236,9 +283,31 @@ void ForgeShell::registerCommands() {
 }
 
 // ── dispatch ────────────────────────────────────────────────────────────────
+void ForgeShell::setDocumentHost(DocumentHost* host) noexcept {
+  documentHost_ = host;
+  documentError_.clear();
+  syncDocumentStats();
+}
+
+void ForgeShell::syncDocumentStats() {
+  if (documentHost_ == nullptr) return;
+  // PULLED, never accumulated. The counters were previously incremented by each
+  // handler, which is how the status strip came to read "features 0" over a
+  // document holding real features: two tallies of one thing, and only one of
+  // them was the document.
+  doc_.features = documentHost_->documentFeatureCount();
+  doc_.undoDepth = documentHost_->documentUndoDepth();
+  doc_.redoDepth = documentHost_->documentRedoDepth();
+  doc_.dirty = documentHost_->documentDirty();
+}
+
 DispatchResult ForgeShell::run(const std::string& id, const CommandParams& params) {
   DispatchResult result = registry_.dispatch(id, selection_, params);
   if (result.ok()) journal_.push_back(id);
+  // EVERY command, not just the file ones: a Part command mutates the document
+  // through its own receiver, and the shell's view of it must follow the same
+  // dispatch rather than a separate notification nobody remembers to send.
+  syncDocumentStats();
   return result;
 }
 

@@ -42,12 +42,18 @@ trap 'rm -rf "$OUT"' EXIT
 OCCT_LIBS=(-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKGeomAlgo
            -lTKBRep -lTKTopAlgo -lTKShHealing -lTKPrim -lTKOffset -lTKBO -lTKBool)
 
+# OcctPrimBuilder.cpp is linked because NativeLoftPipe.cpp calls forge::occtCylinderSolid
+# and forge::occtPrism since the TKPrim-free swap (PR #64). Without it this harness dies
+# with "symbol(s) not found for architecture arm64" and its assertions never run at all.
+# This is the SECOND harness PR #64 broke; run_ab_native_thicken.sh was the first, and CI
+# runs neither, so both failed silently from the moment that PR merged.
 echo "[ab-loftpipe] OCCT $OCCT_ROOT"
 if ! "$CXX" -std=c++20 -O1 -Wall -Wextra -DFORGE_NATIVE_BREP=1 \
       -I "$INC" -I "$OCCT_INC" \
       forge-kernel/test/ab_native_loftpipe_occt.cpp \
       forge-kernel/src/native/brep/NativeLoftPipe.cpp \
       forge-kernel/src/native/brep/NativeShapeHeal.cpp \
+      forge-kernel/src/OcctPrimBuilder.cpp \
       -L "$OCCT_LIB" "${OCCT_LIBS[@]}" -o "$OUT/ab_loftpipe" 2>"$OUT/build.err"; then
   echo "[ab-loftpipe] BUILD/LINK FAIL"; sed -n '1,80p' "$OUT/build.err"; exit 1
 fi

@@ -34,6 +34,7 @@
 #include "Camera.hpp"
 #include "ForgeFrame.hpp"
 #include "KernelScene.hpp"
+#include "PartFile.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
 #include "forge/ui/MeasureModel.hpp"
@@ -141,7 +142,16 @@ int main(int argc, char** argv) {
   checkGe(scene.faceCount(), 6u, "the body has at least a box's faces");
   checkEq(scene.vertices().size(), scene.triangleCount() * 3,
           "vertex stream is de-indexed 3-per-triangle");
-  checkEq(scene.features().size(), 3u, "three real features were recorded");
+  // The reference is READ from the seed table rather than hard-coded, so the
+  // gate cannot drift into agreeing with a stale number.
+  checkEq(scene.features().size(), forge::desktop::defaultPartStatements().size(),
+          "one history row per statement in the default part program");
+  check(scene.lastBuild().ok(), "the default part compiled through forge::ft",
+        scene.lastBuild().error);
+  checkEq(scene.lastBuild().nDeclared, scene.lastBuild().nParsed,
+          "s0.4: declared == parsed");
+  checkEq(scene.lastBuild().nParsed, scene.lastBuild().nCompiled,
+          "s0.4: parsed == compiled");
   check(scene.bounds().valid, "bounds computed", "");
   // The plate is 80 x 50 x 20 with a 3 mm fillet: the bounding box must be the
   // plate's, to within the tessellation deflection.

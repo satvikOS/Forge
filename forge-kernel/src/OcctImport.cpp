@@ -27,16 +27,12 @@
 // --- OCCT (read side only) -------------------------------------------------
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
-#include <TopoDS_Solid.hxx>
-#include <TopoDS_Shell.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Wire.hxx>
 #include <TopoDS_Edge.hxx>
-#include <TopoDS_Vertex.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopAbs.hxx>
-#include <TopAbs_Orientation.hxx>
 #include <BRep_Tool.hxx>
 #include <BRepTools.hxx>
 #include <BRepTools_WireExplorer.hxx>
@@ -64,8 +60,6 @@
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include "forge/native/geom/NativeProjection.hpp"     // R1 native point→surface (drops TKGeomBase Extrema)
 #include "forge/native/geom/NativeNurbsConvert.hpp"   // R2 native analytic→NURBS (drops TKGeomBase GeomConvert)
-#include <gp_Pnt2d.hxx>
-#include <TopTools_IndexedMapOfShape.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>

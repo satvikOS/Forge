@@ -67,7 +67,6 @@
 #include <gp_Dir.hxx>
 #include <gp_Dir2d.hxx>
 #include <gp_Elips.hxx>
-#include <gp_Lin.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Pnt2d.hxx>
