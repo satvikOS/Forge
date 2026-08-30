@@ -205,7 +205,15 @@ struct ApplyResult {
   bool ok = false;
   std::string reason;
   std::string installed_version;
-  std::string previous_bundle_path;  // the displaced bundle, for rollback
+  // Where the displaced bundle briefly sat. It is inside the staging directory,
+  // which applyUpdate removes before returning, so by the time a caller reads
+  // this the path is GONE. It is reported for logging, NOT for rollback:
+  // atomicSwap does leave the old bundle intact, but keeping it past the end of
+  // the update would leave a full second copy of the app on disk after every
+  // release, and a rollback feature needs a version store and a UI decision that
+  // nobody has made. Naming this `for rollback` would be a promise this code
+  // does not keep.
+  std::string displaced_bundle_path;
 };
 
 // download -> verify -> stage -> validate -> atomic swap. Every step's failure

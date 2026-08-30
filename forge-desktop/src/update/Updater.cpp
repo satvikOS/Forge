@@ -7,6 +7,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -32,9 +33,16 @@ bool runProcess(const std::vector<std::string>& argv, std::string& err) {
     return false;
   }
   std::error_code ec;
-  const fs::path log = fs::temp_directory_path(ec) /
-                       ("forge-update-" + std::to_string(::getpid()) + "-" +
-                        std::to_string(reinterpret_cast<std::uintptr_t>(&argv)) + ".log");
+  // A per-call name. The obvious shortcut -- the address of a local -- is the
+  // SAME on every sequential call at the same stack depth, so two overlapping
+  // calls would share a log and each would read the other's output as its own
+  // error message. The app will run this off a background thread; make it
+  // correct now rather than after that turns into a confusing bug report.
+  static std::atomic<unsigned long long> call_seq{0};
+  const fs::path log =
+      fs::temp_directory_path(ec) /
+      ("forge-update-" + std::to_string(::getpid()) + "-" +
+       std::to_string(call_seq.fetch_add(1, std::memory_order_relaxed)) + ".log");
 
   posix_spawn_file_actions_t actions;
   if (posix_spawn_file_actions_init(&actions) != 0) {
@@ -479,7 +487,7 @@ ApplyResult applyUpdate(const Plan& plan, const Manifest& m, const std::string& 
 
   r.ok = true;
   r.installed_version = m.version;
-  r.previous_bundle_path = staged_app;  // inside `staging`, removed by Cleanup
+  r.displaced_bundle_path = staged_app;  // inside `staging`; Cleanup removes it
   r.reason = "installed " + m.version + " over " + plan.current.text;
   return r;
 }
