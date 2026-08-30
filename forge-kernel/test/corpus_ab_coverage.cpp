@@ -165,6 +165,7 @@
 #include <BRepOffsetAPI_DraftAngle.hxx>          // DRAFT        (family J)
 #include <BRepOffsetAPI_ThruSections.hxx>        // THRUSECTIONS (family D)
 #include <BRepOffsetAPI_MakePipe.hxx>            // PIPE         (family E)
+#include <BRepBuilderAPI_TransitionMode.hxx>     // PIPESHELL_RC (family F, mitre)
 #include <BRepOffsetAPI_MakePipeShell.hxx>       // PIPESHELL    (family F)
 #include <BRepOffsetAPI_MakeThickSolid.hxx>      // THICKSOLID   (family G)
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>     // OFFSETSHAPE  (family H)
@@ -1196,6 +1197,31 @@ int main(int argc, char** argv) {
                 }, true, T, NF);
                 emit("PIPESHELL", true, "", nat, oc,
                      "unguided pipe-shell of the same wire along the same spine");
+
+                // PIPESHELL_RC — the SAME native arm against the SAME OCCT call
+                // with ONE line added: SetTransitionMode(BRepBuilderAPI_RightCorner).
+                // The PIPESHELL row above mirrors the production call site
+                // (src/Features.cpp:728) exactly, and that site leaves the
+                // transition mode at OCCT's default BRepBuilderAPI_Transformed.
+                // Measured (test/ps_convention_probe, 45 synthetic cases, 3
+                // profiles x 5 turn angles x 3 leg ratios): under Transformed
+                // OCCT does NOT carry the section through the spine corner, so
+                // the section perpendicular to leg 2 has area A*cos(theta), and
+                // the enclosed volume is A*(L1 + L2*cos theta) rather than
+                // A*(L1+L2). Native implements the MITRE, which is what
+                // RightCorner asks OCCT for. This row measures how much of the
+                // PIPESHELL disagreement is that one convention.
+                const ArmResult ocRc = runArm([&]() -> TopoDS_Shape {
+                    BRepOffsetAPI_MakePipeShell mk(sp);
+                    mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+                    mk.Add(pw);
+                    mk.Build();
+                    if (!mk.IsDone()) return TopoDS_Shape();
+                    mk.MakeSolid();
+                    return mk.Shape();
+                }, true, T, NF);
+                emit("PIPESHELL_RC", true, "", nat, ocRc,
+                     "same, with OCCT SetTransitionMode(RightCorner)");
             }
         }
     }
