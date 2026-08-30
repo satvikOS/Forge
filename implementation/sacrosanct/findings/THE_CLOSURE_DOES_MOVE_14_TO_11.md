@@ -60,6 +60,38 @@ dependency drop remains: the ladder is real, a 3-library step is now demonstrate
 build and pass what gates exist, and the coverage question that decides the flip has not
 been run.
 
+## Every A/B harness, run: the native engines ARE correctness-clean
+
+Coverage is still unmeasured, but CORRECTNESS is not. All seven live-OCCT A/B harnesses,
+each asserting on a vector of observables with negative and defer controls:
+
+    draft            114 / 0      PASS
+    filling           80 / 80     PASS
+    loftpipe         314 / 314    PASS   (after fixing its link -- see below)
+    offsetshape      206 / 206    PASS
+    sweep             14 / 14     PASS
+    fillet_concave    66 / 66     PASS
+    thicken          208 / 19     FAIL   <- MY regression, face-type census only
+
+Six of seven pass outright. The single failure is the one I introduced in PR #64 and it
+is confined to surface TYPING, not geometry (`PR64_CHANGED_THE_FACE_TYPE_CENSUS.md`).
+
+**Two of these harnesses could not even LINK**, both because of PR #64, and CI runs
+neither: `run_ab_native_thicken.sh` and `run_ab_native_loftpipe.sh` compile their engine
+standalone and did not link `src/OcctPrimBuilder.cpp`, which now supplies `occtPrism` and
+`occtCylinderSolid`. From the moment that PR merged, 541 assertions stopped running and
+nothing said so. A gate that cannot build is a gate that cannot fail, and it fails
+silently.
+
+Once loftpipe linked it passed 314/314 -- so the `MakeCylinder -> occtCylinderSolid` and
+`MakeHalfSpace -> bounded slab` half of PR #64 IS behaviour-preserving. Only the
+`MakePrism -> occtPrism` half is not.
+
+**What this changes about closure 11:** the engines behind the drop are not speculative
+-- they are exact on what they accept, measured against live OCCT. What remains open is
+how OFTEN they decline on real parts, which is the corpus A/B, which does not exist as a
+harness. That is now the single named blocker between closure 11 and shipping it.
+
 ## Why the correction matters more than the number
 
 The previous finding was measured carefully -- fresh worktree, real build, closure read
