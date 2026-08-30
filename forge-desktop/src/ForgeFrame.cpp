@@ -484,6 +484,90 @@ void ForgeFrame::invoke(const std::string& id) {
   if (id == "app.command_palette") togglePalette();
 }
 
+// ── the feature PARAMETER editor ────────────────────────────────────────────
+// The document was APPEND-ONLY until part.edit_feature existed, and the Properties
+// panel said so: its one slider "feeds radius / distance / thickness on the NEXT
+// command" and no control anywhere could change a number already in the program.
+// These four methods are what the panel drives; every one of them resolves the
+// target through the document itself rather than caching it, because undo, redo,
+// New and Open all move records out from under a cached index.
+namespace {
+
+// The `index`-th NUMBER argument of a statement, or args.size() when there is no
+// such argument. Written once and used by all four methods below AND matching
+// paramTarget() in PartCommands.cpp -- if these two disagreed the panel would
+// edit a different slot than the command it dispatches.
+std::size_t numberArgAt(const std::vector<forge::ui::IrArg>& args, std::size_t index) {
+  std::size_t seen = 0;
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    if (args[i].kind != forge::ui::IrArgKind::Number) continue;
+    if (seen == index) return i;
+    ++seen;
+  }
+  return args.size();
+}
+
+std::size_t numberArgCount(const std::vector<forge::ui::IrArg>& args) {
+  std::size_t n = 0;
+  for (const forge::ui::IrArg& a : args) {
+    if (a.kind == forge::ui::IrArgKind::Number) ++n;
+  }
+  return n;
+}
+
+}  // namespace
+
+void ForgeFrame::setEditTarget(int irId, std::size_t paramIndex) {
+  const std::size_t records = partDoc_.records().size();
+  if (records == 0) {
+    editFeatureId_ = 0;
+    editParamIndex_ = 0;
+    editValue_ = 0.0f;
+    return;
+  }
+  if (irId <= 0 || static_cast<std::size_t>(irId) > records) {
+    irId = static_cast<int>(records);  // 0 and out-of-range both mean the last
+  }
+  editFeatureId_ = irId;
+  const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
+  const std::size_t numbers = rec == nullptr ? 0 : numberArgCount(rec->line.args);
+  editParamIndex_ = (numbers == 0 || paramIndex >= numbers) ? 0 : paramIndex;
+  editValue_ = static_cast<float>(editParamValue());
+}
+
+std::size_t ForgeFrame::editParamCount() const {
+  const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
+  return rec == nullptr ? 0 : numberArgCount(rec->line.args);
+}
+
+double ForgeFrame::editParamValue() const {
+  const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
+  if (rec == nullptr) return 0.0;
+  const std::size_t slot = numberArgAt(rec->line.args, editParamIndex_);
+  if (slot >= rec->line.args.size()) return 0.0;
+  return rec->line.args[slot].number;
+}
+
+bool ForgeFrame::applyFeatureEdit(double value) {
+  forge::ui::CommandParams p;
+  p.setNumber("feature", static_cast<double>(editFeatureId_));
+  p.setNumber("index", static_cast<double>(editParamIndex_));
+  p.setNumber("value", value);
+  // THE ONE REGISTRY. Not a private call into PartDocument: a panel that edited
+  // the document directly would bypass the undo stack, the journal and the
+  // enabled predicate, which is the whole reason the registry exists.
+  const forge::ui::DispatchResult r = shell_.run("part.edit_feature", p);
+  if (!r.ok()) {
+    note("part.edit_feature  ->  " + std::string(forge::ui::toString(r.status)) +
+         (r.detail.empty() ? std::string() : ("  (" + r.detail + ")")));
+    return false;
+  }
+  note("part.edit_feature  ->  ok");
+  syncSceneToDocument();
+  editValue_ = static_cast<float>(editParamValue());
+  return true;
+}
+
 bool ForgeFrame::commandEnabled(const std::string& id) const {
   forge::ui::CommandParams params;
   const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
@@ -1304,8 +1388,17 @@ void ForgeFrame::drawFeatureTreePanel() {
             if (r.persistentName == "face@" + std::to_string(faceId)) selected = true;
           }
         }
+        const int featureIrId = treeSource_.featureIrIdOf(d.id);
+        if (faceId == 0 && featureIrId != 0 && featureIrId == editFeatureId_) selected = true;
         if (ImGui::Selectable(d.label.c_str(), selected, ImGuiSelectableFlags_AllowOverlap)) {
-          if (faceId != 0) clickFace(faceId, ImGui::GetIO().KeyShift);
+          if (faceId != 0) {
+            clickFace(faceId, ImGui::GetIO().KeyShift);
+          } else if (featureIrId != 0) {
+            // Clicking a FEATURE row used to do nothing at all. It is the row a
+            // user reaches for to change that feature's numbers, so it is what
+            // aims the parameter editor.
+            setEditTarget(featureIrId, 0);
+          }
         }
         if (ImGui::IsItemHovered() && faceId != 0) setPreselectedFace(faceId);
 
@@ -1337,6 +1430,62 @@ void ForgeFrame::drawPropertiesPanel() {
   ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
   ImGui::TextWrapped("feeds radius / distance / thickness on the next command");
   ImGui::PopStyleColor();
+  ImGui::Spacing();
+
+  // ── EDIT AN EXISTING FEATURE ──────────────────────────────────────────────
+  // The control that makes the document parametric. Everything above appends;
+  // this rewrites one number of a statement already in the program, through
+  // part.edit_feature and the one registry.
+  ImGui::TextColored(rgb(242, 158, 38), "Feature Parameter");
+  ImGui::Separator();
+  if (partDoc_.records().empty()) {
+    ImGui::TextDisabled("(the document has no statements)");
+  } else {
+    // Re-resolve every frame: undo, redo, New and Open all move records, and a
+    // target cached across one of those would edit the wrong statement.
+    if (partDoc_.featureAt(editFeatureId_) == nullptr) setEditTarget(0, 0);
+    const forge::ui::FeatureRecord* rec = partDoc_.featureAt(editFeatureId_);
+    ImGui::SetNextItemWidth(-1);
+    if (ImGui::BeginCombo("##editfeature",
+                          rec == nullptr ? "(none)" : rec->line.text().c_str())) {
+      for (const forge::ui::FeatureRecord& r2 : partDoc_.records()) {
+        const bool isSel = r2.irId == editFeatureId_;
+        if (ImGui::Selectable(r2.line.text().c_str(), isSel)) setEditTarget(r2.irId, 0);
+        if (isSel) ImGui::SetItemDefaultFocus();
+      }
+      ImGui::EndCombo();
+    }
+    const std::size_t numbers = editParamCount();
+    if (numbers == 0) {
+      // CUT(%2, %3) has no number in it. Saying so is the honest answer; a
+      // disabled field with a 0 in it would read as "this feature is 0 mm".
+      ImGui::TextDisabled("%s takes no numeric parameter",
+                          rec == nullptr ? "this statement" : rec->line.op.c_str());
+    } else {
+      for (std::size_t i = 0; i < numbers; ++i) {
+        if (i > 0) ImGui::SameLine();
+        char tag[16];
+        std::snprintf(tag, sizeof(tag), "#%zu", i + 1);
+        if (ImGui::RadioButton(tag, editParamIndex_ == i)) setEditTarget(editFeatureId_, i);
+      }
+      ImGui::SetNextItemWidth(-1);
+      ImGui::InputFloat("##editvalue", &editValue_, 0.5f, 5.0f, "%.3f");
+      const bool changed =
+          static_cast<double>(editValue_) != editParamValue();
+      ImGui::BeginDisabled(!changed);
+      // Refusing the no-op HERE as well as in the document is deliberate: the
+      // document refuses it so no undo step is pushed, and the button greys out
+      // so the user is never told "refused" for pressing Apply on an unchanged
+      // number.
+      if (ImGui::Button("Apply", ImVec2(-1, 0))) applyFeatureEdit(editValue_);
+      ImGui::EndDisabled();
+      if (!changed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+        ImGui::TextWrapped("pick a feature row in the tree, then change its number");
+        ImGui::PopStyleColor();
+      }
+    }
+  }
   ImGui::Spacing();
 
   ImGui::TextColored(rgb(242, 158, 38), "Selection");

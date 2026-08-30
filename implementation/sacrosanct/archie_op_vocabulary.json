@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "1d22fdd017ad3fd950425df8d1c0a2e8484d66e7d713e2ea6d78d41674e3dfc4",
-        "bytes": 72242,
-        "lines": 1641
+        "sha256": "8b598f16878dcb8b2c1fc94a38ccf0fd3de6f6681b14724bbe214f9d114e6f3c",
+        "bytes": 79128,
+        "lines": 1790
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "2625e5018a3332f4cc1523c7876a84563f6d2e2d0359babec5531f44f281a5eb",
-        "bytes": 43377,
-        "lines": 860
+        "sha256": "c99eaa6c077b834018bfa63b06b048ac307e5919224b0336f7c03d0b29566ca4",
+        "bytes": 52217,
+        "lines": 1045
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 34,
+    "registry_commands": 35,
     "commands_emitting_ir": 19,
     "user_invocable_ops": 17,
     "forbidden_ops": 23,
@@ -3104,6 +3104,47 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.edit_feature",
+      "label": "Edit Feature Parameter",
+      "category": "Part",
+      "feature_ir_op": null,
+      "emits_feature_ir": false,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "feature",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "index",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "value",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp"
+    },
+    {
       "id": "part.extrude",
       "label": "Extrude",
       "category": "Part",
@@ -4104,7 +4145,7 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 22,
+      "count": 23,
       "parameters": [
         "width (part.sketch_rect)",
         "height (part.sketch_rect)",
@@ -4127,7 +4168,8 @@
         "ny (part.pattern_grid)",
         "dx (part.pattern_grid)",
         "dy (part.pattern_grid)",
-        "plane (part.mirror)"
+        "plane (part.mirror)",
+        "value (part.edit_feature)"
       ],
       "evidence": "ParamSpec braced-positional initialisation stops before hasDefault",
       "consequence": "applyDefaults cannot fill them, so an interactive caller must prompt before these commands can run"

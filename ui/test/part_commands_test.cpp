@@ -74,8 +74,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 21);
-  CHECK_EQ_INT(registry.size(), 21);
+  CHECK_EQ_INT(added, 22);
+  CHECK_EQ_INT(registry.size(), 22);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -83,7 +83,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 21);
+  CHECK_EQ_INT(registry.size(), 22);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -363,7 +363,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 21);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 22);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -467,7 +467,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 21);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 22);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -499,7 +499,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 21);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 22);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -552,7 +552,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 21);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 22);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     const std::vector<std::string> indexing = {"part.extrude", "part.revolve",
@@ -660,6 +660,197 @@ int main() {
     CHECK_EQ_STR(lastLine(docE), "%7 = CUT(%3, %6)");
     CHECK_EQ_INT(docE.records().size(), 7);
     CHECK_EQ_INT(static_cast<int>(docE.lastCheck()), static_cast<int>(IrCheck::Ok));
+  }
+
+  // ── (e) THE PARAMETER EDIT ────────────────────────────────────────────────
+  // The document was APPEND-ONLY: appendFeature() refuses any statement not
+  // numbered nextIrId(), so nothing could change a number already in the
+  // program. Every check here asserts the emitted IR TEXT, because that text is
+  // what the kernel compiles -- a document that reports "edited" and emits the
+  // old statement is the exact failure this block exists to catch.
+  {
+    CommandRegistry regF;
+    PartDocument docF;
+    UndoStack stackF;
+    SelectionService selF;
+    CHECK_EQ_INT(registerPartCommands(regF, docF, stackF), 22);
+
+    // The five statements of the application's own starting part, seeded exactly
+    // as the app seeds them: NONE of them is command-authored, so undo cannot
+    // reach any of them and the edit path is the ONLY way to change them.
+    docF.seed(IrValueKind::Profile, "sk", "RECT", {IrArg::num(80), IrArg::num(50)});
+    docF.seed(IrValueKind::Solid, "b2", "EXTRUDE", {IrArg::valueRef(1), IrArg::num(20)});
+    docF.seed(IrValueKind::Solid, "tool", "CYL",
+              {IrArg::num(6), IrArg::num(40), IrArg::num(0), IrArg::num(0), IrArg::num(-10)});
+    docF.seed(IrValueKind::Solid, "b4", "CUT", {IrArg::valueRef(2), IrArg::valueRef(3)});
+    docF.seed(IrValueKind::Solid, "body", "FILLET",
+              {IrArg::valueRef(4), IrArg::num(3), IrArg::keyword("VERTICAL")});
+    CHECK_EQ_INT(docF.records().size(), 5);
+    CHECK_EQ_INT(docF.featureCount(), 0);
+    CHECK_EQ_INT(stackF.undoDepth(), 0);
+
+    // `value` has no honest default, so a bare invocation must be refused by the
+    // parameter gate rather than silently resizing the part.
+    CHECK_EQ_INT(statusOf(regF.evaluate("part.edit_feature", selF)),
+                 static_cast<int>(DispatchStatus::MissingRequiredParameter));
+    CHECK_EQ_STR(regF.evaluate("part.edit_feature", selF).detail, "value");
+    // It needs NO selection: a tree row is not a viewport pick.
+    selF.clearSelection();
+    CHECK(regF.evaluate("part.edit_feature", selF, params1("value", 6)).ok());
+
+    // feature 0 == the LAST statement, index 0 == its first NUMBER argument, so
+    // the bare form edits the fillet radius and steps over the leading %ref.
+    CHECK(regF.dispatch("part.edit_feature", selF, params1("value", 6)).ok());
+    CHECK_EQ_STR(docF.records().at(4).line.text(), "%5 = FILLET(%4, 6, VERTICAL)");
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::Ok));
+    // one edit == one undo step, and it is the document's stack, not a counter
+    CHECK_EQ_INT(stackF.undoDepth(), 1);
+    CHECK_EQ_STR(stackF.undoLabel(), "Edit body");
+
+    // an EARLIER statement, by explicit id: the plate width
+    CommandParams w;
+    w.setNumber("feature", 1);
+    w.setNumber("index", 0);
+    w.setNumber("value", 120);
+    CHECK(regF.dispatch("part.edit_feature", selF, w).ok());
+    CHECK_EQ_STR(docF.records().at(0).line.text(), "%1 = RECT(120, 50)");
+    // and the SECOND number of the same statement
+    CommandParams h;
+    h.setNumber("feature", 1);
+    h.setNumber("index", 1);
+    h.setNumber("value", 65);
+    CHECK(regF.dispatch("part.edit_feature", selF, h).ok());
+    CHECK_EQ_STR(docF.records().at(0).line.text(), "%1 = RECT(120, 65)");
+
+    // index counts NUMBERS only, so on CUT(%2, %3) -- all refs -- there is no
+    // index 0 at all, and the command is DISABLED rather than silently editing
+    // the wrong slot.
+    CommandParams cut;
+    cut.setNumber("feature", 4);
+    cut.setNumber("value", 9);
+    CHECK_EQ_INT(statusOf(regF.evaluate("part.edit_feature", selF, cut)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_STR(docF.records().at(3).line.text(), "%4 = CUT(%2, %3)");
+
+    // ...and on CYL(6, 40, 0, 0, -10) index 4 is the LAST number, not the fifth
+    // argument of some other statement
+    CommandParams z;
+    z.setNumber("feature", 3);
+    z.setNumber("index", 4);
+    z.setNumber("value", -20);
+    CHECK(regF.dispatch("part.edit_feature", selF, z).ok());
+    CHECK_EQ_STR(docF.records().at(2).line.text(), "%3 = CYL(6, 40, 0, 0, -20)");
+
+    // out of range, in both directions, and a fractional id: refused by the
+    // enabled predicate, and the document is byte-identical afterwards
+    const std::string before = docF.irProgram();
+    const double badIds[3] = {99.0, -3.0, 1.5};
+    for (double bad : badIds) {
+      CommandParams p2;
+      p2.setNumber("feature", bad);
+      p2.setNumber("value", 7);
+      CHECK_EQ_INT(statusOf(regF.evaluate("part.edit_feature", selF, p2)),
+                   static_cast<int>(DispatchStatus::Disabled));
+    }
+    CommandParams badIndex;
+    badIndex.setNumber("feature", 1);
+    badIndex.setNumber("index", 9);
+    badIndex.setNumber("value", 7);
+    CHECK_EQ_INT(statusOf(regF.evaluate("part.edit_feature", selF, badIndex)),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_STR(docF.irProgram(), before);
+
+    // a no-op edit is REFUSED, so the undo stack never holds a step that does
+    // nothing -- and the refusal is named, not silent
+    const std::size_t depth = stackF.undoDepth();
+    CommandParams same;
+    same.setNumber("feature", 1);
+    same.setNumber("value", 120);
+    const DispatchResult noop = regF.dispatch("part.edit_feature", selF, same);
+    CHECK_EQ_INT(statusOf(noop), static_cast<int>(DispatchStatus::EditRefused));
+    CHECK(noop.detail.find("no_change") != std::string::npos);
+    CHECK_EQ_INT(stackF.undoDepth(), depth);
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::NoChange));
+
+    // ── undo / redo of an EDIT, which is not an append ──────────────────────
+    CHECK(regF.dispatch("part.undo", selF).ok());
+    CHECK_EQ_STR(docF.records().at(2).line.text(), "%3 = CYL(6, 40, 0, 0, -10)");
+    CHECK_EQ_INT(docF.records().size(), 5);  // an edit undo removes NO statement
+    CHECK(regF.dispatch("part.redo", selF).ok());
+    CHECK_EQ_STR(docF.records().at(2).line.text(), "%3 = CYL(6, 40, 0, 0, -20)");
+    // undo-redo-undo: `before_` is re-captured on every apply, so the second
+    // undo restores the same text and not a stale one
+    CHECK(regF.dispatch("part.undo", selF).ok());
+    CHECK_EQ_STR(docF.records().at(2).line.text(), "%3 = CYL(6, 40, 0, 0, -10)");
+    CHECK(regF.dispatch("part.redo", selF).ok());
+    CHECK_EQ_STR(docF.records().at(2).line.text(), "%3 = CYL(6, 40, 0, 0, -20)");
+
+    // unwinding the whole stack returns the SEEDED program exactly
+    while (stackF.undoDepth() > 0) {
+      CHECK(regF.dispatch("part.undo", selF).ok());
+    }
+    CHECK_EQ_STR(docF.irProgram(),
+                 "%1 = RECT(80, 50)\n"
+                 "%2 = EXTRUDE(%1, 20)\n"
+                 "%3 = CYL(6, 40, 0, 0, -10)\n"
+                 "%4 = CUT(%2, %3)\n"
+                 "%5 = FILLET(%4, 3, VERTICAL)\n");
+    CHECK_EQ_INT(docF.records().size(), 5);
+    // the bindings never moved: an arg edit changes no statement id
+    CHECK_EQ_INT(docF.valueFor("body"), 5);
+    CHECK_EQ_INT(docF.valueFor("sk"), 1);
+
+    // ── the invariants, asserted on the DOCUMENT directly ───────────────────
+    // (the command can never present these, which is the point: they are what
+    // makes the command unable to do harm)
+    const std::string pristine = docF.irProgram();
+
+    // moving a %ref is a REPARENT, not a parameter edit
+    CHECK(!docF.editFeatureArgs(4, {IrArg::valueRef(3), IrArg::valueRef(2)}));
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::OperandChanged));
+    CHECK(!docF.editFeatureArgs(
+        5, {IrArg::valueRef(2), IrArg::num(3), IrArg::keyword("VERTICAL")}));
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::OperandChanged));
+    // and so is turning a ref slot into a number
+    CHECK(!docF.editFeatureArgs(5, {IrArg::num(4), IrArg::num(3), IrArg::keyword("VERTICAL")}));
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::OperandChanged));
+
+    // a statement that does not exist
+    CHECK(!docF.editFeatureArgs(0, {IrArg::num(1)}));
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::NoSuchFeature));
+    CHECK(!docF.editFeatureArgs(6, {IrArg::num(1)}));
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::NoSuchFeature));
+    CHECK(docF.featureAt(6) == nullptr);
+    CHECK(docF.featureAt(0) == nullptr);
+    CHECK(docF.featureAt(5) != nullptr);
+
+    // the op table is the authority on arity, and it is enforced HERE, with the
+    // document unmutated, rather than three layers down in the compiler
+    CHECK(!docF.editFeatureArgs(5, {IrArg::valueRef(4), IrArg::num(3), IrArg::keyword("VERTICAL"),
+                                    IrArg::num(1), IrArg::num(2), IrArg::num(3)}));
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::InvalidStatement));
+    CHECK_EQ_INT(static_cast<int>(docF.lastCheck()), static_cast<int>(IrCheck::TooManyArgs));
+    CHECK(!docF.editFeatureArgs(5, {IrArg::valueRef(4)}));
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::InvalidStatement));
+    CHECK_EQ_INT(static_cast<int>(docF.lastCheck()), static_cast<int>(IrCheck::TooFewArgs));
+
+    // NOT ONE of the refusals above moved a byte
+    CHECK_EQ_STR(docF.irProgram(), pristine);
+
+    // dropping a trailing KEYWORD is legal: the refs are untouched and the arity
+    // is still inside FILLET's documented range
+    CHECK(docF.editFeatureArgs(5, {IrArg::valueRef(4), IrArg::num(3)}));
+    CHECK_EQ_STR(docF.records().at(4).line.text(), "%5 = FILLET(%4, 3)");
+    // ...and so is changing the selector keyword itself
+    CHECK(docF.editFeatureArgs(5, {IrArg::valueRef(4), IrArg::num(3), IrArg::keyword("ALL")}));
+    CHECK_EQ_STR(docF.records().at(4).line.text(), "%5 = FILLET(%4, 3, ALL)");
+    CHECK_EQ_INT(static_cast<int>(docF.lastEdit()), static_cast<int>(EditCheck::Ok));
+
+    CHECK_EQ_STR(toString(EditCheck::Ok), "ok");
+    CHECK_EQ_STR(toString(EditCheck::OperandChanged), "operand_changed");
+    CHECK_EQ_STR(toString(EditCheck::NoSuchFeature), "no_such_feature");
+    CHECK_EQ_STR(toString(EditCheck::NoChange), "no_change");
+    CHECK_EQ_STR(toString(EditCheck::InvalidStatement), "invalid_statement");
   }
 
   return H.finish();

@@ -613,7 +613,23 @@ def parse_part_commands(cpp):
             enabled = squash(eb).replace("return ", "").rstrip(";").strip()
         ex, _, _ = block_after(block, r"c\.execute\s*=\s*\[[^\]]*\]\s*\([^)]*\)\s*")
         slots = scan_emission(ex)
-        produces = re.search(r"IrValueKind::(\w+)", ex.split("emit(")[-1]) if "emit(" in ex else \
+        # A handler EMITS A STATEMENT iff it calls the emit() helper -- that is the
+        # only thing in registerPartCommands() that appends to the document.
+        # `bool(slots)` was the proxy for it, and it was exact right up until a
+        # command REWROTE an argument of a statement that already exists
+        # (part.edit_feature): its body constructs an IrArg and appends nothing, so
+        # the proxy reported an emission with no op and the derivation aborted.
+        # The wrong classification is still caught, not waved through: a handler
+        # with slots but no emit() that DOES declare a featureIrOp is reported by
+        # derive_defects() as `declares_an_op_it_never_emits`.
+        # Two shapes append a statement: the emit() helper, and the three
+        # BOOLEANS, which build the FeatureRecord inline and are recognised by
+        # `rec.produces =` -- the same second form the produces regex below has
+        # always had to carry. Dropping that half of the test silently turned
+        # FUSE/CUT/COMMON into non-emitters and deleted their three worked
+        # examples from the vocabulary, which the check count caught.
+        emits = "emit(" in ex or re.search(r"rec\.produces\s*=\s*IrValueKind::", ex) is not None
+        produces = re.search(r"IrValueKind::(\w+)", ex.split("emit(")[-1]) if emits else \
             re.search(r"rec\.produces\s*=\s*IrValueKind::(\w+)", ex)
         for k, cid in enumerate(ids):
             cmds.append({
@@ -626,8 +642,8 @@ def parse_part_commands(cpp):
                 "preview": preview.group(1) if preview else "None",
                 "undo": undo.group(1) if undo else "SingleStep",
                 "enabled_predicate_source": enabled,
-                "emits_ir": bool(slots),
-                "emitted_args": slots,
+                "emits_ir": emits,
+                "emitted_args": slots if emits else [],
                 "produces_value_kind": produces.group(1) if produces else None,
                 "source": SOURCES["ui_part_commands"],
             })
