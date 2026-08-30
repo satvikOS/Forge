@@ -14,8 +14,10 @@
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
+#include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/PartCommands.hpp"
 #include "ui_test_util.hpp"
 
 using namespace forge::ui;
@@ -75,7 +77,7 @@ int main() {
   CHECK_EQ_STR(map.resolve(InputProfile::NXLike, {k("F", Mod::Ctrl)}).commandId, "view.fit");
   CHECK_EQ_STR(map.resolve(InputProfile::BlenderLike, {k("Home")}).commandId, "view.fit");
   // and the same keys mean DIFFERENT things in different profiles, as they must
-  CHECK_EQ_STR(map.resolve(InputProfile::NXLike, {k("X")}).commandId, "model.extrude");
+  CHECK_EQ_STR(map.resolve(InputProfile::NXLike, {k("X")}).commandId, "part.extrude");
   CHECK_EQ_STR(map.resolve(InputProfile::BlenderLike, {k("X")}).commandId, "edit.delete");
 
   // ── the load-bearing proof: ONE implementation behind both bindings ─────
@@ -116,11 +118,38 @@ int main() {
 
   // ── every binding names a command the one registry actually holds ───────
   // An orphan binding is a shortcut that silently does nothing.
-  std::size_t orphans = 0;
-  for (const std::string& id : map.allBoundCommandIds()) {
-    if (!shell.registry().contains(id)) ++orphans;
+  //
+  // THE REGISTRY THIS IS ASKED OF is the one the APPLICATION builds:
+  // ForgeShell's commands plus the workspace's, which is exactly what
+  // ForgeFrame::wirePartCommands() assembles. The modelling chords used to name
+  // ForgeShell's own model.extrude/fillet/shell counter stubs, so a bare shell
+  // satisfied this check while every one of those keys emitted no feature-IR.
+  // They now name part.*, which only a shell WITH a document registers -- and a
+  // shell with no document has no modelling command to bind, which is the honest
+  // state, not an orphan.
+  {
+    PartDocument doc;
+    UndoStack stack;
+    ForgeShell app;
+    const std::size_t added = registerPartCommands(app.registry(), doc, stack);
+    CHECK_EQ_INT(added, partCommandIds().size());
+    std::size_t orphans = 0;
+    std::vector<std::string> orphanIds;
+    for (const std::string& id : map.allBoundCommandIds()) {
+      if (!app.registry().contains(id)) {
+        ++orphans;
+        orphanIds.push_back(id);
+      }
+    }
+    CHECK_EQ_INT(orphans, 0);
+    CHECK_EQ_INT(orphanIds.size(), 0);
+    // and the bare shell really is missing them -- so this check is not vacuous
+    std::size_t unboundWithoutWorkspace = 0;
+    for (const std::string& id : map.allBoundCommandIds()) {
+      if (!shell.registry().contains(id)) ++unboundWithoutWorkspace;
+    }
+    CHECK_EQ_INT(unboundWithoutWorkspace, 3);  // extrude, fillet, shell
   }
-  CHECK_EQ_INT(orphans, 0);
 
   // ── key SEQUENCES: a live prefix is Pending, not Unbound ────────────────
   shell.setInputProfile(InputProfile::ForgeNative);

@@ -620,7 +620,19 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.extrude", "Extrude", "EXTRUDE",
                                SelectionSignature::exactly(EntityKind::Sketch, 1));
-    c.schema.push_back(ParamSpec{"distance", ParamType::Number, true, 10.0, ""});
+    // hasDefault, so a GESTURE can run this command. ForgeShell::invoke() fills
+    // only the parameters whose spec says the default MEANS something, and the
+    // braced-positional ParamSpec form below stops before that flag, so every
+    // required Part parameter defaulted to hasDefault=false and every keyboard
+    // shortcut for a Part command died on missing_required_parameter before the
+    // handler ran. The three values here are not invented: they are the honest
+    // defaults the retired ForgeShell model.* stubs already declared and shipped
+    // (distance 10, radius 1, thickness 2), moved onto the commands that emit IR.
+    c.schema.push_back(ParamSpec{.name = "distance",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 10.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"dirx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"diry", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"dirz", ParamType::Number, false, 1.0, ""});
@@ -776,7 +788,13 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.fillet", "Edge Fillet", "FILLET",
                                SelectionSignature::atLeast(EntityKind::Edge, 1));
-    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 1.0, ""});
+    // hasDefault: see part.extrude above -- 1 mm is the fillet radius the retired
+    // model.fillet stub declared, and it is what makes R / Ctrl+B run.
+    c.schema.push_back(ParamSpec{.name = "radius",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 1.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"selector", ParamType::Text, false, 0.0, "ALL"});
     c.preview = PreviewPolicy::Live;
     c.enabled = [d](const CommandContext& ctx) {
@@ -853,7 +871,13 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   {
     CommandDescriptor c = base("part.shell", "Shell Body", "SHELL",
                                SelectionSignature::atLeast(EntityKind::Face, 1));
-    c.schema.push_back(ParamSpec{"thickness", ParamType::Number, true, 2.0, ""});
+    // hasDefault: see part.extrude above -- 2 mm is the wall the retired
+    // model.shell stub declared, and it is what makes Ctrl+Shift+H run.
+    c.schema.push_back(ParamSpec{.name = "thickness",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 2.0,
+                                 .hasDefault = true});
     c.schema.push_back(ParamSpec{"open_axx", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"open_axy", ParamType::Number, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"open_axz", ParamType::Number, false, -1.0, ""});
@@ -1028,6 +1052,23 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
+  // There used to be `part.undo` and `part.redo` in this list, driving the very
+  // stack `s` points at. They were registered here when ForgeShell's own
+  // `edit.undo` was a counter stub (`--doc_.undoDepth; ++doc_.redoDepth; ...`)
+  // that touched no document at all.
+  //
+  // ForgeShell::DocumentHost closed that: `edit.undo` now calls
+  // documentUndo() on whoever owns the document, and in the application that is
+  // ForgeFrame, whose documentUndo() runs THIS UndoStack and then re-tessellates.
+  // So the registry held TWO Undo commands over ONE stack -- two menu entries
+  // both labelled "Undo", only one of them carrying Ctrl+Z, and only one of them
+  // driving the viewport rebuild. One undo stack means one Undo command, and the
+  // one that survives is the one the keyboard, the status strip and the geometry
+  // already go through.
+  //
+  // The caretaker itself is unchanged and still public: UndoStack::undo/redo are
+  // what documentUndo()/documentRedo() call.
   // ── EDIT FEATURE PARAMETER ────────────────────────────────────────────────
   // The command that makes the document PARAMETRIC. Every other Part command
   // appends; appendFeature() refuses anything not numbered nextIrId(), so before
@@ -1079,24 +1120,14 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
-  // ── UNDO / REDO ───────────────────────────────────────────────────────────
-  // Registered here, not in ForgeShell, because these drive THIS document's
-  // stack. They are the only Part commands with no feature-IR op: they move the
-  // program back and forth rather than extending it.
-  {
-    CommandDescriptor c = base("part.undo", "Undo", "", SelectionSignature::none());
-    c.undo = UndoContract::NotUndoable;
-    c.enabled = [s](const CommandContext&) { return s->undoDepth() > 0; };
-    c.execute = [d, s](CommandContext&) { s->undo(*d); };
-    add(std::move(c));
-  }
-  {
-    CommandDescriptor c = base("part.redo", "Redo", "", SelectionSignature::none());
-    c.undo = UndoContract::NotUndoable;
-    c.enabled = [s](const CommandContext&) { return s->redoDepth() > 0; };
-    c.execute = [d, s](CommandContext&) { s->redo(*d); };
-    add(std::move(c));
-  }
+  // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
+  // There used to be `part.undo` and `part.redo` beside `edit.undo` / `edit.redo`,
+  // two pairs of buttons driving ONE stack. Whichever a user pressed, the other
+  // pair's enabled state was still computed from the same depth, so the UI showed
+  // two controls for one piece of state and a keystroke bound to the "wrong" pair
+  // silently worked. One undo stack means one Undo command. They were also the
+  // only Part commands with no feature-IR op, which is why removing them makes
+  // "every registered Part command emits an IR op" literally true.
 
   return added;
 }
@@ -1109,9 +1140,8 @@ const std::vector<std::string>& partCommandIds() {
         "part.extrude",           "part.fillet",            "part.hole",
         "part.loft",              "part.mirror",            "part.move",
         "part.pattern_circular",  "part.pattern_grid",      "part.pattern_linear",
-        "part.redo",              "part.revolve",           "part.section_ring",
-        "part.shell",             "part.sketch_circle",     "part.sketch_rect",
-        "part.undo",
+        "part.revolve",           "part.section_ring",      "part.shell",
+        "part.sketch_circle",     "part.sketch_rect",
         "part.variable_fillet",
     };
     std::sort(v.begin(), v.end());

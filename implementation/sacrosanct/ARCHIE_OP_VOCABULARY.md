@@ -45,7 +45,7 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **36 commands**; **20 of them emit
+Measured at this revision: the registry holds **31 commands**; **20 of them emit
 feature-IR**, reaching **18 distinct op names**. The kernel defines **40** ops
 (`opFromName`), so **22 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
@@ -210,6 +210,13 @@ because a reader who saw the old ones needs to know they moved, and why.
 
 ## Keeping it true
 
+* Sixteen required Part parameters still carry no `hasDefault`, so an
+  interactive caller must prompt before those commands can run; the JSON lists
+  them under `required_parameters_without_hasDefault`. Three were removed from
+  that list — `part.extrude.distance` (10), `part.fillet.radius` (1) and
+  `part.shell.thickness` (2), the three the keymap binds — using the exact
+  defaults the retired `model.*` stubs already declared, which is what makes a
+  bare chord run rather than open a dialog that does not exist yet.
 * `--check` compares the committed JSON byte-for-byte against what the sources
   imply and prints a unified diff on drift. It records **content hashes of the
   eight source files**, not a git sha, so unrelated commits stay quiet and a real

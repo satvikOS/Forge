@@ -246,6 +246,21 @@ set(OCCT_LIBS
 # ERROR. Nine of ten options fail with p < 1e-5 — these are not underpowered ties, the
 # intervals are in reports/corpus_ab/summary.md and none of the nine straddles zero.
 #
+# ★ THE TABLE ABOVE IS THE f71ed98b BASELINE AND ONE ROW OF IT HAS SINCE MOVED. The
+#   THRUSECTIONS 0.0% was not a coverage fact about the corpus, it was a DEFECT in the
+#   native engine: it paired the two section rings by raw wire-explorer index and so
+#   omitted the reorient/re-origin step BRepOffsetAPI_ThruSections performs (via
+#   BRepFill_CompatibleWires) before ITS index pairing. Fixed in
+#   src/native/brep/NativeLoftPipe.cpp::canonicalRing. RE-MEASURED over the same 600
+#   parts, stride 1, 0 part-level errors, at the commit that carries the fix:
+#     FORGE_THRUSECTIONS_DROP_NATIVE     51.5      94.5      258/600       4.3e-78
+#   and inside the 309 parts where BOTH arms build, ALL 309 agree with OCCT on the FULL
+#   observable vector (volume + centre of mass + bounding box + face/edge/vertex/shell
+#   counts + validity) with ZERO disagreements — so the added coverage is exact, not
+#   merely present. The option STILL FAILS its flip gate: the surviving 258-part gap is
+#   sections carrying CIRCLE (232 parts) or B-SPLINE (106 parts) edges, which a ruled
+#   loft of polygon rings does not cover and which is a different engine, not a fix.
+#
 # ★ FORGE_FILLING_DROP_NATIVE IS THE ONE OPTION THIS MEASUREMENT CLEARS, and it clears
 #   it perfectly: 407 parts where both built, 193 where neither did, ZERO discordant
 #   pairs in 600 trials, and all 407 shared successes agree on the FULL observable
@@ -258,6 +273,42 @@ set(OCCT_LIBS
 #   FORGE_SHHEAL_DROP_NATIVE and FORGE_GEOM_DROP_NATIVE both DEFAULT ON already and
 #   replace low-level routines called from inside other ops, so there is no "native
 #   declined where OCCT would have built it" event to count. Stated, not skipped.
+#
+# ★ FAMILY J's 0.0% IS DIAGNOSED, and the diagnosis changes what would have to be built.
+#   test/draft_defer_probe.cpp re-runs the A/B's OWN DRAFT derivation over the same 600
+#   parts and reads occtdraft::draftLastDeferReason(), so the guard is the engine's, not a
+#   replica of it. It reproduces the row exactly: 35 not applicable, 565 DEFER, 0 native OK,
+#   0 disagreements with the committed A/B on either applicability or the native verdict.
+#   Results: reports/corpus_ab/draft_defer_probe.jsonl.gz.
+#
+#   NOT a wiring defect. The probe's POSITIVE CONTROL drafts a 10mm cube's side wall
+#   through the same binary and gets 973.796 mm^3 — exactly 1000 - (1/2)(10)(10)(10 tan3
+#   deg) — with an empty defer reason. The engine is reached and it is correct.
+#
+#   The two guards that fire are WHOLE-SHAPE preconditions of the plane-arrangement
+#   formulation, not properties of the face being drafted:
+#       375  a face of the solid carries more than one wire (a hole)
+#       190  a face of the solid is not a plane
+#   That 375/190 split is only the order faces happen to be visited in. Counted
+#   order-independently, ALL 565 parts violate BOTH: 565 have a non-planar face, 565 have a
+#   multi-wire face, and the parts violating exactly one are 0 and 0. So NO relaxation of
+#   either guard moves this number by a single part. 37.0% of the corpus's 72,201 faces are
+#   non-planar (per-part median 58.6%); zero parts are polyhedra.
+#
+#   AND THE BOUNDED ALTERNATIVE IS MEASURED AND STILL FAILS. The only construction that
+#   could move the number is a different engine: rebuild only the faces incident to the
+#   drafted wall's own vertices and carry every other face over verbatim. Its ceiling is
+#   the parts whose local neighbourhood is all-planar — 424/565 = 75.0%, against the OCCT
+#   baseline of 497/565 = 88.0% this gate must MEET. Those 424 are a strict SUBSET of
+#   OCCT's 497: 73 parts stay in the deletion bucket and there are 0 native-only wins. The
+#   same 424 are also exactly the parts whose every MOVED edge is a line, and a subset of
+#   the 490 whose drafted wall is single-wire — one predicate, three ways. 75.0% is an
+#   upper bound (it assumes every local rebuild then sews and validates), so the real
+#   engine would land below it, and it fails the gate before any of that.
+#
+#   ROADMAP CONSEQUENCE: family J is not one predicate away from shipping. Reaching 88%
+#   needs draft on CURVED faces (a drafted cylinder becomes a cone and its neighbours'
+#   trims change type), which is a different engine from the one in NativeDraft.cpp.
 #
 # ★ RE-MEASURE AFTER TOUCHING ANY ENGINE. The build stamps the SHA it compiled from and
 #   the driver REFUSES to run against a different HEAD (exit 3) — the first run of this
@@ -667,8 +718,22 @@ endif()
 #   reference solids at f71ed98b (reports/CORPUS_AB_COVERAGE.md):
 #       D THRUSECTIONS  native 0.0% vs OCCT 94.5%   567/600 parts deleted, p=4.1e-171
 #       F PIPESHELL     native 51.5% vs OCCT 100%   291/600 parts deleted, p=5.0e-88
-#   D returned a defer on all 600 -- the corpus has essentially no polygonal sections,
-#   which is the scope this engine states. F is the best-covered of the sweep family and
+#   ★★ THE READING OF THE D ROW RECORDED HERE WAS WRONG AND IS RETRACTED. It said
+#   "D returned a defer on all 600 -- the corpus has essentially no polygonal sections,
+#   which is the scope this engine states." MEASURED per-part defer census over the same
+#   600: 309 of them present TWO 4-VERTEX ALL-LINE-EDGE polygon sections, i.e. the corpus
+#   is 51.5% polygonal, not "essentially no polygonal sections". Those 309 were declined
+#   for a reason inside this engine (raw wire-explorer index pairing, no reorient/
+#   re-origin), and on every one of the 309 a correspondence exists under which all four
+#   lateral quads are planar. With NativeLoftPipe.cpp::canonicalRing supplying the missing
+#   step, D RE-MEASURES 51.5% vs OCCT 94.5%, 258/600 deleted, p=4.3e-78, with all 309
+#   both-build parts agreeing with OCCT on the full observable vector. The gate is still
+#   FAILED, but by 258 CURVED-section parts (circle 232, B-spline 106) rather than by 567.
+#   THE LESSON, and it is the reason this paragraph is kept rather than replaced: a 0/600
+#   was read as a statement about the CORPUS when it was a statement about the ENGINE. A
+#   family that scores exactly zero deserves a per-part cause census before its number is
+#   quoted as a capability bound.
+#   F is the best-covered of the sweep family and
 #   the only one within sight of the gate. Family E (PIPE, below) measures native 0.3%
 #   against OCCT 100%, 598/600 deleted.
 #   ALSO MEASURED, and not a coverage fact: on ALL 309 parts where F and OCCT both

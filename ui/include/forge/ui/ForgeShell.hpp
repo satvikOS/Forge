@@ -33,7 +33,6 @@ struct DocumentStats {
   std::size_t redoDepth = 0;
   std::size_t fitCount = 0;
   std::size_t deletedCount = 0;
-  double lastFeatureSize = 0.0;  // the size parameter the last feature actually used
   bool wireframe = false;
   bool dirty = false;
 };
@@ -62,8 +61,14 @@ struct InvokeOutcome {
 // The fix is NOT a second registry of file commands in the app — that is exactly
 // the "one command, two invokers, two outcomes" defect the single-registry rule
 // forbids. It is this: the shell keeps ONE `file.open`, and delegates what that
-// command MEANS to whoever owns the document. With no host installed every
-// counter behaves exactly as before, so the existing shell gates are unchanged.
+// command MEANS to whoever owns the document.
+//
+// `edit.undo` and `edit.redo` now REQUIRE a host. Their counter fallback was a
+// second, private undo model that could only move numbers, and it made "there is
+// no document to undo" indistinguishable from a successful undo. With no host
+// they are disabled and say "no document is open"; the file commands still fall
+// back to setting `dirty`, because a shell with no document genuinely has
+// nothing to save and that is what the flag then means.
 class DocumentHost {
  public:
   virtual ~DocumentHost() = default;
@@ -76,6 +81,25 @@ class DocumentHost {
   virtual bool documentSave(const std::string& path, std::string& error) = 0;
   virtual bool documentUndo() = 0;
   virtual bool documentRedo() = 0;
+
+  // ── A COMMAND CHANGES THE PICTURE ───────────────────────────────────────
+  // Called by ForgeShell::run() after ANY command that dispatched OK and whose
+  // descriptor declares sideEffect == Document. The host re-evaluates whatever
+  // it derives from the document -- for the desktop app that is: emit the IR
+  // program, compile it through forge::ft, tessellate, and hand the viewport a
+  // new vertex stream.
+  //
+  // WHY IT IS HERE AND NOT IN THE CALLER. Every mutation of the document goes
+  // through one dispatch, so exactly one place has to notice. Before this, the
+  // frame builder called its own syncSceneToDocument() from each invocation site
+  // it knew about (a menu click, a key press) and once more per frame as a
+  // backstop -- so a dispatch from anywhere else (a macro runner, an Archie tool
+  // call, a headless script, a gate) changed the document and left the geometry
+  // behind until something happened to draw a frame. "A mutation path that
+  // forgets to call it" was reachable by construction; now there is no call to
+  // forget. It is PURE, not a defaulted no-op: a host that derives nothing from
+  // the document still has to say so.
+  virtual void documentChanged() = 0;
 
   // What the status strip reports. Read from the real document every dispatch,
   // never accumulated here, so the two cannot drift apart.

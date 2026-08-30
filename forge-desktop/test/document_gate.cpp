@@ -8,7 +8,7 @@
 //
 //   (A) KernelScene, whose geometry was HARDCODED IN C++ (makeBox -> cut ->
 //       filletEdges) and could never be changed by any user action;
-//   (B) forge::ui::PartDocument, which the 18 real Part commands appended
+//   (B) forge::ui::PartDocument, which the real Part commands appended
 //       feature-IR to — and which was rendered as ONE LINE OF TEXT in the
 //       Properties panel and nowhere else;
 //   (C) ForgeShell::DocumentStats, a set of counters that file.*/edit.* bumped,
@@ -38,13 +38,26 @@
 //
 // PROVING THE GATE CAN FAIL: `--mutate <n>` injects the real regression, not a
 // synthetic abort:
-//   1  the document is never synced to the scene   -> the viewport ignores commands
+//   1  a second invoker dispatches straight into    -> the document gains the statement
+//      CommandRegistry, bypassing ForgeShell::run        and the viewport never hears
+//      and therefore DocumentHost::documentChanged       about it
 //   2  the .fpart writer drops the node bindings   -> a reopened document loses them
 //   3  save/load skips the file entirely           -> the round trip is not a round trip
 //   4  the body node is a hard-coded literal       -> a reopened or edited body is
 //                                                     unpickable and every solid
 //                                                     command on it refuses
-//   5  the parameter editor is aimed by TREE ROW    -> it lands on the statement
+//   5  the feature tree is bound to a SECOND,         -> the rows are a STALE copy of
+//      stale history instead of the live document        the history: the statement the
+//                                                        last command appended has no
+//                                                        row. That is exactly what the
+//                                                        SceneFeature vector was.
+//   6  the tree is bound to a history that is a        -> the rows DESCRIBE THE WRONG
+//      different document altogether                      STATEMENTS -- the failure a
+//                                                        row-count check cannot see
+//   7  the keystroke dispatches with a bare              -> the shortcut dies on
+//      CommandParams, as ForgeShell::key() used to          missing_required_parameter and
+//                                                          models nothing
+//   8  the parameter editor is aimed by TREE ROW    -> it lands on the statement
 //      POSITION instead of by STATEMENT ID             before the one the user
 //                                                      picked, and the part never
 //                                                      changes
@@ -236,8 +249,6 @@ int main(int argc, char** argv) {
   checkGt(scene.triangleCount(), 12u, "more triangles than a bare box");
   checkEq(scene.vertices().size(), scene.triangleCount() * 3,
           "the vertex stream is de-indexed 3-per-triangle");
-  checkEq(scene.features().size(), forge::desktop::defaultPartStatements().size(),
-          "one history row per statement");
   // The bbox the COMPILER measured and the bbox the TESSELLATION produced must
   // agree; volume cannot make this check, and a mis-scaled body is where it shows.
   for (int i = 0; i < 3; ++i) {
@@ -288,6 +299,8 @@ int main(int argc, char** argv) {
 
   const Fingerprint start = fingerprint(scene);
   const std::size_t buildsAtStart = scene.builds();
+  // Kept for MUTATION 5: what a copied history looks like one command later.
+  const forge::ui::PartDocument documentBeforeCommand = frame.document();
 
   // ── 3. A COMMAND CHANGES THE GEOMETRY ────────────────────────────────────
   //
@@ -305,18 +318,28 @@ int main(int argc, char** argv) {
 
   forge::ui::CommandParams filletParams;
   filletParams.setNumber("radius", 3.0);
-  const forge::ui::DispatchResult fillet = shell.run("part.fillet", filletParams);
+  // MUTATION 1 is a SECOND INVOKER: it dispatches straight into the registry,
+  // which is what a macro runner or a panel with its own button used to do. The
+  // command runs and the document changes, but ForgeShell::run() -- and with it
+  // DocumentHost::documentChanged() -- is skipped, so nothing re-tessellates.
+  const forge::ui::DispatchResult fillet =
+      g_mutation == 1
+          ? shell.registry().dispatch("part.fillet", shell.selection(), filletParams)
+          : shell.run("part.fillet", filletParams);
   check(fillet.ok(), "part.fillet dispatched through the one registry",
         forge::ui::toString(fillet.status) + std::string(" ") + fillet.detail);
   checkEq(frame.document().records().size(),
           forge::desktop::defaultPartStatements().size() + 1,
           "the command appended one statement to the document");
 
-  if (g_mutation != 1) frame.syncSceneToDocument();
+  // NOBODY CALLS syncSceneToDocument() HERE. The dispatch itself did it, through
+  // the descriptor's sideEffect == Document and the document host, so a caller
+  // that has no idea a viewport exists still leaves the picture correct.
   const Fingerprint afterFillet = fingerprint(scene);
   std::printf("[doc-gate] after part.fillet: %s\n", afterFillet.str().c_str());
 
-  check(scene.builds() > buildsAtStart, "the command drove a REAL kernel rebuild",
+  check(scene.builds() > buildsAtStart,
+        "the DISPATCH itself rebuilt -- no caller had to remember",
         std::to_string(scene.builds()) + " builds");
   check(!(afterFillet == start), "the viewport geometry actually changed",
         "fingerprint identical: " + afterFillet.str());
@@ -342,6 +365,93 @@ int main(int argc, char** argv) {
   checkEq(shell.document().features, frame.document().records().size(),
           "the status strip followed the document through the command");
 
+  // ── 3b. THE FEATURE-TREE ROWS ARE THE IR STATEMENTS ──────────────────────
+  //
+  // Until this slice the tree read a `std::vector<SceneFeature>` that KernelScene
+  // owned and ForgeFrame::refreshFeatureRows() re-copied out of
+  // PartDocument::records() after every rebuild -- a SECOND history, four strings
+  // wide, pushed in by a setter that any mutation path could forget to call. It
+  // could not carry the two fields that make a row a feature rather than a label:
+  // the statement id the row IS, and the command that authored it.
+  //
+  // The assertions below are on OBJECT IDENTITY, not on equal-looking strings: a
+  // row's record must be the very FeatureRecord the document holds. A copy that
+  // happened to agree would pass a string comparison and fail this.
+  //
+  // MUTATION 5 binds the source to a different, stale document -- the defect in
+  // its purest form -- and every check here must go red.
+  // MUTATION 5's stale history: the document EXACTLY AS IT WAS before the command
+  // ran. A copy that was right a moment ago is the realistic form of the defect.
+  forge::ui::PartDocument staleHistory = documentBeforeCommand;
+  // MUTATION 6's mismatched history: a different document altogether, so the rows
+  // describe the wrong statements while still being a perfectly valid history.
+  forge::ui::PartDocument otherHistory;
+  otherHistory.seed(forge::ui::IrValueKind::Solid, "body.other", "BOX",
+                    {forge::ui::IrArg::num(10.0), forge::ui::IrArg::num(10.0),
+                     forge::ui::IrArg::num(10.0)});
+  forge::desktop::SceneFeatureTreeSource staleSource(scene, staleHistory);
+  forge::desktop::SceneFeatureTreeSource otherSource(scene, otherHistory);
+  {
+    const forge::desktop::SceneFeatureTreeSource& src =
+        g_mutation == 5 ? staleSource : (g_mutation == 6 ? otherSource : frame.treeSource());
+    const std::vector<forge::ui::FeatureRecord>& records = frame.document().records();
+
+    checkEq(src.featureCount(), records.size(),
+            "the tree source's feature count IS the document's record count");
+
+    std::size_t identical = 0;
+    std::size_t authored = 0;
+    for (std::size_t i = 0; i < records.size(); ++i) {
+      const forge::ui::NodeId node = src.nodeForFeature(i);
+      const forge::ui::FeatureRecord* rec = src.recordAt(node);
+      if (rec == nullptr) continue;
+      if (rec == &records[i]) ++identical;
+      if (!rec->commandId.empty()) ++authored;
+      // EVERY comparison below is against `records[i]` -- the DOCUMENT's
+      // statement -- never against `rec` itself. Comparing the row to the record
+      // it was built from is self-consistent under any history at all, and would
+      // stay green while the tree described a different part entirely.
+      const forge::ui::FeatureNodeData d = src.data(node);
+      checkStrEq(d.featureIrOp, records[i].line.op,
+                 "the row's IR op is the DOCUMENT statement's op");
+      checkStrEq(d.label, records[i].label.empty() ? records[i].line.op : records[i].label,
+                 "the row's label is the DOCUMENT statement's label");
+      checkEq(rec->irId, static_cast<int>(i + 1),
+              "the row's irId is its 1-based document position");
+    }
+    checkEq(identical, records.size(),
+            "every row IS the document's record, by object identity -- not a copy");
+
+    // The statement the COMMAND appended is the last row, and it names the
+    // command. `commandId` is one of the two fields the copied row dropped.
+    const forge::ui::FeatureRecord* last =
+        records.empty() ? nullptr : src.recordAt(src.nodeForFeature(records.size() - 1));
+    check(last != nullptr, "the last document statement has a tree row", "no record for it");
+    if (last != nullptr) {
+      checkStrEq(last->commandId, "part.fillet",
+                 "the last row names the command that authored it");
+      checkStrEq(last->line.op, "FILLET", "and the op it emitted");
+      // And that row's statement is literally the last line of the program the
+      // kernel compiled -- the tree and the viewport read one text.
+      const std::string program = frame.document().irProgram();
+      const std::string stmt = last->line.text();
+      check(program.find(stmt) != std::string::npos,
+            "the row's statement is a line of the compiled program", stmt);
+    }
+    checkEq(authored, 1u, "exactly one statement so far was authored by a command");
+
+    // The MODEL the panel actually draws through is flattened over those same
+    // nodes: root, then one row per statement, then the last feature's faces.
+    check(frame.treeRowCount() > records.size(), "the flattened tree holds every statement",
+          std::to_string(frame.treeRowCount()));
+    std::size_t modelRowsMatched = 0;
+    for (std::size_t i = 0; i < records.size() && 1 + i < frame.treeRowCount(); ++i) {
+      if (frame.tree().rowAt(1 + i).id == src.nodeForFeature(i)) ++modelRowsMatched;
+    }
+    checkEq(modelRowsMatched, records.size(),
+            "the flattened rows the panel draws are those statements, in order");
+  }
+
   // ── 4. UNDO IS THE DOCUMENT'S UNDO ───────────────────────────────────────
   //
   // `edit.undo` used to run `--doc_.undoDepth; ++doc_.redoDepth;` and touch no
@@ -357,6 +467,13 @@ int main(int argc, char** argv) {
   const Fingerprint afterUndo = fingerprint(scene);
   check(afterUndo == start, "undo restored the ORIGINAL geometry, not just a counter",
         afterUndo.str() + " vs " + start.str());
+  // The tree followed it WITHOUT anyone refreshing a row vector: the source reads
+  // records(), and undo popped one.
+  checkEq(frame.treeSource().featureCount(), frame.document().records().size(),
+          "undo removed the tree row too, with no row-copying step");
+  check(frame.treeSource().recordAt(
+            frame.treeSource().nodeForFeature(frame.document().records().size())) == nullptr,
+        "the undone statement has no row left", "a row outlived its statement");
 
   const forge::ui::DispatchResult redo = shell.run("edit.redo");
   check(redo.ok(), "edit.redo dispatched", forge::ui::toString(redo.status));
@@ -441,7 +558,6 @@ int main(int argc, char** argv) {
   check(fresh.ok(), "file.new dispatched", forge::ui::toString(fresh.status));
   check(shell.lastDocumentError().empty(), "file.new was not refused",
         shell.lastDocumentError());
-  frame.syncSceneToDocument();
   checkStrEq(frame.document().irProgram(), forge::desktop::defaultPartIr(),
              "file.new returned the document to the starting part");
   check(!(fingerprint(scene) == beforeOpen), "file.new actually changed the geometry back",
@@ -453,7 +569,6 @@ int main(int argc, char** argv) {
   check(opened.ok(), "file.open dispatched", forge::ui::toString(opened.status));
   check(shell.lastDocumentError().empty(), "file.open READ THE PATH and succeeded",
         shell.lastDocumentError());
-  frame.syncSceneToDocument();
 
   checkStrEq(frame.document().irProgram(), programBeforeOpen,
              "the reopened document emits the identical IR program");
@@ -536,7 +651,6 @@ int main(int argc, char** argv) {
       const forge::ui::DispatchResult openedForeign = shell.run("file.open", foreignOpen);
       check(openedForeign.ok() && shell.lastDocumentError().empty(),
             "the foreign-named document opens", shell.lastDocumentError());
-      frame.syncSceneToDocument();
       checkStrEq(frame.activeBodyNode(), "imported.body",
                  "the app reads the body's name from the DOCUMENT");
 
@@ -571,7 +685,6 @@ int main(int argc, char** argv) {
       const forge::ui::DispatchResult openedBare = shell.run("file.open", bareOpen);
       check(openedBare.ok() && shell.lastDocumentError().empty(),
             "a NODE-less document opens", shell.lastDocumentError());
-      frame.syncSceneToDocument();
       check(!frame.activeBodyNode().empty(), "the open path gave its body a name",
             frame.activeBodyNode());
       checkEq(frame.document().valueFor(frame.activeBodyNode()),
@@ -631,7 +744,7 @@ int main(int argc, char** argv) {
     // (1-based). It lands on CUT(%2, %3), which has no numeric parameter at all,
     // so the command is refused and the part never changes -- silently, if
     // nothing below asserted the geometry.
-    const int aimedAt = g_mutation == 5 ? filletId - 1 : filletId;
+    const int aimedAt = g_mutation == 8 ? filletId - 1 : filletId;
     editFrame.setEditTarget(aimedAt, 0);
 
     // THE EDIT. Through ForgeFrame::applyFeatureEdit, which dispatches
@@ -806,6 +919,99 @@ int main(int argc, char** argv) {
           last == nullptr ? "no draw data" : std::to_string(last->TotalVtxCount));
     checkGt(frame.panelsDrawn(), 3u, "the docked layout still drew its panels");
     checkGt(frame.rebuilds(), 0u, "the document drove at least one rebuild");
+  }
+
+  // ── 9. A KEYSTROKE MODELS ────────────────────────────────────────────────
+  //
+  // THE P0.6 CLAIM, on the one path a user actually has: a key press, through
+  // ForgeFrame::onKey -> ForgeShell::key -> the ONE registry -> the document ->
+  // forge::ft -> the viewport's vertices.
+  //
+  // Until this slice the Extrude/Fillet/Shell chords in all four input profiles
+  // named `model.extrude` / `model.fillet` / `model.shell` -- ForgeShell
+  // descriptors whose whole execute body was four counter increments. They
+  // emitted no feature-IR, so no key could change the picture; and with a
+  // DocumentHost installed even the counters were overwritten from the real
+  // document on the way out of run(), so pressing R changed NOTHING while the
+  // console printed "ok".
+  //
+  // A fresh shell/scene/frame, so this is not reading the state fifty checks of
+  // file round-tripping left behind.
+  {
+    forge::desktop::KernelScene keyScene;
+    check(keyScene.build(), "the keystroke scene builds", keyScene.error());
+    forge::ui::ForgeShell keyShell;
+    forge::desktop::ForgeFrame keyFrame(keyShell, keyScene);
+    keyFrame.wirePartCommands();
+
+    // The chord resolves to the command that EMITS, and the counter stub it used
+    // to resolve to is not in the registry at all.
+    const forge::ui::Resolution r =
+        keyShell.keymap().resolve(keyShell.inputProfile(), {forge::ui::KeyStroke{"R", 0}});
+    checkStrEq(r.commandId, "part.fillet", "the Forge-native R chord names part.fillet");
+    check(!keyShell.registry().contains("model.fillet"), "model.fillet is not registered",
+          "the counter stub is still there");
+    check(!keyShell.registry().contains("model.extrude"), "model.extrude is not registered", "");
+    check(!keyShell.registry().contains("model.shell"), "model.shell is not registered", "");
+
+    const Fingerprint before = fingerprint(keyScene);
+    const std::size_t recordsBefore = keyFrame.document().records().size();
+    const std::size_t buildsBefore = keyScene.builds();
+
+    forge::ui::EntityRef pick;
+    pick.bodyId = keyFrame.activeBodyNode();
+    pick.kind = forge::ui::EntityKind::Edge;
+    pick.persistentName = "edge@all";
+    pick.generation = 1;
+    keyShell.selection().replaceWith({pick});
+
+    // MUTATION 7 is the regression ForgeShell::key() used to have: dispatch with
+    // a default-constructed CommandParams, so a command with a required
+    // parameter dies before its handler runs. Everything below then goes red.
+    const bool ran = g_mutation == 7 ? keyShell.run("part.fillet").ok()
+                                     : keyFrame.onKey("R", 0);
+    check(ran, "the R chord ran a command", keyFrame.lastStatus());
+    checkEq(keyFrame.document().records().size(), recordsBefore + 1,
+            "the keystroke appended ONE feature-IR statement");
+
+    const forge::ui::FeatureRecord* last = keyFrame.document().lastFeature();
+    check(last != nullptr, "the document has a last statement", "");
+    if (last != nullptr) {
+      checkStrEq(last->commandId, "part.fillet", "authored by the command the chord names");
+      checkStrEq(last->line.op, "FILLET", "and it emitted a FILLET");
+      // The schema default really reached the handler: radius 1, not a prompt.
+      checkStrEq(last->line.text(),
+                 "%" + std::to_string(last->irId) + " = FILLET(%" +
+                     std::to_string(last->irId - 1) + ", 1, ALL)",
+                 "the shortcut's schema default is IN the emitted statement");
+    }
+
+    check(keyScene.builds() > buildsBefore, "the keystroke drove a REAL kernel rebuild",
+          std::to_string(keyScene.builds()) + " builds");
+    check(keyScene.lastBuild().ok(), "the rebuilt solid compiled", keyScene.lastBuild().error);
+    const Fingerprint after = fingerprint(keyScene);
+    check(!(after == before), "A KEY PRESS CHANGED THE PICTURE",
+          "fingerprint identical: " + after.str());
+    check(after.volume < before.volume, "the keyed fillet removed material",
+          std::to_string(after.volume) + " vs " + std::to_string(before.volume));
+    checkGt(after.faceCount, before.faceCount, "and added faces");
+
+    // The ribbon the Part workspace claims is the category those commands are
+    // filed under. While it named "Model" the toolbar offered the three counter
+    // stubs and none of the sixteen commands that emit.
+    const std::vector<std::string> cats =
+        forge::ui::workspaceCategories(forge::ui::WorkspaceProfile::Part);
+    std::size_t ribbonCommands = 0;
+    for (const std::string& cat : cats) {
+      ribbonCommands += keyShell.registry().idsInCategory(cat).size();
+    }
+    checkEq(keyShell.registry().idsInCategory("Part").size(),
+            forge::ui::partCommandIds().size(),
+            "the Part ribbon category holds every Part command");
+    checkEq(keyShell.registry().idsInCategory("Model").size(), 0u,
+            "and no command is filed under the retired Model category");
+    checkEq(ribbonCommands, keyShell.registry().size(),
+            "every registered command is reachable from the Part workspace ribbon");
   }
 
   std::remove(path.c_str());

@@ -12,8 +12,10 @@
 
 #include "forge/ui/CommandRegistry.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/PartCommands.hpp"
 #include "forge/ui/SelectionService.hpp"
 #include "forge/ui/Types.hpp"
 #include "forge/ui/WorkspaceProfile.hpp"
@@ -25,36 +27,168 @@ using forge::uitest::Harness;
 
 namespace {
 
+// The three seeded document nodes every modelling assertion below selects
+// against. They are bound in App::App(), so a selection carrying one of them
+// resolves to a real feature-IR value.
+constexpr const char* kSketchNode = "sketch_1";
+constexpr const char* kSolidNode = "body_1";
+
 EntityRef sketchRef(const std::string& name) {
-  return EntityRef{"body_1", EntityKind::Sketch, name, 1};
+  return EntityRef{kSketchNode, EntityKind::Sketch, name, 1};
 }
 EntityRef edgeRef(const std::string& name) {
-  return EntityRef{"body_1", EntityKind::Edge, name, 1};
+  return EntityRef{kSolidNode, EntityKind::Edge, name, 1};
 }
 EntityRef faceRef(const std::string& name) {
-  return EntityRef{"body_1", EntityKind::Face, name, 1};
+  return EntityRef{kSolidNode, EntityKind::Face, name, 1};
 }
+
+// ── THE APPLICATION'S SHELL, not a bare one ─────────────────────────────────
+//
+// ForgeShell on its own registers no modelling command and owns no document:
+// that is the point of the DocumentHost seam. The registry the APPLICATION
+// builds is ForgeShell's commands PLUS registerPartCommands() over a real
+// PartDocument and UndoStack, with the frame installed as the host -- exactly
+// what ForgeFrame::wirePartCommands() does. Every assertion about a modelling
+// shortcut, about undo, and about "dirty" needs that registry, because the
+// counter stubs those assertions used to run against are gone.
+//
+// This host is the headless equivalent of ForgeFrame: no kernel, no ImGui.
+class TestDocumentHost final : public DocumentHost {
+ public:
+  TestDocumentHost(PartDocument& doc, UndoStack& stack) : doc_(doc), stack_(stack) {}
+
+  bool documentNew(std::string&) override {
+    doc_.restore(PartDocument::Snapshot{});
+    stack_.clear();
+    savedRecords_ = 0;
+    path_.clear();
+    return true;
+  }
+  bool documentOpen(const std::string& path, std::string& error) override {
+    if (path.empty()) {
+      error = "Open needs a path";
+      return false;
+    }
+    path_ = path;
+    savedRecords_ = doc_.records().size();
+    ++opens_;
+    return true;
+  }
+  bool documentSave(const std::string& path, std::string&) override {
+    if (!path.empty()) path_ = path;
+    savedRecords_ = doc_.records().size();
+    ++saves_;
+    return true;
+  }
+  bool documentUndo() override { return stack_.undo(doc_); }
+  bool documentRedo() override { return stack_.redo(doc_); }
+  // What ForgeFrame does here is "re-emit the IR, compile it, re-tessellate".
+  // Headless, the observable is that it was CALLED, and with what document.
+  void documentChanged() override {
+    ++changes_;
+    seenProgram_ = doc_.irProgram();
+  }
+
+  std::size_t documentFeatureCount() const override { return doc_.records().size(); }
+  std::size_t documentUndoDepth() const override { return stack_.undoDepth(); }
+  std::size_t documentRedoDepth() const override { return stack_.redoDepth(); }
+  // A document is modified when it holds statements the last save did not: a
+  // witness taken from the document, not a flag somebody has to remember to set.
+  bool documentDirty() const override { return doc_.records().size() != savedRecords_; }
+  std::string documentPath() const override { return path_; }
+
+  std::size_t changes() const noexcept { return changes_; }
+  const std::string& seenProgram() const noexcept { return seenProgram_; }
+  // "the document as opened" -- what a freshly seeded document is.
+  void markClean() noexcept { savedRecords_ = doc_.records().size(); }
+  std::size_t saves() const noexcept { return saves_; }
+  std::size_t opens() const noexcept { return opens_; }
+
+ private:
+  PartDocument& doc_;
+  UndoStack& stack_;
+  std::size_t savedRecords_ = 0;
+  std::size_t saves_ = 0;
+  std::size_t opens_ = 0;
+  std::size_t changes_ = 0;
+  std::string seenProgram_;
+  std::string path_;
+};
+
+struct App {
+  PartDocument doc;
+  UndoStack stack;
+  ForgeShell shell;
+  TestDocumentHost host{doc, stack};
+  std::size_t shellCommands = 0;
+  std::size_t partCommands = 0;
+
+  App() {
+    shellCommands = shell.registry().size();
+    partCommands = registerPartCommands(shell.registry(), doc, stack);
+    // Two values that exist before any command ran, exactly as the Sketch
+    // workspace and an import would leave them. Without them no modelling
+    // command can resolve a selection, which is the honest state of a shell that
+    // has not been given a document.
+    doc.seed(IrValueKind::Profile, kSketchNode, "RECT", {IrArg::num(80), IrArg::num(50)});
+    doc.seed(IrValueKind::Solid, kSolidNode, "BOX",
+             {IrArg::num(80), IrArg::num(50), IrArg::num(20)});
+    host.markClean();               // opened, not edited
+    shell.setDocumentHost(&host);   // AFTER the seed, so the counters sync to it
+  }
+
+  std::size_t features() const { return doc.records().size(); }
+  std::string lastLine() const {
+    const FeatureRecord* f = doc.lastFeature();
+    return f == nullptr ? std::string("<none>") : f->line.text();
+  }
+};
 
 }  // namespace
 
 int main() {
   Harness H("forge_shell");
 
-  ForgeShell shell;
+  App app;
+  ForgeShell& shell = app.shell;
+
+  // ── the SHELL registers no modelling command ────────────────────────────
+  // It used to ship model.extrude / model.fillet / model.shell: descriptors with
+  // a featureIrOp, a Transaction undo contract and an execute body of four
+  // counter increments. The keymap bound every profile's Extrude/Fillet/Shell
+  // chord to them, so those keys reported Ok and changed nothing -- and with a
+  // DocumentHost installed even the counters were overwritten on the way out of
+  // run(). They are retired; the real commands come from the workspace.
+  CHECK_EQ_INT(app.shellCommands, 10);
+  CHECK(!shell.registry().contains("model.extrude"));
+  CHECK(!shell.registry().contains("model.fillet"));
+  CHECK(!shell.registry().contains("model.shell"));
+  for (const std::string& id : shell.registry().ids()) {
+    CHECK(id.rfind("model.", 0) != 0);
+  }
+  // and the Part workspace's ribbon category is the one they are filed under
+  const std::vector<std::string> partCats = workspaceCategories(WorkspaceProfile::Part);
+  bool ribbonHasPart = false;
+  for (const std::string& cat : partCats) ribbonHasPart = ribbonHasPart || cat == "Part";
+  CHECK(ribbonHasPart);
+  CHECK_EQ_INT(shell.registry().idsInCategory("Model").size(), 0);
+  CHECK_EQ_INT(shell.registry().idsInCategory("Part").size(), app.partCommands);
 
   // ── the shipped command set carries the full s19.2 contract ─────────────
-  CHECK_EQ_INT(shell.registry().size(), 13);
-  const CommandDescriptor* extrude = shell.registry().find("model.extrude");
+  CHECK_EQ_INT(app.partCommands, partCommandIds().size());
+  CHECK_EQ_INT(shell.registry().size(), app.shellCommands + app.partCommands);
+  const CommandDescriptor* extrude = shell.registry().find("part.extrude");
   CHECK(extrude != nullptr);
   CHECK_EQ_STR(extrude->featureIrOp, "EXTRUDE");
-  CHECK_EQ_STR(extrude->category, "Model");
+  CHECK_EQ_STR(extrude->category, "Part");
   CHECK_EQ_INT(static_cast<int>(extrude->preview), static_cast<int>(PreviewPolicy::Live));
   CHECK_EQ_INT(static_cast<int>(extrude->undo), static_cast<int>(UndoContract::Transaction));
   CHECK_EQ_INT(static_cast<int>(extrude->sideEffect), static_cast<int>(SideEffectClass::Document));
-  CHECK_EQ_INT(extrude->schema.size(), 1);
+  CHECK_EQ_INT(extrude->schema.size(), 4);
   CHECK_EQ_STR(extrude->schema[0].name, "distance");
   CHECK(extrude->schema[0].required);
-  CHECK_EQ_STR(extrude->signature.describe(), "1..n sketch (homogeneous)");
+  CHECK_EQ_STR(extrude->signature.describe(), "1..1 sketch (homogeneous)");
 
   // Every command that edits geometry names the feature-IR op it maps to; a
   // view-only command has none. Archie replays the IR, so a missing mapping is
@@ -68,11 +202,27 @@ int main() {
       if (!c->featureIrOp.empty()) ++documentCommandsWithIr;
     }
   }
-  CHECK_EQ_INT(documentCommands, 4);
-  CHECK_EQ_INT(documentCommandsWithIr, 4);
+  CHECK_EQ_INT(documentCommands, app.partCommands + 1);  // + edit.delete
+  // Every document command emits feature IR EXCEPT part.edit_feature, and that exception
+  // is structural rather than an oversight: edit_feature MUTATES an existing statement's
+  // argument in place, so it has no op of its own to emit -- the statement it edits already
+  // carries one. Naming the single exemption keeps this as strong as the equality it
+  // replaces: a SECOND op-less document command still fails here.
+  std::size_t documentCommandsWithoutIr = 0;
+  for (const std::string& id : shell.registry().ids()) {
+    const CommandDescriptor* c = shell.registry().find(id);
+    if (c->undo == UndoContract::Transaction && c->featureIrOp.empty()) {
+      ++documentCommandsWithoutIr;
+      CHECK_EQ_STR(id, "part.edit_feature");
+    }
+  }
+  CHECK_EQ_INT(documentCommandsWithoutIr, 1);
+  CHECK_EQ_INT(documentCommandsWithIr, documentCommands - 1);
 
   // ── one dispatch path: shortcut, palette pick and macro step all land ───
   // in the SAME journal, because they all go through run().
+  const std::size_t seeded = app.features();
+  CHECK_EQ_INT(seeded, 2);
   CommandParams distance;
   distance.setNumber("distance", 25.0);
 
@@ -86,57 +236,103 @@ int main() {
   CHECK(shell.run(at(hits, 0)).ok());
   CHECK(shell.document().wireframe);
 
-  // a macro / Archie tool call, by stable ID
+  // a macro / Archie tool call, by stable ID. The assertion is the STATEMENT the
+  // document recorded, not a counter: a command that reported Ok and emitted no
+  // IR is exactly what this file used to be asserting on.
   shell.selection().add(sketchRef("Sketch1"));
-  CHECK(shell.run("model.extrude", distance).ok());
-  CHECK_EQ_INT(shell.document().features, 1);
+  CHECK(shell.run("part.extrude", distance).ok());
+  CHECK_EQ_INT(app.features(), seeded + 1);
+  CHECK_EQ_STR(app.lastLine(), "%3 = EXTRUDE(%1, 25)");
+  // and the status strip is READ from that document, not accumulated
+  CHECK_EQ_INT(shell.document().features, app.features());
 
   CHECK_EQ_INT(shell.journal().size(), 3);
   CHECK_EQ_STR(at(shell.journal(), 0), "view.fit");
   CHECK_EQ_STR(at(shell.journal(), 1), "view.wireframe");
-  CHECK_EQ_STR(at(shell.journal(), 2), "model.extrude");
+  CHECK_EQ_STR(at(shell.journal(), 2), "part.extrude");
+
+  // ── A COMMAND CHANGES THE PICTURE, and only the right ones ──────────────
+  // run() calls DocumentHost::documentChanged() after any command that ran and
+  // declares sideEffect == Document. The host is the only place that re-derives
+  // geometry, so no invoker has a rebuild call to forget -- and view.fit and
+  // view.wireframe, which ran just above, must NOT have triggered one.
+  CHECK_EQ_INT(app.host.changes(), 1);            // part.extrude, not the two views
+  CHECK_EQ_STR(app.host.seenProgram(), app.doc.irProgram());  // and with the NEW program
+  CHECK(app.shell.run("view.fit").ok());
+  CHECK_EQ_INT(app.host.changes(), 1);            // a view command re-derives nothing
+  {
+    // A command that dispatches but is REFUSED must not notify either.
+    SelectionService saved;
+    saved.replaceWith(shell.selection().selection());
+    shell.selection().clearSelection();
+    const DispatchResult refused = shell.run("part.shell");
+    CHECK(!refused.ok());
+    CHECK_EQ_INT(app.host.changes(), 1);
+    shell.selection().replaceWith(saved.selection());
+  }
 
   // ── the gates hold end to end ───────────────────────────────────────────
   // wrong selection kind for a fillet
-  DispatchResult r = shell.run("model.fillet", distance);
+  DispatchResult r = shell.run("part.fillet", distance);
   CHECK_EQ_INT(static_cast<int>(r.status),
                static_cast<int>(DispatchStatus::SelectionSignatureMismatch));
-  CHECK_EQ_INT(shell.journal().size(), 3);  // a refused command is NOT journalled
+  CHECK_EQ_INT(shell.journal().size(), 4);  // a refused command is NOT journalled
+  CHECK_EQ_INT(app.features(), seeded + 1);  // and it recorded nothing
 
   // right kind, missing the required radius
   shell.selection().replaceWith({edgeRef("E1")});
-  r = shell.run("model.fillet");
+  r = shell.run("part.fillet");
   CHECK_EQ_INT(static_cast<int>(r.status),
                static_cast<int>(DispatchStatus::MissingRequiredParameter));
 
   CommandParams radius;
   radius.setNumber("radius", 3.0);
-  CHECK(shell.run("model.fillet", radius).ok());
-  CHECK_EQ_INT(shell.document().features, 2);
+  CHECK(shell.run("part.fillet", radius).ok());
+  CHECK_EQ_INT(app.features(), seeded + 2);
+  CHECK_EQ_STR(app.lastLine(), "%4 = FILLET(%2, 3, ALL)");
+  CHECK_EQ_INT(shell.document().features, app.features());
   CHECK_EQ_INT(shell.document().undoDepth, 2);
 
-  // undo is gated by the enabled predicate, all the way down to zero
+  // undo is gated by the enabled predicate, all the way down to zero -- and it
+  // unwinds the DOCUMENT, so the statement really leaves the program.
   CHECK(shell.run("edit.undo").ok());
+  CHECK_EQ_STR(app.lastLine(), "%3 = EXTRUDE(%1, 25)");
   CHECK(shell.run("edit.undo").ok());
   CHECK_EQ_INT(shell.document().undoDepth, 0);
-  CHECK_EQ_INT(shell.document().features, 0);
+  CHECK_EQ_INT(app.features(), seeded);
   r = shell.run("edit.undo");
   CHECK_EQ_INT(static_cast<int>(r.status), static_cast<int>(DispatchStatus::Disabled));
   CHECK_EQ_INT(shell.document().redoDepth, 2);
   CHECK(shell.run("edit.redo").ok());
-  CHECK_EQ_INT(shell.document().features, 1);
+  CHECK_EQ_INT(app.features(), seeded + 1);
+  CHECK_EQ_STR(app.lastLine(), "%3 = EXTRUDE(%1, 25)");
+
+  // ── with NO document there is nothing to undo, and it says so ───────────
+  // This used to run a private counter fallback and answer Ok.
+  {
+    ForgeShell bare;
+    CHECK(bare.documentHost() == nullptr);
+    CHECK_EQ_INT(static_cast<int>(bare.run("edit.undo").status),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_INT(static_cast<int>(bare.run("edit.redo").status),
+                 static_cast<int>(DispatchStatus::Disabled));
+    CHECK_EQ_INT(bare.journal().size(), 0);
+  }
 
   // save is offered only when the document is dirty
-  ForgeShell fresh;
-  CHECK_EQ_INT(static_cast<int>(fresh.run("file.save").status),
-               static_cast<int>(DispatchStatus::Disabled));
-  fresh.selection().add(sketchRef("S1"));
-  CHECK(fresh.run("model.extrude", distance).ok());
-  CHECK(fresh.document().dirty);
-  CHECK(fresh.run("file.save").ok());
-  CHECK(!fresh.document().dirty);
-  CHECK_EQ_INT(static_cast<int>(fresh.run("file.save").status),
-               static_cast<int>(DispatchStatus::Disabled));
+  {
+    App fresh;
+    CHECK_EQ_INT(static_cast<int>(fresh.shell.run("file.save").status),
+                 static_cast<int>(DispatchStatus::Disabled));
+    fresh.shell.selection().add(sketchRef("S1"));
+    CHECK(fresh.shell.run("part.extrude", distance).ok());
+    CHECK(fresh.shell.document().dirty);
+    CHECK(fresh.shell.run("file.save").ok());
+    CHECK_EQ_INT(fresh.host.saves(), 1);
+    CHECK(!fresh.shell.document().dirty);
+    CHECK_EQ_INT(static_cast<int>(fresh.shell.run("file.save").status),
+                 static_cast<int>(DispatchStatus::Disabled));
+  }
 
   // ── workspaces ──────────────────────────────────────────────────────────
   CHECK_EQ_INT(static_cast<int>(shell.workspace()), static_cast<int>(WorkspaceProfile::Part));
@@ -240,91 +436,106 @@ int main() {
   CHECK_EQ_STR(guard.saveState(), before);  // nothing moved
 
   // ── REGRESSION: a keyboard-bound command with a REQUIRED parameter RUNS ──
-  // ForgeShell::key() used to dispatch with a default-constructed CommandParams,
-  // so every shortcut whose command declares a required parameter died on
-  // missing_required_parameter before the handler was ever called. Four of the
-  // thirteen shipped commands are in that class, in all four input profiles.
-  // These checks assert the DOCUMENT MUTATED, not that the command is registered.
+  // Two defects meet here, and both were invisible from the keyboard.
+  //
+  //   (1) ForgeShell::key() used to dispatch with a default-constructed
+  //       CommandParams, so every shortcut whose command declares a required
+  //       parameter died on missing_required_parameter before the handler ran.
+  //   (2) The Extrude/Fillet/Shell chords named model.* -- ForgeShell counter
+  //       stubs -- so even after (1) was fixed the keys emitted no feature-IR.
+  //
+  // The chords now name the Part workspace's real commands, and the assertion is
+  // THE STATEMENT THE DOCUMENT RECORDED. A counter cannot satisfy it.
   {
-    ForgeShell nx;
-    nx.setInputProfile(InputProfile::NXLike);
-    nx.selection().add(sketchRef("Sketch1"));
-    const KeyOutcome pressX = nx.key(KeyStroke{"X"});  // NX-like Extrude
+    App nx;
+    nx.shell.setInputProfile(InputProfile::NXLike);
+    const std::size_t base = nx.features();
+    nx.shell.selection().add(sketchRef("Sketch1"));
+    const KeyOutcome pressX = nx.shell.key(KeyStroke{"X"});  // NX-like Extrude
     CHECK_EQ_INT(static_cast<int>(pressX.resolve), static_cast<int>(ResolveStatus::Bound));
-    CHECK_EQ_STR(pressX.commandId, "model.extrude");
+    CHECK_EQ_STR(pressX.commandId, "part.extrude");
     CHECK_EQ_INT(static_cast<int>(pressX.dispatch.status), static_cast<int>(DispatchStatus::Ok));
     CHECK(pressX.ran());
-    CHECK_EQ_INT(nx.document().features, 1);
-    CHECK_EQ_INT(nx.document().undoDepth, 1);
-    CHECK(nx.document().dirty);
-    CHECK_EQ_INT(nx.journal().size(), 1);
-    CHECK_EQ_STR(at(nx.journal(), 0), "model.extrude");
-    // the schema default really reached the handler, it was not merely skipped
-    CHECK_NEAR(nx.document().lastFeatureSize, 10.0, 1e-9);
+    CHECK_EQ_INT(nx.features(), base + 1);
+    // the schema default really reached the handler, it was not merely skipped:
+    // distance 10 is in the emitted statement
+    CHECK_EQ_STR(nx.lastLine(), "%3 = EXTRUDE(%1, 10)");
+    CHECK_EQ_INT(nx.shell.document().features, nx.features());
+    CHECK_EQ_INT(nx.shell.document().undoDepth, 1);
+    CHECK(nx.shell.document().dirty);
+    CHECK_EQ_INT(nx.shell.journal().size(), 1);
+    CHECK_EQ_STR(at(nx.shell.journal(), 0), "part.extrude");
     CHECK(!pressX.needsParameters());
 
-    nx.selection().replaceWith({edgeRef("E1")});
-    const KeyOutcome pressB = nx.key(KeyStroke{"B", maskOf(Mod::Ctrl)});  // NX-like Fillet
+    nx.shell.selection().replaceWith({edgeRef("E1")});
+    const KeyOutcome pressB = nx.shell.key(KeyStroke{"B", maskOf(Mod::Ctrl)});  // NX Fillet
     CHECK(pressB.ran());
-    CHECK_EQ_INT(nx.document().features, 2);
-    CHECK_NEAR(nx.document().lastFeatureSize, 1.0, 1e-9);
+    CHECK_EQ_INT(nx.features(), base + 2);
+    CHECK_EQ_STR(nx.lastLine(), "%4 = FILLET(%2, 1, ALL)");
 
-    nx.selection().replaceWith({faceRef("F1")});
-    const KeyOutcome pressH = nx.key(KeyStroke{"H", maskOf(Mod::Ctrl)});  // NX-like Shell
+    nx.shell.selection().replaceWith({faceRef("F1")});
+    const KeyOutcome pressH = nx.shell.key(KeyStroke{"H", maskOf(Mod::Ctrl)});  // NX Shell
     CHECK(pressH.ran());
-    CHECK_EQ_INT(nx.document().features, 3);
-    CHECK_NEAR(nx.document().lastFeatureSize, 2.0, 1e-9);
+    CHECK_EQ_INT(nx.features(), base + 3);
+    CHECK_EQ_STR(nx.lastLine(), "%5 = SHELL(%4, 2)");
+
     // an EXPLICIT argument still wins over the default
-    nx.selection().replaceWith({edgeRef("E2")});
-    CHECK(nx.invoke("model.fillet", [] {
-                CommandParams p;
-                p.setNumber("radius", 7.5);
-                return p;
-              }())
+    nx.shell.selection().replaceWith({edgeRef("E2")});
+    CHECK(nx.shell
+              .invoke("part.fillet",
+                      [] {
+                        CommandParams p;
+                        p.setNumber("radius", 7.5);
+                        return p;
+                      }())
               .ran());
-    CHECK_NEAR(nx.document().lastFeatureSize, 7.5, 1e-9);
+    CHECK_EQ_STR(nx.lastLine(), "%6 = FILLET(%5, 7.5, ALL)");
 
     // three shortcuts and one explicit invocation, all in the SAME journal
-    CHECK_EQ_INT(nx.journal().size(), 4);
-    CHECK_EQ_STR(at(nx.journal(), 1), "model.fillet");
-    CHECK_EQ_STR(at(nx.journal(), 2), "model.shell");
-    CHECK_EQ_STR(at(nx.journal(), 3), "model.fillet");
+    CHECK_EQ_INT(nx.shell.journal().size(), 4);
+    CHECK_EQ_STR(at(nx.shell.journal(), 1), "part.fillet");
+    CHECK_EQ_STR(at(nx.shell.journal(), 2), "part.shell");
+    CHECK_EQ_STR(at(nx.shell.journal(), 3), "part.fillet");
   }
-  // the same four commands, reached from every profile's own chord
+  // the same three commands, reached from every profile's own chord, each one
+  // emitting a real statement into a real document
   {
     struct Case {
       InputProfile profile;
       KeyStroke stroke;
       const char* id;
+      const char* statement;
     };
     const std::vector<Case> cases = {
-        {InputProfile::ForgeNative, KeyStroke{"E", 0}, "model.extrude"},
-        {InputProfile::ForgeNative, KeyStroke{"R", 0}, "model.fillet"},
-        {InputProfile::ForgeNative, KeyStroke{"H", Mod::Ctrl | Mod::Shift}, "model.shell"},
-        {InputProfile::NXLike, KeyStroke{"X", 0}, "model.extrude"},
-        {InputProfile::NXLike, KeyStroke{"B", maskOf(Mod::Ctrl)}, "model.fillet"},
-        {InputProfile::NXLike, KeyStroke{"H", maskOf(Mod::Ctrl)}, "model.shell"},
-        {InputProfile::CATIALike, KeyStroke{"P", maskOf(Mod::Ctrl)}, "model.extrude"},
-        {InputProfile::CATIALike, KeyStroke{"F", Mod::Ctrl | Mod::Shift}, "model.fillet"},
-        {InputProfile::CATIALike, KeyStroke{"F8", 0}, "model.shell"},
-        {InputProfile::BlenderLike, KeyStroke{"E", 0}, "model.extrude"},
-        {InputProfile::BlenderLike, KeyStroke{"B", maskOf(Mod::Ctrl)}, "model.fillet"},
-        {InputProfile::BlenderLike, KeyStroke{"I", maskOf(Mod::Alt)}, "model.shell"},
+        {InputProfile::ForgeNative, KeyStroke{"E", 0}, "part.extrude", "%3 = EXTRUDE(%1, 10)"},
+        {InputProfile::ForgeNative, KeyStroke{"R", 0}, "part.fillet", "%3 = FILLET(%2, 1, ALL)"},
+        {InputProfile::ForgeNative, KeyStroke{"H", Mod::Ctrl | Mod::Shift}, "part.shell", "%3 = SHELL(%2, 2)"},
+        {InputProfile::NXLike, KeyStroke{"X", 0}, "part.extrude", "%3 = EXTRUDE(%1, 10)"},
+        {InputProfile::NXLike, KeyStroke{"B", maskOf(Mod::Ctrl)}, "part.fillet", "%3 = FILLET(%2, 1, ALL)"},
+        {InputProfile::NXLike, KeyStroke{"H", maskOf(Mod::Ctrl)}, "part.shell", "%3 = SHELL(%2, 2)"},
+        {InputProfile::CATIALike, KeyStroke{"P", maskOf(Mod::Ctrl)}, "part.extrude", "%3 = EXTRUDE(%1, 10)"},
+        {InputProfile::CATIALike, KeyStroke{"F", Mod::Ctrl | Mod::Shift}, "part.fillet", "%3 = FILLET(%2, 1, ALL)"},
+        {InputProfile::CATIALike, KeyStroke{"F8", 0}, "part.shell", "%3 = SHELL(%2, 2)"},
+        {InputProfile::BlenderLike, KeyStroke{"E", 0}, "part.extrude", "%3 = EXTRUDE(%1, 10)"},
+        {InputProfile::BlenderLike, KeyStroke{"B", maskOf(Mod::Ctrl)}, "part.fillet", "%3 = FILLET(%2, 1, ALL)"},
+        {InputProfile::BlenderLike, KeyStroke{"I", maskOf(Mod::Alt)}, "part.shell", "%3 = SHELL(%2, 2)"},
     };
     for (const Case& c : cases) {
-      ForgeShell s;
-      s.setInputProfile(c.profile);
-      if (std::string(c.id) == "model.extrude") {
-        s.selection().replaceWith({sketchRef("S1")});
-      } else if (std::string(c.id) == "model.fillet") {
-        s.selection().replaceWith({edgeRef("E1")});
+      App a;
+      a.shell.setInputProfile(c.profile);
+      const std::size_t base = a.features();
+      if (std::string(c.id) == "part.extrude") {
+        a.shell.selection().replaceWith({sketchRef("S1")});
+      } else if (std::string(c.id) == "part.fillet") {
+        a.shell.selection().replaceWith({edgeRef("E1")});
       } else {
-        s.selection().replaceWith({faceRef("F1")});
+        a.shell.selection().replaceWith({faceRef("F1")});
       }
-      const KeyOutcome o = s.key(c.stroke);
+      const KeyOutcome o = a.shell.key(c.stroke);
       CHECK_EQ_STR(o.commandId, c.id);
       CHECK_EQ_INT(static_cast<int>(o.dispatch.status), static_cast<int>(DispatchStatus::Ok));
-      CHECK_EQ_INT(s.document().features, 1);
+      CHECK_EQ_INT(a.features(), base + 1);
+      CHECK_EQ_STR(a.lastLine(), c.statement);
     }
   }
   // A required parameter with NO honest default is not invented: Ctrl+O reports

@@ -116,6 +116,10 @@ DockLayout defaultLayout(WorkspaceProfile profile) {
 std::vector<std::string> workspaceCategories(WorkspaceProfile profile) {
   std::vector<std::string> cats{"Application", "Edit", "File", "View"};  // always present
   switch (profile) {
+    // Files under BOTH "Model" and "Part". Reachability was MEASURED at 13/34
+    // commands on no ribbon in any of the eight workspaces before this; the
+    // earlier reading here was that the Part ribbon should be "Part, not Model",
+    // which was written before that measurement and would narrow the set again.
     // "Part" as well as "Model": registerPartCommands() files its 21 commands
     // under "Part", and the Part workspace is where part modelling happens. It
     // was claimed by no workspace at all, which put every one of those commands
