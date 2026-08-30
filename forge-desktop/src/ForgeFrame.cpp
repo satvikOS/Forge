@@ -220,6 +220,24 @@ ForgeFrame::ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene)
   }
 }
 
+bool ForgeFrame::applyPendingFit() {
+  const std::size_t want = shell_.document().fitCount;
+  if (want == fitsApplied_) return false;
+  fitsApplied_ = want;
+  float c[3] = {0.0f, 0.0f, 0.0f};
+  scene_.bounds().centre(c);
+  // A body with no bounds has no sphere to frame; refusing is honest, and it
+  // keeps the camera where the user left it instead of teleporting it to a
+  // radius the geometry does not have.
+  if (!scene_.bounds().valid) {
+    note("view.fit: nothing to frame");
+    return false;
+  }
+  camera_.frame(c, scene_.bounds().radius());
+  note("view.fit: framed the body");
+  return true;
+}
+
 void ForgeFrame::rebuildTree() {
   tree_.setExpanded(treeSource_.rootId(), true);
   const std::size_t n = treeSource_.featureCount();  // == partDoc_.records().size()
@@ -742,6 +760,18 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   viewportRequest_.wireframe = shell_.document().wireframe;
   viewportRequest_.geometryDirty = geometryDirty_;
   geometryDirty_ = false;
+
+  // ── view.fit, ON THE SAME PATH AS view.wireframe ─────────────────────────
+  // `view.fit`'s whole execute body is `++doc_.fitCount` (ForgeShell.cpp), and
+  // camera_.frame() was called EXACTLY ONCE, in this class's constructor.
+  // Nothing read the counter. So F / Ctrl+F / Alt+F / Home ran, journalled,
+  // printed "view.fit -> ok" and DID NOT MOVE THE CAMERA -- the same
+  // counter-that-nobody-reads defect the retired model.* stubs were removed for.
+  // The line above is the pattern that already worked: the frame PULLS the
+  // shell's view state every frame rather than a handler pushing it, so the fit
+  // fires whoever asked for it -- menu, keystroke, palette, ribbon, macro or an
+  // Archie tool call -- with no invoker having to remember.
+  applyPendingFit();
 
   const ImGuiIO& io = ImGui::GetIO();
   const float W = io.DisplaySize.x;

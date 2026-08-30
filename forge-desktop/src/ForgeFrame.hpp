@@ -121,6 +121,15 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // Feed one key press. Returns true when it resolved to a command that ran.
   bool onKey(const std::string& key, forge::ui::ModMask mods);
 
+  // Re-frames the camera when the shell's fit counter has moved since the last
+  // call, and reports whether it did. Called once per build(), which is what
+  // makes `view.fit` work for EVERY invoker -- before this the counter was
+  // written by the command and read by nobody, and camera_.frame() ran exactly
+  // once, in the constructor. Public so the gate can drive it without a frame.
+  bool applyPendingFit();
+  // How many fits this frame builder has actually applied.
+  std::size_t fitsApplied() const noexcept { return fitsApplied_; }
+
   // Build the frame. Must be called between ImGui::NewFrame() and ImGui::Render().
   // `viewportTexture` is 0 when there is no 3D texture yet (headless, or the
   // first frame before the renderer has drawn one).
@@ -298,6 +307,9 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   bool geometryDirty_ = false;            // latched for the host's re-upload
   std::size_t rebuilds_ = 0;
   std::string rebuildError_;
+  // The shell's fitCount as of the last fit this builder actually applied. The
+  // constructor frames the body once, so it starts at the shell's initial 0.
+  std::size_t fitsApplied_ = 0;
 
   // Measure panel cache. `measureTriangles_` is the triangle count the cache was
   // built from: it is the cheap witness that the scene has not been re-built

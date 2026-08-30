@@ -25,6 +25,9 @@
 //                                                          face, and the three
 //                                                          edge tools stay
 //                                                          unreachable
+//   9  the frame never pulls the shell's fit request    -> view.fit journals "ok"
+//                                                          and the camera does
+//                                                          not move
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -757,6 +760,55 @@ int main(int argc, char** argv) {
     checkEq(frame.measureFaceRowsDrawn(), 0u, "and no face row, because no face is picked");
     frame.setActiveTabAt({1, 1}, 0);
     shell.selection().setFilter(forge::ui::EntityKind::Any);
+  }
+
+  // ── 15. view.fit actually MOVES THE CAMERA ───────────────────────────────
+  //
+  // Section 7 above already proves the F key reaches view.fit and journals it.
+  // It proves nothing about the picture: `view.fit`'s whole execute body is
+  // `++doc_.fitCount` (ForgeShell.cpp) and camera_.frame() was called EXACTLY
+  // ONCE, in ForgeFrame's constructor, with nothing reading the counter. So the
+  // key ran, journalled, printed "ok" and the camera did not move -- and the one
+  // check that could have caught it was asserting the counter, which is the
+  // thing that was already true.
+  //
+  // MUTATION 9 removes the pull. Every check below is UNCONDITIONAL.
+  {
+    shell.setInputProfile(forge::ui::InputProfile::ForgeNative);
+    // Drive the camera somewhere a fit must undo: far too close, and aimed away
+    // from the body, so BOTH the distance and the target have to be restored.
+    for (int i = 0; i < 40; ++i) frame.camera().zoom(1.0f);
+    frame.camera().pan(600.0f, 400.0f, 800.0f);
+    const float tooClose = frame.camera().distance();
+    const float radius = scene.bounds().radius();
+    float centre[3];
+    scene.bounds().centre(centre);
+    const float driftedX = frame.camera().target()[0];
+    check(tooClose < radius, "the camera really is inside the body's sphere",
+          std::to_string(tooClose) + " < " + std::to_string(radius));
+    check(std::fabs(driftedX - centre[0]) > 1.0f, "and its target really has drifted off",
+          std::to_string(driftedX - centre[0]));
+
+    const std::size_t fitsBefore = frame.fitsApplied();
+    // Through the KEYBOARD, not by calling the camera: the claim is that the
+    // user's gesture moves the picture, and every invoker shares this path.
+    check(frame.onKey("F", 0), "F ran view.fit", "");
+    if (g_mutation != 9) buildOneFrame(frame, 0);
+    checkEq(frame.fitsApplied(), fitsBefore + 1, "the frame applied the pending fit");
+    checkGe(frame.camera().distance(), radius,
+            "the fit put the eye back outside the body's sphere");
+    check(std::fabs(frame.camera().target()[0] - centre[0]) < 1e-3f,
+          "and re-centred the target on the body",
+          std::to_string(frame.camera().target()[0] - centre[0]));
+
+    // Idempotent: a second frame with no new request must NOT re-fit, or an
+    // orbit would be undone every frame and the viewport would be unusable.
+    const float settled = frame.camera().distance();
+    frame.camera().zoom(2.0f);
+    buildOneFrame(frame, 0);
+    checkEq(frame.fitsApplied(), fitsBefore + 1, "a frame with no new request does not re-fit");
+    check(frame.camera().distance() < settled, "so a user zoom survives the next frame",
+          std::to_string(frame.camera().distance()) + " vs " + std::to_string(settled));
   }
 
   std::printf("\n[gate] %d checks, %d failures\n", g_checks, g_failures);
