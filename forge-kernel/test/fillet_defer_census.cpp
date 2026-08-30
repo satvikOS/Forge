@@ -415,6 +415,33 @@ double rimClosedForm(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
         if (!censusPlanarNormal(CAP, pln, nCap)) continue;
         const TopoDS_Wire ow = BRepTools::OuterWire(CAP);
         if (ow.IsNull()) continue;
+        // TANGENCY FIRST, and it is not optional: the closed form describes a blend
+        // that runs CONTINUOUSLY round the ring, which is what OCCT does only across
+        // G1 junctions. MEASURED on the corpus: 7 parts have a D-shaped cap (one line
+        // + one arc meeting at a chord, so NOT tangent) for which this routine
+        // reported a rim prediction 2.16x OCCT's actual removal — a number that looks
+        // like a check and is not one. They are excluded here, and the engine
+        // declines them for the same reason.
+        {
+            std::vector<TopoDS_Edge> ring;
+            for (BRepTools_WireExplorer wx(ow, CAP); wx.More(); wx.Next()) ring.push_back(wx.Current());
+            if (ring.size() < 3) continue;
+            bool tangentAll = true;
+            for (std::size_t i = 0; i < ring.size() && tangentAll; ++i) {
+                const TopoDS_Edge a = ring[i], b = ring[(i + 1) % ring.size()];
+                BRepAdaptor_Curve ca, cb;
+                try { ca.Initialize(a); cb.Initialize(b); } catch (...) { tangentAll = false; break; }
+                gp_Pnt p; gp_Vec ta, tb;
+                ca.D1(a.Orientation() == TopAbs_REVERSED ? ca.FirstParameter() : ca.LastParameter(), p, ta);
+                cb.D1(b.Orientation() == TopAbs_REVERSED ? cb.LastParameter() : cb.FirstParameter(), p, tb);
+                if (a.Orientation() == TopAbs_REVERSED) ta.Reverse();
+                if (b.Orientation() == TopAbs_REVERSED) tb.Reverse();
+                if (ta.Magnitude() <= 1e-9 || tb.Magnitude() <= 1e-9) { tangentAll = false; break; }
+                ta.Normalize(); tb.Normalize();
+                if (std::fabs(1.0 - ta.Dot(tb)) > 1e-6) tangentAll = false;
+            }
+            if (!tangentAll) continue;
+        }
         bool carries = false, ok = true;
         double sum = 0.0; int nl = 0, na = 0;
         for (BRepTools_WireExplorer wx(ow, CAP); wx.More() && ok; wx.Next()) {

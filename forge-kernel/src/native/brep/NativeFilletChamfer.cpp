@@ -1891,6 +1891,23 @@ bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double 
             why = "rim: an all-straight ring is not a propagating contour — keeping the per-edge path";
             continue;
         }
+        // THE IDENTITY THE WHOLE OFFSET RESTS ON, asserted rather than assumed: at a
+        // G1 junction the line's in-plane inward normal and the arc's radial inward
+        // direction are the SAME direction, so the two sides offset to the SAME point.
+        // The tolerance is derived from the tangency test above (tangents agreeing to
+        // 1e-6 in the dot product can differ by up to sqrt(2e-6) in angle, hence by
+        // that much times R in the offset), so this can only fire on an internal
+        // inconsistency — never on an input the tangency test admitted.
+        {
+            const double lim = 2.0 * std::sqrt(2.0e-6) * std::max(1.0, R);
+            for (std::size_t i = 0; i < c.segs.size(); ++i) {
+                const gp_Pnt& a = c.segs[i].off1;
+                const gp_Pnt& b = c.segs[(i + 1) % c.segs.size()].off0;
+                if (a.Distance(b) > lim)
+                { why = "rim: the inward offsets of two tangent segments do not meet"; ok = false; break; }
+            }
+            if (!ok) continue;
+        }
         // every wall must be at least R deep, and no wall vertex may sit INSIDE the
         // band the retrim is about to sweep through
         for (const RimSeg& sg : c.segs) {
