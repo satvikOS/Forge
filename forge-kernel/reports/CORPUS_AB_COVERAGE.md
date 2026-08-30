@@ -205,6 +205,45 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 > `reports/corpus_ab/thrusections_canonicalring_600_summary.md`, raw rows in
 > the matching `_results.jsonl.gz`, provenance in `_manifest.json`.
 
+> ### ⚠ THE `FILLET` ROW ABOVE IS SUPERSEDED, AND SO IS ITS `NATIVE_ONLY` CELL
+>
+> Both unexplained cells of the FILLET row were defects in the native engine, not
+> facts about the corpus. Attribution, artefacts and the re-measurement are in
+> `reports/corpus_ab/FILLET_ATTRIBUTION.md`; the summary:
+>
+> **The 51 `NATIVE_ONLY` parts were not a capability.** All 51 pick the same kind of
+> edge — the u-wrap SEAM of a full cylindrical face, where ONE face meets ITSELF, so
+> an `Extent()==2` ancestor test reads it as two adjacent faces (`IsTangentFaces`
+> true 51/51, `DefineConnectType` Tangential 51/51, OCCT opens 0 contours and throws
+> 51/51). The engine detected the no-op and skipped it, but skipping the ONLY spec
+> left `seq.ok == true` and the work shape equal to the input, so `makeFillet`
+> returned **the caller's own shape unchanged with `ok == true`** — native result
+> volume bit-identical to the input on all 51. The harness's success predicate is
+> the call site's own, so it scored each as a native win: 8.5 of the 32.8 points.
+>
+> **198 of the 315 `OCCT_ONLY` deferrals were one defect.** Of the 344 parts that
+> reach `sewToSolid` the sew closes perfectly on every one (0 free edges, 0 multiple
+> edges) — into ONE shell on 146 and TWO on 198 — and the 198 are two-LUMP bodies.
+> `sewToSolid` kept the FIRST shell and discarded the other lump; the volume
+> self-check caught all 198 at 27x-273x the expected material and reported
+> "volume disagrees", naming the symptom.
+>
+> Both fixed in `src/native/brep/NativeFilletChamfer.cpp`. Re-measured over the same
+> 600 parts, stride 1, 0 part-level errors:
+>
+> | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |
+> |---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
+> | FILLET (re-measured) | 600 | 344 | 0 | **117** | 139 | 57.3% | 76.8% | -19.5% [-22.7, -16.3] | 1.2e-35 | FAIL |
+>
+> Every part moved in exactly one of two ways and no part moved in any other: 198
+> `OCCT_ONLY -> BOTH_OK`, 51 `NATIVE_ONLY -> NEITHER`; the other 351 did not move.
+> All 198 new successes agree with OCCT on volume **exactly** (`|dV|/V = 0.000e+00`,
+> 198/198) and 167 agree on the entire observable vector; the 31 that do not differ
+> only in topology counts and BRepCheck validity, with no geometric observable
+> differing. The 146 that already passed are bit-identical before and after. The
+> option still fails its flip gate, now by 117 parts rather than 315, and the residue
+> is now entirely the engine header's own scope statements.
+
 ### 3.1 The headline
 
 **One family of ten passes the flip gate. `FORGE_FILLING_DROP_NATIVE` is the only
@@ -275,6 +314,15 @@ a working operation into a thrown error.
 - **`FILLET` 315 deleted, native 32.8%.** See §3.4 — this number moved sharply
   between two commits and should be read with that in mind.
 
+  > **⚠ SUPERSEDED — 315 became 117 and the 51 `NATIVE_ONLY` became 0.** Both cells
+  > were engine defects; see the supersede block after the table and
+  > `reports/corpus_ab/FILLET_ATTRIBUTION.md`. The transferable half is the same
+  > lesson §3.2 already records for `THRUSECTIONS`, now in its other direction: a
+  > `NATIVE_ONLY` cell cannot distinguish "a capability OCCT lacks" from "the engine
+  > returned the input unchanged and the success predicate accepted it". A cell that
+  > is a win over a reference implementation is exactly where that inference is
+  > least safe, and a per-part cause census is the cheapest way to settle it.
+
 ### 3.3 Two findings that are not about coverage
 
 These fall out of running both arms and are recorded because they are cheap to
@@ -315,6 +363,17 @@ That earlier run's artifacts are **not** committed: it was built from one commit
 and measured after the worktree had moved to another, which is exactly the mistake
 the build stamp in §4 now makes impossible. The comparison above is stated as an
 observation worth a controlled A/B between those two commits, not as a result.
+
+> **RESOLVED 2026-08-30, and the guess above was wrong in an instructive way.** The
+> "traded coverage for correctness" reading assumed the ~200 newly-declined cases
+> were cases the newer engine had decided it should not answer. A per-part census
+> says they were 198 two-lump bodies whose second lump `sewToSolid` was discarding,
+> caught by the volume self-check the newer engine had just gained. The newer engine
+> did not trade coverage away — it acquired a check that exposed a defect the older
+> one shipped as a wrong answer. With the defect fixed the same engine measures
+> **57.3%**, above both recorded numbers, and every one of its 344 successes moves
+> exactly the closed-form volume (`|dV|/(1-pi/4)R^2 L = 1.000000`, min = max, 344/344).
+> `reports/corpus_ab/FILLET_ATTRIBUTION.md`.
 
 ---
 

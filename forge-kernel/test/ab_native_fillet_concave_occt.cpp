@@ -49,6 +49,21 @@
 //     it is exactly why the OCCT fallback must stay compiled (FORGE_FILLET_DROP_NATIVE
 //     is OFF) until the two-edge corner surface is authored.
 //   * CURVED adjacent face (cylinder rim -> torus blend): engine defers, OCCT succeeds.
+//   * TANGENT SEAM: a plain cylinder's u-wrap edge, where ONE face meets ITSELF.
+//     There is no material at such an edge, so the only honest answer is to
+//     decline. The engine used to return the caller's own shape UNCHANGED with
+//     ok==true — a fillet that did nothing, reported as a fillet that worked — and
+//     the 600-part corpus A/B scored that as 51 native-only WINS over OCCT, which
+//     declines the same request. MEASURED 2026-08-30; see
+//     forge-kernel/reports/corpus_ab/FILLET_ATTRIBUTION.md.
+//
+// MULTI-LUMP CASE. Two disjoint boxes in one compound, blended on an edge of one
+// lump. The engine re-sews EVERY face of the input, so a two-lump body sews into
+// two shells, and keeping only the first silently deleted the other lump. That was
+// the whole 198-part "fillet volume disagrees with the closed form" bucket of the
+// same corpus row, where removed-to-expected material ran from 27x to 273x. The
+// case asserts the blend now matches OCCT on the full observable vector and that
+// BOTH lumps survive.
 //
 // Exit 0 iff every assertion holds. Build + run with
 //   bash forge-kernel/test/run_ab_native_fillet_concave.sh
@@ -72,12 +87,14 @@
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Compound.hxx>
 #include <TopoDS_Shape.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
@@ -487,6 +504,73 @@ int main() {
                       cyl, {rim}, 1.0, true, "not planar", OcctExpect::Succeeds);
         } else {
             check(false, "defer control: could not locate the cylinder rim");
+        }
+    }
+
+    // ---- TANGENT SEAM: a cylinder's u-wrap edge is a no-op, not a fillet ------
+    {
+        const TopoDS_Shape cyl = BRepPrimAPI_MakeCylinder(5.0, 20.0).Shape();
+        TopoDS_Edge seam; bool got = false;
+        for (const TopoDS_Edge& e : allEdges(cyl)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() == GeomAbs_Line) { seam = e; got = true; break; }
+        }
+        if (got) {
+            deferCase("TANGENT SEAM (a cylinder u-wrap edge: no material to blend)",
+                      cyl, {seam}, 0.5, true, "tangent no-op", OcctExpect::Declines);
+            // and the specific lie it used to tell: the INPUT, returned unchanged
+            std::vector<forge::occtfillet::FilletSpec> sp(1);
+            sp[0].edge = seam; sp[0].radius = 0.5;
+            const forge::occtfillet::Result r = forge::occtfillet::makeFillet(cyl, sp);
+            const double v0 = measure(cyl).vol;
+            check(!r.ok || std::fabs(measure(r.shape).vol - v0) > 1e-9,
+                  "TANGENT SEAM: the engine does not hand back the INPUT as a success");
+        } else {
+            check(false, "defer control: could not locate the cylinder seam");
+        }
+    }
+
+    // ---- MULTI-LUMP: two disjoint boxes; blend one edge of the first lump -----
+    {
+        const TopoDS_Shape b1 = BRepPrimAPI_MakeBox(gp_Pnt(0, 0, 0), 30.0, 20.0, 10.0).Shape();
+        const TopoDS_Shape b2 = BRepPrimAPI_MakeBox(gp_Pnt(100, 0, 0), 8.0, 8.0, 8.0).Shape();
+        TopoDS_Compound comp;
+        BRep_Builder bld;
+        bld.MakeCompound(comp);
+        bld.Add(comp, b1);
+        bld.Add(comp, b2);
+        const double R = 2.0;
+        TopoDS_Edge pick; double best = 0.0;
+        for (const TopoDS_Edge& e : allEdges(b1)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            GProp_GProps g; BRepGProp::LinearProperties(e, g);
+            if (g.Mass() > best) { best = g.Mass(); pick = e; }
+        }
+        std::printf("[multi-lump] two disjoint boxes, fillet R=2 on the longest edge of lump 1\n");
+        std::vector<forge::occtfillet::FilletSpec> sp(1);
+        sp[0].edge = pick; sp[0].radius = R;
+        const forge::occtfillet::Result nr = forge::occtfillet::makeFillet(comp, sp);
+        check(nr.ok, std::string("MULTI-LUMP: engine builds (got: ") +
+                     (nr.ok ? std::string("ok") : nr.reason) + ")");
+        if (nr.ok) {
+            const Metrics m0 = measure(comp), m1 = measure(nr.shape);
+            const double moved = (1.0 - kPi / 4.0) * R * R * best;
+            check(relClose(m0.vol - m1.vol, moved, 1e-6),
+                  "MULTI-LUMP: removes exactly (1-pi/4)R^2 L");
+            check(m1.nFace == m0.nFace + 1,
+                  "MULTI-LUMP: BOTH lumps survive (6+6 faces -> 7+6)");
+            TopoDS_Shape occtOut;
+            try {
+                BRepFilletAPI_MakeFillet mk(comp);
+                mk.Add(R, pick);
+                mk.Build();
+                if (mk.IsDone()) occtOut = mk.Shape();
+            } catch (...) {}
+            check(!occtOut.IsNull(), "MULTI-LUMP: OCCT builds the same request");
+            if (!occtOut.IsNull())
+                check(sameMetrics(m1, measure(occtOut), "MULTI-LUMP"),
+                      "MULTI-LUMP: native == OCCT on the full observable vector");
         }
     }
 
