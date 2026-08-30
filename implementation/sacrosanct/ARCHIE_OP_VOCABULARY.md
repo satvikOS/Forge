@@ -2,12 +2,24 @@
 
 **The rule.** Archie may only emit feature-tree IR that a human user of the Forge
 app could also have produced. The app's entire user-facing surface is the
-`forge::ui` command registry — menus, ribbon, palette, radial menu and the Archie
-tools panel all render from it (`forge-desktop/src/ForgeFrame.cpp` calls
+`forge::ui` command registry — menus, ribbon, palette, context menu and the
+Archie tools panel all render from it (`forge-desktop/src/ForgeFrame.cpp` calls
 `idsInCategory` / `ids` / `search` / `buildToolCatalog`) — so *what a user can do*
 is exactly *what a registered command emits*. The kernel accepts far more than
 that, and training on the kernel's table would teach Archie an API the product
 does not expose.
+
+That sentence was, for the ribbon, false. `drawToolbar` filtered the registry
+through `workspaceCategories()`, a hand-written list of category names, and that
+list claimed `"Part"` for no workspace at all — so the 21 commands
+`registerPartCommands` files under `"Part"` rendered on **no ribbon in any of the
+eight workspaces**, including every command that builds geometry. The other four
+surfaces enumerate the registry directly and were always complete, which is why
+the vocabulary itself was never wrong and nothing went red. The ribbon now uses
+`ribbonCategories()`, which makes that list total over the categories the
+registry actually holds, and `ui/test/app_surface_reachability_test.cpp` asserts
+per surface that every registered command is reachable — the gate that would
+have caught it.
 
 ## The three files
 
@@ -15,7 +27,7 @@ does not expose.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 27 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 32 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -33,13 +45,31 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **31 commands**; **16 of them emit
-feature-IR**, reaching **14 distinct op names**. The kernel defines **40** ops
-(`opFromName`), so **26 ops plus the `RESULT` terminal are unreachable by any
+Measured at this revision: the registry holds **34 commands**; **19 of them emit
+feature-IR**, reaching **17 distinct op names**. The kernel defines **40** ops
+(`opFromName`), so **23 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
+
+Every number in that paragraph, and every op row in the table below, is now
+checked by `--check` against the JSON it describes. None of it was, and all of
+it had drifted: the prose read 31 commands / 16 emitting / 14 ops / 26 forbidden
+/ 27 examples where the machine-checked asset said 34 / 19 / 17 / 23 / 32, and
+the op table listed 14 of the 17 — `RECT`, `CIRCLE` and `TRANSLATE` were absent
+from it, under a paragraph asserting the op-name set is closed. The doc thus
+understated the registry by three commands and the vocabulary by three ops while
+its own gate was green.
+
+Two properties keep it honest rather than merely correct today. EVERY occurrence
+of a number is checked, not the first — `27` and `14` each appeared twice, and a
+first-match check reported the doc clean after one of each pair was fixed. And a
+sentence REWORDED past its pattern fails as loudly as a wrong number, because a
+check that silently stops checking is the failure it was written to prevent.
 
 | op | command(s) | the form(s) a user can emit |
 |---|---|---|
+| `RECT` | part.sketch_rect | `RECT(width, height)`<br>`RECT(width, height, cx, cy)` |
+| `CIRCLE` | part.sketch_circle | `CIRCLE(radius)`<br>`CIRCLE(radius, cx, cy)` |
+| `TRANSLATE` | part.move | `TRANSLATE(%body, dx, dy, dz)` |
 | `EXTRUDE` | part.extrude | `EXTRUDE(%profile, distance)`<br>`EXTRUDE(%profile, distance, dirx, diry, dirz)` |
 | `REVOLVE` | part.revolve | `REVOLVE(%profile, angle)`<br>`REVOLVE(%profile, angle, 0, 0, 0, axx, axy, axz)` |
 | `LOFT` | part.loft | `LOFT(%profile...)`, `+ RULED`, `+ OPEN` |
@@ -90,11 +120,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 27 on every CI run), not a hand-written illustration.
+dispatches all 32 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 14 names are legal; after the name, the argument count is bounded
+head, only the 17 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).
