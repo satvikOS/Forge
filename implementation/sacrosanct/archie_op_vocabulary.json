@@ -24,9 +24,9 @@
       },
       {
         "path": "forge-kernel/CMakeLists.txt",
-        "sha256": "106509f8538fb19336380fa8f85264f933674b12e5491fd5cd176eba51daf0b5",
-        "bytes": 124722,
-        "lines": 2038
+        "sha256": "f83f0bad2dc27d0fa463e7c305291cfb68f454bb04ac2c6d8d0b06a112fbad24",
+        "bytes": 130697,
+        "lines": 2118
       },
       {
         "path": "forge-kernel/src/ft/FeatureTreeCompiler.cpp",
@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "30e10b593d0ff1cbec8bd2196a5be0e2d08830fe6ba2d1b93136cef2cec0a879",
-        "bytes": 36101,
-        "lines": 747
+        "sha256": "2625e5018a3332f4cc1523c7876a84563f6d2e2d0359babec5531f44f281a5eb",
+        "bytes": 43377,
+        "lines": 860
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,10 +78,10 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 31,
-    "commands_emitting_ir": 16,
-    "user_invocable_ops": 14,
-    "forbidden_ops": 26,
+    "registry_commands": 34,
+    "commands_emitting_ir": 19,
+    "user_invocable_ops": 17,
+    "forbidden_ops": 23,
     "uncertain_entries": 1,
     "derived_defects": 7
   },
@@ -90,6 +90,7 @@
       "BLEND",
       "CBORE",
       "CHAMFER",
+      "CIRCLE",
       "COMMON",
       "CUT",
       "EXTRUDE",
@@ -99,8 +100,10 @@
       "LOFT",
       "MIRROR",
       "PATTERN",
+      "RECT",
       "REVOLVE",
-      "SHELL"
+      "SHELL",
+      "TRANSLATE"
     ],
     "rules": [
       "Emit ONLY an op listed in `ops`. Any other op name is out of vocabulary, including every op in `forbidden_ops` and the RESULT terminal, which no forge::ui command can produce.",
@@ -295,7 +298,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             },
             {
               "optional": false,
@@ -439,7 +442,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             },
             {
               "optional": true,
@@ -497,6 +500,115 @@
             }
           ],
           "command": "part.chamfer"
+        }
+      ]
+    },
+    {
+      "op": "CIRCLE",
+      "kernel_enum": "Circle",
+      "produces": "PROFILE",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 1,
+        "max_args": 3,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "CIRCLE(r [, cx=0, cy=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_circle"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "radius"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0
+              },
+              "ir_arguments": [
+                "10"
+              ],
+              "ir_text": "%<id> = CIRCLE(10)"
+            }
+          ],
+          "command": "part.sketch_circle"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\")",
+          "when_human": "any of cx, cy is supplied",
+          "arguments": [
+            "radius",
+            "cx",
+            "cy"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0,
+                "cx": 2.0,
+                "cy": 3.0
+              },
+              "ir_arguments": [
+                "10",
+                "2",
+                "3"
+              ],
+              "ir_text": "%<id> = CIRCLE(10, 2, 3)"
+            }
+          ],
+          "command": "part.sketch_circle"
         }
       ]
     },
@@ -659,7 +771,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             },
             {
               "optional": true,
@@ -1025,7 +1137,7 @@
               "index": 8,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             }
           ],
           "prose": null
@@ -1812,6 +1924,131 @@
       ]
     },
     {
+      "op": "RECT",
+      "kernel_enum": "Rect",
+      "produces": "PROFILE",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 2,
+        "max_args": 4,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "RECT(w, h [, cx=0, cy=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "w",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "h",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_rect"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "width",
+            "height"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "width": 40.0,
+                "height": 30.0
+              },
+              "ir_arguments": [
+                "40",
+                "30"
+              ],
+              "ir_text": "%<id> = RECT(40, 30)"
+            }
+          ],
+          "command": "part.sketch_rect"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\")",
+          "when_human": "any of cx, cy is supplied",
+          "arguments": [
+            "width",
+            "height",
+            "cx",
+            "cy"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "width": 40.0,
+                "height": 30.0,
+                "cx": 3.0,
+                "cy": 4.0
+              },
+              "ir_arguments": [
+                "40",
+                "30",
+                "3",
+                "4"
+              ],
+              "ir_text": "%<id> = RECT(40, 30, 3, 4)"
+            }
+          ],
+          "command": "part.sketch_rect"
+        }
+      ]
+    },
+    {
       "op": "REVOLVE",
       "kernel_enum": "Revolve",
       "produces": "SOLID",
@@ -2019,7 +2256,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "linear_size",
-              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h)$/"
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
             },
             {
               "optional": true,
@@ -2123,6 +2360,101 @@
           "command": "part.shell"
         }
       ]
+    },
+    {
+      "op": "TRANSLATE",
+      "kernel_enum": "Translate",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 4,
+        "max_args": 4,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "TRANSLATE(%a, dx, dy, dz)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "a",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dx",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "step_offset",
+              "classified_by": "rule: /^(dx|dy|dz)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dy",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "step_offset",
+              "classified_by": "rule: /^(dx|dy|dz)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dz",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "step_offset",
+              "classified_by": "rule: /^(dx|dy|dz)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.move"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "dx",
+            "dy",
+            "dz"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "dx": 2.0,
+                "dy": 3.0,
+                "dz": 4.0
+              },
+              "ir_arguments": [
+                "%body",
+                "2",
+                "3",
+                "4"
+              ],
+              "ir_text": "%<id> = TRANSLATE(%body, 2, 3, 4)"
+            }
+          ],
+          "command": "part.move"
+        }
+      ]
     }
   ],
   "forbidden_ops": [
@@ -2132,15 +2464,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "BOX(dx, dy, dz [, cx=0, cy=0, cz=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "CIRCLE",
-      "kernel_enum": "Circle",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "CIRCLE(r [, cx=0, cy=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -2222,15 +2545,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "PUSHFACE(%body, \"sel\", dist)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "RECT",
-      "kernel_enum": "Rect",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "RECT(w, h [, cx=0, cy=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -2322,15 +2636,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "TORUS(major, minor [, cx, cy, cz, axx, axy, axz])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "TRANSLATE",
-      "kernel_enum": "Translate",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "TRANSLATE(%a, dx, dy, dz)"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -3074,6 +3379,59 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.move",
+      "label": "Move Body",
+      "category": "Part",
+      "feature_ir_op": "TRANSLATE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "dx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "dy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "dz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && (num(ctx, \"dx\", 0.0) != 0.0 || num(ctx, \"dy\", 0.0) != 0.0 || num(ctx, \"dz\", 0.0) != 0.0)",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          }
+        ],
+        "unparsed_terms": [
+          "num(ctx, \"dx\", 0.0) != 0.0 || num(ctx, \"dy\", 0.0) != 0.0 || num(ctx, \"dz\", 0.0) != 0.0"
+        ]
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.pattern_circular",
       "label": "Circular Pattern",
       "category": "Part",
@@ -3437,6 +3795,125 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.sketch_circle",
+      "label": "Circle",
+      "category": "Part",
+      "feature_ir_op": "CIRCLE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"radius\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Profile"
+    },
+    {
+      "id": "part.sketch_rect",
+      "label": "Rectangle",
+      "category": "Part",
+      "feature_ir_op": "RECT",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "width",
+          "type": "Number",
+          "required": true,
+          "default_number": 40.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "height",
+          "type": "Number",
+          "required": true,
+          "default_number": 30.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"width\", 0.0) > 0.0 && num(ctx, \"height\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "width",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "height",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Profile"
+    },
+    {
       "id": "part.undo",
       "label": "Undo",
       "category": "Part",
@@ -3564,26 +4041,10 @@
   ],
   "value_kind_closure": {
     "produced_by_allowed_ops": [
+      "PROFILE",
       "SOLID"
     ],
     "gaps": [
-      {
-        "value_kind": "PROFILE",
-        "needed_by": [
-          "EXTRUDE",
-          "REVOLVE"
-        ],
-        "producers_in_the_allowed_set": [],
-        "producers_in_the_kernel": [
-          "CIRCLE",
-          "POLY",
-          "RECT",
-          "REGPOLY",
-          "RRECT",
-          "SLOT"
-        ],
-        "consequence": "a user-invocable op consumes PROFILE, and no user-invocable op produces one: the value must already exist in the document (a seeded sketch or imported solid) or the statement cannot be built"
-      },
       {
         "value_kind": "WIRE",
         "needed_by": [
@@ -3643,8 +4104,11 @@
     },
     {
       "kind": "required_parameters_without_hasDefault",
-      "count": 19,
+      "count": 22,
       "parameters": [
+        "width (part.sketch_rect)",
+        "height (part.sketch_rect)",
+        "radius (part.sketch_circle)",
         "distance (part.extrude)",
         "angle (part.revolve)",
         "diameter (part.hole)",
