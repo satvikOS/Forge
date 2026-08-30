@@ -317,7 +317,7 @@ all — the exact outcome D-018 refused.
 |---|---|---|
 | `ForgeCADScore self-tests` → `node forge-kernel/test/cadscore_v2_selftest.mjs` | F10 | F10 |
 | … → `node forge-kernel/test/mechanism_axis_selftest.mjs` | F10 | F10 |
-| `NAFEMS ratchet self-test` → `fea_nafems_ratchet_selftest.sh` | F10 | F10 |
+| `NAFEMS ratchet self-test` → `fea_nafems_ratchet_selftest.sh` | `node`, and `fea_nafems_ratchet.sh` which runs `node $NAFEMS_GATE` | the Node runtime. **Not** `fea_nafems_gate.mjs` itself: the self-test substitutes its own generated stub gates through `NAFEMS_GATE`, so the tracked gate is exercised by the ratchet, not by this CI job. |
 | `OCCT kernel smoke` → `npm install` / `npm run forge:kernel` | F9, F12, `node_modules` | F9 or F12 |
 | … → `npm run forge:kernel:test` (**25 chained `node` invocations**) | F10 | F10 |
 | … → `npm run forge:coherence`, `native_binding_smoke.js`, `fea_tet4_convergence.mjs` | F10 | F10 |
