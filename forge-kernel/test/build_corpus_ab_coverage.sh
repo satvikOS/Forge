@@ -77,9 +77,19 @@ compile() {  # $1 = src, $2 = obj
   fi
 }
 
-# 1. every native source (they are the engines under test and their support)
+# 1. every native source (they are the engines under test and their support), PLUS
+#    src/OcctPrimBuilder.cpp -- which is NOT under src/native/ and so is not caught by
+#    the glob, but which supplies forge::occtPrism and forge::occtCylinderSolid. Since
+#    the TKPrim-free swap (PR #64) NativeThickenShell.cpp and NativeLoftPipe.cpp both
+#    call into it, so without it this harness dies at LINK with
+#    "Undefined symbols: forge::occtPrism" and measures nothing at all.
+#    This is the FOURTH standalone harness to need it: run_ab_native_thicken.sh,
+#    run_ab_native_loftpipe.sh and build_fuse_mesh_operand_test.sh had the same gap on
+#    the same day. Any harness that compiles src/native/brep/** standalone needs it.
+#    It goes in the ARCHIVE like everything else, so the linker still pulls it only if
+#    something actually references it.
 OBJS=()
-for src in src/native/*.cpp src/native/*/*.cpp; do
+for src in src/native/*.cpp src/native/*/*.cpp src/OcctPrimBuilder.cpp; do
   [ -e "$src" ] || continue
   obj="$OBJDIR/obj/$(echo "$src" | tr '/.' '__').o"
   OBJS+=("$obj")
