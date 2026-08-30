@@ -1,0 +1,23 @@
+{
+  "generated_utc": "20260830T020819Z",
+  "corpus_dir": "/Users/account_clawteam1/archdisc-Models/runs/composite_anchor/expert3d_v5cap_e600/gold_ref_steps",
+  "corpus_total": 600,
+  "sampling": "stride over the LC_ALL=C sorted file list (NOT a prefix: this corpus's ordering is undocumented and a prefix of a difficulty-ordered corpus is a biased sample)",
+  "stride": 1,
+  "offset": 0,
+  "requested_n": 600,
+  "realised_n": 600,
+  "families": "all",
+  "arm_timeout_sec": 20,
+  "part_timeout_sec": 300,
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/wf_82b629c2-209-1/forge-kernel/.build-corpus-ab/corpus_ab_coverage",
+  "kernel_head_at_run": "f71ed98b24447bd952273499eb703a607537e98e",
+  "build_stamp": {
+  "built_utc": "2026-08-30T02:08:23Z",
+  "git_head": "f71ed98b24447bd952273499eb703a607537e98e",
+  "dirty_files_in_src_include_test": 0,
+  "flags": "-std=c++20 -O2 -DFORGE_NATIVE_BREP",
+  "occt_root": "/opt/homebrew/opt/opencascade",
+  "binary": "/Users/account_clawteam1/archdisc-Mech/.claude/worktrees/wf_82b629c2-209-1/forge-kernel/.build-corpus-ab/corpus_ab_coverage"
+}
+}
