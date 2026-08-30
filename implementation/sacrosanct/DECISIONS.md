@@ -392,3 +392,37 @@ checks in `feature_ir`, because the UI's op table is 3 ops behind the kernel. Th
 committed `APP_SURFACE_MANIFEST.tsv` and its own gate are green, so the command list
 above is trustworthy, but the drift is real and is the first thing the vocabulary
 generator will trip over.
+
+---
+
+## D-016 (2026-08-29): stop the v6r8 emission mid-run and train the axis-named round first
+
+**Decision: yes, switch — because nothing is lost by switching and the evidence favours
+the other experiment.**
+
+The v6r8 emission had run 3.5 hours and reached 238 of 600 rows, holding the GPU for
+another ~5. It answers a CAPACITY question: does expert LoRA rank 4 -> 8 help? The
+axis-named round answers the question the evidence actually points at.
+
+`ARCHIE_SHIFTS_THE_DIMENSIONS_DOWN_A_RANK.md` measured that on the rows Archie fails it
+emits the part's REAL dimensions and binds them to the WRONG AXES -- 67 of 116 failing
+rows show a strict rank shift against a shuffled-null 99th percentile of 10, only 4.3% are
+pose-consistent, and 67% get the LARGEST extent exact while 14-16% get the middle or
+smallest. The prompt handed the model three bare numbers in a fixed order. Capacity is not
+the measured bottleneck; binding is.
+
+**What made this safe rather than a gamble: the trace carries the IR.** Each row of
+`reports/archie_loop_v6r8_e600.jsonl` holds `history[-1]['ir']`, so the 238 completed rows
+were reconstructed into `emissions.part1.jsonl` and a 362-row remainder task file was
+written before anything was killed. 238 + 362 = 600, checked. No GPU work was discarded;
+only the ORDER of two jobs changed.
+
+Resuming is precedented rather than novel: v5cap's own e600 emission was run as 416 rows
+plus a 185-row resume, combined afterwards (`..._COMBINED.jsonl`). `archie_loop.py` has no
+`--resume` flag, so the mechanism is the remainder task file plus a trace merge, which is
+exactly what was done then.
+
+**The cost, stated:** the v6r8 capacity answer is delayed, and its two halves will have
+been emitted at different times. That is the same seam v5cap's own arm carries, so the
+comparison is not made worse by it -- but it is a seam, and it is recorded here rather
+than discovered later.
