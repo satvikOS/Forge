@@ -1,0 +1,21 @@
+# ab_native_baseline.txt — the KNOWN failure count of each live-OCCT A/B harness.
+#
+# The harnesses are never modified to go green and their assertions are never
+# weakened; run_ab_all.sh only INTERPRETS their results against this file.
+# Lower a number in the SAME COMMIT that fixes the cause, or the ratchet turns the
+# improvement red — a stale baseline must never be able to re-admit a regression.
+#
+# thicken=19 is a RECORDED DEFECT, not an accepted one. PR #64 replaced three
+# BRepPrimAPI_MakePrism sites with forge::occtPrism, and all 19 failures are the
+# FACE-TYPE census: occtPrism emits Geom_SurfaceOfLinearExtrusion laterals where
+# MakePrism emitted canonical Geom_Plane. Volume, centre of mass, bounding box,
+# topology and validity all still pass — the solids are geometrically identical.
+# The fix is MakePrism's Canonize flag (which defaults TRUE) and HEAD's occtPrism
+# does not expose it. See findings/PR64_CHANGED_THE_FACE_TYPE_CENSUS.md.
+AB_BASELINE_draft=0
+AB_BASELINE_filling=0
+AB_BASELINE_loftpipe=0
+AB_BASELINE_offsetshape=0
+AB_BASELINE_sweep=0
+AB_BASELINE_fillet_concave=0
+AB_BASELINE_thicken=19
