@@ -697,6 +697,54 @@ but two are worth naming because they are live: `edit.delete` declares `feature_
 `model.extrude`, `model.fillet`, `model.shell` all declare an op and emit nothing, because
 `ForgeShell` holds only a `DocumentStats` counter and no `PartDocument`.
 
+## D-022 (2026-08-30): the OCCT drop is blocked on ENGINE COVERAGE, not on integration — and the one shippable drop moves the ledger by ZERO
+
+Two measurements close the question of what to do next about the dependency drop.
+
+**1. The only family that passes its own flip gate buys nothing.** `FORGE_FILLING_DROP_NATIVE`
+is the single option the 600-part baseline cleared (67.8% vs 67.8%, deletion bucket ZERO).
+Built both arms from a worktree pinned to origin, with the arms PROVED to differ by `cmp`:
+
+| arm | direct | **OCCT_CLOSURE** |
+|---|---:|---:|
+| baseline | 11 | **14** |
+| `FORGE_FILLING_DROP_NATIVE=ON` | 11 | **14** |
+
+The ledger number does not move. `BRepOffsetAPI_MakeFilling` lives in a toolkit that many
+other still-live call sites also pull, so removing this one use changes no library's
+liveness. Shipping the one defensible drop is therefore correct hygiene and worth **0** on
+the north star.
+
+**2. The other nine cannot be shipped at all**, and not for want of integration work: three
+are total capability loss (PIPE 0.3%, DRAFT 0.0%, THRUSECTIONS 0.0% against OCCT's 100%,
+88.0%, 94.5%), and the rest delete between 27 and 315 parts of capability out of 600.
+
+**DECISION: stop treating the drop as an integration task and treat it as an ENGINE task.**
+There is no flag-flipping, build-plumbing or closure-accounting sequence that reduces the
+ledger from here. The only thing that moves OCCT_CLOSURE is native engines that actually
+build geometry on real parts. The ranked work is therefore:
+
+1. **PIPESHELL** — the most tractable by far. It already succeeds on 51.5% and its
+   disagreement is SYSTEMATIC, not noise: volume ratio 1.07051 with sd 0.00327, 8 of 15
+   sampled parts on exactly 1.07180. One convention error, one bounded fix.
+2. **MAKEOFFSET** — nearest miss at 94.5% vs 99.0%, 27 parts from parity.
+3. **THICKEN** — 67.8%, and its "disagreement" is already understood to be OCCT returning a
+   reversed solid rather than a native defect.
+4. **PIPE / DRAFT / THRUSECTIONS** — near-total gaps; these need capability, not tuning, and
+   should be scoped as such rather than promised as flips.
+
+**A correction that cost real time and is recorded so it is not repeated.** The first run of
+this experiment was made against the shared main checkout, which had drifted **41 commits
+behind origin**. There `FORGE_FILLING_DROP_NATIVE` does not exist, CMake accepted the
+unknown `-D` SILENTLY, and both arms compiled to a BYTE-IDENTICAL binary — which I nearly
+reported as "the drop buys zero closure". It happens to be the same conclusion, but it was
+not a measurement. Chasing that artifact produced a second wrong finding ("8 of 10 drop
+options are not real options"), which was also only the stale tree: on origin the CMake
+names and the source `#ifdef` names match exactly and the A/B report's option column is
+correct. **The positive control is what caught it — `cmp` said the two arms were the same
+file.** This is the FIFTH stale-tree error in one session. Every measured claim must name
+the tree it was measured against, and that tree must be pinned to origin at the moment of
+measurement.
 ---
 
 ## D-023 (2026-08-30): LOFT consumes WIRE — `part.loft` was a LATENT BUG, and closing the gap needed BOTH halves

@@ -316,3 +316,20 @@ jobs:
           cmake --build forge-kernel/build-verify -j3 --target forge_verify
           FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify \
             bash forge-kernel/test/unify_coaxial_guard_test.sh
+      - name: Build forge_verify (the native verifier)
+        # forge_verify is guarded by FORGE_BUILD_DESKTOP_FOUNDATION and is NOT part of the
+        # .node addon build above, so it needs its own configure. Without this the batch gate
+        # below cannot find a binary and exits 3 -- deliberately red, never a silent skip.
+        run: |
+          cmake -S forge-kernel -B forge-kernel/build-verify -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+          cmake --build forge-kernel/build-verify -j3 --target forge_verify
+      - name: forge_verify batch survival (one bad record must not kill the batch)
+        # main() calls jsonString() six times BEFORE its first try block, and jsonUnescape()
+        # used std::stoi for \uXXXX. std::stoi throws on "\uZZZZ", the throw escaped main, and
+        # the process died with SIGABRT taking every LATER record with it. MEASURED on the
+        # gate's own 6-record fixture: before, exit=134 with 2 of 6 emitted (3 of the 4 lost
+        # records were WELL-FORMED); after, exit=0 with 6 of 6. The gate also pins the quieter
+        # defect the crash was hiding -- base-16 stoi stops at the first non-hex character, so
+        # "\u00ZZ" partially parsed to 0 and silently injected a NUL byte.
+        run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh

@@ -2,12 +2,24 @@
 
 **The rule.** Archie may only emit feature-tree IR that a human user of the Forge
 app could also have produced. The app's entire user-facing surface is the
-`forge::ui` command registry — menus, ribbon, palette, radial menu and the Archie
-tools panel all render from it (`forge-desktop/src/ForgeFrame.cpp` calls
+`forge::ui` command registry — menus, ribbon, palette, context menu and the
+Archie tools panel all render from it (`forge-desktop/src/ForgeFrame.cpp` calls
 `idsInCategory` / `ids` / `search` / `buildToolCatalog`) — so *what a user can do*
 is exactly *what a registered command emits*. The kernel accepts far more than
 that, and training on the kernel's table would teach Archie an API the product
 does not expose.
+
+That sentence was, for the ribbon, false. `drawToolbar` filtered the registry
+through `workspaceCategories()`, a hand-written list of category names, and that
+list claimed `"Part"` for no workspace at all — so the 21 commands
+`registerPartCommands` files under `"Part"` rendered on **no ribbon in any of the
+eight workspaces**, including every command that builds geometry. The other four
+surfaces enumerate the registry directly and were always complete, which is why
+the vocabulary itself was never wrong and nothing went red. The ribbon now uses
+`ribbonCategories()`, which makes that list total over the categories the
+registry actually holds, and `ui/test/app_surface_reachability_test.cpp` asserts
+per surface that every registered command is reachable — the gate that would
+have caught it.
 
 ## The three files
 
@@ -38,10 +50,26 @@ feature-IR**, reaching **18 distinct op names**. The kernel defines **40** ops
 (`opFromName`), so **22 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
+Every number in that paragraph, and every op row in the table below, is now
+checked by `--check` against the JSON it describes. None of it was, and all of
+it had drifted: the prose read 31 commands / 16 emitting / 14 ops / 26 forbidden
+/ 27 examples where the machine-checked asset said 34 / 19 / 17 / 23 / 32, and
+the op table listed 14 of the 17 — `RECT`, `CIRCLE` and `TRANSLATE` were absent
+from it, under a paragraph asserting the op-name set is closed. The doc thus
+understated the registry by three commands and the vocabulary by three ops while
+its own gate was green.
+
+Two properties keep it honest rather than merely correct today. EVERY occurrence
+of a number is checked, not the first — `27` and `14` each appeared twice, and a
+first-match check reported the doc clean after one of each pair was fixed. And a
+sentence REWORDED past its pattern fails as loudly as a wrong number, because a
+check that silently stops checking is the failure it was written to prevent.
+
 | op | command(s) | the form(s) a user can emit |
 |---|---|---|
 | `RECT` | part.sketch_rect | `RECT(width, height)`<br>`RECT(width, height, cx, cy)` |
 | `CIRCLE` | part.sketch_circle | `CIRCLE(radius)`<br>`CIRCLE(radius, cx, cy)` |
+| `TRANSLATE` | part.move | `TRANSLATE(%body, dx, dy, dz)` |
 | `RING` | part.section_ring | `RING(rx, ry, z)`<br>`RING(rx, ry, z, cx, cy, p, seg)` |
 | `EXTRUDE` | part.extrude | `EXTRUDE(%profile, distance)`<br>`EXTRUDE(%profile, distance, dirx, diry, dirz)` |
 | `REVOLVE` | part.revolve | `REVOLVE(%profile, angle)`<br>`REVOLVE(%profile, angle, 0, 0, 0, axx, axy, axz)` |

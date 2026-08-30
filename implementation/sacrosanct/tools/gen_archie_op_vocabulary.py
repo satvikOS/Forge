@@ -45,6 +45,77 @@ SCHEMA = "forge.archie.op_vocabulary/1"
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
 OUT_REL = "implementation/sacrosanct/archie_op_vocabulary.json"
 GEN_REL = "implementation/sacrosanct/tools/gen_archie_op_vocabulary.py"
+MD_REL = "implementation/sacrosanct/ARCHIE_OP_VOCABULARY.md"
+
+# The prose beside the asset states the same measurements in words, and words are
+# not regenerated. Every one of these had gone stale: the doc said 31 commands /
+# 16 emitting / 14 ops / 26 forbidden / 27 examples while the JSON --check was
+# green at 34 / 19 / 17 / 23 / 32. A reader who trusts the paragraph is told the
+# registry is three commands smaller than it is. Each pattern below captures one
+# number and names the JSON count it must equal.
+MD_COUNT_PATTERNS = [
+    (r"the registry holds \*\*(\d+) commands\*\*", "registry_commands"),
+    (r"\*\*(\d+) of them emit\b", "commands_emitting_ir"),
+    (r"reaching \*\*(\d+) distinct op names\*\*", "user_invocable_ops"),
+    (r"only the (\d+) names are legal", "user_invocable_ops"),
+    (r"The kernel defines \*\*(\d+)\*\* ops", "kernel_ops"),
+    (r"so \*\*(\d+) ops plus", "forbidden_ops"),
+    # Not a "counts" entry: the worked examples the runtime gate dispatches.
+    # Resolved below, because it is derived from the ops rather than stored.
+    (r"dispatches all (\d+) recorded examples", "@examples"),
+    (r"dispatches all (\d+) on every CI run", "@examples"),
+]
+
+
+def check_markdown(doc):
+    """Every number the prose states must equal the asset it describes.
+
+    Returns a list of human-readable complaints; empty means the doc is honest.
+
+    EVERY occurrence is checked, not the first: `27` appeared twice and `14`
+    twice, and a first-match check would have reported the doc clean after one
+    of each pair was corrected. A pattern that matches NOTHING is a complaint in
+    its own right -- a sentence reworded past its pattern would otherwise
+    silently stop being checked, which is the same silent-green failure the
+    stale numbers already were.
+    """
+    path = os.path.join(REPO, MD_REL)
+    if not os.path.exists(path):
+        return ["%s is MISSING" % MD_REL]
+    with open(path) as fh:
+        md = fh.read()
+    examples = sum(len(f.get("examples", []))
+                   for op in doc["ops"] for f in op.get("emitted_forms", []))
+    bad = []
+    for pattern, key in MD_COUNT_PATTERNS:
+        actual = examples if key == "@examples" else doc["counts"][key]
+        what = "the recorded examples" if key == "@examples" else "counts." + key
+        found = re.findall(pattern, md)
+        if not found:
+            bad.append("%s: no sentence matches /%s/ -- reworded past its check" % (MD_REL, pattern))
+            continue
+        for stated in found:
+            if int(stated) != actual:
+                bad.append("%s says %s for %s; the asset says %d"
+                           % (MD_REL, stated, what, actual))
+
+    # The op table is the human-readable copy of the closed op list, and a
+    # missing row is worse than a wrong count: a reader takes the table for the
+    # whole vocabulary. It listed 14 of 17 -- RECT, CIRCLE and TRANSLATE, the
+    # three added to close the PROFILE gap, had a paragraph saying "the op-name
+    # set is closed and small" above a table that did not contain them. Compare
+    # the SET, not the size, so the message names the row to write.
+    listed = set()
+    for line in md.splitlines():
+        if not line.startswith("| `"):
+            continue
+        listed |= set(re.findall(r"`([A-Z][A-Z_]*)`", line.split(" | ")[0]))
+    asset_ops = {op["op"] for op in doc["ops"]}
+    for missing in sorted(asset_ops - listed):
+        bad.append("%s: the op table has no row for `%s`, which a user CAN emit" % (MD_REL, missing))
+    for extra in sorted(listed - asset_ops):
+        bad.append("%s: the op table lists `%s`, which is not in the vocabulary" % (MD_REL, extra))
+    return bad
 
 SOURCES = {
     "kernel_header": "forge-kernel/include/forge/ft/FeatureTree.hpp",
@@ -1521,6 +1592,12 @@ def main(argv):
         print("[op-vocabulary] wrote %s -- %d user-invocable ops, %d forbidden, %d commands"
               % (OUT_REL, doc["counts"]["user_invocable_ops"], doc["counts"]["forbidden_ops"],
                  doc["counts"]["registry_commands"]))
+        # --write regenerates the JSON but cannot write the prose, so it says
+        # which sentences the author still has to correct BY HAND. Reported, not
+        # fatal: --write's job is the asset, and a nonzero exit here would make
+        # the regenerate step in the docs fail for a reason it cannot fix.
+        for complaint in check_markdown(doc):
+            sys.stderr.write("[op-vocabulary] PROSE STILL STALE: %s\n" % complaint)
         return 0
 
     if not os.path.exists(out):
@@ -1530,9 +1607,19 @@ def main(argv):
         have = fh.read()
     if have == text:
         doc = json.loads(text)
-        print("[op-vocabulary] OK -- %s matches the source (%d ops, %d commands, %d sources)"
+        complaints = check_markdown(doc)
+        if complaints:
+            sys.stderr.write("[op-vocabulary] the JSON matches the source, but %s CONTRADICTS it:\n"
+                             % MD_REL)
+            for complaint in complaints:
+                sys.stderr.write("  %s\n" % complaint)
+            sys.stderr.write("[op-vocabulary] correct the sentences by hand -- the numbers above "
+                             "are the measured ones.\n")
+            return 1
+        print("[op-vocabulary] OK -- %s matches the source (%d ops, %d commands, %d sources), "
+              "and %s states the same numbers"
               % (OUT_REL, doc["counts"]["user_invocable_ops"],
-                 doc["counts"]["registry_commands"], len(doc["provenance"]["sources"])))
+                 doc["counts"]["registry_commands"], len(doc["provenance"]["sources"]), MD_REL))
         return 0
     diff = list(difflib.unified_diff(have.splitlines(True), text.splitlines(True),
                                      fromfile=OUT_REL + " (committed)",
