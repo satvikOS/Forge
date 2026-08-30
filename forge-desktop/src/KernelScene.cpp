@@ -389,6 +389,12 @@ forge::ui::FeatureNodeData SceneFeatureTreeSource::data(forge::ui::NodeId id) co
   return d;
 }
 
+int SceneFeatureTreeSource::featureIrIdOf(forge::ui::NodeId id) const {
+  const std::size_t featureCount = scene_.features().size();
+  if (id < kFeatureBase || id >= kFeatureBase + featureCount) return 0;
+  return static_cast<int>(id - kFeatureBase) + 1;
+}
+
 std::uint32_t SceneFeatureTreeSource::faceIdOf(forge::ui::NodeId id) const {
   if (id < kFaceBase) return 0;
   return static_cast<std::uint32_t>(id - kFaceBase);

@@ -218,6 +218,12 @@ class SceneFeatureTreeSource final : public forge::ui::FeatureTreeSource {
 
   // Maps a node id back to the face id it names, 0 when the node is not a face.
   std::uint32_t faceIdOf(forge::ui::NodeId id) const;
+  // Maps a node id back to the feature-IR STATEMENT it names -- the 1-based id
+  // the document numbers its records by -- and 0 when the node is the root or a
+  // face. The feature rows are built one per document record, in order
+  // (ForgeFrame::refreshFeatureRows), which is what makes the position of a row
+  // and the id of a statement the same number.
+  int featureIrIdOf(forge::ui::NodeId id) const;
   // The node id for a given 1-based face id.
   forge::ui::NodeId nodeForFace(std::uint32_t faceId) const;
 
