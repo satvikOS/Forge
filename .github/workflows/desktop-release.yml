@@ -277,6 +277,44 @@ jobs:
           echo "--- report ---"
           cat "$REPORT"
 
+          # The appcast is what every ALREADY-INSTALLED copy of Forge reads to
+          # find this release. A release published without it, or with one
+          # describing a different zip, is a release nobody's app can install --
+          # and the failure would show up only on a user's machine, weeks later.
+          # Assert it here instead.
+          APPCAST="forge-desktop/dist/appcast.json"
+          test -f "$APPCAST" || { echo "::error::no appcast at $APPCAST"; exit 1; }
+          echo "--- appcast ---"
+          cat "$APPCAST"
+          python3 - "$APPCAST" "$ZIP" "$V" <<'PY'
+          import hashlib, json, os, sys
+          m = json.load(open(sys.argv[1]))
+          zip_path, version = sys.argv[2], sys.argv[3]
+          errs = []
+          if m.get("schema") != "forge-appcast/1":
+              errs.append(f"schema is {m.get('schema')!r}")
+          if m.get("version") != version:
+              errs.append(f"version is {m.get('version')!r}, the build is {version!r}")
+          size = os.path.getsize(zip_path)
+          if m.get("size") != size:
+              errs.append(f"size is {m.get('size')!r}, the zip is {size}")
+          digest = hashlib.sha256(open(zip_path, "rb").read()).hexdigest()
+          if m.get("sha256") != digest:
+              errs.append(f"sha256 is {m.get('sha256')!r}, the zip hashes to {digest}")
+          url = m.get("url", "")
+          # A floating payload URL makes the digest undescribable: see
+          # forge-desktop/src/update/Manifest.hpp. The app refuses one, so a
+          # release carrying one is simply uninstallable.
+          if "/releases/latest/" in url or "/releases/download/" not in url:
+              errs.append(f"payload url is not pinned to one release: {url!r}")
+          if not url.startswith("https://"):
+              errs.append(f"payload url is not https: {url!r}")
+          if errs:
+              print("::error::appcast does not describe this build: " + "; ".join(errs))
+              sys.exit(1)
+          print("appcast agrees with the built zip: version, size, sha256, pinned https url")
+          PY
+
       - name: Upload as a CI artifact (always)
         # Every run keeps its build, tag or not, so a dry run is downloadable
         # and testable WITHOUT touching a release.
@@ -287,6 +325,7 @@ jobs:
             forge-desktop/dist/Forge-macos-arm64-*.zip
             forge-desktop/dist/Forge-macos-arm64-*.zip.sha256
             forge-desktop/dist/Forge-macos-arm64-*.dryrun.json
+            forge-desktop/dist/appcast.json
           if-no-files-found: error
           retention-days: 30
 
@@ -330,14 +369,30 @@ jobs:
             LC_BUILD_VERSION minos across every bundled Mach-O file, and it is
             inherited from the Homebrew bottles' build host.
           * The app is AD-HOC SIGNED and NOT notarized. macOS Gatekeeper will
-            refuse to open it after download. To run it:
+            refuse to open the DOWNLOADED copy once, because a browser marks
+            downloads with com.apple.quarantine. Open it anyway from
+            System Settings > Privacy & Security > \"Open Anyway\", or clear the
+            mark yourself with
                 xattr -dr com.apple.quarantine /Applications/Forge.app
-            or System Settings > Privacy & Security > Open Anyway.
-            Fixing this needs a paid Apple Developer ID certificate and a
-            notarytool submission.
+            (Right-click > Open no longer offers this on macOS 15 and later; it
+            was removed. Any instructions that say otherwise are out of date.)
+            Fixing the refusal itself needs a paid Apple Developer ID
+            certificate and a notarytool submission.
+          * THIS IS A ONE-TIME STEP. Every later version is downloaded and
+            installed by the ALREADY-RUNNING app, which does not quarantine what
+            it writes, so the dialog does not come back. That is why the release
+            carries appcast.json, and why the updater must never hand an update
+            to the browser.
           * sha256: ${SHA}"
           else
             echo "release $TAG exists - leaving its notes and draft state alone"
           fi
+          # appcast.json is what makes auto-update work, and it is uploaded LAST
+          # on purpose: `releases/latest/download/appcast.json` starts resolving
+          # to this release the moment the release is PUBLISHED, so the zip it
+          # describes must already be attached. (A draft release is not
+          # "latest", so nothing is live until a human presses Publish -- which
+          # is exactly the review gate this whole workflow is built around.)
           gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
-          echo "attached $ZIP to release $TAG"
+          gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
+          echo "attached $ZIP and appcast.json to release $TAG"

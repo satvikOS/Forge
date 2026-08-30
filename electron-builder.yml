@@ -56,7 +56,13 @@ nsis:
 
 # ------------------------------------------------------------------ macOS
 # NOTE: no Apple Developer cert configured — builds are UNSIGNED.
-# - macOS Gatekeeper will block first launch (right-click > Open to bypass).
+# - macOS Gatekeeper will block first launch. NOTE: right-click > Open, which
+#   this line used to recommend, was REMOVED in macOS 15 and no longer offers
+#   the bypass. The route now is System Settings > Privacy & Security >
+#   "Open Anyway", or `xattr -dr com.apple.quarantine <app>`. (This Electron
+#   pipeline is retired; the shipping path is .github/workflows/desktop-release
+#   .yml plus forge-desktop/src/update/, where the prompt is one-time because
+#   the running app installs its own updates.)
 # - Auto-update is unreliable without notarisation.
 # To sign properly, provide CSC_LINK / CSC_KEY_PASSWORD + APPLE_ID /
 # APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID secrets and replace

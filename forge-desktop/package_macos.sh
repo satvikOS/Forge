@@ -70,11 +70,17 @@ JOBS="${JOBS:-$( (command -v nproc >/dev/null 2>&1 && nproc) || sysctl -n hw.ncp
 DO_BUILD=1
 DO_LAUNCH=0
 VERSION="${FORGE_VERSION:-0.0.0-dev}"
+# owner/name of the GitHub repository the updater fetches releases from. It
+# appears in appcast.json's payload URL, which MUST point at one specific
+# release -- see forge-desktop/src/update/Manifest.hpp for why a floating
+# latest/download URL there would make the digest undescribable.
+REPO="${FORGE_REPO:-satvikOS/Forge}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-build) DO_BUILD=0 ;;
     --launch)   DO_LAUNCH=1 ;;
     --version)  shift; [ $# -gt 0 ] || die "--version needs a value"; VERSION="$1" ;;
+    --repo)     shift; [ $# -gt 0 ] || die "--repo needs a value"; REPO="$1" ;;
     -h|--help)  sed -n '2,58p' "$0"; exit 0 ;;
     *)          die "unknown argument: $1" ;;
   esac
@@ -362,6 +368,21 @@ rm -f "$ZIP"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP" || die "ditto zip failed"
 shasum -a 256 "$ZIP" > "$ZIP.sha256"
 
+# ── 10b. appcast.json — what the RUNNING APP reads to find this release ──────
+# Written by forge-desktop/emit_appcast.sh, which is a separate script precisely
+# so test/appcast_selftest.sh can run it and feed the result to the app's REAL
+# manifest parser. A producer and a consumer that must agree and are never
+# exercised together will drift. Read that script's header for why the payload
+# URL names ONE release and why a draft release is invisible to the updater.
+#
+# min_macos is the floor MEASURED in step 8, never a hard-coded minimum.
+APPCAST="$DIST/appcast.json"
+bash "$ROOT/forge-desktop/emit_appcast.sh" \
+  --version "$VERSION" --repo "$REPO" --zip "$ZIP" \
+  --min-macos "$FLOOR" --out "$APPCAST" \
+  || die "could not write the appcast"
+CHANNEL="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["channel"])' "$APPCAST")"
+
 APP_SZ="$(du -sh "$APP" | awk '{print $1}')"
 ZIP_SZ="$(du -h "$ZIP" | awk '{print $1}')"
 NMACH="$(wc -l < "$BUNDLED" | tr -d ' ')"
@@ -380,6 +401,7 @@ cat <<SUMMARY
   zip           $ZIP  ($ZIP_SZ)
   sha256        $(awk '{print $1}' "$ZIP.sha256")
   version       $VERSION
+  appcast       $APPCAST  (channel $CHANNEL)
   Mach-O files  $NMACH bundled (libMoltenVK included, loaded via the ICD)
   relocatable   YES — a copy in an unrelated directory launched and exited 0
   signature     ad-hoc

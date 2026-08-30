@@ -175,6 +175,24 @@ test/document_gate.cpp          139 headless checks + 5 injectable mutations: th
                                 end to end, including a real .fpart on a real disk
 test/ir_pipeline_gate.cpp       18 checks: a UI-authored IR program compiles to a measured solid
 test/run_desktop.sh             build + all three gates + the 10-mutation proof
+
+src/update/Version.{hpp,cpp}    semantic version parsing + SemVer 2.0.0 ordering. The one place
+                                "is B newer than A" is answered; a string compare here is the
+                                defect update_gate --mutate 1 reproduces
+src/update/Sha256.{hpp,cpp}     SHA-256, implemented rather than linked, so the gate can assert it
+                                against the published NIST vectors
+src/update/Manifest.{hpp,cpp}   the appcast: a STRICT flat-JSON parser (no nesting, no duplicate
+                                keys, 64 KB cap) + https/host/pinned-URL admissibility
+src/update/Updater.{hpp,cpp}    decide() and the install path: download, verify sha256, stage with
+                                ditto, validate the ad-hoc signature, renamex_np(RENAME_SWAP).
+                                Exactly ONE function here touches the network
+src/update/main_update_cli.cpp  `forge_update check|apply` — the same library from a shell
+emit_appcast.sh                 writes appcast.json from the MEASURED zip; the producer half of the
+                                contract src/update/Manifest.cpp consumes
+test/update_gate.cpp            120 headless checks + 7 injectable mutations, offline
+test/appcast_check.cpp          runs the app's real parser over a generated appcast
+test/run_update_gate.sh         compile + run the update gate with ONE c++ call (no kernel, no OCCT)
+test/appcast_selftest.sh        proves the bash producer and the C++ consumer agree
 ```
 
 ## The gates
@@ -229,6 +247,94 @@ panel.
 | 7 | the Tools panel answers from a stale selection → it offers a tool that refuses (2 checks red) |
 
 A mutation that stays green fails the script, because a check that cannot fail is not a check.
+
+## Updating — why the Gatekeeper prompt is one-time
+
+Forge ships **ad-hoc signed** from GitHub Releases. There is no Developer ID certificate, so
+`spctl -a -t exec` says *rejected* and always will; that is a signature **policy** verdict, not a
+broken build — `codesign -v --deep --strict` exits 0, and the app runs normally once admitted.
+
+What a user actually sees is the first-launch dialog, and that dialog is driven by the
+`com.apple.quarantine` extended attribute, which is applied **by whatever program did the
+downloading**. A browser sets it. `/usr/bin/curl` does not. Measured on a loopback HTTP server (no
+external network):
+
+```
+$ curl -sfL -o via_curl.bin http://127.0.0.1:8731/probe.bin
+$ xattr via_curl.bin
+                       # nothing: no com.apple.quarantine
+```
+
+So the whole distribution decision rests on one property: **the update is downloaded and installed
+by the already-running app, never handed to the browser.** Do it the other way and every version
+re-quarantines and the user sees the scary dialog again, for ever. The user clears it **once**, at
+first install, via System Settings → Privacy & Security → *Open Anyway*. (Right-click → Open was
+removed in macOS 15; instructions that still say it are out of date.)
+
+The second measured fact is why `stageBundle()` strips the attribute anyway: `ditto -x -k`
+**does** propagate `com.apple.quarantine` from a quarantined archive to the bundle it extracts. Our
+archive is not quarantined because curl fetched it, but the strip costs one process and removes the
+only route by which a quarantined bundle could reach the swap. `update_gate.cpp` quarantines its
+fixture archive on purpose and asserts the staged bundle comes out clean.
+
+### The path
+
+```
+appcast.json  (https://github.com/<repo>/releases/latest/download/appcast.json)
+    |  parseManifest   strict flat JSON, no nesting, no duplicate keys, 64 KB cap
+    v
+decide()      schema, arch, channel, prerelease policy, https + host allow-list,
+    |         payload URL pinned to ONE release, declared size cap, and version
+    |         ordering that only ever moves FORWARD
+    v
+Fetcher::get  /usr/bin/curl via posix_spawn — no shell. --proto =https and
+    |         --proto-redir =https, so no redirect can leave TLS; --max-filesize
+    |         and --max-time from the manifest and the policy
+    v
+verifyPayload sha256 + size against the manifest, BEFORE anything is unpacked
+    v
+stageBundle   ditto -x -k into a sibling of the installed app (same volume, so
+    |         the rename below is a rename), then xattr -dr com.apple.quarantine
+    v
+validate      *.app, a real executable, Info.plist version == the manifest's, and
+    |         codesign --verify --deep --strict (which ad-hoc satisfies; spctl,
+    |         which it never can, is consulted nowhere)
+    v
+atomicSwap    renamex_np(RENAME_SWAP): ONE syscall, so there is no instant at
+              which /Applications/Forge.app is missing or half-written
+```
+
+Every failure leaves the installed app untouched. The displaced bundle survives the swap, so a
+rollback is possible.
+
+### Trust model, stated plainly
+
+Auto-update downloads code and runs it as the user. What defends it: TLS to github.com (this
+authenticates the **manifest**); the manifest's sha256 (this closes the gap between the two
+requests — a swapped asset URL, a poisoned cache, a truncated transfer); a monotonic version (a
+replayed old manifest cannot roll a user back onto published bugs); and validation of the staged
+bundle before the swap.
+
+**Not** defended: a compromised GitHub account. Closing that needs an Ed25519 signature over the
+manifest with the public key compiled into the app, so the release credentials and the signing key
+are separately held. It is **not implemented**, and it is written down here rather than implied by
+silence.
+
+### Running it
+
+```bash
+# offline: the gate and all seven negative controls, no kernel, no OCCT, ~10 s
+bash forge-desktop/test/run_update_gate.sh --mutations
+
+# offline: the bash producer and the C++ consumer agree on the appcast
+bash forge-desktop/test/appcast_selftest.sh
+
+# against the real release (this is the only thing here that uses the network)
+forge_update check
+forge_update apply --app /Applications/Forge.app --relaunch
+```
+
+`forge_update check` exits 0 when an update is available, 10 when already current, 1 when refused.
 
 ## Known limits, stated rather than hidden
 
