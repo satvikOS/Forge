@@ -479,13 +479,104 @@ std::vector<Loop2> PolygonOffset2D::cleanRawLoop(const Loop2& raw,
     std::vector<int> nid(R);
     for (std::size_t i = 0; i < R; ++i) nid[i] = nodeOf(refined[i]);
 
-    // Directed half-edges of the closed curve: he k goes nid[k] -> nid[k+1].
+    // --- 2b. Excise the closed sub-chains this arrangement CANNOT RESOLVE. ----
+    // A convergent corner (an inward offset of a convex vertex) makes the raw
+    // ring double back: the current edge's offset end P overshoots the corner,
+    // the next edge's offset start Q sits before it, and the crossing X of the
+    // two offset lines splits the ring into the closed sub-chain X -> P -> Q -> X.
+    // At a well-conditioned corner that sub-chain is the overshoot TRIANGLE and
+    // the winding test in step 3 prunes it correctly. When the corner's turn is
+    // microradians -- which is what a ring sampled off a near-straight spline is
+    // made of -- X, P and Q become COLLINEAR and the sub-chain encloses nothing:
+    // its three sub-edges then all lie ON the region's true boundary, each is
+    // independently classified as a boundary edge, and the SAME piece of that
+    // boundary is emitted three times with inconsistent orientations. That is
+    // exactly what leaves the kept set unbalanced (measured: on ho13 all 14
+    // unbalanced nodes, in 7 pairs of in=2/out=0 and in=0/out=2, are the interior
+    // vertices of 7 such sub-chains, and every chain walk then dead-ends).
+    //
+    // THE TEST IS THIS ARRANGEMENT'S OWN RESOLUTION, not a new constant: a closed
+    // sub-chain is unresolvable iff EVERY one of its vertices lies within
+    // `snapDist` of one straight line -- the very distance at which nodeOf above
+    // already welds two points into ONE node. A chain that flat cannot separate
+    // any two points this arrangement can tell apart, so it adds ZERO to the
+    // winding number everywhere that matters, and dropping its sub-edges removes
+    // only the duplicated boundary -- the two long edges that meet at X still
+    // carry it. Flatness, not signed area, is the test on purpose: a figure-eight
+    // sub-chain has |signed area| ~ 0 with real geometry on both lobes, and an
+    // area test would excise it. Flatness cannot cancel.
+    //
+    // MEASURED on the four failing arrangements: the flattest NON-flat chain is
+    // 987x ABOVE snapDist and the least flat excised chain is 134x BELOW it, so
+    // the band the threshold sits in is empty over five orders of magnitude.
+    //
+    // `rawClosed` is deliberately NOT rebuilt: the region {winding == expectedSign}
+    // stays bit-for-bit the one this function has always extracted, and the only
+    // thing that changes is which sub-edges are offered to step 3 as candidates.
+    std::vector<int> ringNid = nid;
+    {
+        std::vector<int> occ(nodes.size(), 0);
+        for (std::size_t i = 0; i < R; ++i) ++occ[nid[i]];
+        // Start the walk at a node visited exactly once, so no sub-chain can
+        // straddle the seam. If every node repeats, leave the ring untouched.
+        std::size_t start = R;
+        for (std::size_t i = 0; i < R; ++i) if (occ[nid[i]] == 1) { start = i; break; }
+        if (start < R) {
+            std::vector<Point2> keepPt;
+            std::vector<int>    keepNid;
+            keepPt.reserve(R);
+            keepNid.reserve(R);
+            std::vector<int> lastAt(nodes.size(), -1);
+            for (std::size_t t = 0; t < R; ++t) {
+                const std::size_t i = (start + t) % R;
+                const int nd = nid[i];
+                const int j  = lastAt[nd];
+                const int m  = (j >= 0) ? static_cast<int>(keepPt.size()) - j : 0;
+                if (j >= 0 && m >= 2) {
+                    // Max perpendicular deviation of the chain from the line
+                    // through its two extreme vertices (the standard two-pass
+                    // diameter walk: farthest from the first, then farthest from
+                    // that). A zero-extent chain is flat by definition.
+                    const Point2* base = &keepPt[static_cast<std::size_t>(j)];
+                    const Point2* endA = base;
+                    for (int k = 1; k < m; ++k)
+                        if (dist2(base[k], *base) > dist2(*endA, *base)) endA = base + k;
+                    const Point2* endB = base;
+                    for (int k = 0; k < m; ++k)
+                        if (dist2(base[k], *endA) > dist2(*endB, *endA)) endB = base + k;
+                    const double ux = endB->x - endA->x, uy = endB->y - endA->y;
+                    const double span = std::hypot(ux, uy);
+                    double flat = 0.0;
+                    if (span > 0.0)
+                        for (int k = 0; k < m; ++k)
+                            flat = std::max(flat,
+                                            std::fabs((base[k].x - endA->x) * uy -
+                                                      (base[k].y - endA->y) * ux) / span);
+                    if (flat <= snapDist) {
+                        for (std::size_t k = static_cast<std::size_t>(j) + 1;
+                             k < keepNid.size(); ++k)
+                            if (lastAt[keepNid[k]] >= j + 1) lastAt[keepNid[k]] = -1;
+                        keepPt.resize(static_cast<std::size_t>(j) + 1);
+                        keepNid.resize(static_cast<std::size_t>(j) + 1);
+                        continue;            // node nd already sits at keepPt[j]
+                    }
+                }
+                lastAt[nd] = static_cast<int>(keepPt.size());
+                keepPt.push_back(refined[i]);
+                keepNid.push_back(nd);
+            }
+            if (keepNid.size() >= 3) ringNid = std::move(keepNid);
+        }
+    }
+    const std::size_t Rr = ringNid.size();
+
+    // Directed half-edges of the closed curve: he k goes ringNid[k] -> ringNid[k+1].
     struct HEdge { int from; int to; };
     std::vector<HEdge> he;
-    he.reserve(R);
-    for (std::size_t i = 0; i < R; ++i) {
-        int a = nid[i];
-        int b = nid[(i + 1) % R];
+    he.reserve(Rr);
+    for (std::size_t i = 0; i < Rr; ++i) {
+        int a = ringNid[i];
+        int b = ringNid[(i + 1) % Rr];
         if (a == b) continue;                          // degenerate (snapped) edge
         he.push_back({a, b});
     }
