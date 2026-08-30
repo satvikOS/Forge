@@ -219,6 +219,17 @@ struct ApplyResult {
 // download -> verify -> stage -> validate -> atomic swap. Every step's failure
 // leaves the installed app untouched. Does NOT relaunch; the caller decides
 // when to quit, because the caller is the one that knows about unsaved work.
+//
+// ONE CONSEQUENCE OF SWAPPING UNDER A RUNNING PROCESS, stated because it is easy
+// to trip over later. After the swap, this process's mapped executable is the
+// OLD inode, which still exists because the process holds it -- so the running
+// app keeps working even after the old bundle's last directory entry is removed.
+// What it must NOT do afterwards is read anything out of its own bundle BY PATH:
+// /Applications/Forge.app/Contents/... now resolves into the NEW bundle, and a
+// resource, shader or dylib loaded from there would be a version the running
+// code was not built against. Load bundle resources at startup, or relaunch
+// promptly. This is inherent to in-place update, not a defect of this code, and
+// it is the reason relaunchArgv() exists right below.
 ApplyResult applyUpdate(const Plan& plan, const Manifest& m, const std::string& live_app_path,
                         Fetcher& fetcher, const Policy& p);
 
