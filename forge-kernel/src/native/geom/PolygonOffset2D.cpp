@@ -86,6 +86,88 @@ std::vector<Point2> dedupRing(const std::vector<Point2>& in, double tol2) {
     return out;
 }
 
+// The arc-chord tolerance this operation tessellates its own round joins to.
+// One definition, read by rawOffset and by the sub-tolerance retry, so the two
+// can never drift apart.
+double arcToleranceFor(double signedDist, const OffsetOptions& opts) {
+    double arcTol = opts.arcTolerance;
+    if (!(arcTol > 0.0)) arcTol = std::max(1e-6, std::fabs(signedDist) * 1e-3);
+    return arcTol;
+}
+
+// Remove the ring vertices that carry no geometry AT THIS TOLERANCE. This is
+// the same class of degeneracy dedupRing already removes (a zero-LENGTH edge
+// leaves the edge normal undefined; a zero-TURN vertex leaves the corner type --
+// gap or overlap -- undefined, and the two offset lines meeting there then cross
+// at a near-zero angle, which is the ill-conditioned intersection that breaks
+// the arrangement in cleanRawLoop).
+//
+// THE BOUND IS GLOBAL, not per-vertex: this is the perpendicular-distance
+// (Reumann-Witkam) simplification, so every REMOVED vertex lies within `tol` of
+// the chord of the two vertices that were KEPT around it -- never within tol of
+// its immediate neighbours in a ring that has already been thinned, which is how
+// an iterated per-vertex filter silently drifts. The walk starts at the vertex
+// of maximum chord deviation, which is therefore always retained, so the result
+// does not depend on where index 0 happens to fall.
+std::vector<Point2> dropSubToleranceVertices(const std::vector<Point2>& in, double tol) {
+    const std::size_t n = in.size();
+    if (n < 4 || !(tol > 0.0)) return in;
+
+    // Anchor: the vertex that deviates most from its neighbours' chord. It is
+    // the one this filter would never want to drop, so starting there makes the
+    // result independent of the ring's arbitrary starting index.
+    std::size_t anchor = 0;
+    double best = -1.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const Point2& a = in[(i + n - 1) % n];
+        const Point2& b = in[i];
+        const Point2& c = in[(i + 1) % n];
+        const double L = std::hypot(c.x - a.x, c.y - a.y);
+        const double dev = (L > 0.0)
+            ? std::fabs((c.x - a.x) * (a.y - b.y) - (a.x - b.x) * (c.y - a.y)) / L
+            : 0.0;
+        if (dev > best) { best = dev; anchor = i; }
+    }
+
+    // Perpendicular distance of q from the infinite line through (a,b).
+    auto perp = [](const Point2& a, const Point2& b, const Point2& q) {
+        const double dx = b.x - a.x, dy = b.y - a.y;
+        const double L = std::hypot(dx, dy);
+        if (L <= 0.0) return std::hypot(q.x - a.x, q.y - a.y);
+        return std::fabs(dx * (a.y - q.y) - (a.x - q.x) * dy) / L;
+    };
+
+    std::vector<Point2> out;
+    out.reserve(n);
+    std::size_t kept = anchor;           // index of the last retained vertex
+    out.push_back(in[anchor]);
+    std::size_t consumed = 1;
+    while (consumed < n) {
+        // Extend the chord from `kept` as far as every skipped vertex stays
+        // within tol of it.
+        std::size_t take = 1;
+        while (consumed + take < n) {
+            const std::size_t cand = (kept + take + 1) % n;
+            bool okAll = true;
+            for (std::size_t m = 1; m <= take; ++m) {
+                if (perp(in[kept], in[cand], in[(kept + m) % n]) > tol) { okAll = false; break; }
+            }
+            if (!okAll) break;
+            ++take;
+        }
+        const std::size_t next = (kept + take) % n;
+        out.push_back(in[next]);
+        consumed += take;
+        kept = next;
+    }
+    // The walk emits the anchor once and then every retained vertex; the last
+    // one may coincide with the anchor when the final run swallowed the wrap.
+    if (out.size() >= 2 && out.front().x == out.back().x && out.front().y == out.back().y)
+        out.pop_back();
+    if (out.size() < 3) return in;       // never hand back a degenerate ring
+    return out;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -172,8 +254,7 @@ Loop2 PolygonOffset2D::rawOffset(const Loop2& loop, double signedDist,
     // orientSignF: dispDir = orientSignF * (e.y,-e.x)/|e| * d.
     const double sgn = orientSignF;
 
-    double arcTol = opts.arcTolerance;
-    if (!(arcTol > 0.0)) arcTol = std::max(1e-6, absd * 1e-3);
+    const double arcTol = arcToleranceFor(d, opts);
 
     // Per-edge offset endpoints: edge i is p[i]->p[i+1], offset by its own normal.
     struct OffEdge { Point2 a, b; V2 dir; };
@@ -541,30 +622,47 @@ OffsetResult PolygonOffset2D::offsetLoop(const Loop2& loop, double d,
         return res;
     }
 
-    Loop2 raw = rawOffset(src, d, opts);
-    if (raw.pts.size() < 3) {
-        // Entire feature collapsed by an inward offset.
+    // ONE attempt = raw displacement + arrangement cleanup. Returns false for
+    // the two collapse conditions, which are byte-for-byte the ones this
+    // function has always reported: a raw ring under 3 vertices, and a cleanup
+    // that kept nothing.
+    auto attempt = [&opts, d](const Loop2& ring, std::vector<Loop2>& out) -> bool {
+        out.clear();
+        Loop2 raw = rawOffset(ring, d, opts);
+        if (raw.pts.size() < 3) return false;
+        // The offset preserves orientation: every surviving loop must carry the
+        // SOURCE loop's orientation sign. (An inward offset only shrinks the
+        // region until the feature collapses; it never inverts a surviving loop.)
+        const double expectedSign = (shoelace2(ring.pts) >= 0.0) ? 1.0 : -1.0;
+        bool droppedAll = false;
+        out = cleanRawLoop(raw, expectedSign, droppedAll);
+        if (droppedAll || out.empty()) { out.clear(); return false; }
+        return true;
+    };
+
+    std::vector<Loop2> clean;
+    if (attempt(src, clean)) {
         res.ok = true;
-        res.droppedLoops = 1;
-        res.reason = "loop collapsed under inward offset";
+        res.loops = std::move(clean);
         return res;
     }
 
-    // The offset preserves orientation: every surviving loop must carry the
-    // SOURCE loop's orientation sign. (An inward offset only shrinks the region
-    // until the feature collapses; it never inverts a surviving loop.)
-    const double expectedSign = (shoelace2(src.pts) >= 0.0) ? 1.0 : -1.0;
-    bool droppedAll = false;
-    std::vector<Loop2> clean = cleanRawLoop(raw, expectedSign, droppedAll);
-    if (droppedAll || clean.empty()) {
+    // COLLAPSE PATH ONLY — see the header's SUB-TOLERANCE RETRY note. Reached
+    // only when the line above already failed, so no input that succeeds can
+    // reach it and no succeeding answer can change.
+    Loop2 relaxed;
+    relaxed.pts = dropSubToleranceVertices(src.pts, arcToleranceFor(d, opts));
+    if (relaxed.pts.size() >= 3 && relaxed.pts.size() < src.pts.size() &&
+        shoelace2(relaxed.pts) != 0.0 && attempt(relaxed, clean)) {
         res.ok = true;
-        res.droppedLoops = 1;
-        res.reason = "loop collapsed under inward offset";
+        res.loops = std::move(clean);
+        res.relaxedCollinear = true;
         return res;
     }
 
     res.ok = true;
-    res.loops = std::move(clean);
+    res.droppedLoops = 1;
+    res.reason = "loop collapsed under inward offset";
     return res;
 }
 

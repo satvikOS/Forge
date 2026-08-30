@@ -110,6 +110,13 @@ struct OffsetResult {
     std::size_t         droppedLoops{0};
     std::string         reason;
 
+    // TRUE iff the result was recovered by the sub-tolerance retry described at
+    // offsetLoop below (the first attempt collapsed; a ring with its
+    // below-arcTolerance vertices removed did not). Reported, never hidden: the
+    // caller can tell a first-attempt answer from a recovered one. Purely
+    // informational -- `ok` and `loops` mean exactly what they always did.
+    bool                relaxedCollinear{false};
+
     // Convenience: net signed area of all surviving loops.
     double netArea() const;
 };
@@ -128,6 +135,20 @@ public:
     // CW hole is the mirror). Returns the cleaned surviving loop(s) — a single
     // convex loop yields one; a concave loop pinched by an inward offset may
     // split into several, or collapse entirely (droppedLoops>0).
+    //
+    // SUB-TOLERANCE RETRY (added 2026-08-30, measured). If — and ONLY if — the
+    // first attempt collapses, the loop is retried once with the vertices that
+    // lie on the chord of their neighbours to within the SAME arcTolerance this
+    // call already tessellates its own round joins to removed, and the retry's
+    // answer is returned if it survives (`relaxedCollinear` says so). Nothing on
+    // the succeeding path is touched: an input that produced loops before
+    // produces the identical loops now. It exists because a ring sampled off a
+    // near-straight spline carries micro-facets whose offset lines cross at
+    // near-zero angle, and cleanRawLoop's arrangement then welds one geometric
+    // crossing into two nodes (measured 4e-7 apart on a 218-unit ring against a
+    // 2.2e-7 weld tolerance), leaving a boundary that is unbalanced at 60 nodes
+    // and cannot be chained — so a raw offset of demonstrably CORRECT area was
+    // being reported as a total collapse. See reports/corpus_ab.
     static OffsetResult offsetLoop(const Loop2& loop, double d,
                                    const OffsetOptions& opts = {});
 
