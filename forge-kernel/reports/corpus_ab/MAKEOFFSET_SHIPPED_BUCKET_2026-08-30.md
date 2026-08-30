@@ -213,8 +213,10 @@ The band the threshold sits in is empty over five orders of magnitude.
   vertices and re-offsets). Removing the arrangement defect the retry was
   working around means those 27 rings now succeed on the FIRST attempt, at FULL
   input resolution — which is why their contours moved, and why they moved
-  toward OCCT. The 27 that moved, the 27 the excision fires on, and the 27 that
-  used to need the retry are the SAME 27.
+  toward OCCT. Over the 66 rings sampled (all 27 movers plus 39 controls) the
+  three sets — *used the retry pre-fix*, *the excision fires on*, *the observable
+  moved* — are **equal as sets, matched by part name, not merely equal in
+  count**.
 * **The corpus A/B, the family the shipped path is not.** `FAMILIES=MAKEOFFSET,FILLING`
   over all 600 parts, against the committed post-#110 baseline
   (`reports/corpus_ab/makeoffset_postfix_600_results.jsonl.gz`):
