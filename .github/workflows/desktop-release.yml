@@ -88,13 +88,21 @@ name: Desktop Release (macOS arm64)
 #     The signature is ad-hoc: no Developer ID, no notarization.
 #     MEASURED 2026-08-30: `spctl -a -vvv -t exec Forge.app` -> "rejected",
 #     exit 3; `security find-identity -v -p codesigning` -> 0 valid identities.
-#     A user who downloads the zip gets a refusal dialog until they run
-#         xattr -dr com.apple.quarantine Forge.app
-#     Clearing this needs a PAID Apple Developer ID certificate plus a
-#     notarytool submission — i.e. credentials and secrets, not code. Until
-#     those exist the dry run REPORTS the rejection and never asserts on it: a
-#     check that cannot pass without a credential is a permanently red gate,
-#     which is the same as no gate at all.
+#     A user who downloads the zip gets a refusal dialog on FIRST LAUNCH and
+#     clears it ONCE, by hand, via System Settings > Privacy & Security >
+#     "Open Anyway". That is a DECISION the user has taken, not a defect to be
+#     fixed here. The measured steps live in docs/FIRST_LAUNCH_MACOS.md and the
+#     text the release page carries lives in docs/RELEASE_BODY_macos.md.
+#
+#     Do NOT document "right-click > Open" anywhere. That shortcut was REMOVED
+#     in macOS 15 (Sequoia), so telling a user to do it sends them somewhere
+#     that does nothing.
+#
+#     Removing the prompt entirely needs a PAID Apple Developer ID certificate
+#     plus a notarytool submission, i.e. credentials and secrets, not code.
+#     Until those exist the dry run REPORTS the rejection and never asserts on
+#     it: a check that cannot pass without a credential is a permanently red
+#     gate, which is the same as no gate at all.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -146,7 +154,8 @@ jobs:
           for f in forge-kernel/CMakeLists.txt \
                    forge-desktop/CMakeLists.txt \
                    forge-desktop/package_macos.sh \
-                   forge-desktop/release_dryrun.sh; do
+                   forge-desktop/release_dryrun.sh \
+                   docs/RELEASE_BODY_macos.md; do
             if [ -f "$f" ]; then printf 'ok       %s\n' "$f"
             else printf 'MISSING  %s\n' "$f"; missing=1; fi
           done
@@ -318,24 +327,46 @@ jobs:
           FLOOR="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["measured_floor"])' "$REPORT")"
           SHA="$(awk '{print $1}' "$ZIP.sha256")"
 
+          # The body is NOT written here. docs/RELEASE_BODY_macos.md is the
+          # single source for it, so the release page, the README and the docs
+          # cannot drift, and a change to what users are told is a reviewed
+          # diff rather than an edit buried in a workflow heredoc.
+          #
+          # Every substituted value is MEASURED from this build's own report. A
+          # hard-coded minimum macOS or sha256 is wrong the moment anything
+          # moves, which is exactly the kind of note that outlives its truth.
+          BODY_SRC="docs/RELEASE_BODY_macos.md"
+          test -f "$BODY_SRC" || { echo "::error::$BODY_SRC missing"; exit 1; }
+
+          NOTES="$(mktemp)"
+          # Drop the leading HTML comment block (authoring instructions for
+          # whoever edits the body), then substitute the measured values.
+          sed '/^<!--$/,/^-->$/d' "$BODY_SRC" \
+            | sed -e "s|@@REPO_URL@@|${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}|g" \
+                  -e "s|@@TAG@@|${TAG}|g" \
+                  -e "s|@@VERSION@@|${V}|g" \
+                  -e "s|@@FLOOR@@|${FLOOR}|g" \
+                  -e "s|@@SHA@@|${SHA}|g" > "$NOTES"
+
+          # An unsubstituted placeholder would publish a literal "@@SHA@@" to
+          # users. Deliberately `grep -q` inside an `if` and NOT `LEFT=$(grep
+          # -c ...)`: this step runs under `set -e`, grep exits 1 when it finds
+          # nothing, and an assignment carries its substitution's status - so
+          # counting would abort the step on the SUCCESS path.
+          if grep -q '@@[A-Z_]*@@' "$NOTES"; then
+            grep -n '@@[A-Z_]*@@' "$NOTES" >&2
+            echo "::error::unsubstituted placeholder(s) in the release body"
+            exit 1
+          fi
+          # A body that lost its content would publish an empty release page.
+          test -s "$NOTES" || { echo "::error::release body rendered empty"; exit 1; }
+          echo "--- release body that will be published ---"
+          cat "$NOTES"
+
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             echo "no release for $TAG yet - creating it as a DRAFT"
-            gh release create "$TAG" --draft --title "Forge $TAG" --notes \
-          "Native C++ Forge desktop app for macOS (Apple Silicon).
-
-          REQUIREMENTS AND CAVEATS — please read before publishing this draft:
-
-          * Apple Silicon only, and macOS ${FLOOR} or newer. That floor is
-            MEASURED from the shipped bundle, not asserted: it is the highest
-            LC_BUILD_VERSION minos across every bundled Mach-O file, and it is
-            inherited from the Homebrew bottles' build host.
-          * The app is AD-HOC SIGNED and NOT notarized. macOS Gatekeeper will
-            refuse to open it after download. To run it:
-                xattr -dr com.apple.quarantine /Applications/Forge.app
-            or System Settings > Privacy & Security > Open Anyway.
-            Fixing this needs a paid Apple Developer ID certificate and a
-            notarytool submission.
-          * sha256: ${SHA}"
+            gh release create "$TAG" --draft --title "Forge $TAG" \
+              --notes-file "$NOTES"
           else
             echo "release $TAG exists - leaving its notes and draft state alone"
           fi

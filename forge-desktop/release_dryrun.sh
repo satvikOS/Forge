@@ -214,10 +214,13 @@ cat <<SUMMARY
   GATEKEEPER               spctl exit $SPCTL_RC (accepted: $GK)
     $SPCTL_OUT
     codesigning identities on this host: ${IDENTITIES:-none}
-    An ad-hoc signature is NOT notarization. Until a Developer ID certificate
-    and a notarytool submission exist, every downloaded copy is refused until
-    the user runs:  xattr -dr com.apple.quarantine Forge.app
-    This is a CREDENTIAL blocker. No change to this repository can clear it.
+    An ad-hoc signature is NOT notarization, and spctl can never accept one:
+    this rejection is EXPECTED and is not a packaging defect. A downloaded
+    copy is refused on FIRST LAUNCH until the user approves it once via
+    System Settings > Privacy & Security > "Open Anyway" — the shipped steps
+    are docs/FIRST_LAUNCH_MACOS.md, and the release page carries them from
+    docs/RELEASE_BODY_macos.md. Removing the prompt entirely is a CREDENTIAL
+    blocker. No change to this repository can clear it.
 
   PUBLISHED       NO — no tag was created, no release was touched.
 ────────────────────────────────────────────────────────────────────────────
@@ -237,8 +240,11 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     echo "| signature | ad-hoc, NOT notarized |"
     echo "| zip sha256 | \`$SHA\` |"
     echo
-    echo 'Gatekeeper rejection is expected and is blocked on a paid Developer ID certificate.'
-    echo 'Downloaders must run `xattr -dr com.apple.quarantine /Applications/Forge.app`.'
+    echo 'Gatekeeper rejection is EXPECTED for an ad-hoc signature and is not a build defect;'
+    echo 'clearing it entirely is blocked on a paid Developer ID certificate.'
+    echo 'Downloaders approve the app ONCE via System Settings > Privacy & Security >'
+    echo '"Open Anyway" — steps in `docs/FIRST_LAUNCH_MACOS.md`. Do not tell anyone to'
+    echo 'right-click > Open: Apple removed that shortcut in macOS 15 (Sequoia).'
   } >> "$GITHUB_STEP_SUMMARY"
 fi
 
