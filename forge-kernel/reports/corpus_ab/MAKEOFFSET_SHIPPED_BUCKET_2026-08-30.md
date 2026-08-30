@@ -253,9 +253,11 @@ The band the threshold sits in is empty over five orders of magnitude.
   here is reached only with `FORGE_NATIVE_FEATURES=1` set at runtime or with
   `FORGE_OFFSET_DROP_MAKEOFFSET` compiled in. That is the blast radius.
 * **Runtime.** Timed over the same 66 rings with no OCCT in the loop: pre-fix
-  0.32 s user, post-fix 0.27 s. The excision is O(1) amortised per excised
-  chain and it removes a whole second offset+cleanup on every ring that used to
-  need the sub-tolerance retry, so it pays for itself.
+  0.32 s user, post-fix **0.27 s**. The excision costs O(chain length) per
+  candidate chain and the excisions themselves are amortised O(1) each, since a
+  vertex can be dropped only once — and it removes a whole second
+  offset-plus-cleanup on every ring that used to need the sub-tolerance retry,
+  which is why it comes out ahead rather than merely level.
 * **The OCCT link ledger.** `src/native/geom/PolygonOffset2D.cpp` contains **0**
   OCCT identifiers and the added lines use only `std::fabs`, `std::hypot`,
   `std::max`, `std::move`, `std::size_t`, `std::vector`, all already used in that
@@ -266,7 +268,7 @@ The band the threshold sits in is empty over five orders of magnitude.
 
 ## 6. Does `FORGE_OFFSET_DROP_MAKEOFFSET` pass its flip gate now? Still no, and this does not claim it does
 
-`CMakeLists.txt:520-528` names four pieces of evidence. On this tree:
+`CMakeLists.txt:525-528` names four pieces of evidence. On this tree:
 
 1. *"re-run the 382-part sweep with the option ON and show native defers <= the
    OCCT baseline rate"* — `data/forge/complex_all.jsonl` **is not in the tree**.
