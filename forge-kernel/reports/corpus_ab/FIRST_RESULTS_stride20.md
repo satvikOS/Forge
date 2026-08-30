@@ -44,14 +44,35 @@ parts two of the five measured families have none.
   and the harness supports `run_corpus_ab_coverage.sh all`.
 * **Five of the twelve families are covered here**, not all ten the harness implements —
   this run exercised PIPE, PIPESHELL, FILLING, THICKEN and DRAFT.
-* **The build predates the canonize merge.** This worktree branched from
-  `kernel/corpus-ab-harness`, which forked before PR #80 restored `MakePrism`'s Canonize
-  semantics to `occtPrism`. THICKEN's "17 agree up to orientation, 17 disagree on the full
-  vector" may move once that fix is in the tree, so THICKEN's disagreement row in
-  particular should be re-measured post-#80 before it is quoted.
+* ~~The build predates the canonize merge.~~ **RESOLVED BY MEASUREMENT, same night.**
+  Rebuilt at HEAD `67507174` (canonize present, verified in the header) and re-ran both
+  disagreement families. The numbers are IDENTICAL: THICKEN OK 17 / DEFER 3, 17 agree up
+  to orientation, 17 disagree; PIPESHELL OK 15 / DEFER 5, 15 disagree. So the disagreement
+  is NOT a `SurfaceOfLinearExtrusion` artifact and the rows above are quotable as they
+  stand. Raw log: `post80_thicken_pipeshell.log`.
 * The operations are DERIVED from each part's own geometry by the harness, not taken from
   real user workflows, so this measures engine coverage on plausible inputs rather than
   observed demand.
+
+## Two refinements the re-measure bought
+
+**THICKEN and PIPESHELL disagree in DIFFERENT WAYS, and only one is deep.** THICKEN's 17
+disagreements all agree on `|volume|` and fail only the full observable vector — the solid
+is the right size and differs in signed orientation. That is a concrete normal/orientation
+defect with a bounded fix. PIPESHELL's 15 disagreements agree on NEITHER: 0 match even up
+to `|volume|`, so the native engine is building different geometry, not the same geometry
+wound the other way. PIPESHELL is the harder problem and should not be planned as if it
+were THICKEN.
+
+**OCCT itself SIGSEGVs on real parts, and the containment caught it.** One crash report
+this session is `BRepOffset_Inter2d::ConnexIntByInt` -> `BRep_Tool::CurveOnSurface`
+faulting at address 0x60 inside `libTKOffset` — the very toolkit the native engines would
+replace — contained in its forked child and recorded as CRASH for that arm only. A second
+report is the harness's OWN deliberate SIGSEGV from `--selftest`, which is the positive
+control for that containment. The distinction matters for reading the table above:
+`ARM_CRASH` is a separate status from `ARM_DEFER`, set on `WIFSIGNALED`, and the self-test
+asserts that a deliberate segfault comes back as CRASH and never as a defer. So PIPE's
+`DEFER 20` is twenty honest declines, not twenty crashes filed under a softer name.
 
 ## The next measurement, named
 
