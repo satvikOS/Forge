@@ -19,9 +19,25 @@ name: Desktop Release (macOS arm64)
 # ── WHAT A HUMAN RUNS ────────────────────────────────────────────────────────
 # Nothing here fires on its own. To cut a release:
 #
-#   1. Dry run first (builds + packages + uploads a CI artifact, touches NO
-#      release):
+#   0. MERGE THIS FILE TO THE DEFAULT BRANCH FIRST. This is not optional and it
+#      is not obvious. `workflow_dispatch` only becomes dispatchable once the
+#      workflow exists on the repository's DEFAULT branch (`archdisc`).
+#      MEASURED 2026-08-29: this file is 404 on archdisc, and
+#      `gh api repos/satvikOS/Forge/actions/workflows` lists only kernel-tests,
+#      the disabled build-app and the Copilot agent -- desktop-release is not
+#      registered at all. So step 1 below FAILS today with "could not find any
+#      workflows named desktop-release.yml".
+#
+#      Note which half that breaks: the TAG trigger resolves the workflow from
+#      the tagged commit and would work from any branch, so the only path
+#      currently available is the one that PUBLISHES. The safe dry run is the
+#      one that does not work. Merge first, then dry run, then tag.
+#
+#   1. Dry run (builds + packages + uploads a CI artifact, touches NO release):
 #        gh workflow run desktop-release.yml --ref <branch>
+#      Confirm it started, and read the floor/Gatekeeper table it writes to the
+#      job summary:
+#        gh run list --workflow desktop-release.yml --limit 1
 #
 #   2. When that is green, tag and push — THIS is the step that publishes:
 #        git tag -a v0.1.0 -m "Forge desktop v0.1.0"
