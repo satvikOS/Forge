@@ -753,6 +753,13 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
 
   drawStatusStrip(H - statH, W, statH);
   drawCommandPalette();
+
+  // The walk is over and no DockNode reference is live, so it is now safe to re-seat the
+  // layout. Doing this inside the walk is what crashed the shipped app.
+  if (pendingTabValid_) {
+    pendingTabValid_ = false;
+    setActiveTabAt(pendingTabPath_, pendingTabIndex_);
+  }
 }
 
 void ForgeFrame::drawMenuBar() {
@@ -1118,7 +1125,14 @@ void ForgeFrame::drawTabGroup(const forge::ui::DockNode& node, const forge::ui::
       const bool on = (i == active);
       ImGui::PushStyleColor(ImGuiCol_Button, on ? rgb(52, 58, 68) : rgb(30, 33, 38));
       ImGui::PushStyleColor(ImGuiCol_Text, on ? rgb(240, 195, 120) : rgb(150, 157, 168));
-      if (ImGui::Button(prettyPanelName(node.panels[i]))) setActiveTabAt(path, i);
+      // RECORD, do not apply: setActiveTabAt() re-seats shell_.layout(), which frees the
+      // DockNode `node` refers to. Applying it here made the next line -- which reads
+      // node.panels[active] -- a use-after-free.
+      if (ImGui::Button(prettyPanelName(node.panels[i]))) {
+        pendingTabValid_ = true;
+        pendingTabPath_ = path;
+        pendingTabIndex_ = i;
+      }
       ImGui::PopStyleColor(2);
     }
     ImGui::PopStyleVar();

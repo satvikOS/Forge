@@ -308,6 +308,15 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::string status_ = "Ready";
   std::vector<std::string> log_;
   std::size_t panelsDrawn_ = 0;
+  // A tab click MUST NOT re-seat the layout while the draw is walking it.
+  // setActiveTabAt() does `shell_.layout() = std::move(rebuilt)`, which destroys every
+  // DockNode the recursion is holding by const reference; drawTabGroup then dereferenced
+  // the freed node and the app SIGSEGV'd at 0x17 -- the size byte of the dangling
+  // std::string -- on the very first tab click. The click is RECORDED here and applied
+  // after the walk finishes.
+  bool pendingTabValid_ = false;
+  std::vector<std::size_t> pendingTabPath_;
+  std::size_t pendingTabIndex_ = 0;
   std::size_t treeRowsDrawn_ = 0;
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
