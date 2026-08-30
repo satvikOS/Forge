@@ -224,6 +224,11 @@ bool hasNumber(const CommandContext& ctx, const char* name) {
 
 std::string bodyNodeFor(int irId) { return "body_" + std::to_string(irId); }
 
+// Profiles get their own node prefix so a selection can tell a sketch from a solid:
+// resolveValues() maps EntityRef::bodyId -> valueFor() -> kindOf(), and a created
+// PROFILE has to be addressable by the same route a seeded one is.
+std::string sketchNodeFor(int irId) { return "sketch_" + std::to_string(irId); }
+
 // One emission == one undoable transaction.
 void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* commandId,
           const char* label, const char* op, std::vector<IrArg> args, IrValueKind produces,
@@ -303,6 +308,113 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   const auto add = [&registry, &added](CommandDescriptor c) {
     if (registry.add(std::move(c))) ++added;
   };
+
+  // ── RECTANGLE ─────────────────────────────────────────────────────────────
+  // The FIRST value-CREATING command in this registry, and the reason it exists is a
+  // measured closure gap rather than a feature request. archie_op_vocabulary.json
+  // computes `value_kind_closure.gaps` about itself and reports that PROFILE is consumed
+  // by EXTRUDE and REVOLVE while NO user-invocable op produces one -- every one of the 14
+  // allowed ops takes a value reference first, and the only kind any of them produces is
+  // SOLID. From an empty document no legal program existed: the constraint "emit only what
+  // a user can invoke" described an EMPTY LANGUAGE.
+  //
+  // One profile producer closes it. Seeding RECT alone and driving the existing commands
+  // yields RECT -> EXTRUDE -> FUSE -> FILLET -> HOLE -> SHELL -> PATTERN, so this single
+  // command makes the whole existing registry reachable from nothing.
+  //
+  // Takes NO selection (SelectionSignature::none()) because it consumes no value. That is
+  // what makes it a creator, and it is the property the registry did not have.
+  {
+    CommandDescriptor c = base("part.sketch_rect", "Rectangle", "RECT",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"width", ParamType::Number, true, 40.0, ""});
+    c.schema.push_back(ParamSpec{"height", ParamType::Number, true, 30.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      // A zero or negative side is not a rectangle; the kernel would refuse it and the
+      // command must not offer itself as callable when it cannot succeed.
+      return num(ctx, "width", 0.0) > 0.0 && num(ctx, "height", 0.0) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      // The IrArg::num(num(ctx, ...)) calls are INLINE on purpose. The vocabulary
+      // generator derives each emitted argument by parsing this lambda and matching
+      // `num(ctx, "name", default)`; hoisting them into locals makes it see a bare `w`
+      // and REFUSE with "unparsed numeric argument" rather than guess. Refusing is the
+      // right behaviour, so the command is written the way the tool can read.
+      std::vector<IrArg> args{IrArg::num(num(ctx, "width", 40.0)),
+                              IrArg::num(num(ctx, "height", 30.0))};
+      // RECT(w, h [, cx=0, cy=0]) -- emit the centre only when it is not the default, so
+      // the emitted form matches what the vocabulary records as this command's minimal
+      // argument count and Archie is not trained to pad every statement.
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_rect", "Rectangle", "RECT", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── CIRCLE ────────────────────────────────────────────────────────────────
+  // The second PROFILE producer. RECT alone makes the language non-empty; it does not
+  // make it expressive -- every revolve, every round boss and every cylindrical part
+  // starts from a circle, and with only RECT reachable none of them could be authored.
+  {
+    CommandDescriptor c = base("part.sketch_circle", "Circle", "CIRCLE",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"radius", ParamType::Number, true, 10.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) { return num(ctx, "radius", 0.0) > 0.0; };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::num(num(ctx, "radius", 10.0))};
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+      }
+      emit(ctx, *d, *s, "part.sketch_circle", "Circle", "CIRCLE", std::move(args),
+           IrValueKind::Profile, {}, sketchNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── MOVE ──────────────────────────────────────────────────────────────────
+  // TRANSLATE was ORPHAN, and that is more serious than one missing command: with no
+  // way to POSITION a body, every boolean in this registry operated on solids coincident
+  // at the origin. FUSE, CUT and COMMON were reachable but not USEFUL -- two boxes both
+  // at the origin have nothing interesting to subtract. This is also the op class behind
+  // the derived-placement sub-task this programme measured as the hardest thing Archie
+  // has to learn, so leaving it unreachable made that failure permanent by construction.
+  //
+  // Like every other solid-editing command it keeps the body's IDENTITY: the node is
+  // consumed and reproduced, so the body gains history rather than becoming a new body.
+  {
+    CommandDescriptor c = base("part.move", "Move Body", "TRANSLATE",
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{"dx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"dy", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"dz", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      // A zero move is a no-op statement in the history; refuse it rather than record it.
+      return solidTarget(*d, ctx.selection()).ok &&
+             (num(ctx, "dx", 0.0) != 0.0 || num(ctx, "dy", 0.0) != 0.0 ||
+              num(ctx, "dz", 0.0) != 0.0);
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value), IrArg::num(num(ctx, "dx", 0.0)),
+                              IrArg::num(num(ctx, "dy", 0.0)), IrArg::num(num(ctx, "dz", 0.0))};
+      emit(ctx, *d, *s, "part.move", "Move Body", "TRANSLATE", std::move(args),
+           IrValueKind::Solid, {t.node}, t.node);
+    };
+    add(std::move(c));
+  }
 
   // ── EXTRUDE ───────────────────────────────────────────────────────────────
   {
@@ -736,7 +848,8 @@ const std::vector<std::string>& partCommandIds() {
         "part.fillet",            "part.hole",             "part.loft",
         "part.mirror",            "part.pattern_circular", "part.pattern_grid",
         "part.pattern_linear",    "part.redo",             "part.revolve",
-        "part.shell",             "part.undo",             "part.variable_fillet",
+        "part.shell",             "part.sketch_circle",    "part.sketch_rect",
+        "part.move",              "part.undo",             "part.variable_fillet",
     };
     std::sort(v.begin(), v.end());
     return v;
