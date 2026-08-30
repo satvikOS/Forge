@@ -28,9 +28,20 @@
 //     * a single VERTEX (a degenerate point section — the AddVertex apex that
 //       forge::makePyramid and forge::loftguide::loft use), allowed only as the
 //       FIRST and/or LAST entry.
-//   Polygon sections must all carry the SAME vertex count; correspondence is by
-//   wire-explorer index, exactly as BRepFill_Generator pairs them after
-//   CheckCompatibility. Between consecutive sections the engine emits
+//   Polygon sections must all carry the SAME vertex count; correspondence is an
+//   index pairing, exactly as BRepFill_Generator pairs them after
+//   CheckCompatibility. ★ THE "after CheckCompatibility" IS LOAD-BEARING and was
+//   for a long time not implemented here: BRepOffsetAPI_ThruSections runs
+//   BRepFill_CompatibleWires first, which REORIENTS and RE-ORIGINS each wire
+//   before that pairing. Pairing by the raw wire-explorer index instead twists
+//   every lateral quad whenever the two rings wind oppositely in world space —
+//   which is exactly what the two outer wires of two OPPOSITE faces of a solid
+//   do — and made this engine decline 309 of 600 reference solids that it can in
+//   fact build. src/native/brep/NativeLoftPipe.cpp::canonicalRing supplies the
+//   missing step: the raw order is tried first and kept when it already yields
+//   planar quads, otherwise the canonical (reorient + nearest-origin)
+//   correspondence is tried once, and a pair that fails both is still declined.
+//   Between consecutive sections the engine emits
 //     * one PLANAR QUAD per index i: (A_i, A_i+1, B_i+1, B_i), or
 //     * one TRIANGLE per index i when one side is the point section.
 //   With solid=true the two end sections are closed by planar cap faces. The
