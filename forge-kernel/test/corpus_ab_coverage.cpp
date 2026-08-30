@@ -165,6 +165,7 @@
 #include <BRepOffsetAPI_DraftAngle.hxx>          // DRAFT        (family J)
 #include <BRepOffsetAPI_ThruSections.hxx>        // THRUSECTIONS (family D)
 #include <BRepOffsetAPI_MakePipe.hxx>            // PIPE         (family E)
+#include <BRepBuilderAPI_TransitionMode.hxx>     // PIPESHELL_RC (family F, mitre)
 #include <BRepOffsetAPI_MakePipeShell.hxx>       // PIPESHELL    (family F)
 #include <BRepOffsetAPI_MakeThickSolid.hxx>      // THICKSOLID   (family G)
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>     // OFFSETSHAPE  (family H)
@@ -206,7 +207,7 @@ struct ArmResult {
     double volume   = 0.0, area = 0.0, length = 0.0;
     double com[3]   = {0, 0, 0};
     double bb[6]    = {0, 0, 0, 0, 0, 0};   // vertex-derived, not Bnd_Box
-    char   note[96] = {0};
+    char   note[192] = {0};
 };
 
 const char* statusName(int s) {
@@ -285,15 +286,27 @@ void measure(const TopoDS_Shape& s, ArmResult& r) {
 // One arm = one callable returning a TopoDS_Shape, with a NULL shape meaning
 // DEFER. It runs in a forked child so a crash or a hang is scoped to this arm;
 // the parent enforces the deadline by polling waitpid.
+// `reasonFn`, when given, is read ONLY on a DEFER and only to fill `note`. It
+// changes no status and no bucket; it exists because a bare null shape cannot
+// say WHICH precondition declined, and the PIPE family's 598-part deletion
+// bucket was unattributable without it.
 template <class Fn>
-ArmResult runArm(Fn&& fn, bool needFace, int deadlineSec, bool noFork) {
+ArmResult runArm(Fn&& fn, bool needFace, int deadlineSec, bool noFork,
+                 const char* (*reasonFn)() = nullptr) {
     ArmResult r;
 
     auto compute = [&](ArmResult& out) {
         TopoDS_Shape sh;
         try {
             sh = fn();
-            if (sh.IsNull()) { out.status = ARM_DEFER; return; }
+            if (sh.IsNull()) {
+                out.status = ARM_DEFER;
+                if (reasonFn) {
+                    const char* why = reasonFn();
+                    if (why && *why) std::snprintf(out.note, sizeof out.note, "%s", why);
+                }
+                return;
+            }
             measure(sh, out);
             const bool nonEmpty = needFace ? (out.nfaces > 0) : (out.nedges > 0);
             out.status = nonEmpty ? ARM_OK : ARM_EMPTY;
@@ -500,6 +513,70 @@ Picks pickInputs(const PartInfo& part) {
         if (L > p.lineEdgeLen * (1.0 + 1e-12)) { p.lineEdge = e; p.lineEdgeLen = L; }
     }
     return p;
+}
+
+// A per-wire curve census of a face, outer wire (largest |Newell| area) first:
+//     wires=<n> [e<edges>L<lines>C<circles>O<other> c<distinct circles> t<turns>]
+// where `turns` is the summed arc parameter span over 2*pi, so a wire that is
+// ONE full circle reads c1 t1.000 -- and a two-arc split of the same circle
+// reads c1 t1.000 too -- while a slot cut from two different circles reads
+// c2 t1.8xx. Purely descriptive: it is written into the row's free-text `op`
+// field, and it is what turned "PIPE defers on 598 parts" into an attributable
+// answer.
+std::string faceWireCensus(const TopoDS_Face& f) {
+    struct W { double a = 0.0; int ne = 0, nl = 0, nc = 0, no = 0, ncirc = 0;
+               double span = 0.0; };
+    std::vector<W> ws;
+    for (TopExp_Explorer wx(f, TopAbs_WIRE); wx.More(); wx.Next()) {
+        W w;
+        double nx = 0, ny = 0, nz = 0;
+        std::vector<gp_Pnt> pts;
+        std::vector<gp_Circ> circs;
+        double span = 0.0;
+        for (TopExp_Explorer ex(wx.Current(), TopAbs_EDGE); ex.More(); ex.Next()) {
+            ++w.ne;
+            BRepAdaptor_Curve ad;
+            try { ad.Initialize(TopoDS::Edge(ex.Current())); } catch (...) { ++w.no; continue; }
+            if (ad.GetType() == GeomAbs_Line) ++w.nl;
+            else if (ad.GetType() == GeomAbs_Circle) {
+                ++w.nc;
+                const gp_Circ ci = ad.Circle();
+                span += std::fabs(ad.LastParameter() - ad.FirstParameter());
+                bool seen = false;
+                for (const gp_Circ& q : circs)
+                    if (q.Location().Distance(ci.Location()) < 1.0e-6 &&
+                        std::fabs(q.Radius() - ci.Radius()) < 1.0e-6) { seen = true; break; }
+                if (!seen) circs.push_back(ci);
+            }
+            else ++w.no;
+        }
+        w.ncirc = static_cast<int>(circs.size());
+        w.span = span;
+        for (TopExp_Explorer vx(wx.Current(), TopAbs_VERTEX); vx.More(); vx.Next())
+            pts.push_back(BRep_Tool::Pnt(TopoDS::Vertex(vx.Current())));
+        for (std::size_t i = 0; i < pts.size(); ++i) {
+            const gp_Pnt& a = pts[i];
+            const gp_Pnt& b = pts[(i + 1) % pts.size()];
+            nx += (a.Y() - b.Y()) * (a.Z() + b.Z());
+            ny += (a.Z() - b.Z()) * (a.X() + b.X());
+            nz += (a.X() - b.X()) * (a.Y() + b.Y());
+        }
+        w.a = 0.5 * std::sqrt(nx * nx + ny * ny + nz * nz);
+        ws.push_back(w);
+    }
+    std::sort(ws.begin(), ws.end(), [](const W& x, const W& y) { return x.a > y.a; });
+    std::string out = "wires=" + std::to_string(ws.size());
+    for (const W& w : ws) {
+        char b[96];
+        std::snprintf(b, sizeof b, " [e%dL%dC%dO%d c%d t%.3f]",
+                      w.ne, w.nl, w.nc, w.no, w.ncirc, w.span / 6.283185307179586);
+        // HARD CAP. The row is assembled into a fixed buffer; an unbounded census
+        // truncated the JSON mid-object and cost 88 of 600 rows on one run --
+        // which reads as a smaller N, not as an error. Never let it grow.
+        if (out.size() + std::strlen(b) > 220u) { out += " ..."; break; }
+        out += b;
+    }
+    return out;
 }
 
 // A 2-leg polyline spine anchored on a face: leg 1 along the face normal (so a
@@ -958,7 +1035,7 @@ int main(int argc, char** argv) {
     auto emit = [&](const char* fam, bool applicable, const char* naReason,
                     const ArmResult& nat, const ArmResult& oc, const char* opDesc) {
         std::string line;
-        char head[640];
+        char head[1024];
         std::snprintf(head, sizeof head,
             "{\"part\":\"%s\",\"family\":\"%s\",\"applicable\":%s,\"na_reason\":\"%s\","
             "\"op\":\"%s\",\"diag\":%.10g,\"min_ext\":%.10g,\"flat\":%s,\"nfaces_part\":%d,",
@@ -1166,15 +1243,17 @@ int main(int argc, char** argv) {
                 const TopoDS_Wire sp = spine;
                 const ArmResult nat = runArm([&]() -> TopoDS_Shape {
                     return forge::occtloft::pipe(sp, pf, 1.0e-6);
-                }, true, T, NF);
+                }, true, T, NF, &forge::occtloft::lastDeferReason);
                 const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                     BRepOffsetAPI_MakePipe mk(sp, pf);
                     mk.Build();
                     if (!mk.IsDone()) return TopoDS_Shape();
                     return mk.Shape();
                 }, true, T, NF);
-                emit("PIPE", true, "", nat, oc,
-                     "sweep the largest planar face along a 2-leg spine on its normal");
+                const std::string opd =
+                    std::string("sweep the largest planar face along a 2-leg spine "
+                                "on its normal; ") + faceWireCensus(pk.planarBig);
+                emit("PIPE", true, "", nat, oc, opd.c_str());
             }
         }
         if (wanted(cfg, "PIPESHELL")) {
@@ -1185,7 +1264,7 @@ int main(int argc, char** argv) {
                 const ArmResult nat = runArm([&]() -> TopoDS_Shape {
                     const std::vector<TopoDS_Wire> guides;
                     return forge::occtloft::pipeShell(sp, pw, guides, true, 1.0e-6);
-                }, true, T, NF);
+                }, true, T, NF, &forge::occtloft::lastDeferReason);
                 const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                     BRepOffsetAPI_MakePipeShell mk(sp);
                     mk.Add(pw);
@@ -1196,6 +1275,31 @@ int main(int argc, char** argv) {
                 }, true, T, NF);
                 emit("PIPESHELL", true, "", nat, oc,
                      "unguided pipe-shell of the same wire along the same spine");
+
+                // PIPESHELL_RC — the SAME native arm against the SAME OCCT call
+                // with ONE line added: SetTransitionMode(BRepBuilderAPI_RightCorner).
+                // The PIPESHELL row above mirrors the production call site
+                // (src/Features.cpp:728) exactly, and that site leaves the
+                // transition mode at OCCT's default BRepBuilderAPI_Transformed.
+                // Measured (test/ps_convention_probe, 45 synthetic cases, 3
+                // profiles x 5 turn angles x 3 leg ratios): under Transformed
+                // OCCT does NOT carry the section through the spine corner, so
+                // the section perpendicular to leg 2 has area A*cos(theta), and
+                // the enclosed volume is A*(L1 + L2*cos theta) rather than
+                // A*(L1+L2). Native implements the MITRE, which is what
+                // RightCorner asks OCCT for. This row measures how much of the
+                // PIPESHELL disagreement is that one convention.
+                const ArmResult ocRc = runArm([&]() -> TopoDS_Shape {
+                    BRepOffsetAPI_MakePipeShell mk(sp);
+                    mk.SetTransitionMode(BRepBuilderAPI_RightCorner);
+                    mk.Add(pw);
+                    mk.Build();
+                    if (!mk.IsDone()) return TopoDS_Shape();
+                    mk.MakeSolid();
+                    return mk.Shape();
+                }, true, T, NF);
+                emit("PIPESHELL_RC", true, "", nat, ocRc,
+                     "same, with OCCT SetTransitionMode(RightCorner)");
             }
         }
     }

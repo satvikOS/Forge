@@ -696,3 +696,132 @@ but two are worth naming because they are live: `edit.delete` declares `feature_
 "DELETE"`, an op the kernel does not have, so nothing can ever compile it; and
 `model.extrude`, `model.fillet`, `model.shell` all declare an op and emit nothing, because
 `ForgeShell` holds only a `DocumentStats` counter and no `PartDocument`.
+
+## D-022 (2026-08-30): the OCCT drop is blocked on ENGINE COVERAGE, not on integration — and the one shippable drop moves the ledger by ZERO
+
+Two measurements close the question of what to do next about the dependency drop.
+
+**1. The only family that passes its own flip gate buys nothing.** `FORGE_FILLING_DROP_NATIVE`
+is the single option the 600-part baseline cleared (67.8% vs 67.8%, deletion bucket ZERO).
+Built both arms from a worktree pinned to origin, with the arms PROVED to differ by `cmp`:
+
+| arm | direct | **OCCT_CLOSURE** |
+|---|---:|---:|
+| baseline | 11 | **14** |
+| `FORGE_FILLING_DROP_NATIVE=ON` | 11 | **14** |
+
+The ledger number does not move. `BRepOffsetAPI_MakeFilling` lives in a toolkit that many
+other still-live call sites also pull, so removing this one use changes no library's
+liveness. Shipping the one defensible drop is therefore correct hygiene and worth **0** on
+the north star.
+
+**2. The other nine cannot be shipped at all**, and not for want of integration work: three
+are total capability loss (PIPE 0.3%, DRAFT 0.0%, THRUSECTIONS 0.0% against OCCT's 100%,
+88.0%, 94.5%), and the rest delete between 27 and 315 parts of capability out of 600.
+
+**DECISION: stop treating the drop as an integration task and treat it as an ENGINE task.**
+There is no flag-flipping, build-plumbing or closure-accounting sequence that reduces the
+ledger from here. The only thing that moves OCCT_CLOSURE is native engines that actually
+build geometry on real parts. The ranked work is therefore:
+
+1. **PIPESHELL** — the most tractable by far. It already succeeds on 51.5% and its
+   disagreement is SYSTEMATIC, not noise: volume ratio 1.07051 with sd 0.00327, 8 of 15
+   sampled parts on exactly 1.07180. One convention error, one bounded fix.
+2. **MAKEOFFSET** — nearest miss at 94.5% vs 99.0%, 27 parts from parity.
+3. **THICKEN** — 67.8%, and its "disagreement" is already understood to be OCCT returning a
+   reversed solid rather than a native defect.
+4. **PIPE / DRAFT / THRUSECTIONS** — near-total gaps; these need capability, not tuning, and
+   should be scoped as such rather than promised as flips.
+
+**A correction that cost real time and is recorded so it is not repeated.** The first run of
+this experiment was made against the shared main checkout, which had drifted **41 commits
+behind origin**. There `FORGE_FILLING_DROP_NATIVE` does not exist, CMake accepted the
+unknown `-D` SILENTLY, and both arms compiled to a BYTE-IDENTICAL binary — which I nearly
+reported as "the drop buys zero closure". It happens to be the same conclusion, but it was
+not a measurement. Chasing that artifact produced a second wrong finding ("8 of 10 drop
+options are not real options"), which was also only the stale tree: on origin the CMake
+names and the source `#ifdef` names match exactly and the A/B report's option column is
+correct. **The positive control is what caught it — `cmp` said the two arms were the same
+file.** This is the FIFTH stale-tree error in one session. Every measured claim must name
+the tree it was measured against, and that tree must be pinned to origin at the moment of
+measurement.
+---
+
+## D-023 (2026-08-30): LOFT consumes WIRE — `part.loft` was a LATENT BUG, and closing the gap needed BOTH halves
+
+*(Numbered D-023, not D-022: PR #85 `decisions/d022-drop-blocked-on-engines` claims D-022
+concurrently for the OCCT-drop decision. If that PR never lands, D-022 is a gap rather
+than a duplicate, which is the cheaper of the two failures.)*
+
+D-021 left one question open on purpose: WIRE was the last unclosed value kind, and it named
+`WIRE or RING` as owed — but it also refused to add the producer blind, because the gap was
+entangled with a defect the vocabulary already recorded, `command_feeds_the_wrong_value_kind`
+for `part.loft`. Its words were: "deciding whether LOFT takes profiles or wires is a semantics
+question and is not answered blind here."
+
+**The kernel answers it, and it is not ambiguous.** `forge-kernel/src/ft/FeatureTreeCompiler.cpp`:
+`opLoft()` puts every `%ref` through `refWire()`, which throws unless the value's kind is
+`Val::Wire`; `Builder::kindOf()` assigns `Val::Wire` to exactly two OpCodes, `Ring` and `Wire`.
+`FeatureTree.hpp` says the same in prose ("WIRE ... consumed by LOFT"), and `FeatureIr.hpp`
+already states the standard this violates: "a UI that emits IR the kernel would reject is worse
+than a UI that emits none, because it looks like progress."
+
+**MEASURED, not read** — the four statements driven through the native verifier
+(`forge_verify` -> `forge::ft::compileText`), with the arms proved to differ:
+
+| program | result |
+|---|---|
+| `BOX(10,10,10)` (positive control) | ok, volume 1000 |
+| `RECT(40,40); CIRCLE(10); LOFT(%1,%2)` — **what `part.loft` emitted** | **ok=false**, `LOFT: %1 is not a WIRE section (use RING(...) or WIRE([...]))`, failedOpId 3 |
+| `RING(20,20,0); RING(10,10,30); LOFT(%1,%2)` | ok, volume 21928.4 |
+| `WIRE([...]); WIRE([...]); LOFT(%1,%2)` | ok, volume 24960 |
+
+So `part.loft` feeding PROFILE was **neither correct-by-accident nor a deliberate widening**: it
+was a statement `forge::ui` called well-formed and `forge::ft` refuses. Correct-by-accident was
+never available — `refWire()` rejects on the value KIND before any handle is used.
+
+**DECISION: do both halves, because either alone leaves LOFT unreachable.** Fixing only the
+command gives a right-kind command with nothing legal to select; adding only a producer leaves a
+command that still resolves PROFILE and would never enable on it. Both landed:
+
+1. `part.loft` now resolves `IrValueKind::Wire` and its signature is `atLeast(EntityKind::Wire, 2)`.
+2. `part.section_ring` (`RING`) is the WIRE producer, a creator taking no selection like
+   `part.sketch_rect` and `part.sketch_circle`.
+
+**RING and not WIRE.** `WIRE([x y z; ...])` needs a POINTS token, and `FeatureIr.hpp` deliberately
+does not model `IrArgKind::Points` ("a token kind nothing produces is a liability, not coverage").
+RING is all numbers, emits through the existing `IrArg::num` path, and its `z` is the point of the
+whole value kind: the Z=0 sketcher cannot express a section at another height.
+
+**`EntityKind::Wire` was added** rather than reusing `Sketch`. A sketch is a Z=0 profile; reusing
+that kind would have offered LOFT and EXTRUDE on each other's input, which is the mis-selection a
+typed signature exists to refuse.
+
+**Two kernel behaviours the command refuses rather than passes on.** `wireRing()` throws on
+`rx <= 0 || ry <= 0`, but it SILENTLY CLAMPS `p` to `>= 2` and `seg` to `>= 8`. A recorded statement
+the kernel reads as different numbers is worse than no statement, so the enabled predicate refuses
+both. Its four optional arguments are also emitted as ONE positional group: emitting `p` without
+`cx, cy` would put the superellipse exponent in the `cx` slot and build a different ring.
+
+**Result — the vocabulary is CLOSED.** `value_kind_closure.gaps` is now `[]` and
+`produced_by_allowed_ops` is `PROFILE, SOLID, WIRE`, computed by the artifact about itself. Counts
+UPDATED to new exact values, never relaxed: 17 -> 18 user-invocable ops, 23 -> 22 forbidden,
+34 -> 35 commands, 19 -> 20 emitting IR, 7 -> 6 derived defects
+(`command_feeds_the_wrong_value_kind` is gone because the defect is gone). ALL 12 UI GATES PASS,
+0 failures: part_commands 400 -> 450 checks, archie_op_vocabulary 1453 -> 1536 (32 -> 34 examples
+dispatched through the live registry), tool_catalog 854 -> 877. Vocabulary `--check` exits 0.
+
+**Verified end to end, not just in the gate.** The ten-statement program the part_commands gate
+builds from an EMPTY document using only user-invocable commands —
+`RECT; EXTRUDE; FILLET; CIRCLE; EXTRUDE; TRANSLATE; CUT; RING; RING; LOFT` — compiles in the kernel
+to a valid solid of volume 34964.0.
+
+**Observed and NOT fixed here** (pre-existing, independent of this change): `LOFT` over two
+COPLANAR sections returns `ok=true, valid=true, volume=0`. Two rings at the same `z` build a
+zero-volume shell that the kernel reports as valid. That is a kernel-side silent-zero, older than
+this decision and out of its scope; it is recorded so the next reader does not discover it as a
+surprise.
+
+**Reversible.** Both halves are local: `part.loft` reverts by changing one value kind back, and
+the producer reverts by deleting one command block plus its id. The measurement above is what
+would have to be refuted first.

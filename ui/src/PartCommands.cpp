@@ -229,6 +229,11 @@ std::string bodyNodeFor(int irId) { return "body_" + std::to_string(irId); }
 // PROFILE has to be addressable by the same route a seeded one is.
 std::string sketchNodeFor(int irId) { return "sketch_" + std::to_string(irId); }
 
+// And WIRE sections get a third prefix, for the same reason PROFILE got a second: a
+// selection has to be able to tell a 3D loft section from a Z=0 sketch, because LOFT
+// consumes the one and EXTRUDE the other and the kernel throws on the swap.
+std::string wireNodeFor(int irId) { return "wire_" + std::to_string(irId); }
+
 // One emission == one undoable transaction.
 void emit(CommandContext& ctx, PartDocument& doc, UndoStack& stack, const char* commandId,
           const char* label, const char* op, std::vector<IrArg> args, IrValueKind produces,
@@ -382,6 +387,68 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ── SECTION RING ──────────────────────────────────────────────────────────
+  // The WIRE producer, and the second half of a two-part fix. WIRE was the last open
+  // value-kind gap in `archie_op_vocabulary.json`: LOFT consumes it and nothing a user
+  // could invoke produced one. But a producer ALONE would not have made LOFT reachable,
+  // because `part.loft` was resolving PROFILE values -- the defect the vocabulary already
+  // recorded as `command_feeds_the_wrong_value_kind`. The kernel settles which of the two
+  // is wrong, and it is not ambiguous: FeatureTreeCompiler.cpp's opLoft() takes every
+  // %ref through refWire(), which throws unless the value's kind is Val::Wire, and
+  // Builder::kindOf() gives Val::Wire to exactly two ops -- Ring and Wire. MEASURED
+  // through the native verifier (forge_verify -> forge::ft::compileText):
+  //     RECT(40,40); CIRCLE(10); LOFT(%1,%2)   -> ok=false,
+  //         "LOFT: %1 is not a WIRE section (use RING(...) or WIRE([...]))"
+  //     RING(20,20,0); RING(10,10,30); LOFT(%1,%2) -> ok=true, volume 21928.4
+  // So this is NOT the command being deliberately widened; it is a statement forge::ui
+  // called well-formed and forge::ft refused. `part.loft` is corrected below.
+  //
+  // RING rather than WIRE because WIRE([x y z; ...]) needs a POINTS token, and FeatureIr.hpp
+  // deliberately does not model IrArgKind::Points ("a token kind nothing produces is a
+  // liability, not coverage"). RING is all numbers, so it emits through the existing
+  // IrArg::num path -- and its `z` is the whole point: the Z=0 sketcher cannot express a
+  // section at another height, which is what makes a loft a loft.
+  //
+  // Takes NO selection, like the other two creators: it consumes no value.
+  {
+    CommandDescriptor c = base("part.section_ring", "Section Ring", "RING",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{"rx", ParamType::Number, true, 20.0, ""});
+    c.schema.push_back(ParamSpec{"ry", ParamType::Number, true, 20.0, ""});
+    c.schema.push_back(ParamSpec{"z", ParamType::Number, true, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cx", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"cy", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"p", ParamType::Number, false, 2.0, ""});
+    c.schema.push_back(ParamSpec{"seg", ParamType::Number, false, 48.0, ""});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      // wireRing() throws on rx <= 0 or ry <= 0, so the command must not offer itself
+      // as callable there. It also SILENTLY CLAMPS p to >= 2 and seg to >= 8, which is
+      // worse than a throw for a UI: the statement would be recorded saying one thing
+      // and the kernel would build another. Refuse those instead of emitting a lie.
+      return num(ctx, "rx", 0.0) > 0.0 && num(ctx, "ry", 0.0) > 0.0 &&
+             num(ctx, "p", 2.0) >= 2.0 && num(ctx, "seg", 48.0) >= 8.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::num(num(ctx, "rx", 20.0)), IrArg::num(num(ctx, "ry", 20.0)),
+                              IrArg::num(num(ctx, "z", 0.0))};
+      // RING(rx, ry, z [, cx=0, cy=0, p=2, seg=48]) -- the four optional arguments are
+      // POSITIONAL, so they are emitted as ONE group or not at all. Emitting `p` without
+      // cx/cy would put the superellipse exponent in the cx slot: a statement the kernel
+      // accepts and reads as a different ring.
+      if (hasNumber(ctx, "cx") || hasNumber(ctx, "cy") || hasNumber(ctx, "p") ||
+          hasNumber(ctx, "seg")) {
+        args.push_back(IrArg::num(num(ctx, "cx", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "cy", 0.0)));
+        args.push_back(IrArg::num(num(ctx, "p", 2.0)));
+        args.push_back(IrArg::num(num(ctx, "seg", 48.0)));
+      }
+      emit(ctx, *d, *s, "part.section_ring", "Section Ring", "RING", std::move(args),
+           IrValueKind::Wire, {}, wireNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
   // ── MOVE ──────────────────────────────────────────────────────────────────
   // TRANSLATE was ORPHAN, and that is more serious than one missing command: with no
   // way to POSITION a body, every boolean in this registry operated on solids coincident
@@ -492,19 +559,29 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
   }
 
   // ── LOFT ──────────────────────────────────────────────────────────────────
+  // This command used to resolve PROFILE and emit LOFT(%sketch, %sketch). That statement
+  // passes validateIr() and is REFUSED BY THE KERNEL: opLoft() reads every %ref through
+  // refWire(), which throws "%N is not a WIRE section (use RING(...) or WIRE([...]))"
+  // unless Builder::kindOf() made the value Val::Wire -- and only Ring and Wire do.
+  // Reproduced through forge_verify on the real compiler (see part.section_ring above):
+  // the profile form fails at op %3, the ring form builds a solid. So the value kind is
+  // corrected here to the one the kernel documents and enforces, and part.section_ring
+  // supplies the sections. Fixing one without the other leaves LOFT unreachable either
+  // way -- a wrong-kind command with a producer, or a right-kind command with nothing
+  // to select.
   {
     CommandDescriptor c = base("part.loft", "Loft", "LOFT",
-                               SelectionSignature::atLeast(EntityKind::Sketch, 2));
+                               SelectionSignature::atLeast(EntityKind::Wire, 2));
     c.schema.push_back(ParamSpec{"ruled", ParamType::Flag, false, 0.0, ""});
     c.schema.push_back(ParamSpec{"open", ParamType::Flag, false, 0.0, ""});
     c.preview = PreviewPolicy::OnDemand;
     c.enabled = [d](const CommandContext& ctx) {
-      return resolveValues(*d, ctx.selection(), IrValueKind::Profile).size() >= 2;
+      return resolveValues(*d, ctx.selection(), IrValueKind::Wire).size() >= 2;
     };
     c.execute = [d, s](CommandContext& ctx) {
       std::vector<IrArg> args;
-      for (int id : resolveValues(*d, ctx.selection(), IrValueKind::Profile)) {
-        args.push_back(IrArg::valueRef(id));
+      for (int section : resolveValues(*d, ctx.selection(), IrValueKind::Wire)) {
+        args.push_back(IrArg::valueRef(section));
       }
       if (flagOn(ctx, "ruled")) args.push_back(IrArg::keyword("RULED"));
       if (flagOn(ctx, "open")) args.push_back(IrArg::keyword("OPEN"));
@@ -870,8 +947,9 @@ const std::vector<std::string>& partCommandIds() {
         "part.chamfer",           "part.counterbore",      "part.extrude",
         "part.fillet",            "part.hole",             "part.loft",
         "part.mirror",            "part.pattern_circular", "part.pattern_grid",
-        "part.move",              "part.pattern_linear",   "part.revolve",
-        "part.shell",             "part.sketch_circle",    "part.sketch_rect",
+        "part.move",              "part.pattern_linear",    "part.revolve",
+        "part.section_ring",      "part.shell",             "part.sketch_circle",
+        "part.sketch_rect",
         "part.variable_fillet",
     };
     std::sort(v.begin(), v.end());
