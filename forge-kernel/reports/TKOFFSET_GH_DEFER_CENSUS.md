@@ -156,10 +156,20 @@ coverage gate, the wrong one for a shipping decision):
 | THICKSOLID | 133 | **0** | 7 → 0 after §5 | **0** |
 | OFFSETSHAPE | 38 | **5** | 7 | **7** |
 
-Independently re-measured by `test/tkoffset_gh_quality_probe` on the 142 parts
-where either arm built: OCCT THICKSOLID produced a shape on 87 and **0 were
-valid**; OCCT OFFSETSHAPE on 38 with **5 valid**; native OFFSETSHAPE 7 of 7
-valid.
+Independently re-measured by `test/tkoffset_gh_quality_probe`, run over the 142
+parts where either arm built anything in either family: OCCT THICKSOLID produced
+a shape on 87 and **0 were valid**; OCCT OFFSETSHAPE on 38 with **5 valid**;
+native OFFSETSHAPE 7 of 7 valid.
+
+> **The probe's denominator is 96, not 142, and the difference is the point.**
+> Unlike `corpus_ab_coverage`, the probe runs both families in ONE process with
+> no per-arm fork, so **46 of the 142 parts died with SIGSEGV inside OCCT's own
+> offset engines** and produced no row at all. The 87 above is therefore a
+> subset of the baseline's 133, not a contradiction of it — and it is a second,
+> independent sighting of the crash the coverage harness already contained
+> (66/600 on OFFSETSHAPE). It does not weaken the validity finding, which is a
+> count of zero over every OCCT THICKSOLID result the probe did observe, and
+> which the committed baseline reports independently as 0 of 133.
 
 **THICKSOLID: no. OCCT's 22.2% is 133 invalid solids — not one passes
 `BRepCheck_Analyzer`, and 18 of 87 re-measured have a volume above 90% of the

@@ -15,6 +15,14 @@
 // A correct uniform-wall hollow of wall t has volume ~ surfaceArea * t, i.e. a
 // small fraction of the source volume. A result whose volume is close to (or
 // above) the source volume is not a hollow at all.
+//
+// ★ LIMIT, READ BEFORE QUOTING A DENOMINATOR. This probe runs BOTH families and
+//   BOTH arms in ONE process with NO per-arm fork — unlike corpus_ab_coverage,
+//   which forks precisely because OCCT's offset engines die on real imported
+//   parts. So a SIGSEGV here costs the WHOLE ROW, and a run reports over the
+//   parts that survived, not over the parts attempted. MEASURED: 46 of 142 parts
+//   died this way. Drive it one part per process and count the missing rows;
+//   never read its N as the corpus N.
 
 #include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepCheck_Analyzer.hxx>
