@@ -914,13 +914,20 @@ Closing them needs the holed-patch case, and that is now an attributable target 
 silent null. THICKEN is still 3.8% short of parity, so `FORGE_THICKEN_DROP_NATIVE` does NOT flip:
 the gate is `>=`, and 96.2 < 100.0.
 
-**A withheld gate was restored, on a measurement.** `ab_native_thicken_occt` was excluded from
-`FORGE_AB_GATES` with a note recording it RED at a70dd1da (208 passed, 19 failed, all surface-type
-counts). That note had gone stale — the case5 `want`s were re-measured and pinned on 2026-08-28.
-Measured on this tree BEFORE any change here: **227 passed, 0 failed, exit 0**. It is re-registered
-on that measurement, and it now builds and passes through ctest as
-`kernel.ab.ab_native_thicken_occt`. A gate that is green and unregistered is evidence the suite is
-not citing.
+**A withheld gate was restored, on a measurement — and the scope of that is SMALLER than it first
+reads.** `ab_native_thicken_occt` was excluded from `FORGE_AB_GATES` with a note recording it RED at
+a70dd1da (208 passed, 19 failed, all surface-type counts). That note had gone stale — the case5
+`want`s were re-measured and pinned on 2026-08-28. Measured on this tree BEFORE any change here:
+**227 passed, 0 failed, exit 0**. It is re-registered on that measurement, and it now builds and
+passes through ctest as `kernel.ab.ab_native_thicken_occt`.
+
+★ BUT `FORGE_AB_GATES` IS THE ctest LIST, AND CI DOES NOT INVOKE ctest FOR IT. Checked rather than
+assumed: `.github/workflows/kernel-tests.yml` runs `forge-kernel/test/run_ab_all.sh`, whose
+`HARNESSES` line ALREADY contained `thicken`, and this PR's CI run shows
+`[ab-all] ok thicken: 0 failure(s), baseline 0`. So the harness was never actually dark — it was
+running through the shell ratchet the whole time, and what the re-registration restores is its
+ctest membership, not its execution. Claiming otherwise would have been a bigger number than the
+measurement supports.
 
 **Nothing was weakened to get there.** The gate's defer control (a) used to feed a cylinder's
 lateral face and require a DECLINE with the reason "a face is not a Geom_Plane". That face is now

@@ -2330,9 +2330,12 @@ endif()
 #       the case5 `want`s were re-measured and pinned on 2026-08-28, and the gate
 #       has been GREEN since. MEASURED on this tree before any change in this
 #       commit: 227 passed, 0 failed, exit 0. It is registered on that measurement,
-#       not on the old note. A gate that is green and unregistered is evidence the
-#       suite is not citing, which is the exact failure mode this whole block was
-#       written to end.
+#       not on the old note.
+#       ★ AND THE SCOPE OF THAT IS SMALLER THAN IT READS, checked rather than assumed:
+#       this list is the ctest list, and .github/workflows/kernel-tests.yml does not
+#       invoke ctest for it -- it runs test/run_ab_all.sh, whose HARNESSES line ALREADY
+#       contained `thicken`. The harness was never dark; what this restores is its ctest
+#       membership, not its execution.
 #
 # Those six are NOT registered and NOT weakened. Nothing here lowers a
 # threshold or widens a tolerance to go green; the red ones simply stay out
