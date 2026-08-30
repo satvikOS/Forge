@@ -36,12 +36,25 @@
 # them rather than hiding them:
 #
 #   * OS FLOOR. Homebrew bottles inherit their build host's OS as their
-#     LC_BUILD_VERSION minos. Every bundled bottle here reports minos=26.0, so
-#     the artifact refuses to launch on anything older. -DCMAKE_OSX_DEPLOYMENT_
-#     TARGET on OUR code cannot lower a floor set inside someone else's binary.
-#     Lowering it means building OCCT/SDL2/tbb from source with an explicit
-#     deployment target. The measured floor is written into LSMinimumSystemVersion
-#     so the bundle states its real requirement instead of overpromising.
+#     LC_BUILD_VERSION minos. Every bundled bottle built on macOS 26 reports
+#     minos=26.0, so such an artifact refuses to launch on anything older.
+#     -DCMAKE_OSX_DEPLOYMENT_TARGET on OUR code cannot lower a floor set inside
+#     someone else's binary. The measured floor is written into
+#     LSMinimumSystemVersion so the bundle states its real requirement instead
+#     of overpromising.
+#
+#     BUT THE FLOOR IS NOT INTRINSIC, and an earlier version of this comment was
+#     too pessimistic: it said lowering it "means building OCCT/SDL2/tbb from
+#     source". MEASURED against the upstream Homebrew API (formulae.brew.sh), at
+#     the SAME formula versions we already use, arm64_sonoma bottles exist and
+#     carry minos=14.0 -- opencascade 7.9.3 (all 67 dylibs), tbb, sdl2-compat
+#     and vulkan-loader alike. No source build is required. The floor simply
+#     follows the RUNNER IMAGE the release is built on:
+#         macos-14 -> 14.0     macos-15 -> 15.0     macos-26 -> 26.0
+#     (`brew fetch --bottle-tag=` and `brew info --json` on a developer machine
+#     report only the LOCAL platform's tag, which makes the older bottles look
+#     absent. That is a filtering artifact of local brew, not upstream reality;
+#     query formulae.brew.sh to see the real tag list.)
 #
 #   * GATEKEEPER. The signature is AD-HOC (no Developer ID, no notarization), so
 #     `spctl -a -t exec` REJECTS the bundle. A user who downloads the zip gets a
@@ -53,6 +66,12 @@
 #   forge-desktop/package_macos.sh --no-build      package an existing build
 #   forge-desktop/package_macos.sh --launch        also render a real frame (needs a display)
 #   forge-desktop/package_macos.sh --version 1.2.3 stamp a version into the bundle
+#   forge-desktop/package_macos.sh --macos-min 14.0  deployment target for OUR code
+#   forge-desktop/package_macos.sh --floor-max 15.0  FAIL if the measured floor is higher
+#
+# Outputs, next to the zip:
+#   Forge-macos-arm64-<v>.zip[.sha256]   the artifact
+#   Forge-macos-arm64-<v>.manifest.json  floor, per-file minos, Gatekeeper result
 # ─────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
@@ -70,12 +89,32 @@ JOBS="${JOBS:-$( (command -v nproc >/dev/null 2>&1 && nproc) || sysctl -n hw.ncp
 DO_BUILD=1
 DO_LAUNCH=0
 VERSION="${FORGE_VERSION:-0.0.0-dev}"
+
+# The deployment target OUR OWN code compiles against. This cannot lower a floor
+# set inside somebody else's bottle, and it is NOT a fix for the OS floor. What
+# it does is remove OUR two Mach-O files as a CAUSE of that floor, so the floor
+# becomes attributable entirely to third-party bottles and drops by itself the
+# moment the build runs on an older runner image.
+#   MEASURED on macOS 26.6 / SDK 26.5: unset -> forge_desktop and
+#   libforge_kernel_core carry minos=26.0. With 14.0 they carry minos=14.0 and
+#   the build still succeeds (the linker warns that the Homebrew dylibs are
+#   newer, which is precisely the honest signal that THEY set the floor).
+MACOS_MIN="${FORGE_MACOS_MIN:-14.0}"
+
+# Optional HARD GATE on the measured floor. Off by default. CI sets it so that a
+# runner-image bump which silently RAISES the minimum macOS of every artifact we
+# ship turns the build RED instead of shipping quietly. The workflow header
+# worried about exactly this and nothing enforced it.
+FLOOR_MAX="${FORGE_FLOOR_MAX:-}"
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-build) DO_BUILD=0 ;;
     --launch)   DO_LAUNCH=1 ;;
     --version)  shift; [ $# -gt 0 ] || die "--version needs a value"; VERSION="$1" ;;
-    -h|--help)  sed -n '2,58p' "$0"; exit 0 ;;
+    --macos-min) shift; [ $# -gt 0 ] || die "--macos-min needs a value"; MACOS_MIN="$1" ;;
+    --floor-max) shift; [ $# -gt 0 ] || die "--floor-max needs a value"; FLOOR_MAX="$1" ;;
+    -h|--help)  sed -n '2,75p' "$0"; exit 0 ;;
     *)          die "unknown argument: $1" ;;
   esac
   shift
@@ -95,17 +134,22 @@ BREW="$(brew --prefix 2>/dev/null || echo /opt/homebrew)"
 
 # ── 1. build ─────────────────────────────────────────────────────────────────
 if [ "$DO_BUILD" = "1" ]; then
-  say "building forge_kernel_core in $KERNEL_BUILD"
+  say "building forge_kernel_core in $KERNEL_BUILD (deployment target $MACOS_MIN)"
   cmake -S forge-kernel -B "$KERNEL_BUILD" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
         -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON >/dev/null \
     || die "kernel configure failed"
   cmake --build "$KERNEL_BUILD" -j "$JOBS" --target forge_kernel_core \
     || die "kernel core build failed"
-  say "building forge_desktop in $APP_BUILD"
+  say "building forge_desktop in $APP_BUILD (deployment target $MACOS_MIN)"
   cmake -S forge-desktop -B "$APP_BUILD" -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
         -DFORGE_KERNEL_BUILD_DIR="$KERNEL_BUILD" >/dev/null \
     || die "app configure failed"
   cmake --build "$APP_BUILD" -j "$JOBS" || die "app build failed"
+else
+  say "--no-build: NOT applying deployment target $MACOS_MIN (nothing is compiled);"
+  say "            the floor below is measured from whatever binaries already exist"
 fi
 
 EXE="$APP_BUILD/forge_desktop"
@@ -249,15 +293,37 @@ done
 # ── 6. measured OS floor ─────────────────────────────────────────────────────
 # Reported, not assumed. The highest minos among the bundled Mach-O files IS the
 # artifact's real minimum OS, whatever our own compile flags claim.
+#
+# A bare maximum is not enough to ACT on: it says the artifact needs macOS N but
+# not WHICH file demanded it, so nobody can tell a floor we control from a floor
+# a bottle imposes. The census below records every file, so the summary can name
+# the culprits and a reader can see at a glance whether the fix is ours to make.
+#
+# A file carrying only the LEGACY LC_VERSION_MIN_MACOSX has no 'minos' line at
+# all. Matching bare /minos/ would skip it and read as "no floor" -- a false
+# zero. Both spellings are read here.
+CENSUS="$WORK/minos_census"     # "<minos> <basename>" per bundled Mach-O
+: > "$CENSUS"
 FLOOR="0.0"
 while IFS= read -r f; do
   [ -f "$f" ] || continue
-  m="$(otool -l "$f" 2>/dev/null | awk '/minos/{print $2; exit}')"
-  [ -n "$m" ] || continue
+  l="$(otool -l "$f" 2>/dev/null)"
+  m="$(printf '%s' "$l" | awk '/^ *minos /{print $2; exit}')"
+  if [ -z "$m" ]; then
+    m="$(printf '%s' "$l" | awk '/LC_VERSION_MIN_MACOSX/{g=1} g&&/^ *version /{print $2; exit}')"
+  fi
+  [ -n "$m" ] || { echo "NONE $(basename "$f")" >> "$CENSUS"; continue; }
+  echo "$m $(basename "$f")" >> "$CENSUS"
   hi="$(printf '%s\n%s\n' "$FLOOR" "$m" | sort -t. -k1,1n -k2,2n | tail -1)"
   FLOOR="$hi"
 done < "$BUNDLED"
 say "measured LC_BUILD_VERSION minos floor across the bundle = $FLOOR"
+
+# Name the files that SET the floor, and say whether they are ours.
+FLOOR_SETTERS="$(awk -v F="$FLOOR" '$1==F{printf "%s ", $2}' "$CENSUS")"
+NSET="$(awk -v F="$FLOOR" '$1==F' "$CENSUS" | wc -l | tr -d ' ')"
+OURS_AT_FLOOR="$(awk -v F="$FLOOR" '$1==F && ($2=="forge_desktop" || $2=="libforge_kernel_core.dylib")' "$CENSUS" | wc -l | tr -d ' ')"
+say "  $NSET of $(wc -l < "$CENSUS" | tr -d ' ') bundled Mach-O files sit at that floor; $OURS_AT_FLOOR of them are OURS"
 
 # ── 7. Info.plist ────────────────────────────────────────────────────────────
 cat > "$APP/Contents/Info.plist" <<PLIST
@@ -385,12 +451,61 @@ cat <<SUMMARY
   signature     ad-hoc
 
   KNOWN BLOCKERS (measured, not fixable by this script):
-   * minimum macOS = $FLOOR. Set by Homebrew bottles' LC_BUILD_VERSION, not by
-     our compile flags. To lower it, build OCCT/SDL2/tbb from source with an
-     explicit -DCMAKE_OSX_DEPLOYMENT_TARGET.
+   * minimum macOS = $FLOOR, set by $NSET of the bundled Mach-O files, of which
+     $OURS_AT_FLOOR are ours. Files at the floor:
+       $(echo "$FLOOR_SETTERS" | fold -s -w 68 | sed '2,$s/^/       /')
+     A Homebrew bottle inherits its BUILD HOST's OS as LC_BUILD_VERSION, so this
+     floor tracks the machine that built the bottles, not our compile flags.
+     MEASURED upstream (formulae.brew.sh API, same formula versions): the
+     arm64_sonoma bottles of opencascade (67 dylibs), tbb, sdl2-compat and
+     vulkan-loader ALL carry minos=14.0. So the floor is not intrinsic -- it
+     follows the runner image. Building on macos-15 yields 15.0, macos-14
+     yields 14.0. Our own two binaries were compiled with
+     -DCMAKE_OSX_DEPLOYMENT_TARGET=$MACOS_MIN so they are not the cause.
    * Gatekeeper: spctl exit $SPCTL_RC -> $SPCTL
      Ad-hoc signing is not notarization. A downloaded copy shows a refusal
      dialog until the user runs:  xattr -dr com.apple.quarantine Forge.app
      The real fix is a Developer ID certificate + notarytool submission.
 ────────────────────────────────────────────────────────────────────────────
 SUMMARY
+
+# ── 11. machine-readable manifest ────────────────────────────────────────────
+# The summary above is for a human. Everything a RELEASE decision needs must
+# also be readable without parsing prose: what the floor is, which files set it,
+# and whether Gatekeeper accepted. Written next to the zip.
+MANIFEST="$DIST/Forge-macos-arm64-${VERSION}.manifest.json"
+{
+  printf '{\n'
+  printf '  "version": "%s",\n' "$VERSION"
+  printf '  "zip": "%s",\n' "$(basename "$ZIP")"
+  printf '  "zip_sha256": "%s",\n' "$(awk '{print $1}' "$ZIP.sha256")"
+  printf '  "macho_count": %s,\n' "$NMACH"
+  printf '  "deployment_target_requested": "%s",\n' "$MACOS_MIN"
+  printf '  "measured_floor": "%s",\n' "$FLOOR"
+  printf '  "floor_setter_count": %s,\n' "$NSET"
+  printf '  "floor_setters_ours": %s,\n' "$OURS_AT_FLOOR"
+  printf '  "gatekeeper_accepted": %s,\n' "$([ "$SPCTL_RC" -eq 0 ] && echo true || echo false)"
+  printf '  "spctl_exit": %s,\n' "$SPCTL_RC"
+  printf '  "signature": "ad-hoc",\n'
+  printf '  "minos_by_file": {\n'
+  awk '{printf "    \"%s\": \"%s\",\n", $2, $1}' "$CENSUS" | sed '$s/,$//'
+  printf '  }\n'
+  printf '}\n'
+} > "$MANIFEST"
+say "manifest -> $MANIFEST"
+
+# ── 12. optional hard gate on the measured floor ─────────────────────────────
+# Deliberately LAST: the artifact and the manifest already exist, so a failure
+# here leaves everything on disk to inspect. It fails the STEP, which is what
+# stops an over-floor artifact from being uploaded or attached to a release.
+if [ -n "$FLOOR_MAX" ]; then
+  # sort puts the HIGHER version last. floor > max exactly when the higher of
+  # the two is the floor AND they are not equal.
+  higher="$(printf '%s\n%s\n' "$FLOOR_MAX" "$FLOOR" | sort -t. -k1,1n -k2,2n | tail -1)"
+  if [ "$FLOOR" != "$FLOOR_MAX" ] && [ "$higher" = "$FLOOR" ]; then
+    die "measured floor $FLOOR EXCEEDS --floor-max $FLOOR_MAX. The runner image
+       almost certainly moved. This is the check that stops a silent bump in the
+       minimum macOS of every artifact we ship. Files at the floor: $FLOOR_SETTERS"
+  fi
+  say "floor gate OK: measured $FLOOR <= allowed $FLOOR_MAX"
+fi

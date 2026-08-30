@@ -27,18 +27,30 @@ name: Desktop Release (macOS arm64)
 #        git tag -a v0.1.0 -m "Forge desktop v0.1.0"
 #        git push origin v0.1.0
 #
-#   3. The tag run uploads Forge-macos-arm64-<version>.zip to the release for
-#      that tag, creating it as a DRAFT if it does not exist. A draft is not
-#      public until a human presses Publish, which is where the two blockers
-#      below get a decision.
+#   3. The tag run uploads Forge-macos-arm64-<version>.zip, its .sha256 and its
+#      .manifest.json to the release for that tag, creating it as a DRAFT if it
+#      does not exist, with notes rendered from forge-desktop/RELEASE_NOTES.md.
+#      A draft is not public until a human presses Publish, which is where the
+#      two blockers below get a decision.
+#
+#      The notes tell the user to run
+#          xattr -dr com.apple.quarantine /Applications/Forge.app
+#      WITHOUT which the download is dead on arrival for every single user. Do
+#      not publish a release whose notes omit that line.
 #
 # ── TWO BLOCKERS A HUMAN MUST DECIDE ON BEFORE PUBLISHING ────────────────────
-#   * macOS 26+ ONLY. Every bundled Homebrew bottle carries LC_BUILD_VERSION
-#     minos=26.0 (bottles inherit their build host's OS). Our own compile flags
-#     cannot lower a floor set inside someone else's binary; that needs OCCT,
-#     SDL2 and tbb built from source with an explicit deployment target. The
-#     packaging script MEASURES the floor and writes it into
+#   * AN OS FLOOR SET BY SOMEBODY ELSE'S BINARIES. Every bundled Homebrew
+#     bottle carries an LC_BUILD_VERSION minos inherited from its BUILD HOST,
+#     and our own compile flags cannot lower a floor set inside someone else's
+#     binary. The packaging script MEASURES the floor and writes it into
 #     LSMinimumSystemVersion, so the artifact states its real requirement.
+#
+#     The floor therefore follows the RUNNER, and on this workflow's pinned
+#     macos-15 it is 15.0 (a build on a macOS 26 developer machine measures
+#     26.0 -- that number is NOT a property of the source). An earlier version
+#     of this comment claimed lowering it "needs OCCT, SDL2 and tbb built from
+#     source"; that was wrong, and the runner table below has the measurement.
+#     What a human still decides is which floor to ship, not whether one exists.
 #
 #   * GATEKEEPER REJECTS IT. The signature is ad-hoc: no Developer ID, no
 #     notarization, `spctl -a -t exec` exits 3. A user who downloads the zip
@@ -47,11 +59,39 @@ name: Desktop Release (macOS arm64)
 #     Fixing this needs a paid Developer ID cert + notarytool, i.e. secrets,
 #     not code. Publish release notes that say so, or add the cert first.
 #
-# ── WHY macos-14 AND NOT macos-latest ────────────────────────────────────────
+# ── WHY macos-15 AND NOT macos-latest, AND NOT macos-14 ──────────────────────
 # Pinned so the artifact's OS floor is a decision rather than a surprise. GitHub
 # rolls `macos-latest` forward, and because Homebrew bottles carry their build
 # host's minos, a silent runner bump silently RAISES the minimum macOS of every
-# artifact we ship. Pinning makes that change show up as a diff.
+# artifact we ship. Pinning makes that change show up as a diff -- and the
+# --floor-max gate on the packaging step below makes it show up as a RED BUILD,
+# which the pin alone never did.
+#
+# MEASURED, against the upstream Homebrew API at the formula versions we use
+# (a developer machine's `brew info` reports only its OWN platform tag, so the
+# older bottles look absent locally -- that is a filtering artifact, not truth):
+#
+#     runner      bottle tag       resulting artifact floor
+#     macos-14    arm64_sonoma     14.0   <- lowest, but EXPIRING (see below)
+#     macos-15    arm64_sequoia    15.0   <- chosen
+#     macos-26    arm64_tahoe      26.0   <- what macos-latest gives today
+#
+# All of opencascade, sdl2-compat, vulkan-headers, vulkan-loader, molten-vk,
+# glslang, cmake and ccache publish bottles for ALL THREE tags, so none of these
+# choices triggers a from-source OCCT build that would blow the timeout.
+#
+# macos-14 gives the lowest floor and we are NOT using it: the macOS 14 images
+# entered deprecation on 2026-07-06, already fail during scheduled brownout
+# periods, and are fully unsupported from 2026-11-02, at which point jobs using
+# the label are terminated with an error. A release path that stops working in
+# a few weeks is worse than one extra version of OS floor. macos-15 remains a
+# supported label (GitHub's own migration note says to use `macos-15` directly
+# to stay on macOS 15 now that `macos-latest` points at macOS 26).
+#
+# To take the 14.0 floor anyway, change the label AND `--floor-max` together and
+# accept the 2026-11-02 expiry. Changing the runner without changing --floor-max
+# is safe in the direction that matters: the gate fails loudly if the floor goes
+# UP, and simply reports a lower number if it goes down.
 # ─────────────────────────────────────────────────────────────────────────────
 
 on:
@@ -70,8 +110,15 @@ concurrency:
 jobs:
   macos-arm64:
     name: build + package Forge.app (macOS arm64)
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 90
+    env:
+      # The floor this artifact is ALLOWED to have. macos-15 measures 15.0; the
+      # packaging step fails if the measured floor exceeds this. Raise it only
+      # as a deliberate, reviewed decision to ship a higher minimum macOS.
+      FORGE_FLOOR_MAX: "15.0"
+      # What OUR code compiles against, so our own binaries never set the floor.
+      FORGE_MACOS_MIN: "14.0"
     permissions:
       # Needed ONLY to attach the zip to a release on a tag. The build itself
       # reads nothing privileged.
@@ -88,14 +135,31 @@ jobs:
           brew update-reset >/dev/null 2>&1 || true
           brew install opencascade sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake
 
+      - name: Assert the runner is what the artifact claims to be
+        # The zip is NAMED Forge-macos-arm64-*. Nothing proved it. GitHub has
+        # changed macOS label routing before -- the `macos-15-arm64` label
+        # stopped routing in March 2026 and users reported `macos-15` jobs
+        # landing on x86_64 hardware, which here would silently produce an
+        # Intel binary inside a file called "arm64" and an OS floor from the
+        # wrong bottle set. An assertion turns that into a red build.
+        run: |
+          set -euo pipefail
+          ARCH="$(uname -m)"
+          echo "runner arch: $ARCH"
+          if [ "$ARCH" != "arm64" ]; then
+            echo "::error::runner is $ARCH, not arm64; this job builds an" \
+                 "arm64-named artifact. Check the runs-on label routing."
+            exit 1
+          fi
+
       - name: Record the toolchain that produced this artifact
         # An artifact whose provenance is not written down cannot be debugged
-        # later. These four versions decide the OS floor and the geometry.
+        # later. These versions decide the OS floor and the geometry.
         run: |
           sw_vers
           uname -m
           cmake --version | head -1
-          for f in opencascade sdl2 molten-vk vulkan-loader; do
+          for f in opencascade sdl2 molten-vk vulkan-loader tbb; do
             printf '%-16s %s\n' "$f" "$(brew list --versions "$f" || echo MISSING)"
           done
 
@@ -116,6 +180,7 @@ jobs:
           ccache --max-size=3G --zero-stats
           cmake -S forge-kernel -B forge-kernel/build-app \
                 -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET="$FORGE_MACOS_MIN" \
                 -DFORGE_BUILD_NODE_ADDON=OFF \
                 -DFORGE_BUILD_DESKTOP_FOUNDATION=ON \
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache \
@@ -128,6 +193,7 @@ jobs:
           export CCACHE_DIR="$HOME/.ccache"
           cmake -S forge-desktop -B forge-desktop/build \
                 -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET="$FORGE_MACOS_MIN" \
                 -DFORGE_KERNEL_BUILD_DIR="$PWD/forge-kernel/build-app" \
                 -DCMAKE_C_COMPILER_LAUNCHER=ccache \
                 -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
@@ -160,22 +226,56 @@ jobs:
         # packaging failure. No --launch: a CI runner has no display. The script
         # still proves the bundle RELOCATES, by copying it elsewhere and
         # launching that copy, which exercises the whole dyld closure.
+        #
+        # --floor-max is the gate: it FAILS this step if the measured minimum
+        # macOS of the bundled Mach-O files is higher than FORGE_FLOOR_MAX, so a
+        # runner-image change can never quietly raise the OS requirement of a
+        # shipped artifact. Verified to fail in that direction, not just to pass.
         run: |
-          bash forge-desktop/package_macos.sh --no-build --version "${{ steps.ver.outputs.version }}"
+          bash forge-desktop/package_macos.sh --no-build \
+            --version "${{ steps.ver.outputs.version }}" \
+            --macos-min "$FORGE_MACOS_MIN" \
+            --floor-max "$FORGE_FLOOR_MAX"
 
       - name: Prove the artifact exists and is self-contained
         # Belt and braces over the script's own checks: a packaging step that
         # exits 0 having produced nothing is exactly the failure mode this
         # programme keeps hitting.
         run: |
-          ZIP="forge-desktop/dist/Forge-macos-arm64-${{ steps.ver.outputs.version }}.zip"
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          MAN="forge-desktop/dist/Forge-macos-arm64-${V}.manifest.json"
           test -f "$ZIP" || { echo "no zip at $ZIP"; exit 1; }
+          test -f "$MAN" || { echo "no manifest at $MAN"; exit 1; }
           test -x forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop || exit 1
           ls -la forge-desktop/dist/
           echo "--- executable link closure ---"
           otool -L forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop
           echo "--- bundled Mach-O count ---"
           ls forge-desktop/dist/Forge.app/Contents/Frameworks/*.dylib | wc -l
+          echo "--- the binary really is arm64 ---"
+          # `file` on the executable is the last chance to catch a runner that
+          # routed to Intel: everything upstream would still be green.
+          file -b forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop
+          lipo -archs forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop | tee /tmp/archs
+          grep -qw arm64 /tmp/archs || { echo "::error::executable is not arm64"; exit 1; }
+          echo "--- release manifest ---"
+          cat "$MAN"
+          # Surface the two blockers in the job summary so a human deciding
+          # whether to publish does not have to read the log.
+          {
+            echo "### Forge macOS artifact \`${V}\`"
+            echo
+            echo "| property | value |"
+            echo "| --- | --- |"
+            echo "| minimum macOS (measured) | \`$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["measured_floor"])' "$MAN")\` |"
+            echo "| Gatekeeper accepted | \`$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["gatekeeper_accepted"])' "$MAN")\` |"
+            echo "| signature | ad-hoc (NOT notarized) |"
+            echo "| sha256 | \`$(awk '{print $1}' "$ZIP.sha256")\` |"
+            echo
+            echo 'Downloaders must run \`xattr -dr com.apple.quarantine /Applications/Forge.app\`.'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload as a CI artifact (always)
         # Every run keeps its build, tag or not, so a dry run is downloadable
@@ -186,6 +286,7 @@ jobs:
           path: |
             forge-desktop/dist/Forge-macos-arm64-*.zip
             forge-desktop/dist/Forge-macos-arm64-*.zip.sha256
+            forge-desktop/dist/Forge-macos-arm64-*.manifest.json
           if-no-files-found: error
           retention-days: 30
 
@@ -203,18 +304,25 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           V="${{ steps.ver.outputs.version }}"
           ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          MAN="forge-desktop/dist/Forge-macos-arm64-${V}.manifest.json"
+
+          # The notes are a REVIEWED FILE in the repo, not a string buried in a
+          # workflow. The old inline copy hard-coded "macOS 26 or newer", which
+          # is wrong the moment the runner changes -- exactly the kind of note
+          # that outlives its truth. Substitute the MEASURED floor instead.
+          FLOOR="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["measured_floor"])' "$MAN")"
+          SHA="$(awk '{print $1}' "$ZIP.sha256")"
+          NOTES="$(mktemp)"
+          sed -e "s/@@VERSION@@/${V}/g" \
+              -e "s/@@MIN_MACOS@@/${FLOOR}/g" \
+              -e "s/@@SHA256@@/${SHA}/g" \
+              forge-desktop/RELEASE_NOTES.md > "$NOTES"
+
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             echo "no release for $TAG yet - creating it as a DRAFT"
-            gh release create "$TAG" --draft --title "Forge $TAG" --notes \
-              "Native C++ Forge desktop app for macOS (Apple Silicon).
-
-          REQUIREMENTS AND CAVEATS - please read before publishing:
-          * Apple Silicon only, and macOS 26 or newer. The bundled Homebrew
-            libraries (OCCT, SDL2, tbb) carry LC_BUILD_VERSION minos=26.0.
-          * The app is AD-HOC SIGNED, not notarized. macOS Gatekeeper will
-            refuse to open it after download. To run it:
-                xattr -dr com.apple.quarantine Forge.app
-            or System Settings > Privacy & Security > Open Anyway."
+            gh release create "$TAG" --draft --title "Forge $TAG" --notes-file "$NOTES"
+          else
+            echo "release $TAG exists - leaving its notes and draft state alone"
           fi
-          gh release upload "$TAG" "$ZIP" "$ZIP.sha256" --clobber
+          gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$MAN" --clobber
           echo "attached $ZIP to release $TAG"
