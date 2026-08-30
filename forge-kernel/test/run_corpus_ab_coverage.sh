@@ -101,9 +101,26 @@ cat > "$OUTDIR/manifest.json" <<JSON
   "arm_timeout_sec": $ARM_TIMEOUT,
   "part_timeout_sec": $PART_TIMEOUT,
   "binary": "$BIN",
-  "kernel_head": "$(git -C "$KERNEL" rev-parse HEAD 2>/dev/null || echo unknown)"
+  "kernel_head_at_run": "$(git -C "$KERNEL" rev-parse HEAD 2>/dev/null || echo unknown)",
+  "build_stamp": $(cat "$(dirname "$BIN")/build_stamp.json" 2>/dev/null || echo null)
 }
 JSON
+
+# ★ THE BINARY'S TREE, NOT THE SHELL'S. `kernel_head_at_run` is what HEAD says
+#   NOW; `build_stamp.git_head` is what it said when the binary was COMPILED, and
+#   the second is the one the numbers belong to. The first full-corpus run of this
+#   harness was compiled from one commit and measured after the worktree had moved
+#   to another — three of the ten engines under test differ between them — and it
+#   was thrown away. If these two disagree, rebuild (FORCE=1) before believing
+#   anything.
+BUILD_HEAD="$(sed -n 's/.*"git_head": "\([0-9a-f]*\)".*/\1/p' "$(dirname "$BIN")/build_stamp.json" 2>/dev/null)"
+RUN_HEAD="$(git -C "$KERNEL" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ -n "$BUILD_HEAD" ] && [ "$BUILD_HEAD" != "$RUN_HEAD" ]; then
+  echo "FATAL: the binary was built from $BUILD_HEAD but HEAD is now $RUN_HEAD." >&2
+  echo "       Rebuild with FORCE=1 — a coverage number measured against the wrong" >&2
+  echo "       tree is worse than no number." >&2
+  exit 3
+fi
 
 FAMARG=""
 [ -n "$FAMILIES" ] && FAMARG="--families=$FAMILIES"

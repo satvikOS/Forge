@@ -91,7 +91,27 @@ if [ -s "$FAIL" ]; then
   exit 1
 fi
 
-# 2. ARCHIVE, not a flat object list. `ar` + the linker's archive rule pulls in
+# 2. the src/*.cpp members the native engines call back into. These are NOT
+#    engines under test: OcctPrimBuilder.cpp is the TKPrim-free primitive builder
+#    that NativeLoftPipe (circular pipe legs) and NativeThickenShell (sector
+#    wedges) construct their analytic pieces with. It goes into the ARCHIVE like
+#    everything else, so if a future refactor stops needing it the linker simply
+#    stops pulling it rather than this list going stale.
+#    Each entry is here because the LINK named it, never because it looked likely.
+SUPPORT="src/OcctPrimBuilder.cpp"
+for src in $SUPPORT; do
+  [ -e "$src" ] || { echo "FATAL: missing support TU $src" >&2; exit 2; }
+  obj="$OBJDIR/obj/$(echo "$src" | tr '/.' '__').o"
+  OBJS+=("$obj")
+  cap compile "$src" "$obj"
+done
+drain
+if [ -s "$FAIL" ]; then
+  echo "[corpus-ab] support source compile failed" >&2
+  exit 1
+fi
+
+# 3. ARCHIVE, not a flat object list. `ar` + the linker's archive rule pulls in
 #    only the members that resolve an undefined symbol, so the harness gets the
 #    engines it calls and their transitive support and NOTHING ELSE. The flat
 #    list this script first used failed to link on symbols reached only from
@@ -108,7 +128,7 @@ if ! ar -crs "$LIB" "${OBJS[@]}" 2> "$OBJDIR/ar.err"; then
   exit 1
 fi
 
-# 3. the harness TU
+# 4. the harness TU
 TU="$OBJDIR/obj/corpus_ab_coverage.o"
 compile test/corpus_ab_coverage.cpp "$TU"
 if [ -s "$FAIL" ]; then
@@ -116,7 +136,7 @@ if [ -s "$FAIL" ]; then
   exit 1
 fi
 
-# 4. link. The A/B baseline arms need every TKOffset/TKFillet class the call
+# 5. link. The A/B baseline arms need every TKOffset/TKFillet class the call
 #    sites use, plus the STEP reader (TKDESTEP = STEPControl_Reader and the
 #    AP203/214/242 transfer; TKXSBase = the XSControl session under it).
 OCCT_LIBS="-lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo \
@@ -138,7 +158,35 @@ if ! "$OUT" --selftest > "$OBJDIR/selftest.log" 2>&1; then
   exit 1
 fi
 
+# ── BUILD STAMP ──────────────────────────────────────────────────────────────
+# WHICH TREE WAS THIS BINARY BUILT FROM? Recorded here, at build time, because
+# the answer cannot be recovered later and getting it wrong invalidates every
+# number the binary produces. This is not hypothetical: the first full-corpus run
+# of this harness was built from one commit and then measured while the worktree
+# had been moved to ANOTHER, and three of the ten engines under test
+# (NativeFilletChamfer, NativeLoftPipe, NativeThickenShell) differ between them.
+# That run was discarded. run_corpus_ab_coverage.sh copies this stamp into every
+# manifest, and `dirty` is recorded rather than assumed clean.
+STAMP="$OBJDIR/build_stamp.json"
+GIT_HEAD="$(git -C "$KERNEL" rev-parse HEAD 2>/dev/null || echo unknown)"
+GIT_DIRTY_N="$(git -C "$KERNEL" status --porcelain -- "$KERNEL/src" "$KERNEL/include" "$KERNEL/test" 2>/dev/null | wc -l | tr -d ' ')"
+cat > "$STAMP" <<STAMPJSON
+{
+  "built_utc": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "git_head": "$GIT_HEAD",
+  "dirty_files_in_src_include_test": $GIT_DIRTY_N,
+  "flags": "$FLAGS",
+  "occt_root": "$OCCT",
+  "binary": "$OUT"
+}
+STAMPJSON
+
 NCOMPILED="$(wc -l < "$BUILT" | tr -d ' ')"
-echo "[corpus-ab] compiled $NCOMPILED translation unit(s), reused $(( ${#OBJS[@]} - NCOMPILED )); containment self-test PASS" >&2
+# +1 because the harness TU is compiled separately and is not in OBJS. Getting
+# this wrong printed "reused -1" on the first clean build; a build script that
+# cannot count its own translation units is not a script anyone should trust to
+# tell them whether a rebuild happened.
+TOTAL_TU=$(( ${#OBJS[@]} + 1 ))
+echo "[corpus-ab] compiled $NCOMPILED of $TOTAL_TU translation unit(s), reused $(( TOTAL_TU - NCOMPILED )); containment self-test PASS" >&2
 echo "BIN=$OUT"
 exit 0
