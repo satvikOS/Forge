@@ -35,6 +35,7 @@
 #include "Camera.hpp"
 #include "KernelScene.hpp"
 #include "forge/ui/DockLayout.hpp"
+#include "forge/ui/EdgeModel.hpp"
 #include "forge/ui/FeatureTreeModel.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/MeasureModel.hpp"
@@ -160,6 +161,22 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   forge::ui::SelectionMeasure selectionMeasure();
   // Per-face rows the Measure panel drew on its last draw.
   std::size_t measureFaceRowsDrawn() const noexcept { return measureFaceRowsDrawn_; }
+  // Per-edge rows it drew. Separate counter because an edge selection and a face
+  // selection are different reports, and one counter for both cannot say which
+  // one was actually drawn.
+  std::size_t measureEdgeRowsDrawn() const noexcept { return measureEdgeRowsDrawn_; }
+
+  // ── the recovered B-rep edges ───────────────────────────────────────────
+  // Derived from the SAME triangle soup the Measure panel uses and cached on the
+  // same witness (the scene's triangle count), so a rebuild invalidates both at
+  // once and a stale edge can never be picked into a live selection. Non-const
+  // because the first call is what builds it.
+  const forge::ui::EdgeSet& edges();
+  // What the Measure panel reports for an EDGE selection.
+  forge::ui::EdgeMeasure edgeMeasure();
+  // The edge indices the typed selection currently names, decoded through the
+  // one key() vocabulary so the overlay and the Measure panel cannot disagree.
+  std::vector<std::size_t> selectedEdgeIndices();
 
   // ── the Archie Tools panel's data ───────────────────────────────────────
   forge::ui::ToolCatalog toolCatalog() const;
@@ -169,6 +186,16 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // into a typed EntityRef through SelectionService and re-flags the mesh.
   void setPreselectedFace(std::uint32_t faceId);
   void clickFace(std::uint32_t faceId, bool additive);
+  // The same round trip for an EDGE. `index` indexes edges(); kNoEdge clears.
+  // Without this pair the app could produce no EntityRef of kind Edge at all,
+  // and the three edge-signature commands in the registry -- part.fillet,
+  // part.chamfer, part.variable_fillet -- were unreachable from every gesture.
+  void setPreselectedEdge(std::size_t index);
+  void clickEdge(std::size_t index, bool additive);
+  // TRUE when the live selection filter means the viewport picks edges. The
+  // filter is the status strip's existing control; before this it could only
+  // REFUSE picks, because nothing ever offered it an Edge.
+  bool edgePickMode() const;
 
   // Palette visibility is app state, not shell state.
   bool paletteOpen() const noexcept { return paletteOpen_; }
@@ -234,6 +261,12 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // viewport highlight AND by the Measure panel, so the two cannot disagree
   // about which faces are picked.
   std::vector<std::uint32_t> selectedFaceIds() const;
+  // Draws one edge's polyline into the viewport overlay, projected through the
+  // live camera. Edges are highlighted here rather than in the vertex stream
+  // because a segment is not a triangle: scene_.applySelection flags VERTICES of
+  // picked faces, and there is no face to flag for an edge.
+  void drawEdgePolyline(const forge::ui::MeshEdge& edge, float x, float y, float w, float h,
+                        std::uint32_t colour, float thickness);
 
   forge::ui::ForgeShell& shell_;
   KernelScene& scene_;
@@ -274,6 +307,13 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t measureTriangles_ = 0;
   bool measureBuilt_ = false;
 
+  // The recovered edges, on the SAME triangle-count witness as the measure
+  // cache. Two witnesses for one tessellation is how one of them goes stale.
+  forge::ui::EdgeSet edges_;
+  std::size_t edgeTriangles_ = 0;
+  bool edgesBuilt_ = false;
+  std::size_t hoverEdge_ = forge::ui::kNoEdge;
+
   Camera camera_;
   ViewportRequest viewportRequest_;
 
@@ -288,6 +328,7 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t panelsDrawn_ = 0;
   std::size_t treeRowsDrawn_ = 0;
   std::size_t measureFaceRowsDrawn_ = 0;
+  std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
   char toolQuery_[96] = {0};
   std::uint32_t hoverFace_ = 0;
