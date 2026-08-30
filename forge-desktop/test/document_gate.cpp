@@ -44,6 +44,14 @@
 //   4  the body node is a hard-coded literal       -> a reopened or edited body is
 //                                                     unpickable and every solid
 //                                                     command on it refuses
+//   5  the feature tree is bound to a SECOND,         -> the rows are a STALE copy of
+//      stale history instead of the live document        the history: the statement the
+//                                                        last command appended has no
+//                                                        row. That is exactly what the
+//                                                        SceneFeature vector was.
+//   6  the tree is bound to a history that is a        -> the rows DESCRIBE THE WRONG
+//      different document altogether                      STATEMENTS -- the failure a
+//                                                        row-count check cannot see
 
 #include <algorithm>
 #include <cmath>
@@ -232,8 +240,6 @@ int main(int argc, char** argv) {
   checkGt(scene.triangleCount(), 12u, "more triangles than a bare box");
   checkEq(scene.vertices().size(), scene.triangleCount() * 3,
           "the vertex stream is de-indexed 3-per-triangle");
-  checkEq(scene.features().size(), forge::desktop::defaultPartStatements().size(),
-          "one history row per statement");
   // The bbox the COMPILER measured and the bbox the TESSELLATION produced must
   // agree; volume cannot make this check, and a mis-scaled body is where it shows.
   for (int i = 0; i < 3; ++i) {
@@ -284,6 +290,8 @@ int main(int argc, char** argv) {
 
   const Fingerprint start = fingerprint(scene);
   const std::size_t buildsAtStart = scene.builds();
+  // Kept for MUTATION 5: what a copied history looks like one command later.
+  const forge::ui::PartDocument documentBeforeCommand = frame.document();
 
   // ── 3. A COMMAND CHANGES THE GEOMETRY ────────────────────────────────────
   //
@@ -338,6 +346,93 @@ int main(int argc, char** argv) {
   checkEq(shell.document().features, frame.document().records().size(),
           "the status strip followed the document through the command");
 
+  // ── 3b. THE FEATURE-TREE ROWS ARE THE IR STATEMENTS ──────────────────────
+  //
+  // Until this slice the tree read a `std::vector<SceneFeature>` that KernelScene
+  // owned and ForgeFrame::refreshFeatureRows() re-copied out of
+  // PartDocument::records() after every rebuild -- a SECOND history, four strings
+  // wide, pushed in by a setter that any mutation path could forget to call. It
+  // could not carry the two fields that make a row a feature rather than a label:
+  // the statement id the row IS, and the command that authored it.
+  //
+  // The assertions below are on OBJECT IDENTITY, not on equal-looking strings: a
+  // row's record must be the very FeatureRecord the document holds. A copy that
+  // happened to agree would pass a string comparison and fail this.
+  //
+  // MUTATION 5 binds the source to a different, stale document -- the defect in
+  // its purest form -- and every check here must go red.
+  // MUTATION 5's stale history: the document EXACTLY AS IT WAS before the command
+  // ran. A copy that was right a moment ago is the realistic form of the defect.
+  forge::ui::PartDocument staleHistory = documentBeforeCommand;
+  // MUTATION 6's mismatched history: a different document altogether, so the rows
+  // describe the wrong statements while still being a perfectly valid history.
+  forge::ui::PartDocument otherHistory;
+  otherHistory.seed(forge::ui::IrValueKind::Solid, "body.other", "BOX",
+                    {forge::ui::IrArg::num(10.0), forge::ui::IrArg::num(10.0),
+                     forge::ui::IrArg::num(10.0)});
+  forge::desktop::SceneFeatureTreeSource staleSource(scene, staleHistory);
+  forge::desktop::SceneFeatureTreeSource otherSource(scene, otherHistory);
+  {
+    const forge::desktop::SceneFeatureTreeSource& src =
+        g_mutation == 5 ? staleSource : (g_mutation == 6 ? otherSource : frame.treeSource());
+    const std::vector<forge::ui::FeatureRecord>& records = frame.document().records();
+
+    checkEq(src.featureCount(), records.size(),
+            "the tree source's feature count IS the document's record count");
+
+    std::size_t identical = 0;
+    std::size_t authored = 0;
+    for (std::size_t i = 0; i < records.size(); ++i) {
+      const forge::ui::NodeId node = src.nodeForFeature(i);
+      const forge::ui::FeatureRecord* rec = src.recordAt(node);
+      if (rec == nullptr) continue;
+      if (rec == &records[i]) ++identical;
+      if (!rec->commandId.empty()) ++authored;
+      // EVERY comparison below is against `records[i]` -- the DOCUMENT's
+      // statement -- never against `rec` itself. Comparing the row to the record
+      // it was built from is self-consistent under any history at all, and would
+      // stay green while the tree described a different part entirely.
+      const forge::ui::FeatureNodeData d = src.data(node);
+      checkStrEq(d.featureIrOp, records[i].line.op,
+                 "the row's IR op is the DOCUMENT statement's op");
+      checkStrEq(d.label, records[i].label.empty() ? records[i].line.op : records[i].label,
+                 "the row's label is the DOCUMENT statement's label");
+      checkEq(rec->irId, static_cast<int>(i + 1),
+              "the row's irId is its 1-based document position");
+    }
+    checkEq(identical, records.size(),
+            "every row IS the document's record, by object identity -- not a copy");
+
+    // The statement the COMMAND appended is the last row, and it names the
+    // command. `commandId` is one of the two fields the copied row dropped.
+    const forge::ui::FeatureRecord* last =
+        records.empty() ? nullptr : src.recordAt(src.nodeForFeature(records.size() - 1));
+    check(last != nullptr, "the last document statement has a tree row", "no record for it");
+    if (last != nullptr) {
+      checkStrEq(last->commandId, "part.fillet",
+                 "the last row names the command that authored it");
+      checkStrEq(last->line.op, "FILLET", "and the op it emitted");
+      // And that row's statement is literally the last line of the program the
+      // kernel compiled -- the tree and the viewport read one text.
+      const std::string program = frame.document().irProgram();
+      const std::string stmt = last->line.text();
+      check(program.find(stmt) != std::string::npos,
+            "the row's statement is a line of the compiled program", stmt);
+    }
+    checkEq(authored, 1u, "exactly one statement so far was authored by a command");
+
+    // The MODEL the panel actually draws through is flattened over those same
+    // nodes: root, then one row per statement, then the last feature's faces.
+    check(frame.treeRowCount() > records.size(), "the flattened tree holds every statement",
+          std::to_string(frame.treeRowCount()));
+    std::size_t modelRowsMatched = 0;
+    for (std::size_t i = 0; i < records.size() && 1 + i < frame.treeRowCount(); ++i) {
+      if (frame.tree().rowAt(1 + i).id == src.nodeForFeature(i)) ++modelRowsMatched;
+    }
+    checkEq(modelRowsMatched, records.size(),
+            "the flattened rows the panel draws are those statements, in order");
+  }
+
   // ── 4. UNDO IS THE DOCUMENT'S UNDO ───────────────────────────────────────
   //
   // `edit.undo` used to run `--doc_.undoDepth; ++doc_.redoDepth;` and touch no
@@ -353,6 +448,13 @@ int main(int argc, char** argv) {
   const Fingerprint afterUndo = fingerprint(scene);
   check(afterUndo == start, "undo restored the ORIGINAL geometry, not just a counter",
         afterUndo.str() + " vs " + start.str());
+  // The tree followed it WITHOUT anyone refreshing a row vector: the source reads
+  // records(), and undo popped one.
+  checkEq(frame.treeSource().featureCount(), frame.document().records().size(),
+          "undo removed the tree row too, with no row-copying step");
+  check(frame.treeSource().recordAt(
+            frame.treeSource().nodeForFeature(frame.document().records().size())) == nullptr,
+        "the undone statement has no row left", "a row outlived its statement");
 
   const forge::ui::DispatchResult redo = shell.run("edit.redo");
   check(redo.ok(), "edit.redo dispatched", forge::ui::toString(redo.status));

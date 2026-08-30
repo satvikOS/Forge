@@ -135,17 +135,20 @@ int main(int argc, char** argv) {
     std::printf("[gate] cannot continue without geometry\n");
     return 1;
   }
-  std::printf("[gate] %zu triangles, %u faces, %zu features  [%s]\n", scene.triangleCount(),
-              scene.faceCount(), scene.features().size(), scene.backend().c_str());
+  std::printf("[gate] %zu triangles, %u faces, %zu ops  [%s]\n", scene.triangleCount(),
+              scene.faceCount(), scene.lastBuild().nCompiled, scene.backend().c_str());
 
   checkGe(scene.triangleCount(), 12u, "tessellation yields at least a box's triangles");
   checkGe(scene.faceCount(), 6u, "the body has at least a box's faces");
   checkEq(scene.vertices().size(), scene.triangleCount() * 3,
           "vertex stream is de-indexed 3-per-triangle");
   // The reference is READ from the seed table rather than hard-coded, so the
-  // gate cannot drift into agreeing with a stale number.
-  checkEq(scene.features().size(), forge::desktop::defaultPartStatements().size(),
-          "one history row per statement in the default part program");
+  // gate cannot drift into agreeing with a stale number. The SCENE no longer
+  // keeps a history of its own -- it keeps geometry -- so the claim is on the
+  // compiler's own op reconciliation; the history itself is asserted against the
+  // document below, and against the tree source in the document gate.
+  checkEq(scene.lastBuild().nCompiled, forge::desktop::defaultPartStatements().size(),
+          "one compiled op per statement in the default part program");
   check(scene.lastBuild().ok(), "the default part compiled through forge::ft",
         scene.lastBuild().error);
   checkEq(scene.lastBuild().nDeclared, scene.lastBuild().nParsed,
@@ -287,7 +290,8 @@ int main(int argc, char** argv) {
   std::printf("[gate] tree: %zu rows, %zu materialized, peak %zu, %zu fetches\n",
               frame.treeRowCount(), frame.treeMaterialized(), frame.treePeakMaterialized(),
               frame.treeFetches());
-  checkGe(frame.treeRowCount(), scene.features().size(), "the tree has a row per feature");
+  checkGe(frame.treeRowCount(), frame.document().records().size(),
+          "the tree has a row per DOCUMENT statement");
   checkLe(frame.treePeakMaterialized(), 256u,
           "never more rows materialized than the cache holds");
   checkGe(frame.treeRowsDrawn(), 1u, "tree rows were actually drawn");
