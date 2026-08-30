@@ -57,43 +57,64 @@ MD_COUNT_PATTERNS = [
     (r"the registry holds \*\*(\d+) commands\*\*", "registry_commands"),
     (r"\*\*(\d+) of them emit\b", "commands_emitting_ir"),
     (r"reaching \*\*(\d+) distinct op names\*\*", "user_invocable_ops"),
+    (r"only the (\d+) names are legal", "user_invocable_ops"),
     (r"The kernel defines \*\*(\d+)\*\* ops", "kernel_ops"),
     (r"so \*\*(\d+) ops plus", "forbidden_ops"),
+    # Not a "counts" entry: the worked examples the runtime gate dispatches.
+    # Resolved below, because it is derived from the ops rather than stored.
+    (r"dispatches all (\d+) recorded examples", "@examples"),
+    (r"dispatches all (\d+) on every CI run", "@examples"),
 ]
-# Not a "counts" entry: the number of worked examples the runtime gate dispatches.
-MD_EXAMPLES_PATTERN = r"dispatches all (\d+) recorded examples"
 
 
 def check_markdown(doc):
     """Every number the prose states must equal the asset it describes.
 
     Returns a list of human-readable complaints; empty means the doc is honest.
-    A pattern that matches NOTHING is itself a complaint -- a sentence reworded
-    past the pattern would otherwise silently stop being checked, which is the
-    same silent-green failure the number drift was.
+
+    EVERY occurrence is checked, not the first: `27` appeared twice and `14`
+    twice, and a first-match check would have reported the doc clean after one
+    of each pair was corrected. A pattern that matches NOTHING is a complaint in
+    its own right -- a sentence reworded past its pattern would otherwise
+    silently stop being checked, which is the same silent-green failure the
+    stale numbers already were.
     """
     path = os.path.join(REPO, MD_REL)
     if not os.path.exists(path):
         return ["%s is MISSING" % MD_REL]
     with open(path) as fh:
         md = fh.read()
-    bad = []
-    for pattern, key in MD_COUNT_PATTERNS:
-        m = re.search(pattern, md)
-        if m is None:
-            bad.append("%s: no sentence matches /%s/ -- reworded past its check" % (MD_REL, pattern))
-            continue
-        stated, actual = int(m.group(1)), doc["counts"][key]
-        if stated != actual:
-            bad.append("%s says %d for counts.%s; the asset says %d" % (MD_REL, stated, key, actual))
     examples = sum(len(f.get("examples", []))
                    for op in doc["ops"] for f in op.get("emitted_forms", []))
-    m = re.search(MD_EXAMPLES_PATTERN, md)
-    if m is None:
-        bad.append("%s: no sentence matches /%s/" % (MD_REL, MD_EXAMPLES_PATTERN))
-    elif int(m.group(1)) != examples:
-        bad.append("%s says %s recorded examples; the asset carries %d"
-                   % (MD_REL, m.group(1), examples))
+    bad = []
+    for pattern, key in MD_COUNT_PATTERNS:
+        actual = examples if key == "@examples" else doc["counts"][key]
+        what = "the recorded examples" if key == "@examples" else "counts." + key
+        found = re.findall(pattern, md)
+        if not found:
+            bad.append("%s: no sentence matches /%s/ -- reworded past its check" % (MD_REL, pattern))
+            continue
+        for stated in found:
+            if int(stated) != actual:
+                bad.append("%s says %s for %s; the asset says %d"
+                           % (MD_REL, stated, what, actual))
+
+    # The op table is the human-readable copy of the closed op list, and a
+    # missing row is worse than a wrong count: a reader takes the table for the
+    # whole vocabulary. It listed 14 of 17 -- RECT, CIRCLE and TRANSLATE, the
+    # three added to close the PROFILE gap, had a paragraph saying "the op-name
+    # set is closed and small" above a table that did not contain them. Compare
+    # the SET, not the size, so the message names the row to write.
+    listed = set()
+    for line in md.splitlines():
+        if not line.startswith("| `"):
+            continue
+        listed |= set(re.findall(r"`([A-Z][A-Z_]*)`", line.split(" | ")[0]))
+    asset_ops = {op["op"] for op in doc["ops"]}
+    for missing in sorted(asset_ops - listed):
+        bad.append("%s: the op table has no row for `%s`, which a user CAN emit" % (MD_REL, missing))
+    for extra in sorted(listed - asset_ops):
+        bad.append("%s: the op table lists `%s`, which is not in the vocabulary" % (MD_REL, extra))
     return bad
 
 SOURCES = {

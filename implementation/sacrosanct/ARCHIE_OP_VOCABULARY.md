@@ -50,15 +50,26 @@ feature-IR**, reaching **17 distinct op names**. The kernel defines **40** ops
 (`opFromName`), so **23 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
-Every number in that paragraph is now checked by `--check` against the JSON it
-describes. It was not, and all five had gone stale — the prose still read 31 /
-16 / 14 / 26 / 27 while the machine-checked asset said 34 / 19 / 17 / 23 / 32,
-so the doc understated the registry by three commands while its own gate was
-green. A reworded sentence that no longer matches the pattern also fails, which
-is the half that stops a check from quietly lapsing.
+Every number in that paragraph, and every op row in the table below, is now
+checked by `--check` against the JSON it describes. None of it was, and all of
+it had drifted: the prose read 31 commands / 16 emitting / 14 ops / 26 forbidden
+/ 27 examples where the machine-checked asset said 34 / 19 / 17 / 23 / 32, and
+the op table listed 14 of the 17 — `RECT`, `CIRCLE` and `TRANSLATE` were absent
+from it, under a paragraph asserting the op-name set is closed. The doc thus
+understated the registry by three commands and the vocabulary by three ops while
+its own gate was green.
+
+Two properties keep it honest rather than merely correct today. EVERY occurrence
+of a number is checked, not the first — `27` and `14` each appeared twice, and a
+first-match check reported the doc clean after one of each pair was fixed. And a
+sentence REWORDED past its pattern fails as loudly as a wrong number, because a
+check that silently stops checking is the failure it was written to prevent.
 
 | op | command(s) | the form(s) a user can emit |
 |---|---|---|
+| `RECT` | part.sketch_rect | `RECT(width, height)`<br>`RECT(width, height, cx, cy)` |
+| `CIRCLE` | part.sketch_circle | `CIRCLE(radius)`<br>`CIRCLE(radius, cx, cy)` |
+| `TRANSLATE` | part.move | `TRANSLATE(%body, dx, dy, dz)` |
 | `EXTRUDE` | part.extrude | `EXTRUDE(%profile, distance)`<br>`EXTRUDE(%profile, distance, dirx, diry, dirz)` |
 | `REVOLVE` | part.revolve | `REVOLVE(%profile, angle)`<br>`REVOLVE(%profile, angle, 0, 0, 0, axx, axy, axz)` |
 | `LOFT` | part.loft | `LOFT(%profile...)`, `+ RULED`, `+ OPEN` |
@@ -109,11 +120,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 27 on every CI run), not a hand-written illustration.
+dispatches all 32 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 14 names are legal; after the name, the argument count is bounded
+head, only the 17 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).
