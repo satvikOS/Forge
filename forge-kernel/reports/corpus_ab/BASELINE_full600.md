@@ -70,3 +70,76 @@ PIPESHELL has a single named, testable hypothesis with a bounded fix.
 **Closure 14 -> 11 is a BUILD result, not a SHIP result.** Nine of ten families lose real
 capability, three of them nearly all of it (PIPE 0.3%, THRUSECTIONS 0.0%, DRAFT 0.0%
 against OCCT's 100%, 94.5% and 88.0%). FILLING alone is shippable on this evidence.
+
+## INDEPENDENT REPLICATION
+
+This baseline was produced TWICE, by two separately written harness drivers, in different
+worktrees, at different build SHAs, hours apart. The per-family rates are **identical in
+all ten rows** — same N, same native %, same OCCT % — across 6000 paired trials:
+
+| family | N | native % | OCCT % |
+|---|---:|---:|---:|
+| DRAFT | 565 | 0.0 | 88.0 |
+| FILLET | 600 | 32.8 | 76.8 |
+| FILLING | 600 | 67.8 | 67.8 |
+| MAKEOFFSET | 600 | 94.5 | 99.0 |
+| OFFSETSHAPE | 600 | 1.2 | 6.3 |
+| PIPE | 600 | 0.3 | 100.0 |
+| PIPESHELL | 600 | 51.5 | 100.0 |
+| THICKEN | 600 | 67.8 | 100.0 |
+| THICKSOLID | 600 | 1.2 | 22.2 |
+| THRUSECTIONS | 600 | 0.0 | 94.5 |
+
+Both runs also independently reached the SAME two non-coverage findings, including the
+same part and the same numbers to three decimals: OCCT's thicken returning a negatively
+oriented solid (native `+114690.606` vs OCCT `-114690.606`), and PIPESHELL disagreeing
+geometrically on every shared success rather than on an edge-case subset.
+
+## What the second run adds that mine could not
+
+**Ten per-family native POSITIVE CONTROLS, 10/10 OK.** Each engine was fed an input its own
+header documents as in scope, on a box the native ruled loft builds itself. This is the
+check that makes the native-0% families (PIPE, DRAFT, THRUSECTIONS) believable as ENGINE
+results rather than a mis-wired arm — the exact question I flagged as open when the first
+zeros appeared, and could not answer from my own run.
+
+**The OCCT arm's own failures are counted, and they are large.** OCCT's OFFSETSHAPE arm
+CRASHED on **66 of 600** parts and MAKEOFFSET's arm TIMED OUT on 5. That is the source of
+the 23 contained crash reports observed on this machine, all one stack
+(`BRepOffset_MakeOffset` -> `BRepOffset_Inter2d::ConnexIntByInt` ->
+`BRep_Tool::CurveOnSurface` at 0x60).
+
+**Reproducibility is proved, not asserted**: re-running the aggregator over the committed
+`results.jsonl.gz` reproduces the committed `summary.md` byte for byte.
+
+**A guard that could not fire was found and fixed.** The first build-SHA-vs-HEAD guard was
+tested and found INERT — a poisoned stamp still exited 0, because the driver rebuilds and
+re-stamps on the line above it. Fixed in `4645fd2f`, and both guards are now proved to fire
+(exit 3 and exit 4) rather than assumed to. That is the same defect class as the four
+harnesses that could not link: a check that cannot fail looks exactly like a check that
+passes.
+
+**A first full-corpus run was DISCARDED** because it was compiled at `876b179a` and measured
+after the tree moved to `a70dd1da`, where three of the ten engines under test differ. Its
+numbers are not reported anywhere.
+
+## A live PRODUCTION consequence, not just a test observation
+
+`Features.cpp` registers OCCT's thicken result unmodified:
+
+    return ShapeRegistry::instance().add(mk.Shape());
+
+Given that `mk.Shape()` is negatively oriented on all 407 shared successes, **`part::thickenSurface`
+hands the ShapeRegistry a reversed solid today**, on the default (non-native) path. That is
+a defect in shipping behaviour, found by a coverage harness that was not looking for it.
+Recorded here; the fix is not made in this PR because the correct remedy (reverse the solid
+vs. leave the convention to consumers) depends on what downstream consumers assume, and
+that has not been measured.
+
+## Two of twelve options remain unmeasured, with the reason stated
+
+`FORGE_SHHEAL_DROP_NATIVE` and `FORGE_GEOM_DROP_NATIVE` are NOT measured. Both already
+default ON and both replace low-level routines called from inside other ops (ValueOfUV,
+curve projection, free bounds, ShapeFix_Solid; the R1/R2/R3 geom primitives), so there is
+no "native declined where OCCT would have built it" event to count. Scoped out explicitly
+rather than silently skipped.
