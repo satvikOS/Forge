@@ -71,3 +71,38 @@ engine standalone and `occtPrism` lives in `src/OcctPrimBuilder.cpp`. It had an 
 `DEPS=` variable; that is now `DEPS=forge-kernel/src/OcctPrimBuilder.cpp` and is passed
 to the compile line. Without this the harness reports `BUILD/LINK FAIL` and its 227
 assertions never run at all -- a gate that cannot build is a gate that cannot fail.
+
+## RESOLVED 2026-08-29 — canonize ported to HEAD, 227/0 restored
+
+The fix this finding specified was carried out on branch `kernel/occtprism-canonize`.
+
+`forge::occtPrism` now takes a third parameter, `bool canonize = false`. When set, a
+lateral whose swept surface has an exact canonical form **with the identical (u,v)
+parametrisation** is emitted as that form instead of a
+`Geom_SurfaceOfLinearExtrusion`: a LINE swept perpendicular to itself becomes a
+`Geom_Plane`, a CIRCLE swept along its own axis becomes a `Geom_CylindricalSurface`,
+and everything else (oblique line sweeps, splines) is left alone. The point set is
+never changed -- only the surface TYPE. The three `NativeThickenShell.cpp` sites pass
+`/*canonize=*/true`, restoring what `MakePrism` did by default.
+
+The default is **false**, so the other eleven `occtPrism` callers are on exactly the
+path they were on before; the census-wide flip this file warns about is still NOT taken.
+
+Measured, same harness, engine file the only variable:
+
+    before this commit   208 passed, 19 failed   FAIL
+    after  this commit   227 passed,  0 failed   PASS
+
+227 = 208 + 19, so no assertion that passed before was traded away, and no assertion was
+weakened or removed. The symbols stayed out, checked on the linked artifact rather than
+on an object file:
+
+    nm -u libforge_kernel_core.dylib | grep -c BRepPrimAPI   ->  0   (of 724 undefined)
+
+That zero is not vacuous: the same check reports 2 on a positive-control TU that does
+call `BRepPrimAPI_MakePrism`, and the dylib was confirmed present and genuinely relinked
+(`Building CXX .../OcctPrimBuilder.cpp.o` and `.../NativeThickenShell.cpp.o` both appear
+in the build log).
+
+`AB_BASELINE_thicken` was lowered 19 -> 0 in the same commit, and
+`forge-kernel/test/run_ab_all.sh` is GREEN on all seven harnesses.

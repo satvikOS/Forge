@@ -5,17 +5,22 @@
 # Lower a number in the SAME COMMIT that fixes the cause, or the ratchet turns the
 # improvement red — a stale baseline must never be able to re-admit a regression.
 #
-# thicken=19 is a RECORDED DEFECT, not an accepted one. PR #64 replaced three
-# BRepPrimAPI_MakePrism sites with forge::occtPrism, and all 19 failures are the
-# FACE-TYPE census: occtPrism emits Geom_SurfaceOfLinearExtrusion laterals where
-# MakePrism emitted canonical Geom_Plane. Volume, centre of mass, bounding box,
-# topology and validity all still pass — the solids are geometrically identical.
-# The fix is MakePrism's Canonize flag (which defaults TRUE) and HEAD's occtPrism
-# does not expose it. See findings/PR64_CHANGED_THE_FACE_TYPE_CENSUS.md.
+# thicken was 19 — a RECORDED DEFECT, now FIXED and lowered to 0 in the same commit.
+# PR #64 replaced three BRepPrimAPI_MakePrism sites with forge::occtPrism, and all 19
+# failures were the FACE-TYPE census: occtPrism emitted Geom_SurfaceOfLinearExtrusion
+# laterals where MakePrism emitted canonical Geom_Plane / Geom_CylindricalSurface.
+# Volume, centre of mass, bounding box, topology and validity all passed throughout —
+# the solids were geometrically identical, only their surfaces were TYPED differently.
+# The cause was MakePrism's Canonize flag, which DEFAULTS TRUE and which occtPrism did
+# not expose. occtPrism now takes `canonize` (default FALSE, so every other caller is
+# unchanged) and the three NativeThickenShell sites pass true, restoring the canonical
+# lateral types MakePrism produced. MEASURED, same harness, engine file the only
+# variable: 208 passed / 19 failed -> 227 passed / 0 failed, no assertion weakened.
+# See implementation/sacrosanct/findings/PR64_CHANGED_THE_FACE_TYPE_CENSUS.md.
 AB_BASELINE_draft=0
 AB_BASELINE_filling=0
 AB_BASELINE_loftpipe=0
 AB_BASELINE_offsetshape=0
 AB_BASELINE_sweep=0
 AB_BASELINE_fillet_concave=0
-AB_BASELINE_thicken=19
+AB_BASELINE_thicken=0
