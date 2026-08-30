@@ -274,7 +274,9 @@ jobs:
             echo "| signature | ad-hoc (NOT notarized) |"
             echo "| sha256 | \`$(awk '{print $1}' "$ZIP.sha256")\` |"
             echo
-            echo 'Downloaders must run \`xattr -dr com.apple.quarantine /Applications/Forge.app\`.'
+            # Single quotes: a backslash is LITERAL inside them, so the escaping
+            # used on the double-quoted lines above would print the backslashes.
+            echo 'Downloaders must run `xattr -dr com.apple.quarantine /Applications/Forge.app`.'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload as a CI artifact (always)
