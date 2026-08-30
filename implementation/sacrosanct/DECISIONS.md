@@ -699,7 +699,11 @@ but two are worth naming because they are live: `edit.delete` declares `feature_
 
 ---
 
-## D-022 (2026-08-30): LOFT consumes WIRE — `part.loft` was a LATENT BUG, and closing the gap needed BOTH halves
+## D-023 (2026-08-30): LOFT consumes WIRE — `part.loft` was a LATENT BUG, and closing the gap needed BOTH halves
+
+*(Numbered D-023, not D-022: PR #85 `decisions/d022-drop-blocked-on-engines` claims D-022
+concurrently for the OCCT-drop decision. If that PR never lands, D-022 is a gap rather
+than a duplicate, which is the cheaper of the two failures.)*
 
 D-021 left one question open on purpose: WIRE was the last unclosed value kind, and it named
 `WIRE or RING` as owed — but it also refused to add the producer blind, because the gap was

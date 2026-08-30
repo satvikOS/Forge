@@ -146,7 +146,7 @@ each with the evidence that produced it. The runtime gate drives the ones that
 can be driven. Two of the original four are now CLOSED; the entries are kept
 because a reader who saw the old ones needs to know they moved, and why.
 
-1. **CLOSED (D-021, D-022) — the vocabulary was not closed, and now is.**
+1. **CLOSED (D-021, D-023) — the vocabulary was not closed, and now is.**
    `EXTRUDE`/`REVOLVE` consume a `PROFILE` and `LOFT` consumes a `WIRE`, and no
    user-invocable op produced either: from an empty document, no legal program
    existed. `part.sketch_rect` and `part.sketch_circle` closed `PROFILE`;
@@ -154,7 +154,7 @@ because a reader who saw the old ones needs to know they moved, and why.
    the artifact computes about ITSELF — is now `[]`, and
    `produced_by_allowed_ops` is `PROFILE, SOLID, WIRE`. A training target may now
    begin from nothing.
-2. **CLOSED (D-022) — `part.loft` emitted a statement the kernel refuses.** The
+2. **CLOSED (D-023) — `part.loft` emitted a statement the kernel refuses.** The
    command resolved `PROFILE` values while `opLoft` puts every `%ref` through
    `refWire`, which throws "is not a WIRE section (use RING(...) or
    WIRE([...]))". `LOFT` was *invocable* and *not compilable* through the user
