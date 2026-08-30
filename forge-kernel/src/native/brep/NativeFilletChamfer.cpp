@@ -77,6 +77,7 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
 #include <GProp_GProps.hxx>
 #include <BRepLib.hxx>
@@ -2064,13 +2065,30 @@ Result filletTangentRim(const TopoDS_Shape& shape, const FilletSpec& spec) {
         }
         const TopoDS_Face capNew = planarFaceFromSegs(segs, rc.capPln, rc.nCap, innerWires(rc.cap));
         if (capNew.IsNull()) return defer("rim: the offset cap ring would not rebuild");
-        // AREA, not volume: a hole that the offset ring ran into changes the cap's
-        // area and nothing else, and a wrong cap can still close a plausible solid.
+        // ★ TOPOLOGY FIRST, and this is the guard the AREA test could not be.
+        //   MEASURED 2026-08-30 over the 600-part corpus: on 21 parts the cap's
+        //   nearest HOLE lies closer to the rim than R (measured ratio 0.104 to
+        //   1.000 of R against 1.000 to 10.59 on the parts that are fine), so the
+        //   inward offset ring RUNS INTO that hole and the rebuilt face's outer wire
+        //   crosses an inner one. BRepCheck_Analyzer says exactly that:
+        //   `IntersectingWires` on one planar face, 21/21, with the shell flagged
+        //   behind it.
+        //   Neither the volume self-check nor the area identity below can see it —
+        //   both are computed as (outer region) minus (hole regions), the same
+        //   subtraction whether or not the regions overlap, so on all 21 the removed
+        //   volume still matched the closed form to the last printed digit. That is
+        //   this programme's standing lesson in its exact form, one level further on:
+        //   AREA was not a different enough observable from VOLUME. The observable
+        //   that separates them is topological, and it is cheap.
+        if (BRepCheck_Analyzer(capNew).IsValid() != Standard_True)
+            return defer("rim: the offset cap ring runs into a hole (an inner wire "
+                         "lies closer to the rim than the fillet radius)");
+        // AREA, kept: it catches an offset ring that closed onto the WRONG region
+        // without crossing a wire, which BRepCheck would call valid.
         const double aOld = areaOf(rc.cap), aNew = areaOf(capNew);
         if (!(aOld > 0.0)) return defer("rim: unreadable cap area");
         if (std::fabs((aOld - aNew) - rc.bandArea) > 1e-6 * aOld)
-            return defer("rim: the offset cap did not lose exactly the blend band "
-                         "(a hole or a boundary lies inside it)");
+            return defer("rim: the offset cap did not lose exactly the blend band");
         faces.push_back(capNew);
     }
 
@@ -2110,6 +2128,12 @@ Result filletTangentRim(const TopoDS_Shape& shape, const FilletSpec& spec) {
 
     const TopoDS_Shape sol = sewToSolid(faces, shape);
     if (sol.IsNull()) return defer("rim: sew produced no closed solid");
+    // A second, whole-body reading of the same topological observable. The rim path
+    // is new, so it is held to "returns a VALID solid or declines" rather than to the
+    // per-edge path's older contract; a body BRepCheck rejects is not an answer this
+    // path is willing to hand a caller under FORGE_FILLET_DROP_NATIVE.
+    if (BRepCheck_Analyzer(sol).IsValid() != Standard_True)
+        return defer("rim: the assembled body is not BRepCheck-valid");
 
     const double v0 = solidVolume(shape), v1 = solidVolume(sol);
     if (v0 > 0.0) {

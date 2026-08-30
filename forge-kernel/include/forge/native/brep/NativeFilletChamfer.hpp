@@ -50,7 +50,13 @@
 //       back R, one cylinder patch per line and one Geom_ToroidalSurface patch per
 //       arc (centre R below the cap, major radius rho-R, minor radius R). Holes in
 //       the cap are preserved verbatim. Requires rho > R, one wall per rim segment,
-//       and every wall deeper than R; FILLET only — no rim CHAMFER is authored —
+//       every wall deeper than R, and every HOLE at least R clear of the rim — that
+//       last one checked TOPOLOGICALLY on the rebuilt cap face (BRepCheck), because
+//       the volume self-check and the cap-area identity are both computed as (outer
+//       region) minus (hole regions) and are therefore blind to a hole the offset
+//       ring has crossed: MEASURED, 21 corpus parts built with the removed volume
+//       matching the closed form exactly and the cap's wires intersecting.
+//       FILLET only — no rim CHAMFER is authored —
 //       and only for a single-edge request. This path is tried LAST, after the
 //       per-edge and corner-aware builds have both declined, so it cannot change an
 //       answer either of them already gives; a POLYGON rim (a plain box lid) is not
@@ -75,7 +81,7 @@
 //       native-analytic linear-law engine and the remaining OCCT-topology gap.
 //
 // EVERY line of that scope statement is MEASURED against live OCCT, not asserted:
-//   forge-kernel/test/run_ab_native_fillet_concave.sh — 104 assertions, each in-scope
+//   forge-kernel/test/run_ab_native_fillet_concave.sh — 114 assertions, each in-scope
 //   case compared to BRepFilletAPI on volume, centre of mass, all six bbox bounds,
 //   face/edge/vertex/shell counts, Euler characteristic + genus and BRepCheck
 //   validity, PLUS an independent closed form; each defer control asserting both

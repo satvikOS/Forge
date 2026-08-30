@@ -212,7 +212,8 @@ TopoDS_Shape prismOf(const Poly& p) {
 // by four straight runs, extruded h along +Z. Every junction is G1 by construction,
 // which is what makes the top rim a propagating fillet contour — the shape the
 // corpus A/B's 58 "end face not planar" parts all are.
-TopoDS_Shape roundedRectPrism(double W, double H, double rho, double h) {
+TopoDS_Shape roundedRectPrism(double W, double H, double rho, double h,
+                              double holeY = 0.0, double holeR = 0.0) {
     if (!(W > 2.0 * rho) || !(H > 2.0 * rho) || !(rho > 0.0) || !(h > 0.0))
         return TopoDS_Shape();
     const double a = W * 0.5 - rho, b = H * 0.5 - rho;
@@ -238,6 +239,15 @@ TopoDS_Shape roundedRectPrism(double W, double H, double rho, double h) {
     if (!mw.IsDone()) return TopoDS_Shape();
     BRepBuilderAPI_MakeFace mf(mw.Wire(), Standard_True);
     if (!mf.IsDone()) return TopoDS_Shape();
+    if (holeR > 0.0) {
+        const gp_Ax2 hax(gp_Pnt(0.0, holeY, 0.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+        BRepBuilderAPI_MakeEdge hm(gp_Circ(hax, holeR));
+        if (!hm.IsDone()) return TopoDS_Shape();
+        BRepBuilderAPI_MakeWire hw(hm.Edge());
+        if (!hw.IsDone()) return TopoDS_Shape();
+        mf.Add(TopoDS::Wire(hw.Wire().Reversed()));
+        if (!mf.IsDone()) return TopoDS_Shape();
+    }
     return BRepPrimAPI_MakePrism(mf.Face(), gp_Vec(0, 0, h)).Shape();
 }
 
@@ -739,6 +749,89 @@ int main() {
                       "corner radius is not larger", OcctExpect::Succeeds);
         else
             check(false, "rim defer control: could not locate a top-rim edge");
+    }
+    {
+        // (d) A HOLE CLOSER TO THE RIM THAN R — the defect the volume and area checks
+        //     could not see. MEASURED 2026-08-30 over the 600-part corpus: on 21 parts
+        //     the cap's nearest hole lies closer to the rim than R (ratio 0.104 to
+        //     1.000 of R, against 1.000 to 10.59 on the parts that are fine), so the
+        //     inward offset ring crosses that hole's wire. The removed volume STILL
+        //     matched the closed form to the last printed digit on all 21, because
+        //     both the volume and the cap-area identity are computed as (outer region)
+        //     minus (hole regions) — the same subtraction whether or not the regions
+        //     overlap. BRepCheck_Analyzer reports `IntersectingWires` on one planar
+        //     face, 21/21. The guard is that topological reading, and this case is the
+        //     proof it fires: the hole's edge sits 0.5R from the straight rim.
+        const double R = 3.0, rho = 8.0, W = 60.0, H = 40.0, hgt = 15.0;
+        const double holeR = 4.0;
+        const double holeY = H * 0.5 - (holeR + 0.5 * R);   // hole edge 0.5R from the rim
+        const TopoDS_Shape prism = roundedRectPrism(W, H, rho, hgt, holeY, holeR);
+        check(!prism.IsNull(), "RIM hole-inside-band: the holed prism builds");
+        if (!prism.IsNull()) {
+            TopoDS_Edge pick; double best = 0.0;
+            for (const TopoDS_Edge& e : allEdges(prism)) {
+                BRepAdaptor_Curve c(e);
+                if (c.GetType() != GeomAbs_Line) continue;
+                const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+                if (std::fabs(mid.Z() - hgt) > 1e-9) continue;
+                GProp_GProps g; BRepGProp::LinearProperties(e, g);
+                if (g.Mass() > best) { best = g.Mass(); pick = e; }
+            }
+            if (!pick.IsNull())
+                deferCase("RIM a hole lies inside the blend band", prism, {pick}, R, true,
+                          "runs into a hole", OcctExpect::Succeeds);
+            else
+                check(false, "rim defer control: could not locate a rim edge on the holed prism");
+        }
+    }
+    {
+        // (e) THE SAME PRISM with the hole moved out to 1.5R — the guard must not be
+        //     a blanket refusal of holed caps. It must build, keep the hole, and match
+        //     OCCT on the full observable vector.
+        const double R = 3.0, rho = 8.0, W = 60.0, H = 40.0, hgt = 15.0;
+        const double holeR = 4.0;
+        const double holeY = H * 0.5 - (holeR + 1.5 * R);
+        const TopoDS_Shape prism = roundedRectPrism(W, H, rho, hgt, holeY, holeR);
+        check(!prism.IsNull(), "RIM hole-clear-of-band: the holed prism builds");
+        if (!prism.IsNull()) {
+            TopoDS_Edge pick; double best = 0.0;
+            for (const TopoDS_Edge& e : allEdges(prism)) {
+                BRepAdaptor_Curve c(e);
+                if (c.GetType() != GeomAbs_Line) continue;
+                const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+                if (std::fabs(mid.Z() - hgt) > 1e-9) continue;
+                GProp_GProps g; BRepGProp::LinearProperties(e, g);
+                if (g.Mass() > best) { best = g.Mass(); pick = e; }
+            }
+            std::printf("[rim] holed prism, hole edge 1.5R clear of the rim\n");
+            std::vector<forge::occtfillet::FilletSpec> sp(1);
+            sp[0].edge = pick; sp[0].radius = R;
+            const forge::occtfillet::Result nr = forge::occtfillet::makeFillet(prism, sp);
+            check(nr.ok, std::string("RIM hole-clear-of-band: engine builds (got: ") +
+                         (nr.ok ? std::string("ok") : nr.reason) + ")");
+            if (nr.ok) {
+                const double lineL = 2.0 * (W - 2.0 * rho) + 2.0 * (H - 2.0 * rho);
+                const double corner = 4.0 * (0.5 * kPi) *
+                    (R * R * (2.0 * rho - R) * 0.5 - R * R * R / 3.0
+                     - (rho - R) * kPi * R * R * 0.25);
+                const double want = (1.0 - kPi / 4.0) * R * R * lineL + corner;
+                const Metrics m0 = measure(prism), m1 = measure(nr.shape);
+                check(relClose(m0.vol - m1.vol, want, 1e-9),
+                      "RIM hole-clear-of-band: removes exactly the rim closed form");
+                check(m1.valid, "RIM hole-clear-of-band: native is BRepCheck-VALID");
+                TopoDS_Shape occtOut;
+                try {
+                    BRepFilletAPI_MakeFillet mk(prism);
+                    mk.Add(R, pick);
+                    mk.Build();
+                    if (mk.IsDone()) occtOut = mk.Shape();
+                } catch (...) {}
+                check(!occtOut.IsNull(), "RIM hole-clear-of-band: OCCT builds it too");
+                if (!occtOut.IsNull())
+                    check(sameMetrics(m1, measure(occtOut), "RIM hole-clear-of-band"),
+                          "RIM hole-clear-of-band: native == OCCT on the full observable vector");
+            }
+        }
     }
     {
         // (c) a wall shallower than R: the pull-back would run off the bottom.
