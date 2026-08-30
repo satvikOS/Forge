@@ -706,24 +706,23 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
-  // ── UNDO / REDO ───────────────────────────────────────────────────────────
-  // Registered here, not in ForgeShell, because these drive THIS document's
-  // stack. They are the only Part commands with no feature-IR op: they move the
-  // program back and forth rather than extending it.
-  {
-    CommandDescriptor c = base("part.undo", "Undo", "", SelectionSignature::none());
-    c.undo = UndoContract::NotUndoable;
-    c.enabled = [s](const CommandContext&) { return s->undoDepth() > 0; };
-    c.execute = [d, s](CommandContext&) { s->undo(*d); };
-    add(std::move(c));
-  }
-  {
-    CommandDescriptor c = base("part.redo", "Redo", "", SelectionSignature::none());
-    c.undo = UndoContract::NotUndoable;
-    c.enabled = [s](const CommandContext&) { return s->redoDepth() > 0; };
-    c.execute = [d, s](CommandContext&) { s->redo(*d); };
-    add(std::move(c));
-  }
+  // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
+  // There used to be `part.undo` and `part.redo` in this list, driving the very
+  // stack `s` points at. They were registered here when ForgeShell's own
+  // `edit.undo` was a counter stub (`--doc_.undoDepth; ++doc_.redoDepth; ...`)
+  // that touched no document at all.
+  //
+  // ForgeShell::DocumentHost closed that: `edit.undo` now calls
+  // documentUndo() on whoever owns the document, and in the application that is
+  // ForgeFrame, whose documentUndo() runs THIS UndoStack and then re-tessellates.
+  // So the registry held TWO Undo commands over ONE stack -- two menu entries
+  // both labelled "Undo", only one of them carrying Ctrl+Z, and only one of them
+  // driving the viewport rebuild. One undo stack means one Undo command, and the
+  // one that survives is the one the keyboard, the status strip and the geometry
+  // already go through.
+  //
+  // The caretaker itself is unchanged and still public: UndoStack::undo/redo are
+  // what documentUndo()/documentRedo() call.
 
   return added;
 }
@@ -735,8 +734,8 @@ const std::vector<std::string>& partCommandIds() {
         "part.chamfer",           "part.counterbore",      "part.extrude",
         "part.fillet",            "part.hole",             "part.loft",
         "part.mirror",            "part.pattern_circular", "part.pattern_grid",
-        "part.pattern_linear",    "part.redo",             "part.revolve",
-        "part.shell",             "part.undo",             "part.variable_fillet",
+        "part.pattern_linear",    "part.revolve",          "part.shell",
+        "part.variable_fillet",
     };
     std::sort(v.begin(), v.end());
     return v;

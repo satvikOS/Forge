@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "30e10b593d0ff1cbec8bd2196a5be0e2d08830fe6ba2d1b93136cef2cec0a879",
-        "bytes": 36101,
-        "lines": 747
+        "sha256": "77c5541199500d32f6e9817aced7730fc60940ac64d37adbd107f69ddfd79e29",
+        "bytes": 36200,
+        "lines": 746
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,7 +78,7 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 31,
+    "registry_commands": 29,
     "commands_emitting_ir": 16,
     "user_invocable_ops": 14,
     "forbidden_ops": 26,
@@ -3286,22 +3286,6 @@
       "produces_value_kind": "Solid"
     },
     {
-      "id": "part.redo",
-      "label": "Redo",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [],
-      "preview": "None",
-      "undo": "NotUndoable",
-      "source": "ui/src/PartCommands.cpp"
-    },
-    {
       "id": "part.revolve",
       "label": "Revolve",
       "category": "Part",
@@ -3435,22 +3419,6 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
-    },
-    {
-      "id": "part.undo",
-      "label": "Undo",
-      "category": "Part",
-      "feature_ir_op": null,
-      "emits_feature_ir": false,
-      "selection": {
-        "kind": "None",
-        "min": 0,
-        "max": null
-      },
-      "parameters": [],
-      "preview": "None",
-      "undo": "NotUndoable",
-      "source": "ui/src/PartCommands.cpp"
     },
     {
       "id": "part.variable_fillet",

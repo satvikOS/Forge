@@ -8,7 +8,7 @@
 //
 //   (A) KernelScene, whose geometry was HARDCODED IN C++ (makeBox -> cut ->
 //       filletEdges) and could never be changed by any user action;
-//   (B) forge::ui::PartDocument, which the 18 real Part commands appended
+//   (B) forge::ui::PartDocument, which the real Part commands appended
 //       feature-IR to — and which was rendered as ONE LINE OF TEXT in the
 //       Properties panel and nowhere else;
 //   (C) ForgeShell::DocumentStats, a set of counters that file.*/edit.* bumped,

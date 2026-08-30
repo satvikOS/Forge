@@ -67,8 +67,8 @@ int main() {
 
   // ── registration is the PRECONDITION, not the assertion ───────────────────
   const std::size_t added = registerPartCommands(registry, doc, undoStack);
-  CHECK_EQ_INT(added, 18);
-  CHECK_EQ_INT(registry.size(), 18);
+  CHECK_EQ_INT(added, 16);
+  CHECK_EQ_INT(registry.size(), 16);
   CHECK_EQ_INT(registry.ids().size(), partCommandIds().size());
   for (std::size_t i = 0; i < partCommandIds().size(); ++i) {
     CHECK_EQ_STR(at(registry.ids(), i), at(partCommandIds(), i));
@@ -76,7 +76,7 @@ int main() {
   // Re-registering must be refused wholesale: two implementations behind one
   // stable ID is the failure the single registry exists to prevent.
   CHECK_EQ_INT(registerPartCommands(registry, doc, undoStack), 0);
-  CHECK_EQ_INT(registry.size(), 18);
+  CHECK_EQ_INT(registry.size(), 16);
 
   // every descriptor carries the whole s19.2 contract, and every modelling
   // command names an op the kernel actually has
@@ -95,7 +95,7 @@ int main() {
       CHECK(findIrOp(c->featureIrOp) != nullptr);
     }
   }
-  CHECK_EQ_INT(withIrOp, 16);  // all but part.undo / part.redo
+  CHECK_EQ_INT(withIrOp, 16);  // every registered Part command emits an IR op
 
   // ── the document seed ─────────────────────────────────────────────────────
   // Three values that exist before any Part command ran: two sketches from the
@@ -311,42 +311,51 @@ int main() {
   CHECK_EQ_INT(undoStack.undoDepth(), 11);
   CHECK_EQ_STR(undoStack.undoLabel(), "Subtract");
 
-  CHECK(registry.dispatch("part.undo", sel).ok());
+  // Driven through the CARETAKER, because the Part workspace no longer registers
+  // an undo command of its own: ForgeShell's ONE edit.undo owns that, through
+  // forge::ui::DocumentHost, and forge-desktop's document gate asserts the whole
+  // path (command -> host -> this stack -> re-tessellated viewport).
+  CHECK(undoStack.undo(doc));
   CHECK_EQ_INT(doc.records().size(), 13);
   CHECK_EQ_INT(doc.valueFor("body_4"), 12);   // the pre-CUT binding is BACK
   CHECK_EQ_INT(doc.valueFor("body_13"), 13);  // and so is the consumed tool
   CHECK_EQ_INT(undoStack.redoDepth(), 1);
   CHECK_EQ_STR(undoStack.redoLabel(), "Subtract");
 
-  CHECK(registry.dispatch("part.redo", sel).ok());
+  CHECK(undoStack.redo(doc));
   CHECK_EQ_INT(doc.records().size(), 14);
   // redo replays the SAME statement id — an id that drifted would silently
   // rewrite every later `%N` in the program
   CHECK_EQ_STR(doc.irProgram(), program);
   CHECK_EQ_INT(undoStack.redoDepth(), 0);
 
-  // redo is offered only when there is something to redo
-  CHECK_EQ_INT(statusOf(registry.evaluate("part.redo", sel)),
-               static_cast<int>(DispatchStatus::Disabled));
+  // redo is refused when there is nothing to redo
+  CHECK(!undoStack.redo(doc));
+  CHECK_EQ_INT(undoStack.redoDepth(), 0);
 
   // a NEW edit after an undo abandons the redo branch (linear undo)
-  CHECK(registry.dispatch("part.undo", sel).ok());
+  CHECK(undoStack.undo(doc));
   CHECK_EQ_INT(undoStack.redoDepth(), 1);
   selectOnly(sel, {ref("body_4", EntityKind::Edge, "e9")});
   CHECK(registry.dispatch("part.chamfer", sel, params1("distance", 1.5)).ok());
   CHECK_EQ_INT(undoStack.redoDepth(), 0);
-  CHECK_EQ_INT(statusOf(registry.evaluate("part.redo", sel)),
-               static_cast<int>(DispatchStatus::Disabled));
+  CHECK(!undoStack.redo(doc));
   CHECK_EQ_STR(lastLine(doc), "%14 = CHAMFER(%12, 1.5, ALL)");
 
   // undo all the way down, then check undo is refused at the floor
   while (undoStack.undoDepth() > 0) {
-    CHECK(registry.dispatch("part.undo", sel).ok());
+    CHECK(undoStack.undo(doc));
   }
   CHECK_EQ_INT(doc.records().size(), 3);  // only the three seeds remain
   CHECK_EQ_INT(doc.featureCount(), 0);
-  CHECK_EQ_INT(statusOf(registry.evaluate("part.undo", sel)),
-               static_cast<int>(DispatchStatus::Disabled));
+  CHECK(!undoStack.undo(doc));
+  // ONE UNDO STACK, ONE UNDO COMMAND: the registry must not carry a second
+  // Undo over this same caretaker.
+  CHECK(!registry.contains("part.undo"));
+  CHECK(!registry.contains("part.redo"));
+  for (const std::string& id : partCommandIds()) {
+    CHECK(id != "part.undo" && id != "part.redo");
+  }
   CHECK_EQ_INT(doc.valueFor("body_4"), 0);  // the extruded body went with it
   CHECK_EQ_INT(doc.valueFor("sketch_1"), 1);  // the seeds did not
 
@@ -356,7 +365,7 @@ int main() {
     PartDocument doc2;
     UndoStack stack2;
     SelectionService sel2;
-    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 18);
+    CHECK_EQ_INT(registerPartCommands(reg2, doc2, stack2), 16);
     doc2.seed(IrValueKind::Profile, "sk_a", "CIRCLE", {IrArg::num(20)});
     doc2.seed(IrValueKind::Profile, "sk_b", "CIRCLE", {IrArg::num(12)});
     doc2.seed(IrValueKind::Profile, "sk_c", "CIRCLE", {IrArg::num(6)});
@@ -460,7 +469,7 @@ int main() {
     PartDocument docR;
     UndoStack stackR;
     SelectionService selR;
-    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 18);
+    CHECK_EQ_INT(registerPartCommands(regR, docR, stackR), 16);
     CHECK_EQ_INT(docR.seed(IrValueKind::Profile, "sk_r", "RECT", {IrArg::num(8), IrArg::num(6)}),
                  1);
     selectOnly(selR, {ref("sk_r", EntityKind::Sketch, "")});
@@ -492,7 +501,7 @@ int main() {
     PartDocument docP;
     UndoStack stackP;
     SelectionService selP;
-    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 18);
+    CHECK_EQ_INT(registerPartCommands(regP, docP, stackP), 16);
     docP.seed(IrValueKind::Solid, "solid_p", "BOX",
               {IrArg::num(10), IrArg::num(10), IrArg::num(10)});
     selectOnly(selP, {ref("solid_p", EntityKind::Body, "")});
@@ -545,7 +554,7 @@ int main() {
     PartDocument docX;
     UndoStack stackX;
     SelectionService selX;  // EMPTY, and never populated
-    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 18);
+    CHECK_EQ_INT(registerPartCommands(regX, docX, stackX), 16);
     docX.seed(IrValueKind::Profile, "sk_x", "RECT", {IrArg::num(4), IrArg::num(4)});
 
     const std::vector<std::string> indexing = {"part.extrude", "part.revolve",

@@ -257,7 +257,8 @@ int main(int argc, char** argv) {
   forge::desktop::ForgeFrame frame(shell, scene);
   if (g_mutation != 2) frame.wirePartCommands();
 
-  // The 18 Part commands went into THE SAME registry the shell dispatches.
+  // The Part commands went into THE SAME registry the shell dispatches. The
+  // count is READ from partCommandIds(), never spelled here.
   checkEq(shell.registry().size(), shellCommands + forge::ui::partCommandIds().size(),
           "Part commands joined the shell's one registry");
   for (const std::string& id : forge::ui::partCommandIds()) {

@@ -70,7 +70,7 @@ class ForgeFrame final : public forge::ui::DocumentHost {
  public:
   ForgeFrame(forge::ui::ForgeShell& shell, KernelScene& scene);
 
-  // Registers the 18 Part workspace commands into the shell's ONE registry,
+  // Registers the 16 Part workspace commands into the shell's ONE registry,
   // seeds the PartDocument with the SAME statements KernelScene::build()
   // compiled, and installs this object as the shell's document host. Returns how
   // many commands were added.
