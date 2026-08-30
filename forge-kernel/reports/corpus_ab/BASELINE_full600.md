@@ -54,13 +54,39 @@ centre of mass, identical bounding box — and volume `+114690.606` native versu
 point inward, so it is OCCT returning the reversed solid. Only one part (ho876) differs for
 real, and only in COM.
 
-**PIPESHELL's disagreement is a SYSTEMATIC DIRECTION ERROR, and it is native's.** All 15
-both-OK parts differ in volume, area, COM and bbox — but the volume ratio is
-**1.07051 with sd 0.00327**, and 8 of the 15 land on exactly 1.07180. A ratio that tight
-across differently shaped parts is one convention error, not per-part geometry noise.
-Native builds the larger shell, consistent with thickening OUTWARD where OCCT thickens
-INWARD; for a shell of radius R and wall t that predicts a ratio (2R+t)/(2R-t), constant
-whenever the harness derives t proportionally, and 1.0718 implies t/R = 0.069.
+~~**PIPESHELL's disagreement is a SYSTEMATIC DIRECTION ERROR, and it is native's.**~~
+**RETRACTED — REFUTED BY MEASUREMENT.** The claim above was wrong in both halves: the
+disagreement is not a direction error, and it is not native's. Native is correct.
+
+**Structural refutation.** The PIPESHELL derivation (`corpus_ab_coverage.cpp:1180-1198`)
+sweeps a face's outer WIRE along a spine with `makeSolid=true`. There is **no wall, no
+offset and no thickness parameter anywhere in it**, so the predicted `(2R+t)/(2R-t)` has no
+`t` to instantiate. The hypothesis could not have been true of this operation, and the
+tight ratio that motivated it had a different explanation entirely.
+
+**Numeric identification.** `1.071796769` is exactly `1/cos^2(15deg) = 2/(1 + cos 30deg)`,
+and 30 degrees is the turn HARD-CODED in `spineFromFace` (`corpus_ab_coverage.cpp:513`).
+Confirmed as the turn angle rather than a constant: the ratio tracks theta across
+{0,10,20,30,45,60} as 1.0000 / 1.00765 / 1.03109 / 1.07180 / 1.17157 / 1.33333, and breaks
+the equal-leg form exactly as `(L1+L2)/(L1+L2*cos theta)` predicts when `L1 != L2`.
+
+**Mechanism, measured with an oracle that is neither engine** (half-space boolean clipping,
+TKBO): for `A=100, theta=30`, native's cross-section perpendicular to BOTH legs is 100 --
+it is a sweep -- while OCCT's is 100 on leg 1 and `86.60254038 = A*cos 30` on leg 2. OCCT
+never rotates the section onto leg 2.
+
+**Cause.** `BRepOffsetAPI_MakePipeShell` defaults to `BRepBuilderAPI_Transformed` and the
+production call site (`src/Features.cpp:728-739`, `forge::part::sweep`) never sets it. With
+`SetTransitionMode(BRepBuilderAPI_RightCorner)` OCCT reproduces the native solid on the full
+observable vector: corpus disagreements **309 -> 0**, volume ratio **min = max =
+1.000000000, sd 0**, and a synthetic 45-case gate **0/45 -> 45/45**.
+
+**What the error was on my part.** The ratio's tightness (1.07051, sd 0.00327) was real and
+was correctly read as "one systematic cause rather than per-part noise". The failure was
+jumping from "one cause" to a NAMED cause that the operation had no parameter for, instead
+of first checking what quantities the derivation actually has. A constant that tight
+deserved a constant-hunt -- 1.0718 is a recognisable closed form -- not a story.
+Recorded in PR #96.
 
 So the two families were never one problem. THICKEN needs no geometric fix at all, and
 PIPESHELL has a single named, testable hypothesis with a bounded fix.

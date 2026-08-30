@@ -26,6 +26,13 @@ enum class EntityKind : std::uint8_t {
   Body,
   Sketch,
   SketchCurve,
+  // A closed 3D section ring (forge::ft's WIRE value: RING / WIRE). NOT a Sketch:
+  // a sketch is a Z=0 profile, and the whole reason the kernel has a separate WIRE
+  // kind is that a loft section lives at an arbitrary height and plane. Selecting
+  // one has to be distinguishable from selecting a profile, or LOFT and EXTRUDE
+  // would offer themselves on each other's input -- which is the mis-selection a
+  // typed signature exists to refuse.
+  Wire,
   Feature,
   Component,
   Datum,
