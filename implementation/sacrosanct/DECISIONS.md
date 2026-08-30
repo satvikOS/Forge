@@ -696,3 +696,80 @@ but two are worth naming because they are live: `edit.delete` declares `feature_
 "DELETE"`, an op the kernel does not have, so nothing can ever compile it; and
 `model.extrude`, `model.fillet`, `model.shell` all declare an op and emit nothing, because
 `ForgeShell` holds only a `DocumentStats` counter and no `PartDocument`.
+
+---
+
+## D-022 (2026-08-30): LOFT consumes WIRE — `part.loft` was a LATENT BUG, and closing the gap needed BOTH halves
+
+D-021 left one question open on purpose: WIRE was the last unclosed value kind, and it named
+`WIRE or RING` as owed — but it also refused to add the producer blind, because the gap was
+entangled with a defect the vocabulary already recorded, `command_feeds_the_wrong_value_kind`
+for `part.loft`. Its words were: "deciding whether LOFT takes profiles or wires is a semantics
+question and is not answered blind here."
+
+**The kernel answers it, and it is not ambiguous.** `forge-kernel/src/ft/FeatureTreeCompiler.cpp`:
+`opLoft()` puts every `%ref` through `refWire()`, which throws unless the value's kind is
+`Val::Wire`; `Builder::kindOf()` assigns `Val::Wire` to exactly two OpCodes, `Ring` and `Wire`.
+`FeatureTree.hpp` says the same in prose ("WIRE ... consumed by LOFT"), and `FeatureIr.hpp`
+already states the standard this violates: "a UI that emits IR the kernel would reject is worse
+than a UI that emits none, because it looks like progress."
+
+**MEASURED, not read** — the four statements driven through the native verifier
+(`forge_verify` -> `forge::ft::compileText`), with the arms proved to differ:
+
+| program | result |
+|---|---|
+| `BOX(10,10,10)` (positive control) | ok, volume 1000 |
+| `RECT(40,40); CIRCLE(10); LOFT(%1,%2)` — **what `part.loft` emitted** | **ok=false**, `LOFT: %1 is not a WIRE section (use RING(...) or WIRE([...]))`, failedOpId 3 |
+| `RING(20,20,0); RING(10,10,30); LOFT(%1,%2)` | ok, volume 21928.4 |
+| `WIRE([...]); WIRE([...]); LOFT(%1,%2)` | ok, volume 24960 |
+
+So `part.loft` feeding PROFILE was **neither correct-by-accident nor a deliberate widening**: it
+was a statement `forge::ui` called well-formed and `forge::ft` refuses. Correct-by-accident was
+never available — `refWire()` rejects on the value KIND before any handle is used.
+
+**DECISION: do both halves, because either alone leaves LOFT unreachable.** Fixing only the
+command gives a right-kind command with nothing legal to select; adding only a producer leaves a
+command that still resolves PROFILE and would never enable on it. Both landed:
+
+1. `part.loft` now resolves `IrValueKind::Wire` and its signature is `atLeast(EntityKind::Wire, 2)`.
+2. `part.section_ring` (`RING`) is the WIRE producer, a creator taking no selection like
+   `part.sketch_rect` and `part.sketch_circle`.
+
+**RING and not WIRE.** `WIRE([x y z; ...])` needs a POINTS token, and `FeatureIr.hpp` deliberately
+does not model `IrArgKind::Points` ("a token kind nothing produces is a liability, not coverage").
+RING is all numbers, emits through the existing `IrArg::num` path, and its `z` is the point of the
+whole value kind: the Z=0 sketcher cannot express a section at another height.
+
+**`EntityKind::Wire` was added** rather than reusing `Sketch`. A sketch is a Z=0 profile; reusing
+that kind would have offered LOFT and EXTRUDE on each other's input, which is the mis-selection a
+typed signature exists to refuse.
+
+**Two kernel behaviours the command refuses rather than passes on.** `wireRing()` throws on
+`rx <= 0 || ry <= 0`, but it SILENTLY CLAMPS `p` to `>= 2` and `seg` to `>= 8`. A recorded statement
+the kernel reads as different numbers is worse than no statement, so the enabled predicate refuses
+both. Its four optional arguments are also emitted as ONE positional group: emitting `p` without
+`cx, cy` would put the superellipse exponent in the `cx` slot and build a different ring.
+
+**Result — the vocabulary is CLOSED.** `value_kind_closure.gaps` is now `[]` and
+`produced_by_allowed_ops` is `PROFILE, SOLID, WIRE`, computed by the artifact about itself. Counts
+UPDATED to new exact values, never relaxed: 17 -> 18 user-invocable ops, 23 -> 22 forbidden,
+34 -> 35 commands, 19 -> 20 emitting IR, 7 -> 6 derived defects
+(`command_feeds_the_wrong_value_kind` is gone because the defect is gone). ALL 12 UI GATES PASS,
+0 failures: part_commands 400 -> 450 checks, archie_op_vocabulary 1453 -> 1536 (32 -> 34 examples
+dispatched through the live registry), tool_catalog 854 -> 877. Vocabulary `--check` exits 0.
+
+**Verified end to end, not just in the gate.** The ten-statement program the part_commands gate
+builds from an EMPTY document using only user-invocable commands —
+`RECT; EXTRUDE; FILLET; CIRCLE; EXTRUDE; TRANSLATE; CUT; RING; RING; LOFT` — compiles in the kernel
+to a valid solid of volume 34964.0.
+
+**Observed and NOT fixed here** (pre-existing, independent of this change): `LOFT` over two
+COPLANAR sections returns `ok=true, valid=true, volume=0`. Two rings at the same `z` build a
+zero-volume shell that the kernel reports as valid. That is a kernel-side silent-zero, older than
+this decision and out of its scope; it is recorded so the next reader does not discover it as a
+surprise.
+
+**Reversible.** Both halves are local: `part.loft` reverts by changing one value kind back, and
+the producer reverts by deleting one command block plus its id. The measurement above is what
+would have to be refuted first.

@@ -15,7 +15,7 @@ does not expose.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 27 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 34 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -33,16 +33,20 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **31 commands**; **16 of them emit
-feature-IR**, reaching **14 distinct op names**. The kernel defines **40** ops
-(`opFromName`), so **26 ops plus the `RESULT` terminal are unreachable by any
+Measured at this revision: the registry holds **35 commands**; **20 of them emit
+feature-IR**, reaching **18 distinct op names**. The kernel defines **40** ops
+(`opFromName`), so **22 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
 
 | op | command(s) | the form(s) a user can emit |
 |---|---|---|
+| `RECT` | part.sketch_rect | `RECT(width, height)`<br>`RECT(width, height, cx, cy)` |
+| `CIRCLE` | part.sketch_circle | `CIRCLE(radius)`<br>`CIRCLE(radius, cx, cy)` |
+| `RING` | part.section_ring | `RING(rx, ry, z)`<br>`RING(rx, ry, z, cx, cy, p, seg)` |
 | `EXTRUDE` | part.extrude | `EXTRUDE(%profile, distance)`<br>`EXTRUDE(%profile, distance, dirx, diry, dirz)` |
 | `REVOLVE` | part.revolve | `REVOLVE(%profile, angle)`<br>`REVOLVE(%profile, angle, 0, 0, 0, axx, axy, axz)` |
-| `LOFT` | part.loft | `LOFT(%profile...)`, `+ RULED`, `+ OPEN` |
+| `LOFT` | part.loft | `LOFT(%wire...)`, `+ RULED`, `+ OPEN` |
+| `TRANSLATE` | part.move | `TRANSLATE(%body, dx, dy, dz)` |
 | `HOLE` | part.hole | `HOLE(%body, diameter, x, y, z)`<br>`HOLE(%body, diameter, x, y, z, 0, 0, 1, depth)` |
 | `CBORE` | part.counterbore | `CBORE(%body, diameter, cbore_diameter, cbore_depth, x, y, z)` |
 | `FILLET` | part.fillet | `FILLET(%body, radius, ALL\|CONVEX\|RIM\|VERTICAL\|"<face selector>")` |
@@ -90,11 +94,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 27 on every CI run), not a hand-written illustration.
+dispatches all 34 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 14 names are legal; after the name, the argument count is bounded
+head, only the 18 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).
@@ -115,15 +119,19 @@ $ python3 implementation/sacrosanct/tools/measure_vocabulary_coverage.py \
       forge-kernel/test/ft/ft_smoke.mjs forge-kernel/test/ft/ft_organic_smoke.mjs \
       forge-kernel/test/ft/ft_bore_count.mjs forge-kernel/test/ft/ft_unified_edit.mjs
 corpus:      4 file(s), 53 program(s), 183 statement(s)
-statements inside the vocabulary: 83/183 = 45.4%
-programs fully inside it:         0/53 = 0.0%
+vocabulary:  implementation/sacrosanct/archie_op_vocabulary.json (18 user-invocable ops)
+statements inside the vocabulary: 89/183 = 48.6%
+programs fully inside it:         2/53 = 3.8%
 ```
 
 The ops that put them outside are `BOX` (30), `CYL` (17), `INPUT` (12),
 `DEFEATURE` (10), `RESIZEBORE` (6), `TAG` (5), `WIRE` (4), `VERIFY` (4),
-`RING` (3), `SWEEP` (2), `PUSHFACE` (2), `RECT`/`RRECT`/`CIRCLE`/`TRANSLATE`/
-`FOLD` (1 each). (Programs are split on blank lines, so "53 programs" is a
-heuristic count; the statement figure is exact.)
+`SWEEP` (2), `PUSHFACE` (2), `RRECT` (1). (Programs are split on blank lines, so
+"53 programs" is a heuristic count; the statement figure is exact.) The five
+creators added since this was first measured — `RECT`, `CIRCLE`, `RING`,
+`TRANSLATE` and the corrected `LOFT` — moved it from 45.4%/0.0%: the first
+programs to fall ENTIRELY inside the vocabulary appeared only once a user could
+create the value a program starts from.
 
 **Read that the right way.** It does not say the constraint is wrong. It says the
 app is missing commands: more than half of what the kernel's own reference parts
@@ -131,33 +139,46 @@ do — primitives, sketch profiles, direct edits — has no button. Widening Arc
 vocabulary would paper over that; adding the commands fixes it, and this file
 then picks them up automatically on the next `--write`.
 
-## Four things the derivation found, and what they mean for training
+## What the derivation found, and what it means for training
 
 These are recorded in the JSON under `derived_defects` and `value_kind_closure`,
 each with the evidence that produced it. The runtime gate drives the ones that
-can be driven.
+can be driven. Two of the original four are now CLOSED; the entries are kept
+because a reader who saw the old ones needs to know they moved, and why.
 
-1. **The vocabulary is not closed.** `EXTRUDE`/`REVOLVE` consume a `PROFILE` and
-   `LOFT` consumes a `WIRE`, and **no user-invocable op produces either** — their
-   producers (`RECT`, `CIRCLE`, `RING`, `WIRE`, …) are all forbidden. So a
-   training target may only *begin* with those ops if the document already holds a
-   seeded sketch. Sequences must otherwise start from a `%ref` the task provides.
-2. **`part.loft` emits a statement the kernel refuses.** The command resolves
-   `PROFILE` values, and `opLoft` calls `refWire`, which throws "is not a WIRE
-   section (use RING(...) or WIRE([...]))". `LOFT` is therefore *invocable* and
-   *not compilable* through the user surface. Do not train on UI-shaped `LOFT`
-   until the command feeds it wire sections.
+1. **CLOSED (D-021, D-022) — the vocabulary was not closed, and now is.**
+   `EXTRUDE`/`REVOLVE` consume a `PROFILE` and `LOFT` consumes a `WIRE`, and no
+   user-invocable op produced either: from an empty document, no legal program
+   existed. `part.sketch_rect` and `part.sketch_circle` closed `PROFILE`;
+   `part.section_ring` (`RING`) closed `WIRE`. `value_kind_closure.gaps` — which
+   the artifact computes about ITSELF — is now `[]`, and
+   `produced_by_allowed_ops` is `PROFILE, SOLID, WIRE`. A training target may now
+   begin from nothing.
+2. **CLOSED (D-022) — `part.loft` emitted a statement the kernel refuses.** The
+   command resolved `PROFILE` values while `opLoft` puts every `%ref` through
+   `refWire`, which throws "is not a WIRE section (use RING(...) or
+   WIRE([...]))". `LOFT` was *invocable* and *not compilable* through the user
+   surface. MEASURED through `forge_verify` -> `forge::ft::compileText`:
+   `RECT(40,40); CIRCLE(10); LOFT(%1,%2)` fails at op `%3` with that exact
+   message, while `RING(20,20,0); RING(10,10,30); LOFT(%1,%2)` builds a solid of
+   volume 21928.4. The command now resolves `IrValueKind::Wire`, its signature is
+   `atLeast(EntityKind::Wire, 2)`, and `part.section_ring` supplies the sections.
+   **UI-shaped `LOFT` is now trainable** — as `LOFT(%wire, %wire, ...)`, never
+   over profiles.
 3. **Four commands declare an op they never emit** — `model.extrude`,
    `model.fillet`, `model.shell` (ForgeShell stubs that touch only
    `DocumentStats`) and `edit.delete` (whose `DELETE` is not a kernel op at all).
    The gate dispatches the three `model.*` ones and asserts the Part document
    gains nothing while dispatch answers `Ok`. Their `featureIrOp` must not be read
    as evidence that an op is reachable; only `commands[].emits_feature_ir` is.
-4. **The shipped app's `PROFILE` seed is invalid.** `ForgeFrame::wirePartCommands`
-   seeds `sketch.base` with op `"SKETCH"`, which `opFromName` does not accept, so
-   `validateIr` answers `unknown_op`, the seed binds no value and — today —
-   `EXTRUDE`, `REVOLVE` and `LOFT` are unreachable *in the running app* even
-   though their commands are registered.
+4. **CLOSED — the shipped app's `PROFILE` seed was invalid.**
+   `ForgeFrame::wirePartCommands` seeded `sketch.base` with op `"SKETCH"`, which
+   `opFromName` does not accept, so `validateIr` answered `unknown_op`, the seed
+   bound no value, and every profile-consuming command in the Part workspace was
+   permanently unreachable — silently. It now seeds through `seedDefaultPart()`
+   from the same `defaultPartStatements` table `KernelScene::build()` compiles,
+   and reports the failure rather than swallowing it. The generator no longer
+   emits a seed defect, which is how this entry was found to be stale.
 
 ## Keeping it true
 
