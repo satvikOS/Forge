@@ -94,8 +94,13 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Cylinder.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
@@ -123,6 +128,7 @@ TopoDS_Shape defer(const char* why) {
 }
 
 constexpr double kPara = 1.0e-9;    // direction-parallelism slack (1 - |dot|)
+constexpr double kTwoPi = 6.283185307179586476925286766559;
 
 bool envOn(const char* name) {
     const char* v = std::getenv(name);
@@ -308,6 +314,217 @@ TopoDS_Shape sectorWedge(const gp_Pnt& p0, const gp_Dir& dir, double len,
     return wedge;
 }
 
+// ===========================================================================
+// PATH C — ONE CYLINDRICAL FACE, trimmed to its FULL parametric rectangle.
+// ===========================================================================
+// WHY THIS PATH EXISTS, AND WHY IT IS EXACTLY THIS SHAPE. The corpus coverage
+// A/B (test/corpus_ab_coverage.cpp, 600 parts) measured this engine at 67.8%
+// against OCCT's 100.0%, a deletion bucket of 193 parts. Instrumenting the
+// native arm with thickenLastDeferReason() attributed ALL 193 to ONE reason,
+// "a face is not a Geom_Plane" — and a surface census of the picked face over
+// the same 600 parts found all 193 of them to be a CYLINDER (407 Plane / 193
+// Cylinder, no third type anywhere in the corpus). So the whole deletion
+// bucket was one missing surface type, not a scatter of causes.
+//
+// THE CLOSED FORM. A cylindrical patch of radius R over the parametric
+// rectangle [u0,u1] x [v0,v1] has outward normal +e_r, so offsetting it by a
+// signed t gives the COAXIAL cylinder of radius R' = R + s*t, where s = +1 if
+// the face's outward normal points away from the axis and -1 if it points at
+// it. The body between the two patches, closed by the two annular end rings, is
+// the ANNULAR TUBE between the radii Rlo = min(R,R') and Rhi = max(R,R') over
+// the axial band [v0,v1]. Its volume is exactly
+//         V = 0.5 * du * (Rhi^2 - Rlo^2) * dv
+// and its area exactly
+//         A = (Rlo + Rhi)*du*dv + du*(Rhi^2 - Rlo^2)
+// for the full turn this path builds (see the construction note below for why a
+// partial u-span is declined rather than approximated).
+//
+// ★ MEASURED AGAINST LIVE OCCT, NOT ASSERTED. The same BRepOffset_MakeOffset
+//   call src/Features.cpp makes was run on the picked face of all 193 corpus
+//   parts and its volume compared with BOTH candidate closed forms:
+//       face REVERSED (119 parts) -> OCCT's volume == the R-t form, rel < 1e-9
+//       face FORWARD   (51 parts) -> OCCT's volume == the R+t form, rel < 1e-9
+//       the remaining  (23 parts) -> NEITHER form, rel 2e-2 .. 9e-2
+//   The 170 that match are exactly the parts that pass the RECTANGLE
+//   CERTIFICATE below; the 23 that do not are exactly the ones that fail it.
+//   So the certificate is not a heuristic guard — it is the precise predicate
+//   separating the inputs on which this closed form IS OCCT's answer from the
+//   ones on which it is not, and the sign rule was READ OFF that measurement
+//   rather than reasoned about.
+//
+// THE RECTANGLE CERTIFICATE, and why it is exact rather than approximate. A
+// cylindrical face trims the surface to some UV region D contained in the
+// adaptor's box [u0,u1] x [v0,v1], and its area is exactly R * area(D). So
+//         area(face) == R * du * dv   <=>   D IS the whole rectangle,
+// with strict inequality otherwise — a face with an inner loop (a hole cut in
+// the tube wall), or any non-rectangular trim, has strictly less area. One
+// area comparison therefore proves the trim is the full rectangle, which is the
+// precondition the closed form needs. This is the same style of certificate the
+// coplanar path uses (prism volume == area * thickness).
+//
+// HONEST DEFER, as everywhere else in this file, each with its own named reason:
+// a non-rectangular trim, a partial u-span, a non-positive or axis-touching
+// offset radius, a degenerate parametrisation, a cut that fails, or a result
+// that misses either closed form, carries a face that is neither of the two
+// walls nor a planar cap, or leaves the [Rlo,Rhi] x [v0,v1] envelope.
+//
+// DROP HYGIENE unchanged: gp_/Geom_ (TKMath/TKG3d), forge::occtCylinderSolid
+// (OcctPrimBuilder.cpp, itself TKPrim-free), BRepAlgoAPI_Cut (TKBO, already in
+// the closure and already called from this file's n-ary fuse) and
+// ShapeUpgrade_UnifySameDomain (TKShHealing, likewise). NO BRepOffset*, NO
+// BRepOffsetAPI*, NO BRepPrimAPI* symbol is referenced.
+TopoDS_Shape thickenSingleCylinder(const TopoDS_Face& f, double t, double tol) {
+    const Handle(Geom_Surface) s = basisSurface(BRep_Tool::Surface(f));
+    Handle(Geom_CylindricalSurface) cs = Handle(Geom_CylindricalSurface)::DownCast(s);
+    if (cs.IsNull()) return defer("a face is not a Geom_Plane");   // not this path
+
+    const gp_Cylinder cy = cs->Cylinder();
+    const double R = cy.Radius();
+    if (!(R > 1.0e-12)) return defer("cylindrical path: the radius is not positive");
+
+    double u0 = 0.0, u1 = 0.0, v0 = 0.0, v1 = 0.0;
+    BRepTools::UVBounds(f, u0, u1, v0, v1);
+    const double du = u1 - u0, dv = v1 - v0;
+    if (!(du > 1.0e-12) || !(dv > 1.0e-12))
+        return defer("cylindrical path: the UV box is degenerate");
+    if (du > kTwoPi + 1.0e-9)
+        return defer("cylindrical path: the u-span exceeds one full turn");
+
+    // ---- the RECTANGLE CERTIFICATE ---------------------------------------
+    const double want = R * du * dv;
+    const double got = faceArea(f);
+    if (!(std::fabs(got - want) <= 1.0e-6 * want))
+        return defer("cylindrical path: the face is not the full parametric "
+                     "rectangle (a trimmed or holed patch)");
+
+    // ---- which side is OUT: derived from the surface, not assumed --------
+    const gp_Ax3 pos = cy.Position();
+    const gp_Dir Zd = pos.Direction();
+    const gp_Dir Xd = pos.XDirection();
+    const gp_Pnt loc = pos.Location();
+    const double uc = 0.5 * (u0 + u1), vc = 0.5 * (v0 + v1);
+    gp_Pnt pc;
+    gp_Vec dU, dV;
+    cs->D1(uc, vc, pc, dU, dV);
+    const gp_Vec nv = dU.Crossed(dV);
+    if (nv.Magnitude() < 1.0e-12)
+        return defer("cylindrical path: the parametrisation is degenerate");
+    gp_Dir n(nv);
+    if (f.Orientation() == TopAbs_REVERSED) n.Reverse();
+    // e_r at the patch centre, from the surface point itself (no handedness
+    // assumption): the component of (pc - loc) orthogonal to the axis.
+    gp_Vec rad(loc, pc);
+    rad -= gp_Vec(Zd) * rad.Dot(gp_Vec(Zd));
+    if (rad.Magnitude() < 1.0e-12)
+        return defer("cylindrical path: the patch centre lies on the axis");
+    const double side = gp_Vec(n).Dot(rad) > 0.0 ? 1.0 : -1.0;
+
+    const double Rp = R + side * t;
+    const double Rlo = std::min(R, Rp), Rhi = std::max(R, Rp);
+    if (!(Rlo > 1.0e-9 * Rhi))
+        return defer("cylindrical path: the offset radius reaches the axis");
+
+    // ---- the annular tube, built ANALYTICALLY ----------------------------
+    // NOT a revolve of the axial section. occtRevol would work and its volume
+    // is right, but every face it emits is a Geom_SurfaceOfRevolution: MEASURED
+    // on corpus part ho1002 the revolved body came back 4F/8E where OCCT's
+    // returns 4F/6E, because a periodic surface-of-revolution cap carries a seam
+    // a planar annulus does not. Shipping that would trade a coverage gain for a
+    // SURFACE-TYPE regression — every downstream consumer that asks "is this face
+    // a cylinder" (the corpus picker itself does) would start getting "no" — so
+    // the body is assembled from canonical primitives instead:
+    //     occtCylinderSolid(Rhi) CUT occtCylinderSolid(Rlo)
+    // which leaves exactly two Geom_CylindricalSurface walls and two Geom_Plane
+    // annular caps, the same inventory OCCT returns. Both operands come from
+    // OcctPrimBuilder (itself TKPrim-free) and BRepAlgoAPI_Cut is TKBO, already in
+    // the closure and already called from this very file's n-ary fuse.
+    //
+    // The construction is written for the FULL turn. A partial u-span would need
+    // the two planar side walls as well and is declined by name rather than
+    // approximated: it is 0 of 600 parts in the measured corpus, so it is a
+    // stated gap with an attributable reason, not a silent one.
+    if (!(du >= kTwoPi - 1.0e-9))
+        return defer("cylindrical path: a partial u-span needs the two side walls "
+                     "(not built)");
+
+    const gp_Pnt base = loc.Translated(gp_Vec(Zd) * v0);
+    const gp_Ax2 ax2(base, Zd, Xd);
+    TopoDS_Shape outer, inner;
+    try {
+        outer = ::forge::occtCylinderSolid(ax2, Rhi, dv);
+        inner = ::forge::occtCylinderSolid(ax2, Rlo, dv);
+    } catch (const std::exception&) {
+        return defer("cylindrical path: a wall cylinder could not be built");
+    }
+    if (outer.IsNull() || inner.IsNull())
+        return defer("cylindrical path: a wall cylinder is null");
+
+    BRepAlgoAPI_Cut cut(outer, inner);
+    cut.SetFuzzyValue(std::max(tol, 1.0e-7));
+    cut.Build();
+    if (!cut.IsDone()) return defer("cylindrical path: the wall cut failed");
+    const TopoDS_Shape raw = cut.Shape();
+    if (raw.IsNull()) return defer("cylindrical path: the wall cut produced a null shape");
+    ShapeUpgrade_UnifySameDomain unify(raw, Standard_True, Standard_True, Standard_True);
+    unify.Build();
+    const TopoDS_Shape out = unify.Shape();
+    if (out.IsNull()) return defer("cylindrical path: UnifySameDomain produced a null shape");
+
+    // ---- self-checks: a VECTOR of observables, never volume alone --------
+    int nSolid = 0, nShell = 0;
+    for (TopExp_Explorer ex(out, TopAbs_SOLID); ex.More(); ex.Next()) ++nSolid;
+    for (TopExp_Explorer ex(out, TopAbs_SHELL); ex.More(); ex.Next()) ++nShell;
+    if (nSolid != 1 || nShell != 1)
+        return defer("cylindrical path: the cut is not exactly one solid with one shell");
+
+    const double wantVol = 0.5 * du * (Rhi * Rhi - Rlo * Rlo) * dv;
+    const double wantArea = (Rlo + Rhi) * du * dv + du * (Rhi * Rhi - Rlo * Rlo);
+    GProp_GProps vp, ap;
+    BRepGProp::VolumeProperties(out, vp);
+    BRepGProp::SurfaceProperties(out, ap);
+    if (!(std::fabs(std::fabs(vp.Mass()) - wantVol) <= 1.0e-6 * wantVol))
+        return defer("cylindrical path: volume != the annulus closed form");
+    if (!(std::fabs(ap.Mass() - wantArea) <= 1.0e-6 * wantArea))
+        return defer("cylindrical path: area != the annulus closed form");
+
+    // SURFACE INVENTORY. The whole reason the revolve was rejected, so it is a
+    // CHECK and not a comment: exactly two cylindrical walls of radius Rlo and
+    // Rhi and exactly two planar caps, nothing else.
+    int nCyl = 0, nPln = 0, nOther = 0;
+    for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) {
+        const Handle(Geom_Surface) fs =
+            basisSurface(BRep_Tool::Surface(TopoDS::Face(ex.Current())));
+        Handle(Geom_CylindricalSurface) fc = Handle(Geom_CylindricalSurface)::DownCast(fs);
+        if (!fc.IsNull()) {
+            const double rr = fc->Cylinder().Radius();
+            if (std::fabs(rr - Rlo) > 1.0e-7 * Rhi && std::fabs(rr - Rhi) > 1.0e-7 * Rhi)
+                return defer("cylindrical path: a wall has neither the inner nor the "
+                             "outer radius");
+            ++nCyl;
+        } else if (!Handle(Geom_Plane)::DownCast(fs).IsNull()) ++nPln;
+        else ++nOther;
+    }
+    if (nCyl != 2 || nPln != 2 || nOther != 0)
+        return defer("cylindrical path: the face inventory is not two cylinders "
+                     "and two planar caps");
+
+    // CONTAINMENT. Volume and area are two numbers and this repo has four
+    // measured cases where a wrong solid matched the right number, so the last
+    // observable is geometric: every vertex must sit in the [Rlo,Rhi] annulus and
+    // inside the axial band. No coincidence of two masses can fake this.
+    const double rTol = 1.0e-6 * std::max(1.0, Rhi);
+    const double zTol = 1.0e-6 * std::max(1.0, std::fabs(v0) + dv);
+    for (TopExp_Explorer ex(out, TopAbs_VERTEX); ex.More(); ex.Next()) {
+        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(ex.Current()));
+        gp_Vec q(loc, p);
+        const double z = q.Dot(gp_Vec(Zd));
+        const double rr = (q - gp_Vec(Zd) * z).Magnitude();
+        if (rr < Rlo - rTol || rr > Rhi + rTol || z < v0 - zTol || z > v1 + zTol)
+            return defer("cylindrical path: a vertex left the annulus envelope");
+    }
+    return out;
+}
+
 }  // namespace
 
 bool thickenNativeEnabled() {
@@ -329,6 +546,25 @@ TopoDS_Shape thickenShell(const TopoDS_Shape& shell, double t, double tol) {
     if (!std::isfinite(t) || std::fabs(t) < 1.0e-12) return defer("thickness is zero or not finite");
     const double r = std::fabs(t);
     const double sgn = (t > 0.0) ? 1.0 : -1.0;
+
+    // ---- 0. PATH C — a lone CYLINDRICAL face ------------------------------
+    // Tried FIRST and ONLY for a single-face input, so nothing on the planar
+    // paths changes: a shell with two or more faces, or one planar face, falls
+    // straight through to the code that has always handled it. See
+    // thickenSingleCylinder's banner for the closed form, the rectangle
+    // certificate, and the live-OCCT measurement the sign rule was read off.
+    {
+        TopoDS_Face only;
+        int nFace = 0;
+        for (TopExp_Explorer ex(shell, TopAbs_FACE); ex.More() && nFace < 2; ex.Next()) {
+            only = TopoDS::Face(ex.Current());
+            ++nFace;
+        }
+        if (nFace == 1 &&
+            !Handle(Geom_CylindricalSurface)::DownCast(
+                 basisSurface(BRep_Tool::Surface(only))).IsNull())
+            return thickenSingleCylinder(only, t, tol);
+    }
 
     // ---- 1. faces; every one must be a Geom_Plane -------------------------
     std::vector<TopoDS_Face> faces;
