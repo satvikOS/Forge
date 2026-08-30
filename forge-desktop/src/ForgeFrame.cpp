@@ -30,7 +30,12 @@ namespace {
 
 // Chrome band heights, in unscaled points; multiplied by the DPI scale.
 constexpr float kWorkspaceTabH = 30.0f;
-constexpr float kToolbarH = 40.0f;
+constexpr float kScrollbarSize = 12.0f;  // style.ScrollbarSize; see applyStyle() below
+// One row of buttons (40) plus the ribbon's horizontal scrollbar. The Part
+// ribbon carries 34 commands, more than fits any window width, so the band is
+// scrollable and must be tall enough to hold the scrollbar without squeezing
+// the buttons. Deriving it from kScrollbarSize keeps the two from drifting.
+constexpr float kToolbarH = 40.0f + kScrollbarSize;
 constexpr float kStatusH = 26.0f;
 constexpr float kSplitter = 5.0f;
 constexpr float kTabBarH = 26.0f;
@@ -119,7 +124,7 @@ void applyForgeStyle(float dpiScale) {
   s.FramePadding = ImVec2(7, 4);
   s.ItemSpacing = ImVec2(7, 5);
   s.IndentSpacing = 16.0f;
-  s.ScrollbarSize = 12.0f;
+  s.ScrollbarSize = kScrollbarSize;
 
   ImVec4* c = s.Colors;
   c[ImGuiCol_Text] = rgb(226, 229, 234);
@@ -788,13 +793,23 @@ void ForgeFrame::drawToolbar(float y, float width, float height) {
   ImGui::SetNextWindowPos(ImVec2(0, y));
   ImGui::SetNextWindowSize(ImVec2(width, height));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(6, 4));
+  // NoDecoration is spelled out MINUS its NoScrollbar bit, plus a horizontal
+  // scrollbar: the Part ribbon is 34 buttons wide and a single un-scrollable row
+  // clips the tail silently — enumerated, dispatchable, and off the right edge.
   if (ImGui::Begin("##toolbar", nullptr,
-                   ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                   ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                       ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
-                       ImGuiWindowFlags_NoScrollbar)) {
+                       ImGuiWindowFlags_HorizontalScrollbar)) {
     // The ribbon: the commands whose CATEGORY this workspace claims. Same
     // registry, same enabled predicate as the menu — one command, one truth.
-    const std::vector<std::string> cats = forge::ui::workspaceCategories(shell_.workspace());
+    //
+    // ribbonCategories(), not workspaceCategories(): the hand-written claim list
+    // made TOTAL over the categories the registry actually holds. It claimed no
+    // "Part", so 21 of 34 commands — every geometry-building one — rendered on
+    // no ribbon in any workspace while the menu bar showed all 34.
+    const std::vector<std::string> cats =
+        forge::ui::ribbonCategories(shell_.workspace(), shell_.registry().categories());
     bool first = true;
     for (const std::string& cat : cats) {
       for (const std::string& id : shell_.registry().idsInCategory(cat)) {
@@ -1572,7 +1587,8 @@ void ForgeFrame::drawGenericPanel(const std::string& panelId) {
       panelId.c_str());
   ImGui::Spacing();
   ImGui::TextColored(rgb(130, 137, 148), "Commands this workspace owns:");
-  for (const std::string& cat : forge::ui::workspaceCategories(shell_.workspace())) {
+  for (const std::string& cat :
+       forge::ui::ribbonCategories(shell_.workspace(), shell_.registry().categories())) {
     for (const std::string& id : shell_.registry().idsInCategory(cat)) {
       const forge::ui::CommandDescriptor* d = shell_.registry().find(id);
       if (d == nullptr) continue;

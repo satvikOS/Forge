@@ -45,6 +45,56 @@ SCHEMA = "forge.archie.op_vocabulary/1"
 REPO = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
 OUT_REL = "implementation/sacrosanct/archie_op_vocabulary.json"
 GEN_REL = "implementation/sacrosanct/tools/gen_archie_op_vocabulary.py"
+MD_REL = "implementation/sacrosanct/ARCHIE_OP_VOCABULARY.md"
+
+# The prose beside the asset states the same measurements in words, and words are
+# not regenerated. Every one of these had gone stale: the doc said 31 commands /
+# 16 emitting / 14 ops / 26 forbidden / 27 examples while the JSON --check was
+# green at 34 / 19 / 17 / 23 / 32. A reader who trusts the paragraph is told the
+# registry is three commands smaller than it is. Each pattern below captures one
+# number and names the JSON count it must equal.
+MD_COUNT_PATTERNS = [
+    (r"the registry holds \*\*(\d+) commands\*\*", "registry_commands"),
+    (r"\*\*(\d+) of them emit\b", "commands_emitting_ir"),
+    (r"reaching \*\*(\d+) distinct op names\*\*", "user_invocable_ops"),
+    (r"The kernel defines \*\*(\d+)\*\* ops", "kernel_ops"),
+    (r"so \*\*(\d+) ops plus", "forbidden_ops"),
+]
+# Not a "counts" entry: the number of worked examples the runtime gate dispatches.
+MD_EXAMPLES_PATTERN = r"dispatches all (\d+) recorded examples"
+
+
+def check_markdown(doc):
+    """Every number the prose states must equal the asset it describes.
+
+    Returns a list of human-readable complaints; empty means the doc is honest.
+    A pattern that matches NOTHING is itself a complaint -- a sentence reworded
+    past the pattern would otherwise silently stop being checked, which is the
+    same silent-green failure the number drift was.
+    """
+    path = os.path.join(REPO, MD_REL)
+    if not os.path.exists(path):
+        return ["%s is MISSING" % MD_REL]
+    with open(path) as fh:
+        md = fh.read()
+    bad = []
+    for pattern, key in MD_COUNT_PATTERNS:
+        m = re.search(pattern, md)
+        if m is None:
+            bad.append("%s: no sentence matches /%s/ -- reworded past its check" % (MD_REL, pattern))
+            continue
+        stated, actual = int(m.group(1)), doc["counts"][key]
+        if stated != actual:
+            bad.append("%s says %d for counts.%s; the asset says %d" % (MD_REL, stated, key, actual))
+    examples = sum(len(f.get("examples", []))
+                   for op in doc["ops"] for f in op.get("emitted_forms", []))
+    m = re.search(MD_EXAMPLES_PATTERN, md)
+    if m is None:
+        bad.append("%s: no sentence matches /%s/" % (MD_REL, MD_EXAMPLES_PATTERN))
+    elif int(m.group(1)) != examples:
+        bad.append("%s says %s recorded examples; the asset carries %d"
+                   % (MD_REL, m.group(1), examples))
+    return bad
 
 SOURCES = {
     "kernel_header": "forge-kernel/include/forge/ft/FeatureTree.hpp",
@@ -1516,6 +1566,12 @@ def main(argv):
         print("[op-vocabulary] wrote %s -- %d user-invocable ops, %d forbidden, %d commands"
               % (OUT_REL, doc["counts"]["user_invocable_ops"], doc["counts"]["forbidden_ops"],
                  doc["counts"]["registry_commands"]))
+        # --write regenerates the JSON but cannot write the prose, so it says
+        # which sentences the author still has to correct BY HAND. Reported, not
+        # fatal: --write's job is the asset, and a nonzero exit here would make
+        # the regenerate step in the docs fail for a reason it cannot fix.
+        for complaint in check_markdown(doc):
+            sys.stderr.write("[op-vocabulary] PROSE STILL STALE: %s\n" % complaint)
         return 0
 
     if not os.path.exists(out):
@@ -1525,9 +1581,19 @@ def main(argv):
         have = fh.read()
     if have == text:
         doc = json.loads(text)
-        print("[op-vocabulary] OK -- %s matches the source (%d ops, %d commands, %d sources)"
+        complaints = check_markdown(doc)
+        if complaints:
+            sys.stderr.write("[op-vocabulary] the JSON matches the source, but %s CONTRADICTS it:\n"
+                             % MD_REL)
+            for complaint in complaints:
+                sys.stderr.write("  %s\n" % complaint)
+            sys.stderr.write("[op-vocabulary] correct the sentences by hand -- the numbers above "
+                             "are the measured ones.\n")
+            return 1
+        print("[op-vocabulary] OK -- %s matches the source (%d ops, %d commands, %d sources), "
+              "and %s states the same numbers"
               % (OUT_REL, doc["counts"]["user_invocable_ops"],
-                 doc["counts"]["registry_commands"], len(doc["provenance"]["sources"])))
+                 doc["counts"]["registry_commands"], len(doc["provenance"]["sources"]), MD_REL))
         return 0
     diff = list(difflib.unified_diff(have.splitlines(True), text.splitlines(True),
                                      fromfile=OUT_REL + " (committed)",
