@@ -269,6 +269,39 @@ a working operation into a thrown error.
   exactly like a clean zero. This family also has the only `NATIVE_ONLY` majority:
   7 native successes against 0 shared, i.e. the native engine answers a set OCCT
   does not.
+
+  > ### ⚠ BOTH THICKSOLID ROWS HAVE NOW HAD THE CENSUS THIS SECTION ASKS FOR
+  >
+  > Taking this document's own advice — do the per-part cause census before
+  > quoting a rate as a capability bound — `test/run_tkoffset_gh_defer_census.sh`
+  > measures the FIRST BINDING PRECONDITION for families G and H over the same
+  > 600 parts (600 rows, 0 control violations, verdicts matching this baseline on
+  > all 1,200 pairs). Full write-up in `reports/TKOFFSET_GH_DEFER_CENSUS.md`;
+  > raw rows in `reports/corpus_ab/tkoffset_gh_defer_census_600.tsv`. Three
+  > corrections to the two paragraphs above:
+  >
+  > 1. **"Hard for both" understates it for THICKSOLID: OCCT's 133 successes are
+  >    0/133 `BRepCheck_Analyzer`-VALID.** This table already says so
+  >    ("valid results: native 0, OCCT 0") and the 22.2% was quoted as a baseline
+  >    anyway. On re-measurement 18 of 87 have a volume above 90% of the source
+  >    solid — barely hollowed. OCCT is not a working incumbent for family G.
+  > 2. **The gap is ONE rule, not a NURBS gap.** All **126/126** THICKSOLID
+  >    deletion-bucket parts, and **33 of 38** OFFSETSHAPE ones, are declined at
+  >    `S2_planar_wire_edge_not_full_circle` — the mixed polygon+quadric planar
+  >    face. All **133/133** of OCCT's THICKSOLID successes are on parts entirely
+  >    inside the native engine's surface-type scope. **232 parts** are blocked by
+  >    that rule alone, so the reachable ceiling is 239/600 (39.8%), above OCCT's
+  >    22.2%.
+  > 3. **The 7 native successes were seven INVALID solids** (one
+  >    `IntersectingWires` face each: on ho1041 a hole reaching 4.47 mm past its
+  >    own rim, because the wall exceeded the local feature size). The engine's
+  >    area and volume self-checks are identities in the radii and are blind to
+  >    containment — the face's area matched its closed form to 2e-7 relative.
+  >    Fixed by `circlesNest` in `src/native/brep/NativeThickSolid.cpp`, gated by
+  >    `test/run_thicksolid_nesting_gate.sh` (proved to fail against the pre-fix
+  >    engine). **THICKSOLID native is now an honest 0.0%, not 1.2%**, and the
+  >    deletion bucket is 133/600. OFFSETSHAPE is unchanged at 7 — the guard fires
+  >    on every wrong answer and on nothing else.
 - **`MAKEOFFSET` is the closest miss: 94.5% against 99.0%, 27 parts deleted.** The
   `CMakeLists.txt:432` note records a 2026-07-31 measurement of 17/382 (4.5%) lost;
   this measures 27/600 (4.5%) on a different corpus. The two agree to the decimal.

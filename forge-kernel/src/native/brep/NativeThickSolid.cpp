@@ -78,6 +78,11 @@
 //   * a planar face has a wire that is not exactly one full circle (the
 //     ALL-planar polygonal case is handled by the other path; MIXED
 //     polygon+quadric solids are declined);
+//   * the OFFSET circles of a planar face stop nesting — a hole reaching past
+//     the outer rim, or two holes overlapping, because the offset exceeded the
+//     local feature size. Merging the openings is a real operation this engine
+//     does not implement, and the area self-check is blind to it (see
+//     circlesNest);
 //   * two removed faces are adjacent (a zero-width lip);
 //   * the offset collapses a radius, inverts a v-range, or the sew does not
 //     close;
@@ -586,6 +591,48 @@ TopoDS_Wire circleWire(const gp_Circ& c) {
 // Build a planar face on `pl` bounded by `outer` with `holes` punched out, and
 // SELF-CHECK its area against the closed form pi*(Ro^2 - sum Rh^2). A wrong hole
 // winding shows up as a wrong area, so this both fixes and verifies orientation.
+// Do the bounding circles of a disk-with-holes actually NEST — every hole
+// strictly inside the outer boundary, and no two holes overlapping?
+//
+// ★ THIS IS A GEOMETRIC PREDICATE AND THE AREA IDENTITY BELOW CANNOT STAND IN
+//   FOR IT. planarCircularFace already self-checks the built face against the
+//   closed form pi*(R^2 - sum r_i^2), and that check is BLIND to containment: it
+//   is an algebraic identity in the radii alone, so it holds just as exactly
+//   when a hole has moved OUTSIDE the outer circle. MEASURED on
+//   expert3d_v5cap_e600/ho1041 (the corpus A/B's THICKSOLID derivation, wall
+//   2.3808): the cavity face at z=135.119 came back with outer R=24.0192 and
+//   eight holes of r=4.6848 centred 23.808 from the axis — reaching to 28.493,
+//   i.e. 4.47 mm PAST the rim — and its measured area was 589.43237 against a
+//   `want` of 589.4325. The identity passed to 2e-7 relative on a face whose
+//   wires cross. So did the assembled solid's volume identity. Only
+//   BRepCheck_Analyzer saw it, as IntersectingWires.
+//
+//   That is this programme's recorded lesson ("volume cannot validate
+//   geometry") reproduced inside this engine, and it is why the guard is a
+//   distance test rather than another measure.
+//
+// WHY IT HAPPENS. Offsetting is only injective while the offset stays below the
+// local feature size. On ho1041 the original wall between each hole (r=2.304 at
+// radius 23.808) and the outer cylinder (R=26.4) is 0.288 mm; a 2.3808 mm wall
+// shrinks the rim by t and grows every hole by t, closing 2t = 4.76 mm across a
+// 0.288 mm gap. Merging the two openings is a real geometric operation this
+// engine does not implement, so the honest answer is the DEFER its own header
+// promises ("never a plausible wrong shape") — not a self-intersecting face.
+//
+// Tangency is rejected along with crossing: a hole touching the rim or another
+// hole makes a non-manifold vertex, which is not a face this engine may emit.
+bool circlesNest(const gp_Circ& outer, const std::vector<gp_Circ>& holes) {
+    for (std::size_t i = 0; i < holes.size(); ++i) {
+        const double d = outer.Location().Distance(holes[i].Location());
+        if (!(d + holes[i].Radius() < outer.Radius() - kGeo)) return false;
+        for (std::size_t j = i + 1; j < holes.size(); ++j) {
+            const double dij = holes[i].Location().Distance(holes[j].Location());
+            if (!(dij > holes[i].Radius() + holes[j].Radius() + kGeo)) return false;
+        }
+    }
+    return true;
+}
+
 TopoDS_Face planarCircularFace(const Handle(Geom_Plane)& pl,
                                const gp_Circ& outer,
                                const std::vector<gp_Circ>& holes) {
@@ -606,6 +653,10 @@ TopoDS_Face planarCircularFace(const Handle(Geom_Plane)& pl,
         if (!inPlane(outer)) return TopoDS_Face();
         for (const gp_Circ& h : holes) if (!inPlane(h)) return TopoDS_Face();
     }
+
+    // ...and they must NEST. See circlesNest above for why the area check that
+    // follows cannot detect this and for the measured case that proves it.
+    if (!circlesNest(outer, holes)) return TopoDS_Face();
 
     for (int flip = 0; flip < 2; ++flip) {
         // Outer wire wound about +N; holes wound the opposite way.
