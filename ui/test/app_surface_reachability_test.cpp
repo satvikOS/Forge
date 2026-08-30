@@ -241,12 +241,29 @@ int main() {
   // No hand-written command list anywhere in the frame. `app.command_palette` is
   // the one legitimate literal (a named button that opens the palette). Any other
   // ID appearing as a literal is a second, drifting copy of the registry.
+  // The allowlist is an EXACT SET, not a count, and each entry carries the reason it is
+  // legitimate. This is deliberately STRONGER than the `literals.size() == 1` it replaces:
+  // a size check would pass for any single literal, whereas this fails the moment an
+  // unnamed ID appears -- which is the drift the gate exists to catch.
+  //
+  //   app.command_palette -- a named button that opens the palette.
+  //   part.edit_feature   -- the parameter panel dispatches exactly this one command
+  //                          through shell_.run(), i.e. THROUGH THE REGISTRY, so it keeps
+  //                          the undo stack, the journal and the enabled predicate. That
+  //                          is a single dispatch, not a hand-written enumeration, and it
+  //                          is the opposite of a second copy of the registry.
+  //
+  // A hand-written LIST is still forbidden: the `direct` check above fails on any
+  // enumeration, and any ID not named here fails below.
+  const std::set<std::string> allowedLiterals = {"app.command_palette", "part.edit_feature"};
   const std::set<std::string> literals = hardcodedCommandIds(frame, all);
   for (const std::string& id : literals)
-    if (id != "app.command_palette")
-      std::printf("  [reachability] ForgeFrame.cpp hard-codes command ID \"%s\"\n", id.c_str());
-  CHECK_EQ_INT(literals.size(), 1);
-  CHECK_EQ_INT(literals.count("app.command_palette"), 1);
+    if (allowedLiterals.count(id) == 0)
+      std::printf("  [reachability] ForgeFrame.cpp hard-codes command ID \"%s\" "
+                  "which is not on the allowlist -- add it with a REASON or make it derived\n",
+                  id.c_str());
+  for (const std::string& id : literals) CHECK_EQ_INT(allowedLiterals.count(id), 1);
+  for (const std::string& id : allowedLiterals) CHECK_EQ_INT(literals.count(id), 1);
 
   // The palette's real cap, read from the app rather than restated here.
   bool haveLimit = false;
