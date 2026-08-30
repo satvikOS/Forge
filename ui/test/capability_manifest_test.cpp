@@ -117,15 +117,18 @@ std::vector<std::string> lines(const std::string& s) {
 int main() {
   Harness H("capability_manifest");
 
-  // Exactly what ForgeFrame::wirePartCommands() does. The seeds are the two values a
-  // Part command consumes; they do not change the descriptor set, but mirroring the
-  // app's construction is the point of the gate.
+  // The two values a Part command consumes. The seeds are CHECKED: `SKETCH` is in no
+  // op table, so validateIr rejected it, seed() returned 0, and "sketch.base" was never
+  // bound -- this gate mirrored the app's construction in shape but not in effect, which
+  // is the failure a gate is supposed to catch rather than embody. ForgeFrame was fixed
+  // (it now replays defaultPartStatements and reports a refusal); this was not.
   ForgeShell shell;
   PartDocument doc;
   UndoStack undo;
-  doc.seed(IrValueKind::Profile, "sketch.base", "SKETCH", {IrArg::keyword("XY")});
-  doc.seed(IrValueKind::Solid, "body.bracket", "BOX",
-           {IrArg::num(80.0), IrArg::num(50.0), IrArg::num(20.0)});
+  CHECK_EQ_INT(doc.seed(IrValueKind::Profile, "sketch.base", "RECT",
+                        {IrArg::num(80.0), IrArg::num(50.0)}), 1);
+  CHECK_EQ_INT(doc.seed(IrValueKind::Solid, "body.bracket", "BOX",
+                        {IrArg::num(80.0), IrArg::num(50.0), IrArg::num(20.0)}), 2);
   const std::size_t partAdded = registerPartCommands(shell.registry(), doc, undo);
 
   const CommandRegistry& reg = shell.registry();
