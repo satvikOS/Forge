@@ -902,3 +902,56 @@ sharpens that: `grep` for `playwright` over the workflows on BOTH branches retur
 **no CI job runs any of the 404 Playwright specs**. They are a manual reference. That is not a
 reason to delete them sooner; it is the reason they must be re-authored before they go, because
 nothing else in the tree would go red on the day their assertions stop being true.
+
+## D-025 (2026-08-30): the release is NOT blocked on a Developer ID — D-019's conclusion is CORRECTED by the user's distribution decision
+
+**D-019 concluded that the release was blocked on a Developer ID certificate. That conclusion
+was wrong, and the user corrected it.** The measurements behind it were sound; the inference
+from them was not. A paid certificate was treated as a hard PREREQUISITE when it is a
+FRICTION TRADEOFF, and the choice of how much friction to accept belongs to whoever ships the
+product, not to the person measuring it.
+
+**The distribution model, decided by the user:** Forge ships from GitHub Releases and later
+the ArchDisc website, with auto-update on, so a user downloads once and every later version
+arrives in place. Not the Mac App Store.
+
+**One factual correction to the user's framing, recorded because getting it backwards would
+misdirect future work.** Developer ID is not the App Store path -- it is precisely the
+OUTSIDE-the-App-Store path. Apple's split is: Mac App Store builds use an Apple Distribution
+certificate and get App Store review; anything distributed by web uses a **Developer ID
+Application** certificate plus **notarization**. So shipping from GitHub Releases does not
+sidestep Gatekeeper; it means the user meets Gatekeeper once. That does not change the
+decision, and the decision stands.
+
+**What was MEASURED on the existing bundle, rather than assumed:**
+
+* `codesign -v --deep --strict` **exits 0**. The ad-hoc signature is VALID and intact, so the
+  app runs normally once approved. This is the load-bearing fact: a BROKEN signature would
+  fail even after "Open Anyway", and this one does not.
+* `spctl -a -t exec` says **rejected**, with the quarantine attribute and without it. That is
+  expected and permanent for an ad-hoc signature -- spctl assesses signature POLICY, which
+  ad-hoc cannot satisfy. It is NOT a build defect and must not be chased.
+* A downloaded copy carries `com.apple.quarantine`, so the first launch shows "cannot be
+  opened because the developer cannot be verified". The user clears it once in System
+  Settings -> Privacy & Security -> "Open Anyway".
+
+**Two consequences that shape the implementation:**
+
+1. **The right-click -> Open shortcut was REMOVED in macOS 15.** Any instruction telling users
+   to right-click and Open is wrong on current macOS and sends them somewhere that does not
+   work. The first-launch documentation must say System Settings.
+2. **The updater must download and apply IN-APP, never via the browser.** A browser download
+   re-applies `com.apple.quarantine` and reproduces the scary dialog on every version, which
+   destroys the entire premise that the prompt is one-time. It must also verify a checksum
+   BEFORE swapping: an auto-updater without that is a remote code execution channel.
+
+**DECISION: ship ad-hoc signed, from GitHub Releases, with in-app auto-update.** No
+certificate is bought. D-019's floor analysis is unaffected and still correct: minos=26.0 is a
+runner-image property inherited from the Homebrew bottle tag, not an OCCT consequence, and
+`desktop-release.yml` already pins `runs-on: macos-15` with `FORGE_FLOOR_MAX 15.0`, which
+fixes it with OCCT still present. PR #86, which moves that workflow to the default branch so
+`workflow_dispatch` registers, remains a prerequisite for a CI-driven release.
+
+**Publishing remains a human action.** The agents preparing this are explicitly forbidden from
+pushing a tag or publishing a release, including a draft. Everything is staged so that
+publishing is one reviewed step.
