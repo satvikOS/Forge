@@ -137,7 +137,8 @@ The band the threshold sits in is empty over five orders of magnitude.
   **17/17 PASS**.
 * **The shipped coverage A/B, row by row.** The OCCT stock arm is
   **byte-identical** pre- and post-fix. In the drop arm **exactly two rows
-  changed**, both `DEFER -> OK`: `ho13`, `ho133`. Nothing else moved.
+  changed status**, both `DEFER -> OK`: `ho13`, `ho133`. (Geometry moved on 27
+  further rows; that is measured and accounted for below, not waved away.)
 * **The recovered geometry is right, not merely non-null.**
   `test/cam_inwardoffset_geom_probe.cpp` runs OCCT's `inwardOffset` and
   `tryNativeInwardOffset` on the same wire in the same process:
@@ -201,6 +202,11 @@ The band the threshold sits in is empty over five orders of magnitude.
   | MAKEOFFSET agree / agree-up-to-orientation / disagree | 309 / 309 / 285 | **identical** |
   | FILLING (untouched CONTROL) both / OCCT-only / neither | 407 / 0 / 193 | **identical** |
   | rows differing in STATUS or BUCKET, either family | — | **0** |
+  | rows whose `agree` / `agree_upto_orientation` flipped | — | **0** |
+  | rows whose native `BRepCheck_Analyzer` validity changed | — | **0** |
+
+  Those last three are per-row checks over all 1200 rows, not a comparison of
+  the summary totals — identical totals can hide offsetting flips.
 
   32 MAKEOFFSET rows do move geometrically, and it is the same mechanism: the
   edge count RISES on 32 of 32 (e.g. 114 -> 253, 100 -> 252), which is a
