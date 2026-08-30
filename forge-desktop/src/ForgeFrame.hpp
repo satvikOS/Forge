@@ -206,6 +206,28 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // REFUSE picks, because nothing ever offered it an Edge.
   bool edgePickMode() const;
 
+  // ── the feature PARAMETER editor ────────────────────────────────────────
+  // Which statement, and which of its NUMBER arguments, the Properties panel is
+  // editing. This is frame-builder state by the same rule as the palette query:
+  // forge::ui owns the document and the command, and what owns "the row the user
+  // is pointing at" is the frame. Statement 0 means the last statement, which is
+  // what part.edit_feature's `feature` parameter also means -- one convention,
+  // not two.
+  int editFeatureId() const noexcept { return editFeatureId_; }
+  std::size_t editParamIndex() const noexcept { return editParamIndex_; }
+  // Clamps to a statement that exists and a NUMBER argument it actually has, and
+  // re-seeds the edit field from the value that argument currently holds -- so a
+  // panel can never show a stale number beside a different feature's name.
+  void setEditTarget(int irId, std::size_t paramIndex);
+  // How many NUMBER arguments the current target has. 0 means "nothing here is
+  // editable", which is the honest answer for CUT(%2, %3).
+  std::size_t editParamCount() const;
+  // The value that parameter holds in the document right now.
+  double editParamValue() const;
+  // Dispatch part.edit_feature for the current target through the ONE registry
+  // and re-sync the viewport. Returns whether the document actually changed.
+  bool applyFeatureEdit(double value);
+
   // Palette visibility is app state, not shell state.
   bool paletteOpen() const noexcept { return paletteOpen_; }
   void togglePalette() noexcept { paletteOpen_ = !paletteOpen_; }
@@ -347,6 +369,13 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   float dpiScale_ = 1.0f;
   // Live parameter for the next parametric command, edited in Properties.
   float paramValue_ = 3.0f;
+  // Live parameter of an EXISTING feature, edited in Properties. Distinct from
+  // paramValue_ on purpose: one feeds the next command, this one rewrites a
+  // statement already in the program, and sharing a field would make "change the
+  // fillet I made" and "make the next fillet" the same control.
+  int editFeatureId_ = 0;
+  std::size_t editParamIndex_ = 0;
+  float editValue_ = 0.0f;
 
   void note(const std::string& line);
 };

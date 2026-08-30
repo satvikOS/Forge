@@ -14,6 +14,7 @@ part.boolean_subtract	Part	CUT	document	transaction	none	1	-
 part.boolean_union	Part	FUSE	document	transaction	none	1	-
 part.chamfer	Part	CHAMFER	document	transaction	live	1	distance:number:required,selector:text:optional
 part.counterbore	Part	CBORE	document	transaction	ondemand	1	diameter:number:required,cbore_diameter:number:required,cbore_depth:number:required,x:number:optional,y:number:optional,z:number:optional
+part.edit_feature	Part	-	document	transaction	live	1	feature:number:optional:hasdefault,index:number:optional:hasdefault,value:number:required
 part.extrude	Part	EXTRUDE	document	transaction	live	1	distance:number:required:hasdefault,dirx:number:optional,diry:number:optional,dirz:number:optional
 part.fillet	Part	FILLET	document	transaction	live	1	radius:number:required:hasdefault,selector:text:optional
 part.hole	Part	HOLE	document	transaction	ondemand	1	diameter:number:required,x:number:optional,y:number:optional,z:number:optional,depth:number:optional
