@@ -197,6 +197,20 @@ The band the threshold sits in is empty over five orders of magnitude.
   | bbox rel | 3.792e-5 | **1.845e-5** |
   | centroid rel | 6.068e-6 | **7.812e-7** |
 
+* **The recovery is not a knife-edge.** Sweeping each recovered ring's offset
+  from 0.25x to 10x its nominal `d`, the surviving area decreases monotonically
+  at every step, never re-appears once it has gone, and the loop collapses
+  exactly where it must — at the ring's own inradius:
+
+  | part | source bbox | half-height (= inradius, fill 99.3%) | last d that survives | first d that collapses |
+  |---|---|---|---|---|
+  | `ho13`  | 243.9 x 106.9 | 53.45 | -52.91 | **-54.87** |
+  | `ho133` | 220.2 x 89.0 | 44.51 | -44.24 | **-45.94** |
+
+  So case (d) of the seed gate — "an inward offset past the inradius collapses
+  honestly" — holds on these two real rings and not only on the synthetic
+  square: the excision recovers a real offset without ever manufacturing a ghost
+  loop past the point where the feature is gone.
 * **Causality, with a control.** Replaying 66 dumped rings through a build
   instrumented to count excisions: the excision fired on **27 of the 27** moved
   parts and on **0 of the 39** parts that did not move. No part moved without an
@@ -307,7 +321,14 @@ describe this tree's code exactly.
 ```
 forge-kernel/test/build_corpus_ab_coverage.sh
 forge-kernel/test/run_cam_inwardoffset_coverage_ab.sh <outdir>          # the coverage clause
-BASE_REV=HEAD~1 forge-kernel/test/run_cam_inwardoffset_native_delta.sh  # what else moved
+# What else moved. BASE_REV must name a revision where PolygonOffset2D.cpp
+# ACTUALLY differs; the script refuses to report a number otherwise, and the
+# HEAD~1 default stops being right as soon as anything lands on top. `-S` finds
+# the commit that introduced the excision, whose PARENT is the revision without
+# it -- correct from any later HEAD:
+BASE_REV="$(git log -1 --format=%H -S ringNid -- \
+    forge-kernel/src/native/geom/PolygonOffset2D.cpp)^" \
+  forge-kernel/test/run_cam_inwardoffset_native_delta.sh
 forge-kernel/test/build_cam_inwardoffset_geom_probe.sh                  # native vs OCCT geometry
 forge-kernel/test/build_cam_inwardoffset_ring_probe.sh                  # DUMP_RING=1 to replay a defer
 
