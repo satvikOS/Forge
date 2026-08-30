@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <string>
 #include <vector>
 
 #include <BRepBuilderAPI_MakeFace.hxx>
@@ -91,6 +92,22 @@ namespace occtdraft {
 namespace {
 
 const TopoDS_Shape kNull;
+
+// WHY A DEFER IS NAMEABLE. Every `return kNull` below records the reason first,
+// and draftLastDeferReason() reads it back. Mirrors NativeThickenShell.cpp's
+// deferSlot()/defer() pair verbatim (that file's comment carries the rationale):
+// a silent null tells a caller only THAT the engine declined, and a coverage
+// measurement that cannot say WHICH guard fired cannot tell a narrow
+// applicability predicate apart from a capability gap. It was written because
+// the 600-part corpus A/B measured DRAFT at 0/565 with no way to see why.
+std::string& deferSlot() {
+    static thread_local std::string r;
+    return r;
+}
+TopoDS_Shape defer(const char* why) {
+    deferSlot() = why;
+    return kNull;
+}
 
 constexpr double kPi = 3.14159265358979323846;
 
@@ -213,15 +230,23 @@ bool draftNativeEnabled() {
 #endif
 }
 
+const char* draftLastDeferReason() {
+    return deferSlot().c_str();
+}
+
 TopoDS_Shape draftFaces(const TopoDS_Shape& shape,
                         const TopTools_ListOfShape& faces,
                         const gp_Dir& pull,
                         double angleRad,
                         const gp_Pln& neutral,
                         double tol) {
-    if (shape.IsNull() || faces.IsEmpty()) return kNull;
-    if (!(std::fabs(angleRad) > 1.0e-12)) return kNull;          // a no-op is not a draft
-    if (std::fabs(angleRad) >= 0.5 * kPi - 1.0e-9) return kNull; // >= 90 deg is not a draft
+    deferSlot().clear();
+    if (shape.IsNull()) return defer("input shape is null");
+    if (faces.IsEmpty()) return defer("no faces selected");
+    if (!(std::fabs(angleRad) > 1.0e-12))
+        return defer("angle is zero (a no-op is not a draft)");
+    if (std::fabs(angleRad) >= 0.5 * kPi - 1.0e-9)
+        return defer("|angle| >= 90 degrees");
 
     // ---- 0. the neutral plane, oriented along the PULL direction -----------
     gp_Dir m = neutral.Axis().Direction();
@@ -244,15 +269,18 @@ TopoDS_Shape draftFaces(const TopoDS_Shape& shape,
     for (TopExp_Explorer ex(shape, TopAbs_FACE); ex.More(); ex.Next()) {
         const TopoDS_Face f = TopoDS::Face(ex.Current());
         Plane pl;
-        if (!outwardPlaneOf(f, pl)) return kNull;      // non-planar => defer
+        if (!outwardPlaneOf(f, pl))
+            return defer("a face of the solid is not a plane");
         int nWires = 0;
         for (TopoDS_Iterator it(f); it.More(); it.Next())
             if (it.Value().ShapeType() == TopAbs_WIRE) ++nWires;
-        if (nWires != 1) return kNull;                 // face with a hole => defer
+        if (nWires != 1)
+            return defer("a face of the solid carries more than one wire (a hole)");
         allFaces.push_back(f);
         planes.push_back(pl);
     }
-    if (allFaces.size() < 4) return kNull;             // not a closed polyhedron
+    if (allFaces.size() < 4)
+        return defer("fewer than four faces (not a closed polyhedron)");
 
     // ---- 2. rotate the plane of every SELECTED face ------------------------
     TopTools_MapOfShape want;
@@ -263,14 +291,16 @@ TopoDS_Shape draftFaces(const TopoDS_Shape& shape,
     for (std::size_t i = 0; i < allFaces.size(); ++i) {
         if (!want.Contains(allFaces[i])) continue;
         Plane rot;
-        if (!rotatePlaneAboutNeutral(planes[i], m, e, theta, rot)) return kNull;
+        if (!rotatePlaneAboutNeutral(planes[i], m, e, theta, rot))
+            return defer("a selected face is parallel to the neutral plane (no rotation axis)");
         planes[i] = rot;
         ++nSelected;
     }
     // Every requested face must have been found on the shape. A face silently
     // dropped here would emit a HALF-DRAFTED part that looks plausible.
-    if (nSelected != want.Extent()) return kNull;
-    if (nSelected == 0) return kNull;
+    if (nSelected != want.Extent())
+        return defer("a requested face is not present on the shape");
+    if (nSelected == 0) return defer("no face selected");
 
     // ---- 3. re-meet every vertex against its incident planes ---------------
     TopTools_IndexedDataMapOfShapeListOfShape vfMap;
@@ -279,7 +309,7 @@ TopoDS_Shape draftFaces(const TopoDS_Shape& shape,
     for (const TopoDS_Face& f : allFaces) faceIndex.Add(f);
 
     const int nV = vfMap.Extent();
-    if (nV == 0) return kNull;
+    if (nV == 0) return defer("the shape has no vertices");
     std::vector<gp_Pnt> moved(static_cast<std::size_t>(nV));
     // Scale the residual bound by the model size so the check means the same
     // thing on a 1 mm part and a 1 m one.
@@ -295,18 +325,21 @@ TopoDS_Shape draftFaces(const TopoDS_Shape& shape,
         std::vector<Plane> meet;
         for (TopTools_ListIteratorOfListOfShape it(vfMap.FindFromIndex(i)); it.More(); it.Next()) {
             const int fi = faceIndex.FindIndex(it.Value());
-            if (fi == 0) return kNull;
+            if (fi == 0) return defer("a vertex is incident to a face not on the shape");
             meet.push_back(planes[static_cast<std::size_t>(fi) - 1]);
         }
-        if (meet.size() < 3) return kNull;             // no exact corner to meet
+        if (meet.size() < 3)
+            return defer("a vertex has fewer than three incident faces");
         gp_Pnt corner;
-        if (!intersectPlanes(meet, corner)) return kNull;   // rank-deficient
+        if (!intersectPlanes(meet, corner))
+            return defer("a vertex meet is rank-deficient");
         // EXACTNESS GUARD: the least-squares meet is the drafted corner ONLY if
         // every incident plane actually contains it. An over-determined apex that
         // the rotation has pulled apart is declined, never averaged.
         for (const Plane& p : meet) {
             const double r = p.nx * corner.X() + p.ny * corner.Y() + p.nz * corner.Z() - p.d;
-            if (std::fabs(r) > resTol) return kNull;
+            if (std::fabs(r) > resTol)
+                return defer("a vertex meet residual exceeds tolerance (over-determined apex)");
         }
         moved[static_cast<std::size_t>(i) - 1] = corner;
     }
@@ -318,44 +351,48 @@ TopoDS_Shape draftFaces(const TopoDS_Shape& shape,
     BRepBuilderAPI_Sewing sew(std::max(tol, 1.0e-6));
     for (const TopoDS_Face& f : allFaces) {
         const std::vector<TopoDS_Vertex> ring = orderedRing(f);
-        if (ring.size() < 3) return kNull;
+        if (ring.size() < 3) return defer("a face outer ring has fewer than three vertices");
         BRepBuilderAPI_MakePolygon poly;
         for (const TopoDS_Vertex& v : ring) {
             const int idx = vfMap.FindIndex(v);
-            if (idx == 0) return kNull;
+            if (idx == 0) return defer("a ring vertex is not in the vertex map");
             poly.Add(moved[static_cast<std::size_t>(idx) - 1]);
         }
         poly.Close();
-        if (!poly.IsDone()) return kNull;
+        if (!poly.IsDone()) return defer("a rebuilt face polygon failed to close");
         BRepBuilderAPI_MakeFace mkf(poly.Wire(), Standard_True);
-        if (!mkf.IsDone()) return kNull;               // face collapsed under the draft
+        if (!mkf.IsDone()) return defer("a rebuilt face collapsed under the draft");
         sew.Add(mkf.Face());
     }
 
     sew.Perform();
-    if (sew.NbFreeEdges() != 0) return kNull;          // not watertight => defer
+    if (sew.NbFreeEdges() != 0)
+        return defer("the rebuilt shell is not watertight (free edges after sewing)");
     const TopoDS_Shape sewed = sew.SewedShape();
-    if (sewed.IsNull()) return kNull;
+    if (sewed.IsNull()) return defer("sewing produced a null shape");
     TopoDS_Shell shell;
     int nShells = 0;
     for (TopExp_Explorer ex(sewed, TopAbs_SHELL); ex.More(); ex.Next()) {
         shell = TopoDS::Shell(ex.Current());
         ++nShells;
     }
-    if (nShells != 1 || shell.IsNull()) return kNull;
+    if (nShells != 1 || shell.IsNull())
+        return defer("sewing produced other than exactly one shell");
 
     TopoDS_Solid solid = forge::occtheal::solidFromShell(shell);
-    if (solid.IsNull()) return kNull;
+    if (solid.IsNull()) return defer("solidFromShell declined the rebuilt shell");
     BRepLib::SameParameter(solid, std::max(tol, 1.0e-6), Standard_True);
 
     // ---- 5. self-checks: a draft preserves the face count and stays a solid --
     int nFaceOut = 0;
     for (TopExp_Explorer ex(solid, TopAbs_FACE); ex.More(); ex.Next()) ++nFaceOut;
-    if (nFaceOut != static_cast<int>(allFaces.size())) return kNull;
+    if (nFaceOut != static_cast<int>(allFaces.size()))
+        return defer("the rebuilt solid has a different face count");
 
     GProp_GProps pn;
     BRepGProp::VolumeProperties(solid, pn);
-    if (!(std::fabs(pn.Mass()) > 1.0e-12)) return kNull;
+    if (!(std::fabs(pn.Mass()) > 1.0e-12))
+        return defer("the rebuilt solid has zero volume");
     return solid;
 }
 
