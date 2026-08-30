@@ -78,8 +78,10 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepBndLib.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepFilletAPI_MakeChamfer.hxx>
 #include <BRepFilletAPI_MakeFillet.hxx>
@@ -96,6 +98,9 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Shape.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 
@@ -201,6 +206,39 @@ TopoDS_Shape prismOf(const Poly& p) {
     poly.Close();
     return BRepPrimAPI_MakePrism(BRepBuilderAPI_MakeFace(poly.Wire()).Face(),
                                  gp_Vec(0, 0, p.h)).Shape();
+}
+
+// An EXACT rounded-rectangle prism: four tangent quarter arcs of radius rho joined
+// by four straight runs, extruded h along +Z. Every junction is G1 by construction,
+// which is what makes the top rim a propagating fillet contour — the shape the
+// corpus A/B's 58 "end face not planar" parts all are.
+TopoDS_Shape roundedRectPrism(double W, double H, double rho, double h) {
+    if (!(W > 2.0 * rho) || !(H > 2.0 * rho) || !(rho > 0.0) || !(h > 0.0))
+        return TopoDS_Shape();
+    const double a = W * 0.5 - rho, b = H * 0.5 - rho;
+    const double cx[4] = { a, -a, -a,  a };
+    const double cy[4] = { b,  b, -b, -b };
+    const double a0[4] = { 0.0, 0.5 * kPi, kPi, 1.5 * kPi };
+    BRepBuilderAPI_MakeWire mw;
+    for (int i = 0; i < 4; ++i) {
+        const gp_Ax2 ax(gp_Pnt(cx[i], cy[i], 0.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+        BRepBuilderAPI_MakeEdge me(gp_Circ(ax, rho), a0[i], a0[i] + 0.5 * kPi);
+        if (!me.IsDone()) return TopoDS_Shape();
+        mw.Add(me.Edge());
+        const int j = (i + 1) % 4;
+        const gp_Pnt p1(cx[i] + rho * std::cos(a0[i] + 0.5 * kPi),
+                        cy[i] + rho * std::sin(a0[i] + 0.5 * kPi), 0.0);
+        const gp_Pnt p2(cx[j] + rho * std::cos(a0[j]), cy[j] + rho * std::sin(a0[j]), 0.0);
+        if (p1.Distance(p2) > 1e-12) {
+            BRepBuilderAPI_MakeEdge ml(p1, p2);
+            if (!ml.IsDone()) return TopoDS_Shape();
+            mw.Add(ml.Edge());
+        }
+    }
+    if (!mw.IsDone()) return TopoDS_Shape();
+    BRepBuilderAPI_MakeFace mf(mw.Wire(), Standard_True);
+    if (!mf.IsDone()) return TopoDS_Shape();
+    return BRepPrimAPI_MakePrism(mf.Face(), gp_Vec(0, 0, h)).Shape();
 }
 
 double shoelaceArea(const Poly& p) {
@@ -572,6 +610,153 @@ int main() {
                 check(sameMetrics(m1, measure(occtOut), "MULTI-LUMP"),
                       "MULTI-LUMP: native == OCCT on the full observable vector");
         }
+    }
+
+    // ---- TANGENT RIM: a rounded-rectangle prism, blended all the way round -----
+    //
+    // ★ MEASURED 2026-08-30 over the 600-part corpus A/B: 58 of the 117 parts left in
+    //   the FILLET deletion bucket are this shape, and all 58 declined with the same
+    //   guard ("end face not planar") because the face at each end of the picked edge
+    //   is the corner cylinder, not a plane. The right answer is not a clipped
+    //   one-edge blend: the rim is G1-tangent, so OCCT's BRepFilletAPI PROPAGATES the
+    //   contour and removes 2.53x-4.11x what one edge would. This case pins the whole
+    //   rim — 4 cylinder patches + 4 torus patches — against OCCT and against a
+    //   closed form that shares no code with the engine.
+    {
+        struct RimCase { double W, H, rho, h, R; const char* tag; };
+        const RimCase cases[] = {
+            { 60.0, 40.0,  8.0, 15.0, 3.0, "RIM 60x40 rho=8 h=15 R=3" },
+            {100.0, 70.0, 20.0, 30.0, 5.0, "RIM 100x70 rho=20 h=30 R=5" },
+        };
+        for (const RimCase& rc : cases) {
+            std::printf("[rim] %s\n", rc.tag);
+            const TopoDS_Shape prism = roundedRectPrism(rc.W, rc.H, rc.rho, rc.h);
+            check(!prism.IsNull(), std::string(rc.tag) + ": the input prism builds");
+            if (prism.IsNull()) continue;
+            // pick the longest LINE edge of the top rim — the corpus A/B's own rule
+            TopoDS_Edge pick; double best = 0.0;
+            for (const TopoDS_Edge& e : allEdges(prism)) {
+                BRepAdaptor_Curve c(e);
+                if (c.GetType() != GeomAbs_Line) continue;
+                GProp_GProps g; BRepGProp::LinearProperties(e, g);
+                const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+                if (std::fabs(mid.Z() - rc.h) > 1e-9) continue;      // top rim only
+                if (g.Mass() > best) { best = g.Mass(); pick = e; }
+            }
+            check(!pick.IsNull(), std::string(rc.tag) + ": a top-rim straight edge exists");
+            if (pick.IsNull()) continue;
+
+            std::vector<forge::occtfillet::FilletSpec> sp(1);
+            sp[0].edge = pick; sp[0].radius = rc.R;
+            const forge::occtfillet::Result nr = forge::occtfillet::makeFillet(prism, sp);
+            check(nr.ok, std::string(rc.tag) + ": engine builds (got: " +
+                         (nr.ok ? std::string("ok") : nr.reason) + ")");
+            if (!nr.ok) continue;
+            check(nr.reason.find("rim fillet") != std::string::npos,
+                  std::string(rc.tag) + ": answered by the RIM path, named as such");
+
+            // INDEPENDENT closed form, from the profile alone:
+            //   4 straight runs  (1-pi/4) R^2 L
+            // + 4 quarter corners theta * [R^2(2rho-R)/2 - R^3/3 - (rho-R) pi R^2/4]
+            const double lineL = 2.0 * (rc.W - 2.0 * rc.rho) + 2.0 * (rc.H - 2.0 * rc.rho);
+            const double corner = 4.0 * (0.5 * kPi) *
+                (rc.R * rc.R * (2.0 * rc.rho - rc.R) * 0.5 - rc.R * rc.R * rc.R / 3.0
+                 - (rc.rho - rc.R) * kPi * rc.R * rc.R * 0.25);
+            const double want = (1.0 - kPi / 4.0) * rc.R * rc.R * lineL + corner;
+
+            const Metrics m0 = measure(prism), m1 = measure(nr.shape);
+            check(relClose(m0.vol - m1.vol, want, 1e-9),
+                  std::string(rc.tag) + ": removes exactly the rim closed form");
+            check(m1.nFace == m0.nFace + 8,
+                  std::string(rc.tag) + ": 10 faces -> 18 (4 cylinder + 4 torus patches added)");
+            check(m1.valid && m1.closedShells && m1.nShell == 1,
+                  std::string(rc.tag) + ": native is ONE closed valid shell");
+            check(m1.genus2 == 0, std::string(rc.tag) + ": native genus 0");
+
+            TopoDS_Shape occtOut;
+            try {
+                BRepFilletAPI_MakeFillet mk(prism);
+                mk.Add(rc.R, pick);
+                mk.Build();
+                if (mk.IsDone()) occtOut = mk.Shape();
+            } catch (...) {}
+            check(!occtOut.IsNull(), std::string(rc.tag) + ": OCCT propagates the same request");
+            if (!occtOut.IsNull())
+                check(sameMetrics(m1, measure(occtOut), rc.tag),
+                      std::string(rc.tag) + ": native == OCCT on the full observable vector");
+        }
+    }
+
+    // ---- RIM defer controls ---------------------------------------------------
+    // The rim path must not fire outside its stated scope, and — the property that
+    // keeps it from changing any answer the per-edge path already gives — must not
+    // substitute itself for a request the per-edge path can serve.
+    {
+        // (a) a PLAIN BOX lid. Its rim is a polygon: NOT tangent-continuous, so OCCT
+        //     does not propagate and neither may we. The per-edge path answers it,
+        //     and the reason must say so.
+        const TopoDS_Shape box = BRepPrimAPI_MakeBox(30.0, 20.0, 10.0).Shape();
+        TopoDS_Edge top; double best = 0.0;
+        for (const TopoDS_Edge& e : allEdges(box)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+            if (std::fabs(mid.Z() - 10.0) > 1e-9) continue;
+            GProp_GProps g; BRepGProp::LinearProperties(e, g);
+            if (g.Mass() > best) { best = g.Mass(); top = e; }
+        }
+        std::printf("[rim-defer] a plain box lid is a POLYGON rim, not a propagating contour\n");
+        std::vector<forge::occtfillet::FilletSpec> sp(1);
+        sp[0].edge = top; sp[0].radius = 2.0;
+        const forge::occtfillet::Result nr = forge::occtfillet::makeFillet(box, sp);
+        check(nr.ok, "BOX LID: the per-edge path still answers it");
+        check(nr.ok && nr.reason.find("rim fillet") == std::string::npos,
+              "BOX LID: the RIM path did not substitute itself for the per-edge answer");
+        if (nr.ok) {
+            const double moved = (1.0 - kPi / 4.0) * 2.0 * 2.0 * best;
+            check(relClose(measure(box).vol - measure(nr.shape).vol, moved, 1e-9),
+                  "BOX LID: still removes exactly the ONE-EDGE closed form");
+        }
+    }
+    {
+        // (b) corner radius NOT larger than the fillet radius: the offset ring would
+        //     collapse. OCCT declines this too.
+        const TopoDS_Shape prism = roundedRectPrism(60.0, 40.0, 2.5, 15.0);
+        TopoDS_Edge pick; double best = 0.0;
+        for (const TopoDS_Edge& e : allEdges(prism)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+            if (std::fabs(mid.Z() - 15.0) > 1e-9) continue;
+            GProp_GProps g; BRepGProp::LinearProperties(e, g);
+            if (g.Mass() > best) { best = g.Mass(); pick = e; }
+        }
+        // MEASURED: OCCT blends this and the native rim path cannot — the inward
+        // offset of a corner of radius rho by R >= rho inverts the arc, and an
+        // inverted arc is not the profile. An honest gap, pinned so it stays visible.
+        if (!pick.IsNull())
+            deferCase("RIM rho <= R (the corner would invert)", prism, {pick}, 3.0, true,
+                      "corner radius is not larger", OcctExpect::Succeeds);
+        else
+            check(false, "rim defer control: could not locate a top-rim edge");
+    }
+    {
+        // (c) a wall shallower than R: the pull-back would run off the bottom.
+        const TopoDS_Shape prism = roundedRectPrism(60.0, 40.0, 8.0, 2.0);
+        TopoDS_Edge pick; double best = 0.0;
+        for (const TopoDS_Edge& e : allEdges(prism)) {
+            BRepAdaptor_Curve c(e);
+            if (c.GetType() != GeomAbs_Line) continue;
+            const gp_Pnt mid = c.Value(0.5 * (c.FirstParameter() + c.LastParameter()));
+            if (std::fabs(mid.Z() - 2.0) > 1e-9) continue;
+            GProp_GProps g; BRepGProp::LinearProperties(e, g);
+            if (g.Mass() > best) { best = g.Mass(); pick = e; }
+        }
+        if (!pick.IsNull())
+            deferCase("RIM wall shallower than R", prism, {pick}, 3.0, true,
+                      "shallower than the fillet radius", OcctExpect::Declines);
+        else
+            check(false, "rim defer control: could not locate a shallow-wall rim edge");
     }
 
     std::printf("\n=== %d/%d assertions passed ===\n", g_pass, g_total);

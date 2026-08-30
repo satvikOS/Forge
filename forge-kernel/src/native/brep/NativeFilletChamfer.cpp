@@ -39,8 +39,16 @@
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_Cylinder.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_SphericalSurface.hxx>
+#include <Geom_ToroidalSurface.hxx>
+#include <Geom_Surface.hxx>
+#include <Geom_Curve.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Solid.hxx>
@@ -1600,6 +1608,513 @@ bool edgeIsTangentNoOp(const TopoDS_Shape& shape, const TopoDS_Edge& edge) {
     return false;
 }
 
+// ============================ TANGENT-CONTINUOUS RIM =========================
+// ★ MEASURED 2026-08-30 over the 600-part corpus A/B, and it is the LARGEST single
+//   cause left in the FILLET deletion bucket: 58 of the 117 parts OCCT blends and
+//   this engine declined, every one of them with the same guard text ("end face not
+//   planar") and the same geometry.
+//
+//   WHAT THOSE PARTS ARE. One population, no spread. The picked edge is the longest
+//   straight segment of a PRISMATIC CAP's outer rim: a planar cap face whose outer
+//   ring is `Circle,Line,Circle,Line,Circle,Line,Circle,Line` — a rounded rectangle
+//   — G1-TANGENT at all eight junctions (measured worst deviation 0.000e+00 over
+//   58/58), with a planar wall behind every line and a quarter-cylinder behind every
+//   arc (axis parallel to the cap normal, radius equal to the arc's, 232/232 of them
+//   with a four-segment `LCLC` ring and no inner wire), and 4-10 holes in the cap
+//   preserved verbatim.
+//
+//   WHY THE PER-EDGE ENGINE CANNOT ANSWER IT. `filletOneEdge` terminates a blend by
+//   CLIPPING the face at each endpoint with the blend's end arc, which requires that
+//   face to be planar. Here the face at each endpoint is the corner cylinder, so the
+//   guard fires — correctly. And the right answer is not a clipped one-edge blend at
+//   all: the rim is tangent-continuous, so OCCT's BRepFilletAPI PROPAGATES the
+//   contour around the whole loop. Measured: OCCT removes 2.53x to 4.11x the
+//   single-edge closed form on those 58 parts. A one-edge native blend would be a
+//   DIFFERENT SOLID reported as the same operation — the exact class of false win
+//   the NATIVE_ONLY cell of this row turned out to be.
+//
+//   WHAT THIS BUILDS. The whole rim, in closed form, with no approximation:
+//     * the cap, re-trimmed to its own outer ring OFFSET INWARD BY R — each line
+//       moves R along its in-plane inward normal, each arc keeps its centre and
+//       takes radius rho-R; tangency makes the two agree at every junction, so the
+//       offset ring is exact and the holes are untouched;
+//     * every wall face pulled back R from the cap plane (planar walls re-trimmed
+//       through the existing ring machinery, cylindrical walls rebuilt as the
+//       canonical uv patch they are);
+//     * one Geom_CylindricalSurface patch per line segment (the existing
+//       filletCylinder), and one Geom_ToroidalSurface patch per arc segment —
+//       centre R below the cap, major radius rho-R, minor radius R, v in [0, pi/2],
+//       which is tangent to the wall at v=0 and to the offset cap at v=pi/2.
+//   Every surface is analytic; nothing is approximated or fitted.
+//
+//   THE SELF-CHECK IS AN INDEPENDENT CLOSED FORM, not a tolerance on the input:
+//       |dV| = SUM_lines (1 - pi/4) R^2 L
+//            + SUM_arcs  theta * [ R^2(2rho-R)/2 - R^3/3 - (rho-R) pi R^2/4 ]
+//   the second term being Pappus applied to the same kite-minus-quarter-disc
+//   section swept about the corner axis. Verified against live OCCT on an exactly
+//   built rounded-rectangle prism to 1.9e-15 relative, and against OCCT's answer on
+//   all 58 corpus parts to 7.5e-4 (OCCT's own approximation on STEP extrusion
+//   surfaces; see run_ab_native_fillet_rim.sh).
+//
+//   SCOPE, and it defers on everything else: the ring must be closed, all-line-or-
+//   arc, tangent at every junction, carry at least one arc (a polygon rim is NOT a
+//   propagating contour and must keep the per-edge path), CONVEX throughout, with
+//   every wall used exactly once, rho > R, and every wall at least R deep.
+
+// A cylindrical face in ANY representation. The corpus's prismatic walls arrive
+// from STEP as Geom_SurfaceOfLinearExtrusion of a circle, which is a cylinder in
+// every measurable sense and which a GeomAbs_Cylinder test alone would refuse —
+// the same lesson planarFaceNormal records for planes.
+bool cylinderFaceAxis(const TopoDS_Face& f, gp_Ax1& axis, double& radius) {
+    BRepAdaptor_Surface as(f);
+    if (as.GetType() == GeomAbs_Cylinder) {
+        const gp_Cylinder c = as.Cylinder();
+        axis = c.Axis(); radius = c.Radius();
+        return radius > kTol;
+    }
+    if (as.GetType() != GeomAbs_SurfaceOfExtrusion) return false;
+    Handle(Geom_Surface) gs = BRep_Tool::Surface(f);
+    Handle(Geom_SurfaceOfLinearExtrusion) ex = Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(gs);
+    if (ex.IsNull()) return false;
+    Handle(Geom_Curve) bc = ex->BasisCurve();
+    while (!bc.IsNull()) {
+        Handle(Geom_TrimmedCurve) tc = Handle(Geom_TrimmedCurve)::DownCast(bc);
+        if (tc.IsNull()) break;
+        bc = tc->BasisCurve();
+    }
+    Handle(Geom_Circle) gc = Handle(Geom_Circle)::DownCast(bc);
+    if (gc.IsNull()) return false;
+    const gp_Circ c0 = gc->Circ();
+    radius = c0.Radius();
+    if (!(radius > kTol)) return false;
+    axis = gp_Ax1(c0.Location(), ex->Direction());
+    return true;
+}
+
+// One segment of the rim.
+struct RimSeg {
+    TopoDS_Edge edge;
+    TopoDS_Face wall;          // the face on the other side of this rim edge
+    bool   isArc = false;
+    gp_Pnt p0, p1;             // ends, in ring traversal order
+    gp_Dir dir;                // line only: p0 -> p1
+    double len = 0.0;          // line only
+    gp_Pnt ctr;                // arc only: centre (in the cap plane)
+    double rho = 0.0;          // arc only: radius
+    double theta = 0.0;        // arc only: swept angle
+    gp_Pnt off0, off1;         // ends of the INWARD-OFFSET ring
+};
+
+struct RimContext {
+    TopoDS_Face cap;
+    gp_Pln  capPln;
+    gp_Dir  nCap;              // outward
+    std::vector<RimSeg> segs;
+    int     nLine = 0, nArc = 0;
+    double  predictedDv = 0.0; // the closed form above
+    double  bandArea = 0.0;    // area the cap loses to the offset
+};
+
+// |dV| of ONE convex corner arc per unit angle: the section moment about the axis.
+inline double rimCornerMoment(double rho, double R) {
+    return R * R * (2.0 * rho - R) * 0.5 - R * R * R / 3.0 - (rho - R) * kPi * R * R * 0.25;
+}
+
+// Unit tangent of a ring edge at its START / END, in TRAVERSAL direction.
+bool ringTangents(const TopoDS_Edge& e, gp_Vec& tStart, gp_Vec& tEnd) {
+    BRepAdaptor_Curve ac;
+    try { ac.Initialize(e); } catch (...) { return false; }
+    gp_Pnt p; gp_Vec d;
+    const bool rev = (e.Orientation() == TopAbs_REVERSED);
+    ac.D1(rev ? ac.LastParameter() : ac.FirstParameter(), p, d);
+    if (d.Magnitude() <= kTol) return false;
+    tStart = rev ? -d : d;
+    ac.D1(rev ? ac.FirstParameter() : ac.LastParameter(), p, d);
+    if (d.Magnitude() <= kTol) return false;
+    tEnd = rev ? -d : d;
+    tStart.Normalize(); tEnd.Normalize();
+    return true;
+}
+
+// Resolve the rim: which of the picked edge's two faces is the prismatic CAP, and
+// what does its outer ring consist of. Empty `why` on success.
+bool buildRimContext(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double R,
+                     RimContext& rc, std::string& why) {
+    if (!(R > 0.0)) { why = "non-positive fillet radius"; return false; }
+    TopTools_IndexedDataMapOfShapeListOfShape efMap;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, efMap);
+    if (!efMap.Contains(edge)) { why = "rim: edge not found in shape"; return false; }
+    const TopTools_ListOfShape& fl0 = efMap.FindFromKey(edge);
+    if (fl0.Extent() != 2) { why = "rim: edge is not shared by exactly two faces"; return false; }
+    TopTools_ListIteratorOfListOfShape it0(fl0);
+    const TopoDS_Face C0 = TopoDS::Face(it0.Value()); it0.Next();
+    const TopoDS_Face C1 = TopoDS::Face(it0.Value());
+    if (C0.IsSame(C1)) { why = "rim: periodic seam, one face twice"; return false; }
+
+    why = "rim: neither adjacent face is a prismatic cap";
+    for (int k = 0; k < 2; ++k) {
+        const TopoDS_Face CAP = (k == 0) ? C0 : C1;
+        gp_Pln pln; gp_Dir nCap;
+        if (!planarFaceNormal(CAP, pln, nCap)) continue;
+        const TopoDS_Wire ow = BRepTools::OuterWire(CAP);
+        if (ow.IsNull()) continue;
+
+        std::vector<TopoDS_Edge> ring;
+        std::vector<gp_Pnt>      start;
+        for (BRepTools_WireExplorer wx(ow, CAP); wx.More(); wx.Next()) {
+            ring.push_back(wx.Current());
+            start.push_back(BRep_Tool::Pnt(wx.CurrentVertex()));
+        }
+        const std::size_t n = ring.size();
+        if (n < 3) continue;
+        bool carries = false;
+        for (const TopoDS_Edge& re : ring) if (re.IsSame(edge)) { carries = true; break; }
+        if (!carries) continue;
+
+        // Every junction must be G1: that, and only that, is what makes OCCT
+        // propagate the contour. A polygon rim (a plain box lid) fails here and
+        // keeps the per-edge path, which is what already serves it.
+        bool tangentAll = true;
+        for (std::size_t i = 0; i < n && tangentAll; ++i) {
+            gp_Vec a0, a1, b0, b1;
+            if (!ringTangents(ring[i], a0, a1) || !ringTangents(ring[(i + 1) % n], b0, b1))
+            { tangentAll = false; break; }
+            if (std::fabs(1.0 - a1.Dot(b0)) > 1e-6) tangentAll = false;
+        }
+        if (!tangentAll) { why = "rim: the cap's outer ring is not tangent-continuous "
+                                 "(not a propagating contour) — keeping the per-edge path"; continue; }
+
+        // Ring winding: interior is to the LEFT of travel when the ring runs CCW
+        // about the OUTWARD normal.
+        const double wind = ringNormal(start).Dot(gp_Vec(nCap)) >= 0.0 ? 1.0 : -1.0;
+
+        RimContext c;
+        c.cap = CAP; c.capPln = pln; c.nCap = nCap;
+        bool ok = true;
+        std::vector<TopoDS_Face> usedWalls;
+        for (std::size_t i = 0; i < n && ok; ++i) {
+            const TopoDS_Edge re = ring[i];
+            RimSeg sg;
+            sg.edge = re;
+            sg.p0 = start[i];
+            sg.p1 = start[(i + 1) % n];
+            if (!efMap.Contains(re)) { why = "rim: ring edge not in the shape map"; ok = false; break; }
+            const TopTools_ListOfShape& fl = efMap.FindFromKey(re);
+            if (fl.Extent() != 2) { why = "rim: a ring edge is not 2-manifold"; ok = false; break; }
+            for (TopTools_ListIteratorOfListOfShape i2(fl); i2.More(); i2.Next())
+                if (!TopoDS::Face(i2.Value()).IsSame(CAP)) sg.wall = TopoDS::Face(i2.Value());
+            if (sg.wall.IsNull()) { why = "rim: a ring edge closes onto the cap itself"; ok = false; break; }
+            for (const TopoDS_Face& w : usedWalls)
+                if (w.IsSame(sg.wall)) { why = "rim: one wall carries two rim segments"; ok = false; }
+            if (!ok) break;
+            usedWalls.push_back(sg.wall);
+
+            BRepAdaptor_Curve ac;
+            try { ac.Initialize(re); } catch (...) { why = "rim: unreadable ring edge"; ok = false; break; }
+            if (ac.GetType() == GeomAbs_Line) {
+                gp_Pln pw; gp_Dir nw;
+                if (!planarFaceNormal(sg.wall, pw, nw))
+                { why = "rim: the wall behind a straight rim segment is not planar"; ok = false; break; }
+                if (std::fabs(gp_Vec(nw).Dot(gp_Vec(nCap))) > 1e-6)
+                { why = "rim: a wall is not prismatic to the cap"; ok = false; break; }
+                const gp_Vec v(sg.p0, sg.p1);
+                if (v.Magnitude() <= kTol) { why = "rim: degenerate straight segment"; ok = false; break; }
+                sg.isArc = false;
+                sg.dir = gp_Dir(v);
+                sg.len = sg.p0.Distance(sg.p1);
+                // inward in-plane normal, fixed by the ring's winding
+                gp_Vec m = gp_Vec(nCap).Crossed(gp_Vec(sg.dir)) * wind;
+                if (m.Magnitude() <= kTol) { why = "rim: degenerate segment frame"; ok = false; break; }
+                m.Normalize();
+                // CONVEX: the wall's outward normal must point AWAY from the interior.
+                if (m.Dot(gp_Vec(nw)) > -1e-9)
+                { why = "rim: a rim segment is not convex"; ok = false; break; }
+                sg.off0 = shift(sg.p0, gp_Dir(m), R);
+                sg.off1 = shift(sg.p1, gp_Dir(m), R);
+                c.predictedDv += (1.0 - kPi / 4.0) * R * R * sg.len;
+                c.bandArea    += R * sg.len;
+                ++c.nLine;
+            } else if (ac.GetType() == GeomAbs_Circle) {
+                gp_Ax1 ax; double rad = 0.0;
+                if (!cylinderFaceAxis(sg.wall, ax, rad))
+                { why = "rim: the wall behind a rim arc is not a cylinder"; ok = false; break; }
+                if (std::fabs(std::fabs(gp_Vec(ax.Direction()).Dot(gp_Vec(nCap))) - 1.0) > 1e-6)
+                { why = "rim: a corner cylinder's axis is not parallel to the cap normal"; ok = false; break; }
+                const gp_Circ ci = ac.Circle();
+                sg.isArc = true;
+                sg.ctr   = ci.Location();
+                sg.rho   = ci.Radius();
+                if (std::fabs(sg.rho - rad) > 1e-6 * std::max(1.0, sg.rho))
+                { why = "rim: rim arc radius differs from its wall cylinder"; ok = false; break; }
+                if (!(sg.rho > R + kTol))
+                { why = "rim: the corner radius is not larger than the fillet radius"; ok = false; break; }
+                sg.theta = std::fabs(ac.LastParameter() - ac.FirstParameter());
+                if (!(sg.theta > kTol) || sg.theta > 2.0 * kPi + kTol)
+                { why = "rim: unreadable arc sweep"; ok = false; break; }
+                // The offset ring is rebuilt through planarFaceFromSegs's MINOR-arc
+                // path, which derives the circle axis from the two endpoints — exact
+                // below a half turn, ambiguous at exactly pi (a stadium / slot rim)
+                // and wrong above it. Decline rather than take the wrong branch.
+                // Every rim arc measured on the corpus is a quarter turn, so this
+                // costs no coverage there; the cap-AREA identity below is the backstop.
+                if (!(sg.theta < kPi - kTol))
+                { why = "rim: a corner arc sweeps half a turn or more"; ok = false; break; }
+                // CONVEX corner: both ends must be rho from the centre, and the centre
+                // must lie on the material side (the offset shrinks the arc).
+                if (std::fabs(sg.ctr.Distance(sg.p0) - sg.rho) > 1e-6 * std::max(1.0, sg.rho) ||
+                    std::fabs(sg.ctr.Distance(sg.p1) - sg.rho) > 1e-6 * std::max(1.0, sg.rho))
+                { why = "rim: a rim arc's ends are not on its own circle"; ok = false; break; }
+                {
+                    // the inward normal at p0 points from p0 TOWARD the centre on a
+                    // convex corner; check it against the ring winding
+                    gp_Vec a0, a1;
+                    if (!ringTangents(re, a0, a1)) { why = "rim: unreadable arc tangent"; ok = false; break; }
+                    gp_Vec m = gp_Vec(nCap).Crossed(a0) * wind;
+                    if (m.Magnitude() <= kTol) { why = "rim: degenerate arc frame"; ok = false; break; }
+                    m.Normalize();
+                    if (m.Dot(gp_Vec(sg.p0, sg.ctr)) <= 0.0)
+                    { why = "rim: a corner arc is concave"; ok = false; break; }
+                }
+                sg.off0 = shift(sg.p0, gp_Dir(gp_Vec(sg.p0, sg.ctr)), R);
+                sg.off1 = shift(sg.p1, gp_Dir(gp_Vec(sg.p1, sg.ctr)), R);
+                c.predictedDv += sg.theta * rimCornerMoment(sg.rho, R);
+                c.bandArea    += 0.5 * sg.theta * (sg.rho * sg.rho - (sg.rho - R) * (sg.rho - R));
+                ++c.nArc;
+            } else {
+                why = "rim: the cap's outer ring carries a curve that is neither line nor arc";
+                ok = false; break;
+            }
+            c.segs.push_back(sg);
+        }
+        if (!ok) continue;
+        if (c.nArc == 0) {
+            why = "rim: an all-straight ring is not a propagating contour — keeping the per-edge path";
+            continue;
+        }
+        // every wall must be at least R deep, and no wall vertex may sit INSIDE the
+        // band the retrim is about to sweep through
+        for (const RimSeg& sg : c.segs) {
+            const TopoDS_Wire wo = BRepTools::OuterWire(sg.wall);
+            if (wo.IsNull()) { why = "rim: a wall has no outer wire"; ok = false; break; }
+            // Depth first, THEN the band. Both guards are reachable only in this
+            // order: a wall shallower than R has every vertex inside the band, so a
+            // band test placed first would answer every shallow wall with the wrong
+            // sentence and leave the depth test dead code.
+            double deepest = 0.0;
+            for (TopExp_Explorer vx(wo, TopAbs_VERTEX); vx.More(); vx.Next()) {
+                const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()));
+                const double d = gp_Vec(pln.Location(), p).Dot(gp_Vec(nCap));
+                if (d > kTol) { why = "rim: a wall reaches past the cap plane"; ok = false; break; }
+                deepest = std::min(deepest, d);
+            }
+            if (!ok) break;
+            if (!(deepest < -R - kTol))
+            { why = "rim: a wall is shallower than the fillet radius"; ok = false; break; }
+            for (TopExp_Explorer vx(wo, TopAbs_VERTEX); vx.More(); vx.Next()) {
+                const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()));
+                const double d = gp_Vec(pln.Location(), p).Dot(gp_Vec(nCap));
+                if (d < -kTol && d > -R - kTol)
+                { why = "rim: a wall feature lies inside the blend band"; ok = false; break; }
+            }
+            if (!ok) break;
+        }
+        if (!ok) continue;
+        rc = c;
+        why.clear();
+        return true;
+    }
+    return false;
+}
+
+// The corner blend: a torus tangent to the wall cylinder at v=0 and to the offset
+// cap at v=pi/2. Null face on failure (caller defers).
+TopoDS_Face rimTorus(const RimSeg& sg, const gp_Dir& nCap, double R) {
+    const gp_Pnt O = shift(sg.ctr, gp_Dir(gp_Vec(nCap).Reversed()), R);
+    // X so that u=0 is the arc's p0 (or its p1 when the sweep runs the other way).
+    for (int flip = 0; flip < 2; ++flip) {
+        const gp_Pnt& a = flip == 0 ? sg.p0 : sg.p1;
+        const gp_Pnt& b = flip == 0 ? sg.p1 : sg.p0;
+        gp_Vec xv(sg.ctr, a);
+        xv -= gp_Vec(nCap) * xv.Dot(gp_Vec(nCap));
+        if (xv.Magnitude() <= kTol) return TopoDS_Face();
+        const gp_Dir X(xv);
+        const gp_Vec Y = gp_Vec(nCap).Crossed(gp_Vec(X));
+        gp_Vec bv(sg.ctr, b);
+        bv -= gp_Vec(nCap) * bv.Dot(gp_Vec(nCap));
+        double ub = std::atan2(bv.Dot(Y), bv.Dot(gp_Vec(X)));
+        if (ub < 0.0) ub += 2.0 * kPi;
+        if (std::fabs(ub - sg.theta) > 1e-6) continue;   // the sweep runs the other way
+        const gp_Ax3 ax(O, nCap, X);
+        Handle(Geom_ToroidalSurface) tor = new Geom_ToroidalSurface(ax, sg.rho - R, R);
+        BRepBuilderAPI_MakeFace mf(tor, 0.0, sg.theta, 0.0, 0.5 * kPi, Precision::Confusion());
+        if (!mf.IsDone()) return TopoDS_Face();
+        TopoDS_Face f = mf.Face();
+        BRepLib::SameParameter(f, 1e-7, Standard_True);
+        return f;
+    }
+    return TopoDS_Face();
+}
+
+// A cylindrical wall pulled back R from the cap plane. Rebuilt as the canonical uv
+// patch it is; the AREA identity below is what proves the original face WAS that
+// patch, so a wall carrying anything else is declined rather than silently reshaped.
+TopoDS_Face rimTrimCylWall(const RimSeg& sg, const gp_Pln& capPln, const gp_Dir& nCap, double R) {
+    gp_Ax1 ax; double rad = 0.0;
+    if (!cylinderFaceAxis(sg.wall, ax, rad)) return TopoDS_Face();
+    for (TopoDS_Iterator it(sg.wall); it.More(); it.Next()) {
+        if (it.Value().ShapeType() != TopAbs_WIRE) continue;
+        if (!TopoDS::Wire(it.Value()).IsSame(BRepTools::OuterWire(sg.wall))) return TopoDS_Face();
+    }
+    // measure the wall's extent along +nCap from the axis location
+    const TopoDS_Wire wo = BRepTools::OuterWire(sg.wall);
+    if (wo.IsNull()) return TopoDS_Face();
+    double vmin = 1e300, vmax = -1e300;
+    for (TopExp_Explorer vx(wo, TopAbs_VERTEX); vx.More(); vx.Next()) {
+        const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(vx.Current()));
+        const double v = gp_Vec(sg.ctr, p).Dot(gp_Vec(nCap));
+        vmin = std::min(vmin, v); vmax = std::max(vmax, v);
+    }
+    if (!(vmax - vmin > R + kTol)) return TopoDS_Face();
+    if (std::fabs(vmax) > 1e-6) return TopoDS_Face();     // the top must be the cap plane
+    (void)capPln;
+    // the original face must be exactly the uv box rho*theta*(vmax-vmin)
+    const double aOld = areaOf(sg.wall);
+    const double aBox = sg.rho * sg.theta * (vmax - vmin);
+    if (!(aBox > 0.0) || std::fabs(aOld - aBox) > 1e-6 * aBox) return TopoDS_Face();
+
+    for (int flip = 0; flip < 2; ++flip) {
+        const gp_Pnt& a = flip == 0 ? sg.p0 : sg.p1;
+        const gp_Pnt& b = flip == 0 ? sg.p1 : sg.p0;
+        gp_Vec xv(sg.ctr, a);
+        xv -= gp_Vec(nCap) * xv.Dot(gp_Vec(nCap));
+        if (xv.Magnitude() <= kTol) return TopoDS_Face();
+        const gp_Dir X(xv);
+        const gp_Vec Y = gp_Vec(nCap).Crossed(gp_Vec(X));
+        gp_Vec bv(sg.ctr, b);
+        bv -= gp_Vec(nCap) * bv.Dot(gp_Vec(nCap));
+        double ub = std::atan2(bv.Dot(Y), bv.Dot(gp_Vec(X)));
+        if (ub < 0.0) ub += 2.0 * kPi;
+        if (std::fabs(ub - sg.theta) > 1e-6) continue;
+        const gp_Ax3 axc(sg.ctr, nCap, X);
+        Handle(Geom_CylindricalSurface) cyl = new Geom_CylindricalSurface(axc, sg.rho);
+        BRepBuilderAPI_MakeFace mf(cyl, 0.0, sg.theta, vmin, vmax - R, Precision::Confusion());
+        if (!mf.IsDone()) return TopoDS_Face();
+        TopoDS_Face f = mf.Face();
+        BRepLib::SameParameter(f, 1e-7, Standard_True);
+        const double aNew = areaOf(f);
+        const double aWant = sg.rho * sg.theta * (vmax - R - vmin);
+        if (std::fabs(aNew - aWant) > 1e-6 * aWant) return TopoDS_Face();
+        return f;
+    }
+    return TopoDS_Face();
+}
+
+// A planar wall pulled back R: every ring vertex sitting IN the cap plane drops by R.
+TopoDS_Face rimTrimPlanarWall(const TopoDS_Face& wall, const gp_Pln& capPln,
+                              const gp_Dir& nCap, double R) {
+    gp_Pln pw; gp_Dir nw;
+    if (!planarFaceNormal(wall, pw, nw)) return TopoDS_Face();
+    std::vector<RingSeg> segs; bool straight = false;
+    if (!orderedOuterRing(wall, segs, straight) || !ringIsRebuildable(segs, straight))
+        return TopoDS_Face();
+    int moved = 0;
+    for (RingSeg& sg : segs) {
+        if (std::fabs(gp_Vec(capPln.Location(), sg.p).Dot(gp_Vec(nCap))) <= 1e-6) {
+            sg.p = shift(sg.p, gp_Dir(gp_Vec(nCap).Reversed()), R);
+            ++moved;
+        }
+    }
+    if (moved < 2) return TopoDS_Face();
+    return planarFaceFromSegs(segs, pw, nw, innerWires(wall));
+}
+
+// The whole rim blend. ok==false is an honest deferral, as everywhere else here.
+Result filletTangentRim(const TopoDS_Shape& shape, const FilletSpec& spec) {
+    RimContext rc; std::string why;
+    if (!buildRimContext(shape, spec.edge, spec.radius, rc, why)) return defer(why);
+    const double R = spec.radius;
+
+    std::vector<TopoDS_Face> faces;
+
+    // 1. the cap, offset inward by R
+    {
+        std::vector<RingSeg> segs;
+        for (const RimSeg& sg : rc.segs) {
+            RingSeg r;
+            r.p = sg.off0;
+            if (sg.isArc) { r.newArc = true; r.arcCtr = sg.ctr; r.arcR = sg.rho - R; }
+            segs.push_back(r);
+        }
+        const TopoDS_Face capNew = planarFaceFromSegs(segs, rc.capPln, rc.nCap, innerWires(rc.cap));
+        if (capNew.IsNull()) return defer("rim: the offset cap ring would not rebuild");
+        // AREA, not volume: a hole that the offset ring ran into changes the cap's
+        // area and nothing else, and a wrong cap can still close a plausible solid.
+        const double aOld = areaOf(rc.cap), aNew = areaOf(capNew);
+        if (!(aOld > 0.0)) return defer("rim: unreadable cap area");
+        if (std::fabs((aOld - aNew) - rc.bandArea) > 1e-6 * aOld)
+            return defer("rim: the offset cap did not lose exactly the blend band "
+                         "(a hole or a boundary lies inside it)");
+        faces.push_back(capNew);
+    }
+
+    // 2. the walls, pulled back R
+    for (const RimSeg& sg : rc.segs) {
+        const TopoDS_Face w = sg.isArc ? rimTrimCylWall(sg, rc.capPln, rc.nCap, R)
+                                       : rimTrimPlanarWall(sg.wall, rc.capPln, rc.nCap, R);
+        if (w.IsNull()) return defer(sg.isArc ? "rim: a corner cylinder wall would not re-trim"
+                                              : "rim: a planar wall would not re-trim");
+        faces.push_back(w);
+    }
+
+    // 3. the blend patches
+    for (const RimSeg& sg : rc.segs) {
+        if (sg.isArc) {
+            const TopoDS_Face t = rimTorus(sg, rc.nCap, R);
+            if (t.IsNull()) return defer("rim: the corner torus patch would not build");
+            faces.push_back(t);
+        } else {
+            const gp_Dir down(gp_Vec(rc.nCap).Reversed());
+            const gp_Pnt axis0 = shift(sg.off0, down, R);
+            const gp_Pnt sB0   = shift(sg.p0,  down, R);
+            const TopoDS_Face cy = filletCylinder(axis0, sg.dir, R, sg.off0, sB0, sg.len);
+            if (cy.IsNull()) return defer("rim: a straight blend patch would not build");
+            faces.push_back(cy);
+        }
+    }
+
+    // 4. everything else verbatim
+    for (TopExp_Explorer fe(shape, TopAbs_FACE); fe.More(); fe.Next()) {
+        const TopoDS_Face f = TopoDS::Face(fe.Current());
+        if (f.IsSame(rc.cap)) continue;
+        bool isWall = false;
+        for (const RimSeg& sg : rc.segs) if (f.IsSame(sg.wall)) { isWall = true; break; }
+        if (!isWall) faces.push_back(f);
+    }
+
+    const TopoDS_Shape sol = sewToSolid(faces, shape);
+    if (sol.IsNull()) return defer("rim: sew produced no closed solid");
+
+    const double v0 = solidVolume(shape), v1 = solidVolume(sol);
+    if (v0 > 0.0) {
+        if (!(v1 < v0)) return defer("rim: the blend did not remove material "
+                                     "(orientation/geometry check failed)");
+        const double moved = v0 - v1;
+        if (!(rc.predictedDv > 0.0)) return defer("rim: degenerate closed form");
+        // ★ 1e-6, not the per-edge path's 3%: this construction is EXACT (analytic
+        //   surfaces throughout, and an offset ring that reproduces the profile
+        //   rather than approximating it), and the measurement says so — over the 58
+        //   corpus parts the removed volume agrees with the closed form to the last
+        //   printed digit on 58/58. A loose bar here would let a wrong patch through
+        //   on a shape whose error happened to be small.
+        if (std::fabs(moved - rc.predictedDv) / rc.predictedDv > 1e-6)
+            return defer("rim: blend volume disagrees with the rim closed form");
+    }
+    Result r; r.ok = true; r.shape = sol;
+    r.reason = "native rim fillet (tangent-continuous prismatic rim: " +
+               std::to_string(rc.nLine) + " cylinder + " + std::to_string(rc.nArc) + " torus patches)";
+    return r;
+}
+
 }  // namespace
 
 // ------------------------------- public API ----------------------------------
@@ -1726,6 +2241,22 @@ Result makeFillet(const TopoDS_Shape& shape, const std::vector<FilletSpec>& spec
         seq.reason += " | corner-aware: " + b.reason;
     } catch (...) {
         seq.reason += " | corner-aware raised an OCCT exception";
+    }
+    // ★ The TANGENT-CONTINUOUS PRISMATIC RIM — see the block above filletTangentRim
+    //   for the measurement that motivates it. Tried LAST, on purpose: nothing the
+    //   per-edge or corner-aware paths already answer can change, because this runs
+    //   only where BOTH declined. It then fires only where the cap's outer ring is a
+    //   closed G1 loop carrying at least one arc — which is exactly the condition
+    //   under which OCCT's BRepFilletAPI propagates the contour, so it does not
+    //   substitute a rim blend for a request the per-edge path would have answered.
+    if (uspecs.size() == 1) {
+        try {
+            Result rim = filletTangentRim(shape, uspecs.front());
+            if (rim.ok) return rim;
+            seq.reason += " | " + rim.reason;
+        } catch (...) {
+            seq.reason += " | rim path raised an OCCT exception";
+        }
     }
     debugDefer("fillet", seq.reason);
     return seq;

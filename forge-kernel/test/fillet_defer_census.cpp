@@ -81,8 +81,23 @@
 #include <ChFi3d.hxx>
 #include <ChFiDS_TypeOfConcavity.hxx>
 #include <GProp_GProps.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
+#include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepTools.hxx>
+#include <BRepTools_WireExplorer.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_Curve.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_Surface.hxx>
+#include <Geom_SurfaceOfLinearExtrusion.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <TopoDS_Wire.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_Ax2.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Cylinder.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -307,6 +322,137 @@ OcctArm runOcct(const TopoDS_Shape& src, const TopoDS_Edge& e, double r) {
     return a;
 }
 
+// ── the RIM closed form, computed HERE and not read out of the engine ────────
+//
+// ★ MEASURED 2026-08-30: 58 of the 117 parts in the FILLET deletion bucket are a
+//   prismatic cap whose outer rim is a G1 rounded rectangle, and OCCT does not blend
+//   the picked EDGE on them — it propagates the contour round the whole rim, removing
+//   2.53x to 4.11x the single-edge closed form. `ideal_dv` above therefore says
+//   nothing about those parts, and a census that only records it cannot tell a
+//   correct rim blend from a wrong one.
+//
+//   This computes the rim's own closed form from the CAP RING alone:
+//       SUM over line segments  (1 - pi/4) R^2 L
+//     + SUM over arc segments   theta * [ R^2(2rho-R)/2 - R^3/3 - (rho-R) pi R^2/4 ]
+//   the second term being Pappus applied to the same kite-minus-quarter-disc section
+//   swept about the corner axis at major radius rho-R. It shares no code with
+//   forge::occtfillet, so `rim_ratio` = native_dv / rim_pred_dv is an independent
+//   check of the engine's answer, and the RIM control in --selftest proves the
+//   formula against live OCCT on an exactly built prism before any corpus number
+//   exists.
+//
+//   Returns -1 when the part is not a rim of that kind (then rim_ratio is -1 too).
+
+bool censusCylinderAxis(const TopoDS_Face& f, gp_Ax1& axis, double& radius) {
+    BRepAdaptor_Surface as;
+    try { as.Initialize(f); } catch (...) { return false; }
+    if (as.GetType() == GeomAbs_Cylinder) {
+        const gp_Cylinder c = as.Cylinder();
+        axis = c.Axis(); radius = c.Radius(); return radius > 1e-9;
+    }
+    if (as.GetType() != GeomAbs_SurfaceOfExtrusion) return false;
+    Handle(Geom_Surface) gs = BRep_Tool::Surface(f);
+    Handle(Geom_SurfaceOfLinearExtrusion) ex = Handle(Geom_SurfaceOfLinearExtrusion)::DownCast(gs);
+    if (ex.IsNull()) return false;
+    Handle(Geom_Curve) bc = ex->BasisCurve();
+    while (!bc.IsNull()) {
+        Handle(Geom_TrimmedCurve) tc = Handle(Geom_TrimmedCurve)::DownCast(bc);
+        if (tc.IsNull()) break;
+        bc = tc->BasisCurve();
+    }
+    Handle(Geom_Circle) gc = Handle(Geom_Circle)::DownCast(bc);
+    if (gc.IsNull()) return false;
+    const gp_Circ c0 = gc->Circ();
+    radius = c0.Radius();
+    if (!(radius > 1e-9)) return false;
+    axis = gp_Ax1(c0.Location(), ex->Direction());
+    return true;
+}
+
+// planar-in-fact normal, the same sampling rule the engine states in its header
+bool censusPlanarNormal(const TopoDS_Face& f, gp_Pln& pln, gp_Dir& outN) {
+    BRepAdaptor_Surface as;
+    try { as.Initialize(f); } catch (...) { return false; }
+    if (as.GetType() == GeomAbs_Plane) { pln = as.Plane(); outN = pln.Axis().Direction(); }
+    else {
+        const double u0 = as.FirstUParameter(), u1 = as.LastUParameter();
+        const double v0 = as.FirstVParameter(), v1 = as.LastVParameter();
+        if (!std::isfinite(u0) || !std::isfinite(u1) || !std::isfinite(v0) || !std::isfinite(v1)) return false;
+        if (!(u1 - u0 > 1e-12) || !(v1 - v0 > 1e-12)) return false;
+        gp_Pnt P; gp_Vec dU, dV;
+        as.D1(0.5 * (u0 + u1), 0.5 * (v0 + v1), P, dU, dV);
+        const gp_Vec nv = dU.Crossed(dV);
+        if (nv.Magnitude() <= 1e-7) return false;
+        const gp_Dir N(nv); const gp_Vec Nv(N);
+        for (int i = 0; i <= 4; ++i) for (int j = 0; j <= 4; ++j) {
+            const gp_Pnt Q = as.Value(u0 + (u1 - u0) * i * 0.25, v0 + (v1 - v0) * j * 0.25);
+            if (std::fabs(gp_Vec(P, Q).Dot(Nv)) > 1e-7) return false;
+        }
+        pln = gp_Pln(P, N); outN = N;
+    }
+    if (f.Orientation() == TopAbs_REVERSED) outN.Reverse();
+    return true;
+}
+
+double rimClosedForm(const TopoDS_Shape& shape, const TopoDS_Edge& edge, double R,
+                     int& nLineOut, int& nArcOut) {
+    nLineOut = 0; nArcOut = 0;
+    if (!(R > 0.0)) return -1.0;
+    TopTools_IndexedDataMapOfShapeListOfShape efMap;
+    try { TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, efMap); }
+    catch (...) { return -1.0; }
+    if (!efMap.Contains(edge)) return -1.0;
+    const TopTools_ListOfShape& fl0 = efMap.FindFromKey(edge);
+    if (fl0.Extent() != 2) return -1.0;
+    TopTools_ListIteratorOfListOfShape it0(fl0);
+    const TopoDS_Face F0 = TopoDS::Face(it0.Value()); it0.Next();
+    const TopoDS_Face F1 = TopoDS::Face(it0.Value());
+    if (F0.IsSame(F1)) return -1.0;
+
+    for (int k = 0; k < 2; ++k) {
+        const TopoDS_Face CAP = k == 0 ? F0 : F1;
+        gp_Pln pln; gp_Dir nCap;
+        if (!censusPlanarNormal(CAP, pln, nCap)) continue;
+        const TopoDS_Wire ow = BRepTools::OuterWire(CAP);
+        if (ow.IsNull()) continue;
+        bool carries = false, ok = true;
+        double sum = 0.0; int nl = 0, na = 0;
+        for (BRepTools_WireExplorer wx(ow, CAP); wx.More() && ok; wx.Next()) {
+            const TopoDS_Edge re = wx.Current();
+            if (re.IsSame(edge)) carries = true;
+            BRepAdaptor_Curve ac;
+            try { ac.Initialize(re); } catch (...) { ok = false; break; }
+            if (!efMap.Contains(re)) { ok = false; break; }
+            const TopTools_ListOfShape& fl = efMap.FindFromKey(re);
+            if (fl.Extent() != 2) { ok = false; break; }
+            TopoDS_Face nb;
+            for (TopTools_ListIteratorOfListOfShape i2(fl); i2.More(); i2.Next())
+                if (!TopoDS::Face(i2.Value()).IsSame(CAP)) nb = TopoDS::Face(i2.Value());
+            if (nb.IsNull()) { ok = false; break; }
+            if (ac.GetType() == GeomAbs_Line) {
+                gp_Pln pw; gp_Dir nw;
+                if (!censusPlanarNormal(nb, pw, nw)) { ok = false; break; }
+                if (std::fabs(gp_Vec(nw).Dot(gp_Vec(nCap))) > 1e-6) { ok = false; break; }
+                sum += (1.0 - kPi / 4.0) * R * R * edgeLength(re);
+                ++nl;
+            } else if (ac.GetType() == GeomAbs_Circle) {
+                gp_Ax1 ax; double rad = 0.0;
+                if (!censusCylinderAxis(nb, ax, rad)) { ok = false; break; }
+                if (std::fabs(std::fabs(gp_Vec(ax.Direction()).Dot(gp_Vec(nCap))) - 1.0) > 1e-6) { ok = false; break; }
+                const double rho = ac.Circle().Radius();
+                if (std::fabs(rho - rad) > 1e-6 * std::max(1.0, rho)) { ok = false; break; }
+                if (!(rho > R)) { ok = false; break; }
+                const double th = std::fabs(ac.LastParameter() - ac.FirstParameter());
+                sum += th * (R * R * (2.0 * rho - R) * 0.5 - R * R * R / 3.0
+                             - (rho - R) * kPi * R * R * 0.25);
+                ++na;
+            } else { ok = false; break; }
+        }
+        if (ok && carries && na > 0 && sum > 0.0) { nLineOut = nl; nArcOut = na; return sum; }
+    }
+    return -1.0;
+}
+
 // The A/B's own pick: the longest LINE edge of the shape.
 TopoDS_Edge pickLineEdge(const TopoDS_Shape& shape, double& lenOut) {
     TopoDS_Edge best; double bestLen = 0.0;
@@ -475,6 +621,87 @@ int selftest() {
         }
     }
 
+    // RIM: an EXACTLY built rounded-rectangle prism — four tangent quarter arcs of
+    // radius rho joined by four straight runs, extruded. Its top rim is
+    // tangent-continuous, so OCCT PROPAGATES the contour: the whole rim is blended,
+    // not the picked edge. The control asserts three things before any corpus number
+    // exists — that OCCT does propagate (removing far more than one edge would), that
+    // the closed form above reproduces OCCT's answer, and that the native engine
+    // answers it too and agrees. A formula that were wrong, or a probe wired to the
+    // wrong arm, would look exactly like a real result without this.
+    {
+        const double W = 60.0, H = 40.0, rho = 8.0, hgt = 15.0, R = 3.0;
+        const double a = W * 0.5 - rho, b = H * 0.5 - rho;
+        const double cx[4] = { a, -a, -a,  a };
+        const double cy[4] = { b,  b, -b, -b };
+        const double a0[4] = { 0.0, 0.5 * kPi, kPi, 1.5 * kPi };
+        BRepBuilderAPI_MakeWire mw;
+        bool built = true;
+        for (int i = 0; i < 4 && built; ++i) {
+            const gp_Ax2 ax(gp_Pnt(cx[i], cy[i], 0.0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0));
+            BRepBuilderAPI_MakeEdge me(gp_Circ(ax, rho), a0[i], a0[i] + 0.5 * kPi);
+            if (!me.IsDone()) { built = false; break; }
+            mw.Add(me.Edge());
+            const int j = (i + 1) % 4;
+            const gp_Pnt p1(cx[i] + rho * std::cos(a0[i] + 0.5 * kPi),
+                            cy[i] + rho * std::sin(a0[i] + 0.5 * kPi), 0.0);
+            const gp_Pnt p2(cx[j] + rho * std::cos(a0[j]), cy[j] + rho * std::sin(a0[j]), 0.0);
+            if (p1.Distance(p2) > 1e-12) {
+                BRepBuilderAPI_MakeEdge ml(p1, p2);
+                if (!ml.IsDone()) { built = false; break; }
+                mw.Add(ml.Edge());
+            }
+        }
+        TopoDS_Shape prism;
+        if (built && mw.IsDone()) {
+            BRepBuilderAPI_MakeFace mf(mw.Wire(), Standard_True);
+            if (mf.IsDone()) prism = BRepPrimAPI_MakePrism(mf.Face(), gp_Vec(0, 0, hgt)).Shape();
+        }
+        if (prism.IsNull()) { std::printf("  RIM CONTROL FAILED: the prism did not build\n"); bad = 1; }
+        else {
+            TopoDS_Edge pick; double best = 0.0;
+            TopTools_IndexedMapOfShape em;
+            TopExp::MapShapes(prism, TopAbs_EDGE, em);
+            for (int i = 1; i <= em.Extent(); ++i) {
+                const TopoDS_Edge e = TopoDS::Edge(em(i));
+                BRepAdaptor_Curve ad;
+                try { ad.Initialize(e); } catch (...) { continue; }
+                if (ad.GetType() != GeomAbs_Line) continue;
+                const gp_Pnt mid = ad.Value(0.5 * (ad.FirstParameter() + ad.LastParameter()));
+                if (std::fabs(mid.Z() - hgt) > 1e-9) continue;
+                const double L = edgeLength(e);
+                if (L > best) { best = L; pick = e; }
+            }
+            int nl = 0, na = 0;
+            const double pred = pick.IsNull() ? -1.0 : rimClosedForm(prism, pick, R, nl, na);
+            const OcctArm oc = pick.IsNull() ? OcctArm() : runOcct(prism, pick, R);
+            const double v0 = solidVolume(prism);
+            const double occD = oc.status == "OK" ? std::fabs(oc.vol - v0) : -1.0;
+            const double oneEdge = (1.0 - kPi / 4.0) * R * R * best;
+            std::vector<forge::occtfillet::FilletSpec> sp(1);
+            if (!pick.IsNull()) { sp[0].edge = pick; sp[0].radius = R; }
+            const forge::occtfillet::Result nat =
+                pick.IsNull() ? forge::occtfillet::Result() : forge::occtfillet::makeFillet(prism, sp);
+            const double natD = nat.ok ? std::fabs(solidVolume(nat.shape) - v0) : -1.0;
+            const bool propagates = occD > 2.0 * oneEdge;                       // OCCT blends the RIM
+            const bool formOk = pred > 0.0 && nl == 4 && na == 4 &&
+                                std::fabs(pred - occD) / occD < 5e-3;           // the formula is right
+            const bool natOk  = nat.ok && std::fabs(natD - pred) / pred < 1e-6; // and native agrees
+            if (!propagates || !formOk || !natOk) {
+                std::printf("  RIM CONTROL FAILED: occt=%s occtD=%.10g oneEdge=%.10g pred=%.10g "
+                            "(%d lines %d arcs) native ok=%d natD=%.10g reason='%s'\n",
+                            oc.status.c_str(), occD, oneEdge, pred, nl, na,
+                            nat.ok ? 1 : 0, natD, nat.reason.c_str());
+                bad = 1;
+            } else {
+                std::printf("  rim control: OCCT propagates the rim (%.6g vs %.6g for one edge); "
+                            "closed form %.6g matches to %.2e; native agrees to %.2e ok\n",
+                            occD, oneEdge, pred, std::fabs(pred - occD) / occD,
+                            std::fabs(natD - pred) / pred);
+            }
+        }
+    }
+
     std::printf(bad ? "SELFTEST FAIL\n" : "SELFTEST PASS\n");
     return bad;
 }
@@ -600,6 +827,9 @@ int main(int argc, char** argv) {
                                                                     : "NEITHER";
     const double natD = nat.ok ? std::fabs(natVol - v0) : 0.0;
     const double occD = oc.status == "OK" ? std::fabs(oc.vol - v0) : 0.0;
+    // The rim closed form is computed from the CAP RING, independently of the engine.
+    int rimNL = 0, rimNA = 0;
+    const double rimPred = rimClosedForm(shape, e, R, rimNL, rimNA);
 
     std::printf(
         "{\"part\":\"%s\",\"applicable\":true,\"bucket\":\"%s\","
@@ -615,7 +845,8 @@ int main(int argc, char** argv) {
         "\"native_dv\":%.10g,\"native_ratio\":%.6f,\"native_noop\":%s,"
         "\"occt_status\":\"%s\",\"occt_msg\":\"%s\",\"occt_contours\":%d,"
         "\"occt_vol\":%.10g,\"occt_dv\":%.10g,\"occt_ratio\":%.6f,"
-        "\"occt_tangent\":%d,\"occt_connect\":\"%s\"}\n",
+        "\"occt_tangent\":%d,\"occt_connect\":\"%s\","
+        "\"rim_pred_dv\":%.10g,\"rim_nline\":%d,\"rim_narc\":%d,\"rim_ratio\":%.9f}\n",
         partName.c_str(), bucket,
         nFaces, nPlanar, nShells, nSolids, diag, minExt, flat ? "true" : "false",
         edgeLen, R,
@@ -630,6 +861,8 @@ int main(int argc, char** argv) {
         (natStatus == "OK" && natVol == v0) ? "true" : "false",
         oc.status.c_str(), jesc(oc.msg).c_str(), oc.contours,
         oc.vol, occD, ideal > 0.0 ? occD / ideal : -1.0,
-        tangent, connect.c_str());
+        tangent, connect.c_str(),
+        rimPred, rimNL, rimNA,
+        (rimPred > 0.0 && nat.ok) ? natD / rimPred : -1.0);
     return 0;
 }
