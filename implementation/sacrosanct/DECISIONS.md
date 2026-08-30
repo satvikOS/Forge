@@ -572,3 +572,59 @@ hitting. Confirmed back to 132/0 with the file byte-identical and the worktree c
 
 Gates 3 (op coverage) and 4 (Gatekeeper-acceptable bundle) remain. Per D-019, gate 4 does
 NOT depend on the OCCT drop; it needs a Developer ID plus notarization.
+
+## D-018 RE-VERIFIED ON ORIGIN (2026-08-29): the earlier pass was measured on a 36-commit-stale tree
+
+The gate-1/gate-2 result above was measured in a checkout that turned out to be **36
+commits behind origin** and 3 ahead. That is the in-flight-vs-HEAD trap this programme has
+now hit four times in one day, and it is the reason the claim was re-run rather than left
+standing.
+
+Rebuilt from `origin/claude/sacrosanct-execution-20260828` in a clean worktree:
+`KCORE_BUILD=0`, `CONFIGURE_RC=0`, `GATE_BUILD_RC=0`, `GATE_RUN_RC=0`, and the headless
+frame gate reports **135 checks, 0 failures** — three MORE checks than the stale tree's 132.
+So gates 1 and 2 hold on the real tree, and the conclusion is unchanged; only its
+provenance is now correct.
+
+The same staleness explains the "SKETCH seed" defect: it is real in the stale tree and was
+ALREADY FIXED on origin, where `wirePartCommands` replays `defaultPartStatements()` and
+reports a refusal by name. What was still live on origin was the RESIDUE — two UI gates
+still seeding the non-existent op and still discarding `seed()`'s return. That is fixed in
+PR #82 with a negative control both ways.
+
+**Rule reinforced, since restating it has not been enough:** every measured claim must name
+the tree it was measured against, and the tree must be checked against origin at the moment
+of measurement — not assumed from the branch name.
+
+## D-020 (2026-08-29): the corpus A/B baseline is INDEPENDENTLY REPLICATED, and it found a live production defect
+
+The 600-part baseline was produced TWICE, by two separately written harness drivers, in
+different worktrees, at different build SHAs, hours apart. **All ten per-family rows are
+identical** — same N, same native %, same OCCT % — across 6000 paired trials. Both runs
+also independently reached the same two non-coverage findings, on the same part, to three
+decimals.
+
+The second run supplies the check the first could not: **ten per-family native POSITIVE
+CONTROLS, 10/10 OK**, each engine fed an input its own header documents as in scope. That
+is what makes PIPE 0.3%, DRAFT 0.0% and THRUSECTIONS 0.0% believable as ENGINE results
+rather than a mis-wired arm — the question left open the moment the first zeros appeared.
+
+It also counts the OCCT arm's own failures, which are large: **OFFSETSHAPE CRASHED on 66 of
+600** parts and MAKEOFFSET TIMED OUT on 5. Those are the 23 contained crash reports this
+machine logged, all one stack (`BRepOffset_MakeOffset` -> `BRepOffset_Inter2d::ConnexIntByInt`
+-> `BRep_Tool::CurveOnSurface` at 0x60). The arm being treated as the trustworthy reference
+is itself unreliable on this corpus.
+
+And a guard that COULD NOT FIRE was found and fixed: the first build-SHA-vs-HEAD guard
+exited 0 on a poisoned stamp because the driver rebuilds and re-stamps on the line above
+it. Both guards are now proved to fire (exit 3, exit 4). Same class as the four harnesses
+that could not link.
+
+**A LIVE PRODUCTION DEFECT, found by a harness not looking for it.** `Features.cpp` does
+`return ShapeRegistry::instance().add(mk.Shape());` unmodified, and `mk.Shape()` is
+negatively oriented on all 407 shared successes — so `part::thickenSurface` hands the
+ShapeRegistry a **reversed solid** today on the default non-native path. **DECISION: record
+it, do not fix it blind.** The correct remedy — reverse the solid, or leave the convention
+to consumers — depends on what downstream consumers assume about orientation, and that has
+not been measured. Fixing it without that measurement would be exactly the guesswork this
+programme keeps paying for.
