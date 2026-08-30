@@ -297,9 +297,11 @@ Measured: `pass=42 fail=5 baseline=5 → GREEN`, with the five owed gaps printed
 
 Measured 2026-08-29 on macOS arm64 (14 cores), OCCT 7.9.3, Unix Makefiles,
 `CMAKE_BUILD_TYPE=Release`, `-DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON`,
-from a **clean build directory** at branch base `a70dd1da`. 473 translation units compiled;
-**52 targets** link from the committed `CMakeLists.txt` (`grep -c "Built target"`), and all 53
-registered tests were run. No Node: this worktree has no `node_modules` anywhere
+from a **clean build directory** at branch base `a70dd1da`. The clean build compiled **473**
+translation units and linked **53** targets — that run is also what measured the thicken gate of
+§7.4; with that gate withheld, the committed `CMakeLists.txt` compiles 472 TUs and links **52**
+targets (`grep -c "Built target"`), and all 53 registered tests were then re-run against exactly
+that. No Node: this worktree has no `node_modules` anywhere
 (`ls node_modules forge-kernel/node_modules` -> No such file or directory), the build log
 contains zero `napi`/`node-addon` references, and `find <build> -name "*.node"` returns 0.
 
