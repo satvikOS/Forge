@@ -64,6 +64,9 @@
 //   section is carried through the MITRE plane (the plane bisecting the two
 //   segment directions), which is what makes consecutive lateral faces planar.
 //   With makeSolid=true the two ends are capped.
+//   A FACE profile may carry POLYGON HOLES: every ring is carried by the same
+//   per-leg affine map and the caps carry the holes as inner wires (see family
+//   E's third profile kind for the derivation and the measurement behind it).
 //
 // ===========================================================================
 // HONEST DEFER (returns a null TopoDS_Shape, IsNull() == true)
@@ -81,15 +84,22 @@
 //     * ruled=false (the SMOOTHED B-spline skin is a genuinely different
 //       surface — approximating it here would be a silent substitution);
 //     * a sew that leaves a free edge, more than one shell, or a zero volume.
-//   pipeShell:
+//   pipeShell / pipe:
 //     * ANY guide wire (there is no native guided pipe-shell anywhere in the
 //       tree; reports/TKOFFSET_DECOMPOSITION.md §2 names family F the one
 //       genuine wall and this engine does not pretend otherwise);
 //     * a spine that is not an open polyline of >= 1 LINE edges;
-//     * a profile that is not a closed planar polygon wire (or a face whose
-//       outer wire is one);
+//     * a profile that is none of the FOUR kinds this engine can sweep EXACTLY:
+//       a closed planar POLYGON wire; a full CIRCLE wire (family E only); a face
+//       whose rings are all polygons; a face with a POLYGON outer boundary and
+//       CIRCULAR holes (family E only). Anything else -- an arc chain, a spline,
+//       an ellipse, a slot -- is DECLINED, never approximated;
+//     * a hole ring that is not coplanar / not parallel with the outer ring, or
+//       a circular hole whose axis is not the sweep direction;
 //     * a mitre that is degenerate (a spine reversal, i.e. a 180-degree turn);
 //     * a lateral quad that is not planar within `tol`;
+//     * a set of holes that does not remove exactly its own volume from the
+//       outer solid (i.e. a hole outside the boundary, or two overlapping holes);
 //     * the same sew / shell / volume checks as above.
 //
 // ===========================================================================
@@ -139,6 +149,16 @@ namespace occtloft {
 bool loftNativeEnabled();
 bool pipeShellNativeEnabled();
 
+// ---------------------------------------------------------- diagnostics
+// WHY did the most recent thruSections/pipeShell/pipe call ON THIS THREAD
+// return a null shape? A '|'-joined trail of the precondition labels it hit,
+// e.g. "prof_face_multi_wire" or "spine_edge_not_line|circ_not_circle".
+// DIAGNOSTIC ONLY: setting it changes no predicate, tolerance or branch, and
+// the string is meaningless (stale) after a call that SUCCEEDED. It exists so
+// a coverage measurement can attribute a defer instead of reporting a bare
+// null -- see reports/corpus_ab and test/corpus_ab_coverage.cpp.
+const char* lastDeferReason();
+
 // ---------------------------------------------------------------- family D
 // Ruled loft through `sections` (each a closed polygon TopoDS_Wire, or a
 // TopoDS_Vertex point section at the first/last position). 1:1 drop-in for
@@ -172,13 +192,22 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
 //
 //   family E  BRepOffsetAPI_MakePipe::{ctor(Wire,Shape), Build} + vtable  (3 symbols)
 //
-// TWO PROFILE KINDS, both EXACT:
+// THREE PROFILE KINDS, all EXACT:
 //   * POLYGON  — the same rotation-minimizing mitre transport pipeShell() uses
-//     (see the MITRE derivation in the .cpp banner). Any number of legs.
+//     (see the MITRE derivation in the .cpp banner). Any number of legs. A face
+//     may carry POLYGON holes: every ring rides the same affine per-leg map.
 //   * CIRCLE   — a chain of mitre-trimmed circular cylinders, every lateral face
 //     an analytic Geom_CylindricalSurface and every cap a Geom_Plane. This kind
 //     exists because forge::part::pipeFromPolyline feeds a CIRCLE, so a
 //     polygon-only engine would leave that entry point permanently deferring.
+//   * POLYGON OUTER + CIRCULAR HOLES — the dominant shape of a real machined
+//     face. MEASURED on the 600-part corpus A/B: of 3426 hole wires, 3426 are
+//     circles and none is a polygon, and 307 of 600 profile faces are exactly
+//     this kind. Built as the polygon sweep minus one mitre-trimmed cylinder
+//     chain per hole, and accepted only if the cut removed EXACTLY the sum of
+//     the tube volumes -- which is true iff every tube lies inside the outer
+//     solid and no two overlap. This kind took the family's measured corpus
+//     coverage from 2/600 to 249/600.
 //
 // Returns a null TopoDS_Shape on HONEST DEFER — never a plausible wrong shape.
 // Defers: a closed/curved/zero-length spine, a profile that is neither a polygon

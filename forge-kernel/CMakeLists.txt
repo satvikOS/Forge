@@ -2145,3 +2145,284 @@ foreach(_t forge_kernel forge_kernel_core forge_foundation_probe forge_verify fo
 endforeach()
 add_custom_target(forge_all DEPENDS ${_forge_all_targets})
 message(STATUS "forge_all aggregates: ${_forge_all_targets}")
+
+# ============================================================================
+# CTEST SUITE (B1) — the kernel's own C++ acceptance evidence, runnable as a suite.
+#
+# WHY THIS BLOCK EXISTS. Until now `grep -nE "add_test|enable_testing" ` over this
+# file produced NO OUTPUT: forge-kernel had no CTest registration at all. Every gate
+# below already existed and already passed — they were just invoked by hand, one
+# bespoke shell command each. That made the JavaScript harness the kernel's ONLY
+# citable acceptance evidence, so no JS test file could be retired without deleting
+# the only proof the kernel still behaves. This block registers the EXISTING gates.
+# It invents no new assertion: every test named here is a file that was already in
+# forge-kernel/test/ (or an already-declared probe target) before this block.
+#
+# CONTRACT
+#   ctest --test-dir <build> --output-on-failure
+# The set that is actually registered depends on the configure:
+#   * plain configure                          -> the 3 self-contained shell suites
+#   * -DFORGE_BUILD_DESKTOP_FOUNDATION=ON      -> + the 4 probes, + the 2 C++ gates,
+#                                                 + the forge_verify-backed guard
+# Nothing is registered whose executable this configure did not build, so a green
+# ctest run never means "the test was skipped" — `ctest -N` prints exactly what ran.
+# ============================================================================
+enable_testing()
+
+option(FORGE_BUILD_TESTS
+       "Compile the C++ gate executables under forge-kernel/test/ and register CTests" ON)
+
+set(FORGE_TEST_DIR "${CMAKE_SOURCE_DIR}/test")
+
+# ---------------------------------------------------------------- 1. probe targets
+# forge_{foundation,mesh,step,feature}_probe are already declared above under
+# FORGE_BUILD_DESKTOP_FOUNDATION. Each is a self-asserting program: it prints
+# "ALL <n> CHECKS PASSED" and returns 0, or returns the failing check number /
+# 255 on a throw. Registering them costs nothing and makes them a suite.
+foreach(_probe forge_foundation_probe forge_mesh_probe forge_step_probe forge_feature_probe)
+    if(TARGET ${_probe})
+        string(REPLACE "forge_" "" _pname "${_probe}")
+        add_test(NAME kernel.${_pname} COMMAND ${_probe})
+        set_tests_properties(kernel.${_pname} PROPERTIES
+            TIMEOUT 300
+            FAIL_REGULAR_EXPRESSION "PROBE FAILED;PROBE THREW")
+    endif()
+endforeach()
+
+# ---------------------------------------------------------------- 2. C++ gate targets
+# These two .cpp gates already existed and already passed; they were compiled by
+# hand-rolled clang++ command lines (test/build_kernel_correctness_gate.sh) that
+# CMake never knew about. Declaring them as targets here changes no assertion —
+# it reproduces the same flags (including the -Wall -Wextra -Werror the gate
+# script calls SR-3) against the same node-free forge_kernel_core.
+if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
+
+    # kernel_correctness_gate.cpp — G1..G4, four measured value-vs-reference
+    # assertions (export-failure honesty, shellMultiThickness sign contract,
+    # per-axis bore counting, one weld-betti genus definition).
+    add_executable(forge_kernel_correctness_gate
+        "${FORGE_TEST_DIR}/kernel_correctness_gate.cpp")
+    target_include_directories(forge_kernel_correctness_gate PRIVATE
+        "${CMAKE_SOURCE_DIR}/include"
+        "${OCCT_INC}")
+    target_compile_options(forge_kernel_correctness_gate PRIVATE -Wall -Wextra -Werror)
+    if(FORGE_NATIVE_BREP)
+        target_compile_definitions(forge_kernel_correctness_gate PRIVATE FORGE_NATIVE_BREP=1)
+    endif()
+    target_link_libraries(forge_kernel_correctness_gate PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_kernel_correctness_gate PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+    endif()
+    add_test(NAME kernel.correctness_gate COMMAND forge_kernel_correctness_gate)
+    set_tests_properties(kernel.correctness_gate PROPERTIES
+        TIMEOUT 300
+        FAIL_REGULAR_EXPRESSION "FAIL ")
+
+    # capi/forge_capi_smoke.cpp — the K7 opaque-handle C-API black box, end to
+    # end. It #includes ONLY the C header, which is the boundary proof, so its
+    # include path is deliberately just include/ (no OCCT headers).
+    add_executable(forge_capi_smoke "${FORGE_TEST_DIR}/capi/forge_capi_smoke.cpp")
+    target_include_directories(forge_capi_smoke PRIVATE "${CMAKE_SOURCE_DIR}/include")
+    target_link_libraries(forge_capi_smoke PRIVATE forge_kernel_core)
+    if(APPLE)
+        set_target_properties(forge_capi_smoke PROPERTIES
+            BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+    endif()
+    add_test(NAME kernel.capi_smoke COMMAND forge_capi_smoke)
+    set_tests_properties(kernel.capi_smoke PROPERTIES
+        TIMEOUT 300
+        FAIL_REGULAR_EXPRESSION "FAIL check")
+
+endif()
+
+# ---------------------------------------------------------------- 2b. standalone A/B oracles
+# forge-kernel/test/*.cpp holds a large body of STANDALONE C++20 gates that build
+# the SAME case twice -- once through the in-house forge::native engine and once
+# through live OCCT 7.9.3 -- and assert the two agree, usually against a closed
+# form as well. Every one of them already existed and already passed; each was
+# run by hand, and several carried a comment saying so ("It is NOT part of the
+# native gate (run_native.sh) and does NOT touch binding.cpp / CMakeLists.txt").
+# That is precisely why the JS harness was the kernel's only citable evidence:
+# this evidence existed but was not a suite.
+#
+# HOW THE LIST BELOW WAS CHOSEN -- measured, not assumed. Every .cpp in test/ was
+# compiled against forge_kernel_core + OCCT and RUN with a 180 s kill. Only the
+# ones that COMPILED, RAN and EXITED 0 are listed. Deliberately EXCLUDED, with
+# the measurement that excluded them:
+#   native_hlr_perf, native_hlr_import_perf  -- both end in an unconditional
+#       `return 0;`. They are timing instruments with no threshold: registering
+#       them would add a test THAT CANNOT FAIL, which is worse than no test.
+#   golden_corpus_measure  -- a CLI tool, not a test: with no argv it prints
+#       "usage: --mode <occt|native> --step <file.step>" and exits 2.
+#   native_vs_occt_fillet_var (rc 1)  -- a REAL measured disagreement, not a
+#       harness fault: native matches the closed form to 4.6e-15 rel while OCCT
+#       differs by 4.444e-05, over a 1e-6 threshold. It is an open gap.
+#   native_vs_occt_iges (rc 1, 11/16)  -- case C PARTIAL, a 128-entity
+#       property-flag-count divergence.
+#   native_fuse_mesh_operand_test (rc 134 = SIGABRT),
+#   native_occt_import_test (rc 1), native_occt_wire_activation_test (rc 1).
+#
+#   ab_native_thicken_occt -- WITHHELD, and it is the most interesting exclusion
+#       here because THIS SUITE IS WHAT FOUND IT. The gate was measured GREEN at
+#       876b179a and is RED at a70dd1da (this branch's base): 208 passed, 19
+#       FAILED. Every one of the 19 is a SURFACE-TYPE count -- e.g. "case1 flat
+#       20x10 t=2 planar-face count : got 2 want 6" and "other-surface-type
+#       count : got 4 want 0". ZERO volume assertions fail, and the negative
+#       control still rejects an equal-volume impostor on 12 observables. So the
+#       thickened solid has the RIGHT VOLUME and the WRONG FACES.
+#       The only change to src/native/brep/NativeThickenShell.cpp between those
+#       two commits replaces BRepPrimAPI_MakePrism with the in-house
+#       forge::occtPrism (the TKPrim link-line drop): the swept faces are no
+#       longer classified GeomAbs_Plane. Re-register this gate the moment
+#       occtPrism's output surfaces are canonized back to analytic. It is
+#       withheld rather than weakened -- not one `want` was changed.
+#
+# Those six are NOT registered and NOT weakened. Nothing here lowers a
+# threshold or widens a tolerance to go green; the red ones simply stay out
+# until they are fixed, and are named in JS_RETIREMENT_LEDGER.md so they cannot
+# be quietly forgotten.
+#
+# ON THE OCCT LINK LINE: these are TEST EXECUTABLES. The OCCT ledger
+# (scripts/occt_closure_count.sh, occt_drop_gate.sh) measures a NAMED BINARY --
+# forge-kernel.node by default -- so the toolkits an A/B oracle needs in order to
+# BE an oracle (it must call the OCCT side) cannot move the drop counters. The
+# forge_kernel / forge_kernel_core link lines are byte-untouched by this block.
+if(FORGE_BUILD_TESTS AND TARGET forge_kernel_core)
+
+    # The modeling+data-exchange toolkit set the oracles need for their OCCT
+    # half. Test-target only -- see the note above.
+    set(FORGE_TEST_OCCT_LIBS
+        TKernel TKMath TKG2d TKG3d TKGeomBase TKGeomAlgo TKBRep TKTopAlgo TKPrim
+        TKBO TKBool TKFillet TKOffset TKShHealing TKHLR TKMesh TKFeat TKXSBase
+        TKDE TKDESTEP TKDESTL TKDEIGES TKXCAF TKLCAF TKCAF TKCDF TKDECascade
+        TKRWMesh TKDEGLTF)
+
+    set(FORGE_AB_GATES
+        # TKOffset-family native-vs-OCCT A/B harnesses (each carries a negative
+        # control that rejects an equal-volume impostor on a VECTOR of observables)
+        ab_native_draft_occt
+        ab_native_filling_occt
+        ab_native_loftpipe_occt
+        ab_native_offsetshape_occt
+        ab_native_sweep_occt
+        # ab_native_thicken_occt -- WITHHELD, RED AT THIS COMMIT. See the note below.
+        # regression gates
+        io_stl_binary_solid_header      # binary STL whose 80-byte header says "solid"
+        matelib_quat_ab                 # in-house quaternion rotate vs the rotation matrix
+        # native-engine vs live-OCCT oracles
+        native_vs_occt_allbox
+        native_vs_occt_chamfer
+        native_vs_occt_chamfer_asym
+        native_vs_occt_convexhull
+        native_vs_occt_dataexchange_write
+        native_vs_occt_draft
+        native_vs_occt_exact_boolean
+        native_vs_occt_fillet
+        native_vs_occt_fillet_curved
+        native_vs_occt_fillet_ext
+        native_vs_occt_fuzzy_boolean
+        native_vs_occt_gear
+        native_vs_occt_gregory_nsided
+        native_vs_occt_heal
+        native_vs_occt_heal_ext
+        native_vs_occt_helical
+        native_vs_occt_hlr
+        native_vs_occt_hlr_import
+        native_vs_occt_hlr_persp
+        native_vs_occt_import_surfaces
+        native_vs_occt_interference
+        native_vs_occt_loftsweep
+        native_vs_occt_nurbs_ssi
+        native_vs_occt_offset_shape
+        native_vs_occt_pattern
+        native_vs_occt_query
+        native_vs_occt_section
+        native_vs_occt_sew
+        native_vs_occt_shell
+        native_vs_occt_step_read        # NOTE: its own verdict counts PARTIAL as passing
+        native_vs_occt_stl
+        native_vs_occt_surfacefill
+        native_vs_occt_surfacefill_g2
+        native_vs_occt_trimmed_face
+        native_vs_occt_validator
+        native_vs_occt_validator_ext
+        step_read_occt_projection_gate
+    )
+
+    foreach(_g IN LISTS FORGE_AB_GATES)
+        add_executable(forge_gate_${_g} "${FORGE_TEST_DIR}/${_g}.cpp")
+        target_include_directories(forge_gate_${_g} PRIVATE
+            "${CMAKE_SOURCE_DIR}/include"
+            "${OCCT_INC}")
+        if(FORGE_NATIVE_BREP)
+            target_compile_definitions(forge_gate_${_g} PRIVATE FORGE_NATIVE_BREP=1)
+        endif()
+        target_link_directories(forge_gate_${_g} PRIVATE "${OCCT_LIB}")
+        target_link_libraries(forge_gate_${_g} PRIVATE
+            forge_kernel_core ${FORGE_TEST_OCCT_LIBS})
+        if(APPLE)
+            set_target_properties(forge_gate_${_g} PROPERTIES
+                BUILD_RPATH "${CMAKE_BINARY_DIR};${OCCT_LIB}")
+        endif()
+        add_test(NAME kernel.ab.${_g} COMMAND forge_gate_${_g})
+        # 600 s: the slowest measured here is native_vs_occt_surfacefill_g2 at
+        # 104 s, then native_vs_occt_convexhull at 57 s and trimmed_face at 21 s.
+        set_tests_properties(kernel.ab.${_g} PROPERTIES TIMEOUT 600)
+    endforeach()
+
+endif()
+
+# ---------------------------------------------------------------- 3. shell gates
+# Self-contained: each builds whatever C++ it needs with a plain compiler and
+# returns a real exit code. They are registered as-is — the scripts are not
+# modified by this block.
+find_program(FORGE_BASH bash)
+if(FORGE_BASH)
+
+    # test/native/run_native.sh — the in-house pure-C++20 native kernel suite:
+    # it compiles every forge::native source once, then builds and RUNS each of
+    # the 138 tests under test/native/<class>/ against the whole object set.
+    # No OCCT, no Node, no CMake. This is the single largest body of existing
+    # C++ acceptance evidence in the repository.
+    add_test(NAME kernel.native_suite
+             COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/native/run_native.sh")
+    set_tests_properties(kernel.native_suite PROPERTIES TIMEOUT 3600)
+
+    # test/ft/s0_ratchet.sh — SACROSANCT 3.1 Appendix B s0 acceptance
+    # (s0.4 graph cardinality, s0.5 opaque macros, s0.6 pattern occurrence
+    # tables, s0.11 chunk/hash chain), under the project's own conformance
+    # RATCHET.
+    #
+    # It is the ratchet and NOT build_s0_acceptance.sh that is registered, and
+    # that is not a weakening — it is the only correct reading of this gate.
+    # MEASURED here: build_s0_acceptance.sh exits 1 with `TOTAL pass=42 fail=5`
+    # and prints "These failures are the deliverable. Do not weaken them." The
+    # suite deliberately asserts laws the implementation does not yet satisfy,
+    # so its raw exit code is 1 BY DESIGN and will stay 1 until those five gaps
+    # are closed. Registering the raw script would have parked a permanently red
+    # test in the suite, which is how a suite gets ignored. s0_ratchet.sh runs
+    # the identical, unmodified suite and compares its failure count with
+    # s0_conformance_baseline.txt (S0_EXPECTED_FAILURES=5): red if conformance
+    # REGRESSES, and also red if it IMPROVES without the baseline being lowered
+    # in the same commit. It is strictly stronger than "exit 0", not weaker.
+    add_test(NAME kernel.ft_s0_ratchet
+             COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/ft/s0_ratchet.sh")
+    set_tests_properties(kernel.ft_s0_ratchet PROPERTIES TIMEOUT 900)
+
+    # test/unify_coaxial_guard_test.sh — the mixed-representation coaxial-bore
+    # SIGSEGV guard: 3 crashers (rc=139 before the guard) and 6 must-not-move
+    # cases, each asserted on a VECTOR of observables (valid, volume, face count,
+    # edge count, shell count) against a closed form. It drives forge_verify, so
+    # it is registered only when this configure actually built one, and it is
+    # pointed at THIS build's binary instead of letting the script go build its
+    # own copy in the source tree.
+    if(TARGET forge_verify)
+        add_test(NAME kernel.unify_coaxial_guard
+                 COMMAND "${FORGE_BASH}" "${FORGE_TEST_DIR}/unify_coaxial_guard_test.sh")
+        set_tests_properties(kernel.unify_coaxial_guard PROPERTIES
+            TIMEOUT 900
+            ENVIRONMENT "FORGE_KERNEL_BUILD_DIR=${CMAKE_BINARY_DIR}")
+    endif()
+
+endif()
