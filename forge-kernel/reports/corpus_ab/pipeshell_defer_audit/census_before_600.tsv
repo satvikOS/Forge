@@ -1,0 +1,601 @@
+part	class	n_edge	n_line	n_circle	n_ellipse	n_bspline	n_bezier	n_other	planar_face_ok	engine	reason
+ho0	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho10	LINE_ARC	6	3	3	0	0	0	0	1	NULL	prof_edge_not_line
+ho1001	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1002	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1005	HAS_BSPLINE	26	4	1	0	21	0	0	1	NULL	prof_edge_not_line
+ho1008	LINE_ARC	9	3	6	0	0	0	0	1	NULL	prof_edge_not_line
+ho1010	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1011	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1014	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho1017	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1019	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho102	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1020	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1024	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho1025	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho103	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1030	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho1031	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1032	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1034	HAS_BSPLINE	25	4	1	0	20	0	0	1	NULL	prof_edge_not_line
+ho1037	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1039	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho104	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1040	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1041	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1043	HAS_BSPLINE	51	3	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho1046	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1047	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1051	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1054	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1055	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1058	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1060	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1066	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1067	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho107	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho1076	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1077	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho108	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1080	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1082	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho1083	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1084	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1087	HAS_BSPLINE	26	4	1	0	21	0	0	1	NULL	prof_edge_not_line
+ho1089	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho109	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1091	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1092	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1094	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1097	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1098	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1099	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1104	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1105	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho111	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1112	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1114	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1119	HAS_BSPLINE	26	4	1	0	21	0	0	1	NULL	prof_edge_not_line
+ho1122	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho1123	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1124	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1129	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1130	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1131	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1134	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho1137	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1138	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1139	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho114	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1144	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1145	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1149	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho115	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1152	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1153	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1154	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1155	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1157	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho116	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1160	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1162	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1166	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1167	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1168	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1171	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho1173	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1174	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1175	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1178	HAS_BSPLINE	51	3	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho1180	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1184	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1187	LINE_ARC	6	5	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1189	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho119	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1190	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1191	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1195	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1196	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1197	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho12	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho120	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1200	HAS_BSPLINE	26	4	1	0	21	0	0	1	NULL	prof_edge_not_line
+ho1203	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho1205	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1209	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho121	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1211	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1212	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1215	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1218	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1219	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1220	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1224	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1228	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1229	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1230	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1234	HAS_BSPLINE	27	4	1	0	22	0	0	1	NULL	prof_edge_not_line
+ho1237	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1238	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho124	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1241	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1243	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho1245	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1248	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho125	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1250	HAS_BSPLINE	25	4	1	0	20	0	0	1	NULL	prof_edge_not_line
+ho1253	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1254	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1255	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1259	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho126	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1260	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1266	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho1267	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1268	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1272	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho1274	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1278	HAS_BSPLINE	26	4	1	0	21	0	0	1	NULL	prof_edge_not_line
+ho1281	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho1282	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1287	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho1290	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho1291	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1292	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1295	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho1298	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho1299	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho13	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho130	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1306	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1308	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1309	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1313	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho1316	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho132	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1322	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho1323	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1327	HAS_BSPLINE	26	4	1	0	21	0	0	1	NULL	prof_edge_not_line
+ho133	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho1330	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1331	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1333	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1335	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1338	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho1339	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1342	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho1344	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1346	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1348	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1349	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1352	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho1355	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1356	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho1359	HAS_BSPLINE	27	4	1	0	22	0	0	1	NULL	prof_edge_not_line
+ho1362	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho1363	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho137	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho138	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho14	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho142	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho143	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho147	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho148	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho153	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho155	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho156	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho160	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho162	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho167	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho168	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho17	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho172	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho173	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho178	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho179	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho18	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho180	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho183	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho184	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho185	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho189	LINE_ARC	9	5	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho190	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho191	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho195	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho196	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho197	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho2	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho20	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho202	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho203	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho208	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho209	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho210	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho211	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho214	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho215	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho216	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho219	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho220	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho221	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho225	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho226	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho23	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho232	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho233	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho239	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho240	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho245	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho246	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho249	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho25	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho252	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho253	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho254	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho260	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho265	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho267	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho268	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho273	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho274	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho275	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho279	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho281	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho285	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho286	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho291	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho292	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho293	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho296	LINE_ARC	9	3	6	0	0	0	0	1	NULL	prof_edge_not_line
+ho298	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho301	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho304	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho305	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho306	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho31	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho310	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho311	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho317	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho318	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho319	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho32	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho320	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho323	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho324	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho325	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho330	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho331	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho334	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho335	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho339	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho340	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho341	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho345	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho346	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho348	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho351	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho352	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho357	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho358	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho363	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho364	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho37	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho370	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho372	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho377	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho378	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho379	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho38	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho380	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho383	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho384	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho385	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho390	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho392	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho393	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho396	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho397	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho400	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho401	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho402	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho406	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho407	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho408	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho412	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho413	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho414	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho417	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho418	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho420	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho423	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho424	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho429	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho43	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho430	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho432	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho434	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho435	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho436	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho439	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho44	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho440	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho441	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho445	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho447	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho448	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho45	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho450	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho451	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho455	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho456	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho457	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho46	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho461	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho462	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho467	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho468	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho469	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho471	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho475	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho481	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho482	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho486	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho487	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho488	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho49	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho491	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho492	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho497	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho498	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho5	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho50	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho503	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho504	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho505	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho509	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho511	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho512	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho515	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho517	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho519	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho522	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho524	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho526	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho528	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho533	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho534	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho535	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho536	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho539	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho541	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho542	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho547	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho549	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho55	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho550	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho552	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho554	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho555	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho559	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho56	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho560	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho561	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho566	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho57	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho571	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho572	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho573	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho574	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho577	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho579	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho583	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho585	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho586	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho59	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho591	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho594	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho597	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho598	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho599	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho6	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho602	HAS_BSPLINE	25	4	1	0	20	0	0	1	NULL	prof_edge_not_line
+ho606	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho607	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho61	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho611	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho612	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho613	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho614	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho616	HAS_BSPLINE	26	4	1	0	21	0	0	1	NULL	prof_edge_not_line
+ho617	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho619	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho62	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho621	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho624	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho625	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho627	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho628	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho629	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho633	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho636	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho637	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho638	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho642	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho645	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho646	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho650	HAS_BSPLINE	51	3	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho653	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho654	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho655	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho66	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho660	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho661	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho662	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho665	HAS_BSPLINE	25	4	1	0	20	0	0	1	NULL	prof_edge_not_line
+ho668	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho669	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho670	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho676	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho677	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho678	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho68	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho680	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho682	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho683	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho684	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho687	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho69	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho690	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho694	HAS_BSPLINE	27	4	1	0	22	0	0	1	NULL	prof_edge_not_line
+ho696	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho697	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho7	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho701	HAS_BSPLINE	27	4	1	0	22	0	0	1	NULL	prof_edge_not_line
+ho704	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho706	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho707	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho708	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho710	HAS_BSPLINE	51	3	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho713	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho714	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho716	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho719	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho72	LINE_ARC	6	5	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho721	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho722	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho725	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho728	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho73	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho730	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho731	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho732	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho734	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho737	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho738	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho739	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho741	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho744	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho745	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho749	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho752	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho753	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho757	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho760	LINE_ARC	16	5	11	0	0	0	0	1	NULL	prof_edge_not_line
+ho761	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho762	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho765	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho768	LINE_ARC	13	5	8	0	0	0	0	1	NULL	prof_edge_not_line
+ho769	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho77	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho770	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho772	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho777	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho78	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho781	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho783	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho784	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho789	HAS_BSPLINE	27	4	1	0	22	0	0	1	NULL	prof_edge_not_line
+ho792	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho793	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho795	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho797	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho799	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho800	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho801	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho805	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho807	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho809	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho810	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho815	LINE_ARC	6	3	3	0	0	0	0	1	NULL	prof_edge_not_line
+ho816	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho817	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho82	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho823	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho824	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho825	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho826	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho827	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho83	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho830	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho831	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho836	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho839	LINE_ARC	14	5	9	0	0	0	0	1	NULL	prof_edge_not_line
+ho84	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho841	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho842	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho846	HAS_BSPLINE	51	3	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho849	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho851	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho854	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho857	LINE_ARC	9	3	6	0	0	0	0	1	NULL	prof_edge_not_line
+ho859	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho860	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho863	HAS_BSPLINE	27	4	1	0	22	0	0	1	NULL	prof_edge_not_line
+ho866	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho867	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho868	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho871	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho874	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho875	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho876	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho880	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho881	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho884	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho886	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho888	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho89	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho893	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho894	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho898	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho90	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho901	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho902	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho903	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho908	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho91	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho910	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho911	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho914	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho917	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho918	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho921	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho924	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho925	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho926	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho928	HAS_BSPLINE	45	3	0	0	42	0	0	1	NULL	prof_edge_not_line
+ho930	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho932	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho933	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho936	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line
+ho939	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho940	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho941	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho945	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho946	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho951	HAS_BSPLINE	26	4	1	0	21	0	0	1	NULL	prof_edge_not_line
+ho954	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho955	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho956	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho958	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho961	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho962	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho963	LINE_ARC	8	4	4	0	0	0	0	1	NULL	prof_edge_not_line
+ho966	HAS_BSPLINE	49	3	0	0	46	0	0	1	NULL	prof_edge_not_line
+ho969	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho97	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho970	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho974	HAS_BSPLINE	25	4	1	0	20	0	0	1	NULL	prof_edge_not_line
+ho977	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho978	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho980	ARC_ONLY	1	0	1	0	0	0	0	1	NULL	prof_edge_not_line
+ho982	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho985	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho986	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho987	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho990	HAS_BSPLINE	48	0	0	0	48	0	0	1	NULL	prof_edge_not_line
+ho993	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho994	LINE_ONLY	4	4	0	0	0	0	0	1	SOLID	
+ho995	HAS_BSPLINE	8	0	0	0	8	0	0	1	NULL	prof_edge_not_line
+ho998	HAS_BSPLINE	47	3	0	0	44	0	0	1	NULL	prof_edge_not_line

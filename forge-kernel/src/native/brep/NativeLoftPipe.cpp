@@ -821,6 +821,26 @@ TopoDS_Shape sweepPolygonProfile(const TopoDS_Wire& spine,
 // dropped fuse operand or an inverted boolean operand are all percent-level
 // effects and none can hide under that bound.
 //
+// ★★ AND THAT ORACLE IS SELF-REFERENTIAL, so it is not the only one. It checks the
+// construction against the identity the construction was derived from, and cannot
+// separate "built the mitred sweep" from "built some other solid of the same
+// volume" — this repository has four measured cases where volume alone ratified a
+// wrong solid. The INDEPENDENT check is
+// reports/corpus_ab/pipeshell_defer_audit/mitre_ratio_check.py. OCCT's
+// MakePipeShell at its DEFAULT transition mode does NOT carry the section through
+// the corner, so it encloses A*(L1 + L2 cos theta) where the mitre encloses
+// A*(L1 + L2). The corpus A/B's spine is two EQUAL legs at exactly 30 degrees, so
+// native / OCCT-default must be 2/(1 + cos 30) = 1.0717967697 for EVERY part,
+// whatever its section's shape, area or edge types — a number nothing in this file
+// computes, measured against a separate implementation. Per class median over the
+// 600-part corpus:
+//     LINE_ONLY   (already proven)   1.0717967697   off by 1.2e-11
+//     LINE_ARC    (new here)         1.0717967697   off by 7.4e-11
+//     HAS_BSPLINE (new here)         1.0717967695   off by 2.2e-10
+//     ARC_ONLY    (new here)         1.0717967579   off by 1.2e-08
+// The new coverage lands on the closed form to the same precision as the polygon
+// path already proved exact against OCCT(RightCorner) on all 309 of its parts.
+//
 // Defined below, next to halfSpaceThrough, which it uses.
 TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
                             const std::vector<gp_Dir>& leg,
@@ -880,8 +900,11 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
     if (allLineEdges(profile)) return kNull;   // the polygon path was the right
                                                // one; its decline stands
     // An OPEN skin (makeSolid=false) of a curved section is a different
-    // construction — there is no prism to trim — and stays an honest defer.
-    // Both production call sites (src/Features.cpp:725, :2738) pass true.
+    // construction — there is no prism to trim — and stays an honest defer, the
+    // same answer this engine already gave. Two of the three production call
+    // sites (src/Features.cpp:725, :2738) pass true unconditionally; the third
+    // (src/ClassASurfacing.cpp:725) passes the caller's isSolid, so a shell
+    // sweep of a curved section is exactly as declined as it was before.
     if (!makeSolid) FK_DEFER("gen_open_skin");
     std::vector<gp_Pnt> node;
     std::vector<gp_Dir> leg;
@@ -1199,7 +1222,12 @@ TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
             oblique[e] = std::fabs(std::fabs(c) - 1.0) > 1.0e-12;
             margin[e] = rmax * std::sqrt(std::max(0.0, 1.0 - c * c)) / std::fabs(c);
         }
-        const double pad = 1.0e-6 + 1.0e-6 * std::max(rmax, 1.0);
+        // The pad only lengthens the RAW prism before it is trimmed, so it costs
+        // nothing and cannot truncate the answer. It takes the caller's tolerance
+        // with 1e-6 as a FLOOR: a caller asking for 1e-9 wants a tighter answer,
+        // not a raw prism that might fall short of its own oblique cut.
+        const double padU = std::max(t, 1.0e-6);
+        const double pad = padU + padU * std::max(rmax, 1.0);
         const double lo = axial[0] - (oblique[0] ? margin[0] + pad : 0.0);
         const double len = (axial[1] + (oblique[1] ? margin[1] + pad : 0.0)) - lo;
         if (!(len > 0.0)) FK_DEFER("gen_leg_span_nonpositive");
@@ -1321,18 +1349,27 @@ TopoDS_Shape sweepFaceMitre(const std::vector<gp_Pnt>& node,
     const double expected = area * pathLen;
     if (!(expected > 0.0)) FK_DEFER("gen_zero_expected");
     const double rel = std::fabs(actual - expected) / expected;
-    // The gate is set from a MEASURED distribution, not chosen: with
+    // ★ WHERE 1e-6 COMES FROM. It is ANCHORED, not chosen: it is exactly the
+    // relative volume tolerance the corpus A/B's own comparator uses to declare
+    // two solids to AGREE (test/corpus_ab_coverage.cpp, close_()). Accepting a
+    // build whose volume misses its closed form by more than that would be
+    // accepting a build the A/B could not then call correct.
+    //
+    // And it is MEASURED against the distribution it has to separate. With
     // FORGE_GEN_ORACLE_REPORT set this ratio is printed for every build, accepted
-    // or rejected, so the number can be re-derived rather than re-argued. On the
-    // 600-part corpus every accepted build sits at or below 1e-6, and the only
-    // thing between the exact rows (1e-16) and the gate is OCCT's boolean
-    // re-approximating a mitre section curve: a straight spine, which needs no
-    // boolean at all, measures rel = 0.
+    // or rejected, so the number can be re-derived rather than re-argued. Over
+    // the 291 curved sections of the 600-part corpus:
+    //     min 0   p50 1.5e-10   p90 1.0e-8   p99 1.4e-7   max 1.46e-6
+    // 108 of 291 sit above 1e-9 and only 3 above 1e-7. The entire spread is OCCT's
+    // boolean re-approximating a MITRE section curve — a straight spine, which
+    // needs no boolean at all, measures rel = 0 exactly. ONE part (ho1190, an
+    // 8-edge all-B-spline outline) lands at 1.46e-6 and is declined. That is a
+    // close call and it is left as a decline rather than tuned away: a tolerance
+    // widened until the last part fits is not a tolerance.
     if (std::getenv("FORGE_GEN_ORACLE_REPORT") != nullptr)
         std::fprintf(stderr, "gen_oracle rel=%.6g actual=%.12g expected=%.12g\n",
                      rel, actual, expected);
     if (rel > 1.0e-6) FK_DEFER("gen_volume_oracle");
-    (void)t;
     return out;
 }
 
