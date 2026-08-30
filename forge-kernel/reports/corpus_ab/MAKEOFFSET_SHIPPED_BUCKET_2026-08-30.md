@@ -134,7 +134,32 @@ The band the threshold sits in is empty over five orders of magnitude.
 
 * **`test/native/geom/polygonoffset2d_test.cpp`** — the printed-seed gate,
   including (d) "an inward offset past the inradius collapses honestly":
-  **17/17 PASS**.
+  **20/20 PASS**, and three of those twenty are new. Case **(i)** covers the new
+  code path, which nothing in the gate reached before:
+
+  * **(i1)** a regular 12-gon whose every side is split into 24 near-collinear
+    facets — a synthetic stand-in for a sampled spline, with junctions turning
+    by ~1e-5 rad — must offset inward and must land on the EXACT convex erosion
+    law `A0 - L*d + d^2 * SUM tan(t_i/2)`, with the turn angles read off the ring
+    rather than assumed. (The smooth-body `pi*d^2` is the `t -> 0` limit and is
+    2.3% wrong for a 12-gon, so it is deliberately not used.) It matches to
+    **5.9e-12** relative.
+  * **(i2)** the guard in the OTHER direction: a 200 x 0.5 rectangle eroded by
+    0.2 is exactly a 199.6 x 0.1 rectangle, and 0.1 is ~5e5 times the
+    arrangement's snap tolerance, so the excision must not eat it. Exact to
+    **1e-9**.
+
+  **The new case is proved to fire.** Built against `HEAD~1`'s PolygonOffset2D —
+  #110's state, which has `dropSubToleranceVertices` and none of the excision —
+  the gate reads **18/20**, and (i1) fails with exactly the production symptom:
+
+  ```
+  n=288 ... -> ok=1 loops=0 dropped=1 relaxed=0
+    [FAIL] (i1) a ring of microradian facets offsets inward, it does not collapse
+  ```
+
+  (i2) passes on BOTH revisions, so it is a real guard against over-excision and
+  not a tautology.
 * **The shipped coverage A/B, row by row.** The OCCT stock arm is
   **byte-identical** pre- and post-fix. In the drop arm **exactly two rows
   changed status**, both `DEFER -> OK`: `ho13`, `ho133`. (Geometry moved on 27
