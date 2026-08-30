@@ -536,7 +536,10 @@ std::vector<Loop2> PolygonOffset2D::cleanRawLoop(const Loop2& raw,
                     // Max perpendicular deviation of the chain from the line
                     // through its two extreme vertices (the standard two-pass
                     // diameter walk: farthest from the first, then farthest from
-                    // that). A zero-extent chain is flat by definition.
+                    // that). A zero-extent chain is flat by definition. The walk
+                    // only APPROXIMATES the diameter, and it errs the safe way:
+                    // a shorter chord divides the deviations by less, so the
+                    // chain looks LESS flat and is kept, never wrongly excised.
                     const Point2* base = &keepPt[static_cast<std::size_t>(j)];
                     const Point2* endA = base;
                     for (int k = 1; k < m; ++k)
@@ -565,6 +568,10 @@ std::vector<Loop2> PolygonOffset2D::cleanRawLoop(const Loop2& raw,
                 keepPt.push_back(refined[i]);
                 keepNid.push_back(nd);
             }
+            // Fewer than 3 nodes left means the WHOLE ring was flat. That is a
+            // real collapse, but reporting it from here would be a new failure
+            // mode; the un-excised ring is handed on instead, so such an input
+            // fails exactly the way it always did.
             if (keepNid.size() >= 3) ringNid = std::move(keepNid);
         }
     }
