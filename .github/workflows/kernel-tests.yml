@@ -291,6 +291,18 @@ jobs:
         # a wrong solid matching a right volume to ten significant figures is a measured
         # failure mode in this programme, not a hypothetical one.
         run: FORGE_KERNEL_BUILD_DIR=forge-kernel/build-verify bash forge-desktop/test/run_ir_pipeline.sh
+      - name: live-OCCT A/B harnesses (ratcheted; a link failure is RED, not silence)
+        # THE GATE THAT WOULD HAVE CAUGHT PR #64. Two harnesses -- thicken and loftpipe --
+        # stopped LINKING the moment that PR merged, because it made their engines call
+        # forge::occtPrism / occtCylinderSolid while they compile the engine STANDALONE
+        # without src/OcctPrimBuilder.cpp. 541 assertions stopped running and nothing said
+        # so, because CI ran neither. A gate that cannot build is a gate that cannot fail.
+        # run_ab_all.sh therefore treats a BUILD/LINK failure as RED (exit 2) and never as
+        # "0 failures", and ratchets each harness against test/ab_native_baseline.txt in
+        # the same idiom as the NAFEMS and s0 ratchets: red if a count RISES, red if it
+        # FALLS without the baseline being lowered in the same commit. All seven run in
+        # about 93 seconds on this runner, which already has OCCT installed.
+        run: bash forge-kernel/test/run_ab_all.sh
       - name: unifyFaces coaxial-wall guard (a SIGSEGV gate, not an accuracy gate)
         # ShapeUpgrade_UnifySameDomain SIGSEGVs on two coaxial equal-radius walls stored
         # differently (analytic cylinder vs extrusion-of-circle). A crash here takes the
