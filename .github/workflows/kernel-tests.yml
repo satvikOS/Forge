@@ -702,12 +702,12 @@ jobs:
       - name: forge-desktop gates + mutation proofs (headless -- no window, no GPU)
         # ci_desktop_gate.sh runs run_desktop.sh -- the missing-include
         # preflight, then the three headless gates (ir_pipeline, document,
-        # frame), then 17 injected defects each of which MUST turn its gate red
+        # frame, isolation), then 31 injected defects each of which MUST turn its gate red
         # -- and then JUDGES ITS OUTPUT rather than trusting its exit status.
         # run_desktop.sh has no `set -e`, so its status is the status of
         # whatever ran last and a run that fell out of its own middle would exit
         # 0; the gate script requires a zero status AND no mutation reported as
-        # having STAYED GREEN AND the exact verdict line naming exactly 17
+        # having STAYED GREEN AND the exact verdict line naming exactly 31
         # mutations. Its own red paths are proved by the self-test that runs as
         # the first step of this job.
         #
