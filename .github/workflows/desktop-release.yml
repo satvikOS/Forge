@@ -119,7 +119,94 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # ── THE KERNEL, BUILT AND CACHED ON ITS OWN ─────────────────────────────────
+  # MEASURED, and this is why the job is split: of the 452 translation units the
+  # release compiles, 421 are forge_kernel_core -- 93%. Trimming the desktop targets
+  # (which removed the address-sanitized click gate and its duplicate stack) took the
+  # count only 479 -> 452 and the run still died at 180.3 minutes, a few TUs from done.
+  #
+  # Caching the kernel build tree is the fix, but it CANNOT populate from inside a job
+  # that times out: actions/cache saves in a POST step, and on the cancelled run
+  # "Post Restore compiler cache" is recorded as SKIPPED. A cache that can only be
+  # written by a job that never finishes is not a cache.
+  #
+  # So the kernel gets its own job and its own budget. It has to succeed once; from
+  # then on both jobs restore the tree and no OCCT-linked TU is compiled again until a
+  # kernel source actually changes.
+  kernel:
+    name: build + cache forge_kernel_core (macOS arm64)
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      # MUST match the release job's FORGE_MACOS_MIN exactly. A different deployment
+      # target makes CMake reconfigure and rebuild the whole tree, so the cache would
+      # be restored and then thrown away -- a cache that silently does nothing is
+      # worse than none, because the build looks correct and stays slow.
+      FORGE_MACOS_MIN: "14.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          brew update >/dev/null || true
+          brew install opencascade boost cmake ccache
+
+      - name: Point the dependency plane at the Homebrew prefixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "OCCT_VERSION=$(brew list --versions opencascade | awk '{print $2}')" >> "$GITHUB_ENV"
+          for f in opencascade boost; do
+            key="FORGE_DEPS_PREFIX_$(echo "$f" | tr '[:lower:]-' '[:upper:]_')"
+            prefix="$(brew --prefix "$f")"
+            test -d "$prefix" || { echo "::error::brew --prefix $f -> $prefix missing"; exit 1; }
+            echo "$key=$prefix" >> "$GITHUB_ENV"
+          done
+
+      - name: Cache the kernel build tree
+        id: kcache
+        uses: actions/cache@v4
+        with:
+          path: forge-kernel/build-app
+          key: kernelbuild-${{ runner.os }}-occt${{ env.OCCT_VERSION }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-kernel/CMakeLists.txt', 'forge-kernel/cmake/**') }}
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: /Users/runner/.ccache
+          key: ccache-kernel-${{ runner.os }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**') }}
+          restore-keys: |
+            ccache-kernel-${{ runner.os }}-
+
+      - name: Build forge_kernel_core
+        if: steps.kcache.outputs.cache-hit != 'true'
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          set -euo pipefail
+          ccache --max-size=3G --zero-stats
+          cmake -S forge-kernel -B forge-kernel/build-app \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET="$FORGE_MACOS_MIN" \
+                -DFORGE_BUILD_NODE_ADDON=OFF \
+                -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+          cmake --build forge-kernel/build-app -j3 --target forge_kernel_core
+          ccache --show-stats
+
+      - name: Prove the kernel library exists
+        # A cached tree that does not contain the library is worse than no cache: the
+        # release job would restore it, skip the build, and fail at link with an error
+        # about the DESKTOP sources.
+        run: |
+          set -euo pipefail
+          find forge-kernel/build-app -name 'libforge_kernel_core*' -print | head -5
+          test -n "$(find forge-kernel/build-app -name 'libforge_kernel_core*' -print -quit)" \
+            || { echo "::error::no libforge_kernel_core in the build tree"; exit 1; }
+
   macos-arm64:
+    needs: kernel
     name: build + package Forge.app (macOS arm64)
     runs-on: macos-15
     # 90 was never exercised. Until the dependency-plane prefixes were exported this
