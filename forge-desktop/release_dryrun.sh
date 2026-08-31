@@ -49,6 +49,47 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 say() { printf '[dryrun] %s\n' "$*"; }
 die() { printf '[dryrun] FATAL: %s\n' "$*" >&2; exit 1; }
 
+# ── PHASE TIMING — because a COUNT IS NOT A COST ─────────────────────────────
+# This ledger exists because the release build was twice reasoned about from
+# translation-unit COUNTS, and twice the conclusion was wrong. The kernel is 421
+# of 452 TUs — 93% of the count — which was read as "the kernel is 93% of the
+# build". MEASURED on a macos-15 runner (Actions run 33392163311), with a warm
+# ccache, it is 121.5s of a 147s build: 82.6% of the TIME, and the desktop's 31
+# TUs are 17.1s. Two different numbers that happen to look alike, and no way to
+# tell them apart without a clock.
+#
+# So every phase reports its own seconds, here and in the job summary, and
+# nobody has to infer a cost from a count again. `date +%s` only, so this is
+# bash-3.2 clean and adds no dependency.
+#
+# PHASE_N is an explicit counter rather than ${#PHASE_LABEL[@]} because macOS
+# ships bash 3.2, where the length of an EMPTY array under `set -u` is an
+# "unbound variable" error rather than 0 — and this script runs with `set -u`.
+# The failure would appear only on a run where no phase was recorded, i.e.
+# --no-build, which is exactly the path a developer uses.
+PHASE_LABEL=()
+PHASE_SECS=()
+PHASE_N=0
+_phase_t0=0
+_phase_name=""
+phase_begin() { _phase_name="$1"; _phase_t0="$(date +%s)"; }
+phase_end() {
+  [ -n "$_phase_name" ] || return 0
+  PHASE_LABEL[$PHASE_N]="$_phase_name"
+  PHASE_SECS[$PHASE_N]="$(( $(date +%s) - _phase_t0 ))"
+  PHASE_N=$((PHASE_N + 1))
+  _phase_name=""
+}
+# Time a command as a named phase, propagating its exit status.
+timed() {
+  local label="$1"; shift
+  phase_begin "$label"
+  "$@"; local rc=$?
+  phase_end
+  return "$rc"
+}
+RUN_T0="$(date +%s)"
+
 KERNEL_BUILD="${KERNEL_BUILD:-$ROOT/forge-kernel/build-app}"
 APP_BUILD="${APP_BUILD:-$ROOT/forge-desktop/build}"
 DIST="${DIST:-$ROOT/forge-desktop/dist}"
@@ -87,15 +128,18 @@ PKG="$ROOT/forge-desktop/package_macos.sh"
 # — which is what makes the measurement below attributable to the bottles.
 if [ "$DO_BUILD" = "1" ]; then
   say "configuring forge_kernel_core (node-free, deployment target $MACOS_MIN)"
+  timed "cmake configure: kernel" \
   cmake -S "$ROOT/forge-kernel" -B "$KERNEL_BUILD" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
         -DFORGE_BUILD_NODE_ADDON=OFF \
         -DFORGE_BUILD_DESKTOP_FOUNDATION=ON >/dev/null || die "kernel configure failed"
   say "building forge_kernel_core -j$JOBS"
+  timed "build target: forge_kernel_core" \
   cmake --build "$KERNEL_BUILD" -j"$JOBS" --target forge_kernel_core || die "kernel build failed"
 
   say "configuring forge_desktop"
+  timed "cmake configure: desktop" \
   cmake -S "$ROOT/forge-desktop" -B "$APP_BUILD" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
@@ -117,8 +161,18 @@ if [ "$DO_BUILD" = "1" ]; then
   # dropping it would make the dry run stop proving anything. Everything else is
   # already covered by the kernel-tests workflow, which builds and mutation-proves all
   # five gates on every push.
+  #
+  # Built as TWO invocations rather than one so each target reports its own
+  # seconds. They share every dependency, so the second is only frame_gate.cpp
+  # plus a link — measured at 1.7s against forge_desktop's 15.2s in run
+  # 33392163311 — and the lost cross-target parallelism costs less than the
+  # ability to say which target the time went to.
+  timed "build target: forge_desktop" \
   cmake --build "$APP_BUILD" -j"$JOBS" \
-        --target forge_desktop forge_desktop_frame_gate || die "desktop build failed"
+        --target forge_desktop || die "desktop build failed"
+  timed "build target: forge_desktop_frame_gate" \
+  cmake --build "$APP_BUILD" -j"$JOBS" \
+        --target forge_desktop_frame_gate || die "frame gate build failed"
 fi
 
 # ── 2. headless frame gate ───────────────────────────────────────────────────
@@ -127,6 +181,7 @@ fi
 GATE="$APP_BUILD/forge_desktop_frame_gate"
 [ -x "$GATE" ] || die "$GATE not found (run without --no-build, or build first)"
 say "headless frame gate"
+timed "headless frame gate" \
 "$GATE" >/dev/null || die "the frame gate is RED — not packaging this build"
 say "  frame gate passed"
 
@@ -144,6 +199,7 @@ else
   say "note: package_macos.sh on this ref has no --macos-min; not passing it"
 fi
 say "packaging Forge.app (version $VERSION)"
+timed "package_macos.sh (closure, rpaths, sign, relocation launch, zip)" \
 bash "$PKG" "${PKG_ARGS[@]}" || die "packaging failed"
 
 APP="$DIST/Forge.app"
@@ -328,4 +384,41 @@ if [ -n "$FLOOR_MAX" ]; then
   fi
   say "floor gate OK: measured $FLOOR <= allowed $FLOOR_MAX"
 fi
+# ── 9. where the time actually went ──────────────────────────────────────────
+# Printed LAST and unconditionally, so it survives whichever way the run ends
+# and is the final thing in the log when somebody asks "why is this slow".
+TOTAL_SECS="$(( $(date +%s) - RUN_T0 ))"
+say ""
+say "───────── phase timing (seconds) ─────────"
+i=0
+while [ "$i" -lt "$PHASE_N" ]; do
+  printf '[dryrun] %7ss  %s\n' "${PHASE_SECS[$i]}" "${PHASE_LABEL[$i]}"
+  i=$((i + 1))
+done
+printf '[dryrun] %7ss  TOTAL (this script, wall clock)\n' "$TOTAL_SECS"
+say "──────────────────────────────────────────"
+
+if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+  {
+    echo
+    echo "#### where the build time went"
+    echo
+    echo "| phase | seconds | share |"
+    echo "| --- | ---: | ---: |"
+    i=0
+    while [ "$i" -lt "$PHASE_N" ]; do
+      s="${PHASE_SECS[$i]}"
+      if [ "$TOTAL_SECS" -gt 0 ]; then pct="$(( s * 100 / TOTAL_SECS ))"; else pct=0; fi
+      echo "| ${PHASE_LABEL[$i]} | $s | ${pct}% |"
+      i=$((i + 1))
+    done
+    echo "| **total (wall clock)** | **$TOTAL_SECS** | 100% |"
+    echo
+    echo "Job \`timeout-minutes\` is 180. Measure against THIS table before changing it:"
+    echo "a run that ends near the ceiling with a two-minute build did not run out of"
+    echo "compile work, it got stuck — see run 33392163311, where the build took 147s"
+    echo "and a single hung app launch took the other 176.5 minutes."
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
+
 say "dry run complete — nothing published"

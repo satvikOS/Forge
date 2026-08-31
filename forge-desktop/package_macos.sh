@@ -63,6 +63,88 @@ set -uo pipefail
 say()  { echo "[package] $*"; }
 die()  { echo "[package] FATAL: $*" >&2; exit 1; }
 
+# ── run_bounded — LAUNCH THE APP WITH A CEILING, AND DIAGNOSE A HANG ─────────
+# MEASURED 2026-08-31, GitHub Actions runs 33377699374 and 33392163311, both on
+# macos-15: the relocation smoke test below launched the bundled forge_desktop
+# and NEVER RETURNED. Runs 33392163311 and 33377699374 sat on that one line for
+# 176.5 and 176.4 minutes respectively and were killed by the job's
+# `timeout-minutes: 180`. A job timeout is reported by the API as `cancelled`,
+# so both runs looked like an infrastructure blip. They were not: at cleanup the
+# runner logged `Terminate orphan process: pid (10831) (forge_desktop)` — the
+# process was still alive.
+#
+# The build itself was never the problem. In run 33392163311 everything from
+# `cmake` to `codesign --verify` finished in 147 SECONDS; 176.5 of the 180
+# minutes were this single launch.
+#
+# So no app launch in this script may ever again be unbounded. Two rules:
+#
+#   * macOS SHIPS NO `timeout(1)`. There is no coreutils on a stock macOS or on
+#     a GitHub macos-15 runner (verified: `which timeout gtimeout` -> not
+#     found), so this is a hand-rolled watchdog rather than a one-liner.
+#
+#   * A CEILING WITHOUT A DIAGNOSIS JUST MOVES THE MYSTERY. On expiry this takes
+#     a `sample(1)` stack of the stuck process and PRINTS it before killing, so
+#     the next occurrence names the exact frame instead of costing another three
+#     hours and explaining nothing.
+#
+# Output goes to a FILE, never a pipe. `OUT="$(cmd)"` — which is what this
+# replaced — blocks until the pipe's every writer closes, so a child that
+# outlives its parent hangs the shell even after the process it waited for is
+# gone. A file cannot do that, which removes one whole class of false hang.
+#
+# Usage: run_bounded <seconds> <label> <outfile> <cmd> [args...]
+# Returns the command's exit status, or 124 if the watchdog fired.
+run_bounded() {
+  local limit="$1" label="$2" outf="$3"; shift 3
+  local flag="$WORK/.watchdog_fired"
+  local samp="$WORK/hang.sample.txt"
+  rm -f "$flag" "$samp"
+  : > "$outf"
+
+  "$@" > "$outf" 2>&1 &
+  local pid=$!
+
+  # The watchdog is a child of THIS shell, but $pid is its sibling, so `kill -0`
+  # here is a plain process-existence probe. It can still see a zombie, which is
+  # why the caller treats the flag as authoritative only alongside a non-zero
+  # exit status.
+  (
+    n=0
+    while [ "$n" -lt "$limit" ]; do
+      sleep 1
+      n=$((n + 1))
+      kill -0 "$pid" 2>/dev/null || exit 0
+    done
+    : > "$flag"
+    sample "$pid" 5 -f "$samp" >/dev/null 2>&1
+    kill -9 "$pid" 2>/dev/null
+  ) &
+  local wdog=$!
+
+  wait "$pid"; local rc=$?
+  kill "$wdog" 2>/dev/null
+  wait "$wdog" 2>/dev/null
+
+  # A clean exit 0 is a pass even if the watchdog tripped in the microseconds
+  # between `wait` returning and the kill above — otherwise that race would
+  # report a phantom timeout on a build that was fine.
+  if [ -f "$flag" ] && [ "$rc" -ne 0 ]; then
+    echo "[package] $label: STILL RUNNING after ${limit}s — killed." >&2
+    echo "[package] ---- what it printed before it stopped ----" >&2
+    cat "$outf" >&2 2>/dev/null
+    if [ -s "$samp" ]; then
+      echo "[package] ---- sample(1) stack of the stuck process ----" >&2
+      cat "$samp" >&2
+    else
+      echo "[package] (sample(1) produced nothing)" >&2
+    fi
+    echo "[package] ---- end diagnosis ----" >&2
+    return 124
+  fi
+  return "$rc"
+}
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || die "cannot cd to $ROOT"
 
@@ -332,11 +414,21 @@ RELOC="$WORK/relocated"
 mkdir -p "$RELOC"
 ditto "$APP" "$RELOC/Forge.app" || die "ditto to the relocation dir failed"
 say "relocation smoke test: launching the COPY at $RELOC/Forge.app"
-if OUT="$("$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless 2>&1)"; then
-  say "  relocated bundle launched and exited 0: ${OUT}"
+# 120s. The whole build+package ahead of this point measures 147 seconds on a
+# macos-15 runner, so a launch that has not returned in two minutes is not slow,
+# it is stuck, and the stack sample is worth far more than the wait.
+RELOC_OUT="$WORK/reloc_launch.txt"
+run_bounded 120 "relocation smoke test" "$RELOC_OUT" \
+  "$RELOC/Forge.app/Contents/MacOS/forge_desktop" --headless
+RELOC_RC=$?
+if [ "$RELOC_RC" -eq 0 ]; then
+  say "  relocated bundle launched and exited 0: $(cat "$RELOC_OUT")"
+elif [ "$RELOC_RC" -eq 124 ]; then
+  die "the relocated bundle HUNG on launch (see the sample above). It was not
+killed for being slow: the entire build and package before it takes 147s."
 else
-  echo "$OUT" >&2
-  die "the relocated bundle FAILED to launch — it is not self-contained"
+  cat "$RELOC_OUT" >&2
+  die "the relocated bundle FAILED to launch (exit $RELOC_RC) — it is not self-contained"
 fi
 
 # MEASURED, and NOT a packaging defect: VK_LOADER_DEBUG=all shows the loader
@@ -359,10 +451,20 @@ fi
 if [ "$DO_LAUNCH" = "1" ]; then
   say "render smoke test (needs a display)"
   SHOT="$DIST/forge_launch.png"
-  if "$RELOC/Forge.app/Contents/MacOS/forge_desktop" --frames 60 --screenshot "$SHOT"; then
+  # Bounded for the same reason as the smoke test above, with more room because
+  # this one really does work: it opens a window, builds a swapchain and renders
+  # 60 frames.
+  RENDER_OUT="$WORK/render_launch.txt"
+  run_bounded 180 "render smoke test" "$RENDER_OUT" \
+    "$RELOC/Forge.app/Contents/MacOS/forge_desktop" --frames 60 --screenshot "$SHOT"
+  RENDER_RC=$?
+  if [ "$RENDER_RC" -eq 0 ]; then
     say "  rendered; screenshot -> $SHOT"
+  elif [ "$RENDER_RC" -eq 124 ]; then
+    die "the relocated bundle HUNG while rendering (see the sample above)"
   else
-    die "the relocated bundle failed to render a frame"
+    cat "$RENDER_OUT" >&2
+    die "the relocated bundle failed to render a frame (exit $RENDER_RC)"
   fi
 fi
 

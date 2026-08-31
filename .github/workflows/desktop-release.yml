@@ -120,19 +120,38 @@ concurrency:
 
 jobs:
   # ── THE KERNEL, BUILT AND CACHED ON ITS OWN ─────────────────────────────────
-  # MEASURED, and this is why the job is split: of the 452 translation units the
-  # release compiles, 421 are forge_kernel_core -- 93%. Trimming the desktop targets
-  # (which removed the address-sanitized click gate and its duplicate stack) took the
-  # count only 479 -> 452 and the run still died at 180.3 minutes, a few TUs from done.
+  # ★ THE CLAIM THIS SPLIT WAS BUILT ON WAS WRONG, AND THE CORRECTION IS THE
+  # POINT. It read: "of the 452 translation units the release compiles, 421 are
+  # forge_kernel_core -- 93%", and concluded the kernel was 93% of the job. 421
+  # of 452 is 93% of the COUNT. A count is not a cost.
   #
-  # Caching the kernel build tree is the fix, but it CANNOT populate from inside a job
-  # that times out: actions/cache saves in a POST step, and on the cancelled run
-  # "Post Restore compiler cache" is recorded as SKIPPED. A cache that can only be
-  # written by a job that never finishes is not a cache.
+  # MEASURED with a clock, run 33392163311, macos-15, -j3, warm ccache:
+  #     kernel configure          2.4s
+  #     forge_kernel_core       121.5s   <- 82.6% of the build, not 93%
+  #     desktop configure         1.0s
+  #     forge_desktop + gate     17.1s   <- 31 TUs, 6.9% of the count, 11.6%
+  #     frame gate                0.3s
+  #     package (sign, verify)    4.7s
+  #     ---------------------------------
+  #     TOTAL                     147 SECONDS
   #
-  # So the kernel gets its own job and its own budget. It has to succeed once; from
-  # then on both jobs restore the tree and no OCCT-linked TU is compiled again until a
-  # kernel source actually changes.
+  # The build was never near the ceiling. That same run was killed at 180.3
+  # minutes because ONE app launch inside package_macos.sh hung for 176.5 of
+  # them; see the note on `timeout-minutes` in the release job. The earlier
+  # "died a few TUs from done" reading came from a run that predates the target
+  # trim and does not describe this pipeline.
+  #
+  # This job is kept, with its purpose corrected: it exists to WARM ccache, not
+  # to cache a build tree. The build-tree cache it used to write is gone --
+  # measured useless, see the note on the cache step below. Because the two jobs
+  # now share ONE ccache namespace, the 422 objects compiled here are reachable
+  # from the release job, which is what the split was supposed to buy and did
+  # not.
+  #
+  # Note the real constraint that DID justify a separate job: actions/cache saves
+  # in a POST step, and on a cancelled run "Post Restore compiler cache" is
+  # recorded as SKIPPED. A cache written only by a job that never finishes is not
+  # a cache. That is still true, and is why the warming lives here.
   kernel:
     name: build + cache forge_kernel_core (macOS arm64)
     runs-on: macos-15
@@ -164,23 +183,54 @@ jobs:
             echo "$key=$prefix" >> "$GITHUB_ENV"
           done
 
-      - name: Cache the kernel build tree
-        id: kcache
-        uses: actions/cache@v4
-        with:
-          path: forge-kernel/build-app
-          key: kernelbuild-${{ runner.os }}-occt${{ env.OCCT_VERSION }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-kernel/CMakeLists.txt', 'forge-kernel/cmake/**') }}
-
+      # ── THE BUILD-TREE CACHE IS GONE. IT MEASURABLY BOUGHT NOTHING. ─────────
+      # It cached `forge-kernel/build-app` on a key over the kernel sources, and
+      # in run 33392163311 it worked exactly as designed: the desktop job logged
+      # `Cache restored successfully` at 12:36:38, in 2 seconds.
+      #
+      # Then release_dryrun.sh recompiled all 421 kernel translation units
+      # anyway, from 12:36:43 to 12:38:44 — 121.5 seconds — with byte-identical
+      # configure flags (verified against release_dryrun.sh:90-94, so CMake did
+      # not reconfigure; the 2.4s configure confirms the CMakeCache was reused).
+      #
+      # The mechanism is `actions/checkout`. The consuming job checks the SOURCES
+      # out fresh, stamping every file with the checkout time (12:35:23-31),
+      # which is NEWER than the cached object files the producing job compiled at
+      # 12:32-12:35. Make compares mtimes, sees every source as newer than its
+      # object, and rebuilds the lot. A build-tree cache cannot survive a
+      # checkout in a different job, and no key is narrow or wide enough to fix
+      # that.
+      #
+      # Restoring mtimes to beat the comparison was considered and rejected: on a
+      # RELEASE path, teaching make to trust an object that a source may really
+      # have outrun risks shipping a stale binary. The file's own warning already
+      # said a partial tree "is worse than none, because make would trust stale
+      # objects" — that hazard is real and this removes it.
+      #
+      # ccache replaces it properly, because ccache is CONTENT-addressed: it
+      # hashes the preprocessed source and the compiler flags, and does not care
+      # what mtime a checkout wrote.
+      #
+      # ── ONE ccache NAMESPACE ACROSS BOTH JOBS ───────────────────────────────
+      # These two jobs used DISJOINT prefixes: `ccache-kernel-*` here and
+      # `ccache-desktop-*` in the release job. So this job compiled 422 objects
+      # (`Misses: 422/422 (100.0%)`) into a cache the other job could not name,
+      # and the release job restored `ccache-desktop-...` instead and paid for
+      # the same 421 compilations a second time. The kernel job existed to save
+      # the release job that work and, because of the prefix, saved it none.
+      #
+      # One shared prefix fixes it. `needs: kernel` makes the jobs serial, so
+      # this job's post-save has completed before the release job restores, and
+      # its restore-keys prefix match picks up this cache.
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
           path: /Users/runner/.ccache
-          key: ccache-kernel-${{ runner.os }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**') }}
+          key: ccache-forge-${{ runner.os }}-kernel-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**') }}
           restore-keys: |
-            ccache-kernel-${{ runner.os }}-
+            ccache-forge-${{ runner.os }}-
 
       - name: Build forge_kernel_core
-        if: steps.kcache.outputs.cache-hit != 'true'
         env:
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
@@ -196,9 +246,10 @@ jobs:
           ccache --show-stats
 
       - name: Prove the kernel library exists
-        # A cached tree that does not contain the library is worse than no cache: the
-        # release job would restore it, skip the build, and fail at link with an error
-        # about the DESKTOP sources.
+        # This job's whole output is a warm ccache, which is invisible: a ccache that
+        # silently cached nothing looks exactly like one that worked, and the release
+        # job would just pay full price without anyone noticing. Linking the library
+        # is the observable that proves the compilations really happened here.
         run: |
           set -euo pipefail
           find forge-kernel/build-app -name 'libforge_kernel_core*' -print | head -5
@@ -209,21 +260,34 @@ jobs:
     needs: kernel
     name: build + package Forge.app (macOS arm64)
     runs-on: macos-15
-    # 90 was never exercised. Until the dependency-plane prefixes were exported this
-    # job died inside `release_dryrun.sh`'s kernel configure within SECONDS of starting,
-    # so no run had ever reached a real compile and the ceiling had never been tested
-    # against the work it actually has to do.
+    # ★ 180 IS NOT A BUILD BUDGET. THE BUILD NEEDS 147 SECONDS.
     #
-    # The first run that got past configure built for 89.0 minutes and was killed by
-    # this timeout at 90.3 — a cancellation, which reads like an infrastructure blip
-    # rather than the honest "this build does not fit" that it is. Measured: 11 of 17
-    # steps completed, ccache restored a hit, and the kill landed inside "Build,
-    # package, and report the floor".
+    # A JOB TIMEOUT AND A CONCURRENCY CANCEL BOTH REPORT AS `cancelled`. Two runs
+    # were read as infrastructure blips before anyone did the subtraction:
     #
-    # 180 is a ceiling with headroom, not an estimate: the true cold-build cost is
-    # still unknown because no run has finished one yet. If a run ever approaches this
-    # number, the answer is a faster build (a warmer ccache key, or prebuilt OCCT),
-    # NOT a larger number.
+    #   run 33392163311  job 12:35:22 -> 15:35:40 = 180.3 min
+    #   run 33377699374  job 09:26:xx -> 12:27:07 = 180.3 min
+    #
+    # 180.3 against `timeout-minutes: 180` is the ceiling, exactly. It was NOT a
+    # concurrency cancel: `cancel-in-progress` is false above, and `gh run list`
+    # shows no newer run on this ref at either kill time. Not a manual cancel
+    # either — one would land at an arbitrary time, not twice at 180.3.
+    #
+    # WHERE THE 180 MINUTES WENT, from the run log:
+    #   12:36:40 -> 12:39:07   the ENTIRE build and package        147 s
+    #   12:39:07 -> 15:35:35   one hung app launch           176.5 min
+    #
+    # The last line printed was `[package] relocation smoke test: launching the
+    # COPY`, and at cleanup the runner logged `Terminate orphan process: pid
+    # (10831) (forge_desktop)`. package_macos.sh launched the bundled app to
+    # prove the bundle is relocatable and the process never exited; macOS ships
+    # no `timeout(1)`, so nothing bounded it. That launch is now bounded at 120s
+    # and takes a `sample(1)` stack on expiry — see run_bounded in
+    # forge-desktop/package_macos.sh.
+    #
+    # SO: DO NOT RAISE THIS NUMBER. It has never been the constraint. If a run
+    # approaches it again, something is STUCK, and release_dryrun.sh now prints a
+    # per-phase timing table that says which phase. Read the table first.
     timeout-minutes: 180
     env:
       # The floor this artifact is ALLOWED to have. macos-15 bottles are
@@ -349,38 +413,20 @@ jobs:
             printf '%-16s %s\n' "$f" "$(brew list --versions "$f" || echo MISSING)"
           done
 
-      - name: Cache the BUILT kernel, not just the compiler cache
-        # THE DOMINANT COST. release_dryrun.sh already targets forge_kernel_core, so the
-        # kernel -- roughly 400 OCCT-linked translation units -- is the bulk of the job,
-        # and ccache alone does not avoid it: the ccache key hashes forge-kernel/src/**
-        # and include/**, so ANY kernel edit invalidates the exact key on every push and
-        # only the partial restore-key hits.
-        #
-        # Caching the BUILD DIRECTORY means an unchanged kernel is not rebuilt at all.
-        #
-        # THE KEY IS DELIBERATELY NARROW, because a CMake build tree is fragile in two
-        # ways that a careless key would hide:
-        #   * it stores ABSOLUTE paths, so it is only reusable at the same location --
-        #     true on hosted runners (/Users/runner/work/...), and the reason this is
-        #     scoped to runner.os;
-        #   * it is linked against a specific OpenCascade, so the brew VERSION is in the
-        #     key. Restoring a tree built against a different OCCT would produce a link
-        #     failure that looks like a source bug.
-        # There is no restore-keys fallback for the same reason: a PARTIAL kernel build
-        # tree is worse than none, because make would trust stale objects.
-        id: kernelcache
-        uses: actions/cache@v4
-        with:
-          path: forge-kernel/build-app
-          key: kernelbuild-${{ runner.os }}-occt${{ env.OCCT_VERSION }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-kernel/CMakeLists.txt', 'forge-kernel/cmake/**') }}
-
+      # The build-tree cache that used to sit here has been REMOVED. See the long
+      # note in the `kernel` job above: it restored perfectly (2s) and then the
+      # kernel recompiled all 421 TUs anyway (121.5s), because actions/checkout
+      # gives every source a newer mtime than the cached objects. It cost a cache
+      # slot and bought zero seconds. ccache does this job properly, and now uses
+      # a namespace shared with the kernel job so that job's 422 compilations are
+      # actually reachable from here.
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
           path: /Users/runner/.ccache
-          key: ccache-desktop-${{ runner.os }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-desktop/src/**', 'ui/src/**') }}
+          key: ccache-forge-${{ runner.os }}-desktop-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-desktop/src/**', 'ui/src/**') }}
           restore-keys: |
-            ccache-desktop-${{ runner.os }}-
+            ccache-forge-${{ runner.os }}-
 
       - name: Derive the version
         id: ver
