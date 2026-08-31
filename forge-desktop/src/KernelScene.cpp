@@ -69,7 +69,28 @@ void KernelScene::setDocumentLabel(std::string label) {
 
 // -- THE EDGE ---------------------------------------------------------------
 // forge::ui's IR program -> forge::ft -> a solid -> triangles -> the viewport.
+//
+// ONE entry point, TWO ways to reach the kernel. Which one runs is a property of
+// the SCENE (was an isolated worker configured?), never of the call site, so no
+// caller can forget to ask for isolation and no gate has to be rewritten to get
+// it. With no worker configured this is exactly the function it always was.
 bool KernelScene::buildFromIr(const std::string& program) {
+  if (session_.workerConfigured()) {
+    bool fellBack = false;
+    const bool ok = buildIsolated(program, fellBack);
+    if (!fellBack) return ok;
+    // The worker could not be LAUNCHED (missing binary, exhausted process
+    // table). That is an isolation failure, not a geometry failure, and refusing
+    // to model at all would be worse than modelling unprotected: an application
+    // shipped without its worker must still be an application. A crash is NEVER
+    // retried here -- re-running it in this process is the outcome the whole
+    // mechanism exists to prevent.
+    ++isolatedFallbacks_;
+  }
+  return buildInProcess(program);
+}
+
+bool KernelScene::buildInProcess(const std::string& program) {
   report_ = IrBuildReport{};
 
   // ---- parse, with the KERNEL's parser ------------------------------------

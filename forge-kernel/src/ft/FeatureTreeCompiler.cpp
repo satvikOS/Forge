@@ -2162,6 +2162,19 @@ private:
 
 }  // namespace
 
+// The op progress hook. thread_local so a batch tool compiling on several
+// threads gets one hook per thread instead of a race; nullptr by default, which
+// is the whole cost of it for every caller that does not install one.
+namespace {
+thread_local CompileProgressHook g_progressHook = nullptr;
+thread_local void*               g_progressUser = nullptr;
+}  // namespace
+
+void setCompileProgressHook(CompileProgressHook hook, void* user) {
+    g_progressHook = hook;
+    g_progressUser = user;
+}
+
 CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
     CompileResult out;
 
@@ -2198,6 +2211,12 @@ CompileResult compile(const FeatureTree& ft, const std::string& inputStepPath) {
                                // tree has no explicit RESULT(%id).
 
     for (const auto& op : ft.ops) {
+        // ANNOUNCE BEFORE BUILDING. The order is the entire point: an op that
+        // kills the process must already have been named, because after the
+        // signal there is nothing left to ask.
+        if (g_progressHook != nullptr) {
+            g_progressHook(op.id, op.name.c_str(), op.srcLine, g_progressUser);
+        }
         if (env.count(op.id)) {
             out.error = "duplicate id %" + std::to_string(op.id) +
                         " (line " + std::to_string(op.srcLine) + ")";

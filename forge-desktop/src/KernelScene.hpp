@@ -27,11 +27,14 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "forge/ui/FeatureTreeModel.hpp"
+#include "forge/ui/GuardedProcess.hpp"
+#include "forge/ui/KernelSession.hpp"
 // The feature history is the DOCUMENT's, so the tree source reads it straight
 // out of forge::ui::PartDocument. Both headers are headless forge::ui: this
 // file still reaches no OCCT and no ImGui.
@@ -46,6 +49,11 @@ struct Mesh;
 
 namespace forge::desktop {
 
+// The first line of a `forge_kernel_worker` answer. Spelled once, here, because
+// the worker writes it and the scene reads it and a protocol spelled in two
+// places is a protocol that drifts.
+inline constexpr const char* kWorkerResultMagic = "FORGE-WORKER-RESULT 1";
+
 // One de-indexed vertex, matching shaders/viewport_solid.vert exactly.
 struct SceneVertex {
   float px = 0.0f, py = 0.0f, pz = 0.0f;
@@ -53,6 +61,13 @@ struct SceneVertex {
   std::uint32_t faceId = 0;  // 1-based OCCT face id (0 = unknown)
   std::uint32_t flags = 0;   // bit0 = selected
 };
+
+// The vertex stream crosses a process boundary as raw bytes, so its layout is
+// part of the protocol rather than an implementation detail. If a field is ever
+// added, BOTH ends are rebuilt from this header in the same build — and the
+// assertion below is what makes a silent size change a compile error instead of
+// a viewport full of noise.
+static_assert(sizeof(SceneVertex) == 32, "SceneVertex is the worker wire record");
 
 // An axis-aligned bounding box; the camera's "fit" uses it, so it is part of the
 // scene's contract rather than something the viewport recomputes.
@@ -133,6 +148,48 @@ class KernelScene {
   // the process. Both the std and non-std cases are caught here.
   bool buildFromIr(const std::string& program);
 
+  // ── ★ CRASH ISOLATION: the same edge, in a process we can afford to lose ──
+  //
+  // A SIGSEGV is not an exception. The catch clauses above are real and they
+  // catch real failures — an escaping Standard_ConstructionError among them —
+  // but forge-kernel/reports/OCCT_NULL_PCURVE_SEGV.md documents a null
+  // Geom2d_Curve dereferenced INSIDE OCCT on three paths, on model output AND on
+  // the gold reference parts, and no catch clause exists for a signal. The
+  // report's own measured self-correction rules out a pre-check: the crashing
+  // shape had nullPcurves=0, so the null is born inside the operation.
+  //
+  // So when an isolated worker is configured, buildFromIr() runs the whole
+  // parse -> compile -> tessellate chain in a CHILD PROCESS and reads the vertex
+  // stream back. A fault costs one rebuild: the document, the undo stack, the
+  // dock layout and the last good body all survive, and the failure arrives as a
+  // sentence that NAMES THE STATEMENT (from the worker's op trail) rather than as
+  // the silence a segfault normally leaves.
+  //
+  // `argv` is the worker command. `limits` carry the deadline — non-zero, always:
+  // 6 of 600 corpus parts exceed 300 s in the verifier, and an operation with no
+  // deadline is indistinguishable from a hang.
+  void useIsolatedWorker(std::vector<std::string> argv, const forge::ui::GuardLimits& limits);
+  bool isolationConfigured() const noexcept { return session_.workerConfigured(); }
+  // Runs `worker --version` once and reports whether it answered. An application
+  // that discovers it has no isolation on the first rebuild has discovered it too
+  // late to tell anyone.
+  bool probeWorker(std::string& error);
+  const forge::ui::KernelSession& session() const noexcept { return session_; }
+  // How many builds were served out of process, and how each of them ended.
+  std::size_t isolatedBuilds() const noexcept { return isolatedBuilds_; }
+  std::size_t isolatedFallbacks() const noexcept { return isolatedFallbacks_; }
+
+  // ── keeping the host alive, and giving the user a way out ────────────────
+  // Called between polls while an isolated build runs, with the elapsed time and
+  // the statement the worker last announced. Return TRUE to cancel.
+  //
+  // This is what keeps a long operation from freezing the application: the host
+  // pumps its event queue here, draws a progress line, and answers "the user hit
+  // Escape" by returning true. Without it the wait is merely BOUNDED (the
+  // deadline still fires); with it the wait is also INTERRUPTIBLE.
+  using HostPump = std::function<bool(std::uint64_t elapsedMs, const std::string& opText)>;
+  void setHostPump(HostPump pump);
+
   const IrBuildReport& lastBuild() const noexcept { return report_; }
 
   // The tree's ROOT row. It used to be the string literal "Bracket.fpart", which
@@ -166,6 +223,21 @@ class KernelScene {
 
  private:
   void computeBounds();
+  // The in-process chain. Named so the isolated path can be a peer rather than a
+  // wrapper, and so a fallback reads as a deliberate choice at its call site.
+  bool buildInProcess(const std::string& program);
+  // Runs the program in the worker and installs the answer. Returns false on any
+  // non-success, having kept the previous geometry. `fellBack` comes back true
+  // ONLY when the worker could not be launched at all — never after a crash,
+  // because re-running a crasher in this process is exactly the outcome the
+  // isolation exists to prevent.
+  bool buildIsolated(const std::string& program, bool& fellBack);
+  // Decodes the worker's answer into `report` and `verts`. Returns false with a
+  // reason when the payload is truncated or malformed — a worker that exits 0 and
+  // writes nonsense must be a diagnosis, not a viewport full of noise.
+  static bool decodeWorkerPayload(const std::string& payload, IrBuildReport& report,
+                                  std::vector<SceneVertex>& verts, std::string& backend,
+                                  std::string& error);
   // Turns a kernel Mesh into the viewport's de-indexed vertex stream. Writes
   // into `out` so a failed build cannot half-replace the live geometry.
   bool deindex(const forge::Mesh& mesh, std::vector<SceneVertex>& out,
@@ -180,6 +252,15 @@ class KernelScene {
   Bounds bounds_;
   std::uint32_t faceCount_ = 0;
   std::string documentLabel_ = "untitled.fpart";
+
+  // The isolation. Idle and inert until useIsolatedWorker() is called, which is
+  // what keeps every existing headless gate on the in-process path it was written
+  // against.
+  forge::ui::KernelSession session_;
+  forge::ui::GuardLimits limits_{};
+  HostPump hostPump_;
+  std::size_t isolatedBuilds_ = 0;
+  std::size_t isolatedFallbacks_ = 0;
 };
 
 // ── the feature tree seam ───────────────────────────────────────────────────
