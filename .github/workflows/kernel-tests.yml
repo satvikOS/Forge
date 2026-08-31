@@ -26,6 +26,16 @@ name: Kernel + Guards
 #                               proved. It is tracked as a deletion target in
 #                               implementation/sacrosanct/ZERO_JS_MIGRATION_MANIFEST.md
 #                               and MUST NOT be removed by extension alone.
+#   desktop  (macOS, heavy)     THE APPLICATION WE SHIP. Compiles the
+#                               forge-desktop CMake project -- forge_desktop
+#                               itself plus its three headless gates -- and runs
+#                               forge-desktop/test/run_desktop.sh, which drives
+#                               both gates AND proves all 17 of their mutations
+#                               turn red. Added 2026-08-30 because no job here
+#                               had ever compiled that project, so a call to a
+#                               method that does not exist left the app
+#                               un-buildable with every check green. See the
+#                               measured negative control in the job itself.
 #
 # Hardware-calm: no job `needs` another, so an OCCT-env hiccup surfaces as one
 # red check instead of blocking the pure-C++ gate.
@@ -333,3 +343,243 @@ jobs:
         # defect the crash was hiding -- base-16 stoi stops at the first non-hex character, so
         # "\u00ZZ" partially parsed to 0 and silently injected a NUL byte.
         run: FORGE_VERIFY_BIN=forge-kernel/build-verify/forge_verify bash forge-kernel/test/forge_verify_batch_gate.sh
+
+  desktop:
+    name: forge-desktop compiles + its headless gates (17 mutation proofs)
+    # THE JOB THAT WOULD HAVE CAUGHT #107, AND THE REASON IT EXISTS.
+    #
+    # Until this landed, NOTHING in CI compiled the forge-desktop CMake project.
+    # Both `cmake -S` lines in the `kernel` job target forge-kernel and build
+    # forge_kernel_core with FORGE_BUILD_DESKTOP_FOUNDATION=ON -- that is the
+    # kernel's desktop-facing LIBRARY, not the application. The IR-pipeline step
+    # deliberately compiles only ui/src plus one gate TU, and run_ir_pipeline.sh
+    # says why in its own header: it must not drag in SDL2, Vulkan or ImGui. The
+    # one workflow that does build the app, desktop-release.yml, was not
+    # registered on the default branch and had therefore never run.
+    #
+    # So forge-desktop/src/KernelScene.cpp called scene_.features(), a method
+    # that does not exist; the application we ship was UNBUILDABLE for hours;
+    # and every check stayed green. A gate that cannot build cannot fail, and
+    # that looks exactly like silence.
+    #
+    # NEGATIVE CONTROL -- MEASURED on macOS 26.6.2 arm64 at 66572e8e before this
+    # job was committed, by reinstating that exact call site in a clean tree and
+    # running the steps below verbatim (extracted from this file and executed
+    # under GitHub's own `bash --noprofile --norc -eo pipefail`):
+    #
+    #   the coverage that already existed, WITH the defect present
+    #       run_ir_pipeline.sh (the `kernel` job's IR-pipeline step)
+    #           -> exit 0, "18 checks, 0 failures -- PASS"
+    #       run_ui.sh (the whole `ui` job)
+    #           -> exit 0, "ALL 14 UI GATES PASS"
+    #       Both GREEN while the application would not compile. That is the
+    #       blindness, reproduced, not asserted.
+    #
+    #   this job, WITH the defect present
+    #       step "Compile forge-desktop"
+    #           -> exit 1, carrying clang's
+    #              forge-desktop/src/KernelScene.cpp:399:43: error: no member
+    #              named 'features' in 'forge::desktop::KernelScene'
+    #              and the annotation "forge-desktop did not COMPILE (rc=2);
+    #              the application is un-buildable on this commit"
+    #       step "forge-desktop gates + mutation proofs"
+    #           -> exit 1, "[desktop] app build FAILED", verdict line absent
+    #
+    #   after reverting the injection from a backup copy
+    #       both steps green again; 17/17 mutations red-then-green.
+    #
+    # WHAT THIS JOB DOES NOT COVER. Neither gate INTERACTS -- they build frames
+    # and drive commands, but nothing clicks. The dock-tab SIGSEGV of 2026-08-30
+    # (drawTabGroup holding a const DockNode& into a layout that setActiveTabAt
+    # move-assigns out from under it) passed both gates throughout and would
+    # pass this job too. Compiling the app is defect class 1; that is a second
+    # class, and closing it needs a gate that clicks.
+    #
+    # COST, honestly: one macOS runner per run, on every PR and every push to
+    # archdisc. brew dominates -- opencascade and boost are the large bottles;
+    # the five graphics formulae are small. Build and gates MEASURED from this
+    # commit on an M-series workstation: forge_kernel_core 66 s wall / 178 s CPU
+    # at -j6, forge-desktop 7.6 s wall / 22 s CPU at -j6, and run_desktop.sh --
+    # three gates plus all 17 mutation runs -- 35 s. A 3-core runner is slower
+    # per core, and ccache makes both builds near-free on a warm cache, so
+    # expect roughly 20 min cold and 15 min warm, nearly all of it brew. That is
+    # a fourth macOS job alongside kernel, retrieval and s0_conformance, and it
+    # buys the first compile coverage the shipped application has ever had.
+    #
+    # WHY NOT FOLD THIS INTO THE `kernel` JOB, which already installs OCCT and
+    # already builds forge_kernel_core. That is cheaper by about the brew
+    # install, and it was still rejected. Steps within a job are sequential, so
+    # the app gate would sit behind eight steps this file itself documents as
+    # environment-sensitive -- LE11's fuse is refused on the GitHub runner and
+    # succeeds on the workstation from the same commit. Any one of those
+    # hiccuping would mean the application was never compiled at all, reported
+    # under a check named "OCCT kernel smoke". Coverage that quietly does not
+    # run is the exact defect this job exists to end. The workflow's own rule is
+    # hardware-calm independence, and s0_conformance already pays for a second
+    # full OCCT install for the same reason.
+    runs-on: macos-15
+    # PINNED, matching desktop-release.yml rather than the macos-latest the other
+    # macOS jobs use. The release artifact is built on macos-15, so this gate
+    # compiles on the image the release compiles on: a bottle or toolchain change
+    # that breaks the release build turns a PR red instead of a tag.
+    timeout-minutes: 45
+    env:
+      CCACHE_DIR: /Users/runner/.ccache
+      # CMake initialises CMAKE_<LANG>_COMPILER_LAUNCHER from the identically
+      # named environment variable. That is how ccache reaches a build driven by
+      # run_desktop.sh, without editing a script developers also run locally.
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prove the verdict check itself can fail (7 stub cases, ~1 s)
+        # FIRST, before twenty minutes of brew and compiling. The last step of
+        # this job does not trust run_desktop.sh's exit code; this proves that
+        # distrust is real, by driving ci_desktop_gate.sh's documented red paths
+        # with stub scripts -- a mutation count that FELL, one that ROSE (the
+        # count is an equality, never a floor), a mutation that STAYED GREEN, a
+        # failed run, a run that exited 0 printing no verdict at all, and a
+        # missing run_desktop.sh -- plus one green case, without which the suite
+        # would pass equally well against a script that always exits 1.
+        # Needs no OCCT, no SDL2, no compiler: if someone relaxes the verdict
+        # check, this is red in seconds instead of never.
+        run: bash forge-desktop/test/ci_desktop_gate_selftest.sh
+
+      - name: Install build deps (OCCT, boost, SDL2, Vulkan/MoltenVK, glslang)
+        # The same formula list desktop-release.yml installs, deliberately: the
+        # gate and the release must not be able to disagree about what the app
+        # needs. boost is REQUIRED and not incidental -- forge-kernel's ForgeDeps
+        # resolver demands it because planegcs uses boost::graph and
+        # boost::math::constants, and two dispatched release dry runs died on
+        # "could not resolve 'boost' 1.90.0" before it was added. Do not trim
+        # this line.
+        run: |
+          brew update-reset >/dev/null 2>&1 || true
+          brew install opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
+
+      - name: Record the toolchain that compiled the app
+        # A build whose provenance is not written down cannot be debugged later,
+        # and these versions decide both the geometry and the OS floor.
+        run: |
+          sw_vers
+          uname -m
+          cmake --version | head -1
+          for f in opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang; do
+            printf '%-16s %s\n' "$f" "$(brew list --versions "$f" || echo MISSING)"
+          done
+
+      - name: Restore compiler cache
+        # Same path and key as desktop-release.yml, on purpose: same image, same
+        # compiler, same sources, so a PR run warms the release build and the
+        # release run warms this one. ccache is content-addressed, so sharing
+        # cannot hand back a wrong object -- at worst a changed toolchain means
+        # misses. Cache keys are immutable, so whichever job saves an exact key
+        # first wins and the other logs "Cache already exists"; that is a notice,
+        # not a failure.
+        uses: actions/cache@v4
+        with:
+          path: /Users/runner/.ccache
+          key: ccache-desktop-${{ runner.os }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-desktop/src/**', 'ui/src/**') }}
+          restore-keys: |
+            ccache-desktop-${{ runner.os }}-
+
+      - name: Build forge_kernel_core (node-free; the application links this)
+        # Into forge-kernel/build-app, which is the directory
+        # forge-desktop/CMakeLists.txt documents and the one run_desktop.sh
+        # defaults to -- so this step and the script agree and neither
+        # reconfigures the other's cache.
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          ccache --max-size=3G --zero-stats
+          cmake -S forge-kernel -B forge-kernel/build-app -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_BUILD_NODE_ADDON=OFF -DFORGE_BUILD_DESKTOP_FOUNDATION=ON
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::forge-kernel configure failed (rc=$rc)"; exit 1
+          fi
+          cmake --build forge-kernel/build-app --target forge_kernel_core -j3
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::forge_kernel_core did not build (rc=$rc)"; exit 1
+          fi
+          ls -l forge-kernel/build-app/libforge_kernel_core.dylib
+
+      - name: Compile forge-desktop (the application AND all three headless gates)
+        # THIS is the step defect #107 could not have survived, and it is kept
+        # separate from the gate step below so that a compile break is legible by
+        # NAME in the checks list instead of buried inside a script's log.
+        # run_desktop.sh drives these same two directories, so it finds this
+        # build warm and its own cmake calls cost nothing.
+        #
+        # The four binaries are then asserted one by one, because a build step
+        # that exits 0 having produced nothing is a failure mode this programme
+        # keeps meeting. forge_desktop -- the application itself -- is checked
+        # HERE AND NOWHERE ELSE: run_desktop.sh only ever executes the three gate
+        # binaries, so without this loop the app could stop being produced and
+        # every gate would still be green.
+        shell: bash
+        run: |
+          set -uo pipefail
+          set +e
+          cmake -S forge-desktop -B forge-desktop/build -DCMAKE_BUILD_TYPE=Release \
+                -DFORGE_KERNEL_BUILD_DIR="$PWD/forge-kernel/build-app"
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::forge-desktop configure failed (rc=$rc)"; exit 1
+          fi
+          cmake --build forge-desktop/build -j3
+          rc=$?
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::forge-desktop did not COMPILE (rc=$rc); the application is un-buildable on this commit"
+            exit 1
+          fi
+          missing=0
+          for b in forge_desktop forge_desktop_frame_gate \
+                   forge_desktop_document_gate forge_desktop_ir_pipeline_gate; do
+            if [ -x "forge-desktop/build/$b" ]; then printf 'ok       %s\n' "$b"
+            else printf 'MISSING  %s\n' "$b"; missing=1; fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::the build exited 0 without producing every binary (marked MISSING above)"
+            exit 1
+          fi
+
+      - name: forge-desktop gates + mutation proofs (headless -- no window, no GPU)
+        # ci_desktop_gate.sh runs run_desktop.sh -- the missing-include
+        # preflight, then the three headless gates (ir_pipeline, document,
+        # frame), then 17 injected defects each of which MUST turn its gate red
+        # -- and then JUDGES ITS OUTPUT rather than trusting its exit status.
+        # run_desktop.sh has no `set -e`, so its status is the status of
+        # whatever ran last and a run that fell out of its own middle would exit
+        # 0; the gate script requires a zero status AND no mutation reported as
+        # having STAYED GREEN AND the exact verdict line naming exactly 17
+        # mutations. Its own red paths are proved by the self-test that runs as
+        # the first step of this job.
+        #
+        # It is a script, not inline YAML, so a developer runs the identical
+        # judgement locally and the two cannot drift; and so that the self-test
+        # has something to drive.
+        #
+        # KERNEL_BUILD and APP_BUILD are passed explicitly so run_desktop.sh
+        # reuses the directories the two steps above built, rather than
+        # re-deriving paths that could differ by a symlink and cause a rebuild.
+        #
+        # The gates' own check counts (18 / 186 / 185, measured on a
+        # workstation) are deliberately NOT pinned. They have never been
+        # observed on this runner image, and a number nobody has measured is not
+        # a gate -- it is a red build waiting to happen for the wrong reason.
+        # The gates assert their own contents and go red on their own.
+        shell: bash
+        env:
+          KERNEL_BUILD: ${{ github.workspace }}/forge-kernel/build-app
+          APP_BUILD: ${{ github.workspace }}/forge-desktop/build
+        run: |
+          set -uo pipefail
+          set +e
+          bash forge-desktop/test/ci_desktop_gate.sh
+          rc=$?
+          ccache --show-stats || true
+          exit "$rc"
