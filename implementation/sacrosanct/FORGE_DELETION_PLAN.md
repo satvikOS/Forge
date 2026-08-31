@@ -256,6 +256,16 @@ exactly one file is provably dead:
 * `e2e/forge/forge-v3-shell.spec.js` — reads `frontend/src/forge-app/v3/tokens.css` at line 14,
   in `beforeAll`. That path does not exist; the only tracked `tokens.css` files are under
   `frontend/src/forge-v4/`. This spec cannot pass. **Safe today, gate-independent.**
+  **[EXECUTED on `forge-js/retire-dead-v3-residue`, 2026-08-31.]** Re-verified at
+  `origin/archdisc` = `32ee7485`: `frontend/src/forge-app` still has 0 tracked files, the
+  `readFileSync` was *run* (not read) and throws `ENOENT`, and this file is the ONLY filesystem
+  reference to `forge-app` left in `e2e/` — the other three matches
+  (`v4-full-verify.spec.js:60`, `v4-full-verify-v2.spec.js:41`, `v4-exhaustive.spec.js:60`) are
+  `data-testid` strings. Deleting it orphans **two** exports of `e2e/forge/_helpers.js`
+  (`_helpers.js:71` exports `launchForge, shot, loadInlinePage, SHOTS_DIR`): after the deletion
+  `loadInlinePage` and `launchForge` have no importer, and `forge-v3-live.spec.js:10` — the one
+  remaining importer — takes only `shot`. **The helper file is deliberately NOT touched**: it is
+  live, and pruning its exports is a code change, not a deletion of an old Forge version.
 * `e2e/forge/forge-v3-live.spec.js` is *mislabelled*, not dead: it launches
   `electron/main.js` and screenshots whatever the app currently renders, which is v4. It dies
   with F6/F7, not before.
@@ -375,7 +385,7 @@ measured, not a judgement.
 
 | Item | Why |
 |---|---|
-| `e2e/forge/forge-v3-shell.spec.js` | Reads `frontend/src/forge-app/v3/tokens.css`, which has 0 tracked files. The spec cannot pass. |
+| ~~`e2e/forge/forge-v3-shell.spec.js`~~ **— DONE, `forge-js/retire-dead-v3-residue` (2026-08-31)** | Reads `frontend/src/forge-app/v3/tokens.css`, which has 0 tracked files. The spec cannot pass. Re-verified by execution at `32ee7485`, not by re-reading. §3.1 carries the full check. |
 | Local `e2e/forge/shots/` (99 MiB), `e2e/screenshots/` (644 KiB) | Untracked, gitignored regenerable residue. Reclaims 99.6 MiB. |
 | Local `forge-kernel/build/` (56 MiB) | Regenerable cmake-js tree. |
 
