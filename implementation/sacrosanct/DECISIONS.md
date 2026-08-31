@@ -1851,3 +1851,37 @@ from a model failure because the harness simply died.
 Cross-reference: the unforked sweep in [D-039] found **66 of 600 (11.0%)** gold-reference parts
 SIGSEGV, all OFFSETSHAPE. That is a different population — gold parts through the offset engine,
 not model emissions through the compiler — which is exactly why both numbers need their arm.
+
+### The second arm settles it conclusively
+
+```
+ARM expert3d_v1_e600     n=600  -->  produced a solid  381/600 = 63.5%
+ARM axis_named_v7_e600   n=600  -->  produced a solid  491/600 = 81.8%
+```
+
+★**Both disputed figures were correct.** My 80.8% was `axis_named_v7_e600`; the other agent's
+range topped out at 63.9%, and `expert3d_v1_e600` measures **63.5%** — inside it. Neither of us was
+wrong about anything except *which arm we were describing*. An unqualified build rate is not a
+weak claim, it is **an ambiguous one**, and two correct measurements can look like a contradiction
+for no reason but a missing label.
+
+The third arm (`expert3d_v5cap_e600`) was **deliberately abandoned mid-run**, and that is recorded
+rather than hidden: a MEMORY-LOW alert fired at 7% free with swap rising 2 GB in one interval while
+a 30B LoRA training run was live. The two arms above already settle the question; the third would
+have been confirmation, not information. ★**Protecting an irreplaceable job beats completing an
+optional measurement** — the sweep was stopped by PID descent over my own process tree, never
+`pkill`, because the training run and eight app agents were sharing the machine.
+
+### A measurement correction about the disk, in the same spirit
+
+I earlier reported reclaiming disk from "38 Gi to 123 Gi". That headline was wrong: `df /` on APFS
+reports the *container's* available space, which swings with purgeable caches and swap-file sizing.
+The real data volume is `/System/Volumes/Data`, and it has sat at **~39 Gi free, 92% full**
+throughout. The reclaim itself was real — 67 worktrees to 2, the repo 22 G to 6 G — but the number
+I quoted came from the wrong filesystem. ★*Measure the volume the data is on, not the one the path
+happens to resolve through.*
+
+The standing pressure is `archdisc-Models` at **192 GB**, of which `adapters/` is **39 GB across 37
+historical LoRA adapters** at ~3.2 GB each. That is accumulation, not a leak, and several of those
+adapters are baselines that merged decisions cite — so they are not mine to delete on my own
+judgement.
