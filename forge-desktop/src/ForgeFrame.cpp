@@ -826,6 +826,29 @@ void ForgeFrame::setRatioAt(const std::vector<std::size_t>& path, double ratio) 
   }
 }
 
+void ForgeFrame::setTreeExpandedAt(const forge::ui::NodeId& id, bool expanded) {
+  // THE SAME SAFETY NET AS setRatioAt/setActiveTabAt, for the container that
+  // never had one. tree_.rebuild() changes rows_.size(); the feature-tree panel
+  // draws inside an ImGuiListClipper whose range was sized from the rowCount
+  // taken at Begin(), so a rebuild under the loop makes the next rowAt() throw
+  // std::out_of_range and abort the process.
+  //
+  // The panel is drawn from inside drawNode(), so walkDepth_ is already non-zero
+  // there and no new guard is needed -- what was missing is this branch. Without
+  // it a direct call from a panel body was an abort with the invariant still
+  // reading zero, which is the worst of both: the crash ships and the gate stays
+  // green.
+  if (walkDepth_ != 0) {
+    ++reseatsDuringWalk_;
+    pendingExpandValid_ = true;
+    pendingExpandId_ = id;
+    pendingExpandState_ = expanded;
+    return;
+  }
+  tree_.setExpanded(id, expanded);
+  tree_.rebuild();
+}
+
 void ForgeFrame::setActiveTabAt(const std::vector<std::size_t>& path, std::size_t active) {
   const forge::ui::DockLayout& live = shell_.layout();
   forge::ui::DockLayout rebuilt;
@@ -939,8 +962,12 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   }
   if (pendingExpandValid_) {
     pendingExpandValid_ = false;
-    tree_.setExpanded(pendingExpandId_, pendingExpandState_);
-    tree_.rebuild();
+    // Through the WRITER, not around it. This runs after the walk has closed, so
+    // walkDepth_ is zero and the writer applies immediately -- which means the
+    // ordinary expander click exercises the writer's apply branch on every frame
+    // that has one pending, instead of the writer being code only a violation
+    // ever reaches.
+    setTreeExpandedAt(pendingExpandId_, pendingExpandState_);
   }
 }
 

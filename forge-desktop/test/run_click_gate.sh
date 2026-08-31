@@ -121,7 +121,11 @@ BAD=0
 if [ $rc -eq 0 ]; then
   echo
   echo "[click-gate] mutation proof (each injected defect must turn the gate red):"
-  for m in 1 2 3 4 5; do
+  # EXACT pin. A --mutate case added to click_gate.cpp must be added here in the
+  # SAME change, or the sweep silently stops covering it -- the same discipline
+  # run_op_constraint_gate.sh states for its MUTATIONS count. 6 is the feature-tree
+  # expander's missing further-frame.
+  for m in 1 2 3 4 5 6; do
     "$BIN" --mutate "$m" > "$WORK/mut$m.log" 2>&1
     mrc=$?
     if [ "$mrc" -eq 0 ]; then

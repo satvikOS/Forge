@@ -194,6 +194,13 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // string) on the FIRST tab click. Counting the violation makes the defect a
   // VALUE a gate can assert on, in any build, sanitizer or not.
   //
+  // IT COUNTS ALL THREE CONTAINERS, not just the dock. The name says "layout"
+  // because the dock is where it started, but a mid-walk `tree_.rebuild()` is the
+  // same defect against a different container -- the walk holds a row range sized
+  // before the rebuild instead of a node reference freed by it -- and it aborted
+  // the app just as hard. setTreeExpandedAt() reports into this same counter, so
+  // the one assertion a gate makes covers every container the walk holds.
+  //
   // The count is OBSERVABLE because the writers do not carry the violation out:
   // an in-walk caller has its request DEFERRED to the end of the frame instead
   // of re-seating under the walk, so the process survives to be asked. Without
@@ -320,6 +327,17 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // what the user sees and what serialize() writes cannot diverge.
   void setRatioAt(const std::vector<std::size_t>& path, double ratio);
   void setActiveTabAt(const std::vector<std::size_t>& path, std::size_t active);
+  // THE THIRD CONTAINER'S WRITER, and it exists for the same reason the two
+  // above do. The dock had a safety net and a counter; the feature tree had
+  // NEITHER, even though it is where the third mid-walk crash actually happened
+  // (tree_.rebuild() resizing rows_ while ImGuiListClipper iterates a range sized
+  // from the PREVIOUS rowCount, then std::out_of_range out of rowAt()). The
+  // gesture site records and defers correctly, so the shipped path is fixed --
+  // but nothing stopped or counted a DIRECT call from inside the walk, so a
+  // reintroduction would have aborted the process with the invariant still
+  // reading zero. Routing every tree mutation through one writer is what makes
+  // the counter tell the truth about all three containers rather than two.
+  void setTreeExpandedAt(const forge::ui::NodeId& id, bool expanded);
 
  private:
   // Panels
