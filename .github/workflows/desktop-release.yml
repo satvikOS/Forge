@@ -162,6 +162,24 @@ jobs:
       # be restored and then thrown away -- a cache that silently does nothing is
       # worse than none, because the build looks correct and stays slow.
       FORGE_MACOS_MIN: "14.0"
+      # ★ WITHOUT THIS LINE THIS ENTIRE JOB WAS A NO-OP, and said nothing about it.
+      # The cache step below archives /Users/runner/.ccache, but CCACHE_DIR was set
+      # only in the RELEASE job, so ccache here wrote to its macOS default
+      # (~/Library/Caches/ccache) and the post-save step reported:
+      #
+      #   Path Validation Error: Path(s) specified in the action for caching
+      #   do(es) not exist, hence no cache is being saved.
+      #
+      # -- a WARNING, on a job that stays green. MEASURED in run 33440617438: this
+      # job compiled 422/422 objects with 0 hits, took 3.7 minutes, saved nothing,
+      # and the release job then reported `Cache not found for input keys:
+      # ccache-forge-macOS-...` and paid for all 422 again. It had never once
+      # worked, under this key or the disjoint one before it.
+      #
+      # A path that does not exist is a WARNING and not an error, which is exactly
+      # how a job spends four minutes per run producing nothing and still looks
+      # like it is doing its job.
+      CCACHE_DIR: /Users/runner/.ccache
     steps:
       - uses: actions/checkout@v4
 
@@ -235,7 +253,13 @@ jobs:
         with:
           path: /Users/runner/.ccache
           key: ccache-forge-${{ runner.os }}-kernel-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**') }}
+          # Ordered: this job's own namespace first, the shared prefix second.
+          # restore-keys are tried IN ORDER, and within one prefix the most
+          # recently created match wins -- so without the specific line first, a
+          # job would happily restore the OTHER job's cache in preference to its
+          # own more relevant one.
           restore-keys: |
+            ccache-forge-${{ runner.os }}-kernel-
             ccache-forge-${{ runner.os }}-
 
       - name: Build forge_kernel_core
@@ -433,7 +457,10 @@ jobs:
         with:
           path: /Users/runner/.ccache
           key: ccache-forge-${{ runner.os }}-desktop-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-desktop/src/**', 'ui/src/**') }}
+          # Own namespace first (it holds kernel AND desktop objects), then the
+          # kernel job's as a fallback for the first run after a desktop edit.
           restore-keys: |
+            ccache-forge-${{ runner.os }}-desktop-
             ccache-forge-${{ runner.os }}-
 
       - name: Derive the version
