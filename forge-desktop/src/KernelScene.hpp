@@ -238,6 +238,13 @@ class KernelScene {
   static bool decodeWorkerPayload(const std::string& payload, IrBuildReport& report,
                                   std::vector<SceneVertex>& verts, std::string& backend,
                                   std::string& error);
+  // The worker payload decoder is the only thing standing between a corrupted
+  // pipe and the viewport, and its interesting cases -- a truncated mesh, an
+  // over-long one, a newline inside the error block -- are ones no live worker
+  // can be asked to produce on demand. So the gate drives it directly. This is a
+  // seam for a TEST, not an API: it forwards to the private static above and
+  // adds nothing, so it cannot become a second way to decode a payload.
+  friend struct KernelSceneTestAccess;
   // Turns a kernel Mesh into the viewport's de-indexed vertex stream. Writes
   // into `out` so a failed build cannot half-replace the live geometry.
   bool deindex(const forge::Mesh& mesh, std::vector<SceneVertex>& out,
@@ -261,6 +268,13 @@ class KernelScene {
   HostPump hostPump_;
   std::size_t isolatedBuilds_ = 0;
   std::size_t isolatedFallbacks_ = 0;
+};
+
+struct KernelSceneTestAccess {
+  static bool decode(const std::string& payload, IrBuildReport& report,
+                     std::vector<SceneVertex>& verts, std::string& backend, std::string& error) {
+    return KernelScene::decodeWorkerPayload(payload, report, verts, backend, error);
+  }
 };
 
 // ── the feature tree seam ───────────────────────────────────────────────────
