@@ -1,0 +1,76 @@
+kernel: THICKEN's whole 193-part deletion bucket was ONE surface type -- native coverage 67.8% -> 96.2%, 170 gained / 0 lost, bit-exact against OCCT
+
+D-022 left THICKEN at native 67.8% vs OCCT 100.0% over 600 real parts. Its
+geometric disagreement was already known NOT to be a native defect, so the open
+question was pure coverage: why does native defer on 193 parts?
+
+INSTRUMENT FIRST. runArm in test/corpus_ab_coverage.cpp has carried a reasonFn
+hook since the PIPE family's bucket was unattributable; THICKEN never passed one.
+Wiring occtthicken::thickenLastDeferReason into the native arm is one line, and
+it attributed the bucket completely: 193 of 193 declined on the SINGLE reason
+"a face is not a Geom_Plane". A surface census of the same picked face over the
+same 600 parts named the type -- 407 Plane / 193 Cylinder, no third type in that
+slot, every one spanning a full 2*pi turn.
+
+THE SIGN WAS MEASURED, NOT REASONED ABOUT. The same BRepOffset_MakeOffset call
+Features.cpp makes was run on all 193 picked faces and its volume compared with
+both candidate closed forms: REVERSED faces (119) match the R-t form to rel<1e-9,
+FORWARD faces (51) match the R+t form to rel<1e-9, and the remaining 23 match
+NEITHER (rel 2e-2..9e-2). That measurement also handed over the guard: the 170
+that match are EXACTLY the parts passing a RECTANGLE CERTIFICATE
+(area == R*du*dv, exact because a cylindrical patch's area is R*area(D) and D is
+inside the adaptor box), and the 23 that miss are exactly the ones failing it.
+
+THE CONSTRUCTION WAS CHANGED AFTER MEASURING IT. occtRevol of the axial section
+gives the right volume and was written first; on part ho1002 it returned 4F/8E
+where OCCT returns 4F/6E, every face a Geom_SurfaceOfRevolution -- a coverage
+gain paid for with a surface-type regression. Replaced by
+occtCylinderSolid(Rhi) CUT occtCylinderSolid(Rlo), which leaves exactly two
+Geom_CylindricalSurface walls and two Geom_Plane caps, the same inventory OCCT
+returns. The rejected construction is named in the banner so it is not
+rediscovered, and the inventory is a CHECK, not a comment.
+
+MEASURED, paired, same 600 parts, same derivation:
+  THICKEN  before  native 407/600 = 67.8%  OCCT 100.0%  deletion bucket 193
+           after   native 577/600 = 96.2%  OCCT 100.0%  deletion bucket  23
+           170 GAINED, 0 LOST, McNemar exact two-sided p = 1.34e-51
+All 170 newly-built parts are BRepCheck-VALID and their worst |volume|
+difference from live OCCT is 0.000e+00 -- bit-exact, not merely in tolerance.
+165 of 170 agree on the FULL observable vector up to solid orientation; the 5
+that do not differ ONLY in face/edge counts of the identical body.
+
+UNTOUCHED CONTROLS, same process, same corpus, reproduced to the decimal:
+  FILLING     67.8 / 67.8  deletion  0
+  MAKEOFFSET  94.5 / 99.0  deletion 27
+
+THE OPTION STILL DOES NOT FLIP: the gate is ">=" and 96.2 < 100.0. The surviving
+23 are one named cause -- a hole cut in the tube wall, on which the closed form
+is measurably not OCCT's answer -- and are declined rather than approximated.
+
+A WITHHELD GATE RESTORED, ON A MEASUREMENT. ab_native_thicken_occt was excluded
+from FORGE_AB_GATES with a note recording it RED at a70dd1da. That note had gone
+stale: measured on this tree BEFORE any change here it was 227 passed / 0 failed.
+It is re-registered on that measurement and now builds and passes through ctest.
+
+NOTHING WEAKENED. The gate's defer control (a) fed a cylinder's lateral face and
+required a DECLINE -- now obsolete, not inconvenient. It was REPLACED by two
+stronger controls (a HOLED cylindrical patch must decline with the certificate's
+own reason; a SPHERICAL face must still decline with the original one), plus a
+new case 6 asserting the cylindrical result against live OCCT and both closed
+forms with the surface inventory pinned on both sides. 227 -> 285 passed, 0
+failed. Not one `want` was relaxed.
+
+DROP HYGIENE checked on the object file, not the comment: NativeThickenShell.o
+imports 0 BRepOffset*, 0 BRepOffsetAPI*, 0 BRepPrimAPI*. The new path adds only
+BRepAlgoAPI_Cut (TKBO -- the toolkit the file's n-ary fuse already needed) and
+forge::occtCylinderSolid (in-house, TKPrim-free). No toolkit enters the closure.
+
+VERIFIED: ctest -R '^kernel\.ab\.' 45/45 passed, 0 failed (44 before, +1 from the
+re-registration); thicken_orientation_gate PASS; corpus harness --selftest-guard
+both tree guards fire; gen_archie_op_vocabulary.py --check exits 0.
+
+REVERSIBLE: one guarded early-return in thickenShell, live only for a SINGLE face
+carrying a Geom_CylindricalSurface. Deleting it restores 67.8% exactly.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RJoSd5PSVrVfK37Sn7tSHB

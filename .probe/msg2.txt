@@ -1,0 +1,27 @@
+decisions: correct the gate-restoration claim -- the thicken harness was never dark, CI runs run_ab_all.sh and not ctest
+
+D-024 and the CMakeLists note said re-registering ab_native_thicken_occt in
+FORGE_AB_GATES restored a gate that was not running. CHECKED rather than
+assumed, and that is bigger than the measurement supports:
+
+  .github/workflows/kernel-tests.yml does NOT invoke ctest for FORGE_AB_GATES.
+  It runs forge-kernel/test/run_ab_all.sh, whose HARNESSES line ALREADY
+  contained `thicken`, and this branch's own CI run prints
+      [ab-all] ok  thicken: 0 failure(s), baseline 0
+      [ab-all] GREEN -- all 7 harnesses BUILT, and each matched its baseline.
+
+So the harness was running the whole time through the shell ratchet. What the
+re-registration restores is its ctest MEMBERSHIP, not its EXECUTION. Both the
+ledger entry and the CMakeLists note now say so.
+
+Also recorded from the same CI run: the two JS smoke tests this worktree could
+not build locally (the node addon's napi.h cannot find node_api.h here) both
+PASS on the runner -- thicken_surface_smoke volume 30000 / area 13600 exact,
+knit_surface_smoke 48000 exact -- so the coplanar path is confirmed untouched
+by a real execution and not only by the guard's shape.
+
+No code changes; vocabulary regenerated because CMakeLists.txt is a hashed
+source (--check exits 0).
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01RJoSd5PSVrVfK37Sn7tSHB
