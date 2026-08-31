@@ -193,6 +193,17 @@ TopoDS_Shape makeThickSolid(const TopoDS_Shape& shape, double t,
 TopoDS_Shape offsetSolidShape(const TopoDS_Shape& shape, double dist,
                               double tol = 1.0e-7);
 
+// ---------------------------------------------------------- diagnostics
+// WHY did the most recent offsetSolidShape call ON THIS THREAD return a null
+// shape? A '|'-joined trail of the guard labels it hit, each "<path>/<guard>"
+// — e.g. "planar/face_has_hole" or "quadric/planar_wire_not_single_edge" —
+// where <path> is the dispatch branch that ran (entry / planar / quadric).
+// DIAGNOSTIC ONLY: recording it changes no predicate, tolerance or branch, and
+// the string is meaningless (stale) after a call that SUCCEEDED. It exists so a
+// coverage measurement can ATTRIBUTE family H's defer column instead of
+// reporting a bare null — the same contract as occtloft::lastDeferReason.
+const char* lastOffsetDeferReason();
+
 }  // namespace occtoffset
 }  // namespace forge
 

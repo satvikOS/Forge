@@ -1163,7 +1163,7 @@ int main(int argc, char** argv) {
             std::snprintf(od, sizeof od, "whole-solid grow d=%.6g", d);
             const ArmResult nat = runArm([&]() -> TopoDS_Shape {
                 return forge::occtoffset::offsetSolidShape(src, d, 1.0e-7);
-            }, true, T, NF);
+            }, true, T, NF, &forge::occtoffset::lastOffsetDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                 BRepOffsetAPI_MakeOffsetShape mk;
                 mk.PerformByJoin(src, d, 1.0e-7, BRepOffset_Skin,

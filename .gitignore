@@ -107,6 +107,8 @@ forge-kernel/.build-corpus-ab/
 # Same deal for test/build_draft_defer_probe.sh's object cache and binary; its
 # committed results live in reports/corpus_ab/draft_defer_probe.jsonl.gz.
 forge-kernel/.build-draft-probe/
+# Same deal for test/build_offsetshape_defer_census.sh (family H attribution).
+forge-kernel/.build-offsetshape-census/
 
 # --- Forge local dependency plane (Sacrosanct 3.1 s10.6 / s21.2) -------------
 # .forge-local/ is the workstation execution plane: source mirror, build trees,
