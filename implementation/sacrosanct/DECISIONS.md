@@ -1270,7 +1270,7 @@ silently-swallowed typo.** Use it before believing any flag did anything.
 
 | Toolkit | Status | What holds it | Excl. syms |
 |---|---|---|---|
-| TKOffset | **droppable now** | capability, not topology (see below) | 42 |
+| TKOffset | droppable **only in the all-drops arm** | 42 symbols still REFERENCED in the shipping build | 42 |
 | TKFillet | blocked-by-parent | TKOffset DT_NEEDs it | 11 |
 | TKBool | never-needed | zero exclusive symbols; falls free with the pair | 0 |
 | TKBO | blocked-by-engine | needs a native boolean/defeaturing engine | 32 |
@@ -1286,11 +1286,41 @@ BRepOffset_MakeOffset 5 (I), MakeOffset 4 (A), MakeThickSolid 3 (G), MakePipe 3 
 MakeOffsetShape 3 (H). With all nine plus FILLET on, the variant library has **0 needed and
 0 exclusive TKOffset symbols and dyld no longer maps libTKOffset**. It was built.
 
-**So the drop is MECHANICALLY AVAILABLE TODAY, and what blocks it is CAPABILITY.** Eight of
-the nine families fail their corpus flip gate, and family J (DRAFT) is 0.0% native against
-88.0% OCCT with a measured 75.0% ceiling for the only bounded alternative. Shipping the drop
-now would delete geometry users can currently make. That is a product decision, not a
-compiler problem, and it should be recorded as one rather than presented as "blocked".
+**So the drop is available in the ALL-DROPS ARM, and what blocks shipping it is CAPABILITY.**
+Family J (DRAFT) is 0.0% native against 88.0% OCCT (497/565), with a measured 75.0% ceiling
+for the only bounded alternative. Shipping the drop now would delete geometry users can
+currently make. That is a product decision, not a compiler problem, and it should be recorded
+as one rather than presented as "blocked".
+
+### CORRECTED 2026-08-31 — three claims above were wrong, caught by adversarial verification
+
+The first draft of this entry inherited three errors from the ledger it was written from. The
+verifier rebuilt three arms from its own detached worktree at origin (31 commits ahead of the
+tree the ledger measured) and reproduced every headline number — closure 14/13/11, the
+parent-free set, TKG3d worth zero, TKShHealing worth zero. What it refuted was the framing:
+
+* **"Droppable now" was wrong as a status.** In the SHIPPING build TKOffset has **42
+  referenced exclusive symbols across 7 objects** (strict link, no `-undefined
+  dynamic_lookup`). It reaches zero ONLY with all nine family macros on — the configuration
+  that deletes 497 draft parts. The prose said this correctly; the status label contradicted
+  it. A one-word label that disagrees with the paragraph under it is how a reader takes away
+  the opposite of what was measured. No other label is wrong: TKBool, TKPrim, TKGeomAlgo and
+  TKGeomBase all measure exactly 0.
+* **"Eight of nine families fail their flip gate" was wrong.** TWO options pass, not one:
+  `FORGE_FILLING_DROP_NATIVE` and `FORGE_OFFSET_DROP_MAKEOFFSET` — the latter recorded at
+  `corpus_ab/makeoffset_shipped_bucket_600_summary.md` as *600 parts, both 594, native-only 6,
+  **OCCT-only 0**, 100.0% vs 99.0%, PASS*. The ledger read a superseded comment table in
+  `CMakeLists.txt` instead of the committed A/B summary sitting in the same tree it measured.
+* **The programme's stated PRICE is overstated by up to 5.6x.** Best committed 600-part rows
+  supersede four of the nine capability-cost figures: PIPE **106** deleted / 82.3% (not 598),
+  FILLET **59** / 67.2% (not 315), MAKEOFFSET **0** (not 27), PIPESHELL **1** / 99.8% (not
+  291), THICKEN **23** (not 193).
+
+**The conclusion survives all of it.** DRAFT is unchanged at 0.0% vs 88.0%, and
+`CMakeLists.txt:1053-1081` still requires all nine families, so the shippable ceiling stands.
+But "the drop costs 1,400 parts" and "the drop costs 190 parts" are different arguments, and
+only the second is true. A decision recorded with the wrong price is a decision made on the
+wrong grounds.
 
 **Two accounting traps this closes:**
 
