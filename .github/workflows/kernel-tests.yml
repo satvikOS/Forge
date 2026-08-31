@@ -388,6 +388,10 @@ jobs:
     #   after reverting the injection from a backup copy
     #       both steps green again; 17/17 mutations red-then-green.
     #
+    # And the positive control, ON THE RUNNER: run 33344905310 green in 4 min
+    # 29 s, "[ci-desktop] GREEN -- verdict confirmed: [desktop] ALL FORGE
+    # DESKTOP GATES PASS, and all 17 mutations proved red-then-green".
+    #
     # WHAT THIS JOB DOES NOT COVER. Neither gate INTERACTS -- they build frames
     # and drive commands, but nothing clicks. The dock-tab SIGSEGV of 2026-08-30
     # (drawTabGroup holding a const DockNode& into a layout that setActiveTabAt
@@ -395,34 +399,53 @@ jobs:
     # pass this job too. Compiling the app is defect class 1; that is a second
     # class, and closing it needs a gate that clicks.
     #
-    # COST, honestly: one macOS runner per run, on every PR and every push to
-    # archdisc. brew dominates -- opencascade and boost are the large bottles;
-    # the five graphics formulae are small. Build and gates MEASURED from this
-    # commit on an M-series workstation: forge_kernel_core 66 s wall / 178 s CPU
-    # at -j6, forge-desktop 7.6 s wall / 22 s CPU at -j6, and run_desktop.sh --
-    # three gates plus all 17 mutation runs -- 35 s. A 3-core runner is slower
-    # per core, and ccache makes both builds near-free on a warm cache, so
-    # expect roughly 20 min cold and 15 min warm, nearly all of it brew. That is
-    # a fourth macOS job alongside kernel, retrieval and s0_conformance, and it
-    # buys the first compile coverage the shipped application has ever had.
+    # COST -- MEASURED, not estimated. This job's FIRST run on a GitHub macos-15
+    # runner (run 33344905310, 2026-08-31, COLD ccache) took 4 min 29 s wall,
+    # end to end:
+    #     set up job                                     1 s
+    #     checkout                                       6 s
+    #     verdict-check self-test                        1 s
+    #     brew install (all nine formulae, OCCT included) 62 s
+    #     record the toolchain                           3 s
+    #     restore compiler cache (a miss, first run)     2 s
+    #     build forge_kernel_core                        2 min 14 s
+    #     compile forge-desktop                          17 s
+    #     gates + all 17 mutation runs                   40 s
+    #     post steps                                     3 s
+    # A warm ccache removes most of the 2 min 14 s; that first run saved its
+    # cache, and the key is shared with desktop-release.yml.
+    #
+    # Two working assumptions this run REFUTED, recorded so nobody re-derives
+    # them: brew-installing OCCT on a macOS runner was taken to cost ~15 min --
+    # it cost 62 s from the bottle -- and the build was extrapolated from an
+    # M-series workstation (forge_kernel_core 66 s wall / 178 s CPU at -j6) as
+    # ~20 min cold; it was 2 min 14 s. The whole job costs about a tenth of what
+    # it was budgeted at, on one macOS runner, and it buys the first compile
+    # coverage the shipped application has ever had.
     #
     # WHY NOT FOLD THIS INTO THE `kernel` JOB, which already installs OCCT and
-    # already builds forge_kernel_core. That is cheaper by about the brew
-    # install, and it was still rejected. Steps within a job are sequential, so
-    # the app gate would sit behind eight steps this file itself documents as
-    # environment-sensitive -- LE11's fuse is refused on the GitHub runner and
-    # succeeds on the workstation from the same commit. Any one of those
-    # hiccuping would mean the application was never compiled at all, reported
-    # under a check named "OCCT kernel smoke". Coverage that quietly does not
-    # run is the exact defect this job exists to end. The workflow's own rule is
-    # hardware-calm independence, and s0_conformance already pays for a second
-    # full OCCT install for the same reason.
+    # already builds forge_kernel_core. On the measured numbers that would save
+    # the brew install and the kernel-core build -- about 3 min 15 s of a 4 min
+    # 29 s job, so most of it -- and it was still rejected. Steps within a job
+    # are sequential, so the app gate would sit behind eight steps this file
+    # itself documents as environment-sensitive: LE11's fuse is refused on the
+    # GitHub runner and succeeds on the workstation from the same commit. Any
+    # one of those hiccuping would mean the application was never compiled at
+    # all, reported under a check named "OCCT kernel smoke". Coverage that
+    # quietly does not run is the exact defect this job exists to end, and 4.5
+    # minutes of macOS runner is a small price for not re-creating it. The
+    # workflow's own rule is hardware-calm independence, and s0_conformance
+    # already pays for a second full OCCT install for the same reason.
     runs-on: macos-15
     # PINNED, matching desktop-release.yml rather than the macos-latest the other
     # macOS jobs use. The release artifact is built on macos-15, so this gate
     # compiles on the image the release compiles on: a bottle or toolchain change
     # that breaks the release build turns a PR red instead of a tag.
-    timeout-minutes: 45
+    # 30, against a MEASURED 4 min 29 s on a cold cache -- about 6.7x headroom
+    # for a slow bottle mirror or a contended runner. A ceiling is not a budget:
+    # set generously enough that a slow day is not a false red, tight enough
+    # that a hung build is killed rather than billed.
+    timeout-minutes: 30
     env:
       CCACHE_DIR: /Users/runner/.ccache
       # CMake initialises CMAKE_<LANG>_COMPILER_LAUNCHER from the identically
@@ -567,11 +590,15 @@ jobs:
         # reuses the directories the two steps above built, rather than
         # re-deriving paths that could differ by a symlink and cause a rebuild.
         #
-        # The gates' own check counts (18 / 186 / 185, measured on a
-        # workstation) are deliberately NOT pinned. They have never been
-        # observed on this runner image, and a number nobody has measured is not
-        # a gate -- it is a red build waiting to happen for the wrong reason.
-        # The gates assert their own contents and go red on their own.
+        # The gates' own check counts are deliberately NOT pinned, unlike the
+        # mutation count. They came out IDENTICAL on the runner and on a
+        # workstation -- 18 ir-pipeline / 186 document / 185 frame, run
+        # 33344905310 -- so pinning them would work today. One observation is
+        # not enough to say they are independent of the OCCT bottle version, and
+        # a count that flips on a Homebrew bump is a red build for the wrong
+        # reason. The gates assert their own contents and go red on their own;
+        # the mutation count is the one number nothing else guards, which is why
+        # that one is pinned and these are not.
         shell: bash
         env:
           KERNEL_BUILD: ${{ github.workspace }}/forge-kernel/build-app
