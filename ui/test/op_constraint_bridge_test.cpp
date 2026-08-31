@@ -374,18 +374,35 @@ int main(int argc, char** argv) {
     // FORBIDDEN: a real kernel op no command emits. The refusal must quote the
     // vocabulary's own reason, not say "not allowed".
     //
-    // This case named BOX until part.primitive_box was added; BOX is now allowed, and a
-    // named example has to be an op that is STILL out of reach or the assertion tests
-    // nothing. POLY is the durable one: it takes a `[x y; x y; ...]` points token, and
-    // forge::ui::IrArgKind deliberately models Number/Ref/Keyword/Text and no points
-    // kind, so no forge::ui command can spell the statement at all -- the reason is
-    // structural rather than "nobody has written the command yet".
-    const OpRuling poly = bridge.check(step(1, "POLY", {IrArg::num(10)}));
-    CHECK_EQ_INT(static_cast<int>(poly.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
-    CHECK(poly.reason.find("POLY") != std::string::npos);
-    CHECK(poly.reason.find("no user can produce it") != std::string::npos);
-    // And BOX, which used to stand here, is now ACCEPTED in the form the new command
-    // emits -- the other half of the same claim, and the reason this line moved.
+    // This case has now been re-aimed TWICE, and the second move is the last one
+    // available: it named BOX until part.primitive_box was added, then POLY on the
+    // grounds that a points token was structurally unreachable. Both are now allowed
+    // -- IrArgKind models Points and part.sketch_poly emits it -- so the example is
+    // SLOT, the one op left in forbidden_ops.
+    //
+    // SLOT is durable for a reason the other two never had. It is not waiting on a
+    // command; the kernel BUILDS IT WRONG. Both semicircular end caps bow inward
+    // (measured: SLOT(40,12) has area 222.9027 where an obround is 449.0973, and
+    // SLOT(30,20) is an INVALID solid, genus 1, "not consistently oriented"), because
+    // forge::addArc stores no orientation bit and profileFromSketch always trims the
+    // MINOR arc. Making SLOT reachable would put that shape one click away and teach
+    // Archie a geometry SLOT is not, so it stays forbidden until the arc is fixed and
+    // re-measured -- see the block in ui/src/PartCommands.cpp.
+    const OpRuling slot = bridge.check(step(1, "SLOT", {IrArg::num(40), IrArg::num(12)},
+                                            EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(slot.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
+    CHECK(slot.reason.find("SLOT") != std::string::npos);
+    CHECK(slot.reason.find("no user can produce it") != std::string::npos);
+    // And POLY, which used to stand here, is now ACCEPTED in the form the new command
+    // emits -- the other half of the same claim, and the reason this line moved. It is
+    // checked with the POINT RING it really takes: POLY(10) would be refused for its
+    // argument kind and would not prove the op is reachable.
+    const OpRuling polyNow = bridge.check(
+        step(1, "POLY", {IrArg::points2("-20 -20; 20 -20; 20 20; -20 20")},
+             EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(polyNow.verdict), static_cast<int>(OpConstraint::Ok));
+    // And BOX, which used to stand here before POLY, is still ACCEPTED -- the other
+    // half of the same claim, and the reason this line moved the first time.
     const OpRuling boxNow = bridge.check(step(1, "BOX",
                                               {IrArg::num(40), IrArg::num(30), IrArg::num(20)},
                                               EntityKind::None, 0));
