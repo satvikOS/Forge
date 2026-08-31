@@ -56,6 +56,12 @@ std::string argLine(const forge::ui::IrArg& a) {
       return "ARG kw " + a.word;
     case forge::ui::IrArgKind::Text:
       return "ARG str " + a.word;
+    case forge::ui::IrArgKind::Points:
+      // The DIMENSION is written explicitly rather than inferred from the first
+      // point, because a 2D ring whose points happen to carry a z of 0 and a 3D
+      // ring on the Z=0 plane are the same text and DIFFERENT statements: POLY
+      // reads the first and refuses the second.
+      return "ARG pts " + std::to_string(a.pointDim) + " " + a.pointsToken();
   }
   return "ARG kw INVALID";
 }
@@ -93,7 +99,49 @@ bool argFromLine(const std::string& rest, forge::ui::IrArg& out, std::string& er
     out = forge::ui::IrArg::text(value);
     return true;
   }
-  error = "unknown ARG kind '" + kind + "' (expected num|ref|kw|str)";
+  if (kind == "pts") {
+    // "ARG pts <dim> [x y; x y; ...]" — the IR's own ring spelling, so a saved
+    // part and the statement it compiles to read the same.
+    std::string dimText, body;
+    splitKey(value, dimText, body);
+    const char* dimBegin = dimText.c_str();
+    char* dimEnd = nullptr;
+    const long dim = std::strtol(dimBegin, &dimEnd, 10);
+    if (dimEnd == dimBegin || *dimEnd != '\0' || (dim != 2 && dim != 3)) {
+      error = "ARG pts dimension must be 2 or 3, got '" + dimText + "'";
+      return false;
+    }
+    const std::size_t open = body.find('[');
+    const std::size_t close = body.rfind(']');
+    if (open == std::string::npos || close == std::string::npos || close < open) {
+      error = "ARG pts expects [x y; x y; ...], got '" + body + "'";
+      return false;
+    }
+    std::vector<forge::ui::IrPoint> pts;
+    std::istringstream ring(body.substr(open + 1, close - open - 1));
+    std::string piece;
+    while (std::getline(ring, piece, ';')) {
+      const std::string t = trim(piece);
+      if (t.empty()) continue;
+      std::istringstream ps(t);
+      forge::ui::IrPoint p;
+      if (!(ps >> p.x) || !(ps >> p.y)) {
+        error = "ARG pts point '" + t + "' is not `x y` or `x y z`";
+        return false;
+      }
+      if (dim == 3 && !(ps >> p.z)) {
+        error = "ARG pts declares dimension 3 but point '" + t + "' has two coordinates";
+        return false;
+      }
+      pts.push_back(p);
+    }
+    // The COUNT is not checked here on purpose: validateIr() owns the ">= 3
+    // points" rule, and duplicating it would give a reader that refuses a file
+    // for a reason the document would have stated better.
+    out = forge::ui::IrArg::pointRing(std::move(pts), static_cast<int>(dim));
+    return true;
+  }
+  error = "unknown ARG kind '" + kind + "' (expected num|ref|kw|str|pts)";
   return false;
 }
 

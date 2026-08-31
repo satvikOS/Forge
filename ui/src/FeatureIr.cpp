@@ -38,6 +38,17 @@ IrArg IrArg::text(std::string s) {
   return a;
 }
 
+IrArg IrArg::pointRing(std::vector<IrPoint> pts, int dim) {
+  IrArg a;
+  a.kind = IrArgKind::Points;
+  a.points = std::move(pts);
+  // The dimension is RECORDED AS GIVEN, including a nonsense one. Clamping it to
+  // 2 here would turn a caller's mistake into a statement that is legal, silent
+  // and about a different ring; validateIr() refuses it by name instead.
+  a.pointDim = dim;
+  return a;
+}
+
 // forge::ft's parseDouble is std::strtod, so "%.10g" round-trips every value a
 // UI dimension field can hold and never emits a locale-dependent separator.
 // snprintf is used rather than std::to_string because to_string always prints
@@ -50,12 +61,33 @@ std::string formatIrNumber(double v) {
   return std::string(buf, static_cast<std::size_t>(n));
 }
 
+// `[x y; x y; ...]` / `[x y z; x y z; ...]`. Coordinates are SPACE separated and
+// points are SEMICOLON separated, which is forge::ft's tokenizer verbatim: it
+// splits the bracket body on ';' and reads each piece with `ss >> x >> y >> z`.
+// A comma between coordinates would be read as part of the number and fail.
+std::string IrArg::pointsToken() const {
+  std::string out = "[";
+  for (std::size_t i = 0; i < points.size(); ++i) {
+    if (i != 0) out += "; ";
+    out += formatIrNumber(points[i].x);
+    out += " ";
+    out += formatIrNumber(points[i].y);
+    if (pointDim >= 3) {
+      out += " ";
+      out += formatIrNumber(points[i].z);
+    }
+  }
+  out += "]";
+  return out;
+}
+
 std::string IrArg::token() const {
   switch (kind) {
     case IrArgKind::Number:  return formatIrNumber(number);
     case IrArgKind::Ref:     return "%" + std::to_string(ref);
     case IrArgKind::Keyword: return word;
     case IrArgKind::Text:    return "\"" + word + "\"";
+    case IrArgKind::Points:  return pointsToken();
   }
   return formatIrNumber(number);
 }
@@ -155,6 +187,7 @@ const char* toString(IrCheck check) noexcept {
     case IrCheck::TooManyArgs:         return "too_many_args";
     case IrCheck::FirstArgNotValueRef: return "first_arg_not_value_ref";
     case IrCheck::ForwardValueRef:     return "forward_value_ref";
+    case IrCheck::DegeneratePointRing: return "degenerate_point_ring";
   }
   return "unknown_op";
 }
@@ -179,6 +212,17 @@ IrCheck validateIr(const IrLine& line) {
   for (const IrArg& a : line.args) {
     if (a.kind != IrArgKind::Ref) continue;
     if (a.ref <= 0 || a.ref >= line.id) return IrCheck::ForwardValueRef;
+  }
+
+  // A point ring the kernel's tokenizer would refuse. This is an ARGUMENT rule,
+  // not an op rule, so it needs no fifth column in the op table: every op that
+  // reads a ring reads it the same way, and no op that does not read one can be
+  // handed a legal ring by accident — a Points argument in a slot that wants a
+  // number is caught by the compiler's own token check either way.
+  for (const IrArg& a : line.args) {
+    if (a.kind != IrArgKind::Points) continue;
+    if (a.pointDim != 2 && a.pointDim != 3) return IrCheck::DegeneratePointRing;
+    if (a.points.size() < 3) return IrCheck::DegeneratePointRing;
   }
   return IrCheck::Ok;
 }
