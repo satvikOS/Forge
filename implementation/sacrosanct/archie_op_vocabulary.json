@@ -12,9 +12,9 @@
     "sources": [
       {
         "path": "forge-desktop/src/ForgeFrame.cpp",
-        "sha256": "3b96d9952acca4539311ba49dfe64d64343621d5f1eb45f56db6b52083fdeac4",
-        "bytes": 100424,
-        "lines": 2213
+        "sha256": "06f05ffae429083fd23670cc1c1ad5a0072276108aa362c225cb3120946f690e",
+        "bytes": 101751,
+        "lines": 2240
       },
       {
         "path": "forge-kernel/docs/feature_tree_ir.md",
