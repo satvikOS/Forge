@@ -570,6 +570,71 @@ void checkDecide() {
   check(Policy().allow_prerelease == false, "the SHIPPING default follows releases only", "");
 }
 
+// ── the channel a build follows ──────────────────────────────────────────────
+//
+// THE REGRESSION THIS EXISTS FOR: with the default Policy every shipped alpha was a
+// DEAD END. The next alpha's appcast is published, fetched and parsed correctly, and
+// then rejected -- "manifest is on channel 'prerelease', this build follows
+// 'stable'" -- so an installed alpha could never reach its own successor. Measured
+// against the real binary and the real appcast before the rule existed:
+//
+//   forge_update check --appcast dist/appcast.json --running 0.1.0-alpha.5
+//   -> exit 1, verdict: manifest is on channel 'prerelease', this build follows 'stable'
+//
+// The whole point of shipping an updater is that the FIRST download is the last
+// manual one, so this is the check that decides whether the feature exists at all.
+void checkChannelPolicy() {
+  auto manifestOn = [&](const char* channel, const std::string& version) {
+    std::string j = manifestJson(version,
+                                 "https://github.com/satvikOS/Forge/releases/download/v" +
+                                     version + "/Forge-macos-arm64-" + version + ".zip",
+                                 1000, std::string(64, 'b'));
+    const std::string from = "\"channel\": \"stable\"";
+    const std::string to = std::string("\"channel\": \"") + channel + "\"";
+    const std::size_t at = j.find(from);
+    if (at != std::string::npos) j.replace(at, from.size(), to);
+    return j;
+  };
+
+  // 1. the rule itself
+  const Policy alpha = policyFor("0.1.0-alpha.6");
+  check(alpha.channel == "prerelease", "an alpha build follows the prerelease channel",
+        alpha.channel);
+  check(alpha.allow_prerelease, "an alpha build accepts prerelease versions", "");
+
+  const Policy stable = policyFor("1.2.3");
+  check(stable.channel == "stable", "a release build follows the stable channel",
+        stable.channel);
+  check(!stable.allow_prerelease, "a release build does NOT accept prereleases", "");
+
+  // 2. the case that was broken: alpha -> next alpha must be OFFERED
+  std::string err;
+  {
+    const Manifest m = parseManifest(manifestOn("prerelease", "0.1.0-alpha.6"), err);
+    check(m.valid, "the prerelease manifest parses", err);
+    const Plan p = decide("0.1.0-alpha.5", m, policyFor("0.1.0-alpha.5"));
+    check(p.decision == Decision::UpdateAvailable,
+          "an installed alpha IS offered the next alpha", p.reason);
+  }
+
+  // 3. and the case that must STAY closed: a stable build is never handed an alpha.
+  //    Without this, "make alphas updatable" would mean "ship alphas to everyone".
+  {
+    const Manifest m = parseManifest(manifestOn("prerelease", "2.0.0-alpha.1"), err);
+    const Plan p = decide("1.2.3", m, policyFor("1.2.3"));
+    check(p.decision == Decision::Rejected,
+          "a release build is NOT offered a prerelease", p.reason);
+  }
+
+  // 4. a stable manifest still reaches a stable build
+  {
+    const Manifest m = parseManifest(manifestOn("stable", "1.3.0"), err);
+    const Plan p = decide("1.2.3", m, policyFor("1.2.3"));
+    check(p.decision == Decision::UpdateAvailable,
+          "a release build is still offered a release", p.reason);
+  }
+}
+
 void checkPayloadVerification(const std::string& dir) {
   const std::string body = "PK\x03\x04 pretend this is a Forge release zip";
   const std::string zip = dir + "/payload.zip";
@@ -812,6 +877,7 @@ int main(int argc, char** argv) {
   checkUrlAdmissibility();
   checkCurlArgv();
   checkDecide();
+  checkChannelPolicy();
   checkPayloadVerification(dir);
   checkStagingAndSwap(dir, self_exe);
   checkEndToEnd(dir, self_exe);

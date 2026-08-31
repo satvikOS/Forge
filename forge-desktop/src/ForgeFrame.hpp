@@ -150,6 +150,25 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // frame, so a headless gate can click the real widget instead of guessing pixels.
   struct WidgetRect { float x0 = 0, y0 = 0, x1 = 0, y1 = 0; bool valid = false; };
   WidgetRect treeExpanderRect() const noexcept { return treeExpanderRect_; }
+
+  // ── auto-update, as PLAIN DATA ──────────────────────────────────────────────
+  // ForgeFrame never opens a socket. The check runs in the app layer, which owns
+  // the thread and the curl call and hands the outcome back in as data; the frame
+  // only RAISES a request and RENDERS a result. That split is what keeps
+  // frame_gate.cpp hermetic -- a frame builder that could reach the network would
+  // make every gate run depend on GitHub being up.
+  enum class UpdateState { Idle, Checking, UpToDate, Available, Failed };
+  struct UpdateInfo {
+    UpdateState state = UpdateState::Idle;
+    std::string version;  // the offered version, when Available
+    std::string message;  // always printable, never empty once a check has run
+  };
+  void setUpdateInfo(const UpdateInfo& u) { update_ = u; }
+  const UpdateInfo& updateInfo() const noexcept { return update_; }
+  void setRunningVersion(const std::string& v) { runningVersion_ = v; }
+  // Raised by the Help menu, consumed and cleared by the app layer.
+  bool updateCheckRequested() const noexcept { return updateCheckPending_; }
+  void clearUpdateCheckRequest() noexcept { updateCheckPending_ = false; }
   std::size_t treeRowCount() const noexcept { return tree_.rowCount(); }
   std::size_t treeMaterialized() const noexcept { return tree_.materialized(); }
   std::size_t treePeakMaterialized() const noexcept { return tree_.peakMaterialized(); }
@@ -389,6 +408,9 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::size_t pendingTabIndex_ = 0;
   std::size_t treeRowsDrawn_ = 0;
   WidgetRect treeExpanderRect_{};
+  UpdateInfo update_{};
+  std::string runningVersion_;
+  bool updateCheckPending_ = false;
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;

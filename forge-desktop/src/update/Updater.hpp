@@ -120,6 +120,24 @@ struct Plan {
 // Nothing here reads a file or opens a socket.
 Plan decide(const std::string& current_version_text, const Manifest& m, const Policy& p);
 
+// The channel a build follows, decided by WHAT IT IS rather than by a setting.
+//
+// A build whose own version carries a prerelease identifier (0.1.0-alpha.6) follows
+// the `prerelease` channel; a release build follows `stable`. Without this rule the
+// default Policy makes every shipped alpha a DEAD END: the appcast for the next
+// alpha is published, fetched and parsed successfully, and then rejected with
+//
+//     manifest is on channel 'prerelease', this build follows 'stable'
+//
+// which is a correct sentence about a policy nobody chose. The alternative -- label
+// alpha payloads `stable` so they are accepted -- makes the channel field a lie and
+// would hand a stable user an alpha the moment one is published. Deciding from the
+// running version keeps the field honest AND keeps alphas updatable: an alpha user
+// is, demonstrably, someone who installed an alpha.
+//
+// A stable build is NEVER offered a prerelease by this rule.
+Policy policyFor(const std::string& running_version);
+
 // ──────────────────────────────────────────────────────────────────── fetching
 struct Fetcher {
   virtual ~Fetcher() = default;

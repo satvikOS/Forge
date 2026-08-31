@@ -944,6 +944,28 @@ void ForgeFrame::drawMenuBar() {
     ImGui::EndMenu();
   }
 
+  // ── Help: the ONE place a user learns a new version exists ──────────────────
+  // A shipped copy of Forge is ad-hoc signed, so its FIRST launch costs a trip
+  // through System Settings. Every launch after that is free ONLY if the app can
+  // update itself, which is why this menu is not cosmetic.
+  if (ImGui::BeginMenu("Help")) {
+    if (!runningVersion_.empty()) {
+      ImGui::MenuItem((std::string("Forge ") + runningVersion_).c_str(), nullptr, false, false);
+      ImGui::Separator();
+    }
+    const bool checking = update_.state == UpdateState::Checking;
+    if (ImGui::MenuItem(checking ? "Checking for Updates..." : "Check for Updates...", nullptr,
+                        false, !checking)) {
+      updateCheckPending_ = true;
+    }
+    if (!update_.message.empty()) {
+      ImGui::Separator();
+      ImGui::MenuItem(update_.message.c_str(), nullptr, false, false);
+    }
+    ImGui::EndMenu();
+  }
+
+
   if (ImGui::BeginMenu("Input Profile")) {
     for (forge::ui::InputProfile p : forge::ui::allInputProfiles()) {
       if (ImGui::MenuItem(forge::ui::toString(p), nullptr, p == shell_.inputProfile())) {
