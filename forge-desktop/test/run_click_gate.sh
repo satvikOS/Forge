@@ -80,9 +80,16 @@ ASAN=(-fsanitize=address -fno-omit-frame-pointer -g)
 
 echo "[click-gate] compiling Dear ImGui core (no imgui_impl_vulkan: it is the only"
 echo "             file in it that needs a Vulkan header, and a headless frame has no swapchain)"
+# -DIMGUI_ENABLE_TEST_ENGINE turns on the four extern hooks ImGui calls from
+# ItemAdd()/ItemInfo(), one per SUBMITTED WIDGET. click_gate.cpp implements those
+# four symbols itself -- there is no imgui_test_engine dependency -- and they are
+# what makes this gate's coverage a MEASURED fraction rather than a hand-written
+# list of surfaces somebody remembered to update. The define MUST be identical
+# here and on the gate TU below: both compile against imgui_internal.h.
 IMGUI_OBJS=()
 for f in imgui imgui_draw imgui_tables imgui_widgets; do
-  "$CXX" -std=c++20 -O1 "${ASAN[@]}" -c "$IMGUI_DIR/$f.cpp" -I "$IMGUI_DIR" \
+  "$CXX" -std=c++20 -O1 "${ASAN[@]}" -DIMGUI_ENABLE_TEST_ENGINE \
+      -c "$IMGUI_DIR/$f.cpp" -I "$IMGUI_DIR" \
       -o "$WORK/$f.o" || { echo "[click-gate] ImGui did not BUILD. RED."; exit 3; }
   IMGUI_OBJS+=("$WORK/$f.o")
 done
@@ -90,7 +97,7 @@ done
 echo "[click-gate] compiling forge::ui + the desktop frame builder + the gate"
 # shellcheck disable=SC2086
 "$CXX" -std=c++20 -O1 -Wall -Wextra -Werror "${ASAN[@]}" \
-  -DFORGE_NATIVE_BREP=1 \
+  -DFORGE_NATIVE_BREP=1 -DIMGUI_ENABLE_TEST_ENGINE \
   -I ui/include -I forge-kernel/include -I forge-desktop/src -I "$IMGUI_DIR" \
   -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3" \
   ui/src/*.cpp \

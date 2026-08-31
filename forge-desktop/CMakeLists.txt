@@ -301,6 +301,21 @@ target_include_directories(forge_imgui_asan PUBLIC "${IMGUI_DIR}" "${VK_INC}")
 # Third-party: warnings are not errors here, but the sanitizer still applies --
 # ImGui owns the widget state the click machinery walks.
 target_compile_options(forge_imgui_asan PRIVATE ${FORGE_ASAN_FLAGS})
+# ── THE WIDGET CENSUS ────────────────────────────────────────────────────────
+# IMGUI_ENABLE_TEST_ENGINE turns on four extern hooks Dear ImGui calls from
+# ItemAdd()/ItemInfo() -- one call per SUBMITTED WIDGET, with its ImGuiID, its
+# screen rectangle, its label and its item flags. click_gate.cpp implements those
+# four symbols itself (there is no imgui_test_engine dependency here) and that is
+# what makes this gate's coverage a MEASURED fraction instead of a hand-written
+# list: every interactive widget the app draws is enumerated by ImGui, so a
+# widget nobody clicks LOWERS the number by itself.
+#
+# It is applied to the SANITIZED ImGui only, and to the click gate that links it.
+# The app's own forge_imgui is untouched, so nothing a user runs carries a hook.
+# The define adds five ImGuiItemStatusFlags_ enumerators and nothing else -- no
+# struct grows, no field moves -- so a translation unit that includes only
+# imgui.h (ForgeFrame.cpp is the one that matters) is ABI-identical either way.
+target_compile_definitions(forge_imgui_asan PUBLIC IMGUI_ENABLE_TEST_ENGINE)
 target_link_libraries(forge_imgui_asan PUBLIC "${VK_LOADER_LIB}")
 
 add_library(forge_desktop_core_asan STATIC
