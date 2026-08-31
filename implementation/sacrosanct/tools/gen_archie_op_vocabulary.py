@@ -37,6 +37,9 @@ import hashlib
 import json
 import os
 import re
+
+# OpCode enumerators that are NOT ops. Named individually: see the use site.
+_OPCODE_SENTINELS = frozenset({"Unknown"})
 import sys
 
 VERSION = "1.0.0"
@@ -261,6 +264,21 @@ def parse_kernel_opcodes(hpp):
                         "section": section, "produces_kind": section_kind})
             continue
         m = re.match(r"^([A-Za-z]\w*)\s*,\s*$", s)
+        if m and m.group(1) in _OPCODE_SENTINELS:
+            # NOT an op, and deliberately named rather than skipped by a rule.
+            # `Unknown` is the closed-vocabulary sentinel: opFromName() used to fall
+            # back to OpCode::Box for any name it did not recognise, so an unknown op
+            # in TAIL position silently became a 20mm box instead of failing
+            # (FT_UNKNOWN_OP_FAIL_CLOSED.md). The sentinel is what makes the miss a
+            # value no builder accepts.
+            #
+            # It is listed BY NAME on purpose. Skipping every enumerator that lacks a
+            # signature comment would silently swallow a REAL op added without one --
+            # which is precisely what the DeriveError below exists to catch. A sentinel
+            # is categorically different from an undocumented op, so it is an
+            # exception, not a relaxation of the rule.
+            trailing = []
+            continue
         if m:
             # Second documented style: the signature sits in the comment BLOCK
             # ABOVE the enumerator rather than on its line (the ARC/HELIX family

@@ -140,7 +140,13 @@ OpCode opFromName(const std::string& nameUpper, bool& known) {
     };
     auto it = tbl.find(nameUpper);
     known = (it != tbl.end());
-    return known ? it->second : OpCode::Box;
+    // A MISS RETURNS THE SENTINEL, NOT A BOX. This line used to read
+    // `: OpCode::Box`, which made the vocabulary open in the worst possible
+    // direction: a name the table did not contain resolved to a real, buildable
+    // primitive that then consumed that statement's own arguments as dx,dy,dz.
+    // `known` is an out-parameter every caller must honour; returning a sentinel
+    // means a caller that forgets to still cannot build anything.
+    return known ? it->second : OpCode::Unknown;
 }
 
 // The rotational symmetry ORDER of a set of angles: the largest N for which
@@ -456,9 +462,28 @@ FeatureTree parse(const std::string& text) {
                     hint += k;
                 }
             }
-            fail("unknown op `" + name + "`" +
-                 (hint.empty() ? "" : " — the IR spells this with " + hint +
-                                      " (compose them; there is no combined op)"));
+            // HARD, and NOT routed through fail(). fail() classifies anything on
+            // the LAST line as ParseFailure::Incomplete — "the emission stopped
+            // mid-statement" — and hands back a salvage checkpoint. That
+            // classification is FALSE here and it is what made the defect
+            // survivable: this statement is not truncated, it is structurally
+            // complete. We only reach this point having already matched
+            // `%id = NAME( ... )` with both parentheses present, so the decoder
+            // plainly did not stop mid-token; the author simply named an op that
+            // does not exist. A genuine token-ceiling cutoff lands one of the
+            // earlier checks (`expected OP( ... )`, an unterminated string) and
+            // still gets Incomplete, so truncation tolerance is untouched.
+            //
+            // SACROSANCT s0.5 and s9.1 require a CLOSED executable vocabulary
+            // whose unknown kinds are REJECTED. A rejection that depends on where
+            // the statement sits in the file is not a closed vocabulary.
+            throw ParseError(ParseFailure::Syntax, lineNo, line,
+                             "ft parse line " + std::to_string(lineNo) +
+                                 ": unknown op `" + name + "`" +
+                                 (hint.empty()
+                                      ? ""
+                                      : " — the IR spells this with " + hint +
+                                            " (compose them; there is no combined op)"));
         }
 
         if (op.code == OpCode::Poly) {
@@ -644,6 +669,16 @@ public:
             case OpCode::ResizeBore: return opResizeBore(op, env);
             case OpCode::Defeature:  return opDefeature(op, env);
             case OpCode::Verify:     return opVerify(op, env);
+            // The closed-vocabulary sentinel. Unreachable via parse() — an
+            // unknown name throws in the parser — but enumerated so that
+            // -Wswitch -Werror makes any future op added to OpCode without a
+            // builder a COMPILE error, and so that an Op reaching the builder by
+            // any other route (default-constructed, deserialized, synthesized)
+            // fails loudly instead of building a box.
+            case OpCode::Unknown:
+                throw OpError(op.id, "op `" + op.name +
+                                         "` is not in the executable vocabulary "
+                                         "(OpCode::Unknown reached the builder)");
         }
         throw OpError(op.id, "unhandled op");
     }
