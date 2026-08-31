@@ -112,7 +112,7 @@ run_gate() {
 # would not reject on its own.
 run_gate forge_desktop_ir_pipeline_gate
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
-run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7
+run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9
 
 # ── 3. mutation verdict ──────────────────────────────────────────────────────
 if [ "$BAD" -ne 0 ]; then

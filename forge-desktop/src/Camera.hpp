@@ -65,6 +65,11 @@ class Camera {
   void setAspect(float aspect) noexcept { aspect_ = aspect > 1e-4f ? aspect : 1.0f; }
   float aspect() const noexcept { return aspect_; }
   float distance() const noexcept { return distance_; }
+  // Vertical field of view in radians. Exposed because a screen-space pick
+  // tolerance -- "within N pixels of that edge" -- has to be converted to world
+  // units at the eye distance, and a second copy of the fov constant at the call
+  // site is a copy that drifts.
+  float fovY() const noexcept { return fovY_; }
   float azimuth() const noexcept { return azimuth_; }
   float elevation() const noexcept { return elevation_; }
   const float* target() const noexcept { return target_; }
