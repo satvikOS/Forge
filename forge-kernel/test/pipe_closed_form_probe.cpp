@@ -245,6 +245,19 @@ int selftest() {
             std::printf("NOTE: OCCT MATCHED the closed form on the bent spine. The corpus\n"
                         "      result must then be read as OCCT being CORRECT, not broken.\n");
         }
+        // WHICH law does the shortfall obey? Asserted, not eyeballed. If OCCT
+        // were truncating to the first leg this would fail and the engine note
+        // would stand as written; it is here precisely so the correction cannot
+        // be claimed without evidence.
+        const double tf = area * L * (1.0 + std::cos(30.0 * kPi / 180.0));
+        const double relTf = (v < 0.0) ? 1.0 : std::fabs(v - tf) / tf;
+        std::printf("  transformed-transition form A*(L1+L2*cos30) = %.10g -> rel %.3e  %s\n",
+                    tf, relTf, relTf <= 1e-9 ? "OCCT OBEYS THE COSINE LAW" : "does NOT fit");
+        if (!(relTf <= 1e-9)) {
+            std::printf("SELFTEST FAIL: OCCT's bent-spine volume fits NEITHER the mitre closed\n"
+                        "  form nor the cosine law. The probe must not claim either.\n");
+            bad = 1;
+        }
     }
     std::printf("%s\n", bad ? "SELFTEST FAIL" : "SELFTEST PASS (probe can say both MATCH and MISS)");
     return bad;
@@ -348,15 +361,35 @@ int main(int argc, char** argv) {
     const double firstLegOnly = planarBigArea * len;
     const double ocRelFirstLeg =
         (ocVol < 0.0) ? -1.0 : std::fabs(ocVol - firstLegOnly) / firstLegOnly;
+    // ── THE THIRD FORM, and the one that turns out to fit ────────────────────
+    // Measured by this probe's own positive control: on the harness's 30 degree
+    // bend OCCT returns 4665.063509 against a closed form of 5000 — NOT the
+    // first-leg-only 2500 that NativeLoftPipe.cpp:1130-1133 describes, and a
+    // VALID solid rather than an invalid one. 4665.063509 is exactly
+    // 100*(25 + 25*cos 30), i.e. the TRANSFORMED-transition law that
+    // corpus_ab_coverage.cpp:1356-1364 states for MakePipeShell:
+    //     V = A * (L1 + L2 * cos theta).
+    // That single law also REPRODUCES the "first leg only" observation, because
+    // every synthetic spine in test/ab_native_loftpipe_occt.cpp turns by 90
+    // degrees and cos 90 = 0. So the engine note generalises a special case:
+    // OCCT is not dropping the second leg, it is failing to carry the section
+    // THROUGH the corner, and the shortfall is a cosine, not a truncation.
+    // Reporting the residual against this form is what distinguishes "OCCT is
+    // broken" from "OCCT is computing a DIFFERENT, well-defined operation".
+    const double transformedForm = planarBigArea * len * (1.0 + std::cos(30.0 * kPi / 180.0));
+    const double ocRelTransformed =
+        (ocVol < 0.0) ? -1.0 : std::fabs(ocVol - transformedForm) / transformedForm;
 
     std::printf(
         "{\"part\":\"%s\",\"applicable\":true,\"diag\":%.10g,\"profile_area\":%.10g,"
         "\"leg_len\":%.10g,\"spine_len\":%.10g,\"closed_form\":%.10g,"
         "\"section_reach_along_turn\":%.10g,\"fold_limit\":%.10g,\"fold_free\":%s,"
         "\"occt_vol\":%.10g,\"occt_valid\":%d,\"occt_rel_closed_form\":%.10g,"
-        "\"first_leg_only\":%.10g,\"occt_rel_first_leg\":%.10g}\n",
+        "\"first_leg_only\":%.10g,\"occt_rel_first_leg\":%.10g,"
+        "\"transformed_form\":%.10g,\"occt_rel_transformed\":%.10g}\n",
         partName.c_str(), diag, planarBigArea, len, 2.0 * len, closedForm,
         reach, foldLimit, foldFree ? "true" : "false",
-        ocVol, ocValid, ocRel, firstLegOnly, ocRelFirstLeg);
+        ocVol, ocValid, ocRel, firstLegOnly, ocRelFirstLeg,
+        transformedForm, ocRelTransformed);
     return 0;
 }
