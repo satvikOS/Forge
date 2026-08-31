@@ -150,6 +150,35 @@ target_include_directories(forge_ui PUBLIC "${FORGE_UI_DIR}/include")
 # SR-3: -Wall -Wextra -Werror on FIRST-PARTY code. forge::ui is first-party.
 target_compile_options(forge_ui PRIVATE -Wall -Wextra -Werror)
 
+# --------------------------------------- the op-constraint table is GENERATED
+# ui/include/forge/ui/ArchieOpVocabulary.hpp is written from
+# implementation/sacrosanct/archie_op_vocabulary.json by gen_op_constraint_table.py.
+# It is COMMITTED (ui/test/run_ui.sh compiles ui/src directly and never runs CMake),
+# so the only thing that keeps the two equal is a check somebody runs. Running it as
+# a build dependency of forge_ui makes drift a BUILD FAILURE rather than a stale
+# allow-list nobody notices -- the constraint cannot silently widen.
+#
+# The gate of record is ui/test/run_op_constraint_gate.sh, which also PROVES this
+# check can fail. If python3 is absent the build says so by name rather than
+# skipping quietly: an unrunnable check that prints nothing is indistinguishable
+# from a green one.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_custom_target(forge_ui_op_table_check ALL
+        COMMAND "${Python3_EXECUTABLE}"
+                "${FORGE_ROOT}/implementation/sacrosanct/tools/gen_op_constraint_table.py"
+                --check
+        COMMENT "op-constraint table: ArchieOpVocabulary.hpp == archie_op_vocabulary.json"
+        VERBATIM)
+    add_dependencies(forge_ui forge_ui_op_table_check)
+else()
+    message(WARNING
+        "python3 not found: the op-constraint table check is NOT running. "
+        "ui/include/forge/ui/ArchieOpVocabulary.hpp may have drifted from "
+        "implementation/sacrosanct/archie_op_vocabulary.json. Run "
+        "ui/test/run_op_constraint_gate.sh manually.")
+endif()
+
 # ---------------------------------------------------------------- Dear ImGui
 # Vendored, third-party: warnings are NOT errors here, and -Werror is not applied
 # to code this project does not own.
