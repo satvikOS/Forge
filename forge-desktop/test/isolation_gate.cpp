@@ -88,45 +88,82 @@ std::string selftest(const char* mode) {
   return std::string("#!forge-worker-selftest ") + mode + "\n";
 }
 
-// Every scalar the viewport actually consumes. VOLUME CANNOT VALIDATE GEOMETRY —
-// a wrong solid matching a right volume to ten significant figures is a measured
-// failure mode in this programme — so the comparison is a vector.
+// ★ TWO SEPARATE VECTORS, and keeping them apart is a correction this gate made
+// to itself on its first run.
+//
+// The first version of this file compared ONE struct that mixed the mesh the
+// viewport draws with the report of the last build attempt, and asserted the
+// whole thing was unchanged after a crash. It failed — correctly. After a failed
+// build the mesh IS still there (272 triangles, 11 faces, same bounds) but the
+// report has been reset, because the report describes THE ATTEMPT THAT JUST
+// HAPPENED and that attempt failed. Both facts are right; the assertion that
+// bundled them was wrong.
+//
+// So: DRAWN is what survives a crash and must be identical. REPORTED is what
+// must correctly describe the failure — a report still claiming valid=1 after a
+// segfault would be a worse defect than a cleared one.
+//
+// VOLUME CANNOT VALIDATE GEOMETRY — a wrong solid matching a right volume to ten
+// significant figures is a measured failure mode in this programme — so DRAWN
+// carries a hash over the actual vertex bytes and not merely their length.
 struct Observables {
+  // DRAWN: what the viewport consumes.
   bool built = false;
   std::size_t triangles = 0;
   std::uint32_t faces = 0;
+  float radius = 0.0f;
+  std::size_t vertexBytes = 0;
+  std::uint64_t vertexHash = 0;
+  // REPORTED: what the last build attempt said about itself.
   double volume = 0.0;
   long faceCount = 0;
   long edgeCount = 0;
   bool valid = false;
-  float radius = 0.0f;
-  std::size_t vertexBytes = 0;
 
-  bool operator==(const Observables& o) const {
+  bool sameDrawn(const Observables& o) const {
     return built == o.built && triangles == o.triangles && faces == o.faces &&
-           volume == o.volume && faceCount == o.faceCount && edgeCount == o.edgeCount &&
-           valid == o.valid && radius == o.radius && vertexBytes == o.vertexBytes;
+           radius == o.radius && vertexBytes == o.vertexBytes && vertexHash == o.vertexHash;
   }
+  bool sameReport(const Observables& o) const {
+    return volume == o.volume && faceCount == o.faceCount && edgeCount == o.edgeCount &&
+           valid == o.valid;
+  }
+  bool operator==(const Observables& o) const { return sameDrawn(o) && sameReport(o); }
+
   std::string text() const {
     return "built=" + std::to_string(built) + " tris=" + std::to_string(triangles) +
-           " faces=" + std::to_string(faces) + " V=" + std::to_string(volume) +
-           " F=" + std::to_string(faceCount) + " E=" + std::to_string(edgeCount) +
-           " valid=" + std::to_string(valid) + " r=" + std::to_string(radius) +
-           " bytes=" + std::to_string(vertexBytes);
+           " faces=" + std::to_string(faces) + " r=" + std::to_string(radius) +
+           " bytes=" + std::to_string(vertexBytes) + " h=" + std::to_string(vertexHash) +
+           " | V=" + std::to_string(volume) + " F=" + std::to_string(faceCount) +
+           " E=" + std::to_string(edgeCount) + " valid=" + std::to_string(valid);
   }
 };
+
+// FNV-1a over the raw vertex bytes. A length check alone would pass a mesh whose
+// every coordinate had changed.
+std::uint64_t hashVertices(const std::vector<forge::desktop::SceneVertex>& v) {
+  const unsigned char* p = reinterpret_cast<const unsigned char*>(v.data());
+  const std::size_t n = v.size() * sizeof(forge::desktop::SceneVertex);
+  std::uint64_t h = 1469598103934665603ull;
+  for (std::size_t i = 0; i < n; ++i) {
+    h ^= p[i];
+    h *= 1099511628211ull;
+  }
+  return h;
+}
 
 Observables observe(const forge::desktop::KernelScene& s) {
   Observables o;
   o.built = s.built();
   o.triangles = s.triangleCount();
   o.faces = s.faceCount();
+  o.radius = s.bounds().radius();
+  o.vertexBytes = s.vertices().size() * sizeof(forge::desktop::SceneVertex);
+  o.vertexHash = hashVertices(s.vertices());
   o.volume = s.lastBuild().volume;
   o.faceCount = s.lastBuild().faceCount;
   o.edgeCount = s.lastBuild().edgeCount;
   o.valid = s.lastBuild().valid;
-  o.radius = s.bounds().radius();
-  o.vertexBytes = s.vertices().size() * sizeof(forge::desktop::SceneVertex);
   return o;
 }
 
@@ -191,6 +228,22 @@ int main(int argc, char** argv) {
   // ══ 2. ★ A REAL SIGSEGV IN A REAL CHILD ═══════════════════════════════════
   // The worker dereferences null on purpose. This process must reach the next
   // line — which, without the isolation, it would not.
+  //
+  // GATE MUTATION 1 is the POSITIVE CONTROL for that claim. It performs the same
+  // null dereference IN THIS PROCESS, i.e. exactly what happens today when OCCT
+  // faults during an in-process build. If the run below survives it, then either
+  // the signal is being swallowed or this gate is not measuring what it says it
+  // measures, and every "the parent survived" check underneath is worthless.
+  // A mechanism proven only by its success case is not proven.
+  if (g_mutation == 1) {
+    std::printf("[isolation] MUTATION 1: dereferencing null IN THE PARENT — this is what an\n");
+    std::printf("[isolation]   UNISOLATED kernel fault does, and the gate must NOT survive it.\n");
+    std::fflush(stdout);
+    volatile int* p = nullptr;
+    *p = 1;
+    std::printf("[isolation] MUTATION 1 SURVIVED — the positive control did not fire.\n");
+    return 0;  // green on purpose: the runner asserts this case is RED
+  }
   {
     const bool ok = scene.buildFromIr(selftest("crash"));
     check(!ok, "a crashing program does not report success");
@@ -220,10 +273,17 @@ int main(int argc, char** argv) {
           "and the scene reports it to the UI", scene.error());
 
     // ★ THE LAST GOOD BODY IS STILL ON SCREEN. A crash that blanked the viewport
-    // would lose the user's work just as effectively as taking the app down.
+    // would lose the user's work just as effectively as taking the app down. The
+    // hash is over the vertex bytes, so this is the same MESH and not merely a
+    // mesh of the same size.
     const Observables after = observe(scene);
-    check(after == good, "the previous geometry is INTACT after the crash",
+    check(after.sameDrawn(good), "★ the drawn geometry is INTACT after the crash",
           after.text() + "  vs  " + good.text());
+    // And the report describes THE ATTEMPT THAT JUST FAILED. A report still
+    // claiming valid=1 with the old volume would be worse than a cleared one: it
+    // would state, of a build that segfaulted, that it succeeded.
+    check(!scene.lastBuild().ok(), "the build report does not claim success");
+    check(!scene.lastBuild().error.empty(), "and carries the reason");
   }
 
   // ══ 3. ★ NOTHING IS QUARANTINED — the same program RUNS AGAIN ═════════════
@@ -258,7 +318,8 @@ int main(int argc, char** argv) {
     check(scene.session().lastOp().op == "LOFT", "the op trail survives a timeout too",
           scene.session().lastOp().op);
     const Observables after = observe(scene);
-    check(after == good, "the previous geometry is INTACT after the timeout", after.text());
+    check(after.sameDrawn(good), "the drawn geometry is INTACT after the timeout", after.text());
+    check(!scene.lastBuild().ok(), "and the report does not claim success");
     scene.useIsolatedWorker({worker}, limits);
   }
 
@@ -273,7 +334,8 @@ int main(int argc, char** argv) {
             "and the crash counter did NOT move (a taxonomy that blurs is a taxonomy "
             "that cannot be acted on)");
     const Observables after = observe(scene);
-    check(after == good, "the previous geometry is INTACT after the refusal", after.text());
+    check(after.sameDrawn(good), "the drawn geometry is INTACT after the refusal", after.text());
+    check(!scene.lastBuild().ok(), "and the report does not claim success");
   }
 
   // ══ 6. A WORKER THAT EXITS 0 AND WRITES NONSENSE IS DIAGNOSED ═════════════
@@ -315,7 +377,10 @@ int main(int argc, char** argv) {
   {
     forge::desktop::KernelScene cancellable;
     forge::ui::GuardLimits longLimits = limits;
-    longLimits.deadlineMs = 120000;  // far longer than this test may take
+    // Long enough that the CANCEL is unambiguously what ends this (the pump
+    // cancels after ~20 ms), short enough that GATE MUTATION 2 — which never
+    // cancels — costs 15 s rather than two minutes.
+    longLimits.deadlineMs = 15000;
     cancellable.useIsolatedWorker({worker}, longLimits);
 
     int pumped = 0;
@@ -324,16 +389,29 @@ int main(int argc, char** argv) {
       ++pumped;
       if (!opText.empty()) sawOp = opText;
       (void)elapsedMs;
-      // MUTATION 3: never cancel. The deadline is two minutes, so if the cancel
-      // is what actually stops this, removing it hangs the gate until its
-      // per-test timeout kills it — which the runner reports as RED.
-      if (g_mutation == 3) return false;
-      return pumped >= 20;
+      // GATE MUTATION 2: never cancel. If the cancel is what actually stops this
+      // job, removing it means the DEADLINE ends it instead — state TimedOut, not
+      // Cancelled — and the assertions below go red. If instead the gate stayed
+      // green, the cancel path was never load-bearing.
+      if (g_mutation == 2) return false;
+      // ★ Cancel on the FACT this case exists to demonstrate — that the pump is
+      // told what the kernel is doing — not on a pump count.
+      //
+      // The first version cancelled after 20 pumps, and it FLAKED: 20 one-
+      // millisecond polls can elapse before the child's first write to stderr
+      // arrives, so `sawOp` was still "before the first statement" and the run
+      // went red with nothing wrong. A gate that fails on timing is worse than no
+      // gate, because it teaches people to re-run it until it is green.
+      if (sawOp.find("LOFT") != std::string::npos) return true;
+      // Backstop, so a worker that never announces cannot spin here for ever. It
+      // is far above any plausible scheduling delay, and reaching it makes the
+      // assertions below fail loudly rather than hanging.
+      return pumped >= 5000;
     });
 
     const bool ok = cancellable.buildFromIr(selftest("hang"));
     check(!ok, "a cancelled build does not report success");
-    check(pumped >= 20, "the host pump was called while the worker ran",
+    check(pumped >= 1, "the host pump was called while the worker ran",
           std::to_string(pumped));
     checkEq(static_cast<int>(cancellable.session().state()),
             static_cast<int>(forge::ui::KernelJobState::Cancelled),
@@ -393,18 +471,36 @@ int main(int argc, char** argv) {
 
     // A newline INSIDE the error text must not be read as the next field. This is
     // why the error block is length-prefixed.
+    // ★ The declared length is COMPUTED from the string, never typed. Hardcoding
+    // it is how the first run of this gate declared 21 bytes for a 22-byte error
+    // and then blamed the decoder for refusing it.
+    const std::string embeddedError = "line one\nbackend fake\n";
     const std::string embedded =
         std::string(forge::desktop::kWorkerResultMagic) +
         "\nparsed 1\ncompiled 0\ntessellated 0\nvalid 0\nfailedOpId 7\nfailedLine 0\n"
         "faceCount -1\nedgeCount -1\nvolume 0\nbboxMin 0 0 0\nbboxMax 0 0 0\n"
-        "nDeclared 1\nnParsed 1\nnCompiled 0\ntriangles 0\nerrorBytes 21\n"
-        "line one\nbackend fake\n\nbackend real\nVERTICES 0\n";
+        "nDeclared 1\nnParsed 1\nnCompiled 0\ntriangles 0\nerrorBytes " +
+        std::to_string(embeddedError.size()) + "\n" + embeddedError +
+        "\nbackend real\nVERTICES 0\n";
     check(forge::desktop::KernelSceneTestAccess::decode(embedded, r, v, backend, err),
           "an error string containing a newline decodes", err);
     check(backend == "real", "★ and the EMBEDDED 'backend fake' was not mistaken for a field",
           backend);
     check(r.error.find("line one") != std::string::npos, "the error text is intact", r.error);
     checkEq(r.failedOpId, 7, "and the failed op id survives");
+
+    // A DECLARED LENGTH THAT DOES NOT MATCH is itself a protocol breach, and this
+    // is the case the first run of this gate hit by accident. Asserted on purpose
+    // now: one byte short, and the backend line is misread.
+    const std::string shortCount =
+        std::string(forge::desktop::kWorkerResultMagic) +
+        "\nparsed 1\ncompiled 0\ntessellated 0\nvalid 0\nfailedOpId 7\nfailedLine 0\n"
+        "faceCount -1\nedgeCount -1\nvolume 0\nbboxMin 0 0 0\nbboxMax 0 0 0\n"
+        "nDeclared 1\nnParsed 1\nnCompiled 0\ntriangles 0\nerrorBytes " +
+        std::to_string(embeddedError.size() - 1) + "\n" + embeddedError +
+        "\nbackend real\nVERTICES 0\n";
+    check(!forge::desktop::KernelSceneTestAccess::decode(shortCount, r, v, backend, err),
+          "an error block whose declared length is one byte short is refused");
 
     // Empty output from a worker that exited 0.
     check(!forge::desktop::KernelSceneTestAccess::decode("", r, v, backend, err),
