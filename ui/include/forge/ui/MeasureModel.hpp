@@ -33,6 +33,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace forge::ui {
@@ -125,12 +126,154 @@ struct SelectionMeasure {
   double angleDegrees = 0.0;  // 0..180 between the two area-weighted normals
   bool parallel = false;
   bool perpendicular = false;
+
+  // ── the distance a machinist means ────────────────────────────────────────
+  // `centreDistance` is between CENTROIDS, and on two faces of a bracket that is
+  // not the number anyone wants: the gap between an L's two arms is the MINIMUM
+  // distance between their surfaces, and their centroids can be much further
+  // apart than the material is. Both are reported, named apart, because they are
+  // different questions and only one of them is the clearance.
+  bool hasMinDistance = false;
+  double minDistance = 0.0;      // closest approach of the two triangle sets
+  double minPointA[3] = {0.0, 0.0, 0.0};  // where on face A it occurs
+  double minPointB[3] = {0.0, 0.0, 0.0};  // and on face B
+  // Zero (within tolerance) means the two faces TOUCH or intersect. Reported as
+  // its own fact so a clearance readout of "0" is distinguishable from a
+  // clearance that was never computed.
+  bool touching = false;
 };
 
 MeshMeasure measureMesh(const MeasureMesh& mesh);
 bool measureFace(const MeasureMesh& mesh, std::uint32_t faceId, FaceMeasure& out);
 SelectionMeasure measureFaces(const MeasureMesh& mesh,
                               const std::vector<std::uint32_t>& faceIds);
+
+// ── the geometric primitives an interactive Measure tool is made of ─────────
+// Point / segment / triangle, in world coordinates. Every interactive
+// measurement in the app — point-to-face, edge-to-edge, face-to-face clearance,
+// a bore's radius from its rim — is one of these applied to entities the
+// selection service already holds, so they live here and are asserted headless
+// rather than being written inline in a frame builder where nothing can see
+// them.
+
+// Distance from `p` to the segment [a, b]; writes the closest point on the
+// segment to `closest`. A degenerate segment reduces to its endpoint rather
+// than dividing by zero.
+double pointSegmentDistance(const double p[3], const double a[3], const double b[3],
+                            double closest[3]);
+
+// Closest approach of two segments, with the witness point on each. The
+// PARALLEL case is handled explicitly (the shared perpendicular is not unique,
+// so the overlap interval is clamped) — the textbook formula divides by zero
+// there, and two parallel edges of a plate is not an exotic input.
+double segmentSegmentDistance(const double a0[3], const double a1[3], const double b0[3],
+                              const double b1[3], double closestA[3], double closestB[3]);
+
+// Distance from `p` to the triangle (a, b, c), with the closest point on the
+// triangle. Barycentric-region method: the answer is exact for every region,
+// including the three vertex regions, where a naive plane projection is wrong.
+double pointTriangleDistance(const double p[3], const double a[3], const double b[3],
+                             const double c[3], double closest[3]);
+
+// Distance from a point to a whole FACE of the mesh, i.e. the minimum over its
+// triangles. Returns false when the face has no triangles.
+bool pointFaceDistance(const MeasureMesh& mesh, std::uint32_t faceId, const double p[3],
+                       double& distance, double closest[3]);
+
+// ── clearance / interference between two face groups ────────────────────────
+struct ClearanceMeasure {
+  bool measured = false;
+  double distance = 0.0;
+  double pointA[3] = {0.0, 0.0, 0.0};
+  double pointB[3] = {0.0, 0.0, 0.0};
+  // Distance at or below `touchTolerance`: the two groups meet. This is the
+  // INTERFERENCE answer a mesh can honestly give — a triangle soup can tell you
+  // two surfaces touch, and cannot tell you the signed depth of an overlap
+  // without a solid classifier, so it does not claim to.
+  bool touching = false;
+  std::size_t trianglesA = 0;
+  std::size_t trianglesB = 0;
+  std::size_t pairsTested = 0;  // the cost, reported rather than assumed
+};
+
+inline constexpr double kMeasureTouchTolerance = 1.0e-6;
+
+ClearanceMeasure measureClearance(const MeasureMesh& mesh,
+                                  const std::vector<std::uint32_t>& groupA,
+                                  const std::vector<std::uint32_t>& groupB,
+                                  double touchTolerance = kMeasureTouchTolerance);
+
+// ── circle / arc fit: RADIUS, DIAMETER and ARC LENGTH ──────────────────────
+// A bore rim is a polyline in the tessellation, not a circle, so "what is the
+// diameter of this hole" is a FIT, and a fit that does not report its residual
+// is a number with no error bar. `rms` is that residual in model units: a rim of
+// a real cylinder fits to a small fraction of the tessellation's sagitta, and a
+// rounded-rectangle slot end does not — which is how a UI can decline to print
+// "diameter" for something that is not round.
+struct CircleFit {
+  bool ok = false;
+  double centre[3] = {0.0, 0.0, 0.0};
+  double normal[3] = {0.0, 0.0, 1.0};  // unit normal of the best-fit plane
+  double radius = 0.0;
+  double rms = 0.0;          // RMS radial residual
+  double planeRms = 0.0;     // RMS out-of-plane residual
+  std::size_t points = 0;
+
+  double diameter() const noexcept { return 2.0 * radius; }
+};
+
+// Least-squares circle through 3+ points: best-fit plane by the covariance's
+// smallest eigenvector, then Kasa's algebraic circle fit in that plane. Returns
+// ok=false with fewer than three points, or when they are collinear.
+// `points` is 3 doubles per point, exactly like MeasureMesh::coords().
+CircleFit fitCircle(const std::vector<double>& points);
+
+// Length of an open or closed polyline, 3 doubles per point. `closed` adds the
+// closing segment. This is ARC LENGTH for a recovered edge.
+double polylineLength(const std::vector<double>& points, bool closed);
+
+// ── mass properties ─────────────────────────────────────────────────────────
+// Density is in g/cm3, the unit every material table is written in, and lengths
+// are mm — so mass in grams is volume(mm3) * density / 1000. Getting that
+// conversion wrong by 10^3 is the classic CAD units defect, so it is done in one
+// place and pinned by a gate on a 100 mm steel cube (7850 g).
+struct MaterialDensity {
+  const char* name;
+  double gramsPerCm3;
+};
+
+// A small, honest table — the materials this app can name. Not a materials
+// database: a name here is a number a user can check, and one they cannot is
+// worse than a blank field.
+const std::vector<MaterialDensity>& materialDensities();
+// Density by name, or 0.0 when the name is not in the table. Case-sensitive on
+// purpose: the caller picks from the list.
+double densityForMaterial(const std::string& name);
+
+struct MassMeasure {
+  bool valid = false;   // the mesh was watertight; without that there is no mass
+  double density = 0.0;  // g/cm3, as supplied
+  double volume = 0.0;   // mm3
+  double mass = 0.0;     // g
+  double surfaceArea = 0.0;  // mm2
+  double centreOfMass[3] = {0.0, 0.0, 0.0};
+  // Inertia about the CENTRE OF MASS, row-major, in g*mm2.
+  double inertiaCom[9] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  // Principal moments, ascending. Eigenvalues of the symmetric tensor above.
+  double principalMoments[3] = {0.0, 0.0, 0.0};
+  // sqrt(I / m) about each principal axis, mm.
+  double radiiOfGyration[3] = {0.0, 0.0, 0.0};
+};
+
+MassMeasure measureMass(const MeasureMesh& mesh, double densityGramsPerCm3);
+
+// ── export ──────────────────────────────────────────────────────────────────
+// Every measurement must be copyable. These produce the clipboard text.
+std::string measureText(const MeshMeasure& mesh);
+std::string measureText(const SelectionMeasure& selection);
+std::string measureText(const MassMeasure& mass);
+std::string measureText(const ClearanceMeasure& clearance);
+std::string measureText(const CircleFit& fit);
 
 }  // namespace forge::ui
 
