@@ -181,11 +181,19 @@ target_link_libraries(forge_desktop_core PUBLIC forge_ui forge_imgui "${FORGE_KE
 add_executable(forge_desktop
     "${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/PlatformSDL2.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UpdateService.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/ViewportRenderer.cpp"
     ${SHADER_HEADERS})
 target_include_directories(forge_desktop PRIVATE "${SDL2_INC}" "${SHADER_GEN_DIR}")
 target_compile_options(forge_desktop PRIVATE -Wall -Wextra -Werror)
-target_link_libraries(forge_desktop PRIVATE forge_desktop_core "${SDL2_LIB}" "${VK_LOADER_LIB}")
+# forge_updater is linked into the APP, not into forge_desktop_core. The core is what
+# every headless gate drives, and a frame builder that could reach the network would
+# make each gate run depend on GitHub being up. The app owns the socket; the frame
+# renders the result. Until this line existed the shipped bundle contained ZERO
+# updater symbols -- the library, the CLI and its 130-check gate were all real, and
+# none of them was in the thing users install.
+target_link_libraries(forge_desktop PRIVATE forge_desktop_core forge_updater
+                      "${SDL2_LIB}" "${VK_LOADER_LIB}")
 set_target_properties(forge_desktop PROPERTIES
     BUILD_RPATH "${FORGE_KERNEL_BUILD_DIR};${OCCT_PREFIX}/lib")
 

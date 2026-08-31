@@ -120,6 +120,16 @@ std::vector<std::string> defaultAllowedHosts() {
 }
 
 // ─────────────────────────────────────────────────────────────────── decide()
+Policy policyFor(const std::string& running_version) {
+  Policy p;
+  const Version v = parseVersion(running_version);
+  if (v.valid && v.isPrerelease()) {
+    p.channel = "prerelease";
+    p.allow_prerelease = true;
+  }
+  return p;
+}
+
 Plan decide(const std::string& current_version_text, const Manifest& m, const Policy& p) {
   Plan plan;
   plan.current = parseVersion(current_version_text);

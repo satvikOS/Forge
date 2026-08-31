@@ -111,9 +111,14 @@ int main(int argc, char** argv) {
   }
   if (running.empty()) running = detectRunningVersion(app_path);
 
-  Policy policy;
-  policy.allow_prerelease = allow_prerelease;
-  if (allow_prerelease) policy.channel = "";  // follow whichever channel is published
+  // The channel comes from WHAT THIS BUILD IS, not from a default. An alpha follows
+  // the prerelease channel; a release follows stable. --allow-prerelease remains an
+  // explicit override for a stable build that wants to look at prereleases anyway.
+  Policy policy = policyFor(running);
+  if (allow_prerelease) {
+    policy.allow_prerelease = true;
+    policy.channel = "";  // follow whichever channel is published
+  }
   if (allow_downgrade) {
     if (!i_mean_it) {
       std::printf(
