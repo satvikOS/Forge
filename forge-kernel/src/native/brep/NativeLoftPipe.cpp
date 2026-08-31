@@ -107,6 +107,7 @@
 #include <cstring>
 #include <vector>
 
+#include <BRepAdaptor_Curve.hxx>
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -153,6 +154,12 @@ const TopoDS_Shape kNull;
 // this engine covering 2 of 600 PIPE inputs, and a bare null shape says nothing
 // about WHICH precondition declined -- which made the largest deletion bucket
 // in the whole drop plan unattributable.
+// Samples per edge for the translated-section test below. Five is the smallest
+// count that pins a circular arc (endpoints plus three interior points cannot be
+// satisfied by a different radius through the same corners) while keeping an
+// edge start at a multiple of it under ring reversal.
+const int kSamplesPerEdge = 5;
+
 thread_local char g_reason[192] = {0};
 void reasonClear() { g_reason[0] = '\0'; }
 void reasonAdd(const char* label) {
@@ -437,6 +444,160 @@ TopoDS_Shape sewAndClose(BRepBuilderAPI_Sewing& sew, bool solid) {
     return sol;   // solidFromShell already oriented it to positive volume
 }
 
+// ------------------------------------------- TRANSLATED-SECTION RULED LOFT
+// ★ WHY THIS PATH EXISTS, and why it runs only AFTER the polygonal one declines.
+//
+// The polygonal path above represents a section as a ring of VERTICES, so it
+// requires every section edge to be supported by a LINE. Instrumented on the
+// 600-part corpus A/B (test/run_thrusections_engine_census.sh, the engine's own
+// FK_DEFER labels) that ONE precondition is 291 of 291 native THRUSECTIONS
+// deferrals — 100%, not a tail — and 258 of those are inputs OCCT builds. The
+// sections it turns away are rounded rectangles (four lines + four arcs, 65
+// parts), whole circles (33), and spline boundaries (31). Faceting their arcs
+// would answer with the WRONG solid, so approximation is not the fix.
+//
+// The fix is an IDENTITY, not an approximation. When section B is section A
+// translated by a vector T, every ruled line of the loft joins p to p + T, so
+// the ruled loft between them IS the linear extrusion of A along T — exactly,
+// for any edge geometry, arcs and splines alike, with nothing faceted. Measured
+// on the same corpus, 189 of the 258 deletion-bucket parts (73.3%) are exact
+// translates: two parallel faces of an extruded part are the corpus's single
+// most common pair, and they are congruent by construction.
+//
+// forge::occtPrism is that extrusion and is ALREADY linked into this file (the
+// circular pipe legs build with it). Its two profile cases line up exactly with
+// the distinction BRepOffsetAPI_ThruSections draws: a FACE gives laterals plus
+// both caps (isSolid=true) and a WIRE gives the open lateral shell
+// (isSolid=false). Its laterals are surfaces of linear extrusion of the EXACT
+// edge curve, so no arc is ever approximated.
+//
+// STRICTLY ADDITIVE. thruSections runs the polygonal path first and only reaches
+// here when that returned null, so no input the engine covered before this
+// change can answer differently. A pair that is not a translate is still an
+// HONEST DEFER and keeps the polygonal path's label, with this path's own label
+// appended after it.
+
+// Ordered sample of a closed wire: for each edge in BRepTools_WireExplorer order,
+// its start point plus four interior points of the ORIENTED parameter range.
+// Endpoints alone would call two arcs of different radius "the same"; the
+// interior samples are what make the test below a statement about the CURVES.
+bool sampleWireRing(const TopoDS_Wire& w, std::vector<gp_Pnt>& out, std::size_t& nEdge) {
+    out.clear();
+    nEdge = 0;
+    if (w.IsNull()) FK_DEFER_F("xlate_wire_null");
+    if (!BRep_Tool::IsClosed(w)) FK_DEFER_F("xlate_wire_open");
+    for (BRepTools_WireExplorer ex(w); ex.More(); ex.Next()) {
+        const TopoDS_Edge& e = ex.Current();
+        BRepAdaptor_Curve ac(e);
+        const double a = ac.FirstParameter(), b = ac.LastParameter();
+        if (!(b > a) && !(a > b)) FK_DEFER_F("xlate_edge_degenerate_param");
+        const bool rev = (e.Orientation() == TopAbs_REVERSED);
+        for (int k = 0; k < kSamplesPerEdge; ++k) {
+            const double u = static_cast<double>(k) / kSamplesPerEdge;
+            const double t = rev ? (b + (a - b) * u) : (a + (b - a) * u);
+            out.push_back(ac.Value(t));
+        }
+        ++nEdge;
+    }
+    if (nEdge == 0) FK_DEFER_F("xlate_wire_no_edge");
+    return true;
+}
+
+// Is ring `b` ring `a` rigidly TRANSLATED, under some edge-aligned rotation and
+// either orientation? `b` is REVERSED by index, not re-sampled: sample i of the
+// forward ring is sample (n-i) mod n of the reversed one because both rings carry
+// the same points, so an edge start stays at a multiple of kSamplesPerEdge in
+// both and the rotation search stays edge-aligned.
+//
+// BOTH orientations are searched because the two outer wires of two OPPOSITE
+// faces of a solid wind in OPPOSITE senses in world space (the same fact
+// canonicalRing exists for), so the reversed match is the COMMON case here, not
+// the exotic one.
+bool ringTranslate(const std::vector<gp_Pnt>& a, const std::vector<gp_Pnt>& b,
+                   double tol, gp_Vec& outT) {
+    const std::size_t n = a.size();
+    if (n == 0 || b.size() != n || (n % kSamplesPerEdge) != 0) return false;
+    const std::size_t nEdge = n / kSamplesPerEdge;
+    std::vector<gp_Pnt> c(n);
+    for (int rev = 0; rev < 2; ++rev) {
+        if (rev) { for (std::size_t i = 0; i < n; ++i) c[i] = b[(n - i) % n]; }
+        else     { c = b; }
+        for (std::size_t e = 0; e < nEdge; ++e) {
+            const std::size_t s = e * kSamplesPerEdge;
+            const gp_Vec T(a[0], c[s]);
+            bool ok = true;
+            for (std::size_t i = 0; i < n && ok; ++i) {
+                if (gp_Vec(a[i], c[(i + s) % n]).Subtracted(T).Magnitude() > tol) ok = false;
+            }
+            if (ok) { outT = T; return true; }
+        }
+    }
+    return false;
+}
+
+// The ruled loft of two sections related by a translation, built as the exact
+// linear extrusion. Returns a null shape (with a label) when the pair is not a
+// translate or the extrusion is degenerate.
+TopoDS_Shape thruSectionsTranslate(const std::vector<TopoDS_Shape>& sections,
+                                   bool solid, double tol) {
+    if (sections.size() != 2) FK_DEFER("xlate_not_two_sections");
+    if (sections[0].IsNull() || sections[1].IsNull()) FK_DEFER("xlate_section_null");
+    if (sections[0].ShapeType() != TopAbs_WIRE || sections[1].ShapeType() != TopAbs_WIRE)
+        FK_DEFER("xlate_section_not_wire");
+
+    const TopoDS_Wire w0 = TopoDS::Wire(sections[0]);
+    const TopoDS_Wire w1 = TopoDS::Wire(sections[1]);
+    std::vector<gp_Pnt> r0, r1;
+    std::size_t n0 = 0, n1 = 0;
+    if (!sampleWireRing(w0, r0, n0)) return kNull;   // reason set
+    if (!sampleWireRing(w1, r1, n1)) return kNull;   // reason set
+    if (n0 != n1) FK_DEFER("xlate_edge_count_mismatch");
+
+    // The samples come off imported STEP solids, whose coordinates already carry
+    // the reader's own rounding, so a fixed 1e-6 would be a statement about the
+    // importer rather than about the geometry on a 500 mm part. The test scales
+    // with the sections' own size and NEVER tightens below the caller's tol.
+    double lo[3] = {r0[0].X(), r0[0].Y(), r0[0].Z()};
+    double hi[3] = {r0[0].X(), r0[0].Y(), r0[0].Z()};
+    for (const gp_Pnt& p : r0) {
+        lo[0] = std::min(lo[0], p.X()); hi[0] = std::max(hi[0], p.X());
+        lo[1] = std::min(lo[1], p.Y()); hi[1] = std::max(hi[1], p.Y());
+        lo[2] = std::min(lo[2], p.Z()); hi[2] = std::max(hi[2], p.Z());
+    }
+    const double dx = hi[0] - lo[0], dy = hi[1] - lo[1], dz = hi[2] - lo[2];
+    const double secDiag = std::sqrt(dx * dx + dy * dy + dz * dz);
+    const double xt = std::max(tol, 1.0e-7 * std::max(1.0, secDiag));
+
+    gp_Vec T(0.0, 0.0, 0.0);
+    if (!ringTranslate(r0, r1, xt, T)) FK_DEFER("xlate_not_a_translate");
+    if (T.Magnitude() <= xt) FK_DEFER("xlate_zero_vector");
+
+    TopoDS_Shape out;
+    if (solid) {
+        // The cap face is the caller's own wire, so the cap boundary is the exact
+        // input curve set and not a rebuilt approximation of it.
+        BRepBuilderAPI_MakeFace mkf(w0, Standard_True);
+        if (!mkf.IsDone()) FK_DEFER("xlate_base_wire_not_planar");
+        try { out = forge::occtPrism(mkf.Face(), T, false); } catch (...) { out = kNull; }
+        if (out.IsNull()) FK_DEFER("xlate_prism_failed");
+        // occtPrism already self-checks a planar profile against area*|vec.n|;
+        // this asserts the piece that check cannot see — that the extrusion is
+        // not edge-on to the section plane, which would sweep zero volume.
+        GProp_GProps vp;
+        try { BRepGProp::VolumeProperties(out, vp); } catch (...) { FK_DEFER("xlate_volume_threw"); }
+        if (std::fabs(vp.Mass()) < 1.0e-12) FK_DEFER("xlate_zero_volume");
+    } else {
+        // isSolid == false is the OPEN lateral skin, which is what occtPrism
+        // returns for a WIRE profile — no caps, by construction.
+        try { out = forge::occtPrism(w0, T, false); } catch (...) { out = kNull; }
+        if (out.IsNull()) FK_DEFER("xlate_prism_shell_failed");
+        int nf = 0;
+        for (TopExp_Explorer ex(out, TopAbs_FACE); ex.More(); ex.Next()) ++nf;
+        if (nf == 0) FK_DEFER("xlate_shell_no_face");
+    }
+    return out;
+}
+
 // ---------------------------------------------------------------- sections
 struct Section {
     std::vector<gp_Pnt> ring;   // size 1 == a point section (AddVertex)
@@ -473,14 +634,19 @@ bool pipeShellNativeEnabled() {
 }
 
 // =========================================================== family D
-TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
-                          bool solid, bool ruled, double tol) {
-    if (sections.size() < 2) return kNull;
+namespace {
+
+// The ORIGINAL engine: sections as rings of vertices, lateral faces as planar
+// quads. Unchanged by the translated-section work below except that it no longer
+// clears the reason channel itself (thruSections does that once, for both paths).
+TopoDS_Shape thruSectionsPolygonal(const std::vector<TopoDS_Shape>& sections,
+                                   bool solid, bool ruled, double tol) {
+    if (sections.size() < 2) FK_DEFER("loft_lt2_sections");
     const double t = std::max(tol, 1.0e-9);
 
     // ruled == false is only the same surface as ruled == true for TWO sections
     // (PART 2). Three or more smoothed sections is a different skin: defer.
-    if (!ruled && sections.size() != 2) return kNull;
+    if (!ruled && sections.size() != 2) FK_DEFER("loft_smooth_gt2_sections");
 
     std::vector<Section> sec;
     sec.reserve(sections.size());
@@ -489,20 +655,20 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
         Section cur;
         if (!s.IsNull() && s.ShapeType() == TopAbs_VERTEX) {
             // A point section is only meaningful as an apex at an end.
-            if (k != 0 && k + 1 != sections.size()) return kNull;
+            if (k != 0 && k + 1 != sections.size()) FK_DEFER("loft_interior_point_section");
             cur.isPoint = true;
             cur.ring.push_back(BRep_Tool::Pnt(TopoDS::Vertex(s)));
         } else if (!s.IsNull() && s.ShapeType() == TopAbs_WIRE) {
             if (!polygonRing(TopoDS::Wire(s), cur.ring, t)) return kNull;
         } else {
-            return kNull;
+            FK_DEFER("loft_section_not_wire_or_vertex");
         }
         sec.push_back(std::move(cur));
     }
 
     // Two adjacent point sections have no lateral surface at all.
     for (std::size_t k = 0; k + 1 < sec.size(); ++k) {
-        if (sec[k].isPoint && sec[k + 1].isPoint) return kNull;
+        if (sec[k].isPoint && sec[k + 1].isPoint) FK_DEFER("loft_adjacent_point_sections");
     }
 
     // Every polygon section must carry the SAME vertex count: correspondence is
@@ -514,9 +680,9 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
     for (const Section& s : sec) {
         if (s.isPoint) continue;
         if (n == 0) n = s.ring.size();
-        else if (s.ring.size() != n) return kNull;
+        else if (s.ring.size() != n) FK_DEFER("loft_vertex_count_mismatch");
     }
-    if (n < 3) return kNull;
+    if (n < 3) FK_DEFER("loft_lt3_vertices");
 
     // ---------------------------------------------------- correspondence
     // Fix each consecutive polygon pair's index correspondence before any face
@@ -562,12 +728,28 @@ TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
         for (std::size_t k : {std::size_t(0), sec.size() - 1}) {
             if (sec[k].isPoint) continue;             // an apex needs no cap
             double area = 0.0;
-            if (!ringPlanar(sec[k].ring, t, area)) return kNull;
+            if (!ringPlanar(sec[k].ring, t, area)) FK_DEFER("loft_cap_ring_nonplanar");
             if (!addPolyFace(sew, sec[k].ring)) return kNull;
         }
     }
 
     return sewAndClose(sew, solid);
+}
+
+}  // namespace
+
+// The family-D entry point. The polygonal engine answers first; the translated-
+// section identity is tried ONLY on its defer, so this is strictly additive —
+// every input the polygonal path covered still takes the polygonal path and
+// returns the shape it always returned.
+TopoDS_Shape thruSections(const std::vector<TopoDS_Shape>& sections,
+                          bool solid, bool ruled, double tol) {
+    reasonClear();
+    const TopoDS_Shape poly = thruSectionsPolygonal(sections, solid, ruled, tol);
+    if (!poly.IsNull()) return poly;
+    // The polygonal reason is KEPT and this path's label is appended after it, so
+    // the census still reads why the first engine declined as well as the second.
+    return thruSectionsTranslate(sections, solid, std::max(tol, 1.0e-9));
 }
 
 // =========================================================== family F

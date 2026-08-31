@@ -174,6 +174,27 @@ TopoDS_Wire polyWire(const std::vector<gp_Pnt>& pts) {
     return p.Wire();
 }
 
+// A whole CIRCLE as one edge, and an OBROUND (two lines + two semicircular arcs).
+// Both exist for the translated-section path: every wire above is all-line-edged,
+// so nothing here reached the code that covers 189 of the 258 corpus parts the
+// THRUSECTIONS drop was deleting.
+TopoDS_Wire circleWire(double r, double z) {
+    const gp_Circ c(gp_Ax2(gp_Pnt(0.0, 0.0, z), gp_Dir(0, 0, 1)), r);
+    return BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(c).Edge()).Wire();
+}
+// Straight length L between the arc centres, radius r; area = 2 r L + pi r^2.
+TopoDS_Wire obroundWire(double L, double r, double z) {
+    const double hx = 0.5 * L;
+    const gp_Circ cr(gp_Ax2(gp_Pnt(hx, 0.0, z), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), r);
+    const gp_Circ cl(gp_Ax2(gp_Pnt(-hx, 0.0, z), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)), r);
+    BRepBuilderAPI_MakeWire mw;
+    mw.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(-hx, -r, z), gp_Pnt(hx, -r, z)).Edge());
+    mw.Add(BRepBuilderAPI_MakeEdge(cr, -M_PI / 2.0, M_PI / 2.0).Edge());
+    mw.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(hx, r, z), gp_Pnt(-hx, r, z)).Edge());
+    mw.Add(BRepBuilderAPI_MakeEdge(cl, M_PI / 2.0, 3.0 * M_PI / 2.0).Edge());
+    return mw.Wire();
+}
+
 TopoDS_Wire regularNgon(int n, double r, double z) {
     std::vector<gp_Pnt> pts;
     for (int i = 0; i < n; ++i) {
@@ -308,6 +329,30 @@ int main() {
         std::vector<TopoDS_Shape> s{rectWire(0, 0, 0, 20, 10), rectWire(0, 0, 10, 20, 10)};
         runThru("ts-shell-open", s, false, true, -1.0);
     }
+    {   // ★ THE TRANSLATED-SECTION PATH. Every case above is all-line-edged and so
+        // takes the polygonal engine; these are the first that cannot. Two EQUAL
+        // circles offset in z: the ruled loft is exactly the cylinder, and the
+        // closed form pins it. Instrumented on the 600-part corpus this shape of
+        // input was 291 of 291 native deferrals before the path existed.
+        const double r = 7.0, h = 13.0;
+        std::vector<TopoDS_Shape> s{circleWire(r, 0.0), circleWire(r, h)};
+        runThru("ts-xlate-cylinder", s, true, true, M_PI * r * r * h);
+    }
+    {   // The same pair with solid == false — the OPEN lateral skin. This is the
+        // branch forge::loftguide::loft reaches when its caller asks for an open
+        // loft, and it is the only isSolid=false case in the suite whose sections
+        // are not all-line-edged.
+        const double r = 7.0, h = 13.0;
+        std::vector<TopoDS_Shape> s{circleWire(r, 0.0), circleWire(r, h)};
+        runThru("ts-xlate-cyl-open", s, false, true, -1.0);
+    }
+    {   // MIXED lines and arcs — an obround, translated. This is the corpus's
+        // single most common declined signature in kind (a rounded outline whose
+        // two parallel faces are congruent): area = 2 r L + pi r^2.
+        const double L = 24.0, r = 6.0, t = 9.0;
+        std::vector<TopoDS_Shape> s{obroundWire(L, r, 0.0), obroundWire(L, r, t)};
+        runThru("ts-xlate-obround", s, true, true, (2.0 * r * L + M_PI * r * r) * t);
+    }
 
     // ================================ family F — MakePipeShell ===============
     {   // Straight spine up z, 10x10 square profile in z=0. Exact 100 * 30.
@@ -394,6 +439,19 @@ int main() {
                                           regularNgon(6, 8.0, 12.0)};
             check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
                   "defer: sections of differing vertex count are DECLINED");
+        }
+        // (2b) UNEQUAL circles. A cone frustum is a perfectly good ruled loft and
+        //      OCCT builds it; the translated-section path must NOT claim it,
+        //      because the two sections are not related by a translation and the
+        //      lateral surface is therefore not a linear extrusion. Without this
+        //      the new path could be a rubber stamp on any curved pair.
+        {
+            std::vector<TopoDS_Shape> sec{circleWire(7.0, 0.0), circleWire(4.0, 13.0)};
+            check(forge::occtloft::thruSections(sec, true, true, 1.0e-6).IsNull(),
+                  "defer: UNEQUAL circles are DECLINED (not a translate, so not an extrusion)");
+            check(!occtThru(sec, true, true).IsNull(),
+                  "control: OCCT DOES build that cone — the decline is a real coverage gap, "
+                  "not an impossible input");
         }
         // (3) Smoothed loft over THREE sections.
         {

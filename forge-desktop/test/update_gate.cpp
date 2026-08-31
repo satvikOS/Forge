@@ -38,6 +38,7 @@
 #include <sys/xattr.h>
 #include <unistd.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
