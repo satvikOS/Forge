@@ -13,7 +13,7 @@
 //       it is not re-proved here, because a second JSON reader in C++ would be a
 //       third transcription of the same list.
 //   (b) forge::ui::irOpTable(), which ui/test/feature_ir_test.cpp separately
-//       proves is the KERNEL's own op table. The 18 allowed and the 22 forbidden
+//       proves is the KERNEL's own op table. The 28 allowed and the 12 forbidden
 //       ops must PARTITION it exactly -- an op classified as neither is drift,
 //       and drift is what silently widens a constraint.
 //   (c) the LIVE REGISTRY the app builds (ForgeShell + registerPartCommands).
@@ -32,10 +32,11 @@
 // PROVING THE GATE CAN FAIL: `--mutate <n>` perturbs the vocabulary the bridge
 // is built from, or the path the gate takes to it. Each is a regression that has
 // a name:
-//   1  RECT is dropped from the allowed set  -> the only PROFILE creator is gone;
-//                                               the language closes empty again
-//   2  BOX is added to the allowed set       -> the constraint silently widened to
-//                                               an op no command emits
+//   1  every PROFILE creator is dropped     -> no user-invocable op produces a
+//      from the allowed set                    PROFILE; the language closes empty
+//                                              again and EXTRUDE/REVOLVE are OWED
+//   2  POLY is added to the allowed set      -> the constraint silently widened to
+//                                              an op no command emits
 //   3  EXTRUDE's emitted arity is widened     -> the KERNEL's arity is enforced
 //      to the kernel's                          instead of the app's, and a form
 //                                               no user can produce is accepted
@@ -110,27 +111,40 @@ OpVocabulary perturbed(OpVocabulary v) {
     return nullptr;
   };
   switch (g_mutation) {
-    case 1: {  // the only PROFILE creator disappears
+    case 1: {  // the PROFILE creators disappear
+      // Every one of them, not just RECT. When this mutation was written RECT was the
+      // only PROFILE producer, so erasing it emptied the kind and the closure check
+      // caught it. There are now four (RECT, CIRCLE, RRECT, REGPOLY), and erasing one of
+      // four would leave the language closed -- the mutation would still be caught, but
+      // by the row-count checks rather than by the check it exists to prove. Erasing the
+      // KIND keeps the teeth where they were put: EXTRUDE and REVOLVE consume a PROFILE
+      // and nothing would produce one.
       v.ops.erase(std::remove_if(v.ops.begin(), v.ops.end(),
-                                 [](const OpVocabulary::Op& o) { return o.op == "RECT"; }),
+                                 [](const OpVocabulary::Op& o) {
+                                   return o.produces == IrValueKind::Profile;
+                                 }),
                   v.ops.end());
       v.commands.erase(std::remove_if(v.commands.begin(), v.commands.end(),
                                       [](const OpVocabulary::Command& c) {
-                                        return c.op == "RECT";
+                                        return c.produces == IrValueKind::Profile;
                                       }),
                        v.commands.end());
       break;
     }
     case 2: {  // the allowed set is quietly widened to an op no command emits
-      OpVocabulary::Op box;
-      box.op = "BOX";
-      box.produces = IrValueKind::Solid;
-      box.kernelMinArgs = 3;
-      box.kernelMaxArgs = 6;
-      box.firstArgIsValueRef = false;
-      box.emittedForms.push_back(OpVocabulary::ArgCounts{3, 3});
-      box.commands.push_back("part.make_box");
-      v.ops.push_back(std::move(box));
+      // POLY, not BOX: BOX became user-invocable when part.primitive_box was added, and
+      // an op the registry really does emit cannot demonstrate "widened to an op nothing
+      // emits". POLY stays forbidden because forge::ui::IrArgKind models no points token,
+      // so no command can spell POLY([x y; ...]) at all.
+      OpVocabulary::Op poly;
+      poly.op = "POLY";
+      poly.produces = IrValueKind::Profile;
+      poly.kernelMinArgs = 1;
+      poly.kernelMaxArgs = 1;
+      poly.firstArgIsValueRef = false;
+      poly.emittedForms.push_back(OpVocabulary::ArgCounts{1, 1});
+      poly.commands.push_back("part.make_poly");
+      v.ops.push_back(std::move(poly));
       break;
     }
     case 3: {  // the KERNEL's arity is enforced instead of the app's
@@ -384,11 +398,23 @@ int main(int argc, char** argv) {
 
     // FORBIDDEN: a real kernel op no command emits. The refusal must quote the
     // vocabulary's own reason, not say "not allowed".
-    const OpRuling box = bridge.check(step(1, "BOX",
-                                           {IrArg::num(10), IrArg::num(10), IrArg::num(10)}));
-    CHECK_EQ_INT(static_cast<int>(box.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
-    CHECK(box.reason.find("BOX") != std::string::npos);
-    CHECK(box.reason.find("no user can produce it") != std::string::npos);
+    //
+    // This case named BOX until part.primitive_box was added; BOX is now allowed, and a
+    // named example has to be an op that is STILL out of reach or the assertion tests
+    // nothing. POLY is the durable one: it takes a `[x y; x y; ...]` points token, and
+    // forge::ui::IrArgKind deliberately models Number/Ref/Keyword/Text and no points
+    // kind, so no forge::ui command can spell the statement at all -- the reason is
+    // structural rather than "nobody has written the command yet".
+    const OpRuling poly = bridge.check(step(1, "POLY", {IrArg::num(10)}));
+    CHECK_EQ_INT(static_cast<int>(poly.verdict), static_cast<int>(OpConstraint::ForbiddenOp));
+    CHECK(poly.reason.find("POLY") != std::string::npos);
+    CHECK(poly.reason.find("no user can produce it") != std::string::npos);
+    // And BOX, which used to stand here, is now ACCEPTED in the form the new command
+    // emits -- the other half of the same claim, and the reason this line moved.
+    const OpRuling boxNow = bridge.check(step(1, "BOX",
+                                              {IrArg::num(40), IrArg::num(30), IrArg::num(20)},
+                                              EntityKind::None, 0));
+    CHECK_EQ_INT(static_cast<int>(boxNow.verdict), static_cast<int>(OpConstraint::Ok));
 
     // Every forbidden op is refused, every one names itself, and none is allowed.
     for (const std::string& op : bridge.forbiddenOps()) {
@@ -705,11 +731,22 @@ int main(int argc, char** argv) {
   CHECK_EQ_INT(closure.owedCreatorKinds.size(), 0);
   CHECK_EQ_INT(closure.unreachableOps.size(), 0);
   // The creators, pinned. D-015 measured ZERO; if that is ever true again the
-  // language is empty and this line says so by name.
-  CHECK_EQ_INT(closure.creatorOps.size(), 3);
+  // language is empty and this line says so by name. Three of these (CIRCLE, RECT, RING)
+  // closed the PROFILE and WIRE kinds; the other nine are the kernel's own primitives,
+  // which the kernel has always built and no command could ask for until now.
+  CHECK_EQ_INT(closure.creatorOps.size(), 12);
   CHECK(contains(closure.creatorOps, "CIRCLE"));
   CHECK(contains(closure.creatorOps, "RECT"));
   CHECK(contains(closure.creatorOps, "RING"));
+  CHECK(contains(closure.creatorOps, "RRECT"));
+  CHECK(contains(closure.creatorOps, "REGPOLY"));
+  CHECK(contains(closure.creatorOps, "BOX"));
+  CHECK(contains(closure.creatorOps, "CYL"));
+  CHECK(contains(closure.creatorOps, "CONE"));
+  CHECK(contains(closure.creatorOps, "SPHERE"));
+  CHECK(contains(closure.creatorOps, "TORUS"));
+  CHECK(contains(closure.creatorOps, "PRISM"));
+  CHECK(contains(closure.creatorOps, "TUBE"));
   for (const IrValueKind kind : closure.owedCreatorKinds) {
     std::printf("  OWED: no forge::ui command creates a %s\n", toString(kind));
   }
@@ -794,11 +831,52 @@ int main(int argc, char** argv) {
                                        ref("wire_11", EntityKind::Wire, "w2")}, loft)),
                  static_cast<int>(DispatchStatus::Ok));
 
+    // ── and the KERNEL'S OWN PRIMITIVES, unreachable until this change ──────
+    // BOX and CYL are the two most-used ops in the repo's feature-tree corpus and were
+    // both in forbidden_ops; the app even SEEDED a BOX into every document while giving
+    // the user no way to author one. These five statements are the proof that the
+    // primitives are not merely listed but INVOCABLE, and that they compose with the
+    // commands that were already here: %14 rotates the cylinder %13 made, and %17
+    // extrudes the polygon profile %16 made.
+    CommandParams cyl;
+    cyl.setNumber("radius", 10);
+    cyl.setNumber("height", 25);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.primitive_cylinder", {}, cyl)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams rot;
+    rot.setNumber("angle", 90);
+    rot.setNumber("axx", 0);
+    rot.setNumber("axy", 1);
+    rot.setNumber("axz", 0);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.rotate",
+                                      {ref("body_13", EntityKind::Body, "b3")}, rot)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams tube;
+    tube.setNumber("outer_radius", 12);
+    tube.setNumber("inner_radius", 8);
+    tube.setNumber("height", 30);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.primitive_tube", {}, tube)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams ngon;
+    ngon.setNumber("radius", 20);
+    ngon.setNumber("sides", 6);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.sketch_polygon", {}, ngon)),
+                 static_cast<int>(DispatchStatus::Ok));
+
+    CommandParams ext3;
+    ext3.setNumber("distance", 12);
+    CHECK_EQ_INT(static_cast<int>(run(shell.registry(), "part.extrude",
+                                      {ref("sketch_16", EntityKind::Sketch, "s16")}, ext3)),
+                 static_cast<int>(DispatchStatus::Ok));
+
     std::printf("  [measured] a program a USER could have authored, from an empty document:\n%s\n",
                 doc.irProgram().c_str());
 
     // NON-TRIVIAL, stated as numbers rather than as an adjective.
-    CHECK_EQ_INT(doc.records().size(), 12);
+    CHECK_EQ_INT(doc.records().size(), 17);
     std::vector<IrLine> program;
     std::vector<std::string> distinctOps;
     for (const FeatureRecord& rec : doc.records()) {
@@ -806,7 +884,7 @@ int main(int argc, char** argv) {
       CHECK(!rec.commandId.empty());  // every statement is command-authored
       if (!contains(distinctOps, rec.line.op)) distinctOps.push_back(rec.line.op);
     }
-    CHECK(distinctOps.size() >= 10);
+    CHECK(distinctOps.size() >= 14);
 
     // THE CLOSING OF THE LOOP: the bridge accepts, statement for statement, what
     // the app itself produced. A constraint that refuses the product's own output
@@ -814,7 +892,7 @@ int main(int argc, char** argv) {
     const PlanRuling ruling = bridge.check(program);
     if (!ruling.allAccepted()) std::printf("%s", ruling.report().c_str());
     CHECK(ruling.allAccepted());
-    CHECK_EQ_INT(ruling.accepted, 12);
+    CHECK_EQ_INT(ruling.accepted, 17);
     CHECK_EQ_INT(ruling.rejected, 0);
 
     // And the ops it used are a subset of the allowed set, by name.
