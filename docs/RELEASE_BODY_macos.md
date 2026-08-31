@@ -68,12 +68,16 @@ Apple Developer ID certificate we have not bought yet. macOS trusts
 warning is not saying the download is damaged or suspect; it is saying Apple has
 not personally vouched for it, and the approval is you vouching instead.
 
-You approve **a copy of the app**, not the name. An app that updates itself in
-place never re-triggers the prompt, because nothing was re-downloaded through a
-browser. This native build does not have an in-app updater yet, so a new version
-you download and install by hand needs the same one-time approval. The whole
-step disappears for every build once a Developer ID certificate and
-notarization are in place.
+You approve **a copy of the app**, not the name. So the approval survives for
+as long as that copy does, and a version you download and install by hand needs
+the same one-time approval again. The whole step disappears for every build
+once a Developer ID certificate and notarization are in place.
+
+Forge does tell you when there is a new version: it checks this release page in
+the background on launch and shows a notice in the app. That check is
+**read-only** — it downloads nothing and installs nothing, so updating is still
+something you do by hand, and it still costs one approval. Nothing is fetched
+before you ask for it.
 
 Full detail, including the exact commands and system strings this was checked
 against: [`docs/FIRST_LAUNCH_MACOS.md`](@@REPO_URL@@/blob/@@TAG@@/docs/FIRST_LAUNCH_MACOS.md)
