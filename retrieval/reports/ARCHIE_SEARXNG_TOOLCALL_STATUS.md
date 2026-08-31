@@ -75,12 +75,31 @@ strip.
 written decision, because it is the one that quietly weakens a safety property that was carefully
 built.
 
-## What was NOT tested, and why
+## 3. ★The model CAN tool-call — measured, and it refutes what I expected
 
-Because the plumbing does not exist, this report establishes only that the path is absent and that
-the C++ half is gated. It does **not** establish whether the local model can emit a well-formed
-tool call at all — that is a real open question (this is a 30B 4-bit VLM fine-tuned on CAD IR, not
-on tool-calling, and the fine-tune may well have crowded the ability out). Answering it needs the
-plumbing first. **A prerequisite for wiring this is a cheap probe: prompt the model with a tool
-schema and see whether it emits a parseable call.** That probe costs minutes and should precede any
-integration work.
+An earlier revision of this report listed "can the model emit a well-formed tool call at all?" as
+an open question, and guessed the CAD fine-tune had probably crowded the ability out. **That guess
+was wrong.** The probe was run (`retrieval/reports/archie_toolcall_probe.py`) against the deployed
+adapter `adapters/archie-30b-axis-named-v7`, expert LoRA confirmed loaded (36 switch keys, 276
+LoRA modules), asking for the M12 × 1.75 tapping drill diameter under three prompt styles:
+
+| style | parseable? | emitted |
+|---|---|---|
+| JSON schema | ✅ | `{"tool":"web_search","arguments":{"query":"M12 x 1.75 tap drill size"}}` |
+| XML tag | ✅ | `<tool_call>web_search(query="M12 x 1.75 tapping drill diameter")</tool_call>` |
+| minimal (`CALL web_search("…")`) | ❌ | answered from knowledge instead |
+
+**Two of three are exactly right, first try, with no tool-calling fine-tune.** The capability
+survived the CAD training intact.
+
+★**And the third is not really a failure.** Given only a loose instruction, the model chose to
+answer directly — *and its answer was correct*: it derived drill = nominal − pitch = 12 − 1.75,
+which is the standard M12 × 1.75 tap drill at 10.25 mm. Declining to search something you know is
+the behaviour you want. What the case actually shows is that **tool invocation is
+prompt-format-sensitive**: a structured schema gets a structured call, a vague instruction does
+not. That is a prompt-engineering fact, not a capability limit, and it means the integration must
+specify the format rather than hope.
+
+**So the technical blocker is now known to be ONLY the plumbing**, and the plumbing is a day. The
+remaining blocker is entirely the policy question in §2 — whether a model may grant its own
+`SendApproval` — which is unchanged and is the one that deserves the deliberation.
