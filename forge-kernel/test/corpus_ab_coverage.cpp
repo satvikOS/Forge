@@ -1211,7 +1211,7 @@ int main(int argc, char** argv) {
                 TopTools_ListOfShape faces;
                 faces.Append(rm);
                 return forge::occtoffset::makeThickSolid(src, wall, faces, 1.0e-3);
-            }, true, T, NF);
+            }, true, T, NF, &forge::occtoffset::lastThickSolidDeferReason);
             const ArmResult oc = runArm([&]() -> TopoDS_Shape {
                 TopTools_ListOfShape faces;
                 faces.Append(rm);
