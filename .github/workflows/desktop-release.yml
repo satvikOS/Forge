@@ -240,6 +240,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The OCCT version goes into the kernel-build cache key: a build tree linked
+          # against a different OpenCascade must not be restored.
+          echo "OCCT_VERSION=$(brew list --versions opencascade | awk '{print $2}')" >> "$GITHUB_ENV"
           for f in opencascade boost; do
             key="FORGE_DEPS_PREFIX_$(echo "$f" | tr '[:lower:]-' '[:upper:]_')"
             prefix="$(brew --prefix "$f")"
@@ -258,6 +261,31 @@ jobs:
           for f in opencascade sdl2 molten-vk vulkan-loader tbb; do
             printf '%-16s %s\n' "$f" "$(brew list --versions "$f" || echo MISSING)"
           done
+
+      - name: Cache the BUILT kernel, not just the compiler cache
+        # THE DOMINANT COST. release_dryrun.sh already targets forge_kernel_core, so the
+        # kernel -- roughly 400 OCCT-linked translation units -- is the bulk of the job,
+        # and ccache alone does not avoid it: the ccache key hashes forge-kernel/src/**
+        # and include/**, so ANY kernel edit invalidates the exact key on every push and
+        # only the partial restore-key hits.
+        #
+        # Caching the BUILD DIRECTORY means an unchanged kernel is not rebuilt at all.
+        #
+        # THE KEY IS DELIBERATELY NARROW, because a CMake build tree is fragile in two
+        # ways that a careless key would hide:
+        #   * it stores ABSOLUTE paths, so it is only reusable at the same location --
+        #     true on hosted runners (/Users/runner/work/...), and the reason this is
+        #     scoped to runner.os;
+        #   * it is linked against a specific OpenCascade, so the brew VERSION is in the
+        #     key. Restoring a tree built against a different OCCT would produce a link
+        #     failure that looks like a source bug.
+        # There is no restore-keys fallback for the same reason: a PARTIAL kernel build
+        # tree is worse than none, because make would trust stale objects.
+        id: kernelcache
+        uses: actions/cache@v4
+        with:
+          path: forge-kernel/build-app
+          key: kernelbuild-${{ runner.os }}-occt${{ env.OCCT_VERSION }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-kernel/CMakeLists.txt', 'forge-kernel/cmake/**') }}
 
       - name: Restore compiler cache
         uses: actions/cache@v4
