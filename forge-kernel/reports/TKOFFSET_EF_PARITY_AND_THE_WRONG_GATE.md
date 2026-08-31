@@ -8,12 +8,14 @@ from a single binary and a single tree.
 > **Closure did not move, and it could not have.** `CMakeLists.txt:1053-1081` removes
 > TKOffset from `OCCT_LIBS` only when all nine families A,C,D,E,F,G,H,I,J are compiled
 > out, and seven of the nine fail their flip gate at this commit. No option was flipped
-> and no toolkit was retired; the whole diff is five files under `test/` and `tools/`,
-> none of them a compiled kernel source, so the binary is byte-identical and its load
-> graph cannot differ. **§6 also records that I did not take a fresh verbatim
-> `occt_closure_count.sh` reading, and why — the machine's swap sat between 8 and 37 GB
-> for the entire window.** No number is quoted as mine that I did not measure. This
-> report is distance travelled toward the drop and is scored as nothing else.
+> and no toolkit was retired; the whole diff lives under `test/`, `tools/` and
+> `reports/`, none of it a compiled kernel source, so the binary is byte-identical and
+> its load graph cannot differ.
+>
+> **Measured, from this tree, at `-j2` after a memory check:**
+> `OCCT_DIRECT = 9 · OCCT_CLOSURE = 14 · OCCT_PHANTOM = 2`, before and after. The full
+> verbatim output is in §6. This report is distance travelled toward the drop and is
+> scored as nothing else.
 
 ---
 
@@ -317,45 +319,58 @@ on; `grep -rn "assert-closure" .github/workflows/` is **empty** here and matches
 **line 323** of that file on the sacrosanct branch. A future drop landing on `archdisc`
 would have no ratchet to trip — worth fixing before, not after, the first real drop.
 
-### The verbatim reading was NOT taken, and why
+### The verbatim reading, taken from this tree
 
-The brief asks for `scripts/occt_closure_count.sh` before and after, verbatim. **I did
-not take it, and I am not going to report a number I did not measure.**
+The build needed one thing the plain `cmake` path does not supply: without cmake-js,
+`CMAKE_JS_INC` is undefined and nothing adds the **Node C headers**, so `src/binding.cpp`
+died on a missing `<node_api.h>` (node-addon-api's `napi.h` includes it, and it ships with
+Node, not with the npm package). Supplying exactly that one include directory —
+`-DCMAKE_JS_INC=/opt/homebrew/include/node` — fixes it. **This does not change the link
+line**, which is the thing being measured: `CMAKE_JS_LIB` stays undefined, so the Darwin
+branch still applies `-undefined dynamic_lookup` (checked in `link.txt`, present), and
+`OCCT_LIBS` is untouched. Measuring a binary linked any other way would be measuring a
+different thing, since `-undefined dynamic_lookup` is exactly what `OCCT_PHANTOM` exists to
+detect.
 
-The script requires `build/Release/forge-kernel.node`; this worktree has no build, and
-producing one is a 364-TU compile. Machine memory was checked before every heavyweight
-step, per this run's own discipline (swap < 4096 MB and free > 25%). Over the whole
-working window the readings were:
-
-```
-swap used = 0 MB       free 93%   (at start — the A/B harness was built here)
-swap used = 34237 MB   free 37%
-swap used = 19565 MB   free 60%
-swap used = 388 MB     free 78%   (one clear window, ~2 min, too short to start)
-swap used = 9990 MB    free 38%
-swap used = 31153 MB   free 37%
-swap used = 37516 MB   free 37%
-```
-
-Four hours before this run, 31 agents building concurrently on this machine drove swap
-to 47 GB, jetsam fired, and twelve agents lost uncommitted work. Starting a 364-TU
-compile against a 37 GB swap load would risk repeating that, and it would take other
-agents' work with it. **The correct action was to not build, and the correct report is
-to say so** rather than to quote the previous run's figure as if it were mine.
-
-What can be said with evidence: the last valid reading, PR #154 at `32ee7485`, is
+Built `-j2` after a memory check (`swap=375M free=78%`), 364 TUs, `build rc=0`.
 
 ```
-OCCT_DIRECT = 9    OCCT_CLOSURE = 14    OCCT_PHANTOM = 2
+== OCCT link accounting: forge-kernel.node ==
+
+  OCCT_DIRECT  = 9   (LC_LOAD_DYLIB/DT_NEEDED records — gameable, NOT the ledger number)
+  OCCT_CLOSURE = 14   ★ libraries that actually LOAD at run time — THE LEDGER NUMBER
+  OCCT_PHANTOM = 2   (closure libs whose symbols the binary CALLS with no link record)
+
+  direct  (9): TKBRep TKernel TKFillet TKG3d TKMath TKOffset TKPrim TKShHealing TKTopAlgo
+  closure (14): TKBO TKBool TKBRep TKernel TKFillet TKG2d TKG3d TKGeomAlgo TKGeomBase
+                TKMath TKOffset TKPrim TKShHealing TKTopAlgo
+
+  HIDDEN — in the closure, no direct record:
+    TKBO           pulled by: TKBool TKFillet TKOffset  ← CALLED DIRECTLY (32 symbols, masked)
+    TKBool         pulled by: TKFillet TKOffset
+    TKG2d          pulled by: TKBO TKBool TKBRep TKFillet TKG3d TKGeomAlgo TKGeomBase
+                              TKOffset TKPrim TKShHealing TKTopAlgo
+                              ← CALLED DIRECTLY (24 symbols, masked)
+    TKGeomAlgo     pulled by: TKBO TKBool TKFillet TKOffset TKPrim TKShHealing TKTopAlgo
+    TKGeomBase     pulled by: TKBO TKBool TKBRep TKFillet TKGeomAlgo TKOffset TKPrim
+                              TKShHealing TKTopAlgo
+
+  ⚠ 2 phantom-direct librar(ies). A drop that only converts DIRECT → PHANTOM
+    leaves OCCT_CLOSURE unchanged and is worth ZERO. Rank drops by OCCT_CLOSURE.
 ```
 
-`32ee7485` is an ancestor of this branch whose `CMakeLists.txt`, `src/native`,
-`include/forge/native`, `src/OcctPrimBuilder.cpp` and `test/corpus_ab_coverage.cpp` are
-all **byte-identical** to HEAD (`git diff --stat` empty on each). The only kernel source
-that moved between them is `src/ClassASurfacing.cpp`, and its diff changes no `#include`
-and no `BRepOffset*` line. So the link line at HEAD is the link line that produced that
-reading — but it is **that run's measurement, not this one's**, and it is labelled as
-such.
+**BEFORE = AFTER = `OCCT_DIRECT 9 / OCCT_CLOSURE 14 / OCCT_PHANTOM 2`.** One reading serves
+both, and that is a statement about the binary rather than a shortcut: the compiled source
+set is identical between `origin/archdisc` and this branch (the whole diff is `test/`,
+`tools/`, `reports/`; `FORGE_KERNEL_SOURCES` has no entry in any of them; `CMakeLists.txt`
+is byte-identical), so the two builds cannot differ.
+
+This independently reproduces PR #154's `9 / 14 / 2` — measured here from a tree pinned to
+`origin/archdisc`, rather than inherited.
+
+The output also re-states the lattice from the binary's side and agrees with §8: **TKBO,
+TKBool, TKG2d, TKGeomAlgo and TKGeomBase are all pulled by TKOffset**, among others. Nothing
+below TKOffset can stop loading until TKOffset does.
 
 ## 7. What still blocks TKOffset
 
