@@ -48,9 +48,9 @@
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "7c838860ce559ef2473c414317354b78954ec3b581675eea5b95ea81c2f7ecd9",
-        "bytes": 59916,
-        "lines": 1153
+        "sha256": "3f3f50d6363526cbe43f4c338ed9931116ea414444b1d78077dbef4ebfe2c69e",
+        "bytes": 95476,
+        "lines": 1690
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,21 +78,24 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 31,
-    "commands_emitting_ir": 20,
-    "user_invocable_ops": 18,
-    "forbidden_ops": 22,
+    "registry_commands": 41,
+    "commands_emitting_ir": 30,
+    "user_invocable_ops": 28,
+    "forbidden_ops": 12,
     "uncertain_entries": 1,
     "derived_defects": 3
   },
   "emission_policy": {
     "allowed_ops": [
       "BLEND",
+      "BOX",
       "CBORE",
       "CHAMFER",
       "CIRCLE",
       "COMMON",
+      "CONE",
       "CUT",
+      "CYL",
       "EXTRUDE",
       "FILLET",
       "FUSE",
@@ -100,11 +103,18 @@
       "LOFT",
       "MIRROR",
       "PATTERN",
+      "PRISM",
       "RECT",
+      "REGPOLY",
       "REVOLVE",
       "RING",
+      "ROTATE",
+      "RRECT",
       "SHELL",
-      "TRANSLATE"
+      "SPHERE",
+      "TORUS",
+      "TRANSLATE",
+      "TUBE"
     ],
     "rules": [
       "Emit ONLY an op listed in `ops`. Any other op name is out of vocabulary, including every op in `forbidden_ops` and the RESULT terminal, which no forge::ui command can produce.",
@@ -245,6 +255,161 @@
             }
           ],
           "command": "part.variable_fillet"
+        }
+      ]
+    },
+    {
+      "op": "BOX",
+      "kernel_enum": "Box",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 3,
+        "max_args": 6,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "BOX(dx, dy, dz [, cx=0, cy=0, cz=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dx",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "override: BOX(dx, dy, dz [, cx, cy, cz]) -- dx/dy/dz are the SIDE LENGTHS passed to forge::makeBox, not a pattern step"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dy",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "override: BOX(dx, dy, dz [, cx, cy, cz]) -- dx/dy/dz are the SIDE LENGTHS passed to forge::makeBox, not a pattern step"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dz",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "override: BOX(dx, dy, dz [, cx, cy, cz]) -- dx/dy/dz are the SIDE LENGTHS passed to forge::makeBox, not a pattern step"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cz",
+              "default": "0",
+              "index": 5,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": "centred in XY, base at cz"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.primitive_box"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "dx",
+            "dy",
+            "dz"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "dx": 40.0,
+                "dy": 30.0,
+                "dz": 20.0
+              },
+              "ir_arguments": [
+                "40",
+                "30",
+                "20"
+              ],
+              "ir_text": "%<id> = BOX(40, 30, 20)"
+            }
+          ],
+          "command": "part.primitive_box"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"cz\")",
+          "when_human": "any of cx, cy, cz is supplied",
+          "arguments": [
+            "dx",
+            "dy",
+            "dz",
+            "cx",
+            "cy",
+            "cz"
+          ],
+          "argument_count": {
+            "min": 6,
+            "max": 6
+          },
+          "examples": [
+            {
+              "parameters": {
+                "dx": 40.0,
+                "dy": 30.0,
+                "dz": 20.0,
+                "cx": 4.0,
+                "cy": 5.0,
+                "cz": 6.0
+              },
+              "ir_arguments": [
+                "40",
+                "30",
+                "20",
+                "4",
+                "5",
+                "6"
+              ],
+              "ir_text": "%<id> = BOX(40, 30, 20, 4, 5, 6)"
+            }
+          ],
+          "command": "part.primitive_box"
         }
       ]
     },
@@ -678,6 +843,197 @@
       ]
     },
     {
+      "op": "CONE",
+      "kernel_enum": "Cone",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 3,
+        "max_args": 9,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "CONE(r1, r2, h [, cx, cy, cz, axx, axy, axz])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r1",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r2",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "h",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cz",
+              "index": 5,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axx",
+              "index": 6,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axy",
+              "index": 7,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axz",
+              "index": 8,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.primitive_cone"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "radius_base",
+            "radius_top",
+            "height"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius_base": 10.0,
+                "radius_top": 0.0,
+                "height": 25.0
+              },
+              "ir_arguments": [
+                "10",
+                "0",
+                "25"
+              ],
+              "ir_text": "%<id> = CONE(10, 0, 25)"
+            }
+          ],
+          "command": "part.primitive_cone"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"cz\") || hasNumber(ctx, \"axx\") || hasNumber(ctx, \"axy\") || hasNumber(ctx, \"axz\")",
+          "when_human": "any of cx, cy, cz, axx, axy, axz is supplied",
+          "arguments": [
+            "radius_base",
+            "radius_top",
+            "height",
+            "cx",
+            "cy",
+            "cz",
+            "axx",
+            "axy",
+            "axz"
+          ],
+          "argument_count": {
+            "min": 9,
+            "max": 9
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius_base": 10.0,
+                "radius_top": 0.0,
+                "height": 25.0,
+                "cx": 4.0,
+                "cy": 5.0,
+                "cz": 6.0,
+                "axx": 7.0,
+                "axy": 8.0,
+                "axz": 10.0
+              },
+              "ir_arguments": [
+                "10",
+                "0",
+                "25",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "10"
+              ],
+              "ir_text": "%<id> = CONE(10, 0, 25, 4, 5, 6, 7, 8, 10)"
+            }
+          ],
+          "command": "part.primitive_cone"
+        }
+      ]
+    },
+    {
       "op": "CUT",
       "kernel_enum": "Cut",
       "produces": "SOLID",
@@ -738,6 +1094,187 @@
             }
           ],
           "command": "part.boolean_subtract"
+        }
+      ]
+    },
+    {
+      "op": "CYL",
+      "kernel_enum": "Cyl",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 2,
+        "max_args": 8,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "CYL(r, h [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "h",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cz",
+              "default": "0",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axx",
+              "default": "0",
+              "index": 5,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axy",
+              "default": "0",
+              "index": 6,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axz",
+              "default": "1",
+              "index": 7,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            }
+          ],
+          "prose": "base at centre, along axis"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.primitive_cylinder"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "radius",
+            "height"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0,
+                "height": 25.0
+              },
+              "ir_arguments": [
+                "10",
+                "25"
+              ],
+              "ir_text": "%<id> = CYL(10, 25)"
+            }
+          ],
+          "command": "part.primitive_cylinder"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"cz\") || hasNumber(ctx, \"axx\") || hasNumber(ctx, \"axy\") || hasNumber(ctx, \"axz\")",
+          "when_human": "any of cx, cy, cz, axx, axy, axz is supplied",
+          "arguments": [
+            "radius",
+            "height",
+            "cx",
+            "cy",
+            "cz",
+            "axx",
+            "axy",
+            "axz"
+          ],
+          "argument_count": {
+            "min": 8,
+            "max": 8
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0,
+                "height": 25.0,
+                "cx": 3.0,
+                "cy": 4.0,
+                "cz": 5.0,
+                "axx": 6.0,
+                "axy": 7.0,
+                "axz": 9.0
+              },
+              "ir_arguments": [
+                "10",
+                "25",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "9"
+              ],
+              "ir_text": "%<id> = CYL(10, 25, 3, 4, 5, 6, 7, 9)"
+            }
+          ],
+          "command": "part.primitive_cylinder"
         }
       ]
     },
@@ -1925,6 +2462,158 @@
       ]
     },
     {
+      "op": "PRISM",
+      "kernel_enum": "Prism",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 3,
+        "max_args": 6,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "PRISM(nSides, circumR, h [, cx, cy, cz])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "nSides",
+              "index": 0,
+              "unit": "count",
+              "semantic": "side_count",
+              "classified_by": "override: makePrism(n, R, h) builds one n-gon profile and extrudes it; n is the side count of a single solid, not a number of copies"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "circumR",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "h",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cz",
+              "index": 5,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.primitive_prism"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "sides",
+            "radius",
+            "height"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "sides": 6.0,
+                "radius": 15.0,
+                "height": 20.0
+              },
+              "ir_arguments": [
+                "6",
+                "15",
+                "20"
+              ],
+              "ir_text": "%<id> = PRISM(6, 15, 20)"
+            }
+          ],
+          "command": "part.primitive_prism"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"cz\")",
+          "when_human": "any of cx, cy, cz is supplied",
+          "arguments": [
+            "sides",
+            "radius",
+            "height",
+            "cx",
+            "cy",
+            "cz"
+          ],
+          "argument_count": {
+            "min": 6,
+            "max": 6
+          },
+          "examples": [
+            {
+              "parameters": {
+                "sides": 6.0,
+                "radius": 15.0,
+                "height": 20.0,
+                "cx": 4.0,
+                "cy": 5.0,
+                "cz": 6.0
+              },
+              "ir_arguments": [
+                "6",
+                "15",
+                "20",
+                "4",
+                "5",
+                "6"
+              ],
+              "ir_text": "%<id> = PRISM(6, 15, 20, 4, 5, 6)"
+            }
+          ],
+          "command": "part.primitive_prism"
+        }
+      ]
+    },
+    {
       "op": "RECT",
       "kernel_enum": "Rect",
       "produces": "PROFILE",
@@ -2046,6 +2735,145 @@
             }
           ],
           "command": "part.sketch_rect"
+        }
+      ]
+    },
+    {
+      "op": "REGPOLY",
+      "kernel_enum": "RegPoly",
+      "produces": "PROFILE",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 2,
+        "max_args": 5,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "REGPOLY(r, n [, cx=0, cy=0, rotDeg=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "n",
+              "index": 1,
+              "unit": "count",
+              "semantic": "side_count",
+              "classified_by": "override: profRegPoly places n vertices at 2*pi*i/n and throws on n < 3 -- the number of SIDES of one polygon, not a number of copies"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "rotDeg",
+              "default": "0",
+              "index": 4,
+              "unit": "deg",
+              "semantic": "angle",
+              "classified_by": "rule: /Deg$/"
+            }
+          ],
+          "prose": "n-gon (vertex radius)"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_polygon"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "radius",
+            "sides"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 20.0,
+                "sides": 6.0
+              },
+              "ir_arguments": [
+                "20",
+                "6"
+              ],
+              "ir_text": "%<id> = REGPOLY(20, 6)"
+            }
+          ],
+          "command": "part.sketch_polygon"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"rotation\")",
+          "when_human": "any of cx, cy, rotation is supplied",
+          "arguments": [
+            "radius",
+            "sides",
+            "cx",
+            "cy",
+            "rotation"
+          ],
+          "argument_count": {
+            "min": 5,
+            "max": 5
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 20.0,
+                "sides": 6.0,
+                "cx": 3.0,
+                "cy": 4.0,
+                "rotation": 5.0
+              },
+              "ir_arguments": [
+                "20",
+                "6",
+                "3",
+                "4",
+                "5"
+              ],
+              "ir_text": "%<id> = REGPOLY(20, 6, 3, 4, 5)"
+            }
+          ],
+          "command": "part.sketch_polygon"
         }
       ]
     },
@@ -2398,6 +3226,331 @@
       ]
     },
     {
+      "op": "ROTATE",
+      "kernel_enum": "Rotate",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 5,
+        "max_args": 8,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "ROTATE(%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "a",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "angleDeg",
+              "index": 1,
+              "unit": "deg",
+              "semantic": "angle",
+              "classified_by": "rule: /Deg$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "axx",
+              "index": 2,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "axy",
+              "index": 3,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "axz",
+              "index": 4,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "ox",
+              "default": "0",
+              "index": 5,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "oy",
+              "default": "0",
+              "index": 6,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "oz",
+              "default": "0",
+              "index": 7,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.rotate"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "angle",
+            "axx",
+            "axy",
+            "axz"
+          ],
+          "argument_count": {
+            "min": 5,
+            "max": 5
+          },
+          "examples": [
+            {
+              "parameters": {
+                "angle": 90.0,
+                "axx": 3.0,
+                "axy": 4.0,
+                "axz": 6.0
+              },
+              "ir_arguments": [
+                "%body",
+                "90",
+                "3",
+                "4",
+                "6"
+              ],
+              "ir_text": "%<id> = ROTATE(%body, 90, 3, 4, 6)"
+            }
+          ],
+          "command": "part.rotate"
+        },
+        {
+          "when": "hasNumber(ctx, \"ox\") || hasNumber(ctx, \"oy\") || hasNumber(ctx, \"oz\")",
+          "when_human": "any of ox, oy, oz is supplied",
+          "arguments": [
+            "%body",
+            "angle",
+            "axx",
+            "axy",
+            "axz",
+            "ox",
+            "oy",
+            "oz"
+          ],
+          "argument_count": {
+            "min": 8,
+            "max": 8
+          },
+          "examples": [
+            {
+              "parameters": {
+                "angle": 90.0,
+                "axx": 3.0,
+                "axy": 4.0,
+                "axz": 6.0,
+                "ox": 6.0,
+                "oy": 7.0,
+                "oz": 8.0
+              },
+              "ir_arguments": [
+                "%body",
+                "90",
+                "3",
+                "4",
+                "6",
+                "6",
+                "7",
+                "8"
+              ],
+              "ir_text": "%<id> = ROTATE(%body, 90, 3, 4, 6, 6, 7, 8)"
+            }
+          ],
+          "command": "part.rotate"
+        }
+      ]
+    },
+    {
+      "op": "RRECT",
+      "kernel_enum": "RRect",
+      "produces": "PROFILE",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 3,
+        "max_args": 5,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "RRECT(w, h, r [, cx=0, cy=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "w",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "h",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": "rounded rectangle / stadium"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sketch_rounded_rect"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "width",
+            "height",
+            "corner_radius"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "width": 40.0,
+                "height": 30.0,
+                "corner_radius": 5.0
+              },
+              "ir_arguments": [
+                "40",
+                "30",
+                "5"
+              ],
+              "ir_text": "%<id> = RRECT(40, 30, 5)"
+            }
+          ],
+          "command": "part.sketch_rounded_rect"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\")",
+          "when_human": "any of cx, cy is supplied",
+          "arguments": [
+            "width",
+            "height",
+            "corner_radius",
+            "cx",
+            "cy"
+          ],
+          "argument_count": {
+            "min": 5,
+            "max": 5
+          },
+          "examples": [
+            {
+              "parameters": {
+                "width": 40.0,
+                "height": 30.0,
+                "corner_radius": 5.0,
+                "cx": 4.0,
+                "cy": 5.0
+              },
+              "ir_arguments": [
+                "40",
+                "30",
+                "5",
+                "4",
+                "5"
+              ],
+              "ir_text": "%<id> = RRECT(40, 30, 5, 4, 5)"
+            }
+          ],
+          "command": "part.sketch_rounded_rect"
+        }
+      ]
+    },
+    {
       "op": "SHELL",
       "kernel_enum": "Shell",
       "produces": "SOLID",
@@ -2534,6 +3687,304 @@
       ]
     },
     {
+      "op": "SPHERE",
+      "kernel_enum": "Sphere",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 1,
+        "max_args": 4,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "SPHERE(r [, cx=0, cy=0, cz=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "default": "0",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "default": "0",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cz",
+              "default": "0",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.primitive_sphere"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "radius"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0
+              },
+              "ir_arguments": [
+                "10"
+              ],
+              "ir_text": "%<id> = SPHERE(10)"
+            }
+          ],
+          "command": "part.primitive_sphere"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"cz\")",
+          "when_human": "any of cx, cy, cz is supplied",
+          "arguments": [
+            "radius",
+            "cx",
+            "cy",
+            "cz"
+          ],
+          "argument_count": {
+            "min": 4,
+            "max": 4
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 10.0,
+                "cx": 2.0,
+                "cy": 3.0,
+                "cz": 4.0
+              },
+              "ir_arguments": [
+                "10",
+                "2",
+                "3",
+                "4"
+              ],
+              "ir_text": "%<id> = SPHERE(10, 2, 3, 4)"
+            }
+          ],
+          "command": "part.primitive_sphere"
+        }
+      ]
+    },
+    {
+      "op": "TORUS",
+      "kernel_enum": "Torus",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 2,
+        "max_args": 8,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "TORUS(major, minor [, cx, cy, cz, axx, axy, axz])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "major",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "minor",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cz",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axx",
+              "index": 5,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axy",
+              "index": 6,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "axz",
+              "index": 7,
+              "unit": "dimensionless",
+              "semantic": "direction_vector_component",
+              "classified_by": "rule: /^(ax[xyz]|dir[xyz]|openAx[xyz])$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.primitive_torus"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "major_radius",
+            "minor_radius"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "major_radius": 30.0,
+                "minor_radius": 8.0
+              },
+              "ir_arguments": [
+                "30",
+                "8"
+              ],
+              "ir_text": "%<id> = TORUS(30, 8)"
+            }
+          ],
+          "command": "part.primitive_torus"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"cz\") || hasNumber(ctx, \"axx\") || hasNumber(ctx, \"axy\") || hasNumber(ctx, \"axz\")",
+          "when_human": "any of cx, cy, cz, axx, axy, axz is supplied",
+          "arguments": [
+            "major_radius",
+            "minor_radius",
+            "cx",
+            "cy",
+            "cz",
+            "axx",
+            "axy",
+            "axz"
+          ],
+          "argument_count": {
+            "min": 8,
+            "max": 8
+          },
+          "examples": [
+            {
+              "parameters": {
+                "major_radius": 30.0,
+                "minor_radius": 8.0,
+                "cx": 3.0,
+                "cy": 4.0,
+                "cz": 5.0,
+                "axx": 6.0,
+                "axy": 7.0,
+                "axz": 9.0
+              },
+              "ir_arguments": [
+                "30",
+                "8",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "9"
+              ],
+              "ir_text": "%<id> = TORUS(30, 8, 3, 4, 5, 6, 7, 9)"
+            }
+          ],
+          "command": "part.primitive_torus"
+        }
+      ]
+    },
+    {
       "op": "TRANSLATE",
       "kernel_enum": "Translate",
       "produces": "SOLID",
@@ -2627,36 +4078,161 @@
           "command": "part.move"
         }
       ]
+    },
+    {
+      "op": "TUBE",
+      "kernel_enum": "Tube",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 3,
+        "max_args": 6,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "TUBE(rOuter, rInner, h [, cx, cy, cz])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "rOuter",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "rInner",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "h",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cx",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cy",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "cz",
+              "index": 5,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.primitive_tube"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "outer_radius",
+            "inner_radius",
+            "height"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "outer_radius": 12.0,
+                "inner_radius": 8.0,
+                "height": 30.0
+              },
+              "ir_arguments": [
+                "12",
+                "8",
+                "30"
+              ],
+              "ir_text": "%<id> = TUBE(12, 8, 30)"
+            }
+          ],
+          "command": "part.primitive_tube"
+        },
+        {
+          "when": "hasNumber(ctx, \"cx\") || hasNumber(ctx, \"cy\") || hasNumber(ctx, \"cz\")",
+          "when_human": "any of cx, cy, cz is supplied",
+          "arguments": [
+            "outer_radius",
+            "inner_radius",
+            "height",
+            "cx",
+            "cy",
+            "cz"
+          ],
+          "argument_count": {
+            "min": 6,
+            "max": 6
+          },
+          "examples": [
+            {
+              "parameters": {
+                "outer_radius": 12.0,
+                "inner_radius": 8.0,
+                "height": 30.0,
+                "cx": 4.0,
+                "cy": 5.0,
+                "cz": 6.0
+              },
+              "ir_arguments": [
+                "12",
+                "8",
+                "30",
+                "4",
+                "5",
+                "6"
+              ],
+              "ir_text": "%<id> = TUBE(12, 8, 30, 4, 5, 6)"
+            }
+          ],
+          "command": "part.primitive_tube"
+        }
+      ]
     }
   ],
   "forbidden_ops": [
-    {
-      "op": "BOX",
-      "kernel_enum": "Box",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "BOX(dx, dy, dz [, cx=0, cy=0, cz=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "CONE",
-      "kernel_enum": "Cone",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "CONE(r1, r2, h [, cx, cy, cz, axx, axy, axz])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "CYL",
-      "kernel_enum": "Cyl",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "CYL(r, h [, cx=0, cy=0, cz=0, axx=0, axy=0, axz=1])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
     {
       "op": "DEFEATURE",
       "kernel_enum": "Defeature",
@@ -2703,29 +4279,11 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
-      "op": "PRISM",
-      "kernel_enum": "Prism",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "PRISM(nSides, circumR, h [, cx, cy, cz])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
       "op": "PUSHFACE",
       "kernel_enum": "PushFace",
       "compiled_into_a_default_build": true,
       "signature": [
         "PUSHFACE(%body, \"sel\", dist)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "REGPOLY",
-      "kernel_enum": "RegPoly",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "REGPOLY(r, n [, cx=0, cy=0, rotDeg=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -2739,38 +4297,11 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
-      "op": "ROTATE",
-      "kernel_enum": "Rotate",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "ROTATE(%a, angleDeg, axx, axy, axz [, ox=0, oy=0, oz=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "RRECT",
-      "kernel_enum": "RRect",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "RRECT(w, h, r [, cx=0, cy=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
       "op": "SLOT",
       "kernel_enum": "Slot",
       "compiled_into_a_default_build": true,
       "signature": [
         "SLOT(len, wid [, cx=0, cy=0, angleDeg=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "SPHERE",
-      "kernel_enum": "Sphere",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SPHERE(r [, cx=0, cy=0, cz=0])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -2790,24 +4321,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "TAG(%body, \"@name\", \"declaring-sel\")"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "TORUS",
-      "kernel_enum": "Torus",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "TORUS(major, minor [, cx, cy, cz, axx, axy, axz])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "TUBE",
-      "kernel_enum": "Tube",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "TUBE(rOuter, rInner, h [, cx, cy, cz])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -3773,6 +5286,651 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.primitive_box",
+      "label": "Box",
+      "category": "Part",
+      "feature_ir_op": "BOX",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "dx",
+          "type": "Number",
+          "required": true,
+          "default_number": 40.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "dy",
+          "type": "Number",
+          "required": true,
+          "default_number": 30.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "dz",
+          "type": "Number",
+          "required": true,
+          "default_number": 20.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"dx\", 0.0) > 0.0 && num(ctx, \"dy\", 0.0) > 0.0 && num(ctx, \"dz\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "dx",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "dy",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "dz",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.primitive_cone",
+      "label": "Cone",
+      "category": "Part",
+      "feature_ir_op": "CONE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "radius_base",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "radius_top",
+          "type": "Number",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "height",
+          "type": "Number",
+          "required": true,
+          "default_number": 25.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axz",
+          "type": "Number",
+          "required": false,
+          "default_number": 1.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "(num(ctx, \"radius_base\", 0.0) > 0.0 || num(ctx, \"radius_top\", 0.0) > 0.0) && num(ctx, \"radius_base\", 0.0) >= 0.0 && num(ctx, \"radius_top\", 0.0) >= 0.0 && num(ctx, \"height\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "radius_base",
+            "comparison": ">=",
+            "value": 0.0
+          },
+          {
+            "parameter": "radius_top",
+            "comparison": ">=",
+            "value": 0.0
+          },
+          {
+            "parameter": "height",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": [
+          "num(ctx, \"radius_base\", 0.0) > 0.0 || num(ctx, \"radius_top\", 0.0) > 0.0"
+        ]
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.primitive_cylinder",
+      "label": "Cylinder",
+      "category": "Part",
+      "feature_ir_op": "CYL",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "height",
+          "type": "Number",
+          "required": true,
+          "default_number": 25.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axz",
+          "type": "Number",
+          "required": false,
+          "default_number": 1.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"radius\", 0.0) > 0.0 && num(ctx, \"height\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "height",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.primitive_prism",
+      "label": "Prism",
+      "category": "Part",
+      "feature_ir_op": "PRISM",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "sides",
+          "type": "Number",
+          "required": true,
+          "default_number": 6.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 15.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "height",
+          "type": "Number",
+          "required": true,
+          "default_number": 20.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const double n = num(ctx, \"sides\", 0.0); n >= 3.0 && wholeCount(n) && num(ctx, \"radius\", 0.0) > 0.0 && num(ctx, \"height\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "sides",
+            "comparison": ">=",
+            "value": 3.0
+          },
+          {
+            "parameter": "sides",
+            "comparison": "is_whole_number"
+          },
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "height",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.primitive_sphere",
+      "label": "Sphere",
+      "category": "Part",
+      "feature_ir_op": "SPHERE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 10.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"radius\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.primitive_torus",
+      "label": "Torus",
+      "category": "Part",
+      "feature_ir_op": "TORUS",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "major_radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 30.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "minor_radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 8.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axz",
+          "type": "Number",
+          "required": false,
+          "default_number": 1.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"major_radius\", 0.0) > 0.0 && num(ctx, \"minor_radius\", 0.0) > 0.0 && num(ctx, \"minor_radius\", 0.0) < num(ctx, \"major_radius\", 0.0)",
+        "derived": [
+          {
+            "parameter": "major_radius",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "minor_radius",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "minor_radius",
+            "comparison": "<",
+            "parameter_rhs": "major_radius"
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.primitive_tube",
+      "label": "Tube",
+      "category": "Part",
+      "feature_ir_op": "TUBE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "outer_radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 12.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "inner_radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 8.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "height",
+          "type": "Number",
+          "required": true,
+          "default_number": 30.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"outer_radius\", 0.0) > 0.0 && num(ctx, \"inner_radius\", 0.0) > 0.0 && num(ctx, \"inner_radius\", 0.0) < num(ctx, \"outer_radius\", 0.0) && num(ctx, \"height\", 0.0) > 0.0",
+        "derived": [
+          {
+            "parameter": "outer_radius",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "inner_radius",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "inner_radius",
+            "comparison": "<",
+            "parameter_rhs": "outer_radius"
+          },
+          {
+            "parameter": "height",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.revolve",
       "label": "Revolve",
       "category": "Part",
@@ -3840,6 +5998,96 @@
           }
         ],
         "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.rotate",
+      "label": "Rotate Body",
+      "category": "Part",
+      "feature_ir_op": "ROTATE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "angle",
+          "type": "Number",
+          "required": true,
+          "default_number": 90.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "axx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "axz",
+          "type": "Number",
+          "required": false,
+          "default_number": 1.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "ox",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "oy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "oz",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const double ax = num(ctx, \"axx\", 0.0); const double ay = num(ctx, \"axy\", 0.0); const double az = num(ctx, \"axz\", 1.0); solidTarget(*d, ctx.selection()).ok && num(ctx, \"angle\", 0.0) != 0.0 && ax * ax + ay * ay + az * az > 0.0",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          },
+          {
+            "parameter": "angle",
+            "comparison": "!=",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": [
+          "ax * ax + ay * ay + az * az > 0.0"
+        ]
       },
       "produces_value_kind": "Solid"
     },
@@ -4061,6 +6309,84 @@
       "produces_value_kind": "Profile"
     },
     {
+      "id": "part.sketch_polygon",
+      "label": "Polygon",
+      "category": "Part",
+      "feature_ir_op": "REGPOLY",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 20.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "sides",
+          "type": "Number",
+          "required": true,
+          "default_number": 6.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "rotation",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const double n = num(ctx, \"sides\", 0.0); num(ctx, \"radius\", 0.0) > 0.0 && n >= 3.0 && wholeCount(n)",
+        "derived": [
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "sides",
+            "comparison": ">=",
+            "value": 3.0
+          },
+          {
+            "parameter": "sides",
+            "comparison": "is_whole_number"
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Profile"
+    },
+    {
       "id": "part.sketch_rect",
       "label": "Rectangle",
       "category": "Part",
@@ -4123,6 +6449,88 @@
           }
         ],
         "unparsed_terms": []
+      },
+      "produces_value_kind": "Profile"
+    },
+    {
+      "id": "part.sketch_rounded_rect",
+      "label": "Rounded Rectangle",
+      "category": "Part",
+      "feature_ir_op": "RRECT",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "width",
+          "type": "Number",
+          "required": true,
+          "default_number": 40.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "height",
+          "type": "Number",
+          "required": true,
+          "default_number": 30.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "corner_radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 5.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "cx",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "cy",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "const double w = num(ctx, \"width\", 0.0); const double h = num(ctx, \"height\", 0.0); const double r = num(ctx, \"corner_radius\", 0.0); w > 0.0 && h > 0.0 && r >= 0.1 && 2.0 * r <= w - 0.2 && 2.0 * r <= h - 0.2",
+        "derived": [
+          {
+            "parameter": "width",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "height",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "corner_radius",
+            "comparison": ">=",
+            "value": 0.1
+          }
+        ],
+        "unparsed_terms": [
+          "2.0 * r <= w - 0.2",
+          "2.0 * r <= h - 0.2"
+        ]
       },
       "produces_value_kind": "Profile"
     },

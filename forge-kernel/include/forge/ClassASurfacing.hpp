@@ -78,7 +78,33 @@ struct CurvatureCombSample {
 //   g1_max_deg  = max angle between surface normals       (tangent dev)
 //   g2_max_pct  = max |kA - kB| / max(|kA|, |kB|, eps)    (curvature)
 //   g3_max_pct  = max torsion difference                  (osculating)
-// `g3_continuity` is set when g0 < 1e-3 && g1 < 1.0 && g2 < 0.05.
+//
+// `g3_continuity` is set when
+//     g0_max_mm < 1e-3 && g1_max_deg < 1.0 && g2_max_pct < 5.0 && g3_max_pct < 5.0.
+// (The older spelling of this comment listed only the first three terms and
+// wrote the g2 bound as 0.05 rather than 5.0; the code has always used four
+// terms and percent units. Corrected against the implementation.)
+//
+// ==================== HONEST STATUS OF THE FOUR METRICS ====================
+// g0 and g1 are TRUSTWORTHY: measured against two cubic patches built to join
+// with an exactly matched tangent plane, g0 = 1.8e-15 mm and g1 = 0.0000 deg.
+//
+// g2 was INVERTED until the orientation fix in ClassASurfacing.cpp (it compared
+// mean curvatures without normalising for the two faces' opposite outward
+// normals, so a perfect G2 join scored 200% and a curved-meets-flat join scored
+// 100%). See the long comment at the fix site for the measured sweep.
+//
+// g3 IS NOT YET A REAL MEASUREMENT — treat it as reserved, not as evidence.
+// It is computed as |(d1.nA) - (d1.nB)| * torsion(edge), where d1 is the SHARED
+// EDGE's tangent. The edge lies on both faces, so d1 is perpendicular to both
+// surface normals by construction and both projections are identically zero.
+// Measured: g3_max_pct = 0.000e+00 for every join in the sweep above, including
+// a 40x curvature jump and a curved-meets-flat join. The term therefore never
+// fails and contributes nothing to `g3_continuity`, which is in truth a
+// G0-and-G1-and-G2 verdict. A real G3 needs third-order surface derivatives
+// (Geom_Surface::D3) compared across the boundary, which is scheduled work --
+// see forge-kernel/reports/CLASS_A_SURFACING_PROGRAMME.md. Do NOT threshold a
+// Class-A acceptance gate on g3 until it measures something.
 struct ContinuityReport {
     double g0_max_mm;
     double g1_max_deg;
