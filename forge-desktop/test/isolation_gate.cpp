@@ -371,6 +371,38 @@ int main(int argc, char** argv) {
     check(o == inProcess, "and the fallback geometry is the in-process geometry", o.text());
   }
 
+  // ══ 7b. AN UNBOUNDED, UNINTERRUPTIBLE WAIT FALLS BACK RATHER THAN HANGING ══
+  // deadlineMs = 0 means "no deadline", which is fine for a caller pumping the
+  // session from its own frame loop but cannot terminate a SYNCHRONOUS build
+  // with no host pump. The app would hang on rebuild, which to a user is
+  // indistinguishable from the crash this mechanism exists to prevent. It must
+  // fall back -- never refuse, and never spin.
+  {
+    forge::desktop::KernelScene unbounded;
+    forge::ui::GuardLimits noDeadline = limits;
+    noDeadline.deadlineMs = 0;
+    unbounded.useIsolatedWorker({worker}, noDeadline);
+
+    const bool ok = unbounded.build();
+    check(ok, "★ a no-deadline scene with no host pump still BUILDS (it did not hang)",
+          unbounded.error());
+    checkEq(unbounded.isolatedFallbacks(), std::size_t{1},
+            "and it fell back rather than entering a wait nothing can end");
+    const Observables o = observe(unbounded);
+    check(o == inProcess, "the fallback geometry is the in-process geometry", o.text());
+
+    // With a host pump installed the same limits ARE usable, because the pump
+    // can cancel. This is what makes the guard a property of the CONFIGURATION
+    // rather than a blanket ban on deadlineMs = 0.
+    forge::desktop::KernelScene pumped;
+    pumped.useIsolatedWorker({worker}, noDeadline);
+    pumped.setHostPump([](std::uint64_t, const std::string&) { return false; });
+    check(pumped.build(), "and with a host pump the same limits run OUT of process",
+          pumped.error());
+    checkEq(pumped.isolatedFallbacks(), std::size_t{0}, "with no fallback");
+    checkEq(pumped.isolatedBuilds(), std::size_t{1}, "and one isolated build");
+  }
+
   // ══ 8. THE WAIT IS INTERRUPTIBLE ══════════════════════════════════════════
   // Bounded is not enough. A 300 s operation the user cannot stop is a hang as
   // far as the user is concerned, so the host pump can cancel.

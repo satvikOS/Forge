@@ -315,6 +315,26 @@ bool KernelScene::probeWorker(std::string& error) {
 bool KernelScene::buildIsolated(const std::string& program, bool& fellBack) {
   fellBack = false;
 
+  // ★ A WAIT THAT CANNOT END. GuardLimits documents deadlineMs = 0 as "no
+  // deadline", which is legitimate for a caller pumping the session from its own
+  // frame loop -- crash_isolation_test uses exactly that to prove a cancel is
+  // the only thing stopping a job. But buildIsolated is SYNCHRONOUS: with no
+  // deadline AND no host pump, the loop below has nothing that can ever make it
+  // terminal, and it would spin inside whatever called it.
+  //
+  // No live caller does this today (main.cpp sets 300 s; the gates set 60 s,
+  // 15 s and 900 ms), so this is a guard against a future one rather than a fix
+  // for a present bug -- and it is here because the failure would be an
+  // application that hangs on rebuild, which is indistinguishable from the crash
+  // this whole mechanism exists to prevent.
+  //
+  // ★ It FALLS BACK, it does not refuse. An isolation we cannot safely wait on
+  // is an isolation we do not use; the part still builds.
+  if (limits_.deadlineMs == 0 && !hostPump_) {
+    fellBack = true;
+    return false;
+  }
+
   const std::uint64_t startMs = forge::ui::steadyNowMs();
   if (!session_.submit("rebuild", program, startMs)) {
     fellBack = true;

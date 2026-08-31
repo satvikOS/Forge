@@ -18,7 +18,7 @@
 #                        pointer-heavy code in the process that must not fall over.
 #
 # ── ★ THE MUTATIONS ─────────────────────────────────────────────────────────
-# A GATE NEVER PROVEN TO FAIL IS DECORATION. Five of the seven mutations below
+# A GATE NEVER PROVEN TO FAIL IS DECORATION. Six of the eight mutations below
 # are injected into the PRODUCTION SOURCES -- a copy of them -- not into the test,
 # because a mutation that only edits the test proves the test can print FAIL, not
 # that it is watching the shipped code.
@@ -67,6 +67,26 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# timeout(1) is coreutils and absent on macOS: run the child in the background,
+# arm a killer, reap whichever finishes first. Returns 124 on timeout.
+#
+# ★ THIS IS LOAD-BEARING, NOT HYGIENE. Mutation S6 removes the guard against an
+# unbounded, uninterruptible wait -- so the mutated gate HANGS rather than
+# failing an assertion. Without a timeout that mutation would hang CI instead of
+# turning it red, and "a hang" and "a pass" look identical to a runner that waits
+# for ever. A gate that cannot time out cannot catch a hang.
+TEST_TIMEOUT="${TEST_TIMEOUT:-300}"
+run_with_timeout() {
+  local secs="$1"; shift
+  "$@" & local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) & local wd=$!
+  local rc=0
+  wait "$pid" 2>/dev/null || rc=$?
+  if kill -0 "$wd" 2>/dev/null; then kill -9 "$wd" 2>/dev/null; wait "$wd" 2>/dev/null || true
+  else rc=124; fi
+  return $rc
+}
+
 INC=(-I "$ROOT/ui/include" -I "$ROOT/forge-kernel/include" -I "$ROOT/forge-desktop/src"
      -I "$OCCT_PREFIX/include/opencascade" -I "$EIGEN_PREFIX/include/eigen3")
 LINK=("$LIB" -L "$OCCT_PREFIX/lib" -Wl,-rpath,"$KDIR" -Wl,-rpath,"$OCCT_PREFIX/lib")
@@ -104,8 +124,13 @@ if ! build_pair "$ROOT" "$WORK/base"; then
   exit 3
 fi
 
-"$WORK/base/isolation_gate" --worker "$WORK/base/forge_kernel_worker"
+run_with_timeout "$TEST_TIMEOUT" "$WORK/base/isolation_gate" \
+    --worker "$WORK/base/forge_kernel_worker"
 rc=$?
+if [ $rc -eq 124 ]; then
+  echo "[isolation] the gate exceeded ${TEST_TIMEOUT}s and was killed -- a HANG, not a pass. RED."
+  exit 1
+fi
 if [ $rc -ge 128 ]; then
   echo "[isolation] the gate died on signal $((rc - 128)) -- it did not complete, so this is"
   echo "            NOT an assertion failure. RED."
@@ -122,6 +147,7 @@ MUTS=(
 "S3|the worker stops announcing its ops, so a crash names nothing|forge-desktop/src/kernel_worker_main.cpp|s|^  std::fprintf(stderr, \"%s%d %s\\\\n\", forge::ui::kOpProgressPrefix, opId,|  if (opId) return; std::fprintf(stderr, \"%s%d %s\\\\n\", forge::ui::kOpProgressPrefix, opId,|"
 "S4|the vertex-length check is weakened from != to <, so an over-long stream renders|forge-desktop/src/KernelScene.cpp|s/if (have != want) {/if (have < want) {/"
 "S5|a crashed build reports SUCCESS|forge-desktop/src/KernelScene.cpp|s|^    error_ = session_\.diagnostic();\$|    error_ = session_.diagnostic();\\n    return true;|"
+"S6|the unbounded-uninterruptible-wait guard is removed, so the app HANGS on rebuild|forge-desktop/src/KernelScene.cpp|s|^  if (limits_\.deadlineMs == 0 \&\& !hostPump_) {|  if (false) {|"
 )
 
 BAD=0
@@ -164,8 +190,8 @@ for entry in "${MUTS[@]}"; do
     BAD=$((BAD+1))
     continue
   fi
-  "$MDIR/out/isolation_gate" --worker "$MDIR/out/forge_kernel_worker" \
-      > "$MDIR/out/run.log" 2>&1
+  run_with_timeout "$TEST_TIMEOUT" "$MDIR/out/isolation_gate" \
+      --worker "$MDIR/out/forge_kernel_worker" > "$MDIR/out/run.log" 2>&1
   mrc=$?
   if [ "$mrc" -eq 0 ]; then
     echo "  $id: STAYED GREEN -- the check it targets is unfalsifiable <- $desc"
@@ -173,7 +199,8 @@ for entry in "${MUTS[@]}"; do
   else
     fails="$(grep -c '  FAIL' "$MDIR/out/run.log" || true)"
     first="$(grep -m1 '  FAIL' "$MDIR/out/run.log" | sed 's/^  FAIL: //' | cut -c1-64)"
-    [ -z "$first" ] && first="exit $mrc"
+    if [ "$mrc" -eq 124 ]; then first="HUNG -- killed after ${TEST_TIMEOUT}s"
+    elif [ -z "$first" ]; then first="exit $mrc"; fi
     echo "  $id: RED ($fails checks failed) <- $desc"
     echo "        first: $first"
   fi
@@ -182,8 +209,8 @@ done
 
 # Gate-side mutations. G1 is the positive control for the isolation itself.
 for g in 1 2; do
-  "$WORK/base/isolation_gate" --worker "$WORK/base/forge_kernel_worker" --mutation "$g" \
-      > "$WORK/base/g$g.log" 2>&1
+  run_with_timeout "$TEST_TIMEOUT" "$WORK/base/isolation_gate" \
+      --worker "$WORK/base/forge_kernel_worker" --mutation "$g" > "$WORK/base/g$g.log" 2>&1
   mrc=$?
   case "$g" in
     1) desc="★ null dereference IN THE PARENT (what an UNISOLATED fault does)";;
@@ -211,5 +238,5 @@ if [ "$BAD" -ne 0 ]; then
   exit 1
 fi
 echo
-echo "[isolation] GREEN -- the gate passes and all 7 mutations were caught."
+echo "[isolation] GREEN -- the gate passes and all 8 mutations were caught."
 exit 0
