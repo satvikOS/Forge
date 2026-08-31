@@ -247,6 +247,21 @@ jobs:
         # is C++ (src/update/Manifest.cpp) with a parser stricter than json.load.
         # Two halves of one contract that had never been run together.
         run: bash forge-desktop/test/appcast_selftest.sh
+      - name: the release-visibility check fires in BOTH directions
+        # release_visibility_check.sh is what the desktop release workflow runs
+        # after publishing, and it fails that build on its verdict — so its
+        # verdict is load-bearing and its RED path must be exercised.
+        #
+        # The subtle half is the GREEN path. Every observation of this check so
+        # far has been red, because the repository's only release is a draft, so
+        # all of them are equally consistent with a script that returns 1
+        # unconditionally. The selftest's case A is the positive control that
+        # rules that out, and the meta-control is recorded in its header: run
+        # against `exit 0` it reports 6 failing arms, against `exit 1` it reports
+        # 2, and only the real check reports 0.
+        #
+        # Needs no network, no GitHub auth, no compiler: it shims `gh` on PATH.
+        run: bash forge-desktop/test/release_visibility_check_selftest.sh
 
   simulation:
     name: real-time simulation frame contract (SR-4)

@@ -188,9 +188,10 @@ jobs:
     runs-on: macos-15
     # 20, for the reason spelled out on the release job's own timeout: a ceiling
     # is the blast radius of a hang, not a build budget. MEASURED whole-job wall
-    # clock for THIS job: 3.68 min cold (run 33440617438), 1.75 min warm (run
-    # 33442901972). 20 is 5.4x the cold number. Lower than the release job's 25
-    # because this job does strictly less: no packaging, no app launch, no zip.
+    # clock for THIS job: 3.68 min cold (run 33440617438), 4.63 min cold (run
+    # 33445759893, the worst observed), 1.75 min warm (run 33442901972). 20 is
+    # 4.3x the worst. Lower than the release job's 25 because this job does
+    # strictly less: no packaging, no app launch, no zip.
     timeout-minutes: 20
     env:
       # MUST match the release job's FORGE_MACOS_MIN exactly. A different deployment
@@ -370,10 +371,12 @@ jobs:
     #   run 33440617438  kernel  job  3.68 min   cold
     #   run 33442901972  release job  1.85 min   ccache 454/454 hits (warm)
     #   run 33442901972  kernel  job  1.75 min   warm
-    # The cold number is the real one and it is under five minutes. 25 gives 5.6x
-    # headroom over the worst of those, absorbs a slow `brew install` (measured
-    # 62 s) and a cold ccache at once, and still bounds a new hang to 25 minutes
-    # instead of three hours.
+    #   run 33445759893  release job  5.32 min   cold, and the WORST observed
+    #   run 33445759893  kernel  job  4.63 min   cold
+    # The cold numbers are the real ones and all are under six minutes. 25 gives
+    # 4.7x headroom over the worst of them, absorbs a slow `brew install`
+    # (measured 62 s) and a cold ccache at once, and still bounds a new hang to
+    # 25 minutes instead of three hours.
     #
     # This is a ceiling, not a target: it does not make anything faster, and it
     # must never be raised to make a red run green. If a legitimate run ever
