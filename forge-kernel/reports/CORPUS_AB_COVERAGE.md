@@ -205,6 +205,61 @@ self-test in `reports/corpus_ab/selftest.log`, provenance in
 > `reports/corpus_ab/thrusections_canonicalring_600_summary.md`, raw rows in
 > the matching `_results.jsonl.gz`, provenance in `_manifest.json`.
 
+> ### ⚠ AND THE RE-MEASURED `THRUSECTIONS` ROW IS ITSELF SUPERSEDED
+>
+> The paragraph above closed by calling the surviving 258 "curved-section parts",
+> which reads as a property of the corpus. It was not. `thruSections` returned a
+> bare null shape from twelve places, so the bucket was unattributable; every
+> return now records a label (`FK_DEFER`) and
+> `test/run_thrusections_engine_census.sh` reports the label the **engine** wrote
+> rather than a replica of its predicates. Its answer, over the same 600 parts:
+>
+> | engine's own defer label | parts |
+> |---|---:|
+> | `prof_edge_not_line` | **291 of 291** |
+>
+> One cause, not a tail: a section was represented as a ring of **vertices**, so
+> every section edge had to be a LINE. Faceting the arcs would have answered with
+> the wrong solid. The fix is an identity instead — **when section B is section A
+> translated by T, the ruled loft between them IS the linear extrusion of A along
+> T**, exactly, for any edge geometry — and `forge::occtPrism` (already linked
+> into that file) is that extrusion, `FACE` giving laterals plus both caps and
+> `WIRE` the open lateral skin, which is exactly the `isSolid` distinction
+> `BRepOffsetAPI_ThruSections` draws. Measured, **189 of the 258 deleted parts
+> (73.3%) are exact translates**. Re-measured over the same 600 parts, stride 1,
+> 0 part-level errors, arms proved to differ (binary 716320 → 716800 bytes,
+> sha `17105475…` → `8875d28b…`):
+>
+> | family | N | both | nat only | **OCCT only** | neither | nat % | occt % | delta (95% CI) | McNemar p | verdict |
+> |---|---:|---:|---:|---:|---:|---:|---:|---|---:|---|
+> | THRUSECTIONS (translate path) | 600 | 498 | 0 | **69** | 33 | 83.0% | 94.5% | -11.5% [-14.1, -8.9] | 3.4e-21 | FAIL |
+>
+> All **498** both-build parts agree with OCCT on the full observable vector, **0
+> disagree**, and all 498 native results are `BRepCheck_Analyzer` VALID. The
+> change is **strictly additive** and that is measured, not asserted: the 309
+> parts the engine already covered are **byte-identical** between the two runs,
+> the OCCT arm did not move on any part, and the only bucket transition anywhere
+> is `OCCT_ONLY → BOTH_OK` ×189. Two **untouched control families** measured in
+> the same two runs did not move: PIPESHELL 51.5% and THICKEN 67.8%, with **0**
+> bucket changes and **0** native-payload changes per part.
+>
+> It adds **no OCCT toolkit**: the seven symbols the change introduces are all
+> `BRepAdaptor_Curve` (the sampler) resolving to `libTKBRep` and `libTKG3d`,
+> which that translation unit already reached (17 and 13 symbols before), and no
+> symbol of the native path resolves to `libTKOffset` — the toolkit this option
+> exists to remove.
+>
+> The option **still fails** its flip gate. The surviving 69 are pairs that are
+> not translates: of the 102 remaining deferrals 81 are an edge-count mismatch
+> between the two sections and 21 are a genuine non-translate. A non-translated
+> pair of curved sections needs ruled surfaces built between the curves, which is
+> a different engine, and this time the claim is the engine's own label rather
+> than an inference from the corpus. Artefacts:
+> `reports/corpus_ab/thrusections_translate_600_{BEFORE,AFTER}_summary.md`, raw
+> rows in the matching `_results.jsonl.gz`, provenance in `_manifest.json`, and
+> the per-part defer labels in
+> `reports/corpus_ab/thrusections_engine_census_600_{BEFORE,AFTER}.tsv.gz`.
+
 > ### ⚠ THE `FILLET` ROW ABOVE IS SUPERSEDED, AND SO IS ITS `NATIVE_ONLY` CELL
 >
 > Both unexplained cells of the FILLET row were defects in the native engine, not
