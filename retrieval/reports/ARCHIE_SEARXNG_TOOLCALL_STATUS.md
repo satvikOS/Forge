@@ -75,6 +75,58 @@ strip.
 written decision, because it is the one that quietly weakens a safety property that was carefully
 built.
 
+---
+
+## ★DECIDED (owner, 2026-08-31): option 1. Option 2 is not on the table.
+
+> *"yes i agree when Forge C++ app is full ready and user converses with Archie they can approve
+> tool calling"*
+
+This is now a requirement on the CoPilot, not a later enhancement. It settles the policy question
+in §2: **the model never grants its own `SendApproval`; the conversing user does.** Nothing about
+`SearxngClient` changes — its three gates were already built for exactly this shape of caller, and
+the reason no wiring existed is that the approving actor did not exist yet. The CoPilot is that
+actor.
+
+### What the CoPilot must therefore implement
+
+1. **Archie proposes; it never sends.** The planner emits a *proposed* query. The proposal reaches
+   `client.preview(request)` and stops there. No code path exists in which a model-originated
+   value reaches `search()` without passing through a human grant.
+2. **The user sees the exact bytes, not a summary.** `preview()` returns the redacted, serialized
+   body and its digest. The approval UI must render *that*, verbatim — not the model's natural
+   language intent, and not a paraphrase. The whole value of the digest re-check in `search()` is
+   that what the operator saw is what goes on the wire; a UI showing a prettified version quietly
+   discards that guarantee.
+3. **Show the redaction diff.** The user should see what was stripped as well as what remains,
+   because the failure this guards against is a leak the user would not otherwise notice — a part
+   number or a customer name surviving into a query. Redaction that is invisible cannot be audited
+   by the person approving it.
+4. **Approval is per-query and never sticky.** No "always allow", no session-wide grant, no
+   remembered consent. `SendApproval` is bound to one preview's digest by construction; a UI that
+   batches approvals is defeating the type, not using it.
+5. **Refusal is ordinary.** Declining a search must return the planner to its normal loop with a
+   plain "retrieval unavailable", which `RETRIEVAL_UNAVAILABLE` already models. It must never
+   abort the feature tree. ★This follows the standing constraint against gating: a declined
+   search is not a failed build, and a long tree must survive one.
+6. **Headless runs do not search.** With no operator there is no approval, so a benchmark run takes
+   `POLICY_LOCAL_ONLY` / `RETRIEVAL_UNAVAILABLE` and proceeds. ★This must be the DEFAULT for
+   evaluation, and it is not merely a safety point — a benchmark score obtained with web retrieval
+   is not comparable to one obtained without it, so silent retrieval during evaluation would
+   corrupt every number this project is measured by.
+
+### What is now unblocked, and what is not
+
+Unblocked: the plumbing (§1) — tool schema in the prompt, output parser, executor, result
+injection into the correction loop — plus the approval UI above. The model side is proven capable
+(§3), so this is ordinary engineering.
+
+Not unblocked, and worth restating so the sequencing is not lost: **nothing measured says
+retrieval is a bottleneck.** Emissions build 80.8% of the time, and the dominant failure is the
+model asserting a property its own output does not satisfy (41.3%). Web search fixes none of that.
+This work is correctly sequenced *behind* the CoPilot shipping and *behind* the fidelity work — it
+is a capability the product needs, not a lever on the current score.
+
 ## 3. ★The model CAN tool-call — measured, and it refutes what I expected
 
 An earlier revision of this report listed "can the model emit a well-formed tool call at all?" as
