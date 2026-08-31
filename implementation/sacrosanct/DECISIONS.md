@@ -1338,3 +1338,49 @@ CLOSURE 11 (D-027 / #127). Past that, **TKBO is worth 11 -> 10** and becomes the
 parent-free node in the all-drops arm — but it has no option, no family, no corpus harness,
 and 32 symbols across 14 files. It needs a native boolean/defeaturing engine. TKPrim's dead
 DIRECT record is free accounting (DIRECT 9 -> 8) and moves the ledger by nothing.
+
+## D-033 (2026-08-31): axis-naming is UNANSWERABLE on this holdout — and the prefix nearly gave the opposite answer
+
+The v7 arm (axis-named corpus) was emitted and scored to completion against v5cap, paired on
+ids, through the baseline pin, `--align centred-longest --grid 64`.
+
+**The full result:**
+
+```
+paired n=516      v5cap mean 0.3004      v7 mean 0.3083
+delta (v7 - v5cap) = +0.0080      95% CI [-0.0177, +0.0338]   (20k bootstrap)
+per-part: v7 better on 236, worse on 206, tied 74
+vs box floor 0.2367:  v5cap +0.0637   v7 +0.0716
+```
+
+**THE SIGN FLIPPED WHEN THE BIAS WAS REMOVED.** The first pairing available gave
+**-0.0203**, CI [-0.0528, +0.0123] — v7 apparently *worse*. That was measured on coverage
+`[100, 100, 100, 60, 0, 0]`: a PREFIX of a hardest-first holdout, with **zero coverage of the
+easiest 240 rows**. The cause was mundane — v5cap had ten emission shards and only six had
+ever been scored; shards 6-9 had never been run. Scoring them moved the delta from -0.0203 to
++0.0080.
+
+Neither number is significant. But a report of "-0.0203, axis-naming hurts" would have been
+published off a partial arm, and the check that caught it was one line: **count the paired ids
+per 100-row block before believing any paired delta.**
+
+**AND THE QUESTION IS UNANSWERABLE AT THIS n, which is the more useful finding:**
+
+```
+sd of the paired difference = 0.2977      SE = 0.0131
+smallest reliably detectable delta at n=516  ~  0.0367
+observed |delta| = 0.0080     ->  FAR below the resolution of the instrument
+n needed for 80% power:   +0.050 -> 278      +0.030 -> 773      +0.020 -> 1738
+```
+
+The holdout has **600 rows**. So any true axis-naming effect smaller than ~0.037 cannot be
+resolved here no matter how carefully the run is repeated. **Re-running this comparison on
+this holdout is wasted GPU time**, and that is the decision: do not schedule it again.
+
+Two ways forward, and only these: measure an effect that is expected to be *large* (>0.05,
+detectable at n=278), or reduce the variance rather than chase n — sd 0.2977 on a mean of
+0.30 is the real obstacle, and a stratified or lower-variance holdout buys more than a
+bigger one.
+
+**What IS established, at full n:** v7 beats the box floor (+0.0716) and so does v5cap
+(+0.0637). Both are real models. Neither is distinguishable from the other here.
