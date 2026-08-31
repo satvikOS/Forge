@@ -513,16 +513,25 @@ int main(int argc, char** argv) {
   CHECK(closure.closed());
   CHECK_EQ_INT(closure.owedCreatorKinds.size(), 0);
   CHECK_EQ_INT(closure.unreachableOps.size(), 0);
-  // The creators, pinned. D-015 measured ZERO; if that is ever true again the
-  // language is empty and this line says so by name. Three of these (CIRCLE, RECT, RING)
-  // closed the PROFILE and WIRE kinds; the other nine are the kernel's own primitives,
-  // which the kernel has always built and no command could ask for until now.
-  CHECK_EQ_INT(closure.creatorOps.size(), 12);
+  // The creators, pinned BY NAME **and** by size. D-015 measured ZERO; if that is
+  // ever true again the language is empty and this block says so. Asserting both
+  // ways means a creator that quietly appears or disappears is caught, not
+  // absorbed into a count.
+  //
+  // A creator is an op that takes no leading %ref AND has a command needing no
+  // selection: both halves, or it is not a way into an empty document. RECT,
+  // CIRCLE, RRECT, REGPOLY and POLY make a PROFILE; RING and WIRE make a WIRE
+  // loft section; the nine kernel primitives and SWEEP make a SOLID outright;
+  // and INPUT makes one by BINDING the part being edited, which is what an EDIT
+  // tree has to start from and could not say at all until part.input existed.
+  CHECK_EQ_INT(closure.creatorOps.size(), 16);
   CHECK(contains(closure.creatorOps, "CIRCLE"));
+  CHECK(contains(closure.creatorOps, "INPUT"));
   CHECK(contains(closure.creatorOps, "RECT"));
   CHECK(contains(closure.creatorOps, "RING"));
   CHECK(contains(closure.creatorOps, "RRECT"));
   CHECK(contains(closure.creatorOps, "REGPOLY"));
+  CHECK(contains(closure.creatorOps, "POLY"));
   CHECK(contains(closure.creatorOps, "BOX"));
   CHECK(contains(closure.creatorOps, "CYL"));
   CHECK(contains(closure.creatorOps, "CONE"));
@@ -530,6 +539,8 @@ int main(int argc, char** argv) {
   CHECK(contains(closure.creatorOps, "TORUS"));
   CHECK(contains(closure.creatorOps, "PRISM"));
   CHECK(contains(closure.creatorOps, "TUBE"));
+  CHECK(contains(closure.creatorOps, "SWEEP"));
+  CHECK(contains(closure.creatorOps, "WIRE"));
   for (const IrValueKind kind : closure.owedCreatorKinds) {
     std::printf("  OWED: no forge::ui command creates a %s\n", toString(kind));
   }
