@@ -803,6 +803,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          set -euo pipefail
-          bash forge-desktop/test/release_visibility_check.sh \
-            --expect-version "${{ steps.ver.outputs.version }}"
+          set -uo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          # Bounded retry, and it is NOT a softened assertion. GET
+          # /releases/latest is served from a cache that can lag the edit above
+          # by a few seconds, so a single immediate probe can read a 404 for a
+          # release that is already correct. The VERDICT is unchanged -- the
+          # last attempt decides, and the step fails if it fails. Five tries,
+          # ten seconds apart, is 50 s against a build that measures under five
+          # minutes; if it is still invisible after that, it is invisible.
+          for attempt in 1 2 3 4 5; do
+            echo "--- visibility attempt $attempt of 5 ---"
+            if bash forge-desktop/test/release_visibility_check.sh \
+                 --expect-version "$V"; then
+              echo "an installed Forge can see $V"
+              exit 0
+            fi
+            [ "$attempt" -lt 5 ] && sleep 10
+          done
+          echo "::error::the release published above is NOT visible to an" \
+               "installed Forge after 5 attempts over 50s. It is a draft, a" \
+               "prerelease, or missing appcast.json/the zip. See the listing" \
+               "printed above for which."
+          exit 1
