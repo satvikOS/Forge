@@ -441,7 +441,8 @@ jobs:
     # macOS jobs use. The release artifact is built on macos-15, so this gate
     # compiles on the image the release compiles on: a bottle or toolchain change
     # that breaks the release build turns a PR red instead of a tag.
-    # 30, against a MEASURED 4 min 29 s on a cold cache -- about 6.7x headroom
+    #
+    # timeout: 30, against a MEASURED 4 min 29 s on a cold cache -- 6.7x headroom
     # for a slow bottle mirror or a contended runner. A ceiling is not a budget:
     # set generously enough that a slow day is not a false red, tight enough
     # that a hung build is killed rather than billed.
