@@ -193,6 +193,14 @@ jobs:
       # configure flags (verified against release_dryrun.sh:90-94, so CMake did
       # not reconfigure; the 2.4s configure confirms the CMakeCache was reused).
       #
+      # THE CACHE WAS NOT TRUNCATED, WHICH IS THE INTERESTING PART. 6 MB looks far
+      # too small for 421 objects plus a linked dylib, and "the cache is a
+      # phantom" was the first theory. It is wrong: a complete tree measures
+      # 109 MB uncompressed but only 11 MB of that is objects (these TUs are
+      # thin) and 6.4 MB is the dylib, and `tar | zstd -3` -- what actions/cache
+      # uses -- brings a VERIFIED-complete local tree to 7.0 MB. 6 MB is a whole
+      # tree. So the rebuild cannot be blamed on missing files.
+      #
       # The mechanism is `actions/checkout`. The consuming job checks the SOURCES
       # out fresh, stamping every file with the checkout time (12:35:23-31),
       # which is NEWER than the cached object files the producing job compiled at
@@ -265,8 +273,8 @@ jobs:
     # A JOB TIMEOUT AND A CONCURRENCY CANCEL BOTH REPORT AS `cancelled`. Two runs
     # were read as infrastructure blips before anyone did the subtraction:
     #
-    #   run 33392163311  job 12:35:22 -> 15:35:40 = 180.3 min
-    #   run 33377699374  job 09:26:xx -> 12:27:07 = 180.3 min
+    #   run 33392163311  job 12:35:22Z -> 15:35:40Z = 180.3 min
+    #   run 33377699374  job 09:26:50Z -> 12:27:08Z = 180.3 min
     #
     # 180.3 against `timeout-minutes: 180` is the ceiling, exactly. It was NOT a
     # concurrency cancel: `cancel-in-progress` is false above, and `gh run list`
