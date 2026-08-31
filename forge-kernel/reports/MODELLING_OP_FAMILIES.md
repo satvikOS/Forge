@@ -259,19 +259,31 @@ slot is the rectangle with two bites taken out.
 `(40·30 − (4−π)·36)·10 = 11690.973355` exactly. So the arc convention is right elsewhere; only
 `SLOT` inverts. Face count is **6 either way**, so a topology check cannot see this.
 
-**Why this is urgent.** `SLOT` is one of the twelve ops the separate `app/kernel-primitives`
-branch is exposing to users. If it lands as written, every slot drawn in the app is ~50 %
-undersized and still passes as a valid watertight solid. The fix is to swap the endpoint
-order on both arcs. **This finding is handed to that branch, not fixed here.**
+**Why this is urgent — and where it is NOT.** Checked against the actual branch:
+`origin/app/kernel-primitives` (PR #140) exposes **ten** ops — `BOX` `CYL` `CONE` `SPHERE`
+`TORUS` `PRISM` `TUBE` `RRECT` `REGPOLY` `ROTATE` — taking the vocabulary to
+`kUserInvocableOpsCount = 28`, `kForbiddenOpsCount = 12`. **`SLOT` is not among them; it stays
+forbidden** (the remaining twelve are `DEFEATURE FOLD HEAL INPUT POLY PUSHFACE RESIZEBORE
+SLOT SWEEP TAG VERIFY WIRE`). So this is not a same-week user-facing regression, and the
+brief's twelve-op list was two ops wider than the branch — it also included `POLY`.
 
-For completeness, every other primitive on that branch's list was checked against its closed
-form on the same run and **all are exact**:
+That makes it a *live* defect rather than an *imminent* one, which is worse in one specific
+way: `forge::ft` is **not** gated by the UI vocabulary (§7.2), so `SLOT` is reachable on the
+Archie emission path **today**. Every tree the model emits containing a `SLOT` is ~50 %
+undersized, builds a valid watertight solid, and is scored as geometry. It then becomes a
+user-facing defect the moment `SLOT` is exposed — which is the natural next step, since it is
+one of only twelve ops left. The fix is to swap the endpoint order on both arcs.
+**Handed to `app/kernel-primitives`; not fixed here.**
+
+For completeness, **all ten primitives PR #140 actually exposes** were checked against their
+closed forms on the same run and **all ten are exact**:
 `BOX(40,30,20)`=24000 · `CYL(20,30)`=37699.111843 (π·400·30) ·
 `CONE(20,10,30)`=21991.148575 (πh/3·(r₁²+r₁r₂+r₂²)) · `SPHERE(15)`=14137.166941 (⁴⁄₃π·3375) ·
 `TORUS(30,8)`=37899.280900 (2π²·30·64, genus 1) · `PRISM(6,20,25)`=25980.762114 ·
 `TUBE(20,12,30)`=24127.431580 (π·256·30, genus 1) · `REGPOLY(20,6)`×10=10392.304845 ·
-`RRECT(40,30,6)`×10=11690.973355 · `POLY` pentagon ×12 = 9600 (shoelace exactly) ·
-`ROTATE` volume-preserving. **`SLOT` is the only defective one of the twelve.**
+`RRECT(40,30,6)`×10=11690.973355 · `ROTATE` volume-preserving.
+`POLY` (pentagon ×12 = 9600, shoelace exactly) is also exact but stays forbidden.
+**`SLOT` is the only defective profile/primitive builder found in the whole set.**
 
 ### 6.2 `FILLET`/`CHAMFER` advertise two selector spellings the compiler does not honour
 
@@ -317,9 +329,17 @@ asymmetry is exactly what blocks the ground truth: `task_101.log` op 8 is
 
 ## 7. What already exists and is merely unreachable — the cheapest capability in the project
 
-Twenty-two kernel ops are forbidden for exactly one stated reason, repeated verbatim
+At the pinned SHA, twenty-two kernel ops are forbidden for exactly one stated reason,
+repeated verbatim
 twenty-two times in the generated table: *"no command in the forge::ui registry emits it,
 so no user can produce it."* Not one of them is forbidden for a geometric reason.
+
+`origin/app/kernel-primitives` (PR #140) takes ten of them — `BOX CYL CONE SPHERE TORUS
+PRISM TUBE RRECT REGPOLY ROTATE` — to `kUserInvocableOpsCount = 28` / `kForbiddenOpsCount = 12`.
+**The twelve that remain forbidden after it are `DEFEATURE FOLD HEAL INPUT POLY PUSHFACE
+RESIZEBORE SLOT SWEEP TAG VERIFY WIRE`** — i.e. every organic profile (`POLY`), every
+non-superelliptical section (`WIRE`), the whole direct-edit family, and all three
+self-checking mechanisms. That residue is the subject of §7.1 and §7.3.
 
 **Measured:** fifteen of them were driven straight through `forge::ft` on the pinned
 verifier. **15 / 15 built valid watertight solids**, and every closed form checks:
@@ -390,8 +410,8 @@ The bridge is a fine **UI** affordance ("this command is not on a toolbar yet").
 | # | change | cost | unlocks |
 |---|---|---:|---|
 | 1 | Un-forbid `TAG`, `VERIFY`, `INPUT` | 3 vocabulary rows + regen | edit tasks at all; self-checking trees |
-| 2 | UI commands for the 12 primitives | *in flight on `app/kernel-primitives`* | 12 ops — **but fix `SLOT` first (§6.1)** |
-| 3 | UI commands for `POLY`, `SWEEP`, `WIRE`, `HEAL`, `PUSHFACE`, `RESIZEBORE`, `DEFEATURE`, `FOLD` | 8 commands | the other 8 forbidden ops; all proven live in §7 |
+| 2 | UI commands for 10 primitives | *landed on `app/kernel-primitives`, PR #140* | 22 → 12 forbidden |
+| 3 | UI commands for the remaining nine: `POLY`, `SWEEP`, `WIRE`, `SLOT`, `HEAL`, `PUSHFACE`, `RESIZEBORE`, `DEFEATURE`, `FOLD` | 9 commands | closes the forbidden set to zero — all proven live in §7; **`SLOT` must be fixed first (§6.1)** |
 | 4 | Pass `guides` in `opLoft` instead of `{}` | **one argument** | guided loft |
 | 5 | `DRAFT` op over `part::draftFaces` | ~40 lines | ★ the largest missing NX/CATIA verb (§5) |
 | 6 | `HEAL` mode keyword → the other 3 healing routines + `shapefix::repair` | 4 cases | tolerance repair with a named-fixer log |
@@ -412,7 +432,7 @@ per-face census) and `archie_edit_214.log` (430-face input: 167 cylinder, 125 to
 
 | rank | work | value | cost | why |
 |---:|---|---|---|---|
-| 1 | **Fix `SLOT`** (§6.1) | high | **hours** | prevents a 50 %-wrong primitive from shipping to users this week |
+| 1 | **Fix `SLOT`** (§6.1) | high | **hours** | it is wrong on Archie's emission path *today* (the IR is not gated by the UI vocabulary), and it is a prerequisite for ever exposing `SLOT` |
 | 2 | **Un-forbid `TAG`/`VERIFY`/`INPUT`** | high | **hours** | `archie_edit_214`-class tasks are unreachable without `INPUT` |
 | 3 | **Edge selectors: implement `CONVEX`; make a quoted selector resolve instead of silently meaning `ALL`** (§6.2) | **very high** | days | `task_101` ops 8–9 are edge-predicate fillets and are inexpressible; the current silent-`ALL` is wrong geometry reported as success |
 | 4 | **`DRAFT` op** over the existing `draftFaces` (§5) | **very high** | days | largest missing NX/CATIA verb; also the harness the native-draft programme needs |
@@ -432,8 +452,8 @@ per-face census) and `archie_edit_214.log` (430-face input: 167 cylinder, 125 to
 Against *"don't gate anything"*, every proposal above is **represent / repair / tolerate**,
 never refuse:
 
-- **Represent.** Add op names, not validators. Nine of the twelve backlog items are one
-  `case` in the compiler's switch over code that already runs.
+- **Represent.** Add op names, not validators. Most of the backlog (§8 ranks 2, 4, 5, 7, 8, 9,
+  10) is a `case` in the compiler's switch, or a vocabulary row, over code that already runs.
 - **Repair.** Where a request is out of range, degrade and *say so in the result*, the way
   `opFillet` already retries at 0.75/0.5/0.35/0.2× radius. A `DRAFT` that cannot hold the
   angle should emit the largest angle it can and report the shortfall — not throw.
