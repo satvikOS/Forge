@@ -101,7 +101,24 @@ if [ "$DO_BUILD" = "1" ]; then
         -DCMAKE_OSX_DEPLOYMENT_TARGET="$MACOS_MIN" \
         -DFORGE_KERNEL_BUILD_DIR="$KERNEL_BUILD" >/dev/null || die "desktop configure failed"
   say "building forge_desktop -j$JOBS"
-  cmake --build "$APP_BUILD" -j"$JOBS" || die "desktop build failed"
+  # BUILD ONLY WHAT A RELEASE NEEDS. Building the default `all` target compiles the
+  # whole test suite as well, and one of those targets is expensive out of all
+  # proportion: forge_desktop_click_gate is ADDRESS-SANITIZED, so it drags in a second
+  # complete copy of the stack (forge_ui_asan + forge_imgui_asan +
+  # forge_desktop_core_asan) alongside four other gate binaries and the forge_update CLI.
+  #
+  # MEASURED, and this is why it matters: the first run that ever got past configure
+  # compiled 479 translation units in 179.1 minutes and was killed by the job timeout
+  # while still building document_gate, click_gate and ViewportRenderer. A release
+  # package needs NONE of those. The packager stages exactly one binary
+  # (package_macos.sh: EXE="$APP_BUILD/forge_desktop").
+  #
+  # The frame gate stays, because THIS script runs it below as its own verification --
+  # dropping it would make the dry run stop proving anything. Everything else is
+  # already covered by the kernel-tests workflow, which builds and mutation-proves all
+  # five gates on every push.
+  cmake --build "$APP_BUILD" -j"$JOBS" \
+        --target forge_desktop forge_desktop_frame_gate || die "desktop build failed"
 fi
 
 # ── 2. headless frame gate ───────────────────────────────────────────────────
