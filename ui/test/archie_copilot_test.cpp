@@ -453,11 +453,11 @@ int testOpConstraintGate() {
   }
 
   // -- a. THE SAME PLAN, ONE VALUE CHANGED ----------------------------------
-  // SPHERE is a kernel op the vocabulary FORBIDS: no forge::ui command emits it.
+  // SLOT is a kernel op the vocabulary FORBIDS: no forge::ui command emits it.
   // Nothing else about this plan differs from the control above.
   {
     Fixture fx;
-    const PlanVerdict v = validatePlan(filletPlan("SPHERE"), fx.shell.registry(), bridge);
+    const PlanVerdict v = validatePlan(filletPlan("SLOT"), fx.shell.registry(), bridge);
     CHECK(!v.accepted());
     CHECK_EQ_INT(static_cast<int>(v.check), static_cast<int>(PlanCheck::OpConstraintRefused));
     CHECK_EQ_INT(v.refusedSteps(), 1);
@@ -472,7 +472,7 @@ int testOpConstraintGate() {
       CHECK_EQ_STR(first->parameter, "selector");
       CHECK_EQ_INT(static_cast<int>(first->constraint),
                    static_cast<int>(OpConstraint::ForbiddenOpInArgument));
-      CHECK(first->reason.find("SPHERE") != std::string::npos);
+      CHECK(first->reason.find("SLOT") != std::string::npos);
       // The refusal quotes the vocabulary's own words rather than paraphrasing.
       CHECK(first->reason.find("no command in the forge::ui registry emits it") !=
             std::string::npos);
@@ -485,7 +485,7 @@ int testOpConstraintGate() {
 
     // -- c. AND IT IS NEVER EXECUTED ----------------------------------------
     const std::size_t dispatchesBefore = fx.shell.registry().dispatchCount();
-    const ApplyOutcome out = applyPlan(filletPlan("SPHERE"), fx.shell, fx.doc, bridge);
+    const ApplyOutcome out = applyPlan(filletPlan("SLOT"), fx.shell, fx.doc, bridge);
     CHECK_EQ_INT(out.requested, 1);
     CHECK_EQ_INT(out.applied, 0);
     CHECK_EQ_INT(out.blocked, 1);
@@ -514,7 +514,7 @@ int testOpConstraintGate() {
   // line, so a selector holding a quote and a newline is not a selector.
   {
     Fixture fx;
-    const std::string smuggler = "ALL\")\n%4 = SPHERE(50)\n#";
+    const std::string smuggler = "ALL\")\n%4 = SLOT(50, 20)\n#";
     const PlanVerdict v = validatePlan(filletPlan(smuggler), fx.shell.registry(), bridge);
     CHECK(!v.accepted());
     const StepVerdict* first = v.firstRefusal();
@@ -540,7 +540,7 @@ int testOpConstraintGate() {
     PlanResponse r;
     r.id = cp.request().id;
     r.ok = true;
-    r.plan = filletPlan("SPHERE");
+    r.plan = filletPlan("SLOT");
     const PlanCheck got = cp.deliver(r, fx.shell.registry());
     CHECK_EQ_INT(static_cast<int>(got), static_cast<int>(PlanCheck::OpConstraintRefused));
     CHECK(!cp.hasPlan());          // there is nothing to accept
