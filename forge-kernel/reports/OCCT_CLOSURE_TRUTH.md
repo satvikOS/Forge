@@ -1,5 +1,30 @@
 # OCCT closure truth — the ledger number is 14, not 8
 
+> **QUALIFICATION added by the integrator, same day, after independent verification.**
+> The drop is REAL and PROVEN, and it is CONDITIONAL. All five enabling options —
+> `FORGE_OFFSET_DROP_MAKEOFFSET`, `FORGE_THICKSOLID_DROP_NATIVE`, `FORGE_OFFSETSHAPE_DROP_NATIVE`,
+> `FORGE_THICKEN_DROP_NATIVE`, `FORGE_DRAFT_DROP_NATIVE` — **default OFF**, and the diff itself says
+> the result holds "with every option in this file ON".
+>
+> So the honest pair of numbers is:
+>   * **default build: OCCT_CLOSURE = 14**, TKOffset still linked — this is what ships today;
+>   * **all drop options ON: OCCT_CLOSURE = 13**, TKOffset's 42 symbols at 0 and its link record gone.
+>
+> Defaulting them OFF is the RIGHT conservatism: flipping them changes which engine computes real
+> geometry, and that is earned by the A/B corpus, not by a flag. But "the ledger number is now 13"
+> must not be quoted without the condition, because for every user building this repo today it is
+> still 14. The achievement is that the drop is now POSSIBLE and MEASURED, not that it has shipped.
+>
+> Verification trail: the artifact in the authoring worktree still linked TKOffset, which looked at
+> first like a contradiction. It was built at 04:48:06 and the drop commit is 04:49:53 — stale by
+> 107 seconds, not counter-evidence. Recorded because the next person to check will hit the same
+> apparent contradiction.
+
+> **UPDATE 2026-08-28 — the ledger number is now 13.** TKOffset has been dropped:
+> its 42 symbols are at 0 and its link record is gone. §7 at the end of this file
+> carries the measurement and the re-ranked path to zero. Everything above §7 is
+> the 2026-07-31 record and is left as written.
+
 **Date:** 2026-07-31 · **Analysis only.** No build was run, no source under `src/`,
 `include/`, or `CMakeLists.txt` was modified. Two new files were created, both explicitly
 requested: `scripts/occt_closure_count.sh` and this report. Every number below was measured
@@ -277,3 +302,91 @@ dependency behind another library.
   TKOffset's 42 symbols span 17 call sites of general OCCT shapes; TKFillet's 11 are blocked
   on multi-adjacent-edge and corner blends (`NativeFilletChamfer.cpp:295,310,357`). The
   ordering in §4.3 is driven by closure topology, which is exact; the cost column is not.
+
+---
+
+## 7. UPDATE 2026-08-28 — OCCT_CLOSURE 14 → 13 (TKOffset dropped)
+
+**The first time this programme has removed an OCCT toolkit from the load closure.**
+Measured on real linked binaries built in this worktree, with
+`scripts/occt_closure_count.sh` and `tools/occt_symbol_census.sh` (both of which had
+to be repaired first — see §7.4).
+
+### 7.1 Before / after
+
+| | OCCT_DIRECT | OCCT_CLOSURE | OCCT_PHANTOM | TKOffset symbols |
+|---|---|---|---|---|
+| default build (every drop OFF)          | 9 | **14** | 2 | 42 |
+| families A,C,D,E,F,G,H ON (prior work)  | 9 | **14** | 2 | 11 |
+| + families **I** and **J** (this track) | 8 | **13** | 2 | **0** |
+
+`closure (13): TKBO TKBool TKBRep TKernel TKFillet TKG2d TKG3d TKGeomAlgo TKGeomBase
+TKMath TKPrim TKShHealing TKTopAlgo` — TKOffset is absent.
+
+OCCT_PHANTOM did **not** rise (2 before, 2 after), which is the check that matters: a
+phantom would mean a translation unit still calls TKOffset and macOS
+`-undefined dynamic_lookup` is masking it. It does not.
+
+### 7.2 Why this drop was unilateral
+
+**Nothing DT_NEEDs TKOffset.** Measured over every toolkit in the closure: TKOffset sits
+at the very top of the dependency DAG, so removing the `.node`'s link record removes it
+from the process. The 13 that remain form a **total order**:
+
+```
+TKFillet > TKBool > TKBO > {TKPrim, TKShHealing} > TKTopAlgo > TKGeomAlgo
+        > TKBRep > TKGeomBase > TKG3d > TKG2d > TKMath > TKernel
+```
+
+### 7.3 The ranked path to zero, re-derived from the measured graph
+
+Because the remainder is a chain, **the closure can only fall from the top**. Ranked by
+closure value, not by symbol count:
+
+| # | toolkit | exclusive symbols | closure effect | state |
+|---|---|---|---|---|
+| 1 | **TKFillet** | 11 | **13 → 11** (takes TKBool, 0 symbols, with it) | `FORGE_FILLET_DROP_NATIVE` exists, default OFF: needs a general multi-edge / curved native fillet |
+| 2 | TKBO | 32 | 11 → 10 | currently a PHANTOM — 32 symbols called with no link record |
+| 3 | TKShHealing | 12 | — (must go with TKPrim before TKTopAlgo matters) | 12 remaining symbols all blocked on the STEP reader |
+| 4 | TKPrim | 11 | — | |
+| 5 | TKTopAlgo | 100 | → 1 each once above are clear | |
+| 6 | TKBRep | 82 | | |
+| 7 | TKG3d | 141 | | |
+| 8 | TKG2d | 24 | currently a PHANTOM — 24 symbols called with no link record | |
+| 9 | TKMath | 26 | | |
+| 10 | TKernel | 26 | | |
+| — | TKBool / TKGeomAlgo / TKGeomBase | 0 each | leave when their parents do | no work needed |
+
+**465 exclusive symbols remain in total.** The single highest-value next action is
+TKFillet: it is the unique maximal element of the chain and worth **two** closure
+points, more than any other single drop available.
+
+**An honesty debt this drop exposes:** TKBO (32 symbols) and TKG2d (24) are called by the
+binary with **no link record at all**. Naming them in `OCCT_LIBS` would move OCCT_DIRECT
+8 → 10 and OCCT_PHANTOM 2 → 0 while leaving OCCT_CLOSURE at 13. That is a strictly
+honest change and should be made before anyone quotes the DIRECT number again.
+
+### 7.4 Both measurement scripts were broken, and were fixed first
+
+Neither number above could be trusted until two defects were repaired.
+
+- **`scripts/occt_closure_count.sh` under-reported the ledger number silently.**
+  `resolve()` returned the raw install name when it could not find a library on disk;
+  the BFS then skipped it, the load graph stopped at the root, and OCCT_CLOSURE
+  **collapsed onto OCCT_DIRECT with exit 0**. Reproduced by pointing this repo's own
+  binary at a non-existent OCCT prefix: the old script printed `OCCT_CLOSURE = 9`
+  instead of 14 and exited 0. An unresolved dependency is now a hard error (exit 2),
+  with one narrow exemption for dyld-shared-cache system paths, which have no file on
+  disk by design since macOS 11. `@rpath` is now also resolved against the owning
+  image's own `LC_RPATH` entries, per dyld's documented algorithm.
+- **`tools/occt_symbol_census.sh` proved nothing on any OCCT that is not 7.9.**
+  It hardcoded `lib<TK>.7.9.dylib` and, on a miss, printed `MISSING` and continued —
+  so on 7.8, 8.x, a source build or a Linux `.so` it reported no per-toolkit lines at
+  all and exited 0. Toolkits are now located by glob across the platform's naming
+  conventions, a toolkit that cannot be found is a hard error, the OCCT version
+  actually measured is printed, and the output directory is wiped first (a reused
+  directory was measured lending a *previous* run's numbers to a toolkit that was
+  missing in the current one).
+
+Both fixes are proved red-then-green against mutated inputs; the reproductions above
+are those runs.

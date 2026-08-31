@@ -31,7 +31,6 @@
 #include <Geom_Circle.hxx>
 
 #include <TopoDS.hxx>
-#include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
@@ -39,7 +38,6 @@
 #include <TopExp_Explorer.hxx>
 #include <TopAbs.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
 
 #include <BRep_Tool.hxx>
 #include <BRep_Builder.hxx>

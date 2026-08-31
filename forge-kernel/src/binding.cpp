@@ -3416,7 +3416,7 @@ Napi::Value FeaSolveNonlinearPlastic(const Napi::CallbackInfo& info) {
 // ----------------------------------------------------------- FEA / Tet (PUSH-11)
 //
 // JS surface — under `forge.fea.tet`:
-//   meshShape(handle, targetEdge)
+//   meshShape(handle, targetEdge, [seedGridBudget])
 //     → { nodes: Float64Array (flat xyz, length 3N),
 //         ids:   Int32Array (length N),
 //         tets:  Int32Array (flat a,b,c,d × E),
@@ -3457,6 +3457,14 @@ Napi::Object feaTetMeshToJs(Napi::Env env, const forge::fea::tet::Mesh& m) {
     out.Set("nodeCount", Napi::Number::New(env, static_cast<double>(m.nodes.size())));
     out.Set("tetCount",  Napi::Number::New(env, static_cast<double>(m.tets.size())));
     out.Set("shellTetsOnly", Napi::Boolean::New(env, m.shellTetsOnly));
+    // Seed-grid budget diagnostics (NAFEMS track). `seedGridCapped` true means the
+    // interior Steiner spacing was FORCED coarser than the requested targetEdge to stay
+    // inside `seedGridBudget` — i.e. asking for a finer mesh did NOT produce one. Read
+    // these before trusting any h-refinement / convergence result.
+    out.Set("seedGridCapped",  Napi::Boolean::New(env, m.seedGridCapped));
+    out.Set("seedGridBudget",  Napi::Number::New(env, static_cast<double>(m.seedGridBudget)));
+    out.Set("requestedEdge",   Napi::Number::New(env, m.requestedEdge));
+    out.Set("interiorSpacing", Napi::Number::New(env, m.interiorSpacing));
     return out;
 }
 
@@ -3607,7 +3615,11 @@ Napi::Value FeaTetMeshShape(const Napi::CallbackInfo& info) {
     return safe(info, [&]() -> Napi::Value {
         auto h = requireHandle(info, 0);
         double te = requireNumber(info, 1, "targetEdge");
-        auto m = forge::fea::tet::meshShapeFromHandle(h, te);
+        // Optional 3rd arg: interior seed-grid budget (candidate lattice points). <=0 or
+        // absent selects the default (kDefaultSeedGridBudget / FORGE_FEA_TET_SEED_BUDGET).
+        int budget = 0;
+        if (info.Length() > 2 && info[2].IsNumber()) budget = info[2].As<Napi::Number>().Int32Value();
+        auto m = forge::fea::tet::meshShapeFromHandle(h, te, budget);
         return feaTetMeshToJs(info.Env(), m);
     });
 }
@@ -4541,6 +4553,25 @@ Napi::Value DirectEdgeCount(const Napi::CallbackInfo& info) {
         // native count is available via forge.nativeEdgeCount / analyticEdgeCount.
         return Napi::Number::New(info.Env(),
             static_cast<double>(forge::direct::edgeCount(requireHandle(info, 0))));
+    });
+}
+
+// The COMPLETE sub-shape census { solids, shells, faces, wires, edges, vertices }.
+// faceCount/edgeCount answer two of the six; a gate that uses topology as an
+// oracle needs the other four (see forge::direct::TopoCounts for the measurement
+// that says why).
+Napi::Value DirectTopoCounts(const Napi::CallbackInfo& info) {
+    return safe(info, [&]() -> Napi::Value {
+        auto env = info.Env();
+        const forge::direct::TopoCounts c = forge::direct::topoCounts(requireHandle(info, 0));
+        auto out = Napi::Object::New(env);
+        out.Set("solids",   Napi::Number::New(env, static_cast<double>(c.solids)));
+        out.Set("shells",   Napi::Number::New(env, static_cast<double>(c.shells)));
+        out.Set("faces",    Napi::Number::New(env, static_cast<double>(c.faces)));
+        out.Set("wires",    Napi::Number::New(env, static_cast<double>(c.wires)));
+        out.Set("edges",    Napi::Number::New(env, static_cast<double>(c.edges)));
+        out.Set("vertices", Napi::Number::New(env, static_cast<double>(c.vertices)));
+        return out;
     });
 }
 
@@ -6578,6 +6609,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     direct.Set("inferFeature",      Napi::Function::New(env, DirectInferFeature));
     direct.Set("faceCount",         Napi::Function::New(env, DirectFaceCount));
     direct.Set("edgeCount",         Napi::Function::New(env, DirectEdgeCount));
+    direct.Set("topoCounts",        Napi::Function::New(env, DirectTopoCounts));
     direct.Set("edgeSegments",      Napi::Function::New(env, DirectEdgeSegments));
     exports.Set("direct", direct);
 

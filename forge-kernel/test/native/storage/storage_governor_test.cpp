@@ -574,14 +574,20 @@ int main() {
         // Lay down one record. `dirExists` is decided by the gitdir target's
         // PARENT, exactly as the scanner reads it.
         auto makeRecord = [&](const std::string& name, bool checkoutPresent,
-                              const std::string& lockText) {
+                              const std::string& lockText, bool emptyLockFile = false) {
             const fs::path rec = wtDir / name;
             fs::create_directories(rec, ec);
             const fs::path checkout = W.workspace / ".claude" / "worktrees" / name;
             if (checkoutPresent) fs::create_directories(checkout, ec);
             std::ofstream(rec / "gitdir") << (checkout / ".git").string() << "\n";
             std::ofstream(rec / "HEAD")   << "abc123def4567890\n";   // detached
-            if (!lockText.empty()) std::ofstream(rec / "locked") << lockText << "\n";
+            // The lock FILE's presence is the lock. `git worktree lock` WITHOUT
+            // --reason writes a ZERO-BYTE file (verified against git 2.50.1,
+            // which still reports a bare `locked` record in --porcelain), so the
+            // fixture must be able to lay down an EMPTY one: a governor that only
+            // ever sees locks carrying text cannot fail the way this one did.
+            if (emptyLockFile) std::ofstream(rec / "locked");             // 0 bytes
+            else if (!lockText.empty()) std::ofstream(rec / "locked") << lockText << "\n";
         };
 
         // A pid that is PROVABLY gone: fork a child, let it exit, reap it. After
@@ -605,7 +611,8 @@ int main() {
         makeRecord("wt-live",   false, liveLock);               // phantom + LIVE holder
         makeRecord("wt-nopid",  false, "locked by the operator");  // unidentifiable holder
         makeRecord("wt-ondisk", true,  staleLock);              // checkout PRESENT
-        makeRecord("wt-plain",  false, "");                     // phantom, no lock
+        makeRecord("wt-plain",  false, "");                     // phantom, NO lock file
+        makeRecord("wt-empty",  false, "", true);               // phantom + EMPTY lock file
 
         ScanConfig cfg;
         cfg.workspace = W.workspace;
@@ -635,7 +642,7 @@ int main() {
             return false;
         };
 
-        check(recs.size() == 5, "M1 the scanner found every worktree record");
+        check(recs.size() == 6, "M1 the scanner found every worktree record");
 
         // ---- the LIVE-locked phantom must be REFUSED ----
         const Artifact* live = find("wt-live");
@@ -681,6 +688,46 @@ int main() {
                   "M15 ...and quarantine refuses reclamation");
             check(contains(why, "QUARANTINED"),
                   "M15a ...naming quarantine as the reason, not authority");
+        }
+
+        // ---- an EMPTY lock file is a LOCK, not an absence of one ----
+        // `git worktree lock` without --reason writes a ZERO-BYTE file. Reading
+        // the reason with getline then yields "" — identical to the string you
+        // get when there is NO lock file at all — and a guard of the form
+        // `if (!lockReason.empty())` therefore skipped the entire lock rule and
+        // planned a git-LOCKED record as PROVABLY_DISPOSABLE. Reproduced against
+        // real git 2.50.1 before this assertion existed.
+        const Artifact* empty = find("wt-empty");
+        check(empty != nullptr, "M12a the empty-lock record was scanned");
+        if (empty) {
+            std::string why;
+            check(empty->state == State::QUARANTINED,
+                  "M12b an EMPTY `locked` file is a LOCK with an unknown owner, not an unlocked record");
+            check(!empty->evidenceConflict.empty(),
+                  "M12c ...with the conflict stated");
+            check(contains(empty->evidenceConflict, "without --reason"),
+                  "M12d ...naming the empty lock as the cause, so the operator can act on it");
+            check(noteContains(*empty, "unlock"),
+                  "M12e ...and the plan says how to clear it deliberately");
+            check(classify(*empty, mreg, why) == Disposition::MUST_PIN,
+                  "M12f ...so the governor KEEPS it: uncertainty is never a deletion");
+            check(contains(why, "QUARANTINED"),
+                  "M12g ...for the LOCK, not for want of authority");
+        }
+
+        // ---- the negative control: NO lock file at all is still reclaimable ----
+        // Without this, "treat every lock as a lock" could be satisfied by a
+        // governor that pins everything, which reclaims nothing and is no gate.
+        const Artifact* plain = find("wt-plain");
+        check(plain != nullptr, "M12h the unlocked phantom record was scanned");
+        if (plain) {
+            std::string why;
+            check(plain->state == State::GC_CANDIDATE,
+                  "M12i a phantom with NO lock file is a candidate");
+            check(plain->evidenceConflict.empty(),
+                  "M12j ...with no invented conflict");
+            check(classify(*plain, mreg, why) == Disposition::PROVABLY_DISPOSABLE,
+                  "M12k ...and is reclaimable — the lock rule did not pin everything");
         }
 
         // ---- proof 1 of 2: a PRESENT checkout is refused even with a dead lock ----

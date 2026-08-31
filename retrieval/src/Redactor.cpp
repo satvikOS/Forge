@@ -46,6 +46,80 @@ const StrSet& boltPropertyClasses() {
   return kClasses;
 }
 
+// ── CLOSED LISTS OF REAL PUBLIC DESIGNATIONS ────────────────────────────────
+// These exist because a SHAPE IS NOT A LICENCE. A rule of the form "'A' plus
+// two-to-four digits is an ASTM spec" blesses A7213 — which is what an internal
+// part number looks like — and default-deny then has a hole exactly the width of
+// that pattern. Membership is the test: a token is a public designation because
+// it IS one, not because it resembles one. Adding a designation is a deliberate,
+// reviewable edit to this file.
+
+// ASTM specifications an engineer actually types: structural steel, hollow
+// sections, plate/pressure vessel, bar, fasteners, stainless/alloy, cast iron
+// and coatings.
+const StrSet& astmDesignations() {
+  static const StrSet kAstm = {
+      // structural steel
+      "A36", "A242", "A283", "A514", "A529", "A572", "A588", "A709", "A852", "A913", "A992",
+      // hollow sections, tube and pipe
+      "A53", "A106", "A252", "A500", "A501", "A511", "A513", "A519", "A618", "A1085",
+      // plate and pressure vessel
+      "A285", "A387", "A515", "A516", "A517", "A537",
+      // bar and reinforcement
+      "A29", "A108", "A311", "A615", "A706",
+      // fasteners
+      "A193", "A194", "A307", "A320", "A325", "A354", "A449", "A490", "A563",
+      // stainless, alloy and castings
+      "A182", "A216", "A217", "A234", "A240", "A276", "A312", "A351", "A403", "A479", "A564",
+      // cast and ductile iron
+      "A48", "A126", "A395", "A536",
+      // coatings
+      "A123", "A153", "A653", "A780",
+  };
+  return kAstm;
+}
+
+// ISO 261 / ISO 262 metric thread nominal diameters.
+const StrSet& metricThreadSizes() {
+  static const StrSet kSizes = {"M1",  "M1.2", "M1.4", "M1.6", "M1.8", "M2",  "M2.2", "M2.5",
+                                "M3",  "M3.5", "M4",   "M4.5", "M5",   "M6",  "M7",   "M8",
+                                "M9",  "M10",  "M11",  "M12",  "M14",  "M16", "M18",  "M20",
+                                "M22", "M24",  "M27",  "M30",  "M33",  "M36", "M39",  "M42",
+                                "M45", "M48",  "M52",  "M56",  "M60",  "M64", "M68",  "M72",
+                                "M76", "M80"};
+  return kSizes;
+}
+
+// ISO 261 coarse and fine pitches, in millimetres.
+const StrSet& metricThreadPitches() {
+  static const StrSet kPitches = {"0.2",  "0.25", "0.3", "0.35", "0.4", "0.45", "0.5",  "0.6",
+                                  "0.7",  "0.75", "0.8", "1",    "1.0", "1.25", "1.5",  "1.75",
+                                  "2",    "2.0",  "2.5", "3",    "3.0", "3.5",  "4",    "4.0",
+                                  "4.5",  "5",    "5.0", "5.5",  "6",   "6.0"};
+  return kPitches;
+}
+
+// Aluminum Association wrought alloy numbers.
+const StrSet& aluminumAlloys() {
+  static const StrSet kAlloys = {
+      "1050", "1060", "1100", "1350", "2011", "2014", "2017", "2024", "2219", "3003", "3004",
+      "3103", "5005", "5052", "5083", "5086", "5154", "5251", "5454", "5456", "5754", "6005",
+      "6060", "6061", "6063", "6082", "6101", "6262", "6351", "6463", "7005", "7050", "7068",
+      "7075", "7175", "7475"};
+  return kAlloys;
+}
+
+// Aluminum Association temper designations.
+const StrSet& aluminumTempers() {
+  static const StrSet kTempers = {
+      "T1",    "T2",    "T3",    "T4",    "T5",    "T6",    "T7",    "T8",     "T9",
+      "T31",   "T351",  "T3510", "T3511", "T36",   "T39",   "T42",   "T451",   "T4511",
+      "T52",   "T54",   "T6151", "T62",   "T651",  "T6510", "T6511", "T652",   "T66",
+      "T73",   "T732",  "T7351", "T73510", "T73511", "T736", "T74",   "T7451",  "T76",
+      "T7651", "T81",   "T83",   "T851",  "T8510", "T8511", "T86",   "T87",    "T89"};
+  return kTempers;
+}
+
 // Material context words that license a bare grade number ("stainless 316L").
 const StrSet& materialContextWords() {
   static const StrSet kWords = {"stainless", "steel", "ss", "grade", "alloy", "type", "aluminum",
@@ -274,35 +348,147 @@ const char* markerFor(RedactionKind kind) {
 
 // Every numeric literal in a buffer, as (text, value) pairs.
 std::vector<std::pair<std::string, double>> scanNumericLiterals(const std::string& text) {
+  // The grammar here must match isBoundedNumeric's -- [+-]?digits[.digits][e[+-]digits]
+  // with thousands separators -- PLUS a leading-dot form. This is the independent
+  // post-condition layer, so its whole value is catching what redact() missed, and a
+  // value scan that only understands `digits[.digits]` is evadable by writing the same
+  // number three other ways:
+  //
+  //     .5        yielded the literal "5"      -> a registered 0.5 never matched
+  //     47,625    yielded "47" and "625"       -> a registered 47625 never matched
+  //     4.7e1     yielded "4.7"                -> a registered 47 never matched
+  //
+  // Being generous here is the SAFE direction: an extra candidate can only cause a
+  // spurious residue report, which refuses to send. A missed candidate sends a secret.
   std::vector<std::pair<std::string, double>> out;
   std::size_t i = 0;
   while (i < text.size()) {
-    if (!isAsciiDigit(static_cast<unsigned char>(text[i]))) { ++i; continue; }
-    std::size_t begin = i;
-    if (begin > 0 && (text[begin - 1] == '.' || text[begin - 1] == '-')) {
-      // keep the sign/point so 47.625 is one literal, not "47" and "625"
-      std::size_t back = begin - 1;
-      if (text[back] == '.' && back > 0 && isAsciiDigit(static_cast<unsigned char>(text[back - 1]))) {
-        ++i;
-        continue;  // interior of a literal already emitted
-      }
-      if (text[back] == '-') begin = back;
+    const unsigned char c = static_cast<unsigned char>(text[i]);
+    // A literal starts at a digit, or at a '.' followed by a digit -- but only when that
+    // '.' is not itself preceded by an alphanumeric, which would make it a member access
+    // or the interior of a literal already consumed.
+    bool starts = isAsciiDigit(c);
+    if (!starts && c == '.' && i + 1 < text.size() &&
+        isAsciiDigit(static_cast<unsigned char>(text[i + 1])) &&
+        (i == 0 || !isAsciiAlnum(static_cast<unsigned char>(text[i - 1])))) {
+      starts = true;
     }
+    if (!starts) { ++i; continue; }
+
+    std::size_t begin = i;
+    // Keep a leading sign when it is not part of an identifier or a range like "a-5".
+    if (begin > 0 && text[begin - 1] == '-' &&
+        (begin == 1 || !isAsciiAlnum(static_cast<unsigned char>(text[begin - 2])))) {
+      --begin;
+    }
+
+    std::string cleaned;
+    if (text[begin] == '-') cleaned.push_back('-');
+
     std::size_t j = i;
-    while (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) ++j;
+    // Integer part. A comma counts as a thousands separator ONLY when a digit follows it
+    // immediately: "47,625" is one value, while "47, 625" stays two.
+    while (j < text.size()) {
+      if (isAsciiDigit(static_cast<unsigned char>(text[j]))) { cleaned.push_back(text[j]); ++j; }
+      else if (text[j] == ',' && j + 1 < text.size() &&
+               isAsciiDigit(static_cast<unsigned char>(text[j + 1]))) { ++j; }
+      else break;
+    }
+    // Fraction.
     if (j < text.size() && text[j] == '.' && j + 1 < text.size() &&
         isAsciiDigit(static_cast<unsigned char>(text[j + 1]))) {
+      if (cleaned.empty() || cleaned == "-") cleaned.push_back('0');  // ".5" -> "0.5"
+      cleaned.push_back('.');
       ++j;
-      while (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) ++j;
+      while (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) {
+        cleaned.push_back(text[j]);
+        ++j;
+      }
     }
-    const std::string lit = text.substr(begin, j - begin);
+    // Exponent, accepted only when it is complete; otherwise the 'e' is just a letter.
+    if (j < text.size() && (text[j] == 'e' || text[j] == 'E')) {
+      const std::size_t save = j;
+      std::string exp("e");
+      ++j;
+      if (j < text.size() && (text[j] == '+' || text[j] == '-')) { exp.push_back(text[j]); ++j; }
+      if (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) {
+        while (j < text.size() && isAsciiDigit(static_cast<unsigned char>(text[j]))) {
+          exp.push_back(text[j]);
+          ++j;
+        }
+        cleaned += exp;
+      } else {
+        j = save;
+      }
+    }
+
     double v = 0.0;
-    const char* first = lit.data();
-    const char* last = lit.data() + lit.size();
-    if (std::from_chars(first, last, v).ec == std::errc()) out.emplace_back(lit, v);
-    i = j;
+    const char* first = cleaned.data();
+    const char* last = cleaned.data() + cleaned.size();
+    if (std::from_chars(first, last, v).ec == std::errc()) {
+      out.emplace_back(text.substr(begin, j - begin), v);
+    }
+    i = j > i ? j : i + 1;  // never fail to advance
+  }
+
+  return out;
+}
+
+// ── SHORT REGISTERED TERMS ───────────────────────────────────────────────────
+// A registered term of one or two normalized characters used to be skipped by
+// BOTH the classifier and the independent residue scan, so a one- or two-letter
+// customer code, project codename or part prefix went to the wire AND the
+// post-check called the buffer clean. Two layers with one blind spot is exactly
+// the failure a default-deny design exists to prevent.
+//
+// The floor existed for precision, not for safety: a naive substring scan for
+// "q" redacts "torque", "quality" and "sequence", and a redactor that destroys
+// the question is useless in its own way. The fix keeps the precision and drops
+// the hole: a SHORT term must match a COMPLETE alphanumeric run. "Zx" matches
+// "Zx", "Zx-1" and "zx." — it does not match "zxy" or "azx".
+constexpr std::size_t kShortTermMaxLen = 2;
+
+// True when [begin, end) inside `s` is a whole alphanumeric run: neither
+// neighbouring byte is an ASCII alphanumeric.
+bool isWholeAlnumRun(const std::string& s, std::size_t begin, std::size_t end) {
+  if (begin > 0 && isAsciiAlnum(static_cast<unsigned char>(s[begin - 1]))) return false;
+  if (end < s.size() && isAsciiAlnum(static_cast<unsigned char>(s[end]))) return false;
+  return true;
+}
+
+// normalizeForMatch() plus the index map that carries a normalized offset back
+// to the byte offset it came from. Both matching layers need the map, because
+// the whole-run test above can only be made in the ORIGINAL bytes: normalization
+// deletes the very punctuation that marks a token boundary.
+std::string normalizeWithMap(const std::string& s, std::vector<std::size_t>& map) {
+  std::string out;
+  out.reserve(s.size());
+  map.clear();
+  map.reserve(s.size());
+  for (std::size_t i = 0; i < s.size(); ++i) {
+    const unsigned char c = static_cast<unsigned char>(s[i]);
+    if (isAsciiAlnum(c)) {
+      out.push_back(static_cast<char>(std::tolower(c)));
+      map.push_back(i);
+    }
   }
   return out;
+}
+
+// Find the next occurrence of `needle` in `norm` at or after `from` that the
+// term's length is allowed to claim. Returns npos when there is none.
+std::size_t findRegisteredTerm(const std::string& norm, const std::vector<std::size_t>& map,
+                               const std::string& source, const std::string& needle,
+                               std::size_t from) {
+  const bool whole_run_only = needle.size() <= kShortTermMaxLen;
+  for (std::size_t at = norm.find(needle, from); at != std::string::npos;
+       at = norm.find(needle, at + 1)) {
+    if (!whole_run_only) return at;
+    const std::size_t begin = map[at];
+    const std::size_t end = map[at + needle.size() - 1] + 1;
+    if (isWholeAlnumRun(source, begin, end)) return at;
+  }
+  return std::string::npos;
 }
 
 }  // namespace
@@ -411,15 +597,15 @@ bool isPublicDesignation(const std::string& token, const std::string& previous_t
     if (isAsciiDigit(static_cast<unsigned char>(upper[0]))) return true;
     if (isAsciiAlpha(static_cast<unsigned char>(upper[0])) && hasDigitAndAlpha(upper)) return true;
   }
-  // 3. aluminium temper designations: 6061-T6, 7075-T651, 2024-T3
+  // 3. aluminium alloy-temper designations: 6061-T6, 7075-T651, 2024-T3.
+  //    BOTH halves must be real: the alloy number in the AA register and the
+  //    temper in the AA temper list. "8842-T9" has the shape and is not one.
   {
     const std::size_t dash = upper.find('-');
-    if (dash == 4 && dash + 2 <= upper.size() && upper[dash + 1] == 'T') {
-      bool digits = true;
-      for (std::size_t k = 0; k < 4; ++k) {
-        if (!isAsciiDigit(static_cast<unsigned char>(upper[k]))) { digits = false; break; }
-      }
-      if (digits) return true;
+    if (dash != std::string::npos && dash + 1 < upper.size() &&
+        aluminumAlloys().count(upper.substr(0, dash)) &&
+        aluminumTempers().count(upper.substr(dash + 1))) {
+      return true;
     }
   }
   // 4. bolt property class, licensed by an explicit class/grade context word
@@ -437,23 +623,21 @@ bool isPublicDesignation(const std::string& token, const std::string& previous_t
     if (k != upper.size()) digitsThenOptionalLetter = false;
     if (digitsThenOptionalLetter) return true;
   }
-  // 6. ASTM structural steel shorthand: A36, A572, A992
-  if (upper.size() >= 2 && upper.size() <= 5 && upper[0] == 'A') {
-    bool rest = true;
-    for (std::size_t k = 1; k < upper.size(); ++k) {
-      if (!isAsciiDigit(static_cast<unsigned char>(upper[k]))) { rest = false; break; }
+  // 6. ASTM specification shorthand: A36, A572, A992. CLOSED LIST — the shape
+  //    "A" + digits is also the shape of an internal part number, so membership
+  //    is the only thing that licenses it.
+  if (astmDesignations().count(upper)) return true;
+  // 7. public metric thread callout: M12, M8x1.25. CLOSED LIST on both halves —
+  //    the nominal diameter must be an ISO 261 size and the pitch, when one is
+  //    written, an ISO 261 pitch. "M8675309" is neither.
+  if (allow_thread_designations) {
+    const std::size_t x = upper.find('X');
+    if (x == std::string::npos) {
+      if (metricThreadSizes().count(upper)) return true;
+    } else if (x + 1 < upper.size() && metricThreadSizes().count(upper.substr(0, x)) &&
+               metricThreadPitches().count(upper.substr(x + 1))) {
+      return true;
     }
-    if (rest && upper.size() >= 3) return true;
-  }
-  // 7. public metric thread callout: M12, M8x1.25
-  if (allow_thread_designations && upper.size() >= 2 && upper[0] == 'M' &&
-      isAsciiDigit(static_cast<unsigned char>(upper[1]))) {
-    bool ok = true;
-    for (std::size_t k = 1; k < upper.size(); ++k) {
-      const unsigned char c = static_cast<unsigned char>(upper[k]);
-      if (!isAsciiDigit(c) && c != '.' && c != 'X') { ok = false; break; }
-    }
-    if (ok) return true;
   }
   // 8. unified-series thread callout carrying its series suffix: 1/4-20UNC
   if (allow_thread_designations) {
@@ -477,29 +661,22 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   // Match every lexicon term against a punctuation- and case-insensitive
   // normalization of the input, so "ACME-4471-B", "acme 4471 b" and "Acme4471B"
   // are all the same term. An index map carries matches back to raw offsets.
-  std::string norm;
   std::vector<std::size_t> map;
-  norm.reserve(raw.size());
-  map.reserve(raw.size());
-  for (std::size_t i = 0; i < raw.size(); ++i) {
-    const unsigned char c = static_cast<unsigned char>(raw[i]);
-    if (isAsciiAlnum(c)) {
-      norm.push_back(static_cast<char>(std::tolower(c)));
-      map.push_back(i);
-    }
-  }
+  const std::string norm = normalizeWithMap(raw, map);
 
   std::vector<Span> spans;
   auto markCategory = [&](const std::vector<std::string>& terms, RedactionKind kind) {
     for (const std::string& term : terms) {
       const std::string needle = detail::normalizeForMatch(term);
-      if (needle.size() < 3) continue;  // too short to match without false hits
-      std::size_t at = norm.find(needle, 0);
+      // An empty term would match everywhere; a SHORT one matches whole
+      // alphanumeric runs only. Length never buys a term an exemption.
+      if (needle.empty()) continue;
+      std::size_t at = findRegisteredTerm(norm, map, raw, needle, 0);
       while (at != std::string::npos) {
         const std::size_t begin = map[at];
         const std::size_t end = map[at + needle.size() - 1] + 1;
         spans.push_back(Span{begin, end, kind});
-        at = norm.find(needle, at + 1);
+        at = findRegisteredTerm(norm, map, raw, needle, at + 1);
       }
     }
   };
@@ -554,7 +731,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   std::vector<std::string> preview_terms;
   std::string previous_kept;   // context for designation lookback
   bool previous_was_dimension = false;
-  std::size_t global_token_index = 0;
 
   auto emitRedaction = [&](RedactionKind kind, const std::string& matched, std::size_t offset) {
     RedactionEvent ev;
@@ -574,7 +750,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
   for (const Piece& piece : pieces) {
     if (piece.registered) {
       emitRedaction(piece.kind, piece.text, piece.offset);
-      ++global_token_index;
       continue;
     }
     std::size_t pos = 0;
@@ -588,7 +763,6 @@ RedactionResult Redactor::redact(const std::string& raw) const {
       const std::string token = trimPunctuation(rawToken, lead);
       const std::size_t offset = piece.offset + start + lead;
       if (token.empty()) continue;
-      const std::size_t token_index = global_token_index++;
       const std::string lower = toLower(token);
 
       if (looksLikeEmail(token)) { emitRedaction(RedactionKind::EmailAddress, token, offset); continue; }
@@ -627,7 +801,15 @@ RedactionResult Redactor::redact(const std::string& raw) const {
         emitRedaction(RedactionKind::OpaqueIdentifier, token, offset);
         continue;
       }
-      if (policy_.strip_proper_nouns && token_index > 0 && token.size() >= 3 &&
+      // NO FIRST-TOKEN EXEMPTION. This condition used to require the token index to be
+      // non-zero, which exempted the FIRST token of the whole query from the proper-noun
+      // rule -- and a user question very often OPENS with the customer or project name:
+      // "Acme bearing preload tolerance" sent "Acme" to the public search engine.
+      // The guard was also unnecessary: publicCapitalizedVocabulary() already lists the
+      // sentence openers (what/which/how/why/when/where/who/is/are/does/do/can/the/a),
+      // so a normal opening word is kept without it. POSITION MUST NOT LICENSE A TERM
+      // THE RULE WOULD REDACT ANYWHERE ELSE.
+      if (policy_.strip_proper_nouns && token.size() >= 3 &&
           std::isupper(static_cast<unsigned char>(token[0])) &&
           !publicCapitalizedVocabulary().count(lower) && !standardsBodies().count(toUpper(token))) {
         emitRedaction(RedactionKind::ProperNoun, token, offset);
@@ -669,14 +851,21 @@ RedactionResult Redactor::redact(const std::string& raw) const {
 bool Redactor::verifyNoResidue(const std::string& wire, std::vector<std::string>& residue) const {
   residue.clear();
   const std::string decoded = detail::decodeForResidueScan(wire);
-  const std::string norm = detail::normalizeForMatch(decoded);
+  std::vector<std::size_t> map;
+  const std::string norm = normalizeWithMap(decoded, map);
 
   // (a) registered terms, by normalized substring — independent of the classifier.
+  //     Short terms use the same whole-alphanumeric-run rule as the classifier,
+  //     so this layer's reach matches what redact() is expected to have removed.
+  //     Note the deliberate consequence for a ONE-character term: `wire` may be a
+  //     whole HTTP request, whose envelope carries runs like "q" and "1", so such
+  //     a term makes the client refuse to send. That is fail-CLOSED, and the only
+  //     honest answer when a registered secret is a single character.
   auto scanCategory = [&](const std::vector<std::string>& terms, const char* label) {
     for (std::size_t i = 0; i < terms.size(); ++i) {
       const std::string needle = detail::normalizeForMatch(terms[i]);
-      if (needle.size() < 3) continue;
-      if (norm.find(needle) != std::string::npos) {
+      if (needle.empty()) continue;
+      if (findRegisteredTerm(norm, map, decoded, needle, 0) != std::string::npos) {
         // NEVER echo the secret itself into a diagnostic string.
         residue.push_back(std::string(label) + " lexicon entry #" + std::to_string(i) +
                           " survives in the outgoing buffer");
@@ -734,16 +923,11 @@ bool Redactor::verifyQueryFullyRedacted(const std::string& query_text,
       if (isAsciiDigit(c)) { hasDigit = true; break; }
     }
     if (!hasDigit) continue;
+    // EXACT membership only. A substring test would let keeping "A36" bless the
+    // bare number "36", the digit "3", and "A360" — none of which the redactor
+    // ever decided to keep. An allow-set entry licenses ITSELF and nothing else.
     const std::string normTok = detail::normalizeForMatch(token);
-    bool covered = allowed.count(normTok) > 0;
-    if (!covered) {
-      for (const std::string& a : allowed) {
-        if (!a.empty() && (a.find(normTok) != std::string::npos || normTok.find(a) != std::string::npos)) {
-          covered = true;
-          break;
-        }
-      }
-    }
+    const bool covered = allowed.count(normTok) > 0;
     if (!covered) {
       residue.push_back("unallowlisted numeric token survives in the outgoing query");
     }

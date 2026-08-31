@@ -31,6 +31,17 @@ fi
 OCCT_INC="$OCCT_ROOT/include/opencascade"
 OCCT_LIB="$OCCT_ROOT/lib"
 
+# The zero-TKOffset-imports proof below needs libTKOffset's ACTUAL symbol table.
+# It used to be spelled "$OCCT_LIB/libTKOffset.7.9.dylib" by hand; on OCCT 7.10,
+# on a relocated install, or on Linux that file does not exist, `nm -gU` on it
+# prints nothing, and the intersection with the engine's undefined symbols is
+# then EMPTY BY CONSTRUCTION — the A/B's central claim would pass vacuously.
+# Resolve by name, version-agnostically, and fail if it is not there.
+# shellcheck source=../scripts/occt_lib_path.sh
+. "$ROOT/forge-kernel/scripts/occt_lib_path.sh"
+TKOFFSET_LIB="$(occt_lib_path TKOffset "$OCCT_LIB")" || exit 1
+echo "[ab-offsetshape] libTKOffset: $TKOFFSET_LIB"
+
 CXX="${CXX:-clang++}"
 INC="forge-kernel/include"
 OUT="$(mktemp -d "${TMPDIR:-/tmp}/forge_ab_offsetshape.XXXXXX")"
@@ -60,8 +71,15 @@ fi
 "$CXX" -std=c++20 -O1 -DFORGE_NATIVE_BREP=1 -I "$INC" -I "$OCCT_INC" \
    -c forge-kernel/src/native/brep/NativeThickSolid.cpp -o "$OUT/engine.o" \
    2>/dev/null || { echo "[ab-offsetshape] engine-only compile FAILED"; exit 1; }
-nm -gU "$OCCT_LIB/libTKOffset.7.9.dylib" 2>/dev/null | awk 'NF>=3{print $3} NF==2{print $2}' \
+nm -gU "$TKOFFSET_LIB" 2>/dev/null | awk 'NF>=3{print $3} NF==2{print $2}' \
   | sort -u > "$OUT/tkoffset.exports"
+NEXP=$(grep -c . < "$OUT/tkoffset.exports"); NEXP=${NEXP:-0}
+if [ "$NEXP" -lt 100 ]; then
+  echo "[ab-offsetshape] FAIL — libTKOffset exported only $NEXP symbols ($TKOFFSET_LIB)."
+  echo "  The zero-imports claim is only meaningful against a REAL symbol table;"
+  echo "  an empty or unreadable one makes it vacuously true."
+  exit 1
+fi
 nm -u "$OUT/engine.o" | sed 's/^ *//' | sort -u > "$OUT/engine.undef"
 NTK=$(comm -12 "$OUT/engine.undef" "$OUT/tkoffset.exports" | tee "$OUT/engine.tkoffset" | grep -c . )
 echo "[ab-offsetshape] NativeThickSolid.o TKOffset imports: $NTK"

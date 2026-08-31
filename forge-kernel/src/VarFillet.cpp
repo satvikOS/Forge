@@ -23,7 +23,6 @@
 #include <Law_S.hxx>
 #endif
 #include <Precision.hxx>
-#include <TopAbs_ShapeEnum.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>

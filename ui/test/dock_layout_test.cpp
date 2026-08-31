@@ -206,5 +206,72 @@ int main() {
   CHECK(DockLayout::parse(recoveredText, recoveredBack));
   CHECK(recoveredBack == live);
 
+  // ── REGRESSION: a TRUNCATED layout must not load as success ─────────────
+  // The header declares how many windows follow. parse() read that number and
+  // never compared it to what it actually built, so a file cut short — a disk
+  // full mid-write, a truncated sync — came back as a smaller layout reported
+  // as a clean load, and the missing windows' panels were silently gone.
+  {
+    DockLayout truncated;
+    CHECK(!DockLayout::parse("forge-dock 1 3\nw 1 1 0 0 100 100 1 T 0 1 a\n", truncated));
+    CHECK(!DockLayout::parse(
+        "forge-dock 1 1\nw 1 1 0 0 100 100 1 T 0 1 a\nw 2 1 0 0 100 100 0 T 0 1 b\n",
+        truncated));
+    // the honest count still loads
+    DockLayout whole;
+    CHECK(DockLayout::parse(
+        "forge-dock 1 2\nw 1 1 0 0 100 100 1 T 0 1 a\nw 2 1 0 0 100 100 0 T 0 1 b\n", whole));
+    CHECK_EQ_INT(whole.windowCount(), 2);
+    // and every layout this code writes declares its own count truthfully
+    const std::string wholeText = whole.serialize();
+    CHECK_EQ_STR(wholeText.substr(0, wholeText.find('\n')), "forge-dock 1 2");
+  }
+
+  // ── REGRESSION: parse() must validate before reporting success ──────────
+  // activeTab == 5 over a one-element tab vector is an out-of-range index that
+  // the ImGui frame builder would index with. valid() catches it; parse() never
+  // asked, so it returned true on a layout whose mainWindow() was nullptr.
+  {
+    DockLayout bad;
+    CHECK(!DockLayout::parse("forge-dock 1 1\nw 1 1 0 0 100 100 1 T 5 1 a\n", bad));
+    CHECK(!DockLayout::parse("forge-dock 1 1\nw 1 1 0 0 100 100 0 T 0 1 a\n", bad));  // no main
+    CHECK(!DockLayout::parse("forge-dock 1 1\nw 1 1 0 0 0 0 1 T 0 1 a\n", bad));      // empty rect
+    CHECK(!DockLayout::parse(
+        "forge-dock 1 2\nw 1 1 0 0 100 100 1 T 0 1 a\nw 1 1 0 0 100 100 0 T 0 1 b\n",
+        bad));  // duplicate window id
+    CHECK(!DockLayout::parse(
+        "forge-dock 1 2\nw 1 1 0 0 100 100 1 T 0 1 a\nw 2 1 0 0 100 100 0 T 0 1 a\n",
+        bad));  // the same panel docked twice
+    CHECK(!DockLayout::parse("forge-dock 1 1\nw 1 1 0 0 100 100 1 S h 0 T 0 1 a T 0 1 b\n",
+                             bad));  // ratio 0 is not a split
+  }
+
+  // ── REGRESSION: a panel ID with a space must round-trip ─────────────────
+  // Panel IDs were emitted space-separated and unquoted, so "Scratch Notes"
+  // parsed back as "Scratch" and the leftover token desynchronised the stream.
+  {
+    DockLayout named = defaultLayout(WorkspaceProfile::Part);
+    DockWindow note;
+    note.id = 42;
+    note.monitor = 1;
+    note.rect = Rect{10.0, 10.0, 400.0, 300.0};
+    note.root = DockNode::split(SplitAxis::Vertical, 0.5,
+                                DockNode::tabs({"Scratch Notes", "100% Zoom"}, 1),
+                                DockNode::tabs({"a b  c"}, 0));
+    named.addWindow(std::move(note));
+    CHECK(named.valid());  // a space in a user-facing panel name is legal
+    const std::string namedText = named.serialize();
+    DockLayout namedBack;
+    CHECK(DockLayout::parse(namedText, namedBack));
+    CHECK(namedBack == named);
+    CHECK_EQ_STR(namedBack.serialize(), namedText);
+    CHECK(namedBack.hasPanel("Scratch Notes"));
+    CHECK(namedBack.hasPanel("100% Zoom"));
+    CHECK(namedBack.hasPanel("a b  c"));
+    CHECK_EQ_INT(namedBack.panelCount(), named.panelCount());
+    // the encoding is on the wire, so the stream stays token-aligned
+    CHECK(namedText.find("Scratch Notes") == std::string::npos);
+  }
+
   return H.finish();
 }

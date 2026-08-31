@@ -63,6 +63,25 @@ bash tools/deps/tests/offline_build_test.sh   # s21.2: BUILD with the network re
 All three include a **baseline case that must pass**, so none can score a green by
 failing everything. All three perturb real state and assert on the specific finding.
 
+Two gates on the gates, because a suite that cannot fail is not a suite:
+
+```
+bash tools/deps/tests/drift_gate_selfcheck.sh          # drift_gate_test.sh fails when it should
+python3 tools/deps/tests/forge_deps_contract_test.py   # docstring == tree_digest; import-bundle refuses
+```
+
+`drift_gate_selfcheck.sh` poisons the `content_drift` fixture through
+`FORGE_DRIFT_REAL_BOOST` and asserts the case is failed by name. It has to exist:
+with all four boost headers missing, the four unchecked `cp`s failed, the
+perturbing `printf >>` **created** the only file in the fixture, and
+`content_drift` reported PASS — measured as `6 passed, 0 failed`, exit 0, while
+proving nothing about a one-byte change to a real header.
+
+`forge_deps_contract_test.py` recomputes a prefix fingerprint from the definition
+written in the module docstring and asserts `tree_digest` agrees, so the prose and
+the code cannot drift apart again; it also asserts `import-bundle --activate`
+refuses a bundle exported for a different lock or triplet.
+
 `offline_build_test.sh` is the s21.2 demonstration rather than an assertion: it denies
 the network with two mechanisms and configures *and* builds `forge_kernel_core` through
 the denial. Two are needed, and phase 2 asserts why — macOS SIP strips `DYLD_*` below

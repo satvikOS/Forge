@@ -62,7 +62,18 @@ struct ParamSpec {
   ParamType type = ParamType::Number;
   bool required = false;
   double defaultNumber = 0.0;
-  std::string defaultText;
+  // Braced default member initializer, not a bare declaration. Every other member here already
+  // has one; defaultText did not, so a designated initializer that legitimately omits it —
+  // ParamSpec{.name=..., .type=..., .required=true} — tripped -Wmissing-field-initializers, which
+  // is an ERROR under -Werror. Apple clang did not warn and the CI's clang did, so this compiled
+  // locally and failed on Linux. Declaring the default at the TYPE fixes all four call sites and
+  // any future one, rather than repeating a redundant .defaultText = "" at each.
+  std::string defaultText{};
+  // Does the default above MEAN anything? A fillet radius has an honest default
+  // (1 mm); a file path does not, and "" is not a path. Only a spec that says so
+  // may be filled in on the caller's behalf — the difference between a shortcut
+  // that runs and a shortcut that must open a dialog first.
+  bool hasDefault = false;
 };
 
 class CommandParams {
@@ -99,9 +110,22 @@ class CommandContext {
   const SelectionService& selection() const noexcept { return selection_; }
   const CommandParams& params() const noexcept { return params_; }
 
+  // The handler's ONLY way to say "I ran and could not do it". execute() returns void, so
+  // without this a refusal inside a handler is unreportable and dispatch answers Ok. The
+  // detail is surfaced verbatim in DispatchResult::detail -- name the reason, because
+  // "something failed" is not actionable by a UI or by Archie.
+  void fail(std::string why) {
+    failed_ = true;
+    if (detail_.empty()) detail_ = std::move(why);  // first reason wins; it is the cause
+  }
+  bool failed() const noexcept { return failed_; }
+  const std::string& failureDetail() const noexcept { return detail_; }
+
  private:
   const SelectionService& selection_;
   CommandParams params_;
+  bool failed_ = false;
+  std::string detail_;
 };
 
 struct CommandDescriptor {
@@ -122,6 +146,16 @@ struct CommandDescriptor {
   std::function<void(CommandContext&)> execute;
 };
 
+// Fill every declared default that `params` does not already carry. Returns the
+// merged set: explicit arguments always win over the schema's defaults.
+CommandParams applyDefaults(const CommandDescriptor& command, CommandParams params);
+
+// Required parameters `params` still does not supply, in schema order. Empty
+// means the command can run. This is what an interactive caller — a shortcut, a
+// menu item, a toolbar button — prompts the user for, instead of failing mute.
+std::vector<std::string> missingRequired(const CommandDescriptor& command,
+                                         const CommandParams& params);
+
 enum class DispatchStatus : std::uint8_t {
   Ok = 0,
   UnknownCommand,
@@ -129,6 +163,16 @@ enum class DispatchStatus : std::uint8_t {
   Disabled,
   MissingRequiredParameter,
   NoHandler,
+  // APPENDED, never inserted: the values above are compared as ints in tests and stored in
+  // macros, so renumbering them would silently change what a recorded status means.
+  //
+  // The handler ran and REFUSED to record its edit. Every status above is decided BEFORE
+  // execute() is called; without this one, dispatch returned Ok unconditionally once
+  // execution began, so a command whose feature was rejected reported success and did
+  // nothing. Measured: an unknown op name gave part.fillet -> Ok with the FILLET statement
+  // absent from the document, caught only because the compiled solid's volume equalled the
+  // raw prism exactly.
+  EditRefused,
 };
 
 const char* toString(DispatchStatus status) noexcept;

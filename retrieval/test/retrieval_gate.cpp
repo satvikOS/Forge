@@ -136,6 +136,33 @@ int main(int argc, char** argv) {
   //    dimension. All three must be gone, and the standard designation must
   //    survive so the query is still worth asking.
   // ═══════════════════════════════════════════════════════════════════════════
+  section("12.0 redaction: the FIRST token is not exempt from the proper-noun rule");
+  {
+    // REGRESSION TEST for a real leak. The proper-noun rule used to carry a
+    // `token_index > 0` guard, which exempted the FIRST token of the whole query.
+    // A user question very often OPENS with the customer or project name, so an
+    // UNLISTED name in that position was transmitted verbatim to the public search
+    // engine. Nothing covered it: every existing case happens to start with "For",
+    // "Is" or "What", all of which sit in publicCapitalizedVocabulary().
+    //
+    // The lexicon here is EMPTY on purpose. A registered name would be removed by the
+    // authoritative lexicon layer and would prove nothing about the positional rule.
+    Redactor bare{};  // no lexicon at all — the positional rule must stand on its own
+    const RedactionResult r = bare.redact("Vanterra bearing preload tolerance for a press fit");
+    std::cout << "  wire  : " << r.wire_query << "\n";
+
+    check(!containsCI(r.wire_query, "Vanterra"),
+          "an UNLISTED proper noun in FIRST position is removed from the wire query");
+    check(r.removedAnyOf(RedactionKind::ProperNoun),
+          "the first-position removal is classified as a ProperNoun, not silently dropped");
+
+    // The rule must not have become indiscriminate: an ordinary opening word is kept.
+    const RedactionResult keep = bare.redact("What bearing preload tolerance suits a press fit");
+    check(containsCI(keep.wire_query, "bearing"), "the engineering question still survives");
+    check(containsCI(keep.wire_query, "What") || containsCI(keep.wire_query, "what"),
+          "a sentence-opening word in publicCapitalizedVocabulary is still kept");
+  }
+
   section("12.1 redaction: customer name + part number + secret dimension");
   {
     Redactor redactor(demoLexicon());
@@ -217,6 +244,47 @@ int main(int argc, char** argv) {
       if (containsCI(s, "Northwind")) leaked = true;
     }
     check(!leaked, "the residue report names the class, never the secret itself");
+  }
+
+  section("12.2 the value scan must not be evadable by writing the number differently");
+  {
+    // The residue scan is the INDEPENDENT post-condition: its value is catching what
+    // redact() missed. A scan that only understands `digits[.digits]` is evadable three
+    // ways, all of which parse to a registered secret.
+    //
+    // ONE SECRET PER LEXICON, deliberately. The first version of this test registered
+    // {0.5, 47625.0, 47.0} together, and the comma case then PASSED EVEN WITH THE COMMA
+    // HANDLING DISABLED: the broken scanner split "47,625" into 47 and 625, and the stray
+    // 47 matched the registered 47.0. A check that cannot fail is not a check -- proved by
+    // mutation, which is the only reason it was noticed.
+    std::vector<std::string> residue;
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {0.5};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=clearance+of+.5+mm", residue),
+            "leading-dot .5 is caught for a registered 0.5");
+    }
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {47625.0};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=span+47,625+mm", residue),
+            "thousands-separated 47,625 is caught for a registered 47625");
+      // PRECISION, not just recall: a comma followed by a SPACE is a list, not a grouped
+      // number. Without this the scan would fuse "47, 625" into 47625 and refuse a clean
+      // query -- a redactor that destroys the question is useless in its own way. Same
+      // lexicon as the line above, so this pins the boundary rather than a different one.
+      check(r.verifyNoResidue("q=sizes+47,+625+mm", residue),
+            "a comma followed by a space stays TWO numbers, not one grouped value");
+    }
+    {
+      PrivateLexicon lex;
+      lex.secret_dimensions = {47.0};
+      Redactor r(lex);
+      check(!r.verifyNoResidue("q=length+4.7e1+mm", residue),
+            "exponent form 4.7e1 is caught for a registered 47");
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -325,6 +393,50 @@ int main(int argc, char** argv) {
     HttpResponse r2;
     check(parseHttpResponse(ch, 1 << 20, r2), "chunked response parses");
     check(r2.body == "{\"results\":[],\"number_of_results\":0}", "chunks are reassembled exactly");
+
+    // NOT COVERED, AND SAID SO. The decoder's size guards are written against what
+    // REMAINS (`size > body_raw.size() - i`) rather than as sums (`i + size > ...`),
+    // because `size` is a std::size_t parsed from hex and every summed form wraps. That
+    // hardening is real, but there is NO test here that distinguishes the two forms, and
+    // two attempts to write one both PASSED WITH THE SUMMED GUARDS RESTORED:
+    //
+    //   attempt 1: a lone huge chunk -- with decoded.size()==0 the CAP guard catches it
+    //              anyway, so it tested the cap, not the overflow.
+    //   attempt 2: a 5-byte chunk then size 2**64-5, chosen so both summed guards wrap --
+    //              the advance `i += size + 2` then jumps BACKWARD and the stream fails a
+    //              DIFFERENT check ("unparseable chunk size"), so it is rejected either way.
+    //
+    // Both were removed rather than kept: a check that passes whether or not the fix is
+    // present implies coverage that does not exist, which is worse than an honest gap.
+    // The mutation run is what exposed both -- 0 failures where 2 were expected, twice.
+
+    // A body that simply RAN OUT is not a complete body. Exiting the loop on
+    // `i >= body_raw.size()` and reporting Ok is the quietest way to lose data.
+    {
+      HttpResponse trunc;
+      const std::string no_terminator =
+          "HTTP/1.1 200 OK\r\n"
+          "Transfer-Encoding: chunked\r\n\r\n"
+          "5\r\n"
+          "hello\r\n";           // a complete chunk, then nothing -- no final 0 chunk
+      check(!parseHttpResponse(no_terminator, 1 << 20, trunc),
+            "a chunked body with no final 0 chunk is REJECTED, not reported complete");
+      check(trunc.status == TransportStatus::MalformedResponse,
+            "and a missing final chunk reports MalformedResponse");
+    }
+    // The trailing CRLF must actually be present; skipping two bytes on faith turns a
+    // truncated frame into a silently short body.
+    {
+      HttpResponse nocrlf;
+      const std::string bad_sep =
+          "HTTP/1.1 200 OK\r\n"
+          "Transfer-Encoding: chunked\r\n\r\n"
+          "5\r\n"
+          "helloXX"
+          "0\r\n\r\n";
+      check(!parseHttpResponse(bad_sep, 1 << 20, nocrlf),
+            "a chunk not followed by CRLF is REJECTED");
+    }
 
     HttpResponse r3;
     check(!parseHttpResponse("garbage without a terminator", 1 << 20, r3),
@@ -573,12 +685,47 @@ int main(int argc, char** argv) {
   {
     check(isLoopbackLiteral("127.0.0.1"), "127.0.0.1 is loopback");
     check(isLoopbackLiteral("127.1.2.3"), "the whole 127.0.0.0/8 block is loopback");
-    check(isLoopbackLiteral("::1"), "::1 is loopback");
+    // IPv6 loopback is REFUSED, and that is a correction rather than a weakening. This file
+    // has NO AF_INET6 path: send() creates an AF_INET socket and parses the host with
+    // inet_pton(AF_INET, ...), so a "::1" request always failed at connect. Admitting it here
+    // only meant it passed the POLICY gate and then failed later with the misleading reason
+    // "host is not an IPv4 literal". The capability never existed; the allow-list now says so.
+    check(!isLoopbackLiteral("::1"),
+          "::1 is refused: this transport is IPv4-only and the allow-list must match it");
+    check(!isLoopbackLiteral("[::1]"), "and so is the bracketed form");
     check(!isLoopbackLiteral("localhost"),
           "'localhost' is REFUSED: a name needs a resolver, and a resolver is a way off the machine");
     check(!isLoopbackLiteral("10.0.0.5"), "a LAN address is not loopback");
     check(!isLoopbackLiteral("93.184.216.34"), "a public address is not loopback");
     check(!isLoopbackLiteral("127.0.0.1.evil.com"), "a lookalike hostname is not loopback");
+
+    // A caller header must not be able to rewrite the request block. serialize() joins
+    // `name: value` verbatim, so a CR or LF in a value ends the header block early and the
+    // rest is read by the sidecar as a SECOND request. Loopback-only bounds WHO receives
+    // it; it does not stop the injection.
+    {
+      std::string why;
+      std::map<std::string, std::string> ok{{"Accept", "application/json"}};
+      check(headersAreWellFormed(ok, why), "an ordinary header is accepted");
+
+      std::map<std::string, std::string> split{{"X-Trace", "a\r\nGET /admin HTTP/1.1"}};
+      check(!headersAreWellFormed(split, why), "a CRLF in a header VALUE is refused");
+      std::map<std::string, std::string> lf_only{{"X-Trace", "a\nb"}};
+      check(!headersAreWellFormed(lf_only, why), "a bare LF is refused too");
+      std::map<std::string, std::string> bad_name{{"X\rY", "v"}};
+      check(!headersAreWellFormed(bad_name, why), "a CR in a header NAME is refused");
+      std::map<std::string, std::string> colon{{"X:Y", "v"}};
+      check(!headersAreWellFormed(colon, why), "a ':' in a header NAME is refused");
+
+      // serialize() ALWAYS emits these three, so a caller supplying one produces a
+      // DUPLICATE header rather than an override -- ambiguous framing a server may resolve
+      // either way.
+      std::map<std::string, std::string> dup_host{{"Host", "evil.example"}};
+      check(!headersAreWellFormed(dup_host, why), "a caller Host is refused (serialize emits it)");
+      std::map<std::string, std::string> dup_cl{{"content-length", "0"}};
+      check(!headersAreWellFormed(dup_cl, why),
+            "a caller Content-Length is refused, case-insensitively");
+    }
 
     // Drive the REAL transport at a public address. The refusal is decided
     // before any socket is created, so this test opens no connection.
@@ -617,6 +764,246 @@ int main(int argc, char** argv) {
           "one publisher against a 3-publisher requirement is reported, not silently accepted");
     check(!r.evidence.empty(), "the evidence is still returned for the operator to see");
     check(containsCI(r.detail, "distinct publishers"), "and the detail explains the shortfall");
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // 4. THE GATES THEMSELVES (20.2) — a gate that inspects one field cannot
+  //    certify a request, and an approval that compares a mutable field does
+  //    not bind the bytes it approved.
+  // ═══════════════════════════════════════════════════════════════════════════
+  section("20.2 EVERY wire field is redacted and gated, not just q=");
+  {
+    auto fixture = std::make_shared<FixtureTransport>([] {
+      HttpResponse r;
+      r.status = TransportStatus::Ok;
+      r.status_code = 200;
+      r.body = "{\"results\":[]}";
+      return r;
+    }());
+    SearxngClient client(fixture, Redactor(demoLexicon()));
+
+    // An operator scopes the search to an internal wiki host. The host is NOT a
+    // registered lexicon term, so the envelope scan (gate 3) is blind to it: the
+    // only thing that can stop it is the same default-deny treatment q= gets.
+    SearchRequest req = demoRequest("What is ISO 2768 medium class for a bore?");
+    req.include_domains = {"halcyon-9931.internal.example.com"};
+    const QueryPreview p = client.preview(req);
+    std::cout << "  body  : " << p.encoded_body << "\n";
+
+    check(!containsCI(p.encoded_body, "halcyon"),
+          "an internal code name in include_domains never reaches the encoded body");
+    check(!containsCI(p.encoded_body, "9931"),
+          "an unallowlisted number in include_domains never reaches the encoded body");
+    bool any_field_leaks = false;
+    for (const auto& [k, v] : p.fields) {
+      (void)k;
+      if (containsCI(v, "halcyon")) any_field_leaks = true;
+    }
+    check(!any_field_leaks, "no previewed field carries the internal host");
+
+    // A public standards host is legitimate scoping and must still survive, or
+    // the fix would have bought privacy by removing the feature.
+    SearchRequest ok = demoRequest("What is ISO 2768 medium class for a bore?");
+    ok.include_domains = {"iso.org", "astm.org"};
+    const QueryPreview p2 = client.preview(ok);
+    check(p2.sendable(), "a domain filter naming public standards hosts still builds");
+    check(containsCI(p2.encoded_body, "iso.org"), "and the public host is transmitted");
+
+    // Gate 1 must certify the WHOLE body. A registered customer name arriving
+    // through site= is exactly the field q='s gate cannot see.
+    SearchRequest leak = demoRequest("What is ISO 2768 medium class for a bore?");
+    leak.include_domains = {"Northwind-Aerospace.example.com"};
+    const QueryPreview p3 = client.preview(leak);
+    check(!containsCI(p3.encoded_body, "Northwind"),
+          "a registered customer name in a domain filter does not reach the body either");
+    const RetrievalResult r3 = client.search(p3, SendApproval::grant(p3));
+    (void)r3;
+    check(fixture->last_wire.find("Northwind") == std::string::npos,
+          "and no such request is ever handed to the transport");
+  }
+
+  section("20.2 the approval binds the BYTES, not a mutable digest field");
+  {
+    auto fixture = std::make_shared<FixtureTransport>([] {
+      HttpResponse r;
+      r.status = TransportStatus::Ok;
+      r.status_code = 200;
+      r.body = "{\"results\":[]}";
+      return r;
+    }());
+    SearxngClient client(fixture, Redactor(demoLexicon()));
+    const QueryPreview p = client.preview(demoRequest("What is ISO 2768 medium class for a bore?"));
+    const SendApproval approval = SendApproval::grant(p);
+    check(p.sendable() && approval.granted(), "the operator approved a well-formed preview");
+
+    // The bytes are changed AFTER approval; body_digest is left at its approved
+    // value, which is exactly what a stale or hostile reference looks like. The
+    // added field carries no lexicon term, so gate 3 cannot see it.
+    QueryPreview tampered = p;
+    tampered.encoded_body += "&site=halcyon-9931.internal.example.com";
+
+    const RetrievalResult r = client.search(tampered, approval);
+    check(r.status == RetrievalStatus::REQUEST_REJECTED,
+          "bytes mutated after approval are REJECTED, not sent");
+    check(fixture->calls == 0, "and nothing reached the transport");
+    check(fixture->last_wire.find("halcyon") == std::string::npos,
+          "the injected field never reached the socket path");
+
+    // The honest path still works.
+    const RetrievalResult good = client.search(p, SendApproval::grant(p));
+    check(good.status == RetrievalStatus::Ok, "the unmutated approved request still sends");
+    check(fixture->calls == 1, "exactly one transmit");
+  }
+
+  section("12.1 a shape is not a licence: designations come from a closed list");
+  {
+    Redactor bare{};  // no lexicon: only the allowlist decides
+
+    const RedactionResult r1 = bare.redact("Does the A7213 housing meet ISO 2768 medium?");
+    std::cout << "  wire  : " << r1.wire_query << "\n";
+    check(!containsCI(r1.wire_query, "A7213"),
+          "an invented 'A'+digits token is not blessed as an ASTM designation");
+    bool blessed_a = false;
+    for (const std::string& d : r1.kept_designations) {
+      if (containsCI(d, "A7213")) blessed_a = true;
+    }
+    check(!blessed_a, "and gate 1's allow-set never receives it");
+
+    const RedactionResult r2 = bare.redact("Check the M8675309 feature against the drawing");
+    std::cout << "  wire  : " << r2.wire_query << "\n";
+    check(!containsCI(r2.wire_query, "M8675309"),
+          "an invented 'M'+digits token is not blessed as a thread callout");
+    bool blessed_m = false;
+    for (const std::string& d : r2.kept_designations) {
+      if (containsCI(d, "M8675309")) blessed_m = true;
+    }
+    check(!blessed_m, "and gate 1's allow-set never receives that either");
+
+    // The real designations must still survive, or the fix bought privacy by
+    // making the query useless.
+    const RedactionResult r3 =
+        bare.redact("Yield of A36 plate and seating torque for an M12 bolt and an M8x1.25 stud");
+    std::cout << "  wire  : " << r3.wire_query << "\n";
+    check(containsCI(r3.wire_query, "A36"), "the real ASTM designation A36 survives");
+    check(containsCI(r3.wire_query, "M12"), "the real metric thread callout M12 survives");
+    check(containsCI(r3.wire_query, "M8x1.25"), "a real pitch-qualified callout survives");
+
+    // Rule 3 is the same defect class: "four digits, dash, T, digits" is also
+    // the shape of a vendor part number. Both halves must be real.
+    const RedactionResult r4 = bare.redact("Housing 8842-T9 came back from the vendor");
+    std::cout << "  wire  : " << r4.wire_query << "\n";
+    check(!containsCI(r4.wire_query, "8842-T9"),
+          "an invented alloy-temper shape is not blessed as an AA designation");
+    const RedactionResult r5 = bare.redact("Bracket machined from 7075-T651 and 2024-T3 stock");
+    std::cout << "  wire  : " << r5.wire_query << "\n";
+    check(containsCI(r5.wire_query, "7075-T651"), "the real AA alloy-temper 7075-T651 survives");
+    check(containsCI(r5.wire_query, "2024-T3"), "and 2024-T3 survives");
+  }
+
+  section("12.1 designation coverage is exact, not substring");
+  {
+    Redactor bare{};
+    const std::vector<std::string> allowed = {"A36"};
+    std::vector<std::string> residue;
+
+    check(!bare.verifyQueryFullyRedacted("A36 plate 36 mm thick", allowed, residue),
+          "keeping 'A36' does not bless the bare number '36'");
+    residue.clear();
+    check(!bare.verifyQueryFullyRedacted("A36 plate 3 holes", allowed, residue),
+          "nor a single digit that is a substring of it");
+    residue.clear();
+    check(!bare.verifyQueryFullyRedacted("A36 plate A360 casting", allowed, residue),
+          "nor a longer token that merely contains it");
+    residue.clear();
+    check(bare.verifyQueryFullyRedacted("A36 plate thickness", allowed, residue),
+          "the designation actually allowed still passes");
+  }
+
+
+  // A lexicon term is AUTHORITATIVE: registering it is a deliberate act, and its
+  // LENGTH is not a licence to ignore it. Both layers used to skip any term whose
+  // normalized form was shorter than three characters, so a one- or two-character
+  // customer code went to the wire AND the independent post-check called the
+  // buffer clean — the two layers failed together, which is the one thing a
+  // default-deny design must never do. Short terms are matched as whole
+  // alphanumeric runs rather than substrings, so precision holds at length 1.
+  section("12.1 a short lexicon term is still a lexicon term");
+  {
+    PrivateLexicon one;
+    one.project_names = {"Q"};
+    const Redactor rq(one);
+    const RedactionResult r1 = rq.redact("tolerance for Q housing bracket");
+    std::cout << "  wire  : " << r1.wire_query << "\n";
+    check(!containsCI(r1.wire_query, "Q"), "a 1-char registered project is gone from the wire query");
+    check(r1.removedAnyOf(RedactionKind::RegisteredProject),
+          "and the removal is classified as RegisteredProject, not silently dropped");
+    std::vector<std::string> residue;
+    check(!rq.verifyNoResidue("tolerance for Q housing bracket", residue),
+          "the independent verifier reports residue for the 1-char term");
+    residue.clear();
+    check(rq.verifyNoResidue(r1.wire_query, residue),
+          "and finds the redacted wire query clean");
+
+    PrivateLexicon two;
+    two.customer_names = {"Zx"};
+    const Redactor rz(two);
+    const RedactionResult r2 = rz.redact("surface finish for Zx flange");
+    std::cout << "  wire  : " << r2.wire_query << "\n";
+    check(!containsCI(r2.wire_query, "Zx"), "a 2-char registered customer is gone from the wire query");
+    check(r2.removedAnyOf(RedactionKind::RegisteredCustomer),
+          "and the removal is classified as RegisteredCustomer");
+    residue.clear();
+    check(!rz.verifyNoResidue("surface finish for Zx flange", residue),
+          "the independent verifier reports residue for the 2-char term");
+
+    PrivateLexicon three;
+    three.project_names = {"Qzr"};
+    const Redactor r3r(three);
+    const RedactionResult r3 = r3r.redact("tolerance for Qzr housing bracket");
+    check(!containsCI(r3.wire_query, "Qzr"), "the 3-char case still redacts (no regression)");
+    residue.clear();
+    check(!r3r.verifyNoResidue("tolerance for Qzr housing bracket", residue),
+          "and the 3-char verifier path still reports residue");
+
+    // The term still has to be spelled however it is spelled: punctuation and
+    // case are normalized away, so "K-9" registered catches "k9" on the wire.
+    PrivateLexicon punct;
+    punct.part_numbers = {"K-9"};
+    const Redactor rk(punct);
+    const RedactionResult r4 = rk.redact("material choice for k9 bracket");
+    std::cout << "  wire  : " << r4.wire_query << "\n";
+    check(!containsCI(r4.wire_query, "k9"),
+          "a punctuated 2-char part number matches its unpunctuated spelling");
+  }
+
+  // PRECISION. Dropping the length floor to a naive substring scan would redact
+  // every word containing the letter and destroy the question, which is its own
+  // kind of useless. A short term matches a WHOLE alphanumeric run or nothing.
+  section("12.1 a short lexicon term matches whole tokens, not substrings");
+  {
+    PrivateLexicon one;
+    one.project_names = {"Q"};
+    const Redactor rq(one);
+    const RedactionResult r = rq.redact("quality of the bracket sequence and torque");
+    std::cout << "  wire  : " << r.wire_query << "\n";
+    check(containsCI(r.wire_query, "quality"), "'quality' is not eaten by the 1-char term 'Q'");
+    check(containsCI(r.wire_query, "sequence"), "nor is 'sequence'");
+    check(containsCI(r.wire_query, "torque"), "nor is 'torque'");
+    check(r.countOf(RedactionKind::RegisteredProject) == 0, "and no registered removal was invented");
+    std::vector<std::string> residue;
+    check(rq.verifyNoResidue("quality of the bracket sequence and torque", residue),
+          "the independent verifier does not flag those words as residue either");
+
+    PrivateLexicon two;
+    two.customer_names = {"Zx"};
+    const Redactor rz(two);
+    const RedactionResult r2 = rz.redact("the zxy alloy and the azx coating");
+    std::cout << "  wire  : " << r2.wire_query << "\n";
+    check(containsCI(r2.wire_query, "zxy"), "a longer token merely CONTAINING the 2-char term survives");
+    check(containsCI(r2.wire_query, "azx"), "including when the term is at the end of it");
+    residue.clear();
+    check(rz.verifyNoResidue("the zxy alloy and the azx coating", residue),
+          "and the verifier agrees that neither is residue");
   }
 
   std::cout << "\n" << g_pass << " passed, " << g_fail << " failed\n";

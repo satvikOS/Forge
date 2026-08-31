@@ -74,20 +74,53 @@ struct Tet {
     int id;
 };
 
+// Default budget for the interior Steiner-seed grid (candidate lattice points inside
+// the shape AABB). It is a RUNTIME guard, not a mesh-quality choice, and honouring it
+// COARSENS the interior spacing beyond `targetEdge`.
+//
+// What it is guarding against, MEASURED (test/fea_nafems_convergence.mjs, `cost` mode,
+// NAFEMS LE1 slab, 2026-08-28): meshShape costs ~1.25 ms PER TET, and that figure is flat
+// across 1351 -> 64230 tets. So the cost is roughly LINEAR in this range, not quadratic —
+// but the constant is enormous (a production Delaunay refiner is ~3 orders of magnitude
+// faster per element), and 60k tets already takes ~79 s. Note that bowyerWatson() below
+// does point location by a linear scan over every tet ever created and never compacts dead
+// ones, which is O(N·T) BY CONSTRUCTION; the flat measured ms/tet says that scan is not
+// what dominates in the exercised range, so profile before optimising it.
+inline constexpr int kDefaultSeedGridBudget = 20000;
+
 struct Mesh {
     std::vector<Node> nodes;
     std::vector<Tet>  tets;
     bool              shellTetsOnly = false; // see header note
+
+    // ---- seed-grid budget diagnostics (NAFEMS track, 2026-08-28) -------------
+    // MEASURED DEFECT this records: when the AABB lattice at `targetEdge` exceeded
+    // kDefaultSeedGridBudget the spacing was inflated to fit the budget and NOTHING
+    // said so. A caller asking for targetEdge=0.020 on the NAFEMS LE1 slab silently
+    // received interior spacing 0.0353 — so a mesh-refinement study stopped refining
+    // while continuing to report ever-smaller `targetEdge`. Recording it turns a
+    // silent floor into a readable one; these fields are diagnostics only and do not
+    // change the mesh.
+    bool   seedGridCapped   = false; // true ⇒ interiorSpacing was FORCED above targetEdge
+    int    seedGridBudget   = 0;     // budget actually in force for this call
+    double requestedEdge    = 0.0;   // targetEdge as asked for (m)
+    double interiorSpacing  = 0.0;   // max(dx,dy,dz) of the interior seed lattice (m)
 };
 
 // Build a tet mesh from a TopoDS_Shape.  `targetEdge` is the desired
 // surface edge length in metres (passed straight through to
 // BRepMesh_IncrementalMesh). Throws std::invalid_argument on a stale
 // handle (via ShapeRegistry::get).
-Mesh meshShape(const ::TopoDS_Shape& s, double targetEdge);
+//
+// `seedGridBudget` <= 0 selects the default (kDefaultSeedGridBudget, overridable by
+// the env var FORGE_FEA_TET_SEED_BUDGET — same escape-hatch convention as
+// FORGE_THICKSOLID_NATIVE / FORGE_BRIDGE_FACETED). Passing an explicit larger budget
+// is what makes a genuine h-refinement sequence possible; the caller pays the ~1.25 ms/tet
+// meshing cost knowingly. Default value ⇒ byte-identical behaviour to before.
+Mesh meshShape(const ::TopoDS_Shape& s, double targetEdge, int seedGridBudget = 0);
 
 // Convenience overload: load the shape from the registry first.
-Mesh meshShapeFromHandle(::forge::ShapeHandle h, double targetEdge);
+Mesh meshShapeFromHandle(::forge::ShapeHandle h, double targetEdge, int seedGridBudget = 0);
 
 // Inc1c — general per-DOF boundary condition. A constrained DOF takes a
 // prescribed displacement value (0 ⇒ pin / symmetry plane, non-zero ⇒ enforced

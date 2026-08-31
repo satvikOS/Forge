@@ -47,7 +47,11 @@ SendApproval SendApproval::grant(const QueryPreview& preview) {
   // A preview that did not build cleanly cannot be approved at all: there is no
   // "approve anyway" path for a redaction residue or a privacy-class refusal.
   if (!preview.sendable()) return a;
-  a.digest_ = preview.body_digest;
+  // Bind to the BYTES, not to body_digest. body_digest is a mutable field of a
+  // struct the caller owns; encoded_body is the thing that reaches the socket.
+  // Deriving the token from the payload is what makes it a capability over
+  // those bytes rather than an assertion about a number next to them.
+  a.digest_ = digestBytes(preview.encoded_body);
   a.granted_ = true;
   return a;
 }
@@ -191,41 +195,123 @@ QueryPreview SearxngClient::preview(const SearchRequest& request) const {
     p.status_detail = "nothing survived redaction: the question was entirely proprietary";
     return p;
   }
+  p.redacted_query = q;
 
-  // ── GATE 1: strict residue scan on the q= value before it is serialized ───
+  // The domain filter is user-supplied text that reaches the socket verbatim, so
+  // it goes through the redactor exactly like the question does. A host name is
+  // not prose: it is transmitted only if it survived the redactor BYTE FOR BYTE.
+  // Anything the redactor touched is DROPPED rather than sent in a mangled form
+  // that would still carry the shape of the original. Dropping a filter widens
+  // the search rather than narrowing it, which is a scope change and not a leak;
+  // the removal is recorded in p.removals and the missing field is visible in
+  // the operator's preview, so it is never a SILENT widening.
+  std::string sites;
+  for (const std::string& d : request.include_domains) {
+    const RedactionResult r = redactor_.redact(d);
+    if (r.wire_query == d && r.events.empty()) {
+      if (!sites.empty()) sites += ",";
+      sites += d;
+      allowed.insert(allowed.end(), r.kept_designations.begin(), r.kept_designations.end());
+      continue;
+    }
+    p.removals.insert(p.removals.end(), r.events.begin(), r.events.end());
+    if (r.events.empty()) {
+      // The redactor rewrote it without classifying a removal (budget clamp);
+      // it is still not the string the operator wrote, so it is not sent.
+      RedactionEvent ev;
+      ev.kind = RedactionKind::Url;
+      ev.matched = d;
+      ev.marker = "[URL]";
+      ev.length = d.size();
+      p.removals.push_back(std::move(ev));
+    }
+  }
+
+  // ── serialize the documented SearXNG Search API parameters ────────────────
+  // `operator_constant` marks a value this client itself authored: a literal
+  // written in this file or the name of an enumerator. Everything else came from
+  // the request and must clear the strict scan below. The flag is set HERE, at
+  // the one place fields are created, so a new field cannot be added without
+  // answering the question.
+  struct WireField {
+    std::string name;
+    std::string value;
+    bool operator_constant;
+  };
+  std::vector<WireField> wire;
+  wire.push_back({"q", q, false});
+  wire.push_back({"format", "json", true});
+  wire.push_back({"language", request.language, false});
+  wire.push_back({"pageno", "1", true});
+  wire.push_back({"safesearch", "1", true});
+  const std::string fresh = freshnessName(request.freshness);
+  if (!fresh.empty()) wire.push_back({"time_range", fresh, true});
+  if (!sites.empty()) wire.push_back({"site", sites, false});
+
+  std::string body;
+  for (const WireField& f : wire) {
+    p.fields.emplace_back(f.name, f.value);
+    if (!body.empty()) body.push_back('&');
+    body += formEncode(f.name);
+    body.push_back('=');
+    body += formEncode(f.value);
+  }
+
+  // ── GATE 1: strict residue scan on the ENTIRE encoded body ────────────────
+  // A gate that inspects one field cannot certify a request. This one certifies
+  // the BYTES: it parses the body back out of the string that will actually be
+  // sent, matches every pair to a field this client declared, refuses any pair
+  // it cannot account for, and puts every non-constant value through the strict
+  // default-deny scan. `site=` used to bypass all of this because the gate only
+  // ever looked at `q=`.
   std::vector<std::string> residue;
-  if (!redactor_.verifyQueryFullyRedacted(q, allowed, residue)) {
+  {
+    std::vector<std::string> found;
+    if (!redactor_.verifyNoResidue(body, found)) {
+      residue.insert(residue.end(), found.begin(), found.end());
+    }
+    std::size_t at = 0;
+    std::size_t seen = 0;
+    while (at <= body.size()) {
+      const std::size_t amp = body.find('&', at);
+      const std::string pair = body.substr(at, amp == std::string::npos ? std::string::npos : amp - at);
+      const std::size_t eq = pair.find('=');
+      const std::string name =
+          detail::decodeForResidueScan(eq == std::string::npos ? pair : pair.substr(0, eq));
+      const std::string value =
+          eq == std::string::npos ? std::string() : detail::decodeForResidueScan(pair.substr(eq + 1));
+      const WireField* field = nullptr;
+      for (const WireField& f : wire) {
+        if (f.name == name) { field = &f; break; }
+      }
+      ++seen;
+      if (field == nullptr) {
+        residue.push_back("undeclared wire field '" + name + "' is present in the encoded body");
+      } else if (field->value != value) {
+        residue.push_back("wire field '" + name + "' does not decode back to the previewed value");
+      } else if (!field->operator_constant) {
+        found.clear();
+        if (!redactor_.verifyQueryFullyRedacted(value, allowed, found)) {
+          for (const std::string& s : found) residue.push_back("field '" + name + "': " + s);
+        }
+      }
+      if (amp == std::string::npos) break;
+      at = amp + 1;
+    }
+    if (seen != wire.size()) {
+      residue.push_back("the encoded body does not carry exactly the declared fields");
+    }
+  }
+  if (!residue.empty()) {
+    // An unsendable preview carries NO bytes: there must be nothing for a caller
+    // to pick up and hand to search().
+    p.fields.clear();
     p.status = RequestBuildStatus::RedactionResidueDetected;
-    p.status_detail = residue.empty() ? "residue detected" : residue.front();
+    p.status_detail = residue.front();
     for (std::size_t i = 1; i < residue.size(); ++i) p.status_detail += "; " + residue[i];
     return p;
   }
-  p.redacted_query = q;
 
-  // ── serialize the documented SearXNG Search API parameters ────────────────
-  p.fields.emplace_back("q", q);
-  p.fields.emplace_back("format", "json");
-  p.fields.emplace_back("language", request.language);
-  p.fields.emplace_back("pageno", "1");
-  p.fields.emplace_back("safesearch", "1");
-  const std::string fresh = freshnessName(request.freshness);
-  if (!fresh.empty()) p.fields.emplace_back("time_range", fresh);
-  if (!request.include_domains.empty()) {
-    std::string sites;
-    for (const std::string& d : request.include_domains) {
-      if (!sites.empty()) sites += ",";
-      sites += d;
-    }
-    p.fields.emplace_back("site", sites);
-  }
-
-  std::string body;
-  for (const auto& [k, v] : p.fields) {
-    if (!body.empty()) body.push_back('&');
-    body += formEncode(k);
-    body.push_back('=');
-    body += formEncode(v);
-  }
   p.encoded_body = body;
   p.body_digest = digestBytes(body);
   p.status = RequestBuildStatus::Ok;
@@ -277,9 +363,23 @@ RetrievalResult SearxngClient::search(const QueryPreview& preview,
   }
 
   // ── GATE 2: the approval must bind to THESE bytes ─────────────────────────
-  if (!approval.granted() || approval.digest() != preview.body_digest) {
+  // The digest is RE-DERIVED from encoded_body here. Comparing the token against
+  // preview.body_digest would compare it against a mutable field of the same
+  // struct: mutate encoded_body after approval, leave body_digest alone, and the
+  // check still passes while different bytes go to the socket. A capability
+  // token has to be checked against the payload, not against a claim about it.
+  const std::uint64_t actual_digest = digestBytes(preview.encoded_body);
+  if (!approval.granted() || approval.digest() != actual_digest) {
     result.status = RetrievalStatus::REQUEST_REJECTED;
-    result.detail = "no operator approval bound to the previewed request bytes";
+    result.detail = "no operator approval bound to the actual request bytes";
+    stamp();
+    return result;
+  }
+  if (preview.body_digest != actual_digest) {
+    // The preview's own digest no longer describes its own bytes: the struct was
+    // edited after it was built. Nothing here is trustworthy enough to send.
+    result.status = RetrievalStatus::REQUEST_REJECTED;
+    result.detail = "preview digest does not match its own encoded body";
     stamp();
     return result;
   }

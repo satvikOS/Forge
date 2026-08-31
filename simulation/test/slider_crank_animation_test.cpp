@@ -53,7 +53,7 @@ RealtimeLoopConfig animationConfig(const MechanismModel& m) {
     cfg.envelope.maxConstraintResidual  = 1e-6;
     cfg.envelope.maxEnergyDrift         = 1e-5;
     cfg.envelope.maxWallOverrunRatio    = 1.0;
-    cfg.geometryRevision = geometryRevisionOf(m.bodies, m.constraints);
+    cfg.geometryRevision = geometryRevisionOf(m.bodies, m.constraints, m.loads, m.gravity);
     return cfg;
 }
 
@@ -250,8 +250,16 @@ int main() {
         // by more than a micron, the live timestep would not be resolving the
         // motion and the frames would be showing discretisation, not mechanism.
         const double kConfirmationEnvelope = 1e-6;
+        // Probe bound: the slider-crank's probes are the crank angle (rad),
+        // the slider coordinates (m) and the crank rate (rad/s). 1e-5 is a
+        // hundredth of the 1e-3 rad (~0.06 deg) / 1 mm that is the coarsest
+        // resolution any viewport shows, so a probe that moved by more than
+        // this when the timestep halved would be visible discretisation.
+        // MEASURED worst probe: 4.34e-7, i.e. 23x inside it.
+        const double kProbeEnvelope = 1e-5;
         const ConfirmationReport rep =
-            runConfirmation(model, cfg, sliderCrankProbes, 2, kConfirmationEnvelope);
+            runConfirmation(model, cfg, sliderCrankProbes, 2, kConfirmationEnvelope,
+                            kProbeEnvelope);
 
         t.predicate("both live and confirmation runs completed", rep.bothRunsComplete,
                     "compared " + std::to_string(rep.comparedFrames) + " frames");
@@ -261,20 +269,33 @@ int main() {
                rep.confirmationDt, cfg.solverDt / 2.0, 0.0);
         t.atMost("live-vs-confirmation max position delta (declared bound 1e-6 m)",
                  rep.maxPositionDelta, kConfirmationEnvelope);
-        t.atMost("live-vs-confirmation max probe delta", rep.maxProbeDelta, 1e-5);
-        t.predicate("confirmation verdict is inside the declared envelope",
+        t.atMost("live-vs-confirmation max probe delta (declared bound 1e-5)",
+                 rep.maxProbeDelta, kProbeEnvelope);
+        t.predicate("confirmation verdict is inside BOTH declared envelopes",
                     rep.withinEnvelope,
-                    "maxPositionDelta=" + std::to_string(rep.maxPositionDelta) +
-                    " envelope=" + std::to_string(rep.declaredEnvelope));
-        // Halving dt MUST change the answer at some digit. Identical hashes
-        // would mean the timestep never reached the integrator.
-        t.differU64("the refined run is a genuinely different computation",
-                    rep.confirmationSequenceHash, rep.liveSequenceHash);
+                    "maxPositionDelta=" + forge::simtest::fmtG(rep.maxPositionDelta) +
+                    " (bound " + forge::simtest::fmtG(rep.declaredEnvelope) + ") maxProbeDelta=" +
+                    forge::simtest::fmtG(rep.maxProbeDelta) + " (bound " +
+                    forge::simtest::fmtG(rep.declaredProbeEnvelope) + ")");
+        // Halving dt MUST change the answer at some digit. The SEQUENCE HASHES
+        // cannot show that: solverStep is hashed and the refined run's ladder
+        // is twice as fine by construction, so they differ even if the refined
+        // dt never reached the integrator. What does show it is the position
+        // delta being strictly inside (0, envelope]: exactly zero would mean
+        // the two runs are one computation, and an ignored dt would put the
+        // confirmation's frame i at twice the simulated time -- a deviation of
+        // order the stroke (0.2 m), five orders past the bound already gated
+        // above.
+        t.predicate("the refinement genuinely moved the trajectory (delta > 0)",
+                    rep.maxPositionDelta > 0.0,
+                    "maxPositionDelta=" + forge::simtest::fmtG(rep.maxPositionDelta) +
+                    " must be > 0 and <= " + forge::simtest::fmtG(rep.declaredEnvelope));
         t.equalU64("the confirmation's live half reproduces the main run's hash",
                    rep.liveSequenceHash, run.sequenceHash);
-        t.note("confirmation: dt " + std::to_string(rep.liveDt) + " -> " +
-               std::to_string(rep.confirmationDt) + ", maxPosDelta=" +
-               std::to_string(rep.maxPositionDelta) + " m");
+        t.note("confirmation: dt " + forge::simtest::fmtG(rep.liveDt) + " -> " +
+               forge::simtest::fmtG(rep.confirmationDt) + ", maxPosDelta=" +
+               forge::simtest::fmtG(rep.maxPositionDelta) + " m, worst probe \"" +
+               rep.maxProbeName + "\" delta=" + forge::simtest::fmtG(rep.maxProbeDelta));
     }
 
     // ---- 6. the frames ARE the integrator's trajectory --------------------

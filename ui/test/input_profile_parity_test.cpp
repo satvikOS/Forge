@@ -14,8 +14,10 @@
 #include <vector>
 
 #include "forge/ui/CommandRegistry.hpp"
+#include "forge/ui/FeatureIr.hpp"
 #include "forge/ui/ForgeShell.hpp"
 #include "forge/ui/Keymap.hpp"
+#include "forge/ui/PartCommands.hpp"
 #include "ui_test_util.hpp"
 
 using namespace forge::ui;
@@ -75,7 +77,7 @@ int main() {
   CHECK_EQ_STR(map.resolve(InputProfile::NXLike, {k("F", Mod::Ctrl)}).commandId, "view.fit");
   CHECK_EQ_STR(map.resolve(InputProfile::BlenderLike, {k("Home")}).commandId, "view.fit");
   // and the same keys mean DIFFERENT things in different profiles, as they must
-  CHECK_EQ_STR(map.resolve(InputProfile::NXLike, {k("X")}).commandId, "model.extrude");
+  CHECK_EQ_STR(map.resolve(InputProfile::NXLike, {k("X")}).commandId, "part.extrude");
   CHECK_EQ_STR(map.resolve(InputProfile::BlenderLike, {k("X")}).commandId, "edit.delete");
 
   // ── the load-bearing proof: ONE implementation behind both bindings ─────
@@ -116,11 +118,38 @@ int main() {
 
   // ── every binding names a command the one registry actually holds ───────
   // An orphan binding is a shortcut that silently does nothing.
-  std::size_t orphans = 0;
-  for (const std::string& id : map.allBoundCommandIds()) {
-    if (!shell.registry().contains(id)) ++orphans;
+  //
+  // THE REGISTRY THIS IS ASKED OF is the one the APPLICATION builds:
+  // ForgeShell's commands plus the workspace's, which is exactly what
+  // ForgeFrame::wirePartCommands() assembles. The modelling chords used to name
+  // ForgeShell's own model.extrude/fillet/shell counter stubs, so a bare shell
+  // satisfied this check while every one of those keys emitted no feature-IR.
+  // They now name part.*, which only a shell WITH a document registers -- and a
+  // shell with no document has no modelling command to bind, which is the honest
+  // state, not an orphan.
+  {
+    PartDocument doc;
+    UndoStack stack;
+    ForgeShell app;
+    const std::size_t added = registerPartCommands(app.registry(), doc, stack);
+    CHECK_EQ_INT(added, partCommandIds().size());
+    std::size_t orphans = 0;
+    std::vector<std::string> orphanIds;
+    for (const std::string& id : map.allBoundCommandIds()) {
+      if (!app.registry().contains(id)) {
+        ++orphans;
+        orphanIds.push_back(id);
+      }
+    }
+    CHECK_EQ_INT(orphans, 0);
+    CHECK_EQ_INT(orphanIds.size(), 0);
+    // and the bare shell really is missing them -- so this check is not vacuous
+    std::size_t unboundWithoutWorkspace = 0;
+    for (const std::string& id : map.allBoundCommandIds()) {
+      if (!shell.registry().contains(id)) ++unboundWithoutWorkspace;
+    }
+    CHECK_EQ_INT(unboundWithoutWorkspace, 3);  // extrude, fillet, shell
   }
-  CHECK_EQ_INT(orphans, 0);
 
   // ── key SEQUENCES: a live prefix is Pending, not Unbound ────────────────
   shell.setInputProfile(InputProfile::ForgeNative);
@@ -173,6 +202,40 @@ int main() {
   // ── stroke text is canonical and stable ─────────────────────────────────
   CHECK_EQ_STR(k("K", Mod::Ctrl | Mod::Shift).toText(), "Ctrl+Shift+K");
   CHECK_EQ_STR(sequenceText({k("K", Mod::Ctrl), k("P")}), "Ctrl+K P");
+
+  // ── REGRESSION: serialize() must never emit text parse() rejects ────────
+  // bind() accepted a key NAME containing '+', but parseStroke() reads every
+  // '+' as a modifier separator: "Ctrl++" serialized fine and then failed to
+  // parse, and ForgeShell::loadState() throws away the WHOLE keymap on a single
+  // bad line. The same holds for a tab, which is the field separator itself.
+  Keymap hostile;
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("+")}, "a.plus"));
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("Num+", Mod::Ctrl)}, "a.numplus"));
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("A\tB")}, "a.tabkey"));
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("A\nB")}, "a.newlinekey"));
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("A")}, "a\tb"));   // id breaks the record format
+  CHECK(!hostile.bind(InputProfile::NXLike, {k("A")}, "a\nb"));
+  CHECK_EQ_INT(hostile.bindingCount(), 0);
+
+  // whatever DOES bind round-trips, including the canonical names for those keys
+  Keymap corpus;
+  CHECK(corpus.bind(InputProfile::NXLike, {k("Plus")}, "a.plus"));
+  CHECK(corpus.bind(InputProfile::NXLike, {k("Equal", Mod::Ctrl)}, "a.equal"));
+  CHECK(corpus.bind(InputProfile::BlenderLike, {k("NumpadAdd", Mod::Ctrl | Mod::Shift)}, "a.add"));
+  CHECK(corpus.bind(InputProfile::CATIALike, {k("F12"), k("Slash")}, "a.seq"));
+  const std::string corpusText = corpus.serialize();
+  Keymap corpusBack;
+  CHECK(Keymap::parse(corpusText, corpusBack));
+  CHECK_EQ_STR(corpusBack.serialize(), corpusText);
+  CHECK_EQ_INT(corpusBack.bindingCount(), corpus.bindingCount());
+  CHECK_EQ_STR(corpusBack.resolve(InputProfile::NXLike, {k("Plus")}).commandId, "a.plus");
+
+  // and a shell whose keymap contains such a binding still loads its state
+  ForgeShell keyed;
+  const std::string keyedState = keyed.saveState();
+  ForgeShell keyedBack;
+  CHECK(keyedBack.loadState(keyedState));
+  CHECK_EQ_STR(keyedBack.saveState(), keyedState);
 
   return H.finish();
 }

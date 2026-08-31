@@ -329,12 +329,14 @@ ConfirmationReport runConfirmation(const MechanismModel& model,
                                    const RealtimeLoopConfig& liveCfg,
                                    const ProbeFn& probeFn,
                                    std::uint32_t refinement,
-                                   double declaredEnvelopeMetres) {
+                                   double declaredEnvelopeMetres,
+                                   double declaredProbeEnvelope) {
     ConfirmationReport rep;
-    rep.refinement       = std::max<std::uint32_t>(2, refinement);
-    rep.liveDt           = liveCfg.solverDt;
-    rep.confirmationDt   = liveCfg.solverDt / static_cast<double>(rep.refinement);
-    rep.declaredEnvelope = declaredEnvelopeMetres;
+    rep.refinement            = std::max<std::uint32_t>(2, refinement);
+    rep.liveDt                = liveCfg.solverDt;
+    rep.confirmationDt        = liveCfg.solverDt / static_cast<double>(rep.refinement);
+    rep.declaredEnvelope      = declaredEnvelopeMetres;
+    rep.declaredProbeEnvelope = declaredProbeEnvelope;
 
     FrameSink liveSink;
     const RealtimeRun live = driveRealtime(model.bodies, model.constraints, model.loads,
@@ -370,13 +372,21 @@ ConfirmationReport runConfirmation(const MechanismModel& model,
         for (const auto& p : A[i].probes) {
             double q = 0.0;
             if (probeValue(B[i], p.name.c_str(), q)) {
-                rep.maxProbeDelta = std::max(rep.maxProbeDelta, std::abs(p.value - q));
+                const double d = std::abs(p.value - q);
+                if (d > rep.maxProbeDelta) {
+                    rep.maxProbeDelta = d;
+                    rep.maxProbeName  = p.name;
+                }
             }
         }
         ++rep.comparedFrames;
     }
+    // BOTH declared bounds gate the verdict. Leaving the probe delta out would
+    // mean the mechanism's own output -- the number the animation exists to
+    // show -- had no live-vs-confirmation envelope at all.
     rep.withinEnvelope = rep.bothRunsComplete && rep.comparedFrames > 0 &&
-                         rep.maxPositionDelta <= declaredEnvelopeMetres;
+                         rep.maxPositionDelta <= declaredEnvelopeMetres &&
+                         rep.maxProbeDelta    <= declaredProbeEnvelope;
     return rep;
 }
 

@@ -1,0 +1,439 @@
+name: Desktop Release (macOS arm64)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Builds the NATIVE C++ desktop app (forge_desktop) and produces a relocatable,
+# self-contained Forge.app + zip. On a TAG it attaches that zip to the matching
+# GitHub Release as a DRAFT. On a manual dispatch it does everything EXCEPT
+# publish.
+#
+# This is deliberately a SEPARATE workflow from kernel-tests.yml. That file is
+# the correctness gate and every job in it is hardware-calm and independent; a
+# release build is a different thing with a different trigger, different
+# permissions (contents: write, which the gate must NOT have) and a much heavier
+# runtime. Folding it in would give the test workflow write access to releases.
+#
+# ── WHY THIS FILE HAS TO LIVE ON THE DEFAULT BRANCH ──────────────────────────
+# `workflow_dispatch` only becomes dispatchable once the workflow file exists on
+# the repository's DEFAULT branch (`archdisc`). MEASURED 2026-08-30, against the
+# live API:
+#
+#     $ gh workflow run desktop-release.yml --ref claude/sacrosanct-execution-20260828
+#     HTTP 404: workflow desktop-release.yml not found on the default branch
+#
+#     $ gh api repos/satvikOS/Forge/actions/workflows --jq '.workflows[].path'
+#     dynamic/copilot-swe-agent/copilot
+#     .github/workflows/kernel-tests.yml
+#     .github/workflows/build-app.yml          (disabled_manually)
+#
+# desktop-release was not registered AT ALL. Note which half that broke: the TAG
+# trigger resolves the workflow from the tagged commit and would have fired from
+# any branch, so before this file landed on the default branch the ONLY path
+# that worked was the one that PUBLISHES. The safe dry run was the one that did
+# not exist. That is the wrong way round, and it is what this file fixes.
+#
+# A run dispatched against a ref uses the workflow definition FROM THAT REF, so
+# the copy on the default branch is what makes the workflow selectable; the ref
+# you pick is what actually runs and what gets built.
+#
+# ── WHAT A HUMAN RUNS ────────────────────────────────────────────────────────
+# Nothing here fires on its own.
+#
+#   1. Dry run — builds, packages, measures, publishes NOTHING:
+#        gh workflow run desktop-release.yml --ref <branch>
+#        gh run list --workflow desktop-release.yml --limit 1
+#      Read the floor / Gatekeeper table it writes to the job summary, and
+#      download the artifact to test the app itself.
+#
+#      A dispatch CANNOT publish. That is structural, not a convention: the
+#      publish step below is gated on `github.event_name == 'push'`, so there is
+#      no input to set wrongly and no way to reach the release API from a
+#      manual run.
+#
+#   2. When that is green, tag and push — THIS is the step that publishes:
+#        git tag -a v0.1.0 -m "Forge desktop v0.1.0"
+#        git push origin v0.1.0
+#
+#   3. The tag run uploads the zip, its .sha256 and its report to the release
+#      for that tag, creating it as a DRAFT if it does not exist. A draft is not
+#      public until a human presses Publish, which is where the blockers below
+#      get a decision.
+#
+# ── TWO BLOCKERS A HUMAN MUST DECIDE ON BEFORE PUBLISHING ────────────────────
+#   * AN OS FLOOR SET BY SOMEBODY ELSE'S BINARIES. A Homebrew bottle carries the
+#     LC_BUILD_VERSION `minos` of the machine that BUILT it, and our own compile
+#     flags cannot lower a floor set inside someone else's dylib. So the floor
+#     follows the RUNNER IMAGE, not this source tree.
+#
+#     MEASURED 2026-08-30 on a macOS 26.6.2 host, from the packaged bundle:
+#       floor 26.0, set by 18 of 21 bundled Mach-O files.
+#       16 of those 18 are OCCT and its tbb dependency; the other two are
+#       libSDL2-2.0.0.dylib and libvulkan.1.dylib, which are linked DIRECTLY
+#       into forge_desktop. Dropping OCCT would therefore NOT lower the floor.
+#       Our own two binaries — forge_desktop and libforge_kernel_core.dylib —
+#       measured 14.0, so nothing we compile is the cause.
+#     That is why this job pins `macos-15` rather than `macos-latest`: the floor
+#     is a decision, and FORGE_FLOOR_MAX below turns a silent runner-image bump
+#     into a RED BUILD instead of a quietly raised system requirement.
+#
+#     VERIFIED against the Homebrew API at the formula versions in use:
+#     opencascade 7.9.3 publishes arm64_sonoma (14), arm64_sequoia (15) and
+#     arm64_tahoe (26) bottles, so pinning macos-15 does not trigger a
+#     from-source OCCT build that would blow the timeout.
+#
+#     macos-14 would give a 14.0 floor and is NOT used: those images are in
+#     deprecation and stop working entirely on 2026-11-02. A release path that
+#     expires in weeks is worse than one extra version of OS floor.
+#
+#   * GATEKEEPER REJECTS IT, AND NO CHANGE TO THIS REPOSITORY CAN FIX THAT.
+#     The signature is ad-hoc: no Developer ID, no notarization.
+#     MEASURED 2026-08-30: `spctl -a -vvv -t exec Forge.app` -> "rejected",
+#     exit 3; `security find-identity -v -p codesigning` -> 0 valid identities.
+#     A user who downloads the zip gets a refusal dialog on FIRST LAUNCH and
+#     clears it ONCE, by hand, via System Settings > Privacy & Security >
+#     "Open Anyway". That is a DECISION the user has taken, not a defect to be
+#     fixed here. The measured steps live in docs/FIRST_LAUNCH_MACOS.md and the
+#     text the release page carries lives in docs/RELEASE_BODY_macos.md.
+#
+#     Do NOT document "right-click > Open" anywhere. That shortcut was REMOVED
+#     in macOS 15 (Sequoia), so telling a user to do it sends them somewhere
+#     that does nothing.
+#
+#     Removing the prompt entirely needs a PAID Apple Developer ID certificate
+#     plus a notarytool submission, i.e. credentials and secrets, not code.
+#     Until those exist the dry run REPORTS the rejection and never asserts on
+#     it: a check that cannot pass without a credential is a permanently red
+#     gate, which is the same as no gate at all.
+# ─────────────────────────────────────────────────────────────────────────────
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos-arm64:
+    name: build + package Forge.app (macOS arm64)
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      # The floor this artifact is ALLOWED to have. macos-15 bottles are
+      # arm64_sequoia, which measure 15.0. The build FAILS if the measured floor
+      # exceeds this, so a runner-image change can never quietly raise the
+      # minimum macOS of a shipped artifact. Raise it only as a reviewed
+      # decision to ship a higher minimum.
+      FORGE_FLOOR_MAX: "15.0"
+      # What OUR code compiles against, so our own binaries never set the floor.
+      FORGE_MACOS_MIN: "14.0"
+      CCACHE_DIR: /Users/runner/.ccache
+    permissions:
+      # Needed ONLY by the final step, to attach the zip to a release on a tag.
+      # The build itself reads nothing privileged.
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preflight — does this ref carry the desktop release path?
+        # This file lives on the default branch so the workflow can be
+        # dispatched at all, but the default branch does not necessarily carry
+        # the desktop SOURCES. Without this step, dispatching against such a ref
+        # dies 40 minutes later inside CMake with an error about a missing
+        # library, which reads like a build regression rather than "you picked a
+        # ref that has no app in it". Fail in ten seconds, and say which ref.
+        shell: bash
+        run: |
+          set -uo pipefail
+          missing=0
+          for f in forge-kernel/CMakeLists.txt \
+                   forge-desktop/CMakeLists.txt \
+                   forge-desktop/package_macos.sh \
+                   forge-desktop/release_dryrun.sh \
+                   docs/RELEASE_BODY_macos.md; do
+            if [ -f "$f" ]; then printf 'ok       %s\n' "$f"
+            else printf 'MISSING  %s\n' "$f"; missing=1; fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::ref '${GITHUB_REF_NAME}' does not carry the desktop" \
+                 "release path (files marked MISSING above). Dispatch this" \
+                 "workflow against a ref that contains forge-desktop/src, or" \
+                 "merge that branch into the default branch first. Nothing was" \
+                 "built and nothing was published."
+            exit 1
+          fi
+          echo "preflight OK on ref '${GITHUB_REF_NAME}'"
+
+      - name: Assert the runner is what the artifact claims to be
+        # The zip is NAMED Forge-macos-arm64-*. Nothing else proves it. GitHub
+        # has changed macOS label routing before, and an x86_64 runner here
+        # would silently produce an Intel binary inside a file called "arm64",
+        # with an OS floor from the wrong bottle set. Make that a red build.
+        shell: bash
+        run: |
+          set -uo pipefail
+          ARCH="$(uname -m)"
+          echo "runner arch: $ARCH"
+          if [ "$ARCH" != "arm64" ]; then
+            echo "::error::runner is $ARCH, not arm64; this job builds an" \
+                 "arm64-named artifact. Check the runs-on label routing."
+            exit 1
+          fi
+
+      - name: Install build dependencies
+        # opencascade pulls tbb; sdl2 is an ALIAS for sdl2-compat on current
+        # Homebrew, which is why the CMake dependency probe verifies that
+        # `brew --prefix <formula>` actually EXISTS and falls back to the opt
+        # keg link. Do not "simplify" that probe.
+        run: |
+          brew update-reset >/dev/null 2>&1 || true
+          # boost is required by forge-kernel's ForgeDeps resolver (CMakeLists.txt:1188):
+          # planegcs uses boost::graph and boost::math::constants. Two dispatched dry runs
+          # failed on `could not resolve 'boost' 1.90.0` before this landed.
+          #
+          # THIS FIX HAS TO BE ON THIS BRANCH, not only on the default one. A run
+          # dispatched against a ref uses the workflow definition FROM THAT REF -- the copy
+          # on the default branch only makes the workflow SELECTABLE. The second dry run
+          # failed identically to the first because the fix had been merged to archdisc
+          # while the run was dispatched against this branch.
+          brew install opencascade boost sdl2 vulkan-headers vulkan-loader molten-vk glslang cmake ccache
+
+      - name: Record the toolchain that produced this artifact
+        # An artifact whose provenance is not written down cannot be debugged
+        # later. These versions decide the OS floor and the geometry.
+        run: |
+          sw_vers
+          uname -m
+          cmake --version | head -1
+          for f in opencascade sdl2 molten-vk vulkan-loader tbb; do
+            printf '%-16s %s\n' "$f" "$(brew list --versions "$f" || echo MISSING)"
+          done
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: /Users/runner/.ccache
+          key: ccache-desktop-${{ runner.os }}-${{ hashFiles('forge-kernel/src/**', 'forge-kernel/include/**', 'forge-desktop/src/**', 'ui/src/**') }}
+          restore-keys: |
+            ccache-desktop-${{ runner.os }}-
+
+      - name: Derive the version
+        id: ver
+        # A tag is v0.1.0; CFBundleShortVersionString must be 0.1.0. A manual
+        # dispatch has no tag, so it is stamped with the short sha to make an
+        # unreleasable build obviously unreleasable.
+        shell: bash
+        run: |
+          set -uo pipefail
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+          else
+            V="0.0.0-dev+${GITHUB_SHA:0:7}"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Packaging version $V"
+
+      - name: Build, package, and report the floor + Gatekeeper verdict
+        # ONE script, run identically here and on a developer's machine, so the
+        # CI report and the local report cannot drift. It builds both CMake
+        # projects, runs the headless frame gate, packages Forge.app, then
+        # MEASURES the OS floor and the spctl verdict and writes them to the job
+        # summary and to a JSON report next to the zip.
+        #
+        # It publishes nothing: it creates no tag and never calls the release
+        # API. Publishing is the separate, tag-gated step at the bottom.
+        #
+        # --floor-max is the hard gate. Verified to fire in BOTH directions
+        # (measured floor 26.0 against --floor-max 15.0 exits 1; against 26.0
+        # exits 0), so it is a real check and not a decorative one.
+        #
+        # ccache is wired through the ENVIRONMENT rather than -D flags because
+        # CMake initialises CMAKE_<LANG>_COMPILER_LAUNCHER from the identically
+        # named environment variable; verified honoured before being relied on.
+        shell: bash
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          set -uo pipefail
+          ccache --max-size=3G --zero-stats
+          bash forge-desktop/release_dryrun.sh \
+            --version "${{ steps.ver.outputs.version }}" \
+            --macos-min "$FORGE_MACOS_MIN" \
+            --floor-max "$FORGE_FLOOR_MAX" \
+            --jobs 3
+          ccache --show-stats
+
+      - name: Prove the artifact exists and is self-contained
+        # Belt and braces over the script's own checks: a packaging step that
+        # exits 0 having produced nothing is exactly the failure mode this
+        # programme keeps hitting.
+        shell: bash
+        run: |
+          set -uo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
+          test -f "$ZIP"    || { echo "::error::no zip at $ZIP"; exit 1; }
+          test -f "$REPORT" || { echo "::error::no report at $REPORT"; exit 1; }
+          test -x forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop || {
+            echo "::error::no executable inside the bundle"; exit 1; }
+          ls -la forge-desktop/dist/
+          echo "--- executable link closure ---"
+          otool -L forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop
+          echo "--- the binary really is arm64 ---"
+          # Last chance to catch a runner that routed to Intel: every step
+          # upstream would still be green.
+          lipo -archs forge-desktop/dist/Forge.app/Contents/MacOS/forge_desktop > /tmp/archs
+          cat /tmp/archs
+          grep -qw arm64 /tmp/archs || { echo "::error::executable is not arm64"; exit 1; }
+          echo "--- report ---"
+          cat "$REPORT"
+
+      - name: Render the release notes (EVERY run, tag or not)
+        # The rendering used to happen only inside the publish step, which is
+        # tag-gated. That put the notes on the half of the path a human cannot
+        # rehearse: a broken body would first be discovered by the run that
+        # PUBLISHES. Same shape of mistake as this workflow's own history, where
+        # the only trigger that worked was the one that published.
+        #
+        # So the body is rendered HERE, on a dispatch too, from the same source
+        # and with the same measured values. The publish step below does not
+        # re-render; it uploads THESE bytes, so what a dry run shows is exactly
+        # what a tag would publish.
+        id: notes
+        shell: bash
+        env:
+          # A tag run has the real tag. A dispatch has none, so the version
+          # string is used, which already carries the short sha and makes an
+          # unreleasable build obviously unreleasable.
+          TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.ver.outputs.version) }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.ver.outputs.version }}"
+          REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          BODY_SRC="docs/RELEASE_BODY_macos.md"
+          test -f "$BODY_SRC" || { echo "::error::$BODY_SRC missing"; exit 1; }
+
+          FLOOR="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["measured_floor"])' "$REPORT")"
+          SHA="$(awk '{print $1}' "$ZIP.sha256")"
+          OUT="forge-desktop/dist/Forge-macos-arm64-${V}.notes.md"
+
+          # Drop the leading HTML comment block (authoring instructions for
+          # whoever edits the body), then substitute the MEASURED values. A
+          # hard-coded minimum macOS or sha256 is wrong the moment the runner
+          # image or the build moves.
+          sed '/^<!--$/,/^-->$/d' "$BODY_SRC" \
+            | sed -e "s|@@REPO_URL@@|${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}|g" \
+                  -e "s|@@TAG@@|${TAG_NAME}|g" \
+                  -e "s|@@VERSION@@|${V}|g" \
+                  -e "s|@@FLOOR@@|${FLOOR}|g" \
+                  -e "s|@@SHA@@|${SHA}|g" > "$OUT"
+
+          # An unsubstituted placeholder would publish a literal "@@SHA@@" to
+          # users. Deliberately `grep -q` inside an `if` and NOT
+          # `LEFT=$(grep -c ...)`: this step runs under `set -e`, grep exits 1
+          # when it finds nothing, and an assignment carries its substitution's
+          # status, so counting would abort the step on the SUCCESS path.
+          if grep -q '@@[A-Z_]*@@' "$OUT"; then
+            grep -n '@@[A-Z_]*@@' "$OUT" >&2
+            echo "::error::unsubstituted placeholder(s) in the release body"
+            exit 1
+          fi
+          test -s "$OUT" || { echo "::error::release body rendered empty"; exit 1; }
+
+          # The one instruction that must never come back. Apple REMOVED the
+          # Control-click override in macOS 15 (Sequoia), so shipping it sends
+          # users to a menu item that does not exist. The second grep lets the
+          # body keep its explicit "ignore anything that says right-click"
+          # warning while still failing on a line that TELLS them to do it.
+          #
+          # The result is captured into a variable rather than read from the
+          # pipeline's status: `grep -q` exits on its FIRST match and closes the
+          # pipe, which can SIGPIPE the upstream grep, and under `pipefail` that
+          # non-zero status would read as "clean" and silently disable the
+          # guard. Neither grep here is -q, both read to EOF, and the decision
+          # is made on the TEXT.
+          BAD="$(grep -iE 'right[ -]click|control[ -]click' "$OUT" \
+                 | grep -ivE 'ignore|removed|do not|does nothing|no longer' \
+                 || true)"
+          if [ -n "$BAD" ]; then
+            printf '%s\n' "$BAD" >&2
+            echo "::error::the release body tells users to right-click to Open;" \
+                 "that shortcut was REMOVED in macOS 15 (Sequoia)"
+            exit 1
+          fi
+
+          echo "notes=$OUT" >> "$GITHUB_OUTPUT"
+          echo "--- release notes that a tag would publish VERBATIM ---"
+          cat "$OUT"
+          if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+            {
+              echo "### Release notes this build would publish"
+              echo
+              cat "$OUT"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload as a CI artifact (always)
+        # Every run keeps its build, tag or not, so a dry run is downloadable
+        # and testable WITHOUT touching a release.
+        uses: actions/upload-artifact@v4
+        with:
+          name: Forge-macos-arm64-${{ steps.ver.outputs.version }}
+          path: |
+            forge-desktop/dist/Forge-macos-arm64-*.zip
+            forge-desktop/dist/Forge-macos-arm64-*.zip.sha256
+            forge-desktop/dist/Forge-macos-arm64-*.dryrun.json
+            forge-desktop/dist/Forge-macos-arm64-*.notes.md
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Attach to the GitHub Release (pushed tags ONLY)
+        # The condition is deliberately BOTH halves. `ref_type == 'tag'` alone
+        # would still let a manual dispatch against a tag ref reach the release
+        # API; requiring event_name == 'push' means a dispatch structurally
+        # cannot publish, which is what makes the dry run above safe by
+        # construction rather than by remembering to set a flag.
+        #
+        # --draft on create: a release is never made public by automation,
+        # because publishing asserts the artifact is fit to download, and the
+        # OS-floor and Gatekeeper blockers in the header make that a human's
+        # call. `gh` is preinstalled on GitHub runners.
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          V="${{ steps.ver.outputs.version }}"
+          ZIP="forge-desktop/dist/Forge-macos-arm64-${V}.zip"
+          REPORT="forge-desktop/dist/Forge-macos-arm64-${V}.dryrun.json"
+
+          # No substitution happens here any more; the notes were rendered
+          # and printed by the step above, on a dispatch as well as on a tag.
+          # NOT re-rendered here. The "Render the release notes" step above
+          # already produced these exact bytes and printed them, on a dispatch
+          # too, so a dry run rehearses the publish instead of the publish being
+          # the first place the notes are ever built.
+          NOTES="${{ steps.notes.outputs.notes }}"
+          test -s "$NOTES" || { echo "::error::no rendered notes at $NOTES"; exit 1; }
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "no release for $TAG yet - creating it as a DRAFT"
+            gh release create "$TAG" --draft --title "Forge $TAG" \
+              --notes-file "$NOTES"
+          else
+            echo "release $TAG exists - leaving its notes and draft state alone"
+          fi
+
+          gh release upload "$TAG" "$ZIP" "$ZIP.sha256" "$REPORT" --clobber
+          gh release upload "$TAG" "forge-desktop/dist/appcast.json" --clobber
+          echo "attached $ZIP and appcast.json to release $TAG"

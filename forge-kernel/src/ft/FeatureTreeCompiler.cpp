@@ -1270,7 +1270,22 @@ private:
             if (dot > 0.9 && fi.area > bestScore) { bestScore = fi.area; best = fid; }
         }
         if (best == 0) throw OpError(op.id, "SHELL: no face faces the open axis");
-        return forge::part::shell(body, {best}, -std::fabs(wall), {});
+        // OFF-BY-ONE, MEASURED. Two face-id conventions meet on this line and
+        // they are NOT the same one:
+        //   forge::direct::inferFeature  takes a 1-BASED FaceId (DirectModeling.cpp
+        //     lookupFace indexes a TopTools_IndexedMapOfShape from 1; Tessellate.hpp
+        //     documents the same 1-based ordering for every direct.* id), and
+        //   forge::part::shell           takes 0-BASED indices (Features.cpp
+        //     faceById: "Resolve a 0-based face index ...", and forge-desktop/
+        //     feature_probe.cpp removes the first face by passing {0}).
+        // Passing the 1-based `best` straight through therefore opened the face
+        // BEFORE the intended one. It was silent: the result is still a valid,
+        // watertight, plausible-looking shell — just hollowed on the wrong side.
+        // MEASURED on SHELL(BOX(60,40,30), 3): 24048 mm^3 (a 60x30 side face
+        // removed => 72000 - 54*37*24) where the closed form for the -Z face is
+        // 22428 (72000 - 54*34*27). 7.2% of the part's mass, and the opening on
+        // the wrong axis. forge-desktop/ui_ir_probe.cpp asserts the closed form.
+        return forge::part::shell(body, {best - 1}, -std::fabs(wall), {});
     }
 
     // FOLD — sheet-metal flange macro (EXTRUDE + ROTATE-about-hinge + FUSE),
@@ -1965,19 +1980,61 @@ private:
                 try { probe = forge::unifyFaces(body); } catch (...) { probe = body; }
                 const auto inv = forge::faceInventory(probe);
                 long n = 0;
-                std::vector<std::array<double, 3>> seen;
+                // ONE HOLE == ONE AXIS, and an axis is a LINE, not a point in
+                // the XY plane. The key used to be {axisLocation.x,
+                // axisLocation.y, radius} — it dropped axisLocation.z AND the
+                // axis DIRECTION, so it was only ever right for Z-parallel
+                // bores through distinct (x,y). A cross-drilled part (vertical
+                // through bore + a side port drilled in along X to meet it)
+                // reports two walls that share x, y and radius and counted as
+                // ONE hole; src/tools/forge_verify.cpp measures the same part
+                // as two, and the two measurements of "how many holes" have to
+                // agree. The key is now the axis LINE, spelled the way
+                // forge_verify spells it: a canonical direction (largest
+                // component made positive, so d and -d are one line) plus the
+                // FOOT — the axis' closest point to the origin, which is
+                // independent of WHICH point on the axis the surface reports,
+                // so coaxial strips still collapse to one hole.
+                struct BoreKey {
+                    std::array<double, 3> dir;
+                    std::array<double, 3> foot;
+                    double radius;
+                };
+                std::vector<BoreKey> seen;
                 for (const auto& f : inv) {
                     if (f.kind != "cylinder" || !f.concave) continue;
-                    // one hole == one axis; coaxial strips are the same hole
-                    const std::array<double, 3> key3{{f.axisLocation[0], f.axisLocation[1],
-                                                      f.radius}};
+
+                    std::array<double, 3> d{{f.direction[0], f.direction[1], f.direction[2]}};
+                    const double dl = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+                    if (dl < 1e-12) continue;          // no axis => not a bore
+                    for (auto& c : d) c /= dl;
+                    // canonical sense: the largest-magnitude component positive
+                    std::size_t big = 0;
+                    for (std::size_t k = 1; k < 3; ++k)
+                        if (std::fabs(d[k]) > std::fabs(d[big])) big = k;
+                    if (d[big] < 0) for (auto& c : d) c = -c;
+
+                    // foot = L - (L.d) d  — the point of the axis nearest the origin
+                    const std::array<double, 3> L{{f.axisLocation[0], f.axisLocation[1],
+                                                   f.axisLocation[2]}};
+                    const double t = L[0] * d[0] + L[1] * d[1] + L[2] * d[2];
+                    const std::array<double, 3> foot{{L[0] - t * d[0], L[1] - t * d[1],
+                                                      L[2] - t * d[2]}};
+
                     bool dup = false;
-                    for (const auto& s : seen)
-                        if (std::fabs(s[0] - key3[0]) < 1e-6 &&
-                            std::fabs(s[1] - key3[1]) < 1e-6 &&
-                            std::fabs(s[2] - key3[2]) < 1e-6) { dup = true; break; }
+                    for (const auto& s : seen) {
+                        if (std::fabs(s.radius - f.radius) >= 1e-6) continue;
+                        if (std::fabs(s.dir[0] - d[0]) >= 1e-6 ||
+                            std::fabs(s.dir[1] - d[1]) >= 1e-6 ||
+                            std::fabs(s.dir[2] - d[2]) >= 1e-6) continue;
+                        if (std::fabs(s.foot[0] - foot[0]) >= 1e-6 ||
+                            std::fabs(s.foot[1] - foot[1]) >= 1e-6 ||
+                            std::fabs(s.foot[2] - foot[2]) >= 1e-6) continue;
+                        dup = true;
+                        break;
+                    }
                     if (dup) continue;
-                    seen.push_back(key3);
+                    seen.push_back(BoreKey{d, foot, f.radius});
                     ++n;
                 }
                 got = static_cast<double>(n);
@@ -2319,8 +2376,25 @@ CompileResult compileText(const std::string& text, const std::string& exportStep
     }
     out = compile(ft, inputStepPath);
     if (out.ok && !exportStepPath.empty()) {
-        try { out.exported = forge::io::exportStep(out.handle, exportStepPath); }
-        catch (const std::exception& e) { out.error = std::string("STEP export failed: ") + e.what(); }
+        // A REQUESTED EXPORT THAT FAILS FAILS THE COMPILE. This used to leave
+        // ok == true with a non-empty error and exported == false: a green
+        // signal for a run that produced no file, and every caller that asks
+        // for a STEP and reads `ok` was then told the artefact exists. The
+        // solid itself is still reported (handle + measurement survive) so a
+        // caller can tell "wrote no file" from "built no part" — that is the
+        // same rule src/tools/forge_verify.cpp already prints by.
+        bool wrote = false;
+        try {
+            wrote = forge::io::exportStep(out.handle, exportStepPath);
+            if (!wrote) {
+                out.error = "STEP export failed: forge::io::exportStep declined to write " +
+                            exportStepPath;
+            }
+        } catch (const std::exception& e) {
+            out.error = std::string("STEP export failed: ") + e.what();
+        }
+        out.exported = wrote;
+        if (!wrote) out.ok = false;
     }
     return out;
 }

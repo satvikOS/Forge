@@ -88,6 +88,29 @@ bool CommandParams::has(const std::string& name) const {
   return numbers_.count(name) != 0 || texts_.count(name) != 0 || flags_.count(name) != 0;
 }
 
+// ── parameter defaults ──────────────────────────────────────────────────────
+CommandParams applyDefaults(const CommandDescriptor& command, CommandParams params) {
+  for (const ParamSpec& spec : command.schema) {
+    if (!spec.hasDefault) continue;      // no honest default: do NOT invent one
+    if (params.has(spec.name)) continue; // an explicit argument always wins
+    switch (spec.type) {
+      case ParamType::Number: params.setNumber(spec.name, spec.defaultNumber); break;
+      case ParamType::Text:   params.setText(spec.name, spec.defaultText); break;
+      case ParamType::Flag:   params.setFlag(spec.name, spec.defaultNumber != 0.0); break;
+    }
+  }
+  return params;
+}
+
+std::vector<std::string> missingRequired(const CommandDescriptor& command,
+                                         const CommandParams& params) {
+  std::vector<std::string> out;
+  for (const ParamSpec& spec : command.schema) {
+    if (spec.required && !params.has(spec.name)) out.push_back(spec.name);
+  }
+  return out;
+}
+
 const char* toString(DispatchStatus status) noexcept {
   switch (status) {
     case DispatchStatus::Ok:                         return "ok";
@@ -96,6 +119,7 @@ const char* toString(DispatchStatus status) noexcept {
     case DispatchStatus::Disabled:                   return "disabled";
     case DispatchStatus::MissingRequiredParameter:   return "missing_required_parameter";
     case DispatchStatus::NoHandler:                  return "no_handler";
+    case DispatchStatus::EditRefused:                return "edit_refused";
   }
   return "unknown_command";
 }
@@ -206,6 +230,10 @@ DispatchResult CommandRegistry::dispatch(const std::string& id, const SelectionS
   CommandContext ctx(selection, params);
   ++dispatches_;
   cmd->execute(ctx);
+  // A handler that ran and refused must not report Ok. Before this, every failure status was
+  // decided above, so once execute() started the answer was always Ok -- and a refused edit
+  // was a silent no-op reported as success.
+  if (ctx.failed()) return DispatchResult{DispatchStatus::EditRefused, ctx.failureDetail()};
   return DispatchResult{DispatchStatus::Ok, {}};
 }
 

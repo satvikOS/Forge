@@ -9,18 +9,35 @@
 # Two classes are handled:
 #   PHANTOM — registered in .git/worktrees but the directory is gone. Only an admin record remains.
 #             Safe to prune; nothing on disk is lost.
-#   FINISHED — directory exists, tracked tree clean, no unique untracked/ignored data, and every
-#             commit is reachable from a surviving ref. Removed through git, never rm -rf.
+#   FINISHED — directory exists, NOT git-locked, tracked tree clean, no unique untracked/ignored
+#             data, and every commit is reachable from a surviving ref. Removed through git,
+#             never rm -rf. A `locked` file is the lock whether or not it carries reason text.
 #
 # Usage:  reap_worktrees.sh            # DRY RUN (default — prints the plan, changes nothing)
 #         reap_worktrees.sh --apply    # execute the plan
 set -uo pipefail
 
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "not a git repo"; exit 1; }
-cd "$ROOT"
+# --- locate the TRUE main checkout -------------------------------------------------------------
+# `git rev-parse --show-toplevel` returns the toplevel of whatever worktree you are standing in.
+# Run from a linked worktree it returned THAT worktree, so REGISTERED_ROOT became
+# "<linked-wt>/.claude/worktrees" — a directory that does not exist — every real worktree was
+# refused as "outside registered root", the linked worktree was mistaken for MAIN and skipped
+# without a word, and the receipt was written inside the ephemeral tree.
+# --git-common-dir is shared by every worktree of a repo and always points at the main .git.
+COMMON="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+  || { echo "not a git repo"; exit 1; }
+[ -n "$COMMON" ] || { echo "not a git repo"; exit 1; }
+MAIN="$(cd "$(dirname "$COMMON")" 2>/dev/null && pwd -P)" || MAIN=""
+if [ -z "$MAIN" ] || [ "$(git -C "$MAIN" rev-parse --show-toplevel 2>/dev/null)" != "$MAIN" ]; then
+  echo "cannot locate the main checkout from git-common-dir '$COMMON' — refusing to act"; exit 1
+fi
+
+# CUR must be read BEFORE cd, and must be the toplevel of the worktree we are standing IN — that
+# is the one thing we must never remove out from under ourselves.
+CUR="$(git rev-parse --show-toplevel 2>/dev/null)"; CUR="${CUR:-$(pwd -P)}"
+cd "$MAIN" || { echo "cannot enter main checkout $MAIN"; exit 1; }
+
 APPLY=0; [ "${1:-}" = "--apply" ] && APPLY=1
-MAIN="$(git rev-parse --show-toplevel)"
-CUR="$(pwd -P)"
 REGISTERED_ROOT="$MAIN/.claude/worktrees"
 RECEIPTS="$MAIN/implementation/sacrosanct/storage-receipts"
 mkdir -p "$RECEIPTS"
@@ -31,7 +48,9 @@ RECEIPT="$RECEIPTS/reap-$STAMP.md"
 SURVIVING_REFS=$(git for-each-ref --format='%(refname)' refs/heads refs/remotes 2>/dev/null)
 
 reclaimed=0; kept=0; phantom=0; bytes=0
+removed_ok=0; removed_fail=0
 PHANTOM_UNLOCK=()
+REMOVE_LIST=()
 plan=""
 
 note() { plan+="$1"$'\n'; echo "$1"; }
@@ -39,8 +58,57 @@ note() { plan+="$1"$'\n'; echo "$1"; }
 note "# worktree reap — $STAMP  (mode: $([ $APPLY -eq 1 ] && echo APPLY || echo DRY-RUN))"
 note ""
 
-while IFS= read -r line; do
-  wt="${line%% *}"
+# --- read the worktree table SAFELY ------------------------------------------------------------
+# The human `git worktree list` format is columns separated by runs of spaces, so `${line%% *}`
+# truncated any path containing a space: ".../worktrees/my agent" parsed as ".../worktrees/my",
+# which is not on disk, so a LIVE worktree was classified PHANTOM and the receipt asserted
+# "no data on disk to lose" about a directory full of it. --porcelain -z is NUL-delimited and
+# carries the lock reason as its own record, so neither spaces nor newlines can split a field.
+WT_PATHS=(); WT_LOCKED=(); WT_REASON=()
+_p=""; _l=0; _r=""
+_flush() {
+  if [ -n "$_p" ]; then WT_PATHS+=("$_p"); WT_LOCKED+=("$_l"); WT_REASON+=("$_r"); fi
+  _p=""; _l=0; _r=""
+}
+while IFS= read -r -d '' entry; do
+  case "$entry" in
+    "worktree "*) _flush; _p="${entry#worktree }" ;;
+    "locked")     _l=1; _r="" ;;
+    "locked "*)   _l=1; _r="${entry#locked }" ;;
+  esac
+done < <(git worktree list --porcelain -z)
+_flush
+
+# is_locked_now <path> -> 0 if git currently reports that worktree as locked.
+# Re-reads the table rather than trusting the arrays above, because APPLY happens after the
+# plan was printed and a lock may have been taken in between. A bare `locked` record (no
+# reason) counts: the record's presence is the lock.
+is_locked_now() {
+  # FAIL CLOSED (CodeRabbit): a FAILED `git worktree list` used to fall through to the final test
+  # with cur="" and report "not locked" — the fifth fail-open in this script, and like every other
+  # it pointed toward DELETION. If the lock state cannot be read we do not know it is unlocked, and
+  # a lock is the owner's explicit statement that this tree must not be removed.
+  # The -z parsing below is deliberate and must not be "simplified": worktree paths contain spaces
+  # (the gate's own fixtures use "done agent"), so a whitespace-splitting parse truncates them.
+  if ! git worktree list --porcelain -z >/dev/null 2>&1; then
+    return 0   # unreadable => treat as LOCKED
+  fi
+  local want="$1" cur="" locked=0 entry
+  while IFS= read -r -d '' entry; do
+    case "$entry" in
+      "worktree "*)
+        if [ "$cur" = "$want" ] && [ "$locked" = "1" ]; then return 0; fi
+        cur="${entry#worktree }"; locked=0 ;;
+      "locked"|"locked "*) locked=1 ;;
+    esac
+  done < <(git worktree list --porcelain -z)
+  [ "$cur" = "$want" ] && [ "$locked" = "1" ]
+}
+
+i=0
+while [ $i -lt ${#WT_PATHS[@]} ]; do
+  wt="${WT_PATHS[$i]}"; wt_locked="${WT_LOCKED[$i]}"; wt_reason="${WT_REASON[$i]}"
+  i=$((i+1))
   [ -z "$wt" ] && continue
 
   # --- refuse anything outside the registered root, and the main checkout itself ---
@@ -66,21 +134,31 @@ while IFS= read -r line; do
   # unlocking, the record is immortal — which is exactly how 26 of these accumulated since May.
   # Unlocking is only safe with TWO independent proofs: the directory is gone AND the process
   # holding the lock is dead. Use `ps -p`, never pgrep -f, which would match this script itself.
+  # The lock reason comes from the porcelain record, not from `.git/worktrees/$(basename $wt)`:
+  # git disambiguates colliding basenames with -1/-2 suffixes, so that path is not the record.
   if [ ! -d "$wt" ]; then
-    rec="$MAIN/.git/worktrees/$(basename "$wt")"
-    lockf="$rec/locked"
-    if [ -f "$lockf" ]; then
-      reason="$(cat "$lockf" 2>/dev/null)"
-      lockpid="$(printf '%s' "$reason" | sed -n 's/.*(pid \([0-9][0-9]*\)).*/\1/p')"
-      if [ -n "$lockpid" ] && ps -p "$lockpid" >/dev/null 2>&1; then
+    if [ "$wt_locked" = "1" ]; then
+      lockpid="$(printf '%s' "$wt_reason" | sed -n 's/.*(pid \([0-9][0-9]*\)).*/\1/p')"
+      if [ -z "$lockpid" ]; then
+        # No pid in the reason means we have NO evidence about the holder. The old code fell
+        # through to PRUNE and printed "lock held by dead pid unknown" — asserting a death it
+        # never established. Uncertainty is a KEEP, and it must say so.
+        note "KEEP    $wt"
+        note "        reason: directory absent and the lock reason carries NO parseable '(pid N)' —"
+        note "                the holder cannot be proved dead. Uncertainty is never a deletion."
+        note "        lock:  ${wt_reason:-(no reason recorded)}"
+        note "        clear: git worktree unlock '$wt'   # only once a human confirms it is stale"
+        kept=$((kept+1)); continue
+      fi
+      if ps -p "$lockpid" >/dev/null 2>&1; then
         note "KEEP    $wt"
         note "        reason: directory absent BUT lock pid $lockpid is STILL ALIVE — an agent"
         note "                may be mid-operation. Refusing to unlock."
         kept=$((kept+1)); continue
       fi
       note "PRUNE   $wt"
-      note "        class: PHANTOM+STALE-LOCK — directory absent; lock held by dead pid ${lockpid:-unknown}"
-      note "        lock:  $reason"
+      note "        class: PHANTOM+STALE-LOCK — directory absent; lock pid $lockpid confirmed dead (ps -p)"
+      note "        lock:  $wt_reason"
       note "        action: unlock then prune (git worktree prune skips locked records)"
       PHANTOM_UNLOCK+=("$wt")
     else
@@ -90,11 +168,150 @@ while IFS= read -r line; do
     phantom=$((phantom+1)); continue
   fi
 
+  # ---------------- LOCKED: git was TOLD to protect this one ----------------
+  # The lock FILE's presence is the lock. `git worktree lock` without --reason writes an
+  # EMPTY file, so "no reason text" means the OWNER is unknown, never that the lock is
+  # absent — the same error, pointing the same way (toward deletion), that the phantom
+  # branch above already refuses to make.
+  # Below this point the lock was consulted only for PHANTOMs: a worktree still on disk was
+  # judged purely on cleanliness, and the apply loop then double-forced past the lock
+  # ("locked needs --force twice"), so a clean worktree an agent had explicitly locked was
+  # removed out from under it. The native governor
+  # (forge-kernel/src/native/storage/StorageGovernor.cpp) pins EVERY locked record; two
+  # tools that disagree about what "locked" means is how a worktree gets deleted by the one
+  # that is wrong. A lock is a decision someone already made — clearing it is a human's job.
+  if [ "$wt_locked" = "1" ]; then
+    note "KEEP    $wt"
+    note "        reason: git-LOCKED — the lock FILE is the lock, with or without reason text."
+    note "                Removing it would defeat a protection git was explicitly told to apply."
+    note "        lock:  ${wt_reason:-(no reason recorded — 'git worktree lock' run without --reason)}"
+    note "        clear: git worktree unlock '$wt'   # deliberate, by a human, then re-run"
+    kept=$((kept+1)); continue
+  fi
+
+  # ---------------- ACTIVE AGENT?  refuse before anything else ----------------
+  # Sacrosanct s21.3 requires proving a worktree has no active Claude session or task before
+  # removal. That was specified and NOT implemented, and on 2026-08-28 this script deleted a LIVE
+  # agent's isolation worktree mid-run: the agent had verified five findings and authored a fix but
+  # had not yet written a file, so the dirty-tree test passed, and its branch had no commits, so the
+  # witness test passed. Its remaining tool calls all failed with "the isolation worktree appears to
+  # have been removed" and the authored fix was lost.
+  #
+  # "Not yet dirty" is not "finished". A worktree belonging to a live workflow run is UNCERTAIN,
+  # and uncertainty means KEEP — the same rule already applied to unparseable locks.
+  wt_base="$(basename "$wt")"
+  # Both naming schemes are agent worktrees. The wf_* form is a workflow run; the agent-* form is a
+  # standalone spawned agent — every one of the 26 phantom records reaped earlier was agent-*, so a
+  # guard that only matched wf_* left the more common kind unprotected.
+  case "$wt_base" in
+    wf_*|agent-*)
+      run_id="${wt_base%-*}"
+      # Liveness must be scoped to THIS run, not to the machine. The first version OR-ed in
+      # `ps | grep claude`, which is true whenever any agent is alive anywhere — so during a fanout
+      # every worktree was KEPT and the reaper reclaimed nothing at exactly the moment disk pressure
+      # peaks. Correct, and useless.
+      #
+      # Scope by the run's own transcript directory, and fail CLOSED on ignorance:
+      #   dir exists and touched recently  -> ACTIVE, keep
+      #   dir exists and stale             -> not active by this signal, fall through to the other checks
+      #   dir does not exist               -> UNKNOWN run, keep (uncertainty means keep)
+      # Overridable ONLY so this guard's red paths can be exercised by
+      # tools/storage/tests/reap_worktrees_test.sh — a hardcoded $HOME made the ACTIVE-AGENT
+      # branch untestable, which is why the SIGPIPE misread below survived 37 green cases.
+      tdir_root="${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}"
+      run_dir="$(find "$tdir_root" -type d -name "${run_id}*" 2>/dev/null | head -1)"
+      if [ -z "$run_dir" ]; then
+        note "KEEP    $wt"
+        note "        reason: UNKNOWN agent run ${run_id} — no transcript directory found, so its"
+        note "                liveness cannot be established. Uncertainty means keep."
+        kept=$((kept+1)); continue
+      fi
+      # FAIL CLOSED on the probe itself. `find` printing nothing is ambiguous: it means either
+      # "no recent activity" or "the probe could not run" (permissions, I/O error, a vanished
+      # directory). The first is a reason to proceed; the second is not. Capture the STATUS as well
+      # as the output — this is the SEVENTH fail-open in this file and the THIRD I introduced while
+      # fixing the same pattern, which is itself the finding: the natural shell phrasing quietly
+      # favours proceeding, so in deletion code the guard has to be written against the grain.
+      # `-print -quit` instead of `| head -1`: $? after a pipeline is the LAST command's status.
+      # head exits after one line, and once the listing exceeds the 64KB pipe buffer find dies of
+      # SIGPIPE and the substitution yields 141 — MEASURED: 900 long-named entries give rc=141
+      # through head and rc=0 with -print -quit. That made a LIVE agent report as a FAILED PROBE:
+      # still a KEEP, so nothing was deleted, but with the wrong reason and for ever. -quit also
+      # stops at the first hit, so this is strictly cheaper on the large run dirs that trigger it.
+      probe_out="$(find "$run_dir" -mmin -30 -print -quit 2>/dev/null)"; probe_rc=$?
+      if [ $probe_rc -ne 0 ]; then
+        note "KEEP    $wt"
+        note "        reason: the activity probe FAILED (rc=$probe_rc) on $run_dir — liveness could"
+        note "                not be established. A check that could not run is not a check that passed."
+        kept=$((kept+1)); continue
+      fi
+      if [ -n "$probe_out" ]; then
+        note "KEEP    $wt"
+        note "        reason: ACTIVE-AGENT worktree — run ${run_id} has transcript activity within"
+        note "                30 min. Not-yet-dirty is not finished."
+        kept=$((kept+1)); continue
+      fi
+      ;;
+  esac
+
   # ---------------- FINISHED?  every check must pass ----------------
-  dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+  # FAIL CLOSED. This was previously `git status --porcelain 2>/dev/null | wc -l`, which had two
+  # fail-open defects feeding the DELETION path: the pipeline's exit status is wc's, so git's
+  # failure was invisible, and a failed git produces no output, so wc printed 0 and the worktree
+  # was classified CLEAN. A corrupt or unreadable worktree therefore looked like a finished one.
+  # Capture the status separately from the count, and treat any git failure as UNCERTAIN -> KEEP.
+  status_out="$(git -C "$wt" status --porcelain --ignored=matching 2>&1)"; status_rc=$?
+  if [ $status_rc -ne 0 ]; then
+    note "KEEP    $wt"
+    note "        reason: \`git status\` FAILED (rc=$status_rc) — cannot prove this tree is clean."
+    note "                A check that could not run is not a check that passed."
+    note "                git said: $(printf '%s' "$status_out" | head -1)"
+    kept=$((kept+1)); continue
+  fi
+  # --ignored=matching also lists ignored files, which the FINISHED class claims to require: the
+  # header promises "no unique untracked/ignored data" and the plain --porcelain form never saw
+  # them, so a worktree holding a gitignored artifact was reported "tracked+untracked clean".
+  #
+  # That ONE fail-closed read answers BOTH halves of the contract, so the halves are separated
+  # again HERE rather than by asking git a second time. The second ask used to live below as
+  # `git status --porcelain --ignored 2>/dev/null | grep '^!! '`, which is the very fail-OPEN
+  # shape just fixed above — 2>/dev/null plus a pipeline discards git's exit status — and once
+  # ignored paths were folded into $dirty it also became unreachable, so a gitignored build tree
+  # was refused under the generic "uncommitted/untracked" reason with its path list and size
+  # silently dropped. A KEEP that misnames its reason is the failure this tool exists to prevent:
+  # "delete the artifacts first" and "commit or stash your work" are different remedies.
+  #
+  # grep -c PRINTS 0 and EXITS 1, hence `|| true` (never `|| echo 0`, which captures "0\n0"), and
+  # printf '%s' — not '%s\n' — because a trailing newline would make an EMPTY status count as one
+  # line and pin every clean worktree.
+  ign_list=$(printf '%s' "$status_out" | grep '^!! ' | sed 's/^!! //' || true)
+  ign=$(printf '%s' "$ign_list" | grep -c . || true)
+  dirty=$(printf '%s' "$status_out" | grep -v '^!! ' | grep -c . || true)
+  total=$(printf '%s' "$status_out" | grep -c . || true)
+  # ASSERT THE COUNT: every status line must land in exactly one bucket. If it does not, the
+  # classification is wrong and the safe answer is KEEP, not "0 dirty, therefore finished".
+  if [ "$(( ${dirty:-0} + ${ign:-0} ))" != "${total:-1}" ]; then
+    note "KEEP    $wt"
+    note "        reason: \`git status\` produced $total line(s) but only $dirty dirty + $ign ignored"
+    note "                classified — an unaccounted line is not a clean tree."
+    kept=$((kept+1)); continue
+  fi
   if [ "${dirty:-1}" != "0" ]; then
     note "KEEP    $wt"
     note "        reason: $dirty uncommitted/untracked path(s) — dirty trees are never reclaimed"
+    kept=$((kept+1)); continue
+  fi
+
+  # A worktree holding gigabytes of gitignored build output once reported ZERO lines and was
+  # removed under a receipt claiming "tracked+untracked clean". The FINISHED contract in the
+  # header says "no unique untracked/ignored data"; this is the second half of that.
+  if [ "${ign:-1}" != "0" ]; then
+    isz=$(du -sk "$wt" 2>/dev/null | awk '{print $1}')
+    note "KEEP    $wt"
+    note "        reason: tracked tree is clean but $ign ignored path(s) hold data git will not"
+    note "                restore — removing the worktree destroys them irrecoverably."
+    note "        ignored: $(printf '%s' "$ign_list" | tr '\n' ' ')"
+    note "        size:  $(( ${isz:-0} / 1024 )) MiB — delete the artifacts first, then re-run"
     kept=$((kept+1)); continue
   fi
 
@@ -116,14 +333,55 @@ while IFS= read -r line; do
     kept=$((kept+1)); continue
   fi
 
+  # IN USE by a live process? Git cannot see this, and every check above can pass while
+  # it is true. MEASURED 2026-08-28: /private/tmp/fv_stoi was tracked-clean, unlocked, and
+  # its HEAD sat on origin/fix/forge-verify-stoi -- a textbook FINISHED worktree -- while a
+  # 2.5-hour model run in a DIFFERENT repository was executing the forge_verify binary
+  # BUILT INSIDE IT, selected by FORGE_VERIFY=<wt>/forge-kernel/build-verify/forge_verify.
+  # Reaping it would have killed that run and destroyed an emission costing ~7 hours. A
+  # worktree can be load-bearing through its BUILD OUTPUT, which no git-level test observes,
+  # so ask the OS instead.
+  #
+  # FAIL CLOSED. lsof exits 1 BOTH when nothing is open AND on error, so a zero hit count is
+  # not by itself proof of anything; if lsof is missing the answer is UNKNOWN, and unknown
+  # is a KEEP like every other uncertainty in this file.
+  if ! command -v lsof >/dev/null 2>&1; then
+    note "KEEP    $wt"
+    note "        reason: cannot prove this tree is not IN USE — lsof is unavailable, so open"
+    note "                files under it could not be checked. Unknown is not clean."
+    kept=$((kept+1)); continue
+  fi
+  open_out="$(lsof -nP +D "$wt" 2>/dev/null | tail -n +2)"
+  open_n=$(printf '%s' "$open_out" | grep -c . || true)
+  # A process can hold the tree with NO open descriptor under it (an env var naming a path
+  # it has not opened yet, a pending exec), so the argv scan is a second, independent probe.
+  # Self is excluded explicitly: pgrep -f matches the very shell running this check.
+  argv_n=0
+  for p in $(pgrep -f "$wt" 2>/dev/null || true); do
+    [ "$p" = "$$" ] && continue
+    [ "$p" = "$PPID" ] && continue
+    argv_n=$((argv_n+1))
+  done
+  if [ "${open_n:-1}" != "0" ] || [ "${argv_n:-1}" != "0" ]; then
+    note "KEEP    $wt"
+    note "        reason: IN USE — ${open_n} open file(s) beneath it, ${argv_n} live process(es)"
+    note "                naming it. A clean tree with a surviving witness can still be"
+    note "                load-bearing through its build output."
+    printf '%s' "$open_out" | head -2 | while IFS= read -r l; do
+      [ -n "$l" ] && note "        open:  $l"
+    done
+    kept=$((kept+1)); continue
+  fi
+
   sz=$(du -sk "$wt" 2>/dev/null | awk '{print $1}')
   bytes=$((bytes + ${sz:-0}))
   note "REMOVE  $wt"
   note "        class: FINISHED   branch: $br   head: $head"
-  note "        proof: tracked+untracked clean (0 paths); reachable from $witness"
+  note "        proof: tracked+untracked clean (0 paths); ignored data (0 paths); reachable from $witness"
   note "        size:  $(( ${sz:-0} / 1024 )) MiB    recovery: branch $br retains the commits"
+  REMOVE_LIST+=("$wt")
   reclaimed=$((reclaimed+1))
-done < <(git worktree list)
+done
 
 note ""
 note "## summary"
@@ -134,25 +392,36 @@ note "- KEEP    (refused):          $kept"
 if [ $APPLY -eq 1 ]; then
   echo ""
   echo "--- applying ---"
-  while IFS= read -r line; do
-    wt="${line%% *}"
-    [ -z "$wt" ] || [ "$wt" = "$MAIN" ] && continue
-    case "$wt" in "$REGISTERED_ROOT"/*) : ;; *) continue ;; esac
-    [ "$wt" = "$CUR" ] && continue
-    if [ ! -d "$wt" ]; then continue; fi
-    dirty=$(git -C "$wt" status --porcelain 2>/dev/null | wc -l | tr -d ' ')
-    [ "${dirty:-1}" != "0" ] && continue
-    head=$(git -C "$wt" rev-parse HEAD 2>/dev/null)
-    br=$(git -C "$wt" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    ok=0
-    for r in $SURVIVING_REFS; do
-      [ "$r" = "refs/heads/$br" ] && continue
-      git merge-base --is-ancestor "$head" "$r" 2>/dev/null && { ok=1; break; }
-    done
-    [ $ok -eq 1 ] || continue
-    git worktree remove --force "$wt" 2>&1 | sed 's/^/    /'
-    echo "    removed $wt"
-  done < <(git worktree list)
+  # Apply exactly the plan that was printed. The old apply loop re-derived every decision from a
+  # SECOND pass over the worktree table, so any guard that differed between the two loops let a
+  # path the plan printed as KEEP be deleted anyway. One decision, one list, no divergence.
+  for wt in "${REMOVE_LIST[@]:-}"; do
+    [ -z "$wt" ] && continue
+    # Re-read the lock HERE, not just when the plan was printed: a lock taken since is a
+    # decision someone made about this worktree while we were deciding too.
+    if is_locked_now "$wt"; then
+      echo "    ⚠ SKIPPED (git-LOCKED since the plan was printed): $wt"
+      note "APPLY-SKIPPED $wt — locked after the plan was printed; a lock is a decision, not an obstacle"
+      removed_fail=$((removed_fail+1))
+      continue
+    fi
+    # ONE --force. `git worktree remove --force --force` exists to defeat a LOCK, and it was
+    # here: a locked worktree that reached this loop was deleted by the retry. Nothing locked
+    # reaches REMOVE_LIST any more, so the second --force could only ever have overridden a
+    # lock taken after the plan — a refusal to report is better than a deletion to explain.
+    # Capture the STATUS, not a pipeline's — piping into sed discarded git's exit code and the
+    # unconditional echo below then reported a removal that may never have happened.
+    rm_out="$(git worktree remove --force "$wt" 2>&1)"; rm_rc=$?
+    printf '%s\n' "$rm_out" | sed 's/^/    /'
+    if [ $rm_rc -eq 0 ] && [ ! -d "$wt" ]; then
+      echo "    removed $wt"
+      removed_ok=$((removed_ok+1))
+    else
+      echo "    ⚠ NOT REMOVED (rc=$rm_rc, still on disk): $wt"
+      note "APPLY-FAILED $wt (rc=$rm_rc) — the plan plotted removal and git refused it"
+      removed_fail=$((removed_fail+1))
+    fi
+  done
 
   # release stale locks so prune can actually collect the phantom records
   for wt in "${PHANTOM_UNLOCK[@]:-}"; do
@@ -160,12 +429,19 @@ if [ $APPLY -eq 1 ]; then
     git worktree unlock "$wt" >/dev/null 2>&1 && echo "    unlocked (stale) $wt"
   done
 
-  before_n=$(git worktree list | wc -l | tr -d ' ')
+  # Count records the NUL-safe way too: the human format's one-line-per-worktree assumption is
+  # the same one that produced the truncation bug above.
+  before_n=$(git worktree list --porcelain -z | tr '\0' '\n' | grep -c '^worktree ' | tr -d ' ')
   git worktree prune -v 2>&1 | sed 's/^/    /'
-  after_n=$(git worktree list | wc -l | tr -d ' ')
+  after_n=$(git worktree list --porcelain -z | tr '\0' '\n' | grep -c '^worktree ' | tr -d ' ')
   note ""
   note "APPLIED at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
   note "worktree records: $before_n -> $after_n  (delta $((before_n - after_n)))"
+  note "removals: $removed_ok succeeded, $removed_fail REFUSED BY GIT"
+  if [ "$removed_fail" -gt 0 ]; then
+    note "WARNING: $removed_fail planned removal(s) did not happen. The receipt above lists them as"
+    note "         APPLY-FAILED. Do not read this run as having reclaimed them."
+  fi
   # A cleanup that reports removal it did not perform is worse than one that removes nothing.
   if [ "$before_n" = "$after_n" ] && [ $phantom -gt 0 ]; then
     note "WARNING: $phantom records were planned for prune but the count did NOT change."

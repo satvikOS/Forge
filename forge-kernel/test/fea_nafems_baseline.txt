@@ -1,0 +1,49 @@
+# NAFEMS band-miss ratchet baseline.
+#
+# test/fea_nafems_gate.mjs runs the published NAFEMS TNSB Rev.3 known answers against the
+# native Tet4 FEA path. Three of them are MISSED today, and their misses ARE the
+# deliverable — so the gate's own exit code covers only KERNEL-CORRECTNESS guards
+# (degenerate shell mesh, NaN, wrong-sign stress, CG non-convergence, the analytic
+# thermoelastic check). Before 2026-08-28 nothing at all made a missed NAFEMS target red:
+# the sub-cases printed FAIL without calling note(), so the gate could not go red for a
+# missed benchmark. CI now runs THIS ratchet instead of the gate bare:
+#
+#   gate hardFail=true          -> RED. A kernel-correctness guard tripped. Never ratcheted.
+#   misses  > baseline          -> RED. An accuracy REGRESSION; the change under review lost
+#                                  a NAFEMS target that used to be met.
+#   misses  < baseline          -> RED. A gap was CLOSED — LOWER THIS NUMBER and drop the
+#                                  case from NAFEMS_EXPECTED_MISS_SET in the same commit.
+#                                  This direction is deliberately red so the baseline can
+#                                  never drift away from reality and quietly re-admit a
+#                                  regression.
+#   miss SET differs at equal count -> RED. One case fixed and another broken nets to the
+#                                  same count; that is a regression wearing a disguise.
+#   count AND set match         -> GREEN, with the outstanding gaps printed every run.
+#
+# Lower it, never raise it. Raising it requires an explicit decision recorded in
+# DECISIONS.md.
+#
+# MEASURED at this baseline (2026-08-28, worktree build of forge-kernel.node, Release):
+#   LE1  elliptic membrane   σ_yy @ D(2,0)      =  35.671 MPa vs   92.7 MPa  (-61.5 %, band ±5 %)
+#   LE10 thick plate         σ_yy @ D(2,0,top)  =  -2.125 MPa vs  -5.38 MPa  (+60.5 %, band ±6 %)
+#   LE11 cyl/taper/sphere    σ_zz @ A(1,0,0)    = -59.664 MPa vs  -105  MPa  (+43.2 %, band ±6 %)
+# All three observed orders of accuracy are NEGATIVE (-0.06, -0.18, -6.70): the error GROWS
+# under h-refinement. These are NOT under-resolution that a finer mesh would close.
+# See reports/FEA_NAFEMS_GAP.md and test/fea_nafems_convergence.mjs.
+NAFEMS_EXPECTED_MISSES=3
+NAFEMS_EXPECTED_MISS_SET="LE1,LE10,LE11"
+
+# A BLOCKED case did not run at all — the kernel refused to build its geometry. That is a
+# capability gap, not an accuracy result.
+#
+# LE11's ball+cone+cylinder fuse is REFUSED on the GitHub runner and SUCCEEDS on this
+# workstation. The cause is NOT the platform, and is NOT yet established: MEASURED, both sides are
+# macOS arm64 (runner image macos-26-arm64) with the SAME OCCT 7.9.3, the same commit, and the
+# refusal comes from the NATIVE boolean ("deferred on an all-native operand pair"), not from OCCT.
+# The same source therefore refuses in one environment and not the other, which points at
+# environment-sensitivity or non-determinism in the native intersection. Open finding.
+# The ceiling exists BECAUSE of that: one commit can honestly report blocked=0 or blocked=1.
+# Tracking it separately stops a capability LOSS reading as an accuracy GAIN.
+# Expected-blocked is a ceiling, not a target: a case leaving this set is good and must lower it.
+NAFEMS_EXPECTED_BLOCKED_MAX=1
+NAFEMS_EXPECTED_BLOCKED_SET="LE11"

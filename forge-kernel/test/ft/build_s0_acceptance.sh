@@ -67,12 +67,32 @@ echo "[4/5] compile s0 acceptance test"
 "$CXX" "${FLAGS[@]}" -c "$HERE/s0_acceptance_test.cpp" -o "$OUT/s0_acceptance_test.o" || exit 2
 
 echo "[5/5] link (kernel symbols left unresolved; compile() is never called)"
+# ---------------------------------------------------------------------------------------------
+# Undefined-symbol policy, per platform.
+#
+# The suite exercises parse() and the graph audit only; it never calls compile(), so
+# FeatureTreeCompiler.o legitimately references ~20 forge::* kernel symbols (massProperties,
+# tessellate, makeCylinder, faceInventory, ...) that this harness does not link. Apple's ld
+# tolerates that with -undefined dynamic_lookup. GNU ld does NOT — it treats every unresolved
+# reference as a hard error — so the identical source linked on macOS and failed on Linux with
+# 20+ "undefined reference to `forge::...'" lines. That is why this gate was red in CI while
+# green locally.
+#
+# Each linker gets its equivalent flag. The better long-term fix is to split parse() into its own
+# translation unit so the link is honest and complete; that refactor is deliberately deferred
+# because forge-kernel/src/ft/FeatureTreeCompiler.cpp carries large uncommitted work in the main
+# checkout (see implementation/sacrosanct/RECONCILIATION_OWED.md) and the edit would conflict.
+case "$(uname -s)" in
+  Darwin) UNDEF_FLAGS="-Wl,-undefined,dynamic_lookup" ; UNDEF_EXTRA="-Wl,-no_fixup_chains" ;;
+  *)      UNDEF_FLAGS="-Wl,--unresolved-symbols=ignore-all" ; UNDEF_EXTRA="" ;;
+esac
+
 "$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" "$OUT/Sha256.o" \
     -o "$OUT/s0_acceptance" \
-    -Wl,-undefined,dynamic_lookup -Wl,-no_fixup_chains 2>/dev/null || \
+    $UNDEF_FLAGS $UNDEF_EXTRA 2>/dev/null || \
 "$CXX" -std=c++20 "$OUT/s0_acceptance_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/ChunkChain.o" "$OUT/GraphAudit.o" "$OUT/Sha256.o" \
     -o "$OUT/s0_acceptance" \
-    -Wl,-undefined,dynamic_lookup || exit 2
+    $UNDEF_FLAGS || exit 2
 
 echo
 "$OUT/s0_acceptance"

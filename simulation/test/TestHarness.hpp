@@ -16,6 +16,17 @@
 namespace forge {
 namespace simtest {
 
+// %.10g, not std::to_string. std::to_string(double) is fixed at six decimals, so any value below
+// 1e-6 prints as "0.000000" -- which made the four-bar and slider-crank gates print
+// "maxPositionDelta=0.000000 must be > 0" next to a [PASS]. The predicate was right (a strict
+// `> 0.0` on a delta of ~1e-8); the EVIDENCE contradicted the claim it was evidence for, so a
+// reader auditing the log could not confirm the check and would learn to discount the mismatch.
+inline std::string fmtG(double v) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.10g", v);
+    return std::string(buf);
+}
+
 class TestRun {
 public:
     explicit TestRun(const char* name) : name_(name) {
@@ -70,11 +81,7 @@ public:
     }
 
 private:
-    static std::string fmt(double v) {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf), "%.10g", v);
-        return std::string(buf);
-    }
+    static std::string fmt(double v) { return fmtG(v); }
 
     void record(bool ok, const char* what, const std::string& evidence) {
         if (ok) { ++passed_; std::printf("  [PASS] %-58s %s\n", what, evidence.c_str()); }

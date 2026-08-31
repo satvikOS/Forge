@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <thread>
@@ -33,6 +34,20 @@ inline void mixDouble(std::uint64_t& h, double d) {
 }
 
 using Clock = std::chrono::steady_clock;
+
+// Relative tolerance on measured-vs-declared timestep. The readback computes
+// (steps * dt) / steps, so the only discrepancy a faithful integrator can
+// introduce is float rounding -- a couple of ULP, ~4e-16 relative. 1e-9 sits
+// seven orders above that and far below any adaptation worth making.
+constexpr double kDtMatchRelTol = 1e-9;
+
+// Full-precision rendering, so an abort reason names the timestep exactly
+// rather than rounding two different values onto the same six decimals.
+std::string fmtG(double v) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.17g", v);
+    return std::string(buf);
+}
 
 double secondsSince(const Clock::time_point& t0) {
     return std::chrono::duration<double>(Clock::now() - t0).count();
@@ -81,8 +96,17 @@ void carryState(const MbdSample& s, std::vector<MbdBody>& bodies) {
 
 }  // namespace
 
+double observedSolverDt(const MbdResult& r) {
+    if (r.stepsTaken == 0 || r.samples.size() < 2) return 0.0;
+    const double dtUsed = r.samples.back().t / static_cast<double>(r.stepsTaken);
+    if (!std::isfinite(dtUsed) || !(dtUsed > 0.0)) return 0.0;
+    return dtUsed;
+}
+
 std::uint64_t geometryRevisionOf(const std::vector<MbdBody>& bodies,
-                                 const std::vector<MbdConstraint>& constraints) {
+                                 const std::vector<MbdConstraint>& constraints,
+                                 const std::vector<MbdLoad>& loads,
+                                 const MbdGravity& gravity) {
     std::uint64_t h = kFnvOffset;
     mixU64(h, static_cast<std::uint64_t>(bodies.size()));
     for (const auto& b : bodies) {
@@ -104,6 +128,15 @@ std::uint64_t geometryRevisionOf(const std::vector<MbdBody>& bodies,
         for (double v : c.axis)   mixDouble(h, v);
         mixDouble(h, c.value);
     }
+    // Loads and gravity change the trajectory exactly as much as a joint does,
+    // so a revision that omitted them would name two different runs the same.
+    mixU64(h, static_cast<std::uint64_t>(loads.size()));
+    for (const auto& l : loads) {
+        mixU64(h, l.body);
+        for (double v : l.force)  mixDouble(h, v);
+        for (double v : l.torque) mixDouble(h, v);
+    }
+    for (double v : gravity.g) mixDouble(h, v);
     // The contract rejects revision 0; the fold reaching exactly 0 is
     // astronomically unlikely but it is not impossible, so map it away rather
     // than emit a frame that the contract would reject for a hash collision.
@@ -146,10 +179,32 @@ RealtimeRun driveRealtime(const std::vector<MbdBody>& bodies,
     }
 
     run.declaredFrameBudgetSeconds = 1.0 / cfg.envelope.targetFrameRateHz;
-    run.solverDtFirst    = cfg.solverDt;
-    run.solverDtLast     = cfg.solverDt;
-    run.stepsPerFrameMin = cfg.stepsPerFrame;
-    run.stepsPerFrameMax = cfg.stepsPerFrame;
+
+    // --- the no-adaptation READBACK ----------------------------------------
+    // Nothing below copies cfg.solverDt into the run report. Every dt recorded
+    // is observedSolverDt() of the result the integrator just handed back, so
+    // a timestep changed between here and the integrator moves the evidence.
+    bool sawSolverDt = false;
+    auto observeDt = [&](const MbdResult& r) -> double {
+        const double dtUsed = observedSolverDt(r);
+        if (dtUsed == 0.0) return 0.0;
+        if (!sawSolverDt) {
+            run.solverDtFirst = dtUsed;
+            run.solverDtMin   = dtUsed;
+            run.solverDtMax   = dtUsed;
+            sawSolverDt = true;
+        } else {
+            run.solverDtMin = std::min(run.solverDtMin, dtUsed);
+            run.solverDtMax = std::max(run.solverDtMax, dtUsed);
+        }
+        run.solverDtLast = dtUsed;
+        return dtUsed;
+    };
+    auto adaptationReason = [&](double dtUsed, const std::string& where) {
+        return "integrator used dt=" + fmtG(dtUsed) + " s in " + where +
+               " where the run declared dt=" + fmtG(cfg.solverDt) +
+               " s (silent timestep adaptation)";
+    };
 
     // Working copy of the model state; only position/orientation/velocity are
     // ever written, and only from the previous chunk's final solver sample.
@@ -186,6 +241,17 @@ RealtimeRun driveRealtime(const std::vector<MbdBody>& bodies,
             run.abortReason = "integrator returned no samples for the initial state";
             return run;
         }
+        // The probe is a real integrator call at the run's declared timestep,
+        // so it is the run's FIRST piece of no-adaptation evidence.
+        const double probeDt = observeDt(r0);
+        if (probeDt == 0.0) {
+            run.abortReason = "integrator reported no usable time base for the initial state";
+            return run;
+        }
+        if (std::abs(probeDt - cfg.solverDt) > kDtMatchRelTol * cfg.solverDt) {
+            run.abortReason = adaptationReason(probeDt, "the initial-state probe");
+            return run;
+        }
         initial = r0.samples.front();  // t == 0, untouched initial condition
     }
     if (!sampleFinite(initial)) {
@@ -203,6 +269,10 @@ RealtimeRun driveRealtime(const std::vector<MbdBody>& bodies,
 
         MbdSample sample;
         bool diverged = false;
+        // Largest ‖Φ‖ the integrator passed through INSIDE this frame's
+        // interval. Frame 0 closes no interval, so it stays 0 and the frame's
+        // reported maximum collapses onto its instantaneous residual.
+        double intraFrameMaxResidual = 0.0;
 
         if (fi == 0) {
             sample = initial;
@@ -220,15 +290,43 @@ RealtimeRun driveRealtime(const std::vector<MbdBody>& bodies,
                 run.sequenceHash = sink.sequenceHash();
                 return run;
             }
-            sample = r.samples.back();
-            if (!r.stable || !sampleFinite(sample)) diverged = true;
 
-            solverStep += cfg.stepsPerFrame;
-            run.totalSolverSteps += cfg.stepsPerFrame;
-            simTime = static_cast<double>(solverStep) * cfg.solverDt;
+            // What the integrator SAYS it did, before anything is believed
+            // about what it was asked to do.
+            const double dtUsed = observeDt(r);
+            if (dtUsed == 0.0) {
+                run.abortReason = "integrator reported no usable time base in frame " +
+                                  std::to_string(fi);
+                run.framesEmitted = fi;
+                run.sequenceHash = sink.sequenceHash();
+                return run;
+            }
+            if (std::abs(dtUsed - cfg.solverDt) > kDtMatchRelTol * cfg.solverDt) {
+                run.abortReason = adaptationReason(dtUsed, "frame " + std::to_string(fi));
+                run.framesEmitted = fi;
+                run.sequenceHash = sink.sequenceHash();
+                return run;
+            }
+
+            sample = r.samples.back();
+            if (!r.stable || !sampleFinite(sample) || !std::isfinite(r.maxConstraintDrift))
+                diverged = true;
+
+            const std::uint32_t stepsUsed = r.stepsTaken;
+            if (run.stepsPerFrameMin == 0 || stepsUsed < run.stepsPerFrameMin)
+                run.stepsPerFrameMin = stepsUsed;
+            run.stepsPerFrameMax = std::max(run.stepsPerFrameMax, stepsUsed);
+
+            solverStep           += stepsUsed;
+            run.totalSolverSteps += stepsUsed;
+            // Simulated time comes from the integrator's own clock, summed
+            // chunk by chunk -- not from stepCount * declared dt, which would
+            // report the same seconds no matter what the integrator did.
+            run.simulatedSeconds += r.samples.back().t;
+            simTime = run.simulatedSeconds;
+
             if (!diverged) carryState(sample, state);
-            run.maxConstraintResidual =
-                std::max(run.maxConstraintResidual, r.maxConstraintDrift);
+            intraFrameMaxResidual = r.maxConstraintDrift;
         }
 
         AnimationFrame f;
@@ -240,11 +338,16 @@ RealtimeRun driveRealtime(const std::vector<MbdBody>& bodies,
         if (probeFn) probeFn(sample, f.probes);
 
         f.constraintResidual = sample.constraintResidual;
+        // The classifier's input. A residual that spikes and recovers between
+        // two frame instants is a real excursion off the constraint manifold;
+        // reading only the instant would ship it as a clean frame.
+        f.maxConstraintResidual =
+            std::max(intraFrameMaxResidual, sample.constraintResidual);
         f.energyDrift = (std::abs(E0) > 1e-12) ? std::abs(sample.energy - E0) / std::abs(E0)
                                                : std::abs(sample.energy - E0);
         run.maxEnergyDrift = std::max(run.maxEnergyDrift, f.energyDrift);
         run.maxConstraintResidual =
-            std::max(run.maxConstraintResidual, sample.constraintResidual);
+            std::max(run.maxConstraintResidual, f.maxConstraintResidual);
 
         // Frame 0's real cost includes the initial-state probe taken before the
         // loop; charging it here keeps the wall-clock accounting honest rather
@@ -259,11 +362,11 @@ RealtimeRun driveRealtime(const std::vector<MbdBody>& bodies,
         // --- validity, in strictly decreasing severity -----------------------
         if (diverged) {
             f.validity = ValidityState::Diverged;
-        } else if (f.constraintResidual > cfg.envelope.maxConstraintResidual ||
+        } else if (f.maxConstraintResidual > cfg.envelope.maxConstraintResidual ||
                    f.energyDrift > cfg.envelope.maxEnergyDrift) {
             f.validity = ValidityState::Invalid;
         } else if (overrun > cfg.envelope.maxWallOverrunRatio ||
-                   f.constraintResidual > cfg.envelope.warnConstraintResidual) {
+                   f.maxConstraintResidual > cfg.envelope.warnConstraintResidual) {
             f.validity = ValidityState::Degraded;
         } else {
             f.validity = ValidityState::Valid;

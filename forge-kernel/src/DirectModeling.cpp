@@ -7,32 +7,24 @@
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
-#include <BRepBuilderAPI_MakeSolid.hxx>
 #include <BRepBuilderAPI_Sewing.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepGProp.hxx>
-#include <BRepOffsetAPI_MakeFilling.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
-#include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
-#include <GeomAbs_SurfaceType.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Plane.hxx>
 #include <Geom_SphericalSurface.hxx>
 #include <Geom_Surface.hxx>
-#include <Geom_ToroidalSurface.hxx>
 #include <ShapeFix_Shape.hxx>
-#include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
 #include <TopoDS.hxx>
-#include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Shell.hxx>
-#include <TopoDS_Solid.hxx>
 #include <gp_Ax1.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Dir.hxx>
@@ -388,6 +380,26 @@ std::size_t edgeCount(ShapeHandle shape) {
     TopTools_IndexedMapOfShape map;
     TopExp::MapShapes(s, TopAbs_EDGE, map);
     return static_cast<std::size_t>(map.Extent());
+}
+
+// The complete census. One MapShapes pass per level; the same deterministic
+// order faceCount/edgeCount return, so an index taken from either still means
+// the same sub-shape here.
+TopoCounts topoCounts(ShapeHandle shape) {
+    const auto& s = ShapeRegistry::instance().get(shape);
+    const auto count = [&s](TopAbs_ShapeEnum type) -> std::size_t {
+        TopTools_IndexedMapOfShape map;
+        TopExp::MapShapes(s, type, map);
+        return static_cast<std::size_t>(map.Extent());
+    };
+    TopoCounts c;
+    c.solids   = count(TopAbs_SOLID);
+    c.shells   = count(TopAbs_SHELL);
+    c.faces    = count(TopAbs_FACE);
+    c.wires    = count(TopAbs_WIRE);
+    c.edges    = count(TopAbs_EDGE);
+    c.vertices = count(TopAbs_VERTEX);
+    return c;
 }
 
 // Slice-3 edge picking — sample every edge into a world-space polyline,

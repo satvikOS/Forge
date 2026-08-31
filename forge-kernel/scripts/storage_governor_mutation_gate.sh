@@ -133,6 +133,12 @@ run_mut "a LIVE lock holder is treated as stale (live-locked record reclaimable)
 run_mut "pid liveness answers in the UNSAFE direction (EPERM read as gone)" \
 "${G}o='return (errno == ESRCH) ? 0 : 1;';assert s.count(o)==1,'a';s=s.replace(o,'return 0;');${W}"
 
+# The EMPTY lock: `git worktree lock` with no --reason writes a ZERO-BYTE file, so
+# guarding the lock rule on the reason TEXT reads a locked record as unlocked. This
+# mutation restores exactly that guard and the gate must go red.
+run_mut "an EMPTY git lock file is read as UNLOCKED (guarding on the text, not the file)" \
+"${G}o='        if (lockPresent) {\n            // git says LOCKED but the checkout is gone.';assert s.count(o)==1,'a';s=s.replace(o,'        if (!lockReason.empty()) {\n            // git says LOCKED but the checkout is gone.');${W}"
+
 run_mut "a lock naming no pid is assumed dead instead of QUARANTINED" \
 "${G}o='const std::string tag = \"(pid \";';assert s.count(o)==1,'a';s=s.replace(o,'const std::string tag = \"(PIDPID \";');${W}"
 

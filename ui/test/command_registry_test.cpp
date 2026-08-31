@@ -208,5 +208,47 @@ int main() {
   // dispatchCount only ever counts commands that actually ran.
   CHECK_EQ_INT(registry.dispatchCount(), 1 + filletRuns);
 
+  // ── CONTRACT 6 — a handler that RAN and refused must not report Ok ─────────
+  // Every other DispatchStatus is decided BEFORE execute() is called. Without a
+  // failure channel, dispatch returned Ok unconditionally once execution began, so a
+  // command whose edit was rejected reported success and did nothing. MEASURED before
+  // the fix: making the UI emit an unknown op name gave part.fillet -> Ok with its
+  // statement absent from the document, caught only because the compiled solid's volume
+  // equalled the un-filleted prism exactly. A status is not allowed to be that quiet.
+  {
+    CommandRegistry r2;
+    CommandDescriptor refuses;
+    refuses.id = "test.refuses";
+    refuses.label = "Refuses";
+    refuses.category = "Model";
+    refuses.execute = [](CommandContext& c) { c.fail("the document refused the statement: BadStatementId"); };
+    CHECK(r2.add(std::move(refuses)));
+
+    CommandDescriptor accepts;
+    accepts.id = "test.accepts";
+    accepts.label = "Accepts";
+    accepts.category = "Model";
+    accepts.execute = [](CommandContext&) {};
+    CHECK(r2.add(std::move(accepts)));
+
+    SelectionService s2;
+    const DispatchResult bad = r2.dispatch("test.refuses", s2, {});
+    CHECK_EQ_INT(static_cast<int>(bad.status), static_cast<int>(DispatchStatus::EditRefused));
+    CHECK(!bad.ok());
+    // The reason travels with the status: "something failed" is not actionable by a UI
+    // or by Archie, so the detail must name what refused.
+    CHECK_EQ_STR(bad.detail, "the document refused the statement: BadStatementId");
+
+    // ...and a handler that does NOT fail still reports Ok, so the channel cannot be
+    // stuck on. A check that can only go one way is not a check.
+    const DispatchResult good = r2.dispatch("test.accepts", s2, {});
+    CHECK_EQ_INT(static_cast<int>(good.status), static_cast<int>(DispatchStatus::Ok));
+    CHECK(good.ok());
+    CHECK_EQ_STR(good.detail, "");
+
+    // Both RAN: a refusal is a dispatch, not a pre-flight rejection.
+    CHECK_EQ_INT(r2.dispatchCount(), 2);
+  }
+
   return H.finish();
 }

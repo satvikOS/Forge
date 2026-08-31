@@ -28,9 +28,20 @@
 //     * a single VERTEX (a degenerate point section — the AddVertex apex that
 //       forge::makePyramid and forge::loftguide::loft use), allowed only as the
 //       FIRST and/or LAST entry.
-//   Polygon sections must all carry the SAME vertex count; correspondence is by
-//   wire-explorer index, exactly as BRepFill_Generator pairs them after
-//   CheckCompatibility. Between consecutive sections the engine emits
+//   Polygon sections must all carry the SAME vertex count; correspondence is an
+//   index pairing, exactly as BRepFill_Generator pairs them after
+//   CheckCompatibility. ★ THE "after CheckCompatibility" IS LOAD-BEARING and was
+//   for a long time not implemented here: BRepOffsetAPI_ThruSections runs
+//   BRepFill_CompatibleWires first, which REORIENTS and RE-ORIGINS each wire
+//   before that pairing. Pairing by the raw wire-explorer index instead twists
+//   every lateral quad whenever the two rings wind oppositely in world space —
+//   which is exactly what the two outer wires of two OPPOSITE faces of a solid
+//   do — and made this engine decline 309 of 600 reference solids that it can in
+//   fact build. src/native/brep/NativeLoftPipe.cpp::canonicalRing supplies the
+//   missing step: the raw order is tried first and kept when it already yields
+//   planar quads, otherwise the canonical (reorient + nearest-origin)
+//   correspondence is tried once, and a pair that fails both is still declined.
+//   Between consecutive sections the engine emits
 //     * one PLANAR QUAD per index i: (A_i, A_i+1, B_i+1, B_i), or
 //     * one TRIANGLE per index i when one side is the point section.
 //   With solid=true the two end sections are closed by planar cap faces. The
@@ -53,6 +64,9 @@
 //   section is carried through the MITRE plane (the plane bisecting the two
 //   segment directions), which is what makes consecutive lateral faces planar.
 //   With makeSolid=true the two ends are capped.
+//   A FACE profile may carry POLYGON HOLES: every ring is carried by the same
+//   per-leg affine map and the caps carry the holes as inner wires (see family
+//   E's third profile kind for the derivation and the measurement behind it).
 //
 // ===========================================================================
 // HONEST DEFER (returns a null TopoDS_Shape, IsNull() == true)
@@ -70,15 +84,31 @@
 //     * ruled=false (the SMOOTHED B-spline skin is a genuinely different
 //       surface — approximating it here would be a silent substitution);
 //     * a sew that leaves a free edge, more than one shell, or a zero volume.
-//   pipeShell:
+//   pipeShell / pipe:
 //     * ANY guide wire (there is no native guided pipe-shell anywhere in the
 //       tree; reports/TKOFFSET_DECOMPOSITION.md §2 names family F the one
 //       genuine wall and this engine does not pretend otherwise);
 //     * a spine that is not an open polyline of >= 1 LINE edges;
-//     * a profile that is not a closed planar polygon wire (or a face whose
-//       outer wire is one);
+//     * a profile that is none of the FIVE kinds this engine can sweep EXACTLY:
+//       a closed planar POLYGON wire; a full CIRCLE wire (family E only); a face
+//       whose rings are all polygons; a face with a POLYGON outer boundary and
+//       CIRCULAR holes (family E only); or a FACE whose every ring is a full
+//       circle or an ordered chain of LINE and CIRCULAR-ARC edges, in any
+//       combination (family E only -- the arc-swept lateral face). Anything
+//       else -- a spline, a Bezier, an ellipse, a hyperbola -- is DECLINED,
+//       never approximated;
+//     * an arc whose supporting circle's axis is not the profile normal (its
+//       swept surface is an ELLIPTIC cylinder, a genuinely different surface);
+//     * an arc-chain profile whose section a sharp mitre would carry BACKWARDS
+//       through a station plane (the sweep is then not a simple prism);
+//     * an arc-chain answer whose volume is not A * L for the CLOSED-FORM area
+//       A and the closed-form mitred path length L of the area centroid;
+//     * a hole ring that is not coplanar / not parallel with the outer ring, or
+//       a circular hole whose axis is not the sweep direction;
 //     * a mitre that is degenerate (a spine reversal, i.e. a 180-degree turn);
 //     * a lateral quad that is not planar within `tol`;
+//     * a set of holes that does not remove exactly its own volume from the
+//       outer solid (i.e. a hole outside the boundary, or two overlapping holes);
 //     * the same sew / shell / volume checks as above.
 //
 // ===========================================================================
@@ -128,6 +158,16 @@ namespace occtloft {
 bool loftNativeEnabled();
 bool pipeShellNativeEnabled();
 
+// ---------------------------------------------------------- diagnostics
+// WHY did the most recent thruSections/pipeShell/pipe call ON THIS THREAD
+// return a null shape? A '|'-joined trail of the precondition labels it hit,
+// e.g. "prof_face_multi_wire" or "spine_edge_not_line|circ_not_circle".
+// DIAGNOSTIC ONLY: setting it changes no predicate, tolerance or branch, and
+// the string is meaningless (stale) after a call that SUCCEEDED. It exists so
+// a coverage measurement can attribute a defer instead of reporting a bare
+// null -- see reports/corpus_ab and test/corpus_ab_coverage.cpp.
+const char* lastDeferReason();
+
 // ---------------------------------------------------------------- family D
 // Ruled loft through `sections` (each a closed polygon TopoDS_Wire, or a
 // TopoDS_Vertex point section at the first/last position). 1:1 drop-in for
@@ -151,6 +191,69 @@ TopoDS_Shape pipeShell(const TopoDS_Wire& spine,
                        const TopoDS_Shape& profile,
                        const std::vector<TopoDS_Wire>& guides,
                        bool makeSolid, double tol = 1.0e-6);
+
+// ---------------------------------------------------------------- family E
+// Sweep `profile` along the polyline `spine` and return the SOLID. 1:1 drop-in
+// for the three BRepOffsetAPI_MakePipe call sites in src/Features.cpp
+// (forge::part::{sweep (unguided branch), pipeFromPolyline, sweepPolyline}):
+//   BRepOffsetAPI_MakePipe mk(spine, profileFace);
+//   mk.Build();  return mk.Shape();
+//
+//   family E  BRepOffsetAPI_MakePipe::{ctor(Wire,Shape), Build} + vtable  (3 symbols)
+//
+// THREE PROFILE KINDS, all EXACT:
+//   * POLYGON  — the same rotation-minimizing mitre transport pipeShell() uses
+//     (see the MITRE derivation in the .cpp banner). Any number of legs. A face
+//     may carry POLYGON holes: every ring rides the same affine per-leg map.
+//   * CIRCLE   — a chain of mitre-trimmed circular cylinders, every lateral face
+//     an analytic Geom_CylindricalSurface and every cap a Geom_Plane. This kind
+//     exists because forge::part::pipeFromPolyline feeds a CIRCLE, so a
+//     polygon-only engine would leave that entry point permanently deferring.
+//   * POLYGON OUTER + CIRCULAR HOLES — the dominant shape of a real machined
+//     face. MEASURED on the 600-part corpus A/B: of 3426 hole wires, 3426 are
+//     circles and none is a polygon, and 307 of 600 profile faces are exactly
+//     this kind. Built as the polygon sweep minus one mitre-trimmed cylinder
+//     chain per hole, and accepted only if the cut removed EXACTLY the sum of
+//     the tube volumes -- which is true iff every tube lies inside the outer
+//     solid and no two overlap. This kind took the family's measured corpus
+//     coverage from 2/600 to 249/600.
+//   * ARC CHAIN — the general kind, and THE EXACT ARC-SWEPT LATERAL FACE. Every
+//     ring of the face is a full circle or an ordered chain of LINE and
+//     CIRCULAR-ARC edges. A ring's region is decomposed EXACTLY as its chord
+//     polygon plus the circular segments that bulge away from it and minus
+//     those that bulge into it, and each segment is a disc intersected with the
+//     half-plane on the arc's side of its own chord. The mitred sweep is a
+//     boolean homomorphism (an affine station map, a cylindrical extrusion and
+//     a slab clip each commute with union / intersection / difference), so the
+//     SOLID is assembled with that same expression over swept atoms, all of
+//     which this file already builds. The arc's lateral surface is therefore a
+//     right circular Geom_CylindricalSurface on EVERY leg -- the section is
+//     transported RIGIDLY, the mitre composing to a rotation -- trimmed by two
+//     station planes and one chord plane per leg. Nothing is fitted, sampled or
+//     faceted. MEASURED on the same 600-part corpus: this kind is what the
+//     remaining 245 of the 351 declines needed (141 arc-chain outer wires, 60
+//     slot/kidney holes, 44 full-circle outer wires with holes), taking the
+//     family from 249/600 to 494/600. The other 106 have a B-SPLINE boundary
+//     and are declined -- no arc geometry reaches them, and this engine says so.
+//     ACCEPTED ONLY IF vol == A * L, with A the closed-form area (chord-polygon
+//     shoelace plus (r^2/2)(D - sin D) per segment) and L the closed-form
+//     mitred path length of the area centroid: BOTH sides independent of the
+//     B-rep being judged. The area half of that oracle was validated against
+//     OCCT's own BRepGProp on all 494 arc-chain faces of the corpus before a
+//     single solid was built -- worst relative disagreement 2.59e-14.
+//
+// Returns a null TopoDS_Shape on HONEST DEFER — never a plausible wrong shape.
+// Defers: a closed/curved/zero-length spine, a profile that is neither a polygon
+// nor a circle, a profile plane not perpendicular to the first leg on a
+// multi-leg spine, a 180-degree spine reversal, a non-planar lateral quad, and a
+// mitre trim or leg union that does not close.
+TopoDS_Shape pipe(const TopoDS_Wire& spine, const TopoDS_Shape& profile,
+                  double tol = 1.0e-6);
+
+// Routing for family E, mirroring loftNativeEnabled/pipeShellNativeEnabled:
+// always true under FORGE_PIPE_DROP_NATIVE (the OCCT fallback is compiled out),
+// otherwise the env opt-in FORGE_PIPE_NATIVE=1, default OFF.
+bool pipeNativeEnabled();
 
 }  // namespace occtloft
 }  // namespace forge
