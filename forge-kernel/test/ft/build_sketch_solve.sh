@@ -79,9 +79,13 @@ done
 echo "[2/4] forge::native::linalg (what the Eigen shim is backed by)"
 compile_one "$KERNEL/src/native/linalg/LinAlg.cpp" "$OUT/LinAlg.o" || exit 2
 
-echo "[3/4] forge::Sketcher facade + forge::ft compiler"
-compile_one "$KERNEL/src/Sketcher.cpp"             "$OUT/Sketcher.o" || exit 2
+echo "[3/4] forge::Sketcher facade + forge::ft compiler + graph audit"
+compile_one "$KERNEL/src/Sketcher.cpp"               "$OUT/Sketcher.o" || exit 2
 compile_one "$KERNEL/src/ft/FeatureTreeCompiler.cpp" "$OUT/FeatureTreeCompiler.o" || exit 2
+# compile() calls auditGraph() unconditionally (s0.4). It is pure std C++, so it
+# is linked FOR REAL here rather than stubbed -- the gate's trees go through the
+# same graph-quality pass every other tree does.
+compile_one "$KERNEL/src/ft/GraphAudit.cpp"          "$OUT/GraphAudit.o" || exit 2
 
 echo "[4/4] gate + link (kernel geometry symbols deliberately unresolved)"
 "$CXX" "${FLAGS[@]}" -c "$HERE/sketch_solve_test.cpp" -o "$OUT/sketch_solve_test.o" || exit 2
@@ -101,7 +105,7 @@ if [ -d "$OCCT_LIB" ]; then
   LIBS=(-L"$OCCT_LIB" -lTKernel -lTKMath -lTKG2d -lTKG3d -lTKGeomBase -lTKBRep -lTKTopAlgo -lTKGeomAlgo)
 fi
 
-"$CXX" -std=c++20 "$OUT/sketch_solve_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/Sketcher.o" \
+"$CXX" -std=c++20 "$OUT/sketch_solve_test.o" "$OUT/FeatureTreeCompiler.o" "$OUT/Sketcher.o" "$OUT/GraphAudit.o" \
     "${PG_OBJS[@]}" "$OUT/LinAlg.o" -o "$OUT/sketch_solve" "${LIBS[@]}" "${UNDEF[@]}" || exit 2
 
 echo

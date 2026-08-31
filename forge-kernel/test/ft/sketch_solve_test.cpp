@@ -28,6 +28,22 @@
 #include <string>
 #include <vector>
 
+// ── the ONE link seam, declared in the open ─────────────────────────────────
+// forge::ft::compile() resets the per-tree boolean hang-guard budget on entry.
+// That lives in Booleans.cpp, which drags in the whole OCCT boolean stack for a
+// function whose entire body is "set a counter to zero". This gate performs no
+// boolean, so the budget is never consumed and resetting it is genuinely a
+// no-op here.
+//
+// This is a LINK seam, not a weakened assertion: it replaces no check and
+// changes no behaviour the gate observes. It is also self-policing — if this
+// harness is ever linked against the real Booleans.o the duplicate symbol is a
+// hard link error, so the seam cannot silently shadow the real implementation.
+namespace forge {
+void resetBooleanBudget();
+void resetBooleanBudget() {}
+}  // namespace forge
+
 namespace {
 
 int g_checks = 0;
@@ -52,6 +68,18 @@ void dumpVerify(const forge::ft::CompileResult& r) {
     if (!r.error.empty()) std::printf("    error | %s\n", r.error.c_str());
 }
 
+// forge::ft::parse throws ParseError rather than returning a message, so wrap
+// it: a THROW here is a gate failure, not an exception the caller handles.
+forge::ft::FeatureTree parseOrFail(const char* src, const std::string& what) {
+    try {
+        return forge::ft::parse(src);
+    } catch (const std::exception& e) {
+        ++g_checks; ++g_fails;
+        std::printf("  FAIL: %s did not parse — %s\n", what.c_str(), e.what());
+        return forge::ft::FeatureTree{};
+    }
+}
+
 // The next SketchHandle compile() will hand out. The registry counter is
 // monotonic, so allocating one and releasing it reveals the next value. Every
 // use below asserts the sketch actually exists before touching it, so if this
@@ -66,6 +94,13 @@ forge::SketchHandle nextSketchHandle() {
 }  // namespace
 
 int main() {
+    // Unbuffered: this gate links kernel geometry symbols as UNRESOLVED on
+    // purpose, so a case that reaches one dies by jumping to address 0. With a
+    // buffered stdout that crash prints NOTHING and looks like a failure in the
+    // first case rather than the last one that ran. Silence must not be able to
+    // misreport where the gate got to.
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+
     using namespace forge::ft;
 
     // ── 1. the grammar parses, and every op resolves to a REAL opcode ────────
@@ -82,9 +117,7 @@ int main() {
             "%6 = CON(%4, HORIZ)\n"
             "%7 = CON(%2, DIST, %3, 60)\n"
             "%8 = SOLVE(%1)\n";
-        std::string err;
-        const FeatureTree ft = parse(src, err);
-        check(err.empty(), "sketch grammar parses: " + err);
+        const FeatureTree ft = parseOrFail(src, "the sketch grammar");
         check(ft.ops.size() == 8, "8 statements parsed, got " + std::to_string(ft.ops.size()));
         const OpCode want[] = {OpCode::Sketch, OpCode::SPt,  OpCode::SPt, OpCode::SLine,
                                OpCode::SCirc,  OpCode::Con,  OpCode::Con, OpCode::Solve};
@@ -108,14 +141,16 @@ int main() {
             "%4 = CON(%2, COINC, %3)\n"
             "%5 = CON(%2, DIST, %3, 40)\n"
             "%6 = SOLVE(%1)\n";
-        std::string err;
-        const FeatureTree ft = parse(src, err);
-        check(err.empty(), "contradictory sketch parses: " + err);
+        const FeatureTree ft = parseOrFail(src, "a contradictory sketch");
         const CompileResult r = compile(ft);
         std::printf("  [contradictory] nCompiled=%zu\n", r.nCompiled);
         dumpVerify(r);
         check(r.nCompiled == 6, "all 6 statements compiled despite the contradiction");
-        check(!verifyMentions(r, "REFUSED"), "nothing was refused");
+        // The ONLY error a sketch-only tree may carry is the compiler's
+        // pre-existing "a tree must end in a solid" rule. Anything else here
+        // would mean a sketch op refused, which is the whole point of the gate.
+        check(r.error.empty() || r.error.find("no SOLID produced") != std::string::npos,
+              "no sketch op refused; the only error is the benign no-SOLID one: " + r.error);
         check(verifyMentions(r, "DEMOTED"), "the demoted constraint is NAMED on the verify channel");
         // The solver must have left usable geometry behind.
         check(forge::SketchRegistry::instance().exists(sk), "the tree's sketch is addressable");
@@ -124,6 +159,52 @@ int main() {
             const forge::SketchPoint b = forge::readPoint(sk, 1);
             check(std::isfinite(a.x) && std::isfinite(a.y) && std::isfinite(b.x) && std::isfinite(b.y),
                   "geometry survived the contradiction (no NaN)");
+        }
+    }
+
+    // ── 2b. ★ THE RANK-BLIND CASE — the one a conflict-only repair MISSES ───
+    // A triangle with sides 10, 10 and 100 violates the triangle inequality, so
+    // it cannot be built. But it is STRUCTURALLY fine: 3 points is 6 parameters,
+    // 3 distances is rank 3, nothing is over-determined. planegcs's diagnosis is
+    // a JACOBIAN-RANK analysis, so it reports class="under", conflicting=[] and
+    // sees no problem at all. Only solve()'s status and the RESIDUAL vector
+    // (which puts -95 on the 100 mm constraint) name the offender.
+    //
+    // This case exists because the obvious repair — "if conflicting is
+    // non-empty, drop one" — demotes NOTHING here and hands back a silently
+    // broken sketch. It is the positive control for solveOrRepair's second pass.
+    {
+        const forge::SketchHandle sk = nextSketchHandle();
+        const char* src =
+            "%1 = SKETCH(XY)\n"
+            "%2 = SPT(%1, 0, 0)\n"
+            "%3 = SPT(%1, 5, 0)\n"
+            "%4 = SPT(%1, 0, 5)\n"
+            "%5 = CON(%2, DIST, %3, 10)\n"
+            "%6 = CON(%3, DIST, %4, 10)\n"
+            "%7 = CON(%2, DIST, %4, 100)\n"
+            "%8 = SOLVE(%1)\n";
+        const FeatureTree ft = parseOrFail(src, "an infeasible triangle");
+        const CompileResult r = compile(ft);
+        std::printf("  [rank-blind infeasible] nCompiled=%zu\n", r.nCompiled);
+        dumpVerify(r);
+        check(r.nCompiled == 8, "all 8 statements compiled");
+        check(r.error.empty() || r.error.find("no SOLID produced") != std::string::npos,
+              "no sketch op refused: " + r.error);
+        // THE assertion: the repair must fire even though NO tag is conflicting.
+        check(verifyMentions(r, "DEMOTED"),
+              "a rank-BLIND infeasibility was still repaired (what the residual pass buys)");
+        check(verifyMentions(r, "RESIDUAL"),
+              "and it was repaired by RESIDUAL, since rank analysis reported no conflict");
+        check(forge::SketchRegistry::instance().exists(sk), "the triangle's sketch is addressable");
+        if (forge::SketchRegistry::instance().exists(sk)) {
+            const forge::SketchPoint a = forge::readPoint(sk, 0);
+            const forge::SketchPoint b = forge::readPoint(sk, 1);
+            const double d = std::hypot(b.x - a.x, b.y - a.y);
+            std::printf("    after repair |p1-p0| = %.10f (the 10mm side survived)\n", d);
+            check(std::isfinite(d), "geometry is finite after the repair");
+            check(std::fabs(d - 10.0) < 1e-6,
+                  "the FIRST-declared constraint survived — demotion is last-declared-loses");
         }
     }
 
@@ -154,13 +235,13 @@ int main() {
             "%14 = CON(%2, DIST, %3, 60)\n"
             "%15 = CON(%2, DIST, %5, 40)\n"
             "%16 = SOLVE(%1)\n";
-        std::string err;
-        const FeatureTree ft = parse(src, err);
-        check(err.empty(), "constrained rectangle parses: " + err);
+        const FeatureTree ft = parseOrFail(src, "a constrained rectangle");
         const CompileResult r = compile(ft);
         std::printf("  [constrained rect] nCompiled=%zu\n", r.nCompiled);
         dumpVerify(r);
         check(r.nCompiled == 16, "all 16 statements compiled");
+        check(r.error.empty() || r.error.find("no SOLID produced") != std::string::npos,
+              "no sketch op refused: " + r.error);
         check(!verifyMentions(r, "DEMOTED"), "a CONSISTENT sketch demotes nothing");
 
         check(forge::SketchRegistry::instance().exists(sk), "the rectangle's sketch is addressable");
@@ -206,31 +287,52 @@ int main() {
             "%3 = SPT(%1, 10, 0)\n"
             "%4 = CON(%2, NOTACONSTRAINT, %3)\n"
             "%5 = SOLVE(%1)\n";
-        std::string err;
-        const FeatureTree ft = parse(src, err);
-        check(err.empty(), "tree with an unknown CON keyword still parses: " + err);
+        const FeatureTree ft = parseOrFail(src, "a tree with an unknown CON keyword");
         const CompileResult r = compile(ft);
         std::printf("  [unknown CON kind] nCompiled=%zu\n", r.nCompiled);
         dumpVerify(r);
         check(r.nCompiled == 5, "the other 4 statements survived one bad keyword");
+        check(r.error.empty() || r.error.find("no SOLID produced") != std::string::npos,
+              "one bad keyword did not refuse the tree: " + r.error);
         check(verifyMentions(r, "SKIPPED"), "the skipped constraint is NAMED, not silently dropped");
     }
 
-    // ── 5. NEGATIVE CONTROL — a GRAMMAR error must STILL refuse ─────────────
-    // Without this the gate above only proves the compiler is permissive, which
-    // is not the same as proving it is tolerant of the right things. SOLVE on a
-    // BOX is a type error, not a geometry outcome, and must fail loudly.
+    // ── 5. ★ NEGATIVE CONTROLS — TYPE errors must STILL refuse ──────────────
+    // Cases 2 and 4 prove the compiler is TOLERANT. On their own they would be
+    // equally consistent with a compiler that is merely PERMISSIVE, which is a
+    // different and much worse thing. These two prove the line is drawn in the
+    // right place: a geometry OUTCOME is tolerated, a TYPE error is refused.
+    //
+    // Both are deliberately OCCT-free (they use only sketch ops), so the gate's
+    // negative half runs everywhere its positive half does. An earlier draft
+    // used SOLVE on a BOX and CRASHED here on the unresolved makeBox — a
+    // negative control that cannot run is not a control.
     {
+        // an entity from sketch A used in a line of sketch B
         const char* src =
-            "%1 = BOX(10, 10, 10)\n"
-            "%2 = SOLVE(%1)\n";
-        std::string err;
-        const FeatureTree ft = parse(src, err);
-        check(err.empty(), "the malformed tree parses (the error is semantic): " + err);
+            "%1 = SKETCH(XY)\n"
+            "%2 = SKETCH(XY)\n"
+            "%3 = SPT(%1, 0, 0)\n"
+            "%4 = SPT(%2, 10, 0)\n"
+            "%5 = SLINE(%3, %4)\n";
+        const FeatureTree ft = parseOrFail(src, "a line across two sketches");
         const CompileResult r = compile(ft);
-        std::printf("  [SOLVE on a SOLID] error=\"%s\"\n", r.error.c_str());
-        check(!r.error.empty(), "SOLVE on a SOLID is REFUSED — a type error is not a geometry outcome");
-        check(r.error.find("SOLVE") != std::string::npos, "the refusal names the offending op");
+        std::printf("  [SLINE across two sketches] error=\"%s\"\n", r.error.c_str());
+        check(!r.error.empty(), "an entity from another sketch is REFUSED");
+        check(r.error.find("same SKETCH") != std::string::npos, "the refusal says why");
+    }
+    {
+        // SOLVE on a value that is not a sketch at all. RECT is used rather
+        // than BOX because RECT is built entirely by the sketcher and needs no
+        // OCCT symbol, so this control actually executes.
+        const char* src =
+            "%1 = RECT(40, 30)\n"
+            "%2 = SPT(%1, 0, 0)\n";
+        const FeatureTree ft = parseOrFail(src, "a sketch point on a baked PROFILE");
+        const CompileResult r = compile(ft);
+        std::printf("  [SPT on a PROFILE] error=\"%s\"\n", r.error.c_str());
+        check(!r.error.empty(), "a sketch op on a non-SKETCH value is REFUSED");
+        check(r.error.find("not a SKETCH") != std::string::npos, "the refusal names the kind mismatch");
     }
 
     std::printf("\n[sketch_solve] %d checks, %d failures — %s\n",
