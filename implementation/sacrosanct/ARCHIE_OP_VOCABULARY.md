@@ -27,7 +27,7 @@ have caught it.
 |---|---|
 | `implementation/sacrosanct/archie_op_vocabulary.json` | the asset: every op a user can invoke, with its exact signature, parameter names, units, defaults, constraints and worked examples |
 | `implementation/sacrosanct/tools/gen_archie_op_vocabulary.py` | derives that JSON **from the sources**; `--check` fails if the committed file is not what the sources imply |
-| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 34 recorded examples**, comparing the statement the document actually recorded token by token |
+| `ui/test/archie_op_vocabulary_test.cpp` | the runtime gate: builds the same registry the app builds, diffs every command contract against the JSON, and **dispatches all 46 recorded examples**, comparing the statement the document actually recorded token by token |
 
 Nothing in the JSON is hand-written. Op names, argument names, defaults,
 arities, parameter schemas, selection signatures and enabled predicates are read
@@ -45,10 +45,15 @@ bash ui/test/run_ui.sh                                                        # 
 
 ## What the asset says
 
-Measured at this revision: the registry holds **31 commands**; **20 of them emit
-feature-IR**, reaching **18 distinct op names**. The kernel defines **40** ops
-(`opFromName`), so **22 ops plus the `RESULT` terminal are unreachable by any
+Measured at this revision: the registry holds **41 commands**; **30 of them emit
+feature-IR**, reaching **28 distinct op names**. The kernel defines **40** ops
+(`opFromName`), so **12 ops plus the `RESULT` terminal are unreachable by any
 user** and are listed under `forbidden_ops`.
+
+The twelve that remain are `BOX CONE CYL POLY PRISM REGPOLY ROTATE RRECT SLOT
+SPHERE TORUS TUBE` — the solid-primitive and 2D-profile families, each of them
+out of reach for the same one reason, and that reason is about the app rather
+than about the op.
 
 Every number in that paragraph, and every op row in the table below, is now
 checked by `--check` against the JSON it describes. None of it was, and all of
@@ -84,6 +89,16 @@ check that silently stops checking is the failure it was written to prevent.
 | `PATTERN` | part.pattern_linear / _circular / _grid | `PATTERN(%body, LINEAR, count, dx[, dy, dz])`<br>`PATTERN(%body, POLAR, count, total_angle)`<br>`PATTERN(%body, GRID, nx, ny, dx, dy)` |
 | `MIRROR` | part.mirror | `MIRROR(%body, XY\|XZ\|YZ)` |
 | `FUSE` / `CUT` / `COMMON` | part.boolean_union / _subtract / _intersect | `FUSE(%body, %tool)` etc. |
+| `WIRE` | part.wire_section | `WIRE([x y z; ...])` |
+| `SWEEP` | part.sweep_pipe | `SWEEP(radius, [x y z; ...])` |
+| `INPUT` | part.input | `INPUT()` |
+| `HEAL` | part.heal | `HEAL(%body)` |
+| `FOLD` | part.fold | `FOLD(%body, hinge_x, hinge_y, hinge_z, length, flange_height, thickness, angle)`<br>`FOLD(..., run_angle)` |
+| `PUSHFACE` | part.push_face | `PUSHFACE(%body, "<selector>", distance)` |
+| `RESIZEBORE` | part.resize_bore | `RESIZEBORE(%body, "<selector>", radius)` |
+| `DEFEATURE` | part.defeature | `DEFEATURE(%body, "<selector>")` |
+| `TAG` | part.tag_feature | `TAG(%body, "<name>", "<selector>")` |
+| `VERIFY` | part.verify | `VERIFY(%body, "<assertion>")`<br>`VERIFY(%body, "<assertion>", "<assertion2>")` |
 
 Details that a wrong signature would teach wrongly, all derived from the kernel
 header rather than assumed:
@@ -103,6 +118,36 @@ header rather than assumed:
 * Optional argument groups are **all-or-nothing**: supplying `depth` to
   `part.hole` also emits the axis triple `0, 0, 1` before it, which is why the
   9-argument form exists and an 6-argument one does not.
+* **A `"<selector>"` slot is FREE TEXT, and deliberately so.** `PUSHFACE`,
+  `RESIZEBORE`, `DEFEATURE` and `TAG` name a face with a quoted predicate that
+  `FeatureTreeCompiler::resolveSelector` resolves against the LIVE face
+  inventory: `+Z` / `-X`, `plane:max-area`, `face:12`, `bore:largest`,
+  `hole:smallest`, `bore:r=47.5`, `fillet:r<=3`, `hole:at=21.75,0`,
+  `hole:at=21.75,0:r=4.02`, `radial:2` / `blade:all`, and `@name` /
+  `@name|witness` for a feature a prior `TAG` bound. The app does NOT enumerate
+  that grammar and refuse the rest — a selector the kernel grows would become
+  unreachable through the app on the day it was added, and a refusal that cannot
+  name a face is a capability gate wearing a safety hat. The one refusal is an
+  EMPTY selector. Everything else is emitted and answered by the kernel, which
+  names the op, the face and the reason, so a repair loop has something to act on.
+* **An `"<assertion>"` slot is likewise free text**, and its quantity vocabulary
+  is `opVerify`'s: `volume`/`vol`, `faces`/`faceCount`/`nFaces`,
+  `edges`/`edgeCount`, `holes`/`bores`, `genus`, `shells`/`shellCount`,
+  `radial`/`blades`/`lugs`/`spokes`, `bbox.x|y|z` (extent),
+  `bbox.xmin|xmax|...` and the `+x|-x|+y|-y|+z|-z` position aliases, each
+  compared with `=`, `<=`, `>=`, `<` or `>`. `VERIFY` is PASS-THROUGH: it returns
+  `%body` unchanged, a failed assertion is a hard compile failure rather than a
+  warning, and it does not abort the tree — so a part that mis-claims its own
+  face count by one is still built and still measured.
+* **`TAG`'s name must start with `@`**, and be `[a-z0-9_]` after it so it
+  survives the lowercasing `resolveSelector` does. The `@` rule is in
+  `commands[].constraints` as `{"parameter": "name", "comparison":
+  "starts_with", "value": "@"}` — a spelling rule stated once where a trainer
+  can read it, rather than discovered one compile failure at a time.
+* **A point ring is `[x y z; x y z; ...]`**, semicolon-separated, and the app
+  types it as that same spec string without the brackets. `WIRE` needs >= 3
+  points and `SWEEP`'s path >= 2; a spec that does not parse is refused by name
+  (`malformed_point_list`) before it can become a statement.
 
 ## How a training run consumes it
 
@@ -122,11 +167,11 @@ be pasted into the system turn verbatim, with `emission_policy.allowed_ops` as
 the closed op list and each op's `emitted_forms[].arguments` as the argument
 order. Use `emitted_forms[].examples[].ir_text` as the few-shot examples: every
 one of them is a statement the live registry has actually recorded (the gate
-dispatches all 34 on every CI run), not a hand-written illustration.
+dispatches all 46 on every CI run), not a hand-written illustration.
 
 **3 — constrain decoding.** The op-name set is closed and small, so a grammar- or
 mask-constrained decoder can be built directly from the file: at a statement
-head, only the 18 names are legal; after the name, the argument count is bounded
+head, only the 28 names are legal; after the name, the argument count is bounded
 by `arity.min_args`/`max_args` and further by the emitted forms; keyword slots
 have enumerated domains (`ALL|VERTICAL|RIM|CONVEX`, `XY|YZ|XZ`,
 `LINEAR|POLAR|GRID`, `RULED`, `OPEN`, `SMOOTH`).
@@ -147,25 +192,31 @@ $ python3 implementation/sacrosanct/tools/measure_vocabulary_coverage.py \
       forge-kernel/test/ft/ft_smoke.mjs forge-kernel/test/ft/ft_organic_smoke.mjs \
       forge-kernel/test/ft/ft_bore_count.mjs forge-kernel/test/ft/ft_unified_edit.mjs
 corpus:      4 file(s), 53 program(s), 183 statement(s)
-vocabulary:  implementation/sacrosanct/archie_op_vocabulary.json (18 user-invocable ops)
-statements inside the vocabulary: 89/183 = 48.6%
-programs fully inside it:         2/53 = 3.8%
+vocabulary:  implementation/sacrosanct/archie_op_vocabulary.json (28 user-invocable ops)
+statements inside the vocabulary: 135/183 = 73.8%
+programs fully inside it:         23/53 = 43.4%
 ```
 
-The ops that put them outside are `BOX` (30), `CYL` (17), `INPUT` (12),
-`DEFEATURE` (10), `RESIZEBORE` (6), `TAG` (5), `WIRE` (4), `VERIFY` (4),
-`SWEEP` (2), `PUSHFACE` (2), `RRECT` (1). (Programs are split on blank lines, so
-"53 programs" is a heuristic count; the statement figure is exact.) The five
-creators added since this was first measured — `RECT`, `CIRCLE`, `RING`,
-`TRANSLATE` and the corrected `LOFT` — moved it from 45.4%/0.0%: the first
-programs to fall ENTIRELY inside the vocabulary appeared only once a user could
-create the value a program starts from.
+The only ops that still put a program outside are `BOX` (30), `CYL` (17) and
+`RRECT` (1). (Programs are split on blank lines, so "53 programs" is a heuristic
+count; the statement figure is exact.)
 
-**Read that the right way.** It does not say the constraint is wrong. It says the
-app is missing commands: more than half of what the kernel's own reference parts
-do — primitives, sketch profiles, direct edits — has no button. Widening Archie's
-vocabulary would paper over that; adding the commands fixes it, and this file
-then picks them up automatically on the next `--write`.
+That is the SAME corpus and the SAME tool, run three times. It measured
+45.4%/0.0% when no creator existed; 48.6%/3.8% once `RECT`, `CIRCLE`, `RING`,
+`TRANSLATE` and the corrected `LOFT` had closed the value-kind gap — the first
+programs to fall ENTIRELY inside the vocabulary appeared only when a user could
+create the value a program starts from; and 73.8%/43.4% now that the
+direct-modelling and edit half has commands: `INPUT` (12 statements in this
+corpus), `DEFEATURE` (10), `RESIZEBORE` (6), `TAG` (5), `WIRE` (4), `VERIFY`
+(4), `SWEEP` (2), `PUSHFACE` (2), `FOLD` (1) and `HEAL`. Not one of those ops
+changed. The app grew a way to invoke them.
+
+**Read that the right way.** It never said the constraint was wrong. It said the
+app was missing commands, and the fix is to add them rather than to widen what
+Archie is allowed to say. The 26.2% that remains is `BOX`, `CYL` and `RRECT`
+— a statement about the app's primitive coverage, not about the vocabulary
+— and this file picks them up automatically on the next `--write` when the
+commands that emit them land.
 
 ## What the derivation found, and what it means for training
 
@@ -174,6 +225,16 @@ each with the evidence that produced it. The runtime gate drives the ones that
 can be driven. Two of the original four are now CLOSED; the entries are kept
 because a reader who saw the old ones needs to know they moved, and why.
 
+0. **The 22 forbidden ops were forbidden for ONE reason, and ten of them are no
+   longer.** Every `forbidden_ops` entry read "no command in the forge::ui
+   registry emits it, so no user can produce it" — a statement about the APP,
+   never about the op. Ten commands (`part.heal`, `part.defeature`,
+   `part.push_face`, `part.resize_bore`, `part.tag_feature`, `part.verify`,
+   `part.fold`, `part.input`, `part.wire_section`, `part.sweep_pipe`) moved
+   `HEAL DEFEATURE PUSHFACE RESIZEBORE TAG VERIFY FOLD INPUT WIRE SWEEP` out of
+   that list, and the generator moved them BY ITSELF: the allowed set is DERIVED
+   from the registry, so registering the command is the whole of the fix, and
+   hand-editing the JSON is never any of it.
 1. **CLOSED (D-021, D-023) — the vocabulary was not closed, and now is.**
    `EXTRUDE`/`REVOLVE` consume a `PROFILE` and `LOFT` consumes a `WIRE`, and no
    user-invocable op produced either: from an empty document, no legal program
@@ -210,9 +271,14 @@ because a reader who saw the old ones needs to know they moved, and why.
 
 ## Keeping it true
 
-* Sixteen required Part parameters still carry no `hasDefault`, so an
+* Twenty-three required Part parameters still carry no `hasDefault`, so an
   interactive caller must prompt before those commands can run; the JSON lists
-  them under `required_parameters_without_hasDefault`. Three were removed from
+  them under `required_parameters_without_hasDefault`. (This sentence said
+  "sixteen" while the machine-checked list held twenty-three, and it is not one
+  of the patterns `check_markdown` enforces, which is exactly how it drifted.)
+  The ten commands added for the direct-modelling and edit ops add NONE of them:
+  every required parameter they declare carries an honest default, so each of
+  them runs from a bare keystroke instead of a dialog that does not exist yet. Three were removed from
   that list — `part.extrude.distance` (10), `part.fillet.radius` (1) and
   `part.shell.thickness` (2), the three the keymap binds — using the exact
   defaults the retired `model.*` stubs already declared, which is what makes a

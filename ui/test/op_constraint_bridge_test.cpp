@@ -13,7 +13,7 @@
 //       it is not re-proved here, because a second JSON reader in C++ would be a
 //       third transcription of the same list.
 //   (b) forge::ui::irOpTable(), which ui/test/feature_ir_test.cpp separately
-//       proves is the KERNEL's own op table. The 18 allowed and the 22 forbidden
+//       proves is the KERNEL's own op table. The 28 allowed and the 12 forbidden
 //       ops must PARTITION it exactly -- an op classified as neither is drift,
 //       and drift is what silently widens a constraint.
 //   (c) the LIVE REGISTRY the app builds (ForgeShell + registerPartCommands).
@@ -487,12 +487,24 @@ int main(int argc, char** argv) {
   CHECK(closure.closed());
   CHECK_EQ_INT(closure.owedCreatorKinds.size(), 0);
   CHECK_EQ_INT(closure.unreachableOps.size(), 0);
-  // The creators, pinned. D-015 measured ZERO; if that is ever true again the
-  // language is empty and this line says so by name.
-  CHECK_EQ_INT(closure.creatorOps.size(), 3);
+  // The creators, pinned BY NAME. D-015 measured ZERO; if that is ever true
+  // again the language is empty and this block says so. The set is asserted both
+  // ways -- every name present AND the size -- so a creator that quietly appears
+  // or disappears is caught, not absorbed into a count.
+  //
+  // A creator is an op that takes no leading %ref AND has a command needing no
+  // selection: both halves, or it is not a way into an empty document. RECT and
+  // CIRCLE make a PROFILE, RING and WIRE make a WIRE section, and INPUT and
+  // SWEEP make a SOLID from nothing -- INPUT by binding the part being edited,
+  // which is what an EDIT tree has to start from and what it could not say at
+  // all until part.input existed.
+  CHECK_EQ_INT(closure.creatorOps.size(), 6);
   CHECK(contains(closure.creatorOps, "CIRCLE"));
+  CHECK(contains(closure.creatorOps, "INPUT"));
   CHECK(contains(closure.creatorOps, "RECT"));
   CHECK(contains(closure.creatorOps, "RING"));
+  CHECK(contains(closure.creatorOps, "SWEEP"));
+  CHECK(contains(closure.creatorOps, "WIRE"));
   for (const IrValueKind kind : closure.owedCreatorKinds) {
     std::printf("  OWED: no forge::ui command creates a %s\n", toString(kind));
   }

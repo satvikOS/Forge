@@ -56,6 +56,12 @@ std::string argLine(const forge::ui::IrArg& a) {
       return "ARG kw " + a.word;
     case forge::ui::IrArgKind::Text:
       return "ARG str " + a.word;
+    case forge::ui::IrArgKind::Points:
+      // "ARG pts <dim> x y z; x y z" -- the dimension first because it cannot be
+      // recovered from the spec (a 2D ring and a 3D one are both "a b; c d ..."
+      // to a reader that does not already know the stride), then the SAME spec
+      // string IrArg::points3 parses. One grammar, one parser, both directions.
+      return "ARG pts " + std::to_string(a.dim) + " " + a.pointSpec();
   }
   return "ARG kw INVALID";
 }
@@ -93,7 +99,28 @@ bool argFromLine(const std::string& rest, forge::ui::IrArg& out, std::string& er
     out = forge::ui::IrArg::text(value);
     return true;
   }
-  error = "unknown ARG kind '" + kind + "' (expected num|ref|kw|str)";
+  if (kind == "pts") {
+    std::string dim, spec;
+    splitKey(value, dim, spec);
+    if (dim == "2") {
+      out = forge::ui::IrArg::points2(spec);
+    } else if (dim == "3") {
+      out = forge::ui::IrArg::points3(spec);
+    } else {
+      error = "ARG pts dimension must be 2 or 3, got '" + dim + "'";
+      return false;
+    }
+    // points2/points3 answer an EMPTY list for a spec that does not parse, and an
+    // empty point list is what validateIr refuses. Saying so HERE names the line
+    // of the file that is wrong; letting it through would surface as a rejected
+    // statement with no file position at all.
+    if (out.coords.empty()) {
+      error = "ARG pts is not an `x y[ z]; ...` point list: " + spec;
+      return false;
+    }
+    return true;
+  }
+  error = "unknown ARG kind '" + kind + "' (expected num|ref|kw|str|pts)";
   return false;
 }
 

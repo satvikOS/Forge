@@ -42,15 +42,15 @@
       },
       {
         "path": "ui/src/FeatureIr.cpp",
-        "sha256": "0d26cd2d18124aa4b1391e5c800eff4f630844f22a21d2c4cf538b96a8a9fe3b",
-        "bytes": 6035,
-        "lines": 186
+        "sha256": "31e77881321a3585a2880d41203bb2ef11bedb9f9bd44a6195852c37036c16c1",
+        "bytes": 9325,
+        "lines": 277
       },
       {
         "path": "ui/src/PartCommands.cpp",
-        "sha256": "7c838860ce559ef2473c414317354b78954ec3b581675eea5b95ea81c2f7ecd9",
-        "bytes": 59916,
-        "lines": 1153
+        "sha256": "2f04b2bec19cb7bf8060b5b3019e9e7662db2947796a16e569e006ad6fd9a1ee",
+        "bytes": 86690,
+        "lines": 1595
       },
       {
         "path": "ui/src/ForgeShell.cpp",
@@ -78,10 +78,10 @@
   "counts": {
     "kernel_ops": 40,
     "ui_validator_ops": 40,
-    "registry_commands": 31,
-    "commands_emitting_ir": 20,
-    "user_invocable_ops": 18,
-    "forbidden_ops": 22,
+    "registry_commands": 41,
+    "commands_emitting_ir": 30,
+    "user_invocable_ops": 28,
+    "forbidden_ops": 12,
     "uncertain_entries": 1,
     "derived_defects": 3
   },
@@ -93,18 +93,28 @@
       "CIRCLE",
       "COMMON",
       "CUT",
+      "DEFEATURE",
       "EXTRUDE",
       "FILLET",
+      "FOLD",
       "FUSE",
+      "HEAL",
       "HOLE",
+      "INPUT",
       "LOFT",
       "MIRROR",
       "PATTERN",
+      "PUSHFACE",
       "RECT",
+      "RESIZEBORE",
       "REVOLVE",
       "RING",
       "SHELL",
-      "TRANSLATE"
+      "SWEEP",
+      "TAG",
+      "TRANSLATE",
+      "VERIFY",
+      "WIRE"
     ],
     "rules": [
       "Emit ONLY an op listed in `ops`. Any other op name is out of vocabulary, including every op in `forbidden_ops` and the RESULT terminal, which no forge::ui command can produce.",
@@ -146,7 +156,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -156,7 +166,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -309,7 +319,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": false,
@@ -319,7 +329,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": false,
@@ -329,7 +339,7 @@
               "index": 6,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -526,7 +536,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -537,7 +547,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -548,7 +558,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             }
           ],
           "prose": null
@@ -742,6 +752,72 @@
       ]
     },
     {
+      "op": "DEFEATURE",
+      "kernel_enum": "Defeature",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "DEFEATURE(%body, \"sel\")",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "text",
+              "name": "sel",
+              "index": 1
+            }
+          ],
+          "prose": "delete the selected faces + heal the wound"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.defeature"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "\"<selector>\""
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "selector": "hole:smallest"
+              },
+              "ir_arguments": [
+                "%body",
+                "\"hole:smallest\""
+              ],
+              "ir_text": "%<id> = DEFEATURE(%body, \"hole:smallest\")"
+            }
+          ],
+          "command": "part.defeature"
+        }
+      ]
+    },
+    {
       "op": "EXTRUDE",
       "kernel_enum": "Extrude",
       "produces": "SOLID",
@@ -908,7 +984,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": true,
@@ -966,6 +1042,212 @@
             }
           ],
           "command": "part.fillet"
+        }
+      ]
+    },
+    {
+      "op": "FOLD",
+      "kernel_enum": "Fold",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 8,
+        "max_args": 9,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "hx",
+              "index": 1,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "hy",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "hz",
+              "index": 3,
+              "unit": "mm",
+              "semantic": "position",
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "len",
+              "index": 4,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "flangeH",
+              "index": 5,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "thk",
+              "index": 6,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "angleDeg",
+              "index": 7,
+              "unit": "deg",
+              "semantic": "angle",
+              "classified_by": "rule: /Deg$/"
+            },
+            {
+              "optional": true,
+              "variadic": false,
+              "token": "number",
+              "name": "runDeg",
+              "default": "0",
+              "index": 8,
+              "unit": "deg",
+              "semantic": "angle",
+              "classified_by": "rule: /Deg$/"
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [
+        "sheet-metal flange macro: BOX + ROTATE(about hinge) + FUSE"
+      ],
+      "user_commands": [
+        "part.fold"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "hinge_x",
+            "hinge_y",
+            "hinge_z",
+            "length",
+            "flange_height",
+            "thickness",
+            "angle"
+          ],
+          "argument_count": {
+            "min": 8,
+            "max": 8
+          },
+          "examples": [
+            {
+              "parameters": {
+                "hinge_x": 2.0,
+                "hinge_y": 3.0,
+                "hinge_z": 4.0,
+                "length": 40.0,
+                "flange_height": 20.0,
+                "thickness": 2.0,
+                "angle": 90.0
+              },
+              "ir_arguments": [
+                "%body",
+                "2",
+                "3",
+                "4",
+                "40",
+                "20",
+                "2",
+                "90"
+              ],
+              "ir_text": "%<id> = FOLD(%body, 2, 3, 4, 40, 20, 2, 90)"
+            }
+          ],
+          "command": "part.fold"
+        },
+        {
+          "when": "hasNumber(ctx, \"run_angle\")",
+          "when_human": "any of run_angle is supplied",
+          "arguments": [
+            "%body",
+            "hinge_x",
+            "hinge_y",
+            "hinge_z",
+            "length",
+            "flange_height",
+            "thickness",
+            "angle",
+            "run_angle"
+          ],
+          "argument_count": {
+            "min": 9,
+            "max": 9
+          },
+          "examples": [
+            {
+              "parameters": {
+                "hinge_x": 2.0,
+                "hinge_y": 3.0,
+                "hinge_z": 4.0,
+                "length": 40.0,
+                "flange_height": 20.0,
+                "thickness": 2.0,
+                "angle": 90.0,
+                "run_angle": 9.0
+              },
+              "ir_arguments": [
+                "%body",
+                "2",
+                "3",
+                "4",
+                "40",
+                "20",
+                "2",
+                "90",
+                "9"
+              ],
+              "ir_text": "%<id> = FOLD(%body, 2, 3, 4, 40, 20, 2, 90, 9)"
+            }
+          ],
+          "command": "part.fold"
         }
       ]
     },
@@ -1034,6 +1316,66 @@
       ]
     },
     {
+      "op": "HEAL",
+      "kernel_enum": "Heal",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 1,
+        "max_args": 1,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "HEAL(%body)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            }
+          ],
+          "prose": null
+        }
+      ],
+      "kernel_notes": [
+        "These make the feature-tree IR the single emission format for BOTH",
+        "generation and editing. Face SELECTORs are quoted predicate strings",
+        "resolved against the live faceInventory at compile time (see",
+        "resolveSelector in FeatureTreeCompiler.cpp)."
+      ],
+      "user_commands": [
+        "part.heal"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [
+                "%body"
+              ],
+              "ir_text": "%<id> = HEAL(%body)"
+            }
+          ],
+          "command": "part.heal"
+        }
+      ]
+    },
+    {
       "op": "HOLE",
       "kernel_enum": "Hole",
       "produces": "SOLID",
@@ -1074,7 +1416,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": false,
@@ -1084,7 +1426,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": false,
@@ -1094,7 +1436,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -1225,6 +1567,47 @@
             }
           ],
           "command": "part.hole"
+        }
+      ]
+    },
+    {
+      "op": "INPUT",
+      "kernel_enum": "Input",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 0,
+        "max_args": 0,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "INPUT()",
+          "parameters": [],
+          "prose": "bind the task's input STEP as a solid"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.input"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [],
+          "argument_count": {
+            "min": 0,
+            "max": 0
+          },
+          "examples": [
+            {
+              "parameters": {},
+              "ir_arguments": [],
+              "ir_text": "%<id> = INPUT()"
+            }
+          ],
+          "command": "part.input"
         }
       ]
     },
@@ -1453,7 +1836,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": false,
@@ -1463,7 +1846,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": false,
@@ -1473,7 +1856,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": false,
@@ -1663,7 +2046,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -1673,7 +2056,7 @@
               "index": 5,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -1683,7 +2066,7 @@
               "index": 6,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -1925,6 +2308,85 @@
       ]
     },
     {
+      "op": "PUSHFACE",
+      "kernel_enum": "PushFace",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 3,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "PUSHFACE(%body, \"sel\", dist)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "text",
+              "name": "sel",
+              "index": 1
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "dist",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "linear_size",
+              "classified_by": "rule: /^(amount|depth|dist|wall|len|flangeH|thk|cboreDepth|h|w)$/"
+            }
+          ],
+          "prose": "move planar face along its outward normal"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.push_face"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "\"<selector>\"",
+            "distance"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "selector": "+Z",
+                "distance": 5.0
+              },
+              "ir_arguments": [
+                "%body",
+                "\"+Z\"",
+                "5"
+              ],
+              "ir_text": "%<id> = PUSHFACE(%body, \"+Z\", 5)"
+            }
+          ],
+          "command": "part.push_face"
+        }
+      ]
+    },
+    {
       "op": "RECT",
       "kernel_enum": "Rect",
       "produces": "PROFILE",
@@ -1967,7 +2429,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -1978,7 +2440,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             }
           ],
           "prose": null
@@ -2050,6 +2512,85 @@
       ]
     },
     {
+      "op": "RESIZEBORE",
+      "kernel_enum": "ResizeBore",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 3,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "RESIZEBORE(%body, \"sel\", newRadius)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "text",
+              "name": "sel",
+              "index": 1
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "newRadius",
+              "index": 2,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            }
+          ],
+          "prose": "set a cylindrical bore's radius exactly"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.resize_bore"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "\"<selector>\"",
+            "radius"
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "selector": "bore:largest",
+                "radius": 5.0
+              },
+              "ir_arguments": [
+                "%body",
+                "\"bore:largest\"",
+                "5"
+              ],
+              "ir_text": "%<id> = RESIZEBORE(%body, \"bore:largest\", 5)"
+            }
+          ],
+          "command": "part.resize_bore"
+        }
+      ]
+    },
+    {
       "op": "REVOLVE",
       "kernel_enum": "Revolve",
       "produces": "SOLID",
@@ -2091,7 +2632,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -2102,7 +2643,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -2113,7 +2654,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -2248,7 +2789,7 @@
               "index": 0,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -2258,7 +2799,7 @@
               "index": 1,
               "unit": "mm",
               "semantic": "radius",
-              "classified_by": "rule: /^(r|r1|r2|radius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
             },
             {
               "optional": false,
@@ -2268,7 +2809,7 @@
               "index": 2,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -2279,7 +2820,7 @@
               "index": 3,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -2290,7 +2831,7 @@
               "index": 4,
               "unit": "mm",
               "semantic": "position",
-              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|z)$/"
+              "classified_by": "rule: /^(cx|cy|cz|ox|oy|oz|px|py|pz|hx|hy|hz|z)$/"
             },
             {
               "optional": true,
@@ -2534,6 +3075,178 @@
       ]
     },
     {
+      "op": "SWEEP",
+      "kernel_enum": "Sweep",
+      "produces": "SOLID",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 2,
+        "max_args": 2,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "SWEEP(r, [x y z; ...])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "number",
+              "name": "r",
+              "index": 0,
+              "unit": "mm",
+              "semantic": "radius",
+              "classified_by": "rule: /^(r|r1|r2|radius|newRadius|rx|ry|rOuter|rInner|major|minor|circumR|rStart|rEnd)$/"
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "points",
+              "name": "points",
+              "dim": 3,
+              "index": 1
+            }
+          ],
+          "prose": "circular pipe of radius r along a 3D path"
+        },
+        {
+          "form": "SWEEP([x y; ...], [x y z; ...])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "points",
+              "name": "points",
+              "dim": 2,
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "points",
+              "name": "points",
+              "dim": 3,
+              "index": 1
+            }
+          ],
+          "prose": "sweep a 2D profile ring along a 3D path"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.sweep_pipe"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "radius",
+            "[x y z; ...]"
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "radius": 5.0,
+                "path": "0 0 0; 0 0 40; 0 30 70"
+              },
+              "ir_arguments": [
+                "5",
+                "[0 0 0; 0 0 40; 0 30 70]"
+              ],
+              "ir_text": "%<id> = SWEEP(5, [0 0 0; 0 0 40; 0 30 70])"
+            }
+          ],
+          "command": "part.sweep_pipe"
+        }
+      ]
+    },
+    {
+      "op": "TAG",
+      "kernel_enum": "Tag",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 3,
+        "max_args": 3,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "TAG(%body, \"@name\", \"declaring-sel\")",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "text",
+              "name": "@name",
+              "index": 1
+            },
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "text",
+              "name": "declaring-sel",
+              "index": 2
+            }
+          ],
+          "prose": "bind a PERSISTENT name to a feature"
+        }
+      ],
+      "kernel_notes": [
+        "Pass-through like VERIFY: it returns %body unchanged. A naming",
+        "mechanism that can alter the solid is a defect generator.",
+        "Afterwards \"@name\" is legal anywhere a selector is legal, and",
+        "survives ops that renumber faces -- which every edit does."
+      ],
+      "user_commands": [
+        "part.tag_feature"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "\"<name>\"",
+            "\"<selector>\""
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "name": "@bore1",
+                "selector": "bore:largest"
+              },
+              "ir_arguments": [
+                "%body",
+                "\"@bore1\"",
+                "\"bore:largest\""
+              ],
+              "ir_text": "%<id> = TAG(%body, \"@bore1\", \"bore:largest\")"
+            }
+          ],
+          "command": "part.tag_feature"
+        }
+      ]
+    },
+    {
       "op": "TRANSLATE",
       "kernel_enum": "Translate",
       "produces": "SOLID",
@@ -2627,6 +3340,158 @@
           "command": "part.move"
         }
       ]
+    },
+    {
+      "op": "VERIFY",
+      "kernel_enum": "Verify",
+      "produces": "SOLID",
+      "consumes_value_kinds": [
+        "SOLID"
+      ],
+      "arity": {
+        "min_args": 2,
+        "max_args": null,
+        "first_argument_is_value_ref": true
+      },
+      "kernel_signature": [
+        {
+          "form": "VERIFY(%body, \"expr\", ...)",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "ref",
+              "name": "body",
+              "index": 0
+            },
+            {
+              "optional": false,
+              "variadic": true,
+              "token": "text",
+              "name": "expr",
+              "index": 1
+            }
+          ],
+          "prose": "assert do-no-harm invariants (loud failure)"
+        }
+      ],
+      "kernel_notes": [],
+      "user_commands": [
+        "part.verify"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "%body",
+            "\"<assertion>\""
+          ],
+          "argument_count": {
+            "min": 2,
+            "max": 2
+          },
+          "examples": [
+            {
+              "parameters": {
+                "assertion": "volume>0"
+              },
+              "ir_arguments": [
+                "%body",
+                "\"volume>0\""
+              ],
+              "ir_text": "%<id> = VERIFY(%body, \"volume>0\")"
+            }
+          ],
+          "command": "part.verify"
+        },
+        {
+          "when": "hasText(ctx, \"assertion2\")",
+          "when_human": "any of assertion2 is supplied",
+          "arguments": [
+            "%body",
+            "\"<assertion>\"",
+            "\"<assertion2>\""
+          ],
+          "argument_count": {
+            "min": 3,
+            "max": 3
+          },
+          "examples": [
+            {
+              "parameters": {
+                "assertion": "volume>0",
+                "assertion2": "shells=1"
+              },
+              "ir_arguments": [
+                "%body",
+                "\"volume>0\"",
+                "\"shells=1\""
+              ],
+              "ir_text": "%<id> = VERIFY(%body, \"volume>0\", \"shells=1\")"
+            }
+          ],
+          "command": "part.verify"
+        }
+      ]
+    },
+    {
+      "op": "WIRE",
+      "kernel_enum": "Wire",
+      "produces": "WIRE",
+      "consumes_value_kinds": [],
+      "arity": {
+        "min_args": 1,
+        "max_args": 1,
+        "first_argument_is_value_ref": false
+      },
+      "kernel_signature": [
+        {
+          "form": "WIRE([x y z; x y z; ...])",
+          "parameters": [
+            {
+              "optional": false,
+              "variadic": false,
+              "token": "points",
+              "name": "points",
+              "dim": 3,
+              "index": 0
+            }
+          ],
+          "prose": "explicit closed 3D ring"
+        }
+      ],
+      "kernel_notes": [
+        "(airfoil / organic / sharp-cornered loft section)"
+      ],
+      "user_commands": [
+        "part.wire_section"
+      ],
+      "emitted_forms": [
+        {
+          "when": "always",
+          "when_human": "always -- this is the form the command emits with only its required parameters",
+          "arguments": [
+            "[x y z; ...]"
+          ],
+          "argument_count": {
+            "min": 1,
+            "max": 1
+          },
+          "examples": [
+            {
+              "parameters": {
+                "points": "20 0 0; 0 20 0; -20 0 0; 0 -20 0"
+              },
+              "ir_arguments": [
+                "[20 0 0; 0 20 0; -20 0 0; 0 -20 0]"
+              ],
+              "ir_text": "%<id> = WIRE([20 0 0; 0 20 0; -20 0 0; 0 -20 0])"
+            }
+          ],
+          "command": "part.wire_section"
+        }
+      ]
     }
   ],
   "forbidden_ops": [
@@ -2658,42 +3523,6 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
-      "op": "DEFEATURE",
-      "kernel_enum": "Defeature",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "DEFEATURE(%body, \"sel\")"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "FOLD",
-      "kernel_enum": "Fold",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "HEAL",
-      "kernel_enum": "Heal",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "HEAL(%body)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "INPUT",
-      "kernel_enum": "Input",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "INPUT()"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
       "op": "POLY",
       "kernel_enum": "Poly",
       "compiled_into_a_default_build": true,
@@ -2712,29 +3541,11 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
-      "op": "PUSHFACE",
-      "kernel_enum": "PushFace",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "PUSHFACE(%body, \"sel\", dist)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
       "op": "REGPOLY",
       "kernel_enum": "RegPoly",
       "compiled_into_a_default_build": true,
       "signature": [
         "REGPOLY(r, n [, cx=0, cy=0, rotDeg=0])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "RESIZEBORE",
-      "kernel_enum": "ResizeBore",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "RESIZEBORE(%body, \"sel\", newRadius)"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
@@ -2775,25 +3586,6 @@
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     },
     {
-      "op": "SWEEP",
-      "kernel_enum": "Sweep",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "SWEEP(r, [x y z; ...])",
-        "SWEEP([x y; ...], [x y z; ...])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "TAG",
-      "kernel_enum": "Tag",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "TAG(%body, \"@name\", \"declaring-sel\")"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
       "op": "TORUS",
       "kernel_enum": "Torus",
       "compiled_into_a_default_build": true,
@@ -2808,24 +3600,6 @@
       "compiled_into_a_default_build": true,
       "signature": [
         "TUBE(rOuter, rInner, h [, cx, cy, cz])"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "VERIFY",
-      "kernel_enum": "Verify",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "VERIFY(%body, \"expr\", ...)"
-      ],
-      "reason": "no command in the forge::ui registry emits it, so no user can produce it"
-    },
-    {
-      "op": "WIRE",
-      "kernel_enum": "Wire",
-      "compiled_into_a_default_build": true,
-      "signature": [
-        "WIRE([x y z; x y z; ...])"
       ],
       "reason": "no command in the forge::ui registry emits it, so no user can produce it"
     }
@@ -3192,6 +3966,45 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.defeature",
+      "label": "Remove Feature",
+      "category": "Part",
+      "feature_ir_op": "DEFEATURE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Face",
+        "min": 1,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "selector",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "hole:smallest",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && !txt(ctx, \"selector\", \"\").empty()",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          },
+          {
+            "parameter": "selector",
+            "comparison": "is_non_empty"
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.edit_feature",
       "label": "Edit Feature Parameter",
       "category": "Part",
@@ -3347,6 +4160,138 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.fold",
+      "label": "Sheet-metal Fold",
+      "category": "Part",
+      "feature_ir_op": "FOLD",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "hinge_x",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "hinge_y",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "hinge_z",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        },
+        {
+          "name": "length",
+          "type": "Number",
+          "required": true,
+          "default_number": 40.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "flange_height",
+          "type": "Number",
+          "required": true,
+          "default_number": 20.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "thickness",
+          "type": "Number",
+          "required": true,
+          "default_number": 2.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "angle",
+          "type": "Number",
+          "required": true,
+          "default_number": 90.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "run_angle",
+          "type": "Number",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "",
+          "has_default": false
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && num(ctx, \"length\", 0.0) > 0.0 && num(ctx, \"flange_height\", 0.0) > 0.0 && num(ctx, \"thickness\", 0.0) > 0.0",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          },
+          {
+            "parameter": "length",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "flange_height",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "thickness",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.heal",
+      "label": "Heal Body",
+      "category": "Part",
+      "feature_ir_op": "HEAL",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.hole",
       "label": "Hole",
       "category": "Part",
@@ -3412,6 +4357,32 @@
             "parameter": "diameter",
             "comparison": ">",
             "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.input",
+      "label": "Load Input Solid",
+      "category": "Part",
+      "feature_ir_op": "INPUT",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "true",
+        "derived": [
+          {
+            "always_enabled": true
           }
         ],
         "unparsed_terms": []
@@ -3773,6 +4744,110 @@
       "produces_value_kind": "Solid"
     },
     {
+      "id": "part.push_face",
+      "label": "Push Face",
+      "category": "Part",
+      "feature_ir_op": "PUSHFACE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Face",
+        "min": 1,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "selector",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "+Z",
+          "has_default": true
+        },
+        {
+          "name": "distance",
+          "type": "Number",
+          "required": true,
+          "default_number": 5.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && !txt(ctx, \"selector\", \"\").empty() && num(ctx, \"distance\", 0.0) != 0.0",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          },
+          {
+            "parameter": "selector",
+            "comparison": "is_non_empty"
+          },
+          {
+            "parameter": "distance",
+            "comparison": "!=",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.resize_bore",
+      "label": "Resize Bore",
+      "category": "Part",
+      "feature_ir_op": "RESIZEBORE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Face",
+        "min": 1,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "selector",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "bore:largest",
+          "has_default": true
+        },
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 5.0,
+          "default_text": "",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && !txt(ctx, \"selector\", \"\").empty() && num(ctx, \"radius\", 0.0) > 0.0",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          },
+          {
+            "parameter": "selector",
+            "comparison": "is_non_empty"
+          },
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.revolve",
       "label": "Revolve",
       "category": "Part",
@@ -4127,6 +5202,109 @@
       "produces_value_kind": "Profile"
     },
     {
+      "id": "part.sweep_pipe",
+      "label": "Sweep Pipe",
+      "category": "Part",
+      "feature_ir_op": "SWEEP",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "radius",
+          "type": "Number",
+          "required": true,
+          "default_number": 5.0,
+          "default_text": "",
+          "has_default": true
+        },
+        {
+          "name": "path",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "0 0 0; 0 0 40; 0 30 70",
+          "has_default": true
+        }
+      ],
+      "preview": "OnDemand",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "num(ctx, \"radius\", 0.0) > 0.0 && irPointsWellFormed(txt(ctx, \"path\", \"\"), 3, 2)",
+        "derived": [
+          {
+            "parameter": "radius",
+            "comparison": ">",
+            "value": 0.0
+          },
+          {
+            "parameter": "path",
+            "comparison": "is_point_list",
+            "dimension": 3,
+            "min_points": 2
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.tag_feature",
+      "label": "Tag Feature",
+      "category": "Part",
+      "feature_ir_op": "TAG",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Face",
+        "min": 1,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "name",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "@bore1",
+          "has_default": true
+        },
+        {
+          "name": "selector",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "bore:largest",
+          "has_default": true
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && txt(ctx, \"name\", \"\").rfind(\"@\", 0) == 0 && !txt(ctx, \"selector\", \"\").empty()",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          },
+          {
+            "parameter": "name",
+            "comparison": "starts_with",
+            "value": "@"
+          },
+          {
+            "parameter": "selector",
+            "comparison": "is_non_empty"
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
       "id": "part.variable_fillet",
       "label": "Variable Fillet",
       "category": "Part",
@@ -4186,6 +5364,91 @@
         "unparsed_terms": []
       },
       "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.verify",
+      "label": "Assert Property",
+      "category": "Part",
+      "feature_ir_op": "VERIFY",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "Body",
+        "min": 1,
+        "max": 1
+      },
+      "parameters": [
+        {
+          "name": "assertion",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "volume>0",
+          "has_default": true
+        },
+        {
+          "name": "assertion2",
+          "type": "Text",
+          "required": false,
+          "default_number": 0.0,
+          "default_text": "shells=1",
+          "has_default": false
+        }
+      ],
+      "preview": "None",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "solidTarget(*d, ctx.selection()).ok && !txt(ctx, \"assertion\", \"\").empty()",
+        "derived": [
+          {
+            "selection": "must resolve to exactly one SOLID value on one body"
+          },
+          {
+            "parameter": "assertion",
+            "comparison": "is_non_empty"
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Solid"
+    },
+    {
+      "id": "part.wire_section",
+      "label": "Wire Section",
+      "category": "Part",
+      "feature_ir_op": "WIRE",
+      "emits_feature_ir": true,
+      "selection": {
+        "kind": "None",
+        "min": 0,
+        "max": null
+      },
+      "parameters": [
+        {
+          "name": "points",
+          "type": "Text",
+          "required": true,
+          "default_number": 0.0,
+          "default_text": "20 0 0; 0 20 0; -20 0 0; 0 -20 0",
+          "has_default": true
+        }
+      ],
+      "preview": "Live",
+      "undo": "SingleStep",
+      "source": "ui/src/PartCommands.cpp",
+      "constraints": {
+        "source": "irPointsWellFormed(txt(ctx, \"points\", \"\"), 3, 3)",
+        "derived": [
+          {
+            "parameter": "points",
+            "comparison": "is_point_list",
+            "dimension": 3,
+            "min_points": 3
+          }
+        ],
+        "unparsed_terms": []
+      },
+      "produces_value_kind": "Wire"
     },
     {
       "id": "view.fit",

@@ -309,6 +309,14 @@ std::string txt(const CommandContext& ctx, const char* name, const char* fallbac
 bool hasNumber(const CommandContext& ctx, const char* name) {
   return ctx.params().number(name).has_value();
 }
+// The Text half of hasNumber, and it exists for the same reason: an OPTIONAL
+// argument is emitted only when the caller actually supplied one. VERIFY is
+// variadic -- VERIFY(%body, "expr", ...) -- so "was a second assertion given?"
+// is the question that decides between its two-argument and three-argument
+// forms, and txt() alone cannot answer it (it returns the fallback either way).
+bool hasText(const CommandContext& ctx, const char* name) {
+  return ctx.params().text(name).has_value();
+}
 
 std::string bodyNodeFor(int irId) { return "body_" + std::to_string(irId); }
 
@@ -1052,6 +1060,437 @@ std::size_t registerPartCommands(CommandRegistry& registry, PartDocument& doc,
     add(std::move(c));
   }
 
+  // ══ THE DIRECT-MODELLING AND EDIT OPS ═════════════════════════════════════
+  // Everything from here down emits an op the kernel has always had and that no
+  // user could reach. They are the EDIT half of the Unified IR -- the half the
+  // ground-truth fixtures are written in, where "shrink the diameter of the
+  // largest bore by 5 mm" is ONE RESIZEBORE statement against the part in hand
+  // and not a 14-op rebuild -- plus the two ops that make an edit tree
+  // well-formed at all: INPUT, which binds the part being edited, and VERIFY,
+  // which states what the edit must not break.
+  //
+  // Each of them names its face with a SELECTOR STRING, because that is what
+  // forge::ft::resolveSelector reads, and its grammar is far wider than any
+  // dropdown: "+Z", "plane:max-area", "face:12", "bore:largest", "bore:r=47.5",
+  // "hole:at=21.75,0", "hole:at=21.75,0:r=4.02", "radial:2", "blade:all",
+  // "fillet:r<=3", and "@name" / "@name|witness" for a TAG-bound persistent
+  // feature. This layer does NOT enumerate that grammar and refuse everything
+  // else: a selector the kernel grows tomorrow would become unreachable through
+  // the app the day it was added, and a refusal that cannot name a face is the
+  // capability gate this product must not have. One thing is refused -- an EMPTY
+  // selector, which names no face under any grammar and which the compiler's own
+  // strArg() would reject anyway. Everything else is emitted and answered by the
+  // kernel, which names the face, the op and the reason so a repair loop can act.
+
+  // ── HEAL ──────────────────────────────────────────────────────────────────
+  // HEAL(%body), and that is the whole op. It is the REPAIR verb:
+  // forge::heal::simplifyShape merges the slivers, duplicate faces and
+  // near-tangent seams a long boolean chain leaves behind, and a 14-op tree over
+  // a 400-face part is precisely the thing that leaves them. It needs no
+  // parameters and no selection beyond the body, which is why it was reachable
+  // for the price of twenty lines and stayed unreachable anyway.
+  {
+    CommandDescriptor c = base("part.heal", "Heal Body", "HEAL",
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value)};
+      emit(ctx, *d, *s, "part.heal", "Heal Body", "HEAL", std::move(args), IrValueKind::Solid,
+           {}, t.node);
+    };
+    add(std::move(c));
+  }
+
+  // ── DEFEATURE ─────────────────────────────────────────────────────────────
+  // DEFEATURE(%body, "sel") -- delete the selected faces and heal the wound. The
+  // simplify-for-analysis verb, and the one that answers "remove the small bolt
+  // holes" in a single statement instead of reconstructing the part without them.
+  //
+  // The kernel refuses a DEFEATURE that changes NOTHING (opDefeature compares the
+  // volume before and after and throws when they are identical), because a face
+  // group that is really a whole solid protrusion cannot be deleted by face
+  // removal -- it has to be CUT. That check lives there, on the live geometry,
+  // where it can be made; this layer cannot know a blade from a chamfer without
+  // the body, and guessing would only refuse legal edits.
+  {
+    CommandDescriptor c = base("part.defeature", "Remove Feature", "DEFEATURE",
+                               SelectionSignature::atLeast(EntityKind::Face, 1));
+    c.schema.push_back(ParamSpec{.name = "selector",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "hole:smallest",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok && !txt(ctx, "selector", "").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value),
+                              IrArg::text(txt(ctx, "selector", "hole:smallest"))};
+      emit(ctx, *d, *s, "part.defeature", "Remove Feature", "DEFEATURE", std::move(args),
+           IrValueKind::Solid, {}, t.node);
+    };
+    add(std::move(c));
+  }
+
+  // ── PUSHFACE ──────────────────────────────────────────────────────────────
+  // PUSHFACE(%body, "sel", dist) -- move ONE planar face along its own outward
+  // normal. This is direct modelling: "make the plate 3 mm thicker" without
+  // knowing which statement built the plate, which is what an edit against an
+  // IMPORTED solid always needs, since there are no statements to edit.
+  //
+  // `distance` is signed -- negative pulls the face inward -- so the only value
+  // refused is zero, which would record a statement that moves nothing.
+  {
+    CommandDescriptor c = base("part.push_face", "Push Face", "PUSHFACE",
+                               SelectionSignature::atLeast(EntityKind::Face, 1));
+    c.schema.push_back(ParamSpec{.name = "selector",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "+Z",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "distance",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 5.0,
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok && !txt(ctx, "selector", "").empty() &&
+             num(ctx, "distance", 0.0) != 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value),
+                              IrArg::text(txt(ctx, "selector", "+Z")),
+                              IrArg::num(num(ctx, "distance", 5.0))};
+      emit(ctx, *d, *s, "part.push_face", "Push Face", "PUSHFACE", std::move(args),
+           IrValueKind::Solid, {}, t.node);
+    };
+    add(std::move(c));
+  }
+
+  // ── RESIZEBORE ────────────────────────────────────────────────────────────
+  // RESIZEBORE(%body, "sel", newRadius) -- set a cylindrical bore's radius
+  // EXACTLY. It is the single most load-bearing edit op in this file: the
+  // owner's ground-truth edit fixtures are of the form "shrink the diameter of
+  // the largest bore by 5 mm", and until now the app could express that only by
+  // rebuilding the part, which is a different task with a different failure mode.
+  //
+  // `bore:largest` is the default because that is the phrase the fixtures use.
+  // The radius must be positive -- opResizeBore throws on r <= 0 -- and the
+  // remaining refusals (a convex boss, a non-cylindrical face, a selector that
+  // matches more than one face) are made on the live inventory by the kernel,
+  // which can see the geometry and can name the face it refused.
+  {
+    CommandDescriptor c = base("part.resize_bore", "Resize Bore", "RESIZEBORE",
+                               SelectionSignature::atLeast(EntityKind::Face, 1));
+    c.schema.push_back(ParamSpec{.name = "selector",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "bore:largest",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "radius",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 5.0,
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok && !txt(ctx, "selector", "").empty() &&
+             num(ctx, "radius", 0.0) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value),
+                              IrArg::text(txt(ctx, "selector", "bore:largest")),
+                              IrArg::num(num(ctx, "radius", 5.0))};
+      emit(ctx, *d, *s, "part.resize_bore", "Resize Bore", "RESIZEBORE", std::move(args),
+           IrValueKind::Solid, {}, t.node);
+    };
+    add(std::move(c));
+  }
+
+  // ── TAG ───────────────────────────────────────────────────────────────────
+  // TAG(%body, "@name", "declaring-sel") -- bind a PERSISTENT name to a feature.
+  // It is a pass-through: opTag returns %body unchanged, because "a naming
+  // mechanism that can alter the solid is a defect generator". Afterwards
+  // "@name" is legal anywhere a selector is legal, and it survives the face
+  // renumbering that EVERY edit causes -- which is the entire reason it exists.
+  // Without it a two-edit sequence has to re-derive "the same bore" from a rank
+  // or a radius after the first edit already moved both.
+  //
+  // The '@' is REQUIRED here rather than repaired, and that is not a gate: it is
+  // the spelling of the value itself. opTag refuses a name without it, refuses an
+  // empty name, and refuses any character outside [a-z0-9_] so the name survives
+  // the lowercasing resolveSelector does. Stating the '@' rule in the enabled
+  // predicate puts it in the vocabulary, where Archie reads it, instead of
+  // leaving it to be discovered one compile failure at a time.
+  {
+    CommandDescriptor c = base("part.tag_feature", "Tag Feature", "TAG",
+                               SelectionSignature::atLeast(EntityKind::Face, 1));
+    c.schema.push_back(ParamSpec{.name = "name",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "@bore1",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "selector",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "bore:largest",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok &&
+             txt(ctx, "name", "").rfind("@", 0) == 0 && !txt(ctx, "selector", "").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value),
+                              IrArg::text(txt(ctx, "name", "@bore1")),
+                              IrArg::text(txt(ctx, "selector", "bore:largest"))};
+      emit(ctx, *d, *s, "part.tag_feature", "Tag Feature", "TAG", std::move(args),
+           IrValueKind::Solid, {}, t.node);
+    };
+    add(std::move(c));
+  }
+
+  // ── VERIFY ────────────────────────────────────────────────────────────────
+  // VERIFY(%body, "expr", ...) is an ASSERTION, not a geometry op: opVerify
+  // measures the LIVE body and returns it unchanged. Its UI is therefore not
+  // "make something" but "state a property this part must have", and every
+  // property it can state is measured by the kernel, never by this layer --
+  // volume, faces/faceCount, edges/edgeCount, holes/bores, genus, shells,
+  // blades/lugs/spokes, bbox.x|y|z extents, bbox.xmin|xmax and the +x|-x
+  // position aliases.
+  //
+  // This is the highest-leverage command in the file. 41.3% of Archie's failures
+  // are VERIFY assertions its own output does not satisfy, and until now no user
+  // could produce a single VERIFY statement -- so the app could not demonstrate
+  // one, could not preview one, and the whole do-no-harm half of the IR was
+  // trained on emissions no human had ever made. A failed assertion is a HARD
+  // failure of the compile and never a warning, but it does not abort the tree:
+  // opVerify records the first failure and lets the rest of the tree build, so a
+  // part that mis-claims its own face count by one is still measured.
+  //
+  // `assertion` defaults to "volume>0" -- the minimal do-no-harm invariant, true
+  // of every valid solid and false of every empty one -- and the optional
+  // `assertion2` reaches the variadic form. Both are free text, because the
+  // quantity list above is the KERNEL's and enumerating a copy of it here would
+  // make every quantity the kernel adds unreachable from the app.
+  {
+    CommandDescriptor c = base("part.verify", "Assert Property", "VERIFY",
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{.name = "assertion",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "volume>0",
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"assertion2", ParamType::Text, false, 0.0, "shells=1"});
+    c.preview = PreviewPolicy::None;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok && !txt(ctx, "assertion", "").empty();
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      std::vector<IrArg> args{IrArg::valueRef(t.value),
+                              IrArg::text(txt(ctx, "assertion", "volume>0"))};
+      if (hasText(ctx, "assertion2")) {
+        args.push_back(IrArg::text(txt(ctx, "assertion2", "shells=1")));
+      }
+      emit(ctx, *d, *s, "part.verify", "Assert Property", "VERIFY", std::move(args),
+           IrValueKind::Solid, {}, t.node);
+    };
+    add(std::move(c));
+  }
+
+  // ── FOLD ──────────────────────────────────────────────────────────────────
+  // FOLD(%body, hx, hy, hz, len, flangeH, thk, angleDeg [, runDeg=0]) -- the
+  // sheet-metal flange macro: a BOX placed at the hinge point, rotated about the
+  // hinge axis and FUSEd on. It is the only op in the kernel that speaks
+  // sheet metal, and the whole family of bent-tab, bracket and enclosure parts
+  // needs it; PATTERN and MIRROR then replicate the flange around the part.
+  //
+  // The three refusals here are the kernel's own, transcribed: opFold throws
+  // unless len, flangeH and thk are all > 0. `angleDeg` is deliberately NOT
+  // constrained -- 0 is a flat extension of the plate, negative folds the other
+  // way, and both are things a user means.
+  {
+    CommandDescriptor c = base("part.fold", "Sheet-metal Fold", "FOLD",
+                               SelectionSignature::exactly(EntityKind::Body, 1));
+    c.schema.push_back(ParamSpec{"hinge_x", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"hinge_y", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{"hinge_z", ParamType::Number, false, 0.0, ""});
+    c.schema.push_back(ParamSpec{.name = "length",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 40.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "flange_height",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 20.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "thickness",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 2.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "angle",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 90.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{"run_angle", ParamType::Number, false, 0.0, ""});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [d](const CommandContext& ctx) {
+      return solidTarget(*d, ctx.selection()).ok && num(ctx, "length", 0.0) > 0.0 &&
+             num(ctx, "flange_height", 0.0) > 0.0 && num(ctx, "thickness", 0.0) > 0.0;
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      const SolidTarget t = solidTarget(*d, ctx.selection());
+      if (!t.ok) { ctx.fail("selection does not resolve to one solid"); return; }
+      // The hinge point is POSITIONAL and required by the kernel, so all three
+      // components are emitted every time -- unlike RECT's centre, there is no
+      // shorter legal form of FOLD to fall back to.
+      std::vector<IrArg> args{IrArg::valueRef(t.value),
+                              IrArg::num(num(ctx, "hinge_x", 0.0)),
+                              IrArg::num(num(ctx, "hinge_y", 0.0)),
+                              IrArg::num(num(ctx, "hinge_z", 0.0)),
+                              IrArg::num(num(ctx, "length", 40.0)),
+                              IrArg::num(num(ctx, "flange_height", 20.0)),
+                              IrArg::num(num(ctx, "thickness", 2.0)),
+                              IrArg::num(num(ctx, "angle", 90.0))};
+      if (hasNumber(ctx, "run_angle")) {
+        args.push_back(IrArg::num(num(ctx, "run_angle", 0.0)));
+      }
+      emit(ctx, *d, *s, "part.fold", "Sheet-metal Fold", "FOLD", std::move(args),
+           IrValueKind::Solid, {}, t.node);
+    };
+    add(std::move(c));
+  }
+
+  // ── INPUT ─────────────────────────────────────────────────────────────────
+  // INPUT() -- bind the task's input solid. Zero arguments, no selection, and it
+  // is the FOURTH creator in this registry and the first that produces a SOLID
+  // from nothing: every other way into a solid runs through a sketch.
+  //
+  // It is what makes the EDIT half of the IR expressible at all. An edit tree
+  // starts from the part you were given, not from a rectangle -- `%1 = INPUT()`
+  // then TAG, RESIZEBORE, DEFEATURE, VERIFY -- and without this op every edit
+  // Archie emitted named a %1 no user-invocable statement could have produced.
+  // opInput sniffs the CONTENT rather than the extension and accepts STEP, BREP
+  // and ASCII or binary STL, then unifies the faces, because face identity is
+  // meaningless on a strip-faceted body.
+  //
+  // No enabled predicate: whether an input solid was supplied is a fact about the
+  // compile, not about the UI, and opInput says so by name ("INPUT() used but no
+  // input STEP was supplied to the compiler"). Greying the command out here would
+  // mean guessing that answer from the wrong side of the seam.
+  {
+    CommandDescriptor c = base("part.input", "Load Input Solid", "INPUT",
+                               SelectionSignature::none());
+    c.preview = PreviewPolicy::OnDemand;
+    // Written out rather than left null. CommandDescriptor documents an absent
+    // predicate as "always enabled", so the two are the same behaviour -- but
+    // part_commands_test asserts that every Part command carries the WHOLE s19.2
+    // contract, and "this command can always run" is a claim worth making out
+    // loud, not a field left blank. Nothing here can make it false: whether an
+    // input solid was supplied is a fact about the compile, and opInput says so
+    // by name ("INPUT() used but no input STEP was supplied to the compiler").
+    c.enabled = [](const CommandContext&) { return true; };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args;
+      emit(ctx, *d, *s, "part.input", "Load Input Solid", "INPUT", std::move(args),
+           IrValueKind::Solid, {}, {});
+    };
+    add(std::move(c));
+  }
+
+  // ── WIRE ──────────────────────────────────────────────────────────────────
+  // WIRE([x y z; x y z; ...]) -- an EXPLICIT closed 3D loft section, and the
+  // second producer of a WIRE value after RING. RING can only draw a
+  // superellipse; an airfoil, a volute, a cam lobe and every sharp-cornered
+  // section are exactly the shapes it cannot draw, and they are the sections the
+  // owner's ground-truth parts are made of (67 of one fixture's faces are
+  // b-spline). LOFT then skins two or more of them.
+  //
+  // The points are typed as a spec string -- "x y z; x y z; ..." -- because that
+  // IS the IR's own grammar for a point ring, minus the brackets the token adds.
+  // Nothing about the ring is inferred: no closing point is appended (the kernel
+  // closes it), no ordering is imposed, and no coordinate is rounded.
+  {
+    CommandDescriptor c = base("part.wire_section", "Wire Section", "WIRE",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "points",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "20 0 0; 0 20 0; -20 0 0; 0 -20 0",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::Live;
+    c.enabled = [](const CommandContext& ctx) {
+      // wireExplicit() throws "WIRE needs >= 3 points": two points are a line
+      // segment, not a section, and no closed profile can be made from them.
+      return irPointsWellFormed(txt(ctx, "points", ""), 3, 3);
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{
+          IrArg::points3(txt(ctx, "points", "20 0 0; 0 20 0; -20 0 0; 0 -20 0"))};
+      emit(ctx, *d, *s, "part.wire_section", "Wire Section", "WIRE", std::move(args),
+           IrValueKind::Wire, {}, wireNodeFor(d->nextIrId()));
+    };
+    add(std::move(c));
+  }
+
+  // ── SWEEP ─────────────────────────────────────────────────────────────────
+  // SWEEP(r, [x y z; ...]) -- a circular pipe of radius r along a 3D polyline.
+  // The tubing, conduit, hydraulic-line and handle family, none of which any
+  // combination of the other ops can build: EXTRUDE goes in one direction and
+  // LOFT skins sections that a user would have to place by hand along the path.
+  //
+  // It is a CREATOR -- no leading %ref, no selection -- which is why it produces
+  // a new body rather than editing the selected one. The kernel routes it to
+  // pipeFromPolyline rather than part::sweep, because part::sweep collapses when
+  // the profile and the path are coplanar.
+  {
+    CommandDescriptor c = base("part.sweep_pipe", "Sweep Pipe", "SWEEP",
+                               SelectionSignature::none());
+    c.schema.push_back(ParamSpec{.name = "radius",
+                                 .type = ParamType::Number,
+                                 .required = true,
+                                 .defaultNumber = 5.0,
+                                 .hasDefault = true});
+    c.schema.push_back(ParamSpec{.name = "path",
+                                 .type = ParamType::Text,
+                                 .required = true,
+                                 .defaultText = "0 0 0; 0 0 40; 0 30 70",
+                                 .hasDefault = true});
+    c.preview = PreviewPolicy::OnDemand;
+    c.enabled = [](const CommandContext& ctx) {
+      // Both refusals are opSweep's own, transcribed: "SWEEP: pipe radius must be
+      // > 0" and "SWEEP: path needs >= 2 points".
+      return num(ctx, "radius", 0.0) > 0.0 && irPointsWellFormed(txt(ctx, "path", ""), 3, 2);
+    };
+    c.execute = [d, s](CommandContext& ctx) {
+      std::vector<IrArg> args{IrArg::num(num(ctx, "radius", 5.0)),
+                              IrArg::points3(txt(ctx, "path", "0 0 0; 0 0 40; 0 30 70"))};
+      emit(ctx, *d, *s, "part.sweep_pipe", "Sweep Pipe", "SWEEP", std::move(args),
+           IrValueKind::Solid, {}, {});
+    };
+    add(std::move(c));
+  }
+
   // ── UNDO / REDO ARE NOT REGISTERED HERE ───────────────────────────────────
   // There used to be `part.undo` and `part.redo` in this list, driving the very
   // stack `s` points at. They were registered here when ForgeShell's own
@@ -1136,13 +1575,16 @@ const std::vector<std::string>& partCommandIds() {
   static const std::vector<std::string> ids = [] {
     std::vector<std::string> v{
         "part.boolean_intersect", "part.boolean_subtract", "part.boolean_union",
-        "part.chamfer",           "part.counterbore",       "part.edit_feature",
-        "part.extrude",           "part.fillet",            "part.hole",
-        "part.loft",              "part.mirror",            "part.move",
-        "part.pattern_circular",  "part.pattern_grid",      "part.pattern_linear",
+        "part.chamfer",           "part.counterbore",       "part.defeature",
+        "part.edit_feature",      "part.extrude",           "part.fillet",
+        "part.fold",              "part.heal",              "part.hole",
+        "part.input",             "part.loft",              "part.mirror",
+        "part.move",              "part.pattern_circular",  "part.pattern_grid",
+        "part.pattern_linear",    "part.push_face",         "part.resize_bore",
         "part.revolve",           "part.section_ring",      "part.shell",
-        "part.sketch_circle",     "part.sketch_rect",
-        "part.variable_fillet",
+        "part.sketch_circle",     "part.sketch_rect",       "part.sweep_pipe",
+        "part.tag_feature",       "part.variable_fillet",   "part.verify",
+        "part.wire_section",
     };
     std::sort(v.begin(), v.end());
     return v;
