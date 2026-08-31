@@ -18,6 +18,10 @@
 #                       * frame       — real ImGui frames over the real forge::ui
 #                         services and a real tessellated kernel body, with no
 #                         window, no swapchain and no MoltenVK.
+#                       * update      — the auto-update path: appcast parsing,
+#                         SemVer ordering, sha256 verification, ditto staging,
+#                         the ad-hoc signature check and the atomic bundle swap,
+#                         against real files and WITHOUT opening a socket.
 #                       * click       — the same nothing, but it INTERACTS: it
 #                         drives io.AddMousePosEvent / io.AddMouseButtonEvent to
 #                         click every dock tab and drag every splitter in every
@@ -27,10 +31,18 @@
 #                         exists for was a use-after-free that made the SHIPPED
 #                         app SIGSEGV on the first tab click while the frame and
 #                         document gates both stayed green -- neither clicks.
-#   3. mutation proof — SR-3 requires showing each gate CAN fail. Twenty-two defects
-#                       are injected in turn and each MUST make its gate exit
-#                       non-zero; a mutation that stays green fails this script,
-#                       because an unfalsifiable check is not a check.
+#   3. mutation proof — SR-3 requires showing each gate CAN fail. TWENTY-NINE
+#                       defects (8 document + 9 frame + 7 update + 5 click) are
+#                       injected in turn and each MUST make its gate exit non-zero;
+#                       a mutation that stays green fails this script, because an
+#                       unfalsifiable check is not a check.
+#
+# CI does not run this script directly: it runs ci_desktop_gate.sh, which runs
+# this one and then JUDGES ITS OUTPUT — this script has no `set -e`, so its exit
+# status is whatever ran last and a run that fell out of its own middle would
+# exit 0. That wrapper also pins the mutation count at an EXACT 29, so adding or
+# removing a --mutate case below means changing EXPECTED_MUTATIONS in
+# ci_desktop_gate.sh in the SAME commit.
 #
 # The windowed application is NOT launched here: it needs a display server, and
 # a gate that cannot run in CI is not a gate. Launch it yourself with
@@ -135,6 +147,14 @@ run_gate() {
 run_gate forge_desktop_ir_pipeline_gate
 run_gate forge_desktop_document_gate 1 2 3 4 5 6 7 8
 run_gate forge_desktop_frame_gate 1 2 3 4 5 6 7 8 9
+# The AUTO-UPDATE gate. It needs none of the build above -- libforge_updater
+# links nothing but libc++ -- so it can also be run on its own in seconds with
+# test/run_update_gate.sh --mutations, which is the form CI uses. It runs here
+# too because "the desktop gates" should mean all of them, and because the path
+# it covers is the one that decides whether a shipped copy of Forge can ever
+# reach the next version.
+run_gate forge_desktop_update_gate 1 2 3 4 5 6 7
+
 # The click gate goes LAST: it is the only one that needs the sanitized copy of
 # the stack, so a plain compile error in the app surfaces on a cheaper gate
 # first. Mutation 3 is its positive control for the sanitizer itself -- if that

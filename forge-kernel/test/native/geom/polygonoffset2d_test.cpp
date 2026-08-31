@@ -29,6 +29,11 @@
 //   (g) Degenerate / unsupported input reported via ok=false (0 FAKES):
 //       < 3 verts, non-finite vertex, non-finite distance, zero-area loop.
 //   (h) windingNumber correctness on a known loop.
+//   (i) MICRORADIAN FACET CORNERS: a ring whose sides are split into near-
+//       collinear facets — what a sampled spline looks like — offsets inward
+//       instead of collapsing, and lands on the convex inward Steiner law; and
+//       the guard in the other direction, that a genuinely thin lobe far above
+//       the arrangement's resolution is NOT excised.
 
 #include "forge/native/geom/PolygonOffset2D.hpp"
 
@@ -386,6 +391,102 @@ int main() {
         check(PolygonOffset2D::windingNumber(sq, {100, 100}) == 0, "(h) far point -> 0");
         Loop2 cw = squareCW(10.0);
         check(PolygonOffset2D::windingNumber(cw, {0, 0}) == -1, "(h) center inside CW -> -1");
+    }
+
+    // -----------------------------------------------------------------------
+    // (i) MICRORADIAN CORNERS — the unresolvable-sub-chain path in cleanRawLoop.
+    //
+    // A convex ring whose sides are split into many nearly-collinear facets is
+    // what a wire sampled off a near-straight spline looks like. Each such
+    // facet junction is a convergent corner under an inward offset, and its
+    // overshoot ear X -> P -> Q -> X degenerates to a collinear sliver. Before
+    // the excision in cleanRawLoop those ears left the kept edge set unbalanced
+    // and EVERY chain walk dead-ended, so a raw offset of demonstrably correct
+    // area was reported as a total collapse (measured on corpus parts ho13 and
+    // ho133; reports/corpus_ab/MAKEOFFSET_SHIPPED_BUCKET_2026-08-30.md).
+    //
+    // (i1) is the regression itself: it must offset, not collapse, and it must
+    // land on the convex-Steiner law A0 - L*d + pi*d^2 for an inward offset.
+    // (i2) is the guard in the OTHER direction: a REAL thin lobe, far above the
+    // arrangement's resolution, must survive — the excision must not eat
+    // geometry just because it is slender.
+    // -----------------------------------------------------------------------
+    std::printf("\n(i) microradian facet corners offset instead of collapsing\n");
+    {
+        // A regular 12-gon of circumradius 100, each side split into 24 facets
+        // that bow outward by 1e-4 — so consecutive facets turn by ~1e-5 rad,
+        // four orders of magnitude below the arrangement's own snap tolerance
+        // relative to the ring (ext*1e-9 = 2e-7 here).
+        const int    kSides  = 12;
+        const int    kFacets = 24;
+        const double R       = 100.0;
+        const double bow     = 1.0e-4;
+        Loop2 ring;
+        for (int s2 = 0; s2 < kSides; ++s2) {
+            const double a0 = 2.0 * kPi * s2 / kSides;
+            const double a1 = 2.0 * kPi * (s2 + 1) / kSides;
+            const double x0 = R * std::cos(a0), y0 = R * std::sin(a0);
+            const double x1 = R * std::cos(a1), y1 = R * std::sin(a1);
+            for (int f = 0; f < kFacets; ++f) {
+                const double t = static_cast<double>(f) / kFacets;
+                // straight chord plus a tiny outward bow, so every interior
+                // facet junction turns by a few microradians rather than 0
+                const double bulge = bow * std::sin(kPi * t);
+                const double nx = std::cos(0.5 * (a0 + a1)), ny = std::sin(0.5 * (a0 + a1));
+                ring.pts.push_back({x0 + (x1 - x0) * t + nx * bulge,
+                                    y0 + (y1 - y0) * t + ny * bulge});
+            }
+        }
+        const double A0 = ring.signedArea();
+        double L0 = 0.0;
+        for (std::size_t k = 0; k < ring.pts.size(); ++k) {
+            const Point2& a = ring.pts[k];
+            const Point2& b = ring.pts[(k + 1) % ring.pts.size()];
+            L0 += std::hypot(b.x - a.x, b.y - a.y);
+        }
+        const double d = 5.0;
+        OffsetResult r = PolygonOffset2D::offsetLoop(ring, -d);
+        std::printf("    n=%zu A0=%.4f L0=%.4f d=%.2f -> ok=%d loops=%zu dropped=%zu relaxed=%d\n",
+                    ring.pts.size(), A0, L0, d, (int)r.ok, r.loops.size(),
+                    r.droppedLoops, (int)r.relaxedCollinear);
+        check(r.ok && r.loops.size() == 1 && r.droppedLoops == 0,
+              "(i1) a ring of microradian facets offsets inward, it does not collapse");
+        // EXACT erosion law for a convex polygon (no arcs are added on the
+        // inward side, so this is not an approximation): eroding by d shortens
+        // every edge by d*(tan(t_prev/2) + tan(t_next/2)) at its two ends, so
+        //     A(-d) = A0 - L0*d + d^2 * SUM tan(t_i / 2)
+        // over the exterior turn angles t_i, which are read off the ring here
+        // rather than assumed. (The smooth-body pi*d^2 is the t->0 limit of that
+        // sum and is 2.3% wrong for a 12-gon, which is why it is not used.)
+        double sumTanHalf = 0.0;
+        for (std::size_t k = 0; k < ring.pts.size(); ++k) {
+            const Point2& a = ring.pts[k];
+            const Point2& b = ring.pts[(k + 1) % ring.pts.size()];
+            const Point2& c = ring.pts[(k + 2) % ring.pts.size()];
+            const double ux = b.x - a.x, uy = b.y - a.y;
+            const double vx = c.x - b.x, vy = c.y - b.y;
+            sumTanHalf += std::tan(0.5 * std::atan2(ux * vy - uy * vx, ux * vx + uy * vy));
+        }
+        const double want = A0 - L0 * d + d * d * sumTanHalf;
+        const double got  = r.netArea();
+        std::printf("    exact convex erosion: sum tan(t/2)=%.6f want %.6f got %.6f rel %.3e\n",
+                    sumTanHalf, want, got, std::fabs(got - want) / want);
+        check(std::fabs(got - want) / want < 1e-5,
+              "(i1) and its area matches the EXACT convex erosion law");
+
+        // (i2) a REAL thin feature must survive. A 200 x 0.5 rectangle eroded by
+        // 0.2 is exactly a 199.6 x 0.1 rectangle (a convex erosion has trimmed,
+        // not rounded, corners). 0.1 wide is ~5e5 times this arrangement's snap
+        // tolerance, so nothing may excise it.
+        Loop2 thin;
+        thin.pts = { {-100.0, -0.25}, {100.0, -0.25}, {100.0, 0.25}, {-100.0, 0.25} };
+        OffsetResult t2 = PolygonOffset2D::offsetLoop(thin, -0.2);
+        const double wantThin = 199.6 * 0.1;
+        std::printf("    thin lobe: ok=%d loops=%zu dropped=%zu area %.9f (want %.9f)\n",
+                    (int)t2.ok, t2.loops.size(), t2.droppedLoops, t2.netArea(), wantThin);
+        check(t2.ok && t2.loops.size() == 1 && t2.droppedLoops == 0 &&
+                  std::fabs(t2.netArea() - wantThin) / wantThin < 1e-9,
+              "(i2) a genuinely thin lobe is NOT excised");
     }
 
     // -----------------------------------------------------------------------

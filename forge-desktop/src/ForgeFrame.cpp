@@ -819,7 +819,7 @@ void ForgeFrame::setRatioAt(const std::vector<std::size_t>& path, double ratio) 
       ++reseatsDuringWalk_;
       pendingRatioValid_ = true;
       pendingRatioPath_ = path;
-      pendingRatio_ = ratio;
+      pendingRatioValue_ = ratio;
       return;
     }
     shell_.layout() = std::move(rebuilt);
@@ -878,6 +878,7 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   // the reverted fix. A check that resets itself before anyone reads it is not a
   // check.
   treeRowsDrawn_ = 0;
+  treeExpanderRect_.valid = false;
   viewportRequest_ = ViewportRequest{};
   viewportRequest_.wireframe = shell_.document().wireframe;
   viewportRequest_.geometryDirty = geometryDirty_;
@@ -919,21 +920,27 @@ void ForgeFrame::build(std::uint64_t viewportTexture, float dpiScale) {
   drawStatusStrip(H - statH, W, statH);
   drawCommandPalette();
 
-  // ── the deferred dock mutations ──────────────────────────────────────────
+  // ── the deferred mutations ───────────────────────────────────────────────
   // The walk is over and no DockNode reference is live, so it is now safe to
-  // re-seat the layout. Doing either of these INSIDE the walk is what crashed
-  // the shipped app on the first tab click: setActiveTabAt() ends in
-  // `shell_.layout() = std::move(rebuilt)`, which frees the node drawTabGroup
-  // was holding, and the next statement read node.panels[active] out of it.
+  // re-seat the layout and to rebuild the tree. Doing any of these INSIDE the walk
+  // is what crashed the shipped app: setActiveTabAt() ends in
+  // `shell_.layout() = std::move(rebuilt)`, which frees the node drawTabGroup was
+  // holding, and the next statement read node.panels[active] out of it.
   // drawSplitter() had the identical hazard on a drag -- drawNode() reads
-  // node.children[1] on the line AFTER the splitter is drawn.
+  // node.children[1] on the line AFTER the splitter is drawn -- and the feature
+  // tree had it a third time, where tree_.rebuild() resized rows_ mid-clipper.
   if (pendingTabValid_) {
     pendingTabValid_ = false;
     setActiveTabAt(pendingTabPath_, pendingTabIndex_);
   }
   if (pendingRatioValid_) {
     pendingRatioValid_ = false;
-    setRatioAt(pendingRatioPath_, pendingRatio_);
+    setRatioAt(pendingRatioPath_, pendingRatioValue_);
+  }
+  if (pendingExpandValid_) {
+    pendingExpandValid_ = false;
+    tree_.setExpanded(pendingExpandId_, pendingExpandState_);
+    tree_.rebuild();
   }
 }
 
@@ -981,6 +988,28 @@ void ForgeFrame::drawMenuBar() {
     if (ImGui::MenuItem("Quit")) quit_ = true;
     ImGui::EndMenu();
   }
+
+  // ── Help: the ONE place a user learns a new version exists ──────────────────
+  // A shipped copy of Forge is ad-hoc signed, so its FIRST launch costs a trip
+  // through System Settings. Every launch after that is free ONLY if the app can
+  // update itself, which is why this menu is not cosmetic.
+  if (ImGui::BeginMenu("Help")) {
+    if (!runningVersion_.empty()) {
+      ImGui::MenuItem((std::string("Forge ") + runningVersion_).c_str(), nullptr, false, false);
+      ImGui::Separator();
+    }
+    const bool checking = update_.state == UpdateState::Checking;
+    if (ImGui::MenuItem(checking ? "Checking for Updates..." : "Check for Updates...", nullptr,
+                        false, !checking)) {
+      updateCheckPending_ = true;
+    }
+    if (!update_.message.empty()) {
+      ImGui::Separator();
+      ImGui::MenuItem(update_.message.c_str(), nullptr, false, false);
+    }
+    ImGui::EndMenu();
+  }
+
 
   if (ImGui::BeginMenu("Input Profile")) {
     for (forge::ui::InputProfile p : forge::ui::allInputProfiles()) {
@@ -1303,7 +1332,7 @@ void ForgeFrame::drawSplitter(const forge::ui::Rect& r, bool vertical,
         // Applying it here was the same use-after-free the tab click had.
         pendingRatioValid_ = true;
         pendingRatioPath_ = path;
-        pendingRatio_ = ratio + static_cast<double>(delta) / parentExtent;
+        pendingRatioValue_ = ratio + static_cast<double>(delta) / parentExtent;
       }
     }
   }
@@ -1702,9 +1731,18 @@ void ForgeFrame::drawFeatureTreePanel() {
         ImGui::PushID(static_cast<int>(rowIndex));
         ImGui::Indent(static_cast<float>(row.depth) * 14.0f * dpiScale_);
         if (row.hasChildren) {
-          if (ImGui::SmallButton(row.expanded ? "-" : "+")) {
-            tree_.setExpanded(row.id, !row.expanded);
-            tree_.rebuild();
+          const bool expanderClicked = ImGui::SmallButton(row.expanded ? "-" : "+");
+          if (!treeExpanderRect_.valid) {
+            const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+            treeExpanderRect_ = {mn.x, mn.y, mx.x, mx.y, true};
+          }
+          if (expanderClicked) {
+            // RECORD, do not rebuild: the clipper is iterating a range sized from the
+            // rowCount taken at Begin(), and rebuild() changes rows_.size() underneath it.
+            // The next rowAt() then threw std::out_of_range and aborted the process.
+            pendingExpandValid_ = true;
+            pendingExpandId_ = row.id;
+            pendingExpandState_ = !row.expanded;
           }
           ImGui::SameLine();
         } else {

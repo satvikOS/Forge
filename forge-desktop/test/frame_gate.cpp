@@ -321,6 +321,58 @@ int main(int argc, char** argv) {
             "a second frame costs the source NO new expensive fetch");
   }
 
+  // ── 5b. THE EXPANDER CLICK ──────────────────────────────────────────────
+  //
+  // A liveness probe cannot see this. The app presented 1165 frames and saved its
+  // state cleanly, then ABORTED with an uncaught std::out_of_range from
+  // FeatureTreeModel::rowAt() the moment a user clicked a tree expander:
+  // setExpanded()+rebuild() ran INSIDE the ImGuiListClipper loop, changing
+  // rows_.size() while the loop was still walking a range sized from the row count
+  // taken at Begin(). This is the THIRD instance of one root cause in this frame
+  // builder -- mutating a container mid-walk while indices into it are live (the
+  // other two were tab activation and splitter drag, both dangling DockNode&).
+  //
+  // So the assertion is not "a frame was drawn"; it is that a real click on the
+  // real widget leaves the model CONSISTENT and the walk INTACT.
+  {
+    const forge::desktop::ForgeFrame::WidgetRect r = frame.treeExpanderRect();
+    check(r.valid, "a feature-tree expander was drawn and located", "");
+    if (r.valid) {
+      const std::size_t before = frame.treeRowCount();
+      ImGuiIO& io = ImGui::GetIO();
+      const float cx = (r.x0 + r.x1) * 0.5f, cy = (r.y0 + r.y1) * 0.5f;
+      // ImGui buttons fire on RELEASE, so the click costs two frames.
+      io.AddMousePosEvent(cx, cy);
+      io.AddMouseButtonEvent(0, true);
+      buildOneFrame(frame, 0);
+      io.AddMouseButtonEvent(0, false);
+      buildOneFrame(frame, 0);   // <-- pre-fix, this frame ABORTED the process
+      const std::size_t after = frame.treeRowCount();
+      std::printf("[gate] expander click at (%.0f,%.0f): %zu rows -> %zu rows\n", cx, cy,
+                  before, after);
+      // NON-VACUOUS: if the click changed nothing the gate would pass while testing
+      // nothing, so require the collapse to have actually landed.
+      check(after != before, "the expander click actually changed the row set",
+            "click was a no-op -- the gate would be unfalsifiable");
+      // And the walk must still be sound afterwards: every row the model now reports
+      // must be addressable. This is the exact call that threw.
+      bool addressable = true;
+      for (std::size_t i2 = 0; i2 < frame.treeRowCount(); ++i2) {
+        try {
+          (void)frame.tree().rowAt(i2);
+        } catch (...) {
+          addressable = false;
+          break;
+        }
+      }
+      check(addressable, "every row the model reports is addressable after the click",
+            "rowAt() threw -- the abort is back");
+      buildOneFrame(frame, 0);
+      io.AddMousePosEvent(-1.0f, -1.0f);   // park the cursor for the sections below
+      buildOneFrame(frame, 0);
+    }
+  }
+
   // ── 6. selection: pick -> typed EntityRef -> flagged vertices ────────────
   {
     // MUTATION 3 skips the routing. The assertions below are UNCONDITIONAL: a

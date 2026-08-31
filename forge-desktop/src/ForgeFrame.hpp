@@ -202,6 +202,29 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   // check.
   std::size_t layoutReseatsDuringWalk() const noexcept { return reseatsDuringWalk_; }
   std::size_t treeRowsDrawn() const noexcept { return treeRowsDrawn_; }
+  // Test instrumentation: screen rect of the FIRST feature-tree expander drawn this
+  // frame, so a headless gate can click the real widget instead of guessing pixels.
+  struct WidgetRect { float x0 = 0, y0 = 0, x1 = 0, y1 = 0; bool valid = false; };
+  WidgetRect treeExpanderRect() const noexcept { return treeExpanderRect_; }
+
+  // ── auto-update, as PLAIN DATA ──────────────────────────────────────────────
+  // ForgeFrame never opens a socket. The check runs in the app layer, which owns
+  // the thread and the curl call and hands the outcome back in as data; the frame
+  // only RAISES a request and RENDERS a result. That split is what keeps
+  // frame_gate.cpp hermetic -- a frame builder that could reach the network would
+  // make every gate run depend on GitHub being up.
+  enum class UpdateState { Idle, Checking, UpToDate, Available, Failed };
+  struct UpdateInfo {
+    UpdateState state = UpdateState::Idle;
+    std::string version;  // the offered version, when Available
+    std::string message;  // always printable, never empty once a check has run
+  };
+  void setUpdateInfo(const UpdateInfo& u) { update_ = u; }
+  const UpdateInfo& updateInfo() const noexcept { return update_; }
+  void setRunningVersion(const std::string& v) { runningVersion_ = v; }
+  // Raised by the Help menu, consumed and cleared by the app layer.
+  bool updateCheckRequested() const noexcept { return updateCheckPending_; }
+  void clearUpdateCheckRequest() noexcept { updateCheckPending_ = false; }
   std::size_t treeRowCount() const noexcept { return tree_.rowCount(); }
   std::size_t treeMaterialized() const noexcept { return tree_.materialized(); }
   std::size_t treePeakMaterialized() const noexcept { return tree_.peakMaterialized(); }
@@ -419,23 +442,43 @@ class ForgeFrame final : public forge::ui::DocumentHost {
   std::vector<std::string> panelIdsDrawn_;
   std::vector<TabHit> tabHits_;
   std::vector<SplitterHit> splitterHits_;
-  // ── deferred dock mutations, and why they are deferred ──────────────────
-  // A gesture inside the dock walk MUST NOT re-seat shell_.layout(): the walk
-  // holds `const DockNode&` into it, and the re-seat destroys those nodes. Both
-  // gestures therefore RECORD here and build() applies them after the walk has
-  // finished and no reference is live. The layout still changes on the same
-  // frame; it changes when nothing is pointing into it.
+  // ── deferred mutations, and why every one of them is deferred ───────────────
+  // ONE root cause, found THREE times in this frame builder: a gesture mutates a
+  // container while the draw walk still holds indices or references into it.
+  //
+  //  1. TAB CLICK      setActiveTabAt() ends in `shell_.layout() = std::move(rebuilt)`,
+  //                    which destroys every DockNode the recursion holds by const
+  //                    reference; drawTabGroup then dereferenced the freed node and the
+  //                    SHIPPED app SIGSEGV'd at 0x17 -- the size byte of the dangling
+  //                    std::string -- on the very first tab click.
+  //  2. SPLITTER DRAG  setRatioAt() ends in the same re-seat, and drawNode() reads
+  //                    node.children[1] on the next line.
+  //  3. TREE EXPANDER  tree_.rebuild() inside the ImGuiListClipper loop changes
+  //                    rows_.size() while the clipper iterates a range sized from the
+  //                    PREVIOUS rowCount, so the next rowAt() threw std::out_of_range
+  //                    and the app aborted.
+  //
+  // All three RECORD here; build() applies them after the walk has finished and no
+  // reference is live. The layout still changes on the same frame -- it changes when
+  // nothing is pointing into it.
   bool pendingTabValid_ = false;
   std::vector<std::size_t> pendingTabPath_;
   std::size_t pendingTabIndex_ = 0;
   bool pendingRatioValid_ = false;
   std::vector<std::size_t> pendingRatioPath_;
-  double pendingRatio_ = 0.5;
+  double pendingRatioValue_ = 0.0;
+  bool pendingExpandValid_ = false;
+  forge::ui::NodeId pendingExpandId_{};
+  bool pendingExpandState_ = false;
   // Non-zero while drawNode()/drawTabGroup() are walking the dock tree. The
   // write API reads it to count violations of the invariant above.
   std::size_t walkDepth_ = 0;
   std::size_t reseatsDuringWalk_ = 0;
   std::size_t treeRowsDrawn_ = 0;
+  WidgetRect treeExpanderRect_{};
+  UpdateInfo update_{};
+  std::string runningVersion_;
+  bool updateCheckPending_ = false;
   std::size_t measureFaceRowsDrawn_ = 0;
   std::size_t measureEdgeRowsDrawn_ = 0;
   std::size_t toolRowsDrawn_ = 0;
