@@ -1384,3 +1384,50 @@ bigger one.
 
 **What IS established, at full n:** v7 beats the box floor (+0.0716) and so does v5cap
 (+0.0637). Both are real models. Neither is distinguishable from the other here.
+
+## D-034 (2026-08-31): D-031 completed at n=600 — 0/600 compile, and TWO concepts are 98.8% of it
+
+D-031 was recorded at n=12 and explicitly promised a denominator. The emission has now
+finished all 600 holdout rows against the pinned verifier, with the expert LoRA confirmed
+loaded (36 switch keys / 276 modules).
+
+```
+rows 600      compiled=True 0      compiled=False 600
+585 (97.5%)   fail on an OUT-OF-VOCABULARY op
+ 15 (2.5%)    fail as DEGENERATE emission (e.g. "348 statements but only 38 distinct shapes")
+```
+
+**The finding survives the full run, unchanged in direction and stronger in size.** A corpus
+of 38,000 training rows containing exactly the 18 legal ops and ZERO illegal ones produced a
+model that emits an illegal op in 97.5% of cases and compiles in none.
+
+**The concentration is the new information.** The illegal ops are not a long tail:
+
+| token | count |
+|---|---|
+| `bore` / `BORE` | 277 |
+| `CYLINDER` / `cylinder` | 301 |
+| `CUBOID` | 5 |
+| `CUBE` | 2 |
+
+**Two concepts are 578 of 585 — 98.8%.** And both have exact expressions in the allowed set:
+a bore is `CBORE` or `HOLE`; a cylinder is a `CIRCLE` profile with `EXTRUDE`. The model is not
+reaching for capability the vocabulary lacks. It is reaching for the NAME it learned before
+the fine-tune, for a shape the vocabulary can already build.
+
+**The case variants matter.** `CYLINDER` 257 vs `cylinder` 44, `bore` 274 vs `BORE` 3: the
+model is not consistently emitting a single wrong token, it is emitting a concept in whatever
+case the surrounding text suggests. That rules out one cheap fix — a literal string
+substitution on the output would have to cover case variants and would still be a patch over
+the wrong layer.
+
+**What this sharpens about the remedy.** A decode-time mask over the op position remains the
+right fix, and this makes it a *small* one: the mask has to suppress a handful of tokens, not
+police an open vocabulary. It also makes the experiment cheap to falsify — if masking two
+concepts does not move the compile rate off zero, the illegal op was a symptom and something
+else is wrong, which is exactly the outcome worth knowing.
+
+**Denominator honesty.** D-031 said 12 of 600 and "not yet a rate". It is now a rate: 600 of
+600, and it did not soften. The 15 degenerate-emission rows are reported separately rather
+than folded in, because they are a different defect (repetition, not vocabulary) and would
+not be fixed by a mask.
